@@ -201,6 +201,62 @@ related:
   Excluded files stay link targets (a property link to one resolves) and, as for body links, get no graph
   edge.
 
+## Wiki checks (page-exists and lint)
+
+Two read-only tools keep a wiki from growing duplicates. Both are advisory: they never write a note
+and never block a write, so an agent that ignores them loses nothing. Both are `full`-profile tools
+(hidden under `toolFacade.profile: "core"`).
+
+**`find_existing_page`: before `write_note`.** Give it the topic you are about to write about. It
+returns a `verdict` and the candidate notes with the evidence for each:
+
+| Verdict | Meaning | Suggested action |
+| --- | --- | --- |
+| `exists` | Identity evidence names exactly one page: its path or file name, an `aliases` entry, a `wikidata:` property holding the same QID, or its title or H1. | Link to or extend that page. |
+| `ambiguous` | Several pages match on identity, or only soft evidence exists: other notes already link the text, or a note is semantically near. | Read the candidates, then decide. |
+| `new` | Nothing matched. | Create the page. |
+
+Semantic similarity alone never produces `exists`. The calibration below is why.
+
+**`lint_wiki`: periodic upkeep.** One call runs the existing health checks and a note-level
+near-duplicate pass, and returns **proposals**: each is `{ kind, subject, related?, detail,
+suggested_action, tool, tool_args?, evidence? }`, where `tool` is the tool that applies the fix. Kinds:
+`orphan`, `unresolved_link` (grouped per missing target), `contradiction` (open rows only), `stale`,
+`duplicate_chunks`, `missing_sources`, `coverage_gap` (from the latest persisted gap report) and
+`near_duplicate`. A check that cannot run (no rollup yet, no embeddings) is listed under `skipped`
+instead of failing the call. `response_format: "concise"` drops `detail`, `tool_args` and `evidence`.
+
+**Access rules.** Both tools honour the read ACL (a note the caller cannot read behaves exactly like a
+missing one) and Obsidian's Excluded files: an excluded note still counts as a link target and as
+identity evidence (its name or alias is a real name to avoid), but never appears as a similarity match
+and is never the subject of a `lint_wiki` proposal.
+
+**Scheduled lint (opt-in).** `maintenance.wikiLint.enabled: true` runs the same checks every
+`intervalHours` (default 24) over the whole vault, or `folder`, capped at `maxNotes` (default 1500)
+for the pairwise pass. It only logs one summary line per vault (proposal counts by kind) and persists
+nothing, so it cannot change a note. It is off by default and also needs `maintenance.enabled`.
+
+**Calibration (bge-m3, public evergreen corpus).** The similarity floors were chosen by a
+pre-registered study (hash `73c690843c882c0a754da2841d1e88a88886d05e5c02e45a8eb387367d72fa31`):
+60 sampled notes, each with an LLM-written topic, rewrite and summary, scored against its 2 nearest
+and 2 random other notes, with the first 30 notes for choosing thresholds and the last 30 held out.
+
+| Score | AUC (choose / held-out) | Floor (max recall at precision >= 0.90, chosen split) | Held-out |
+| --- | --- | --- | --- |
+| Topic to note, best chunk (R2) | 0.774 / 0.833 | 0.708 | 0 pairs predicted |
+| Topic to note, mean-pooled note vector (R1) | 0.760 / 0.807 | 0.708 | 0 pairs predicted |
+| Note to note (`lint_wiki`) | 0.903 / 0.889 | 0.909 | precision 0.00 (2 false pairs), recall 0.00 |
+
+Best-chunk scoring is used because it was within 0.01 AUC of the mean-pooled vector and needs only a
+chunk nearest-neighbour search. The honest reading is that the precision >= 0.90 constraint is only met
+at the very top of the score range, where recall is a few percent: in a corpus where every note is on one
+subject, near-neighbours and true duplicates overlap. So similarity is **candidate evidence only**
+(`ambiguous`, or a `near_duplicate` proposal to review), never a verdict, and a held-out precision below
+0.85 is reported as a failure of the band, not tuned away. Over the whole corpus, the best-chunk top 10
+holds the source note for 33 of 60 topics, so lower `min_similarity` per call (for example 0.6) to see weaker
+candidates. The floors are specific to `BAAI/bge-m3`; on another embedding model treat them as a starting
+point.
+
 ## Response format
 
 Tools that return more than an acknowledgement take an optional `response_format`:

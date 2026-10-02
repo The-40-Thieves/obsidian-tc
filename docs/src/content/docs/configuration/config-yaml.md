@@ -235,6 +235,7 @@ returns `rate_limit` with `retry_after_ms`.
 | Field | Default | What it does |
 | --- | --- | --- |
 | `maintenance` | enabled, every 60 min | `cache.db` sweep: expired idempotency/elicit rows, event_log retention, `PRAGMA optimize`. |
+| `maintenance.wikiLint` | **disabled** (opt-in), every 24 h | Scheduled [wiki lint](/tools/#wiki-checks-page-exists-and-lint): runs the `lint_wiki` checks and logs one summary line per vault. Read-only. Keys: `enabled`, `intervalHours`, `folder`, `maxNotes`. |
 | `plane` | **disabled** (opt-in), every 240 min | Ambient sleep-time consolidation (synthesis + audit jobs). Only does work when the [inference gateway](/configuration/inference-gateway/) is configured — set `plane.enabled: true` to run it. A gateway-configured deployment that never sets this key gets a boot-time notice explaining how to turn it on. |
 
 ## `plur` *(optional)*
