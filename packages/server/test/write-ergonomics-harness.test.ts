@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { type ClientOut, parseClaudeStream } from "../eval/write-ergonomics/clients";
 import { writeConfig } from "../eval/write-ergonomics/config";
+import { decide, type ModeCell } from "../eval/write-ergonomics/facade-analyze";
 import { MEMORY_ENTITY, SEED, writeSeeds } from "../eval/write-ergonomics/fixtures";
 import { friction, hookFiredOnError } from "../eval/write-ergonomics/friction";
 import {
@@ -329,5 +330,62 @@ describe("facade-mode study set", () => {
     expect(out.toolSearchCalls).toBe(1);
     expect(out.clientNotFound).toBe(1);
     expect(() => parseClaudeStream('{"type":"assistant"}', out)).toThrow(/no result event/);
+  });
+});
+
+describe("facade-mode decision rule", () => {
+  const cell = (mode: ModeCell["mode"], over: Partial<ModeCell>): ModeCell => ({
+    client: "claude",
+    mode,
+    trials: 32,
+    passes: 28,
+    medianCallsToSuccess: 3,
+    notFoundTrials: 0,
+    notFoundEvents: 0,
+    medianBillable: 6000,
+    meanCacheWrite: 5000,
+    meanToolSearch: 1,
+    meanDiscovery: 0.5,
+    errors: 0,
+    timeouts: 0,
+    ...over,
+  });
+  const verdict = (cells: ModeCell[]) => decide(cells)[0];
+
+  it("keeps the shipped default when nothing beats it by the pre-registered margin", () => {
+    const v = verdict([
+      cell("triad", {}),
+      cell("domain", { passes: 29, medianCallsToSuccess: 2 }),
+      cell("flat", { passes: 28 }),
+    ]);
+    expect(v?.recommended).toBe("triad");
+  });
+
+  it("switches when a mode beats triad on success by more than the tie band", () => {
+    const v = verdict([
+      cell("triad", { passes: 22 }),
+      cell("domain", { passes: 29 }),
+      cell("flat", { passes: 24 }),
+    ]);
+    expect(v?.recommended).toBe("domain");
+    expect(v?.tied).toEqual(["domain"]);
+  });
+
+  it("switches on a success tie only when calls AND not-found are both better", () => {
+    const base = [
+      cell("triad", { notFoundTrials: 2 }),
+      cell("flat", { medianCallsToSuccess: 2, notFoundTrials: 2 }),
+    ];
+    expect(verdict(base)?.recommended).toBe("triad");
+    const both = [
+      cell("triad", { notFoundTrials: 2 }),
+      cell("flat", { medianCallsToSuccess: 2, notFoundTrials: 0 }),
+    ];
+    expect(verdict(both)?.recommended).toBe("flat");
+  });
+
+  it("flags a close cell: tied on success, calls within 0.5, same not-found", () => {
+    const v = verdict([cell("triad", {}), cell("domain", { medianCallsToSuccess: 3.5 })]);
+    expect(v?.close).toBe(true);
   });
 });
