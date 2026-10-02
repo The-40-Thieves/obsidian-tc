@@ -611,7 +611,13 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       telemetry: telemetryState,
       wikiJudge: await probeWikiJudge(config.cacheDir, busyTimeoutMs, {
         gatewayConfigured: resolveGatewayUrl(config.gateway?.baseUrl) !== undefined,
+        provider: config.wikiJudge.provider,
+        typesafeUsable:
+          config.wikiJudge.model !== undefined &&
+          config.wikiJudge.threshold !== undefined &&
+          resolveApiKey("typesafe", undefined, config.wikiJudge.apiKeyEnv) !== undefined,
         enabled: config.wikiJudge.enabled,
+        lintEnabled: config.wikiJudge.lintEnabled,
         sweepJudges: config.maintenance.wikiLint.judge,
         maxCallsPerDay: config.wikiJudge.maxCallsPerDay,
         maxCallsPerRequest: config.wikiJudge.maxCallsPerRequest,

@@ -111,7 +111,7 @@ export function createLintWikiTool(deps: M7Deps): ToolDefinition {
           .boolean()
           .optional()
           .describe(
-            "Have an LLM judge read each near-duplicate pair and put its verdict (same_topic, overlapping, different) and rationale on the proposal. It never drops a proposal. Sends the opening text of both notes to the gateway judge model, only for notes you may read outside egress.excludePaths and Obsidian's Excluded files. Default: the wikiJudge.enabled config; true needs a configured gateway.",
+            "Have an LLM judge read each near-duplicate pair and put its verdict (same_topic, overlapping, different) and rationale on the proposal. It never drops a proposal. Sends the opening text of both notes to the judge model (the gateway's, or TypeSafe Jev), only for notes you may read outside egress.excludePaths and Obsidian's Excluded files. Default: on when a judge is configured (wikiJudge.lintEnabled); false skips it, true reports why when no judge is available.",
           ),
         max_judge_calls: z
           .number()
@@ -120,14 +120,14 @@ export function createLintWikiTool(deps: M7Deps): ToolDefinition {
           .max(50)
           .default(DEFAULT_LINT_JUDGE_CALLS)
           .describe(
-            "Cap on gateway judge calls in this run, highest-similarity pairs first (cached verdicts are free). Pairs beyond it keep their proposal unjudged. The wikiJudge.maxCallsPerDay cap applies on top.",
+            "Cap on judge calls in this run, highest-similarity pairs first (cached verdicts are free). Pairs beyond it keep their proposal unjudged. The wikiJudge.maxCallsPerDay cap applies on top.",
           ),
         ...ResponseFormatInput,
       })
       .strict(),
     outputSchema: LintWikiOutput,
     requiredScopes: ["read:notes"],
-    tags: ["knowledge", "diagnostics"],
+    tags: ["knowledge", "diagnostics", "external-network"],
     handler: async (input, ctx) => {
       const v = deps.vaultRegistry.resolve(input.vault);
       const exclusion = vaultExclusionFor(deps.vaultRegistry, v.id);
@@ -152,8 +152,13 @@ export function createLintWikiTool(deps: M7Deps): ToolDefinition {
       );
       // The near-duplicate judge. Only the near_duplicates check produces pairs to rule on.
       const settings = deps.wikiJudge ?? DEFAULT_WIKI_JUDGE_SETTINGS;
-      const wiki = createWikiJudge({ roles: deps.roles, db: ctx.db, settings });
-      const asked = input.judge ?? (settings.enabled && wiki.available);
+      const wiki = createWikiJudge({
+        roles: deps.roles,
+        backend: deps.wikiJudgeBackend,
+        db: ctx.db,
+        settings,
+      });
+      const asked = input.judge ?? (settings.lintEnabled && wiki.available);
       let judge: z.infer<typeof PairJudgeReportSchema> | undefined;
       if (asked) {
         judge = await judgeNearDuplicates(

@@ -12,9 +12,8 @@
 // adapters share one parser; citation.ts re-exports them for any external import that still
 // expects them at the old path.
 
-import { classifyJudgeBaseUrl, judgeBaseUrlHost } from "@the-40-thieves/obsidian-tc-shared";
-import { resolveApiKey } from "../embeddings/provider";
-import { createTypesafeClient, type TypesafeClient, TypesafeError } from "../gateway/typesafe";
+import { type TypesafeClient, TypesafeError } from "../gateway/typesafe";
+import { buildTypesafeJudgeClient } from "../gateway/typesafe-judge-client";
 import {
   assertSourcePathsAllowed,
   type EgressFilter,
@@ -235,69 +234,18 @@ export function buildCitationJudge(
         })
       : null;
   }
-  if (!config?.model) {
-    throw new Error(
-      'experiential.citationInfer.judge: provider is "typesafe" but no model is configured — set ' +
-        'judge.model to a pinned, versioned TypeSafe model id (e.g. "jev-1.13.0")',
-    );
-  }
-  if (config.threshold === undefined) {
-    throw new Error(
-      'experiential.citationInfer.judge: provider is "typesafe" but no threshold is configured — ' +
-        "set judge.threshold (0..1); TypeSafe thresholds are tuned per model version and have no " +
-        "safe default",
-    );
-  }
-  const apiKeyEnv = config.apiKeyEnv ?? "TYPESAFE_API_KEY";
-  const key = resolveApiKey("typesafe", config.apiKey, apiKeyEnv);
-  if (!key) {
-    throw new Error(
-      'experiential.citationInfer.judge: provider is "typesafe" but no API key was found — set ' +
-        `${apiKeyEnv} (or judge.apiKey) — no fallback to the gateway judge is applied`,
-    );
-  }
-  // THE-1084 review round 1, finding 2: this builder is duck-typed and reachable from structural
-  // callers (e.g. runtime/plane-wiring.ts) that need not have gone through
-  // ServerConfigSchema.parse's superRefine — so the https-unless-loopback-unless-opted-in
-  // invariant is enforced HERE too, not assumed. `classifyJudgeBaseUrl` is the SAME classifier the
-  // schema refine and the doctor warning call, so this can never disagree with either about what a
-  // given baseUrl is. "invalid" (unparseable, or a scheme other than https/http) and "http-remote"
-  // without the flag both THROW, same tone as the missing-model/threshold/key errors above — a
-  // construction-time config error, never a silent accept. Only the opted-in "http-remote" case
-  // gets a warning, never a throw: allowPlainHttp is an explicit operator opt-in. No key is logged
-  // either way — only `judgeBaseUrlHost`'s parsed hostname.
-  const effectiveBaseUrl = config.baseUrl ?? "https://api.typesafe.ai";
-  const cls = classifyJudgeBaseUrl(effectiveBaseUrl);
-  if (cls === "invalid") {
-    throw new Error(
-      'experiential.citationInfer.judge: provider is "typesafe" but judge.baseUrl is not a ' +
-        'canonical "scheme://host" URL with scheme https or http — check it parses that way ' +
-        "(allowPlainHttp only ever widens http:// on a non-loopback host, never any other scheme)",
-    );
-  }
-  if (cls === "http-remote") {
-    if (!config.allowPlainHttp) {
-      throw new Error(
-        'experiential.citationInfer.judge: provider is "typesafe" but judge.baseUrl is a ' +
-          "non-loopback http:// URL and judge.allowPlainHttp is not set — this URL carries the " +
-          "bearer key and vault-derived text; set judge.allowPlainHttp to explicitly opt into a " +
-          "trusted plain-http path (e.g. a host-local gateway or an encrypted overlay), or use " +
-          "https:// / a loopback host instead",
-      );
-    }
-    console.warn(
-      `judge.baseUrl is plain http (allowPlainHttp): the key and vault text are sent in clear to ${judgeBaseUrlHost(effectiveBaseUrl)}`,
-    );
-  }
-  const client = createTypesafeClient({
-    baseUrl: config.baseUrl,
-    apiKey: key,
-    timeoutMs: config.timeoutMs,
-    fetchFn: deps.fetchFn,
-  });
-  return typesafeCitationJudge(client, {
-    model: config.model,
-    threshold: config.threshold,
+  const built = buildTypesafeJudgeClient(
+    config,
+    {
+      label: "experiential.citationInfer.judge",
+      field: "judge",
+      inlineKeyField: "judge.apiKey",
+    },
+    deps.fetchFn,
+  );
+  return typesafeCitationJudge(built.client, {
+    model: built.model,
+    threshold: built.threshold,
     filter: deps.excludeFilter,
   });
 }

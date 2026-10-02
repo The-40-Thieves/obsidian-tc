@@ -22,7 +22,6 @@ import {
   SnapshotsConfigSchema,
   TelemetryConfigSchema,
   WatchConfigSchema,
-  WikiJudgeConfigSchema,
 } from "./observability.schema";
 import { PersonasConfigSchema } from "./personas.schema";
 import { ProvenanceConfigSchema } from "./provenance.schema";
@@ -46,6 +45,7 @@ import {
   ToolVisibilityConfigSchema,
 } from "./tools.schema";
 import { VaultConfigSchema } from "./vault.schema";
+import { WikiJudgeConfigSchema } from "./wiki-judge.schema";
 
 export const ServerConfigObject = z.object({
   // THE-526: a named security posture. "hardened" fills in the least-privilege field set
@@ -176,7 +176,7 @@ export const ServerConfigObject = z.object({
     "Paths withheld from the inference gateway and the embedding provider — a different question from auth.acl.readPaths, which governs read visibility.",
   ),
   wikiJudge: WikiJudgeConfigSchema.describe(
-    "LLM judge for ambiguous wiki page matches (find_existing_page, lint_wiki). Uses the gateway judge role; sends only readable notes outside egress.excludePaths and Obsidian's Excluded files.",
+    "LLM judge for ambiguous wiki page matches (find_existing_page, lint_wiki). Uses the gateway judge role or, with provider typesafe, TypeSafe Jev; sends only readable notes outside egress.excludePaths and Obsidian's Excluded files.",
   ),
   sessions: SessionsConfigSchema.describe(
     "Whether the server opens workspace sessions itself, and how long one stays open.",

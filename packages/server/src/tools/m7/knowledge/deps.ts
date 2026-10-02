@@ -17,7 +17,7 @@ import type { StageMetric } from "../../../search/graph_search_stages/instrument
 import type { RetrievalCaches } from "../../../search/query_cache";
 import type { Reranker, RerankOutcome } from "../../../search/rerank";
 import type { VaultRegistry } from "../../../vault/registry";
-import type { WikiJudgeSettings } from "./wiki-judge";
+import type { WikiJudgeBackend, WikiJudgeSettings } from "./wiki-judge";
 
 export interface M7Deps {
   vaultRegistry: VaultRegistry;
@@ -177,4 +177,7 @@ export interface M7Deps {
   /** `wikiJudge` config: the LLM judge for ambiguous find_existing_page / lint_wiki matches. Absent
    *  -> DEFAULT_WIKI_JUDGE_SETTINGS (off unless a call asks, and it needs `roles`). */
   wikiJudge?: WikiJudgeSettings;
+  /** The wiki judge's answering backend, built once at wiring (gateway judge role or TypeSafe Jev).
+   *  `null` is "no judge" and is never replaced by the gateway; absent derives it from `roles`. */
+  wikiJudgeBackend?: WikiJudgeBackend | null;
 }

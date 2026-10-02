@@ -10,7 +10,7 @@ import type { EgressFilter } from "../src/plane/egress-filter";
 import type { GatewayRoles } from "../src/plane/gateway";
 import { floatBlob } from "../src/search/vec";
 import { registerM7Tools } from "../src/tools/m7";
-import type { WikiJudgeSettings } from "../src/tools/m7/knowledge/wiki-judge";
+import type { WikiJudgeBackend, WikiJudgeSettings } from "../src/tools/m7/knowledge/wiki-judge";
 import { makeTestVault, type TestVault, type TestVaultOptions } from "./m1-helpers";
 
 export const MODEL = "stub:4";
@@ -29,6 +29,7 @@ export function makeWikiHarness(
     edb?: Database;
     failEmbed?: boolean;
     roles?: GatewayRoles | null;
+    wikiJudgeBackend?: WikiJudgeBackend | null;
     wikiJudge?: Partial<WikiJudgeSettings>;
     excludeFilter?: EgressFilter;
   } = {},
@@ -39,6 +40,7 @@ export function makeWikiHarness(
     failEmbed = false,
     roles = null,
     wikiJudge,
+    wikiJudgeBackend,
     excludeFilter,
     ...vaultOpts
   } = opts;
@@ -57,11 +59,14 @@ export function makeWikiHarness(
     } as any,
     reranker: null,
     roles,
+    ...(wikiJudgeBackend !== undefined ? { wikiJudgeBackend } : {}),
     ...(excludeFilter ? { excludeFilter } : {}),
     ...(wikiJudge
       ? {
           wikiJudge: {
             enabled: true,
+            lintEnabled: true,
+            provider: "gateway" as const,
             maxCallsPerRequest: 3,
             maxCallsPerDay: 200,
             timeoutMs: 2000,

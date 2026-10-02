@@ -340,6 +340,48 @@ describe("egress port inventory (THE-934 fix round 1)", () => {
     }
   });
 
+  // The TypeSafe client is a FOURTH content-bearing port, outside the gateway and embedding
+  // factories: it has no port-level guard, so each adapter that sends vault text through it must
+  // call assertSourcePathsAllowed itself, BEFORE building the request. Inventory:
+  //   * createTypesafeClient( is built by the shared judge-client builder and by doctor's probe.
+  //   * buildTypesafeJudgeClient( (the builder) is called only by the two judge adapters.
+  //   * .noul( / .choice( (the calls that carry text) appear only in those adapters, plus doctor's
+  //     probe, which sends the fixed string {probe: "ok"}, never vault text.
+  const TYPESAFE_CLIENT_ALLOWLIST = ["cli/commands/doctor.ts", "gateway/typesafe-judge-client.ts"];
+  const TYPESAFE_JUDGE_ADAPTERS = [
+    "experiential/citation-judge.ts",
+    "tools/m7/knowledge/wiki-judge-typesafe.ts",
+  ];
+
+  it("createTypesafeClient is constructed ONLY by the judge-client builder and doctor's synthetic probe", () => {
+    const found = callSites(/createTypesafeClient\(/).filter((f) => f !== "gateway/typesafe.ts");
+    expect(found).toEqual(TYPESAFE_CLIENT_ALLOWLIST);
+  });
+
+  it("buildTypesafeJudgeClient is called ONLY by the two judge adapters", () => {
+    const found = callSites(/buildTypesafeJudgeClient\(/).filter(
+      (f) => f !== "gateway/typesafe-judge-client.ts",
+    );
+    expect(found).toEqual(TYPESAFE_JUDGE_ADAPTERS);
+  });
+
+  it("the TypeSafe content calls (.noul / .choice) live ONLY in the adapters that guard, plus doctor's probe", () => {
+    const found = callSites(/\.(noul|choice)\(/).filter((f) => f !== "gateway/typesafe.ts");
+    expect(found).toEqual([...TYPESAFE_JUDGE_ADAPTERS, "cli/commands/doctor.ts"].sort());
+  });
+
+  it("every TypeSafe judge adapter checks the egress filter in CODE, before its request", () => {
+    for (const f of TYPESAFE_JUDGE_ADAPTERS) {
+      const text = nonCommentSource(readFileSync(join(SRC_ROOT, f), "utf8"));
+      const guard = text.indexOf("assertSourcePathsAllowed(");
+      const call = text.search(/\.(noul|choice)\(/);
+      expect(guard, `${f} never calls assertSourcePathsAllowed outside a comment`).toBeGreaterThan(
+        -1,
+      );
+      expect(guard, `${f} sends before it checks the egress filter`).toBeLessThan(call);
+    }
+  });
+
   // THE-934 fix round 3 (E, gate for it added in H): plane-wiring.ts's `bgRoles` used to call
   // `planeRoles(deps.gatewayMaxAttempts, deps.gatewayTimeoutMs)` WITHOUT the 3rd `excludeFilter`
   // argument — planeRoles' own createGatewayClient call then defaulted to compileEgressFilter([])

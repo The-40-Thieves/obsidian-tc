@@ -32,7 +32,7 @@ describe("wiki.judge doctor check", () => {
     const r = await run();
     expect(r.status).toBe("ok");
     expect(r.summary).toBe(
-      "wiki judge: on by default, 12/200 calls today, model openai:gpt-test-a",
+      "wiki judge: find_existing_page on by default, 12/200 calls today, model openai:gpt-test-a",
     );
     expect(r.details).toMatchObject({
       configured: "true",
@@ -42,6 +42,38 @@ describe("wiki.judge doctor check", () => {
       failuresToday: "1",
       cachedVerdicts: "40",
     });
+  });
+
+  it("names the lint judge when it is on by default, and the provider", async () => {
+    const r = await run({ enabled: false, lintEnabled: true });
+    expect(r.summary).toContain("lint_wiki on by default");
+    expect(r.details).toMatchObject({
+      provider: "gateway",
+      defaultOn: "false",
+      lintDefaultOn: "true",
+    });
+    expect((await run({ lintEnabled: true })).summary).toContain(
+      "find_existing_page and lint_wiki on by default",
+    );
+  });
+
+  it("provider typesafe without a usable key/model/threshold warns and says it does not fall back", async () => {
+    const r = await run({ provider: "typesafe", typesafeUsable: false, lintEnabled: true });
+    expect(r.status).toBe("warning");
+    expect(r.summary).toContain("does not fall back to the gateway");
+    expect(r.details).toMatchObject({ provider: "typesafe", configured: "false" });
+  });
+
+  it("provider typesafe that is usable needs no gateway", async () => {
+    const r = await run({
+      provider: "typesafe",
+      typesafeUsable: true,
+      gatewayConfigured: false,
+      lintEnabled: true,
+    });
+    expect(r.status).toBe("ok");
+    expect(r.summary).toContain("(typesafe)");
+    expect(r.details).toMatchObject({ configured: "true", lintDefaultOn: "true" });
   });
 
   it("says off-by-default when the gateway is there but the config is not on", async () => {

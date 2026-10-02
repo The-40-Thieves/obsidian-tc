@@ -52,7 +52,7 @@ export async function judgeNearDuplicates(
 ): Promise<PairJudgeReport> {
   if (!judge.available)
     return noPairJudge(
-      "no judge is available: it needs a configured gateway and wikiJudge.maxCallsPerDay above 0",
+      "no judge is available: it needs a configured judge (a gateway, or wikiJudge.provider typesafe) and wikiJudge.maxCallsPerDay above 0",
     );
   const pairs = report.proposals.filter((p) => p.kind === "near_duplicate" && p.related?.[0]);
   if (pairs.length === 0) return noPairJudge("no near-duplicate pairs to judge");
