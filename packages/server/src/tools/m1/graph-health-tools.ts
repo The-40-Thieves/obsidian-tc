@@ -9,11 +9,11 @@ import { type FolderAcl, globToRegExp } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
-import { parseNote } from "../../vault/frontmatter";
 import { buildVaultIndex, extractLinks, resolveTarget } from "../../vault/links";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
+import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
 
@@ -26,8 +26,9 @@ function readableNotes(
     .map((e) => e.relPath)
     .filter((rel) => readableRel(acl, rel, grantedScopes));
 }
-function bodyOf(root: string, rel: string): string {
-  return parseNote(readNote(resolveVaultPath(root, rel)).raw, rel).body;
+/** A note's body for the link scan; bad frontmatter YAML is named in `warnings`, not thrown. */
+function bodyOf(root: string, rel: string, warnings: ScanWarnings): string {
+  return warnings.parse(readNote(resolveVaultPath(root, rel)).raw, rel).body;
 }
 function isExternal(kind: string, target: string): boolean {
   return kind === "markdown" && /^[a-z]+:\/\//i.test(target);
@@ -49,6 +50,8 @@ interface Graph {
   inn: Map<string, Set<string>>;
   unresolved: number;
   links: number;
+  /** Notes whose frontmatter YAML did not parse (their bodies were still scanned). */
+  warnings: ScanWarnings;
 }
 
 function buildLinkGraph(
@@ -66,8 +69,9 @@ function buildLinkGraph(
   }
   let unresolved = 0;
   let links = 0;
+  const warnings = new ScanWarnings();
   for (const p of notes) {
-    for (const l of extractLinks(bodyOf(root, p))) {
+    for (const l of extractLinks(bodyOf(root, p, warnings))) {
       if (l.inCodeblock) continue;
       if (isExternal(l.kind, l.target)) continue;
       if (l.target === "" || l.target.startsWith("#")) continue;
@@ -81,7 +85,7 @@ function buildLinkGraph(
       }
     }
   }
-  return { notes, out, inn, unresolved, links };
+  return { notes, out, inn, unresolved, links, warnings };
 }
 
 /** Directed-cycle enumeration (DFS back-edges). Bounded by `limit` cycles found. */
@@ -127,6 +131,7 @@ function intersectSize(a: Set<string> | undefined, b: Set<string> | undefined): 
 // ---------------------------------------------------------------------------------------------
 
 const VaultHealthScoreOutput = z.object({
+  ...scanWarningsShape,
   vault: z.string(),
   score: z.number(),
   total_notes: z.number(),
@@ -153,12 +158,14 @@ const ConciseableVaultHealthScoreOutput = VaultHealthScoreOutput.partial({
 });
 
 const FindLinkCyclesOutput = z.object({
+  ...scanWarningsShape,
   vault: z.string(),
   total: z.number(),
   cycles: z.array(z.array(z.string())),
 });
 
 const GetLinkStrengthOutput = z.object({
+  ...scanWarningsShape,
   vault: z.string(),
   from: z.string(),
   to: z.string(),
@@ -177,6 +184,7 @@ const SuggestLinkRow = z.object({
 });
 
 const SuggestLinksOutput = z.object({
+  ...scanWarningsShape,
   vault: z.string(),
   path: z.string(),
   total: z.number(),
@@ -192,6 +200,7 @@ const ConciseableSuggestLinksOutput = SuggestLinksOutput.extend({
 });
 
 const AuditProvenanceOutput = z.object({
+  ...scanWarningsShape,
   vault: z.string(),
   field: z.string(),
   scanned: z.number(),
@@ -276,12 +285,14 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         );
         if (resolveResponseFormat(input, deps.responseFormat) === "concise")
           return {
+            ...g.warnings.out(),
             vault: v.id,
             score,
             total_notes: total,
             metrics: { orphans, unresolved_links: g.unresolved, hubs, cycles },
           };
         return {
+          ...g.warnings.out(),
           vault: v.id,
           score,
           total_notes: total,
@@ -311,7 +322,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const g = buildLinkGraph(v.root, ctx.acl, ctx.grantedScopes);
         const cycles = findCycles(g.out, input.limit);
-        return { vault: v.id, total: cycles.length, cycles };
+        return { ...g.warnings.out(), vault: v.id, total: cycles.length, cycles };
       },
     }),
 
@@ -347,6 +358,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         if (distance !== null && distance > 0) strength += Math.max(0, 0.3 - (distance - 1) * 0.1);
         strength = Math.min(1, Number(strength.toFixed(3)));
         return {
+          ...g.warnings.out(),
           vault: v.id,
           from,
           to,
@@ -405,10 +417,17 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
           .slice(0, input.limit);
         if (resolveResponseFormat(input, deps.responseFormat) === "concise")
           return {
+            ...g.warnings.out(),
             vault: v.id,
             suggestions: suggestions.map(({ path, score }) => ({ path, score })),
           };
-        return { vault: v.id, path: p, total: suggestions.length, suggestions };
+        return {
+          ...g.warnings.out(),
+          vault: v.id,
+          path: p,
+          total: suggestions.length,
+          suggestions,
+        };
       },
     }),
 
@@ -458,8 +477,9 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         let withField = 0;
         let withConfidence = 0;
         let withVerified = 0;
+        const warnings = new ScanWarnings();
         for (const rel of notes) {
-          const fm = parseNote(readNote(resolveVaultPath(v.root, rel)).raw, rel).frontmatter;
+          const fm = warnings.parse(readNote(resolveVaultPath(v.root, rel)).raw, rel).frontmatter;
           const top = rel.split("/")[0] ?? "";
           const folder = byFolder.get(top) ?? { scanned: 0, missing: 0 };
           folder.scanned++;
@@ -476,6 +496,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         const round = (n: number): number => Number(n.toFixed(3));
         if (resolveResponseFormat(input, deps.responseFormat) === "concise")
           return {
+            ...warnings.out(),
             vault: v.id,
             scanned,
             missing_provenance: missing.length,
@@ -486,6 +507,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
             truncated: missing.length > input.limit,
           };
         return {
+          ...warnings.out(),
           vault: v.id,
           field,
           scanned,

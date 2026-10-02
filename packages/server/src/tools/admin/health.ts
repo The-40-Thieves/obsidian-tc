@@ -15,6 +15,7 @@ export interface IndexHealthSnapshot {
   reconcile_at: number | null;
   /** Count of index-on-write failures swallowed since boot (best-effort reindex/deindex). */
   write_failures: number;
+  frontmatter_failures?: number;
   /** THE-291: the notes/FTS metadata pass completed (independent of embed success). */
   notes_ready?: boolean;
   /** Per-vault reconcile errors + last write error — authenticated, non-vault-bound callers only
@@ -22,6 +23,7 @@ export interface IndexHealthSnapshot {
   detail?: {
     reconcile_errors: Array<{ vault: string; error: string }>;
     last_write_error?: string;
+    last_frontmatter_failure?: { vault: string; path: string; error: string };
     /** THE-457: fail-open audit writes that threw (locked DB / disk full). */
     audit_write_failures?: number;
     /** THE-458 (audit #5): index-on-write coordinator — distinct paths queued/in-flight. */
@@ -153,6 +155,7 @@ export interface IndexStatusInfo {
   reconcile: "pending" | "ok" | "degraded";
   reconcile_at: number | null;
   write_failures: number;
+  frontmatter_failures?: number;
   notes_ready: boolean;
   vec_enabled: boolean;
   fts_enabled: boolean;
@@ -179,6 +182,7 @@ const IndexStatusOutput = z.object({
   reconcile: z.enum(["pending", "ok", "degraded"]),
   reconcile_at: z.number().nullable(),
   write_failures: z.number(),
+  frontmatter_failures: z.number().optional(),
   notes_ready: z.boolean(),
   vec_enabled: z.boolean(),
   fts_enabled: z.boolean(),
@@ -190,6 +194,7 @@ const IndexHealthSnapshotOutput = z.object({
   reconcile: z.enum(["pending", "ok", "degraded"]),
   reconcile_at: z.number().nullable(),
   write_failures: z.number(),
+  frontmatter_failures: z.number().optional(),
   notes_ready: z.boolean().optional(),
   // authenticated, non-vault-bound callers only (may name paths; THE-924): absent for an
   // unauthenticated OR vault-bound server_health call.
@@ -197,6 +202,9 @@ const IndexHealthSnapshotOutput = z.object({
     .object({
       reconcile_errors: z.array(z.object({ vault: z.string(), error: z.string() })),
       last_write_error: z.string().optional(),
+      last_frontmatter_failure: z
+        .object({ vault: z.string(), path: z.string(), error: z.string() })
+        .optional(),
       audit_write_failures: z.number().optional(),
       index_queue_depth: z.number().optional(),
       index_queue_active: z.number().optional(),
@@ -303,6 +311,9 @@ export function createIndexStatusTool(opts: {
         reconcile: snap.reconcile,
         reconcile_at: snap.reconcile_at,
         write_failures: snap.write_failures,
+        ...(snap.frontmatter_failures !== undefined
+          ? { frontmatter_failures: snap.frontmatter_failures }
+          : {}),
         notes_ready: snap.notes_ready ?? false,
         vec_enabled: opts.vecEnabled,
         fts_enabled: opts.ftsEnabled,

@@ -8,7 +8,7 @@ import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
-import { parseNote } from "../../vault/frontmatter";
+import { splitFrontmatterBody } from "../../vault/frontmatter";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
@@ -73,7 +73,7 @@ function buildBundle(
   let total = 0;
   let truncated = opts.preTruncated;
   for (const e of entries) {
-    const body = opts.includeFrontmatter ? e.content : parseNote(e.content, e.rel).body;
+    const body = opts.includeFrontmatter ? e.content : splitFrontmatterBody(e.content);
     const text = block(e.rel, body, opts.format);
     const bytes = Buffer.byteLength(text, "utf8");
     if (total + bytes > opts.maxBytes) {

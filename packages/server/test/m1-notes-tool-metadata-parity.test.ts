@@ -64,7 +64,7 @@ const EXPECTED: ToolSnapshot[] = [
   {
     name: "read_note",
     description:
-      "Read a note's raw content, parsed frontmatter, body, content hash, and stat. With anchor (same shape as patch_note's: a heading section, a block reference, or the frontmatter preamble), also returns section: the resolved span's text (including its heading/block-id marker line), 1-based start_line/end_line relative to the raw file, and heading_level for a heading anchor. content_hash stays the whole-note hash so it round-trips into patch_note's prev_hash unchanged. response_format=concise returns {vault, path, body, content_hash}: the note body without its frontmatter block (and, with an anchor, the section instead of the whole body).",
+      "Read a note's raw content, parsed frontmatter, body, content hash, and stat. With anchor (same shape as patch_note's: a heading section, a block reference, or the frontmatter preamble), also returns section: the resolved span's text (including its heading/block-id marker line), 1-based start_line/end_line relative to the raw file, and heading_level for a heading anchor. content_hash stays the whole-note hash so it round-trips into patch_note's prev_hash unchanged. A note whose frontmatter is not valid YAML is still returned (frontmatter null) with raw_frontmatter, frontmatter_error {message, line, column} and a warning naming the repair (update_frontmatter replace with frontmatter_yaml). response_format=concise returns {vault, path, body, content_hash}: the note body without its frontmatter block (and, with an anchor, the section instead of the whole body).",
     domain: "notes",
     requiredScopes: ["read:notes"],
     tags: [],
@@ -76,11 +76,14 @@ const EXPECTED: ToolSnapshot[] = [
       "content",
       "content_hash",
       "frontmatter",
+      "frontmatter_error",
       "has_frontmatter",
       "path",
+      "raw_frontmatter",
       "section",
       "stat",
       "vault",
+      "warning",
     ],
   },
   {

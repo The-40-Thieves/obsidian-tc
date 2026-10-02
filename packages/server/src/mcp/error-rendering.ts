@@ -13,6 +13,12 @@ import { sanitizeDisplayText } from "./elicit-form";
 // text block; the rest are counted, not dropped silently.
 const MAX_RENDERED_ISSUES = 5;
 
+/** The way out of a `frontmatter_yaml` refusal (vault/frontmatter.ts parseNote). */
+const FRONTMATTER_REPAIR_HINT =
+  "The note's frontmatter is not valid YAML. read_note returns its raw text (raw_frontmatter) and " +
+  'the error location; update_frontmatter {operation: "replace", frontmatter_yaml: <corrected YAML ' +
+  "without --- lines>, prev_hash: <content_hash>} repairs it without an approval prompt.";
+
 /** THE-1042 (GH #935): `did you mean "X"?` when `vaultFailureHint` (registry/input-binding.ts)
  *  found a case-fold/slug match against a visible vault id, else the caller's visible vault ids —
  *  the two renderings the ticket asks for. Shared by the `validation_error` path below (spliced
@@ -221,6 +227,10 @@ export function formatErrorDetail(error: ErrorJSON): string | undefined {
   // replay_drift has no field detail to render; clients show the text block alone, so the fix
   // (request a fresh confirmation, never resubmit the old token) has to be in it.
   if (error.code === "replay_drift") return error.recovery;
+  // A refusal on a note whose frontmatter does not parse: name the way out. Keyed on the same
+  // details.reason isFrontmatterYamlError reads, so every tool that parses a note shares it.
+  if (error.code === "invalid_input" && error.details?.reason === "frontmatter_yaml")
+    return FRONTMATTER_REPAIR_HINT;
   const issues = error.details?.issues;
   return Array.isArray(issues) && issues.length > 0
     ? renderIssues(issues as z.core.$ZodIssue[], error.details)

@@ -128,6 +128,7 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
         reconcile: deps.indexHealth.reconcile,
         reconcile_at: deps.indexHealth.reconcileAt,
         write_failures: deps.indexHealth.writeFailures,
+        frontmatter_failures: deps.indexHealth.frontmatterFailures.size,
         notes_ready: deps.indexHealth.notesReady,
         ...(authenticated
           ? {
@@ -140,6 +141,9 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
                 index_queue_backpressures: deps.indexHealth.indexQueueBackpressures,
                 ...(deps.indexHealth.lastWriteError !== undefined
                   ? { last_write_error: deps.indexHealth.lastWriteError }
+                  : {}),
+                ...(deps.indexHealth.lastFrontmatterFailure !== undefined
+                  ? { last_frontmatter_failure: deps.indexHealth.lastFrontmatterFailure }
                   : {}),
               },
             }
@@ -170,6 +174,7 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
         reconcile: deps.indexHealth.reconcile,
         reconcile_at: deps.indexHealth.reconcileAt,
         write_failures: deps.indexHealth.writeFailures,
+        frontmatter_failures: deps.indexHealth.frontmatterFailures.size,
         notes_ready: deps.indexHealth.notesReady,
       }),
       getLastChunksUpserted: () => deps.indexHealth.lastChunksUpserted,

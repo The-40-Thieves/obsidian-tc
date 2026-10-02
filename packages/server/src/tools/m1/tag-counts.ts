@@ -5,10 +5,13 @@ import { readableRel } from "../../vault/acl-read-filter";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { noteTags } from "../../vault/tags";
+import { ScanWarnings } from "../scan-warnings";
 
 export interface TagCounts {
   notes_scanned: number;
   counts: Map<string, number>;
+  /** Notes whose frontmatter YAML did not parse on the disk-scan path (their inline tags count). */
+  warnings: ScanWarnings;
 }
 
 /**
@@ -25,6 +28,7 @@ export function collectTagCounts(
 ): TagCounts {
   const sub = folder ? normalizeVaultPath(folder) : undefined;
   const counts = new Map<string, number>();
+  const warnings = new ScanWarnings();
   let scanned = 0;
   if (ready) {
     const rows = ctx.db
@@ -44,10 +48,10 @@ export function collectTagCounts(
     for (const e of entries) {
       if (scanned >= maxNotes) break;
       scanned++;
-      for (const t of noteTags(readNote(resolveVaultPath(vault.root, e.relPath)).raw, e.relPath)
-        .all)
+      const raw = readNote(resolveVaultPath(vault.root, e.relPath)).raw;
+      for (const t of noteTags(raw, e.relPath, (r, p) => warnings.parse(r, p as string)).all)
         counts.set(t, (counts.get(t) ?? 0) + 1);
     }
   }
-  return { notes_scanned: scanned, counts };
+  return { notes_scanned: scanned, counts, warnings };
 }

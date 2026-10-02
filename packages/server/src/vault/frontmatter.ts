@@ -46,6 +46,22 @@ export function splitFrontmatterBody(raw: string): string {
  *  purely diagnostic — some callers round-trip an in-memory buffer with no file behind it (e.g.
  *  parseEntityNote). THE-823: every call site that reads a note off disk passes one. */
 export function parseNote(raw: string, path?: string): ParsedNote {
+  const { yamlError, ...parsed } = parseNoteLenient(raw, path);
+  if (yamlError) throw yamlError;
+  return parsed;
+}
+
+/** parseNote's result plus the YAML failure it would have thrown. */
+export interface LenientParsedNote extends ParsedNote {
+  /** The error parseNote throws for this note (null when the block parsed or there is none). */
+  yamlError: ObsidianTcError | null;
+}
+
+/** A parse that never throws on bad frontmatter YAML — the ONE place that error is built. On a
+ *  failure `frontmatter` is null while `body`, `rawFrontmatter` and the eol fields are still filled
+ *  (the delimiters need no YAML), so a whole-vault scan can skip-and-warn on it and read_note can
+ *  hand back the raw text. */
+export function parseNoteLenient(raw: string, path?: string): LenientParsedNote {
   const m = FRONTMATTER.exec(raw);
   if (!m)
     return {
@@ -55,23 +71,16 @@ export function parseNote(raw: string, path?: string): ParsedNote {
       rawFrontmatter: null,
       frontmatterEol: null,
       frontmatterAtEof: false,
+      yamlError: null,
     };
-  let fm: Frontmatter;
+  let fm: Frontmatter | null = null;
+  let yamlError: ObsidianTcError | null = null;
   try {
     const parsed = YAML.parse(m[2] ?? "") as unknown;
     fm =
       parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Frontmatter) : {};
   } catch (e) {
-    // THE-823: the parser's message already carries the line/column (its first line always ends
-    // "at line N, column M:"); the note PATH goes with it, so a boot reconcile can name the file.
-    const detail = e instanceof YAMLParseError ? e.message.split("\n")[0] : undefined;
-    const where = path ? ` in "${path}"` : "";
-    throw err.invalidInput(
-      detail
-        ? `frontmatter is not valid YAML${where}: ${detail}`
-        : `frontmatter is not valid YAML${where}`,
-      { ...(path ? { path } : {}), reason: "frontmatter_yaml" },
-    );
+    yamlError = frontmatterYamlError(e, path);
   }
   return {
     frontmatter: fm,
@@ -80,7 +89,49 @@ export function parseNote(raw: string, path?: string): ParsedNote {
     rawFrontmatter: m[2] ?? "",
     frontmatterEol: m[1] === "\r\n" ? "\r\n" : "\n",
     frontmatterAtEof: (m[3] ?? "") === "",
+    yamlError,
   };
+}
+
+/** `details.line`/`column` are 1-based positions in the FILE (the opening "---" is line 1, so the
+ *  block's first line is 2). The parser's own message counts from the block's first line and is
+ *  left as it is — docs and reconcile output quote it. */
+function frontmatterYamlError(e: unknown, path: string | undefined): ObsidianTcError {
+  // THE-823: the parser's message already carries the line/column (its first line always ends
+  // "at line N, column M:"); the note PATH goes with it, so a boot reconcile can name the file.
+  const yamlErr = e instanceof YAMLParseError ? e : undefined;
+  const detail = yamlErr ? yamlErr.message.split("\n")[0] : undefined;
+  const where = path ? ` in "${path}"` : "";
+  const pos = yamlErr?.linePos?.[0];
+  return err.invalidInput(
+    detail
+      ? `frontmatter is not valid YAML${where}: ${detail}`
+      : `frontmatter is not valid YAML${where}`,
+    {
+      ...(path ? { path } : {}),
+      reason: "frontmatter_yaml",
+      ...(pos ? { line: pos.line + 1, column: pos.col } : {}),
+    },
+  );
+}
+
+/** Whether `text` (a candidate frontmatter block, no delimiters) parses as a YAML mapping, with the
+ *  parse error for a caller to refuse with. update_frontmatter validates a replacement through
+ *  this before anything is written. */
+export function checkFrontmatterYaml(
+  text: string,
+): { ok: true; frontmatter: Frontmatter } | { ok: false; error: ObsidianTcError } {
+  const probe = parseNoteLenient(`---\n${text}\n---\n`);
+  if (probe.yamlError) return { ok: false, error: probe.yamlError };
+  // A "---" line inside `text` would close the block early and leave the rest as body.
+  if (probe.rawFrontmatter !== text)
+    return {
+      ok: false,
+      error: err.invalidInput('frontmatter text must not contain a line that is only "---"', {
+        reason: "frontmatter_replacement",
+      }),
+    };
+  return { ok: true, frontmatter: probe.frontmatter ?? {} };
 }
 
 export function isFrontmatterYamlError(e: unknown): e is ObsidianTcError {

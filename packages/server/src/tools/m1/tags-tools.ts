@@ -26,6 +26,7 @@ import {
   tagMatches,
 } from "../../vault/tags";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
+import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
 import { buildSuggestTagsTool } from "./suggest-tags";
@@ -66,6 +67,7 @@ function omitKey(obj: Frontmatter, key: string): Frontmatter {
 // the tools spread/rename that shape's fields alongside vault/path/hash bookkeeping.
 
 const ListTagsOutput = z.object({
+  ...scanWarningsShape,
   vault: z.string(),
   notes_scanned: z.number().int(),
   tags: z.array(z.object({ tag: z.string(), count: z.number().int() })),
@@ -104,6 +106,7 @@ const RemoveTagOutput = z.object({
 // GH #1027: response_format=concise returns paths only per match and omits `total` (the match
 // count); `truncated` stays, it says the list is incomplete.
 const FindNotesByTagOutput = z.object({
+  ...scanWarningsShape,
   vault: z.string(),
   tag: z.string(),
   total: z.number().int().optional(),
@@ -166,7 +169,11 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const { notes_scanned: scanned, counts } = collectTagCounts(
+        const {
+          notes_scanned: scanned,
+          counts,
+          warnings,
+        } = collectTagCounts(
           deps.metadataIndex?.ready() === true,
           ctx,
           v,
@@ -176,7 +183,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         const tags = [...counts.entries()]
           .map(([tag, count]) => ({ tag, count }))
           .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
-        return { vault: v.id, notes_scanned: scanned, tags };
+        return { ...warnings.out(), vault: v.id, notes_scanned: scanned, tags };
       },
     }),
 
@@ -385,6 +392,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
         const matches: Array<{ path: string; tags: string[] }> = [];
+        const warnings = new ScanWarnings();
         let truncated = false;
         // THE-291 (3B): tags come from the notes table when ready; tagMatches semantics reused
         // verbatim (JS-side — SQL '='/LIKE would change case/unicode matching).
@@ -408,7 +416,8 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
             readableRel(ctx.acl, e.relPath, ctx.grantedScopes),
           );
           for (const e of entries) {
-            const all = noteTags(readNote(resolveVaultPath(v.root, e.relPath)).raw, e.relPath).all;
+            const raw = readNote(resolveVaultPath(v.root, e.relPath)).raw;
+            const all = noteTags(raw, e.relPath, (r, p) => warnings.parse(r, p as string)).all;
             const hit = all.filter((t) => tagMatches(input.tag, t));
             if (hit.length === 0) continue;
             if (matches.length >= input.limit) {
@@ -420,12 +429,14 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         }
         if (resolveResponseFormat(input, deps.responseFormat) === "concise")
           return {
+            ...warnings.out(),
             vault: v.id,
             tag: normalizeTag(input.tag),
             truncated,
             matches: matches.map((m) => ({ path: m.path })),
           };
         return {
+          ...warnings.out(),
           vault: v.id,
           tag: normalizeTag(input.tag),
           total: matches.length,

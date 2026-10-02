@@ -312,6 +312,7 @@ export async function buildServerRuntime(
     const { indexCoordinator, indexReadableFor, reindexHook, deindexHook, stopVaultWatch } =
       wireIndexCoordinator({
         db,
+        metrics,
         embeddingProvider,
         hasVec,
         chunkContext: config.embeddings.chunkContext,

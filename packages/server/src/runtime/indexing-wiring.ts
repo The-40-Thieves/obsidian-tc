@@ -32,8 +32,12 @@ import {
 } from "../search/indexer";
 import { buildRepresentationManifest, type RepresentationManifest } from "../search/representation";
 import { ensureVecChunks, type VecRebuildEvent } from "../search/vec";
-import { errorMessage } from "../util/errors";
 import { registerVaultWatch } from "../vault/watcher";
+import {
+  applyIndexWriteError,
+  clearFrontmatterFailure,
+  type FrontmatterFailure,
+} from "./index-write-outcome";
 
 // --- Group A: wireIndexResources -------------------------------------------------------------
 
@@ -84,6 +88,9 @@ export interface IndexHealthState {
   reconcileErrors: Array<{ vault: string; error: string }>;
   writeFailures: number;
   lastWriteError?: string;
+  /** Notes whose latest index-on-write hit bad frontmatter YAML; not writeFailures (no stall alert). */
+  frontmatterFailures: Map<string, FrontmatterFailure>;
+  lastFrontmatterFailure?: FrontmatterFailure;
   /** THE-291: the notes/FTS metadata pass completed (independent of embed success). */
   notesReady: boolean;
   /** THE-457: fail-open audit writes that threw (locked DB / disk full) — the audit trail is lossy. */
@@ -181,6 +188,7 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
     reconcileAt: null,
     reconcileErrors: [],
     writeFailures: 0,
+    frontmatterFailures: new Map(),
     notesReady: false,
     auditWriteFailures: 0,
     indexQueueBackpressures: 0,
@@ -229,8 +237,13 @@ export interface IndexCoordinatorDeps {
    *  `wireIndexResources` constructed, threaded in as a value. */
   indexHealth: Pick<
     IndexHealthState,
-    "writeFailures" | "lastWriteError" | "indexQueueBackpressures"
+    | "writeFailures"
+    | "lastWriteError"
+    | "indexQueueBackpressures"
+    | "frontmatterFailures"
+    | "lastFrontmatterFailure"
   >;
+  metrics: MetricsRecorder;
   /** Root ACL + per-vault overrides, owned by governance. */
   acl: FolderAcl;
   aclByVault: Map<string, FolderAcl>;
@@ -294,10 +307,13 @@ export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinat
           deps.chunkContext,
           deps.sqlHooksFor(vaultId),
         ),
-      onError: (e) => {
-        deps.indexHealth.writeFailures++;
-        deps.indexHealth.lastWriteError = errorMessage(e);
-      },
+      onError: (e, vaultId, path) =>
+        applyIndexWriteError(e, vaultId, path, deps.indexHealth, {
+          db: deps.db,
+          metrics: deps.metrics,
+          write: (m) => process.stderr.write(m),
+        }),
+      onApplied: (vaultId, path) => clearFrontmatterFailure(deps.indexHealth, vaultId, path),
     },
     {
       // THE-458 (audit #5): bound concurrent index/embed fan-out so a bulk mutation cannot spawn an

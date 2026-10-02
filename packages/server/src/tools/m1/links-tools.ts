@@ -18,7 +18,6 @@ import { argsHash } from "../../hash";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
-import { parseNote } from "../../vault/frontmatter";
 import { requireConfirmation } from "../../vault/hitl";
 import { buildVaultIndex, extractLinks, resolveTarget } from "../../vault/links";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
@@ -26,6 +25,7 @@ import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "..
 import { pruneHubLinks } from "../../vault/prune";
 import { rewriteLinks } from "../../vault/rewrite";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
+import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
 
@@ -43,8 +43,10 @@ function readableNotes(
     .filter((rel) => readableRel(acl, rel, grantedScopes));
 }
 
-function bodyOf(root: string, rel: string): string {
-  return parseNote(readNote(resolveVaultPath(root, rel)).raw, rel).body;
+/** A note's body for a link scan. Bad frontmatter YAML does not fail the scan: the note is named in
+ *  `warnings` and its body is still read. */
+function bodyOf(root: string, rel: string, warnings: ScanWarnings): string {
+  return warnings.parse(readNote(resolveVaultPath(root, rel)).raw, rel).body;
 }
 
 function normTarget(t: string): string {
@@ -66,6 +68,7 @@ const LinkKindSchema = z.enum(["wikilink", "markdown", "embed"]);
 // GH #1027: response_format=concise drops raw/kind/display/col and omits null heading/target_path/
 // candidates, so those are optional here; a detailed response always carries all of them.
 const GetOutgoingLinksOutput = z.object({
+  ...scanWarningsShape,
   vault: z.string(),
   path: z.string(),
   counts: z.object({
@@ -91,6 +94,7 @@ const GetOutgoingLinksOutput = z.object({
 
 // GH #1027: response_format=concise keeps {source_path, line} per backlink.
 const GetBacklinksOutput = z.object({
+  ...scanWarningsShape,
   vault: z.string(),
   path: z.string(),
   total: z.number().int(),
@@ -108,6 +112,7 @@ const GetBacklinksOutput = z.object({
 });
 
 const FindOrphansOutput = z.object({
+  ...scanWarningsShape,
   vault: z.string(),
   total: z.number().int(),
   truncated: z.boolean(),
@@ -115,6 +120,7 @@ const FindOrphansOutput = z.object({
 });
 
 const FindUnresolvedLinksOutput = z.object({
+  ...scanWarningsShape,
   vault: z.string(),
   total: z.number().int(),
   truncated: z.boolean(),
@@ -267,7 +273,8 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           throw err.noteNotFound("note not found", { path: rel });
 
         const index = buildVaultIndex(readableNotes(v.root, ctx.acl, ctx.grantedScopes));
-        const links = extractLinks(parseNote(readNote(abs).raw, rel).body)
+        const warnings = new ScanWarnings();
+        const links = extractLinks(warnings.parse(readNote(abs).raw, rel).body)
           .filter((l) => !l.inCodeblock)
           .filter((l) => input.include_embeds || l.kind !== "embed")
           .map((l) => {
@@ -287,6 +294,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           });
         const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         return {
+          ...warnings.out(),
           vault: v.id,
           path: rel,
           counts: {
@@ -313,7 +321,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       domain: "links",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
-        "Find every note that links to the given note, with source line/column. response_format=concise returns {source_path, line} per backlink, without col, raw, kind and display.",
+        "Find every note that links to the given note, with source line/column. A note whose frontmatter is not valid YAML does not fail the scan: its body is still read and it is named in `warnings`. response_format=concise returns {source_path, line} per backlink, without col, raw, kind and display.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -336,9 +344,10 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const paths = readableNotes(v.root, ctx.acl, ctx.grantedScopes);
         const index = buildVaultIndex(paths);
         const backlinks: Array<Record<string, unknown>> = [];
+        const warnings = new ScanWarnings();
         let truncated = false;
         for (const p of paths) {
-          for (const l of extractLinks(bodyOf(v.root, p))) {
+          for (const l of extractLinks(bodyOf(v.root, p, warnings))) {
             if (l.inCodeblock) continue;
             const r = resolveTarget(index, l.target);
             if (!r.resolved || r.target_path !== rel) continue;
@@ -359,6 +368,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         }
         const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         return {
+          ...warnings.out(),
           vault: v.id,
           path: rel,
           total: backlinks.length,
@@ -374,7 +384,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       name: "find_orphans",
       domain: "links",
       description:
-        "Find notes that nothing else links to (optionally also requiring no outgoing links).",
+        "Find notes that nothing else links to (optionally also requiring no outgoing links). A note whose frontmatter is not valid YAML does not fail the scan: its body is still read and it is named in `warnings`.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -393,8 +403,9 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const index = buildVaultIndex(all);
         const linkedTo = new Set<string>();
         const hasOutgoing = new Set<string>();
+        const warnings = new ScanWarnings();
         for (const p of all) {
-          for (const l of extractLinks(bodyOf(v.root, p))) {
+          for (const l of extractLinks(bodyOf(v.root, p, warnings))) {
             if (l.inCodeblock) continue;
             const r = resolveTarget(index, l.target);
             if (r.resolved && r.target_path && r.target_path !== p) {
@@ -407,6 +418,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           (p) => !linkedTo.has(p) && (!input.require_no_outgoing || !hasOutgoing.has(p)),
         );
         return {
+          ...warnings.out(),
           vault: v.id,
           total: orphans.length,
           truncated: orphans.length > input.limit,
@@ -429,9 +441,10 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const scan = readableNotes(v.root, ctx.acl, ctx.grantedScopes, sub);
         const index = buildVaultIndex(readableNotes(v.root, ctx.acl, ctx.grantedScopes));
         const unresolved: Array<Record<string, unknown>> = [];
+        const warnings = new ScanWarnings();
         let truncated = false;
         for (const p of scan) {
-          for (const l of extractLinks(bodyOf(v.root, p))) {
+          for (const l of extractLinks(bodyOf(v.root, p, warnings))) {
             if (l.inCodeblock) continue;
             if (isExternal(l.kind, l.target)) continue;
             if (l.target === "" || l.target.startsWith("#")) continue;
@@ -452,6 +465,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         }
         const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         return {
+          ...warnings.out(),
           vault: v.id,
           total: unresolved.length,
           truncated,

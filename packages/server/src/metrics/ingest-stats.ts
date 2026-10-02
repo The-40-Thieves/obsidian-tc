@@ -53,19 +53,39 @@ export function recordIngestStats(
       (v, n) => metrics.incIndexFrontmatterFailed(v, n),
     ],
   ];
-  for (const [eventType, count, inc] of events) {
-    if (count <= 0) continue;
-    inc(vaultId, count);
-    try {
-      writeEvent(db, {
-        ts: Date.now(),
-        vault_id: vaultId,
-        status: "ok",
-        result_size: count,
-        event_type: eventType,
-      });
-    } catch {
-      /* telemetry must never break an indexing pass */
-    }
+  for (const [eventType, count, inc] of events) emitIngestEvent(db, vaultId, eventType, count, inc);
+}
+
+/** One note skipped by an index-on-write because its frontmatter is not valid YAML: the same
+ *  counter and event_log row the reconcile's pass total feeds (index_frontmatter_failed), count 1. */
+export function recordFrontmatterSkip(
+  db: Database,
+  metrics: MetricsRecorder,
+  vaultId: string,
+): void {
+  emitIngestEvent(db, vaultId, "index_frontmatter_failed", 1, (v, n) =>
+    metrics.incIndexFrontmatterFailed(v, n),
+  );
+}
+
+function emitIngestEvent(
+  db: Database,
+  vaultId: string,
+  eventType: string,
+  count: number,
+  inc: (v: string, n: number) => void,
+): void {
+  if (count <= 0) return;
+  inc(vaultId, count);
+  try {
+    writeEvent(db, {
+      ts: Date.now(),
+      vault_id: vaultId,
+      status: "ok",
+      result_size: count,
+      event_type: eventType,
+    });
+  } catch {
+    /* telemetry must never break an indexing pass */
   }
 }

@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { MetricsRecorder } from "../metrics/registry";
-import { parseNote } from "../vault/frontmatter";
+import { splitFrontmatterBody } from "../vault/frontmatter";
 import { extractLinks } from "../vault/links";
 import { readNote, writeNotesAllOrNothingGuarded } from "../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../vault/paths";
@@ -113,7 +113,7 @@ export function findAttachmentReferences(root: string, attachmentRel: string): s
   const targetBase = baseOf(attachmentRel).toLowerCase();
   const out: string[] = [];
   for (const e of walkVault(root, { extensions: [".md"] })) {
-    const { body } = parseNote(readNote(resolveVaultPath(root, e.relPath)).raw, e.relPath);
+    const body = splitFrontmatterBody(readNote(resolveVaultPath(root, e.relPath)).raw);
     const hit = extractLinks(body).some((l) => {
       if (l.inCodeblock) return false;
       const t = normalizeTarget(l.target);

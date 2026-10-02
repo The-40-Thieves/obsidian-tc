@@ -27,12 +27,21 @@ export interface IndexCoverageState {
   notesIndexed: number;
   missing: number;
   samplePaths: string[];
+  /** Notes that ARE indexed but whose file on disk was modified more than STALE_SLACK_MS after the
+   *  row's `indexed_at` — the index holds an older version of the note (a write whose index step
+   *  was skipped, e.g. the note's YAML was broken at the time). Optional: absent means "not
+   *  measured", which every pre-existing state fixture relies on. */
+  stale?: number;
+  staleSamplePaths?: string[];
   /** THE-1073 fix round 1 (MEDIUM, Codex): set when THIS vault's own walk or query THREW — a
    *  symlinked root, a locked table — as opposed to a genuinely empty overall probe result (no
    *  cache.db yet, no `notes` table). The two must render differently: an error is a real failure
    *  to answer the question, not "nothing to check yet". */
   error?: string;
 }
+
+/** Clock slack between a file's mtime and the `indexed_at` the writer stamped just after it. */
+export const STALE_SLACK_MS = 2000;
 
 export interface IndexCoverageView {
   /** Attached only under `--probe`; a default run stays offline and touches neither the vault
@@ -75,6 +84,7 @@ export function indexCoverageCheck(view: IndexCoverageView): Check {
       }
       const errored = states.filter((s) => s.error !== undefined);
       const short = states.filter((s) => s.error === undefined && s.missing > 0);
+      const staleStates = states.filter((s) => s.error === undefined && (s.stale ?? 0) > 0);
       const details: Record<string, string | string[]> = {
         counts: states.map((s) =>
           s.error !== undefined
@@ -82,7 +92,7 @@ export function indexCoverageCheck(view: IndexCoverageView): Check {
             : `${s.vaultId}=${s.notesIndexed}/${s.notesOnDisk}`,
         ),
       };
-      if (errored.length === 0 && short.length === 0) {
+      if (errored.length === 0 && short.length === 0 && staleStates.length === 0) {
         return {
           status: "ok" as CheckStatus,
           summary: `index coverage: ${states.length} vault(s) checked, every note on disk is indexed`,
@@ -95,6 +105,11 @@ export function indexCoverageCheck(view: IndexCoverageView): Check {
         summaryParts.push(
           `${totalMissing} note(s) on disk but not indexed across ${short.length} vault(s)`,
         );
+      const totalStale = staleStates.reduce((n, s) => n + (s.stale ?? 0), 0);
+      if (totalStale > 0)
+        summaryParts.push(
+          `${totalStale} indexed note(s) changed on disk since they were indexed across ${staleStates.length} vault(s)`,
+        );
       if (errored.length > 0) summaryParts.push(`${errored.length} vault(s) failed to probe`);
       return {
         status: "warning" as CheckStatus,
@@ -106,9 +121,13 @@ export function indexCoverageCheck(view: IndexCoverageView): Check {
             (s) =>
               `vault ${s.vaultId}: ${s.missing} note(s) on disk but not indexed (e.g. ${s.samplePaths.join(", ")})`,
           ),
+          ...staleStates.map(
+            (s) =>
+              `vault ${s.vaultId}: ${s.stale} indexed note(s) are older in the index than on disk (e.g. ${(s.staleSamplePaths ?? []).join(", ")})`,
+          ),
         ],
         remediation:
-          "For a missing-note vault: run index_vault to reconcile. If a note was skipped for invalid YAML frontmatter (THE-1073), fix the note's YAML first — check notes_frontmatter_failed / frontmatter_failures on the last index_vault result, or the reconcile's health.index.detail.reconcile_errors. For a failed-probe vault: the vault root or cache.db could not be read — check the exception in `issues` (a symlinked vault root, a locked or corrupt cache.db).",
+          "For a stale-note vault: the index still holds an earlier version of the note — fix the note's YAML frontmatter if it is broken, then run index_vault. For a missing-note vault: run index_vault to reconcile. If a note was skipped for invalid YAML frontmatter (THE-1073), fix the note's YAML first — check notes_frontmatter_failed / frontmatter_failures on the last index_vault result, or the reconcile's health.index.detail.reconcile_errors. For a failed-probe vault: the vault root or cache.db could not be read — check the exception in `issues` (a symlinked vault root, a locked or corrupt cache.db).",
       };
     },
   };
@@ -124,7 +143,8 @@ export function indexCoverageCheck(view: IndexCoverageView): Check {
  * walked files actually get a `notes` row (a zero-byte note gets none — see that function's own
  * comment),
  * so a note this check calls "missing" is exactly a note the next index_vault pass would try to
- * write a row for and hasn't yet.
+ * write a row for and hasn't yet. A note with a row whose file mtime is more than STALE_SLACK_MS
+ * past the row's `indexed_at` is reported separately as stale.
  *
  * Distinguishes "nothing to check yet" from "could not check": cache.db simply not existing yet
  * (fresh install) or lacking a `notes` table are legitimate empty results (`[]`, rendered `ok` by
@@ -169,20 +189,30 @@ export async function probeIndexCoverage(
         // THE-1073 fix round 2 (LOW): the SAME size-based predicate indexVault itself calls (on
         // Buffer.byteLength(raw)) — no stand-in string needed, the walked entry's own `size` IS
         // the real byte count this predicate wants.
-        const onDisk = walkVault(root, { extensions: [".md"] })
-          .filter((e) => isReadable(e.relPath) && notesRowExpectedForSize(e.size))
-          .map((e) => e.relPath);
+        const entries = walkVault(root, { extensions: [".md"] }).filter(
+          (e) => isReadable(e.relPath) && notesRowExpectedForSize(e.size),
+        );
+        const onDisk = entries.map((e) => e.relPath);
         const indexedRows = opened
-          .prepare("SELECT path FROM notes WHERE vault_id = ?")
-          .all(id) as Array<{ path: string }>;
-        const indexedSet = new Set(indexedRows.map((r) => r.path));
+          .prepare("SELECT path, indexed_at FROM notes WHERE vault_id = ?")
+          .all(id) as Array<{ path: string; indexed_at: number }>;
+        const indexedAt = new Map(indexedRows.map((r) => [r.path, r.indexed_at]));
+        const indexedSet = new Set(indexedAt.keys());
         const missingPaths = onDisk.filter((p) => !indexedSet.has(p));
+        const stalePaths = entries
+          .filter((e) => {
+            const at = indexedAt.get(e.relPath);
+            return at !== undefined && e.mtime > at + STALE_SLACK_MS;
+          })
+          .map((e) => e.relPath);
         return {
           vaultId: id,
           notesOnDisk: onDisk.length,
           notesIndexed: indexedSet.size,
           missing: missingPaths.length,
           samplePaths: missingPaths.slice(0, 5),
+          stale: stalePaths.length,
+          staleSamplePaths: stalePaths.slice(0, 5),
         };
       } catch (e) {
         return {

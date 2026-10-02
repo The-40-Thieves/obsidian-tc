@@ -33,12 +33,12 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { applyLogic, evaluatesTruthy } from "../../search/jsonlogic";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
-import { parseNote } from "../../vault/frontmatter";
 import { requireConfirmation } from "../../vault/hitl";
 import { buildVaultIndex, extractLinks, resolveTarget } from "../../vault/links";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
+import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import type { M3Deps } from "./shared";
 
 function requireBaseExt(rel: string): void {
@@ -166,6 +166,7 @@ const QueryBaseRow = z.object({
 });
 
 const QueryBaseOutput = z.object({
+  ...scanWarningsShape,
   vault: z.string(),
   path: z.string(),
   view_used: z.string().nullable(),
@@ -472,8 +473,12 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
           group?: unknown;
         }> = [];
         const sortKeys: unknown[][] = [];
+        const warnings = new ScanWarnings();
         for (const p of candidates) {
-          const { frontmatter, body } = parseNote(readNote(resolveVaultPath(v.root, p)).raw, p);
+          const { frontmatter, body } = warnings.parse(
+            readNote(resolveVaultPath(v.root, p)).raw,
+            p,
+          );
           const fm = frontmatter ?? {};
           const tags = normTags(fm);
           if (sType === "tag" && !tags.includes(String(sValue).replace(/^#/, ""))) continue;
@@ -586,6 +591,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         const nextStart = start + page.length;
         const next = nextStart < rows.length ? String(nextStart) : undefined;
         return {
+          ...warnings.out(),
           vault: v.id,
           path: rel,
           view_used: view && typeof view.name === "string" ? view.name : null,
