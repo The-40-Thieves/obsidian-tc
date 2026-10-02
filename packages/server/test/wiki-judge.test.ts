@@ -193,8 +193,44 @@ describe("createWikiJudge: outcomes, never throws", () => {
     await j.judgeTopic("t", A, j.newBudget());
     expect(roles.calls).toHaveLength(2);
     for (const c of roles.calls) {
-      expect(Object.keys(c).sort()).toEqual(["messages", "responseFormat", "sourcePaths"]);
+      expect(Object.keys(c).sort()).toEqual([
+        "messages",
+        "responseFormat",
+        "signal",
+        "sourcePaths",
+      ]);
     }
+  });
+
+  it("cuts each side to maxNoteChars before building the prompt, so one call has a bounded size", async () => {
+    const roles = stubRoles(() => OK);
+    const j = createWikiJudge({ roles, db: newDb(), settings: settings({ maxNoteChars: 300 }) });
+    const big = note("big.md", "c".repeat(64), "Z".repeat(50_000));
+    await j.judgePair(big, B, j.newBudget());
+    await j.judgeTopic("T".repeat(10_000), big, j.newBudget());
+    expect(roles.calls).toHaveLength(2);
+    for (const c of roles.calls) {
+      const user = c.messages.find((m) => m.role === "user")?.content ?? "";
+      expect(user.length).toBeLessThan(1500);
+      expect(user).not.toContain("Z".repeat(301));
+      expect(user).not.toContain("T".repeat(301));
+    }
+  });
+
+  it("a timeout aborts the gateway request it started (the call stays counted)", async () => {
+    let seen: AbortSignal | undefined;
+    const roles = {
+      ...stubRoles(() => OK),
+      judge: (req: GatewayCompletionRequest) => {
+        seen = req.signal;
+        return new Promise<never>(() => {});
+      },
+    } as unknown as GatewayRoles;
+    const db = newDb();
+    const j = createWikiJudge({ roles, db, settings: settings({ timeoutMs: 300 }) });
+    expect(await j.judgePair(A, B, j.newBudget())).toEqual({ ok: false, reason: "timeout" });
+    expect(seen?.aborted).toBe(true);
+    expect(j.status().callsToday).toBe(1);
   });
 
   it("no gateway, or a daily cap of 0, is `unavailable` and sends nothing", async () => {

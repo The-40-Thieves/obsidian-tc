@@ -23,6 +23,8 @@ export interface CompletionRequest {
    *  wire body is built field-by-field from `messages`/`temperature`/`maxTokens`/`responseFormat`
    *  only, so this never reaches the network. */
   sourcePaths?: string[];
+  /** Caller deadline: aborting cancels the in-flight request and any further retry. */
+  signal?: AbortSignal;
 }
 
 export interface CompletionResult {
@@ -205,9 +207,16 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
   const retryMaxDelayMs = opts.retryMaxDelayMs ?? DEFAULT_RETRY_MAX_MS;
   const sleepFn = opts.sleepFn ?? realSleep;
 
-  async function postRaw<T>(path: string, body: unknown): Promise<{ body: T; headers: Headers }> {
+  async function postRaw<T>(
+    path: string,
+    body: unknown,
+    callerSignal?: AbortSignal,
+  ): Promise<{ body: T; headers: Headers }> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      // A caller that gave up (its own deadline) is never retried on its behalf.
+      if (callerSignal?.aborted)
+        throw lastError ?? err.operationTimeout("gateway request cancelled");
       // A FRESH AbortController every attempt. Reusing one across retries means every retry
       // after the first inherits attempt 1's signal — already fired if attempt 1 timed out —
       // and would abort before the retried request even goes out.
@@ -222,7 +231,7 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
             ...(token ? { authorization: `Bearer ${token}` } : {}),
           },
           body: JSON.stringify(body),
-          signal: ctrl.signal,
+          signal: callerSignal ? AbortSignal.any([ctrl.signal, callerSignal]) : ctrl.signal,
         });
       } catch (e) {
         // A network-level throw or our own per-attempt timeout — both transient by nature.
@@ -317,13 +326,17 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
 
   async function complete(role: GatewayRole, req: CompletionRequest): Promise<CompletionResult> {
     const model = opts.models?.[role] ?? role;
-    const { body: payload, headers } = await postRaw<ChatCompletionResponse>("/chat/completions", {
-      model,
-      messages: req.messages,
-      ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
-      ...(req.maxTokens !== undefined ? { max_tokens: req.maxTokens } : {}),
-      ...(req.responseFormat ? { response_format: req.responseFormat } : {}),
-    });
+    const { body: payload, headers } = await postRaw<ChatCompletionResponse>(
+      "/chat/completions",
+      {
+        model,
+        messages: req.messages,
+        ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+        ...(req.maxTokens !== undefined ? { max_tokens: req.maxTokens } : {}),
+        ...(req.responseFormat ? { response_format: req.responseFormat } : {}),
+      },
+      req.signal,
+    );
     const choice = payload.choices?.[0];
     let reported = payload.model ?? model;
     const deploymentId = headers.get("x-litellm-model-id");

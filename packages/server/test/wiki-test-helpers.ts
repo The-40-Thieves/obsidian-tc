@@ -65,6 +65,7 @@ export function makeWikiHarness(
             maxCallsPerRequest: 3,
             maxCallsPerDay: 200,
             timeoutMs: 2000,
+            maxNoteChars: 2400,
             ...wikiJudge,
           },
         }

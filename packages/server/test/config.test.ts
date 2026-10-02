@@ -386,6 +386,7 @@ describe("wikiJudge config", () => {
       maxCallsPerRequest: 3,
       maxCallsPerDay: 200,
       timeoutMs: 15000,
+      maxNoteChars: 2400,
     });
   });
 
@@ -395,6 +396,7 @@ describe("wikiJudge config", () => {
       maxCallsPerRequest: 3,
       maxCallsPerDay: 0,
       timeoutMs: 15000,
+      maxNoteChars: 2400,
     });
   });
 
@@ -403,5 +405,7 @@ describe("wikiJudge config", () => {
     expect(() => parse({ wikiJudge: { maxCallsPerRequest: 0 } })).toThrow();
     expect(() => parse({ wikiJudge: { maxCallsPerDay: -1 } })).toThrow();
     expect(() => parse({ wikiJudge: { timeoutMs: 10 } })).toThrow();
+    expect(() => parse({ wikiJudge: { maxNoteChars: 100 } })).toThrow();
+    expect(() => parse({ wikiJudge: { maxNoteChars: 8001 } })).toThrow();
   });
 });

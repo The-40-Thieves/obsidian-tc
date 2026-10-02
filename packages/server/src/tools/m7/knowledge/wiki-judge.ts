@@ -29,9 +29,12 @@ import { contentHash, resolveVaultPath } from "../../../vault/paths";
 export const JUDGE_VERDICTS = ["same_topic", "overlapping", "different"] as const;
 export type JudgeVerdict = (typeof JUDGE_VERDICTS)[number];
 
-/** Characters of each note's body sent to the judge. The head of a page states its topic; a longer
- *  excerpt costs tokens without changing the answer this question needs. */
-export const JUDGE_NOTE_CHARS = 2400;
+/** Default characters of each note's body sent to the judge (`wikiJudge.maxNoteChars`). The head of a
+ *  page states its topic; a longer excerpt costs tokens without changing the answer this question
+ *  needs. */
+export const DEFAULT_JUDGE_NOTE_CHARS = 2400;
+/** Ceiling on what loadSendable reads for the judge, equal to the largest `maxNoteChars`. */
+export const MAX_JUDGE_NOTE_CHARS = 8000;
 const MAX_RATIONALE_CHARS = 240;
 
 export interface WikiJudgeSettings {
@@ -39,6 +42,8 @@ export interface WikiJudgeSettings {
   maxCallsPerRequest: number;
   maxCallsPerDay: number;
   timeoutMs: number;
+  /** Characters of each side sent per call; the engine cuts to it before building the prompt. */
+  maxNoteChars: number;
 }
 
 export type JudgeOutcome =
@@ -84,7 +89,7 @@ export function loadSendable(
     const { raw, hash } = readNote(resolveVaultPath(scope.root, rel));
     const body = parseNoteLenient(raw, rel).body;
     const base = rel.slice(rel.lastIndexOf("/") + 1).replace(/\.md$/i, "");
-    return { note: { path: rel, title: base, text: body.slice(0, JUDGE_NOTE_CHARS), hash } };
+    return { note: { path: rel, title: base, text: body.slice(0, MAX_JUDGE_NOTE_CHARS), hash } };
   } catch {
     return { refused: "unreadable" };
   }
@@ -187,6 +192,7 @@ export const DEFAULT_WIKI_JUDGE_SETTINGS: WikiJudgeSettings = {
   maxCallsPerRequest: 3,
   maxCallsPerDay: 200,
   timeoutMs: 15000,
+  maxNoteChars: DEFAULT_JUDGE_NOTE_CHARS,
 };
 
 export interface WikiJudgeOptions {
@@ -309,18 +315,30 @@ export function createWikiJudge(opts: WikiJudgeOptions): WikiJudge {
     if (!reserveDailyCall()) return { ok: false, reason: "daily_cap" };
     budget.remaining--;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // The deadline cancels the gateway request itself (the client honours `signal`), so a stalled
+    // call does not keep a socket open after the verdict was already given up on. The call was
+    // reserved against the daily cap above and stays counted.
+    const ctrl = new AbortController();
     try {
+      const cut = (s: string): string => s.slice(0, settings.maxNoteChars);
       const res = await Promise.race([
         // No temperature and no maxTokens, on purpose: the gateway's `judge` alias serves a
         // reasoning model that answers HTTP 400 to temperature != 1 and to max_tokens (measured
         // 2026-10-02), which would make every call an error. Other judge callers send neither.
         roles.judge({
-          messages: buildJudgeMessages(a, b),
+          messages: buildJudgeMessages(
+            { title: cut(a.title), text: cut(a.text) },
+            { title: cut(b.title), text: cut(b.text) },
+          ),
           responseFormat: { type: "json_object" },
           sourcePaths,
+          signal: ctrl.signal,
         }),
         new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error("judge timeout")), settings.timeoutMs);
+          timer = setTimeout(() => {
+            ctrl.abort();
+            reject(new Error("judge timeout"));
+          }, settings.timeoutMs);
           timer.unref?.();
         }),
       ]);

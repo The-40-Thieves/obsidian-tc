@@ -2738,10 +2738,17 @@
         },
         "timeoutMs": {
           "default": 15000,
-          "description": "Per-call wait for the judge. On timeout the candidate stays ambiguous and the tool answers without it.",
+          "description": "Per-call wait for the judge. On timeout the request to the gateway is cancelled, the candidate stays ambiguous and the tool answers without it. The call still counts against maxCallsPerDay.",
           "type": "integer",
           "minimum": 500,
           "maximum": 120000
+        },
+        "maxNoteChars": {
+          "default": 2400,
+          "description": "Most characters of each page (opening text, after frontmatter) sent to the judge, so one call has a bounded size. A longer page is cut here; the topic string is cut to the same length.",
+          "type": "integer",
+          "minimum": 200,
+          "maximum": 8000
         }
       }
     },

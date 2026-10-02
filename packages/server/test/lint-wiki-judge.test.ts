@@ -268,7 +268,13 @@ describe("scheduled wiki lint: opt-in judge with a per-run cap", () => {
     const g = got as NonNullable<typeof got>;
     return { ...g, line: summarizeLintReport(g.report, g.judged) };
   };
-  const settings = { enabled: false, maxCallsPerRequest: 3, maxCallsPerDay: 200, timeoutMs: 1000 };
+  const settings = {
+    enabled: false,
+    maxCallsPerRequest: 3,
+    maxCallsPerDay: 200,
+    timeoutMs: 1000,
+    maxNoteChars: 2400,
+  };
 
   it("off unless the sweep is given a judge: nothing is sent", async () => {
     const { roles, calls } = stubRoles(byTopic);

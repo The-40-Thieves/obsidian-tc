@@ -271,7 +271,16 @@ export const WikiJudgeConfigSchema = z
       .max(120000)
       .default(15000)
       .describe(
-        "Per-call wait for the judge. On timeout the candidate stays ambiguous and the tool answers without it.",
+        "Per-call wait for the judge. On timeout the request to the gateway is cancelled, the candidate stays ambiguous and the tool answers without it. The call still counts against maxCallsPerDay.",
+      ),
+    maxNoteChars: z
+      .number()
+      .int()
+      .min(200)
+      .max(8000)
+      .default(2400)
+      .describe(
+        "Most characters of each page (opening text, after frontmatter) sent to the judge, so one call has a bounded size. A longer page is cut here; the topic string is cut to the same length.",
       ),
   })
   .prefault({});
