@@ -15,7 +15,7 @@ import { type Frontmatter, parseNote, serializeNote } from "../vault/frontmatter
 import { extractLinks } from "../vault/links";
 import { noteExists, readNote, writeNoteAtomic } from "../vault/notes-io";
 import { contentHash, resolveVaultPath } from "../vault/paths";
-import { normalizeObservationKey, type ObservationView } from "./entities";
+import { normalizeObservationKey, type RenderableObservation } from "./entities";
 
 // Frontmatter keys the projection owns (regenerated from SQLite each time). Every
 // other key in an existing note is preserved verbatim so we never clobber Obsidian's.
@@ -38,7 +38,7 @@ function formatDate(ms: number): string {
 /** `- [key] text` (open) or `- [key] text (valid YYYY-MM-DD → YYYY-MM-DD)` (closed — validTo set,
  *  whether by supersession or a stand-alone retirement); the `[key] ` prefix is omitted entirely
  *  for an unkeyed observation (THE-1130 decision record: "unkeyed bullets stay `- text`"). */
-function formatObservationBullet(o: ObservationView): string {
+function formatObservationBullet(o: RenderableObservation): string {
   const body = o.key ? `[${o.key}] ${o.text}` : o.text;
   return o.validTo === null
     ? body
@@ -124,7 +124,7 @@ export interface RenderEntityInput {
   name: string;
   /** THE-833: 'active' | 'retired' — owned frontmatter, see OWNED_FM_KEYS above. */
   status: string;
-  observations: readonly ObservationView[];
+  observations: readonly RenderableObservation[];
   relations: readonly RelationLink[];
   preserved?: Frontmatter | null;
 }
@@ -186,7 +186,7 @@ export interface MaterializeInput {
   name: string;
   /** THE-833: see RenderEntityInput.status. */
   status: string;
-  observations: readonly ObservationView[];
+  observations: readonly RenderableObservation[];
   relations: readonly RelationLink[];
   // THE-567: the memory-note path is server-computed (folder + type + name), so it cannot be
   // declared via a central pathAcl extractor (which only sees raw input). Threading the caller's

@@ -39,7 +39,7 @@ so a renamed entity is not judged by a stale path.
 
 Denied means missing. An entity the caller cannot read returns the same `entity not found` error a
 nonexistent id returns (the same goes for the write and lifecycle tools that look an entity up:
-`add_observation`, `link_entities`, `unlink_entities`, `rename_entity`, `delete_entity`), it does
+`add_observation`, `update_observation`, `link_entities`, `unlink_entities`, `rename_entity`, `delete_entity`), it does
 not count toward by-name ambiguity, and `get_entity` omits relations to it. `query_entity_graph`
 never traverses an unreadable entity, so entities reachable only through one do not appear, and the
 page, `next_cursor` and `total_returned` are computed after that filtering.

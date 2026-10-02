@@ -8,7 +8,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { type AclConfigT, FolderAcl } from "../src/acl";
-import type { ObservationView } from "../src/memory/entities";
+import type { RenderableObservation } from "../src/memory/entities";
 import {
   entityNotePath,
   materializeEntity,
@@ -22,7 +22,10 @@ import { makeTempDir, rmTemp } from "./tmp";
 
 /** An open (validTo: null), unkeyed observation view unless overridden — the common case for
  *  these tests, which mostly care about text/relations, not intervals. */
-function ov(text: string, over: Partial<Omit<ObservationView, "text">> = {}): ObservationView {
+function ov(
+  text: string,
+  over: Partial<Omit<RenderableObservation, "text">> = {},
+): RenderableObservation {
   return { text, key: null, validFrom: 0, validTo: null, supersededBy: null, ...over };
 }
 

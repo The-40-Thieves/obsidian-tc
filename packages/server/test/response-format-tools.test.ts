@@ -668,12 +668,12 @@ describe("part 3 concise shapes", () => {
       const d = dataOf(await v.call("get_entity", { vault: "test", entity_id: id, as_of: 299 }));
       const obs = items(d, "observations");
       expect(obs).toHaveLength(1);
-      expect(keys(obs[0])).toEqual(["key", "superseded_by", "text", "valid_to"]);
+      expect(keys(obs[0])).toEqual(["key", "observation_id", "superseded_by", "text", "valid_to"]);
       expect(obs[0]?.valid_to).toBe(300);
       expect(typeof obs[0]?.superseded_by).toBe("string");
       // The open observation carries neither field.
       const now = dataOf(await v.call("get_entity", { vault: "test", entity_id: id, as_of: 300 }));
-      expect(items(now, "observations").map(keys)).toEqual([["key", "text"]]);
+      expect(items(now, "observations").map(keys)).toEqual([["key", "observation_id", "text"]]);
     } finally {
       v.cleanup();
     }

@@ -33,13 +33,14 @@ import {
   isUniqueViolation,
   normalizeObservationKey,
   normalizeObservationText,
-  type ObservationView,
   observationViews,
   obsHash,
   parseObservations,
+  type RenderableObservation,
   setEntityVaultPath,
 } from "../../memory/entities";
 import { entityNotePath, sanitizeSegment } from "../../memory/materialize";
+import { formatObservationId } from "../../memory/observation-edit";
 import { defineTool } from "../m1/define";
 import {
   assertMemoryPathReadable,
@@ -70,7 +71,7 @@ const ObservationKeySchema = z
 // silently splits or drops) a blank-after-trim value or one containing an embedded `\r`/`\n`: a
 // caller with more than one fact makes more than one call. `.transform` (not `.refine`) so the
 // TRIMMED value is what the handler actually receives — it never re-trims.
-const NormalizedObservationText = z
+export const NormalizedObservationText = z
   .string()
   .min(1)
   .transform((raw, ctx) => {
@@ -95,6 +96,7 @@ const CreateEntityOutput = z.object({
   type: z.string(),
   name: z.string(),
   status: z.enum(["active", "retired"]),
+  observations: z.array(z.object({ observation_id: z.string(), text: z.string() })),
   materialized: z.boolean(),
   vault_path: z.string().nullable(),
   created_at: z.number(),
@@ -103,6 +105,8 @@ const CreateEntityOutput = z.object({
 
 const AddObservationOutput = z.object({
   entity_id: z.string(),
+  // The new observation's address (for update_observation); absent on a retire-only call.
+  observation_id: z.string().optional(),
   observation_count: z.number(),
   updated_at: z.number(),
   vault_path: z.string().nullable(),
@@ -126,7 +130,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
       domain: "knowledge",
       vaultArg: "vault",
       description:
-        "Create a typed memory entity (optionally materialized as a vault .md note). SQLite is the source of truth. Each string in `observations` must be a single non-blank fact with no embedded newline — a caller with more than one fact passes more than one array element. Domain: knowledge.",
+        "Create a typed memory entity (optionally materialized as a vault .md note). SQLite is the source of truth. Each string in `observations` must be a single non-blank fact with no embedded newline — a caller with more than one fact passes more than one array element. The result lists each observation with its `observation_id`; to correct or retire a fact later, pass that id to update_observation (an observation needs no key to be edited). Domain: knowledge.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -215,6 +219,10 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
           type: e.entity_type,
           name: e.name,
           status: e.status,
+          observations: observationViews(ctx.db, e).map((o) => ({
+            observation_id: formatObservationId(o.id),
+            text: o.text,
+          })),
           materialized: input.materialize,
           vault_path: vaultPath,
           created_at: e.created_at,
@@ -231,7 +239,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
       vaultArg: "vault",
       acceptsIdempotencyKey: true,
       description:
-        "Append a fact to a memory entity (re-materializing its note when materialized). `observation` must be a single non-blank fact with no embedded newline — a caller with more than one fact calls this more than once. An optional `key` opts the observation INTO supersession tracking — when the same entity already has an OPEN observation with that key, it is closed (not deleted: its text stays under the note's Superseded section, its interval's valid_to is set and superseded_by records what replaced it) and the new text opens a fresh interval. An observation added with no key never supersedes anything and is never superseded automatically; it just appends. Matching is always by this explicit key, never inferred from text similarity. `valid_from`/`valid_to` (ISO 8601) let a caller backdate a fact or bound it explicitly. To retire a keyed fact WITHOUT replacing it, omit `observation` and pass `key` + `valid_to` — closes the open interval for that key with no new text appended. Domain: knowledge.",
+        "Append a fact to a memory entity (re-materializing its note when materialized). `observation` must be a single non-blank fact with no embedded newline — a caller with more than one fact calls this more than once. An optional `key` opts the observation INTO supersession tracking — when the same entity already has an OPEN observation with that key, it is closed (not deleted: its text stays under the note's Superseded section, its interval's valid_to is set and superseded_by records what replaced it) and the new text opens a fresh interval. An observation added with no key never supersedes anything and is never superseded automatically; it just appends. Matching is always by this explicit key, never inferred from text similarity. To CORRECT or REMOVE an existing fact (including one with no key), do not add a contradicting observation: call update_observation with its `observation_id` (returned by create_entity, add_observation and get_entity). `valid_from`/`valid_to` (ISO 8601) let a caller backdate a fact or bound it explicitly. To retire a keyed fact WITHOUT replacing it, omit `observation` and pass `key` + `valid_to` — closes the open interval for that key with no new text appended. Domain: knowledge.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -362,9 +370,12 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
               entity_id: existing.id,
               key,
             });
-          if (retireOnly && (validTo as number) <= (views[openIdx] as ObservationView).validFrom)
+          if (
+            retireOnly &&
+            (validTo as number) <= (views[openIdx] as RenderableObservation).validFrom
+          )
             throw err.invalidInput("valid_to must be after the observation's own valid_from", {
-              valid_from: (views[openIdx] as ObservationView).validFrom,
+              valid_from: (views[openIdx] as RenderableObservation).validFrom,
               valid_to: validTo,
             });
 
@@ -387,7 +398,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
 
           ctx.markEffectCommitted?.();
 
-          let nextViews: ObservationView[];
+          let nextViews: RenderableObservation[];
           let newHash: string | null = null;
           if (retireOnly) {
             nextViews = views.map((o, i) =>
@@ -413,6 +424,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
               : existing.vault_path;
 
           // DB writes mirror the in-memory state just rendered above, in the same order.
+          let newObservationId: number | undefined;
           if (retireOnly) {
             closeOpenInterval(ctx.db, existing.id, key as string, validTo as number, null);
           } else {
@@ -420,7 +432,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
               closeOpenInterval(ctx.db, existing.id, key as string, validFrom, newHash);
             const r = appendObservation(ctx.db, existing.id, observationInput as string, now);
             if (!r) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
-            insertObservationInterval(ctx.db, {
+            newObservationId = insertObservationInterval(ctx.db, {
               entityId: existing.id,
               obsHash: newHash as string,
               key,
@@ -441,6 +453,9 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
 
           return {
             entity_id: existing.id,
+            ...(newObservationId !== undefined
+              ? { observation_id: formatObservationId(newObservationId) }
+              : {}),
             observation_count: nextViews.length,
             updated_at: now,
             vault_path: vaultPath,

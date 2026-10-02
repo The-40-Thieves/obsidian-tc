@@ -66,6 +66,7 @@ const EXEMPT_NO_PATH = new Set<string>([
   "reflect", // writes <memoryFolder>/reflections/<date>-<slug>.md (server-computed)
   "create_entity", // materializes <memoryFolder>/<type>/<name>.md; handler-side grantedScopes
   "add_observation", // appends to a computed entity note / entity DB; handler-side grantedScopes
+  "update_observation", // closes/replaces one observation of a computed entity note; handler-side grantedScopes
   "link_entities", // updates computed entity notes / entity DB; handler-side grantedScopes
   // THE-833: same computed-path family as create_entity/add_observation/link_entities above —
   // the note path is <memoryFolder>/<type>/<name>.md, derived from the resolved entity row, not

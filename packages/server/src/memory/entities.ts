@@ -468,7 +468,11 @@ const OBSERVATION_INTERVAL_COLS =
 
 /** One observation: its text (from the blob) zipped with its validity interval. What
  *  get_entity/query_entity_graph/materialize.ts all build their view from. */
-export interface ObservationView {
+export interface ObservationView extends RenderableObservation {
+  id: number;
+}
+
+export interface RenderableObservation {
   text: string;
   key: string | null;
   validFrom: number;
@@ -504,6 +508,7 @@ export function observationViews(
   return texts.map((text, i) => {
     const iv = intervals[i] as ObservationIntervalRow;
     return {
+      id: iv.id,
       text,
       key: iv.key,
       validFrom: iv.valid_from,
@@ -526,7 +531,7 @@ export function observationsAsOf(
   );
 }
 
-/** Append one interval row. Always called in lockstep with a blob text append (appendObservation,
+/** Append one interval row, returning its id. Always called in lockstep with a blob text append (appendObservation,
  *  or insertEntity's own initial batch) — never on its own — so ordinal correlation holds. */
 export function insertObservationInterval(
   db: Database,
@@ -538,11 +543,14 @@ export function insertObservationInterval(
     validTo: number | null;
     now: number;
   },
-): void {
-  db.prepare(
-    `INSERT INTO memory_observation_intervals (entity_id, obs_hash, key, valid_from, valid_to, superseded_by, created_at)
+): number {
+  const r = db
+    .prepare(
+      `INSERT INTO memory_observation_intervals (entity_id, obs_hash, key, valid_from, valid_to, superseded_by, created_at)
      VALUES (?, ?, ?, ?, ?, NULL, ?)`,
-  ).run(input.entityId, input.obsHash, input.key, input.validFrom, input.validTo, input.now);
+    )
+    .run(input.entityId, input.obsHash, input.key, input.validFrom, input.validTo, input.now);
+  return Number(r.lastInsertRowid);
 }
 
 /** Close the OPEN interval for (entityId, key) — either supersession (`supersededByHash` set to

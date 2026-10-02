@@ -10,9 +10,9 @@ import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import {
   type EntityRow,
   getEntityById,
-  type ObservationView,
   observationViews,
   type RelationEdge,
+  type RenderableObservation,
   relationsForEntity,
   setEntityVaultPath,
 } from "../../memory/entities";
@@ -46,7 +46,7 @@ export function materializeProjection(
   ctx: CallerContext,
   v: ResolvedVault,
   e: EntityRow,
-  observations: readonly ObservationView[],
+  observations: readonly RenderableObservation[],
 ): string | null {
   if (e.materialize !== 1) return null;
   return materializeEntity({

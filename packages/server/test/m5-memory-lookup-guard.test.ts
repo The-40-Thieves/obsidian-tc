@@ -69,6 +69,10 @@ const LOOKUPS: Record<string, [number, string]> = {
     1,
     "rename_entity's name-collision check (runs only AFTER assertMemoryPathReadable on the destination path)",
   ],
+  "tools/m5/memory-observation-tools.ts": [
+    1,
+    "update_observation's lockstep re-read of an entity ALREADY gated by getReadableEntity (and the write ACL); its result is only asserted, never returned",
+  ],
 };
 
 // file -> [expected count, why it cannot leak]. Raw edge lists carry the far end's id/name/type.

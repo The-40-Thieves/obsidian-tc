@@ -96,6 +96,13 @@ automatically — matching is always by this explicit key, never inferred from t
 retire a keyed fact with nothing replacing it, call `add_observation` with `key` + `valid_to` and
 no `observation` at all.
 
+To correct or remove a fact that has no key (every observation `create_entity` makes), call
+`update_observation` with its `observation_id` — `create_entity`, `add_observation` and `get_entity`
+all return one per observation, stable across reads. Pass `observation` to replace the text, or
+`retire: true` to remove it. Nothing is deleted: the old text is closed (hidden from default reads,
+visible with an earlier `as_of`, listed under Superseded), and a correction keeps the old
+observation's key. It needs write access to the entity's note path, like every memory write.
+
 `get_entity` and `query_entity_graph` both take an `as_of` (epoch ms; default now) and return only
 the observations valid at that instant — `valid_from <= as_of` and (`valid_to` unset or `as_of <
 valid_to`). An `as_of` in the PAST excludes any observation added after that instant, even one

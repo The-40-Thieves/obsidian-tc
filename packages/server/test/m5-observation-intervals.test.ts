@@ -54,6 +54,7 @@ describe("add_observation: supersede via key", () => {
         const obs = (get.data as { observations: ObsOut[] }).observations;
         expect(obs).toEqual([
           {
+            observation_id: expect.stringMatching(/^obs_\d+$/),
             text: "works at Google",
             key: "employer",
             valid_from: 300,

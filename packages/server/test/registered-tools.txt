@@ -161,6 +161,7 @@ update_base
 update_canvas
 update_excalidraw
 update_frontmatter
+update_observation
 update_task
 validate_dql
 vault_context
