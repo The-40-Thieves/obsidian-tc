@@ -21,6 +21,8 @@ export const EXEMPT_FROM_RESPONSE_FORMAT: Readonly<Record<string, string>> = {
   list_contradictions: "the rationale is the product",
   episode_stats: "aggregate counts only",
   find_orphans: "bare paths already",
+  commit_wiki_page:
+    "a short receipt of the writes plus the problems found: every field is a safety signal",
   plur_get: "read-only proxy of an external payload we do not own",
   plur_recall: "read-only proxy of an external payload we do not own",
   plur_recall_hybrid: "read-only proxy of an external payload we do not own",

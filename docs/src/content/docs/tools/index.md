@@ -345,6 +345,74 @@ precision, recall, latency or threshold is published here: the figures and the t
 (tune the threshold on labelled pairs from your own vault). The `find_existing_page` judge is unchanged: the
 topic-to-page recall that kept it off was measured with the gateway judge and has not been re-measured for Jev.
 
+## Wiki workflow (draft and commit a page)
+
+Two more `full`-profile tools take a wiki page from topic to a linked, schema-checked note. They split
+the work so the server does the bookkeeping and **the LLM writes the prose**: neither tool generates
+page text.
+
+1. **`find_existing_page`** (above): is there already a page on the topic?
+2. **`draft_wiki_page`** (read-only): runs the same duplicate check, then returns the existing page if
+   there is one, a **link map** (`link_to`: notes the page should link, `link_from`: notes that should
+   link to it, `already_linking`), the SCHEMA.md requirements for the page `type`, and a changeset
+   skeleton (a proposed path, frontmatter and a patch per note to link from). It writes nothing.
+3. **You write the page body**, using the notes the link map names.
+4. **`commit_wiki_page`**: applies the changeset in one step, the new page plus additive patches
+   (`link`: a bullet under a heading such as `See also`, added once; `append`: text at the end or under a
+   heading) that link the rest of the wiki to it.
+5. **`lint_wiki`** (above) is the periodic upkeep: orphans, unresolved links, stale or duplicate pages.
+
+**SCHEMA.md.** Set `vaults[].wiki.folder` (for example `wiki`) and put a `SCHEMA.md` in it. Its
+frontmatter declares the page types, the frontmatter each requires, the subfolder new pages of a type go
+in, and the allowed property vocabulary (a list of names, or a map of name to allowed values; an empty
+value means any). The body is free prose and is never parsed.
+
+```yaml
+---
+types:
+  concept:
+    description: An idea or term
+    required: [type, summary, sources]
+    folder: concepts
+  person:
+    required: [type, summary]
+properties:
+  type: [concept, person]
+  summary:
+  sources:
+  status: [draft, stable]
+---
+```
+
+Obsidian's own `tags`, `aliases` and `cssclasses` are always allowed. A page outside the wiki folder is
+not checked against SCHEMA.md and gets an `outside_wiki_folder` problem instead. A SCHEMA.md that cannot
+be read is a `schema_file` problem, never an error.
+
+**Problems versus errors.** Things for you to fix do not block the write; they come back in
+`problems`: `schema` (missing required field, unknown type or property, value outside the vocabulary),
+`unresolved_link`, `missing_link` (a related note the page does not link), `no_inbound_link`,
+`patch_without_link`, `patch_skipped` (the note already links the page), `possible_duplicate`,
+`excluded_note`, `poison_suspect`, `redacted`. Refusals are errors and write nothing: no write
+permission on any path, a stale `prev_hash` (every stale note is named in `details.stale`), a page that
+already covers the topic (`conflict`, `reason: duplicate_page`; `allow_duplicate: true` overrides), text
+that fails the poison scan, a heading that is missing or ambiguous. Open contradictions the detector
+already flagged on a touched note are listed in `contradictions`; new ones are found by the indexer
+afterwards.
+
+**Confirmation.** Creating a page and patching notes need **no confirmation**, inside the wiki folder or
+outside it: every note a commit replaces is snapshotted first, so `restore_note` undoes it, and a patch
+only adds. Overwriting an existing non-empty page (`page.mode: overwrite`, which needs `prev_hash`) asks
+for confirmation exactly like `write_note`, anywhere in the vault. Everything else keeps its existing
+rules: `write_note`, `patch_note`, `delete_note` and the rest behave as before.
+
+**All or nothing.** Before the first write, `commit_wiki_page` checks the write ACL of every path, the
+`prev_hash` of every existing note, the poison and memory-defense scans, and computes every resulting
+note. If a write then fails part way, every earlier write is undone (a replaced note gets its old bytes
+back, a new page and any folder created for it are removed). The commit is recorded in the write
+provenance chain as one entry listing every touched path; an aborted commit records nothing.
+
+Generated `index.md` and `log.md` pages are not part of these tools.
+
 ## Response format
 
 Tools that return more than an acknowledgement take an optional `response_format`:
@@ -481,6 +549,7 @@ Each of these was reviewed and takes no parameter, because there is nothing a ca
 | `list_contradictions` | The rationale is the product. |
 | `episode_stats` | Aggregate counts only. |
 | `find_orphans` | Bare paths already. |
+| `commit_wiki_page` | A short receipt of the writes plus the problems found: every field is a safety signal. |
 | `plur_get`, `plur_recall`, `plur_recall_hybrid`, `plur_similarity_search` | Read-only proxies of an external payload this server does not own. |
 | `reflect`, `knowledge_challenge` | The synthesized answer or verdict and its evidence are the product; the rest is a few short fields. |
 | `find_link_cycles`, `graph_centrality`, `graph_path_between` | The path lists, ranked rows or hop chain are the payload; the rest is a count or a presence flag. |

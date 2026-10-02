@@ -1,5 +1,5 @@
 // WP2 slice 1 (THE-233 follow-up): the invariant the schema/deps/retrieval-runtime extraction
-// must hold provably still. `buildKnowledgeTools(deps)` returns the 12 M7 tools in a fixed array
+// must hold provably still. `buildKnowledgeTools(deps)` returns the 14 M7 tools in a fixed array
 // order; a caller-visible tool has exactly the shape it declares — name, description, domain,
 // requiredScopes, tags, whether it declares a `pathAcl` extractor, and the top-level keys of its
 // input/output schema. None of that is allowed to move while the file underneath it is split into
@@ -318,6 +318,60 @@ const EXPECTED: ToolSnapshot[] = [
       "warnings_omitted",
     ],
   },
+  {
+    name: "draft_wiki_page",
+    description:
+      "Plan a new wiki page WITHOUT writing anything: the step between find_existing_page and commit_wiki_page. Give a topic (and optionally a page `type` from the wiki folder's SCHEMA.md and `sources`, the notes or URLs the page draws on). Returns (1) the dedupe verdict from find_existing_page: if a page already exists you get it back with a suggestion to link to it or extend it instead of creating a duplicate, and no changeset; (2) the wiki folder's SCHEMA.md (page types, the frontmatter each requires, the allowed property vocabulary; a malformed file is a warning, never an error); (3) a link map: existing notes the new page should link TO (your sources, related pages) and notes that should link FROM it (notes that mention the topic without linking it, related wiki pages), and notes that already link it; (4) a CHANGESET SKELETON: the new page's path and frontmatter with the required fields empty, and a `link` patch (with the note's current prev_hash) for each note that should link to the new page. You write the page body (and any `text` for a patch); the server never writes prose. Pass the filled changeset to commit_wiki_page. Read-only: it never writes, respects the read ACL and Obsidian's Excluded files (an excluded note is never offered for patching), and with `judge` (default from the wikiJudge config) the dedupe check may send the topic and the opening text of up to 3 readable notes to the gateway judge model, exactly as find_existing_page does.",
+    domain: "knowledge",
+    requiredScopes: ["read:notes"],
+    tags: ["external-network", "knowledge", "search"],
+    hasPathAcl: false,
+    inputKeys: [
+      "judge",
+      "limit",
+      "min_similarity",
+      "response_format",
+      "sources",
+      "topic",
+      "type",
+      "vault",
+      "verbosity",
+    ],
+    outputKeys: [
+      "changeset",
+      "dedupe",
+      "existing",
+      "link_map",
+      "requirements",
+      "suggestion",
+      "topic",
+      "vault",
+      "warnings",
+      "warnings_omitted",
+      "wiki",
+    ],
+  },
+  {
+    name: "commit_wiki_page",
+    description:
+      "Apply a wiki changeset in ONE atomic step: a new page (path, frontmatter, the body you wrote) plus patches to existing pages that link them to it, from draft_wiki_page. All or nothing: every touched note is checked first (write ACL on each path, `prev_hash` compare-and-swap on each existing note, the poison and memory-defense scans), then written with a rollback if any write fails, so a failing patch leaves the vault exactly as it was. Creating a page needs NO confirmation (restore_note undoes it; each patched or overwritten note is snapshotted first); overwriting an existing non-empty page (`page.mode: overwrite`) asks for confirmation exactly like write_note. Re-checks at commit time that no other page already covers the topic (an identity match refuses the commit with the existing page named; `allow_duplicate: true` overrides). Problems that are for you to fix do NOT block the write and come back in `problems`: frontmatter that breaks the wiki folder's SCHEMA.md (missing required field, unknown type or property, value outside the vocabulary), links in the page that resolve to no note, related notes from the link map the page does not link, patches that add no link, a page nothing links to. Open contradictions already flagged on a touched note come back in `contradictions`. Patches only ADD (`link`: a bullet under a heading, once; `append`: text at the end or under a heading); rewrite prose with patch_note. Every write is recorded in the write provenance chain and indexed.",
+    domain: "knowledge",
+    requiredScopes: ["write:notes"],
+    tags: ["external-network", "knowledge"],
+    hasPathAcl: true,
+    inputKeys: ["allow_duplicate", "judge", "page", "patches", "sources", "topic", "type", "vault"],
+    outputKeys: [
+      "committed",
+      "contradictions",
+      "dedupe",
+      "next",
+      "page",
+      "patches",
+      "problems",
+      "redactions",
+      "vault",
+    ],
+  },
 ];
 
 function stubDeps(): M7Deps {
@@ -338,7 +392,7 @@ function stubDeps(): M7Deps {
 }
 
 describe("m7 tool metadata parity (WP2 invariant)", () => {
-  it("keeps the ordered public metadata of the 12 M7 tools byte-identical", () => {
+  it("keeps the ordered public metadata of the 14 M7 tools byte-identical", () => {
     const tools = buildKnowledgeTools(stubDeps(), () => undefined);
     const actual = tools.map(toSnapshot);
     expect(stableStringify(actual)).toBe(stableStringify(EXPECTED));

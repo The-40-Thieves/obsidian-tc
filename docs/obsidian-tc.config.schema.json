@@ -297,6 +297,20 @@
               }
             }
           },
+          "wiki": {
+            "description": "Per-vault LLM wiki settings (the wiki folder and its SCHEMA.md). Absent means no wiki folder.",
+            "type": "object",
+            "properties": {
+              "folder": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Vault-relative folder that holds this vault's LLM wiki. A `SCHEMA.md` in it declares the page types, the frontmatter each type requires and the allowed property vocabulary; draft_wiki_page proposes pages in this folder and commit_wiki_page creates them there without a confirmation (snapshots and restore_note are the undo). Absent means the vault has no wiki folder and the two tools apply no schema."
+              }
+            },
+            "required": [
+              "folder"
+            ]
+          },
           "index": {
             "description": "Per-vault index controls. Absent means only the Excluded files list in the vault's own `.obsidian/app.json` applies.",
             "type": "object",
