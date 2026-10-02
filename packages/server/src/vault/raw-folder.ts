@@ -3,6 +3,7 @@
 // it: everything under the wiki folder is a wiki page that lint_wiki checks and commit_wiki_page may
 // create, and a source is neither. The two must never overlap, in either direction, so a page can
 // never be written into the immutable folder and the immutable rule can never cover a wiki page.
+import { escapeGlob } from "../acl";
 import { normalizeVaultPath } from "./paths";
 
 /** `folder` exactly as written when it is a canonical in-vault folder path; anything else throws
@@ -56,5 +57,7 @@ export function rawFolderOf(
   return raw;
 }
 
-/** The globs that make `rawFolder` immutable: the folder itself and everything under it. */
-export const immutableGlobsFor = (rawFolder: string): string[] => [rawFolder, `${rawFolder}/**`];
+/** The globs that make each of `folders` immutable: the folder itself and everything under it. The
+ *  name is escaped, so a folder called `a*b` locks that folder and not every `aXb`. */
+export const immutableGlobsFor = (...folders: string[]): string[] =>
+  folders.flatMap((f) => [escapeGlob(f), `${escapeGlob(f)}/**`]);

@@ -8,7 +8,7 @@
 // make two distinct directories equal. A folder that does not exist yet has no identity: then only
 // the exact configured spelling is in it, and any other spelling is refused (fail closed). A vault
 // with no wiki folder has no place a page may go: nothing is ever "in the wiki" by default.
-import { statSync } from "node:fs";
+import { lstatSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { CASE_INSENSITIVE_FS } from "../../../acl";
@@ -111,4 +111,54 @@ export function insideFolder(root: string, folder: string, rel: string): boolean
  *  should link to a new page) leave them out. No raw folder: nothing is raw. */
 export function rawPathFilter(rawFolder: string | undefined): (rel: string) => boolean {
   return rawFolder === undefined ? () => false : (rel) => pathInFolder(rel, rawFolder);
+}
+
+/** Where a vault's configured raw folder really is: `canonical` is the in-vault directory it leads to
+ *  when that is not the configured spelling (a symlinked folder or ancestor), null when it is the
+ *  folder itself or does not exist yet. Not ok: the folder leaves the vault, is the vault root, or
+ *  its identity cannot be established (a dangling symlink, not a directory); the caller then locks
+ *  nothing extra and refuses to ingest from it. */
+export type RawFolderPlacement =
+  | { ok: true; canonical: string | null }
+  | { ok: false; reason: string };
+
+export function rawFolderPlacement(root: string, rawFolder: string): RawFolderPlacement {
+  let aclRel: string;
+  try {
+    aclRel = resolveVaultPathChecked(root, rawFolder).aclRel;
+  } catch {
+    return { ok: false, reason: "it leaves the vault or cannot be resolved" };
+  }
+  if (aclRel === "") return { ok: false, reason: "it resolves to the vault root" };
+  const abs = resolveVaultPath(root, rawFolder);
+  let exists = true;
+  try {
+    lstatSync(abs);
+  } catch {
+    exists = false;
+  }
+  if (exists && dirIdentity(abs) === null)
+    return { ok: false, reason: "its directory identity cannot be established" };
+  return { ok: true, canonical: aclRel === rawFolder ? null : aclRel };
+}
+
+/** Whether two configured folders are one directory, or one holds the other, as the filesystem
+ *  resolves them (a symlinked folder is the same directory as its target; spelling cannot say that). A
+ *  folder that does not exist has no identity and overlaps nothing here: the lexical check covers it. */
+export function foldersShareDirectory(root: string, a: string, b: string): boolean {
+  const idA = dirIdentity(resolveVaultPath(root, a));
+  const idB = dirIdentity(resolveVaultPath(root, b));
+  if (idA === null || idB === null) return false;
+  const holds = (folder: string, id: string): boolean => {
+    let real: string | null = null;
+    try {
+      real = resolveVaultPathChecked(root, folder).aclRel;
+    } catch {
+      real = null;
+    }
+    return [folder, real].some(
+      (rel) => rel !== null && rel !== "" && folderAbove(root, id, `${rel}/x`),
+    );
+  };
+  return holds(a, idB) || holds(b, idA);
 }

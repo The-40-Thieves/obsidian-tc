@@ -16,7 +16,7 @@ import { normalizeVaultPath, resolveVaultPath } from "../../../vault/paths";
 import type { ResolvedVault } from "../../../vault/registry";
 import { ScanWarnings } from "../../scan-warnings";
 import { linksOf } from "../../wiki-scan";
-import { insideFolder, pathInFolder } from "./wiki-folder";
+import { insideFolder, pathInFolder, rawFolderPlacement } from "./wiki-folder";
 
 /**
  * The compression rule. A page should be shorter than what it distils, so a source under this many
@@ -47,9 +47,11 @@ export const sourceLink = (path: string): string => `[[${path.replace(/\.md$/i, 
 const H1 = /^#\s+(.+?)\s*#*\s*$/m;
 
 /**
- * Validate and read the raw source `source` names. Throws invalid_input (no raw folder, not a
- * markdown note, outside the raw folder) or note_not_found (missing, or not readable by this
- * caller, with the same answer).
+ * Validate and read the raw source `source` names. Throws invalid_input (no raw folder, a raw folder
+ * whose identity cannot be established, not a markdown note, outside the raw folder) or
+ * note_not_found (missing, or not readable by this caller, with the same answer). The read check
+ * runs BEFORE anything that looks at the filesystem object, so a read-denied symlink cannot be told
+ * from a missing file.
  */
 export function readRawSource(
   v: ResolvedVault,
@@ -61,17 +63,17 @@ export function readRawSource(
       "this vault has no raw folder: set vaults[].wiki.folder (the raw folder then defaults to `raw` beside it) or vaults[].wiki.rawFolder",
       { reason: "no_raw_folder", path: source },
     );
+  const placed = rawFolderPlacement(v.root, v.rawFolder);
+  if (!placed.ok)
+    throw err.invalidInput(
+      `the raw folder (${v.rawFolder}/) cannot be used for ingest: ${placed.reason}`,
+      { reason: "raw_folder_unsafe", raw_folder: v.rawFolder },
+    );
   const rel = normalizeVaultPath(source);
   if (!/\.md$/i.test(rel))
     throw err.invalidInput("a raw source must be a markdown note (.md)", {
       reason: "not_markdown",
       path: rel,
-    });
-  if (!insideFolder(v.root, v.rawFolder, rel))
-    throw err.invalidInput(`a raw source must be inside the raw folder (${v.rawFolder}/)`, {
-      reason: "outside_raw_folder",
-      path: rel,
-      raw_folder: v.rawFolder,
     });
   const notFound = (): never => {
     throw err.noteNotFound("raw source not found", { path: rel });
@@ -82,6 +84,12 @@ export function readRawSource(
     if (e instanceof ObsidianTcError && e.code === "acl_denied") return notFound();
     throw e;
   }
+  if (!insideFolder(v.root, v.rawFolder, rel))
+    throw err.invalidInput(`a raw source must be inside the raw folder (${v.rawFolder}/)`, {
+      reason: "outside_raw_folder",
+      path: rel,
+      raw_folder: v.rawFolder,
+    });
   const abs = resolveVaultPath(v.root, rel);
   const ex = noteExists(abs);
   if (!ex.exists || ex.type === "folder") return notFound();

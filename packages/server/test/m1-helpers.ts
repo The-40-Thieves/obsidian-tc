@@ -26,6 +26,9 @@ import { makeTempDir, rmTemp } from "./tmp";
 
 export interface TestVaultOptions {
   files?: Record<string, string>;
+  /** Runs after `files` are written and BEFORE the ACLs are built: the one place to lay out
+   *  symlinks the per-vault ACL is derived from (a raw folder that is itself a symlink). */
+  setup?: (root: string) => void;
   acl?: Partial<AclConfigT>;
   vaultId?: string;
   snapshots?: { enabled: boolean; retention: number };
@@ -102,6 +105,7 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
     writeFileSync(abs, content);
   };
   for (const [rel, content] of Object.entries(opts.files ?? {})) writeFile(rel, content);
+  opts.setup?.(root);
 
   const db = openMemoryDb();
   provisionCacheDb(db);
@@ -122,6 +126,7 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
   const { acl: rootAcl, aclByVault: overrides } = buildAcls(aclCfg, [
     {
       id,
+      path: root,
       wiki,
       ...(opts.aclByVault?.[id] ? { acl: withDefaults(opts.aclByVault[id]) } : {}),
     },

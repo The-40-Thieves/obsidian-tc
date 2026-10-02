@@ -420,6 +420,14 @@ an overwrite or a patch that targets it, and refuses the whole commit. Add sourc
 (Obsidian, a web clipper, the file system). Raw notes are inputs, so they are never `find_existing_page`
 or `draft_wiki_page` candidates and never offered as a `link_from` patch.
 
+**Renames leave raw notes alone.** `move_note`, `bulk_move_notes` and `move_attachment` repoint the
+links in every note that links the moved target, but never in a raw note. The move proceeds; each raw
+note that links the target is left as it was, so its link now points at the old name. The result says
+so: `immutable_not_updated` lists those notes you may read, `immutable_not_updated_hidden` counts the
+ones you may not (a count, never a path), and `immutable_warning` explains. Repoint them outside the
+server. If `raw` is a symlink to another folder in the vault, that folder is immutable too (from the
+next server restart), and the raw folder and wiki folder must not be the same directory.
+
 **Ingest.** Pass one raw note to `draft_wiki_page` as `source` (a `.md` note inside the raw folder, with
 the `topic` of the page it feeds). You get the usual duplicate check, link map and changeset skeleton,
 and the server does the bookkeeping:
@@ -442,8 +450,10 @@ the security rules (immutable raw, no raw page) are enforced by `commit_wiki_pag
 does not exist (`note_not_found`), before any byte of it is read; a path outside the raw folder is
 `invalid_input` (`reason: outside_raw_folder`), judged on the filesystem like the wiki folder (the
 folder's device and inode against each directory above the path, as written and after symlinks); a vault
-without a raw folder is `invalid_input` (`reason: no_raw_folder`); a non-markdown file is refused
-(`reason: not_markdown`).
+without a raw folder is `invalid_input` (`reason: no_raw_folder`); a raw folder that leaves the vault
+or whose identity cannot be established is `invalid_input` (`reason: raw_folder_unsafe`); a non-markdown
+file is refused (`reason: not_markdown`). The read check comes first, so a read-denied symlink answers
+`note_not_found` like a missing file.
 
 **Problems versus errors.** Things for you to fix do not block the write; they come back in
 `problems`: `schema` (missing required field, unknown type or property, value outside the vocabulary),

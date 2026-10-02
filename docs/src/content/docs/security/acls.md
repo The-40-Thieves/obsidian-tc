@@ -173,6 +173,18 @@ the matched rule). The rule is checked on the path as written and on the real pa
 cannot carry a write into the folder or out of it. A hard-linked file is refused by the existing aliasing
 guard. See [Ingesting a raw source](/tools/#ingesting-a-raw-source).
 
+Two things keep that rule whole. **Link maintenance does not write there:** `move_note`,
+`bulk_move_notes` and `move_attachment` repoint links in every linking note outside the write whitelist
+(a deliberate carve-out), but never in a raw note. The move goes ahead and the raw notes that link the
+moved target keep their old links; the result reports them (`immutable_not_updated` for notes the caller
+may read, `immutable_not_updated_hidden` as a bare count for the rest, and an `immutable_warning`).
+**A symlinked raw folder is locked under both names:** if `raw` is a symlink to another in-vault folder
+the rule covers that folder too, and the wiki folder must not be the same directory by filesystem
+identity (the server refuses to start). The real folder is resolved when the server starts, so a symlink
+made afterwards takes effect at the next restart. A raw folder that leaves the vault, or whose identity
+cannot be established, locks nothing extra and cannot be ingested from. Folder names with `*`, `?` or
+`[` are matched literally.
+
 ## Scope classes & rate tiers
 
 Each tool's required scopes resolve to one **scope class**, chosen by

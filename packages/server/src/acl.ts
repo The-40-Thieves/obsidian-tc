@@ -24,7 +24,7 @@ export interface AclConfigT {
   immutablePaths?: string[];
 }
 
-const reEscape = (c: string): string => c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+const reEscape = (c: string): string => c.replace(/[.+*?^${}()|[\]\\]/g, "\\$&");
 
 /** `name` as a glob that matches only that literal text: `*`, `?` and `\` are backslash-escaped (a
  *  folder called `a*b` must not become a wildcard). `[` is literal in this grammar already. */

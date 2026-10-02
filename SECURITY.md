@@ -705,7 +705,23 @@ so operators can reason about them rather than discover them.
   writable notes) would leave dangling links and is the worse failure. The rewrite is confined to
   reference fix-ups for the moved attachment (never arbitrary content), and the move itself stays
   ACL- and HITL-gated. Deployments that require strict per-note write isolation should disable
-  `move_attachment` via `toolVisibility`.
+  `move_attachment` via `toolVisibility`. The same carve-out backs `move_note` (`update_backlinks`)
+  and `bulk_move_notes`. **It never reaches an immutable path:** a vault's raw-sources folder
+  (`vaults[].wiki.rawFolder`) is not rewritten by any of the three, judged on the name as written and
+  on the real path. The move itself proceeds; the raw notes that link the moved target are left alone,
+  so those links keep pointing at the old name. The result lists them as `immutable_not_updated` (only
+  notes the caller may read; the rest are a count, `immutable_not_updated_hidden`, never a path) with an
+  `immutable_warning`. One shared guard (`ImmutableRewriteSkips`, `vault/acl-path.ts`) serves all three.
+- **A raw folder that is a symlink is locked by its target too, from the next restart.** The immutable
+  rule is built from the configuration when the server starts: for a raw folder that is a symlink (or
+  sits under one) to another in-vault directory it covers both the configured name and the directory it
+  really is, so writing `sources/clip.md` is as refused as writing `raw/clip.md` when `raw -> sources`.
+  A symlink created after startup is picked up on the next restart (`reload_vault` does not rebuild
+  ACLs). The wiki folder and the raw folder must not be one directory, or hold one another, by
+  filesystem identity; the server refuses to start such a vault. A raw folder that leaves the vault, is
+  the vault root, or whose identity cannot be established (a dangling symlink) locks nothing extra and
+  `draft_wiki_page` refuses to ingest from it (`reason: raw_folder_unsafe`): the failure mode never
+  unlocks a path.
 - **Token max-age applies only to `iat`-bearing tokens (M-3, THE-304).** The JWT verifier enforces
   `auth.tokenTtlSeconds` against a token's `iat`; a token minted without `iat` (exp-only) is accepted
   for its full `exp` lifetime and is not additionally aged. This is a deliberate contract (exp-only

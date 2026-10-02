@@ -32,6 +32,13 @@ The cache caps total entries (1000) and evicts the oldest on overflow. `Map` pre
 order, so this is a cheap FIFO — an LRU is unnecessary because the goal is bounding worst-case
 growth from a caller pumping distinct globs, not maximizing hit rate.
 
+## Literal characters in a glob
+
+`*` and `**` and `?` are wildcards. A backslash makes the next character literal (`a\*b` matches only
+`a*b`), and `escapeGlob` (`acl.ts`) does that for a folder NAME. Globs the server builds from a folder
+name, such as a vault's immutable raw folder, go through it, so a folder called `my*raw` locks that
+folder and not every `myXraw`. `[` has no special meaning in this grammar.
+
 ## Case-insensitivity and Unicode normalization (THE-272)
 
 Two independent hazards, both handled by normalizing before comparison rather than trusting the
