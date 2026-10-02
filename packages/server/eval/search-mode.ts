@@ -30,6 +30,7 @@ import { compileEgressFilter } from "../src/plane/egress-filter";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { registerM2Tools } from "../src/tools/m2";
 import { VaultRegistry } from "../src/vault/registry";
+import { assertGoldenNotInVault } from "./golden-guard";
 import {
   aggregateMetrics,
   computeQueryMetrics,
@@ -66,6 +67,8 @@ const config = loadConfig(configPath);
 const vault = config.vaults[0];
 if (!vault) throw new Error("config.vaults is empty");
 const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath, "utf8")));
+// Fail before scoring if the vault quotes the golden set (see eval/golden-guard.ts).
+assertGoldenNotInVault(golden, vault.path);
 const vecs = new Map<string, number[]>(
   Object.entries(JSON.parse(readFileSync(vecsPath, "utf8")) as Record<string, number[]>),
 );

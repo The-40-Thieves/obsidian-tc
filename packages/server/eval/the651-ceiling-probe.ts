@@ -34,6 +34,7 @@ import { createEmbeddingProvider } from "../src/embeddings";
 import { createGatewayClient } from "../src/gateway/client";
 import { compileEgressFilter } from "../src/plane/egress-filter";
 import { graphSearch } from "../src/search/graph_search";
+import { assertGoldenNotInVault } from "./golden-guard";
 import { GoldenSetSchema } from "./metrics";
 
 /** MUST mirror `multiHopSignals()` in src/search/router.ts. That lives on the parked branch, so it
@@ -107,6 +108,8 @@ async function main(): Promise<void> {
     cacheDir: config.cacheDir,
   });
   const golden = GoldenSetSchema.parse(parseYaml(readFileSync(goldenPath, "utf8")));
+  // Fail before scoring if the vault quotes the golden set (see eval/golden-guard.ts).
+  assertGoldenNotInVault(golden, vault.path);
 
   // --- the slice -------------------------------------------------------------------------------
   const slice = golden.queries.filter(
