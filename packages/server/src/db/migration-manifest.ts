@@ -105,6 +105,10 @@ export const CACHE_MIGRATION_FILES = [
   // the signed per-vault head/prune anchor. cache.db chain (beside event_log), but NOT disposable:
   // see the migration header.
   "20260930_002_write_provenance.sql",
+  // 20261001_001 adds `rejudged_at` / `resolution_reason` to contradictions so the re-judge command
+  // can dismiss (not delete) rows a better judge clears and resume after an interruption. See the
+  // migration header.
+  "20261001_001_contradictions_rejudge.sql",
 ] as const;
 
 /**

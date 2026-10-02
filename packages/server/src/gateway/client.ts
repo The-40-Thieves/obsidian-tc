@@ -122,6 +122,10 @@ interface ChatCompletionResponse {
   choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
 }
 
+interface ModelInfoResponse {
+  data?: Array<{ litellm_params?: { model?: string }; model_info?: { id?: string } }>;
+}
+
 interface RerankResponse {
   model?: string;
   results?: Array<{ index: number; relevance_score: number }>;
@@ -201,7 +205,7 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
   const retryMaxDelayMs = opts.retryMaxDelayMs ?? DEFAULT_RETRY_MAX_MS;
   const sleepFn = opts.sleepFn ?? realSleep;
 
-  async function post<T>(path: string, body: unknown): Promise<T> {
+  async function postRaw<T>(path: string, body: unknown): Promise<{ body: T; headers: Headers }> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       // A FRESH AbortController every attempt. Reusing one across retries means every retry
@@ -237,7 +241,7 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
       }
 
       if (res) {
-        if (res.ok) return (await res.json()) as T;
+        if (res.ok) return { body: (await res.json()) as T, headers: res.headers };
         const retryAfterMs =
           res.status === 429 ? parseRetryAfterMs(res.headers.get("retry-after")) : null;
         lastError = new ObsidianTcError("internal", `gateway returned HTTP ${res.status}`, {
@@ -266,9 +270,54 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
     throw lastError;
   }
 
+  async function post<T>(path: string, body: unknown): Promise<T> {
+    return (await postRaw<T>(path, body)).body;
+  }
+
+  // LiteLLM echoes the REQUESTED ALIAS in the response body's `model` (measured against the live
+  // gateway 2026-10-01: `model: "judge"`; no resolved model anywhere in the body) and names the
+  // serving deployment only by an opaque `x-litellm-model-id` header. A caller persisting
+  // `payload.model` therefore stored the alias, and every verdict from before and after a repoint
+  // of that alias (gpt-4.1 -> gpt-6-sol) read identically. The deployment id is resolved to the
+  // real `provider/model` string through GET /model/info — a deployment's model never changes
+  // under its id, so a hit is cached for the life of the client; a failure is cached only briefly
+  // so a down endpoint is not re-hit on every call, yet a restored one is picked up.
+  const deploymentModels = new Map<string, { model: string | null; at: number }>();
+  const NEGATIVE_CACHE_MS = 60_000;
+  async function resolveDeploymentModel(deploymentId: string): Promise<string | null> {
+    const hit = deploymentModels.get(deploymentId);
+    if (hit && (hit.model !== null || Date.now() - hit.at < NEGATIVE_CACHE_MS)) return hit.model;
+    let model: string | null = null;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), Math.min(timeoutMs, 5_000));
+    try {
+      const res = await fetchFn(
+        `${base}/model/info?litellm_model_id=${encodeURIComponent(deploymentId)}`,
+        {
+          method: "GET",
+          headers: token ? { authorization: `Bearer ${token}` } : {},
+          signal: ctrl.signal,
+        },
+      );
+      if (res.ok) {
+        const info = (await res.json()) as ModelInfoResponse;
+        // Match on the id rather than trusting the filter: an older proxy ignores the query
+        // parameter and returns the whole model list.
+        const m = info.data?.find((d) => d.model_info?.id === deploymentId)?.litellm_params?.model;
+        if (typeof m === "string" && m.length > 0) model = m;
+      }
+    } catch {
+      // Provenance is best-effort: the completion already succeeded.
+    } finally {
+      clearTimeout(timer);
+    }
+    deploymentModels.set(deploymentId, { model, at: Date.now() });
+    return model;
+  }
+
   async function complete(role: GatewayRole, req: CompletionRequest): Promise<CompletionResult> {
     const model = opts.models?.[role] ?? role;
-    const payload = await post<ChatCompletionResponse>("/chat/completions", {
+    const { body: payload, headers } = await postRaw<ChatCompletionResponse>("/chat/completions", {
       model,
       messages: req.messages,
       ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
@@ -276,9 +325,14 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
       ...(req.responseFormat ? { response_format: req.responseFormat } : {}),
     });
     const choice = payload.choices?.[0];
+    let reported = payload.model ?? model;
+    const deploymentId = headers.get("x-litellm-model-id");
+    if (reported === model && deploymentId) {
+      reported = (await resolveDeploymentModel(deploymentId)) ?? reported;
+    }
     return {
       text: choice?.message?.content ?? "",
-      model: payload.model ?? model,
+      model: reported,
       ...(choice?.finish_reason !== undefined ? { finishReason: choice.finish_reason } : {}),
     };
   }

@@ -45,6 +45,86 @@ describe("gateway client", () => {
     expect(calls[0]?.auth).toBe("Bearer k");
   });
 
+  // The live LiteLLM gateway echoes the REQUESTED ALIAS in the response body's `model` (measured
+  // 2026-10-01: body.model === "judge", resolved model nowhere in the body) and identifies the
+  // deployment only by an opaque `x-litellm-model-id` header. Persisting `body.model` therefore
+  // stored the alias, so a verdict from before and after a repoint of that alias were
+  // indistinguishable. The deployment id is resolved to the real model via GET /model/info.
+  describe("resolved-model provenance (alias echoed by the gateway)", () => {
+    const DEP = "3a9e0e22bb6d";
+    function gatewayFetch(opts: { infoStatus?: number; header?: string | null } = {}) {
+      const urls: string[] = [];
+      const auth: Array<string | undefined> = [];
+      const fetchFn = (async (url: any, init: any) => {
+        urls.push(String(url));
+        auth.push(init?.headers?.authorization);
+        if (String(url).includes("/model/info")) {
+          if ((opts.infoStatus ?? 200) !== 200)
+            return jsonResponse({ error: "no" }, opts.infoStatus);
+          return jsonResponse({
+            data: [
+              {
+                model_name: "other",
+                litellm_params: { model: "x/other" },
+                model_info: { id: "zzz" },
+              },
+              {
+                model_name: "judge",
+                litellm_params: { model: "openai/gpt-6-sol" },
+                model_info: { id: DEP },
+              },
+            ],
+          });
+        }
+        const headers = new Headers({ "content-type": "application/json" });
+        if (opts.header !== null) headers.set("x-litellm-model-id", opts.header ?? DEP);
+        return new Response(
+          JSON.stringify({ model: "judge", choices: [{ message: { content: "ok" } }] }),
+          { status: 200, headers },
+        );
+      }) as unknown as typeof fetch;
+      return { fetchFn, urls, auth };
+    }
+    const req = { messages: [{ role: "user" as const, content: "j" }], sourcePaths: [] };
+
+    it("reports the deployment's real model instead of the alias, and caches the lookup", async () => {
+      const { fetchFn, urls, auth } = gatewayFetch();
+      const client = createGatewayClient({ baseUrl: "http://gw", token: "k", fetchFn });
+      expect((await client.judge(req)).model).toBe("openai/gpt-6-sol");
+      expect((await client.judge(req)).model).toBe("openai/gpt-6-sol");
+      expect(urls.filter((u) => u.includes("/model/info"))).toHaveLength(1);
+      expect(urls.find((u) => u.includes("/model/info"))).toContain(`litellm_model_id=${DEP}`);
+      expect(auth.every((a) => a === "Bearer k")).toBe(true);
+    });
+
+    it("falls back to the body model when the lookup fails — a call never fails over provenance", async () => {
+      const { fetchFn } = gatewayFetch({ infoStatus: 500 });
+      const client = createGatewayClient({ baseUrl: "http://gw", fetchFn, maxAttempts: 1 });
+      expect((await client.judge(req)).model).toBe("judge");
+    });
+
+    it("makes no lookup when the gateway sends no deployment header", async () => {
+      const { fetchFn, urls } = gatewayFetch({ header: null });
+      const client = createGatewayClient({ baseUrl: "http://gw", fetchFn });
+      expect((await client.judge(req)).model).toBe("judge");
+      expect(urls.some((u) => u.includes("/model/info"))).toBe(false);
+    });
+
+    it("trusts a body model that is not the requested alias without a lookup", async () => {
+      const urls: string[] = [];
+      const fetchFn = (async (url: any) => {
+        urls.push(String(url));
+        return new Response(
+          JSON.stringify({ model: "gpt-4.1-2025", choices: [{ message: { content: "ok" } }] }),
+          { status: 200, headers: { "x-litellm-model-id": DEP } },
+        );
+      }) as unknown as typeof fetch;
+      const client = createGatewayClient({ baseUrl: "http://gw", fetchFn });
+      expect((await client.judge(req)).model).toBe("gpt-4.1-2025");
+      expect(urls).toHaveLength(1);
+    });
+  });
+
   it("models override maps a role to a concrete gateway model", async () => {
     let sentModel = "";
     const fetchFn = (async (_url: any, init: any) => {

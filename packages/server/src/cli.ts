@@ -24,6 +24,7 @@ import { run_config_show } from "./cli/commands/config-show";
 import { run_consolidate } from "./cli/commands/consolidate";
 import { run_context_export } from "./cli/commands/context-export";
 import { run_context_import } from "./cli/commands/context-import";
+import { run_contradiction_rejudge } from "./cli/commands/contradiction-rejudge";
 import { run_contribution_report } from "./cli/commands/contribution-report";
 import { run_densify_llm } from "./cli/commands/densify-llm";
 import { run_doctor } from "./cli/commands/doctor";
@@ -107,7 +108,10 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
 // reproduces it, so an audit row would be noise (a rewritten cluster assignment is not a loss
 // event). `consolidate` (THE-934) joins that recompute bucket for the same reason — the syntheses/
 // audit_reports rows it writes are reproduced by the next scheduled pass, and `--dry-run` writes
-// nothing at all. `prefetch` dispatches properly through `registry.dispatch` and gets an audit row for
+// nothing at all. `contradiction-rejudge` is a one-time operator data fix that audits itself in
+// the row: every ruling stamps `rejudged_at` and a dismissal keeps the original verdict beside a
+// `resolution_reason`, so an `audit_events` row would only repeat what the table already says.
+// `prefetch` dispatches properly through `registry.dispatch` and gets an audit row for
 // free — `memory import` (THE-1124) joins it: every create_entity/add_observation/link_entities/
 // update_frontmatter call goes through the same bound `registry.dispatch`, so it is audited (and
 // ACL-checked) exactly like an MCP client's own call, and `--apply`-less dry runs write nothing at
@@ -188,6 +192,8 @@ async function main(): Promise<void> {
       return run_memory_import(cmd);
     case "consolidate":
       return run_consolidate(cmd);
+    case "contradiction-rejudge":
+      return run_contradiction_rejudge(cmd);
     case "gaps":
       return run_gaps(cmd);
     case "index":
