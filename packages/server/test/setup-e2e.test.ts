@@ -344,7 +344,7 @@ describe("obsidian-tc setup — end to end", () => {
 
     const unreadable: Array<[string, string, RegExp]> = [
       ["malformed JSON", '{"vaults": [', /not valid JSON/i],
-      ["a truncated acl block", '{"acl": {"readOnly": tru', /not valid JSON/i],
+      ["a truncated acl block", '{"acl": {"readOnly": ', /not valid JSON/i],
       ["null", "null", /root is null/i],
       ["123", "123", /root is a number/i],
       ['"x"', '"x"', /root is a string/i],
