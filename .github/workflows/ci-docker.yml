@@ -11,6 +11,8 @@ on:
       - ".dockerignore"
       - "packages/server/**"
       - "packages/shared/**"
+      - "packages/native/**"
+      - "scripts/docker-boot-smoke.mjs"
       - "package.json"
       - "bun.lock"
       - ".github/workflows/ci-docker.yml"
@@ -30,6 +32,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The image carries the compiled native module, which the Dockerfile only COPIES from the
+      # build context (no Rust toolchain in the image). Build the runner's glibc prebuild here, the
+      # same way ci-native does (debug: this is a boot check, not a release artifact), so the
+      # Dockerfile's NATIVE_REQUIRED=1 default is satisfied and the boot smoke below can assert
+      # native=on instead of accepting the silent pure-JS fallback.
+      - uses: ./.github/actions/setup-repo
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: x86_64-unknown-linux-gnu
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: packages/native
+      - name: build the native module for the image (linux-x64-gnu)
+        working-directory: packages/native
+        run: bun run build:debug -- --target x86_64-unknown-linux-gnu
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: build image (no push, load into the local daemon)
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -58,6 +75,14 @@ jobs:
           got=$(docker run --rm --entrypoint bun obsidian-tc:ci --eval 'const { createRequire } = await import("node:module"); console.log(typeof createRequire("/app/packages/server/dist/cli.js")("@redis/client").createClient)')
           echo "createClient is: $got"
           [ "$got" = "function" ] || { echo "::error::@redis/client does not resolve from the image bundle"; exit 1; }
+      # Offline boot: `native` and `vec` are optional at run time, so an image that lost sqlite-vec
+      # (or the native module) still builds, still reports its version and still boots; the only
+      # trace is `vec=off` / `native=js-fallback` in the ready banner. That is exactly how 1.32.0
+      # shipped with dense retrieval silently degraded to the brute-force scan. --network none makes
+      # the check honest: the packages must be IN the image, not fetched by Bun's runtime
+      # auto-install (which a present node_modules switches off anyway).
+      - name: smoke — the image boots offline with native=on and vec=on
+        run: node scripts/docker-boot-smoke.mjs obsidian-tc:ci
       # The image is already built and loaded above; scanning it here costs one extra step and
       # closes a real gap — cargo-audit/bun-audit/osv-scanner all read LOCKFILES, so none of them
       # sees the OS packages the base image ships. A vulnerable libssl in the runtime layer was

@@ -25,6 +25,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The image ships the compiled native module for its arch (the Dockerfile copies it from the
+      # build context and fails the build if it is missing). npm is already live for this version
+      # (that is what this workflow is for), so take the two glibc prebuilds from the published
+      # platform packages instead of rebuilding them.
+      - name: fetch the published native prebuilds (linux x64 + arm64, glibc)
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          for arch in x64 arm64; do
+            pkg="@the-40-thieves/obsidian-tc-native-linux-${arch}-gnu"
+            tgz=$(npm pack "${pkg}@${VERSION}" --silent)
+            tar -xzf "$tgz" --strip-components=1 -C packages/native "package/obsidian-tc-native.linux-${arch}-gnu.node"
+            rm -f "$tgz"
+          done
+          ls -l packages/native/*.node
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
