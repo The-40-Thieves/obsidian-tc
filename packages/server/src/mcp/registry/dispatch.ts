@@ -376,6 +376,15 @@ export async function runDispatch(
     // BEFORE the HITL gate spends the single-use confirmation token.
     checkAborted(ctx.signal);
 
+    // Write provenance hashes the named paths BEFORE the HITL gate, not after it: the hashing awaits,
+    // and a cancel landing during it must stop the call while the single-use confirmation is still
+    // unspent. A call that then fails a gate settles "error" below, which records nothing unless a
+    // named path actually changed.
+    if (mutating) {
+      await provenance.begin(def, inputData, ctx);
+      checkAborted(ctx.signal);
+    }
+
     // HITL gate. A destructive/HITL-floored tool requires a valid single-use elicit
     // token; verifyElicit consumes it (UPDATE ... WHERE consumed_at IS NULL). Runs after
     // the throttle gate (so a rate-limited call doesn't burn the confirmation) and last
@@ -466,11 +475,6 @@ export async function runDispatch(
         // THE-514: the last chance to bail before the handler — and any side effect — runs.
         // idemClaimed's claim is still pre-effect here, so the catch below deletes it cleanly.
         checkAborted(ctx.signal);
-        if (mutating) {
-          await provenance.begin(def, inputData, ctx);
-          // THE-514: provenance hashing awaits; a cancel during it must not reach the handler.
-          checkAborted(ctx.signal);
-        }
         const handlerStart = now();
         spans?.stage("tool_impl");
         const invoke = () => def.handler(inputData, ctx);

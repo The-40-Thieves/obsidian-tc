@@ -173,12 +173,25 @@ export function mintElicitForRaisedRequest(
   plan: ElicitMintPlan,
   opts: { now?: () => number } = {},
 ): string {
-  if (!hasRaisedElicitRequest(db, plan.vaultId, plan.argsHash, plan.caller, opts.now)) {
+  const raised = (stateFp?: string) =>
+    hasRaisedElicitRequest(db, plan.vaultId, plan.argsHash, plan.caller, opts.now, stateFp);
+  if (!raised()) {
     throw new CliError(
       `no raised request for args_hash ${plan.argsHash} (vault ${plan.vaultId}, caller ` +
         `${plan.caller}): the confirmation is bound to the state the request was raised against, ` +
         "which only the server can compute. Run the blocked tool call again to raise a request, then " +
         "mint for the args_hash it returns (--caller must match the requesting caller).",
+    );
+  }
+  // An explicit --state-fp must be the retained request's own: the newest row existing (and being
+  // fresh) says nothing about an older fingerprint, which the operator may be naming from a stale
+  // command, or from nothing at all.
+  if (plan.stateFp !== undefined && !raised(plan.stateFp)) {
+    throw new CliError(
+      `--state-fp does not match the retained request for args_hash ${plan.argsHash} (vault ` +
+        `${plan.vaultId}, caller ${plan.caller}): it was never stored here, or a newer request for ` +
+        "the same call replaced it. Run the blocked tool call again and mint with the state_fp it " +
+        "returns, so the token binds to the state that was actually shown.",
     );
   }
   return mintElicitAudited(db, plan, opts);

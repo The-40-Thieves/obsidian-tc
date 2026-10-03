@@ -90,25 +90,32 @@ function requestedRow(
   argsHash: string,
   caller: string | null,
   now: () => number,
+  stateFp?: string,
 ): { state_fp: string } | undefined {
-  return db
+  const row = db
     .prepare(
       "SELECT state_fp FROM elicit_requests WHERE vault_id = ? AND args_hash = ? AND caller = ? AND raised_at >= ?",
     )
     .get(vaultId, argsHash, caller ?? "", now() - REQUEST_RETENTION_MS) as
     | { state_fp: string }
     | undefined;
+  // A named fingerprint matches only the row that holds it: the key keeps ONE row (newest wins), so
+  // a request since replaced by a newer one is gone, and the newer row's existence and age must not
+  // vouch for the older fingerprint.
+  return stateFp !== undefined && row?.state_fp !== stateFp ? undefined : row;
 }
 
-/** Whether `elicit_required` was raised for this (vault, args_hash, caller) within retention. */
+/** Whether `elicit_required` was raised for this (vault, args_hash, caller) within retention. With
+ *  `stateFp`, whether the retained request is THAT one (same fingerprint, inside retention). */
 export function hasRaisedElicitRequest(
   db: Database,
   vaultId: string,
   argsHash: string,
   caller: string | null,
   now: () => number = Date.now,
+  stateFp?: string,
 ): boolean {
-  return requestedRow(db, vaultId, argsHash, caller, now) !== undefined;
+  return requestedRow(db, vaultId, argsHash, caller, now, stateFp) !== undefined;
 }
 
 /**

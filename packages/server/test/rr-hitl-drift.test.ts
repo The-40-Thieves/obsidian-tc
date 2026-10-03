@@ -2,7 +2,15 @@
 // failure, request retention). Each case quotes the reviewer's repro. The ledger selects them by
 // the RR-<id> prefix in the test name.
 import { execFileSync } from "node:child_process";
-import { existsSync, linkSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  linkSync,
+  mkdirSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
@@ -31,6 +39,7 @@ import { mintCommandFromDetails } from "../src/mcp/elicit-command";
 import { type CallerContext, type ToolDefinition, ToolRegistry } from "../src/mcp/registry";
 import type { ProvenanceSink } from "../src/mcp/registry/types";
 import { registerM1Tools } from "../src/tools/m1";
+import { registerM3Tools } from "../src/tools/m3";
 import { registerM4Tools } from "../src/tools/m4";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
@@ -79,6 +88,7 @@ function boot(files: Record<string, string> = {}) {
     startedAt: 0,
     embeddings: { provider: "none", model: "none" },
   });
+  registerM3Tools(registry, { vaultRegistry });
   registerM4Tools(registry, { vaultRegistry, capabilities, bridgeFor: () => client });
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({
     caller: CALLER,
@@ -121,7 +131,7 @@ function mintFromCommand(b: Booted, details: Record<string, unknown>): string {
 }
 
 describe("RR-M1 repeating a blocked call must not rebind an earlier mint command to newer state", () => {
-  it("RR-M1 reviewer repro: request deletion of a.md=A, change to B, repeat the request, mint the ORIGINAL command -> replay_drift, B survives", async () => {
+  it("RR-M1 reviewer repro: request deletion of a.md=A, change to B, repeat the request, mint the ORIGINAL command -> refused, B survives", async () => {
     const b = boot({ "a.md": "A" });
     try {
       const input = { vault: VAULT, path: "a.md" };
@@ -134,14 +144,22 @@ describe("RR-M1 repeating a blocked call must not rebind an earlier mint command
       expect(second.code).toBe("elicit_required");
       expect((second.details as { state_fp: string }).state_fp).not.toBe(original.state_fp);
 
-      const token = mintFromCommand(b, original);
-      // The headless mint binds the ORIGINAL request's state (A), not the newest row's (B).
-      const bound = b.db
-        .prepare("SELECT state_fp FROM elicit_tokens WHERE token = ?")
-        .get(token) as {
-        state_fp: string;
-      };
-      expect(bound.state_fp).toBe(original.state_fp);
+      // The original command names A's fingerprint; the retained request now holds B's, so the
+      // mint is refused rather than binding a token to a state nobody is being shown.
+      expect(() => mintFromCommand(b, original)).toThrow(/--state-fp does not match/);
+      expect(b.has("a.md")).toBe(true);
+    } finally {
+      b.cleanup();
+    }
+  });
+
+  it("RR-M1 a token minted for A before the re-raise still drifts once the note becomes B", async () => {
+    const b = boot({ "a.md": "A" });
+    try {
+      const input = { vault: VAULT, path: "a.md" };
+      const first = errOf(await b.call("delete_note", input));
+      const token = mintFromCommand(b, first.details as Record<string, unknown>);
+      b.write("a.md", "B");
       const r = await b.call("delete_note", input, { elicitToken: token });
       expect(errOf(r).code).toBe("replay_drift");
       expect(b.has("a.md")).toBe(true);
@@ -208,6 +226,52 @@ describe("RR-M2 a cancelled call never reaches its handler", () => {
     expect(controller.signal.aborted).toBe(true);
     expect(errOf(r).code).toBe("aborted");
     expect(effect.applied).toBe(0);
+  });
+
+  it("RR-M2 abort inside provenance.begin() on a HITL tool: the confirmation is NOT consumed and the handler never runs", async () => {
+    const effect = { applied: 0 };
+    let controller = new AbortController();
+    let armed = false;
+    const provenance: ProvenanceSink = {
+      begin: async () => {
+        if (armed) controller.abort();
+        return {};
+      },
+      commit: async () => {},
+    };
+    const registry = new ToolRegistry({ provenance, verifyElicit: elicitVerifier });
+    registry.register(writeTool(effect, true));
+    const base = baseCtx(controller.signal);
+    const raised = errOf(await registry.dispatch("rr_write", {}, base));
+    expect(raised.code).toBe("elicit_required");
+    const token = issueElicitToken(base.db, {
+      vaultId: VAULT,
+      toolName: "rr_write",
+      argsHash: (raised.details as { args_hash: string }).args_hash,
+      caller: CALLER,
+    });
+    controller = new AbortController();
+    armed = true;
+    const r = await registry.dispatch(
+      "rr_write",
+      {},
+      { ...base, signal: controller.signal, elicitToken: token },
+    );
+    expect(errOf(r).code).toBe("aborted");
+    expect(effect.applied).toBe(0);
+    const row = base.db
+      .prepare("SELECT consumed_at FROM elicit_tokens WHERE token = ?")
+      .get(token) as { consumed_at: number | null };
+    expect(row.consumed_at).toBeNull();
+    // the confirmation survives the cancel: the retry redeems it.
+    armed = false;
+    const retry = await registry.dispatch(
+      "rr_write",
+      {},
+      { ...base, signal: new AbortController().signal, elicitToken: token },
+    );
+    expect(retry.ok).toBe(true);
+    expect(effect.applied).toBe(1);
   });
 
   it("RR-M2 abort during the async throttle check: no confirmation token is spent and the handler is not called", async () => {
@@ -277,6 +341,32 @@ describe("RR-M3 a throwing fingerprint probe fails closed", () => {
     }
   });
 
+  // Root reads a write-only file, so the unreadable state cannot be staged there.
+  it.skipIf(process.getuid?.() === 0)(
+    "RR-M3 reviewer repro: a write-only attachment cannot be confirmed (no sentinel fingerprint), so its bytes cannot change under a confirmation",
+    async () => {
+      const b = boot({ "pic.png": "original-bytes" });
+      try {
+        const file = join(b.root, "pic.png");
+        chmodSync(file, 0o200);
+        const first = errOf(await b.call("delete_attachment", { vault: VAULT, path: "pic.png" }));
+        expect(first.code).not.toBe("elicit_required");
+        const rows = b.db.prepare("SELECT count(*) AS n FROM elicit_requests").get() as {
+          n: number;
+        };
+        expect(rows.n).toBe(0);
+        expect(b.has("pic.png")).toBe(true);
+        // control: once readable the same call raises a bound confirmation.
+        chmodSync(file, 0o600);
+        const again = errOf(await b.call("delete_attachment", { vault: VAULT, path: "pic.png" }));
+        expect(again.code).toBe("elicit_required");
+        expect((again.details as { state_fp?: string }).state_fp).toEqual(expect.any(String));
+      } finally {
+        b.cleanup();
+      }
+    },
+  );
+
   it("RR-M3 git_commit with an unreadable HEAD never raises an UNBOUND request", async () => {
     const b = boot();
     try {
@@ -320,5 +410,58 @@ describe("RR-L1 request retention is enforced on lookup", () => {
       state_fp: string | null;
     };
     expect(row.state_fp).toBeNull();
+  });
+});
+
+describe("RR-L3 an explicit --state-fp must match the retained request, with its own expiry", () => {
+  const H = 60 * 60 * 1000;
+  const t0 = 1_700_000_000_000;
+  const raise = (db: ReturnType<typeof openMemoryDb>, stateFp: string, at: number) =>
+    recordElicitRequest(db, {
+      vaultId: VAULT,
+      argsHash: "h1",
+      caller: CALLER,
+      stateFp,
+      now: () => at,
+    });
+  const planFor = (stateFp: string | undefined) => ({
+    vaultId: VAULT,
+    toolName: "t",
+    argsHash: "h1",
+    caller: CALLER,
+    ttlSeconds: 300,
+    ...(stateFp !== undefined ? { stateFp } : {}),
+  });
+
+  it("RR-L3 reviewer repro: record A, re-raise the same key with B 25h later, mint with A -> refused, no token", () => {
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    raise(db, "A", t0);
+    raise(db, "B", t0 + 25 * H);
+    const now = () => t0 + 25 * H;
+    expect(hasRaisedElicitRequest(db, VAULT, "h1", CALLER, now, "A")).toBe(false);
+    expect(() => mintElicitForRaisedRequest(db, planFor("A"), { now })).toThrow(
+      /--state-fp does not match/,
+    );
+    const n = db.prepare("SELECT count(*) AS n FROM elicit_tokens").get() as { n: number };
+    expect(n.n).toBe(0);
+  });
+
+  it("RR-L3 a --state-fp that was never stored is refused, the stored one and the newest default still mint", () => {
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    raise(db, "A", t0);
+    const now = () => t0 + H;
+    expect(() => mintElicitForRaisedRequest(db, planFor("never-stored"), { now })).toThrow(
+      /--state-fp does not match/,
+    );
+    const bound = (token: string) =>
+      (
+        db.prepare("SELECT state_fp FROM elicit_tokens WHERE token = ?").get(token) as {
+          state_fp: string;
+        }
+      ).state_fp;
+    expect(bound(mintElicitForRaisedRequest(db, planFor("A"), { now }))).toBe("A");
+    expect(bound(mintElicitForRaisedRequest(db, planFor(undefined), { now }))).toBe("A");
   });
 });

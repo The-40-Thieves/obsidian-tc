@@ -21,7 +21,7 @@ import {
   inputResponse,
   type Server,
 } from "@modelcontextprotocol/server";
-import type { ErrorJSON, MorgianaEventData } from "@the-40-thieves/obsidian-tc-shared";
+import { type ErrorJSON, err, type MorgianaEventData } from "@the-40-thieves/obsidian-tc-shared";
 import type { ElicitCodec, ElicitRequestState } from "../elicit-request-state";
 import { type HitlSource, recordHitlOffer } from "../hitl-telemetry";
 import { callerHash } from "../throttle";
@@ -363,6 +363,24 @@ export function withRoundOutcome(
         " and resend with elicit_token. Never reuse an old token.",
     details: { ...error.details, reason: declined ? "approval_declined" : "approval_not_obtained" },
   } as ErrorJSON;
+}
+
+/** An explicit decline is a HARD STOP: the error to return INSTEAD of dispatching, or undefined when
+ *  the round was not a decline. Returned before any dispatch because the retry cannot be trusted to
+ *  re-raise the gate — a conditional gate (overwrite of an existing note, an active-file target) can
+ *  stop applying while the prompt is open, and a dispatch then would run the very change the human
+ *  just refused. `answer` carries the confirmation's own tool/args_hash/vault so the text channel
+ *  renders the same decline wording; without an echoed state the bare decline still stops the call. */
+export function declinedConfirmationError(
+  confirmation: Pick<ReturnType<typeof resolveElicitConfirmation>, "roundOutcome" | "answer">,
+): ErrorJSON | undefined {
+  if (confirmation.roundOutcome !== "declined") return undefined;
+  const { answer } = confirmation;
+  const base = err.elicitRequired(
+    undefined,
+    answer ? { tool: answer.tool, args_hash: answer.argsHash, vault: answer.vaultId } : undefined,
+  );
+  return withRoundOutcome(base.toJSON(), "declined");
 }
 
 /** THE-1106 fix round 2 (HIGH, audit): the `CallerContext` patch for a verified, approved

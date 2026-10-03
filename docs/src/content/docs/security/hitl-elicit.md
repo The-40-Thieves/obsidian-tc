@@ -98,7 +98,9 @@ MCP specification defines them: `decline` is "User explicitly declined the reque
 
 - **`decline`** (or `accept` with `approve: false`) is a hard stop. The error's
   `details.reason` is `approval_declined` and its text says the user declined: do not
-  retry, do not mint a token.
+  retry, do not mint a token. The server stops the call at the decline and does not
+  dispatch it again, so a gate that stopped applying while the prompt was open (an
+  overwrite target removed meanwhile) cannot let the refused change run.
 - **`cancel`** means approval was *not obtained*; nobody said no. The write is still
   refused, but the error's `details.reason` is `approval_not_obtained` and both its text
   and `recovery` point at the out-of-band `obsidian-tc elicit` route below. This matters
@@ -150,7 +152,9 @@ obsidian-tc elicit --hash <args_hash> --tool <tool_name> [--vault <id>] [--calle
   rendered command already includes it). It pins the token to the state *that* request was
   raised against. Repeating a blocked call after its target changed records a newer
   fingerprint under the same args_hash, so a command copied from the earlier refusal would
-  otherwise approve the newer state; with the flag it fails with `replay_drift` instead.
+  otherwise approve the newer state; with the flag the mint is refused unless the flag
+  names the retained request's own fingerprint (one that was never stored, or that a
+  newer request replaced, is rejected).
 
 The command prints the token, and nothing else, to stdout; send the same call again with
 `elicit_token: <token>` and it proceeds. The token carries every property the mechanism

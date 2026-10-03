@@ -3,7 +3,7 @@
 // answering `elicitation/create`), never a hand-minted token: the bug in each was only visible
 // there. The ledger selects cases by the RR-<id> prefix in the test name.
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -118,7 +118,12 @@ const errOf = (r: ToolResult) => {
 
 /** A real MCP connection to the booted registry, stdio-shaped (legacy elicitation shim on). The
  *  client answers every `elicitation/create` with `answer` and records the form it was shown. */
-async function connect(b: Booted, answer: { action: string; content?: { approve: boolean } }) {
+async function connect(
+  b: Booted,
+  answer: { action: string; content?: { approve: boolean } },
+  /** Runs while the form is open, before the answer goes back: lets a test change the world. */
+  onForm?: () => void,
+) {
   const elicitCodec = createElicitCodec(
     randomBytes(32).toString("hex"),
     getDefaultElicitTtlSeconds(),
@@ -141,6 +146,7 @@ async function connect(b: Booted, answer: { action: string; content?: { approve:
   const forms: string[] = [];
   client.setRequestHandler(ElicitRequestSchema, async (req) => {
     forms.push(String((req.params as { message?: unknown }).message));
+    onForm?.();
     return answer as never;
   });
   await client.connect(clientTransport);
@@ -186,6 +192,46 @@ describe("RR-M4 update_active_file completes in-band confirmation through the re
       const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
       expect(text).toContain("Do not retry it and do not mint a token");
       expect(text).not.toContain("confirm with:");
+    } finally {
+      await conn.close();
+    }
+  });
+});
+
+describe("RR-D1 a decline is a hard stop whatever the gate says afterwards", () => {
+  it("RR-D1 update_active_file: the overwrite target is removed while the prompt is open, a decline still writes nothing", async () => {
+    const b = boot({ files: { "Notes/a.md": NOTE_A } });
+    b.focus("Notes/a.md");
+    const conn = await connect(b, { action: "decline" }, () => rmSync(join(b.root, "Notes/a.md")));
+    try {
+      const res = await conn.client.callTool({
+        name: "update_active_file",
+        arguments: { vault: "test", content: "# New\n" },
+      });
+      expect(res.isError).toBe(true);
+      expect(conn.forms).toHaveLength(1);
+      expect(b.has("Notes/a.md")).toBe(false);
+      const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
+      expect(text).toContain("Do not retry it and do not mint a token");
+    } finally {
+      await conn.close();
+    }
+  });
+
+  it("RR-D1 write_note: the gate condition flips while the prompt is open, a decline runs no handler", async () => {
+    const b = boot({ files: { "a.md": NOTE_A } });
+    const conn = await connect(b, { action: "decline" }, () => rmSync(join(b.root, "a.md")));
+    try {
+      const res = await conn.client.callTool({
+        name: "write_note",
+        arguments: { vault: "test", path: "a.md", content: "new", mode: "overwrite" },
+      });
+      expect(res.isError).toBe(true);
+      expect(conn.forms).toHaveLength(1);
+      expect(b.has("a.md")).toBe(false);
+      const sc = (res as { structuredContent?: { details?: { reason?: string } } })
+        .structuredContent;
+      expect(sc?.details?.reason).toBe("approval_declined");
     } finally {
       await conn.close();
     }
