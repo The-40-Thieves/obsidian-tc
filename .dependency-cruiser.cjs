@@ -109,7 +109,8 @@ module.exports = {
     exclude: {
       path: [
         "node_modules",
-        "/dist/",
+        "(^|/)dist/",
+        "\\.tsbuildinfo$",
         // Tests legitimately reach across layers to assemble fixtures; gating them would force
         // indirection that makes the tests worse, not the source better.
         "\\.test\\.ts$",
@@ -120,7 +121,10 @@ module.exports = {
       ],
     },
     tsPreCompilationDeps: true,
-    tsConfig: { fileName: "packages/server/tsconfig.json" },
+    // The dedicated config gives the paths plugin an explicit baseUrl. Without it, the workspace
+    // import falls through to package exports when dist exists and becomes unresolved when it does
+    // not, even though both gates pass the same tracked source files on every run.
+    tsConfig: { fileName: "tsconfig.dependency-cruiser.json" },
     enhancedResolveOptions: {
       exportsFields: ["exports"],
       conditionNames: ["import", "require", "node", "default", "types"],

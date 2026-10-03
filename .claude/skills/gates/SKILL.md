@@ -79,9 +79,9 @@ cd packages/server && bun run docgen:render -- --check
 cd packages/server && bun run docgen:facts-check
 ```
 
-`map:check` disagrees between here and CI whenever `packages/*/dist` exists — depcruise resolves the
-workspace differently (THE-578, and the generator's own header says so). Delete `packages/*/dist`
-before `bun run map`, or you will commit a graph CI rejects.
+`map` and `map:check` derive their inputs from `git ls-files`; untracked build output such as
+`packages/*/dist` and `*.tsbuildinfo` does not change their output. The dependency-cruiser config
+also pins workspace resolution to tracked source, so running a build first is safe.
 
 ## Offload the full suite — don't run it locally
 
