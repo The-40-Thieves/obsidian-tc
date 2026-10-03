@@ -199,8 +199,21 @@ const BulkMoveOutput = z.object({
    *  note. A flag, deliberately: no count and no path of the hidden notes is ever reported. */
   hidden_backlinks: z.boolean().optional(),
   ...immutableSkipShape,
+  /** Notes that are not moving and could not be read (a hard-linked file, an I/O error): their
+   *  links to a moved note were NOT updated. A bare count, never a path. */
+  unreadable_skipped: z.number().optional(),
+  unreadable_warning: z.string().optional(),
   results: z.array(BulkMoveResultItem),
 });
+
+/** The report of notes the plan could not read: a count and a warning, never a path. */
+function unreadableOut(n: number): { unreadable_skipped?: number; unreadable_warning?: string } {
+  if (n === 0) return {};
+  return {
+    unreadable_skipped: n,
+    unreadable_warning: `${n} note${n === 1 ? "" : "s"} could not be read, so any links they hold to a moved note were not updated`,
+  };
+}
 
 // ── tools ────────────────────────────────────────────────────────────────────
 
@@ -478,13 +491,14 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
 
         if (input.dry_run) {
           // The same plan the real run commits, minus the memoryDefense scan (a preview, not a write).
-          const { perMove, total, hidden } = plan(MEMORY_DEFENSE_OFF, undefined);
+          const { perMove, total, hidden, unreadable } = plan(MEMORY_DEFENSE_OFF, undefined);
           return {
             vault: v.id,
             processed: rows.length,
             dry_run: true,
             total_backlinks_updated: total,
             ...(hidden ? { hidden_backlinks: true } : {}),
+            ...unreadableOut(unreadable),
             ...skips.out(),
             results: rows.map((r) => ({
               ...rowIdentity(r),
@@ -636,7 +650,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           deps.reindex?.(v.id, m.toRel, m.content);
         }
         for (const r of committed.rewrites) deps.reindex?.(v.id, r.rel, r.text);
-        const { perMove, total, hidden } = committed;
+        const { perMove, total, hidden, unreadable } = committed;
 
         return {
           vault: v.id,
@@ -644,6 +658,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           dry_run: false,
           total_backlinks_updated: total,
           ...(hidden ? { hidden_backlinks: true } : {}),
+          ...unreadableOut(unreadable),
           ...skips.out(),
           results: rows.map((r) => ({
             ...rowIdentity(r),

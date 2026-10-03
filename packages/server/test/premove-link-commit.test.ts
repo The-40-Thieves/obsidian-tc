@@ -7,7 +7,7 @@
 // BEFORE its links are proven, so an unrepresentable link in it cannot veto the move.
 //
 // Each case runs against move_note, bulk_move_notes and move_attachment: they share one planner.
-import { linkSync, readdirSync } from "node:fs";
+import { linkSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -589,8 +589,17 @@ describe.each(CASES)("$tool: a note the planner cannot read", (c) => {
     expect(wire).not.toContain("private");
     expect(wire).not.toContain("hard");
     expect(wire).not.toContain(h.v.root);
-    // bulk_move_notes skips an unreadable note that is not one of its moves (isolating the rows)
-    if (c.tool === "bulk_move_notes") return;
+    // bulk_move_notes skips an unreadable note that is not one of its moves (isolating the rows),
+    // and says so: a count and a warning, no path
+    if (c.tool === "bulk_move_notes") {
+      expect(r.ok, wire).toBe(true);
+      if (r.ok)
+        expect(r.data).toMatchObject({
+          unreadable_skipped: 2, // both names of the hard-linked pair
+          unreadable_warning: expect.stringContaining("not updated"),
+        });
+      return;
+    }
     expectRefused(r);
     if (!r.ok) expect(r.error.details).toMatchObject({ hidden_notes: true });
     expect(hashTree(h.v.root)).toEqual(before);
@@ -606,5 +615,28 @@ describe.each(CASES)("$tool: a note the planner cannot read", (c) => {
     if (c.tool === "bulk_move_notes") return;
     expectRefused(r);
     expect(h.v.exists(c.src)).toBe(true);
+  });
+});
+
+describe("bulk_move_notes: the report of a skipped unreadable note", () => {
+  const acl = { readPaths: ["notes/**", "wiki/**"] };
+
+  it("a dry run reports the count too, and a run with nothing unreadable reports nothing", async () => {
+    rig({ "notes/Old.md": "body\n" }, { acl });
+    h.v.write("private/hard.md", "x\n");
+    linkSync(join(h.v.root, "private/hard.md"), join(h.v.root, "private/hard2.md"));
+    const input = { moves: [{ from: "notes/Old.md", to: "notes/Fresh.md" }] };
+    const dry = await confirmed("bulk_move_notes", { ...input, dry_run: true });
+    expect(dry.ok, JSON.stringify(dry)).toBe(true);
+    if (dry.ok) expect(dry.data).toMatchObject({ unreadable_skipped: 2 });
+    expect(JSON.stringify(dry)).not.toContain("private");
+    expect(JSON.stringify(dry)).not.toContain("hard");
+    rmSync(join(h.v.root, "private/hard2.md"));
+    const clean = await confirmed("bulk_move_notes", { ...input, dry_run: true });
+    expect(clean.ok, JSON.stringify(clean)).toBe(true);
+    if (clean.ok) {
+      expect(clean.data).not.toHaveProperty("unreadable_skipped");
+      expect(clean.data).not.toHaveProperty("unreadable_warning");
+    }
   });
 });

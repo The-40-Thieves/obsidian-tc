@@ -39,6 +39,8 @@ export interface MovesPlan {
   perMove: Map<string, number>;
   total: number;
   hidden: boolean;
+  /** Notes that are not moving and could not be read, so their links were not updated (a count). */
+  unreadable: number;
   moved: PlannedMove[];
   /** The rewrites of notes that are NOT themselves moved (a moved note's rewrite is its `content`). */
   rewrites: PlannedRewrite[];
@@ -142,5 +144,5 @@ export function planMoves(args: {
     } else if (rewritten) rewrites.push(plannedRewrite(abs, p, raw, rewritten, defense, metrics));
   }
   scan.refuseIfFailed();
-  return { perMove, total, hidden, moved, rewrites };
+  return { perMove, total, hidden, unreadable: scan.unreadableSkipped, moved, rewrites };
 }

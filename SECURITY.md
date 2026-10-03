@@ -753,7 +753,8 @@ so operators can reason about them rather than discover them.
   many unreadable notes link the target would be a link-graph oracle). A note the planner cannot read at
   all (a hard-linked file, an I/O error) is refused the same way, with a fixed message: the reader's own
   error carries an absolute path and is never passed on (`bulk_move_notes` skips such a note when it is
-  not itself one of the moves, so a bystander cannot fail the other rows). The plan records each note's
+  not itself one of the moves, so a bystander cannot fail the other rows, and reports `unreadable_skipped`,
+  a count, with a warning that its links were not updated). The plan records each note's
   pre-image (the exact bytes it was planned from) and is NOT recomputed afterwards: `bulk_move_notes`
   commits the plan it proved.
   The COMMIT reuses the wiki-core batch (`applyWriteBatch`, `vault/write-batch.ts`). Order: (1) pre-image

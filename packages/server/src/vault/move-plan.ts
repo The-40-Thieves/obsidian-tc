@@ -65,6 +65,7 @@ interface ScanFailure {
  */
 export class RewriteScan {
   private readonly failures: ScanFailure[] = [];
+  private readonly unreadable = new Set<string>();
 
   constructor(private readonly skips: ImmutableRewriteSkips) {}
 
@@ -72,13 +73,18 @@ export class RewriteScan {
    *  other failure (a hard-linked file, an I/O error) is recorded like an unprovable link and the
    *  note is skipped, so it refuses the move through `refuseIfFailed`: named only when the caller
    *  can read it, and never with the reader's own message or details (they carry absolute paths).
-   *  `record: false` skips such a note silently instead (bulk_move_notes does this for a note that
-   *  is not one of its moves: one unreadable bystander does not fail the other rows). */
+   *  `record: false` skips such a note instead and only counts it (`unreadableSkipped`):
+   *  bulk_move_notes does this for a note that is not one of its moves, so one unreadable bystander
+   *  does not fail the other rows, and reports that its links were not updated. */
   read(abs: string, rel: string, record = true): { raw: string; hash: string } | null {
     try {
       return readNote(abs);
     } catch (e) {
-      if (isVanished(e) || !record) return null;
+      if (isVanished(e)) return null;
+      if (!record) {
+        this.unreadable.add(rel);
+        return null;
+      }
       this.failures.push({
         rel,
         target: undefined,
@@ -89,6 +95,11 @@ export class RewriteScan {
       });
       return null;
     }
+  }
+
+  /** How many notes `read(.., false)` skipped as unreadable: a bare count, never a path. */
+  get unreadableSkipped(): number {
+    return this.unreadable.size;
   }
 
   /** The note's rewrite, or null when it is skipped (immutable) or could not be proven (recorded). */
