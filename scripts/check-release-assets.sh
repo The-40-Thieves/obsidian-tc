@@ -32,11 +32,12 @@ ID="${1:?usage: check-release-assets.sh <release-id> <shasums-file> <signature-m
 SUMS="${2:?usage: check-release-assets.sh <release-id> <shasums-file> <signature-manifest>}"
 SIGS="${3:?usage: check-release-assets.sh <release-id> <shasums-file> <signature-manifest>}"
 
-# family=count: 8 native prebuilds, 5 standalone binaries, 2 plugin zips, the 3 loose plugin files,
+# family=count: 8 native prebuilds, 5 standalone binaries and their 5 sourcemaps, 2 plugin zips, the 3 loose plugin files,
 # 1 mcpb bundle.
 declare -A EXPECTED_FAMILIES=(
   [native]=8
   [binary]=5
+  [binary-map]=5
   [plugin-zip]=2
   [plugin-main]=1
   [plugin-manifest]=1

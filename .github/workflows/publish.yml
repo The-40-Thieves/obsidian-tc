@@ -1262,7 +1262,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          shopt -s nullglob globstar
+          shopt -s nullglob globstar extglob
           mkdir signatures
           # The certificate identity Fulcio embeds for a job in a top-level workflow is
           # https://github.com/<job_workflow_ref>; GITHUB_WORKFLOW_REF is that same
@@ -1296,7 +1296,10 @@ jobs:
           }
 
           sign_family native artifacts/native-*/*.node
-          sign_family binary artifacts/binary-*/obsidian-tc-*
+          # A standalone binary ships with its sourcemap; each is signed, under its own family so the
+          # binary count stays the build matrix's row count.
+          sign_family binary artifacts/binary-*/obsidian-tc-!(*.map)
+          sign_family binary-map artifacts/binary-*/obsidian-tc-*.map
           sign_family plugin-zip artifacts/plugin/**/obsidian-tc-*.zip
           sign_family plugin-main artifacts/plugin/**/main.js
           sign_family plugin-manifest artifacts/plugin/**/manifest.json

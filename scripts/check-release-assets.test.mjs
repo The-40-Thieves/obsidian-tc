@@ -31,6 +31,8 @@ const BINARIES = [
   "obsidian-tc-bun-darwin-arm64",
   "obsidian-tc-bun-windows-x64.exe",
 ];
+// Each standalone binary ships its sourcemap; the windows map drops the .exe.
+const MAPS = BINARIES.map((b) => `${b.replace(/\.exe$/, "")}.map`);
 const ZIPS = ["obsidian-tc-plugin-1.2.3.zip", "obsidian-tc-legacy-final-notice-1.0.0.zip"];
 const LOOSE = ["main.js", "manifest.json", "styles.css"];
 const MCPB = ["obsidian-tc.mcpb"];
@@ -39,6 +41,7 @@ const MCPB = ["obsidian-tc.mcpb"];
 const FAMILIES = [
   ["native", NATIVE],
   ["binary", BINARIES],
+  ["binary-map", MAPS],
   ["plugin-zip", ZIPS],
   ["plugin-main", ["main.js"]],
   ["plugin-manifest", ["manifest.json"]],
@@ -53,7 +56,7 @@ function complete() {
   const manifestLines = FAMILIES.flatMap(([fam, names]) =>
     names.map((n) => `${fam}\t${bundle(n)}`),
   );
-  const checksummed = [...BINARIES, ...ZIPS, ...MCPB];
+  const checksummed = [...BINARIES, ...MAPS, ...ZIPS, ...MCPB];
   const assets = [
     ...checksummed,
     ...LOOSE,
@@ -91,7 +94,7 @@ function run({ assets, manifestLines, checksummed, shasums }) {
 test("a complete release passes and reports all 19 bundles", () => {
   const r = run(complete());
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.match(r.stdout, /19 cosign bundles/);
+  assert.match(r.stdout, /24 cosign bundles/);
 });
 
 test("RED case: a release missing all eight native bundles fails", () => {
