@@ -161,6 +161,9 @@ const MUTATIONS: Array<[string, Partial<Omit<GraphSearchOptions, "queryVec">>]> 
   // excluded one is demoted to its fusion score instead of reranked) — a genuinely different
   // retrieval, so two calls differing only in this must not share a cache entry.
   ["rerankExcludeFilter", { rerankExcludeFilter: { patterns: ["Private/**"] } }],
+  // reranker.passageFormat changes the text the reranker scores, so the order it returns: a
+  // different retrieval, never a cache HIT against the raw-chunk entry.
+  ["rerankPassageFormat", { rerankPassageFormat: "title+chunk" as const }],
 ];
 
 describe("THE-497 graph-search cache key covers every option", () => {

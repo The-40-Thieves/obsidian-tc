@@ -78,5 +78,14 @@ export const RerankerConfigSchema = z.object({
     .describe(
       "Explicit path to @the-40-thieves/obsidian-tc-reranker-local's BUILT module entry (its dist/index.js), for provider 'local'. Absolute, or resolved against the config file's directory (same convention as modulePath). Tried FIRST, before the bare package specifier and the source-checkout default — see that package's README for when you need this. Ignored by every other provider.",
     ),
+  // Read by the retrieval pipeline's rerank stage, not by a provider: it changes the TEXT every
+  // reranker backend is handed, so it applies to all of them (including the auto-selected local one
+  // when no block is set, which then keeps the default).
+  passageFormat: z
+    .enum(["chunk", "title+chunk"])
+    .optional()
+    .describe(
+      'What text each candidate is sent to the reranker as. "chunk" (the default when unset): the raw chunk text. "title+chunk": the note title (its file name without the .md extension), a blank line, then the chunk text, so a title-identified note is rankable on its title. Applies to every reranker backend, to gated rerank and to the rrf_rerank / score_merge fusion modes; a cluster-summary candidate is always sent as-is. Experimental: on the repository\'s own two corpora a reranker fed raw chunks lost on every shape, while title+chunk won or tied on most but is not yet validated on enough shapes to be a default (ADR 0007), so the default stays "chunk".',
+    ),
 });
 export type RerankerConfig = z.infer<typeof RerankerConfigSchema>;

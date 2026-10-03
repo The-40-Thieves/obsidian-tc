@@ -71,6 +71,23 @@ export interface RankableDoc {
    *  pipeline already carries a path (a cluster_summary candidate's `path` is its cluster_key,
    *  never a real vault path, and so never matches an exclude glob — harmless). */
   path: string;
+  /** `Candidate.source`: a `cluster_summary` row's `path` is a cluster key, not a note. */
+  source?: string;
+}
+
+/** The text a reranker scores per candidate (config: `reranker.passageFormat`). */
+export type RerankPassageFormat = "chunk" | "title+chunk";
+
+/** A note's title is its file name without `.md`, the rule `eval/rerank-arms.ts` measured. */
+function noteTitleOf(path: string): string {
+  return (path.split("/").pop() ?? path).replace(/\.md$/i, "");
+}
+
+/** "chunk": the raw text (historical default). "title+chunk": `<title>\n\n<chunk>`, so a
+ *  title-identified note is rankable. A cluster-summary row is never prefixed. */
+export function formatRerankPassage(doc: RankableDoc, format: RerankPassageFormat): string {
+  if (format !== "title+chunk" || doc.source === "cluster_summary") return doc.content;
+  return `${noteTitleOf(doc.path)}\n\n${doc.content}`;
 }
 
 /** the reason `rerankWithScores` returned what it returned, reported through `onOutcome`
@@ -156,6 +173,8 @@ export async function rerankWithScores<T extends RankableDoc>(
   timeoutMs: number | undefined = DEFAULT_RERANK_TIMEOUT_MS,
   /** THE-934 fix round 1 (I2): egress.excludePaths, compiled. Undefined -> nothing excluded. */
   excludeFilter?: EgressFilter,
+  /** `reranker.passageFormat`. Undefined -> "chunk" (the raw chunk text). */
+  passageFormat: RerankPassageFormat = "chunk",
 ): Promise<Array<{ item: T; score: number }>> {
   const fallback = (): Array<{ item: T; score: number }> =>
     docs.slice(0, topN).map((item, i) => ({ item, score: 1 - i * 0.01 }));
@@ -200,7 +219,7 @@ export async function rerankWithScores<T extends RankableDoc>(
   try {
     const call = reranker(
       query,
-      keep.map((d) => d.content),
+      keep.map((d) => formatRerankPassage(d, passageFormat)),
       Math.min(topN, keep.length),
       // THE-934: the egress guard's backstop check — every path here already cleared the filter.
       keep.map((d) => d.path),

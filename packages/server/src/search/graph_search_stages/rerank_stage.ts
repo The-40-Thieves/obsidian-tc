@@ -46,6 +46,7 @@ export async function applyGatedRerank(input: GatedRerankInput): Promise<GraphSe
           opts.onRerankOutcome,
           undefined,
           opts.rerankExcludeFilter,
+          opts.rerankPassageFormat,
         );
         const rerankedIds = new Set(ranked.map((r) => r.item.chunk_id));
         const rest = capped.filter((c) => !rerankedIds.has(c.chunk_id));

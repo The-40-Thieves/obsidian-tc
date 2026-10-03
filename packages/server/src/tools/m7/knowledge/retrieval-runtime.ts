@@ -438,6 +438,8 @@ export function buildGraphSearchOptions(
     // walk filter just below — a candidate under an excluded path must never reach the hosted
     // reranker regardless of which tool assembled it.
     rerankExcludeFilter: deps.excludeFilter,
+    // Same "every M7 surface gets it by construction" rule: one config value, read here once.
+    ...(deps.rerankPassageFormat ? { rerankPassageFormat: deps.rerankPassageFormat } : {}),
     isReadable: site.isReadable,
     // THE-852: default-on graph-walk ACL filter — see resolveAclWalkFilter's own header for the
     // fail-closed contract. Unconditional (not gated by deps.retrieval), same as the rest of this
