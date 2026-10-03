@@ -59,7 +59,7 @@ function requireHttps(url: string, what: string, pathIsPublic = false, allowHttp
   }
   if (u.username !== "" || u.password !== "") {
     throw new OidcFetchError(
-      `${what}: ${u.origin}${u.pathname} must not carry credentials in the URL`,
+      `${what}: ${u.origin}${pathIsPublic ? u.pathname : ""} must not carry credentials in the URL`,
     );
   }
   if (u.protocol !== "https:" && !(allowHttp && u.protocol === "http:")) {
