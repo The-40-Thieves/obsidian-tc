@@ -3,7 +3,7 @@
 // published 1.32.0 image (vec=off, native=js-fallback) and the healthy shapes both transports print.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checkBoot, parseReadyBanner } from "./docker-boot-smoke.mjs";
+import { checkBoot, checkRun, parseArgs, parseReadyBanner } from "./docker-boot-smoke.mjs";
 
 const HTTP_ONLY_1_32_0 =
   "obsidian-tc 1.32.0 ready (http-only; stdio disabled; vault agents; native=js-fallback vec=off)";
@@ -60,4 +60,51 @@ test("parseReadyBanner extracts version and both capability flags", () => {
     native: "js-fallback",
     vec: "off",
   });
+});
+
+// `docker run` itself must have succeeded: a healthy banner followed by a crash, a kill or a
+// timeout is not a pass. spawnSync reports a timeout as error=ETIMEDOUT + signal=SIGTERM +
+// status=null, a failure to start docker as error=ENOENT, a container crash as status!=0.
+test("a clean exit (status 0, no error, no signal) passes", () => {
+  assert.deepEqual(checkRun({ status: 0, signal: null, error: undefined }), []);
+});
+
+test("a timeout fails even though the banner printed before the hang", () => {
+  const run = {
+    status: null,
+    signal: "SIGTERM",
+    error: Object.assign(new Error("spawnSync docker ETIMEDOUT"), { code: "ETIMEDOUT" }),
+    stdout: HTTP_HEALTHY,
+  };
+  const problems = checkRun(run);
+  assert.ok(problems.length >= 1);
+  assert.match(problems.join("\n"), /ETIMEDOUT/);
+});
+
+test("docker failing to start (run.error) fails", () => {
+  const run = {
+    status: null,
+    signal: null,
+    error: Object.assign(new Error("spawnSync docker ENOENT"), { code: "ENOENT" }),
+  };
+  assert.match(checkRun(run).join("\n"), /ENOENT/);
+});
+
+test("a container killed by a signal fails", () => {
+  const problems = checkRun({ status: null, signal: "SIGKILL" });
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /SIGKILL/);
+});
+
+test("a non-zero exit fails even with a healthy banner on stdout", () => {
+  const problems = checkRun({ status: 137, signal: null, stdout: STDIO_HEALTHY });
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /status 137/);
+  assert.deepEqual(checkBoot(STDIO_HEALTHY), []);
+});
+
+test("--platform is parsed and validated", () => {
+  assert.equal(parseArgs(["img", "--platform", "linux/arm64"]).platform, "linux/arm64");
+  assert.equal(parseArgs(["img"]).platform, undefined);
+  assert.throws(() => parseArgs(["img", "--platform", "windows/amd64"]), /--platform must be/);
 });

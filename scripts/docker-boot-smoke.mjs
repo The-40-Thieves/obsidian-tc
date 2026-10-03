@@ -17,9 +17,17 @@
 // `--network none` is the point: the packages must be IN the image. Anything that only works
 // because the container can reach the npm registry fails here.
 //
+// The banner is necessary but not sufficient: `docker run` itself has to succeed too. A container
+// that prints a healthy banner and then crashes, is killed, or hangs until the timeout is not a
+// pass, so the run's error / signal / exit status are judged alongside the banner.
+//
+// --platform boots a specific platform of a multi-arch image (publish.yml and release-image.yml
+// smoke linux/amd64 and linux/arm64 of the exact image they are about to promote).
+//
 // Usage: node scripts/docker-boot-smoke.mjs <image> [--expect-native on|js-fallback]
-//        [--timeout-ms N]
-// Exit: 0 banner matches; 1 banner reports a degraded capability; 2 no banner (boot failed).
+//        [--platform linux/amd64|linux/arm64] [--timeout-ms N]
+// Exit: 0 healthy; 1 banner reports a degraded capability or the run did not exit cleanly;
+//       2 no banner (boot failed).
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -52,11 +60,29 @@ export function checkBoot(output, { expectNative = "on" } = {}) {
   return problems;
 }
 
-function parseArgs(argv) {
-  const opts = { image: undefined, expectNative: "on", timeoutMs: 120_000 };
+/**
+ * Problems (empty = clean) with the `docker run` process itself, from a spawnSync result:
+ * a start failure or timeout (`error`), a kill (`signal`), or a non-zero exit (`status`).
+ */
+export function checkRun(run) {
+  const problems = [];
+  if (run.error) {
+    const code = run.error.code ? ` ${run.error.code}` : "";
+    problems.push(`docker run did not complete:${code} ${run.error.message}`.replace(/\s+/g, " "));
+  }
+  if (run.signal) problems.push(`docker run was killed by ${run.signal}`);
+  if (!run.error && !run.signal && run.status !== 0) {
+    problems.push(`docker run exited with status ${run.status}, expected 0`);
+  }
+  return problems;
+}
+
+export function parseArgs(argv) {
+  const opts = { image: undefined, expectNative: "on", platform: undefined, timeoutMs: 120_000 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--expect-native") opts.expectNative = argv[++i];
+    else if (a === "--platform") opts.platform = argv[++i];
     else if (a === "--timeout-ms") opts.timeoutMs = Number(argv[++i]);
     else if (a?.startsWith("-")) throw new Error(`unknown option ${a}`);
     else opts.image = a;
@@ -65,6 +91,9 @@ function parseArgs(argv) {
     throw new Error("usage: docker-boot-smoke.mjs <image> [--expect-native on|js-fallback]");
   if (!["on", "js-fallback"].includes(opts.expectNative)) {
     throw new Error(`--expect-native must be "on" or "js-fallback", got "${opts.expectNative}"`);
+  }
+  if (opts.platform !== undefined && !/^linux\/(amd64|arm64)$/.test(opts.platform)) {
+    throw new Error(`--platform must be linux/amd64 or linux/arm64, got "${opts.platform}"`);
   }
   if (!Number.isFinite(opts.timeoutMs) || opts.timeoutMs <= 0) throw new Error("bad --timeout-ms");
   return opts;
@@ -87,6 +116,7 @@ function main(argv) {
         "--rm",
         "--name",
         name,
+        ...(opts.platform ? ["--platform", opts.platform] : []),
         "--network",
         "none",
         "-v",
@@ -99,11 +129,11 @@ function main(argv) {
     const output = `${run.stdout ?? ""}${run.stderr ?? ""}`;
     const banner = parseReadyBanner(output);
     process.stdout.write(`${banner ? banner.line : output.slice(-2000)}\n`);
-    const problems = checkBoot(output, { expectNative: opts.expectNative });
+    const problems = [...checkRun(run), ...checkBoot(output, { expectNative: opts.expectNative })];
     for (const p of problems) process.stderr.write(`::error::docker boot smoke: ${p}\n`);
     if (problems.length === 0) {
       process.stdout.write(
-        `ok: ${opts.image} booted offline with native=${banner.native} vec=${banner.vec}\n`,
+        `ok: ${opts.image}${opts.platform ? ` (${opts.platform})` : ""} booted offline with native=${banner.native} vec=${banner.vec}\n`,
       );
       return 0;
     }

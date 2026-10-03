@@ -1,0 +1,75 @@
+name: smoke-and-promote-image
+description: >-
+  Boot-smoke the EXACT multi-arch image a release workflow just pushed to its staging tag, on both
+  release platforms, and only then give that same digest its public tags. Shared by publish.yml
+  (build-docker) and release-image.yml so both release routes gate the public tags identically.
+
+# Why this exists: `native` and `vec` are optional at run time, so a corrupt, ABI-incompatible or
+# wrongly packaged release .node (or a missing sqlite-vec) still builds, still passes the
+# Dockerfile's existence check and still boots: it ships as `native=js-fallback vec=off`. PR CI
+# (ci-docker) only boots an amd64 image built around a separately compiled debug binary, so the
+# artifact that is actually published was never booted, and arm64 never at all. This boots both
+# platform images of the pushed digest, offline, and requires native=on vec=on.
+#
+# Promotion is `docker buildx imagetools create` from the staged DIGEST, which re-tags the existing
+# manifest list without rebuilding: the digest that gets the public tags is, by construction, the
+# digest that was smoked, and the cosign signature the caller adds next is over that same digest.
+# The caller must have logged in to the registry, set up QEMU (arm64 boots under emulation on an
+# amd64 runner) and buildx before this step.
+#
+# Runs from the checkout it is given: scripts/docker-boot-smoke.mjs must exist there (a release
+# whose tag predates the script cannot be promoted, which is the intended fail-closed outcome).
+
+inputs:
+  image:
+    description: Image repository without a tag or digest (e.g. ghcr.io/the-40-thieves/obsidian-tc).
+    required: true
+  digest:
+    description: Digest of the staged multi-arch index (the `digest` output of the push step).
+    required: true
+  tags:
+    description: Newline-separated public references to promote the smoked digest to. Blank lines are ignored.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: boot-smoke linux/amd64 and linux/arm64 of the staged digest
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        DIGEST: ${{ inputs.digest }}
+      run: |
+        set -euo pipefail
+        [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no staged image digest to smoke (got '$DIGEST')"; exit 1; }
+        ref="${IMAGE}@${DIGEST}"
+        for platform in linux/amd64 linux/arm64; do
+          docker pull --platform "$platform" "$ref"
+          # The smoke boots whatever the local store holds for the ref: prove it is the platform asked for.
+          want="${platform#linux/}"
+          got=$(docker image inspect --format '{{.Architecture}}' "$ref")
+          [ "$got" = "$want" ] || { echo "::error::pulled $ref for $platform but the image is $got"; exit 1; }
+          node scripts/docker-boot-smoke.mjs "$ref" --platform "$platform"
+        done
+    - name: promote the smoked digest to the public tags
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        DIGEST: ${{ inputs.digest }}
+        TAGS: ${{ inputs.tags }}
+      run: |
+        set -euo pipefail
+        args=()
+        promoted=()
+        while IFS= read -r t; do
+          [ -n "${t// /}" ] || continue
+          args+=(-t "$t")
+          promoted+=("$t")
+        done <<< "$TAGS"
+        [ "${#promoted[@]}" -gt 0 ] || { echo "::error::no public tags to promote to"; exit 1; }
+        docker buildx imagetools create "${args[@]}" "${IMAGE}@${DIGEST}"
+        for t in "${promoted[@]}"; do
+          got=$(docker buildx imagetools inspect "$t" --format '{{.Manifest.Digest}}')
+          [ "$got" = "$DIGEST" ] || { echo "::error::$t points at $got, not the smoked digest $DIGEST"; exit 1; }
+          echo "promoted $t -> $DIGEST"
+        done

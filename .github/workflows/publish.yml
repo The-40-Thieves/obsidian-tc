@@ -1133,9 +1133,10 @@ jobs:
           file: Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ghcr.io/the-40-thieves/obsidian-tc:${{ needs.verify-tag.outputs.version }}
-            ${{ needs.verify-tag.outputs.prerelease != 'true' && 'ghcr.io/the-40-thieves/obsidian-tc:latest' || '' }}
+          # Pushed under a STAGING tag only: the public tags (:<version>, :latest) move in the
+          # promote step below, after both platform images of this exact digest boot offline with
+          # native=on vec=on. A failed smoke leaves only `smoke-<version>` behind.
+          tags: ghcr.io/the-40-thieves/obsidian-tc:smoke-${{ needs.verify-tag.outputs.version }}
           labels: |
             org.opencontainers.image.source=https://github.com/the-40-thieves/obsidian-tc
             org.opencontainers.image.version=${{ needs.verify-tag.outputs.version }}
@@ -1143,6 +1144,17 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.created=${{ steps.buildmeta.outputs.created }}
             org.opencontainers.image.title=obsidian-tc
+      # Boot the exact pushed digest on linux/amd64 and linux/arm64 (arm64 under QEMU), then give
+      # that same digest its public tags (a re-tag of the staged manifest list, no rebuild). The
+      # image is signed below by this same digest, so what is signed is what was smoked.
+      - name: boot-smoke both platforms, then promote the smoked digest to the public tags
+        uses: ./.github/actions/smoke-and-promote-image
+        with:
+          image: ghcr.io/the-40-thieves/obsidian-tc
+          digest: ${{ steps.push.outputs.digest }}
+          tags: |
+            ghcr.io/the-40-thieves/obsidian-tc:${{ needs.verify-tag.outputs.version }}
+            ${{ needs.verify-tag.outputs.prerelease != 'true' && 'ghcr.io/the-40-thieves/obsidian-tc:latest' || '' }}
       # Keyless cosign signature of the image, by DIGEST (a tag can be re-pointed after signing; the
       # digest of the multi-arch index cannot). The signature is stored in the registry beside the
       # image and verified straight away against this run's own workflow identity, so a misconfigured
