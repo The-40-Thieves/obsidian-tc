@@ -18,12 +18,17 @@ export interface AclConfigT {
    *  (bridge tools must produce path-attributable results) instead of allowing all.
    *  Default false = M0 allow-all (D2 hardening). */
   strictReadDefault?: boolean;
+  /** Globs no write or delete may touch, whatever the whitelists say; reads are unaffected. DERIVED,
+   *  never configured: runtime/acl-build.ts sets it from a vault's `wiki.rawFolder`, which is
+   *  immutable. Not part of the config schema, so a config file cannot set it. */
+  immutablePaths?: string[];
 }
 
-// Sentinel for the `**` token. A NUL char (illegal in any vault-relative path)
-// so it can never alias real input: vault paths routinely contain literal spaces,
-// which a space sentinel mis-compiled to `.*` and over-matched across `/`.
-const NUL = String.fromCharCode(0);
+const reEscape = (c: string): string => c.replace(/[.+*?^${}()|[\]\\]/g, "\\$&");
+
+/** `name` as a glob that matches only that literal text: `*`, `?` and `\` are backslash-escaped (a
+ *  folder called `a*b` must not become a wildcard). `[` is literal in this grammar already. */
+export const escapeGlob = (name: string): string => name.replace(/[*?\\[]/g, "\\$&");
 
 // On a case-insensitive filesystem (Windows NTFS, macOS APFS), a path and its case variants name
 // the SAME file, so ACL matching must be case-insensitive there or a case-variant path slips past a
@@ -53,13 +58,17 @@ export function globToRegExp(glob: string, caseInsensitive: boolean = CASE_INSEN
   const byFlag = globCache.get(glob);
   const cached = byFlag?.get(caseInsensitive);
   if (cached !== undefined) return cached;
-  const withDouble = glob.replace(/\*\*/g, NUL);
   let re = "";
-  for (const c of withDouble) {
-    if (c === NUL) re += ".*";
-    else if (c === "*") re += "[^/]*";
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob.charAt(i);
+    if (c === "*" && glob.charAt(i + 1) === "*") {
+      re += ".*";
+      i++;
+    } else if (c === "*") re += "[^/]*";
     else if (c === "?") re += "[^/]";
-    else re += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+    // `\` makes the next character literal (escapeGlob); a trailing `\` is itself literal.
+    else if (c === "\\" && i + 1 < glob.length) re += reEscape(glob.charAt(++i));
+    else re += reEscape(c);
   }
   const compiled = new RegExp(`^${re}$`, caseInsensitive ? "i" : "");
   let entry = byFlag;
@@ -136,6 +145,7 @@ export class FolderAcl {
   // reason — so this array is built with .map() and never sorted, deduped or short-circuited.
   private readonly compiledRules: readonly { readonly re: RegExp; readonly scopes: string[] }[];
   private readonly compiledPaths: Readonly<Record<AclPathOp, readonly CompiledGlobT[] | undefined>>;
+  private readonly compiledImmutable: readonly CompiledGlobT[];
   // The union of every scope any path can declare (defaultScopes + every rule's scopes), computed
   // once. Empty on the shipped config (no rules, empty defaultScopes), which is what lets the
   // per-result read predicate skip the rule scan entirely for a deployment that uses no rule-scopes.
@@ -152,7 +162,9 @@ export class FolderAcl {
       readPaths: cfg.readPaths ? [...cfg.readPaths] : undefined,
       writePaths: cfg.writePaths ? [...cfg.writePaths] : undefined,
       deletePaths: cfg.deletePaths ? [...cfg.deletePaths] : undefined,
+      immutablePaths: cfg.immutablePaths ? [...cfg.immutablePaths] : undefined,
     };
+    this.compiledImmutable = compileGlobList(this.cfg.immutablePaths) ?? [];
     this.compiledRules = this.cfg.rules.map((r) => ({
       // The glob is normalized ONCE here; the PATH is still normalized per call in the matchers
       // below. Both halves stay load-bearing (THE-272) — only the redundancy is removed.
@@ -196,6 +208,16 @@ export class FolderAcl {
     if (list === undefined) return undefined;
     const p = path.normalize("NFC");
     return list.find((c) => c.re.test(p))?.glob ?? null;
+  }
+  /** Whether any path is immutable for this ACL (a vault with a raw-sources folder). */
+  get hasImmutablePaths(): boolean {
+    return this.compiledImmutable.length > 0;
+  }
+  /** The immutable glob `path` falls under (no write or delete may touch it), or null. */
+  immutableGlobFor(path: string): string | null {
+    if (this.compiledImmutable.length === 0) return null;
+    const p = path.normalize("NFC");
+    return this.compiledImmutable.find((c) => c.re.test(p))?.glob ?? null;
   }
   /** True when ANY path can declare a required scope (rule-scopes or non-empty defaultScopes). When
    *  false, no caller is ever refused a path for lacking a scope, so per-path scope checks are
@@ -250,6 +272,8 @@ export function aclFingerprint(cfg: AclConfigT, grantedScopes: Iterable<string>)
     readPaths: cfg.readPaths ? [...cfg.readPaths].sort() : null,
     writePaths: cfg.writePaths ? [...cfg.writePaths].sort() : null,
     deletePaths: cfg.deletePaths ? [...cfg.deletePaths].sort() : null,
+    // Only when set, so a vault with none keeps the fingerprint (and the persisted rows) it had.
+    ...(cfg.immutablePaths?.length ? { immutablePaths: [...cfg.immutablePaths].sort() } : {}),
     scopes: [...new Set(grantedScopes)].sort(),
   };
   return createHash("sha256").update(JSON.stringify(canon), "utf8").digest("hex");

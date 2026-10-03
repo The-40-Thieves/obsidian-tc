@@ -171,22 +171,44 @@ export const VaultIndexConfigSchema = z.object({
     ),
 });
 
-/** The folder a vault's LLM wiki lives in; draft_wiki_page / commit_wiki_page read its SCHEMA.md. */
-export const VaultWikiConfigSchema = z.object({
-  folder: z
+// One or more `/`-separated segments, none of them `.` or `..`, empty, or holding a backslash,
+// colon or NUL: so no `""`, `.`, `/`, `/abs`, `C:\x`, `a/../b` or trailing slash. Rejected, never
+// reinterpreted: a value that quietly became "the whole vault" would turn every note into wiki.
+const folderPath = () =>
+  z
     .string()
     .max(512)
-    // One or more `/`-separated segments, none of them `.` or `..`, empty, or holding a backslash,
-    // colon or NUL: so no `""`, `.`, `/`, `/abs`, `C:\x`, `a/../b` or trailing slash. Rejected, never
-    // reinterpreted: a value that quietly became "the whole vault" would turn every note into wiki.
     .regex(
       /^(?:(?!\.{1,2}(?:\/|$))[^/\\:\0]+)(?:\/(?!\.{1,2}(?:\/|$))[^/\\:\0]+)*$/,
       "must be a folder path inside the vault: no leading or trailing slash, no `.` or `..` segment, no backslash or colon",
-    )
-    .describe(
+    );
+
+const foldKey = (p: string): string => p.normalize("NFC").toLowerCase();
+
+/** The folder a vault's LLM wiki lives in (draft_wiki_page / commit_wiki_page read its SCHEMA.md)
+ *  and, optionally, where its immutable raw sources live. */
+export const VaultWikiConfigSchema = z
+  .object({
+    folder: folderPath().describe(
       "Vault-relative folder that holds this vault's LLM wiki, written `wiki` or `notes/wiki` (no leading or trailing slash; `.`, `/`, an absolute path and `..` are rejected). A `SCHEMA.md` in it declares the page types, the frontmatter each type requires and the allowed property vocabulary; draft_wiki_page proposes pages in this folder and commit_wiki_page only writes new pages inside it. Creating a page there needs no confirmation (snapshots and restore_note are the undo). Absent means the vault has no wiki folder: draft_wiki_page then applies no schema and commit_wiki_page refuses.",
     ),
-});
+    rawFolder: folderPath()
+      .optional()
+      .describe(
+        "Vault-relative folder of this vault's raw sources, the inputs the wiki is built from (same rules as `folder`). Default: a `raw` folder BESIDE the wiki folder (`wiki` gives `raw`, `notes/wiki` gives `notes/raw`); there is none when that would overlap the wiki folder. It must not be, contain or sit inside `folder`. Its files are IMMUTABLE: no tool writes, renames or deletes anything in it (add sources outside the server, for example with Obsidian or a web clipper); reads follow the normal read ACL. draft_wiki_page `source` ingests one of its notes.",
+      ),
+  })
+  .superRefine((w, ctx) => {
+    if (w.rawFolder === undefined) return;
+    const a = foldKey(w.folder);
+    const b = foldKey(w.rawFolder);
+    if (a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`))
+      ctx.addIssue({
+        code: "custom",
+        path: ["rawFolder"],
+        message: "must not be, contain or sit inside wiki.folder",
+      });
+  });
 
 export const VaultConfigSchema = z.object({
   id: z

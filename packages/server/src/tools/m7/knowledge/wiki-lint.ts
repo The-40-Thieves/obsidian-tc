@@ -29,7 +29,7 @@ import {
   scanUnresolved,
 } from "../../wiki-scan";
 import { openContradictionsForPaths } from "./retrieval-runtime";
-import { isGeneratedWikiPath, WIKI_INDEX_FILE, WIKI_LOG_FILE } from "./wiki-folder";
+import { isGeneratedWikiPath, rawPathFilter, WIKI_INDEX_FILE, WIKI_LOG_FILE } from "./wiki-folder";
 import { inspectGenerated } from "./wiki-generated-seal";
 
 export const LINT_CHECKS = [
@@ -94,6 +94,8 @@ export interface LintEnv {
   embeddingModel: string;
   /** The vault's wiki folder. Its generated index.md / log.md are never the subject of a proposal. */
   wikiFolder?: string | undefined;
+  /** The vault's raw-sources folder. Raw notes are inputs: never the subject of a proposal. */
+  rawFolder?: string | undefined;
 }
 
 export interface LintReport {
@@ -153,12 +155,14 @@ export function runWikiLint(env: LintEnv, input: LintInput): LintReport {
     acl: env.acl,
     grantedScopes: env.grantedScopes,
     wikiFolder: env.wikiFolder,
+    rawFolder: env.rawFolder,
   };
   const folder = input.folder?.replace(/\/+$/, "");
   const prefix = folder ? `${folder}/` : "";
   const inFolder = (p: string): boolean => prefix === "" || p.startsWith(prefix);
+  const isRaw = rawPathFilter(env.rawFolder);
   const subjectOk = (p: string): boolean =>
-    !env.exclusion.isExcluded(p) && !isGeneratedWikiPath(p, env.wikiFolder);
+    !env.exclusion.isExcluded(p) && !isGeneratedWikiPath(p, env.wikiFolder) && !isRaw(p);
   const readable = (p: string): boolean => readableRel(env.acl, p, env.grantedScopes);
   const proposals: Proposal[] = [];
   const skipped: LintReport["skipped"] = [];

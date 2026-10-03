@@ -161,6 +161,30 @@ policy. A vault with no `acl` inherits the root ACL as its default:
 }
 ```
 
+### The raw-sources folder is immutable
+
+A vault with a wiki (`vaults[].wiki.folder`) has a raw-sources folder, `wiki.rawFolder` (default `raw` beside
+the wiki folder). The server derives one more rule from it for that vault, on top of any `acl` block: no
+write or delete may touch the folder or anything under it. It is not a config key of its own, so a config
+file cannot switch it off or widen it, and it holds even where `writePaths` or `deletePaths` list the folder.
+The denial is `acl_denied` and says the path is in an immutable folder; reads, search and `inspect_acl` follow
+the ordinary rules (`inspect_acl` reports a write there as denied by the write whitelist, with the folder as
+the matched rule). The rule is checked on the path as written and on the real path it leads to, so a symlink
+cannot carry a write into the folder or out of it. A hard-linked file is refused by the existing aliasing
+guard. See [Ingesting a raw source](/tools/#ingesting-a-raw-source).
+
+Two things keep that rule whole. **Link maintenance does not write there:** `move_note`,
+`bulk_move_notes` and `move_attachment` repoint links in every linking note outside the write whitelist
+(a deliberate carve-out), but never in a raw note. The move goes ahead and the raw notes that link the
+moved target keep their old links; the result reports them (`immutable_not_updated` for notes the caller
+may read, `immutable_not_updated_hidden` as a bare count for the rest, and an `immutable_warning`).
+**A symlinked raw folder is locked under both names:** if `raw` is a symlink to another in-vault folder
+the rule covers that folder too, and the wiki folder must not be the same directory by filesystem
+identity (the server refuses to start). The real folder is resolved when the server starts, so a symlink
+made afterwards takes effect at the next restart. A raw folder that leaves the vault, or whose identity
+cannot be established, locks nothing extra and cannot be ingested from. Folder names with `*`, `?` or
+`[` are matched literally.
+
 ## Scope classes & rate tiers
 
 Each tool's required scopes resolve to one **scope class**, chosen by

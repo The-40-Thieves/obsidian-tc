@@ -142,6 +142,7 @@ export function createLintWikiTool(deps: M7Deps): ToolDefinition {
           exclusion,
           embeddingModel: deps.embeddingProvider.id,
           wikiFolder: v.wikiFolder,
+          rawFolder: v.rawFolder,
         },
         {
           vaultId: v.id,

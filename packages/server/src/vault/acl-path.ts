@@ -17,7 +17,7 @@ import { type FolderAcl, isDefaultDenied } from "../acl";
 // path gets redacted, rather than a second copy that could drift.
 import { redactSecrets } from "../experiential/redact";
 import { recordAclCheck } from "./acl-audit";
-import { assertWritableVaultPath, resolveVaultPathChecked } from "./paths";
+import { assertWritableVaultPath, normalizeVaultPath, resolveVaultPathChecked } from "./paths";
 
 export type AclOp = "read" | "write" | "delete";
 
@@ -27,6 +27,9 @@ export type PathAclDecision =
       allowed: false;
       deniedBy: "read_only" | "read_paths" | "write_paths" | "delete_paths";
       matchedGlob: string | null;
+      /** Set when the path is under an immutable folder (a vault's raw sources), so the caller can
+       *  say so instead of blaming a whitelist. */
+      immutable?: true;
     };
 
 /**
@@ -48,6 +51,16 @@ export function evaluatePathAcl(
       deniedBy: `${op}_paths` as "read_paths" | "write_paths" | "delete_paths",
       matchedGlob: null,
     };
+  if (op !== "read") {
+    const immutable = acl.immutableGlobFor(path);
+    if (immutable !== null)
+      return {
+        allowed: false,
+        deniedBy: `${op}_paths` as "write_paths" | "delete_paths",
+        matchedGlob: immutable,
+        immutable: true,
+      };
+  }
   if (op !== "read" && acl.readOnly)
     return { allowed: false, deniedBy: "read_only", matchedGlob: null };
   // THE-618: match against the op's PRECOMPILED whitelist rather than re-reading a defensive copy
@@ -121,8 +134,19 @@ export function enforcePathAcl(
   // through the error envelope. Redact once, reuse for every throw site in this function; `path`
   // itself stays unredacted for the real ACL/audit logic below (recordAclCheck, scopesForPath).
   const redactedPath = redactSecrets(path).text;
+  const immutableDenied = (): never => {
+    throw err.aclDenied(`path is in an immutable folder (raw sources); ${op} denied`, {
+      path: redactedPath,
+      op,
+      reason: "immutable_folder",
+    });
+  };
+  // An immutable folder is judged on the name as written AND on the real path: a symlink under it
+  // that leads out (or one leading in) must not make a raw source writable.
+  if (op !== "read" && acl?.immutableGlobFor(normalizeVaultPath(rel)) != null) immutableDenied();
   const decision = evaluatePathAcl(acl, op, path);
   if (!decision.allowed) {
+    if (decision.immutable) immutableDenied();
     if (decision.deniedBy === "read_only")
       throw err.readOnlyMode(`vault is read-only; ${op} denied`, { path: redactedPath, op });
     throw err.aclDenied(`path is outside the ${op} whitelist`, { path: redactedPath, op });
@@ -189,5 +213,56 @@ export function callerCanReadVaultPath(
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * The guard every SECONDARY rewrite goes through: backlink and reference maintenance (move_note,
+ * bulk_move_notes, move_attachment) repoints links in every note that links the moved target, outside
+ * the caller's write whitelist, and that carve-out must never write an immutable path (a vault's raw
+ * sources). `blocks(rel)` is asked once per note about to be rewritten: true means leave it alone. It
+ * judges the name as written AND the real path, like enforcePathAcl, and fails closed when the path
+ * cannot be resolved. `out()` is the report: the paths the caller may read, a bare count for the rest
+ * (a path would disclose a note the caller cannot see), and a warning that those links now point at the
+ * old name.
+ */
+export class ImmutableRewriteSkips {
+  private readonly named = new Set<string>();
+  private hidden = 0;
+
+  constructor(
+    private readonly acl: FolderAcl | undefined,
+    private readonly root: string,
+    private readonly grantedScopes: Iterable<string>,
+  ) {}
+
+  blocks(rel: string): boolean {
+    if (!this.acl?.hasImmutablePaths) return false;
+    let immutable: boolean;
+    try {
+      immutable =
+        this.acl.immutableGlobFor(normalizeVaultPath(rel)) !== null ||
+        this.acl.immutableGlobFor(resolveVaultPathChecked(this.root, rel).aclRel) !== null;
+    } catch {
+      immutable = true;
+    }
+    if (!immutable) return false;
+    if (callerCanReadVaultPath(this.acl, this.grantedScopes, this.root, rel)) this.named.add(rel);
+    else this.hidden++;
+    return true;
+  }
+
+  out(): {
+    immutable_not_updated?: string[];
+    immutable_not_updated_hidden?: number;
+    immutable_warning?: string;
+  } {
+    const total = this.named.size + this.hidden;
+    if (total === 0) return {};
+    return {
+      ...(this.named.size > 0 ? { immutable_not_updated: [...this.named].sort() } : {}),
+      ...(this.hidden > 0 ? { immutable_not_updated_hidden: this.hidden } : {}),
+      immutable_warning: `${total} immutable (raw source) note${total === 1 ? "" : "s"} link${total === 1 ? "s" : ""} the moved target and ${total === 1 ? "was" : "were"} not rewritten: those links still point at the old name`,
+    };
   }
 }

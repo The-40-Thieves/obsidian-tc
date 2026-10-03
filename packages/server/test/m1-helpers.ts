@@ -10,7 +10,7 @@ import type {
   ToolResult,
   VaultMemoryDefenseConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
-import { type AclConfigT, FolderAcl } from "../src/acl";
+import type { AclConfigT, FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { elicitVerifier } from "../src/elicit";
@@ -18,14 +18,17 @@ import { createPagingDeps } from "../src/mcp/byte-page";
 import { type CallerContext, type RegistryOptions, ToolRegistry } from "../src/mcp/registry";
 import type { MetricsRecorder } from "../src/metrics/registry";
 import type { KeyResolver } from "../src/provenance/signer";
+import { buildAcls } from "../src/runtime/acl-build";
 import { registerM1Tools } from "../src/tools/m1";
-import { withWikiLogScope } from "../src/tools/m7/knowledge/wiki-log-acl";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
 export interface TestVaultOptions {
   files?: Record<string, string>;
+  /** Runs after `files` are written and BEFORE the ACLs are built: the one place to lay out
+   *  symlinks the per-vault ACL is derived from (a raw folder that is itself a symlink). */
+  setup?: (root: string) => void;
   acl?: Partial<AclConfigT>;
   vaultId?: string;
   snapshots?: { enabled: boolean; retention: number };
@@ -60,6 +63,8 @@ export interface TestVaultOptions {
   provenanceMaxScanRows?: number;
   /** `vaults[].wiki.folder` for the vault. */
   wikiFolder?: string;
+  /** `vaults[].wiki.rawFolder`; unset, a wiki vault gets the default (`raw` beside the wiki folder). */
+  rawFolder?: string;
   /** Extra registry options (metrics, emit, rateLimiter, toolVisibility...). */
   registryOpts?: Partial<RegistryOptions>;
 }
@@ -100,29 +105,41 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
     writeFileSync(abs, content);
   };
   for (const [rel, content] of Object.entries(opts.files ?? {})) writeFile(rel, content);
+  opts.setup?.(root);
 
   const db = openMemoryDb();
   provisionCacheDb(db);
   const aclCfg: AclConfigT = { readOnly: false, defaultScopes: [], rules: [], ...opts.acl };
-  // The same implicit `log.md` rule buildAcls adds in production (runtime/acl-build.ts).
-  const acl = new FolderAcl(withWikiLogScope(aclCfg, opts.wikiFolder));
-  const vaultRegistry = new VaultRegistry([
-    { id, path: root, ...(opts.wikiFolder ? { wiki: { folder: opts.wikiFolder } } : {}) },
+  const wiki = opts.wikiFolder
+    ? { folder: opts.wikiFolder, ...(opts.rawFolder ? { rawFolder: opts.rawFolder } : {}) }
+    : undefined;
+  const vaultRegistry = new VaultRegistry([{ id, path: root, ...(wiki ? { wiki } : {}) }]);
+  // The per-vault ACLs as production builds them (runtime/acl-build.ts): an override block, and the
+  // immutable raw-sources folder a wiki vault carries.
+  const withDefaults = (cfg: Partial<AclConfigT>): AclConfigT => ({
+    readOnly: false,
+    defaultScopes: [],
+    rules: [],
+    ...cfg,
+  });
+  const overrideIds = Object.keys(opts.aclByVault ?? {});
+  const { acl: rootAcl, aclByVault: overrides } = buildAcls(aclCfg, [
+    {
+      id,
+      path: root,
+      wiki,
+      ...(opts.aclByVault?.[id] ? { acl: withDefaults(opts.aclByVault[id]) } : {}),
+    },
+    ...overrideIds
+      .filter((vid) => vid !== id)
+      .map((vid) => ({ id: vid, acl: withDefaults(opts.aclByVault?.[vid] ?? {}) })),
   ]);
-  const overrides = new Map(
-    Object.entries(opts.aclByVault ?? {}).map(([vid, cfg]) => [
-      vid,
-      new FolderAcl(
-        withWikiLogScope(
-          { readOnly: false, defaultScopes: [], rules: [], ...cfg },
-          opts.wikiFolder,
-        ),
-      ),
-    ]),
-  );
+  // What production hands a caller for this vault: its own ACL when it has one (override block,
+  // the implicit `log.md` rule, the immutable raw folder), else the root ACL.
+  const acl = overrides.get(id) ?? rootAcl;
   const registry = new ToolRegistry({
     verifyElicit: elicitVerifier,
-    ...(opts.aclByVault ? { aclResolver: (vid: string) => overrides.get(vid) ?? acl } : {}),
+    ...(overrides.size > 0 ? { aclResolver: (vid: string) => overrides.get(vid) ?? rootAcl } : {}),
     ...opts.registryOpts,
     ...(opts.centralAcl ? { rootResolver: () => root } : {}),
     ...(opts.maxResponseBytes !== undefined ? { maxResponseBytes: opts.maxResponseBytes } : {}),

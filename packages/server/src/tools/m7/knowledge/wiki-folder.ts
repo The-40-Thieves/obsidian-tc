@@ -8,7 +8,7 @@
 // make two distinct directories equal. A folder that does not exist yet has no identity: then only
 // the exact configured spelling is in it, and any other spelling is refused (fail closed). A vault
 // with no wiki folder has no place a page may go: nothing is ever "in the wiki" by default.
-import { statSync } from "node:fs";
+import { lstatSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { CASE_INSENSITIVE_FS } from "../../../acl";
@@ -87,13 +87,78 @@ export function assertWikiPagePath(
       wiki_folder: wikiFolder,
     });
   };
-  const realPage = resolveVaultPathChecked(root, pageRel).aclRel;
-  const folderId = dirIdentity(resolveVaultPath(root, wikiFolder));
+  if (!insideFolder(root, wikiFolder, pageRel)) outside();
+}
+
+/**
+ * Whether `rel` (normalised) is inside `folder` as the filesystem resolves it, on the path as
+ * written AND on the real path it leads to: a symlink under the folder must not carry a path out of
+ * it, and one leading in does not make a path outside it the folder's. `folder` that does not exist
+ * yet has no identity: only the exact configured spelling is in it (fail closed).
+ */
+export function insideFolder(root: string, folder: string, rel: string): boolean {
+  const realRel = resolveVaultPathChecked(root, rel).aclRel;
+  const folderId = dirIdentity(resolveVaultPath(root, folder));
   if (folderId === null) {
-    // Nothing to compare against: only the configured spelling, byte for byte, is in the folder.
-    const prefix = `${wikiFolder}/`;
-    if (!pageRel.startsWith(prefix) || !realPage.startsWith(prefix)) outside();
-    return;
+    const prefix = `${folder}/`;
+    return rel.startsWith(prefix) && realRel.startsWith(prefix);
   }
-  if (!folderAbove(root, folderId, pageRel) || !folderAbove(root, folderId, realPage)) outside();
+  return folderAbove(root, folderId, rel) && folderAbove(root, folderId, realRel);
+}
+
+/** Whether a vault-relative path is inside the vault's raw-sources folder, by name. Raw notes are
+ *  inputs, never wiki pages: the page checks (is there already a page on this topic, which notes
+ *  should link to a new page) leave them out. No raw folder: nothing is raw. */
+export function rawPathFilter(rawFolder: string | undefined): (rel: string) => boolean {
+  return rawFolder === undefined ? () => false : (rel) => pathInFolder(rel, rawFolder);
+}
+
+/** Where a vault's configured raw folder really is: `canonical` is the in-vault directory it leads to
+ *  when that is not the configured spelling (a symlinked folder or ancestor), null when it is the
+ *  folder itself or does not exist yet. Not ok: the folder leaves the vault, is the vault root, or
+ *  its identity cannot be established (a dangling symlink, not a directory); the caller then locks
+ *  nothing extra and refuses to ingest from it. */
+export type RawFolderPlacement =
+  | { ok: true; canonical: string | null }
+  | { ok: false; reason: string };
+
+export function rawFolderPlacement(root: string, rawFolder: string): RawFolderPlacement {
+  let aclRel: string;
+  try {
+    aclRel = resolveVaultPathChecked(root, rawFolder).aclRel;
+  } catch {
+    return { ok: false, reason: "it leaves the vault or cannot be resolved" };
+  }
+  if (aclRel === "") return { ok: false, reason: "it resolves to the vault root" };
+  const abs = resolveVaultPath(root, rawFolder);
+  let exists = true;
+  try {
+    lstatSync(abs);
+  } catch {
+    exists = false;
+  }
+  if (exists && dirIdentity(abs) === null)
+    return { ok: false, reason: "its directory identity cannot be established" };
+  return { ok: true, canonical: aclRel === rawFolder ? null : aclRel };
+}
+
+/** Whether two configured folders are one directory, or one holds the other, as the filesystem
+ *  resolves them (a symlinked folder is the same directory as its target; spelling cannot say that). A
+ *  folder that does not exist has no identity and overlaps nothing here: the lexical check covers it. */
+export function foldersShareDirectory(root: string, a: string, b: string): boolean {
+  const idA = dirIdentity(resolveVaultPath(root, a));
+  const idB = dirIdentity(resolveVaultPath(root, b));
+  if (idA === null || idB === null) return false;
+  const holds = (folder: string, id: string): boolean => {
+    let real: string | null = null;
+    try {
+      real = resolveVaultPathChecked(root, folder).aclRel;
+    } catch {
+      real = null;
+    }
+    return [folder, real].some(
+      (rel) => rel !== null && rel !== "" && folderAbove(root, id, `${rel}/x`),
+    );
+  };
+  return holds(a, idB) || holds(b, idA);
 }

@@ -43,6 +43,14 @@ export const rewriteWarningsShape = {
   warnings_omitted: z.number().int().optional(),
 };
 
+/** Spread into the output schema of a tool whose backlink/reference rewrite skips immutable notes
+ *  (vault/acl-path.ts ImmutableRewriteSkips). All three keys are absent when nothing was skipped. */
+export const immutableSkipShape = {
+  immutable_not_updated: z.array(z.string()).optional(),
+  immutable_not_updated_hidden: z.number().int().optional(),
+  immutable_warning: z.string().optional(),
+};
+
 /** The `warnings` / `warnings_omitted` keys for a rewrite result (absent when there are none). */
 export function rewriteWarningsOut(items: RewriteWarning[]): {
   warnings?: RewriteWarning[];

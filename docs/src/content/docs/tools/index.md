@@ -427,6 +427,58 @@ exact configured spelling is accepted. The folder itself must be a plain relativ
 **Scopes.** The tool needs `read:notes` as well as `write:notes`: the duplicate check reads every note
 the caller may read and names the matches.
 
+### Ingesting a raw source
+
+The wiki is built from sources you collect and do not edit: web clippings, papers, transcripts. Each vault
+has a **raw folder**, `vaults[].wiki.rawFolder`. It defaults to `raw` **beside** the wiki folder (`wiki`
+gives `raw`, `notes/wiki` gives `notes/raw`) and is not set at all when that would be the wiki folder
+itself; it must never be, contain or sit inside the wiki folder (the config refuses it), so a raw note
+can never be a wiki page or a `lint_wiki` subject. It is validated like `wiki.folder`.
+
+**The raw folder is immutable.** It is the folder ACL's own rule, built per vault from the config: no
+tool writes, creates, renames or deletes anything in it (`acl_denied`), for any caller and whatever the
+vault's `writePaths` / `deletePaths` say. Reads follow the normal read ACL. A path counts as raw by its
+name and by where it really leads, so a symlink in the wiki that points into `raw/`, or one inside
+`raw/` that points out, does not make a source writable. `commit_wiki_page` therefore refuses a page,
+an overwrite or a patch that targets it, and refuses the whole commit. Add sources outside the server
+(Obsidian, a web clipper, the file system). Raw notes are inputs, so they are never `find_existing_page`
+or `draft_wiki_page` candidates and never offered as a `link_from` patch.
+
+**Renames leave raw notes alone.** `move_note`, `bulk_move_notes` and `move_attachment` repoint the
+links in every note that links the moved target, but never in a raw note. The move proceeds; each raw
+note that links the target is left as it was, so its link now points at the old name. The result says
+so: `immutable_not_updated` lists those notes you may read, `immutable_not_updated_hidden` counts the
+ones you may not (a count, never a path), and `immutable_warning` explains. Repoint them outside the
+server. If `raw` is a symlink to another folder in the vault, that folder is immutable too (from the
+next server restart), and the raw folder and wiki folder must not be the same directory.
+
+**Ingest.** Pass one raw note to `draft_wiki_page` as `source` (a `.md` note inside the raw folder, with
+the `topic` of the page it feeds). You get the usual duplicate check, link map and changeset skeleton,
+and the server does the bookkeeping:
+
+- the note is cited in the skeleton's `sources` as a property link (`[[raw/Clip]]`) and appears in the
+  link map as a `source`;
+- `ingest` reports it: `path`, `content_hash`, `chars` (the body, frontmatter excluded), `title`, and
+  `cited_by`, the wiki pages that already link it (so you can see it was ingested before);
+- you read it with `read_note` and write the prose; the server never calls a model here, apart from the
+  optional dedupe judge `find_existing_page` already has, which never sees a raw note.
+
+**A page must compress something.** A source under **1500 characters** is refused a page of its own when
+nothing in the wiki can take it in: no page covers the topic, none is related to it and none already
+cites it. The answer then has no changeset and `ingest.refused` is `{ reason: "source_too_short", chars,
+min_chars }`: wait for more sources on the topic, or add it to a page that exists. With a page that
+covers, relates to or cites it, a short source is fine. The rule is advisory advice from the draft step;
+the security rules (immutable raw, no raw page) are enforced by `commit_wiki_page` and the ACL.
+
+**A source you may not read never leaks.** A `source` the read ACL denies answers exactly like one that
+does not exist (`note_not_found`), before any byte of it is read; a path outside the raw folder is
+`invalid_input` (`reason: outside_raw_folder`), judged on the filesystem like the wiki folder (the
+folder's device and inode against each directory above the path, as written and after symlinks); a vault
+without a raw folder is `invalid_input` (`reason: no_raw_folder`); a raw folder that leaves the vault
+or whose identity cannot be established is `invalid_input` (`reason: raw_folder_unsafe`); a non-markdown
+file is refused (`reason: not_markdown`). The read check comes first, so a read-denied symlink answers
+`note_not_found` like a missing file.
+
 **Problems versus errors.** Things for you to fix do not block the write; they come back in
 `problems`: `schema` (missing required field, unknown type or property, value outside the vocabulary),
 `unresolved_link`, `missing_link` (a related note the page does not link), `no_inbound_link`,

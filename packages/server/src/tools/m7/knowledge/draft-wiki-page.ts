@@ -4,7 +4,11 @@
 // CHANGESET SKELETON (the new page's path and frontmatter, plus the additive patches that keep the
 // related pages linked to it) for the caller to fill in. The only model it can touch is the opt-in
 // dedupe judge find_existing_page already has.
-import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
+//
+// With `source` it plans the INGEST of one raw note (wiki-ingest.ts): the same dedupe, link map and
+// skeleton, plus the bookkeeping on the source (what it is, which pages already cite it) and the
+// compression rule, which refuses a page for a short source nothing in the wiki can take in.
+import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { TOPIC_MATCH_MIN } from "../../../search/dedupe-band";
@@ -18,6 +22,14 @@ import type { M7Deps } from "./deps";
 import { FindExistingPageOutput, findExistingPage } from "./find-existing-page";
 import type { RetrievalRuntime } from "./retrieval-runtime";
 import { DEFAULT_LINK_HEADING } from "./wiki-changeset";
+import { pathInFolder } from "./wiki-folder";
+import {
+  compressionRefusal,
+  pagesCiting,
+  readRawSource,
+  refusalAdvice,
+  sourceLink,
+} from "./wiki-ingest";
 import { buildLinkMap, type LinkMap, pageTitleOf, proposedPagePath } from "./wiki-link-map";
 import {
   checkFrontmatter,
@@ -52,6 +64,27 @@ const SchemaSection = z.object({
   vocabulary: z.record(z.string(), z.array(z.string()).nullable()).nullable(),
 });
 
+const IngestSection = z.object({
+  raw_folder: z.string(),
+  source: z.object({
+    path: z.string(),
+    content_hash: z.string(),
+    /** Characters of the body, frontmatter excluded. */
+    chars: z.number().int(),
+    title: z.string(),
+  }),
+  /** Wiki pages that already link this source (they were built from it, or from an earlier copy). */
+  cited_by: z.array(z.string()),
+  /** Set when the compression rule refused a page for this source (no changeset then). */
+  refused: z
+    .object({
+      reason: z.literal("source_too_short"),
+      chars: z.number().int(),
+      min_chars: z.number().int(),
+    })
+    .nullable(),
+});
+
 export const DraftWikiPageOutput = z.object({
   ...scanWarningsShape,
   vault: z.string(),
@@ -66,6 +99,8 @@ export const DraftWikiPageOutput = z.object({
     judge: true,
     judged_by: true,
   }),
+  /** Present only when `source` was given. */
+  ingest: IngestSection.optional(),
   suggestion: z.string(),
   /** Set when the topic already has a page: link to it or extend it instead of creating. */
   existing: z.object({ path: z.string(), content_hash: z.string() }).nullable(),
@@ -144,7 +179,7 @@ export function createDraftWikiPageTool(deps: M7Deps, retrieval: RetrievalRuntim
     name: "draft_wiki_page",
     domain: "knowledge",
     description:
-      "Plan a new wiki page WITHOUT writing anything: the step between find_existing_page and commit_wiki_page. Give a topic (and optionally a page `type` from the wiki folder's SCHEMA.md and `sources`, the notes or URLs the page draws on). Returns (1) the dedupe verdict from find_existing_page: if a page already exists you get it back with a suggestion to link to it or extend it instead of creating a duplicate, and no changeset; (2) the wiki folder's SCHEMA.md (page types, the frontmatter each requires, the allowed property vocabulary; a malformed file is a warning, never an error); (3) a link map: existing notes the new page should link TO (your sources, related pages) and notes that should link FROM it (notes that mention the topic without linking it, related wiki pages), and notes that already link it; (4) a CHANGESET SKELETON: the new page's path and frontmatter with the required fields empty, and a `link` patch (with the note's current prev_hash) for each note that should link to the new page. You write the page body (and any `text` for a patch); the server never writes prose. Pass the filled changeset to commit_wiki_page. Read-only: it never writes, respects the read ACL and Obsidian's Excluded files (an excluded note is never offered for patching), and with `judge` (default from the wikiJudge config) the dedupe check may send the topic and the opening text of up to 3 readable notes to the gateway judge model, exactly as find_existing_page does.",
+      "Plan a new wiki page WITHOUT writing anything: the step between find_existing_page and commit_wiki_page. Give a topic (and optionally a page `type` from the wiki folder's SCHEMA.md and `sources`, the notes or URLs the page draws on). Returns (1) the dedupe verdict from find_existing_page: if a page already exists you get it back with a suggestion to link to it or extend it instead of creating a duplicate, and no changeset; (2) the wiki folder's SCHEMA.md (page types, the frontmatter each requires, the allowed property vocabulary; a malformed file is a warning, never an error); (3) a link map: existing notes the new page should link TO (your sources, related pages) and notes that should link FROM it (notes that mention the topic without linking it, related wiki pages), and notes that already link it; (4) a CHANGESET SKELETON: the new page's path and frontmatter with the required fields empty, and a `link` patch (with the note's current prev_hash) for each note that should link to the new page. With `source` (a note in the vault's raw folder) the draft ingests it: that note is cited in the skeleton's `sources` and reported (size, the wiki pages that already cite it), raw notes are never offered as duplicates or patch targets, and a source under 1500 characters with no page in the wiki that covers, relates to or cites it comes back with no changeset (`ingest.refused`), because a page for it would only restate it; a source you may not read answers like a missing one. You write the page body (and any `text` for a patch); the server never writes prose. Pass the filled changeset to commit_wiki_page. Read-only: it never writes, respects the read ACL and Obsidian's Excluded files (an excluded note is never offered for patching), and with `judge` (default from the wikiJudge config) the dedupe check may send the topic and the opening text of up to 3 readable notes to the gateway judge model, exactly as find_existing_page does.",
     inputSchema: z
       .object({
         vault: VaultId,
@@ -170,6 +205,9 @@ export function createDraftWikiPageTool(deps: M7Deps, retrieval: RetrievalRuntim
           .describe(
             "What the page draws on: note paths or [[wikilinks]] (they become link_to entries) or URLs. Copied into the skeleton's `sources` property.",
           ),
+        source: VaultPath.optional().describe(
+          "Ingest: the path of ONE markdown note in this vault's raw folder (vaults[].wiki.rawFolder, default `raw` beside the wiki folder) that the page is distilled from. It is cited in the skeleton's `sources`, reported with its size and the pages that already cite it, and a source under 1500 characters is refused a page of its own when nothing in the wiki covers, relates to or cites it. Raw notes are inputs: never dedupe candidates or patch targets. Read it with read_note and write the prose yourself.",
+        ),
         limit: z
           .number()
           .int()
@@ -202,6 +240,12 @@ export function createDraftWikiPageTool(deps: M7Deps, retrieval: RetrievalRuntim
       const scope = { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes };
       const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
       const load = loadWikiSchema(scope, v.wikiFolder);
+      // Before the dedupe (and its embedding call): a bad or unreadable source fails on its own.
+      const rawSource =
+        input.source === undefined ? undefined : readRawSource(v, ctx, input.source);
+      const sources = [
+        ...new Set([...(input.sources ?? []), ...(rawSource ? [sourceLink(rawSource.path)] : [])]),
+      ];
       const { output, ranked, scan } = await findExistingPage(deps, retrieval, ctx, v, {
         topic: input.topic,
         limit: input.limit,
@@ -220,7 +264,7 @@ export function createDraftWikiPageTool(deps: M7Deps, retrieval: RetrievalRuntim
       const map: LinkMap = buildLinkMap({
         ranked,
         scan,
-        sources: input.sources ?? [],
+        sources,
         wikiFolder: v.wikiFolder,
         selfPath: exists?.path ?? path,
         isExcluded: exclusion.isExcluded,
@@ -233,7 +277,32 @@ export function createDraftWikiPageTool(deps: M7Deps, retrieval: RetrievalRuntim
         : (load.schema?.types.length ?? 0) > 0
           ? [WIKI_TYPE_KEY]
           : [];
+      const inWiki = (p: string): boolean => !!v.wikiFolder && pathInFolder(p, v.wikiFolder);
+      const citedBy =
+        rawSource && v.wikiFolder
+          ? pagesCiting(v.root, scan.notes, v.wikiFolder, rawSource.path)
+          : [];
+      // Can the wiki take the source in: a page covers the topic, one is related to it, or one cites it.
+      const refused = rawSource
+        ? compressionRefusal(
+            rawSource.chars,
+            !!exists ||
+              citedBy.length > 0 ||
+              ranked.some((c) => inWiki(c.path)) ||
+              [...map.link_from, ...map.link_to].some((e) => e.in_wiki),
+          )
+        : null;
       const common = {
+        ...(rawSource && v.rawFolder
+          ? {
+              ingest: {
+                raw_folder: v.rawFolder,
+                source: rawSource,
+                cited_by: citedBy,
+                refused,
+              },
+            }
+          : {}),
         ...(warnings ? { warnings } : {}),
         ...(warnings_omitted ? { warnings_omitted } : {}),
         vault: v.id,
@@ -257,7 +326,14 @@ export function createDraftWikiPageTool(deps: M7Deps, retrieval: RetrievalRuntim
         };
       }
 
-      const sources = input.sources ?? [];
+      if (refused)
+        return {
+          ...common,
+          suggestion: refusalAdvice(refused),
+          existing: null,
+          changeset: null,
+        };
+
       const frontmatter: Record<string, unknown> = {};
       if (type.name) frontmatter[WIKI_TYPE_KEY] = type.name;
       for (const f of type.def?.required ?? []) if (!(f in frontmatter)) frontmatter[f] = "";
@@ -265,6 +341,11 @@ export function createDraftWikiPageTool(deps: M7Deps, retrieval: RetrievalRuntim
       else if (type.def?.required.includes("sources")) frontmatter.sources = [];
       const notes = [
         "Write `page.body` (and `text` on a patch if you want to say why a note is related), then call commit_wiki_page with this changeset.",
+        ...(rawSource
+          ? [
+              `Read the source with read_note (${rawSource.path}) and write only what it adds to the wiki; it is cited in \`sources\`. Raw notes are immutable: never patch one.`,
+            ]
+          : []),
         "Drop any patch you do not want; each one only adds a link bullet to a note that should point at the new page.",
         ...(v.wikiFolder
           ? []

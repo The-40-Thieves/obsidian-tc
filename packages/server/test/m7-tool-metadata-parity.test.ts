@@ -321,7 +321,7 @@ const EXPECTED: ToolSnapshot[] = [
   {
     name: "draft_wiki_page",
     description:
-      "Plan a new wiki page WITHOUT writing anything: the step between find_existing_page and commit_wiki_page. Give a topic (and optionally a page `type` from the wiki folder's SCHEMA.md and `sources`, the notes or URLs the page draws on). Returns (1) the dedupe verdict from find_existing_page: if a page already exists you get it back with a suggestion to link to it or extend it instead of creating a duplicate, and no changeset; (2) the wiki folder's SCHEMA.md (page types, the frontmatter each requires, the allowed property vocabulary; a malformed file is a warning, never an error); (3) a link map: existing notes the new page should link TO (your sources, related pages) and notes that should link FROM it (notes that mention the topic without linking it, related wiki pages), and notes that already link it; (4) a CHANGESET SKELETON: the new page's path and frontmatter with the required fields empty, and a `link` patch (with the note's current prev_hash) for each note that should link to the new page. You write the page body (and any `text` for a patch); the server never writes prose. Pass the filled changeset to commit_wiki_page. Read-only: it never writes, respects the read ACL and Obsidian's Excluded files (an excluded note is never offered for patching), and with `judge` (default from the wikiJudge config) the dedupe check may send the topic and the opening text of up to 3 readable notes to the gateway judge model, exactly as find_existing_page does.",
+      "Plan a new wiki page WITHOUT writing anything: the step between find_existing_page and commit_wiki_page. Give a topic (and optionally a page `type` from the wiki folder's SCHEMA.md and `sources`, the notes or URLs the page draws on). Returns (1) the dedupe verdict from find_existing_page: if a page already exists you get it back with a suggestion to link to it or extend it instead of creating a duplicate, and no changeset; (2) the wiki folder's SCHEMA.md (page types, the frontmatter each requires, the allowed property vocabulary; a malformed file is a warning, never an error); (3) a link map: existing notes the new page should link TO (your sources, related pages) and notes that should link FROM it (notes that mention the topic without linking it, related wiki pages), and notes that already link it; (4) a CHANGESET SKELETON: the new page's path and frontmatter with the required fields empty, and a `link` patch (with the note's current prev_hash) for each note that should link to the new page. With `source` (a note in the vault's raw folder) the draft ingests it: that note is cited in the skeleton's `sources` and reported (size, the wiki pages that already cite it), raw notes are never offered as duplicates or patch targets, and a source under 1500 characters with no page in the wiki that covers, relates to or cites it comes back with no changeset (`ingest.refused`), because a page for it would only restate it; a source you may not read answers like a missing one. You write the page body (and any `text` for a patch); the server never writes prose. Pass the filled changeset to commit_wiki_page. Read-only: it never writes, respects the read ACL and Obsidian's Excluded files (an excluded note is never offered for patching), and with `judge` (default from the wikiJudge config) the dedupe check may send the topic and the opening text of up to 3 readable notes to the gateway judge model, exactly as find_existing_page does.",
     domain: "knowledge",
     requiredScopes: ["read:notes"],
     tags: ["external-network", "knowledge", "search"],
@@ -331,6 +331,7 @@ const EXPECTED: ToolSnapshot[] = [
       "limit",
       "min_similarity",
       "response_format",
+      "source",
       "sources",
       "topic",
       "type",
@@ -341,6 +342,7 @@ const EXPECTED: ToolSnapshot[] = [
       "changeset",
       "dedupe",
       "existing",
+      "ingest",
       "link_map",
       "requirements",
       "suggestion",
