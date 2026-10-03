@@ -1,0 +1,4 @@
+---
+type: Fixed
+---
+- **Semantic search now works out of the box in the standalone binaries and the `.mcpb` bundle.** With no config, both previously booted with lexical search only: the bundle lacked `sqlite-vec` and the local embedder, and the compiled binary could not resolve the embedder at all. The `.mcpb` now carries `sqlite-vec` for every platform (loaded through Node's built-in `node:sqlite`, which now supports loadable extensions) and the bundled embedder with its ONNX runtime for Linux x64 and arm64, macOS arm64 and Windows x64; the bundle grows from about 2 MB to about 52 MB. Each standalone binary compiles the embedder in and unpacks its ONNX runtime into the cache directory on first use (about 14 MB larger); the macOS x64 binary has no local embedder, because onnxruntime publishes no build for it. Binaries are now built by `scripts/build-binary.ts`, shared by the release and the first-run CI matrix, which enforces all nine install-path cells.

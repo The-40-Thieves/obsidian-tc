@@ -11,7 +11,12 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { linkOrCopy, packFromStaging, stageBundleInputs } from "./lib/mcpb-staging.mjs";
+import {
+  linkOrCopy,
+  packFromStaging,
+  stageBundleInputs,
+  stageRuntimeModules,
+} from "./lib/mcpb-staging.mjs";
 
 test("linkOrCopy hardlinks when link() succeeds — copyFile is never called", async () => {
   const calls = { link: [], copyFile: [] };
@@ -147,5 +152,100 @@ test("packFromStaging: a successful pack still removes the staging dir", async (
 
   assert.equal(existsSync(capturedStagingDir), false, "staging dir must be removed after success");
   assert.equal(await readFile(outFile, "utf8"), "packed");
+  await rm(repoRoot, { recursive: true, force: true });
+});
+
+test("stageBundleInputs skips a NESTED node_modules too (workspace install trees never ship)", async () => {
+  const repoRoot = await makeFixtureRepo();
+  const stagingDir = await mkdtemp(join(tmpdir(), "mcpb-staging-out-"));
+  try {
+    await mkdir(join(repoRoot, "packages", "server", "node_modules", "dep"), { recursive: true });
+    await writeFile(join(repoRoot, "packages", "server", "node_modules", "dep", "i.js"), "x\n");
+    await stageBundleInputs(repoRoot, stagingDir);
+    assert.ok(existsSync(join(stagingDir, "packages", "server", "dist", "cli.js")));
+    assert.equal(existsSync(join(stagingDir, "packages", "server", "node_modules")), false);
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+    await rm(stagingDir, { recursive: true, force: true });
+  }
+});
+
+// What the packed server reaches by bare specifier at run time: sqlite-vec for EVERY platform (one
+// .mcpb runs everywhere) and the bundled local embedder with onnxruntime's files per platform.
+test("stageRuntimeModules lays out sqlite-vec, every vec0 platform package and the embedder runtime", async () => {
+  const src = await mkdtemp(join(tmpdir(), "mcpb-runtime-src-"));
+  const stagingDir = await mkdtemp(join(tmpdir(), "mcpb-runtime-out-"));
+  try {
+    const dirWith = async (name, files) => {
+      const dir = join(src, name);
+      await mkdir(dir, { recursive: true });
+      for (const [f, body] of Object.entries(files)) await writeFile(join(dir, f), body);
+      return dir;
+    };
+    const vecDir = await dirWith("sqlite-vec", { "package.json": "{}", "index.cjs": "// loader" });
+    const linux = await dirWith("linux", { "package.json": "{}", "vec0.so": "so" });
+    const win = await dirWith("win", { "package.json": "{}", "vec0.dll": "dll" });
+    await writeFile(join(src, "embedder.mjs"), "// bundled embedder");
+    await writeFile(join(src, "binding.node"), "binding");
+    await writeFile(join(src, "libonnxruntime.so.1"), "lib");
+
+    await stageRuntimeModules(stagingDir, {
+      sqliteVec: {
+        dir: vecDir,
+        platformPackages: [
+          { name: "sqlite-vec-linux-x64", dir: linux },
+          { name: "sqlite-vec-windows-x64", dir: win },
+        ],
+      },
+      embedder: {
+        version: "9.9.9",
+        bundleFile: join(src, "embedder.mjs"),
+        ortFiles: {
+          "linux-x64": [
+            { name: "onnxruntime_binding.node", path: join(src, "binding.node") },
+            { name: "libonnxruntime.so.1", path: join(src, "libonnxruntime.so.1") },
+          ],
+        },
+      },
+    });
+
+    const nm = join(stagingDir, "node_modules");
+    assert.equal(await readFile(join(nm, "sqlite-vec", "index.cjs"), "utf8"), "// loader");
+    assert.equal(await readFile(join(nm, "sqlite-vec-linux-x64", "vec0.so"), "utf8"), "so");
+    assert.equal(await readFile(join(nm, "sqlite-vec-windows-x64", "vec0.dll"), "utf8"), "dll");
+
+    const emb = join(nm, "@the-40-thieves", "obsidian-tc-embedder-local");
+    assert.equal(await readFile(join(emb, "index.mjs"), "utf8"), "// bundled embedder");
+    const pkg = JSON.parse(await readFile(join(emb, "package.json"), "utf8"));
+    assert.equal(pkg.name, "@the-40-thieves/obsidian-tc-embedder-local");
+    assert.equal(pkg.version, "9.9.9");
+    assert.equal(pkg.main, "./index.mjs");
+    assert.equal(pkg.type, "module");
+    const ort = join(emb, "ort", "linux-x64");
+    assert.deepEqual((await readdir(ort)).sort(), [
+      "libonnxruntime.so.1",
+      "onnxruntime_binding.node",
+    ]);
+  } finally {
+    await rm(src, { recursive: true, force: true });
+    await rm(stagingDir, { recursive: true, force: true });
+  }
+});
+
+test("packFromStaging runs populate() on the staging dir before pack()", async () => {
+  const repoRoot = await makeFixtureRepo();
+  const order = [];
+  await packFromStaging(repoRoot, join(repoRoot, "dist", "obsidian-tc.mcpb"), {
+    populate: async (stagingDir) => {
+      order.push("populate");
+      await mkdir(join(stagingDir, "node_modules"), { recursive: true });
+      await writeFile(join(stagingDir, "node_modules", "marker"), "m");
+    },
+    pack: async (stagingDir) => {
+      order.push("pack");
+      assert.ok(existsSync(join(stagingDir, "node_modules", "marker")), "populated before pack");
+    },
+  });
+  assert.deepEqual(order, ["populate", "pack"]);
   await rm(repoRoot, { recursive: true, force: true });
 });

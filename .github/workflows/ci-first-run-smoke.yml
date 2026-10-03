@@ -12,9 +12,10 @@ name: ci-first-run-smoke
 #           server.mcp_config, expand ${__dirname}/${user_config.*}, spawn `node` from PATH.
 #           ASSUMPTION: the host's Node is the runner's Node 24 (the supported floor). Real desktop
 #           hosts bundle their own; what they bundle is recorded in the PR that added this workflow.
-#   binary  `bun build --compile` in the job with publish.yml's build-binaries steps, for the
-#           runner's own arch (ubuntu x64, macos arm64, windows x64), run from a tree with
-#           node_modules deleted so only the binary itself can provide sqlite-vec.
+#   binary  scripts/build-binary.ts (`bun build --compile` plus the embedded local embedder, the
+#           script publish.yml's build-binaries runs) in the job, for the runner's own arch (ubuntu
+#           x64, macos arm64, windows x64), run from a tree with node_modules deleted so only the
+#           binary itself can provide sqlite-vec and the embedder.
 #
 # Each cell runs packages/server/scripts/first-run-smoke.ts (bundled to one .mjs first, so node_modules
 # can be deleted before it runs): boot, banner (native/vec), boot reconcile, then search_semantic with
@@ -23,9 +24,9 @@ name: ci-first-run-smoke
 #
 # EXPECTED_FAILURES is the explicit list of cells that fail today. A listed cell still runs and its
 # failure is still recorded in the table; it just does not turn the run red, so the matrix can record
-# today's truth without blocking unrelated PRs. Part 2 of the install-friction work removes an entry
-# when it fixes that cell. An entry that starts passing is flagged as XPASS (a warning and a table
-# note): delete it. A cell NOT on the list that fails turns the run red.
+# today's truth without blocking unrelated PRs. The list is EMPTY now: part 2 of the install-friction
+# work fixed the mcpb and binary cells. A new entry carries the reason a cell cannot pass. An entry
+# that starts passing is flagged as XPASS (a warning and a table note): delete it. A cell NOT on the list that fails turns the run red.
 #
 # The exemption is on the smoke STEP (`continue-on-error` there), not the job. GitHub's job-level
 # continue-on-error does not survive a failed step: every later step would be skipped, including the
@@ -36,7 +37,9 @@ on:
       - 'packages/**'
       - 'mcpb/**'
       - 'scripts/bundle-mcpb.ts'
+      - 'scripts/build-binary.ts'
       - 'scripts/gen-embedded-*.mjs'
+      - 'scripts/lib/**'
       - '.mcpbignore'
       - 'bun.lock'
       - '.github/workflows/ci-first-run-smoke.yml'
@@ -52,14 +55,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Space-separated `<path>/<os>` cells that fail today. Keep one cell per line.
-  EXPECTED_FAILURES: >-
-    mcpb/ubuntu-latest
-    mcpb/macos-latest
-    mcpb/windows-latest
-    binary/ubuntu-latest
-    binary/macos-latest
-    binary/windows-latest
+  # Space-separated `<path>/<os>` cells that fail today, one per line, each with the reason. Empty:
+  # every cell is enforced.
+  EXPECTED_FAILURES: ''
   # The model weights the local embedder downloads on first use, cached like ci-server.yml's
   # zero-config-smoke-local-embeddings job (same key: bump with model-info.ts's pinned revision).
   EMBEDDER_REVISION: e9b6763023c676ca8431644204f50c2b100d9aab
@@ -79,6 +77,13 @@ jobs:
         run: |
           (cd packages/shared && bun run build)
           (cd packages/server && bun run build)
+      # The bundle ships the local embedder (scripts/bundle-mcpb.ts bundles it); its package is its
+      # own install root.
+      - name: install + build embedder-local
+        working-directory: packages/embedder-local
+        run: |
+          bun install --frozen-lockfile
+          bun run build
       - name: pack the .mcpb bundle
         run: bun run bundle
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -158,9 +163,15 @@ jobs:
       - name: embed vanilla SQLite (binary, darwin only)
         if: matrix.path == 'binary' && matrix.os == 'macos-latest'
         run: node scripts/gen-embedded-sqlite.mjs --target "$FR_TARGET"
+      - name: install + build embedder-local (binary)
+        if: matrix.path == 'binary'
+        working-directory: packages/embedder-local
+        run: |
+          bun install --frozen-lockfile
+          bun run build
       - name: compile standalone binary
         if: matrix.path == 'binary'
-        run: bun build packages/server/src/cli.ts --compile --bytecode --minify --sourcemap --external @the-40-thieves/obsidian-tc-reranker-local --external @the-40-thieves/obsidian-tc-embedder-local --target="$FR_TARGET" --outfile "packages/server/dist/obsidian-tc-$FR_TARGET"
+        run: bun scripts/build-binary.ts --target "$FR_TARGET" --outfile "packages/server/dist/obsidian-tc-$FR_TARGET"
 
       - name: cache local embedder model weights (nomic-embed-text-v1.5, q8)
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

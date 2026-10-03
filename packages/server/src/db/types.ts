@@ -18,9 +18,9 @@ export interface Database {
    *  it and cachedPrepare() falls back to prepare(). bun:sqlite's db.prepare is uncached, so
    *  this is where the win lands. */
   prepareCached?(sql: string): Statement;
-  // Load a SQLite loadable extension (sqlite-vec). Present only on adapters whose
-  // runtime supports it (better-sqlite3, bun:sqlite); absent under node:sqlite,
-  // where callers fall back to the in-process brute-force vector scan.
+  // Load a SQLite loadable extension (sqlite-vec). Optional so a caller (and a test double)
+  // can omit it: callers then fall back to the in-process brute-force vector scan. All three
+  // production adapters (better-sqlite3, bun:sqlite, node:sqlite) provide it.
   loadExtension?(path: string): void;
   close?(): void;
   /** THE-1039 fix round 3 (C2) — set only when this connection was opened with

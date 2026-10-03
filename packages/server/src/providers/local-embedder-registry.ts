@@ -10,9 +10,11 @@
 // never-throws-on-resolution-failure, why the source-checkout walk is bounded and
 // node_modules-aware) is identical and already spelled out there.
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { embeddedEmbedder } from "../embeddings/embedded-embedder";
 import type { EmbeddingProvider } from "../embeddings/provider";
 import { isUnderNodeModules, type SourceCheckoutResolution } from "./local-package-resolution";
 import type { EmbeddingsConfigLike, ResolveContext } from "./types";
@@ -101,7 +103,11 @@ interface LocalEmbedderModule {
   };
 }
 
-export type LocalEmbedderResolutionRoute = "localModulePath" | "bare-specifier" | "source-checkout";
+export type LocalEmbedderResolutionRoute =
+  | "localModulePath"
+  | "embedded"
+  | "bare-specifier"
+  | "source-checkout";
 
 export interface LocalEmbedderResolutionAttempt {
   route: LocalEmbedderResolutionRoute;
@@ -157,6 +163,20 @@ export async function resolveLocalEmbedderModule(
       return { ok: true, mod, attempts, inSourceCheckout: EMBEDDER_SOURCE_CHECKOUT_ANCHOR_FOUND };
     } catch (e) {
       record("localModulePath", abs, e);
+    }
+  }
+
+  // A standalone binary carries the embedder inside itself (embeddings/embedded-embedder.ts); every
+  // other install leaves `embeddedEmbedder` undefined and skips straight to the package lookup.
+  if (embeddedEmbedder) {
+    try {
+      const mod = (await embeddedEmbedder({
+        cacheDir: ctx.cacheDir ?? join(homedir(), ".obsidian-tc"),
+      })) as LocalEmbedderModule;
+      attempts.push({ route: "embedded", target: LOCAL_EMBEDDER_PACKAGE, ok: true });
+      return { ok: true, mod, attempts, inSourceCheckout: EMBEDDER_SOURCE_CHECKOUT_ANCHOR_FOUND };
+    } catch (e) {
+      record("embedded", LOCAL_EMBEDDER_PACKAGE, e);
     }
   }
 

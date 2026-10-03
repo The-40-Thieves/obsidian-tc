@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { openNodeSqlite } from "../src/db/node-node-sqlite";
+import { loadVec } from "../src/search/vec";
 import { makeTempDir, rmTemp } from "./tmp";
 
 describe("THE-276 node:sqlite fallback adapter", () => {
@@ -20,6 +21,17 @@ describe("THE-276 node:sqlite fallback adapter", () => {
     );
     // prepareCached memoizes by SQL text.
     expect(db.prepareCached?.("SELECT 1 AS x")).toBe(db.prepareCached?.("SELECT 1 AS x"));
+    db.close?.();
+  });
+
+  // The packed .mcpb ships sqlite-vec but no better-sqlite3, so this adapter is the one that must
+  // load it there (the first-run matrix's mcpb cells measure vec=on).
+  it("loads sqlite-vec through loadExtension and leaves SQL load_extension() disabled", async () => {
+    const db = await openNodeSqlite(join(dir, "vec.db"));
+    expect(typeof db.loadExtension).toBe("function");
+    expect(loadVec(db)).toBe(true);
+    expect((db.prepare("SELECT vec_version() AS v").get() as { v: string }).v).toMatch(/^v/);
+    expect(() => db.prepare("SELECT load_extension('nope')").get()).toThrow();
     db.close?.();
   });
 });

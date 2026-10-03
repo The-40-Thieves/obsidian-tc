@@ -34,9 +34,10 @@ Runtime: [`@huggingface/transformers`](https://www.npmjs.com/package/@huggingfac
 v4 (Transformers.js) running on CPU, via the optional
 `@the-40-thieves/obsidian-tc-embedder-local` package — the same "small optional package, resolved
 at runtime, never a hard dependency of the server" shape as the [local
-reranker](/configuration/config-yaml/#reranker). It is unavailable on the standalone
-`bun --compile` binary and the one-click `.mcpb` bundle regardless of publishing status (see
-[Availability by install method](#availability-by-install-method) below).
+reranker](/configuration/config-yaml/#reranker). It is reachable from the npm install, the
+standalone `bun --compile` binary (compiled in) and the one-click `.mcpb` bundle (bundled), with the
+one exception of the macOS x64 binary (see [Availability by install
+method](#availability-by-install-method) below).
 
 To choose explicitly, or to pick a different catalog model:
 
@@ -84,20 +85,22 @@ and a model2vec/potion static-embedding model has no Transformers.js-loadable ON
 
 `local` resolves the optional `@the-40-thieves/obsidian-tc-embedder-local` package the same way
 the local reranker resolves its own package — a published-npm route, a source-checkout route (for
-anyone developing inside the monorepo), and an explicit-path escape hatch. Like the local reranker,
-**the package's first publish to npm is a deferred, one-time step** (see the package's own
-`README.md`'s "Publishing status") — until that has happened, the published-npm route does not
-resolve anywhere. `@huggingface/transformers` also pulls in `onnxruntime-node`'s native platform
-binaries, which cannot survive `bun build --compile` or ship inside a `.mcpb` bundle regardless —
-the same constraint the local reranker documents. Practically, today:
+anyone developing inside the monorepo), and an explicit-path escape hatch. The package is published to npm, so a
+normal install resolves it. `@huggingface/transformers` also pulls in `onnxruntime-node`'s native platform
+binaries. Those cannot be loaded from inside a single-file executable or a bundle as they are, so
+`scripts/build-binary.ts` (the standalone binaries) and `scripts/bundle-mcpb.ts` (the `.mcpb`) bundle
+the embedder with a few build-time rewrites (`scripts/lib/embedder-bundle.mjs`) and ship the
+platform's ONNX runtime files alongside: embedded in the binary and unpacked into
+`<cacheDir>/runtime/` on first use, or sitting in the bundle's `ort/<platform>/` directory. The local
+reranker has no such packaging, so it stays unreachable there. Practically, today:
 
 | Install method | `local` embedder |
 | --- | --- |
 | A source checkout of this monorepo (`git clone` + `bun install`) | Works — resolves via the source-checkout route once `packages/embedder-local` is built (`bun run build` there; CI does this automatically). |
 | Docker (GHCR) | **Works** — the image builds `packages/embedder-local` from source in the same stage as the server and copies its built package (dist + `node_modules`) into the same relative path the source-checkout resolution route walks for, so the identical route resolves inside the container. |
-| npm (`npm install -g obsidian-tc`) | **Not yet.** `packages/server`'s `package.json` declares `@the-40-thieves/obsidian-tc-embedder-local` as an `optionalDependencies` entry, so a fresh `npm install` WILL pull it once the package's first `npm publish` lands (a deferred owner action) — until then, npm has nothing to resolve and the install just skips the optional dependency. See [Known gaps](#known-gaps) below. |
-| Standalone binary (`bun --compile`) | **Unavailable**, structurally (the `onnxruntime-node` constraint above) — set `embeddings.provider` to a hosted/self-hosted backend instead, regardless of publishing status. |
-| One-click `.mcpb` bundle | **Unavailable**, same structural reason. |
+| npm (`npm install -g obsidian-tc`) | **Works.** `packages/server`'s `package.json` declares `@the-40-thieves/obsidian-tc-embedder-local` as an `optionalDependencies` entry, so a fresh `npm install` pulls it. The first-run matrix (`ci-first-run-smoke`) runs a real semantic search on the published package on Linux, macOS and Windows. |
+| Standalone binary (`bun --compile`) | **Works** on Linux x64 and arm64, macOS arm64 and Windows x64: compiled in, about 14 MB larger. **Unavailable on macOS x64**, which `onnxruntime-node` publishes no build for: set `embeddings.provider` to a hosted/self-hosted backend there. |
+| One-click `.mcpb` bundle | **Works** on Linux x64 and arm64, macOS arm64 and Windows x64 (the bundle carries those platforms' ONNX runtime; it is about 52 MB). Elsewhere, set a hosted/self-hosted `embeddings.provider`. |
 
 An unresolvable `local` provider does not crash boot — the same graceful degradation an
 unreachable Ollama endpoint has always had (a `[index] reconcile degraded` notice, FTS/lexical
@@ -105,20 +108,14 @@ search stays fully functional). `obsidian-tc doctor`'s check (a doctor check id,
 from a source checkout where the package simply hasn't been built yet (a one-command fix) or when
 the platform genuinely has no `onnxruntime-node` prebuild AND another provider is already
 configured, and **FAIL** — with remediation naming the exact fix — when the platform IS supported
-but the package still cannot resolve (today: an npm install before the first publish).
+but the package still cannot resolve (for example an npm install that skipped optional dependencies).
 
 ### Known gaps
 
-**On npm installs specifically, `local` does not resolve today** — the same
-not-yet-published-to-npm state the local reranker has been in since it shipped (its own
-`README.md` documents this candidly), just higher-stakes here because `local` is the schema
-default rather than an opt-in fallback. Until the package's first `npm publish`, an npm deployment
-needs an explicit hosted or self-hosted `embeddings.provider` (see [Hosted and self-hosted
-providers](#hosted-and-self-hosted-providers) above) for semantic search to work. A source checkout
-of the monorepo and the Docker image are both unaffected — the source-checkout resolution route
-works today for a checkout, and the same route works inside the Docker image because it ships the
-built embedder-local package at the path that route walks for (see the table above) — which is
-how this document's own [measurement table](#model-choice-measured-not-assumed) was produced.
+**A platform `onnxruntime-node` publishes no build for has no local embedder** (the macOS x64
+standalone binary, and the `.mcpb` bundle on an OS outside the four it carries). There, an explicit
+hosted or self-hosted `embeddings.provider` (see [Hosted and self-hosted
+providers](#hosted-and-self-hosted-providers) above) is needed for semantic search to work.
 
 **Install footprint is heavier than the pinned model download.** `packages/embedder-local`'s
 `node_modules` is ~585 MB, almost entirely `@huggingface/transformers`'s two bundled ONNX

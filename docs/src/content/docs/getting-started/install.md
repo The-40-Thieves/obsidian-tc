@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: Install the obsidian-tc MCP server via npm, a standalone binary, or Docker.
+description: Install the obsidian-tc MCP server via npm, a standalone binary, a one-click .mcpb bundle, or Docker.
 ---
 
 The fastest way to try it, no install step and no config file:
@@ -9,17 +9,13 @@ The fastest way to try it, no install step and no config file:
 npx obsidian-tc /path/to/vault
 ```
 
-Every note tool and lexical search work immediately. Semantic search is designed to
-work out of the box too: a bundled, fully offline embedder handles indexing with no
-config file, no Ollama, and no API key (one-time model download on first use). **On
-the `npx`/npm install above and the Docker image, that default is not yet reachable**
-pending the embedder package's first npm publish (a deferred one-time step) — it
-works today only for a source checkout of this repo; see
-[Embeddings](/configuration/embeddings/) for the exact per-install-method state and
-the workaround (set an explicit hosted/self-hosted provider). Ollama and every hosted
-provider (OpenAI, Voyage, Cohere, …) are opt-in either way — a config file is what
-selects one, and is also the upgrade for ACLs, HITL, the generative tier, and
-everything else — see [First Run](/getting-started/first-run/).
+Every note tool and lexical search work immediately. Semantic search works out of the
+box too: a bundled, fully offline embedder handles indexing with no config file, no
+Ollama, and no API key (one-time model download on first use). The table below says
+which install methods carry it; [Embeddings](/configuration/embeddings/) has the detail.
+Ollama and every hosted provider (OpenAI, Voyage, Cohere, …) are opt-in either way — a
+config file is what selects one, and is also the upgrade for ACLs, HITL, the generative
+tier, and everything else — see [First Run](/getting-started/first-run/).
 
 obsidian-tc ships in several forms. All of them run the same server; pick whichever
 fits your environment.
@@ -30,6 +26,22 @@ fits your environment.
 | **Standalone binary** | x64, arm64 | x64 | x64, arm64 | No runtime needed. On Windows-arm64, use npm. |
 | **Docker** (GHCR) | via a Linux VM | via a Linux VM | amd64, arm64 | Container / server deployments. |
 | **One-click `.mcpb`** | yes | yes | yes | For MCPB-capable hosts; runs under Node 24+, self-contained (built-in `node:sqlite`, no native dependency). |
+
+### What works out of the box, per install method
+
+Measured, not assumed: CI installs each path on a clean Ubuntu, macOS and Windows machine,
+points it at a vault with no config file, and runs a real semantic search
+(`ci-first-run-smoke`). All nine cells pass.
+
+| Method | Default semantic search (no config) | Dense index (`sqlite-vec`) | Native addon | Size |
+| --- | --- | --- | --- | --- |
+| **npm** | Yes. The embedder installs with the server as an optional dependency. | Yes | Yes (prebuilds); pure-JS fallback elsewhere | Large install: the embedder's runtime is ~0.6 GB of `node_modules` |
+| **Standalone binary** | Yes on Linux x64 and arm64, macOS arm64 and Windows x64: the embedder and its ONNX runtime are inside the one file. **No on macOS x64** (the runtime has no build for it; configure a hosted provider). | Yes (embedded) | Pure-JS fallback | About 14 MB larger than a binary without the embedder |
+| **One-click `.mcpb`** | Yes on Linux x64 and arm64, macOS arm64 and Windows x64 | Yes | Pure-JS fallback (one universal bundle) | About 52 MB, up from about 2 MB; it carries the ONNX runtime for Linux x64 and arm64, macOS arm64 and Windows x64 |
+| **Docker** | Not part of the matrix; see [Docker](#docker) below. | | | |
+
+The model weights are not in any of them: the first search downloads and checksum-verifies
+them (about 140 MB) into the cache directory, then works offline.
 
 ## npm (Node 24+)
 
@@ -53,10 +65,14 @@ host. Targets: macOS x64 + arm64, Windows x64, and Linux x64 + arm64. Download t
 asset for your platform from the GitHub release and run it directly. (Windows on
 arm64 is not a `bun --compile` target; use the npm install there.)
 
-The bundled local embedder (and local reranker) cannot run here — their runtime
-dependency cannot survive `bun --compile`. Set `embeddings.provider` to a hosted or
-self-hosted backend (see [Embeddings](/configuration/embeddings/)) if you need
-semantic search from this install method; lexical search is unaffected.
+The bundled local embedder runs from inside the binary: it is compiled in with its ONNX
+runtime, whose native files are unpacked into the cache directory (`<cacheDir>/runtime/`)
+on first use, so semantic search works with no config file. That adds about 14 MB to the
+file. It is not available in the macOS x64 binary (the ONNX runtime ships no macOS x64
+build); set `embeddings.provider` to a hosted or self-hosted backend there (see
+[Embeddings](/configuration/embeddings/)). The local reranker cannot run from a binary
+either way, and the pure-JS fallback replaces the native addon; lexical search is
+unaffected.
 
 ## Docker
 
@@ -76,12 +92,14 @@ search until the embedder package's first npm publish lands.
 ## One-click bundle (`.mcpb`)
 
 For MCPB-capable MCP hosts, each release attaches a one-click `obsidian-tc.mcpb`
-bundle. It runs the server under the host's Node (24+) and is fully self-contained:
-no `node_modules` and no native build are required, because it uses Node's built-in
-`node:sqlite` when `better-sqlite3` is absent (vector search then uses the
-brute-force fallback). Install it through your host's MCP-bundle installer. Same
-caveat as the standalone binary above: the bundled local embedder is unavailable
-here — configure a hosted or self-hosted `embeddings.provider` for semantic search.
+bundle. It runs the server under the host's Node (24+) and is self-contained: no
+`node_modules` and no native build are required on the machine. It carries `sqlite-vec`
+for every platform (loaded through Node's built-in `node:sqlite`, so the dense index is on)
+and the bundled local embedder with its ONNX runtime for Linux x64 and arm64, macOS arm64
+and Windows x64, so semantic search works with no config file. Because one bundle serves
+every OS, it uses the pure-JS fallback instead of the native addon, and it is about 52 MB.
+On an OS outside that list, configure a hosted or self-hosted `embeddings.provider`.
+Install it through your host's MCP-bundle installer.
 
 ## Companion plugin
 
