@@ -122,6 +122,26 @@ server never binds a routable address.
 | `readPaths` / `writePaths` / `deletePaths` | glob[] *(optional)* | Per-operation whitelists. Omitted = that operation unrestricted; present = a path must match at least one glob. `.obsidian/`, `.git/`, `.trash/` are always denied (case-folded, so case variants can't evade it). |
 | `strictReadDefault` | bool, false | When true, an **undefined** `readPaths` fails closed on reads instead of allowing all. |
 
+### Path globs: write `/`, a backslash is a separator
+
+Every config field that holds a vault path pattern is normalised once, when the config loads:
+each backslash becomes `/` and repeated separators collapse. So `Private\**` (the natural spelling on
+Windows, written `"Private\\**"` inside JSON) is exactly `Private/**`, and `notes//drafts` is `notes/drafts`. A vault path can never
+contain a backslash, so there is nothing to escape in operator input: a backslash is always a
+separator, and `\*` is not a way to match a literal `*`.
+
+The fields this covers: `acl.rules[].glob`, `acl.readPaths` / `writePaths` / `deletePaths` (also under
+a vault's own `acl`), `egress.excludePaths`, and `vaults[].index.excludePaths` (path-prefix entries
+only; an entry written `/regex/` is a regular expression and is left exactly as written).
+
+Before this, a backslash glob compiled to a pattern no vault path could match. For a whitelist
+(`readPaths` and friends) that failed closed, which is safe. For a restriction (`egress.excludePaths`,
+`acl.rules`, `index.excludePaths`) it failed **open**: the exclusion silently excluded nothing.
+
+`obsidian-tc doctor` runs `config.path-globs`, which warns about any configured glob that matches no
+file in its vault (a typo, the wrong case, a renamed folder). A dead restriction is reported as one that
+protects nothing; a dead whitelist entry as one that grants nothing.
+
 ## `embeddings`
 
 | Field | Type / default | What it does |

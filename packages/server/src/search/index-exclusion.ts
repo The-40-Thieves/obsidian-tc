@@ -16,6 +16,7 @@
 // An excluded note stays an ordinary vault file for link resolution; only the index leaves it out.
 import { lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { isRegexExclusionEntry } from "@the-40-thieves/obsidian-tc-shared";
 import { OBSIDIAN_APP_CONFIG } from "../vault/watcher";
 
 /** An app.json larger than this is not read (a real one is a few KB). */
@@ -59,7 +60,7 @@ const clean = (entries: readonly unknown[]): string[] =>
 function compileEntry(entry: string): RegExp | null {
   if (entry.length > MAX_PATTERN_CHARS) return null;
   try {
-    return entry.length > 2 && entry.startsWith("/") && entry.endsWith("/")
+    return isRegexExclusionEntry(entry)
       ? new RegExp(entry.slice(1, -1), "i")
       : new RegExp(`^${escapeRegExp(entry)}`, "i");
   } catch {

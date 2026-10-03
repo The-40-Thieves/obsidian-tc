@@ -133,6 +133,13 @@ and, optionally, a per-vault `acl` that overrides it. Both share the same shape:
 - **`strictReadDefault`** (default `false`) — when `true`, an *undefined* `readPaths`
   fails **closed** on reads (not just on bridge enumeration).
 
+**Write globs with `/`.** A backslash in any configured path glob (`rules`, the `*Paths` whitelists,
+`egress.excludePaths`, `index.excludePaths`) is read as a separator when the config loads, so
+`"notes\\private\\**"` (JSON for `notes\private\**`) is `notes/private/**`. Checked vault paths are always forward-slash, so before
+this a backslash glob matched nothing: harmless for a whitelist (it failed closed) but a silent
+**fail-open** for a rule or an exclusion, which then protected nothing. `obsidian-tc doctor` also warns
+(`config.path-globs`) about any glob that matches no file in its vault.
+
 Root ACL:
 
 ```json

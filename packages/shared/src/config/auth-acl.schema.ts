@@ -7,6 +7,7 @@
 // interlock in ServerConfigSchema.superRefine) stays in config.schema.ts.
 import { z } from "zod";
 import { isQualifiedScope } from "../scopes";
+import { configPathGlob } from "./path-glob";
 
 // `auth.oidc`: verify access tokens issued by an EXTERNAL OpenID Connect provider (bring your own
 // IdP). Verification only — obsidian-tc stays a resource server; the bundled authorization server
@@ -357,7 +358,11 @@ export const AuthConfigSchema = z.object({
     .describe("Scopes advertised as supported in the Protected Resource Metadata document."),
 });
 export const AclRuleSchema = z.object({
-  glob: z.string().min(1).describe("Glob matched against the vault-relative note path."),
+  glob: configPathGlob()
+    .min(1)
+    .describe(
+      "Glob matched against the vault-relative note path. Written with forward slashes; a backslash is read as a separator, so `notes\\private\\**` is `notes/private/**` (a vault path can never contain a backslash).",
+    ),
   scopes: z
     .array(z.string())
     .default([])
@@ -390,22 +395,22 @@ export const AclConfigSchema = z.object({
   // when present it is a glob whitelist — a path must match at least one entry.
   // camelCase mirrors the rest of the config (readOnly, defaultScopes).
   readPaths: z
-    .array(z.string())
+    .array(configPathGlob())
     .optional()
     .describe(
-      "Glob whitelist for reads: a path must match at least one entry. Omitted leaves reads unrestricted (see strictReadDefault).",
+      "Glob whitelist for reads: a path must match at least one entry. Omitted leaves reads unrestricted (see strictReadDefault). Write separators as `/`: a backslash is read as a separator (`notes\\**` is `notes/**`), since a vault path can never contain one, and repeated separators collapse.",
     ),
   writePaths: z
-    .array(z.string())
+    .array(configPathGlob())
     .optional()
     .describe(
-      "Glob whitelist for writes: a path must match at least one entry. Omitted leaves writes unrestricted.",
+      "Glob whitelist for writes: a path must match at least one entry. Omitted leaves writes unrestricted. Write separators as `/`: a backslash is read as a separator (`notes\\**` is `notes/**`), since a vault path can never contain one, and repeated separators collapse.",
     ),
   deletePaths: z
-    .array(z.string())
+    .array(configPathGlob())
     .optional()
     .describe(
-      "Glob whitelist for deletes: a path must match at least one entry. Omitted leaves deletes unrestricted.",
+      "Glob whitelist for deletes: a path must match at least one entry. Omitted leaves deletes unrestricted. Write separators as `/`: a backslash is read as a separator (`notes\\**` is `notes/**`), since a vault path can never contain one, and repeated separators collapse.",
     ),
   /** When true, an UNDEFINED readPaths whitelist fails CLOSED on the request path (read_note et
    *  al.), not just bridge enumeration (THE-268). Default false = M0 allow-all back-compat. */
