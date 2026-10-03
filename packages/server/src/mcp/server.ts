@@ -11,7 +11,7 @@ import {
   SUPPORTED_PROTOCOL_VERSIONS,
   type Tool,
 } from "@modelcontextprotocol/server";
-import { type ErrorJSON, err, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import { err, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import type { ElicitCodec } from "../elicit-request-state";
 import { recordHitlAnswer } from "../hitl-telemetry";
 import { extractTraceCarrier } from "../otel/propagation";
@@ -29,6 +29,7 @@ import {
 import {
   type ConfirmRoundOutcome,
   clientSupportsFormElicitation,
+  declinedConfirmationError,
   elicitConfirmationContext,
   hitlFormSource,
   offerInputRequired,
@@ -38,7 +39,7 @@ import {
 } from "./elicit-form";
 import { ShimGuardedServer } from "./elicit-shim-guard";
 import { splitElicitToken } from "./elicit-token";
-import { formatErrorDetail } from "./error-rendering";
+import { errorToCallToolResult as errorToResult } from "./error-rendering";
 import {
   buildInstructions,
   callCapability,
@@ -434,25 +435,6 @@ export function createMcpServer(opts: McpServerOptions): Server {
       ...(structuredContent ? { structuredContent } : {}),
     };
   };
-  // A dispatch failure is a Tool Execution Error, not a JSON-RPC protocol error (MCP 2025-11-25 /
-  // SEP-1303): return isError:true with a human-readable sentence AND the full error object as
-  // structuredContent, so a model can read what went wrong (e.g. the Zod issues) and self-correct
-  // rather than seeing an opaque JSON blob. THE-823: real clients discard structuredContent on
-  // isError and render the text block alone, so formatErrorDetail appends the offending-field
-  // detail (capped) to the text itself — see design note.
-  const errorToResult = (error: ErrorJSON): CallToolResult => {
-    const detail = formatErrorDetail(error);
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Error [${error.code}]: ${error.message}${error.retryable ? " (retryable)" : ""}${detail ? `\n${detail}` : ""}`,
-        },
-      ],
-      structuredContent: error as unknown as Record<string, unknown>,
-      isError: true,
-    };
-  };
   server.onConfirmLegFailure = (error) => errorToResult(withRoundOutcome(error, "cancelled"));
   // THE-583: tell the client when the byte governor TRUNCATED its answer. This was previously
   // visible only in `meta` (and in server-side metrics), so a caller could act on a silently
@@ -492,6 +474,11 @@ export function createMcpServer(opts: McpServerOptions): Server {
     approvedRound: number | undefined = undefined,
   ): Promise<CallToolResult> => {
     recordHitlAnswer(ctx); // telemetry only: the human's verified answer, code-only
+    // An explicit decline ends the call HERE, before any dispatch: re-dispatching and trusting the
+    // gate to fire again would run the refused change whenever a conditional gate stopped applying
+    // while the prompt was open. Every route (direct, facade, domain) funnels through this function.
+    const declined = declinedConfirmationError({ roundOutcome, answer: ctx.hitlAnswer });
+    if (declined !== undefined) return errorToResult(declined);
     const result = await opts.registry.dispatch(name, args, ctx);
     if (!result.ok) {
       // THE-583 + THE-1106: offered only when the SDK will ACTUALLY deliver it — offerInputRequired.
@@ -585,7 +572,8 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // else, so a task can never do more than the caller could have done synchronously.
     if (opts.jobQueue && clientSupportsTasks(server.getClientCapabilities())) {
       const def = opts.registry.list().find((d) => d.name === req.params.name);
-      if (def?.taskAugmentable) {
+      // A decline never enqueues: dispatchToResult is where it stops.
+      if (def?.taskAugmentable && roundOutcome !== "declined") {
         const job = opts.jobQueue.enqueue(TASK_CALL_JOB_TYPE, {
           owner: { vaultId: ctx.vaultId, caller: ctx.caller },
           payload: {

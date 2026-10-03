@@ -115,20 +115,16 @@ async function resolveActiveFile(deps: M4Deps, vaultInput: string): Promise<Acti
   return { path: path.data };
 }
 
-/** resolveTarget for the mutating tools: also refuses a non-markdown active file, before any gate
- *  that would ask a human to confirm something the tool cannot do. The message names neither the
- *  path nor the type, because the folder ACL has not yet had its say about this note. */
-const resolveMarkdownTarget = async (
-  deps: M4Deps,
-  input: { vault: string },
-): Promise<ActiveTarget> => {
-  const target = await resolveActiveFile(deps, input.vault);
+/** checkResolvedTarget for the mutating tools: refuses a non-markdown active file, before any gate
+ *  that would ask a human to confirm something the tool cannot do. Dispatch runs it only after the
+ *  folder ACL has passed the resolved path, so the refusal never tells a caller what an ACL-hidden
+ *  file is; the message names neither the path nor the type regardless. */
+const requireMarkdownTarget = (target: ActiveTarget): void => {
   if (!isMarkdown(target.path))
     throw err.invalidInput("the active file is not a markdown note", {
       reason: "not_markdown",
       hint: NOT_MARKDOWN_HINT,
     });
-  return target;
 };
 
 function delegateTo(lookup: DelegateLookup, name: string): ToolDefinition {
@@ -226,7 +222,8 @@ export function buildActiveFileTools(deps: M4Deps, lookup: DelegateLookup): Tool
       requiredScopes: ["write:notes"],
       tags: ["plugin-bridge"],
       conditionallyDestructive: true,
-      resolveTarget: (input): Promise<ActiveTarget> => resolveMarkdownTarget(deps, input),
+      resolveTarget: (input): Promise<ActiveTarget> => resolveActiveFile(deps, input.vault),
+      checkResolvedTarget: requireMarkdownTarget,
       pathAcl: (input) => [{ op: "write", path: input.path }],
       handler: (input, ctx) =>
         delegate(lookup, "write_note", { ...input, mode: "overwrite" }, ctx) as Promise<
@@ -245,7 +242,8 @@ export function buildActiveFileTools(deps: M4Deps, lookup: DelegateLookup): Tool
       outputSchema: AppendNoteOutput,
       requiredScopes: ["write:notes"],
       tags: ["plugin-bridge"],
-      resolveTarget: (input): Promise<ActiveTarget> => resolveMarkdownTarget(deps, input),
+      resolveTarget: (input): Promise<ActiveTarget> => resolveActiveFile(deps, input.vault),
+      checkResolvedTarget: requireMarkdownTarget,
       pathAcl: (input) => [{ op: "write", path: input.path }],
       handler: (input, ctx) =>
         delegate(lookup, "append_note", { ...input, create_if_missing: false }, ctx) as Promise<
@@ -263,7 +261,8 @@ export function buildActiveFileTools(deps: M4Deps, lookup: DelegateLookup): Tool
       outputSchema: PatchNoteOutput,
       requiredScopes: ["write:notes"],
       tags: ["plugin-bridge"],
-      resolveTarget: (input): Promise<ActiveTarget> => resolveMarkdownTarget(deps, input),
+      resolveTarget: (input): Promise<ActiveTarget> => resolveActiveFile(deps, input.vault),
+      checkResolvedTarget: requireMarkdownTarget,
       pathAcl: (input) => [{ op: "write", path: input.path }],
       handler: (input, ctx) =>
         delegate(lookup, "patch_note", { ...input }, ctx) as Promise<
@@ -282,7 +281,8 @@ export function buildActiveFileTools(deps: M4Deps, lookup: DelegateLookup): Tool
       requiredScopes: ["delete:notes"],
       tags: ["plugin-bridge"],
       destructive: true,
-      resolveTarget: (input): Promise<ActiveTarget> => resolveMarkdownTarget(deps, input),
+      resolveTarget: (input): Promise<ActiveTarget> => resolveActiveFile(deps, input.vault),
+      checkResolvedTarget: requireMarkdownTarget,
       pathAcl: (input) => [{ op: "delete", path: input.path }],
       handler: (input, ctx) =>
         delegate(lookup, "delete_note", { ...input }, ctx) as Promise<

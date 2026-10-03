@@ -58,8 +58,9 @@ export interface CallerContext {
    *  the same event only fires for dispatch-gated tools, so this is the ONLY audit signal for the
    *  16 handler-side-only conditionally-gated tools. Set (mcp/server.ts) only alongside a verified,
    *  accept+approve:true `elicitState`; absent otherwise, so a caller with no such state simply has
-   *  nothing to call. */
-  relayElicitConsumed?: (toolName: string) => void;
+   *  nothing to call. `vaultId` is the vault the gate acted on (the effective one), which can
+   *  differ from the session's own. */
+  relayElicitConsumed?: (toolName: string, vaultId?: string) => void;
   /** Confirmation telemetry (hitl-telemetry.ts): how this call reached dispatch. Set by
    *  mcp/server.ts only for `call_capability` ("facade") and domain-verb ("domain") routing;
    *  absent means a direct tool call. Read only to label an `event_log` row. */
@@ -286,6 +287,11 @@ export interface ToolDefinition<I = unknown, O = unknown> {
     input: I,
     ctx: CallerContext,
   ) => Promise<Readonly<Record<string, unknown>>> | Readonly<Record<string, unknown>>;
+  /** Refuse a resolved target the tool cannot act on (a non-markdown active file). Runs right after
+   *  `resolveTarget`'s folder-ACL check passes, so what it says about the target is only ever said
+   *  about one the caller may touch: checked any earlier, its refusal tells a caller whether a path
+   *  it cannot access is a markdown note. Throw an ObsidianTcError to reject. */
+  checkResolvedTarget?: (resolved: Readonly<Record<string, unknown>>, ctx: CallerContext) => void;
   /** THE-727: resolve authorization policy from the CALL rather than the definition — a tool that
    *  dispatches on an `action` argument cannot honestly declare one static scope set (unioning
    *  over-grants, intersecting under-governs). Same shape as `pathAcl` above, for the same reason.

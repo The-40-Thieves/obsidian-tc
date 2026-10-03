@@ -38,33 +38,40 @@ function renderFlag(flag: string, value: string): string {
   return value.startsWith("-") ? `${flag}=${quoted}` : `${flag} ${quoted}`;
 }
 
-/** The concrete `obsidian-tc elicit` invocation for one refused call: hash and tool always, vault
- *  and caller when the error carried them. `--caller` matters: the CLI defaults it to `stdio`, and
- *  redemption refuses a token minted for a different caller than the one that made the call. */
+/** The concrete `obsidian-tc elicit` invocation for one refused call: hash and tool always, vault,
+ *  caller and state fingerprint when the error carried them. `--caller` matters: the CLI defaults
+ *  it to `stdio`, and redemption refuses a token minted for a different caller than the one that
+ *  made the call. `--state-fp` binds the minted token to the state THIS request was raised against:
+ *  a blocked call repeated after its target changed records a newer fingerprint under the same
+ *  (vault, args_hash, caller), and without the flag an earlier command would approve that newer
+ *  state instead of drifting. */
 export function renderElicitMintCommand(parts: {
   hash: string;
   tool: string;
   vault?: string;
   caller?: string;
+  stateFp?: string;
 }): string {
   return (
     `obsidian-tc elicit ${renderFlag("--hash", parts.hash)} ${renderFlag("--tool", parts.tool)}` +
     (parts.vault !== undefined ? ` ${renderFlag("--vault", parts.vault)}` : "") +
-    (parts.caller !== undefined ? ` ${renderFlag("--caller", parts.caller)}` : "")
+    (parts.caller !== undefined ? ` ${renderFlag("--caller", parts.caller)}` : "") +
+    (parts.stateFp !== undefined ? ` ${renderFlag("--state-fp", parts.stateFp)}` : "")
   );
 }
 
 /** `renderElicitMintCommand` over an `elicit_required` error's `details` (`args_hash`, `tool`,
- *  and the optional `vault`/`caller`), or undefined when either required part is missing. */
+ *  and the optional `vault`/`caller`/`state_fp`), or undefined when either required part is missing. */
 export function mintCommandFromDetails(
   details: Record<string, unknown> | undefined,
 ): string | undefined {
-  const { args_hash: hash, tool, vault, caller } = details ?? {};
+  const { args_hash: hash, tool, vault, caller, state_fp: stateFp } = details ?? {};
   if (typeof hash !== "string" || typeof tool !== "string") return undefined;
   return renderElicitMintCommand({
     hash,
     tool,
     ...(typeof vault === "string" ? { vault } : {}),
     ...(typeof caller === "string" ? { caller } : {}),
+    ...(typeof stateFp === "string" ? { stateFp } : {}),
   });
 }

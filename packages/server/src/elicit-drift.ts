@@ -13,7 +13,9 @@ import { argsHash } from "./hash";
 import { normalizeVaultPath, resolveVaultPath } from "./vault/paths";
 
 /** Computes the CURRENT fingerprint of a call's targets, or null when there is nothing to bind
- *  (the tool declares no target paths, no vault root is wired, or the folder ACL denies a path). */
+ *  (the tool declares no target paths, or no vault root is wired). It THROWS when the targets cannot
+ *  be fingerprinted (a path the folder ACL denies, an unreadable repo): callers must let that
+ *  refuse the call, never read it as "nothing to bind". */
 export type StateProbe = () => string | null;
 
 /** Above this a file is fingerprinted by size + mtime + inode rather than read: a confirmation on a
@@ -22,16 +24,28 @@ const MAX_HASHED_BYTES = 16 * 1024 * 1024;
 
 const sha256 = (data: string | Buffer): string => createHash("sha256").update(data).digest("hex");
 
+/** A target whose state cannot be read cannot be bound: any stable stand-in (a sentinel hash, a
+ *  partial stat) would let the file change under a confirmation and still compare equal. Refuse
+ *  instead — `confirmationStateProbe` lets this surface, so no unbound request is ever recorded. */
+function unfingerprintable(why: string, e: unknown): Error {
+  const code = (e as NodeJS.ErrnoException).code ?? "unknown";
+  return err.internalError(
+    `cannot fingerprint a confirmation target (${why}: ${code}); refusing to issue an unbound approval`,
+  );
+}
+
 /** One target's state. Mixes size/mtime/inode into the content hash on purpose: the fingerprint
  *  travels to the client (in `elicit_required`'s details and the signed requestState), and a bare
- *  content hash would let a caller confirm a guess at a note it may write but not read. */
+ *  content hash would let a caller confirm a guess at a note it may write but not read. THROWS when
+ *  the target exists but cannot be read (see `unfingerprintable`). */
 function entryState(abs: string): string {
   let st: ReturnType<typeof statSync>;
   try {
     st = statSync(abs);
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
-    return code === "ENOENT" || code === "ENOTDIR" ? "absent" : `unreadable:${code ?? "?"}`;
+    if (code === "ENOENT" || code === "ENOTDIR") return "absent";
+    throw unfingerprintable("stat failed", e);
   }
   const meta = `${st.size}:${st.mtimeMs}:${st.ino}`;
   try {
@@ -45,26 +59,26 @@ function entryState(abs: string): string {
     if (st.size > MAX_HASHED_BYTES) return `big:${meta}`;
     return `file:${sha256(readFileSync(abs))}:${meta}`;
   } catch (e) {
-    return `unreadable:${(e as NodeJS.ErrnoException).code ?? "?"}`;
+    throw unfingerprintable("read failed", e);
   }
 }
 
 /** Fingerprint the given vault-relative paths: a missing path is a state ("absent"), so a note
- *  created between request and redemption is drift too. Null for an empty target set. */
+ *  created between request and redemption is drift too. Null for an empty target set. Throws when a
+ *  target is unreadable or unresolvable — never a stable stand-in hash. */
 export function fingerprintTargets(root: string, relPaths: readonly string[]): string | null {
   if (relPaths.length === 0) return null;
   const states: Record<string, string> = {};
   for (const rel of relPaths) {
     let key: string;
-    let state: string;
+    let abs: string;
     try {
       key = normalizeVaultPath(rel);
-      state = entryState(resolveVaultPath(root, key));
-    } catch {
-      key = rel;
-      state = "unresolvable";
+      abs = resolveVaultPath(root, key);
+    } catch (e) {
+      throw unfingerprintable("path not resolvable", e);
     }
-    states[key] = state;
+    states[key] = entryState(abs);
   }
   return argsHash("state", states);
 }

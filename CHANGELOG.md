@@ -1293,8 +1293,8 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   to `toolFacade.mode` (which only picks what a given SESSION is advertised — see the `"auto"`
   entry above): `profile` picks which tools are VISIBLE/CALLABLE. Registration itself is
   unaffected either way — every tool is always registered; `inspect_visibility` reports
-  `disabled_by_profile` for one `"core"` hides. `"full"` (the default) leaves every one of the 163
-  tools visible/callable, unchanged from today. `"core"` is opt-in: five graph-analysis tools
+  `disabled_by_profile` for one `"core"` hides. `"full"` (the default) leaves every registered
+  tool visible/callable, unchanged from today. `"core"` is opt-in: five graph-analysis tools
   (`graph_centrality`, `graph_communities`, `suggest_links`, `find_link_cycles`,
   `prune_hub_links`) are the only ones a usage report (4,787 recorded calls, GitHub issue #877)
   individually confirms as zero-call; the rest of the cut — the structured-document family
@@ -1304,8 +1304,9 @@ All notable changes to obsidian-tc are documented here. This project adheres to
   evidence in a separate issue, #879) — is a structural curation (every member proxies to a live
   companion plugin), not a usage claim: #877 gives no evidence either way for those families, and a
   documented history of plugin-bridge integration bugs (companion routes 404ing, a wrong plugin-id
-  mapping — GH #153, #152) means zero calls there cannot be read as zero want. 97 of 163 tools stay
-  visible/callable under `"core"`. Everything the triad facade, the memory tools (M5/M7/M8),
+  mapping — GH #153, #152) means zero calls there cannot be read as zero want. The rest stay
+  visible/callable under `"core"` (the set is `tool-profiles.ts`; its size follows the registry, so no
+  count is stated here). Everything the triad facade, the memory tools (M5/M7/M8),
   catalog discovery, health/admin, or the HITL/elicit flow depends on stays in `"core"` regardless
   of usage. A `"core"`-hidden tool is never silently missing: `find_capability` discloses a
   profile-hidden match by name+count, and `describe_capability`/`call_capability`/direct-name

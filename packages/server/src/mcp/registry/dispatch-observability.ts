@@ -194,6 +194,20 @@ export class DispatchObservability {
     data: Partial<MorgianaEventData>,
   ): void {
     this.relay(vaultId, "tc.tool.call.completed", data);
+    this.relayOutcomeSignal(vaultId, name, status, code, data);
+  }
+
+  /** The specific signal for a terminal outcome, WITHOUT the call's own `tc.tool.call.completed`:
+   *  `tc.vault.cache_reset` for a successful reset, otherwise the one for the error code. Split out
+   *  so a denied ITEM inside a successful batch (recordItemDenial) gets its denial signal without a
+   *  second completion event for a call that completed once. */
+  private relayOutcomeSignal(
+    vaultId: string,
+    name: string,
+    status: ToolCallStatus,
+    code: string | undefined,
+    data: Partial<MorgianaEventData>,
+  ): void {
     if (status === "ok") {
       if (name === "reset_vault_cache") this.relay(vaultId, "tc.vault.cache_reset", data);
       return;
@@ -233,8 +247,8 @@ export class DispatchObservability {
    * One denied ITEM inside a call that itself succeeded (ToolDefinition.deniedItems): the same three
    * records a thrown denial gets from runDispatch's catch — the audit/trace/episode row
    * (recordOutcome, status "error" + the domain code), `acl_denied_total`, and `tc.acl.denied` via
-   * relayCompletion's switch. NOT `observeToolCall`/`tc.tool.call.completed`: the call is counted
-   * once, as the success it was. Codes other than the two denial codes are not denials and are
+   * relayOutcomeSignal's switch. NOT `observeToolCall`/`tc.tool.call.completed`: the call is counted
+   * once, as the success it was, and its one completion event comes from emitCompletion. Codes other than the two denial codes are not denials and are
    * ignored, so a missing or malformed item stays quiet exactly as it does through read_note.
    */
   recordItemDenial(
@@ -251,7 +265,7 @@ export class DispatchObservability {
     if (code !== "acl_denied" && code !== "forbidden") return;
     this.recordOutcome(ctx, name, kind, hash, rawInput, "error", durationMs, 0, code);
     this.meter((m) => m.incAclDenied(ctx.vaultId, scopeClass, code));
-    this.relayCompletion(ctx.vaultId, name, callStatusForError(code), code, {
+    this.relayOutcomeSignal(ctx.vaultId, name, callStatusForError(code), code, {
       tool: name,
       caller_hash: callerHash(ctx.caller),
       scopes_required: [...scopesRequired],

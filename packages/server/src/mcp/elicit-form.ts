@@ -21,7 +21,7 @@ import {
   inputResponse,
   type Server,
 } from "@modelcontextprotocol/server";
-import type { ErrorJSON, MorgianaEventData } from "@the-40-thieves/obsidian-tc-shared";
+import { type ErrorJSON, err, type MorgianaEventData } from "@the-40-thieves/obsidian-tc-shared";
 import type { ElicitCodec, ElicitRequestState } from "../elicit-request-state";
 import { type HitlSource, recordHitlOffer } from "../hitl-telemetry";
 import { callerHash } from "../throttle";
@@ -271,7 +271,13 @@ export async function offerInputRequired(
 ): Promise<CallToolResult | undefined> {
   if ((previousApprovedRound ?? 0) >= MAX_MISMATCH_ROUNDS) return undefined;
   const details = error as {
-    details?: { args_hash?: string; path?: unknown; state_fp?: unknown; vault?: unknown };
+    details?: {
+      args_hash?: string;
+      path?: unknown;
+      state_fp?: unknown;
+      tool?: unknown;
+      vault?: unknown;
+    };
   };
   const argsHash = details.details?.args_hash;
   if (typeof argsHash !== "string") return undefined;
@@ -283,11 +289,16 @@ export async function offerInputRequired(
   // (`stateAuthorizes`), so a state sealed for one vault authorizes no other.
   const vault = details.details?.vault;
   const vaultId = typeof vault === "string" ? vault : ctx.vaultId;
+  // The tool the GATE named (`details.tool`), not the one the client called: a tool that delegates
+  // (update_active_file -> write_note) is gated under the delegate's identity, and the confirmation
+  // is redeemed against exactly that name (`stateAuthorizes`). Sealing the called name made such a
+  // gate impossible to satisfy in-band. The form and the offer's mapping to its error keep `name`.
+  const gateTool = typeof details.details?.tool === "string" ? details.details.tool : name;
   if (offerSource && ctx.db)
-    recordHitlOffer({ ...ctx, vaultId, db: ctx.db }, name, error, offerSource);
+    recordHitlOffer({ ...ctx, vaultId, db: ctx.db }, gateTool, error, offerSource);
   const offer = inputRequired({
     requestState: await codec.mint({
-      tool: name,
+      tool: gateTool,
       argsHash,
       vaultId,
       caller: ctx.caller,
@@ -354,6 +365,24 @@ export function withRoundOutcome(
   } as ErrorJSON;
 }
 
+/** An explicit decline is a HARD STOP: the error to return INSTEAD of dispatching, or undefined when
+ *  the round was not a decline. Returned before any dispatch because the retry cannot be trusted to
+ *  re-raise the gate — a conditional gate (overwrite of an existing note, an active-file target) can
+ *  stop applying while the prompt is open, and a dispatch then would run the very change the human
+ *  just refused. `answer` carries the confirmation's own tool/args_hash/vault so the text channel
+ *  renders the same decline wording; without an echoed state the bare decline still stops the call. */
+export function declinedConfirmationError(
+  confirmation: Pick<ReturnType<typeof resolveElicitConfirmation>, "roundOutcome" | "answer">,
+): ErrorJSON | undefined {
+  if (confirmation.roundOutcome !== "declined") return undefined;
+  const { answer } = confirmation;
+  const base = err.elicitRequired(
+    undefined,
+    answer ? { tool: answer.tool, args_hash: answer.argsHash, vault: answer.vaultId } : undefined,
+  );
+  return withRoundOutcome(base.toJSON(), "declined");
+}
+
 /** THE-1106 fix round 2 (HIGH, audit): the `CallerContext` patch for a verified, approved
  *  `elicitState` — `elicitState` itself (consumed by `checkHitl`/`requireConfirmation`) plus
  *  `relayElicitConsumed`, which `vault/hitl.ts` calls ONLY when `elicitState` satisfies a
@@ -365,11 +394,18 @@ export function elicitStateContextPatch(
   elicitState: ElicitRequestState,
   vaultId: string,
   caller: string | null,
-): { elicitState: ElicitRequestState; relayElicitConsumed: (toolName: string) => void } {
+): {
+  elicitState: ElicitRequestState;
+  relayElicitConsumed: (toolName: string, effectVaultId?: string) => void;
+} {
   return {
     elicitState,
-    relayElicitConsumed: (toolName: string) =>
-      registry.relayElicitConsumed(vaultId, { tool: toolName, caller_hash: callerHash(caller) }),
+    // The gate reports the vault it acted on; `vaultId` (the session's own) is only the fallback.
+    relayElicitConsumed: (toolName: string, effectVaultId?: string) =>
+      registry.relayElicitConsumed(effectVaultId ?? vaultId, {
+        tool: toolName,
+        caller_hash: callerHash(caller),
+      }),
   };
 }
 

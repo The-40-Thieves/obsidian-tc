@@ -9,7 +9,7 @@ import type { CallerContext, RegistryOptions, ToolDefinition } from "./types";
  * resolve the caller-unsupplied arguments and return the input the rest of dispatch must use, the
  * `recorded` audit arguments, and the args `hash` over them. Undefined for a tool without a resolver.
  * The folder ACL runs on the resolved path HERE, ahead of HITL, and a denial is rethrown without
- * `details.path`: the caller did not name it.
+ * `details.path`: the caller did not name it. `checkResolvedTarget` runs only once the ACL has passed.
  */
 export async function bindResolvedTarget(
   def: ToolDefinition,
@@ -17,7 +17,9 @@ export async function bindResolvedTarget(
   rawInput: unknown,
   ctx: CallerContext,
   rootResolver: RegistryOptions["rootResolver"],
-): Promise<{ input: unknown; recorded: unknown; hash: string } | undefined> {
+): Promise<
+  { input: unknown; recorded: unknown; hash: string; bound: Record<string, unknown> } | undefined
+> {
   if (!def.resolveTarget) return undefined;
   const bound = await def.resolveTarget(data, ctx);
   const collisions = Object.keys(bound).filter((k) => k in (data as Record<string, unknown>));
@@ -35,6 +37,8 @@ export async function bindResolvedTarget(
     }
     throw e;
   }
+  // After the ACL, so a path the caller may not touch is never described by this check's outcome.
+  def.checkResolvedTarget?.(bound, ctx);
   const recorded = { ...((rawInput ?? {}) as Record<string, unknown>), ...bound };
-  return { input, recorded, hash: argsHash(def.name, recorded) };
+  return { input, recorded, hash: argsHash(def.name, recorded), bound };
 }

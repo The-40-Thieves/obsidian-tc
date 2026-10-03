@@ -1,6 +1,7 @@
 // THE-823 + THE-1042 (GH #935): the text-channel rendering of a dispatch error's `details`, split
 // out of mcp/server.ts (biome's 700-line noExcessiveLinesPerFile) rather than left inline — this
 // module has no dependency on the rest of server.ts, so the split adds no circular import.
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { ErrorJSON } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { mintCommandFromDetails, shellQuote } from "./elicit-command";
@@ -199,4 +200,24 @@ export function formatErrorDetail(error: ErrorJSON): string | undefined {
   return Array.isArray(issues) && issues.length > 0
     ? renderIssues(issues as z.core.$ZodIssue[], error.details)
     : renderVaultHint(error.details);
+}
+
+// A dispatch failure is a Tool Execution Error, not a JSON-RPC protocol error (MCP 2025-11-25 /
+// SEP-1303): return isError:true with a human-readable sentence AND the full error object as
+// structuredContent, so a model can read what went wrong (e.g. the Zod issues) and self-correct
+// rather than seeing an opaque JSON blob. THE-823: real clients discard structuredContent on
+// isError and render the text block alone, so formatErrorDetail appends the offending-field
+// detail (capped) to the text itself — see design note.
+export function errorToCallToolResult(error: ErrorJSON): CallToolResult {
+  const detail = formatErrorDetail(error);
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Error [${error.code}]: ${error.message}${error.retryable ? " (retryable)" : ""}${detail ? `\n${detail}` : ""}`,
+      },
+    ],
+    structuredContent: error as unknown as Record<string, unknown>,
+    isError: true,
+  };
 }

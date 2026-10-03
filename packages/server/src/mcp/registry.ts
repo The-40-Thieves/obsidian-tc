@@ -364,9 +364,16 @@ export class ToolRegistry {
     const releaseGlobal = markDispatchActive();
     try {
       const tracer = this.tracer;
+      // The vault the call acted on (runDispatch sets it once it is known): completion telemetry
+      // files under it, like the audit row and metrics do, not under the caller's own vault.
+      const effect: { vaultId?: string } = {};
+      const effective = (): CallerContext =>
+        effect.vaultId !== undefined && effect.vaultId !== ctx.vaultId
+          ? { ...ctx, vaultId: effect.vaultId }
+          : ctx;
       if (!tracer) {
-        const result = await this.runDispatch(name, rawInput, ctx);
-        this.emitCompletion(name, ctx, result);
+        const result = await this.runDispatch(name, rawInput, ctx, undefined, effect);
+        this.emitCompletion(name, effective(), result);
         return result;
       }
       // SEP-414: parent the SERVER span to the caller's trace when they sent one. withTraceCarrier
@@ -383,9 +390,10 @@ export class ToolRegistry {
               (this.toolStore.get(name)?.requiredScopes ?? []).join(","),
             );
             span.setAttribute(SPAN_ATTR.elicitUsed, !!ctx.elicitToken);
-            const result = await this.runDispatch(name, rawInput, ctx, span);
+            const result = await this.runDispatch(name, rawInput, ctx, span, effect);
+            span.setAttribute(SPAN_ATTR.vaultId, effective().vaultId);
             annotateSpanResult(span, result);
-            this.emitCompletion(name, ctx, result);
+            this.emitCompletion(name, effective(), result);
             return result;
           } finally {
             span.end();
@@ -406,7 +414,8 @@ export class ToolRegistry {
     rawInput: unknown,
     ctx: CallerContext,
     rootSpan?: Span,
+    effect?: { vaultId?: string },
   ): Promise<ToolResult> {
-    return runDispatchPipeline(this.dispatchDeps, name, rawInput, ctx, rootSpan);
+    return runDispatchPipeline(this.dispatchDeps, name, rawInput, ctx, rootSpan, effect);
   }
 }
