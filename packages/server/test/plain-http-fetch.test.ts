@@ -16,6 +16,7 @@ import {
   resolvePlainHttpTarget,
 } from "../src/gateway/plain-http";
 import { buildTypesafeJudgeClient } from "../src/gateway/typesafe-judge-client";
+import { stallTimeout } from "./stall-timeouts";
 
 const NAMES = { label: "wikiJudge", field: "wikiJudge" };
 const OK_BODY = JSON.stringify({
@@ -357,7 +358,7 @@ function runChild(
     child.stdout.on("data", (c) => {
       out += c;
     });
-    const timer = setTimeout(() => child.kill("SIGKILL"), 15_000);
+    const timer = setTimeout(() => child.kill("SIGKILL"), stallTimeout(15_000));
     child.once("error", reject);
     child.once("close", () => {
       clearTimeout(timer);

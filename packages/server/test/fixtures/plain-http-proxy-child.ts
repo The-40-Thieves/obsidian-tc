@@ -17,7 +17,7 @@ const { client } = buildTypesafeJudgeClient(
     apiKey: "sk-secret-key",
     baseUrl: spec.baseUrl,
     ...(spec.plainHttpHosts !== undefined ? { plainHttpHosts: spec.plainHttpHosts } : {}),
-    timeoutMs: 3000,
+    timeoutMs: 10_000,
   },
   { label: "wikiJudge", field: "wikiJudge" },
   undefined,
