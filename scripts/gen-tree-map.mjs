@@ -1,10 +1,4 @@
 #!/usr/bin/env node
-// GOTCHA (THE-578): run this with NO built dist/ output present. depcruise resolves the workspace
-// packages differently when packages/*/dist exists — with packages/shared/dist present this reports
-// 246 modules / 888 dependencies for a tree that is really 247 / 977. Both runs are internally
-// deterministic, so the wrong number looks perfectly stable and the drift gate then fails in CI
-// (which never builds before map:check) for reasons that look unrelated to your change. If
-// `map:check` disagrees with a fresh `map`, delete packages/*/dist and regenerate.
 /**
  * Structural-map generator (THE-470, partial).
  *
@@ -17,8 +11,8 @@
  * only the hand-written prose.
  *
  * `bun run map:check` (ci-docgen) still gates two things: the generator must RUN to completion on
- * a clean tree (it refuses an empty module set, a built dist/, an empty table or scale rather than
- * reporting success over nothing), and nothing generated may be COMMITTED again — no
+ * any working tree state (it refuses an empty module set, table or scale rather than reporting
+ * success over nothing), and nothing generated may be COMMITTED again — no
  * `<!-- BEGIN GENERATED -->` region in TREE.md, no tracked file under `generated/` or at the old
  * docs/dependency-graph.json path (scripts/lib/tree-map-guard.mjs).
  *
@@ -34,30 +28,11 @@
  *      the real fix.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { committedGeneratedProblems } from "./lib/tree-map-guard.mjs";
 
 const CHECK = process.argv.includes("--check");
 
-// GOTCHA guard (THE-664): the header above documents this exact failure — with packages/*/dist
-// present, depcruise resolves workspace packages differently and reports a wrong-but-internally-
-// deterministic module/dependency count, which then fails drift-gate in CI for reasons that look
-// unrelated to the developer's change. Detect and refuse rather than merely comment on it, matching
-// the zero-module guard below.
-const staleDistDirs = readdirSync("packages", { withFileTypes: true })
-  .filter((e) => e.isDirectory())
-  .map((e) => `packages/${e.name}/dist`)
-  .filter((p) => existsSync(p));
-
-if (staleDistDirs.length > 0) {
-  console.error(
-    `gen-tree-map: found built output at ${staleDistDirs.join(", ")} — depcruise resolves\n` +
-      "workspace packages differently with dist/ present, producing a wrong-but-stable module\n" +
-      "count (see the header comment). Refusing to generate from it.\n" +
-      `Remedy: rm -rf ${staleDistDirs.join(" ")} and re-run.`,
-  );
-  process.exit(1);
-}
 const SOURCE_GLOBS = [
   "packages/server/src/*.ts",
   "packages/server/src/**/*.ts",

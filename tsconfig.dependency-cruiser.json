@@ -1,0 +1,9 @@
+{
+  "extends": "./packages/server/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@the-40-thieves/obsidian-tc-shared": ["packages/shared/src/index.ts"]
+    }
+  }
+}

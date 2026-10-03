@@ -115,7 +115,7 @@ regenerate before a commit:
 
 | what | where it lives now |
 |---|---|
-| structural map: scale, per-subsystem counts, largest files, import graph | `bun run map` writes the gitignored `generated/tree-map.md` + `generated/dependency-graph.json`. `TREE.md` is hand-written prose. `bun run map:check` (drift-gate) only proves the generator runs and that nothing generated is committed again. Run it with no `packages/*/dist` present. |
+| structural map: scale, per-subsystem counts, largest files, import graph | `bun run map` writes the gitignored `generated/tree-map.md` + `generated/dependency-graph.json`. `TREE.md` is hand-written prose. `bun run map:check` (drift-gate) only proves the generator runs and that nothing generated is committed again. Graph stability depends on both inputs coming from `git ls-files` and `tsconfig.dependency-cruiser.json` pinning the shared package to `packages/shared/src`, so untracked build output does not affect either command. |
 | decisions index | gitignored `docs/src/content/docs/contributing/decisions-index.md`, written by `bun run docs:decisions-index` (docs `gen` does it). `docs:decisions-index:check` fails if a committed copy exists. |
 | docgen marker regions (`<!-- BEGIN GENERATED: ... -->`) | committed **canonical-empty**. `bun run docgen:render` fills them (docs build, wiki publish), `-- --reset` empties them, `-- --check` is the gate and fails on any filled region. Never commit a filled one. |
 | tool and domain counts in prose | not stated anywhere; `docgen:facts-check` forbids the count. Tool names: `packages/server/test/registered-tools.txt`. |
