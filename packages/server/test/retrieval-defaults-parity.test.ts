@@ -331,17 +331,20 @@ describe("flag ON: the derived value reaches every per-vault site; explicit valu
     expect(await effectiveK(indexOf(60), { derivedDefaults: true, seedCount: 60 })).toBe(20);
   });
 
-  it("only a genuinely restricted ACL partition disables derived defaults", async () => {
+  it("derived defaults need a proven-unrestricted caller when an ACL set is present", async () => {
     const tiny = indexOf(6);
     expect(
       await effectiveK(tiny, {
         derivedDefaults: true,
         aclSetId: 1,
-        // The set id alone is enough to reproduce the old derivation guard; keep the join dark in
-        // this focused unit fixture because it intentionally provisions no ACL-set tables.
-        aclWalkFilter: { enabled: false },
+        // Keep the join dark in this focused unit fixture: it provisions no ACL-set tables.
+        aclWalkFilter: { enabled: false, unrestricted: true },
       }),
     ).toBe(2);
+    // Fail closed: a set id without the positive unrestricted marker keeps the constant.
+    expect(
+      await effectiveK(tiny, { derivedDefaults: true, aclSetId: 1, aclWalkFilter: { enabled: false } }),
+    ).toBe(10);
     expect(
       await effectiveK(tiny, {
         derivedDefaults: true,

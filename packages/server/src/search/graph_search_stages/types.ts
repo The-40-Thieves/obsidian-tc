@@ -215,6 +215,11 @@ export interface GraphSearchOptions {
      *  as cheap as it was before this ticket. Never set for an unrestricted caller or for the
      *  `blocked` case above (see resolveAclWalkFilter, retrieval-runtime.ts). */
     restricted?: boolean;
+    /** Positive marker, set only by resolveAclWalkFilter for a caller whose ACL is proven
+     *  unrestricted AND whose `aclSetId` resolved. Derived retrieval defaults read vault-wide
+     *  stats, so graph_search.ts allows them alongside an `aclSetId` only when this is true: an
+     *  options object that omits it (hand-built, or a future caller) keeps the constant. */
+    unrestricted?: boolean;
   };
   /** THE-695: the resolved `acl_path_members` set_id for THIS caller, from ensureAclPathSet.
    *  Absent means the substrate was unavailable (pre-migration db, read-only handle, empty set) and

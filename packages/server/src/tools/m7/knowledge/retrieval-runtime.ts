@@ -332,7 +332,7 @@ export function resolveAclWalkFilter(
   });
   if (aclSetId != null) {
     return unrestricted
-      ? { aclWalkFilter: { enabled: true }, aclSetId }
+      ? { aclWalkFilter: { enabled: true, unrestricted: true }, aclSetId }
       : { aclWalkFilter: { enabled: true, restricted: true }, aclSetId };
   }
   if (unrestricted) return {};

@@ -149,6 +149,7 @@ describe("THE-852 wiring — resolveAclWalkFilter", () => {
     // whether it may re-walk unfiltered for the prune count — set here because this caller
     // genuinely can lose recall to the filter.
     expect(result.aclWalkFilter?.restricted).toBe(true);
+    expect(result.aclWalkFilter?.unrestricted).toBeUndefined();
   });
 
   it("unrestricted caller + resolvable substrate -> filter enabled WITHOUT `restricted` (THE-891 item 3)", () => {
@@ -159,6 +160,7 @@ describe("THE-852 wiring — resolveAclWalkFilter", () => {
     // Unset, not false: an unrestricted caller's join is a proven structural no-op, so the
     // prune-count re-walk must never even be attempted for them.
     expect(result.aclWalkFilter?.restricted).toBeUndefined();
+    expect(result.aclWalkFilter?.unrestricted).toBe(true);
   });
 
   it("unrestricted caller + missing substrate -> no-op ({}), byte-identical to before this ticket", () => {

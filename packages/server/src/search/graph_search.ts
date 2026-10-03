@@ -309,8 +309,8 @@ async function graphSearchCore(
   // derivation is skipped for a partition-restricted caller — see GraphSearchOptions.derivedDefaults.
   const derivedAllowed =
     opts.derivedDefaults === true &&
-    opts.aclWalkFilter?.restricted !== true &&
-    !opts.aclWalkFilter?.blocked;
+    !opts.aclWalkFilter?.blocked &&
+    (opts.aclSetId === undefined || opts.aclWalkFilter?.unrestricted === true);
   const rrfK = resolveRetrievalDefaultsForVault(
     db,
     opts.vaultId,
