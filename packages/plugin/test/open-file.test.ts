@@ -25,7 +25,7 @@ function makeApp(files: Record<string, TFile> = {}) {
   const openFile = vi.fn(async () => {});
   const leaf = { openFile };
   const getLeaf = vi.fn(() => leaf);
-  const revealLeaf = vi.fn(async () => {});
+  const setActiveLeaf = vi.fn();
   const lookups: string[] = [];
   const app = {
     vault: {
@@ -34,9 +34,9 @@ function makeApp(files: Record<string, TFile> = {}) {
         return files[p] ?? null;
       },
     },
-    workspace: { getLeaf, revealLeaf },
+    workspace: { getLeaf, setActiveLeaf },
   } as unknown as InternalApp;
-  return { app, openFile, getLeaf, revealLeaf, lookups };
+  return { app, openFile, getLeaf, setActiveLeaf, lookups, leaf };
 }
 
 const tfile = (path: string): TFile =>
@@ -57,7 +57,7 @@ describe("POST /files/open", () => {
     ]);
   });
 
-  it("opens an existing file in the active leaf and reveals it", async () => {
+  it("opens an existing file in the active leaf and focuses it", async () => {
     const f = tfile("Notes/a b.md");
     const m = makeApp({ "Notes/a b.md": f });
     const { res, seen } = makeRes();
@@ -65,7 +65,8 @@ describe("POST /files/open", () => {
     expect(seen.body).toEqual({ ok: true, result: { opened: true, path: "Notes/a b.md" } });
     expect(m.getLeaf).toHaveBeenCalledWith(false);
     expect(m.openFile).toHaveBeenCalledWith(f);
-    expect(m.revealLeaf).toHaveBeenCalledTimes(1);
+    // Not `revealLeaf` (Obsidian 1.7.2+): the manifest floor is 1.7.0, where that call would throw.
+    expect(m.setActiveLeaf).toHaveBeenCalledExactlyOnceWith(m.leaf, { focus: true });
   });
 
   it("looks the path up normalized (unicode, # and spaces survive; doubled slashes collapse)", async () => {

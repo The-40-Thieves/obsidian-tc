@@ -30,7 +30,10 @@ export function buildFilesRoutes(app: InternalApp): RouteDef[] {
         if (!file) return fail(res, "note_not_found", "no such file in the vault", { path });
         const leaf = app.workspace.getLeaf(false);
         await leaf.openFile(file);
-        await app.workspace.revealLeaf(leaf);
+        // Not `revealLeaf`: it is Obsidian 1.7.2+ and this plugin's floor is 1.7.0, where the call
+        // would throw after the file was already opened. `getLeaf(false)` is a main-area leaf, so
+        // activating it is all the reveal this route needs (no collapsed sidebar to uncollapse).
+        app.workspace.setActiveLeaf(leaf, { focus: true });
         ok(res, { opened: true, path: file.path });
       },
     },

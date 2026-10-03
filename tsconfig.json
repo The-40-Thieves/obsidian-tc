@@ -1,0 +1,21 @@
+{
+  // NOT a build or typecheck project: `bun run typecheck` runs the per-package configs and nothing
+  // reads this one for emit. It exists for the Obsidian community-directory scanner
+  // (obsidianmd/obsidian-workflows), which runs eslint from the repo root:
+  //   - with a root tsconfig.json it takes the typed branch (typescript-eslint projectService);
+  //     without one it takes the untyped branch, which crashes on `await-thenable requires type
+  //     information` (exit 2, no JSON => `scanner-eslint-execution-failed`);
+  //   - the project service only discovers files NAMED tsconfig.json, walking up from each file, so
+  //     the code that only a differently-named config reaches (packages/server/tsconfig.eval.json)
+  //     or that no config reaches (packages/native/*.js) needs an owner, else every such file is a
+  //     fatal parse error. Package source keeps its own package tsconfig.json as nearest owner.
+  // scripts/scanner-tsconfig-coverage.test.mjs fails if a scanner-linted file ends up with no owner.
+  "extends": "./packages/server/tsconfig.eval.json",
+  "compilerOptions": {
+    "allowJs": true,
+    // `types: ["node"]` is inherited, and a root-level lookup finds no @types/node (it is installed
+    // per package), so point at the one the server package resolves.
+    "typeRoots": ["./packages/server/node_modules/@types"]
+  },
+  "include": ["packages/server/eval", "packages/native/*.js"]
+}
