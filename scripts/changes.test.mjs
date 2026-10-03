@@ -132,8 +132,13 @@ test("check-changes exits non-zero on a bad fragment and zero on a good tree", (
 
 test("with no fragments, rolling the REAL CHANGELOG is byte-identical to the pre-fragment algorithm", async () => {
   const { readFileSync } = await import("node:fs");
-  const cl = readFileSync(join(import.meta.dirname, "..", "CHANGELOG.md"), "utf8");
+  const real = readFileSync(join(import.meta.dirname, "..", "CHANGELOG.md"), "utf8");
   const marker = "## [Unreleased]";
+  // Right after a release [Unreleased] is empty and rolling it refuses, so give it one entry; the
+  // rest of the real file (every released section) is still the input under test.
+  const cl = /## \[Unreleased\]\s*\n## \[/.test(real)
+    ? real.replace(marker, `${marker}\n\n### Fixed\n\n- **Placeholder.** Test-only entry.`)
+    : real;
   const at = cl.indexOf(marker);
   const afterMarker = at + marker.length;
   const nextHeading = cl.indexOf("\n## [", afterMarker);
