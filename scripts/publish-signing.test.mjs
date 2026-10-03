@@ -83,7 +83,8 @@ test("every released artifact family is downloaded and has a signing step with a
   }
   for (const target of [
     "artifacts/native-*/*.node",
-    "artifacts/binary-*/obsidian-tc-*",
+    "artifacts/binary-*/obsidian-tc-!(*.map)",
+    "artifacts/binary-*/obsidian-tc-*.map",
     "artifacts/plugin/**/obsidian-tc-*.zip",
     "artifacts/plugin/**/main.js",
     "artifacts/plugin/**/manifest.json",
@@ -310,12 +311,13 @@ test("the sign_family keys match the families check-release-assets.sh pins, with
   assert.deepEqual([...keys].sort(), Object.keys(pinned).sort());
   assert.equal(
     Object.values(pinned).reduce((a, b) => a + b, 0),
-    19,
+    24,
   );
   // native and binary counts are the number of matrix rows in the jobs that build them
   const rows = (job) => (jobBlock(job).match(/^ {10}- host:/gm) ?? []).length;
   assert.equal(rows("build-native"), pinned.native);
   assert.equal(rows("build-binaries"), pinned.binary);
+  assert.equal(rows("build-binaries"), pinned["binary-map"]);
 });
 
 test("draft-release creates a DRAFT, validates it, and only then publishes it", () => {
