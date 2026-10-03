@@ -1,0 +1,4 @@
+[[IgnoredVulns]]
+id = "GHSA-ch52-4w7c-c8xp"
+reason = "http-cache-semantics <= 4.2.0 (max-stale handling can disclose cross-user cached responses; no fixed version exists) is pulled in only through astro 7.3.5 in this docs workspace. The docs site is static and built at build time: there is no shared HTTP cache serving different users, and neither the obsidian-tc server nor the CLI ships this tree. Revisit when a fixed http-cache-semantics release lands or on 2026-11-02."
+ignoreUntil = 2026-11-02
