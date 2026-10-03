@@ -48,6 +48,8 @@ export interface ElicitMintPlan {
   argsHash: string;
   caller: string | null;
   ttlSeconds: number;
+  /** `--state-fp`: the fingerprint of the request being approved (see IssueElicitInput.stateFp). */
+  stateFp?: string;
 }
 
 /**
@@ -103,6 +105,7 @@ export function planElicitMint(
     // config value that governs the live server (setDefaultElicitTtlSeconds, elicit.ts), so it can
     // never mint a token that outlives what that server would itself have issued.
     ttlSeconds: cfg.elicitTtlSeconds,
+    ...(cmd.stateFp !== undefined ? { stateFp: cmd.stateFp } : {}),
   };
 }
 
@@ -128,6 +131,7 @@ export function mintElicitAudited(
     caller: plan.caller,
     ttlSeconds: plan.ttlSeconds,
     now,
+    ...(plan.stateFp !== undefined ? { stateFp: plan.stateFp } : {}),
   });
   try {
     const e: AuditEvent = {
@@ -169,7 +173,7 @@ export function mintElicitForRaisedRequest(
   plan: ElicitMintPlan,
   opts: { now?: () => number } = {},
 ): string {
-  if (!hasRaisedElicitRequest(db, plan.vaultId, plan.argsHash, plan.caller)) {
+  if (!hasRaisedElicitRequest(db, plan.vaultId, plan.argsHash, plan.caller, opts.now)) {
     throw new CliError(
       `no raised request for args_hash ${plan.argsHash} (vault ${plan.vaultId}, caller ` +
         `${plan.caller}): the confirmation is bound to the state the request was raised against, ` +

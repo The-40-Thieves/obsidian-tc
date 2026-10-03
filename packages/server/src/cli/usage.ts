@@ -331,7 +331,8 @@ Usage:
                                           --alg picks the new key's algorithm (default HS256); an
                                           ES256/EdDSA key's public half is served as a JWKS at
                                           /.well-known/jwks.json.
-  obsidian-tc elicit [path] --hash <args_hash> --tool <name> [--vault <id>] [--caller <id>] [--json]
+  obsidian-tc elicit [path] --hash <args_hash> --tool <name> [--vault <id>] [--caller <id>]
+                        [--state-fp <fp>] [--json]
                                           Mint a single-use HITL confirmation token bound to the
                                           args_hash an elicit_required error returned (THE-826) —
                                           the route to a token for a client that cannot complete the
@@ -354,6 +355,11 @@ Usage:
                                           The token also carries the target-state fingerprint
                                           recorded when the call was blocked, so redeeming it
                                           after the note changed fails with replay_drift.
+                                          --state-fp <fp> (the state_fp the refusal carried; the
+                                          rendered command already includes it) pins the token to
+                                          THAT request: a blocked call repeated after its target
+                                          changed records a newer fingerprint, and a command from
+                                          the earlier refusal must not approve the newer state.
   obsidian-tc telemetry preview [path] [--json] [--show-path]
                                           Print the exact aggregate document opt-in telemetry
                                           would send right now (tool-call counts, error-code

@@ -44,6 +44,12 @@ export interface IssueElicitInput {
   proposedChange?: unknown;
   ttlSeconds?: number;
   now?: () => number;
+  /** The state fingerprint the operator's mint command named (`--state-fp`, the `state_fp` of the
+   *  `elicit_required` they were shown). Binds the token to THAT request's state rather than to
+   *  whichever request was raised last for the same (vault, args_hash, caller): a blocked call
+   *  repeated after its target changed overwrites the row, and an earlier command must not
+   *  approve the newer state. Absent = the newest recorded request, as before. */
+  stateFp?: string;
 }
 
 /** How long a raised request's state fingerprint stays available to bind a token to. Far longer than
@@ -75,17 +81,23 @@ export function recordElicitRequest(
   db.prepare("DELETE FROM elicit_requests WHERE raised_at < ?").run(now - REQUEST_RETENTION_MS);
 }
 
+/** The request row for this key, only while it is inside the retention window: the sweep in
+ *  recordElicitRequest runs on write, so a lookup that trusted it alone would accept a stale
+ *  fingerprint whenever nothing else had been raised since. */
 function requestedRow(
   db: Database,
   vaultId: string,
   argsHash: string,
   caller: string | null,
+  now: () => number,
 ): { state_fp: string } | undefined {
   return db
     .prepare(
-      "SELECT state_fp FROM elicit_requests WHERE vault_id = ? AND args_hash = ? AND caller = ?",
+      "SELECT state_fp FROM elicit_requests WHERE vault_id = ? AND args_hash = ? AND caller = ? AND raised_at >= ?",
     )
-    .get(vaultId, argsHash, caller ?? "") as { state_fp: string } | undefined;
+    .get(vaultId, argsHash, caller ?? "", now() - REQUEST_RETENTION_MS) as
+    | { state_fp: string }
+    | undefined;
 }
 
 /** Whether `elicit_required` was raised for this (vault, args_hash, caller) within retention. */
@@ -94,8 +106,9 @@ export function hasRaisedElicitRequest(
   vaultId: string,
   argsHash: string,
   caller: string | null,
+  now: () => number = Date.now,
 ): boolean {
-  return requestedRow(db, vaultId, argsHash, caller) !== undefined;
+  return requestedRow(db, vaultId, argsHash, caller, now) !== undefined;
 }
 
 /**
@@ -162,7 +175,9 @@ export function issueElicitToken(db: Database, input: IssueElicitInput): string 
     input.caller,
     now,
     now + ttlMs,
-    requestedRow(db, input.vaultId, input.argsHash, input.caller)?.state_fp || null,
+    input.stateFp ||
+      requestedRow(db, input.vaultId, input.argsHash, input.caller, () => now)?.state_fp ||
+      null,
   );
   return token;
 }

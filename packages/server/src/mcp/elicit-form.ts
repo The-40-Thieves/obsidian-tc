@@ -271,7 +271,13 @@ export async function offerInputRequired(
 ): Promise<CallToolResult | undefined> {
   if ((previousApprovedRound ?? 0) >= MAX_MISMATCH_ROUNDS) return undefined;
   const details = error as {
-    details?: { args_hash?: string; path?: unknown; state_fp?: unknown; vault?: unknown };
+    details?: {
+      args_hash?: string;
+      path?: unknown;
+      state_fp?: unknown;
+      tool?: unknown;
+      vault?: unknown;
+    };
   };
   const argsHash = details.details?.args_hash;
   if (typeof argsHash !== "string") return undefined;
@@ -283,11 +289,16 @@ export async function offerInputRequired(
   // (`stateAuthorizes`), so a state sealed for one vault authorizes no other.
   const vault = details.details?.vault;
   const vaultId = typeof vault === "string" ? vault : ctx.vaultId;
+  // The tool the GATE named (`details.tool`), not the one the client called: a tool that delegates
+  // (update_active_file -> write_note) is gated under the delegate's identity, and the confirmation
+  // is redeemed against exactly that name (`stateAuthorizes`). Sealing the called name made such a
+  // gate impossible to satisfy in-band. The form and the offer's mapping to its error keep `name`.
+  const gateTool = typeof details.details?.tool === "string" ? details.details.tool : name;
   if (offerSource && ctx.db)
-    recordHitlOffer({ ...ctx, vaultId, db: ctx.db }, name, error, offerSource);
+    recordHitlOffer({ ...ctx, vaultId, db: ctx.db }, gateTool, error, offerSource);
   const offer = inputRequired({
     requestState: await codec.mint({
-      tool: name,
+      tool: gateTool,
       argsHash,
       vaultId,
       caller: ctx.caller,
@@ -365,11 +376,18 @@ export function elicitStateContextPatch(
   elicitState: ElicitRequestState,
   vaultId: string,
   caller: string | null,
-): { elicitState: ElicitRequestState; relayElicitConsumed: (toolName: string) => void } {
+): {
+  elicitState: ElicitRequestState;
+  relayElicitConsumed: (toolName: string, effectVaultId?: string) => void;
+} {
   return {
     elicitState,
-    relayElicitConsumed: (toolName: string) =>
-      registry.relayElicitConsumed(vaultId, { tool: toolName, caller_hash: callerHash(caller) }),
+    // The gate reports the vault it acted on; `vaultId` (the session's own) is only the fallback.
+    relayElicitConsumed: (toolName: string, effectVaultId?: string) =>
+      registry.relayElicitConsumed(effectVaultId ?? vaultId, {
+        tool: toolName,
+        caller_hash: callerHash(caller),
+      }),
   };
 }
 

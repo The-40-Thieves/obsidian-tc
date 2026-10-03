@@ -13,7 +13,9 @@ import { argsHash } from "./hash";
 import { normalizeVaultPath, resolveVaultPath } from "./vault/paths";
 
 /** Computes the CURRENT fingerprint of a call's targets, or null when there is nothing to bind
- *  (the tool declares no target paths, no vault root is wired, or the folder ACL denies a path). */
+ *  (the tool declares no target paths, or no vault root is wired). It THROWS when the targets cannot
+ *  be fingerprinted (a path the folder ACL denies, an unreadable repo): callers must let that
+ *  refuse the call, never read it as "nothing to bind". */
 export type StateProbe = () => string | null;
 
 /** Above this a file is fingerprinted by size + mtime + inode rather than read: a confirmation on a

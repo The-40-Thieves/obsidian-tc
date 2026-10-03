@@ -40,6 +40,8 @@ export type CliCommand =
       tool?: string;
       vault?: string;
       caller?: string;
+      /** The `state_fp` of the request being approved: binds the token to that request's state. */
+      stateFp?: string;
       json?: boolean;
     }
   | { kind: "version" }
@@ -215,7 +217,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
     // OFFER a way to mint a longer-lived token than the live server would issue.
     if (first === "elicit") {
       const scan = [...rest];
-      for (const f of ["--hash", "--tool", "--vault", "--caller", "--config"]) {
+      for (const f of ["--hash", "--tool", "--vault", "--caller", "--state-fp", "--config"]) {
         const i = scan.indexOf(f);
         if (i >= 0) scan.splice(i, 2);
       }
@@ -223,6 +225,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
       const tool = flagValue(rest, "--tool");
       const vault = flagValue(rest, "--vault");
       const caller = flagValue(rest, "--caller");
+      const stateFp = flagValue(rest, "--state-fp");
       if (hash === undefined) {
         throw new CliError(
           "elicit requires --hash (the args_hash the elicit_required error's details carried)",
@@ -239,6 +242,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
         ...(configPath !== undefined ? { configPath } : {}),
         ...(vault !== undefined ? { vault } : {}),
         ...(caller !== undefined ? { caller } : {}),
+        ...(stateFp !== undefined ? { stateFp } : {}),
         json: rest.includes("--json"),
       };
     }

@@ -32,7 +32,6 @@ import { applyVaultAcl, enforceVaultBinding, parseInput, vaultFailureHint } from
 import {
   assertScopesGranted,
   checkHitl,
-  checkThrottle,
   confirmationStateProbe,
   enforceCentralPathAcl,
   enforceReadOnlyGate,
@@ -42,6 +41,7 @@ import {
   requireAuthenticated,
   resolveOperationPolicy,
   runPrecheck,
+  throttleRefusal,
 } from "./policy-gates";
 import { provenanceScope } from "./provenance-scope";
 import { bindResolvedTarget } from "./resolve-target";
@@ -96,6 +96,9 @@ export async function runDispatch(
   rawInput: unknown,
   callerCtx: CallerContext,
   rootSpan?: Span,
+  /** Out-param: set to the vault the call ACTS ON once it is known, so the caller's completion
+   *  telemetry (which runs after this returns) files under it rather than the caller's own. */
+  effect?: { vaultId?: string },
 ): Promise<ToolResult> {
   // `let`: re-pointed once, after the vault binding/ACL gates, at a context whose `vaultId` is the
   // vault this call ACTS ON (withEffectiveVault). Every closure below reads this binding.
@@ -232,14 +235,28 @@ export async function runDispatch(
     // From here on `ctx.vaultId` is the effect vault (binding, the one reader of the caller's own
     // vaultId, has run): the HITL error/mint/redeem, idempotency, audit and metrics all follow it.
     ctx = withEffectiveVault(ctx, def, inputData);
+    if (effect) effect.vaultId = ctx.vaultId;
 
     const mutating = isMutatingCall(policy);
+    const throttleGate = () =>
+      throttleRefusal(deps.rateLimiter, ctx.caller, scopeClass, ctx.vaultId, now(), () =>
+        deps.observability.meter((m) => m.incRateLimitHit(ctx.vaultId, scopeClass)),
+      );
     enforceReadOnlyGate(ctx, mutating, name, deps.toolVisibility);
     enforceVaultKindGate(ctx, def, inputData, mutating, name, deps.vaultKindResolver);
 
     // resolveTarget: after every gate that can refuse the caller, before precheck/idempotency/HITL.
+    // The rate limit is taken first for such a tool (see the throttle gate below).
+    if (def.resolveTarget) {
+      spans?.stage("rate_limit");
+      const refused = await throttleGate();
+      if (refused) throw refused;
+    }
     const target = await bindResolvedTarget(def, inputData, effectiveInput, ctx, deps.rootResolver);
     if (target) ({ input: inputData, recorded: recordedInput, hash } = target);
+    // The note a `resolveTarget` tool resolved to, past the folder ACL: the confirmation names it so
+    // the human approving sees WHICH note, not only the tool (the caller never supplied a path).
+    const resolvedPath = typeof target?.bound.path === "string" ? target.bound.path : undefined;
 
     await runPrecheck(def, inputData, ctx);
 
@@ -343,20 +360,11 @@ export async function runDispatch(
     // scope_class, vault); an unknown scope class is unlimited. Runs BEFORE HITL so a throttled
     // call never consumes the single-use elicit token. Idempotent replays (returned from cache
     // above) are not re-counted — the original call already drew down the bucket, and a throttled
-    // check itself costs no budget.
-    if (deps.rateLimiter) spans?.stage("rate_limit");
-    const throttleDecision = await checkThrottle(
-      deps.rateLimiter,
-      ctx.caller,
-      scopeClass,
-      ctx.vaultId,
-      now(),
-    );
-    if (throttleDecision && !throttleDecision.ok) {
-      // A refusal because the shared backend is down (fail-closed) is an outage symptom, not a hit.
-      if (!throttleDecision.reason) {
-        deps.observability.meter((m) => m.incRateLimitHit(ctx.vaultId, scopeClass));
-      }
+    // check itself costs no budget. A `resolveTarget` tool took this gate before resolving (above):
+    // its resolver is a remote call, and a throttled request must not be able to make it.
+    if (deps.rateLimiter && !def.resolveTarget) spans?.stage("rate_limit");
+    const throttled = def.resolveTarget ? undefined : await throttleGate();
+    if (throttled) {
       if (idemClaimed && idemKey) {
         try {
           deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
@@ -367,14 +375,11 @@ export async function runDispatch(
           releaseFailedGate = "throttle";
         }
       }
-      throw err.throttled("rate limit exceeded", {
-        scope_class: throttleDecision.scopeClass,
-        retry_after_seconds: throttleDecision.retryAfterSeconds,
-        current_burst: throttleDecision.currentBurst,
-        current_rate: throttleDecision.currentRate,
-        ...(throttleDecision.reason ? { reason: throttleDecision.reason } : {}),
-      });
+      throw throttled;
     }
+    // THE-514: the throttle check awaited (a shared backend): a cancel during it must stop the call
+    // BEFORE the HITL gate spends the single-use confirmation token.
+    checkAborted(ctx.signal);
 
     // HITL gate. A destructive/HITL-floored tool requires a valid single-use elicit
     // token; verifyElicit consumes it (UPDATE ... WHERE consumed_at IS NULL). Runs after
@@ -408,6 +413,7 @@ export async function runDispatch(
           args_hash: hash,
           tool: name,
           vault: ctx.vaultId,
+          ...(resolvedPath !== undefined ? { path: resolvedPath } : {}),
         });
       }
       deps.observability.relay(ctx.vaultId, "tc.elicit.consumed", {
@@ -465,7 +471,11 @@ export async function runDispatch(
         // THE-514: the last chance to bail before the handler — and any side effect — runs.
         // idemClaimed's claim is still pre-effect here, so the catch below deletes it cleanly.
         checkAborted(ctx.signal);
-        if (mutating) await provenance.begin(def, inputData, ctx);
+        if (mutating) {
+          await provenance.begin(def, inputData, ctx);
+          // THE-514: provenance hashing awaits; a cancel during it must not reach the handler.
+          checkAborted(ctx.signal);
+        }
         const handlerStart = now();
         spans?.stage("tool_impl");
         const invoke = () => def.handler(inputData, ctx);

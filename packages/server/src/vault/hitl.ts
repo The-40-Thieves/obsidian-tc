@@ -71,7 +71,7 @@ export function requireConfirmation(
     // round adds): `ctx.relayElicitConsumed` is set (mcp/server.ts) only when a verified,
     // accept+approve:true state exists for this connection, so audit now sees a shim/modern
     // approval clearing one of these 16 tools' gates, which it could not see before.
-    if (stateOk) ctx.relayElicitConsumed?.(toolName);
+    if (stateOk) ctx.relayElicitConsumed?.(toolName, ctx.vaultId);
     // A token redemption is recorded here; a form/requestState answer was recorded when it
     // arrived (mcp/server.ts), so the state path adds nothing and cannot double-count.
     if (tokenOk) {

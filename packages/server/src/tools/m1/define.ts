@@ -44,6 +44,8 @@ export interface ToolSpec<S extends z.ZodTypeAny, O, B extends object = Record<n
   precheck?: (input: z.infer<S> & B, ctx: CallerContext) => void | Promise<void>;
   /** See ToolDefinition.resolveTarget: the fields returned here are merged into the input. */
   resolveTarget?: (input: z.infer<S>, ctx: CallerContext) => B | Promise<B>;
+  /** See ToolDefinition.checkResolvedTarget. */
+  checkResolvedTarget?: (resolved: Readonly<B>, ctx: CallerContext) => void;
   scopeClass?: string;
   /** THE-414: declarative folder-ACL path extraction — the vault-relative paths this tool touches,
    *  tagged by op, so runDispatch enforces the folder ACL centrally (handler-side enforcePathAcl

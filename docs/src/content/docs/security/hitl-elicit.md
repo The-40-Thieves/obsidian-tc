@@ -135,7 +135,7 @@ the snapshot `restore_note` depends on, all at once. Instead, mint the confirmat
 from the command line:
 
 ```sh
-obsidian-tc elicit --hash <args_hash> --tool <tool_name> [--vault <id>] [--caller <id>]
+obsidian-tc elicit --hash <args_hash> --tool <tool_name> [--vault <id>] [--caller <id>] [--state-fp <fp>]
 ```
 
 - **`--hash`** is the `args_hash` the `elicit_required` error's `details` carried.
@@ -146,6 +146,11 @@ obsidian-tc elicit --hash <args_hash> --tool <tool_name> [--vault <id>] [--calle
   presents over the trusted stdio transport (`obsidian-tc serve <vault>`) — the common
   case this command exists for. On an HTTP/`jwt` deployment, pass the same value given
   to `token mint --sub`.
+- **`--state-fp`** is the `state_fp` the `elicit_required` error's `details` carried (the
+  rendered command already includes it). It pins the token to the state *that* request was
+  raised against. Repeating a blocked call after its target changed records a newer
+  fingerprint under the same args_hash, so a command copied from the earlier refusal would
+  otherwise approve the newer state; with the flag it fails with `replay_drift` instead.
 
 The command prints the token, and nothing else, to stdout; send the same call again with
 `elicit_token: <token>` and it proceeds. The token carries every property the mechanism

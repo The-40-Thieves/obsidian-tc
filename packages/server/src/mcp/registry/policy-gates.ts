@@ -210,7 +210,7 @@ export async function runPrecheck<I>(
  * decision — metering, releasing an idempotency claim, throwing — stays with the caller, since it
  * needs dispatch-local state (idemClaimed/idemKey) this function does not have.
  */
-export async function checkThrottle(
+async function checkThrottle(
   rateLimiter: RateLimiter | undefined,
   caller: string | null,
   scopeClass: string,
@@ -219,6 +219,32 @@ export async function checkThrottle(
 ): Promise<ThrottleDecision | undefined> {
   if (!rateLimiter) return undefined;
   return rateLimiter.check(callerHash(caller), scopeClass, vaultId, nowMs);
+}
+
+/**
+ * The `throttled` refusal for a call the limiter turned away, or undefined when it may proceed.
+ * `onHit` is called for a genuine rate-limit hit; a refusal because the shared backend is down
+ * (fail-closed, `reason` set) is an outage symptom, not a hit. Releasing an idempotency claim and
+ * throwing stay with the caller, which owns that state.
+ */
+export async function throttleRefusal(
+  rateLimiter: RateLimiter | undefined,
+  caller: string | null,
+  scopeClass: string,
+  vaultId: string,
+  nowMs: number,
+  onHit: () => void,
+): Promise<ObsidianTcError | undefined> {
+  const d = await checkThrottle(rateLimiter, caller, scopeClass, vaultId, nowMs);
+  if (!d || d.ok) return undefined;
+  if (!d.reason) onHit();
+  return err.throttled("rate limit exceeded", {
+    scope_class: d.scopeClass,
+    retry_after_seconds: d.retryAfterSeconds,
+    current_burst: d.currentBurst,
+    current_rate: d.currentRate,
+    ...(d.reason ? { reason: d.reason } : {}),
+  });
 }
 
 /** Whether this tool call needs a cleared HITL (human-in-the-loop) confirmation: a destructive
@@ -268,8 +294,12 @@ export function checkHitl(
 
 /**
  * The probe that fingerprints what THIS call targets (replay_drift binding): its `pathAcl` paths
- * and/or the state its `confirmationTargets` computes. Null (nothing to bind) when neither yields
- * one, no root is wired for a path declaration, or the folder ACL refuses a path.
+ * and/or the state its `confirmationTargets` computes. Null (nothing to bind) ONLY when the tool
+ * declares nothing to bind, neither declaration yields a fingerprint, or no root is wired for a path
+ * declaration. A probe that THROWS fails closed: a typed refusal (the folder ACL's `acl_denied`,
+ * including its hard-link refusal) surfaces as itself, and any other fault becomes a refusal that
+ * names no cause. Reading a throw as "nothing to bind" would raise and later redeem an UNBOUND
+ * approval for a destructive call, which is exactly the state this binding exists to rule out.
  */
 export function confirmationStateProbe(
   def: ToolDefinition,
@@ -298,8 +328,11 @@ export function confirmationStateProbe(
         if (fp !== null) parts.push(fp);
       }
       return parts.length > 1 ? argsHash("state", parts) : (parts[0] ?? null);
-    } catch {
-      return null;
+    } catch (e) {
+      if (e instanceof ObsidianTcError) throw e;
+      throw err.internalError(
+        "could not read the state this confirmation would bind; refusing to issue an unbound approval",
+      );
     }
   };
 }
