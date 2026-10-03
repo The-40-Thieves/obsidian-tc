@@ -43,7 +43,11 @@ without you having said so.
 By default it writes `~/.obsidian-tc/config.json` and asks for confirmation before
 writing (skip the prompt with `--yes`; preview without writing at all with
 `--dry-run`). It refuses to overwrite an existing config unless you pass `--force`,
-which backs the old one up first. See `obsidian-tc help` for the full flag list.
+which backs the old one up first. It also refuses, with `--force` or without, to touch an
+existing config that does not validate (an ACL pattern the loader rejects, a wrong type, a missing
+`vaults`): it prints each offending field and writes nothing, because rebuilding from a config it cannot
+read back could replace your restrictive `acl`, `auth` and `egress` settings with defaults. Fix the named
+field by hand, then re-run. See `obsidian-tc help` for the full flag list.
 A bare `obsidian-tc` with no arguments finds that default path automatically — see
 [step 2](#2-start-it) — or point it there explicitly the same way as a hand-written
 config below (as an argument, or via `OBSIDIAN_TC_CONFIG`) if you passed `--config`

@@ -15,13 +15,14 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import * as readline from "node:readline/promises";
 import { ObsidianTcError, type ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { z } from "zod";
 import { resolveCapabilityProfile } from "../../capability/profile";
 import { finalizeConfig, readConfigFile } from "../../config/load";
 import { DEFAULT_BUSY_TIMEOUT_MS } from "../../db/pragmas";
 import { probeLocalEmbedderResolution } from "../../providers/local-embedder-registry";
 import { onnxNativePrebuildStatus } from "../../providers/reranker-preflight";
 import { redactConfig } from "../redact-config";
-import { defaultSetupConfigPath } from "../resolve-config";
+import { configIssueLines, defaultSetupConfigPath } from "../resolve-config";
 import { formatClientSnippets } from "../setup/client-install";
 import {
   decideSetup,
@@ -77,20 +78,17 @@ function isExistingDirectory(path: string): boolean {
 }
 
 /** Finding 2 (HIGH, fix round 2): when a config already exists at the write target (or `--config`
- *  names one), load it through the REAL loader first — never re-derive `cacheDir`/vaults from a
- *  hard-coded `~/.obsidian-tc` guess. Returns the raw (pre-default) object whenever the file at
- *  least PARSES as JSON, and the finalized config too when it also validates. The two can now
- *  diverge: the exact pre-1.31.4 / GH #995 victim shape (vaults, no `embeddings`, no `cacheDir`)
- *  parses fine but fails `finalizeConfig` (which requires an explicit `cacheDir` once
- *  `embeddings.provider` resolves to "local" — the schema default when the block is absent, which
- *  it is here). Before this fix, ANY throw (a corrupt file OR a merely-unfinalizable one) returned
- *  `undefined` wholesale, so `buildSetupConfig` never saw `raw` and merged into an EMPTY object —
- *  discarding every key setup does not own (`auth`, `acl`, ...) the moment `--force` was passed.
- *  `raw` alone (with `config: undefined`) is undefined ONLY when the file cannot be parsed as JSON
- *  at all — a genuinely unreadable file, which really is "nothing to load". */
+ *  names one), load it through the REAL loader, never a hard-coded `~/.obsidian-tc` guess. Returns
+ *  the raw (pre-default) object whenever the file at least PARSES as JSON, and the finalized config
+ *  too when it validates. The two diverge for the pre-1.31.4 / GH #995 victim shape (vaults, no
+ *  `embeddings`, no `cacheDir`): it fails `finalizeConfig` with a named `ObsidianTcError`, but it is
+ *  a real config, and dropping its `raw` made `--force` discard every key setup does not own
+ *  (`auth`, `acl`, ...). `undefined` ONLY when the file cannot be parsed as JSON at all.
+ *  A file that parses but fails schema validation (a raw `ZodError`) comes back with `invalid` set
+ *  to the offending fields, and `run_setup` refuses to write over it. */
 function loadExistingConfig(
   targetPath: string,
-): { raw: Record<string, unknown>; config?: ServerConfig } | undefined {
+): { raw: Record<string, unknown>; config?: ServerConfig; invalid?: string[] } | undefined {
   if (!existsSync(targetPath)) return undefined;
   let raw: Record<string, unknown>;
   try {
@@ -108,10 +106,11 @@ function loadExistingConfig(
     // A deliberate, named `ObsidianTcError` (config/load.ts's own `err.invalidInput` throws — the
     // local-provider-needs-cacheDir case this command exists to repair, or a dimensions mismatch)
     // still means the file IS a real, mergeable config that merely fails one explicit rule after
-    // schema validation — return `raw` so buildSetupConfig can merge into it. A raw ZodError (the
-    // shape itself does not validate at all — e.g. no `vaults` array) means there is no real config
-    // here to merge into; behave exactly like "no existing config" always did.
+    // schema validation — return `raw` so buildSetupConfig can merge into it.
     if (e instanceof ObsidianTcError) return { raw };
+    // Was `undefined` ("no existing config"): `--force` then rebuilt from `{}` and replaced a
+    // restrictive acl/auth/egress with defaults. Refused, not merged: see `run_setup`.
+    if (e instanceof z.ZodError) return { raw, invalid: configIssueLines(e) };
     return undefined;
   }
 }
@@ -193,6 +192,8 @@ export async function detect(cmd: Cmd<"setup">): Promise<
   SetupDecision & {
     targetPath: string;
     existingRaw?: Record<string, unknown>;
+    /** `field: reason` lines when the existing config fails validation (`run_setup` refuses). */
+    existingInvalid?: string[];
     /** Finding 4 (fix round, cross-vendor review): the RAW Obsidian registry count, before
      *  `isExistingDirectory` drops entries whose vault path no longer stats (unplugged USB/NFS
      *  mount, a transient `stat` throw). Exported so first-run-fallback.ts can decline on ambiguity
@@ -283,6 +284,7 @@ export async function detect(cmd: Cmd<"setup">): Promise<
     missingVaultWarnings,
     vaultIdCollisions,
     ...(existing ? { existingRaw: existing.raw } : {}),
+    ...(existing?.invalid ? { existingInvalid: existing.invalid } : {}),
   };
 }
 
@@ -378,6 +380,19 @@ export async function run_setup(cmd: Cmd<"setup">): Promise<void> {
   }
 
   const decision = await detect(cmd);
+  // Never rewritten, by any flag: dropping the invalid field can loosen the rule it carried.
+  if (decision.existingInvalid) {
+    process.stderr.write(
+      `obsidian-tc setup: refusing to touch ${decision.targetPath} — it does not validate, and ` +
+        "setup will not rewrite a config it cannot read back, since that could replace your " +
+        "restrictive acl/auth/egress settings with defaults. Nothing was written.\n" +
+        `  ${decision.existingInvalid.join("\n  ")}\n` +
+        "Fix the field(s) named above by hand (a backup is not needed: the file is untouched), " +
+        "then re-run `obsidian-tc setup`.\n",
+    );
+    process.exitCode = 1;
+    return;
+  }
   printDecisions(decision);
   // PR B: without --install-client, `setup` prints ready-to-paste snippets for all three known
   // clients — the manual alternative to the opt-in installer. Shown regardless of outcome below

@@ -217,6 +217,58 @@ describe("ACL patterns that stay root-marked or end in a separator are refused a
     expect(evaluatePathAcl(acl, "write", "notes/drafts/a.md").allowed).toBe(true);
   });
 
+  // Round 2 (Codex spot-check): runtime paths reject `..` and drop `.` segments (vault/paths.ts), so
+  // a rule spelled with one never matches the path it names: a fail-open for `acl.rules`.
+  it.each([
+    "../Private/**",
+    "Private/./**",
+    "Private/../**",
+    "Private\\..\\**",
+    "Private/.",
+    "Private/..",
+    "a/b/../../Private/**",
+    "**/../x.md",
+  ])("a `.` or `..` path segment is refused: %j", (glob) => {
+    refused(rule(glob), /"\.\.?" path segment/);
+    refused({ acl: { readPaths: [glob] } }, /path segment/);
+    refused({ acl: { writePaths: [glob] } }, /path segment/);
+    refused({ acl: { deletePaths: [glob] } }, /path segment/);
+    const perVault = ServerConfigSchema.safeParse({
+      vaults: [{ id: "v", path: "/tmp/vault", acl: { rules: [{ glob, scopes: ["admin:x"] }] } }],
+    });
+    expect(perVault.success, `vaults[].acl.rules ${glob}`).toBe(false);
+  });
+
+  it.each([
+    ["a\u0000b/**", "NUL"],
+    ["Private/\u0000**", "NUL"],
+    ["Pri\u0001vate/**", "control"],
+    ["Private/\u001f**", "control"],
+    ["Private\u007f/**", "control"],
+    ["Private\n/**", "control"],
+    ["Private\t/**", "control"],
+    ["Private\u0085/**", "control"],
+  ])("a control character (NUL included) is refused: %j", (glob) => {
+    refused(rule(glob), /control character/);
+    refused({ acl: { readPaths: [glob] } }, /control character/);
+  });
+
+  it("dot-led and dotted names that are not a bare `.`/`..` segment still load", () => {
+    const cfg = parse({
+      acl: {
+        rules: [
+          { glob: ".obsidian/**", scopes: ["admin:cfg"] },
+          { glob: "notes/.hidden/**", scopes: ["admin:cfg"] },
+          { glob: "a..b/**", scopes: ["admin:cfg"] },
+          { glob: "...", scopes: ["admin:cfg"] },
+          { glob: "**/.git/**", scopes: ["admin:cfg"] },
+          { glob: "v1.2/**", scopes: ["admin:cfg"] },
+        ],
+      },
+    });
+    expect(cfg.acl.rules).toHaveLength(6);
+  });
+
   it("egress and index fields keep their strip/widen behaviour (not refused)", () => {
     expect(parse({ egress: { excludePaths: ["\\Private\\"] } }).egress.excludePaths).toEqual([
       "/Private/",

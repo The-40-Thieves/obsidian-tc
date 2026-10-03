@@ -143,6 +143,12 @@ spelling in the error, rather than guessing:
   (`\\server\share`), or a leading `./`: write `Private/**`, `notes/**`;
 - a trailing separator (`notes\private\`): that is the exact path `notes/private/`, not the folder.
   Write `notes/private/**`.
+- a `.` or `..` path segment anywhere (`../Private/**`, `Private/./**`, `Private/../**`): the server
+  rejects `..` and drops `.` in every path it checks, so a rule written that way never matches the
+  folder it names. Spell the folder itself (`Private/**`). Names that merely contain dots
+  (`.obsidian/**`, `a..b/**`, `v1.2/**`) are fine;
+- a control character (NUL, tab, newline, DEL and the other C0/C1 controls), which no ACL pattern may
+  contain. NUL in particular is the matcher's own internal marker for `**` and would over-match.
 
 Refusing instead of stripping is deliberate: an `acl.rules` entry that never matched left its extra
 scopes unenforced, and stripping the marker from a whitelist entry would turn one that granted nothing

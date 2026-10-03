@@ -38,27 +38,62 @@ export const configPathGlob = () => z.string().overwrite(normalizeConfigPathGlob
 // Egress and index fields do not use this variant: a leading `/` there is stripped and a folder
 // widened (normalizeEgressExcludePattern, normalizeIndexExclusionEntry), so they cannot fail open
 // this way.
+//
+// Also refused, for the same fail-open reason, and never normalised away:
+//  - a `.` or `..` path SEGMENT anywhere (`../Private/**`, `Private/./**`, `Private/../**`). The
+//    server's runtime path normaliser (vault/paths.ts) rejects `..` and drops `.`, so a checked
+//    path never carries one and a rule spelled with one never matches the folder it names.
+//    Collapsing `Private/./**` to `Private/**` for the operator is possible but `Private/../**`
+//    has no honest rewrite, and a silent rewrite of a security pattern hides what was written.
+//  - a control character (`\p{Cc}`: NUL, tab, newline, DEL, C1). NUL cannot appear in a vault path at
+//    all, it is the matcher's own internal `**` sentinel (acl.ts), so a pattern carrying it
+//    compiles to something that over-matches.
 const ROOT_MARKER = /^(?:[A-Za-z]:\/|\/|\.\/)+/;
+const CONTROL_CHAR = /\p{Cc}/u;
 
 /** The reason an already-normalised ACL glob can never match a vault-relative path, with the
  *  spelling that would; `undefined` when the pattern is fine. */
 function aclGlobProblem(normalized: string): string | undefined {
   const rooted = ROOT_MARKER.test(normalized);
   const trailing = normalized.endsWith("/");
-  if (!rooted && !trailing) return undefined;
   const bare = normalized.replace(ROOT_MARKER, "");
+  // Segments of what is left after the root marker, so a leading `./` is reported once, as the root
+  // marker it is, not again as a `.` segment.
+  const segments = bare.split("/");
+  const dot = segments.includes(".");
+  const dotDot = segments.includes("..");
+  const control = CONTROL_CHAR.test(normalized);
+  if (!rooted && !trailing && !dot && !dotDot && !control) return undefined;
   const suggestion = trailing ? `${bare}**` : bare;
-  const why = [
-    rooted
-      ? 'it starts with a root marker (a leading "/" or "\\", a drive letter such as "C:", a UNC "\\\\" prefix, or "./")'
-      : undefined,
-    trailing
-      ? 'it ends with a separator, so it is the exact path "…/" rather than the folder'
-      : undefined,
-  ]
-    .filter((x) => x !== undefined)
-    .join(" and ");
-  return `ACL pattern can never match a note: ${why}. ACL patterns are vault-relative paths with no leading separator; write "${suggestion === "" ? "**" : suggestion}" instead.`;
+  const why: string[] = [];
+  const fix: string[] = [];
+  if (rooted) {
+    why.push(
+      'it starts with a root marker (a leading "/" or "\\", a drive letter such as "C:", a UNC "\\\\" prefix, or "./")',
+    );
+  }
+  if (trailing) {
+    why.push('it ends with a separator, so it is the exact path "…/" rather than the folder');
+  }
+  if (rooted || trailing) {
+    fix.push(
+      `ACL patterns are vault-relative paths with no leading separator; write "${suggestion === "" ? "**" : suggestion}" instead`,
+    );
+  }
+  if (dot) why.push('it has a "." path segment, which a vault path never carries');
+  if (dotDot) why.push('it has a ".." path segment, which a vault path never carries');
+  if (dot || dotDot) {
+    fix.push(
+      'spell the folder itself, with no "." or ".." segment (for example "Private/**" rather than "../Private/**")',
+    );
+  }
+  if (control) {
+    why.push(
+      "it has a control character (NUL, tab, newline, DEL, ...), which an ACL pattern may not contain",
+    );
+    fix.push("remove the control character");
+  }
+  return `ACL pattern can never match a note: ${why.join(" and ")}. ${fix.join("; ")}.`;
 }
 
 /** An ACL path glob (`acl.rules[].glob`, `acl.readPaths` / `writePaths` / `deletePaths`, root and

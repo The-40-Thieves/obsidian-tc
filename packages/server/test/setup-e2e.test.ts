@@ -4,7 +4,7 @@
 // reports the effective embeddings source as "configured" — the exact GH #995 property this command
 // exists to establish: a decision `setup` writes down must never look like something boot merely
 // defaulted to or kept.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registryCandidates } from "../src/capability/locate";
@@ -158,17 +158,20 @@ describe("obsidian-tc setup — end to end", () => {
   });
 
   it("--force backs up the existing config and writes the new one", async () => {
-    const { home } = fakeObsidianEnv();
+    const { home, vaultPath } = fakeObsidianEnv();
     const configDir = join(home, ".obsidian-tc");
     const configPath = join(configDir, "config.json");
     mkdirSync(configDir, { recursive: true });
-    writeFileSync(configPath, JSON.stringify({ existing: true }));
+    const original = JSON.stringify({ vaults: [{ id: "work", path: vaultPath }] });
+    writeFileSync(configPath, original);
 
     await run_setup({ kind: "setup", yes: true, dryRun: false, force: true });
 
     const onDisk = JSON.parse(readFileSync(configPath, "utf8"));
-    expect(onDisk.existing).toBeUndefined();
-    expect(onDisk.vaults).toBeDefined();
+    expect(onDisk.embeddings).toBeDefined(); // setup wrote its decision
+    const backups = readdirSync(configDir).filter((f) => f.startsWith("config.json.bak-"));
+    expect(backups).toHaveLength(1);
+    expect(readFileSync(join(configDir, backups[0] ?? ""), "utf8")).toBe(original);
   });
 
   // Finding 1 (fix round, cross-vendor review): the review's own scenario — first-run's fallback
@@ -243,6 +246,78 @@ describe("obsidian-tc setup — end to end", () => {
     expect(onDisk.auth).toEqual({ jwtSecret: "keep-me-unless-you-are-a-generic-key" });
     expect(onDisk.acl).toEqual({ readOnly: true });
     expect(onDisk.vaults).toEqual(expect.arrayContaining([{ id: "work", path: vaultPath }]));
+  });
+
+  // Round 2 (Codex spot-check on the ACL-glob refusal): a config that FAILS schema validation used to
+  // have its parsed raw object dropped by `loadExistingConfig`, so `setup --force` rebuilt from `{}`
+  // and replaced every `acl`/`auth`/`egress` block with permissive defaults: a fail-open reached by
+  // following the startup hint. Setup now REFUSES to touch a config that does not validate.
+  describe("setup never replaces a config that fails validation (it refuses, nothing is written)", () => {
+    const exitCodeBefore = process.exitCode;
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+    let stderr: string[];
+    beforeEach(() => {
+      stderr = [];
+      stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
+        stderr.push(typeof chunk === "string" ? chunk : String(chunk));
+        return true;
+      });
+    });
+    afterEach(() => {
+      stderrSpy.mockRestore();
+      process.exitCode = exitCodeBefore;
+    });
+
+    const restrictive = (vaultPath: string, glob: string) => ({
+      vaults: [{ id: "work", path: vaultPath }],
+      auth: { jwtSecret: "keep-me-unless-you-are-a-generic-key" },
+      acl: { readOnly: true, rules: [{ glob, scopes: ["admin:private"] }] },
+      egress: { excludePaths: ["Private/**"] },
+    });
+
+    it.each([
+      ["--force", { yes: true, dryRun: false, force: true }],
+      ["--yes", { yes: true, dryRun: false, force: false }],
+      ["--dry-run", { yes: false, dryRun: true, force: false }],
+    ])(
+      'acl.rules[0].glob "/Private/**" with %s: file untouched, error names the field',
+      async (_n, flags) => {
+        const { home, vaultPath } = fakeObsidianEnv();
+        const configDir = join(home, ".obsidian-tc");
+        const configPath = join(configDir, "config.json");
+        mkdirSync(configDir, { recursive: true });
+        const before = JSON.stringify(restrictive(vaultPath, "/Private/**"));
+        writeFileSync(configPath, before);
+
+        await run_setup({ kind: "setup", ...flags });
+
+        expect(readFileSync(configPath, "utf8")).toBe(before);
+        expect(readdirSync(configDir)).toEqual(["config.json"]); // no backup, no temp file
+        expect(process.exitCode).toBe(1);
+        const err = stderr.join("");
+        expect(err).toMatch(/acl\.rules\.0\.glob/);
+        expect(err).toMatch(/fix/i);
+        expect(stdout.join("")).not.toContain('"readOnly"'); // no merged-config preview either
+      },
+    );
+
+    it("any other validation failure is refused too (an invalid auth block is not replaced)", async () => {
+      const { home, vaultPath } = fakeObsidianEnv();
+      const configDir = join(home, ".obsidian-tc");
+      const configPath = join(configDir, "config.json");
+      mkdirSync(configDir, { recursive: true });
+      const before = JSON.stringify({
+        ...restrictive(vaultPath, "Private/**"),
+        acl: { readOnly: "yes please" },
+      });
+      writeFileSync(configPath, before);
+
+      await run_setup({ kind: "setup", yes: true, dryRun: false, force: true });
+
+      expect(readFileSync(configPath, "utf8")).toBe(before);
+      expect(process.exitCode).toBe(1);
+      expect(stderr.join("")).toMatch(/acl\.readOnly/);
+    });
   });
 
   // Fix round 2, finding C (orchestrator): `setup` printed the merged config to stdout via a bare
