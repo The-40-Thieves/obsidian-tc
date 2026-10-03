@@ -30,7 +30,7 @@ import { readableRel } from "../../../vault/acl-read-filter";
 import { parseNoteLenient } from "../../../vault/frontmatter";
 import { readNote } from "../../../vault/notes-io";
 import { contentHash, resolveVaultPath, resolveVaultPathChecked } from "../../../vault/paths";
-import { rawPathFilter } from "./wiki-folder";
+import { isGeneratedWikiPath, rawPathFilter, type WikiFolders } from "./wiki-folder";
 
 export const JUDGE_VERDICTS = ["same_topic", "overlapping", "different"] as const;
 export type WikiJudgeVerdict = (typeof JUDGE_VERDICTS)[number];
@@ -126,6 +126,8 @@ export interface SendScope {
   exclusion: VaultExclusion;
   /** Every name of the vault's raw folder: a raw note is an input, never a page, so never sent. */
   rawFolders?: readonly string[] | undefined;
+  /** Every name of the vault's wiki folder: its generated index.md / log.md are not pages, so never sent. */
+  wikiFolders?: WikiFolders;
 }
 
 /** Read `rel` for the judge, or say why it may not be sent. The reason is for the caller's notes;
@@ -134,7 +136,7 @@ export function loadSendable(
   scope: SendScope,
   excludeFilter: EgressFilter | undefined,
   rel: string,
-): { note: SendableNote } | { refused: "excluded" | "unreadable" | "raw" } {
+): { note: SendableNote } | { refused: "excluded" | "unreadable" | "raw" | "generated" } {
   if (scope.exclusion.isExcluded(rel)) return { refused: "excluded" };
   if (excludeFilter && isExcludedPath(excludeFilter, rel)) return { refused: "excluded" };
   if (!readableRel(scope.acl, rel, scope.grantedScopes)) return { refused: "unreadable" };
@@ -142,8 +144,11 @@ export function loadSendable(
   // page folder into the raw folder is still a raw note.
   const isRaw = rawPathFilter(scope.rawFolders);
   try {
-    if (isRaw(rel) || isRaw(resolveVaultPathChecked(scope.root, rel).aclRel))
-      return { refused: "raw" };
+    const real = resolveVaultPathChecked(scope.root, rel).aclRel;
+    if (isRaw(rel) || isRaw(real)) return { refused: "raw" };
+    // The generated index and log are not pages, under the name reached and the real one.
+    if (isGeneratedWikiPath(rel, scope.wikiFolders) || isGeneratedWikiPath(real, scope.wikiFolders))
+      return { refused: "generated" };
     const { raw, hash } = readNote(resolveVaultPath(scope.root, rel));
     const body = parseNoteLenient(raw, rel).body;
     const base = rel.slice(rel.lastIndexOf("/") + 1).replace(/\.md$/i, "");

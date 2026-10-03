@@ -33,17 +33,38 @@ export function pathInFolder(
 export const WIKI_INDEX_FILE = "index.md";
 export const WIKI_LOG_FILE = "log.md";
 
-/** Whether `path` is one of the wiki folder's generated pages: they are never wiki pages, so
- *  duplicate detection, lint and the link scans leave them out. Same fold as `pathInFolder`. */
+/** The names a vault's wiki folder goes by: the configured spelling, then the in-vault directory it
+ *  really is when that differs (a symlinked folder or ancestor; `""` is the vault root). The index
+ *  and the scans see the real spelling, so "is this a generated page?" takes this, not the configured
+ *  name alone. A folder that cannot be placed has only its configured name. */
+export type WikiFolders = string | readonly string[] | undefined;
+
+export function wikiFolderNames(root: string, wikiFolder: string): string[] {
+  try {
+    const real = resolveVaultPathChecked(root, wikiFolder).aclRel;
+    return real === wikiFolder ? [wikiFolder] : [wikiFolder, real];
+  } catch {
+    return [wikiFolder];
+  }
+}
+
+/** Whether `path` is one of the wiki folder's generated pages, under any of its names: they are never
+ *  wiki pages, so duplicate detection, lint, the link scans and the judge leave them out. Same fold
+ *  as `pathInFolder`. */
 export function isGeneratedWikiPath(
   path: string,
-  wikiFolder: string | undefined,
+  wikiFolder: WikiFolders,
   ci: boolean = CASE_INSENSITIVE_FS,
 ): boolean {
-  if (!wikiFolder) return false;
+  if (wikiFolder === undefined) return false;
   const p = foldPath(path, ci);
-  const dir = foldPath(wikiFolder, ci);
-  return p === `${dir}/${WIKI_INDEX_FILE}` || p === `${dir}/${WIKI_LOG_FILE}`;
+  const names = typeof wikiFolder === "string" ? [wikiFolder] : wikiFolder;
+  return names.some((name) => {
+    if (name === "" && typeof wikiFolder === "string") return false;
+    const dir = foldPath(name, ci);
+    const prefix = dir === "" ? "" : `${dir}/`;
+    return p === `${prefix}${WIKI_INDEX_FILE}` || p === `${prefix}${WIKI_LOG_FILE}`;
+  });
 }
 
 /** `dev:ino` of the directory at `abs` (symlinks followed); null when it is not an existing directory

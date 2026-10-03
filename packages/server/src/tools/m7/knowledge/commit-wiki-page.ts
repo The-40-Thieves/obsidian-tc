@@ -296,6 +296,7 @@ export function createCommitWikiPageTool(
         acl: ctx.acl,
         grantedScopes: ctx.grantedScopes,
         wikiFolder: v.wikiFolder,
+        wikiFolders: v.wikiFolders,
       };
       const pageAbs = resolveVaultPath(v.root, pageRel);
       // The page's mode against the disk. Run before the await so a plain mistake (creating over a

@@ -30,6 +30,8 @@ export interface WikiLintSweepDeps {
     id: string;
     root: string;
     wikiFolder?: string | undefined;
+    /** Every name of the wiki folder (registry `wikiFolders`). */
+    wikiFolders?: readonly string[] | undefined;
     /** Every name of the vault's raw folder (registry `rawFolders`): raw notes are never lint subjects. */
     rawFolders?: readonly string[] | undefined;
   }[];
@@ -125,6 +127,7 @@ export function registerWikiLintSweep(scheduler: Scheduler, deps: WikiLintSweepD
             exclusion: deps.exclusionFor(v.id),
             embeddingModel: deps.embeddingModel,
             wikiFolder: v.wikiFolder,
+            wikiFolders: v.wikiFolders,
             rawFolders: v.rawFolders,
             sealKey,
           },
@@ -152,6 +155,7 @@ export function registerWikiLintSweep(scheduler: Scheduler, deps: WikiLintSweepD
               acl: undefined,
               grantedScopes: ["read:notes"],
               exclusion: deps.exclusionFor(v.id),
+              wikiFolders: v.wikiFolders ?? v.wikiFolder,
               rawFolders: v.rawFolders,
             },
             deps.judge.excludeFilter,

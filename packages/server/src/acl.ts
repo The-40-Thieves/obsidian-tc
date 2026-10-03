@@ -138,20 +138,28 @@ function compileGlobList(
   return list.map((glob) => ({ glob, re: globToRegExp(glob.normalize("NFC")) }));
 }
 
+/** Rules that could not be worked out when the ACL was built (the vault root was unavailable) and
+ *  are asked for again until they can: `undefined` = still not knowable, an array = the final
+ *  answer (installed once, after the config's own rules, and never asked for again). */
+export type PendingAclRules = () =>
+  | readonly { glob: string; scopes: readonly string[] }[]
+  | undefined;
+
 export class FolderAcl {
-  private readonly cfg: AclConfigT;
+  private cfg: AclConfigT;
   // THE-618 item 1: the rule globs, compiled once, IN CONFIG ORDER. Order is load-bearing —
   // scopesForPath is last-match-wins and aclFingerprint preserves rules order for exactly that
   // reason — so this array is built with .map() and never sorted, deduped or short-circuited.
-  private readonly compiledRules: readonly { readonly re: RegExp; readonly scopes: string[] }[];
+  private compiledRules: readonly { readonly re: RegExp; readonly scopes: string[] }[];
   private readonly compiledPaths: Readonly<Record<AclPathOp, readonly CompiledGlobT[] | undefined>>;
   private readonly compiledImmutable: readonly CompiledGlobT[];
   // The union of every scope any path can declare (defaultScopes + every rule's scopes), computed
   // once. Empty on the shipped config (no rules, empty defaultScopes), which is what lets the
   // per-result read predicate skip the rule scan entirely for a deployment that uses no rule-scopes.
-  private readonly declaredScopeUnion: readonly string[];
+  private declaredScopeUnion: readonly string[];
+  private pending: PendingAclRules | undefined;
 
-  constructor(cfg: AclConfigT) {
+  constructor(cfg: AclConfigT, pending?: PendingAclRules) {
     // Snapshot the config so the compiled rules and aclFingerprint() are always derived from the
     // SAME frozen source (THE-496) — a live, since-mutated `cfg` would let the cache key and the
     // enforced ACL drift apart. See docs/design/acl-folder-rules.md.
@@ -165,25 +173,46 @@ export class FolderAcl {
       immutablePaths: cfg.immutablePaths ? [...cfg.immutablePaths] : undefined,
     };
     this.compiledImmutable = compileGlobList(this.cfg.immutablePaths) ?? [];
-    this.compiledRules = this.cfg.rules.map((r) => ({
-      // The glob is normalized ONCE here; the PATH is still normalized per call in the matchers
-      // below. Both halves stay load-bearing (THE-272) — only the redundancy is removed.
-      re: globToRegExp(r.glob.normalize("NFC")),
-      scopes: r.scopes,
-    }));
-    this.declaredScopeUnion = [
-      ...new Set([...this.cfg.defaultScopes, ...this.cfg.rules.flatMap((r) => r.scopes)]),
-    ];
+    this.compiledRules = this.compileRules();
+    this.declaredScopeUnion = this.unionOfDeclaredScopes();
+    this.pending = pending;
     this.compiledPaths = {
       read: compileGlobList(this.cfg.readPaths),
       write: compileGlobList(this.cfg.writePaths),
       delete: compileGlobList(this.cfg.deletePaths),
     };
   }
+  private compileRules(): readonly { readonly re: RegExp; readonly scopes: string[] }[] {
+    return this.cfg.rules.map((r) => ({
+      // The glob is normalized ONCE here; the PATH is still normalized per call in the matchers
+      // below. Both halves stay load-bearing (THE-272) — only the redundancy is removed.
+      re: globToRegExp(r.glob.normalize("NFC")),
+      scopes: r.scopes,
+    }));
+  }
+  private unionOfDeclaredScopes(): readonly string[] {
+    return [...new Set([...this.cfg.defaultScopes, ...this.cfg.rules.flatMap((r) => r.scopes)])];
+  }
+  /** Take in the rules that were not knowable at construction, as soon as they are. Every accessor
+   *  that reads the rules (and so the fingerprint) goes through here first. The rules land after
+   *  the config's own, so they win like the ones built in; only a final answer is kept. */
+  private settle(): void {
+    if (this.pending === undefined) return;
+    const extra = this.pending();
+    if (extra === undefined) return;
+    this.pending = undefined;
+    this.cfg = {
+      ...this.cfg,
+      rules: [...this.cfg.rules, ...extra.map((r) => ({ glob: r.glob, scopes: [...r.scopes] }))],
+    };
+    this.compiledRules = this.compileRules();
+    this.declaredScopeUnion = this.unionOfDeclaredScopes();
+  }
   // Every accessor below returns a COPY. A FolderAcl is built once per vault and shared across all
   // dispatches, so handing back the live config array would let any caller that mutates it rewrite
   // the ACL for every subsequent call — a privilege escalation with no trace in the config file.
   scopesForPath(path: string): string[] {
+    this.settle();
     // THE-618 item 2: one normalize for the whole loop, not one per rule. The compiled regexes
     // carry no `g`/`y` flag, so `.test` holds no lastIndex state and is safe to reuse across calls.
     const p = path.normalize("NFC");
@@ -223,11 +252,13 @@ export class FolderAcl {
    *  false, no caller is ever refused a path for lacking a scope, so per-path scope checks are
    *  no-ops and callers may skip them. */
   get declaresPathScopes(): boolean {
+    this.settle();
     return this.declaredScopeUnion.length > 0;
   }
   /** Every scope any path can declare (a COPY, like every accessor here). A caller holding all of
    *  them clears every path's scope requirement; one missing any of them may not. */
   get declaredScopes(): string[] {
+    this.settle();
     return [...this.declaredScopeUnion];
   }
   get readOnly(): boolean {
@@ -247,6 +278,7 @@ export class FolderAcl {
   }
   /** THE-496: the fingerprint of THIS vault's effective ACL for a caller holding `grantedScopes`. */
   fingerprint(grantedScopes: Iterable<string>): string {
+    this.settle();
     return aclFingerprint(this.cfg, grantedScopes);
   }
 }

@@ -429,6 +429,8 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
             acl: ctx.acl,
             grantedScopes: ctx.grantedScopes,
             wikiFolder: v.wikiFolder,
+            wikiFolders: v.wikiFolders,
+            rawFolders: v.rawFolders,
           },
           warnings,
           { field: input.field, include: input.include, exclude: input.exclude },

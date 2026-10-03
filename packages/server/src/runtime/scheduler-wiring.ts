@@ -52,6 +52,7 @@ export interface SchedulerWiringDeps {
     root: string;
     workspace?: { traceFolder: string };
     wikiFolder?: string | undefined;
+    wikiFolders?: readonly string[] | undefined;
     rawFolders?: readonly string[] | undefined;
   }[];
   /** run_serve's first vault id — the process-wide sweep event is attributed to it. */

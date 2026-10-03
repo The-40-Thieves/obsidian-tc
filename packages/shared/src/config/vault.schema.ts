@@ -197,7 +197,7 @@ const foldKey = (p: string): string => p.normalize("NFC").toLowerCase();
 export const VaultWikiConfigSchema = z
   .object({
     folder: folderPath().describe(
-      "Vault-relative folder that holds this vault's LLM wiki, written `wiki` or `notes/wiki` (no leading or trailing slash; `.`, `/`, an absolute path, `..`, and segments ending in a space or dot are rejected). A `SCHEMA.md` in it declares the page types, the frontmatter each type requires and the allowed property vocabulary; draft_wiki_page proposes pages in this folder and commit_wiki_page only writes new pages inside it. Creating a page there needs no confirmation (snapshots and restore_note are the undo). Absent means the vault has no wiki folder: draft_wiki_page then applies no schema and commit_wiki_page refuses.",
+      "Vault-relative folder that holds this vault's LLM wiki, written `wiki` or `notes/wiki` (no leading or trailing slash; `.`, `/`, an absolute path, `..`, and segments ending in a space or dot are rejected). A `SCHEMA.md` in it declares the page types, the frontmatter each type requires and the allowed property vocabulary; draft_wiki_page proposes pages in this folder and commit_wiki_page only writes new pages inside it. Creating a page there needs no confirmation (a new page has no snapshot: delete_note removes it; restore_note undoes patches and overwrites). Absent means the vault has no wiki folder: draft_wiki_page then applies no schema and commit_wiki_page refuses.",
     ),
     rawFolder: folderPath()
       .optional()

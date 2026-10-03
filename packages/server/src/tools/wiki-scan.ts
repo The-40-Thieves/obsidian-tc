@@ -22,6 +22,8 @@ export interface ScanScope {
   grantedScopes: Iterable<string>;
   /** The vault's wiki folder: its generated index.md / log.md are never the subject of a scan. */
   wikiFolder?: string | undefined;
+  /** Every name of the wiki folder (registry `wikiFolders`): the generated pages are left out under each. */
+  wikiFolders?: readonly string[] | undefined;
   /** Every name of the vault's raw-sources folder: raw notes are inputs, never the subject of a scan. */
   rawFolders?: readonly string[] | undefined;
 }
@@ -82,7 +84,7 @@ export function scanOrphans(
   const { root, acl, grantedScopes } = scope;
   const isRaw = rawPathFilter(scope.rawFolders);
   const candidates = readableNotes(root, acl, grantedScopes, opts.folder).filter(
-    (p) => !isGeneratedWikiPath(p, scope.wikiFolder) && !isRaw(p),
+    (p) => !isGeneratedWikiPath(p, scope.wikiFolders ?? scope.wikiFolder) && !isRaw(p),
   );
   const all = readableNotes(root, acl, grantedScopes);
   const index = buildVaultIndex(all);
@@ -181,7 +183,8 @@ export function scanProvenance(
   };
   const isRaw = rawPathFilter(scope.rawFolders);
   const notes = readableNotes(scope.root, scope.acl, scope.grantedScopes, opts.folder).filter(
-    (p) => inScope(p) && !isGeneratedWikiPath(p, scope.wikiFolder) && !isRaw(p),
+    (p) =>
+      inScope(p) && !isGeneratedWikiPath(p, scope.wikiFolders ?? scope.wikiFolder) && !isRaw(p),
   );
   const byFolder = new Map<string, { scanned: number; missing: number }>();
   const missing: string[] = [];
