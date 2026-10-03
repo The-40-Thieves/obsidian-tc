@@ -34,7 +34,12 @@ import { applyLogic, evaluatesTruthy } from "../../search/jsonlogic";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
-import { buildVaultIndex, extractLinks, resolveTarget } from "../../vault/links";
+import {
+  buildVaultIndex,
+  type ExtractedLink,
+  extractNoteLinks,
+  resolveTarget,
+} from "../../vault/links";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
@@ -62,6 +67,17 @@ function colValue(col: string, path: string, fm: Record<string, unknown>): unkno
   if (col === "file.name" || col === "name") return baseName(path);
   if (col === "file.path" || col === "path") return path;
   return fm[col] ?? null;
+}
+
+/** Every link of a note as Obsidian's Bases sees it: `file.links` is "all internal links in the
+ *  note, including frontmatter" and `file.hasLink()` is satisfied by a property link. Property
+ *  links come first, then body links; a body link whose target a property link already names is
+ *  dropped, so a link written in both places is listed once (repeats within one source stay). One
+ *  list feeds the `link` source, `file.hasLink()` and `file.links`. */
+function basesNoteLinks(note: Parameters<typeof extractNoteLinks>[0]): ExtractedLink[] {
+  const all = extractNoteLinks(note);
+  const inProperty = new Set(all.filter((l) => l.source === "property").map((l) => l.target));
+  return all.filter((l) => l.source === "property" || !inProperty.has(l.target));
 }
 
 function isLogicObject(x: unknown): x is Record<string, unknown> {
@@ -475,17 +491,16 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         const sortKeys: unknown[][] = [];
         const warnings = new ScanWarnings();
         for (const p of candidates) {
-          const { frontmatter, body } = warnings.parse(
-            readNote(resolveVaultPath(v.root, p)).raw,
-            p,
-          );
+          const parsed = warnings.parse(readNote(resolveVaultPath(v.root, p)).raw, p);
+          const { frontmatter, body } = parsed;
           const fm = frontmatter ?? {};
           const tags = normTags(fm);
           if (sType === "tag" && !tags.includes(String(sValue).replace(/^#/, ""))) continue;
           if (sType === "property" && !Object.hasOwn(fm, String(sValue))) continue;
+          const noteLinks = basesNoteLinks(parsed);
           if (sType === "link") {
             if (!linkTarget || !index) continue;
-            const hit = extractLinks(body).some((l) => {
+            const hit = noteLinks.some((l) => {
               const rr = resolveTarget(index, l.target);
               return rr.resolved && rr.target_path === linkTarget;
             });
@@ -502,7 +517,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
             path: p,
             frontmatter: fm,
             tags,
-            links: extractLinks(body).map((l) => l.target),
+            links: noteLinks.map((l) => l.target),
           };
           // THE-281: a pure-DSL top-level `filters` (real Bases has NO source block — the note
           // set IS the top-level filters) narrows the note set; previously it was refused.
