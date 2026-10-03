@@ -180,7 +180,7 @@ export function resolveServeConfigWithProvenance(input?: string): ResolvedServeC
         `obsidian-tc: the config at ${target} could not be parsed as JSON (empty or ` +
           "corrupted) — this is the default path obsidian-tc's first-run fallback writes to, " +
           "and an interrupted write can leave it broken. Delete it and try again, or run " +
-          "`obsidian-tc setup` to write a fresh one.\n",
+          "`obsidian-tc setup --replace-invalid-config` to back it up and write a fresh one.\n",
       );
     }
     throw e;

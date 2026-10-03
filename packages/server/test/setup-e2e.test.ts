@@ -320,6 +320,172 @@ describe("obsidian-tc setup — end to end", () => {
     });
   });
 
+  // Round 3 (Codex spot-check): the round-2 refusal covered only a config that PARSES into an object.
+  // Malformed JSON was read as "no existing config", and a valid JSON root that is not an object
+  // (`null`, `123`, `"x"`, `false`) crashed the loader with a TypeError that the same catch-all
+  // swallowed, so `--yes --force` rebuilt from defaults over a file that may have carried a
+  // restrictive acl/auth/egress. Every unreadable-as-an-object config is now refused the same way;
+  // only the explicit `--replace-invalid-config` flag (never implied by `--force`) may replace one.
+  describe("setup never replaces a config it cannot read as an object (malformed JSON, non-object root)", () => {
+    const exitCodeBefore = process.exitCode;
+    let stderrSpy: ReturnType<typeof vi.spyOn>;
+    let stderr: string[];
+    beforeEach(() => {
+      stderr = [];
+      stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
+        stderr.push(typeof chunk === "string" ? chunk : String(chunk));
+        return true;
+      });
+    });
+    afterEach(() => {
+      stderrSpy.mockRestore();
+      process.exitCode = exitCodeBefore;
+    });
+
+    const unreadable: Array<[string, string, RegExp]> = [
+      ["malformed JSON", '{"vaults": [', /not valid JSON/i],
+      ["a truncated acl block", '{"acl": {"readOnly": tru', /not valid JSON/i],
+      ["null", "null", /root is null/i],
+      ["123", "123", /root is a number/i],
+      ['"x"', '"x"', /root is a string/i],
+      ["false", "false", /root is a boolean/i],
+      ["an array", "[]", /root is an array/i],
+    ];
+    const modes: Array<[string, { yes: boolean; dryRun: boolean; force: boolean }]> = [
+      ["--force", { yes: false, dryRun: false, force: true }],
+      ["--yes --force", { yes: true, dryRun: false, force: true }],
+      ["--dry-run", { yes: false, dryRun: true, force: false }],
+    ];
+
+    for (const [label, content, message] of unreadable) {
+      it.each(modes)(
+        `${label} with %s: file byte-identical, exit 1, nothing else written`,
+        async (_m, flags) => {
+          const { home } = fakeObsidianEnv();
+          const configDir = join(home, ".obsidian-tc");
+          const configPath = join(configDir, "config.json");
+          mkdirSync(configDir, { recursive: true });
+          writeFileSync(configPath, content);
+
+          await run_setup({ kind: "setup", ...flags });
+
+          expect(readFileSync(configPath, "utf8")).toBe(content);
+          expect(readdirSync(configDir)).toEqual(["config.json"]); // no backup, no temp file
+          expect(process.exitCode).toBe(1);
+          const err = stderr.join("");
+          expect(err).toMatch(message);
+          expect(err).toMatch(/--replace-invalid-config/);
+          expect(stdout.join("")).not.toContain("(--dry-run: nothing written)");
+        },
+      );
+    }
+
+    it("a SyntaxError names the line and column where the engine reports a position", async () => {
+      const { home } = fakeObsidianEnv();
+      const configDir = join(home, ".obsidian-tc");
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(join(configDir, "config.json"), '{\n  "vaults": [],\n  oops\n}');
+
+      await run_setup({ kind: "setup", yes: true, dryRun: false, force: true });
+
+      expect(process.exitCode).toBe(1);
+      // V8 prints its own `(line L column C)` or a `position N` (converted to line/column here); an
+      // engine that reports neither (Bun) leaves only its own message, which is still printed.
+      const err = stderr.join("");
+      expect(err).toMatch(/not valid JSON/i);
+      if (/position \d+|line \d+/.test(err)) expect(err).toMatch(/line 3,? column \d+/);
+    });
+
+    it.each([
+      ["malformed JSON", '{"acl": {"readOnly": true,', "malformed"],
+      ["a null root", "null", "null"],
+    ])(
+      "--replace-invalid-config replaces %s, keeps a backup and says what is discarded",
+      async (_n, content) => {
+        const { home } = fakeObsidianEnv();
+        const configDir = join(home, ".obsidian-tc");
+        const configPath = join(configDir, "config.json");
+        mkdirSync(configDir, { recursive: true });
+        writeFileSync(configPath, content);
+
+        await run_setup({
+          kind: "setup",
+          yes: true,
+          dryRun: false,
+          force: false,
+          replaceInvalidConfig: true,
+        });
+
+        expect(process.exitCode).toBe(exitCodeBefore);
+        expect(loadConfig(configPath).vaults).toHaveLength(1); // a real, loadable replacement
+        const backups = readdirSync(configDir).filter((f) => f.startsWith("config.json.bak-"));
+        expect(backups).toHaveLength(1);
+        expect(readFileSync(join(configDir, backups[0] ?? ""), "utf8")).toBe(content);
+        expect(stderr.join("")).toMatch(/discard/i);
+        expect(stderr.join("")).toMatch(/acl, auth and egress/i);
+      },
+    );
+
+    it("--replace-invalid-config over a schema-invalid config discards its blocks (nothing is merged back)", async () => {
+      const { home, vaultPath } = fakeObsidianEnv();
+      const configDir = join(home, ".obsidian-tc");
+      const configPath = join(configDir, "config.json");
+      mkdirSync(configDir, { recursive: true });
+      const before = JSON.stringify({
+        vaults: [{ id: "work", path: vaultPath }],
+        auth: { jwtSecret: "old-secret-that-must-not-survive-a-replace" },
+        acl: { rules: [{ glob: "/Private/**", scopes: ["admin:private"] }] },
+      });
+      writeFileSync(configPath, before);
+
+      await run_setup({
+        kind: "setup",
+        yes: true,
+        dryRun: false,
+        force: false,
+        replaceInvalidConfig: true,
+      });
+
+      const written = readFileSync(configPath, "utf8");
+      expect(written).not.toContain("old-secret-that-must-not-survive-a-replace");
+      expect(written).not.toContain("/Private/**");
+      expect(loadConfig(configPath).vaults.length).toBeGreaterThan(0);
+      const backups = readdirSync(configDir).filter((f) => f.startsWith("config.json.bak-"));
+      expect(readFileSync(join(configDir, backups[0] ?? ""), "utf8")).toBe(before);
+    });
+
+    it("--replace-invalid-config with --dry-run warns, previews and writes nothing", async () => {
+      const { home } = fakeObsidianEnv();
+      const configDir = join(home, ".obsidian-tc");
+      const configPath = join(configDir, "config.json");
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(configPath, "123");
+
+      await run_setup({
+        kind: "setup",
+        yes: false,
+        dryRun: true,
+        force: false,
+        replaceInvalidConfig: true,
+      });
+
+      expect(readFileSync(configPath, "utf8")).toBe("123");
+      expect(readdirSync(configDir)).toEqual(["config.json"]);
+      expect(stderr.join("")).toMatch(/discard/i);
+      expect(stdout.join("")).toContain("(--dry-run: nothing written)");
+    });
+
+    it("an ABSENT config is still created on first run (no flag needed)", async () => {
+      const { home } = fakeObsidianEnv();
+      const configPath = join(home, ".obsidian-tc", "config.json");
+
+      await run_setup({ kind: "setup", yes: true, dryRun: false, force: false });
+
+      expect(existsSync(configPath)).toBe(true);
+      expect(process.exitCode).toBe(exitCodeBefore);
+    });
+  });
+
   // Fix round 2, finding C (orchestrator): `setup` printed the merged config to stdout via a bare
   // JSON.stringify on EVERY run (including --dry-run) — an existing config's inline apiKey/secret
   // reached stdout unredacted, unlike `config show` (which runs the same raw object through

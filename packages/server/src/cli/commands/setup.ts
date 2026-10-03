@@ -10,14 +10,14 @@
 // contract is proven end-to-end instead (test/setup-e2e.test.ts): run it for real against a temp
 // HOME/XDG_CONFIG_HOME with a fake obsidian.json, and assert the written config loads through the
 // REAL loader.
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import * as readline from "node:readline/promises";
 import { ObsidianTcError, type ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { resolveCapabilityProfile } from "../../capability/profile";
-import { finalizeConfig, readConfigFile } from "../../config/load";
+import { ConfigRootTypeError, finalizeConfig, readConfigFile } from "../../config/load";
 import { DEFAULT_BUSY_TIMEOUT_MS } from "../../db/pragmas";
 import { probeLocalEmbedderResolution } from "../../providers/local-embedder-registry";
 import { onnxNativePrebuildStatus } from "../../providers/reranker-preflight";
@@ -85,7 +85,9 @@ function isExistingDirectory(path: string): boolean {
  *  a real config, and dropping its `raw` made `--force` discard every key setup does not own
  *  (`auth`, `acl`, ...). `undefined` ONLY when the file cannot be parsed as JSON at all.
  *  A file that parses but fails schema validation (a raw `ZodError`) comes back with `invalid` set
- *  to the offending fields, and `run_setup` refuses to write over it. */
+ *  to the offending fields, and `run_setup` refuses to write over it. A file that cannot be read as
+ *  a JSON OBJECT at all (malformed JSON, a non-object root, unreadable) is `invalid` too: only an
+ *  ABSENT file is `undefined` ("cannot read it" is not "nothing there"). */
 function loadExistingConfig(
   targetPath: string,
 ): { raw: Record<string, unknown>; config?: ServerConfig; invalid?: string[] } | undefined {
@@ -93,8 +95,8 @@ function loadExistingConfig(
   let raw: Record<string, unknown>;
   try {
     raw = readConfigFile(targetPath);
-  } catch {
-    return undefined;
+  } catch (e) {
+    return { raw: {}, invalid: [unreadableConfigLine(targetPath, e)] };
   }
   try {
     // finalizeConfig mutates its argument (applyEnvOverlays) — clone so the RAW object handed
@@ -113,6 +115,44 @@ function loadExistingConfig(
     if (e instanceof z.ZodError) return { raw, invalid: configIssueLines(e) };
     return undefined;
   }
+}
+
+const ROOT_TYPE_PHRASE: Record<ConfigRootTypeError["rootType"], string> = {
+  null: "null",
+  array: "an array",
+  number: "a number",
+  string: "a string",
+  boolean: "a boolean",
+  other: "not an object",
+};
+
+/** `line L, column C` for a `position N` a JSON parse error reports; "" when the engine gave none
+ *  (Bun) or already printed its own line/column. Best effort. */
+function parseErrorLocation(path: string, message: string): string {
+  if (/\bline \d+/i.test(message)) return "";
+  const position = /position (\d+)/.exec(message)?.[1];
+  if (position === undefined) return "";
+  try {
+    const before = readFileSync(path, "utf8")
+      .replace(/^\uFEFF/, "")
+      .slice(0, Number(position));
+    const lines = before.split("\n");
+    return ` (line ${lines.length}, column ${(lines.at(-1) ?? "").length + 1})`;
+  } catch {
+    return "";
+  }
+}
+
+/** One `invalid` line for a config file `readConfigFile` could not turn into an object. */
+function unreadableConfigLine(path: string, e: unknown): string {
+  if (e instanceof ConfigRootTypeError) {
+    return `config root is ${ROOT_TYPE_PHRASE[e.rootType]}; it must be a JSON object`;
+  }
+  const message = e instanceof Error ? e.message : String(e);
+  if (e instanceof SyntaxError) {
+    return `file is not valid JSON: ${message}${parseErrorLocation(path, message)}`;
+  }
+  return `file could not be read: ${message}`;
 }
 
 /** The vaults an existing raw config file itself names — the SAME id/path filtering
@@ -380,19 +420,32 @@ export async function run_setup(cmd: Cmd<"setup">): Promise<void> {
   }
 
   const decision = await detect(cmd);
-  // Never rewritten, by any flag: dropping the invalid field can loosen the rule it carried.
+  // Never rewritten by --force/--yes/--dry-run: rebuilding from defaults can loosen the rule the
+  // file carried. Only `--replace-invalid-config` (never implied by --force) may, loudly.
   if (decision.existingInvalid) {
+    if (!cmd.replaceInvalidConfig) {
+      process.stderr.write(
+        `obsidian-tc setup: refusing to touch ${decision.targetPath} — it is not a valid config, ` +
+          "and setup will not rewrite a config it cannot read back, since that could replace your " +
+          "restrictive acl/auth/egress settings with defaults. Nothing was written.\n" +
+          `  ${decision.existingInvalid.join("\n  ")}\n` +
+          "Fix the problem above by hand (a backup is not needed: the file is untouched), then " +
+          "re-run `obsidian-tc setup`. To throw the old file away on purpose and write a fresh " +
+          "default one (the old file is backed up first), pass `--replace-invalid-config`.\n",
+      );
+      process.exitCode = 1;
+      return;
+    }
     process.stderr.write(
-      `obsidian-tc setup: refusing to touch ${decision.targetPath} — it does not validate, and ` +
-        "setup will not rewrite a config it cannot read back, since that could replace your " +
-        "restrictive acl/auth/egress settings with defaults. Nothing was written.\n" +
-        `  ${decision.existingInvalid.join("\n  ")}\n` +
-        "Fix the field(s) named above by hand (a backup is not needed: the file is untouched), " +
-        "then re-run `obsidian-tc setup`.\n",
+      `obsidian-tc setup: WARNING: --replace-invalid-config: ${decision.targetPath} is not a ` +
+        "valid config and will be REPLACED. Its acl, auth and egress settings, and every other " +
+        "setting in it, are DISCARDED and rebuilt from defaults; the old file is kept as a " +
+        "backup (<path>.bak-<timestamp>) when this run writes. Problems found:\n" +
+        `  ${decision.existingInvalid.join("\n  ")}\n`,
     );
-    process.exitCode = 1;
-    return;
   }
+  // Replacing: nothing from the invalid file is merged back in.
+  const existingRaw = decision.existingInvalid ? undefined : decision.existingRaw;
   printDecisions(decision);
   // PR B: without --install-client, `setup` prints ready-to-paste snippets for all three known
   // clients — the manual alternative to the opt-in installer. Shown regardless of outcome below
@@ -426,7 +479,7 @@ export async function run_setup(cmd: Cmd<"setup">): Promise<void> {
     return;
   }
 
-  const raw = buildSetupConfig(decision, decision.existingRaw);
+  const raw = buildSetupConfig(decision, existingRaw);
   // Fix round 2, finding C (orchestrator): this runs on EVERY invocation, including a plain
   // --dry-run — an existing config's inline apiKey/secret must never reach stdout unredacted, the
   // same rule `config show` already applies to the same raw shape (cli/commands/config-show.ts).
@@ -453,8 +506,8 @@ export async function run_setup(cmd: Cmd<"setup">): Promise<void> {
 
   try {
     const result = writeSetupConfig(decision.targetPath, decision, {
-      force: cmd.force,
-      existingRaw: decision.existingRaw,
+      force: cmd.force || cmd.replaceInvalidConfig === true,
+      existingRaw,
     });
     process.stdout.write(
       `obsidian-tc setup: wrote ${result.path}` +

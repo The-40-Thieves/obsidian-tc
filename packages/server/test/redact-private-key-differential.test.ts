@@ -45,8 +45,8 @@ const LABELS = [
   "EC ",
   "ENCRYPTED ",
   "OPENSSH ",
-  "A".repeat(64) + " ", // 65 chars incl. space: over the bound
-  "A".repeat(63) + " ", // 64 chars: the bound exactly
+  `${"A".repeat(64)} `, // 65 chars incl. space: over the bound
+  `${"A".repeat(63)} `, // 64 chars: the bound exactly
   "A".repeat(64), // 64 chars, run touches "PRIVATE KEY" with no space
   "A".repeat(65),
   "rsa ", // lowercase: not the label alphabet

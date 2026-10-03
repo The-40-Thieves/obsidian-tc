@@ -11,7 +11,7 @@ import { flagValue } from "./flag-value";
  *  safety flag (`--dryrun` for `--dry-run`) must never be read as "flag absent" and fall through
  *  to a REAL write. */
 const KNOWN_VALUE_FLAGS = ["--config", "--vault", "--install-client"];
-const KNOWN_BOOLEAN_FLAGS = ["--yes", "--dry-run", "--force"];
+const KNOWN_BOOLEAN_FLAGS = ["--yes", "--dry-run", "--force", "--replace-invalid-config"];
 
 /** PR B of GH #995's two-part follow-up: the MCP clients `setup --install-client` knows how to
  *  wire an `obsidian-tc` entry into — see cli/setup/client-install.ts for the per-client
@@ -81,6 +81,11 @@ export interface SetupCommand {
    *  ALSO reused by `--install-client` (PR B) to allow replacing an existing `obsidian-tc` entry
    *  in that client's own MCP config, rather than introduce a second `--force`-shaped flag. */
   force: boolean;
+  /** Replace an existing config that is not valid (malformed JSON, a root that is not an object, or
+   *  a schema failure) with a freshly generated default one, after backing it up. Never implied by
+   *  `force`: without it `setup` refuses such a file under every other flag, since the old file's
+   *  acl/auth/egress settings are discarded. Optional so a caller that never sets it keeps refusing. */
+  replaceInvalidConfig?: boolean;
   /** PR B of GH #995's two-part follow-up: wire an `obsidian-tc` entry into one MCP client's own
    *  config INSTEAD of running setup's normal detect/decide/write flow. See
    *  cli/setup/client-install.ts. */
@@ -160,5 +165,6 @@ export function parseSetup(rest: string[]): SetupCommand {
     yes: rest.includes("--yes"),
     dryRun: rest.includes("--dry-run"),
     force: rest.includes("--force"),
+    replaceInvalidConfig: rest.includes("--replace-invalid-config"),
   };
 }

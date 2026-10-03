@@ -44,10 +44,15 @@ By default it writes `~/.obsidian-tc/config.json` and asks for confirmation befo
 writing (skip the prompt with `--yes`; preview without writing at all with
 `--dry-run`). It refuses to overwrite an existing config unless you pass `--force`,
 which backs the old one up first. It also refuses, with `--force` or without, to touch an
-existing config that does not validate (an ACL pattern the loader rejects, a wrong type, a missing
-`vaults`): it prints each offending field and writes nothing, because rebuilding from a config it cannot
-read back could replace your restrictive `acl`, `auth` and `egress` settings with defaults. Fix the named
-field by hand, then re-run. See `obsidian-tc help` for the full flag list.
+existing config that is not a valid config (malformed JSON, a JSON root that is not an object such as
+`null` or `123`, an ACL pattern the loader rejects, a wrong type, a missing `vaults`): it prints each
+problem (with the line and column of a JSON syntax error where the runtime reports one) and writes
+nothing, with `--force`, `--yes` or `--dry-run` alike, because rebuilding from a config it cannot read
+back could replace your restrictive `acl`, `auth` and `egress` settings with defaults. Fix the named
+problem by hand, then re-run. If you really do want to throw the old file away, pass
+`--replace-invalid-config`: it is never implied by `--force`, backs the old file up first, and says
+that its `acl`, `auth` and `egress` settings are being discarded. A config that does not exist yet is
+simply created. See `obsidian-tc help` for the full flag list.
 A bare `obsidian-tc` with no arguments finds that default path automatically — see
 [step 2](#2-start-it) — or point it there explicitly the same way as a hand-written
 config below (as an argument, or via `OBSIDIAN_TC_CONFIG`) if you passed `--config`
