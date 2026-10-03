@@ -162,7 +162,10 @@ describe("ACL patterns that stay root-marked or end in a separator are refused a
     ["./Private/**", "Private/**"],
     [".\\Private\\**", "Private/**"],
   ])("acl.rules[].glob %j is refused, suggesting the vault-relative %j", (glob, hint) => {
-    refused(rule(glob), new RegExp(`vault-relative.*"${hint.replace(/[*/]/g, "\\$&")}"`));
+    refused(
+      rule(glob),
+      new RegExp(`vault-relative.*"${hint.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}"`),
+    );
   });
 
   it("each of readPaths / writePaths / deletePaths refuses a root-marked entry, root and per vault", () => {
