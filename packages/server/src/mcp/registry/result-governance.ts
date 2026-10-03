@@ -16,13 +16,13 @@ import type { CallerContext, RegistryOptions, ToolDefinition } from "./types";
 const serializedResults = new WeakMap<object, string>();
 
 export function memoizeSerialized(data: unknown, json: string): void {
-  if (data !== null && typeof data === "object") serializedResults.set(data as object, json);
+  if (data !== null && typeof data === "object") serializedResults.set(data, json);
 }
 
 export function takeSerialized(data: unknown): string | undefined {
   if (data === null || typeof data !== "object") return undefined;
-  const s = serializedResults.get(data as object);
-  if (s !== undefined) serializedResults.delete(data as object);
+  const s = serializedResults.get(data);
+  if (s !== undefined) serializedResults.delete(data);
   return s;
 }
 

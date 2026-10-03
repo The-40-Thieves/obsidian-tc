@@ -131,7 +131,7 @@ export class ProvenanceRecorder implements ProvenanceSink {
     const named = new Set<string>();
     try {
       if (def.pathAcl && root !== undefined) {
-        for (const { path } of def.pathAcl(input as never, { root })) named.add(path);
+        for (const { path } of def.pathAcl(input, { root })) named.add(path);
       }
     } catch (e) {
       this.opts.onError?.(def.name, vaultId, e);
@@ -186,7 +186,9 @@ export class ProvenanceRecorder implements ProvenanceSink {
       // must not increment the omission counter or create a misleading doctor event.
       try {
         this.opts.onError?.(p.tool, p.vaultId, e);
-      } catch {}
+      } catch {
+        // a throwing error observer must not replace the refusal raised below
+      }
       throw err.internalError("write refused because pending provenance could not be recorded", {
         cause: e instanceof Error ? e.message : String(e),
       });

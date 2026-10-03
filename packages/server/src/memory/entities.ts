@@ -244,8 +244,8 @@ export function deleteEntity(
     .run(id, id);
   const entResult = db.prepare("DELETE FROM memory_entities WHERE id = ?").run(id);
   return {
-    deleted: (entResult.changes as number) > 0,
-    relationsDeleted: relResult.changes as number,
+    deleted: entResult.changes > 0,
+    relationsDeleted: relResult.changes,
   };
 }
 
@@ -262,7 +262,7 @@ export function deleteRelation(
       "DELETE FROM memory_relations WHERE source_id = ? AND target_id = ? AND relation_type = ?",
     )
     .run(sourceId, targetId, relationType);
-  return { existed: (r.changes as number) > 0 };
+  return { existed: r.changes > 0 };
 }
 
 /** Insert a typed relation. Idempotent on the (source,target,type) composite PK;
@@ -570,5 +570,5 @@ export function closeOpenInterval(
        WHERE entity_id = ? AND key = ? AND valid_to IS NULL`,
     )
     .run(validTo, supersededByHash, entityId, key);
-  return (r.changes as number) > 0;
+  return r.changes > 0;
 }

@@ -448,8 +448,8 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
             errors.push({ path: cp, code: "invalid_input" });
             continue;
           }
-          const edges = parsed.edges as Record<string, unknown>[];
-          for (const node of parsed.nodes as Record<string, unknown>[]) {
+          const edges = parsed.edges;
+          for (const node of parsed.nodes) {
             if (f.type && node.type !== f.type) continue;
             if (f.color && node.color !== f.color) continue;
             if (f.file_path_contains && !String(node.file ?? "").includes(f.file_path_contains))

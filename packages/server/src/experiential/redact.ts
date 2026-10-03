@@ -245,7 +245,7 @@ function luhnValid(digits: string): boolean {
   let sum = 0;
   let alt = false;
   for (let i = digits.length - 1; i >= 0; i--) {
-    let d = (digits.charCodeAt(i) as number) - 48;
+    let d = digits.charCodeAt(i) - 48;
     if (alt) {
       d *= 2;
       if (d > 9) d -= 9;

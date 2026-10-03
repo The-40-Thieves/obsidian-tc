@@ -129,7 +129,7 @@ export async function resolveCapabilityProfile(
     serverVersion: SERVER_VERSION,
     runtime: detectRuntime(),
     obsidian: {
-      registryPath: haveRegistry ? (registryPath as string) : null,
+      registryPath: haveRegistry ? registryPath : null,
       installed: haveRegistry,
       vaults,
     },

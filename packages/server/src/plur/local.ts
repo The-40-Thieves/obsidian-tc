@@ -104,7 +104,7 @@ export function createLocalPlurClient(cfg: LocalPlurConfig): Pick<BridgeClient, 
     const minScore = typeof body.min_score === "number" ? body.min_score : undefined;
     if (minScore !== undefined)
       results = results.filter(
-        (e) => typeof e.cosine_score === "number" && (e.cosine_score as number) >= minScore,
+        (e) => typeof e.cosine_score === "number" && e.cosine_score >= minScore,
       );
     return { results, count: results.length };
   };

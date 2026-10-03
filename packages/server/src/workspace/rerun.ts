@@ -167,7 +167,7 @@ function refusedByRerunScope(err: DispatchLike["error"], replayScopes: readonly 
   const required = err?.details?.required;
   if (!Array.isArray(required)) return false;
   const families = new Set(replayScopes.map((s) => s.split(":")[0]));
-  return required.some((r) => typeof r === "string" && !families.has(r.split(":")[0] as string));
+  return required.some((r) => typeof r === "string" && !families.has(r.split(":")[0]));
 }
 
 export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
@@ -277,7 +277,7 @@ export async function rerunSession(opts: RerunOptions): Promise<RerunResult> {
       acl: opts.sandbox
         ? undefined
         : new FolderAcl({ readOnly: true, defaultScopes: [], rules: [] }),
-    } as never)) as DispatchLike;
+    })) as DispatchLike;
 
     const code = res.error?.code;
     // Dispatch refuses a mutating call under a read-only ACL with `forbidden`. That ruling is

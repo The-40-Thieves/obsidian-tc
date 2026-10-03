@@ -201,7 +201,7 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
           });
         const data = file.data;
         if (!Array.isArray(data.items)) data.items = [];
-        const items = data.items as Item[];
+        const items = data.items;
 
         let target = items;
         if (input.group) {
@@ -263,7 +263,7 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
             path: BOOKMARKS_PATH,
           });
         const data = file.data;
-        const items = Array.isArray(data.items) ? (data.items as Item[]) : [];
+        const items = Array.isArray(data.items) ? data.items : [];
 
         let removed = 0;
         if (input.group) {
@@ -281,7 +281,7 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
         return {
           vault: v.id,
           removed,
-          count: countLeaves(Array.isArray(data.items) ? (data.items as Item[]) : []),
+          count: countLeaves(Array.isArray(data.items) ? data.items : []),
           content_hash: hash,
         };
       },

@@ -110,7 +110,9 @@ function currentHash(abs: string): string | null {
 function dropQuietly(abs: string): void {
   try {
     unlinkSync(abs);
-  } catch {}
+  } catch {
+    // best-effort cleanup: nothing more to do if the removal fails
+  }
 }
 
 /** How rolling back one note went: `undone` (the old state is back), `diverged` (the note no longer
@@ -150,7 +152,9 @@ function undoWrittenNote(abs: string, writtenHash: string, prevRaw: string | nul
   let held: string | null = null;
   try {
     if (lstatSync(aside).isFile()) held = readNote(aside).hash;
-  } catch {}
+  } catch {
+    // unreadable aside file: `held` stays null, so the put-back path below runs
+  }
   if (held !== writtenHash) return putBack();
   if (prevRaw === null) {
     dropQuietly(aside);

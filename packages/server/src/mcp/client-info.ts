@@ -77,7 +77,7 @@ export function extractClientInfo(meta: unknown): ClientInfo | undefined {
   if (meta === null || typeof meta !== "object") return undefined;
   const raw = (meta as Record<string, unknown>)[CLIENT_INFO_META_KEY];
   if (raw === null || typeof raw !== "object") return undefined;
-  return clientInfoFromFields(raw as Record<string, unknown>);
+  return clientInfoFromFields(raw);
 }
 
 /**

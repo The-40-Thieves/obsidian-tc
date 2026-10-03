@@ -42,9 +42,7 @@ export function toMcpTool(def: ToolDefinition): Tool {
     title: titleize(def.name),
     description: def.description,
     inputSchema: toInputJson(def.inputSchema),
-    ...(def.outputSchema
-      ? { outputSchema: toJson(def.outputSchema) as unknown as Tool["outputSchema"] }
-      : {}),
+    ...(def.outputSchema ? { outputSchema: toJson(def.outputSchema) } : {}),
     annotations: toolAnnotations(def),
     ...(def.icons ? { icons: def.icons } : {}),
   };

@@ -171,7 +171,7 @@ export function scrubOwnerDisclosure(deps: M5Deps, tool: ToolDefinition): ToolDe
         throw caught;
       }
     },
-  } as ToolDefinition;
+  };
 }
 
 /** Look an entity up by id in `vaultId`, treating one the caller cannot read exactly like one that

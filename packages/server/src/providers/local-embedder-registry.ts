@@ -134,6 +134,7 @@ export interface LocalEmbedderResolution {
 export async function resolveLocalEmbedderModule(
   c: { localModulePath?: string },
   ctx: ResolveContext,
+  // eslint-disable-next-line no-unsanitized/method -- the default calls import(s) on a caller-given specifier so tests can inject a stub for the real dynamic import.
   importModule: (specifier: string) => Promise<unknown> = (s) => import(s),
 ): Promise<LocalEmbedderResolution> {
   const attempts: LocalEmbedderResolutionAttempt[] = [];

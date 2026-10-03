@@ -249,6 +249,7 @@ interface TransformersJs {
  *  deliberately not a root dependency). 8 passages per forward pass bounds memory at 512 tokens each.
  *  The intra-op thread count is ALL cores: a best case, so a verdict that it is too slow is robust. */
 async function bgeV2M3Local(batch = 8): Promise<Reranker> {
+  // eslint-disable-next-line no-unsanitized/method -- a path under reranker-local's own node_modules, built from import.meta.dirname and a fixed suffix; it is an optional install no tsc project resolves, so it cannot be a literal specifier.
   const tf = (await import(
     join(import.meta.dirname, "../../reranker-local/node_modules/@huggingface/transformers")
   )) as TransformersJs;

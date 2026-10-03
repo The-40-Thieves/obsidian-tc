@@ -279,7 +279,7 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
       // THE-451: the dense arm embeds the hypothetical answer when supplied; sparse/ColBERT
       // ALWAYS embed the raw query — HyDE seeds the dense vector only, it must never
       // contaminate lexical or late-interaction matching.
-      const denseText = hydeActive ? (hyde as string) : input.query;
+      const denseText = hydeActive ? hyde : input.query;
       // THE-448: the main query ALWAYS leads, then the supplied phrasings, blanks dropped and
       // duplicates collapsed — a repeat must not double-weight itself in the cross-variant RRF.
       const variants = [

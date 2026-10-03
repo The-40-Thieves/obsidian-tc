@@ -191,7 +191,7 @@ export function validateContextBundle(
   if (typeof raw !== "object" || raw === null || !("format_version" in raw)) {
     return { ok: false, error: "not a context bundle: missing format_version" };
   }
-  const fv = (raw as { format_version: unknown }).format_version;
+  const fv = raw.format_version;
   if (fv !== BUNDLE_FORMAT_VERSION) {
     return {
       ok: false,

@@ -39,7 +39,7 @@ export class ShimGuardedServer extends Server {
       if (offered === undefined || isInputRequiredResult(result) || !this.onConfirmLegFailure) {
         return result;
       }
-      return this.onConfirmLegFailure(offered) as unknown as Result;
+      return this.onConfirmLegFailure(offered);
     };
   }
 }

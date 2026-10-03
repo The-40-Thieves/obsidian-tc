@@ -34,7 +34,7 @@ export async function collectHttp(vault: VaultCtx): Promise<MetricSample[]> {
     db: vault.db,
     vaultId: vault.vaultId,
     acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
-  } as Parameters<typeof createHttpApp>[0]);
+  });
 
   const initialize = (): Request =>
     new Request("http://127.0.0.1/mcp", {
@@ -130,7 +130,7 @@ export async function collectHttpConcurrency(vault: VaultCtx): Promise<MetricSam
     db: vault.db,
     vaultId: vault.vaultId,
     acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
-  } as Parameters<typeof createHttpApp>[0]);
+  });
 
   const initialize = (): Request =>
     new Request("http://127.0.0.1/mcp", {

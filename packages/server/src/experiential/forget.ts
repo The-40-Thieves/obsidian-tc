@@ -130,7 +130,7 @@ export function forgetEpisode(
         .prepare(
           "UPDATE agent_episodes SET args_json = NULL, summary = NULL, tags = NULL, error_code = NULL WHERE id = ?",
         )
-        .run(id).changes as number;
+        .run(id).changes;
     }
     // Preference-delta evidence is free text (no FK by design) — report mentions, never rewrite
     // the append-only delta audit.
@@ -297,12 +297,12 @@ export function forgetNote(
       if (opts.erase) {
         retrievalDeleted = edb
           .prepare(`DELETE FROM chunk_retrievals WHERE chunk_id IN (${ph})`)
-          .run(...chunkIds).changes as number;
+          .run(...chunkIds).changes;
       }
       // Derived activation state has no audit value once the source is gone.
       activationDeleted = edb
         .prepare(`DELETE FROM vault_object_state WHERE object_id IN (${ph})`)
-        .run(...chunkIds).changes as number;
+        .run(...chunkIds).changes;
     }
     head = appendForgetLog(edb, {
       ts: opts.nowMs,

@@ -4,8 +4,8 @@
 // are provided by the host app, not bundled. Run `node esbuild.config.mjs production`
 // for a minified release build (CI), or with no arg for an unminified dev build.
 import { copyFileSync, mkdirSync } from "node:fs";
+import { builtinModules } from "node:module";
 import process from "node:process";
-import builtins from "builtin-modules";
 import esbuild from "esbuild";
 
 const production = process.argv[2] === "production";
@@ -19,7 +19,7 @@ await esbuild.build({
   target: "es2022",
   platform: "node",
   outfile: "dist/main.js",
-  external: ["obsidian", "electron", "@codemirror/*", "@lezer/*", ...builtins],
+  external: ["obsidian", "electron", "@codemirror/*", "@lezer/*", ...builtinModules],
   sourcemap: production ? false : "inline",
   minify: production,
   treeShaking: true,

@@ -50,7 +50,6 @@ import {
 import {
   aggregateMetrics,
   computeQueryMetrics,
-  type GoldenQuery,
   GoldenSetSchema,
   type QueryMetrics,
 } from "./metrics";
@@ -309,7 +308,7 @@ async function stageIndex(): Promise<void> {
     }
   }
   // Brute-force cosine over chunk_embeddings for EVERY arm, so an arm differs only in its vectors.
-  loadVec(db as never);
+  loadVec(db);
   db.exec("DROP TABLE IF EXISTS vec_chunks");
   const done = (
     db.prepare("SELECT count(*) AS c FROM chunk_embeddings WHERE model = ?").get(model) as {
@@ -405,7 +404,7 @@ function stageScore(): void {
       const byId = new Map(pf.pools.map((p) => [p.id, p]));
       const ms: QueryMetrics[] = [];
       const r50: number[] = [];
-      for (const q of queries as GoldenQuery[]) {
+      for (const q of queries) {
         const ranked =
           order === "dense" ? (byId.get(q.id)?.candidates ?? []) : (pf.graph[q.id] ?? []);
         ms.push(computeQueryMetrics(q, ranked));
@@ -503,7 +502,7 @@ function stageScore(): void {
         join(outDir, `artifact-${name}-${labels}.json`),
         JSON.stringify({
           flags: [`embedder-arm:${name}`, `labels:${labels}`],
-          perQuery: (queries as GoldenQuery[]).map((q, i) => ({
+          perQuery: queries.map((q, i) => ({
             id: q.id,
             baseline: control.m[i],
             graph: dense.m[i],

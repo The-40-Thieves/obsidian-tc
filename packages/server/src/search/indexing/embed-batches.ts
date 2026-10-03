@@ -230,17 +230,17 @@ export async function embedPlans(
     for (const c of p.toEmbed) {
       if (c.skipEmbed || c.excludedFromEmbed) {
         dense.push([]);
-        if (flatSparse) sparse.push({} as SparseVec);
-        if (flatColbert) colbert.push([] as unknown as ColbertMatrix);
+        if (flatSparse) sparse.push({});
+        if (flatColbert) colbert.push([]);
         continue;
       }
       const v = flatDense[off];
       // A quarantined chunk (provider rejected it even alone) fails its whole NOTE: its vectors are
       // not applied and the caller must exclude the plan (THE-390).
       if (v === null || v === undefined) quarantined = true;
-      dense.push((v ?? []) as number[]);
-      if (flatSparse) sparse.push((flatSparse[off] ?? {}) as SparseVec);
-      if (flatColbert) colbert.push((flatColbert[off] ?? []) as unknown as ColbertMatrix);
+      dense.push(v ?? []);
+      if (flatSparse) sparse.push(flatSparse[off] ?? {});
+      if (flatColbert) colbert.push(flatColbert[off] ?? []);
       off += 1;
     }
     if (quarantined) {

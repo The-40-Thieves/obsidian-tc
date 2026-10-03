@@ -256,7 +256,7 @@ export async function paginateByBytes<K, E>(o: PaginateByBytesOptions<K, E>): Pr
   const envNone = bytes(o.frame([], null));
   const envCursor = bytes(o.frame([], await mint(n)));
   const laneOf = o.lane ?? (() => "");
-  const wire = o.wire ?? ((e: E) => e as unknown);
+  const wire = o.wire ?? ((e: E) => e);
 
   const entries: E[] = [];
   const usedAfter: number[] = []; // cumulative entry bytes (with commas) after each entry

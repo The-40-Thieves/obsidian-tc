@@ -41,9 +41,7 @@ export type TelemetryDocument = z.infer<typeof TelemetryDocumentSchema>;
 
 /** The exact set of keys `TelemetryDocumentSchema` allows — used by the forbidden-fields property
  *  test to assert closure without re-deriving the list by hand (and drifting from the schema). */
-export const TELEMETRY_DOCUMENT_KEYS = Object.freeze(
-  Object.keys(TelemetryDocumentSchema.shape),
-) as readonly string[];
+export const TELEMETRY_DOCUMENT_KEYS = Object.freeze(Object.keys(TelemetryDocumentSchema.shape));
 
 /** Build + validate one telemetry document. Throws (never returns an invalid shape) when the
  *  inputs cannot satisfy the strict schema — e.g. an installId that is not a UUID, which would

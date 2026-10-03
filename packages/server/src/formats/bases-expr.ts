@@ -505,7 +505,7 @@ export function classifyBaseFilter(x: unknown): FilterClass {
   if (x === undefined || x === null) return "absent";
   if (typeof x === "string") return "dsl";
   if (typeof x === "object" && !Array.isArray(x)) {
-    const keys = Object.keys(x as Record<string, unknown>);
+    const keys = Object.keys(x);
     const k = keys[0];
     if (keys.length === 1 && (k === "and" || k === "or" || k === "not")) {
       const arr = (x as Record<string, unknown>)[k as string];

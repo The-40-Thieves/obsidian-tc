@@ -368,11 +368,11 @@ export function applyPreferenceDeltas(
         d.evidence ?? null,
       );
     else if (d.op === "strengthen")
-      changed = bump.run(version, nowMs, vaultId, d.scopeCaller, d.key).changes as number;
+      changed = bump.run(version, nowMs, vaultId, d.scopeCaller, d.key).changes;
     else if (d.op === "weaken")
-      changed = damp.run(version, nowMs, vaultId, d.scopeCaller, d.key).changes as number;
+      changed = damp.run(version, nowMs, vaultId, d.scopeCaller, d.key).changes;
     else if (d.op === "retract")
-      changed = retract.run(version, nowMs, vaultId, d.scopeCaller, d.key).changes as number;
+      changed = retract.run(version, nowMs, vaultId, d.scopeCaller, d.key).changes;
     else continue;
     if (changed === 0) continue;
     logDelta.run(
@@ -825,7 +825,7 @@ export function readEpisodeBacklog(
   ).n;
   const { candidates } = partitionPending(pending, { derivedVerdictHold });
   // Rows come back ts ASC, so the first candidate is the oldest promotable one.
-  const oldest = candidates[0] as (PendingRow & { ts: number }) | undefined;
+  const oldest = candidates[0];
   return {
     pending: pending.length,
     eligible,

@@ -14,7 +14,7 @@ const CAUSE_CODE_SHAPE = /^[A-Za-z0-9_]{1,64}$/;
  * must not smuggle one through `.code`.
  */
 export function extractCauseCode(e: unknown): string | undefined {
-  const cause = e instanceof Error ? (e.cause as unknown) : undefined;
+  const cause = e instanceof Error ? e.cause : undefined;
   const first = cause instanceof AggregateError ? cause.errors[0] : undefined;
   const raw =
     (first as { code?: unknown } | undefined)?.code ??

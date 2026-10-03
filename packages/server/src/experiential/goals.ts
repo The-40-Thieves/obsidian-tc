@@ -112,7 +112,7 @@ export function closeGoal(
       "UPDATE goals SET status = ?, closed_at = ? WHERE id = ? AND vault_id = ? AND status = 'open'",
     )
     .run(input.status, input.closedAt, input.id, input.vaultId);
-  if ((res.changes as number) === 0) return null;
+  if (res.changes === 0) return null;
   return (
     (edb
       .prepare("SELECT * FROM goals WHERE id = ? AND vault_id = ?")
@@ -134,5 +134,5 @@ export function expireOverdueGoals(edb: Database, nowMs: number): number {
       "UPDATE goals SET status = 'expired', closed_at = ? WHERE status = 'open' AND target_date IS NOT NULL AND target_date < ?",
     )
     .run(nowMs, nowMs);
-  return res.changes as number;
+  return res.changes;
 }

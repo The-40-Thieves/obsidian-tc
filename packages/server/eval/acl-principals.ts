@@ -83,7 +83,7 @@ function main(): void {
       rules: [],
       readPaths: p.readPaths,
       strictReadDefault: true,
-    } as never);
+    });
     // matchedPathGlob is the same predicate readableRel composes; using it directly keeps this
     // script from re-deriving readability a second way.
     const readable = (rel: string): boolean =>
@@ -125,7 +125,7 @@ function main(): void {
       rules: [],
       readPaths: p.readPaths,
       strictReadDefault: true,
-    } as never);
+    });
     return (rel: string): boolean =>
       Boolean(
         (a as unknown as { matchedPathGlob(op: string, rel: string): unknown }).matchedPathGlob(

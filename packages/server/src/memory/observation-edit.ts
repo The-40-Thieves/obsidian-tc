@@ -30,5 +30,5 @@ export function closeIntervalById(
        WHERE id = ? AND entity_id = ? AND valid_to IS NULL`,
     )
     .run(validTo, supersededByHash, intervalId, entityId);
-  return (r.changes as number) > 0;
+  return r.changes > 0;
 }

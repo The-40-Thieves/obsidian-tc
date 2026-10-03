@@ -9,7 +9,7 @@
 //
 // Split into its own module rather than appended to checks.ts, same reasoning as
 // capture-location.ts/entrypoints.ts: its own probe shape, no shared state with the other checks.
-import type { Check, CheckResult, CheckStatus } from "./types";
+import type { Check, CheckResult } from "./types";
 
 export interface SessionLivenessProbe {
   /** Open EXPLICIT sessions already older than `windowSeconds`. */
@@ -45,7 +45,7 @@ export function sessionLivenessCheck(view: SessionLivenessView): Check {
     run: (): CheckResult => {
       if (!view.probe) {
         return {
-          status: "ok" as CheckStatus,
+          status: "ok",
           summary: "session liveness (not probed): run `doctor --probe` to read workspace_sessions",
           details: { sessions: "not probed" },
         };
@@ -53,14 +53,14 @@ export function sessionLivenessCheck(view: SessionLivenessView): Check {
       const { staleExplicit, oldestAgeMs, oldestPrincipal } = view.probe();
       if (staleExplicit === 0) {
         return {
-          status: "ok" as CheckStatus,
+          status: "ok",
           summary: `session liveness: no explicit session older than windowSeconds (${view.windowSeconds}s)`,
           details: { staleExplicit: "0" },
         };
       }
       const oldestDays = ((oldestAgeMs ?? 0) / 86_400_000).toFixed(1);
       return {
-        status: "warning" as CheckStatus,
+        status: "warning",
         summary: `session liveness: ${staleExplicit} explicit session(s) older than windowSeconds (${view.windowSeconds}s), oldest ${oldestDays}d`,
         details: {
           staleExplicit: String(staleExplicit),

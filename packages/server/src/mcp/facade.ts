@@ -119,7 +119,7 @@ export async function callCapability(
     return errorToResult(withReceivedEnvelopeKeys(raw.toJSON(), envelopeKeys, true));
   }
   const result = await dispatchTarget(parsed.data.name, parsed.data.args);
-  const targetError = result.structuredContent as unknown as ErrorJSON | undefined;
+  const targetError = result.structuredContent as ErrorJSON | undefined;
   if (!result.isError || !targetError) return result;
   const hadArgsKey = Object.hasOwn(rawArgs, "args");
   return errorToResult(withReceivedEnvelopeKeys(targetError, envelopeKeys, hadArgsKey));

@@ -253,11 +253,7 @@ function walk(value: unknown, path: string, ctx: WalkCtx): unknown {
     if (value.length > 1) {
       const allStrings = value.every((v) => typeof v === "string");
       const allNumeric = value.every((v) => typeof v === "number" || typeof v === "bigint");
-      const joined = allStrings
-        ? (value as string[]).join("\n")
-        : allNumeric
-          ? (value as Array<number | bigint>).map(String).join("")
-          : null;
+      const joined = allStrings ? value.join("\n") : allNumeric ? value.map(String).join("") : null;
       if (joined !== null) {
         const scanned = scanLeafString(joined, ctx.pii, JOIN_SCAN_EXCLUDED_PATTERN_IDS);
         if (scanned.redactions > 0) {

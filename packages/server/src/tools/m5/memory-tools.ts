@@ -392,7 +392,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
               { metrics: deps.metrics },
             );
             const scannedObs = joinScan.fields.observations as string[];
-            observationInput = scannedObs[scannedObs.length - 1] as string;
+            observationInput = scannedObs[scannedObs.length - 1];
             observationRedactions = joinScan.redactions;
           }
 
@@ -401,9 +401,7 @@ export function buildMemoryTools(deps: M5Deps): ToolDefinition[] {
           let nextViews: RenderableObservation[];
           let newHash: string | null = null;
           if (retireOnly) {
-            nextViews = views.map((o, i) =>
-              i === openIdx ? { ...o, validTo: validTo as number } : o,
-            );
+            nextViews = views.map((o, i) => (i === openIdx ? { ...o, validTo: validTo } : o));
           } else {
             // Already trimmed and \r/\n-free — NormalizedObservationText validated this at the
             // schema boundary (THE-1130 adversarial-review fix). Passed through unchanged, not

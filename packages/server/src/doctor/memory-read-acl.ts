@@ -9,7 +9,7 @@
 import type { FolderAcl } from "../acl";
 import { entityNotePath } from "../memory/materialize";
 import { readableByFolder } from "../vault/acl-read-filter";
-import type { Check, CheckResult, CheckStatus } from "./types";
+import type { Check, CheckResult } from "./types";
 
 export interface MemoryReadAclView {
   vaults: readonly { id: string; memoryFolder: string; acl: FolderAcl | undefined }[];
@@ -39,7 +39,7 @@ export function memoryReadAclCheck(view: MemoryReadAclView): Check {
     run: (): CheckResult => {
       if (!view.probe) {
         return {
-          status: "ok" as CheckStatus,
+          status: "ok",
           summary: "memory read ACL (not probed): run `doctor --probe` to read memory_entities",
           details: { memory: "not probed" },
         };
@@ -66,14 +66,14 @@ export function memoryReadAclCheck(view: MemoryReadAclView): Check {
       }
       if (issues.length === 0) {
         return {
-          status: "ok" as CheckStatus,
+          status: "ok",
           summary: "every memory entity's note is readable under the read ACL",
           details: { entities: String(entities.length) },
         };
       }
       const globs = [...new Set(folders)].map((f) => `"${f}"`).join(", ");
       return {
-        status: "warning" as CheckStatus,
+        status: "warning",
         summary: `the read ACL hides memory entities in ${issues.length} vault(s)`,
         issues,
         remediation: `Memory reads follow the folder read ACL on each entity's note. Add ${globs} to readPaths if agents should read memory, or leave it as is to keep those entities private.`,

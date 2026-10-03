@@ -359,7 +359,7 @@ export class JobQueue {
                lease_expires_at = ?, updated_at = ? WHERE id = ?`,
             )
             .run(opts.leaseOwner, t + leaseMs, t, row.id);
-          if (updated.changes === 1) return this.get(row.id) as Job;
+          if (updated.changes === 1) return this.get(row.id);
         }
         return null;
       },

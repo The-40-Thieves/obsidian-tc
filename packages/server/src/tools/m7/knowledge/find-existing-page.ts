@@ -31,7 +31,6 @@ import type { M7Deps } from "./deps";
 import type { RetrievalRuntime } from "./retrieval-runtime";
 import {
   collectIdentityEvidence,
-  type Evidence,
   type IdentityScan,
   type PageCandidate,
   STRONG_KINDS,
@@ -413,7 +412,7 @@ export async function findExistingPage(
       strength: c.evidence.some((e) => STRONG_KINDS.has(e.kind))
         ? ("strong" as const)
         : ("soft" as const),
-      evidence: concise ? [...new Set(c.evidence.map((e) => e.kind))] : (c.evidence as Evidence[]),
+      evidence: concise ? [...new Set(c.evidence.map((e) => e.kind))] : c.evidence,
       ...(c.excluded ? { excluded: true } : {}),
     })),
     next: nextStep(verdict, ranked, judgedBy?.model),

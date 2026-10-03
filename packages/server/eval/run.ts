@@ -432,9 +432,7 @@ export async function runEval(opts: RunEvalOptions): Promise<EvalReport> {
         ? await multiQueryGraphSearch(
             opts.db,
             searchOptions,
-            [...new Set([text, ...(variants as string[])].map((v) => v.trim()))].filter(
-              (v) => v.length > 0,
-            ),
+            [...new Set([text, ...variants].map((v) => v.trim()))].filter((v) => v.length > 0),
           )
         : await graphSearch(opts.db, searchOptions);
       // THE-446: preserve `source`/hop (additive, ignored by metrics) so the failure classifier can
@@ -1009,7 +1007,7 @@ async function main(): Promise<void> {
         .map((g) => g.trim())
         .filter(Boolean),
       strictReadDefault: true,
-    } as never);
+    });
     isReadable = makeIndexReadable(acl, new Map())(firstVault.id);
     let droppedT = 0;
     let droppedB = 0;
@@ -1025,7 +1023,7 @@ async function main(): Promise<void> {
     // reported; every surviving number means something.
     const kept: GoldenQuery[] = [];
     for (const q of golden.queries) {
-      const r = restrictQuery(q, isReadable as (rel: string) => boolean);
+      const r = restrictQuery(q, isReadable);
       droppedT += r.droppedTargets;
       droppedB += r.droppedBridges;
       if (r.query.target_paths.length === 0) {

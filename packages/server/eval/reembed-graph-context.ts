@@ -27,9 +27,7 @@ function dropVecChunks(db: { exec: (s: string) => void }): void {
 
 const argv = process.argv.slice(2);
 const configPath = argv.find((a) => !a.startsWith("--") && a.endsWith(".json"));
-const variant = (argv.find((a) => a === "titles" || a === "titles-headings") ?? "titles") as
-  | "titles"
-  | "titles-headings";
+const variant = argv.find((a) => a === "titles" || a === "titles-headings") ?? "titles";
 const capIdx = argv.indexOf("--cap");
 const CAP = capIdx >= 0 ? Number(argv[capIdx + 1]) : 12;
 // --control: leave the champion vectors untouched and ONLY drop vec_chunks, producing the
