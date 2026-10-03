@@ -68,7 +68,8 @@ export async function fetchBoundedText(url: string, o: FetchBoundedOpts): Promis
   const shown = redactEndpointWithPath(u.href);
   // An injected fetch is the test seam. Otherwise connect to the addresses just validated (never
   // the name again); with the private-network opt-in nothing was validated, so the ordinary fetch.
-  const doFetch = o.fetch ?? (validated === undefined ? fetch : createPinnedFetch(validated));
+  const doFetch =
+    o.fetch ?? (validated === undefined ? globalThis.fetch : createPinnedFetch(validated));
   const timeoutMs = o.timeoutMs ?? IDP_FETCH_TIMEOUT_MS;
   const timeout = AbortSignal.timeout(timeoutMs);
   const signal = o.signal === undefined ? timeout : AbortSignal.any([o.signal, timeout]);
