@@ -5,8 +5,8 @@
 // (.github/workflows/publish.yml, build-plugin job) — there is no `bun run` script for this;
 // it exists solely for that one release-time step, not the day-to-day dev loop.
 import { copyFileSync, mkdirSync } from "node:fs";
+import { builtinModules } from "node:module";
 import process from "node:process";
-import builtins from "builtin-modules";
 import esbuild from "esbuild";
 
 const production = process.argv[2] === "production";
@@ -20,7 +20,7 @@ await esbuild.build({
   target: "es2022",
   platform: "node",
   outfile: "legacy/dist/main.js",
-  external: ["obsidian", "electron", "@codemirror/*", "@lezer/*", ...builtins],
+  external: ["obsidian", "electron", "@codemirror/*", "@lezer/*", ...builtinModules],
   sourcemap: production ? false : "inline",
   minify: production,
   treeShaking: true,
