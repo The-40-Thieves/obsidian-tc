@@ -10,6 +10,7 @@ import { isLoopbackHost } from "../net-host";
 import { AclConfigSchema, AuthConfigSchema } from "./auth-acl.schema";
 import { GatewayConfigSchema } from "./gateway.schema";
 import { EmbeddingsConfigSchema, IndexingConfigSchema } from "./indexing-embeddings.schema";
+import { NetworkConfigSchema } from "./network.schema";
 import {
   EgressConfigSchema,
   MaintenanceConfigSchema,
@@ -119,6 +120,9 @@ export const ServerConfigObject = z.object({
   // OBSIDIAN_TC_GATEWAY_TOKEN, then to every generative seam degrading gracefully.
   gateway: GatewayConfigSchema.optional().describe(
     "Inference gateway connection. ABSENT falls through to OBSIDIAN_TC_GATEWAY_URL / OBSIDIAN_TC_GATEWAY_TOKEN, preserving today's behaviour exactly.",
+  ),
+  network: NetworkConfigSchema.prefault({}).describe(
+    "Connection policy shared by every outbound provider client: which plain-http hosts may be named. https:// and loopback need no entry.",
   ),
   indexing: IndexingConfigSchema.describe("Index-on-write concurrency and backpressure."),
   retrieval: RetrievalConfigSchema.prefault({}).describe(

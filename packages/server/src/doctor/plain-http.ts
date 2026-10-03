@@ -1,32 +1,61 @@
 // egress.plain-http — every configured endpoint that would be sent over plain http://, with the
-// address(es) its host resolves to right now. A plain-http request carries a bearer key and vault
-// text in clear, and the connect-time policy (gateway/plain-http.ts) only lets it reach a listed
-// host whose addresses are ALL private; this lists what that policy will see, so a host that has
-// drifted onto a public address is visible before the first judge call is refused. It also flags
-// the deprecated `allowPlainHttp` flag. Resolution is a DNS lookup only: nothing is connected to.
+// address(es) its host resolves to right now and what the connect-time policy
+// (gateway/plain-http.ts) will do with it:
+//   allowed             loopback, or a listed host whose addresses are all private
+//   deprecated-unlisted a provider host that is NOT listed but resolves only to private addresses:
+//                       works for one more release, refused from the next major
+//   refused             a public / link-local / metadata address, an address that did not resolve,
+//                       or (a TypeSafe judge block) a host that is not listed
+// A plain-http request carries a bearer key and vault text in clear, so a host that has drifted onto
+// a public address is visible here before the first request is refused. It also flags the
+// deprecated `allowPlainHttp` flag. Resolution is a DNS lookup only: nothing is connected to.
+//
+// Two kinds of endpoint: the TypeSafe judge blocks, which list their own `plainHttpHosts` and refuse
+// an unlisted host at config load, and every other provider client, which shares the root
+// `network.plainHttpHosts` and keeps the deprecated unlisted-private path (provider-fetch.ts).
 
 import { isIP } from "node:net";
 import {
   classifyJudgeBaseUrl,
+  isLoopbackHost,
   isPlainHttpHostListed,
   isPrivateNetworkAddress,
   judgeBaseUrlHost,
   normalizeHostForBind,
 } from "@the-40-thieves/obsidian-tc-shared";
+import { resolveGatewayUrl } from "../gateway/client";
 import type { ResolveHost } from "../gateway/plain-http";
+import { unlistedPlainHttpMessage } from "../gateway/provider-fetch";
 import type { Check, CheckStatus } from "./types";
 
 export interface PlainHttpEndpointView {
-  /** Config path of the block, e.g. "experiential.citationInfer.judge" or "wikiJudge". */
+  /** Config path of the block, e.g. "experiential.citationInfer.judge", "embeddings" or "wikiJudge". */
   field: string;
   baseUrl: string;
+  /** The list that governs this endpoint: the block's own for a judge, `network.plainHttpHosts`
+   *  for a provider. */
   plainHttpHosts?: readonly string[] | undefined;
   allowPlainHttp?: boolean | undefined;
+  /** "provider" endpoints share `network.plainHttpHosts` and an unlisted private host still works
+   *  (deprecated). Default "judge": an unlisted host is refused. */
+  kind?: "judge" | "provider" | undefined;
 }
 
 export interface PlainHttpView {
   endpoints: readonly PlainHttpEndpointView[];
   resolveHost: ResolveHost;
+}
+
+export type PlainHttpStatus = "allowed" | "deprecated-unlisted" | "refused";
+
+export interface PlainHttpHostReport {
+  field: string;
+  host: string;
+  /** Empty when the host did not resolve. */
+  addresses: string[];
+  status: PlainHttpStatus;
+  /** Why, when the status is not "allowed" (names the host and the config to change). */
+  reason?: string;
 }
 
 async function addressesOf(host: string, resolveHost: ResolveHost): Promise<string[] | undefined> {
@@ -40,32 +69,146 @@ async function addressesOf(host: string, resolveHost: ResolveHost): Promise<stri
   }
 }
 
-/** The configured TypeSafe judge blocks as plain-http endpoint views (only a block whose provider
- *  is "typesafe" sends anything to its baseUrl). */
-export function plainHttpEndpoints(cfg: {
-  experiential: {
-    citationInfer: {
-      judge?:
-        | {
-            provider?: string | undefined;
-            baseUrl: string;
-            plainHttpHosts?: readonly string[] | undefined;
-            allowPlainHttp?: boolean | undefined;
-          }
-        | undefined;
+function listField(ep: PlainHttpEndpointView): string {
+  return ep.kind === "provider" ? "network.plainHttpHosts" : `${ep.field}.plainHttpHosts`;
+}
+
+/** The status of one plain-http endpoint. Mirrors gateway/plain-http.ts's decision on the same
+ *  inputs, for a host name already resolved. */
+export function classifyPlainHttpHost(
+  ep: PlainHttpEndpointView,
+  host: string,
+  addrs: readonly string[],
+): { status: PlainHttpStatus; reason?: string } {
+  const loopback = isLoopbackHost(host);
+  if (loopback) {
+    const bad = addrs.find((a) => !isLoopbackHost(a));
+    return bad === undefined
+      ? { status: "allowed" }
+      : {
+          status: "refused",
+          reason: `${ep.field}: ${host} resolves to ${bad}, which is not a loopback address; plain-http requests to it are refused`,
+        };
+  }
+  if (addrs.length === 0) {
+    return {
+      status: "refused",
+      reason: `${ep.field}: ${host} did not resolve, so every request to it will be refused`,
     };
+  }
+  const bad = addrs.filter((a) => !isPrivateNetworkAddress(a));
+  if (bad.length > 0) {
+    return {
+      status: "refused",
+      reason: `${ep.field}: ${host} resolves to ${bad.join(", ")}, which is not a private address (loopback, 10/8, 172.16/12, 192.168/16, fc00::/7); plain-http requests to it are refused, listed or not`,
+    };
+  }
+  const listed = ep.allowPlainHttp === true || isPlainHttpHostListed(host, ep.plainHttpHosts ?? []);
+  if (listed) return { status: "allowed" };
+  if (ep.kind === "provider") {
+    return {
+      status: "deprecated-unlisted",
+      reason: `${ep.field}: ${unlistedPlainHttpMessage(host, addrs.join(", "))}`,
+    };
+  }
+  return {
+    status: "refused",
+    reason: `${ep.field}: ${host} is not listed in ${listField(ep)}`,
   };
-  wikiJudge: {
-    provider?: string | undefined;
-    baseUrl: string;
-    plainHttpHosts?: readonly string[] | undefined;
-    allowPlainHttp?: boolean | undefined;
-  };
-}): PlainHttpEndpointView[] {
-  const cj = cfg.experiential.citationInfer.judge;
+}
+
+/** One report row per endpoint that uses plain http://, with DNS resolved through `resolveHost`. */
+export async function plainHttpReports(view: PlainHttpView): Promise<PlainHttpHostReport[]> {
+  const out: PlainHttpHostReport[] = [];
+  for (const ep of view.endpoints) {
+    const cls = classifyJudgeBaseUrl(ep.baseUrl);
+    if (cls !== "http-remote" && cls !== "http-loopback") continue;
+    const host = judgeBaseUrlHost(ep.baseUrl) ?? "?";
+    const resolved = await addressesOf(host, view.resolveHost);
+    // `localhost` with no answer means 127.0.0.1 to the transport (resolveLoopbackTarget).
+    const addresses =
+      resolved && resolved.length > 0 ? resolved : cls === "http-loopback" ? ["127.0.0.1"] : [];
+    const { status, reason } = classifyPlainHttpHost(ep, host, addresses);
+    out.push({
+      field: ep.field,
+      host,
+      addresses,
+      status,
+      ...(reason === undefined ? {} : { reason }),
+    });
+  }
+  return out;
+}
+
+interface JudgeBlockView {
+  provider?: string | undefined;
+  baseUrl?: string | undefined;
+  plainHttpHosts?: readonly string[] | undefined;
+  allowPlainHttp?: boolean | undefined;
+}
+
+/** The slice of the loaded config the plain-http endpoint list reads. Every part is optional so a
+ *  partial config (a test, server_health's boot wiring) can be passed as it stands. */
+export interface PlainHttpConfigView {
+  experiential?: { citationInfer?: { judge?: JudgeBlockView | undefined } | undefined } | undefined;
+  wikiJudge?: JudgeBlockView | undefined;
+  network?: { plainHttpHosts?: readonly string[] | undefined } | undefined;
+  gateway?: { baseUrl?: string | undefined } | undefined;
+  embeddings?:
+    | {
+        provider?: string | undefined;
+        baseUrl?: string | undefined;
+        modelTier?:
+          | {
+              dense?: { baseUrl?: string | undefined } | undefined;
+              full?: { baseUrl?: string | undefined } | undefined;
+            }
+          | undefined;
+      }
+    | undefined;
+  reranker?: { provider?: string | undefined; baseUrl?: string | undefined } | undefined;
+  plur?: { endpoint?: string | undefined } | undefined;
+  vaults?: readonly { id: string; restApiUrl?: string | undefined }[] | undefined;
+}
+
+/** The configured TypeSafe judge blocks (only a block whose provider is "typesafe" sends anything
+ *  to its baseUrl) and every provider client's baseUrl, as plain-http endpoint views. */
+export function plainHttpEndpoints(cfg: PlainHttpConfigView): PlainHttpEndpointView[] {
+  const cj = cfg.experiential?.citationInfer?.judge;
+  const hosts = cfg.network?.plainHttpHosts ?? [];
+  const provider = (field: string, baseUrl: string | undefined): PlainHttpEndpointView[] =>
+    baseUrl === undefined || baseUrl === ""
+      ? []
+      : [{ field, baseUrl, plainHttpHosts: hosts, kind: "provider" }];
+  const judge = (field: string, b: JudgeBlockView | undefined): PlainHttpEndpointView[] =>
+    b?.provider === "typesafe" && b.baseUrl !== undefined
+      ? [{ ...b, field, baseUrl: b.baseUrl }]
+      : [];
+  const emb = cfg.embeddings;
+  const embProvider = emb?.provider ?? "local";
+  const rrProvider = cfg.reranker?.provider;
+  const usesModelTier = embProvider === "model-tier" || rrProvider === "model-tier";
+  const gatewayUrl = resolveGatewayUrl(cfg.gateway?.baseUrl);
   return [
-    ...(cj?.provider === "typesafe" ? [{ field: "experiential.citationInfer.judge", ...cj }] : []),
-    ...(cfg.wikiJudge.provider === "typesafe" ? [{ field: "wikiJudge", ...cfg.wikiJudge }] : []),
+    ...judge("experiential.citationInfer.judge", cj),
+    ...judge("wikiJudge", cfg.wikiJudge),
+    ...provider(cfg.gateway?.baseUrl ? "gateway.baseUrl" : "OBSIDIAN_TC_GATEWAY_URL", gatewayUrl),
+    // `local` and `module` embedders never send to baseUrl; model-tier reads modelTier.* instead.
+    ...(["local", "module", "model-tier"].includes(embProvider)
+      ? []
+      : provider("embeddings.baseUrl", emb?.baseUrl)),
+    ...(usesModelTier
+      ? [
+          ...provider("embeddings.modelTier.dense.baseUrl", emb?.modelTier?.dense?.baseUrl),
+          ...provider("embeddings.modelTier.full.baseUrl", emb?.modelTier?.full?.baseUrl),
+        ]
+      : []),
+    ...(rrProvider !== undefined &&
+    !["model-tier", "local", "module", "gateway"].includes(rrProvider)
+      ? provider("reranker.baseUrl", cfg.reranker?.baseUrl)
+      : []),
+    ...provider("plur.endpoint", cfg.plur?.endpoint),
+    ...(cfg.vaults ?? []).flatMap((v) => provider(`vaults[${v.id}].restApiUrl`, v.restApiUrl)),
   ];
 }
 
@@ -74,14 +217,12 @@ export function allowPlainHttpDeprecation(field: string): string {
   return `${field}.allowPlainHttp is deprecated and will be removed in the next major release: list the exact host in ${field}.plainHttpHosts instead`;
 }
 
-/** Deprecation lines for every TypeSafe judge block that still sets `allowPlainHttp`: what
- *  server_health reports, and what the doctor check above leads with. Config-only, no I/O. */
-export function plainHttpDeprecations(cfg: {
-  experiential?: {
-    citationInfer?: { judge?: { provider?: string; allowPlainHttp?: boolean } | undefined };
-  };
-  wikiJudge?: { provider?: string; allowPlainHttp?: boolean };
-}): string[] {
+/** Deprecation lines for what the next major release removes: every TypeSafe judge block that
+ *  still sets `allowPlainHttp`, and every provider endpoint whose non-loopback http:// host is not
+ *  in `network.plainHttpHosts` (it works today only while it resolves to a private address). What
+ *  server_health reports, and what the doctor check above leads with. Config-only, no I/O: the
+ *  doctor adds the resolved address and the verdict. */
+export function plainHttpDeprecations(cfg: PlainHttpConfigView): string[] {
   const out: string[] = [];
   const cj = cfg.experiential?.citationInfer?.judge;
   if (cj?.provider === "typesafe" && cj.allowPlainHttp) {
@@ -89,6 +230,12 @@ export function plainHttpDeprecations(cfg: {
   }
   if (cfg.wikiJudge?.provider === "typesafe" && cfg.wikiJudge.allowPlainHttp) {
     out.push(allowPlainHttpDeprecation("wikiJudge"));
+  }
+  for (const ep of plainHttpEndpoints(cfg)) {
+    if (ep.kind !== "provider" || classifyJudgeBaseUrl(ep.baseUrl) !== "http-remote") continue;
+    const host = judgeBaseUrlHost(ep.baseUrl);
+    if (host === undefined || isPlainHttpHostListed(host, ep.plainHttpHosts ?? [])) continue;
+    out.push(`${ep.field}: ${unlistedPlainHttpMessage(host)}`);
   }
   return out;
 }
@@ -98,49 +245,32 @@ export function plainHttpCheck(view: PlainHttpView): Check {
     id: "egress.plain-http",
     category: "config",
     run: async () => {
-      const lines: string[] = [];
       const issues: string[] = [];
       for (const ep of view.endpoints) {
         if (ep.allowPlainHttp) issues.push(allowPlainHttpDeprecation(ep.field));
-        if (classifyJudgeBaseUrl(ep.baseUrl) !== "http-remote") continue;
-        const host = judgeBaseUrlHost(ep.baseUrl) ?? "?";
-        const listed =
-          host !== "?" &&
-          (ep.allowPlainHttp === true || isPlainHttpHostListed(host, ep.plainHttpHosts ?? []));
-        const addrs = await addressesOf(host, view.resolveHost);
-        if (addrs === undefined || addrs.length === 0) {
-          lines.push(`${ep.field}: ${host} -> (did not resolve)`);
-          issues.push(
-            `${ep.field}: ${host} did not resolve, so every request to it will be refused`,
-          );
-          continue;
-        }
-        const bad = addrs.filter((a) => !isPrivateNetworkAddress(a));
-        lines.push(
-          `${ep.field}: ${host} -> ${addrs.join(", ")}${bad.length > 0 ? " (NOT PRIVATE)" : ""}`,
-        );
-        if (bad.length > 0) {
-          issues.push(
-            `${ep.field}: ${host} resolves to ${bad.join(", ")}, which is not a private address (loopback, 10/8, 172.16/12, 192.168/16, fc00::/7); plain-http requests to it are refused`,
-          );
-        }
-        if (!listed) {
-          issues.push(`${ep.field}: ${host} is not listed in ${ep.field}.plainHttpHosts`);
-        }
       }
+      const reports = await plainHttpReports(view);
+      const lines = reports.map(
+        (r) =>
+          `${r.field}: ${r.host} -> ${r.addresses.length > 0 ? r.addresses.join(", ") : "(did not resolve)"} [${r.status}]`,
+      );
+      for (const r of reports) if (r.reason !== undefined) issues.push(r.reason);
       const status: CheckStatus = issues.length > 0 ? "warning" : "ok";
+      const remote = reports.filter((r) => !isLoopbackHost(r.host)).length;
       return {
         status,
         summary:
-          lines.length === 0
+          reports.length === 0
             ? "plain http: no configured endpoint uses plain http://"
-            : `plain http: ${lines.length} endpoint(s) send the key and vault text in clear`,
+            : remote === 0
+              ? `plain http: ${reports.length} loopback endpoint(s), nothing leaves this machine`
+              : `plain http: ${remote} endpoint(s) send the key and vault text in clear`,
         ...(lines.length > 0 ? { details: { endpoints: lines } } : {}),
         ...(issues.length > 0
           ? {
               issues,
               remediation:
-                "Use https://, or list the exact hostname in <block>.plainHttpHosts and make sure it resolves only to private addresses (a Docker bridge such as 172.18.0.0/16, an RFC1918 LAN, or an encrypted overlay). Link-local (169.254/16, the cloud metadata range) is never allowed.",
+                "Use https://, or list the exact hostname in network.plainHttpHosts (a TypeSafe judge block: <block>.plainHttpHosts) and make sure it resolves only to private addresses (a Docker bridge such as 172.18.0.0/16, an RFC1918 LAN, or an encrypted overlay). Public and link-local (169.254/16, the cloud metadata range) addresses are never allowed.",
             }
           : {}),
       };

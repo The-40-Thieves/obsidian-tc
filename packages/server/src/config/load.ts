@@ -8,6 +8,7 @@ import {
   ServerConfigSchema,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { markEmbeddingsProviderExplicit } from "../embeddings/provider-explicit";
+import { configureProviderPlainHttp } from "../gateway/provider-fetch";
 import { applySecurityProfile } from "./security-profile";
 
 /**
@@ -253,6 +254,8 @@ export function finalizeConfig(
   // user's home so it is absolute and CWD-independent; the shared cache.db isolates vaults by
   // vault_id, so one machine-local dir is correct. An explicit absolute cacheDir is honored as-is.
   if (!isAbsolute(config.cacheDir)) config.cacheDir = join(homedir(), config.cacheDir);
+  // Every provider client's default transport reads this list (gateway/provider-fetch.ts).
+  configureProviderPlainHttp(config.network.plainHttpHosts);
   return config;
 }
 

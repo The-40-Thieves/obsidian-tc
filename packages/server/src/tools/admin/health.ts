@@ -277,7 +277,7 @@ const HealthInfoOutput = z.object({
   deprecations: z
     .array(z.string())
     .describe(
-      "Config keys still in use that the next major release removes (today a TypeSafe judge's allowPlainHttp): config paths and replacements only. Absent when none.",
+      "Config still in use that the next major release removes: a TypeSafe judge's allowPlainHttp, and a plain-http provider URL (gateway, embeddings, reranker, plur, a vault's restApiUrl) whose host is not in network.plainHttpHosts. Config paths, host names and replacements only. Absent when none.",
     )
     .optional(),
   leader_role: z.enum(["leader", "follower"]).optional(),

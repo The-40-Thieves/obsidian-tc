@@ -6,12 +6,15 @@
 // not answer (plugin_unreachable); a bridge envelope reporting a plugin is not
 // installed maps to plugin_missing. The bearer token comes from vault config/env
 // only and is never logged or placed in an error/audit payload.
+
 import {
   type ErrorCode,
   err,
   extractCauseCode,
   ObsidianTcError,
 } from "@the-40-thieves/obsidian-tc-shared";
+import { PlainHttpRefusedError } from "../gateway/plain-http";
+import { providerFetch } from "../gateway/provider-fetch";
 
 /** Injectable transport: the global `fetch` in production, a fake in tests. */
 export type BridgeFetch = typeof fetch;
@@ -26,7 +29,7 @@ export interface BridgeClientOptions {
   apiKey?: string;
   /** Default per-request timeout in ms. */
   timeoutMs?: number;
-  /** Injected transport; defaults to the global fetch. */
+  /** Injected transport; defaults to the shared provider transport (gateway/provider-fetch.ts). */
   fetchFn?: BridgeFetch;
   /** Route prefix; defaults to /obsidian-tc/v1. */
   apiPrefix?: string;
@@ -102,7 +105,7 @@ export interface BridgeClient {
 }
 
 export function createBridgeClient(opts: BridgeClientOptions): BridgeClient {
-  const fetchFn = opts.fetchFn ?? fetch;
+  const fetchFn = opts.fetchFn ?? providerFetch;
   const prefix = opts.apiPrefix ?? DEFAULT_API_PREFIX;
   const defaultTimeout = opts.timeoutMs ?? DEFAULT_BRIDGE_TIMEOUT_MS;
   const base = opts.baseUrl.replace(/\/+$/, "");
@@ -132,6 +135,7 @@ export function createBridgeClient(opts: BridgeClientOptions): BridgeClient {
       const causeCode = extractCauseCode(e);
       throw err.pluginUnreachable("bridge request failed", {
         ...(r.plugin ? { plugin: r.plugin } : {}),
+        ...(e instanceof PlainHttpRefusedError ? { hint: e.message } : {}),
         ...(causeCode ? { cause_code: causeCode } : {}),
       });
     } finally {

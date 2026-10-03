@@ -409,6 +409,30 @@ describe("ExperientialConfigSchema.citationInfer.judge (THE-1078)", () => {
     });
   });
 
+  // The root list shared by every provider client (gateway, embeddings, reranker, model tier, plur,
+  // the Obsidian bridge); the judge blocks above keep their own.
+  describe("network.plainHttpHosts", () => {
+    const parse = (network: unknown) => () => ServerConfigSchema.parse({ ...base, network });
+
+    it("defaults to an empty list when the block is absent", () => {
+      expect(ServerConfigSchema.parse(base).network).toEqual({ plainHttpHosts: [] });
+      expect(parse({})().network.plainHttpHosts).toEqual([]);
+    });
+
+    it("accepts exact hostnames and IP literals", () => {
+      expect(
+        parse({ plainHttpHosts: ["litellm", "Emb.LAN.example", "10.0.0.5", "[::1]"] })(),
+      ).toBeTruthy();
+    });
+
+    it.each(["*.lan", "litellm:4000", "http://litellm", "litellm/path", "user@litellm", "", "a b"])(
+      "rejects %j: not an exact hostname",
+      (entry) => {
+        expect(parse({ plainHttpHosts: [entry] })).toThrow(/network\.plainHttpHosts/);
+      },
+    );
+  });
+
   describe("allowPlainHttp (THE-1084)", () => {
     it("defaults to false", () => {
       const c = ServerConfigSchema.parse({

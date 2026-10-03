@@ -2,6 +2,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isEmbeddingsModelExplicit, isPlaneEnabledExplicit, loadConfig } from "../src/config/load";
+import { configureProviderPlainHttp, providerPlainHttpHosts } from "../src/gateway/provider-fetch";
 import { makeTempDir, rmTemp } from "./tmp";
 
 let dir: string;
@@ -291,5 +292,40 @@ describe("isEmbeddingsModelExplicit", () => {
     expect(isEmbeddingsModelExplicit({ embeddings: "nope" })).toBe(false);
     expect(isEmbeddingsModelExplicit({ embeddings: null })).toBe(false);
     expect(isEmbeddingsModelExplicit({ embeddings: ["model"] })).toBe(false);
+  });
+});
+
+// Every provider client's default transport reads network.plainHttpHosts from one process-wide list
+// (gateway/provider-fetch.ts); finalizeConfig, the one place every config path passes through, sets it.
+describe("network.plainHttpHosts reaches the provider transport", () => {
+  afterEach(() => configureProviderPlainHttp([]));
+
+  it("loadConfig hands the list to the provider transport", () => {
+    configureProviderPlainHttp([]);
+    const cfg = loadConfig(
+      writeConfig({
+        vaults: [{ id: "v1", path: "/tmp/v1" }],
+        network: { plainHttpHosts: ["litellm"] },
+      }),
+    );
+    expect(cfg.network.plainHttpHosts).toEqual(["litellm"]);
+    expect(providerPlainHttpHosts()).toEqual(["litellm"]);
+  });
+
+  it("a config without the block resets the list to empty", () => {
+    configureProviderPlainHttp(["stale"]);
+    loadConfig(writeConfig({ vaults: [{ id: "v1", path: "/tmp/v1" }] }));
+    expect(providerPlainHttpHosts()).toEqual([]);
+  });
+
+  it("a malformed entry fails config load", () => {
+    expect(() =>
+      loadConfig(
+        writeConfig({
+          vaults: [{ id: "v1", path: "/tmp/v1" }],
+          network: { plainHttpHosts: ["*.lan"] },
+        }),
+      ),
+    ).toThrow(/network\.plainHttpHosts/);
   });
 });

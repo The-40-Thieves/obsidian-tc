@@ -419,4 +419,55 @@ describe("egress port inventory (THE-934 fix round 1)", () => {
       "runtime/plane-wiring.ts's planeRoles(...) call does not pass excludeFilter as an argument",
     ).toMatch(/excludeFilter/);
   });
+
+  // Every outbound provider client takes its DEFAULT transport from gateway/provider-fetch.ts's
+  // providerFetch: the plain-http policy (a host list, a private-address check at connect time, no
+  // proxy, no redirects) lives in that one place, so a client that defaults to the global fetch
+  // instead would send a plain-http URL, and the key and vault text in it, anywhere. A test that
+  // injects a transport still passes its own fetchFn; only the DEFAULT is audited here.
+  const PROVIDER_FETCH_SITES = [
+    "bridge/transport.ts",
+    "embeddings/http.ts",
+    "gateway/client.ts",
+    "model/tei.ts",
+    "telemetry/sender.ts",
+  ].sort();
+
+  // The only production modules that may still reach the global fetch, each with the reason it is
+  // not a provider client that carries a key and vault text over a configurable URL.
+  const GLOBAL_FETCH_EXCEPTIONS: Record<string, string> = {
+    // the transport itself: `baseFetch` for https:// requests
+    "gateway/plain-http.ts": "the policy fetch's https:// pass-through",
+    // https-only by construction (requireHttps), and the target is checked against private ranges
+    "auth/oidc-discovery.ts": "IdP discovery and JWKS: https only, no key or vault text",
+    // a fixed https://readwise.io URL; the token goes to that one host
+    "capture/readwise.ts": "fixed https://readwise.io endpoint",
+    // inbound-only: a key-less GET of screen observations; the documented target is a tailnet
+    // address (100.64/10), which the private-address rule does not admit
+    "capture/pensieve.ts": "key-less inbound GET to a tailnet Pensieve",
+    // a fixed http://127.0.0.1:11434 constant, not configurable
+    "cli/commands/setup.ts": "fixed loopback Ollama probe",
+  };
+
+  it("every provider client defaults its transport to providerFetch", () => {
+    expect(PROVIDER_FETCH_SITES.length).toBeGreaterThan(3);
+    for (const f of PROVIDER_FETCH_SITES) {
+      const text = nonCommentSource(readFileSync(join(SRC_ROOT, f), "utf8"));
+      expect(text, `${f} must default its fetch to providerFetch`).toMatch(/\?\? providerFetch\b/);
+    }
+  });
+
+  it("no production module reaches the global fetch except the audited exceptions", () => {
+    const found = callSites(/\?\? fetch\b|\|\| fetch\b|\bawait fetch\(|\bglobalThis\.fetch\b/);
+    expect(found).toEqual(Object.keys(GLOBAL_FETCH_EXCEPTIONS).sort());
+  });
+
+  it("provider-fetch.ts hands the policy fetch the configured host list and the deprecation mode", () => {
+    const text = nonCommentSource(
+      readFileSync(join(SRC_ROOT, "gateway/provider-fetch.ts"), "utf8"),
+    );
+    expect(text).toMatch(/createPlainHttpPolicyFetch\(/);
+    expect(text).toMatch(/plainHttpHosts:\s*\(\)\s*=>\s*plainHttpHosts/);
+    expect(text).toMatch(/allowUnlistedPrivate:\s*true/);
+  });
 });

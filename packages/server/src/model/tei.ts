@@ -5,8 +5,10 @@
 // embeds the texts it is handed. Revision provenance is read from GET /info when reachable, else it
 // falls back to the config-pinned revision. (TEI's native prompt_name instruction path — via /embed —
 // is a later option; today instruction is applied upstream.)
+
 import { type FetchFn, postJson } from "../embeddings/http";
 import { assertVectors } from "../embeddings/provider";
+import { providerFetch } from "../gateway/provider-fetch";
 import type { EmbedRequest, EmbedResult, ModelClient } from "./ports";
 
 export interface TeiClientOptions {
@@ -46,7 +48,7 @@ export function teiModelClient(opts: TeiClientOptions): ModelClient {
     if (infoFetched) return infoCache;
     infoFetched = true;
     try {
-      const res = await (opts.fetchFn ?? fetch)(`${base}/info`, { method: "GET" });
+      const res = await (opts.fetchFn ?? providerFetch)(`${base}/info`, { method: "GET" });
       if (res.ok) infoCache = (await res.json()) as TeiInfo;
     } catch {
       /* provenance is best-effort; fall back to config */

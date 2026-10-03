@@ -27,13 +27,14 @@ describe("egress.plain-http", () => {
     expect(r.summary).toContain("no configured endpoint");
   });
 
-  it("loopback http is not a plaintext endpoint", async () => {
+  it("lists loopback http as allowed and does not count it as leaving the machine", async () => {
     const r = await plainHttpCheck({
       endpoints: [{ field: "wikiJudge", baseUrl: "http://127.0.0.1:9000" }],
       resolveHost: resolver({}),
     }).run(ctx);
     expect(r.status).toBe("ok");
-    expect(r.details).toBeUndefined();
+    expect(r.summary).toContain("nothing leaves this machine");
+    expect(r.details?.endpoints).toEqual(["wikiJudge: 127.0.0.1 -> 127.0.0.1 [allowed]"]);
   });
 
   it("lists a listed private host with its resolved address and stays ok", async () => {
@@ -49,7 +50,7 @@ describe("egress.plain-http", () => {
     }).run(ctx);
     expect(r.status).toBe("ok");
     expect(r.details?.endpoints).toEqual([
-      "experiential.citationInfer.judge: litellm -> 172.18.0.5",
+      "experiential.citationInfer.judge: litellm -> 172.18.0.5 [allowed]",
     ]);
   });
 
@@ -62,7 +63,7 @@ describe("egress.plain-http", () => {
     }).run(ctx);
     expect(r.status).toBe("warning");
     expect(r.issues?.join(" ")).toMatch(/93\.184\.216\.34.*not a private address/);
-    expect(r.details?.endpoints?.[0]).toContain("NOT PRIVATE");
+    expect(r.details?.endpoints?.[0]).toContain("[refused]");
   });
 
   it("treats the cloud metadata address as not private", async () => {
@@ -79,7 +80,7 @@ describe("egress.plain-http", () => {
       resolveHost: resolver({}),
     }).run(ctx);
     expect(r.status).toBe("warning");
-    expect(r.details?.endpoints?.[0]).toBe("wikiJudge: 8.8.8.8 -> 8.8.8.8 (NOT PRIVATE)");
+    expect(r.details?.endpoints?.[0]).toBe("wikiJudge: 8.8.8.8 -> 8.8.8.8 [refused]");
   });
 
   it("warns when the host does not resolve", async () => {
@@ -141,5 +142,129 @@ describe("plainHttpEndpoints / plainHttpDeprecations", () => {
     expect(
       plainHttpDeprecations({ wikiJudge: { provider: "typesafe", allowPlainHttp: false } }),
     ).toEqual([]);
+  });
+});
+
+describe("egress.plain-http: provider endpoints", () => {
+  const providerEp = (field: string, baseUrl: string, hosts: string[] = []) => ({
+    field,
+    baseUrl,
+    plainHttpHosts: hosts,
+    kind: "provider" as const,
+  });
+
+  it("lists each plaintext provider host with its address and a status: allowed, deprecated-unlisted, refused", async () => {
+    const r = await plainHttpCheck({
+      endpoints: [
+        providerEp("gateway.baseUrl", "http://litellm:4000", ["litellm"]),
+        providerEp("embeddings.baseUrl", "http://emb.lan:8080"),
+        providerEp("reranker.baseUrl", "http://rank.example.com/v2"),
+        providerEp("plur.endpoint", "http://127.0.0.1:7077"),
+      ],
+      resolveHost: resolver({
+        litellm: ["172.18.0.5"],
+        "emb.lan": ["192.168.1.9"],
+        "rank.example.com": ["93.184.216.34"],
+      }),
+    }).run(ctx);
+    expect(r.details?.endpoints).toEqual([
+      "gateway.baseUrl: litellm -> 172.18.0.5 [allowed]",
+      "embeddings.baseUrl: emb.lan -> 192.168.1.9 [deprecated-unlisted]",
+      "reranker.baseUrl: rank.example.com -> 93.184.216.34 [refused]",
+      "plur.endpoint: 127.0.0.1 -> 127.0.0.1 [allowed]",
+    ]);
+    expect(r.status).toBe("warning");
+    const issues = r.issues?.join("\n") ?? "";
+    // The deprecation names the host and the config to add.
+    expect(issues).toMatch(/embeddings\.baseUrl: .*emb\.lan.*network\.plainHttpHosts/);
+    expect(issues).toMatch(/refused from the next major/);
+    // The refusal names the address.
+    expect(issues).toMatch(/reranker\.baseUrl: rank\.example\.com resolves to 93\.184\.216\.34/);
+    // The allowed ones are not complaints.
+    expect(issues).not.toMatch(/gateway\.baseUrl/);
+    expect(issues).not.toMatch(/plur\.endpoint/);
+  });
+
+  it("a listed host that resolves to a public address is refused, and the cloud metadata address is never allowed", async () => {
+    const r = await plainHttpCheck({
+      endpoints: [
+        providerEp("embeddings.baseUrl", "http://emb.example.com", ["emb.example.com"]),
+        providerEp("gateway.baseUrl", "http://meta", ["meta"]),
+      ],
+      resolveHost: resolver({ "emb.example.com": ["93.184.216.34"], meta: ["169.254.169.254"] }),
+    }).run(ctx);
+    expect(r.details?.endpoints).toEqual([
+      "embeddings.baseUrl: emb.example.com -> 93.184.216.34 [refused]",
+      "gateway.baseUrl: meta -> 169.254.169.254 [refused]",
+    ]);
+  });
+
+  it("an https provider URL is not a plaintext endpoint", async () => {
+    const r = await plainHttpCheck({
+      endpoints: [providerEp("embeddings.baseUrl", "https://api.openai.com/v1")],
+      resolveHost: resolver({}),
+    }).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.summary).toContain("no configured endpoint");
+  });
+});
+
+describe("plainHttpEndpoints: every provider client's baseUrl", () => {
+  const base = {
+    experiential: { citationInfer: {} },
+    wikiJudge: { provider: "gateway", baseUrl: "https://api.typesafe.ai" },
+  };
+
+  it("enumerates the gateway, embeddings, reranker, plur and per-vault bridge URLs", () => {
+    const cfg = {
+      ...base,
+      network: { plainHttpHosts: ["litellm"] },
+      gateway: { baseUrl: "http://litellm:4000" },
+      embeddings: { provider: "openai-compatible", baseUrl: "http://litellm:4000/v1" },
+      reranker: { provider: "cohere-compatible", baseUrl: "http://rank:9000/v2" },
+      plur: { endpoint: "http://plur:7077" },
+      vaults: [{ id: "main", restApiUrl: "http://obsidian:27123" }, { id: "none" }],
+    };
+    const eps = plainHttpEndpoints(cfg);
+    expect(eps.map((e) => e.field)).toEqual([
+      "gateway.baseUrl",
+      "embeddings.baseUrl",
+      "reranker.baseUrl",
+      "plur.endpoint",
+      "vaults[main].restApiUrl",
+    ]);
+    expect(eps.every((e) => e.kind === "provider")).toBe(true);
+    expect(eps.every((e) => e.plainHttpHosts?.[0] === "litellm")).toBe(true);
+  });
+
+  it("model-tier reads its two service URLs, not embeddings.baseUrl; local and module read none", () => {
+    const tier = {
+      ...base,
+      embeddings: {
+        provider: "model-tier",
+        baseUrl: "http://ignored:1",
+        modelTier: { dense: { baseUrl: "http://tei:80" }, full: { baseUrl: "http://bge:8000" } },
+      },
+    };
+    expect(plainHttpEndpoints(tier).map((e) => e.field)).toEqual([
+      "embeddings.modelTier.dense.baseUrl",
+      "embeddings.modelTier.full.baseUrl",
+    ]);
+    expect(
+      plainHttpEndpoints({ ...base, embeddings: { provider: "local", baseUrl: "http://x:1" } }),
+    ).toEqual([]);
+  });
+
+  it("plainHttpDeprecations names each unlisted non-loopback provider host and the config to add", () => {
+    const out = plainHttpDeprecations({
+      ...base,
+      network: { plainHttpHosts: ["litellm"] },
+      gateway: { baseUrl: "http://litellm:4000" },
+      embeddings: { provider: "openai-compatible", baseUrl: "http://emb.lan:8080/v1" },
+      plur: { endpoint: "http://127.0.0.1:7077" },
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatch(/^embeddings\.baseUrl: .*emb\.lan/);
+    expect(out[0]).toContain('add "emb.lan" to network.plainHttpHosts');
   });
 });
