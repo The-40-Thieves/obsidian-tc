@@ -341,8 +341,9 @@ describe("RR-M3 a throwing fingerprint probe fails closed", () => {
     }
   });
 
-  // Root reads a write-only file, so the unreadable state cannot be staged there.
-  it.skipIf(process.getuid?.() === 0)(
+  // Root reads a write-only file and Windows ignores POSIX modes, so the unreadable state cannot
+  // be staged on either.
+  it.skipIf(process.getuid?.() === 0 || process.platform === "win32")(
     "RR-M3 reviewer repro: a write-only attachment cannot be confirmed (no sentinel fingerprint), so its bytes cannot change under a confirmation",
     async () => {
       const b = boot({ "pic.png": "original-bytes" });
