@@ -10,7 +10,7 @@
 
 <!-- END GENERATED: stats -->
 
-> **Status:** Shipped — **v1.31.8**. Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.31.8`, a one-click `.mcpb` bundle, and standalone binaries. The surface is **the full tool set across every domain**, advertised by default through a three-tool facade. Licensed **AGPL-3.0-only**.
+> **Status:** Shipped — **v1.32.0**. Published to npm as provenance-signed packages, with a container image at `ghcr.io/the-40-thieves/obsidian-tc:1.32.0`, a one-click `.mcpb` bundle, and standalone binaries. The surface is **the full tool set across every domain**, advertised by default through a three-tool facade. Licensed **AGPL-3.0-only**.
 
 ## Three pillars
 

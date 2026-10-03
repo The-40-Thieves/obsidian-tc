@@ -1,4 +1,0 @@
----
-type: Changed
----
-- **The Windows test-stall ceiling now covers every test, hook and cleanup.** The 60 s Windows floor only applied to tests without an explicit timeout, so a per-test or per-describe literal such as `15000` in a test that spawns nothing still failed `windows-latest` under a runner stall, and vitest's `hookTimeout` (10 s) had no Windows floor at all. `hookTimeout` now gets the same ceiling as `testTimeout` on Windows (Linux and macOS are unchanged), the source-scan guard flags any explicit test, hook, `timeout` or `vi.setConfig` budget under that ceiling in every test file rather than only in files that spawn (the 155 existing offenders now go through `stallTimeout`), and the test temp-dir cleanup (`rmTemp`) logs a warning instead of throwing when a Windows `EPERM`/`EBUSY`/`ENOTEMPTY` survives its retries, so a passing file no longer fails in teardown and an earlier failure is no longer masked. Test infrastructure only; nothing shipped changes.

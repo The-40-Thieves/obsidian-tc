@@ -1,4 +1,0 @@
----
-type: Added
----
-- **`eval/embedder-arms.ts` compares embedding models over one index.** It copies a source index, re-embeds the same chunks with one arm (bge-m3 through the gateway, `gemini-embedding-2`, `gemini-embedding-001`), embeds the golden queries one call at a time, and scores nDCG@10, MRR@10, recall@10 and recall@50 with paired statistics against the control, a Benjamini-Hochberg verdict, embed latency and a cost table. Each Gemini model gets the text its documentation prescribes (`taskType` for `gemini-embedding-001`; the `title:` and `task: search result` prefixes for `gemini-embedding-2`, which has no task type), and truncated vectors are L2-normalized. `--corpus private` refuses the free-tier `GEMINI_API_KEY` and needs a distinct paid-project key in `GEMINI_API_KEY_PAID`. Eval harness only: no server behaviour or default changes. The public-corpus result is in the ADR 0007 section dated 2026-10-02 on embedders.

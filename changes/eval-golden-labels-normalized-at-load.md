@@ -1,4 +1,0 @@
----
-type: Fixed
----
-- **Eval golden-set labels are normalized once, when the set is loaded.** `GoldenSetSchema` now rewrites Windows-style backslashes in `seed_paths`, `target_paths` and `bridge_paths` to forward slashes, so every eval script reads the same label no matter how the set was authored. The per-script copies in `run.ts`, `score-reranked.ts`, `colbert_spike.ts` and the other label consumers are gone, and `computeQueryMetrics` now normalizes only the retrieved paths. A guard test pins a `09-reference\decisions\x.md` label against a `09-reference/decisions/x.md` result as a hit in every scorer entry point, and lints the committed golden sets for backslash labels. `eval/mine-golden-candidates.ts` now emits forward-slash labels. Eval harness only: no server behaviour or default changes.
