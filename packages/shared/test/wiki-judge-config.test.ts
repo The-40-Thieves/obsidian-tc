@@ -2,7 +2,7 @@
 // find_existing_page judge stays default OFF, and provider "typesafe" carries the same pinned-model /
 // threshold / https-unless-loopback-unless-allowPlainHttp rules as experiential.citationInfer.judge.
 import { describe, expect, it } from "vitest";
-import { ServerConfigSchema } from "../src/index";
+import { configJsonSchema, ServerConfigSchema } from "../src/index";
 
 const base = { vaults: [{ id: "main", path: "/v" }] };
 const parse = (wikiJudge: Record<string, unknown>) =>
@@ -98,4 +98,38 @@ describe("wikiJudge.provider typesafe", () => {
   it("refuses a non-http(s) scheme even with allowPlainHttp", () => {
     expect(() => typesafe({ baseUrl: "ftp://example.com", allowPlainHttp: true })).toThrow();
   });
+});
+
+describe("plainHttpHosts descriptions state the CGNAT rule", () => {
+  // Every plainHttpHosts field in the published schema (the root network block and both TypeSafe
+  // judge blocks) must say that 100.64.0.0/10 is accepted only for a LISTED host, and name the
+  // metadata addresses that are never allowed. The text was silent about CGNAT while the code
+  // accepted it, so an operator listing a host could not tell what the check would let through.
+  const collect = (node: unknown, out: string[]): string[] => {
+    if (Array.isArray(node)) {
+      for (const n of node) collect(n, out);
+    } else if (node !== null && typeof node === "object") {
+      for (const [k, v] of Object.entries(node)) {
+        const d = (v as { description?: unknown } | null)?.description;
+        if (k === "plainHttpHosts" && typeof d === "string") out.push(d);
+        collect(v, out);
+      }
+    }
+    return out;
+  };
+  const descriptions = collect(configJsonSchema(), []);
+
+  it("finds the three plainHttpHosts fields", () => {
+    expect(descriptions.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it.each(descriptions.map((d, i) => [i, d] as const))(
+    "description %i mentions 100.64.0.0/10 as listed-only and the metadata addresses",
+    (_i, d) => {
+      expect(d).toContain("100.64.0.0/10");
+      expect(d).toMatch(/LISTED host/);
+      expect(d).toContain("100.100.100.200");
+      expect(d).toContain("fd00:ec2::254");
+    },
+  );
 });

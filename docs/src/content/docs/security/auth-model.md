@@ -307,8 +307,12 @@ What to know before turning it on:
   URL; list another host in `allowedJwksHosts` (Google serves keys from `www.googleapis.com`) or set `jwksUri`
   yourself. Before every fetch the host is resolved and refused if any address is loopback, link-local (the cloud
   metadata address), private or reserved. For an identity provider on your own LAN set `allowPrivateNetwork: true`.
-  The resolve-then-fetch check cannot pin the connection, so a DNS record that changes between the two is not
-  covered.
+  The connection is pinned to the addresses that check validated (the name is not resolved again, so a DNS record
+  that changes in between cannot redirect it), with TLS verified against the issuer's hostname; a pinned connection
+  is direct, so `HTTPS_PROXY` is not used for the identity provider (with `allowPrivateNetwork: true` nothing is
+  pinned and the ordinary fetch applies). IPv6 transition addresses that embed a blocked IPv4 (6to4, Teredo) are
+  blocked too. `allowedJwksHosts` admits a hostname on the default https port only; a `jwks_uri` on another port needs
+  `jwksUri`. A `jwks_uri` is shown in logs, errors and `doctor` as its origin only (its path and query string can carry a credential).
 - **`audience` is required.** Register a dedicated API audience at the IdP. Using a client id as the audience would
   let an ID token through.
 - **Algorithms are asymmetric only** (`allowedAlgs`, default RS256, ES256, EdDSA). HS256 and `none` cannot be

@@ -97,6 +97,17 @@ export interface AuthRegistryProbe {
   /** The registry's keys, or undefined when they cannot be read (no auth.db, or one not yet
    *  migrated to the current schema). Never key material. */
   keys?: AuthKey[];
+  /** Why auth.db cannot be opened, when it exists but is damaged (not a SQLite file, a malformed
+   *  image, ...): `serve` aborts on the same error. Absent when it opens, when it is merely not
+   *  migrated yet, or when the failure is transient (a locked database). */
+  unreadable?: string;
+}
+
+/** A database error that means "this registry is not usable" rather than "not set up yet" (a
+ *  valid database with none of the registry tables) or "busy right now" (a writer holds it). */
+function isUnreadableDatabaseError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return !/no such (table|column)|locked|busy/i.test(msg);
 }
 
 export async function probeAuthRegistry(cfg: RegistryCfg): Promise<AuthRegistryProbe> {
@@ -108,6 +119,7 @@ export async function probeAuthRegistry(cfg: RegistryCfg): Promise<AuthRegistryP
       ? { state: "lost", detail: registryLostMessageFor(keysDir, state) }
       : { state: "uninitialised" };
   let keys: AuthKey[] | undefined;
+  let unreadable: string | undefined;
   if (existsSync(dbPath)) {
     let db: Database | undefined;
     try {
@@ -115,8 +127,10 @@ export async function probeAuthRegistry(cfg: RegistryCfg): Promise<AuthRegistryP
       const registry = createAuthRegistry(db, { keysDir });
       health = registry.health();
       keys = registry.listKeys();
-    } catch {
-      /* unreadable or unmigrated: the initialised/uninitialised reading above stands */
+    } catch (e) {
+      // Unmigrated or busy: the initialised/uninitialised reading above stands. Anything else
+      // (not a database, a malformed image) is a registry `serve` refuses to open: say so.
+      if (isUnreadableDatabaseError(e)) unreadable = e instanceof Error ? e.message : String(e);
     } finally {
       db?.close?.();
     }
@@ -127,6 +141,7 @@ export async function probeAuthRegistry(cfg: RegistryCfg): Promise<AuthRegistryP
     keysDir,
     keyFileIssues: keyFileIssues(keysDir),
     ...(keys !== undefined ? { keys } : {}),
+    ...(unreadable !== undefined ? { unreadable } : {}),
   };
 }
 

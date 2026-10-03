@@ -22,7 +22,7 @@ describe("doctor: auth.oidc", () => {
       probe: async () => ({ ok: true, jwksUri: "https://idp.example.com/jwks", keyCount: 2 }),
     });
     expect(r.status).toBe("ok");
-    expect(JSON.stringify(r.details)).toContain("https://idp.example.com/jwks");
+    expect(JSON.stringify(r.details)).toContain('"jwksUri":"https://idp.example.com"');
   });
 
   it("FAILS (not warns) when discovery fails: the server would refuse to boot", async () => {

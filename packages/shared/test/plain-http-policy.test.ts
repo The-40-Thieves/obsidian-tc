@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  embeddedIpv4Addresses,
+  isCloudMetadataAddress,
+  isDisallowedLiteralHost,
   isListedOnlyPrivateAddress,
   isPlainHttpHostListed,
   isPrivateNetworkAddress,
@@ -183,5 +186,80 @@ describe("typesafeJudgeIssues plainHttpHosts", () => {
     expect(
       typesafeJudgeIssues({ ...base, baseUrl: "http://127.0.0.1:9000" }, "judge", "Noul"),
     ).toEqual([]);
+  });
+});
+
+// Release review: fc00::/7 is "private", but the cloud IPv6 instance-metadata addresses live inside
+// it. They are credential endpoints, never provider endpoints, listed or not.
+describe("cloud instance-metadata addresses are never sendable", () => {
+  const METADATA = [
+    "fd00:ec2::254", // AWS IMDS over IPv6
+    "fd00:64:64:64::254", // Alibaba
+    "fd20:ce::254", // GCP
+    "FD00:EC2::254",
+    "[fd00:ec2::254]",
+    "fd00:0ec2:0:0:0:0:0:0254",
+    "fd00:ec2:0:0::254",
+    "::ffff:169.254.169.254",
+  ];
+
+  it("isPrivateNetworkAddress refuses every spelling of them", () => {
+    for (const ip of METADATA) expect(isPrivateNetworkAddress(ip), ip).toBe(false);
+  });
+
+  it("isCloudMetadataAddress names them, in every spelling, and nothing else nearby", () => {
+    for (const ip of [...METADATA, "169.254.169.254", "100.100.100.200", "::ffff:6464:64c8"]) {
+      expect(isCloudMetadataAddress(ip), ip).toBe(true);
+    }
+    for (const ip of [
+      "fd00:ec2::253",
+      "fd00:ec2::2540",
+      "fd00::254",
+      "fd12:3456::1",
+      "10.0.0.1",
+      "100.100.100.201",
+      "not-an-ip",
+      "",
+    ]) {
+      expect(isCloudMetadataAddress(ip), ip).toBe(false);
+    }
+  });
+
+  it("neighbouring unique-local addresses stay private", () => {
+    for (const ip of ["fd00:ec2::253", "fd00::254", "fd00:64:64:64::253", "fd20:ce::1"]) {
+      expect(isPrivateNetworkAddress(ip), ip).toBe(true);
+    }
+  });
+
+  it("a listed host cannot reach Alibaba's CGNAT-range metadata address either", () => {
+    expect(isListedOnlyPrivateAddress("100.100.100.200")).toBe(false);
+    expect(isListedOnlyPrivateAddress("::ffff:100.100.100.200")).toBe(false);
+    expect(isListedOnlyPrivateAddress("100.100.100.201")).toBe(true);
+  });
+
+  it("isDisallowedLiteralHost (the config/OIDC list) agrees: they are disallowed", () => {
+    for (const ip of METADATA) expect(isDisallowedLiteralHost(ip), ip).toBe(true);
+  });
+});
+
+describe("embeddedIpv4Addresses (6to4, Teredo)", () => {
+  it("reads the IPv4 a 6to4 address embeds", () => {
+    expect(embeddedIpv4Addresses("2002:a9fe:a9fe::")).toEqual(["169.254.169.254"]);
+    expect(embeddedIpv4Addresses("2002:7f00:1::1")).toEqual(["127.0.0.1"]);
+    expect(embeddedIpv4Addresses("[2002:0a00:0001::]")).toEqual(["10.0.0.1"]);
+  });
+
+  it("reads the server and the de-obfuscated client IPv4 of a Teredo address", () => {
+    // server 169.254.169.254, flags 0, port 0, client 127.0.0.1 (stored inverted: 80ff:fffe)
+    expect(embeddedIpv4Addresses("2001:0:a9fe:a9fe:0:0:80ff:fffe")).toEqual([
+      "169.254.169.254",
+      "127.0.0.1",
+    ]);
+  });
+
+  it("is empty for anything else, including a plain public IPv6 and non-IPs", () => {
+    for (const ip of ["2001:4860:4860::8888", "2001:db8::1", "::1", "10.0.0.1", "nope", ""]) {
+      expect(embeddedIpv4Addresses(ip), ip).toEqual([]);
+    }
   });
 });

@@ -29,16 +29,21 @@
 // Only https:// passes through to the ordinary fetch, which DOES honour a proxy variable. That is
 // deliberate: an https request through a proxy is a CONNECT tunnel, so the proxy sees the host and
 // port but cannot read the key or the body, and operators behind a mandatory egress proxy need
-// it. node:http is used for the plain-http leg because it is the one client API that Node and Bun
+// it. It is called with `redirect: "manual"` and a 3xx answer is REFUSED, exactly as on the http
+// leg: the runtime's default follows a 307/308 and replays the POST body (key and vault text) to a
+// Location nobody checked against this policy. node:http is used for the plain-http leg because it is the one client API that Node and Bun
 // both honor a pinned `host` + explicit Host header on (and neither applies proxy variables to);
 // undici's `dispatcher` option is Node-only. node:http never follows redirects, which is what is
 // wanted here: a 3xx from a vetted host must not be able to bounce the request to an unchecked
 // address.
 import { lookup } from "node:dns/promises";
 import http from "node:http";
+import https from "node:https";
 import { isIP } from "node:net";
 import { Readable } from "node:stream";
 import {
+  embeddedIpv4Addresses,
+  isCloudMetadataAddress,
   isListedOnlyPrivateAddress,
   isLoopbackHost,
   isPlainHttpHostListed,
@@ -54,8 +59,9 @@ export interface ResolvedAddress {
 /** Resolves a hostname to ALL of its addresses, in the resolver's order. The seam tests stub. */
 export type ResolveHost = (hostname: string) => Promise<ResolvedAddress[]>;
 
-/** Thrown when the policy refuses a plain-http request. The message names the host and, where it
- *  applies, the offending address; it never carries the key, a path or a query. */
+/** Thrown when the policy refuses an outbound request: a plain-http host or address that fails the
+ *  policy, or a redirect from any scheme. The message names the host and, where it applies, the
+ *  offending address; it never carries the key, a path, a query or a redirect target. */
 export class PlainHttpRefusedError extends Error {
   readonly code = "EPLAINHTTP_REFUSED";
   constructor(message: string) {
@@ -164,6 +170,25 @@ export async function resolvePlainHttpTarget(
 
 const NULL_BODY_STATUS = new Set([101, 204, 205, 304]);
 
+/** The refusal for an https answer that redirects. Nothing is sent to the Location target. */
+function httpsRedirectRefused(host: string, status: number): PlainHttpRefusedError {
+  return new PlainHttpRefusedError(
+    `https to ${host} refused: it answered with a redirect (HTTP ${status}); redirects are not followed`,
+  );
+}
+
+/** An https:// URL whose host is a cloud instance-metadata literal (any spelling, IPv4-mapped or
+ *  wrapped in a 6to4/Teredo prefix): refused before a socket exists. Names are not resolved here;
+ *  this only judges the literal text, the same rule the plain-http leg applies to its addresses. */
+function assertNotMetadataLiteral(url: URL): void {
+  const host = normalizeHostForBind(url.hostname);
+  if (isCloudMetadataAddress(host) || embeddedIpv4Addresses(host).some(isCloudMetadataAddress)) {
+    throw new PlainHttpRefusedError(
+      `https to ${url.hostname} refused: it is a cloud instance-metadata address`,
+    );
+  }
+}
+
 function abortError(): Error {
   const e = new Error("The operation was aborted");
   e.name = "AbortError";
@@ -186,9 +211,12 @@ function sendPinned(
   target: ResolvedAddress,
   req: { url: URL; method: string; headers: Headers; body: Uint8Array | undefined },
   signal: AbortSignal,
+  /** false: hand a 3xx back to the caller instead of refusing it (the caller reports it). */
+  refuseRedirects = true,
 ): Promise<Response> {
   return new Promise<Response>((resolve, reject) => {
     if (signal.aborted) return reject(abortError());
+    const secure = req.url.protocol === "https:";
     const headers: Record<string, string> = {};
     req.headers.forEach((v, k) => {
       headers[k] = v;
@@ -197,13 +225,18 @@ function sendPinned(
     headers.host = req.url.host;
     if (headers["accept-encoding"] === undefined) headers["accept-encoding"] = "identity";
     if (req.body !== undefined) headers["content-length"] = String(req.body.byteLength);
-    const out = http.request({
+    // https: the socket goes to the pinned address, but SNI and the certificate check stay on the
+    // URL's hostname (`servername`; never an IP literal, which is not a valid SNI name).
+    const out = (secure ? https : http).request({
       host: connectAddress(target.address),
-      port: req.url.port === "" ? 80 : Number(req.url.port),
+      port: req.url.port === "" ? (secure ? 443 : 80) : Number(req.url.port),
       method: req.method,
       path: `${req.url.pathname}${req.url.search}`,
       headers,
       agent: false,
+      ...(secure && isIP(normalizeHostForBind(req.url.hostname)) === 0
+        ? { servername: req.url.hostname }
+        : {}),
     });
     const onAbort = () => out.destroy(abortError());
     signal.addEventListener("abort", onAbort, { once: true });
@@ -221,12 +254,12 @@ function sendPinned(
       const status = res.statusCode ?? 502;
       // Redirects are refused, never followed: the Location target was not checked against the
       // host list or the private-address rule, and nothing is sent to it.
-      if (status >= 300 && status < 400 && res.headers.location !== undefined) {
+      if (refuseRedirects && status >= 300 && status < 400 && res.headers.location !== undefined) {
         res.destroy();
         done();
         reject(
           new PlainHttpRefusedError(
-            `plain http to ${req.url.hostname} refused: it answered with a redirect (HTTP ${status}); redirects are not followed`,
+            `${secure ? "https" : "plain http"} to ${req.url.hostname} refused: it answered with a redirect (HTTP ${status}); redirects are not followed`,
           ),
         );
         return;
@@ -243,6 +276,35 @@ function sendPinned(
     });
     out.end(req.body);
   });
+}
+
+/**
+ * A `fetch` for bodiless GETs (the OIDC discovery and JWKS fetches) that connects ONLY to the
+ * addresses the caller already validated, in order, never resolving the name again: a record that
+ * changes after the check cannot redirect the connection (DNS rebinding). https keeps SNI and
+ * certificate validation on the original hostname. No agent and no proxy (a proxy would resolve the
+ * name itself), and redirects are never followed: the 3xx is returned for the caller to report.
+ * A connect-phase failure moves to the next validated address; the last error is thrown.
+ */
+export function createPinnedFetch(targets: readonly ResolvedAddress[]): typeof fetch {
+  return (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = new URL(
+      typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+    );
+    const headers = new Headers(init?.headers);
+    const method = init?.method ?? "GET";
+    const signal = init?.signal ?? new AbortController().signal;
+    let last: unknown = new PlainHttpRefusedError(`${url.hostname} has no validated address`);
+    for (const target of targets) {
+      try {
+        return await sendPinned(target, { url, method, headers, body: undefined }, signal, false);
+      } catch (e) {
+        last = e;
+        if (signal.aborted) break;
+      }
+    }
+    throw last;
+  }) as typeof fetch;
 }
 
 export interface PlainHttpPolicyFetchOptions extends PlainHttpPolicyOptions {
@@ -263,7 +325,21 @@ export function createPlainHttpPolicyFetch(opts: PlainHttpPolicyFetchOptions): t
     const url = new URL(
       typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
     );
-    if (!isPlainHttp(url)) return baseFetch(input, init);
+    if (!isPlainHttp(url)) {
+      assertNotMetadataLiteral(url);
+      // Never let the runtime follow a redirect: it would replay the POST body to an unchecked
+      // destination. `manual` hands the 3xx back (Node and Bun surface the real status; a runtime
+      // that returns an opaque redirect is caught by its type), and it is refused here.
+      const res = await baseFetch(input, { ...init, redirect: "manual" });
+      const redirected =
+        res.type === "opaqueredirect" ||
+        (res.status >= 300 && res.status < 400 && res.headers.get("location") !== null);
+      if (redirected) {
+        void res.body?.cancel();
+        throw httpsRedirectRefused(url.hostname, res.status);
+      }
+      return res;
+    }
     const req = new Request(
       input as ConstructorParameters<typeof Request>[0],
       init as RequestInit | undefined,

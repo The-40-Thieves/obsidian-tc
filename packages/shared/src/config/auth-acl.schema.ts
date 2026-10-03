@@ -90,7 +90,7 @@ const OidcConfigSchema = z
       )
       .optional()
       .describe(
-        "Optional. Hostnames a DISCOVERED `jwks_uri` may name besides the issuer's own origin. Without it the discovered `jwks_uri` must be on the same origin as `issuer` (a discovery document cannot redirect key material to another host). Needed for IdPs that serve keys from another host (Google: `www.googleapis.com`). Ignored when `jwksUri` is set. It never lifts the private-network block.",
+        "Optional. Hostnames a DISCOVERED `jwks_uri` may name besides the issuer's own origin. Without it the discovered `jwks_uri` must be on the same origin as `issuer` (a discovery document cannot redirect key material to another host). Needed for IdPs that serve keys from another host (Google: `www.googleapis.com`). A listed host admits the default https port (443) only: a `jwks_uri` on another port is refused (set `jwksUri` for that). Ignored when `jwksUri` is set. It never lifts the private-network block.",
       ),
     allowPrivateNetwork: z
       .boolean()

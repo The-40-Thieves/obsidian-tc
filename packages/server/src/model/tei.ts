@@ -9,6 +9,7 @@
 import { type FetchFn, postJson } from "../embeddings/http";
 import { assertVectors } from "../embeddings/provider";
 import { providerFetch } from "../gateway/provider-fetch";
+import { readBodyText } from "../gateway/read-body";
 import type { EmbedRequest, EmbedResult, ModelClient } from "./ports";
 
 export interface TeiClientOptions {
@@ -48,8 +49,12 @@ export function teiModelClient(opts: TeiClientOptions): ModelClient {
     if (infoFetched) return infoCache;
     infoFetched = true;
     try {
-      const res = await (opts.fetchFn ?? providerFetch)(`${base}/info`, { method: "GET" });
-      if (res.ok) infoCache = (await res.json()) as TeiInfo;
+      // Bounded like every other provider call: a stalled /info must not hold embed open.
+      const res = await (opts.fetchFn ?? providerFetch)(`${base}/info`, {
+        method: "GET",
+        signal: AbortSignal.timeout(opts.timeoutMs ?? 30_000),
+      });
+      if (res.ok) infoCache = JSON.parse(await readBodyText(res)) as TeiInfo;
     } catch {
       /* provenance is best-effort; fall back to config */
     }

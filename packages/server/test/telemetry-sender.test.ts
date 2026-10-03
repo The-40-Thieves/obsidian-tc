@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
+import { createPlainHttpPolicyFetch } from "../src/gateway/plain-http";
 import { TelemetryCollector } from "../src/telemetry/collector";
 import { redactEndpoint } from "../src/telemetry/redact-endpoint";
 import { sendTelemetry } from "../src/telemetry/sender";
@@ -166,6 +167,40 @@ describe("sendTelemetry", () => {
       expect(result.error).toContain("redirect refused");
       // The Location header value (an attacker-controlled string) never appears in the recorded error.
       expect(result.error).not.toContain("attacker.example");
+    });
+  });
+
+  it("through the real policy fetch, an https 307 is refused (PlainHttpRefusedError), recorded as a failure, and the Location target is never contacted or logged", async () => {
+    await withDb(async (db) => {
+      const collector = new TelemetryCollector(undefined, () => 1000);
+      const seen: string[] = [];
+      const fetchImpl = createPlainHttpPolicyFetch({
+        plainHttpHosts: () => [],
+        baseFetch: (async (input: Parameters<typeof fetch>[0]) => {
+          seen.push(String(input));
+          return new Response(null, {
+            status: 307,
+            headers: { location: "https://attacker.example/steal" },
+          });
+        }) as typeof fetch,
+      });
+
+      const result = await sendTelemetry({
+        db,
+        collector,
+        endpoint: ENDPOINT,
+        serverVersion: "test",
+        facadeMode: "triad",
+        now: () => 2000,
+        fetchImpl,
+      });
+
+      expect(seen).toHaveLength(1);
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("redirect");
+      expect(result.error).not.toContain("attacker.example");
+      expect(result.error).not.toContain("pw");
+      expect(readTelemetryState(db)?.lastError).toContain("redirect");
     });
   });
 

@@ -43,37 +43,13 @@ const DEFAULT_POLL_MS = 50;
 // paced embed loop's own contract, and every consumer of `waitForIdle` already has a live signal
 // to abort on — adding a second output channel to the function itself would only complicate
 // callers that don't care.
+import { abortableSleep } from "../../util/abortable-sleep";
+
 let waiting = 0;
 
 /** True while at least one `waitForIdle` call is genuinely blocked (not merely checking). */
 export function isBackgroundEmbedPaused(): boolean {
   return waiting > 0;
-}
-
-function sleepAbortable(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, ms);
-    const onAbort = (): void => {
-      clearTimeout(timer);
-      resolve();
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
-    // Fix round (Codex review on #1003 verify-r2, medium finding 1): addEventListener above does
-    // NOT invoke onAbort for a signal that was already aborted before this call — DOM/Node's
-    // AbortSignal only fires "abort" at the moment abort() runs, never retroactively for a
-    // listener added afterward. waitForIdle's loop only checks `signal?.aborted` BEFORE calling
-    // this function, so a signal aborted in the gap between that check and this call would
-    // otherwise sit through the full `ms` timer before resolving. Re-check synchronously right
-    // after subscribing to close that gap.
-    if (signal?.aborted) {
-      signal.removeEventListener("abort", onAbort);
-      clearTimeout(timer);
-      resolve();
-    }
-  });
 }
 
 // Fix round (Codex review on #1003, HIGH finding 1): the plain idle-quiet-window gate above has no
@@ -131,7 +107,7 @@ export async function waitForIdle(
         if (deferredFor >= maxDeferMs && !gate.isBusy()) return;
         if (deferredFor >= maxDeferMs * HARD_CAP_MULTIPLIER) return;
       }
-      await sleepAbortable(pollMs, signal);
+      await abortableSleep(pollMs, signal);
     }
   } finally {
     waiting -= 1;

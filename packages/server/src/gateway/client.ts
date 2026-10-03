@@ -4,8 +4,10 @@ import {
   compileEgressFilter,
   type EgressFilter,
 } from "../plane/egress-filter";
+import { abortableSleep } from "../util/abortable-sleep";
 import { PlainHttpRefusedError } from "./plain-http";
 import { providerFetch } from "./provider-fetch";
+import { ProviderBodyTooLargeError, readBodyText } from "./read-body";
 
 export type GatewayRole = "extract" | "synthesize" | "judge";
 
@@ -50,6 +52,8 @@ export interface RerankRequest {
    *  port guard checks this the same way it checks a completion request's sourcePaths. A hosted
    *  reranker is a content-bearing egress leg exactly like extract/synthesize/judge (I2). */
   sourcePaths?: string[];
+  /** Caller deadline: aborting cancels the in-flight request and any further retry. */
+  signal?: AbortSignal;
 }
 
 export interface RerankResult {
@@ -104,7 +108,7 @@ export interface GatewayClientOptions {
   /** Cap on a computed backoff delay, in ms. Does not cap an honored `Retry-After`. Default 2000ms. */
   retryMaxDelayMs?: number;
   /** Delay seam for tests — default a real setTimeout-based wait. */
-  sleepFn?: (ms: number) => Promise<void>;
+  sleepFn?: (ms: number, signal?: AbortSignal) => Promise<void>;
   /** THE-934 fix round 1: egress.excludePaths, compiled. Absent -> an empty filter (excludes
    *  nothing) -- but the sourcePaths DECLARATION requirement below is unconditional regardless,
    *  so every caller of the returned client must still declare sourcePaths on every
@@ -150,8 +154,6 @@ const DEFAULT_RETRY_MAX_MS = 2_000;
 function backoffDelayMs(attempt: number, baseMs: number, maxMs: number): number {
   return Math.min(baseMs * 2 ** Math.max(0, attempt - 1), maxMs);
 }
-
-const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** `Retry-After` per RFC 9110 §10.2.3: either delay-seconds or an HTTP-date. Returns null (=
  *  "not present / not honored") for anything else, which callers treat as a bare, non-retryable
@@ -207,7 +209,7 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
   const maxAttempts = Math.max(1, opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
   const retryBaseDelayMs = opts.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_MS;
   const retryMaxDelayMs = opts.retryMaxDelayMs ?? DEFAULT_RETRY_MAX_MS;
-  const sleepFn = opts.sleepFn ?? realSleep;
+  const sleepFn = opts.sleepFn ?? abortableSleep;
 
   async function postRaw<T>(
     path: string,
@@ -225,6 +227,7 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       let res: Awaited<ReturnType<FetchFn>> | undefined;
+      let text = "";
       try {
         res = await fetchFn(`${base}${path}`, {
           method: "POST",
@@ -235,7 +238,14 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
           body: JSON.stringify(body),
           signal: callerSignal ? AbortSignal.any([ctrl.signal, callerSignal]) : ctrl.signal,
         });
+        // The timer stays armed through the body: a provider that answers 200 and then stalls
+        // must hit the same timeout as one that never answers (see gateway/read-body.ts).
+        if (res.ok) text = await readBodyText(res);
+        else void res.body?.cancel().catch(() => undefined);
       } catch (e) {
+        res = undefined;
+        if (e instanceof ProviderBodyTooLargeError)
+          throw new ObsidianTcError("internal", `gateway ${e.message}`);
         // A plain-http policy refusal is a configuration fact, never retried: fail now with the
         // host and reason (never the token).
         if (e instanceof PlainHttpRefusedError)
@@ -258,7 +268,7 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
       }
 
       if (res) {
-        if (res.ok) return { body: (await res.json()) as T, headers: res.headers };
+        if (res.ok) return { body: JSON.parse(text) as T, headers: res.headers };
         const retryAfterMs =
           res.status === 429 ? parseRetryAfterMs(res.headers.get("retry-after")) : null;
         lastError = new ObsidianTcError("internal", `gateway returned HTTP ${res.status}`, {
@@ -270,14 +280,17 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
         const retryableStatus = res.status >= 500 || retryAfterMs !== null;
         if (!retryableStatus) throw lastError;
         if (attempt < maxAttempts) {
-          await sleepFn(retryAfterMs ?? backoffDelayMs(attempt, retryBaseDelayMs, retryMaxDelayMs));
+          await sleepFn(
+            retryAfterMs ?? backoffDelayMs(attempt, retryBaseDelayMs, retryMaxDelayMs),
+            callerSignal,
+          );
           continue;
         }
         throw lastError;
       }
 
       if (attempt < maxAttempts) {
-        await sleepFn(backoffDelayMs(attempt, retryBaseDelayMs, retryMaxDelayMs));
+        await sleepFn(backoffDelayMs(attempt, retryBaseDelayMs, retryMaxDelayMs), callerSignal);
         continue;
       }
       throw lastError;
@@ -287,8 +300,8 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
     throw lastError;
   }
 
-  async function post<T>(path: string, body: unknown): Promise<T> {
-    return (await postRaw<T>(path, body)).body;
+  async function post<T>(path: string, body: unknown, callerSignal?: AbortSignal): Promise<T> {
+    return (await postRaw<T>(path, body, callerSignal)).body;
   }
 
   // LiteLLM echoes the REQUESTED ALIAS in the response body's `model` (measured against the live
@@ -301,7 +314,10 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
   // so a down endpoint is not re-hit on every call, yet a restored one is picked up.
   const deploymentModels = new Map<string, { model: string | null; at: number }>();
   const NEGATIVE_CACHE_MS = 60_000;
-  async function resolveDeploymentModel(deploymentId: string): Promise<string | null> {
+  async function resolveDeploymentModel(
+    deploymentId: string,
+    callerSignal?: AbortSignal,
+  ): Promise<string | null> {
     const hit = deploymentModels.get(deploymentId);
     if (hit && (hit.model !== null || Date.now() - hit.at < NEGATIVE_CACHE_MS)) return hit.model;
     let model: string | null = null;
@@ -313,11 +329,11 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
         {
           method: "GET",
           headers: token ? { authorization: `Bearer ${token}` } : {},
-          signal: ctrl.signal,
+          signal: callerSignal ? AbortSignal.any([ctrl.signal, callerSignal]) : ctrl.signal,
         },
       );
       if (res.ok) {
-        const info = (await res.json()) as ModelInfoResponse;
+        const info = JSON.parse(await readBodyText(res)) as ModelInfoResponse;
         // Match on the id rather than trusting the filter: an older proxy ignores the query
         // parameter and returns the whole model list.
         const m = info.data?.find((d) => d.model_info?.id === deploymentId)?.litellm_params?.model;
@@ -328,6 +344,8 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
     } finally {
       clearTimeout(timer);
     }
+    // A lookup the caller cancelled says nothing about the endpoint: do not cache it as a failure.
+    if (callerSignal?.aborted) return null;
     deploymentModels.set(deploymentId, { model, at: Date.now() });
     return model;
   }
@@ -349,7 +367,7 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
     let reported = payload.model ?? model;
     const deploymentId = headers.get("x-litellm-model-id");
     if (reported === model && deploymentId) {
-      reported = (await resolveDeploymentModel(deploymentId)) ?? reported;
+      reported = (await resolveDeploymentModel(deploymentId, req.signal)) ?? reported;
     }
     return {
       text: choice?.message?.content ?? "",
@@ -364,12 +382,16 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
     judge: (req) => complete("judge", req),
     async rerank(req) {
       const model = opts.rerankModel ?? "rerank";
-      const payload = await post<RerankResponse>("/rerank", {
-        model,
-        query: req.query,
-        documents: req.documents,
-        ...(req.topN !== undefined ? { top_n: req.topN } : {}),
-      });
+      const payload = await post<RerankResponse>(
+        "/rerank",
+        {
+          model,
+          query: req.query,
+          documents: req.documents,
+          ...(req.topN !== undefined ? { top_n: req.topN } : {}),
+        },
+        req.signal,
+      );
       return {
         results: (payload.results ?? []).map((r) => ({
           index: r.index,

@@ -4,13 +4,16 @@
 // addresses: cloud metadata, loopback services, the LAN. Every fetch resolves the host first and
 // refuses when ANY address is not public, unless the operator opted in with `allowPrivateNetwork`.
 //
-// Limit, stated plainly: the check resolves, then `fetch` resolves again, so a DNS record that flips
-// between the two can still slip through. Closing that needs the connection pinned to the checked
-// address, which the runtime `fetch` does not offer. The window is per fetch and the response is
-// still only ever read as a bounded JSON document.
+// The check resolves once and the connection is PINNED to the addresses it validated
+// (gateway/plain-http.ts createPinnedFetch): the request never resolves the name again, so a DNS
+// record that flips between the check and the connect cannot redirect it (rebinding). TLS keeps
+// SNI and certificate validation on the hostname. The price: a pinned connection is direct, so an
+// HTTPS_PROXY in the environment is not used for the identity provider (a proxy would resolve the
+// name itself, which is the gap); `allowPrivateNetwork` skips the check and keeps the ordinary fetch.
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import {
+  embeddedIpv4Addresses,
   isDisallowedLiteralHost,
   isLoopbackHost,
   normalizeHostForBind,
@@ -41,14 +44,18 @@ function unmapV4(h: string): string {
 /**
  * True for any address that is not a public unicast address: loopback, unspecified, RFC 1918,
  * carrier-grade NAT, link-local (169.254/16 is the cloud metadata address), unique-local,
- * multicast/reserved, benchmarking, and the IPv6 forms that embed an IPv4 address. An unparseable
- * string is blocked.
+ * multicast/reserved, benchmarking, cloud metadata, and the IPv6 forms that embed an IPv4 address
+ * (IPv4-mapped, NAT64, and 6to4 / Teredo, whose embedded IPv4 is judged by this same function). An
+ * unparseable string is blocked.
  */
 export function isBlockedAddress(address: string): boolean {
   const h = unmapV4(normalizeHostForBind(address));
   const family = isIP(h);
   if (family === 0) return true;
   if (isLoopbackHost(h) || isDisallowedLiteralHost(h)) return true;
+  // 6to4 (2002::/16) and Teredo (2001:0::/32) carry an IPv4 address: a tunnel prefix must not get
+  // a blocked IPv4 past the check.
+  if (embeddedIpv4Addresses(h).some(isBlockedAddress)) return true;
   if (family === 4) {
     const [a = 0, b = 0, c = 0] = h.split(".").map(Number);
     return (
@@ -65,14 +72,25 @@ export function isBlockedAddress(address: string): boolean {
   );
 }
 
-/** Throws (with `what` and the offending address) unless `hostname` resolves only to public addresses. */
+/** An address a host resolved to, in the shape the pinned transport connects to. */
+export interface ValidatedAddress {
+  address: string;
+  family: 4 | 6;
+}
+
+/**
+ * Throws (with `what` and the offending address) unless `hostname` resolves only to public
+ * addresses. Returns the validated addresses, in resolver order, for the caller to connect to
+ * instead of resolving the name again (see createPinnedFetch); `undefined` when the policy opted out
+ * with `allowPrivateNetwork`, where nothing was checked and so nothing can be pinned.
+ */
 export async function assertPublicHost(
   hostname: string,
   policy: IdpNetworkPolicy,
   fail: (message: string, cause?: unknown) => Error,
   what: string,
-): Promise<void> {
-  if (policy.allowPrivateNetwork === true) return;
+): Promise<ValidatedAddress[] | undefined> {
+  if (policy.allowPrivateNetwork === true) return undefined;
   const host = normalizeHostForBind(hostname);
   let addresses: string[];
   if (isIP(host) !== 0) {
@@ -94,4 +112,8 @@ export async function assertPublicHost(
       `${what}: ${host} resolves to ${bad}, which is not a public address (loopback, link-local, private or reserved); refusing to fetch it. Set auth.oidc.allowPrivateNetwork for an identity provider on a private network`,
     );
   }
+  return addresses.flatMap((address) => {
+    const family = isIP(normalizeHostForBind(address));
+    return family === 4 || family === 6 ? [{ address: normalizeHostForBind(address), family }] : [];
+  });
 }
