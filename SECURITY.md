@@ -719,7 +719,8 @@ config load unless its exact hostname is listed in that block's `plainHttpHosts`
 punycode-normalized, no wildcards); every other provider lists its host in the root
 `network.plainHttpHosts`. A listed
 host is checked again on every request: it is resolved once and refused, with nothing sent, unless every
-resolved address is loopback, RFC 1918 or IPv6 unique-local (`fc00::/7`). Link-local, including the
+resolved address is loopback, RFC 1918 or IPv6 unique-local (`fc00::/7`), or, for a listed host only, in
+the Tailscale/CGNAT range `100.64.0.0/10`. Link-local, including the
 `169.254.169.254` cloud metadata address, and every public address are refused, and IPv4-mapped IPv6 and
 numeric or hex IPv4 spellings are judged as the address they spell. The connection goes to the checked
 address with the original `Host` header (no DNS rebinding between check and send), and a redirect from
@@ -730,7 +731,7 @@ requests do honour those variables: through a proxy that is a CONNECT tunnel, an
 port but cannot read the body. `allowPlainHttp: true` is deprecated, removed in the next major
 release, and now only means "this `baseUrl`'s own host is listed": it no longer waives the address check.
 `obsidian-tc doctor` lists each plain-http host with its resolved addresses and a status (`allowed`,
-`deprecated-unlisted`, `refused`); `doctor` and `server_health` warn while the deprecated flag is set.
+`allowed (listed tailnet/CGNAT)`, `deprecated-unlisted`, `refused`); `doctor` and `server_health` warn while the deprecated flag is set.
 
 For a provider (not a judge) URL, compatibility holds for one release: a non-loopback `http://` host that is
 NOT in `network.plainHttpHosts` but resolves only to private addresses is still sent to, with a warning that
@@ -739,8 +740,10 @@ next major release. A host that resolves to any public address is refused at onc
 or a hostile config can no longer send the key and vault text to an arbitrary host or through `HTTP_PROXY`.
 
 Accepted residuals: the traffic to a listed private host is still cleartext, so a hostile peer on that
-private network can read it. A host on the tailnet range (`100.64.0.0/10`) is not in the private set, so a
-provider reached by its tailnet address must use `https://` (for example `tailscale serve`). Pensieve
+private network can read it. The tailnet range (`100.64.0.0/10`) is admitted only for a listed host and
+never through the unlisted-private deprecation path: Tailscale traffic is WireGuard-encrypted, but ISP
+carrier-grade NAT space is not, so listing a host is the operator's explicit statement that it is a tailnet
+peer. List only tailnet hosts. Pensieve
 (`pensieve.baseUrl`) is excluded: it is an inbound, key-less GET to a tailnet address and carries no key or
 vault text.
 

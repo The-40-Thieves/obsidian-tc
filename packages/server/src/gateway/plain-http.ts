@@ -5,9 +5,11 @@
 //      no wildcards — the deprecated `allowPlainHttp` flag maps to "this baseUrl's own host"), and
 //   2. at connect time, every address that host resolves to is loopback, RFC1918 or IPv6
 //      unique-local (isPrivateNetworkAddress; link-local is excluded: 169.254.169.254 is the cloud
-//      metadata service). A host that resolves to anything else is
-//      refused even when it is listed: listing a name asserts the operator trusts the NAME, not
-//      whatever DNS says today.
+//      metadata service), or, because the host IS listed, the Tailscale / CGNAT range 100.64/10
+//      (isListedOnlyPrivateAddress: listing a host is the operator's statement that it is a tailnet
+//      peer, whose WireGuard link is encrypted; an unlisted host never gets this range). A host
+//      that resolves to anything else is refused even when it is listed: listing a name asserts the
+//      operator trusts the NAME, not whatever DNS says today.
 // The request then connects to the address that was checked, with the original Host header, so a
 // second DNS answer cannot swap a public address in between the check and the send (rebinding).
 // Every refusal is fail-closed and happens before a socket exists: no fallback, nothing sent.
@@ -37,6 +39,7 @@ import http from "node:http";
 import { isIP } from "node:net";
 import { Readable } from "node:stream";
 import {
+  isListedOnlyPrivateAddress,
   isLoopbackHost,
   isPlainHttpHostListed,
   isPrivateNetworkAddress,
@@ -140,10 +143,19 @@ export async function resolvePlainHttpTarget(
   if (first === undefined) {
     throw new PlainHttpRefusedError(`plain http to ${host} refused: the host did not resolve`);
   }
-  const bad = addresses.find((a) => !isPrivateNetworkAddress(a.address));
+  // The tailnet/CGNAT range counts only for a LISTED host: the unlisted-private compatibility path
+  // below never admits it. Every resolved address must pass.
+  const bad = addresses.find(
+    (a) =>
+      !(isPrivateNetworkAddress(a.address) || (listed && isListedOnlyPrivateAddress(a.address))),
+  );
   if (bad !== undefined) {
+    const tailnetHint =
+      !listed && isListedOnlyPrivateAddress(bad.address)
+        ? `; a tailnet (100.64/10) host must be listed in plainHttpHosts, and only if it really is a tailnet peer`
+        : "";
     throw new PlainHttpRefusedError(
-      `plain http to ${host} refused: it resolves to ${bad.address}, which is not a private address (loopback, 10/8, 172.16/12, 192.168/16, fc00::/7)`,
+      `plain http to ${host} refused: it resolves to ${bad.address}, which is not a private address (loopback, 10/8, 172.16/12, 192.168/16, fc00::/7${listed ? ", or a listed tailnet host in 100.64/10" : ""})${tailnetHint}`,
     );
   }
   if (!listed) opts.onUnlistedPrivate?.({ host, address: first.address });

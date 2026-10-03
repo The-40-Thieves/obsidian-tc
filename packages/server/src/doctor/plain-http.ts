@@ -2,6 +2,10 @@
 // address(es) its host resolves to right now and what the connect-time policy
 // (gateway/plain-http.ts) will do with it:
 //   allowed             loopback, or a listed host whose addresses are all private
+//   allowed (listed tailnet/CGNAT)
+//                       a listed host with at least one address in 100.64/10 and the rest private:
+//                       the listing is the operator's statement that it is a tailnet peer (an
+//                       unlisted host in that range is refused, never deprecated)
 //   deprecated-unlisted a provider host that is NOT listed but resolves only to private addresses:
 //                       works for one more release, refused from the next major
 //   refused             a public / link-local / metadata address, an address that did not resolve,
@@ -17,6 +21,7 @@
 import { isIP } from "node:net";
 import {
   classifyJudgeBaseUrl,
+  isListedOnlyPrivateAddress,
   isLoopbackHost,
   isPlainHttpHostListed,
   isPrivateNetworkAddress,
@@ -46,7 +51,11 @@ export interface PlainHttpView {
   resolveHost: ResolveHost;
 }
 
-export type PlainHttpStatus = "allowed" | "deprecated-unlisted" | "refused";
+export type PlainHttpStatus =
+  | "allowed"
+  | "allowed (listed tailnet/CGNAT)"
+  | "deprecated-unlisted"
+  | "refused";
 
 export interface PlainHttpHostReport {
   field: string;
@@ -96,15 +105,25 @@ export function classifyPlainHttpHost(
       reason: `${ep.field}: ${host} did not resolve, so every request to it will be refused`,
     };
   }
-  const bad = addrs.filter((a) => !isPrivateNetworkAddress(a));
+  const listed = ep.allowPlainHttp === true || isPlainHttpHostListed(host, ep.plainHttpHosts ?? []);
+  // Tailscale / CGNAT (100.64/10) counts only for a LISTED host, exactly as in the transport.
+  const bad = addrs.filter(
+    (a) => !(isPrivateNetworkAddress(a) || (listed && isListedOnlyPrivateAddress(a))),
+  );
   if (bad.length > 0) {
+    const cgnat = !listed && bad.some(isListedOnlyPrivateAddress);
     return {
       status: "refused",
-      reason: `${ep.field}: ${host} resolves to ${bad.join(", ")}, which is not a private address (loopback, 10/8, 172.16/12, 192.168/16, fc00::/7); plain-http requests to it are refused, listed or not`,
+      reason: cgnat
+        ? `${ep.field}: ${host} resolves to ${bad.join(", ")}, a tailnet/CGNAT address; plain-http requests to it are refused unless the host is listed in ${listField(ep)} (list it only if it is a tailnet peer)`
+        : `${ep.field}: ${host} resolves to ${bad.join(", ")}, which is not a private address (loopback, 10/8, 172.16/12, 192.168/16, fc00::/7, or a listed tailnet host in 100.64/10); plain-http requests to it are refused, listed or not`,
     };
   }
-  const listed = ep.allowPlainHttp === true || isPlainHttpHostListed(host, ep.plainHttpHosts ?? []);
-  if (listed) return { status: "allowed" };
+  if (listed) {
+    return addrs.some((a) => !isPrivateNetworkAddress(a))
+      ? { status: "allowed (listed tailnet/CGNAT)" }
+      : { status: "allowed" };
+  }
   if (ep.kind === "provider") {
     return {
       status: "deprecated-unlisted",

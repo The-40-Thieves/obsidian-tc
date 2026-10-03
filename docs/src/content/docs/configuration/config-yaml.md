@@ -311,7 +311,9 @@ experiential:
 
 A listed host is still checked every time a request is sent. The host is resolved once, and the request is
 refused, with nothing sent, unless **every** address it resolves to is loopback, private (RFC 1918: `10/8`,
-`172.16/12`, `192.168/16`) or IPv6 unique-local (`fc00::/7`). Link-local addresses are never allowed, because
+`172.16/12`, `192.168/16`) or IPv6 unique-local (`fc00::/7`); a listed host may also resolve to a Tailscale
+tailnet address (`100.64.0.0/10`, see [Tailnet hosts](#tailnet-hosts-100640010) below). Link-local addresses
+are never allowed, because
 `169.254.169.254` is the cloud metadata service. The connection then goes to the address that was checked,
 with the original `Host` header, so a second DNS answer cannot redirect it. A redirect from the host is
 refused rather than followed. Entries are exact hostnames (case-insensitive, internationalized names are
@@ -359,21 +361,32 @@ What a plain `http://` provider URL does:
 | Loopback (`127.0.0.1`, `[::1]`, `localhost`) | Works with no entry. Sent directly, never through `HTTP_PROXY` / `ALL_PROXY`. |
 | Listed, and every address it resolves to is loopback, RFC 1918 or `fc00::/7` | Works, silently. |
 | **Not** listed, and every address it resolves to is loopback, RFC 1918 or `fc00::/7` | Works for **one more release** with a deprecation warning that names the host and the config to add. Refused from the next major release. |
+| Listed, and it resolves to a tailnet/CGNAT address (`100.64.0.0/10`), the rest private | Works, silently. `doctor` shows `allowed (listed tailnet/CGNAT)`. |
+| **Not** listed, and it resolves to a tailnet/CGNAT address (`100.64.0.0/10`) | **Refused**, nothing sent. There is no deprecation path for this range. |
 | Resolves to any public address, listed or not | **Refused**, nothing sent. |
 | Link-local, including the `169.254.169.254` cloud metadata address | **Refused**, nothing sent. |
 
 A refusal fails the request with the host and the offending address in the error (never the key, a path or a
 query) and is not retried. Every plain-http request, loopback included, connects straight to the address that
 was checked, with the original `Host` header; a redirect is refused. `obsidian-tc doctor` lists every
-plaintext provider host with its resolved address and a status (`allowed`, `deprecated-unlisted` or
+plaintext provider host with its resolved address and a status (`allowed`, `allowed (listed tailnet/CGNAT)`, `deprecated-unlisted` or
 `refused`), and `server_health` (`deprecations`) names each unlisted host.
 
 On Cave, `embeddings.baseUrl` and `gateway.baseUrl` are `http://litellm:4000`, a Docker bridge address in
 `172.16.0.0/12`. They keep working unchanged; add `network: { plainHttpHosts: ["litellm"] }` to silence the
 warning before the next major release.
 
+### Tailnet hosts (`100.64.0.0/10`)
+
+Tailscale gives every peer an address in `100.64.0.0/10`. That range is not private in general: an ISP's
+carrier-grade NAT space is shared and not encrypted. So it is admitted **only** for a host you list
+(`network.plainHttpHosts`, or a judge block's own list), and every address the host resolves to must still be
+loopback, private or in that range. An unlisted host that resolves into it is refused with no deprecation
+path. Tailscale traffic is WireGuard-encrypted; listing a host is your explicit statement that it is a
+tailnet peer, so list only tailnet hosts. Link-local and the cloud metadata address stay refused.
+
 Not covered, by design: Pensieve (`pensieve.baseUrl`) is an inbound, key-less GET whose documented target is
-a tailnet address (`100.64.0.0/10`, not in the private ranges above), the Readwise and OIDC clients are
+a tailnet address (`100.64.0.0/10`), the Readwise and OIDC clients are
 https-only, and the optional local embedder and reranker download their model files from fixed https hosts.
 
 ## Environment variables (complete)

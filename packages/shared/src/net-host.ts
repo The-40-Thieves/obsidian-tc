@@ -333,3 +333,30 @@ export function isPrivateNetworkAddress(addr: string): boolean {
   const first = h.split(":")[0] ?? "";
   return first.length === 4 && /^f[cd]/.test(first);
 }
+
+/**
+ * True only for the Tailscale / carrier-grade-NAT range 100.64.0.0/10, including an IPv4-mapped IPv6
+ * address wrapping it. Kept apart from isPrivateNetworkAddress on purpose: this range is NOT
+ * private in general (an ISP's CGNAT space is shared and not encrypted), but Tailscale puts every
+ * tailnet peer in it and WireGuard encrypts that link. A caller therefore consults this ONLY for a
+ * host the operator listed in a plainHttpHosts list, where listing is the explicit statement "this
+ * host is a tailnet peer". An unlisted host never gets it. Link-local and the cloud metadata
+ * address are not in this range and stay refused everywhere.
+ */
+export function isListedOnlyPrivateAddress(addr: string): boolean {
+  const UrlCtor = (globalThis as { URL?: MinimalUrlCtor }).URL;
+  if (typeof UrlCtor !== "function") return false;
+  const bare = normalizeHostForBind(addr);
+  if (bare === "") return false;
+  let o = ipv4OctetsOf(bare);
+  if (!o && bare.includes(":") && !/[^0-9a-f:.]/.test(bare)) {
+    try {
+      const h = new UrlCtor(`http://[${bare}]`).hostname.slice(1, -1);
+      const dotted = h.startsWith("::ffff:") ? ipv4OfMappedHex(h) : null;
+      o = dotted ? ipv4OctetsOf(dotted) : null;
+    } catch {
+      return false;
+    }
+  }
+  return o !== null && o[0] === 100 && o[1] >= 64 && o[1] <= 127;
+}

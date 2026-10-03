@@ -199,6 +199,41 @@ describe("egress.plain-http: provider endpoints", () => {
     ]);
   });
 
+  it("a listed host on a tailnet/CGNAT address is allowed (listed tailnet/CGNAT); an unlisted one is refused with no deprecation", async () => {
+    const r = await plainHttpCheck({
+      endpoints: [
+        providerEp("gateway.baseUrl", "http://ts-peer:4000", ["ts-peer"]),
+        providerEp("embeddings.baseUrl", "http://ts-other:8080"),
+      ],
+      resolveHost: resolver({ "ts-peer": ["100.101.102.103"], "ts-other": ["100.64.0.1"] }),
+    }).run(ctx);
+    expect(r.details?.endpoints).toEqual([
+      "gateway.baseUrl: ts-peer -> 100.101.102.103 [allowed (listed tailnet/CGNAT)]",
+      "embeddings.baseUrl: ts-other -> 100.64.0.1 [refused]",
+    ]);
+    const issues = r.issues?.join("\n") ?? "";
+    expect(issues).toMatch(
+      /embeddings\.baseUrl: ts-other .*100\.64\.0\.1.*network\.plainHttpHosts/,
+    );
+    expect(issues).not.toMatch(/deprecated|next major/);
+    expect(issues).not.toMatch(/gateway\.baseUrl/);
+    // A judge block's own list admits a listed tailnet host the same way.
+    const j = await plainHttpCheck({
+      endpoints: [
+        {
+          field: "wikiJudge",
+          baseUrl: "http://ts-peer:4000/typesafe",
+          plainHttpHosts: ["ts-peer"],
+        },
+      ],
+      resolveHost: resolver({ "ts-peer": ["100.101.102.103"] }),
+    }).run(ctx);
+    expect(j.details?.endpoints).toEqual([
+      "wikiJudge: ts-peer -> 100.101.102.103 [allowed (listed tailnet/CGNAT)]",
+    ]);
+    expect(j.status).toBe("ok");
+  });
+
   it("an https provider URL is not a plaintext endpoint", async () => {
     const r = await plainHttpCheck({
       endpoints: [providerEp("embeddings.baseUrl", "https://api.openai.com/v1")],

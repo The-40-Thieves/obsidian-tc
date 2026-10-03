@@ -142,6 +142,51 @@ describe.each(PROVIDER_DRIVERS)("$name: plain-http policy at the default transpo
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it("an UNLISTED host that resolves into the tailnet/CGNAT range is refused: no deprecation path, no bytes", async () => {
+    for (const address of ["100.101.102.103", "100.64.0.1"]) {
+      dns["emb.tailnet.test"] = [address];
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const request = vi.spyOn(http, "request");
+      const msg = await failure(driver.call(`http://emb.tailnet.test:${port}`));
+      expect(msg).toContain("emb.tailnet.test");
+      expect(msg).toContain(address);
+      expect(msg).toMatch(/plainHttpHosts/);
+      expect(msg).not.toContain(PROVIDER_SECRET);
+      expect(request).not.toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+      expect(seen).toHaveLength(0);
+      warn.mockRestore();
+      request.mockRestore();
+    }
+  });
+
+  it("a LISTED host that resolves into the tailnet/CGNAT range is connected to at that address, silently", async () => {
+    for (const address of ["100.101.102.103", "100.64.0.1"]) {
+      dns["emb.tailnet.test"] = [address];
+      configureProviderPlainHttp(["emb.tailnet.test"]);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      // No tailnet here: the connect itself is stubbed, and what it was asked to connect to is the proof.
+      const request = vi.spyOn(http, "request").mockImplementation(() => {
+        throw new Error("stub connect");
+      });
+      await failure(driver.call(`http://emb.tailnet.test:${port}`));
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(request.mock.calls[0]?.[0]).toMatchObject({ host: address });
+      expect(warn).not.toHaveBeenCalled();
+      expect(seen).toHaveLength(0);
+      warn.mockRestore();
+      request.mockRestore();
+    }
+  });
+
+  it("a LISTED host that resolves to the CGNAT range AND a public address is refused", async () => {
+    dns["emb.tailnet.test"] = ["100.101.102.103", "93.184.216.34"];
+    configureProviderPlainHttp(["emb.tailnet.test"]);
+    const request = vi.spyOn(http, "request");
+    await failure(driver.call(`http://emb.tailnet.test:${port}`));
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("loopback keeps working with no list, no resolver and no warning", async () => {
     setProviderResolveHostForTest(async () => {
       throw new Error("loopback must not need DNS");

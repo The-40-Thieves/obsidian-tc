@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isListedOnlyPrivateAddress,
   isPlainHttpHostListed,
   isPrivateNetworkAddress,
   normalizePlainHttpHost,
@@ -107,6 +108,39 @@ describe("isPrivateNetworkAddress", () => {
     ]) {
       expect(isPrivateNetworkAddress(ip), ip).toBe(false);
     }
+  });
+});
+
+describe("isListedOnlyPrivateAddress", () => {
+  it("accepts exactly the Tailscale/CGNAT range 100.64.0.0/10, including IPv4-mapped forms", () => {
+    for (const ip of [
+      "100.64.0.0",
+      "100.64.0.1",
+      "100.101.102.103",
+      "100.127.255.255",
+      "::ffff:100.101.102.103",
+      "::ffff:6465:6667",
+    ]) {
+      expect(isListedOnlyPrivateAddress(ip), ip).toBe(true);
+    }
+  });
+
+  it("refuses everything outside it, and never widens isPrivateNetworkAddress", () => {
+    for (const ip of [
+      "100.63.255.255",
+      "100.128.0.0",
+      "8.8.8.8",
+      "169.254.169.254",
+      "10.0.0.1",
+      "127.0.0.1",
+      "fd7a:115c:a1e0::1",
+      "::ffff:8.8.8.8",
+      "not-an-ip",
+      "",
+    ]) {
+      expect(isListedOnlyPrivateAddress(ip), ip).toBe(false);
+    }
+    expect(isPrivateNetworkAddress("100.101.102.103")).toBe(false);
   });
 });
 
