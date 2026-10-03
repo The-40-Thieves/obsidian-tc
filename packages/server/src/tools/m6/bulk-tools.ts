@@ -574,10 +574,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           };
         }
 
-        // Plan the whole backlink rewrite and prove every link BEFORE the first file moves: the dry
-        // run's pass over the current tree throws on a link it cannot write (an existing `C#/`
-        // destination folder, a `)` in a markdown target), refusing the whole batch while nothing
-        // has moved. A throwaway skips tracker, so the real pass below reports each skip once.
+        // Prove every backlink BEFORE the first file moves: a link that cannot be written throws here.
         if (input.update_backlinks)
           rewriteForMoves(
             v.root,
