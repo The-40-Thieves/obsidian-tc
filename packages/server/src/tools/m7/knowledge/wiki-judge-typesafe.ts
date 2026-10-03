@@ -92,6 +92,8 @@ export type WikiJudgeProviderConfig = Pick<WikiJudgeSettings, "provider" | "time
   threshold?: number | undefined;
   apiKeyEnv?: string | undefined;
   baseUrl?: string | undefined;
+  plainHttpHosts?: readonly string[] | undefined;
+  /** DEPRECATED (removed at the next major): "this baseUrl's own host is in plainHttpHosts". */
   allowPlainHttp?: boolean | undefined;
 };
 

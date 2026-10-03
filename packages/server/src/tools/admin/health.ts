@@ -132,6 +132,7 @@ export interface HealthInfo {
   leader_role_detail?: {
     lock_error: { message?: string; code?: string; count: number; last_at: string };
   };
+  deprecations?: string[];
 }
 
 /** THE-491: the `server_health` index block, thinned to a named, agent-discoverable reader —
@@ -273,6 +274,12 @@ const HealthInfoOutput = z.object({
       oldest_principal: z.string().nullable().optional(),
     })
     .optional(),
+  deprecations: z
+    .array(z.string())
+    .describe(
+      "Config keys still in use that the next major release removes (today a TypeSafe judge's allowPlainHttp): config paths and replacements only. Absent when none.",
+    )
+    .optional(),
   leader_role: z.enum(["leader", "follower"]).optional(),
   leader_role_detail: z
     .object({
@@ -373,6 +380,7 @@ export function createHealthTool(opts: {
     oldestAgeMs: number | null;
     oldestPrincipal: string | null;
   };
+  deprecations?: readonly string[];
   /** GH #995: read live — role can flip on promotion. Absent omits the field entirely. */
   getLeaderRole?: () => "leader" | "follower";
   getLeaderRoleDetail?: () =>
@@ -472,6 +480,9 @@ export function createHealthTool(opts: {
                 },
               };
             })()
+          : {}),
+        ...(opts.deprecations && opts.deprecations.length > 0
+          ? { deprecations: [...opts.deprecations] }
           : {}),
         ...(opts.getLeaderRole ? { leader_role: opts.getLeaderRole() } : {}),
         ...(opts.getLeaderRoleDetail

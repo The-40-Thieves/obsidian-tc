@@ -2,7 +2,11 @@
 // judge.provider = "typesafe"). Same optional-probe shape as every other store/network-touching
 // check in this directory (see notesFtsIntegrityCheck / experientialEvaluatorCheck): the default
 // run stays offline, and only `doctor --probe` actually reaches the network.
-import { classifyJudgeBaseUrl, judgeBaseUrlHost } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  classifyJudgeBaseUrl,
+  isPlainHttpHostListed,
+  judgeBaseUrlHost,
+} from "@the-40-thieves/obsidian-tc-shared";
 import type { Check, CheckStatus } from "./types";
 
 export interface CitationJudgeProbeResult {
@@ -24,6 +28,9 @@ export interface CitationJudgeView {
   /** THE-1084: the configured baseUrl and allowPlainHttp opt-in — always available straight from
    *  config, no --probe needed, so the plain-http warning below fires on every doctor run. */
   baseUrl?: string;
+  /** Exact hostnames a non-loopback http:// baseUrl may name. */
+  plainHttpHosts?: readonly string[];
+  /** DEPRECATED (removed at the next major): "this baseUrl's own host is in plainHttpHosts". */
   allowPlainHttp?: boolean;
   /** Attached ONLY under `doctor --probe` AND provider === "typesafe" — a default run must not
    *  reach the network, same contract as every other probe field in this directory. */
@@ -37,15 +44,20 @@ export interface CitationJudgeView {
  *  a WHATWG-valid-but-non-canonical URL as unparseable and let it through. One classifier, called
  *  from three places, cannot disagree with itself.
  *
- *  The operator has explicitly opted a typesafe judge into a plain http:// endpoint (allowPlainHttp
- *  set AND baseUrl a non-loopback http:// host) — the bearer key and vault-derived text then travel
+ *  The operator has explicitly opted a typesafe judge into a plain http:// endpoint (baseUrl a
+ *  non-loopback http:// host that plainHttpHosts lists, or the deprecated allowPlainHttp is set) — the bearer key and vault-derived text then travel
  *  in clear over whatever link the URL names. Returns the warning line, or undefined when the
  *  config doesn't match (https, loopback, unparseable/unsupported scheme, or the flag unset). */
 function plainHttpWarning(view: CitationJudgeView): string | undefined {
-  if (!view.allowPlainHttp || !view.baseUrl) return undefined;
+  if (!view.baseUrl) return undefined;
   if (classifyJudgeBaseUrl(view.baseUrl) !== "http-remote") return undefined;
   const host = judgeBaseUrlHost(view.baseUrl);
-  return `judge.baseUrl is plain http (allowPlainHttp): the key and vault text are sent in clear to ${host}`;
+  if (host === undefined) return undefined;
+  if (view.allowPlainHttp) {
+    return `judge.baseUrl is plain http (allowPlainHttp, deprecated: use plainHttpHosts): the key and vault text are sent in clear to ${host}`;
+  }
+  if (!isPlainHttpHostListed(host, view.plainHttpHosts ?? [])) return undefined;
+  return `judge.baseUrl is plain http (plainHttpHosts): the key and vault text are sent in clear to ${host}`;
 }
 
 /**

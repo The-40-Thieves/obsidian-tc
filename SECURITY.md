@@ -694,6 +694,27 @@ block entirely.
 feature — it has no telemetry of its own and does not read or forward this server's
 telemetry configuration.
 
+## Plain-http judge endpoints
+
+The TypeSafe judge blocks (`experiential.citationInfer.judge`, `wikiJudge`) send a bearer key and
+vault-derived text to `baseUrl`. A non-loopback `http://` URL is refused unless its exact hostname is
+listed in that block's `plainHttpHosts` (case-insensitive, punycode-normalized, no wildcards). A listed
+host is checked again on every request: it is resolved once and refused, with nothing sent, unless every
+resolved address is loopback, RFC 1918 or IPv6 unique-local (`fc00::/7`). Link-local, including the
+`169.254.169.254` cloud metadata address, and every public address are refused, and IPv4-mapped IPv6 and
+numeric or hex IPv4 spellings are judged as the address they spell. The connection goes to the checked
+address with the original `Host` header (no DNS rebinding between check and send), and a redirect from
+the host is refused, not followed. Every `http://` request, loopback included, is sent directly:
+`HTTP_PROXY`, `http_proxy` and `ALL_PROXY` are not applied to it, so a proxy in the environment never
+receives the key or the vault text (a loopback name must resolve only to loopback addresses). `https://`
+requests do honour those variables: through a proxy that is a CONNECT tunnel, and the proxy sees the host and
+port but cannot read the body. `allowPlainHttp: true` is deprecated, removed in the next major
+release, and now only means "this `baseUrl`'s own host is listed": it no longer waives the address check.
+`obsidian-tc doctor` lists each plain-http host with its resolved addresses; `doctor` and `server_health`
+warn while the deprecated flag is set. Accepted residual: the traffic to a listed private host is still
+cleartext, so a hostile peer on that private network can read it. The gateway, embedding and reranker
+`baseUrl` fields have no plain-http opt-in and are not covered by this policy.
+
 ## Known limitations and accepted residuals
 
 These are deliberate design decisions or narrow residuals tracked in the issue log, documented here

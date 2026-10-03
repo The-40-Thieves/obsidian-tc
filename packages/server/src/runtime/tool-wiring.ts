@@ -97,6 +97,8 @@ export interface HealthToolsDeps {
    *  omitted, same as every other optional health accessor above. */
   db?: Database;
   sessions?: { windowSeconds: number };
+  /** Config deprecations still in use (allowPlainHttp), computed once at boot. Absent -> none. */
+  deprecations?: readonly string[];
   /** GH #995: read live at call time — role can flip mid-process-lifetime on promotion. Absent ->
    *  server_health omits `leader_role` entirely (single-process harnesses/tests). */
   getLeaderRole?: () => "leader" | "follower";
@@ -164,6 +166,7 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
               }),
           }
         : {}),
+      ...(deps.deprecations ? { deprecations: deps.deprecations } : {}),
       ...(deps.getLeaderRole ? { getLeaderRole: deps.getLeaderRole } : {}),
       ...(deps.getLeaderRoleDetail ? { getLeaderRoleDetail: deps.getLeaderRoleDetail } : {}),
     }),

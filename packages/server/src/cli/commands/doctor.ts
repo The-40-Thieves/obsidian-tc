@@ -22,12 +22,15 @@ import {
 import { HITL_DOCTOR_WINDOW_DAYS, probeHitlConfirmations } from "../../doctor/hitl-confirmations";
 import { probeIndexCoverage } from "../../doctor/index-coverage";
 import { probeNoteSummariesScale } from "../../doctor/note-summary-scale";
+import { plainHttpEndpoints } from "../../doctor/plain-http";
 import { hiddenNamesInAllowlist } from "../../doctor/tool-facade";
 import { createEmbeddingProvider } from "../../embeddings";
 import { resolveApiKey } from "../../embeddings/provider";
 import { type EpisodeBacklog, readEpisodeBacklog } from "../../experiential/reflect";
 import { resolveGatewayUrl } from "../../gateway/client";
+import { defaultResolveHost } from "../../gateway/plain-http";
 import { createTypesafeClient } from "../../gateway/typesafe";
+import { effectivePlainHttpHosts } from "../../gateway/typesafe-judge-client";
 import { compileEgressFilter, type EgressFilter } from "../../plane/egress-filter";
 import { inspectProvenance } from "../../provenance/inspect";
 import {
@@ -119,6 +122,8 @@ export async function probeTypesafeCitationJudge(judge: {
   apiKey?: string;
   apiKeyEnv?: string;
   baseUrl?: string;
+  plainHttpHosts?: readonly string[];
+  allowPlainHttp?: boolean;
   timeoutMs?: number;
 }): Promise<CitationJudgeProbeResult> {
   const key = resolveApiKey("typesafe", judge.apiKey, judge.apiKeyEnv ?? "TYPESAFE_API_KEY");
@@ -132,6 +137,7 @@ export async function probeTypesafeCitationJudge(judge: {
     baseUrl: judge.baseUrl,
     apiKey: key,
     timeoutMs: judge.timeoutMs,
+    plainHttpHosts: effectivePlainHttpHosts(judge),
   });
   const started = Date.now();
   try {
@@ -522,6 +528,9 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         ...(config.experiential.citationInfer.judge?.allowPlainHttp !== undefined
           ? { allowPlainHttp: config.experiential.citationInfer.judge.allowPlainHttp }
           : {}),
+        ...(config.experiential.citationInfer.judge?.plainHttpHosts !== undefined
+          ? { plainHttpHosts: config.experiential.citationInfer.judge.plainHttpHosts }
+          : {}),
         ...(cmd.probe && config.experiential.citationInfer.judge?.provider === "typesafe"
           ? {
               probe: () => {
@@ -530,17 +539,12 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
                   return Promise.resolve({ ok: false, reason: "no model configured" });
                 }
                 // Rebuilt, not passed through: the narrowing above is on the property, not on `judge`.
-                return probeTypesafeCitationJudge({
-                  model: judge.model,
-                  apiKey: judge.apiKey,
-                  apiKeyEnv: judge.apiKeyEnv,
-                  baseUrl: judge.baseUrl,
-                  timeoutMs: judge.timeoutMs,
-                });
+                return probeTypesafeCitationJudge({ ...judge, model: judge.model });
               },
             }
           : {}),
       },
+      plainHttp: { resolveHost: defaultResolveHost, endpoints: plainHttpEndpoints(config) },
       // THE-696: notes_fts availability always; the integrity verdict only when --probe looked.
       notesFts: {
         ftsEnabled: notesFts.ftsEnabled,

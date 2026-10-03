@@ -32,7 +32,7 @@ describe("doctor CLI wiring: rerankerConfigured passthrough", () => {
     expect(anchorAt, `${SITE.file} builds a \`${SITE.anchor}\` object`).toBeGreaterThanOrEqual(0);
     // A generous window past the anchor — the retrieval object literal itself, not the whole
     // file — so a match elsewhere (e.g. a stray comment or another object literal) does not pass.
-    const window = src.slice(anchorAt, anchorAt + 700);
+    const window = src.slice(anchorAt, anchorAt + 1000);
     expect(
       window,
       `${SITE.file}'s retrieval object must fold \`${SITE.expr}\` so a generic provider's configured reranker reaches retrievalHeadsCheck instead of being silently dropped`,
@@ -82,6 +82,7 @@ const CITATION_JUDGE_SITES = {
   anchor: "citationJudge: {",
   baseUrlExpr: "{ baseUrl: config.experiential.citationInfer.judge.baseUrl }",
   allowPlainHttpExpr: "{ allowPlainHttp: config.experiential.citationInfer.judge.allowPlainHttp }",
+  plainHttpHostsExpr: "{ plainHttpHosts: config.experiential.citationInfer.judge.plainHttpHosts }",
 };
 
 describe("doctor CLI wiring: citationJudge baseUrl/allowPlainHttp passthrough (THE-1084)", () => {
@@ -94,7 +95,7 @@ describe("doctor CLI wiring: citationJudge baseUrl/allowPlainHttp passthrough (T
       anchorAt,
       `${CITATION_JUDGE_SITES.file} builds a \`${CITATION_JUDGE_SITES.anchor}\` object`,
     ).toBeGreaterThanOrEqual(0);
-    const window = src.slice(anchorAt, anchorAt + 700);
+    const window = src.slice(anchorAt, anchorAt + 1000);
     expect(
       window,
       "citationJudge must fold config.experiential.citationInfer.judge.baseUrl through, or doctor can never see a plain-http opt-in",
@@ -110,5 +111,8 @@ describe("doctor CLI wiring: citationJudge baseUrl/allowPlainHttp passthrough (T
     expect(probeGateAt).toBeGreaterThan(0);
     expect(window.indexOf(CITATION_JUDGE_SITES.baseUrlExpr)).toBeLessThan(probeGateAt);
     expect(window.indexOf(CITATION_JUDGE_SITES.allowPlainHttpExpr)).toBeLessThan(probeGateAt);
+    // plainHttpHosts too: without it the view cannot tell a listed host from an unlisted one.
+    expect(window).toContain(CITATION_JUDGE_SITES.plainHttpHostsExpr);
+    expect(window.indexOf(CITATION_JUDGE_SITES.plainHttpHostsExpr)).toBeLessThan(probeGateAt);
   });
 });

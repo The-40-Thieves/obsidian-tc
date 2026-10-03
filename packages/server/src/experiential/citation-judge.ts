@@ -193,8 +193,9 @@ export interface CitationJudgeConfig {
   apiKey?: string;
   apiKeyEnv?: string;
   baseUrl?: string;
-  /** THE-1084: opt-in widening of the https-unless-loopback rule on `baseUrl` to any http:// host —
-   *  see retrieval.schema.ts's own doc comment. Duck-typed default `false`, matching the schema's. */
+  /** Exact hostnames a non-loopback http:// `baseUrl` may name — see retrieval.schema.ts. */
+  plainHttpHosts?: readonly string[];
+  /** DEPRECATED (removed at the next major): "this baseUrl's own host is in plainHttpHosts". */
   allowPlainHttp?: boolean;
   timeoutMs?: number;
 }

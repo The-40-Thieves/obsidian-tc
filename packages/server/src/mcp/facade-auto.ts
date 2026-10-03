@@ -16,6 +16,7 @@
 // FALLBACK_FACADE_MODE is the existing ADR-anchored default
 // (docs/adr/0006-the-default-surface-is-the-triad.md).
 import type { Database } from "../db/types";
+import { plainHttpDeprecations } from "../doctor/plain-http";
 import type { TelemetryStatusInfo } from "../telemetry/wiring";
 import type { FacadeMode } from "./facade";
 import type { AutoFacadeExplanation } from "./facade-mode";
@@ -81,6 +82,8 @@ export function healthToolsWiringFields<V extends readonly { id: string }[]>(
       profile: "full" | "core";
     };
     sessions?: { windowSeconds: number };
+    experiential?: Parameters<typeof plainHttpDeprecations>[0]["experiential"];
+    wikiJudge?: Parameters<typeof plainHttpDeprecations>[0]["wikiJudge"];
   },
   telemetry?: { getStatus: () => TelemetryStatusInfo },
   db?: Database,
@@ -90,10 +93,13 @@ export function healthToolsWiringFields<V extends readonly { id: string }[]>(
   getTelemetryStatus?: () => TelemetryStatusInfo;
   db?: Database;
   sessions?: { windowSeconds: number };
+  deprecations?: string[];
 } {
+  const deprecations = plainHttpDeprecations(cfg);
   return {
     vaults: cfg.vaults,
     toolFacade: cfg.toolFacade,
+    ...(deprecations.length > 0 ? { deprecations } : {}),
     ...(telemetry ? { getTelemetryStatus: telemetry.getStatus } : {}),
     ...(db && cfg.sessions ? { db, sessions: cfg.sessions } : {}),
   };

@@ -5,7 +5,11 @@ import { describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
 import { toJson } from "../src/mcp/facade";
-import { AUTO_FACADE_DEPRECATION, explainAutoFacadeMode } from "../src/mcp/facade-auto";
+import {
+  AUTO_FACADE_DEPRECATION,
+  explainAutoFacadeMode,
+  healthToolsWiringFields,
+} from "../src/mcp/facade-auto";
 import type { CallerContext } from "../src/mcp/registry";
 import { NON_CORE_TOOL_NAMES } from "../src/mcp/tool-profiles";
 import { reconcileResultsForVault } from "../src/runtime/plane-wiring";
@@ -176,6 +180,49 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
     const result = validate(JSON.parse(JSON.stringify(out)));
     expect(result.valid).toBe(true);
+  });
+
+  // allowPlainHttp is deprecated: server_health says so, from the REAL wiring helper that reads
+  // the config, and the field survives ajv (declared in the output schema, not silently stripped).
+  it("deprecations: an allowPlainHttp still in the config is reported, and validates under ajv", () => {
+    const wiring = healthToolsWiringFields({
+      vaults: [{ id: "v1" }],
+      toolFacade: { mode: "triad", profile: "full" },
+      experiential: { citationInfer: { judge: { provider: "typesafe", allowPlainHttp: true } } },
+      wikiJudge: { provider: "typesafe", allowPlainHttp: true },
+    });
+    const tool = createHealthTool({
+      version: "test",
+      vaults: ["v1"],
+      startedAt: 0,
+      nativeLoaded: false,
+      vecEnabled: false,
+      ...(wiring.deprecations ? { deprecations: wiring.deprecations } : {}),
+    });
+    const out = tool.handler({}, {
+      ...ctxBase,
+      authenticated: false,
+    } as CallerContext) as HealthInfo;
+    expect(out.deprecations).toEqual([
+      expect.stringMatching(
+        /experiential\.citationInfer\.judge\.allowPlainHttp is deprecated.*next major.*plainHttpHosts/,
+      ),
+      expect.stringMatching(/wikiJudge\.allowPlainHttp is deprecated/),
+    ]);
+    // biome-ignore lint/style/noNonNullAssertion: outputSchema is defined for this tool.
+    const schema = toJson(tool.outputSchema!);
+    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
+    expect(validate(JSON.parse(JSON.stringify(out))).valid).toBe(true);
+  });
+
+  it("deprecations: absent when no judge sets allowPlainHttp", () => {
+    const wiring = healthToolsWiringFields({
+      vaults: [{ id: "v1" }],
+      toolFacade: { mode: "triad", profile: "full" },
+      experiential: { citationInfer: { judge: { provider: "typesafe" } } },
+      wikiJudge: { provider: "gateway", allowPlainHttp: true },
+    });
+    expect(wiring.deprecations).toBeUndefined();
   });
 
   // `toolFacade.explainAutoMode`: the optional `explanation` sub-object must survive the SDK's ajv

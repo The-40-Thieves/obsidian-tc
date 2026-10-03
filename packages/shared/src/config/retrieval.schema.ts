@@ -761,13 +761,19 @@ export const ExperientialConfigSchema = z.object({
             // on this string cannot reach.
             .default("https://api.typesafe.ai")
             .describe(
-              "TypeSafe API base URL. Must be https:// unless the host is loopback (a local test/dev endpoint) or allowPlainHttp is set — this URL carries the bearer key and vault-derived text.",
+              "TypeSafe API base URL. Must be https:// unless the host is loopback (a local test/dev endpoint) or its exact hostname is listed in plainHttpHosts — this URL carries the bearer key and vault-derived text.",
+            ),
+          plainHttpHosts: z
+            .array(z.string())
+            .default([])
+            .describe(
+              'Exact hostnames a plain http:// judge.baseUrl may name (case-insensitive, IDNA/punycode-normalized; no wildcards, ports or paths). Without an entry a non-loopback http:// baseUrl is refused at config load; https:// and loopback need none. Listing a host is not enough on its own: when a request is sent the host is resolved once and refused unless EVERY address is loopback, RFC1918 (10/8, 172.16/12, 192.168/16) or IPv6 unique-local (fc00::/7); link-local, including the 169.254.169.254 cloud metadata address, is never allowed, and the connection goes to that checked address with the original Host header, so a later DNS answer cannot redirect it. Redirects are refused. Intended for a gateway on a host-local docker network or an encrypted overlay, e.g. `["litellm"]` for the Cave LiteLLM pass-through at `http://litellm:4000/typesafe`. The bearer key and vault-derived text still travel in clear over that link.',
             ),
           allowPlainHttp: z
             .boolean()
             .default(false)
             .describe(
-              "Widen the https-unless-loopback rule on judge.baseUrl to allow ANY http:// host, not just loopback. Intended ONLY for a gateway reachable over a host-local docker network or an encrypted overlay (e.g. Tailscale) — such as the Cave LiteLLM gateway's pass-through endpoint (`http://litellm:4000/typesafe` inside the compose network) — never a plain internet path. The bearer key and vault-derived text still travel in clear over whatever link the URL names; this flag only asserts the operator has judged that link safe, it does not make the traffic safe.",
+              "DEPRECATED, removed at the next major release: use plainHttpHosts. Until then `true` means this judge.baseUrl's own host is listed in plainHttpHosts. It no longer waives anything else: the connect-time private-address check still applies, and a host that resolves to a public address is refused. `obsidian-tc doctor` and server_health warn while it is set.",
             ),
           timeoutMs: z
             .number()
@@ -779,7 +785,7 @@ export const ExperientialConfigSchema = z.object({
             ),
         })
         .superRefine((c, ctx) => {
-          // The https-unless-loopback-unless-allowPlainHttp rule and the typesafe-only pinned
+          // The https-unless-loopback-unless-listed rule and the typesafe-only pinned
           // model / threshold rules live in net-host.ts, shared with the wikiJudge block.
           for (const issue of typesafeJudgeIssues(c, "judge", "Noul"))
             ctx.addIssue({

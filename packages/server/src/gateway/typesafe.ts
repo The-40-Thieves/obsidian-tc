@@ -5,6 +5,7 @@
 // diverge for no reason. See experiential/citation-judge.ts for the adapter that calls this from
 // the citation judge seam.
 import { version as VERSION } from "../../package.json";
+import { createPlainHttpPolicyFetch, PlainHttpRefusedError, type ResolveHost } from "./plain-http";
 
 export type FetchFn = typeof fetch;
 
@@ -119,7 +120,16 @@ export interface TypesafeClientOptions {
   baseUrl?: string;
   /** Bearer key. Never logged, never included in a thrown error's message. */
   apiKey?: string;
+  /** Transport override (tests). Absent, requests go through the plain-http policy fetch: https://
+   *  goes through the ordinary fetch (which honours proxy variables: a CONNECT tunnel), and every
+   *  http:// request is sent directly with no proxy: loopback to a loopback address, anything else
+   *  only to a `plainHttpHosts` host that resolves solely to private addresses
+   *  (gateway/plain-http.ts). An injected fetchFn is used as given and is not subject to either. */
   fetchFn?: FetchFn;
+  /** Exact hostnames a non-loopback http:// baseUrl may name. Default none. */
+  plainHttpHosts?: readonly string[];
+  /** DNS seam for the plain-http policy (tests). */
+  resolveHost?: ResolveHost;
   /** Per-ATTEMPT timeout in ms — each retry gets a FRESH window. Default 60s. */
   timeoutMs?: number;
   /** Total attempts (first try + retries). Default 3 (2 retries). */
@@ -211,7 +221,12 @@ const QUESTION_ID = "q";
 export function createTypesafeClient(opts: TypesafeClientOptions = {}): TypesafeClient {
   const base = (opts.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
   const apiKey = opts.apiKey;
-  const fetchFn = opts.fetchFn ?? fetch;
+  const fetchFn =
+    opts.fetchFn ??
+    createPlainHttpPolicyFetch({
+      plainHttpHosts: opts.plainHttpHosts ?? [],
+      resolveHost: opts.resolveHost,
+    });
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxAttempts = Math.max(1, opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
   const retryBaseDelayMs = opts.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_MS;
@@ -254,6 +269,12 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
           signal: req.signal ? AbortSignal.any([ctrl.signal, req.signal]) : ctrl.signal,
         });
       } catch (e) {
+        // A plain-http policy refusal is a configuration fact, not a transient failure: never
+        // retried, and its message (host and address only, never the key) is what the operator
+        // needs to see.
+        if (e instanceof PlainHttpRefusedError) {
+          throw new TypesafeError(`typesafe: ${e.message}`, { kind: "network" });
+        }
         // Network-level throw or our own per-attempt timeout — both transient.
         //
         // Review round 2 (THE-1078): the underlying error's MESSAGE is deliberately NOT embedded.

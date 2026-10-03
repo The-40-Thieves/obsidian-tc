@@ -71,6 +71,21 @@ describe("wikiJudge.provider typesafe", () => {
     expect(ok.wikiJudge.baseUrl).toBe("http://litellm:4000/typesafe");
   });
 
+  it("accepts a non-loopback http:// baseUrl whose exact host is in plainHttpHosts, case-insensitively", () => {
+    const ok = typesafe({ baseUrl: "http://litellm:4000/typesafe", plainHttpHosts: ["LiteLLM"] });
+    expect(ok.wikiJudge.plainHttpHosts).toEqual(["LiteLLM"]);
+    expect(parse({}).wikiJudge.plainHttpHosts).toEqual([]);
+  });
+
+  it("refuses an http:// host that is not in plainHttpHosts, and a malformed entry", () => {
+    expect(() => typesafe({ baseUrl: "http://example.com", plainHttpHosts: ["litellm"] })).toThrow(
+      /wikiJudge\.plainHttpHosts/,
+    );
+    expect(() =>
+      typesafe({ baseUrl: "http://litellm:4000", plainHttpHosts: ["*.example.com"] }),
+    ).toThrow(/not an exact hostname/);
+  });
+
   it("accepts https and a loopback http:// baseUrl without the flag", () => {
     expect(typesafe({ baseUrl: "https://gateway.example/typesafe" }).wikiJudge.allowPlainHttp).toBe(
       false,

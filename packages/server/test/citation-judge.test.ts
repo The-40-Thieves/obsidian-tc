@@ -396,7 +396,7 @@ describe("buildCitationJudge — factory", () => {
           },
           { excludeFilter: filter },
         ),
-      ).toThrow(/judge\.baseUrl.*allowPlainHttp/i);
+      ).toThrow(/judge\.baseUrl.*plainHttpHosts/i);
     });
 
     it("throws on a non-loopback http:// baseUrl when allowPlainHttp is explicitly false", () => {
@@ -412,7 +412,7 @@ describe("buildCitationJudge — factory", () => {
           },
           { excludeFilter: filter },
         ),
-      ).toThrow(/judge\.baseUrl.*allowPlainHttp/i);
+      ).toThrow(/judge\.baseUrl.*plainHttpHosts/i);
     });
 
     it('throws naming "experiential.citationInfer.judge" on an unparseable/unsupported-scheme baseUrl', () => {
@@ -442,7 +442,7 @@ describe("buildCitationJudge — factory", () => {
           },
           { excludeFilter: filter },
         ),
-      ).toThrow(/allowPlainHttp/i);
+      ).toThrow(/plainHttpHosts/i);
     });
 
     it("does not throw, and warns exactly once naming the host, when allowPlainHttp opts in", () => {
