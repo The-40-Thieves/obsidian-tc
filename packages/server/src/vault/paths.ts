@@ -5,7 +5,7 @@
 import { createHash } from "node:crypto";
 import { type Dirent, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { err, windowsNameProblem } from "@the-40-thieves/obsidian-tc-shared";
+import { err, wikiLinkNameProblem, windowsNameProblem } from "@the-40-thieves/obsidian-tc-shared";
 import { existsNoFollow } from "../auth/key-files";
 // GH #994 second security review, M1: every path_invalid throw below carries the caller's raw,
 // unscanned relPath in `details.path` — reached before memoryDefense ever runs (this is the
@@ -71,12 +71,21 @@ export function assertWritableVaultPath(root: string, relPath: string): void {
   }
 }
 
-/** Refuse one NEW path segment that is Windows-hostile (see assertWritableVaultPath). `shown` is
- *  the caller's path for the error detail; it is redacted here, never echoed raw. */
+/** Refuse one NEW path segment that is Windows-hostile or cannot live inside a `[[wikilink]]` (see
+ *  assertWritableVaultPath). `shown` is the caller's path for the error detail; it is redacted
+ *  here, never echoed raw. The wikilink refusal is the one shared guard every note and attachment
+ *  destination (create, move, rename, copy) reaches: the backlink rewrite splices the new name into
+ *  the body of every note that links the old one. The message names the characters, not the name. */
 export function assertCreatableName(segment: string, shown: string): void {
   const problem = windowsNameProblem(segment);
   if (problem !== null)
     throw err.pathInvalid(WINDOWS_NAME_MESSAGE[problem], { path: redactSecrets(shown).text });
+  const linkChars = wikiLinkNameProblem(segment);
+  if (linkChars !== null)
+    throw err.invalidInput(
+      `a new note or attachment name cannot contain ${linkChars.join(" ")}: it cannot live inside a [[wikilink]]`,
+      { path: redactSecrets(shown).text, characters: linkChars },
+    );
 }
 
 /** realpathSync that returns null when the path can't be resolved (e.g. doesn't exist yet). */

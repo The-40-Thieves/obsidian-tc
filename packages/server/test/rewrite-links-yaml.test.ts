@@ -16,7 +16,6 @@ const TARGETS = [
   "a: b",
   "a #b",
   "-lead",
-  "[br]",
   "back\\slash",
   "café ☕ 日本",
   `all'of"it: #at \\ once`,
@@ -133,25 +132,19 @@ describe("rewriteLinks: byte-for-byte outside the rewritten scalar", () => {
 });
 
 describe("rewriteLinks: a property that cannot be proven is refused, atomically per note", () => {
-  it("leaves the frontmatter byte-identical, warns, and still rewrites the body", () => {
-    // a newline cannot be folded into a block scalar's indented lines
+  // A newline in the new target used to be the one thing a block scalar could not hold, so these two
+  // cases asserted a per-property warning while the body link was written across two lines. That body
+  // write is the wikilink injection (a link target spliced into `[[...]]` closes it, or splits it,
+  // and writes text around it), so the whole note's rewrite is now refused instead — see
+  // wiki-safe-names.test.ts. The tests keep their fixtures and pin the stronger outcome.
+  it("a newline target refuses the note's whole rewrite: frontmatter and body both untouched", () => {
     const fm = '---\nnote: |\n  see [[Old]]\nother: "[[Old]]"\n---\n';
-    const out = rewriteLinks(`${fm}B [[Old]]\n`, toNew("x\ny"));
-    expect(out.warnings).toHaveLength(1);
-    expect(out.warnings[0]?.property).toBe("note");
-    expect(out.warnings[0]?.message).toMatch(/not rewritten/);
-    // the representable sibling property is still repointed; the refused one is untouched
-    expect(out.text).toBe('---\nnote: |\n  see [[Old]]\nother: "[[x\\ny]]"\n---\nB [[x\ny]]\n');
-    expect(parseNote(out.text).frontmatter).toEqual({ note: "see [[Old]]\n", other: "[[x\ny]]" });
-    expect(out.count).toBe(2);
+    expect(() => rewriteLinks(`${fm}B [[Old]]\n`, toNew("x\ny"))).toThrow(/single link/);
   });
 
-  it("a refused list property is not half-applied", () => {
+  it("a newline target in a block scalar is refused, not half-applied", () => {
     const fm = "---\nnote: |\n  see [[Old]]\n---\n";
-    const out = rewriteLinks(`${fm}B\n`, toNew("x\ny"));
-    expect(out.text).toBe(`${fm}B\n`);
-    expect(out.count).toBe(0);
-    expect(out.warnings).toHaveLength(1);
+    expect(() => rewriteLinks(`${fm}B\n`, toNew("x\ny"))).toThrow(/single link/);
   });
 
   it("an unparseable frontmatter block is never made worse: rewritten as text, with a warning", () => {
@@ -209,40 +202,27 @@ describe("end to end: rewrite_link and move_note keep frontmatter valid", () => 
     });
   }
 
-  it("rewrite_link reports a refused property in warnings (dry run too) and still rewrites the body", async () => {
+  it("rewrite_link refuses a newline target outright (dry run too), writing nothing", async () => {
+    // Was: a per-property warning while the body link was written across two lines. That body write
+    // is the wikilink injection, so the whole rewrite is refused; see wiki-safe-names.test.ts.
     const guide = '---\nnote: |\n  see [[Old]]\nauthor: "[[Old]]"\n---\nBody [[Old]].\n';
     const v = makeTestVault({ files: { "Old.md": "# Old\n", "Guide.md": guide } });
     try {
-      const dry = dataOf(
-        await v.call("rewrite_link", { vault: "test", from_target: "Old", to_target: "x\ny" }),
-      );
-      expect(dry.warnings).toEqual([
-        expect.objectContaining({ path: "Guide.md", property: "note" }),
-      ]);
-      const input = { vault: "test", from_target: "Old", to_target: "x\ny", dry_run: false };
-      const need = await v.call("rewrite_link", input);
-      const done = dataOf(
-        await v.call("rewrite_link", input, {
-          elicitToken: issueElicitToken(v.db, {
-            vaultId: v.id,
-            toolName: "rewrite_link",
-            argsHash: hashOf(need),
-            caller: "test",
-          }),
-        }),
-      );
-      expect(done.warnings).toEqual([
-        expect.objectContaining({ path: "Guide.md", property: "note" }),
-      ]);
-      expect(v.read("Guide.md")).toBe(
-        '---\nnote: |\n  see [[Old]]\nauthor: "[[x\\ny]]"\n---\nBody [[x\ny]].\n',
-      );
+      const dry = await v.call("rewrite_link", {
+        vault: "test",
+        from_target: "Old",
+        to_target: "x\ny",
+      });
+      expect(dry.ok).toBe(false);
+      if (!dry.ok) expect(dry.error.code).toBe("invalid_input");
+      expect(v.read("Guide.md")).toBe(guide);
     } finally {
       v.cleanup();
     }
   });
 
-  for (const name of ['a"b', "it's", "a #b", "-lead", "café ☕"]) {
+  // (`a #b` is no longer a valid destination: a new note name cannot hold `#`.)
+  for (const name of ['a"b', "it's", "-lead", "café ☕"]) {
     // Windows forbids a double quote in a filename, so that name cannot exist on disk there.
     it.skipIf(process.platform === "win32" && name.includes('"'))(
       `move_note onto ${JSON.stringify(name)}.md repoints property links as valid YAML`,

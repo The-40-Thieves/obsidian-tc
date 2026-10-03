@@ -201,6 +201,30 @@ related:
   Excluded files stay link targets (a property link to one resolves) and, as for body links, get no graph
   edge.
 
+## Renaming and link-safe names
+
+`move_note`, `bulk_move_notes` and `move_attachment` rewrite the links in every note that pointed at
+the old name (`update_backlinks`, `update_references`), and `rewrite_link` rewrites them to a target
+you supply. The new name is written into `[[...]]`, `![[...]]` and `[text](...)` in those notes, so
+two guards keep a name from becoming link syntax:
+
+- **A new name must be able to live inside a wikilink.** A note or attachment you would CREATE, move,
+  rename or copy to (`write_note`, `copy_note`, `move_note`, `bulk_move_notes`, `write_attachment`,
+  `move_attachment`, `create_canvas`) may not have a path segment containing `[`, `]`, `#`, `^`, `|`,
+  `%%`, a newline or any other control character. The call is refused with `invalid_input`, the
+  message names the offending characters (never the name), and nothing is written. This follows
+  Obsidian's own link rule, which says a name with `# | ^ : %% [[ ]]` "may not work as a link" (`:` is
+  already refused as a Windows-hostile name, `path_invalid`). Only a NEW name is judged: a file or folder
+  that already has such a name keeps working, can be read and updated in place, and can be moved or
+  renamed away to a safe name.
+- **Every rewritten link is proven.** After a rewrite changes a link, the new text is parsed again and
+  must be exactly one link, pointing at the intended target, with its heading and alias unchanged and
+  nothing around it. Otherwise the call is refused with `invalid_input` and none of the notes are
+  changed. This is what protects `rewrite_link`, whose `to_target` is free text: a target such as
+  `x]]` followed by a newline and text, or one containing `|`, is refused. A target may still end in
+  its own `#Heading`. In a note's properties the new target additionally must not contain `[[`, `]]`,
+  `|`, `%%` or a line break.
+
 ## Wiki checks (page-exists and lint)
 
 Two read-only tools keep a wiki from growing duplicates. Both are advisory: they never write a note

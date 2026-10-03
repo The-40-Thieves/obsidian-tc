@@ -109,7 +109,9 @@ export function enforcePathAcl(
   const resolved = resolveVaultPathChecked(root, rel);
   const path = resolved.aclRel;
   // A write that would CREATE a Windows-hostile name (`:`, trailing dot/space, reserved device
-  // name) is refused before any ACL decision or side effect; existing names stay writable in place.
+  // name), or a name that cannot live inside a [[wikilink]] (`[ ] # ^ |`, `%%`, control chars: the
+  // backlink rewrite would splice it into other notes), is refused before any ACL decision or side
+  // effect; existing names stay writable in place.
   // Checked on the LEXICAL request (the name the caller is about to create), not the realpath.
   if (op === "write") assertWritableVaultPath(root, rel);
   // GH #994 second security review, M1: every throw below carries `path` in its `details` for a
