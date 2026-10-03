@@ -221,12 +221,8 @@ async function checkThrottle(
   return rateLimiter.check(callerHash(caller), scopeClass, vaultId, nowMs);
 }
 
-/**
- * The `throttled` refusal for a call the limiter turned away, or undefined when it may proceed.
- * `onHit` is called for a genuine rate-limit hit; a refusal because the shared backend is down
- * (fail-closed, `reason` set) is an outage symptom, not a hit. Releasing an idempotency claim and
- * throwing stay with the caller, which owns that state.
- */
+/** The `throttled` refusal for a call the limiter turned away (undefined: it may proceed). `onHit`
+ *  fires for a genuine hit, not for a fail-closed backend outage; the caller owns claim release. */
 export async function throttleRefusal(
   rateLimiter: RateLimiter | undefined,
   caller: string | null,
@@ -292,15 +288,9 @@ export function checkHitl(
   });
 }
 
-/**
- * The probe that fingerprints what THIS call targets (replay_drift binding): its `pathAcl` paths
- * and/or the state its `confirmationTargets` computes. Null (nothing to bind) ONLY when the tool
- * declares nothing to bind, neither declaration yields a fingerprint, or no root is wired for a path
- * declaration. A probe that THROWS fails closed: a typed refusal (the folder ACL's `acl_denied`,
- * including its hard-link refusal) surfaces as itself, and any other fault becomes a refusal that
- * names no cause. Reading a throw as "nothing to bind" would raise and later redeem an UNBOUND
- * approval for a destructive call, which is exactly the state this binding exists to rule out.
- */
+/** The probe that fingerprints what THIS call targets (replay_drift): its `pathAcl` paths and/or
+ *  `confirmationTargets` state; null only when there is nothing to bind. A throw FAILS CLOSED (a typed
+ *  refusal like `acl_denied` surfaces as itself): swallowing it would mint an UNBOUND approval. */
 export function confirmationStateProbe(
   def: ToolDefinition,
   data: unknown,

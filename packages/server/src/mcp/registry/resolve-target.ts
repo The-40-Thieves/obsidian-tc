@@ -17,7 +17,9 @@ export async function bindResolvedTarget(
   rawInput: unknown,
   ctx: CallerContext,
   rootResolver: RegistryOptions["rootResolver"],
-): Promise<{ input: unknown; recorded: unknown; hash: string; bound: Record<string, unknown> } | undefined> {
+): Promise<
+  { input: unknown; recorded: unknown; hash: string; bound: Record<string, unknown> } | undefined
+> {
   if (!def.resolveTarget) return undefined;
   const bound = await def.resolveTarget(data, ctx);
   const collisions = Object.keys(bound).filter((k) => k in (data as Record<string, unknown>));

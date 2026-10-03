@@ -1,10 +1,5 @@
 import type { Span, Tracer } from "@opentelemetry/api";
-import {
-  err,
-  ObsidianTcError,
-  scopeClassOf,
-  type ToolResult,
-} from "@the-40-thieves/obsidian-tc-shared";
+import { ObsidianTcError, scopeClassOf, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { elicitRequiredError } from "../../elicit";
 import { withStateProbe } from "../../elicit-drift";
 import { argsHash } from "../../hash";

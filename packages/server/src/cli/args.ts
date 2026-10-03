@@ -3,6 +3,7 @@ import { flagValue, positional } from "./flag-value";
 import { type AuthCommand, parseAuth } from "./parse-auth";
 import { type CompactCommand, parseCompact } from "./parse-compact";
 import { type ConsolidateCommand, parseConsolidate } from "./parse-consolidate";
+import { type ElicitMintCommand, parseElicitMint } from "./parse-elicit";
 import { type ImportAmbientCommand, parseImportAmbient } from "./parse-import-ambient";
 import { type ImportHighlightsCommand, parseImportHighlights } from "./parse-import-highlights";
 import { type MemoryImportCommand, parseMemoryImport } from "./parse-memory-import";
@@ -30,20 +31,7 @@ export type CliCommand =
       kid?: string;
       json?: boolean;
     }
-  /** THE-826: `elicit` mints a single-use HITL confirmation token bound to an args_hash an
-   *  elicit_required error returned — see cli/commands/elicit-mint.ts for the full design. No
-   *  `ttl` field, deliberately: the mint always uses the server's configured elicitTtlSeconds. */
-  | {
-      kind: "elicit-mint";
-      configPath?: string;
-      hash?: string;
-      tool?: string;
-      vault?: string;
-      caller?: string;
-      /** The `state_fp` of the request being approved: binds the token to that request's state. */
-      stateFp?: string;
-      json?: boolean;
-    }
+  | ElicitMintCommand // THE-826: HITL token mint. Parser: ./parse-elicit.ts.
   | { kind: "version" }
   | { kind: "help" }
   | { kind: "plugin-install"; vaultPath: string }
@@ -209,43 +197,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
         json: args.includes("--json"),
       };
     }
-    // THE-826: `elicit` — mint a single-use HITL confirmation token bound to the args_hash an
-    // elicit_required error returned. --hash and --tool are required and enforced HERE (not only
-    // in planElicitMint) so a missing one exits 2 like every other usage error — the same
-    // duplication `token mint`'s --sub check documents above. No --ttl flag exists at all: the
-    // mint always uses the server's configured elicitTtlSeconds, so this parser can never even
-    // OFFER a way to mint a longer-lived token than the live server would issue.
-    if (first === "elicit") {
-      const scan = [...rest];
-      for (const f of ["--hash", "--tool", "--vault", "--caller", "--state-fp", "--config"]) {
-        const i = scan.indexOf(f);
-        if (i >= 0) scan.splice(i, 2);
-      }
-      const hash = flagValue(rest, "--hash");
-      const tool = flagValue(rest, "--tool");
-      const vault = flagValue(rest, "--vault");
-      const caller = flagValue(rest, "--caller");
-      const stateFp = flagValue(rest, "--state-fp");
-      if (hash === undefined) {
-        throw new CliError(
-          "elicit requires --hash (the args_hash the elicit_required error's details carried)",
-        );
-      }
-      if (tool === undefined) {
-        throw new CliError("elicit requires --tool (the tool name the confirmation is for)");
-      }
-      const configPath = flagValue(rest, "--config") ?? positional(scan);
-      return {
-        kind: "elicit-mint",
-        hash,
-        tool,
-        ...(configPath !== undefined ? { configPath } : {}),
-        ...(vault !== undefined ? { vault } : {}),
-        ...(caller !== undefined ? { caller } : {}),
-        ...(stateFp !== undefined ? { stateFp } : {}),
-        json: rest.includes("--json"),
-      };
-    }
+    if (first === "elicit") return parseElicitMint(rest); // THE-826
     if (first === "config") {
       const sub = rest[0];
       const configPath = flagValue(rest, "--config") ?? positional(rest.slice(1));

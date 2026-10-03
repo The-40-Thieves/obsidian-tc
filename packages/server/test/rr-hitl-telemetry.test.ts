@@ -15,8 +15,8 @@ import { type CallerContext, type ToolDefinition, ToolRegistry } from "../src/mc
 import { buildResourceUri } from "../src/mcp/resources";
 import { createMcpServer } from "../src/mcp/server";
 import { requireConfirmation } from "../src/vault/hitl";
-import { makeTestVault, type TestVault } from "./m1-helpers";
 import { openMemoryDb } from "./helpers";
+import { makeTestVault, type TestVault } from "./m1-helpers";
 
 interface Emitted {
   vault: string;
@@ -99,15 +99,15 @@ describe("RR-L2 telemetry carries the vault the call acted on", () => {
       registry,
       context: () => placeholderCtx(db),
       visibility: { grantedScopes: new Set(["*"]) },
-      elicitCodec: createElicitCodec(
-        randomBytes(32).toString("hex"),
-        getDefaultElicitTtlSeconds(),
-      ),
+      elicitCodec: createElicitCodec(randomBytes(32).toString("hex"), getDefaultElicitTtlSeconds()),
       legacyElicitationShim: true,
     });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await server.connect(serverTransport);
-    const client = new Client({ name: "rr", version: "1.0.0" }, { capabilities: { elicitation: {} } });
+    const client = new Client(
+      { name: "rr", version: "1.0.0" },
+      { capabilities: { elicitation: {} } },
+    );
     client.setRequestHandler(ElicitRequestSchema, async () => ({
       action: "accept",
       content: { approve: true },

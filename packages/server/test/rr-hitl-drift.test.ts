@@ -135,6 +135,13 @@ describe("RR-M1 repeating a blocked call must not rebind an earlier mint command
       expect((second.details as { state_fp: string }).state_fp).not.toBe(original.state_fp);
 
       const token = mintFromCommand(b, original);
+      // The headless mint binds the ORIGINAL request's state (A), not the newest row's (B).
+      const bound = b.db
+        .prepare("SELECT state_fp FROM elicit_tokens WHERE token = ?")
+        .get(token) as {
+        state_fp: string;
+      };
+      expect(bound.state_fp).toBe(original.state_fp);
       const r = await b.call("delete_note", input, { elicitToken: token });
       expect(errOf(r).code).toBe("replay_drift");
       expect(b.has("a.md")).toBe(true);

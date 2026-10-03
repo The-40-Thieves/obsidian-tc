@@ -134,7 +134,10 @@ async function connect(b: Booted, answer: { action: string; content?: { approve:
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
-  const client = new Client({ name: "rr-test", version: "1.0.0" }, { capabilities: { elicitation: {} } });
+  const client = new Client(
+    { name: "rr-test", version: "1.0.0" },
+    { capabilities: { elicitation: {} } },
+  );
   const forms: string[] = [];
   client.setRequestHandler(ElicitRequestSchema, async (req) => {
     forms.push(String((req.params as { message?: unknown }).message));
@@ -268,7 +271,8 @@ describe("RR-L5 the ACL answers before the markdown-type check", () => {
       acl: { writePaths: ["Notes/**"], deletePaths: ["Notes/**"] },
     });
     for (const name of ["update_active_file", "append_active_file", "delete_active_file"]) {
-      const input = name === "delete_active_file" ? { vault: "test" } : { vault: "test", content: "x" };
+      const input =
+        name === "delete_active_file" ? { vault: "test" } : { vault: "test", content: "x" };
       b.focus("Private/secret.md");
       const md = errOf(await b.call(name, input));
       b.focus("Private/secret.canvas");
