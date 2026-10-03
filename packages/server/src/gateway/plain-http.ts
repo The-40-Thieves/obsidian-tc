@@ -38,6 +38,7 @@
 // address.
 import { lookup } from "node:dns/promises";
 import http from "node:http";
+import https from "node:https";
 import { isIP } from "node:net";
 import { Readable } from "node:stream";
 import {
@@ -196,9 +197,12 @@ function sendPinned(
   target: ResolvedAddress,
   req: { url: URL; method: string; headers: Headers; body: Uint8Array | undefined },
   signal: AbortSignal,
+  /** false: hand a 3xx back to the caller instead of refusing it (the caller reports it). */
+  refuseRedirects = true,
 ): Promise<Response> {
   return new Promise<Response>((resolve, reject) => {
     if (signal.aborted) return reject(abortError());
+    const secure = req.url.protocol === "https:";
     const headers: Record<string, string> = {};
     req.headers.forEach((v, k) => {
       headers[k] = v;
@@ -207,13 +211,18 @@ function sendPinned(
     headers.host = req.url.host;
     if (headers["accept-encoding"] === undefined) headers["accept-encoding"] = "identity";
     if (req.body !== undefined) headers["content-length"] = String(req.body.byteLength);
-    const out = http.request({
+    // https: the socket goes to the pinned address, but SNI and the certificate check stay on the
+    // URL's hostname (`servername`; never an IP literal, which is not a valid SNI name).
+    const out = (secure ? https : http).request({
       host: connectAddress(target.address),
-      port: req.url.port === "" ? 80 : Number(req.url.port),
+      port: req.url.port === "" ? (secure ? 443 : 80) : Number(req.url.port),
       method: req.method,
       path: `${req.url.pathname}${req.url.search}`,
       headers,
       agent: false,
+      ...(secure && isIP(normalizeHostForBind(req.url.hostname)) === 0
+        ? { servername: req.url.hostname }
+        : {}),
     });
     const onAbort = () => out.destroy(abortError());
     signal.addEventListener("abort", onAbort, { once: true });
@@ -231,12 +240,12 @@ function sendPinned(
       const status = res.statusCode ?? 502;
       // Redirects are refused, never followed: the Location target was not checked against the
       // host list or the private-address rule, and nothing is sent to it.
-      if (status >= 300 && status < 400 && res.headers.location !== undefined) {
+      if (refuseRedirects && status >= 300 && status < 400 && res.headers.location !== undefined) {
         res.destroy();
         done();
         reject(
           new PlainHttpRefusedError(
-            `plain http to ${req.url.hostname} refused: it answered with a redirect (HTTP ${status}); redirects are not followed`,
+            `${secure ? "https" : "plain http"} to ${req.url.hostname} refused: it answered with a redirect (HTTP ${status}); redirects are not followed`,
           ),
         );
         return;
@@ -253,6 +262,35 @@ function sendPinned(
     });
     out.end(req.body);
   });
+}
+
+/**
+ * A `fetch` for bodiless GETs (the OIDC discovery and JWKS fetches) that connects ONLY to the
+ * addresses the caller already validated, in order, never resolving the name again: a record that
+ * changes after the check cannot redirect the connection (DNS rebinding). https keeps SNI and
+ * certificate validation on the original hostname. No agent and no proxy (a proxy would resolve the
+ * name itself), and redirects are never followed: the 3xx is returned for the caller to report.
+ * A connect-phase failure moves to the next validated address; the last error is thrown.
+ */
+export function createPinnedFetch(targets: readonly ResolvedAddress[]): typeof fetch {
+  return (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = new URL(
+      typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+    );
+    const headers = new Headers(init?.headers);
+    const method = init?.method ?? "GET";
+    const signal = init?.signal ?? new AbortController().signal;
+    let last: unknown = new PlainHttpRefusedError(`${url.hostname} has no validated address`);
+    for (const target of targets) {
+      try {
+        return await sendPinned(target, { url, method, headers, body: undefined }, signal, false);
+      } catch (e) {
+        last = e;
+        if (signal.aborted) break;
+      }
+    }
+    throw last;
+  }) as typeof fetch;
 }
 
 export interface PlainHttpPolicyFetchOptions extends PlainHttpPolicyOptions {

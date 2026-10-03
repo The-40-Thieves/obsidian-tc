@@ -5,6 +5,7 @@
 // Where it may point is bounded too: the discovered `jwks_uri` stays on the issuer's origin (or a host
 // the operator listed), carries no credentials, and no fetch is made to a non-public address.
 import type { FetchImplementation } from "jose";
+import { createPinnedFetch } from "../gateway/plain-http";
 import { redactEndpointWithPath, redactUrlsInText } from "../telemetry/redact-endpoint";
 import { assertPublicHost, type IdpNetworkPolicy } from "./oidc-network";
 
@@ -56,14 +57,16 @@ function requireHttps(url: string, what: string): URL {
 /** GET a URL as text: https only, no redirects, timeout, and a hard cap on the body size. */
 export async function fetchBoundedText(url: string, o: FetchBoundedOpts): Promise<string> {
   const u = requireHttps(url, o.what);
-  await assertPublicHost(
+  const validated = await assertPublicHost(
     u.hostname,
     o.network ?? {},
     (message, cause) => new OidcFetchError(message, cause === undefined ? undefined : { cause }),
     o.what,
   );
   const shown = redactEndpointWithPath(u.href);
-  const doFetch = o.fetch ?? fetch;
+  // An injected fetch is the test seam. Otherwise connect to the addresses just validated (never
+  // the name again); with the private-network opt-in nothing was validated, so the ordinary fetch.
+  const doFetch = o.fetch ?? (validated === undefined ? fetch : createPinnedFetch(validated));
   const timeoutMs = o.timeoutMs ?? IDP_FETCH_TIMEOUT_MS;
   const timeout = AbortSignal.timeout(timeoutMs);
   const signal = o.signal === undefined ? timeout : AbortSignal.any([o.signal, timeout]);
