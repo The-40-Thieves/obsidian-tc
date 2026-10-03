@@ -145,7 +145,7 @@ describe("THE-717: the citation job registers only when it could actually run", 
           },
         },
       }),
-    ).toThrow(/allowPlainHttp/i);
+    ).toThrow(/plainHttpHosts/i);
   });
 
   it("registers when the SAME baseUrl carries allowPlainHttp: true", () => {

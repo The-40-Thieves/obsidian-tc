@@ -50,6 +50,7 @@ import { type EntryPointsView, entryPointsCheck } from "./entrypoints";
 // its own probe shape that no other check needs.
 import { type HitlConfirmationsView, hitlConfirmationsCheck } from "./hitl-confirmations";
 import { type MemoryReadAclView, memoryReadAclCheck } from "./memory-read-acl";
+import { type PlainHttpView, plainHttpCheck } from "./plain-http";
 import { type ProvenanceView, provenanceCheck } from "./provenance";
 import { runDoctor } from "./report";
 import type { RetrievalHeadsView } from "./retrieval-heads";
@@ -138,6 +139,7 @@ export interface DoctorConfigView {
    *  live TypeSafe reachability probe under `--probe`. Optional, same reasoning as
    *  retrieval/snapshots above. */
   citationJudge?: CitationJudgeView;
+  plainHttp?: PlainHttpView;
   /** THE-1073: per-vault notes-on-disk vs notes-indexed counts, only under `--probe` (same
    *  reasoning as every other store-touching view above). */
   indexCoverage?: IndexCoverageView;
@@ -250,6 +252,7 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   // THE-1078: is the configured citation-judge PROVIDER (gateway, or the opt-in TypeSafe Jev)
   // actually reachable? Same optional-view reasoning as retrieval/snapshots above.
   if (config.citationJudge) checks.push(citationJudgeCheck(config.citationJudge));
+  if (config.plainHttp) checks.push(plainHttpCheck(config.plainHttp));
   // THE-1073: is every note on disk actually reaching the index? Same optional-view reasoning as
   // retrieval/snapshots above.
   if (config.indexCoverage) checks.push(indexCoverageCheck(config.indexCoverage));

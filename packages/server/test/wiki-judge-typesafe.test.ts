@@ -346,7 +346,7 @@ describe("resolveWikiJudgeBackend", () => {
     const warn = vi.fn();
     const url = "http://litellm:4000/typesafe";
     expect(resolveWikiJudgeBackend(cfg({ baseUrl: url }), roles, filter, warn)).toBeNull();
-    expect(warn.mock.calls[0]?.[0]).toMatch(/wikiJudge\.allowPlainHttp is not set/);
+    expect(warn.mock.calls[0]?.[0]).toMatch(/wikiJudge\.plainHttpHosts/);
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     expect(
       resolveWikiJudgeBackend(cfg({ baseUrl: url, allowPlainHttp: true }), roles, filter, warn),

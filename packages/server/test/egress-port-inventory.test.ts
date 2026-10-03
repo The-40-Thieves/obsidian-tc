@@ -358,6 +358,25 @@ describe("egress port inventory (THE-934 fix round 1)", () => {
     expect(found).toEqual(TYPESAFE_CLIENT_ALLOWLIST);
   });
 
+  // The plain-http policy (gateway/plain-http.ts: a listed host plus a private-address check at
+  // connect time) is the client's DEFAULT transport. A construction site that omits plainHttpHosts
+  // still fails closed (an empty list refuses every non-loopback http:// URL), but each real site
+  // must hand over the operator's list or a configured plain-http judge could never send; and one
+  // that passes its own fetchFn would skip the policy entirely, so none may.
+  it("each createTypesafeClient site passes plainHttpHosts, and none passes a fetchFn that would bypass the plain-http policy", () => {
+    for (const f of TYPESAFE_CLIENT_ALLOWLIST) {
+      const text = nonCommentSource(readFileSync(join(SRC_ROOT, f), "utf8"));
+      const start = text.indexOf("createTypesafeClient(");
+      const args = text.slice(start, text.indexOf("});", start));
+      expect(args, `${f} must pass plainHttpHosts to createTypesafeClient`).toMatch(
+        /plainHttpHosts/,
+      );
+      if (f === "cli/commands/doctor.ts") {
+        expect(args, `${f} must not inject a fetchFn`).not.toMatch(/fetchFn/);
+      }
+    }
+  });
+
   it("buildTypesafeJudgeClient is called ONLY by the two judge adapters", () => {
     const found = callSites(/buildTypesafeJudgeClient\(/).filter(
       (f) => f !== "gateway/typesafe-judge-client.ts",

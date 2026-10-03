@@ -239,7 +239,7 @@ returns `rate_limit` with `retry_after_ms`.
 | `maintenance` | enabled, every 60 min | `cache.db` sweep: expired idempotency/elicit rows, event_log retention, `PRAGMA optimize`. |
 | `maintenance.wikiLint` | **disabled** (opt-in), every 24 h | Scheduled [wiki lint](/tools/#wiki-checks-page-exists-and-lint): runs the `lint_wiki` checks and logs one summary line per vault. Read-only. Keys: `enabled`, `intervalHours`, `folder`, `maxNotes`. |
 | `maintenance.wikiPages` | **disabled** (opt-in), every 6 h | Scheduled regeneration of each wiki folder's generated [`index.md` and `log.md`](/tools/#generated-index-and-log-pages), as `commit_wiki_page` does after a write. Writes inside `wiki.folder` only; never over a hand-edited page. Keys: `enabled`, `intervalHours`. <!-- config-path:ignore --> |
-| `wikiJudge` | `find_existing_page` **off**, `lint_wiki` **on** when a judge is configured | The LLM judge that resolves ambiguous [wiki page matches](/tools/#the-llm-judge). Needs a configured judge: the gateway `judge` role, or `provider: typesafe`. Keys: `enabled` (`find_existing_page`, default `false`), `lintEnabled` (`lint_wiki`, default `true`), `provider` (`gateway` or `typesafe`), `maxCallsPerRequest` (1 to 3, default 3), `maxCallsPerDay` (default 200, `0` disables), `timeoutMs` (default 15000, cancels the request), `maxNoteChars` (default 2400 per side). `provider: typesafe` (experimental) asks TypeSafe Jev instead and also needs `model` (a pinned, dotted version such as `jev-1.13.0`) and `threshold` (no default); `apiKeyEnv`, `baseUrl` and `allowPlainHttp` as in `experiential.citationInfer.judge`. `maintenance.wikiLint.judge` (default `true`, but the sweep itself stays off until `maintenance.wikiLint.enabled`) / `judgeMaxCalls` let the scheduled lint judge too, unless `toolVisibility.disabledTags` has `external-network`. Candidate page text goes to the judge, never for egress-excluded or Excluded-files notes. |
+| `wikiJudge` | `find_existing_page` **off**, `lint_wiki` **on** when a judge is configured | The LLM judge that resolves ambiguous [wiki page matches](/tools/#the-llm-judge). Needs a configured judge: the gateway `judge` role, or `provider: typesafe`. Keys: `enabled` (`find_existing_page`, default `false`), `lintEnabled` (`lint_wiki`, default `true`), `provider` (`gateway` or `typesafe`), `maxCallsPerRequest` (1 to 3, default 3), `maxCallsPerDay` (default 200, `0` disables), `timeoutMs` (default 15000, cancels the request), `maxNoteChars` (default 2400 per side). `provider: typesafe` (experimental) asks TypeSafe Jev instead and also needs `model` (a pinned, dotted version such as `jev-1.13.0`) and `threshold` (no default); `apiKeyEnv`, `baseUrl` and `plainHttpHosts` as in `experiential.citationInfer.judge` (see [Plain-http endpoints](#plain-http-endpoints-plainhttphosts); `allowPlainHttp` is deprecated). `maintenance.wikiLint.judge` (default `true`, but the sweep itself stays off until `maintenance.wikiLint.enabled`) / `judgeMaxCalls` let the scheduled lint judge too, unless `toolVisibility.disabledTags` has `external-network`. Candidate page text goes to the judge, never for egress-excluded or Excluded-files notes. |
 | `plane` | **disabled** (opt-in), every 240 min | Ambient sleep-time consolidation (synthesis + audit jobs). Only does work when the [inference gateway](/configuration/inference-gateway/) is configured — set `plane.enabled: true` to run it. A gateway-configured deployment that never sets this key gets a boot-time notice explaining how to turn it on. |
 
 ## `plur` *(optional)*
@@ -249,6 +249,40 @@ store: `endpoint` + `apiKey` (or the env vars below) for HTTP, **or** `command`
 (argv prefix, e.g. `["plur"]`) to shell the local plur CLI — `command` takes
 precedence. `apiPrefix` (`""`), `timeoutMs` (5000). Absent endpoint/command → the
 plur tools degrade to `plugin_missing` with no network call.
+
+## Plain-http endpoints (`plainHttpHosts`)
+
+`experiential.citationInfer.judge` and `wikiJudge` (both with `provider: typesafe`) send a bearer key and
+vault-derived text to `baseUrl`. That URL must be `https://`, a loopback host, or an `http://` URL whose
+exact hostname is listed in the block's `plainHttpHosts`:
+
+```yaml
+experiential:
+  citationInfer:
+    judge:
+      provider: typesafe
+      baseUrl: http://litellm:4000/typesafe # a gateway on a Docker bridge
+      plainHttpHosts: ["litellm"]
+```
+
+A listed host is still checked every time a request is sent. The host is resolved once, and the request is
+refused, with nothing sent, unless **every** address it resolves to is loopback, private (RFC 1918: `10/8`,
+`172.16/12`, `192.168/16`) or IPv6 unique-local (`fc00::/7`). Link-local addresses are never allowed, because
+`169.254.169.254` is the cloud metadata service. The connection then goes to the address that was checked,
+with the original `Host` header, so a second DNS answer cannot redirect it. A redirect from the host is
+refused rather than followed. Entries are exact hostnames (case-insensitive, internationalized names are
+converted to punycode); wildcards, ports and paths are config errors. A numeric form such as
+`http://0x08080808/` or `http://[::ffff:8.8.8.8]/` is the address it spells, so it needs to be private to
+be sent at all. `obsidian-tc doctor` lists each plain-http host with the addresses it resolves to and warns
+about any that are not private.
+
+`allowPlainHttp: true` is **deprecated** and is removed in the next major release. Until then it means "this
+`baseUrl`'s own host is listed", and it no longer waives the private-address check: a host that resolves to a
+public address is refused. `doctor` and `server_health` (`deprecations`) warn while it is set. Replace it with
+`plainHttpHosts: ["<the host in baseUrl>"]`.
+
+Only these two judge blocks have a plain-http opt-in. The gateway, embedding and reranker `baseUrl` fields
+are not checked against this policy.
 
 ## Environment variables (complete)
 

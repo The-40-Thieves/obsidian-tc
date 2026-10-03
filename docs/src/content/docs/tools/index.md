@@ -313,8 +313,9 @@ on a call, or `lintEnabled: false`, turns it off. The scheduled lint itself stil
   ranking score, not a calibrated probability and not a security control, so tune it on labelled pairs from
   your own vault. It never falls back to the gateway, and a missing key or bad block disables the judge
   with a warning rather than changing provider. The base URL must be `https://` unless it is loopback or
-  `allowPlainHttp` is set (a gateway pass-through on a private network). The same egress rules apply
-  as for the gateway judge.
+  its exact hostname is listed in `wikiJudge.plainHttpHosts` (a gateway pass-through on a private network;
+  see [Plain-http endpoints](/configuration/config-yaml/#plain-http-endpoints-plainhttphosts)). The same
+  egress rules apply as for the gateway judge.
 * **Caps.** `wikiJudge.maxCallsPerDay` (default 200, `0` disables) bounds gateway calls per UTC day across
   every caller; a failed call counts, and the call is reserved before it is sent. `wikiJudge.timeoutMs`
   (default 15000) is a per-call deadline that also cancels the gateway request. `wikiJudge.maxNoteChars`

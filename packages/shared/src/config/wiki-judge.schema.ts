@@ -54,13 +54,19 @@ export const WikiJudgeConfigSchema = z
       .url()
       .default("https://api.typesafe.ai")
       .describe(
-        "TypeSafe API base URL (provider typesafe). Must be https:// unless the host is loopback or allowPlainHttp is set: this URL carries the bearer key and the opening text of two notes.",
+        "TypeSafe API base URL (provider typesafe). Must be https:// unless the host is loopback or its exact hostname is listed in plainHttpHosts: this URL carries the bearer key and the opening text of two notes.",
+      ),
+    plainHttpHosts: z
+      .array(z.string())
+      .default([])
+      .describe(
+        'Exact hostnames a plain http:// baseUrl may name (case-insensitive, IDNA/punycode-normalized; no wildcards, ports or paths). https:// and loopback need none. A listed host is still refused when a request is sent unless EVERY address it resolves to is loopback, RFC1918 or IPv6 unique-local (link-local, including the 169.254.169.254 cloud metadata address, is never allowed); the connection goes to that checked address with the original Host header, and redirects are refused. Only for a host-local docker network or an encrypted overlay, e.g. `["litellm"]` for a gateway pass-through at http://litellm:4000/typesafe; the key and note text still travel in clear over that link.',
       ),
     allowPlainHttp: z
       .boolean()
       .default(false)
       .describe(
-        "Allow ANY http:// baseUrl host, not just loopback. Only for a host-local docker network or an encrypted overlay (e.g. a gateway pass-through at http://litellm:4000/typesafe); the key and note text still travel in clear over whatever link the URL names.",
+        "DEPRECATED, removed at the next major release: use plainHttpHosts. Until then `true` means this baseUrl's own host is listed in plainHttpHosts, with the connect-time private-address check still applied (a host that resolves to a public address is refused). `obsidian-tc doctor` and server_health warn while it is set.",
       ),
     maxCallsPerRequest: z
       .number()

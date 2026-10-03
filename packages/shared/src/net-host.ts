@@ -177,12 +177,12 @@ export function classifyJudgeBaseUrl(
 }
 
 export interface TypesafeJudgeIssue {
-  path: "baseUrl" | "model" | "threshold";
+  path: "baseUrl" | "model" | "threshold" | "plainHttpHosts";
   message: string;
 }
 
 /** The config-load rules every TypeSafe judge block shares (`experiential.citationInfer.judge`,
- *  `wikiJudge`): the https-unless-loopback-unless-allowPlainHttp rule on `baseUrl`, and, only for
+ *  `wikiJudge`): the https-unless-loopback-unless-listed rule on `baseUrl`, and, only for
  *  provider "typesafe", a required pinned model (dotted numeric version suffix) and a required
  *  threshold. One function so the two blocks cannot drift. `label` is the field prefix named in the
  *  messages ("judge" for the citation block, "wikiJudge" for the wiki one). */
@@ -192,7 +192,9 @@ export function typesafeJudgeIssues(
     model?: string | undefined;
     threshold?: number | undefined;
     baseUrl: string;
+    /** Deprecated: maps to "this baseUrl's own host is listed". */
     allowPlainHttp?: boolean | undefined;
+    plainHttpHosts?: readonly string[] | undefined;
   },
   label: string,
   thresholdWhat: string,
@@ -202,13 +204,25 @@ export function typesafeJudgeIssues(
   if (cls === "invalid") {
     issues.push({
       path: "baseUrl",
-      message: `${label}.baseUrl must be a canonical "scheme://host" URL with scheme https or http — either it could not be parsed that way, or its scheme is neither (e.g. ftp:/file:). allowPlainHttp only ever widens http:// on a non-loopback host, never any other scheme.`,
+      message: `${label}.baseUrl must be a canonical "scheme://host" URL with scheme https or http — either it could not be parsed that way, or its scheme is neither (e.g. ftp:/file:). plainHttpHosts only ever widens http:// on a non-loopback host, never any other scheme.`,
     });
-  } else if (cls === "http-remote" && !c.allowPlainHttp) {
-    issues.push({
-      path: "baseUrl",
-      message: `${label}.baseUrl must use https:// — this URL carries the bearer key and vault-derived text — unless the host is loopback (localhost/127.0.0.1/[::1]) for a local test or dev endpoint, or ${label}.allowPlainHttp is explicitly set to opt into a trusted plain-http path (e.g. a host-local gateway or an encrypted overlay).`,
-    });
+  } else if (cls === "http-remote") {
+    const host = judgeBaseUrlHost(c.baseUrl);
+    const listed = host !== undefined && isPlainHttpHostListed(host, c.plainHttpHosts ?? []);
+    if (!listed && !c.allowPlainHttp) {
+      issues.push({
+        path: "baseUrl",
+        message: `${label}.baseUrl must use https:// — this URL carries the bearer key and vault-derived text — unless the host is loopback (localhost/127.0.0.1/[::1]) for a local test or dev endpoint, or its exact hostname is listed in ${label}.plainHttpHosts (e.g. a host-local gateway or an encrypted overlay; the host must also resolve only to private addresses when a request is sent).`,
+      });
+    }
+  }
+  for (const entry of c.plainHttpHosts ?? []) {
+    if (normalizePlainHttpHost(entry) === undefined) {
+      issues.push({
+        path: "plainHttpHosts",
+        message: `${label}.plainHttpHosts entry ${JSON.stringify(entry)} is not an exact hostname — wildcards, ports, paths, userinfo and schemes are not accepted.`,
+      });
+    }
   }
   // Scoped to provider "typesafe" ONLY: a gateway provider names its model on the gateway side.
   if (c.provider === "typesafe") {
@@ -240,4 +254,82 @@ export function typesafeJudgeIssues(
  *  Returns undefined for a URL classify would call "invalid" (nothing safe to name). */
 export function judgeBaseUrlHost(u: string): string | undefined {
   return parseJudgeBaseUrl(u)?.host;
+}
+
+// Hostname normalization for plainHttpHosts matching: the WHATWG URL parser lowercases, punycodes
+// IDNA labels and canonicalizes numeric IPv4 spellings (0x08080808, 134744072 and 010.0.0.1 all
+// become dotted quads), so an entry and a request URL are compared in the one spelling the
+// connection will actually use. A single trailing dot (the absolute-name spelling) is dropped.
+// Returns undefined for anything that is not one bare hostname or IP literal.
+export function normalizePlainHttpHost(raw: string): string | undefined {
+  const t = raw.trim();
+  if (t === "" || /[\s*/\\?#@%]/.test(t)) return undefined;
+  const UrlCtor = (globalThis as { URL?: MinimalUrlCtor }).URL;
+  if (typeof UrlCtor !== "function") return undefined;
+  const bare = t.startsWith("[") ? t.slice(1, -1) : t;
+  const candidate = bare.includes(":") ? `[${bare}]` : t;
+  // A plain hostname has no ":"; one with a port, scheme or userinfo is not an exact host.
+  if (!bare.includes(":") && t.includes(":")) return undefined;
+  try {
+    const parsed = new UrlCtor(`http://${candidate}`);
+    const host = parsed.hostname.replace(/\.$/, "");
+    return host === "" ? undefined : host;
+  } catch {
+    return undefined;
+  }
+}
+
+/** True when `host` (a URL hostname) is exactly one of `list`, both sides normalized. No wildcard,
+ *  suffix or subdomain matching; an unparseable list entry never matches. */
+export function isPlainHttpHostListed(host: string, list: readonly string[]): boolean {
+  const want = normalizePlainHttpHost(host);
+  if (want === undefined) return false;
+  return list.some((entry) => normalizePlainHttpHost(entry) === want);
+}
+
+function ipv4OfMappedHex(h: string): string | null {
+  const m = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(h);
+  return m ? ipv4MappedHexToDotted(`${m[1]}:${m[2]}`) : null;
+}
+
+function isPrivateIpv4(o: readonly [number, number, number, number]): boolean {
+  const [a, b] = o;
+  return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+}
+
+/**
+ * True only for an address a plain-http request may be sent to: loopback (127/8, ::1), RFC1918
+ * (10/8, 172.16/12, 192.168/16) and IPv6 unique-local (fc00::/7), plus an IPv4-mapped IPv6 address
+ * wrapping any of the IPv4 ones. Link-local is deliberately NOT in the set: 169.254.169.254 is the
+ * cloud metadata service on AWS, GCP, Azure and OCI, and no provider endpoint lives on a link-local
+ * address (a Docker bridge is 172.16/12). Everything else — public, carrier-grade NAT (100.64/10),
+ * 0/8, "::", fe80::/10, site-local, NAT64, IPv4-compatible `::a.b.c.d` — and anything that does
+ * not parse as an IP literal is false: the caller fails closed. Accepts the text a resolver returns
+ * or a URL hostname, in any IPv6 spelling.
+ */
+export function isPrivateNetworkAddress(addr: string): boolean {
+  const UrlCtor = (globalThis as { URL?: MinimalUrlCtor }).URL;
+  if (typeof UrlCtor !== "function") return false;
+  const bare = normalizeHostForBind(addr);
+  if (bare === "") return false;
+  const v4 = ipv4OctetsOf(bare);
+  if (v4) return isPrivateIpv4(v4);
+  if (!bare.includes(":") || /[^0-9a-f:.]/.test(bare)) return false;
+  let h: string;
+  try {
+    h = new UrlCtor(`http://[${bare}]`).hostname; // canonical compressed form, brackets kept
+  } catch {
+    return false;
+  }
+  h = h.slice(1, -1);
+  if (h.startsWith("::ffff:")) {
+    const dotted = ipv4OfMappedHex(h);
+    const o = dotted ? ipv4OctetsOf(dotted) : null;
+    return o ? isPrivateIpv4(o) : false;
+  }
+  if (h === "::1") return true;
+  // The canonical form drops leading zeros, so "fc::1" is 00fc::1 (NOT unique-local): only a
+  // four-digit first group can sit in fc00::/7.
+  const first = h.split(":")[0] ?? "";
+  return first.length === 4 && /^f[cd]/.test(first);
 }
