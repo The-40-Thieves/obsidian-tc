@@ -134,6 +134,23 @@ The fields this covers: `acl.rules[].glob`, `acl.readPaths` / `writePaths` / `de
 a vault's own `acl`), `egress.excludePaths`, and `vaults[].index.excludePaths` (path-prefix entries
 only; an entry written `/regex/` is a regular expression and is left exactly as written).
 
+`acl.rules[].glob` and the three `*Paths` whitelists are stricter than the rest: an ACL pattern is
+matched against a path **relative to the vault root** (`Private/x.md`), so one that is still anchored
+at a root after normalising can never match. Config load **refuses** it, with the vault-relative
+spelling in the error, rather than guessing:
+
+- a leading separator (`/Private/**`, `\Private\**`), a drive letter (`C:\notes\**`), a UNC prefix
+  (`\\server\share`), or a leading `./`: write `Private/**`, `notes/**`;
+- a trailing separator (`notes\private\`): that is the exact path `notes/private/`, not the folder.
+  Write `notes/private/**`.
+
+Refusing instead of stripping is deliberate: an `acl.rules` entry that never matched left its extra
+scopes unenforced, and stripping the marker from a whitelist entry would turn one that granted nothing
+into a grant. **Upgrade note:** a config that carries such a pattern now fails to start (`serve`,
+`doctor` and the other commands print the field and the fix). Those rules never worked, so the fix is to
+rewrite them vault-relative. The egress and index fields keep stripping a leading separator and
+widening a trailing one to the folder.
+
 Before this, a backslash glob compiled to a pattern no vault path could match. For a whitelist
 (`readPaths` and friends) that failed closed, which is safe. For a restriction (`egress.excludePaths`,
 `acl.rules`, `index.excludePaths`) it failed **open**: the exclusion silently excluded nothing.

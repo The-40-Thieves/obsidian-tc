@@ -28,6 +28,52 @@ function normalizeConfigPathGlob(glob: string): string {
  *  and the docgen walker both still see `string`, and further `.min`/`.refine` checks chain on. */
 export const configPathGlob = () => z.string().overwrite(normalizeConfigPathGlob);
 
+// ACL variant. An ACL glob is matched against a ROOTLESS vault-relative path (`Private/x.md`), so a
+// pattern that is still root-marked after normalisation never matches anything: `\Private\**`
+// -> `/Private/**`, `C:\notes\**`, a UNC `\\server\share`, or `./Private/**`. For `acl.rules` that
+// fails OPEN (the rule's extra scopes are bypassed, and nothing says so). It is REFUSED rather than
+// stripped: stripping an inert whitelist entry would turn it into a grant the operator never saw
+// take effect. A TRAILING separator is refused for the same reason: `notes/private/` is the exact
+// path `notes/private/` (a note path never ends in `/`), not the folder, and matches nothing.
+// Egress and index fields do not use this variant: a leading `/` there is stripped and a folder
+// widened (normalizeEgressExcludePattern, normalizeIndexExclusionEntry), so they cannot fail open
+// this way.
+const ROOT_MARKER = /^(?:[A-Za-z]:\/|\/|\.\/)+/;
+
+/** The reason an already-normalised ACL glob can never match a vault-relative path, with the
+ *  spelling that would; `undefined` when the pattern is fine. */
+function aclGlobProblem(normalized: string): string | undefined {
+  const rooted = ROOT_MARKER.test(normalized);
+  const trailing = normalized.endsWith("/");
+  if (!rooted && !trailing) return undefined;
+  const bare = normalized.replace(ROOT_MARKER, "");
+  const suggestion = trailing ? `${bare}**` : bare;
+  const why = [
+    rooted
+      ? 'it starts with a root marker (a leading "/" or "\\", a drive letter such as "C:", a UNC "\\\\" prefix, or "./")'
+      : undefined,
+    trailing
+      ? 'it ends with a separator, so it is the exact path "…/" rather than the folder'
+      : undefined,
+  ]
+    .filter((x) => x !== undefined)
+    .join(" and ");
+  return `ACL pattern can never match a note: ${why}. ACL patterns are vault-relative paths with no leading separator; write "${suggestion === "" ? "**" : suggestion}" instead.`;
+}
+
+/** An ACL path glob (`acl.rules[].glob`, `acl.readPaths` / `writePaths` / `deletePaths`, root and
+ *  per vault): `configPathGlob`'s normalisation, plus REFUSAL of a root-marked or
+ *  trailing-separator pattern (see above). The check sees the raw value so the message can quote it,
+ *  and normalises it the same way first. */
+export const aclPathGlob = () =>
+  z
+    .string()
+    .superRefine((raw, ctx) => {
+      const problem = aclGlobProblem(normalizeConfigPathGlob(raw));
+      if (problem !== undefined) ctx.addIssue({ code: "custom", message: `"${raw}": ${problem}` });
+    })
+    .overwrite(normalizeConfigPathGlob);
+
 /** Obsidian's Excluded-files dialect (vaults[].index.excludePaths): `/regex/` is a regular
  *  expression, anything else a case-insensitive path prefix. The shape test is shared with the
  *  matcher (server's search/index-exclusion.ts) so the two cannot disagree on which entries are

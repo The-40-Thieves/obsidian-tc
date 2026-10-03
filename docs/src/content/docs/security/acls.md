@@ -140,6 +140,14 @@ this a backslash glob matched nothing: harmless for a whitelist (it failed close
 **fail-open** for a rule or an exclusion, which then protected nothing. `obsidian-tc doctor` also warns
 (`config.path-globs`) about any glob that matches no file in its vault.
 
+**Patterns must be vault-relative.** ACL globs are matched against paths relative to the vault root
+(`Private/x.md`), so a rule written `/Private/**`, `\Private\**`, `C:\notes\**`, `./Private/**`, or with a
+trailing separator (`notes/private/`) can never match a note. Its scopes would be silently bypassed, so
+config load **rejects** these in `rules[].glob` and the three `*Paths` whitelists with the vault-relative
+spelling to use (`Private/**`, `notes/private/**`). The separator is not stripped for you: doing so could
+turn a whitelist entry that granted nothing into a grant. A config with such a pattern fails to start
+until it is rewritten; `obsidian-tc doctor` prints the same error.
+
 Root ACL:
 
 ```json

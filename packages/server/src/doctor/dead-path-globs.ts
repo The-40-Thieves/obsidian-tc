@@ -4,7 +4,8 @@
 //   - a RESTRICTION (egress.excludePaths, acl.rules, vaults[].index.excludePaths) that matches
 //     nothing restricts nothing — it fails OPEN, so the note it was meant to withhold is exposed;
 //   - a WHITELIST (acl.readPaths/writePaths/deletePaths) that matches nothing grants nothing —
-//     it fails closed, which is safe but is rarely what the operator meant.
+//     it fails closed, which is safe but is rarely what the operator meant;
+//   - an ACL rule with NO scopes adds no requirement, so a dead one changes nothing either way.
 // Own module, same reasoning as memory-read-acl.ts: a pure classifier over an already-resolved view
 // (the vault's file list is injected, so the check is testable with no filesystem).
 import { globMatch } from "../acl";
@@ -22,6 +23,8 @@ export interface PathGlobEntry {
   pattern: string;
   /** True for a restriction that fails OPEN when it matches nothing. */
   failOpen: boolean;
+  /** True for an ACL rule that lists no scopes: it adds no requirement, so being dead is harmless. */
+  noEffect?: boolean;
   vaultIds: readonly string[];
   matches: (relPath: string) => boolean;
 }
@@ -32,8 +35,10 @@ export interface DeadPathGlobsView {
   files: ReadonlyMap<string, readonly string[] | undefined>;
 }
 
-/** The pattern -> predicate for each field, mirroring the enforcing compiler. A pattern the
- *  compiler refuses (egress's unusable spellings) yields no entry: config load already refuses it. */
+/** The pattern -> predicate for each field, mirroring the enforcing compiler. An egress pattern the
+ *  compiler refuses yields no entry (config load already refuses it). An index entry that is empty
+ *  or an invalid regex matches nothing, so it stays an entry with a never-matching predicate and is
+ *  reported dead rather than silently omitted. */
 const aclMatcher = (glob: string) => (rel: string) => globMatch(glob, rel);
 
 function egressMatcher(pattern: string): ((rel: string) => boolean) | undefined {
@@ -45,15 +50,15 @@ function egressMatcher(pattern: string): ((rel: string) => boolean) | undefined 
   }
 }
 
-function indexMatcher(entry: string): ((rel: string) => boolean) | undefined {
+function indexMatcher(entry: string): (rel: string) => boolean {
   const trimmed = entry.trim();
-  if (trimmed === "") return undefined;
+  if (trimmed === "") return () => false;
   const { test, invalid } = compileExclusionEntries([trimmed]);
-  return invalid.length > 0 ? undefined : test;
+  return invalid.length > 0 ? () => false : test;
 }
 
 interface AclPathsView {
-  rules: readonly { glob: string }[];
+  rules: readonly { glob: string; scopes: readonly string[] }[];
   readPaths?: readonly string[] | undefined;
   writePaths?: readonly string[] | undefined;
   deletePaths?: readonly string[] | undefined;
@@ -78,14 +83,17 @@ export function pathGlobEntries(config: PathGlobConfigView): PathGlobEntry[] {
   const allIds = config.vaults.map((v) => v.id);
   const aclEntries = (prefix: string, acl: AclPathsView, vaultIds: readonly string[]): void => {
     if (vaultIds.length === 0) return;
-    for (const r of acl.rules)
+    for (const r of acl.rules) {
+      const noEffect = r.scopes.length === 0;
       out.push({
         field: `${prefix}.rules[].glob`,
         pattern: r.glob,
-        failOpen: true,
+        failOpen: !noEffect,
+        ...(noEffect ? { noEffect } : {}),
         vaultIds,
         matches: aclMatcher(r.glob),
       });
+    }
     for (const key of ["readPaths", "writePaths", "deletePaths"] as const)
       for (const glob of acl[key] ?? [])
         out.push({
@@ -114,17 +122,14 @@ export function pathGlobEntries(config: PathGlobConfigView): PathGlobEntry[] {
   }
   for (const v of config.vaults) {
     if (v.acl) aclEntries(`vaults[${v.id}].acl`, v.acl, [v.id]);
-    for (const pattern of v.index?.excludePaths ?? []) {
-      const matches = indexMatcher(pattern);
-      if (matches)
-        out.push({
-          field: `vaults[${v.id}].index.excludePaths`,
-          pattern,
-          failOpen: true,
-          vaultIds: [v.id],
-          matches,
-        });
-    }
+    for (const pattern of v.index?.excludePaths ?? [])
+      out.push({
+        field: `vaults[${v.id}].index.excludePaths`,
+        pattern,
+        failOpen: true,
+        vaultIds: [v.id],
+        matches: indexMatcher(pattern),
+      });
   }
   return out;
 }
@@ -178,7 +183,9 @@ export function deadPathGlobsCheck(view: DeadPathGlobsView): Check {
       const issues = dead.map((e) =>
         e.failOpen
           ? `${e.field} "${e.pattern}" matches no file: this restriction protects NOTHING (it fails open), so the notes it was meant to cover are not covered`
-          : `${e.field} "${e.pattern}" matches no file: this whitelist entry grants nothing`,
+          : e.noEffect
+            ? `${e.field} "${e.pattern}" matches no file, and the rule lists no scopes, so it changes nothing`
+            : `${e.field} "${e.pattern}" matches no file: this whitelist entry grants nothing`,
       );
       return {
         status: "warning" as CheckStatus,

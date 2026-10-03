@@ -120,4 +120,30 @@ describe("config.path-globs", () => {
       expect(r.notes?.[0]).toContain("not checked");
     }
   });
+  it("an index exclusion that is empty after normalising, or an invalid regex, is reported dead, not omitted", async () => {
+    const r = await run({
+      vaults: [{ id: "main", path: "/tmp/vault", index: { excludePaths: ["\\", "/(/"] } }],
+    });
+    expect(r.status).toBe("warning");
+    expect(r.issues).toHaveLength(2);
+    for (const i of r.issues ?? []) expect(i).toContain("fails open");
+  });
+
+  it("a dead ACL rule with NO scopes is not called fail-open: it adds no requirement either way", async () => {
+    const r = await run({
+      acl: {
+        rules: [
+          { glob: "gone/**", scopes: [] },
+          { glob: "secret/**", scopes: ["admin:x"] },
+        ],
+      },
+    });
+    expect(r.status).toBe("warning");
+    const issues = r.issues ?? [];
+    expect(issues).toHaveLength(2);
+    expect(issues[0]).toContain("lists no scopes");
+    expect(issues[0]).not.toContain("fails open");
+    expect(issues[1]).toContain("fails open");
+    expect(r.summary).toContain("(1 fail open)");
+  });
 });

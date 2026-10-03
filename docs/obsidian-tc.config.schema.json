@@ -87,7 +87,7 @@
                     "glob": {
                       "type": "string",
                       "minLength": 1,
-                      "description": "Glob matched against the vault-relative note path. Written with forward slashes; a backslash is read as a separator, so `notes\\private\\**` is `notes/private/**` (a vault path can never contain a backslash)."
+                      "description": "Glob matched against the vault-relative note path. Written with forward slashes; a backslash is read as a separator, so `notes\\private\\**` is `notes/private/**` (a vault path can never contain a backslash). Must be vault-relative: a leading separator, a drive letter (`C:`), a UNC prefix, a leading `./` or a trailing separator is refused at load, because such a rule can never match a note and its scopes would be silently bypassed."
                     },
                     "scopes": {
                       "default": [],
@@ -104,21 +104,21 @@
                 }
               },
               "readPaths": {
-                "description": "Glob whitelist for reads: a path must match at least one entry. Omitted leaves reads unrestricted (see strictReadDefault). Write separators as `/`: a backslash is read as a separator (`notes\\**` is `notes/**`), since a vault path can never contain one, and repeated separators collapse.",
+                "description": "Glob whitelist for reads: a path must match at least one entry. Omitted leaves reads unrestricted (see strictReadDefault). Write separators as `/`: a backslash is read as a separator (`notes\\**` is `notes/**`), since a vault path can never contain one, and repeated separators collapse. Entries must be vault-relative: a leading separator, drive letter, UNC prefix, leading `./` or trailing separator is refused at load.",
                 "type": "array",
                 "items": {
                   "type": "string"
                 }
               },
               "writePaths": {
-                "description": "Glob whitelist for writes: a path must match at least one entry. Omitted leaves writes unrestricted. Write separators as `/`: a backslash is read as a separator (`notes\\**` is `notes/**`), since a vault path can never contain one, and repeated separators collapse.",
+                "description": "Glob whitelist for writes: a path must match at least one entry. Omitted leaves writes unrestricted. Write separators as `/`: a backslash is read as a separator (`notes\\**` is `notes/**`), since a vault path can never contain one, and repeated separators collapse. Entries must be vault-relative: a leading separator, drive letter, UNC prefix, leading `./` or trailing separator is refused at load.",
                 "type": "array",
                 "items": {
                   "type": "string"
                 }
               },
               "deletePaths": {
-                "description": "Glob whitelist for deletes: a path must match at least one entry. Omitted leaves deletes unrestricted. Write separators as `/`: a backslash is read as a separator (`notes\\**` is `notes/**`), since a vault path can never contain one, and repeated separators collapse.",
+                "description": "Glob whitelist for deletes: a path must match at least one entry. Omitted leaves deletes unrestricted. Write separators as `/`: a backslash is read as a separator (`notes\\**` is `notes/**`), since a vault path can never contain one, and repeated separators collapse. Entries must be vault-relative: a leading separator, drive letter, UNC prefix, leading `./` or trailing separator is refused at load.",
                 "type": "array",
                 "items": {
                   "type": "string"
@@ -798,7 +798,7 @@
               "glob": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Glob matched against the vault-relative note path. Written with forward slashes; a backslash is read as a separator, so `notes\\private\\**` is `notes/private/**` (a vault path can never contain a backslash)."
+                "description": "Glob matched against the vault-relative note path. Written with forward slashes; a backslash is read as a separator, so `notes\\private\\**` is `notes/private/**` (a vault path can never contain a backslash). Must be vault-relative: a leading separator, a drive letter (`C:`), a UNC prefix, a leading `./` or a trailing separator is refused at load, because such a rule can never match a note and its scopes would be silently bypassed."
               },
               "scopes": {
                 "default": [],
@@ -815,21 +815,21 @@
           }
         },
         "readPaths": {
-          "description": "Glob whitelist for reads: a path must match at least one entry. Omitted leaves reads unrestricted (see strictReadDefault). Write separators as `/`: a backslash is read as a separator (`notes\\**` is `notes/**`), since a vault path can never contain one, and repeated separators collapse.",
+          "description": "Glob whitelist for reads: a path must match at least one entry. Omitted leaves reads unrestricted (see strictReadDefault). Write separators as `/`: a backslash is read as a separator (`notes\\**` is `notes/**`), since a vault path can never contain one, and repeated separators collapse. Entries must be vault-relative: a leading separator, drive letter, UNC prefix, leading `./` or trailing separator is refused at load.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "writePaths": {
-          "description": "Glob whitelist for writes: a path must match at least one entry. Omitted leaves writes unrestricted. Write separators as `/`: a backslash is read as a separator (`notes\\**` is `notes/**`), since a vault path can never contain one, and repeated separators collapse.",
+          "description": "Glob whitelist for writes: a path must match at least one entry. Omitted leaves writes unrestricted. Write separators as `/`: a backslash is read as a separator (`notes\\**` is `notes/**`), since a vault path can never contain one, and repeated separators collapse. Entries must be vault-relative: a leading separator, drive letter, UNC prefix, leading `./` or trailing separator is refused at load.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "deletePaths": {
-          "description": "Glob whitelist for deletes: a path must match at least one entry. Omitted leaves deletes unrestricted. Write separators as `/`: a backslash is read as a separator (`notes\\**` is `notes/**`), since a vault path can never contain one, and repeated separators collapse.",
+          "description": "Glob whitelist for deletes: a path must match at least one entry. Omitted leaves deletes unrestricted. Write separators as `/`: a backslash is read as a separator (`notes\\**` is `notes/**`), since a vault path can never contain one, and repeated separators collapse. Entries must be vault-relative: a leading separator, drive letter, UNC prefix, leading `./` or trailing separator is refused at load.",
           "type": "array",
           "items": {
             "type": "string"
