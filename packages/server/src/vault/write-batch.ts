@@ -48,6 +48,12 @@ export interface BatchWrite {
   content: string;
   /** The raw bytes the note had when the batch was planned; null: it did not exist (a create). */
   prevRaw: string | null;
+  /** Make missing parent folders of a create; default true. A rewrite of an existing note passes
+   *  false, so a note that vanished is an error rather than a recreated one. */
+  createDirs?: boolean;
+  /** The leaf existed and the caller just moved it aside (replaceDestination): re-creating it mints
+   *  no NEW name, so the hostile-name refusal is skipped. */
+  replacesExisting?: boolean;
 }
 
 export interface BatchHooks {
@@ -163,8 +169,12 @@ export function applyWriteBatch(writes: readonly BatchWrite[], hooks: BatchHooks
   };
   try {
     for (const w of writes) {
-      const madeDirs = w.prevRaw === null ? missingDirs(w.abs) : [];
-      const s = stageNoteWrite(w.abs, w.content, true, { exclusive: w.prevRaw === null });
+      const createDirs = w.createDirs ?? true;
+      const madeDirs = w.prevRaw === null && createDirs ? missingDirs(w.abs) : [];
+      const s = stageNoteWrite(w.abs, w.content, createDirs, {
+        exclusive: w.prevRaw === null,
+        ...(w.replacesExisting ? { replacesExisting: true } : {}),
+      });
       staged.push({ w, madeDirs, staged: s });
     }
     hooks.beforeCommit?.();

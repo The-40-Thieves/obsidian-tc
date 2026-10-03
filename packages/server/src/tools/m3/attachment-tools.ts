@@ -26,7 +26,6 @@ import {
 import { redactSecrets } from "../../experiential/redact";
 import {
   checkBase64Payload,
-  commitAttachmentReferences,
   DEFAULT_ATTACHMENT_EXTS,
   extOf,
   findAttachmentReferences,
@@ -41,6 +40,7 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl, ImmutableRewriteSkips } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
+import { commitPlanned, PreImageSnapshots, planFingerprint } from "../../vault/move-plan";
 import {
   hardDelete,
   noteExists,
@@ -56,6 +56,7 @@ import {
   resolveVaultPathChecked,
   walkVault,
 } from "../../vault/paths";
+import { applyWriteBatch, isIncompleteRollback } from "../../vault/write-batch";
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { immutableSkipShape } from "../scan-warnings";
@@ -466,13 +467,24 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           throw err.noteExists("destination already exists; set overwrite", { path: toRel });
 
         // Plan and PROVE the reference rewrite before anything is touched: a destination whose links
-        // cannot be written (an existing `C#/` folder, a `)` in a markdown target) refuses here,
-        // with the attachment still in place and its references still valid.
+        // cannot be written (an existing `C#/` folder, a `)` in a markdown target) or a note a
+        // `block`-mode memoryDefense scan refuses ends here, with the attachment still in place and
+        // its references still valid. The plan holds each referencing note's pre-image; the commit
+        // re-checks it.
         const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
         const skips = new ImmutableRewriteSkips(ctx.acl, v.root, ctx.grantedScopes);
-        const referencePlan = input.update_references
-          ? planAttachmentReferences(v.root, fromRel, toRel, skips)
-          : null;
+        const planReferences = (record: boolean) =>
+          input.update_references
+            ? planAttachmentReferences(
+                v.root,
+                fromRel,
+                toRel,
+                skips,
+                mdConfig,
+                record ? deps.metrics : undefined,
+              )
+            : { pending: [] };
+        const first = planReferences(true);
 
         const crossFolder = dirOf(fromRel) !== dirOf(toRel);
         const overwriteExisting = toEx.exists && input.overwrite;
@@ -485,27 +497,67 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         // The source is read BEFORE the destination is touched, so an unreadable source (a
         // hard-linked or non-regular file) refuses while the destination is still in place.
         const bytes = readFileChecked(fromAbs);
-        // THE-572: copy + hardDelete + commitAttachmentReferences is multi-step, and the reference
-        // rewrite at the end is fallible. replaceDestination marks the effect committed once the
-        // copy landed, so a throw after that point is an accurate indeterminate_outcome on retry
-        // instead of a not-found for the source that already moved. On overwrite the destination is
-        // soft-deleted first (recoverable) and restored if the copy fails. The copy goes through
-        // the shared safe writer (component-wise no-follow mkdir, no-follow temp open, exclusive
-        // no-replace commit).
-        const { trashedTo: trashedDestTo } = replaceDestination({
-          root: v.root,
-          toRel,
-          toAbs,
-          replacing: overwriteExisting,
-          write: (o) => writeFileAtomic(toAbs, bytes, input.options.create_dirs, o),
-          markEffectCommitted: ctx.markEffectCommitted,
+        // THE-572: copy + reference rewrite + hardDelete is multi-step. replaceDestination marks the
+        // effect committed once the copy landed, so a throw after that point is an accurate
+        // indeterminate_outcome on retry instead of a not-found for the source that already moved.
+        // On overwrite the destination is soft-deleted first (recoverable) and restored if the copy
+        // fails. The copy goes through the shared safe writer (component-wise no-follow mkdir,
+        // no-follow temp open, exclusive no-replace commit).
+        //
+        // The reference rewrite is one write batch (vault/write-batch.ts) run right after the copy:
+        // each referencing note is replaced only if it still holds the bytes the plan was made from,
+        // and a CAS miss or an I/O error rolls every rewrite back. The copy is then removed again, so
+        // a failed move leaves the vault as it was (the source is only deleted after the batch
+        // landed). An INCOMPLETE rollback keeps the copy: the rewrites that could not be undone
+        // already point at it.
+        const snapshots = new PreImageSnapshots(
+          ctx.db,
+          deps.snapshots,
+          v.id,
+          "move_attachment",
+          ctx.now,
+        );
+        let trashedDestTo = null as string | null;
+        const plan = commitPlanned({
+          first,
+          plan: planReferences,
+          fingerprint: (p) => planFingerprint(p.pending),
+          commit: (p, recheck) => {
+            try {
+              for (const r of p.pending) snapshots.capture(r.rel, r.raw);
+              ({ trashedTo: trashedDestTo } = replaceDestination({
+                root: v.root,
+                toRel,
+                toAbs,
+                replacing: overwriteExisting,
+                write: (o) => {
+                  writeFileAtomic(toAbs, bytes, input.options.create_dirs, o);
+                  try {
+                    applyWriteBatch(
+                      p.pending.map((r) => ({
+                        abs: r.abs,
+                        rel: r.rel,
+                        content: r.text,
+                        prevRaw: r.raw,
+                        createDirs: false,
+                      })),
+                      { beforeCommit: recheck },
+                    );
+                  } catch (e) {
+                    if (!isIncompleteRollback(e)) hardDelete(toAbs);
+                    throw e;
+                  }
+                },
+                markEffectCommitted: ctx.markEffectCommitted,
+              }));
+            } catch (e) {
+              snapshots.failed(e);
+              throw e;
+            }
+          },
         });
+        snapshots.landed();
         hardDelete(fromAbs);
-        // the rewritten link text lands in referencing notes' bodies — same guard every
-        // other note-content writer gets (see planAttachmentReferences's own doc comment).
-        const references = referencePlan
-          ? commitAttachmentReferences(referencePlan, mdConfig, deps.metrics)
-          : { notes: 0, refs: 0 };
         return {
           vault: v.id,
           from: fromRel,
@@ -513,7 +565,10 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           moved: true,
           overwritten: toEx.exists,
           trashed_dest_to: trashedDestTo,
-          references_updated: references,
+          references_updated: {
+            notes: plan.pending.length,
+            refs: plan.pending.reduce((n, r) => n + r.count, 0),
+          },
           ...skips.out(),
         };
       },

@@ -37,16 +37,17 @@ vi.mock("../src/vault/notes-io", async (importOriginal) => {
     },
     // The real destructive step only ever throws raw fs errors, never an ObsidianTcError — this
     // stand-in simulates a domain error surfacing mid-move (e.g. a lower layer that DOES throw one)
-    // to prove the phase-2 catch passes an already-ObsidianTcError through unchanged instead of
-    // re-wrapping it as internal_error. (Fires before anything is trashed.)
-    replaceDestination: (args: Parameters<typeof actual.replaceDestination>[0]) => {
-      if (trashNoteThrowFor && args.toRel.includes(trashNoteThrowFor)) {
+    // to prove the real-move catch passes an already-ObsidianTcError through unchanged instead of
+    // re-wrapping it as internal_error. (Fires on the overwrite's trash step, before anything is
+    // written.)
+    trashNote: (root: string, rel: string) => {
+      if (trashNoteThrowFor && rel.includes(trashNoteThrowFor)) {
         throw new ObsidianTcError(
           "vault_not_found",
           `simulated vault loss on ${trashNoteThrowFor}`,
         );
       }
-      return actual.replaceDestination(args);
+      return actual.trashNote(root, rel);
     },
   };
 });

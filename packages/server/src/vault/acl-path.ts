@@ -228,7 +228,7 @@ export function callerCanReadVaultPath(
  */
 export class ImmutableRewriteSkips {
   private readonly named = new Set<string>();
-  private hidden = 0;
+  private readonly hidden = new Set<string>();
 
   constructor(
     private readonly acl: FolderAcl | undefined,
@@ -236,19 +236,34 @@ export class ImmutableRewriteSkips {
     private readonly grantedScopes: Iterable<string>,
   ) {}
 
-  blocks(rel: string): boolean {
+  /** Is `rel` an immutable path (judged as written AND by its real path; fails closed)? Records
+   *  nothing: see {@link blocks} and {@link note}. */
+  isImmutable(rel: string): boolean {
     if (!this.acl?.hasImmutablePaths) return false;
-    let immutable: boolean;
     try {
-      immutable =
+      return (
         this.acl.immutableGlobFor(normalizeVaultPath(rel)) !== null ||
-        this.acl.immutableGlobFor(resolveVaultPathChecked(this.root, rel).aclRel) !== null;
+        this.acl.immutableGlobFor(resolveVaultPathChecked(this.root, rel).aclRel) !== null
+      );
     } catch {
-      immutable = true;
+      return true;
     }
-    if (!immutable) return false;
-    if (callerCanReadVaultPath(this.acl, this.grantedScopes, this.root, rel)) this.named.add(rel);
-    else this.hidden++;
+  }
+
+  /** May the caller read `rel`: whether an error or report may name it (callerCanReadVaultPath). */
+  canRead(rel: string): boolean {
+    return callerCanReadVaultPath(this.acl, this.grantedScopes, this.root, rel);
+  }
+
+  /** Report `rel` as left alone: named when the caller can read it, counted when not. */
+  note(rel: string): void {
+    if (this.canRead(rel)) this.named.add(rel);
+    else this.hidden.add(rel);
+  }
+
+  blocks(rel: string): boolean {
+    if (!this.isImmutable(rel)) return false;
+    this.note(rel);
     return true;
   }
 
@@ -257,11 +272,11 @@ export class ImmutableRewriteSkips {
     immutable_not_updated_hidden?: number;
     immutable_warning?: string;
   } {
-    const total = this.named.size + this.hidden;
+    const total = this.named.size + this.hidden.size;
     if (total === 0) return {};
     return {
       ...(this.named.size > 0 ? { immutable_not_updated: [...this.named].sort() } : {}),
-      ...(this.hidden > 0 ? { immutable_not_updated_hidden: this.hidden } : {}),
+      ...(this.hidden.size > 0 ? { immutable_not_updated_hidden: this.hidden.size } : {}),
       immutable_warning: `${total} immutable (raw source) note${total === 1 ? "" : "s"} link${total === 1 ? "s" : ""} the moved target and ${total === 1 ? "was" : "were"} not rewritten: those links still point at the old name`,
     };
   }

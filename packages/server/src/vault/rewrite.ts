@@ -2,8 +2,7 @@
 // and Domain 5's rewrite_link. Fenced code blocks are skipped so code samples are
 // never mutated; the dominant line ending is preserved. Inline-code spans on an
 // otherwise-prose line are not excluded (a documented M1 limitation).
-import { err, ObsidianTcError, wikiLinkNameProblem } from "@the-40-thieves/obsidian-tc-shared";
-import { redactSecrets } from "../experiential/redact";
+import { err, wikiLinkNameProblem } from "@the-40-thieves/obsidian-tc-shared";
 import { frontmatterYamlSpan, splitFrontmatterBody } from "./frontmatter";
 import { applyScanReplacements, scanMdLinks, scanWikilinks } from "./link-scan";
 import {
@@ -233,34 +232,4 @@ export function rewriteLinks(
     count: count + b.count,
     warnings,
   };
-}
-
-/** `rewriteLinks` for a move or rename, which a caller runs as a PLAN before it commits anything.
- *  The mapped target is a path, so it is proven exactly (see RewriteOptions.exactTarget). A link
- *  that cannot be written is refused as an invalid_input naming the note it sits in and the target
- *  it would have to carry, so the caller can refuse the whole move: nothing is moved, nothing is
- *  written, and a retry is not an indeterminate_outcome. */
-export function rewriteLinksForMove(raw: string, map: TargetMapper, note: string): LinkRewrite {
-  let last: string | null = null;
-  try {
-    return rewriteLinks(
-      raw,
-      (target, kind) => {
-        const next = map(target, kind);
-        if (next !== null) last = next;
-        return next;
-      },
-      { exactTarget: true },
-    );
-  } catch (e) {
-    if (!(e instanceof ObsidianTcError) || e.code !== "invalid_input") throw e;
-    const shownNote = redactSecrets(note).text;
-    const target = last === null ? undefined : redactSecrets(last).text;
-    throw err.invalidInput(
-      `move refused: a link in ${shownNote} cannot be rewritten to point at the destination${
-        target === undefined ? "" : ` (${target})`
-      }. ${e.message}. Nothing was moved.`,
-      { ...e.details, note: shownNote, ...(target === undefined ? {} : { target }) },
-    );
-  }
 }

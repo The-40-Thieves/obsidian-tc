@@ -17,16 +17,23 @@ import { readableRel } from "../../../vault/acl-read-filter";
 import { requireConfirmation } from "../../../vault/hitl";
 import { buildVaultIndex, resolveTarget } from "../../../vault/links";
 import {
+  commitPlanned,
+  type PlannedRewrite,
+  PreImageSnapshots,
+  planFingerprint,
+  plannedRewrite,
+  RewriteScan,
+} from "../../../vault/move-plan";
+import {
   hardDelete,
   noteExists,
   readNote,
   replaceDestination,
   writeNoteAtomic,
-  writeNotesAllOrNothingGuarded,
 } from "../../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../../vault/paths";
-import { rewriteLinksForMove } from "../../../vault/rewrite";
 import { captureSnapshot } from "../../../vault/snapshots";
+import { applyWriteBatch } from "../../../vault/write-batch";
 import { type RewriteWarning, rewriteWarningsOut } from "../../scan-warnings";
 import { defineTool } from "../define";
 import type { M1Deps } from "../shared";
@@ -44,18 +51,28 @@ function basenameNoExt(p: string): string {
   return b.replace(/\.md$/i, "");
 }
 
+/** Everything move_note decided before it touches the vault. */
+interface MovePlan {
+  /** Hash of the source as planned: the plan is stale if it has changed. */
+  hash: string;
+  /** The source's content as it will land at the destination (memoryDefense-scanned). */
+  scannedRaw: string;
+  backlinks: BacklinkPlan;
+}
+
 /** The backlink rewrite of a move, computed and PROVEN before anything is moved (planBacklinks),
- *  then written by commitBacklinks once the move has landed. */
+ *  then written together with the moved note as one batch. */
 interface BacklinkPlan {
-  pending: Array<{ abs: string; rel: string; text: string; count: number }>;
+  pending: PlannedRewrite[];
   warnings: RewriteWarning[];
 }
 
 /** Plan the rewrite of every other note that pointed at the moved note: the new text of each, with
- *  every changed link re-parsed (rewriteLinksForMove). It only reads, so it runs BEFORE the move and
- *  a link that cannot be written refuses the whole move while the file is still in place. Both path
- *  sets are rebuilt from the vault as it is now, whichever side of the move that is, so old-target
- *  links still resolve to fromRel and are repointed at the new location. */
+ *  every changed link re-parsed and every body memoryDefense-scanned (a `block` refusal happens here,
+ *  before the move). It only reads, so it runs BEFORE the move and a link that cannot be written
+ *  refuses the whole move while the file is still in place. Both path sets are rebuilt from the
+ *  vault as it is now, whichever side of the move that is, so old-target links still resolve to
+ *  fromRel and are repointed at the new location. */
 // ACL carve-out: this rewrites links in EVERY referencing note to keep links valid,
 // including notes outside the caller's write whitelist. Deliberate graph-integrity
 // invariant (a constrained link-text update, not arbitrary write access) — audit #12.
@@ -65,6 +82,8 @@ function planBacklinks(
   toRel: string,
   readable: (rel: string) => boolean,
   skips: ImmutableRewriteSkips,
+  defense: VaultMemoryDefenseConfig,
+  metrics: MetricsRecorder | undefined,
 ): BacklinkPlan {
   const current = walkVault(root, { extensions: [".md"] }).map((e) => e.relPath);
   const postPaths = current.filter((p) => p !== fromRel);
@@ -77,17 +96,14 @@ function planBacklinks(
   const unique = (newIndex.byBasename.get(newBase.toLowerCase()) ?? []).length === 1;
   const newTarget = unique ? newBase : toRel.replace(/\.md$/i, "");
 
-  const pending: BacklinkPlan["pending"] = [];
+  const pending: PlannedRewrite[] = [];
   const warnings: RewriteWarning[] = [];
+  const scan = new RewriteScan(skips);
   for (const p of postPaths) {
     if (p === toRel) continue; // the moved note's own outgoing links are unaffected
     const abs = resolveVaultPath(root, p);
     const { raw } = readNote(abs);
-    const {
-      text,
-      count,
-      warnings: ws,
-    } = rewriteLinksForMove(
+    const rewrite = scan.note(
       raw,
       (target) => {
         const r = resolveTarget(oldIndex, target);
@@ -95,47 +111,13 @@ function planBacklinks(
       },
       p,
     );
+    if (!rewrite) continue;
     // a warning names its note, and the rewrite is vault-wide: only name notes the caller may read
-    if (readable(p)) for (const w of ws) warnings.push({ path: p, ...w });
-    if (count > 0 && !skips.blocks(p)) pending.push({ abs, rel: p, text, count });
+    if (readable(p)) for (const w of rewrite.warnings) warnings.push({ path: p, ...w });
+    if (rewrite.count > 0) pending.push(plannedRewrite(abs, p, raw, rewrite, defense, metrics));
   }
+  scan.refuseIfFailed();
   return { pending, warnings };
-}
-
-/** Write a planned backlink rewrite, once the move has landed. */
-function commitBacklinks(
-  plan: BacklinkPlan,
-  mdConfig: VaultMemoryDefenseConfig,
-  metrics: MetricsRecorder | undefined,
-): {
-  notes: number;
-  links: number;
-  rewritten: Array<{ rel: string; text: string }>;
-  warnings: RewriteWarning[];
-} {
-  const { pending, warnings } = plan;
-  // Security review round (GH #994 follow-up) + residual fix: scan every rewritten body BEFORE
-  // any of them is written — the shared all-or-nothing helper (vault/notes-io.ts). A note being
-  // rewritten here can carry a pre-existing secret that predates memoryDefense; a block-worthy
-  // match in note N must refuse the WHOLE backlink rewrite, not leave notes before it repointed
-  // and notes after it stale.
-  const written = writeNotesAllOrNothingGuarded(
-    pending.map((p) => ({ abs: p.abs, path: p.rel, content: p.text })),
-    mdConfig,
-    { metrics },
-  );
-  let notes = 0;
-  let links = 0;
-  const rewritten: Array<{ rel: string; text: string }> = [];
-  for (let i = 0; i < pending.length; i++) {
-    const p = pending[i];
-    const w = written[i];
-    if (!p || !w) continue;
-    rewritten.push({ rel: p.rel, text: w.content });
-    notes++;
-    links += p.count;
-  }
-  return { notes, links, rewritten, warnings };
 }
 
 // ── tools ────────────────────────────────────────────────────────────────────
@@ -185,27 +167,34 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
       if (toEx.exists && !input.overwrite)
         throw err.noteExists("destination already exists; set overwrite", { path: toRel });
 
-      const { raw, hash } = readNote(fromAbs);
-      if (input.prev_hash !== undefined && input.prev_hash !== hash)
-        throw err.concurrentModification("note changed since prev_hash", {
-          path: fromRel,
-          expected: input.prev_hash,
-          actual: hash,
-        });
-
-      // Plan and PROVE the whole backlink rewrite before anything is touched: a destination whose
-      // links cannot be written (an existing `C#/` folder, a `)` in a markdown link target) refuses
-      // here, with the file still in place and its backlinks still valid.
+      // Plan and PROVE the whole move before anything is touched: the moved note's scanned content
+      // and every backlink rewrite (each link re-parsed, each body memoryDefense-scanned). A
+      // destination whose links cannot be written (an existing `C#/` folder, a `)` in a markdown
+      // link target) or a note a `block`-mode scan refuses ends here, with the file still in place
+      // and its backlinks still valid. The plan holds each note's pre-image; the commit re-checks it.
       const skips = new ImmutableRewriteSkips(ctx.acl, v.root, ctx.grantedScopes);
-      const backlinkPlan = input.update_backlinks
-        ? planBacklinks(
-            v.root,
-            fromRel,
-            toRel,
-            (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
-            skips,
-          )
-        : null;
+      const readable = (rel: string): boolean => readableRel(ctx.acl, rel, ctx.grantedScopes);
+      const planMove = (record: boolean): MovePlan => {
+        const { raw, hash } = readNote(fromAbs);
+        if (input.prev_hash !== undefined && input.prev_hash !== hash)
+          throw err.concurrentModification("note changed since prev_hash", {
+            path: fromRel,
+            expected: input.prev_hash,
+            actual: hash,
+          });
+        const metrics = record ? deps.metrics : undefined;
+        // The relocated CONTENT can carry a pre-existing secret that predates memoryDefense (the
+        // note may have been written before the vault opted in), so scan the bytes about to land at
+        // the new path, same guard write_note/append_note/patch_note get.
+        const scannedRaw = enforceMemoryDefenseOnNoteWrite(mdConfig, toRel, raw, {
+          ...(metrics ? { metrics } : {}),
+        }).content;
+        const backlinks = input.update_backlinks
+          ? planBacklinks(v.root, fromRel, toRel, readable, skips, mdConfig, metrics)
+          : { pending: [], warnings: [] };
+        return { hash, scannedRaw, backlinks };
+      };
+      const first = planMove(true);
 
       const crossFolder = dirOf(fromRel) !== dirOf(toRel);
       const overwriteExisting = toEx.exists && input.overwrite;
@@ -215,46 +204,66 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
         overwrite: overwriteExisting,
       });
 
-      // Every refusal runs BEFORE the destination is touched: the relocated CONTENT can carry a
-      // pre-existing secret that predates memoryDefense (the note may have been written before the
-      // vault opted in), so scan the bytes about to land at the new path, same guard
-      // write_note/append_note/patch_note get. A `block` refusal thrown after the trash used to
-      // strand the destination in .trash.
-      const scannedRaw = enforceMemoryDefenseOnNoteWrite(mdConfig, toRel, raw, {
-        metrics: deps.metrics,
-      }).content;
-      // On overwrite, soft-delete the destination first so its content is recoverable (the source
-      // is hardDelete'd below, but its content survives at toRel); replaceDestination restores it if
-      // the write fails. The effect is marked committed once the move is not undone (THE-572: a
-      // retry after the source is gone would otherwise answer note_not_found, and leaves
-      // updateBacklinks' rewrites unfinished with no indication).
-      if (overwriteExisting)
-        captureSnapshot(
-          ctx.db,
-          deps.snapshots,
-          v.id,
-          toRel,
-          readNote(toAbs).raw,
-          "move_note",
-          ctx.now,
-        );
-      const { trashedTo: trashedDestTo } = replaceDestination({
-        root: v.root,
-        toRel,
-        toAbs,
-        replacing: overwriteExisting,
-        write: (o) => writeNoteAtomic(toAbs, scannedRaw, input.options.create_dirs, o),
-        markEffectCommitted: ctx.markEffectCommitted,
+      // The move and every backlink rewrite land as ONE write batch (vault/write-batch.ts): the
+      // moved note is created at its destination (exclusive: a note that appeared there is never
+      // replaced) and each backlink note is replaced only if it still holds the bytes the plan was
+      // made from. A CAS miss or an I/O error rolls the whole batch back, the moved note included,
+      // and replaceDestination puts a trashed destination back. Only then is the source removed.
+      // On overwrite, the destination is soft-deleted first so its content is recoverable (the
+      // source is hardDelete'd after, but its content survives at toRel); the effect is marked
+      // committed once the move is not undone (THE-572: a retry after the source is gone would
+      // otherwise answer note_not_found).
+      const snapshots = new PreImageSnapshots(ctx.db, deps.snapshots, v.id, "move_note", ctx.now);
+      let trashedDestTo = null as string | null;
+      const plan = commitPlanned({
+        first,
+        plan: planMove,
+        fingerprint: (p) => planFingerprint(p.backlinks.pending, [p.hash]),
+        commit: (p, recheck) => {
+          try {
+            if (overwriteExisting) snapshots.capture(toRel, readNote(toAbs).raw);
+            for (const r of p.backlinks.pending) snapshots.capture(r.rel, r.raw);
+            ({ trashedTo: trashedDestTo } = replaceDestination({
+              root: v.root,
+              toRel,
+              toAbs,
+              replacing: overwriteExisting,
+              write: (o) =>
+                applyWriteBatch(
+                  [
+                    {
+                      abs: toAbs,
+                      rel: toRel,
+                      content: p.scannedRaw,
+                      prevRaw: null,
+                      createDirs: input.options.create_dirs,
+                      replacesExisting: o.replacesExisting,
+                    },
+                    ...p.backlinks.pending.map((r) => ({
+                      abs: r.abs,
+                      rel: r.rel,
+                      content: r.text,
+                      prevRaw: r.raw,
+                      createDirs: false,
+                    })),
+                  ],
+                  { beforeCommit: recheck },
+                ),
+              markEffectCommitted: ctx.markEffectCommitted,
+            }));
+          } catch (e) {
+            snapshots.failed(e);
+            throw e;
+          }
+        },
       });
+      snapshots.landed();
       hardDelete(fromAbs);
       // THE-291: keep the search index coherent across the move — drop the source path,
-      // index the destination, and reindex every backlink-rewritten note below.
+      // index the destination, and reindex every backlink-rewritten note.
       deps.deindex?.(v.id, fromRel);
-      deps.reindex?.(v.id, toRel, scannedRaw);
-      const backlinks = backlinkPlan
-        ? commitBacklinks(backlinkPlan, mdConfig, deps.metrics)
-        : { notes: 0, links: 0, rewritten: [], warnings: [] };
-      for (const rw of backlinks.rewritten) deps.reindex?.(v.id, rw.rel, rw.text);
+      deps.reindex?.(v.id, toRel, plan.scannedRaw);
+      for (const r of plan.backlinks.pending) deps.reindex?.(v.id, r.rel, r.text);
       return {
         vault: v.id,
         from: fromRel,
@@ -262,9 +271,12 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
         moved: true,
         overwritten: toEx.exists,
         trashed_dest_to: trashedDestTo,
-        content_hash: contentHash(scannedRaw),
-        backlinks_updated: { notes: backlinks.notes, links: backlinks.links },
-        ...rewriteWarningsOut(backlinks.warnings),
+        content_hash: contentHash(plan.scannedRaw),
+        backlinks_updated: {
+          notes: plan.backlinks.pending.length,
+          links: plan.backlinks.pending.reduce((n, r) => n + r.count, 0),
+        },
+        ...rewriteWarningsOut(plan.backlinks.warnings),
         ...skips.out(),
       };
     },
