@@ -1,6 +1,6 @@
 # A bundled OAuth 2.1 authorization server for obsidian-tc (design v2, G1)
 
-Status: **design for owner review, not built.** Written 2026-10-03 against `main` `b620c349`
+Status: **design decided by the owner 2026-10-03 (§12), not built.** Written 2026-10-03 against `main` `b620c349`
 (v1.32.0). Supersedes the 2026-09-24 authorization-server design note in this directory: that note's
 shape (bundled opt-in AS, CIMD default, DCR behind a flag, separate state file) stands, but `main` has
 moved under it. The auth registry now holds asymmetric signing keys and already serves
@@ -87,17 +87,42 @@ supported AS to adopt.
   redirects matched **without the port** for both `127.0.0.1` and `localhost`.
 - `client_credentials` is not supported.
 
-**Other clients.** This matrix is carried from the 2026-09-24 note's research and was not
-re-measured for this revision:
+**ChatGPT connectors** (OpenAI Apps auth docs, developers.openai.com/plugins/build/auth, fetched
+2026-10-03):
 
-- Codex CLI does CIMD and DCR, with fixed loopback.
-- ChatGPT connectors do CIMD (whose document declares `private_key_jwt`) and DCR.
-- Gemini CLI does DCR. Grok Build's DCR support is inferred.
-- Cursor does DCR with a `cursor://` private-use redirect.
+- CIMD is preferred whenever AS metadata has `client_id_metadata_document_supported: true`, with
+  DCR as the fallback.
+- ChatGPT's client document lists both `none` (public client, S256 PKCE) and `private_key_jwt` in
+  `token_endpoint_auth_methods_supported`. Its legacy singular `token_endpoint_auth_method` prefers
+  `private_key_jwt`. An AS that reads only the singular field refuses ChatGPT with
+  `invalid_client`. That is a real incident: HarperFast/oauth issue 244, fixed by treating the list
+  as authoritative.
+- When the AS advertises only `none`, ChatGPT resolves to `none` + PKCE. When `private_key_jwt` is
+  advertised, ChatGPT presents an assertion on every code exchange and refresh. Per that issue's
+  live capture, the assertion's `aud` is the token-endpoint URL rather than the issuer, which
+  RFC 7523bis forbids.
+- **Hard requirements**, copied into §9 as acceptance criteria:
+  - `code_challenge_methods_supported: ["S256"]`; servers that omit it are unsupported.
+  - RFC 9207 `iss` on authorization responses, matched exactly against metadata. With `iss`
+    supported, ChatGPT uses the stable redirect URI
+    `https://chatgpt.com/connector_platform_oauth_redirect`.
+  - `resource` accepted on the authorize and token requests and copied into the access token's
+    `aud`.
+  - RFC 8414 metadata at the well-known path.
 
-Consequence: **CIMD + `none` + RFC 9207 `iss`** covers Claude and Codex with no client table. DCR is
-still needed for Gemini CLI, Grok Build and Cursor, and for ChatGPT until `private_key_jwt` lands
-(§10).
+**Codex CLI** does CIMD when it is advertised and `none` is listed, with a fixed loopback redirect
+(`--oauth-client-registration auto|cimd|dcr`). This and the next two rows are carried from the
+2026-09-24 note's research and were not re-measured:
+
+- Gemini CLI: DCR (unverified whether it does CIMD).
+- Grok Build: DCR inferred, CIMD inferred **no** (unverified).
+- Cursor: DCR with a `cursor://` private-use redirect, no CIMD (unverified).
+
+**Consequence:** **CIMD + `none` + RFC 9207 `iss`** covers claude.ai and Claude Code, ChatGPT and
+Codex with no client table and **no DCR**. The claude.ai custom-connector dialog also recommends
+CIMD. So DCR off by default blocks none of them. DCR is still needed only for clients without
+CIMD: Gemini CLI, Grok Build and Cursor, **all three unverified**. The S8 conformance tests
+re-check each one.
 
 ## 3. Library decision: an in-repo minimal AS on Hono + jose + SQLite
 
@@ -144,7 +169,7 @@ spike:
 | endpoints | authorize, token, revoke, introspect, userinfo, end-session, JWKS, PRM; DCR opt-in; device flow; `client_credentials` **advertised by default** | full OIDC OP | exactly §4.3 |
 | CIMD | yes (`cimd()`, `metadataProfile: "mcp-2026-07-28"`); fetcher is injectable (`fetchClientMetadataResource`), so ours could be passed in | experimental, `ack: 'draft-02'`, breaking changes in minors | ours, on `fetchBoundedText` |
 | PKCE / `iss` / audience | S256 only, `authorization_response_iss_parameter_supported: true`; `resource` → `aud` | S256 / `iss` / `resourceIndicators` | same, by construction |
-| client auth | `none`, `client_secret_*`, **`private_key_jwt`** (unlocks ChatGPT's CIMD document) | all | `none` (+ static secret); `private_key_jwt` is a follow-up |
+| client auth | `none`, `client_secret_*`, `private_key_jwt` | all | `none` (+ static secret), which is all ChatGPT, Claude and Codex need (§2); `private_key_jwt` is a follow-up |
 | refresh | rotation, `refreshTokenReuseInterval` | rotation | rotation + one-step window (§4.6) |
 | signing keys | `jwt()` plugin: its own `jwks` table, private key AES-256-GCM-encrypted with the app secret, interval rotation. A custom `adapter` (`getJwks`/`createJwk`) could bridge to our registry, but must hand back private keys, which our registry deliberately keeps out of any database | its own | **the registry** (0600 files, per-purpose, fail-closed) |
 | login / consent | we supply both pages; email+password and passkey plugins exist | we supply interactions | we build them (§4.5) |
@@ -152,8 +177,8 @@ spike:
 | cadence | very fast (1.7.7 published 2026-09-30) | steady, single maintainer | ours |
 | **security record on this surface** (GitHub advisories, `better-auth/better-auth`) | **8 advisories in 2026 in the provider/OIDC/MCP plugins**, all fixed. Three are the exact classes §8 guards: parallel requests reusing one authorization code (GHSA-7w99-5wm4-3g79, high), concurrent refreshes minting extra valid refresh tokens (GHSA-392p-2q2v-4372, high), and tokens targeting APIs the user did not authorize (GHSA-p2fr-6hmx-4528). The others: `javascript:` redirect URIs (GHSA-86j7-9j95-vpqj), plain PKCE allowed (GHSA-9h47-pqcx-hjr4), refresh without the client secret (GHSA-pw9m-5jxm-xr6h), unrestricted client creation (GHSA-xr8f-h2gw-9xh6), and a device-approval page hiding the client (GHSA-q84f-53jg-9ppm). Core also had a **critical** 2026-09-30 advisory (OAuth state reusable as a magic link, GHSA-965c-763c-88jm) | mature, few advisories (not re-counted here) (u) | none yet; every §8 row is a RED test before code |
 
-**Verdict: keep the in-repo AS as the recommendation. Better Auth is the named fallback, and the
-choice goes to the owner (question 5).**
+**Verdict (owner decision, 2026-10-03): in-repo AS. Better Auth is the documented fallback, under
+the flip conditions below.**
 
 Better Auth genuinely beats `oidc-provider` for this stack. It also beats the in-repo plan on
 breadth: `private_key_jwt`, the device flow, passkeys, and a CIMD implementation that already
@@ -173,7 +198,9 @@ exists. It loses on three things that matter more for an auth core serving one o
 The in-repo cost is about one PR per slice (§11), protected by RED tests for those same classes.
 **Flip conditions** (any one moves the recommendation to Better Auth):
 
-- the owner wants passkeys or `private_key_jwt` in v1 more than a minimal surface;
+- the owner later wants `private_key_jwt`, the device flow, or other breadth sooner than the slices
+  deliver it, and values that over a minimal surface. Passkeys alone are not a flip condition:
+  §4.11 adds them in-repo;
 - a spike shows every unused Better Auth endpoint can be removed, not just left unused;
 - six months pass with no new advisory in `@better-auth/oauth-provider`.
 
@@ -242,7 +269,7 @@ verified by running a flow. **(u)** marks a cell with no primary source, so trea
   - Hydra, Authentik, Logto and FusionAuth each miss R5 for claude.ai-style clients, or need a
     proxy in front.
   - Better Auth meets R1–R5 on paper. But as an external AS it is a library: you still write and
-    run a separate app with its own login and consent pages. That is all the cost of question 5
+    run a separate app with its own login and consent pages. That is all the cost of the §3.1 choice
     and none of the in-process benefit, so it is listed for completeness, not recommended as BYO.
 - **How both compare with the bundled AS.**
 
@@ -312,7 +339,7 @@ promise (§7). So:
 - **Persona narrowing for AS tokens only.** For an `as`-purpose token carrying `persona`, the
   effective scopes are `persona.scopes ∩ token.scope`. This only narrows, and it keeps OAuth
   down-scoping and step-up meaningful. Hand-minted persona tokens keep today's replace semantics.
-  Owner question 3.
+  Decided (§12).
 
 ### 4.3 Endpoints
 
@@ -363,18 +390,13 @@ Config validation enforces three conditions:
     (its SHA-256 is recorded as used). A setup URL is never logged.
 - **Until claimed, `/oauth/authorize`, `/oauth/register` and `/oauth/token` refuse.** This closes the
   first-run race on a public host.
-- Password hash: **scrypt** via `node:crypto` (N=2^17, r=8, p=1, 16-byte salt), stored as a
-  versioned `scrypt$v1$…` string so a later move to Argon2id rehashes on login. It is portable to
-  Bun and every Node ≥ 24; `crypto.argon2` exists on Bun 1.4.2 and Node 26 but not on early Node 24
-  minors, which `engines: >=24` admits. Minimum 12 characters. No password is ever logged or echoed
-  by `config show`/`doctor`.
+- Password hash: **Argon2id via `node:crypto.argon2`**, in §4.11.4. Minimum 12 characters. No
+  password is ever logged or echoed by `config show`/`doctor`.
 - **Multi-user** means each `sub` has its own `scopes_allowed` (an upper bound on any grant) and
   `vaults_allowed` (the `vault` claim or persona must fall inside it), on top of the existing
   per-vault ACL, which still applies at dispatch. The table is multi-row from day one. Adding users
-  (`auth as user add/disable`) is a later slice (owner question 4).
-- **Passkeys** are a follow-up slice (`@simplewebauthn/server`; its `rpID` is the issuer's
-  registrable domain, so a hostname change orphans credentials and must be documented before first
-  deploy). Owner question 1.
+  (`auth as user add/disable`) is a later slice (decided, §12).
+- **Passkeys** come in a later slice (S10, decided). The options and recommendation are in §4.11.
 
 ### 4.6 Refresh tokens
 
@@ -400,16 +422,29 @@ Config validation enforces three conditions:
   - Fetched through the existing `fetchBoundedText` with `maxBytes` 5 KiB, timeout 5 s, no
     redirects, https only, every resolved address public, and the connection pinned. There is
     **no `allowPrivateNetwork` opt-in for CIMD**.
-  - The document must parse as JSON, its `client_id` must equal the URL exactly, `redirect_uris`
-    must be non-empty and valid, and `token_endpoint_auth_method` must be absent or `none`.
-    `logo_uri` and `jwks_uri` are never fetched.
+  - The document must parse as JSON, its `client_id` must equal the URL exactly, and
+    `redirect_uris` must be non-empty and valid. `logo_uri` and `jwks_uri` are never fetched.
+  - **Client-auth method: the list is authoritative.** The permitted methods are
+    `token_endpoint_auth_methods_supported` when that list is present. The singular
+    `token_endpoint_auth_method` is consulted **only when the list is absent**. The client is
+    accepted iff the permitted set contains a method this AS advertises, and v1 advertises only
+    `none`. It is then bound to that one method for its grants, so a later token request presenting
+    any other client authentication is `invalid_client`.
+    - RED test (S7): ChatGPT's real document shape, `"token_endpoint_auth_method":
+      "private_key_jwt"` plus `"token_endpoint_auth_methods_supported": ["private_key_jwt",
+      "none"]`, resolves to `none` and completes the flow. A singular-field-only implementation
+      fails it with `invalid_client`, the failure HarperFast/oauth issue 244 recorded.
+    - Companion RED test: a document listing only `["private_key_jwt"]` is refused with
+      `invalid_client` and a message naming the method.
   - Cached in `cimd_cache` for `clamp(Cache-Control max-age, 5 min, 24 h)`. Errors are never
     cached.
   - Optional `auth.as.cimd.allowedHosts` restricts which hosts may be `client_id`s.
   - Consent pins the grant to the URL. A later document whose `redirect_uris` no longer contain the
     granted one invalidates remembered consent.
-- **DCR**: §4.3 `/oauth/register`. A boot notice at `warn` level whenever it is on, naming the
-  flooding surface and the knobs.
+- **DCR**: §4.3 `/oauth/register`, **off by default (decided)**. A boot notice at `warn` level
+  whenever it is on, naming the flooding surface and the knobs. Clients that still need it: Gemini
+  CLI, Grok Build and Cursor, all unverified. claude.ai, Claude Code, ChatGPT and Codex use CIMD
+  (§2).
 
 ### 4.8 Storage: `oauth.db`
 
@@ -478,6 +513,100 @@ signing key, and coupling it to `auth.jwtSecret` leaves `oidc` and asymmetric-on
   confirmations.
 - On deploy, in-flight confirmations from the old key fail once (TTL 300 s) and the client is
   re-offered. That is acceptable and stated in the changelog fragment.
+
+### 4.11 Passkeys (S10), password hashing (S4) and recovery
+
+Passwords ship first (decided). Passkeys are added **beside** the password, never instead of it, so
+the password stays a working second factor of recovery.
+
+#### 4.11.1 What one operator needs from WebAuthn
+
+- **Discoverable credentials** (`residentKey: "required"`), so login is username-less, and
+  `userVerification: "required"`.
+- **Conditional UI** (autofill), so the login form offers the passkey without an extra button.
+- **Attestation `none` only.** A single operator has no device-model policy to enforce, and every
+  2026 advisory in the leading library sits in attestation-certificate handling (below).
+- **Sign count:** store it. Refuse when the stored value is non-zero and the new one is not
+  greater, since that is a clone signal. Accept a constant 0, because synced passkeys report 0.
+- `rpID` = the issuer host and expected origin = the issuer origin. A hostname change orphans every
+  credential, which is why the reset path in §4.11.5 exists.
+- New table in `oauth.db`: `webauthn_credentials(credential_id PK, sub, public_key, sign_count,
+  transports, device_type, backed_up, created_at, last_used_at)`.
+
+#### 4.11.2 Options surveyed (2026-10-03)
+
+| option | kind | Bun / Node | latest, cadence | advisories | attestation | conditional UI | discoverable | sign count | deps / licence |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **`@simplewebauthn/server`** 14.0.3 (+ `@simplewebauthn/browser`) | server verification + browser helper | **measured**: registration and authentication options generate under Bun 1.4.2 and Node 26 (scratch spike); pure JS, no native addon | 14.0.3 (2026-09-25); four releases in Sept 2026 | **3 in 2026, all in the attestation path, all fixed by 14.0.2**: GHSA-6hxq-p678-4hr2 (low, trust-anchor chaining), GHSA-2g3p-m8c9-hhwh (medium, CRL cache poisoning), GHSA-j3h4-m3m2-7p7j (medium, attestation certs trigger server HTTP requests). `attestationType: "none"` stays out of that code | none plus packed, tpm, android, apple, fido-u2f | yes (`@simplewebauthn/browser` autofill) | yes | returns `newCounter`; the app enforces | 10 deps (`@peculiar` ASN.1/x509 stack; about 5.7 MB installed), MIT |
+| `@oslojs/webauthn` 1.0.0 (+ `@oslojs/crypto`) | parsing primitives (`parseAttestationObject`, `parseAuthenticatorData`, `parseClientDataJSON`, measured exports); we write the ceremony checks and signature verification | pure JS, loads on Bun and Node (measured) | 1.0.0 (2024-09-19); repo idle since | 0 | parses formats; verification is ours | browser side is ours | yes (ours) | exposed; ours | 5 `@oslojs` deps (648 KB), MIT |
+| `@passwordless-id/webauthn` 2.4.0 | client + server | WebCrypto; Node 19+ and Workers documented, Bun (u) | 2.4.0 (2026-05-15) | 0 | not documented (u) | yes (demo) | yes | not documented (u) | zero deps, MIT |
+| `webauthn-p256` 0.0.10 | minimal P-256 verifier | pure JS (u) | **repo archived 2024-11-07** | 0 | none (signature only) | no | n/a | yours | `@noble/*`, MIT; **rejected** (archived) |
+| Hanko (self-hosted) | separate passkey service (Go) + web components | n/a (separate service); ARM64 image (u) | backend v3.1.0 (2026-10-01), active | none published | (u) | yes (u) | yes (u) | (u) | backend AGPL-3.0; **rejected**: a second stateful service for one operator |
+| Corbado | SaaS | n/a | n/a | n/a | n/a | n/a | n/a | n/a | not open source, no self-host (secondary sources); **rejected** |
+| Passage by 1Password | hosted | n/a | **retired 2026-01-16** | n/a | n/a | n/a | n/a | n/a | **rejected** (dead) |
+| Better Auth passkey plugin 1.7.7 | reference only | | | | | | | | built on `@simplewebauthn/server` ^13 and `@simplewebauthn/browser` ^13, which corroborates the pick |
+
+#### 4.11.3 Recommendation: `@simplewebauthn/server` 14.x
+
+The configuration is `attestationType: "none"`, discoverable credentials and UV required, and an
+explicit `expectedOrigin` and `expectedRPID`.
+
+It is the only maintained library that does the full ceremony verification. It is pure JS,
+measured on both runtimes, under MIT, and Better Auth's passkey plugin builds on it too. Its
+advisories are confined to attestation-certificate handling, which `none` never enters. A RED test
+pins that: a `packed` attestation is refused at registration.
+
+`@oslojs/webauthn` is the runner-up if dependency weight ever matters more than owning less crypto
+code. Its cost is writing and proving the ceremony checks ourselves.
+
+The browser half is the vendored `@simplewebauthn/browser` ESM. It is embedded as a codegen'd
+TypeScript string, the same reason migrations are embedded (`bun --compile` ships no assets), and
+served from `/oauth/assets/` under `script-src 'self'`.
+
+#### 4.11.4 Password hashing (S4): Argon2id via `node:crypto.argon2`
+
+| option | verdict |
+| --- | --- |
+| `Bun.password` (Argon2id built in) | **no**: Bun-only. The server also runs on Node (`@hono/node-server`; the vitest suite runs under Node), so one hash function must exist on both |
+| `@node-rs/argon2` 2.2.1 | **no**: a native napi addon, which adds per-target prebuilt binaries to the existing native packaging and standalone-binary path for a function the runtime already has |
+| **`node:crypto.argon2`** | **yes**: added in Node v24.7.0 (Node API docs, no stability caveat) and present in Bun 1.4.2 (**measured**). Use the async form so the event loop stays free |
+| scrypt (`node:crypto`) | the previous draft's choice; superseded |
+
+Parameters are the OWASP minimum: m = 19 MiB, t = 2, p = 1, a 16-byte salt and a 32-byte tag,
+stored as a PHC string (`$argon2id$v=19$m=19456,t=2,p=1$…`) so parameters can be raised with a
+rehash on login. Measured on Cave (ARM64, shared 4-core), median of 5: **153 ms on Bun 1.4.2,
+113 ms on Node 26**. `m = 64 MiB, t = 3` took 858 ms and 1,124 ms, too slow for a login path on a
+shared box.
+
+`engines` admits Node 24.0–24.6, which lack `crypto.argon2`. There, `auth.as.enabled` refuses at
+load with a message naming Node ≥ 24.7. The rest of the server is unaffected, and the floor is
+not raised for everyone.
+
+#### 4.11.5 Recovery: the operator loses the passkey
+
+1. **Password still works.** Passkeys are additive, so a lost device means logging in with the
+   password and enrolling a new passkey. An operator account page
+   (`/oauth/account`) lists credentials with `last_used_at`, and any of them can be removed after
+   a fresh login.
+2. **Lost both, or the hostname changed (orphaned `rpID`).** `obsidian-tc auth as reset-credentials
+   [--user <name>] [--revoke-grants]` is the recovery. Shell access to the host and write access to
+   `<cacheDir>` are the root of trust. It:
+   - prompts for a new password (or reads `--stdin`);
+   - deletes the user's WebAuthn credentials and revokes every session;
+   - with `--revoke-grants`, also revokes every grant and refresh-token family.
+3. **No shell** (some hosted platforms). A one-shot `OBSIDIAN_TC_AS_RESET_TOKEN` env var switches
+   `/oauth/setup` into reset mode for that user. The token is compared in constant time, burned on
+   first use, and announced at `warn` on every boot while set, and the docs say to remove it
+   afterwards. This mirrors the first-boot setup token, so there is one mechanism to test, not two.
+4. **No recovery codes in v1.** Items 2 and 3 cover a single operator. Codes would be one more
+   secret to store hashed, and one more brute-force surface.
+
+RED tests (S10):
+
+- the reset CLI revokes sessions and credentials; an old session cookie gets 401 after reset;
+- the reset token is single-use;
+- reset mode is off whenever the env var is absent;
+- a credential registered under another `rpID` fails authentication.
 
 ## 5. Config sketch
 
@@ -599,10 +728,33 @@ Each row is a RED test written before its mitigation (the slice in brackets). Th
   keys to the config-threading and docs-drift gates (`bun run docs:decisions-index:check` and the
   config-schema snapshot).
 
+### 9.1 Acceptance: ChatGPT's hard requirements (S3, S5, S7)
+
+These are checked against a recorded ChatGPT request shape, then once live before S9 closes:
+
+1. AS metadata has `code_challenge_methods_supported: ["S256"]`,
+   `client_id_metadata_document_supported: true` and `"none"` in
+   `token_endpoint_auth_methods_supported`. It does **not** advertise `private_key_jwt`.
+2. `authorization_response_iss_parameter_supported: true`. Every authorization response, success
+   **and** error, carries `iss`, byte-equal to the metadata `issuer`, PRM `authorization_servers[0]`
+   and the token `iss`. That makes ChatGPT use its stable redirect URI
+   `https://chatgpt.com/connector_platform_oauth_redirect`, which the S7 test registers through
+   ChatGPT's real CIMD document shape.
+3. `resource` is accepted on both the authorize and the token request. It must equal
+   `auth.resource` and is copied into `aud`. A token request whose `resource` differs from the
+   authorize request's is `invalid_target`.
+4. RFC 8414 metadata is served at `/.well-known/oauth-authorization-server`, and the issuer has no
+   path, so no path-inserted variant is needed.
+5. ChatGPT's client document, with `token_endpoint_auth_method: "private_key_jwt"` and
+   `token_endpoint_auth_methods_supported: ["private_key_jwt","none"]`, resolves to `none` (§4.7).
+
 ## 10. Out of scope (named so nothing is silently dropped)
 
-- `private_key_jwt` client authentication. ChatGPT's CIMD document declares it, so in v1 ChatGPT
-  uses DCR (flag on). It is a follow-up slice on jose.
+- `private_key_jwt` client authentication. ChatGPT does not need it: it resolves to `none` + PKCE
+  when that is all the AS advertises (§2). If a follow-up ever advertises it, ChatGPT presents
+  RS256 assertions with the token-endpoint URL as `aud` on every exchange. Per HarperFast/oauth
+  issue 244's capture, that needs an explicit per-client audience exception, so the follow-up stays
+  opt-in and is never advertised by default.
 - DPoP. It is absent from the MCP 2026-07-28 spec.
 - `id_token`/`userinfo`. There is a discovery alias only.
 - Federated upstream login (Google, GitHub).
@@ -626,33 +778,28 @@ review, since this is the auth core.
 | S1 | **Server-local secret + HITL codec in every HTTP mode.** Extract `auth/server-secret.ts` from `wiki-generated-seal.ts`; `createHttpApp` keys `createElicitCodec` from it | modern-era HITL round trip passes under `oidc` and asymmetric-only `jwt`; wiki seals unchanged; two apps on one `cacheDir` accept each other's state | HITL under `oidc` mode has no codec (fails on `main`); a state minted before a `jwtSecret` change verifies after it |
 | S2 | **Registry key purpose.** `auth.db` migration (`purpose`, per-purpose active index); `rotate-key --purpose`; grace floor for `as`; verifier per-purpose rules (`iss`, `typ`, `client_id`, `aud`, `jti`) and persona ∩ scope for `as` tokens; reaper for expired `auth_tokens` rows if absent | HS256 mint flow byte-identical; `as` key rotates independently; JWKS shows both purposes' asymmetric keys | §7 step 1 test; key-purpose-confusion row; persona narrowing test; existing registry-lost tests still pass after the migration |
 | S3 | **`auth.as` config + `oauth.db` + metadata.** Zod schema (§5) with load-time cross-checks; `oauth.db` chain (WAL) and housekeeping GC; `/.well-known/oauth-authorization-server` (+ alias); PRM default and `[0]` check; jwksUri-self refusal; `doctor` `as` section; boot-time `as` key generation. **No issuing routes yet** | metadata validates against RFC 8414 required fields and Claude's CIMD prerequisites; `config show` never prints secrets | `as.enabled` under `mode: none`/`oidc` refused; `tokenTtlSeconds < accessTokenSeconds` refused; `authorizationServers[0] ≠ issuer` refused; Host-spoofing row; lost-`oauth.db` row (part) |
-| S4 | **Operator identity.** `users`, `setup_state`, `sessions`; scrypt; `auth as set-password`; `/oauth/setup`; `/oauth/login`; session cookie; brute-force limits; security headers | operator can claim via CLI or setup token, log in, log out; unclaimed AS refuses | first-run race, brute-force, setup-token-reuse, clickjacking, 303 rows |
+| S4 | **Operator identity.** `users`, `setup_state`, `sessions`; Argon2id via `node:crypto.argon2` (§4.11.4); `auth as set-password`; `/oauth/setup`; `/oauth/login`; session cookie; brute-force limits; security headers | operator can claim via CLI or setup token, log in, log out; unclaimed AS refuses | first-run race, brute-force, setup-token-reuse, clickjacking, 303 rows |
 | S5 | **Authorize + consent + code + token (authorization_code), static clients.** Pending requests, consent page with persona/vault picker, grants, codes, PKCE, JWT issuance with the `as` key, `jti` recording, `iss` on every response | a static-client conformance test completes the full flow to `list_vaults` | open-redirect, PKCE, code-replay, mix-up, audience, consent-phishing, CSRF, log-leakage rows |
 | S6 | **Refresh tokens + revocation.** Families, one-step reuse window, absolute cap, `/oauth/revoke`, `auth as grants list/revoke` CLI | refresh rotation works; revoking a grant kills its RTs and live access tokens | refresh-theft row; RFC 7009 unknown-token 200; `invalid_grant` on every refresh failure |
-| S7 | **CIMD.** Client resolution through `fetchBoundedText`, cache, validation, consent warnings, `allowedHosts` | CIMD conformance client (Claude Code / Codex shape) completes the flow | CIMD SSRF and localhost-impersonation rows |
+| S7 | **CIMD.** Client resolution through `fetchBoundedText`, cache, validation, list-authoritative client-auth method, consent warnings, `allowedHosts` | CIMD conformance clients (Claude Code / Codex shape and ChatGPT's real document shape) complete the flow; §9.1 items 2 and 5 | CIMD SSRF and localhost-impersonation rows; ChatGPT document resolves to `none` (a singular-field implementation fails with `invalid_client`); a `private_key_jwt`-only document is refused |
 | S8 | **DCR behind the flag.** `/oauth/register`, boot notice, rate limit, cap, GC, private-use scheme drop; `hardened` forces off | DCR conformance clients (native loopback, Cursor shape) complete the flow | DCR flooding row; flag-off 404 |
 | S9 | **Docs + recipes.** `security/auth-model.md` bundled-AS section and backup list (`oauth.db`); `SECURITY.md` threat rows; recipes for Claude Code, claude.ai custom connector, `codex mcp login`, Gemini CLI, Grok Build; BYO recipes for WorkOS AuthKit and Keycloak 26.7 (§3.2), each re-verified by one live login, with Cloudflare Access listed as not yet supported; release-note fragment | docs build, link check and `check:public-text` green; every config key documented | docs-drift gate fails before the schema keys are documented |
-| S10 (optional) | **Passkeys** (`@simplewebauthn/server`) beside the password | passkey enroll/login; recovery path documented | hostname change orphans credentials → recovery path re-enrolls |
+| S10 | **Passkeys** (`@simplewebauthn/server` 14.x, attestation `none`; §4.11) beside the password; CLI credential reset | passkey enroll, login and conditional-UI autofill; `auth as reset-credentials` recovers a lost passkey | a non-`none` attestation format is refused; a cloned authenticator with non-zero, non-increasing sign count is refused; a credential registered for another `rpID` fails; reset revokes sessions and passkeys |
 
 S1 and S2 are independent of each other and can run in parallel. S3 needs S2 (it generates the `as`
 key), and S4–S8 run in order after it. S9 can start after S5.
 
-## 12. Questions for the owner
+## 12. Owner decisions (2026-10-03)
 
-1. **Password-only v1, passkeys as a follow-up (S10)?** Recommended: yes. There are no new
-   dependencies, it works behind any proxy hostname, and it avoids the `rpID` orphaning trap before
-   a hosted deploy has a stable domain.
-2. **DCR default off?** Recommended: off. That means Gemini CLI, Grok Build, Cursor and (until
-   `private_key_jwt`) ChatGPT users flip `auth.as.dynamicRegistration` and see the boot notice.
-3. **Persona narrowing for AS tokens** (§4.2): effective scopes = persona ∩ token `scope`, for
-   AS-issued tokens only, leaving the hand-minted "persona replaces scopes" rule untouched. Is
-   narrowing acceptable next to the recorded "never a union" rule? It only ever removes scopes.
-4. **Multi-user in v1 or later?** Recommended: the schema is multi-row now (`users` keyed by `sub`
-   with per-user scope and vault bounds), and `auth as user add/disable` is a later slice.
-5. **In-repo AS or Better Auth?** (§3.1) Recommended: in-repo. It is the smallest surface,
-   keeps one key store, and every §8 race class is proven by our own RED tests. Choose Better Auth
-   if passkeys or `private_key_jwt` in v1 matter more than surface. Its 2026 advisory record on
-   code exchange and refresh rotation is the cost.
+1. **In-repo AS on Hono + jose + SQLite**, not Better Auth. Better Auth stays the documented
+   fallback under §3.1's flip conditions.
+2. **DCR off by default** (`auth.as.dynamicRegistration`, opt-in, with a boot notice). It blocks
+   neither claude.ai, ChatGPT nor Codex, which use CIMD (§2).
+3. **Password login first; passkeys in a later slice** (S10, §4.11).
+4. **Persona narrowing:** for AS-issued tokens, effective scopes = persona ∩ token `scope`. It only
+   removes scopes. Hand-minted persona tokens keep "persona replaces scopes".
+5. **Multi-user:** the `users` table is multi-row from day one; `auth as user add/disable` is a
+   later slice.
 
 ## Sources
 
@@ -666,4 +813,6 @@ key), and S4–S8 run in order after it. S9 can start after S5.
 - RFC 6749, 6750, 7009, 7591, 7636, 7638, 8252, 8414, 8707, 9068, 9207, 9700, 9728; draft-ietf-oauth-client-id-metadata-document.
 - Better Auth via context7 `/better-auth/better-auth` (`docs/plugins/mcp.mdx`, `oauth-provider.mdx`, `jwt.mdx`), npm `better-auth`/`@better-auth/mcp`/`@better-auth/cimd` 1.7.7 (2026-09-30), the local Bun 1.4.2 + Hono + `bun:sqlite` spike (§3), and its GitHub security advisories (`gh api repos/better-auth/better-auth/security-advisories`, 2026-10-03).
 - External-AS table (§3.2), all fetched 2026-10-03: Cloudflare Managed OAuth docs and blog (developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/, blog.cloudflare.com/managed-oauth-for-access/), anthropics/claude-ai-mcp issue 410; github.com/cloudflare/workers-oauth-provider docs; workos.com/docs/authkit/mcp; stytch.com/docs/connected-apps/guides/mcp-auth-overview, stytch.com/pricing, stytch.com/blog/oauth-client-id-metadata-mcp/; docs.descope.com/mcp, descope.com/pricing; auth0.com/blog/auth0-auth-for-mcp-servers-generally-available/, auth0.com/pricing, the Auth0 community thread on ChatGPT CIMD registration; clerk.com/docs (OAuth implementation, MCP server guide), clerk.com/pricing; docs.logto.io (dynamic apps, MCP auth), github.com/logto-io/logto/issues/9689; fusionauth.io/docs (MCP access example), fusionauth.io/blog/cimd-vs-dcr, fusionauth.io/pricing; keycloak.org/securing-apps/mcp-authz-server and the 26.6.0 release post; docs.goauthentik.io (OAuth2 dynamic client registration); zitadel.com/docs/apis/openidoauth/endpoints, help.zitadel.com (self-hosted specs); github.com/ory/hydra/releases and a third-party Hydra + MCP write-up (getlarge.eu); the mcp-auth.dev provider list.
+- ChatGPT: OpenAI Apps auth docs (developers.openai.com/plugins/build/auth) and HarperFast/oauth issue 244 (github.com/HarperFast/oauth/issues/244), both fetched 2026-10-03.
+- Passkeys (§4.11): npm metadata for `@simplewebauthn/server` 14.0.3, `@oslojs/webauthn` 1.0.0, `@passwordless-id/webauthn` 2.4.0, `webauthn-p256` 0.0.10, `@better-auth/passkey` 1.7.7, `@node-rs/argon2` 2.2.1; GitHub security advisories of MasterKale/SimpleWebAuthn; github.com/passwordless-id/webauthn, github.com/wevm/webauthn-p256 (archived), github.com/teamhanko/hanko (licence, releases); 1Password community notice on Passage's retirement; Corbado (secondary sources only); Node.js `doc/api/crypto.md` (`crypto.argon2`, added v24.7.0); the local Bun 1.4.2 / Node 26 spikes (WebAuthn option generation, Argon2id timings).
 - Client matrix rows not re-measured here: the 2026-09-24 design note's research digest.
