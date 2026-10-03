@@ -16,6 +16,7 @@
 //
 // idempotency_key / bulk_idempotency_key are accepted as forward-compat surface
 // (replay dedup is THE-197, Policy layer) — same stance as M1 WriteOptions.
+import { existsSync } from "node:fs";
 import {
   ElicitToken,
   err,
@@ -38,109 +39,27 @@ import { enforcePathAcl, ImmutableRewriteSkips } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import { runBulk } from "../../vault/bulk";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
-import { buildVaultIndex, resolveTarget, type VaultIndex } from "../../vault/links";
 import {
-  hardDelete,
+  commitPlanned,
+  PlanChanged,
+  PreImageSnapshots,
+  planFingerprint,
+} from "../../vault/move-plan";
+import {
   noteExists,
   readNote,
-  replaceDestination,
-  writeNoteAtomic,
+  restoreTrashed,
+  trashNote,
   writeNoteAtomicGuarded,
-  writeNotesAllOrNothingGuarded,
 } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
-import { rewriteLinks } from "../../vault/rewrite";
+import { applyWriteBatch, isIncompleteRollback } from "../../vault/write-batch";
 import { createModeConflictError, overwriteModeMissingError } from "../../vault/write-mode-errors";
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { immutableSkipShape } from "../scan-warnings";
+import { planMoves } from "./bulk-move-plan";
 import type { M6Deps } from "./shared";
-
-// ── move helpers ────────────────────────────────────────────────────────────────
-
-function basenameNoExt(p: string): string {
-  const b = p.includes("/") ? p.slice(p.lastIndexOf("/") + 1) : p;
-  return b.replace(/\.md$/i, "");
-}
-
-/** The link text a moved note should be referenced by: bare basename when unique
- *  in the post-move index, else the full extension-less path (Obsidian shortest-link). */
-function newTargetFor(toRel: string, postIndex: VaultIndex): string {
-  const base = basenameNoExt(toRel);
-  const unique = (postIndex.byBasename.get(base.toLowerCase()) ?? []).length === 1;
-  return unique ? base : toRel.replace(/\.md$/i, "");
-}
-
-/**
- * Rewrite every link that pointed at a moved note to its new location, across the
- * whole vault (including moved notes' own links to other moved notes). `apply`
- * false simulates over the current (pre-move) tree for dry_run prediction; true
- * runs after the files have moved and writes the rewrites. Returns per-move and
- * total link counts.
- */
-// ACL carve-out: this rewrites links in EVERY referencing note to keep links valid,
-// including notes outside the caller's write whitelist. Deliberate graph-integrity
-// invariant (a constrained link-text update, not arbitrary write access) — audit #12.
-// The REPORT is not part of that carve-out: `perMove`/`total` count only links in notes the caller
-// may read (`visible`), and `hidden` says a note the caller cannot see also held links — a flag, never
-// a number or a path, so the difference cannot be used to probe a hidden note's links.
-function rewriteForMoves(
-  root: string,
-  moveMap: Map<string, string>,
-  prePaths: string[],
-  apply: boolean,
-  mdConfig: VaultMemoryDefenseConfig,
-  metrics: MetricsRecorder | undefined,
-  visible: (relPath: string) => boolean,
-  skips: ImmutableRewriteSkips,
-): { perMove: Map<string, number>; total: number; hidden: boolean } {
-  const oldIndex = buildVaultIndex(prePaths);
-  const postPaths = apply
-    ? walkVault(root, { extensions: [".md"] }).map((e) => e.relPath)
-    : prePaths.map((p) => moveMap.get(p) ?? p);
-  const postIndex = buildVaultIndex(postPaths);
-  // Notes to scan on disk: post-move locations when applied, else the current tree.
-  const scanPaths = apply ? postPaths : prePaths;
-
-  const perMove = new Map<string, number>();
-  let total = 0;
-  let hidden = false;
-  const pending: Array<{ abs: string; path: string; content: string }> = [];
-  for (const p of scanPaths) {
-    const abs = resolveVaultPath(root, p);
-    let raw: string;
-    try {
-      raw = readNote(abs).raw;
-    } catch {
-      continue; // a path that vanished mid-pass is skipped, not fatal
-    }
-    const inThisNote = new Map<string, number>();
-    const { text, count } = rewriteLinks(raw, (target) => {
-      const r = resolveTarget(oldIndex, target);
-      if (!r.resolved || r.target_path === undefined) return null;
-      const toRel = moveMap.get(r.target_path);
-      if (toRel === undefined) return null;
-      inThisNote.set(r.target_path, (inThisNote.get(r.target_path) ?? 0) + 1);
-      return newTargetFor(toRel, postIndex);
-    });
-    if (count > 0 && !skips.blocks(p)) {
-      if (visible(p)) {
-        total += count;
-        for (const [moved, n] of inThisNote) perMove.set(moved, (perMove.get(moved) ?? 0) + n);
-      } else hidden = true;
-      // the rewrite itself stays vault-wide whatever the caller may see
-      if (apply) pending.push({ abs, path: p, content: text });
-    }
-  }
-  // Residual fix: scan every rewritten body BEFORE any of them is written — the shared
-  // all-or-nothing helper (vault/notes-io.ts), same guard move_note's own updateBacklinks uses.
-  // The note being rewritten here can carry a pre-existing secret that predates memoryDefense; a
-  // block-worthy match in note N must refuse the WHOLE backlink rewrite, not leave notes before
-  // it repointed and notes after it stale — the per-note-immediate-write loop this replaces could
-  // not make that guarantee despite `apply`'s own name suggesting an atomic step.
-  if (apply) writeNotesAllOrNothingGuarded(pending, mdConfig, { metrics });
-  return { perMove, total, hidden };
-}
 
 // ── schemas ────────────────────────────────────────────────────────────────────
 
@@ -280,8 +199,21 @@ const BulkMoveOutput = z.object({
    *  note. A flag, deliberately: no count and no path of the hidden notes is ever reported. */
   hidden_backlinks: z.boolean().optional(),
   ...immutableSkipShape,
+  /** Notes that are not moving and could not be read (a hard-linked file, an I/O error): their
+   *  links to a moved note were NOT updated. A bare count, never a path. */
+  unreadable_skipped: z.number().optional(),
+  unreadable_warning: z.string().optional(),
   results: z.array(BulkMoveResultItem),
 });
+
+/** The report of notes the plan could not read: a count and a warning, never a path. */
+function unreadableOut(n: number): { unreadable_skipped?: number; unreadable_warning?: string } {
+  if (n === 0) return {};
+  return {
+    unreadable_skipped: n,
+    unreadable_warning: `${n} note${n === 1 ? "" : "s"} could not be read, so any links they hold to a moved note were not updated`,
+  };
+}
 
 // ── tools ────────────────────────────────────────────────────────────────────
 
@@ -531,34 +463,42 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           }
         }
 
-        const prePaths = walkVault(v.root, { extensions: [".md"] }).map((e) => e.relPath);
         const moveMap = new Map<string, string>();
         for (const r of rows) if (r.ok && r.fromRel && r.toRel) moveMap.set(r.fromRel, r.toRel);
+        const replacing = (): Set<string> =>
+          new Set(
+            rows.flatMap((r) =>
+              r.ok && r.toRel && r.destExists && input.overwrite ? [r.toRel] : [],
+            ),
+          );
 
         // The caller-visible filter for the REPORT (the rewrite is vault-wide regardless).
         const visible = (rel: string): boolean => readableRel(ctx.acl, rel, ctx.grantedScopes);
         const skips = new ImmutableRewriteSkips(ctx.acl, v.root, ctx.grantedScopes);
-        const noBacklinks = { perMove: new Map<string, number>(), total: 0, hidden: false };
+        const plan = (defense: VaultMemoryDefenseConfig, metrics: MetricsRecorder | undefined) =>
+          planMoves({
+            root: v.root,
+            moveMap,
+            // the vault as it is NOW: a re-plan must see a note added since the last one
+            prePaths: walkVault(v.root, { extensions: [".md"] }).map((e) => e.relPath),
+            replacing: replacing(),
+            updateBacklinks: input.update_backlinks,
+            defense,
+            metrics,
+            visible,
+            skips,
+          });
 
         if (input.dry_run) {
-          const { perMove, total, hidden } = input.update_backlinks
-            ? rewriteForMoves(
-                v.root,
-                moveMap,
-                prePaths,
-                false,
-                mdConfig,
-                deps.metrics,
-                visible,
-                skips,
-              )
-            : noBacklinks;
+          // The same plan the real run commits, minus the memoryDefense scan (a preview, not a write).
+          const { perMove, total, hidden, unreadable } = plan(MEMORY_DEFENSE_OFF, undefined);
           return {
             vault: v.id,
             processed: rows.length,
             dry_run: true,
             total_backlinks_updated: total,
             ...(hidden ? { hidden_backlinks: true } : {}),
+            ...unreadableOut(unreadable),
             ...skips.out(),
             results: rows.map((r) => ({
               ...rowIdentity(r),
@@ -570,41 +510,14 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           };
         }
 
-        // Real move — phase 1: relocate each valid file; drop any that throw.
-        // THE-572: everything above this line is read-only (validation + the dry_run preview), so
-        // this loop is where the first durable effect lands. Each move is individually try/caught,
-        // but PHASE 2's all-or-nothing backlink rewrite is not — and a rewriteForMoves throw used
-        // to delete the claim. The retry then found every source already gone and reported the whole
-        // batch as failed, hiding the fact that the files HAD moved and only the backlinks were
-        // left unrewritten. replaceDestination marks the effect committed as each row's write
-        // lands (or is left half-applied), so that retry is an accurate indeterminate_outcome; a
-        // row whose write failed and was rolled back changed nothing and marks nothing.
+        // A row whose note cannot be read or is refused by a `block`-mode memoryDefense scan (the
+        // relocated content can carry a pre-existing secret that predates memoryDefense) fails HERE,
+        // before anything moves, so the plan below is made for exactly the rows that will move.
         for (const r of rows) {
           if (!r.ok || !r.fromRel || !r.toRel) continue;
-          const toRel = r.toRel;
           try {
-            const fromAbs = resolveVaultPath(v.root, r.fromRel);
-            const toAbs = resolveVaultPath(v.root, toRel);
-            const { raw } = readNote(fromAbs);
-            // The relocated content can carry a pre-existing secret that predates memoryDefense —
-            // same guard move_note's own relocation write applies. Scanned BEFORE the destination
-            // is trashed: a `block` refusal after the trash stranded the destination in .trash.
-            const scan = enforceMemoryDefenseOnNoteWrite(mdConfig, toRel, raw, {
-              metrics: deps.metrics,
-            });
-            // On overwrite, soft-delete the clobbered destination first (recoverable, restored on
-            // a failed write); the create is exclusive.
-            replaceDestination({
-              root: v.root,
-              toRel,
-              toAbs,
-              replacing: Boolean(r.destExists && input.overwrite),
-              write: (o) => writeNoteAtomic(toAbs, scan.content, true, o),
-              markEffectCommitted: ctx.markEffectCommitted,
-            });
-            hardDelete(fromAbs);
-            deps.deindex?.(v.id, r.fromRel);
-            deps.reindex?.(v.id, r.toRel, scan.content);
+            const { raw } = readNote(resolveVaultPath(v.root, r.fromRel));
+            enforceMemoryDefenseOnNoteWrite(mdConfig, r.toRel, raw, { metrics: deps.metrics });
           } catch (e) {
             r.ok = false;
             r.error = (
@@ -616,10 +529,128 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           }
         }
 
-        // Phase 2: all-or-nothing rewrite over the whole graph for the moved set.
-        const { perMove, total, hidden } = input.update_backlinks
-          ? rewriteForMoves(v.root, moveMap, prePaths, true, mdConfig, deps.metrics, visible, skips)
-          : noBacklinks;
+        // PLAN, then COMMIT THAT PLAN. Every link is proven and every body scanned before the first
+        // file moves (a refusal here moves nothing), and the plan is not recomputed afterwards: the
+        // moved notes are created at their destinations and the backlink notes replaced in ONE write
+        // batch (vault/write-batch.ts), which re-checks each pre-image immediately before replacing
+        // it and rolls everything back, moves included, on a CAS miss or an I/O error. A plan gone
+        // stale (a note edited, a new backlink) is re-planned and re-proved once, then refused with
+        // nothing moved (commitPlanned). Each source is removed as the batch's last step, and only if it
+        // still holds the planned bytes: an edit after the final recheck keeps it and rolls the batch back.
+        // THE-572: replaceDestination's marker, now for the batch as a whole: the effect is marked
+        // committed once the move is not undone, so a retry after a half-applied failure is an
+        // accurate indeterminate_outcome and a cleanly rolled-back one is a plain re-run.
+        const snapshots = new PreImageSnapshots(
+          ctx.db,
+          deps.snapshots,
+          v.id,
+          "bulk_move_notes",
+          ctx.now,
+        );
+        const committed = commitPlanned({
+          first: plan(mdConfig, deps.metrics),
+          plan: (record) => plan(mdConfig, record ? deps.metrics : undefined),
+          fingerprint: (p) =>
+            planFingerprint(
+              p.rewrites,
+              p.moved.map((m) => `${m.fromRel}\0${m.hash}\0${contentHash(m.content)}`),
+            ),
+          commit: (p, recheck) => {
+            const trashed: Array<{ trashedTo: string; abs: string }> = [];
+            const overwriting = replacing();
+            try {
+              for (const r of p.rewrites) snapshots.capture(r.rel, r.raw);
+              // On overwrite, soft-delete each clobbered destination first (recoverable, restored
+              // if the batch fails); the create is exclusive.
+              for (const m of p.moved) {
+                if (!overwriting.has(m.toRel)) continue;
+                try {
+                  trashed.push({ trashedTo: trashNote(v.root, m.toRel), abs: m.toAbs });
+                } catch (e) {
+                  // One row's destination cannot be moved aside: that row fails alone (the others
+                  // still move), so put back what was trashed and plan again without it.
+                  const row = rows.find((r) => r.ok && r.toRel === m.toRel);
+                  if (!row) throw e;
+                  row.ok = false;
+                  row.error = (
+                    e instanceof ObsidianTcError
+                      ? e
+                      : new ObsidianTcError("internal_error", (e as Error).message)
+                  ).toJSON();
+                  moveMap.delete(m.fromRel);
+                  throw new PlanChanged();
+                }
+              }
+              applyWriteBatch(
+                [
+                  ...p.moved.map((m) => ({
+                    abs: m.toAbs,
+                    rel: m.toRel,
+                    content: m.content,
+                    prevRaw: null,
+                    replacesExisting: overwriting.has(m.toRel),
+                  })),
+                  ...p.rewrites.map((r) => ({
+                    abs: r.abs,
+                    rel: r.rel,
+                    content: r.text,
+                    prevRaw: r.raw,
+                    createDirs: false,
+                  })),
+                ],
+                {
+                  beforeCommit: recheck,
+                  removals: p.moved.map((m) => ({
+                    abs: m.fromAbs,
+                    rel: m.fromRel,
+                    expected: m.raw,
+                  })),
+                },
+              );
+            } catch (e) {
+              snapshots.failed(e);
+              let undone = !isIncompleteRollback(e);
+              for (const t of trashed.reverse()) {
+                try {
+                  restoreTrashed(v.root, t.trashedTo, t.abs);
+                } catch {
+                  undone = false;
+                }
+              }
+              if (!undone) ctx.markEffectCommitted?.();
+              // A destination that appeared after the rows were validated refuses its create (the
+              // batch rolled back whole): that row fails alone, the rest are planned again.
+              if (undone && e instanceof ObsidianTcError && e.code === "note_exists") {
+                const raced = rows.filter(
+                  (r) =>
+                    r.ok &&
+                    r.toRel &&
+                    !overwriting.has(r.toRel) &&
+                    existsSync(resolveVaultPath(v.root, r.toRel)),
+                );
+                for (const r of raced) {
+                  r.ok = false;
+                  r.error = err
+                    .noteExists("destination already exists; set overwrite", {
+                      path: r.toRel,
+                    })
+                    .toJSON();
+                  if (r.fromRel) moveMap.delete(r.fromRel);
+                }
+                if (raced.length > 0) throw new PlanChanged();
+              }
+              throw e;
+            }
+            ctx.markEffectCommitted?.();
+          },
+        });
+        snapshots.landed();
+        for (const m of committed.moved) {
+          deps.deindex?.(v.id, m.fromRel);
+          deps.reindex?.(v.id, m.toRel, m.content);
+        }
+        for (const r of committed.rewrites) deps.reindex?.(v.id, r.rel, r.text);
+        const { perMove, total, hidden, unreadable } = committed;
 
         return {
           vault: v.id,
@@ -627,6 +658,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           dry_run: false,
           total_backlinks_updated: total,
           ...(hidden ? { hidden_backlinks: true } : {}),
+          ...unreadableOut(unreadable),
           ...skips.out(),
           results: rows.map((r) => ({
             ...rowIdentity(r),

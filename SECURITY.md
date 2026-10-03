@@ -597,14 +597,10 @@ id (never a content-bearing label), incremented in both `redact` and `block` mod
   all-or-nothing helper (`writeNotesAllOrNothingGuarded`, `vault/notes-io.ts`) that scans every
   rewritten body first and only writes if none refuse — the same pattern `move_attachment`'s own
   reference rewrite already used, and which that rewrite now also shares rather than duplicates.
-  **This guarantee is SCAN-atomic, not WRITE-atomic**: no writes on a scan refusal
-  (every body is proven not block-worthy before pass 2 starts), but pass 2 itself is a plain
-  sequential loop of independent atomic-per-file writes with no batch rollback — an I/O failure
-  mid-batch (disk full, a permission error, a process kill) after pass 2 has already written some
-  entries still leaves those earlier notes rewritten and the rest untouched. This helper closes
-  the memoryDefense-refusal half-applied-rewrite case; a crash or I/O failure doing the same is a
-  separate, unaddressed gap (see `move_note`/`bulk_move_notes` also relocating the file BEFORE
-  this helper runs, a second, older partial-state case).
+  **That guarantee was SCAN-atomic, not WRITE-atomic** (pass 2 was a plain sequential loop with no
+  rollback), and the helper is gone: the move, the destination and every backlink rewrite now commit
+  as one write batch, and the memoryDefense scan runs in the plan, before anything moves. See "A move
+  commits its plan as one write batch" below.
 - **Leaf-scanner ceiling.** Normalisation (NFKC + zero-width-codepoint stripping) and same-array
   reassembly are both handled, each within its own narrow scope:
   - **NFKC is a compatibility fold, not homoglyph/confusable folding.** It reliably normalizes
@@ -765,6 +761,49 @@ so operators can reason about them rather than discover them.
   so those links keep pointing at the old name. The result lists them as `immutable_not_updated` (only
   notes the caller may read; the rest are a count, `immutable_not_updated_hidden`, never a path) with an
   `immutable_warning`. One shared guard (`ImmutableRewriteSkips`, `vault/acl-path.ts`) serves all three.
+- **A move commits its plan as one write batch.** `move_note`, `bulk_move_notes` and `move_attachment`
+  first PLAN the whole rewrite: every referencing note is read, every changed link is re-parsed and
+  proven, and every rewritten body is scanned by memoryDefense, so a link that cannot be written and a
+  `block`-mode refusal both happen while nothing has moved. An immutable (raw-sources) note is skipped
+  and reported BEFORE its links are proven, so an unrepresentable link inside one never refuses a move.
+  A refusal names a note only if the caller could read it (`callerCanReadVaultPath`); notes the caller
+  cannot read are reported as a flag (`details.hidden_notes: true`), never a path and never a count (how
+  many unreadable notes link the target would be a link-graph oracle). A note the planner cannot read at
+  all (a hard-linked file, an I/O error) is refused the same way, with a fixed message: the reader's own
+  error carries an absolute path and is never passed on (`bulk_move_notes` skips such a note when it is
+  not itself one of the moves, so a bystander cannot fail the other rows, and reports `unreadable_skipped`,
+  a count, with a warning that its links were not updated). The plan records each note's
+  pre-image (the exact bytes it was planned from) and is NOT recomputed afterwards: `bulk_move_notes`
+  commits the plan it proved.
+  The COMMIT reuses the wiki-core batch (`applyWriteBatch`, `vault/write-batch.ts`). Order: (1) pre-image
+  snapshots of every note it will replace, then, for an overwrite, the destination is soft-deleted to
+  `.trash`; (2) ONE batch: the moved note is created at its destination (exclusive, never replacing)
+  and each backlink note is replaced only if its bytes still hash to the pre-image, re-checked
+  immediately before its rename; (3) as the batch's last step the source is moved aside and dropped only
+  if it still holds the bytes the plan was made from (an attachment: the same bytes), nothing being dropped
+  until every source verified. A CAS miss or an I/O error in (2)
+  rolls back every write of the batch, the moved note included, and puts a trashed destination back;
+  `move_attachment` copies the file first and removes the copy again if its reference batch fails. If
+  the plan has gone stale (a planned note was edited, a note that links the target appeared, or a
+  note appeared that changes which link form a rewrite must take: the fingerprint covers each rewrite's
+  planned OUTPUT as well as its pre-image) the
+  batch is abandoned, the plan is rebuilt and re-proved ONCE, and a second change refuses with
+  `concurrent_modification` and nothing moved. A new unrepresentable backlink fails the re-proof the
+  same way an old one does. In `bulk_move_notes` a row whose source cannot be read, is refused by a
+  `block`-mode scan, whose destination cannot be moved aside, or whose destination appeared after
+  validation fails alone and the rest are planned again without it. Snapshots are dropped after a clean rollback and kept when the rollback was
+  incomplete (`rollback_incomplete`: restore those notes with `restore_note`).
+  A source edited after the final recheck is therefore kept and the batch rolled back (the move is
+  re-planned once around the edit, then refused with `concurrent_modification`).
+  **Failure paths that remain after the move has committed:** (a) dropping the verified source can still
+  fail at the unlink, which leaves it beside the destination with every link already repointed (the call
+  fails and a retry is an `indeterminate_outcome`); and while a source is moved aside for the check its
+  name is briefly empty, a note another process writes there in that gap winning (the moved-aside bytes
+  are kept and named in the error); (b) the post-move index callbacks (`deindex`, `reindex`) run after the
+  files moved, so one that throws fails a call that did move; (c) the batch is not crash-atomic: a
+  process killed between two renames leaves the earlier renames in place (the snapshots are the way
+  back); (d) POSIX has no conditional rename, so an edit by another process in the gap between the
+  re-hash and the rename is overwritten; (e) an incomplete rollback, as above.
 - **A raw folder that is a symlink is locked by its target too, from the next restart.** The immutable
   rule is built from the configuration when the server starts: for a raw folder that is a symlink (or
   sits under one) to another in-vault directory it covers both the configured name and the directory it

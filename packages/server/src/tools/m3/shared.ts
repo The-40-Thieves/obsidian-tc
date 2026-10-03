@@ -22,6 +22,9 @@ export interface M3Deps {
    *  MEMORY_DEFENSE_OFF (mode "off", no scan). */
   memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
   metrics?: MetricsRecorder;
+  /** Snapshot-on-write policy. move_attachment snapshots each referencing note it
+   *  rewrites, so restore_note can undo the rewrite. Absent -> no capture. */
+  snapshots?: { enabled: boolean; retention: number };
   /** `writes.maxAttachmentBytes`: decoded-byte ceiling on one write_attachment payload. Absent
    *  (tests) -> 25 MB, the config default. */
   maxAttachmentBytes?: number;

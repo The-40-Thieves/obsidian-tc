@@ -224,6 +224,29 @@ two guards keep a name from becoming link syntax:
   `x]]` followed by a newline and text, or one containing `|`, is refused. A target may still end in
   its own `#Heading`. In a note's properties the new target additionally must not contain `[[`, `]]`,
   `|`, `%%` or a line break.
+- **The whole rewrite is planned and proven before anything moves, and committed as one batch.**
+  `move_note`, `bulk_move_notes` and `move_attachment` compute every note's new text, prove every
+  changed link and scan every body with memoryDefense before they touch a file. If one link cannot be
+  written, the call is refused with `invalid_input` naming the note it sits in and the target it would
+  have carried, nothing is moved or written (for `bulk_move_notes`, the whole batch is refused), and a
+  retry is an ordinary refusal, not an `indeterminate_outcome`. A note you cannot read is never named:
+  the refusal says only that such notes exist (`details.hidden_notes: true`, a flag and never a count). A note that cannot be read at all, such as a hard-linked file, is refused the same way, except in `bulk_move_notes` when it is not one of the moves: it is skipped, and the result carries `unreadable_skipped` (a count, never a path) and `unreadable_warning` to say its links were not updated. Notes in a wiki's immutable raw
+  folder are skipped and reported before any of this, so an unrepresentable link in one never refuses
+  the move. Two things reach the refusal even though the destination's NEW segments pass the name
+  check above. A path-qualified link into an EXISTING folder whose name holds `#` or `^` (`C#/Note`)
+  would be read as a heading or block reference, so a path-form link must come back from the re-parse
+  exactly as written; when the new basename is unique, the bare link `[[Note]]` is written instead and
+  the move goes ahead. And a markdown link cannot carry a `)` in its target, since the scanner ends the
+  link there and has no `<...>` form: moving a note to `Report (final).md` is refused while a
+  `[text](...)` link points at it, and fine while only `[[wikilinks]]` do.
+- **The move and its rewrites commit together or not at all.** The moved note and every backlink
+  rewrite are written as one batch: each linking note is replaced only if it still holds the bytes the
+  plan was made from, and a write error or a concurrent edit rolls the whole batch back, the move
+  included. If a linking note changed, or a new one appeared, between the plan and the commit, the plan
+  is rebuilt and re-proven once; a second change is refused as `concurrent_modification` with nothing
+  moved. Each rewritten note is snapshotted first, so `restore_note` can undo the rewrite. The source
+  is deleted last; the steps after the batch (deleting the source, the search-index updates) are the
+  only ones with no rollback.
 
 ## Wiki checks (page-exists and lint)
 

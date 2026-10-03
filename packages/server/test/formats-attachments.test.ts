@@ -6,15 +6,36 @@ import {
   findAttachmentReferences,
   isAttachment,
   mimeOf,
+  planAttachmentReferences,
   resolveAttachmentFolder,
-  rewriteAttachmentReferences,
 } from "../src/formats/attachments";
 import { ImmutableRewriteSkips } from "../src/vault/acl-path";
+import { applyWriteBatch } from "../src/vault/write-batch";
 import { makeTempDir, rmTemp } from "./tmp";
 
 /** A guard with no ACL: nothing is immutable (these tests are about the rewrite itself). */
 const noSkips = (root: string): ImmutableRewriteSkips =>
   new ImmutableRewriteSkips(undefined, root, []);
+
+/** Plan a reference rewrite and commit it as the batch move_attachment uses. */
+function rewriteAttachmentReferences(
+  root: string,
+  fromRel: string,
+  toRel: string,
+  skips: ImmutableRewriteSkips,
+): { notes: number; refs: number } {
+  const { pending } = planAttachmentReferences(root, fromRel, toRel, skips, undefined, undefined);
+  applyWriteBatch(
+    pending.map((r) => ({
+      abs: r.abs,
+      rel: r.rel,
+      content: r.text,
+      prevRaw: r.raw,
+      createDirs: false,
+    })),
+  );
+  return { notes: pending.length, refs: pending.reduce((n, r) => n + r.count, 0) };
+}
 
 function makeRoot(files: Record<string, string>): string {
   const root = makeTempDir("obtc-att-");
@@ -80,8 +101,6 @@ describe("formats/attachments", () => {
         root,
         "diagram.png",
         "images/renamed.png",
-        undefined,
-        undefined,
         noSkips(root),
       );
       expect(r1).toEqual({ notes: 1, refs: 1 });
@@ -91,8 +110,6 @@ describe("formats/attachments", () => {
         root,
         "docs/spec.pdf",
         "archive/spec.pdf",
-        undefined,
-        undefined,
         noSkips(root),
       );
       expect(r2).toEqual({ notes: 1, refs: 1 });
@@ -109,14 +126,7 @@ describe("formats/attachments", () => {
       "note.md": "bare ![[diagram.png]] and path [x](b/diagram.png)\n",
     });
     try {
-      const r = rewriteAttachmentReferences(
-        root,
-        "a/diagram.png",
-        "a/renamed.png",
-        undefined,
-        undefined,
-        noSkips(root),
-      );
+      const r = rewriteAttachmentReferences(root, "a/diagram.png", "a/renamed.png", noSkips(root));
       const txt = readFileSync(join(root, "note.md"), "utf8");
       // bare-basename link resolves to a/diagram.png (shortest/lex winner) -> rewritten
       expect(txt).toContain("![[renamed.png]]");
@@ -136,14 +146,7 @@ describe("formats/attachments", () => {
       "note.md": "[x](a/diagram.png) and [y](b/diagram.png)\n",
     });
     try {
-      rewriteAttachmentReferences(
-        root,
-        "a/diagram.png",
-        "a/renamed.png",
-        undefined,
-        undefined,
-        noSkips(root),
-      );
+      rewriteAttachmentReferences(root, "a/diagram.png", "a/renamed.png", noSkips(root));
       const txt = readFileSync(join(root, "note.md"), "utf8");
       expect(txt).toContain("[x](a/renamed.png)");
       expect(txt).toContain("[y](b/diagram.png)");
@@ -162,14 +165,7 @@ describe("formats/attachments", () => {
       // Move a/diagram.png -> c/diagram.png: the basename "diagram.png" is still shared
       // with b/diagram.png, so a bare ![[diagram.png]] would now resolve to b/ — the
       // rewrite must therefore emit the full path to stay pointed at the moved file.
-      rewriteAttachmentReferences(
-        root,
-        "a/diagram.png",
-        "c/diagram.png",
-        undefined,
-        undefined,
-        noSkips(root),
-      );
+      rewriteAttachmentReferences(root, "a/diagram.png", "c/diagram.png", noSkips(root));
       const txt = readFileSync(join(root, "note.md"), "utf8");
       expect(txt).toContain("![[c/diagram.png]]");
       expect(txt).not.toContain("![[diagram.png]]");

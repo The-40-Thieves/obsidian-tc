@@ -624,6 +624,8 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // periodic-note and table-mutate guard: the SAME memoryDefense closure/metrics as M5/M7/M8.
     memoryDefense,
     metrics: deps.metrics,
+    // move_attachment's reference rewrites take a pre-image snapshot, as M1's writers do.
+    snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },
     maxAttachmentBytes: config.writes.maxAttachmentBytes,
   });
   // `uri.allowOsLaunch` gates show_file_in_obsidian's OS-handler fallback (deny-by-default).
@@ -663,6 +665,8 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // SAME closure/metrics M5/M7/M8 get above.
     memoryDefense,
     metrics: deps.metrics,
+    // bulk_move_notes' backlink rewrites take a pre-image snapshot, as M1's writers do.
+    snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },
   });
 
   // M7 knowledge domain (THE-233 integration): GraphRAG search (W-RETRIEVAL) + decision red-team

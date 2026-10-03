@@ -6,7 +6,10 @@
 //      pending here), then
 //   3. COMMIT: the renames run back to back, synchronously. Immediately before replacing an existing
 //      note its bytes are hashed again and compared with the ones the batch was planned from, so an
-//      edit that landed after planning aborts the whole batch instead of being overwritten.
+//      edit that landed after planning aborts the whole batch instead of being overwritten. A
+//      move's SOURCE is dropped as the very last step (`removals`), and only if it still holds the
+//      bytes the move was planned from: otherwise it is kept and the batch rolls back like any
+//      other failure, so an edit that lands after the final recheck is never deleted.
 // A failure in step 3 restores the notes already replaced, but only those still holding exactly what
 // this batch wrote: a note someone edited since is left alone and reported, and a page someone else
 // recreated is never deleted. Each undo moves the note aside first (a rename takes whatever is
@@ -26,6 +29,7 @@ import { dirname } from "node:path";
 import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import {
   moveNoReplace,
+  readFileChecked,
   readNote,
   type StagedWrite,
   stageNoteWrite,
@@ -48,12 +52,31 @@ export interface BatchWrite {
   content: string;
   /** The raw bytes the note had when the batch was planned; null: it did not exist (a create). */
   prevRaw: string | null;
+  /** Make missing parent folders of a create; default true. A rewrite of an existing note passes
+   *  false, so a note that vanished is an error rather than a recreated one. */
+  createDirs?: boolean;
+  /** The leaf existed and the caller just moved it aside (replaceDestination): re-creating it mints
+   *  no NEW name, so the hostile-name refusal is skipped. */
+  replacesExisting?: boolean;
+}
+
+/** A file the batch removes as its last step: a move's source. */
+export interface BatchRemoval {
+  /** Absolute path, already resolved and ACL-checked by the caller. */
+  abs: string;
+  /** Vault-relative path, for error details. */
+  rel: string;
+  /** What the file held when the move was planned: a note's text (compared by its decoded hash,
+   *  as readNote reads it) or an attachment's exact bytes. */
+  expected: string | Buffer;
 }
 
 export interface BatchHooks {
   /** Runs after every temp file is staged and before the first note is replaced. A throw here
    *  discards the staged files and aborts the batch. */
   beforeCommit?: () => void;
+  /** Dropped after every write landed, each only if it still holds `expected`; see `removeUnchanged`. */
+  removals?: readonly BatchRemoval[];
 }
 
 /** Directories above `abs` that do not exist yet, outermost first. */
@@ -149,6 +172,76 @@ function undoWrittenNote(abs: string, writtenHash: string, prevRaw: string | nul
   return "undone";
 }
 
+/** True when the file at `abs` holds exactly `expected`; a file that cannot be read does not. */
+function holds(abs: string, expected: string | Buffer): boolean {
+  try {
+    return typeof expected === "string"
+      ? readNote(abs).hash === contentHash(expected)
+      : readFileChecked(abs).equals(expected);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Remove the files a move leaves behind, but only those still holding what the move was planned
+ * from. Same shape as `undoWrittenNote`: each file is first moved aside by a rename (atomic: it
+ * takes whatever is at the name at that instant) and only that moved file is compared, so what is
+ * dropped is verified, not merely observed a moment earlier. Nothing is dropped until EVERY file
+ * verified, so a mismatch on one leaves all of them in place (the moved-aside ones are put back
+ * with a no-replace move). A file already gone is already removed. A mismatch throws
+ * `concurrent_modification`, which the batch turns into a rollback of its writes. Residual: while
+ * a file is aside its name is empty, and a file another process writes there in that gap wins;
+ * the moved-aside bytes are then kept, named in the error.
+ */
+function removeUnchanged(removals: readonly BatchRemoval[]): void {
+  const aside: Array<{ r: BatchRemoval; tmp: string; suffix: string }> = [];
+  const putBack = (): string[] => {
+    const kept: string[] = [];
+    for (const a of aside) {
+      try {
+        moveNoReplace(a.tmp, a.r.abs);
+      } catch {
+        kept.push(`${a.r.rel}${a.suffix}`);
+      }
+    }
+    return kept;
+  };
+  let changed: string | undefined;
+  let failure: unknown;
+  for (const r of removals) {
+    const suffix = `.tmp-${process.pid}-${randomBytes(8).toString("hex")}`;
+    const tmp = `${r.abs}${suffix}`;
+    try {
+      renameSync(r.abs, tmp);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") continue;
+      failure = e;
+      break;
+    }
+    aside.push({ r, tmp, suffix });
+    if (!holds(tmp, r.expected)) {
+      changed = r.rel;
+      break;
+    }
+  }
+  if (changed === undefined && failure === undefined) {
+    for (const a of aside) dropQuietly(a.tmp);
+    return;
+  }
+  const kept = putBack();
+  if (kept.length > 0)
+    throw err.internalError(
+      "a source changed before it could be removed and could not be put back under its name; its current bytes are kept beside it",
+      { reason: ROLLBACK_INCOMPLETE, paths: kept },
+    );
+  if (failure !== undefined) throw failure;
+  throw err.concurrentModification(
+    `${changed} changed since it was read; it was kept and nothing was moved. Re-read and move again`,
+    { path: changed },
+  );
+}
+
 interface Staged {
   w: BatchWrite;
   madeDirs: string[];
@@ -163,8 +256,12 @@ export function applyWriteBatch(writes: readonly BatchWrite[], hooks: BatchHooks
   };
   try {
     for (const w of writes) {
-      const madeDirs = w.prevRaw === null ? missingDirs(w.abs) : [];
-      const s = stageNoteWrite(w.abs, w.content, true, { exclusive: w.prevRaw === null });
+      const createDirs = w.createDirs ?? true;
+      const madeDirs = w.prevRaw === null && createDirs ? missingDirs(w.abs) : [];
+      const s = stageNoteWrite(w.abs, w.content, createDirs, {
+        exclusive: w.prevRaw === null,
+        ...(w.replacesExisting ? { replacesExisting: true } : {}),
+      });
       staged.push({ w, madeDirs, staged: s });
     }
     hooks.beforeCommit?.();
@@ -188,6 +285,7 @@ export function applyWriteBatch(writes: readonly BatchWrite[], hooks: BatchHooks
       s.staged.commit();
       done.push(s);
     }
+    if (hooks.removals?.length) removeUnchanged(hooks.removals);
   } catch (cause) {
     for (const s of staged) if (!done.includes(s)) s.staged.discard();
     const stuck: string[] = [];

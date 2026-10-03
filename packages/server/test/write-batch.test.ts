@@ -316,3 +316,69 @@ describe("temp files on failure (the shared atomic writer)", () => {
     expect(litter()).toEqual([]);
   });
 });
+
+describe("removals: the source is dropped only if it still holds the planned bytes", () => {
+  const rm = (rel: string, expected: string | Buffer) => ({ abs: abs(rel), rel, expected });
+
+  it("drops an unchanged source after the writes land, leaving no temp file", () => {
+    put("src.md", "body");
+    applyWriteBatch([w("dest.md", "body", null)], { removals: [rm("src.md", "body")] });
+    expect(read("dest.md")).toBe("body");
+    expect(existsSync(abs("src.md"))).toBe(false);
+    expect(litter()).toEqual([]);
+  });
+
+  it("a source edited after the last write is kept, and every earlier write is rolled back", () => {
+    put("src.md", "body");
+    put("a.md", "old a");
+    seam.onCommit = (n) => {
+      if (n === 2) writeFileSync(abs("src.md"), "edited at the last moment", "utf8");
+    };
+    const e = thrown(() =>
+      applyWriteBatch([w("dest.md", "body", null), w("a.md", "new a", "old a")], {
+        removals: [rm("src.md", "body")],
+      }),
+    );
+    // the edit lands before the 2nd rename, i.e. before the removal step
+    expect(e.code).toBe("concurrent_modification");
+    expect(e.details).toMatchObject({ path: "src.md" });
+    expect(read("src.md")).toBe("edited at the last moment");
+    expect(existsSync(abs("dest.md"))).toBe(false);
+    expect(read("a.md")).toBe("old a");
+    expect(litter()).toEqual([]);
+  });
+
+  it("with several sources, one changed keeps them ALL (nothing is dropped before every one verified)", () => {
+    put("s1.md", "one");
+    put("s2.md", "two");
+    seam.onCommit = () => writeFileSync(abs("s2.md"), "two, edited", "utf8");
+    const e = thrown(() =>
+      applyWriteBatch([w("d.md", "x", null)], {
+        removals: [rm("s1.md", "one"), rm("s2.md", "two")],
+      }),
+    );
+    expect(e.code).toBe("concurrent_modification");
+    expect(read("s1.md")).toBe("one");
+    expect(read("s2.md")).toBe("two, edited");
+    expect(existsSync(abs("d.md"))).toBe(false);
+    expect(litter()).toEqual([]);
+  });
+
+  it("binary sources are compared byte for byte", () => {
+    const bytes = Buffer.from([0xff, 0xfe, 0x00, 0x41]);
+    writeFileSync(abs("pic.bin"), bytes);
+    applyWriteBatch([w("d.md", "x", null)], { removals: [rm("pic.bin", bytes)] });
+    expect(existsSync(abs("pic.bin"))).toBe(false);
+    writeFileSync(abs("pic2.bin"), Buffer.from([0xff, 0xfe, 0x00, 0x42]));
+    const e = thrown(() =>
+      applyWriteBatch([w("d2.md", "x", null)], { removals: [rm("pic2.bin", bytes)] }),
+    );
+    expect(e.code).toBe("concurrent_modification");
+    expect(readFileSync(abs("pic2.bin"))).toEqual(Buffer.from([0xff, 0xfe, 0x00, 0x42]));
+  });
+
+  it("a source that is already gone is not an error", () => {
+    applyWriteBatch([w("dest.md", "x", null)], { removals: [rm("gone.md", "x")] });
+    expect(read("dest.md")).toBe("x");
+  });
+});

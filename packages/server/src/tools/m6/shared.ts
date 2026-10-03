@@ -43,6 +43,9 @@ export interface M6Deps {
    *  (mode "off", no scan). */
   memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
   metrics?: MetricsRecorder;
+  /** Snapshot-on-write policy. bulk_move_notes snapshots each backlink note it rewrites,
+   *  so restore_note can undo the rewrite. Absent -> no capture. */
+  snapshots?: { enabled: boolean; retention: number };
   /** Shared rate limiter: bulk tools consume the `bulk` tier; get_metrics reads hits. */
   rateLimiter: RateLimiter;
   /** Build version (get_server_config / get_metrics). */

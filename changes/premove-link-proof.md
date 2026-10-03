@@ -1,0 +1,4 @@
+---
+type: Fixed
+---
+- **A move whose backlinks cannot be written is refused before anything moves.** `move_note`, `bulk_move_notes` and `move_attachment` now plan the whole backlink rewrite and re-parse every changed link before the file is moved, where the check used to run after the move had committed and left the file moved, its backlinks stale and a retry answering `indeterminate_outcome`. A refusal is an `invalid_input` naming the note and target, nothing is written, and `bulk_move_notes` refuses the whole batch. The proof is now exact for paths: a `#` or `^` in a path segment (an existing `C#/` folder) is refused rather than read as a heading or block reference that points at the wrong note, a unique basename still gets its bare link, and a markdown link to a name holding `)` is refused. Entity notes also render each `## Related` link from the target's filed name, so an entity name holding `]]` can no longer close the link and write text into the note.

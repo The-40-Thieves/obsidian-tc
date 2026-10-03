@@ -12,9 +12,9 @@ import type { MetricsRecorder } from "../metrics/registry";
 import type { ImmutableRewriteSkips } from "../vault/acl-path";
 import { parseNoteLenient } from "../vault/frontmatter";
 import { extractNoteLinks } from "../vault/links";
-import { readNote, writeNotesAllOrNothingGuarded } from "../vault/notes-io";
+import { type PlannedRewrite, plannedRewrite, RewriteScan } from "../vault/move-plan";
+import { readNote } from "../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../vault/paths";
-import { rewriteLinks } from "../vault/rewrite";
 
 export const DEFAULT_ATTACHMENT_EXTS = [
   ".png",
@@ -130,6 +130,12 @@ export function findAttachmentReferences(root: string, attachmentRel: string): s
   return out;
 }
 
+/** The new body of every note that references a moved attachment: proven, memoryDefense-scanned, and
+ *  not yet written. Each carries its pre-image, which the commit batch re-checks. */
+export interface AttachmentReferencePlan {
+  pending: PlannedRewrite[];
+}
+
 /**
  * Repoint every link that RESOLVES to a moved attachment, fenced-code aware. A
  * path-style link is rewritten only when its vault-relative path matches the moved
@@ -139,29 +145,30 @@ export function findAttachmentReferences(root: string, attachmentRel: string): s
  * at a DIFFERENT file in another folder. Link style is preserved (bare -> new
  * basename, path -> new vault-relative path). Returns notes/links rewritten.
  *
- * Resolution uses the PRE-move attachment set: the caller relocates the file
- * (fromRel -> toRel) before calling this, so the current toRel entry is mapped back
- * to fromRel, and fromRel is always seeded even when no attachment file is on disk
- * (e.g. a link to an attachment that was never materialized).
+ * Resolution uses the PRE-move attachment set. It works from the vault on either side of the move:
+ * a toRel entry already on disk is mapped back to fromRel, and fromRel is always seeded even when
+ * no attachment file is on disk (e.g. a link to an attachment that was never materialized).
+ *
+ * Planning and writing are separate: `planAttachmentReferences` computes and proves every new body
+ * (it only reads), so move_attachment runs it BEFORE the move and a link that cannot be written
+ * refuses the whole move; move_attachment then writes the plan as one write batch.
  *
  * Review finding: the rewritten link text lands in an ordinary note BODY (not the binary
- * attachment), so it gets the same memoryDefense scan every other note-content writer applies —
- * `mdConfig` is scanned/redacted per note BEFORE any of them is persisted (block -> the whole
- * rewrite is refused, none written; redact -> every write lands in its redacted form), via the
- * shared `writeNotesAllOrNothingGuarded` helper (vault/notes-io.ts) — the same one move_note's
- * backlink rewrite and `bulk_move_notes`' own `rewriteForMoves` use for a moved NOTE's backlinks.
+ * attachment), so it gets the same memoryDefense scan every other note-content writer applies.
+ * The scan runs in the PLAN (`defense`; block -> the whole rewrite is refused before anything
+ * moves, redact -> every write lands in its redacted form).
  */
 // ACL carve-out: this rewrites links in EVERY referencing note to keep links valid,
 // including notes outside the caller's write whitelist. Deliberate graph-integrity
 // invariant (a constrained link-text update, not arbitrary write access) — audit #12.
-export function rewriteAttachmentReferences(
+export function planAttachmentReferences(
   root: string,
   fromRel: string,
   toRel: string,
-  mdConfig: VaultMemoryDefenseConfig | undefined,
-  metrics: MetricsRecorder | undefined,
   skips: ImmutableRewriteSkips,
-): { notes: number; refs: number } {
+  defense: VaultMemoryDefenseConfig | undefined,
+  metrics: MetricsRecorder | undefined,
+): AttachmentReferencePlan {
   const fromPathLower = fromRel.toLowerCase();
   const toBase = baseOf(toRel);
   const preSet = new Set(
@@ -206,31 +213,29 @@ export function rewriteAttachmentReferences(
     return winner?.toLowerCase() === fromPathLower;
   };
 
-  const pending: Array<{ abs: string; rel: string; text: string; count: number }> = [];
+  const pending: PlannedRewrite[] = [];
+  const scan = new RewriteScan(skips);
   for (const e of walkVault(root, { extensions: [".md"] })) {
     const abs = resolveVaultPath(root, e.relPath);
-    const { raw } = readNote(abs);
-    const { text, count } = rewriteLinks(raw, (targetRaw) => {
-      const t = normalizeTarget(targetRaw);
-      if (t === "") return null;
-      const hadSlash = t.includes("/");
-      if (!resolvesToFrom(t, hadSlash)) return null;
-      return hadSlash ? toRel : toBaseUnique ? toBase : toRel;
-    });
-    if (count > 0 && !skips.blocks(e.relPath)) pending.push({ abs, rel: e.relPath, text, count });
+    const note = scan.read(abs, e.relPath);
+    if (!note) continue;
+    const { raw } = note;
+    const rewrite = scan.note(
+      raw,
+      (targetRaw) => {
+        const t = normalizeTarget(targetRaw);
+        if (t === "") return null;
+        const hadSlash = t.includes("/");
+        if (!resolvesToFrom(t, hadSlash)) return null;
+        return hadSlash ? toRel : toBaseUnique ? toBase : toRel;
+      },
+      e.relPath,
+    );
+    if (rewrite && rewrite.count > 0)
+      pending.push(plannedRewrite(abs, e.relPath, raw, rewrite, defense, metrics));
   }
-  // Scan every rewritten body BEFORE any of them is written, then persist — the shared
-  // all-or-nothing helper (vault/notes-io.ts): a block-worthy match in note N refuses the whole
-  // rewrite rather than leaving notes 1..N-1 repointed and N..last still pointing at the old
-  // location.
-  writeNotesAllOrNothingGuarded(
-    pending.map((p) => ({ abs: p.abs, path: p.rel, content: p.text })),
-    mdConfig,
-    { metrics },
-  );
-  let refs = 0;
-  for (const p of pending) refs += p.count;
-  return { notes: pending.length, refs };
+  scan.refuseIfFailed();
+  return { pending };
 }
 
 /** Whether a vault-relative path has a recognized attachment extension. */
