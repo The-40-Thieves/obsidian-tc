@@ -13,6 +13,7 @@ import {
   isEmptyDirChain,
   RUN_ROOT_PREFIX,
   scanLeaks,
+  settleLeaks,
   sweepStaleRunRoots,
   TMP_GUARD_ROOT_ENV,
 } from "./tmp-guard";
@@ -52,7 +53,8 @@ export default function setup(project?: unknown): () => void {
       else process.env[key] = value;
     }
     delete process.env[TMP_GUARD_ROOT_ENV];
-    let leaks = scanLeaks(runRoot);
+    // win32 waits briefly for a still-exiting process to finish removing its own files first.
+    let leaks = settleLeaks(runRoot);
     // Delete BEFORE reporting: the point of the gate is to fail, not to fill the disk (a leaked
     // 600 MB stage copy per run is how / got to 97%).
     try {

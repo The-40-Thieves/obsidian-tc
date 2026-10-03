@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -14,6 +14,7 @@ import {
   RUN_ROOT_PREFIX,
   STALE_RUN_ROOT_MS,
   scanLeaks,
+  settleLeaks,
   sweepStaleRunRoots,
   TMP_GUARD_ROOT_ENV,
 } from "./tmp-guard";
@@ -141,6 +142,78 @@ describe("scanLeaks / formatLeakReport", () => {
       { entry: /^shared-model-cache$/, reason: "shared by design, test fixture" },
     ];
     expect(scanLeaks(root, allow).map((l) => l.entry)).toEqual(["obtc-m5-cache-AbC123"]);
+  });
+});
+
+describe("settleLeaks (the win32 teardown waits for a still-exiting process)", () => {
+  // The incident shape (windows-latest, 2026-10-02/03): a process that outlives its test file keeps
+  // a leftover in the run root a moment after the run is over, then removes it. The scan used to
+  // run once, at that moment, and failed the whole step with every test green.
+  const leakOnDisk = (): string => {
+    const root = makeTempDir(RUN_ROOT_PREFIX);
+    mkdirSync(join(root, "test_setup-first-run-fallback-e2e", "otc-first-run-home-Sp4CbK"), {
+      recursive: true,
+    });
+    return root;
+  };
+  /** A real second process removes `target` after `delayMs`, while this one blocks in settleLeaks. */
+  const removeLater = (target: string, delayMs: number): void => {
+    const child = spawn(
+      process.execPath,
+      [
+        "-e",
+        "const [t, ms] = process.argv.slice(1); setTimeout(() => require('node:fs').rmSync(t, { recursive: true, force: true }), Number(ms));",
+        target,
+        String(delayMs),
+      ],
+      { stdio: "ignore", detached: true },
+    );
+    child.unref();
+  };
+
+  it("win32: a leftover a live process removes within the budget is not a leak", () => {
+    const root = leakOnDisk();
+    expect(scanLeaks(root)).toHaveLength(1);
+    removeLater(join(root, "test_setup-first-run-fallback-e2e"), 700);
+    const left = settleLeaks(root, {
+      platform: "win32",
+      budgetMs: stallTimeout(20_000),
+    });
+    expect(left).toEqual([]);
+  });
+
+  it("linux/macOS: the first scan is final, nothing is waited for", () => {
+    const root = leakOnDisk();
+    const started = Date.now();
+    const left = settleLeaks(root, { platform: "linux", budgetMs: stallTimeout(20_000) });
+    expect(left.map((l) => l.entry)).toEqual(["otc-first-run-home-Sp4CbK"]);
+    expect(Date.now() - started).toBeLessThan(2_000); // stall-ok: asserts the guard did NOT wait
+  });
+
+  it("win32: a leftover that never goes away is still reported once the budget is spent", () => {
+    const root = leakOnDisk();
+    const sleeps: number[] = [];
+    const left = settleLeaks(root, {
+      platform: "win32",
+      budgetMs: 1_000, // stall-ok: injected sleep, no wall-clock wait
+      pollMs: 250,
+      sleep: (ms) => sleeps.push(ms),
+    });
+    expect(left.map((l) => l.entry)).toEqual(["otc-first-run-home-Sp4CbK"]);
+    expect(sleeps).toEqual([250, 250, 250, 250]);
+  });
+
+  it("win32: stops polling the moment the list is empty", () => {
+    const sleeps: number[] = [];
+    let scans = 0;
+    const left = settleLeaks("unused", {
+      platform: "win32",
+      scan: () =>
+        ++scans < 3 ? [{ file: "f", entry: "e", bytes: 1, files: 1, children: [] }] : [],
+      sleep: (ms) => sleeps.push(ms),
+    });
+    expect(left).toEqual([]);
+    expect(sleeps).toHaveLength(2);
   });
 });
 

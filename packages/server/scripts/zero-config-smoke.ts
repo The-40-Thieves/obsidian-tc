@@ -44,13 +44,18 @@
 // --model-cache <dir> copies model weights into the isolated home before the run and back after,
 // so CI can cache the download without pointing the child at a real `~/.obsidian-tc`.
 
-import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { assertStateUnderHome, createIsolatedHome } from "./lib/isolated-home.mjs";
+import {
+  assertStateUnderHome,
+  createIsolatedHome,
+  removeTree,
+  waitForPidExit,
+} from "./lib/isolated-home.mjs";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -102,7 +107,7 @@ async function assertPortClosed(port: number): Promise<void> {
 
 function makeFixtureVault(): string {
   const dir = mkdtempSync(join(tmpdir(), "obtc-zero-config-smoke-"));
-  process.once("exit", () => rmSync(dir, { recursive: true, force: true }));
+  process.once("exit", () => removeTree(dir));
   const phrase = omitSeedPhrase ? "unrelated-marker-text" : seedPhrase;
   const notes: Record<string, string> = {
     "welcome.md": `---\ntags: [reference, smoke]\n---\n# Welcome\n\nThe load-bearing phrase is ${phrase}.\n\nSee [[architecture]] and [[glossary]].\n`,
@@ -117,7 +122,7 @@ function makeFixtureVault(): string {
 
 function makeRequiresOllamaConfig(vaultDir: string): string {
   const dir = mkdtempSync(join(tmpdir(), "obtc-zero-config-smoke-cfg-"));
-  process.once("exit", () => rmSync(dir, { recursive: true, force: true }));
+  process.once("exit", () => removeTree(dir));
   const path = join(dir, "requires-ollama.config.json");
   writeFileSync(
     path,
@@ -251,6 +256,10 @@ async function main(): Promise<void> {
     new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 10_000)),
   ]);
   if (!closed) fail("process did not exit within 10s of SIGTERM");
+  // The transport closing only says its pipes are gone. The fixture vault, the isolated home and
+  // bun's own cache under it are removed when this script exits, and on Windows the server still
+  // holds them until the process is really gone.
+  if (!(await waitForPidExit(pid))) fail("process was still alive 10s after its transport closed");
   process.stderr.write("ok: process exited cleanly on SIGTERM\n");
 
   // The explicit-config mode pins cacheDir itself, so only the no-config modes resolve the
