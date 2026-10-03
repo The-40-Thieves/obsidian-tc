@@ -302,6 +302,26 @@ describe("lint_wiki: ACL and Excluded files", () => {
 });
 
 describe("lint_wiki: never writes, never blocks", () => {
+  it("skips only generated-page seal checks when the read-only key lookup fails", async () => {
+    h = makeWikiHarness({
+      files: { "wiki/index.md": "mine\n", "wiki/Page.md": "page\n" },
+      wikiFolder: "wiki",
+      wikiGeneratedSealKeyForLint: () => {
+        throw new Error("empty key file");
+      },
+    });
+    const r = await h.v.call("lint_wiki", {
+      vault: "test",
+      checks: ["generated_pages", "orphans"],
+    });
+    expect(r.ok).toBe(true);
+    expect((r as { data: any }).data.skipped).toContainEqual({
+      check: "generated_pages",
+      reason: "generated-page HMAC key unavailable",
+    });
+    expect((r as { data: any }).data.checks_run).toContain("orphans");
+  });
+
   it("vault files and cache rows are byte-identical after repeated runs", async () => {
     const hh = fixture();
     const files = hashTree(hh.v.root);

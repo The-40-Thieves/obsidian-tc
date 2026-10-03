@@ -11,9 +11,11 @@ fails `obsidian-tc provenance verify`.
 
 Records hold **hashes and attribution only**: never note content, never prompts. They are written
 by the dispatch pipeline itself (one choke point for every mutating tool, derived from the tool
-registry, so a new mutating tool is covered by construction). Recording is **fail-open**: a fault
-in the recorder never fails or blocks the write it describes. A fault is not silent, though: see
-[Recording faults](#recording-faults).
+registry, so a new mutating tool is covered by construction). Settling an already completed write is
+**fail-open**: a fault cannot undo or turn that committed write into an error. The multi-note
+`commit_wiki_page` pending row is deliberately **fail-closed**, because it is recorded before the
+first rename: if that row cannot be stored, the staged files are discarded and the write is refused.
+A fault is not silent; see [Recording faults](#recording-faults).
 
 ## What is trusted
 
@@ -46,7 +48,9 @@ What a record does **not** claim:
 - **The `after` digest is bound to the write where the tool reports it.** Tools that rewrite one
   note (`write_note`, `append_note`, `patch_note`, `update_frontmatter`, the tag tools) return the
   sha256 of the content they wrote, and that value is recorded, not a later read of the disk. For
-  every other tool the file is hashed after the handler returns, and the opened file descriptor is
+  `commit_wiki_page` supplies the digest of every file in its batch through the pending-write path,
+  so its settling `ok` row uses those same written digests instead of re-reading disk. For every
+  other tool the file is hashed after the handler returns, and the opened file descriptor is
   checked to be the very file the vault-containment check vetted (same device and inode, with the
   path re-resolved after the open), so a directory swapped for an outside symlink in that window
   records `unhashable` instead of the outside file's hash. **Residual:** for those other tools
@@ -61,7 +65,8 @@ What a record does **not** claim:
   `outcome: "pending"` listing each named path with the digest it holds now (`before`) and the digest
   it is about to write (`after`). The normal `ok` / `error` record follows when the call settles (an
   `error` record is then written even if nothing changed). A `pending` record with nothing after it
-  means the process died mid-commit: compare each path's `after` with the file.
+  means the process died mid-commit: compare each path's `after` with the file. If the pending row
+  cannot be appended, the batch fails closed before its first rename.
 
 ## Signing
 
@@ -222,14 +227,14 @@ first one does.
 
 ## Recording faults
 
-Because recording is fail-open, a committed write whose record could not be stored (a dropped
+Because settlement is fail-open after a write has committed, a write whose final record could not be stored (a dropped
 table, a sequence collision, a signer outage over a signed head) would otherwise look like "no
 write happened", and the chain would still verify. Each such fault is therefore made visible three
 ways: a `[provenance]` line on stderr, the `obsidian_tc_provenance_faults_total` counter (labels
 `vault`, `tool`, `kind` of `omitted` or `head_untrusted`), and a `provenance_fault` row in
 `event_log`, which is what `obsidian-tc doctor` (a separate process) reads to warn "N committed
 writes left no record". The doctor warning ages out with `event_log` retention; the counter resets
-with the process. The write itself is never failed.
+with the process. The pending-row exception fails before any write, as described above.
 
 ## Optional stamps
 

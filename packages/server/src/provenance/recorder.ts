@@ -12,11 +12,15 @@
 //   * paths are the ones the call NAMES (the tool's `pathAcl` set). Notes a tool rewrites as a side
 //     effect, such as backlinks updated by a move, are not listed.
 //
-// Fail-open like the audit row: a recording fault never turns a committed write into an error. It
-// is made visible instead (`fault` below): stderr, a counter, and an `event_log` row that `doctor`
-// reads. An omitted record would otherwise look exactly like "no write happened".
+// Ordinary settling stays fail-open like the audit row: a recording fault never turns an already
+// committed write into an error. The multi-note `pending` row is the exception: it runs before the
+// first rename and fails closed, because the write can still be safely refused. Post-commit faults
+// are made visible (`fault` below) through stderr, a counter, and an `event_log` row that `doctor`
+// reads; a pending-row fault is returned to the caller and reported through `onError`.
+
 import { createHash } from "node:crypto";
 import { hostname } from "node:os";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { writeEvent } from "../audit";
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
@@ -45,7 +49,7 @@ export interface ProvenanceRecorderOptions {
   signer?: SignerSource;
   now?: () => number;
   hooks?: WriteTxnHooks;
-  /** Fail-open sink for a recording fault (the stderr line). */
+  /** Sink for a recording fault (the stderr line). */
   onError?: (tool: string, vaultId: string, e: unknown) => void;
   /** Counter for the same faults; they are also written to `event_log` for `doctor`. */
   metrics?: ProvenanceFaultMetrics;
@@ -150,12 +154,15 @@ export class ProvenanceRecorder implements ProvenanceSink {
   /**
    * Append the `pending` record of a multi-note commit, just before its first note is replaced:
    * each named path with the digest it had at `begin` and the digest the commit is about to write
-   * (`after`; a path the commit leaves alone keeps its `before`). Synchronous and never throws, so
-   * it can run inside a synchronous commit; a fault is reported like any omitted record and the
-   * commit goes on.
+   * (`after`; a path the commit leaves alone keeps its `before`). Synchronous and fail-closed: if
+   * the durable intent cannot be appended, the caller must abort before its first rename.
    */
   recordPending(p: PendingProvenance, after: ReadonlyMap<string, string>): void {
     try {
+      const paths = p.before.flatMap((b): PathEntry[] => {
+        const digest = after.get(b.path) ?? after.get(safeNormalize(b.path));
+        return digest === undefined ? [] : [{ path: b.path, before: b.before, after: digest }];
+      });
       const appended = appendProvenance(
         this.opts.db,
         {
@@ -163,12 +170,8 @@ export class ProvenanceRecorder implements ProvenanceSink {
           ts: this.now(),
           tool: p.tool,
           outcome: "pending",
-          paths: p.before.map((b) => ({
-            path: b.path,
-            before: b.before,
-            after: after.get(b.path) ?? after.get(safeNormalize(b.path)) ?? b.before,
-          })),
-          pathsOmitted: p.omitted,
+          paths,
+          pathsOmitted: Math.max(0, after.size - paths.length),
           ...p.attribution,
         },
         this.signerSource?.(),
@@ -179,7 +182,14 @@ export class ProvenanceRecorder implements ProvenanceSink {
         this.fault("head_untrusted", p.tool, p.vaultId, new Error(appended.headFault));
       }
     } catch (e) {
-      this.fault("omitted", p.tool, p.vaultId, e);
+      // No write has happened yet, so this is not an omitted record for a committed effect and
+      // must not increment the omission counter or create a misleading doctor event.
+      try {
+        this.opts.onError?.(p.tool, p.vaultId, e);
+      } catch {}
+      throw err.internalError("write refused because pending provenance could not be recorded", {
+        cause: e instanceof Error ? e.message : String(e),
+      });
     }
   }
 
@@ -187,14 +197,25 @@ export class ProvenanceRecorder implements ProvenanceSink {
    * Append the record for a settled call. `error` outcomes are recorded only when a named path's
    * digest actually moved. Never throws.
    */
-  async commit(p: PendingProvenance, outcome: "ok" | "error", result?: unknown): Promise<void> {
+  async commit(
+    p: PendingProvenance,
+    outcome: "ok" | "error",
+    result?: unknown,
+    batchWritten?: ReadonlyMap<string, string>,
+  ): Promise<void> {
     try {
-      const written = outcome === "ok" ? writtenDigest(result, p.before) : undefined;
+      const resultWritten = outcome === "ok" ? writtenDigest(result, p.before) : undefined;
       const paths: PathEntry[] = await Promise.all(
         p.before.map(async (b) => ({
           path: b.path,
           before: b.before,
-          after: written ?? (await digestUnder(p.root, b.path)),
+          after:
+            outcome === "ok"
+              ? (batchWritten?.get(b.path) ??
+                batchWritten?.get(safeNormalize(b.path)) ??
+                resultWritten ??
+                (await digestUnder(p.root, b.path)))
+              : await digestUnder(p.root, b.path),
         })),
       );
       if (outcome === "error" && !p.pendingWritten && !paths.some((e) => e.before !== e.after))

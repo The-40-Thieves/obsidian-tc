@@ -423,7 +423,9 @@ each directory above the page), never a string comparison: `Café` in two Unicod
 directories equal. So neither a sibling folder that shares the prefix, a case or Unicode variant nor a
 symlink out of the folder can carry a page past the check. While the folder does not exist yet only its
 exact configured spelling is accepted. The folder itself must be a plain relative path in the config:
-`.`, `/`, an empty string, an absolute path and `..` are rejected, never reinterpreted.
+`.`, `/`, an empty string, an absolute path and `..` are rejected, never reinterpreted. A segment
+ending in a space or dot is rejected too, because Windows strips those suffixes. The same rule applies
+to `wiki.rawFolder`.
 
 **Scopes.** The tool needs `read:notes` as well as `write:notes`: the duplicate check reads every note
 the caller may read and names the matches.
@@ -484,12 +486,15 @@ file is refused (`reason: not_markdown`). The read check comes first, so a read-
 `problems`: `schema` (missing required field, unknown type or property, value outside the vocabulary),
 `unresolved_link`, `missing_link` (a related note the page does not link), `no_inbound_link`,
 `patch_without_link`, `patch_skipped` (the note already links the page), `possible_duplicate`,
-`excluded_note`, `poison_suspect`, `redacted`. Refusals are errors and write nothing: no write
+`excluded_note`, `poison_suspect`, `redacted`. Generated-page work runs after the response and reports
+its warnings in the server log rather than this array. Refusals are errors and write nothing: no write
 or read permission on any existing note it touches (an unreadable note answers like a missing one and
 its hash is never returned), a stale `prev_hash` (every stale note is named in `details.stale`), a page that
 already covers the topic (`conflict`, `reason: duplicate_page`, checked again right before the write;
 `allow_duplicate: true` overrides), text that fails the poison scan, a heading that is missing or
-ambiguous, and two entries naming one note (paths are compared by their real path, case-folded). Open contradictions the detector
+ambiguous, and two entries naming one filesystem object (existing paths are compared by device and
+inode, so symlink aliases collide while two real case-distinct files on a case-sensitive volume do not).
+Open contradictions the detector
 already flagged on a touched note are listed in `contradictions`; new ones are found by the indexer
 afterwards.
 
@@ -506,6 +511,9 @@ scans, and computes every resulting note. It then snapshots every existing note 
 a synced temp file for every note, writes one `pending` write-provenance record naming every path and the
 hash it is about to hold, and renames the files back to back, re-hashing each existing note immediately
 before it is replaced: a note edited since it was read aborts the whole batch and the edit is kept. If a
+pending provenance row cannot be recorded, the staged files are discarded and no rename runs. The
+settling `ok` record uses the batch's own written hashes, not a disk re-read that could observe a later
+concurrent edit. If a
 write fails part way, every earlier write is undone, except a note whose content changed since the batch
 wrote it, which is left alone and named in `details.changed_since_written`; a page someone else created
 is never deleted. Each undo moves the note aside, hashes the moved file and only then drops it or puts
@@ -527,7 +535,7 @@ The wiki folder also holds two files the server writes, not you and not an LLM. 
 `generated_by: obsidian-tc` in their frontmatter and a notice; do not edit them.
 
 * **`index.md`**: every page of the wiki folder grouped by its `SCHEMA.md` `type` (the schema's order <!-- config-path:ignore -->
-  first, then other types, then `(no type)`), one link each. Rebuilt after every `commit_wiki_page` and,
+  first, then other types, then `(no type)`), one link each. Queued after every `commit_wiki_page` and,
   with `maintenance.wikiPages.enabled: true`, every `maintenance.wikiPages.intervalHours` (default 6). It
   is never maintained by an LLM and is left unchanged when the listing did not change.
 * **`log.md`**: an append-only projection of the write provenance chain for the wiki folder, one line per <!-- config-path:ignore -->
@@ -547,16 +555,29 @@ read-denied folder included) and never an Excluded note, so a page in a read-den
 A page name is written with control, format and line-separator characters stripped, so one page is one
 line. They are written with no confirmation, inside the
 wiki folder only, with a snapshot of what they replace, and a failure is reported as a
-`generated_page` problem on the commit, never an error.
+server error-log warning, never an error on the already committed write. The queue keeps generation
+off the request path because a large vault scan can take seconds.
 
-**A hand-edited page is never overwritten.** A hash in the frontmatter seals each file. If the file was
-edited, or is someone's own `index.md` with no marker, the server leaves it as it is, `commit_wiki_page` <!-- config-path:ignore -->
-returns a `generated_page` problem, and `lint_wiki` (check `generated_pages`) proposes the fix: move
+**A hand-edited page is never overwritten.** A keyed HMAC-SHA-256 in the frontmatter seals each file;
+the per-server key is created on first use in a mode-0600 file under the server cache directory, and
+the seal also binds the vault id and file path. If the file was edited, or is someone's own `index.md` <!-- config-path:ignore -->
+with no marker, the server leaves it as it is, logs the warning,
+and `lint_wiki` (check `generated_pages`) proposes the fix: move
 your text to a page of its own and delete the file (`restore_note` keeps a copy); the next pass writes a
 fresh one. An edit made while a page is being rebuilt is caught too (the file is hashed again right
 before it is replaced); like `commit_wiki_page`, this cannot close the gap between that hash and the
 rename, because POSIX has no conditional rename. Duplicate-topic detection, `lint_wiki` and the orphan, dangling-link and provenance scans skip
 both files, and their links are not counted as inbound links.
+
+The seal key is server state. Pointing the server at a new `cacheDir`, or running another server with
+its own cache state, gives it a different key, so existing generated pages read as edited rather than
+trusted. Delete the affected `index.md` or `log.md`; the next wiki-page pass regenerates it with that <!-- config-path:ignore -->
+server's key.
+
+**One-time migration from the old seal.** A matching legacy unkeyed SHA-256 is recognised only so the
+server can replace the file; it is never accepted as authenticated input. The next pass rebuilds the
+whole page with the HMAC. For `log.md`, it discards the legacy preamble and `last_seq` and projects from
+the provenance database again. An edited or invalid legacy file is left untouched and reported.
 
 ## Response format
 

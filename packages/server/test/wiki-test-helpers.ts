@@ -14,6 +14,7 @@ import type { WikiJudgeBackend, WikiJudgeSettings } from "../src/tools/m7/knowle
 import { makeTestVault, type TestVault, type TestVaultOptions } from "./m1-helpers";
 
 export const MODEL = "stub:4";
+export const WIKI_TEST_SEAL_KEY = "wiki-generated-test-key-at-least-thirty-two-bytes";
 
 export interface WikiHarness {
   v: TestVault;
@@ -35,6 +36,9 @@ export function makeWikiHarness(
     wikiJudgeBackend?: WikiJudgeBackend | null;
     wikiJudge?: Partial<WikiJudgeSettings>;
     excludeFilter?: EgressFilter;
+    wikiGeneratedSealKey?: () => string;
+    wikiGeneratedSealKeyForLint?: () => string | undefined;
+    scheduleWikiPageRegeneration?: (run: () => void) => void;
   } = {},
 ): WikiHarness {
   const {
@@ -46,6 +50,9 @@ export function makeWikiHarness(
     wikiJudge,
     wikiJudgeBackend,
     excludeFilter,
+    wikiGeneratedSealKey,
+    wikiGeneratedSealKeyForLint,
+    scheduleWikiPageRegeneration,
     ...vaultOpts
   } = opts;
   const v = makeTestVault(vaultOpts);
@@ -84,6 +91,9 @@ export function makeWikiHarness(
     ...(vaultOpts.snapshots ? { snapshots: vaultOpts.snapshots } : {}),
     ...(vaultOpts.reindex ? { reindex: vaultOpts.reindex } : {}),
     ...(vaultOpts.memoryDefense ? { memoryDefense: () => vaultOpts.memoryDefense as never } : {}),
+    wikiGeneratedSealKey: wikiGeneratedSealKey ?? (() => WIKI_TEST_SEAL_KEY),
+    wikiGeneratedSealKeyForLint: wikiGeneratedSealKeyForLint ?? (() => WIKI_TEST_SEAL_KEY),
+    scheduleWikiPageRegeneration: scheduleWikiPageRegeneration ?? ((run) => run()),
   });
   let n = 0;
   const seed: WikiHarness["seed"] = (path, vec, extra) => {

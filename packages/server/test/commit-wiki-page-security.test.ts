@@ -352,23 +352,29 @@ describe("compare-and-swap at write time", () => {
   });
 });
 
-describe("one note, one entry in a changeset", () => {
-  it("two patches to Note.md and note.md are refused, not applied one over the other", async () => {
-    const hh = harness({ files: { ...FILES, "wiki/Note.md": "Note\n" } });
-    const before = hashTree(hh.v.root);
-    const e = errOf(
-      await commit(hh, {
-        patches: [
-          { path: "wiki/Note.md", prev_hash: contentHash("Note\n"), operation: "link" },
-          { path: "wiki/note.md", prev_hash: contentHash("Note\n"), operation: "link" },
-        ],
-      }),
-    );
-    expect(e).toMatchObject({ code: "invalid_input", details: { path: "wiki/note.md" } });
-    expect(hashTree(hh.v.root)).toEqual(before);
+describe("one filesystem entry, one entry in a changeset", () => {
+  it("two real files that differ only by case can both be patched on a case-sensitive volume", async (ctx) => {
+    const upper = "Upper note\n";
+    const lower = "Lower note\n";
+    const hh = harness({
+      files: { ...FILES, "wiki/Note.md": upper, "wiki/note.md": lower },
+    });
+    if (hh.v.read("wiki/Note.md") === hh.v.read("wiki/note.md")) {
+      ctx.skip("case-insensitive volume aliases Note.md and note.md");
+      return;
+    }
+    const r = await commit(hh, {
+      patches: [
+        { path: "wiki/Note.md", prev_hash: contentHash(upper), operation: "link" },
+        { path: "wiki/note.md", prev_hash: contentHash(lower), operation: "link" },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    expect(hh.v.read("wiki/Note.md")).toContain("[[Learning techniques]]");
+    expect(hh.v.read("wiki/note.md")).toContain("[[Learning techniques]]");
   });
 
-  it("a patch aimed at the page's own path in another case is refused", async () => {
+  it("a differently cased path with no filesystem identity is not conflated with the new page", async () => {
     const hh = harness();
     const e = errOf(
       await commit(hh, {
@@ -377,7 +383,7 @@ describe("one note, one entry in a changeset", () => {
         ],
       }),
     );
-    expect(e.code).toBe("invalid_input");
+    expect(e.code).toBe("note_not_found");
   });
 
   it.skipIf(process.platform === "win32")(

@@ -62,8 +62,8 @@ import {
   WikiPatchSpec,
 } from "./wiki-changeset";
 import { collectIdentityEvidence } from "./wiki-evidence";
-import { assertWikiPagePath, foldPath, rawPathFilter } from "./wiki-folder";
-import { regenerateWikiPages } from "./wiki-generated";
+import { assertWikiPagePath, filesystemIdentity, rawPathFilter } from "./wiki-folder";
+import { regenerateWikiPages, type WikiGenerateEnv } from "./wiki-generated";
 import { buildLinkMap } from "./wiki-link-map";
 import { checkFrontmatter, loadWikiSchema } from "./wiki-schema";
 
@@ -132,6 +132,59 @@ export function createCommitWikiPageTool(
   deps: M7Deps,
   retrieval: RetrievalRuntime,
 ): ToolDefinition {
+  type GenerationSnapshot = Omit<WikiGenerateEnv, "sealKey">;
+  interface GenerationState {
+    dirty: boolean;
+    scheduled: boolean;
+    snapshot: GenerationSnapshot;
+  }
+  const generationByVault = new Map<string, GenerationState>();
+  const schedule = deps.scheduleWikiPageRegeneration ?? ((run: () => void) => setImmediate(run));
+  const scheduleState = (vaultId: string, state: GenerationState): void => {
+    if (state.scheduled) return;
+    state.scheduled = true;
+    try {
+      schedule(() => {
+        state.scheduled = false;
+        if (!state.dirty) {
+          if (generationByVault.get(vaultId) === state) generationByVault.delete(vaultId);
+          return;
+        }
+        state.dirty = false;
+        const snapshot = state.snapshot;
+        try {
+          const sealKey = deps.wikiGeneratedSealKey?.();
+          if (sealKey === undefined) throw new Error("generated-page HMAC key is unavailable");
+          const result = regenerateWikiPages({ ...snapshot, sealKey });
+          if (result.warnings.length > 0)
+            process.stderr.write(
+              `[wiki-pages] ${vaultId}: ${result.warnings.map((w) => `${w.path} (${w.kind}: ${w.message})`).join("; ")}\n`,
+            );
+        } catch (e) {
+          process.stderr.write(
+            `[wiki-pages] ${vaultId}: queued regeneration failed: ${e instanceof Error ? e.message : String(e)}\n`,
+          );
+        }
+        if (state.dirty) scheduleState(vaultId, state);
+        else if (generationByVault.get(vaultId) === state) generationByVault.delete(vaultId);
+      });
+    } catch (e) {
+      state.scheduled = false;
+      if (generationByVault.get(vaultId) === state) generationByVault.delete(vaultId);
+      process.stderr.write(
+        `[wiki-pages] ${vaultId}: could not queue regeneration: ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+    }
+  };
+  const enqueueGeneration = (snapshot: GenerationSnapshot): void => {
+    const prior = generationByVault.get(snapshot.vaultId);
+    const state = prior ?? { dirty: false, scheduled: false, snapshot };
+    state.snapshot = snapshot;
+    state.dirty = true;
+    if (!prior) generationByVault.set(snapshot.vaultId, state);
+    scheduleState(snapshot.vaultId, state);
+  };
+
   return defineTool({
     name: "commit_wiki_page",
     domain: "knowledge",
@@ -147,7 +200,7 @@ export function createCommitWikiPageTool(
       ]),
     ],
     description:
-      "Apply a wiki changeset in one step: a new page (path, frontmatter, the body you wrote) plus patches to existing pages that link them to it, from draft_wiki_page. The page must be inside the vault's configured wiki folder (`vaults[].wiki.folder`; a vault without one refuses). All or nothing on errors: every touched note is checked first (write and read ACL on each path, `prev_hash` compare-and-swap on each existing note, the poison and memory-defense scans), temp files for every note are staged, then the notes are replaced back to back, each re-hashed just before it is replaced, with a rollback if any write fails, so a failing patch leaves the vault as it was. NOT crash-atomic: a process crash in the middle of the renames can leave a partial batch; a `pending` write-provenance record naming every path and the hash it was about to hold is written before the first rename, so the batch is visible and every replaced note has a snapshot (restore_note). Creating a page in the wiki folder needs NO confirmation (restore_note undoes it); patching a related note needs none either, as patch_note; overwriting an existing non-empty page (`page.mode: overwrite`) asks for confirmation exactly like write_note. Re-checks at commit time that no other page already covers the topic (an identity match refuses the commit with the existing page named; `allow_duplicate: true` overrides). Problems that are for you to fix do NOT block the write and come back in `problems`: frontmatter that breaks the wiki folder's SCHEMA.md (missing required field, unknown type or property, value outside the vocabulary), links in the page that resolve to no note, related notes from the link map the page does not link, patches that add no link, a page nothing links to. Open contradictions already flagged on a touched note come back in `contradictions`. Patches only ADD (`link`: a bullet under a heading, once; `append`: text at the end or under a heading); rewrite prose with patch_note. Every write is recorded in the write provenance chain and indexed. After the write the server regenerates the wiki folder's generated `index.md` (pages grouped by type) and `log.md` (a projection of the write provenance chain) with no confirmation, listing only what a reader holding no rule-scope may read and never an Excluded note; a generation failure, or a generated page someone hand-edited (it is left alone), comes back as a `generated_page` problem and never fails the commit. Needs read:notes as well as write:notes: the duplicate re-check reads every note you may read.",
+      "Apply a wiki changeset in one step: a new page (path, frontmatter, the body you wrote) plus patches to existing pages that link them to it, from draft_wiki_page. The page must be inside the vault's configured wiki folder (`vaults[].wiki.folder`; a vault without one refuses). All or nothing on errors: every touched note is checked first (write and read ACL on each path, `prev_hash` compare-and-swap on each existing note, the poison and memory-defense scans), temp files for every note are staged, then the notes are replaced back to back, each re-hashed just before it is replaced, with a rollback if any write fails, so a failing patch leaves the vault as it was. NOT crash-atomic: a process crash in the middle of the renames can leave a partial batch; a `pending` write-provenance record naming every path and the hash it was about to hold is written before the first rename, so the batch is visible and every replaced note has a snapshot (restore_note). Creating a page in the wiki folder needs NO confirmation (restore_note undoes it); patching a related note needs none either, as patch_note; overwriting an existing non-empty page (`page.mode: overwrite`) asks for confirmation exactly like write_note. Re-checks at commit time that no other page already covers the topic (an identity match refuses the commit with the existing page named; `allow_duplicate: true` overrides). Problems that are for you to fix do NOT block the write and come back in `problems`: frontmatter that breaks the wiki folder's SCHEMA.md (missing required field, unknown type or property, value outside the vocabulary), links in the page that resolve to no note, related notes from the link map the page does not link, patches that add no link, a page nothing links to. Open contradictions already flagged on a touched note come back in `contradictions`. Patches only ADD (`link`: a bullet under a heading, once; `append`: text at the end or under a heading); rewrite prose with patch_note. Every write is recorded in the write provenance chain and indexed. After the write the server queues regeneration of the wiki folder's generated `index.md` (pages grouped by type) and `log.md` (a projection of the write provenance chain), so even a very large wiki never delays this call. Generation lists only paths readable without a rule-scope and never an Excluded note; failures and hand-edited generated pages are logged and never fail or delay the committed write. Needs read:notes as well as write:notes: the duplicate re-check reads every note you may read.",
     inputSchema: z
       .object({
         vault: VaultId,
@@ -205,13 +258,13 @@ export function createCommitWikiPageTool(
           { path: pageRel },
         );
       const patchRels = input.patches.map((p) => normalizeVaultPath(p.path));
-      // One note, one entry: keyed on the REAL path (a symlink alias is the same note) folded for
-      // case, so `Note.md` and `note.md` cannot be two patches that each read the same original
-      // bytes and the second write silently drop the first. Folded on every platform: a changeset
-      // that names two paths differing only in case is a mistake even where they are two files.
+      // One filesystem entry, one changeset entry. Existing paths use dev+ino, so symlink and
+      // case-insensitive aliases collide while two real case-distinct files do not. A path that is
+      // not created yet has no inode and falls back to its exact normalised spelling.
       const seen = new Set<string>();
       for (const rel of [pageRel, ...patchRels]) {
-        const key = foldPath(resolveVaultPathChecked(v.root, rel).aclRel, true);
+        const resolved = resolveVaultPathChecked(v.root, rel).aclRel;
+        const key = filesystemIdentity(v.root, resolved) ?? `new:${resolved}`;
         if (seen.has(key))
           throw err.invalidInput("a path may appear once in a changeset (page or patch)", {
             path: rel,
@@ -468,6 +521,12 @@ export function createCommitWikiPageTool(
           .filter((o) => o.r.applied)
           .map((o) => ({ abs: o.t.abs, rel: o.t.rel, content: o.content, prevRaw: o.t.cur.raw })),
       ];
+      const settledDigests = new Map<string, string>([
+        [pageRel, contentHash(pageContent)],
+        ...outcomes
+          .filter((o) => o.r.applied)
+          .map((o): [string, string] => [o.t.rel, contentHash(o.content)]),
+      ]);
 
       // The duplicate check above ran before an await; the disk may have changed since. Everything
       // from here to the last rename is synchronous, so this is the last look before the write: an
@@ -512,8 +571,7 @@ export function createCommitWikiPageTool(
         applyWriteBatch(writes, {
           // The batch's durable intent, before the first note is replaced: a crash from here on
           // leaves a `pending` provenance record naming every path and the hash it was to hold.
-          beforeCommit: () =>
-            ctx.recordPendingWrite?.(new Map(writes.map((w) => [w.rel, contentHash(w.content)]))),
+          beforeCommit: () => ctx.recordPendingWrite?.(settledDigests),
         });
       } catch (e) {
         // A clean rollback leaves the vault as it was, so this call's snapshots are noise. An
@@ -527,9 +585,12 @@ export function createCommitWikiPageTool(
           if (w.prevRaw !== null) pruneSnapshots(ctx.db, v.id, w.rel, deps.snapshots.retention);
       for (const w of writes) deps.reindex?.(v.id, w.rel, w.content);
 
-      // The generated index.md / log.md: after the batch, never part of it, never an error.
+      // The generated index.md / log.md are deliberately outside the request path: a 5,000-page
+      // folder takes seconds to scan on modest hardware. The queued pass is never part of the
+      // committed batch; failures are operator-visible and cannot turn the successful write back
+      // into an error.
       const authored = problems.length;
-      for (const w of regenerateWikiPages({
+      enqueueGeneration({
         root: v.root,
         vaultId: v.id,
         wikiFolder,
@@ -540,8 +601,7 @@ export function createCommitWikiPageTool(
         memoryDefense: mdConfig,
         metrics: deps.metrics,
         now: ctx.now,
-      }).warnings)
-        problems.push({ kind: "generated_page", path: w.path, message: w.message });
+      });
 
       return {
         vault: v.id,

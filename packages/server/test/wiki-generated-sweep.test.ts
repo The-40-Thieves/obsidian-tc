@@ -7,7 +7,7 @@ import { registerWikiPagesSweep } from "../src/runtime/wiki-pages-sweep";
 import type { Scheduler } from "../src/scheduler/scheduler";
 import { NO_EXCLUSION } from "../src/search/index-exclusion";
 import { inspectGenerated } from "../src/tools/m7/knowledge/wiki-generated-seal";
-import { makeWikiHarness, type WikiHarness } from "./wiki-test-helpers";
+import { makeWikiHarness, WIKI_TEST_SEAL_KEY, type WikiHarness } from "./wiki-test-helpers";
 
 let h: WikiHarness;
 afterEach(() => h?.v.cleanup());
@@ -30,6 +30,7 @@ function job(hh: WikiHarness, over: { wikiFolder?: string | undefined } = { wiki
     exclusionFor: () => NO_EXCLUSION,
     snapshots: { enabled: true, retention: 10 },
     intervalMs: 1000,
+    sealKey: () => WIKI_TEST_SEAL_KEY,
     onResult: (id, r) => results.push([id, r]),
   });
   return { registered: registered as NonNullable<typeof registered>, results };
@@ -52,7 +53,9 @@ describe("scheduled wiki page regeneration (generated index.md)", () => {
     expect(registered.intervalMs).toBe(1000);
     await registered.run(new AbortController().signal);
     const idx = h.v.read("wiki/index.md");
-    expect(inspectGenerated(idx)).toBe("ours");
+    expect(
+      inspectGenerated(idx, WIKI_TEST_SEAL_KEY, { vaultId: "test", path: "wiki/index.md" }),
+    ).toBe("ours");
     expect(idx).toContain("[[wiki/Ada|Ada]]");
     expect(idx).not.toContain("Secret");
     expect(results).toEqual([["test", { written: ["wiki/index.md"], warnings: [] }]]);

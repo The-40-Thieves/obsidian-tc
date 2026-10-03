@@ -102,6 +102,30 @@ describe("registerWikiLintSweep", () => {
     expect(viaTool.summary.by_kind).toEqual(reports[0]?.summary.by_kind);
   });
 
+  it("reports generated-page checks as skipped when the seal key cannot be read", async () => {
+    const { box, scheduler } = capture();
+    const hh = fixture();
+    const reports: LintReport[] = [];
+    registerWikiLintSweep(scheduler, {
+      cacheDb: hh.v.db,
+      vaults: [{ id: "test", root: hh.v.root, wikiFolder: "wiki" }],
+      exclusionFor: () => NO_EXCLUSION,
+      embeddingModel: "stub:4",
+      intervalMs: 1000,
+      maxNotes: 100,
+      sealKey: () => {
+        throw new Error("empty key file");
+      },
+      onReport: (r) => reports.push(r),
+    });
+    await box.task?.run(LIVE);
+    expect(reports[0]?.skipped).toContainEqual({
+      check: "generated_pages",
+      reason: "generated-page HMAC key unavailable",
+    });
+    expect(reports[0]?.checks_run).toContain("orphans");
+  });
+
   it("stops between vaults once shutdown has begun", async () => {
     const { box, scheduler } = capture();
     const hh = fixture();

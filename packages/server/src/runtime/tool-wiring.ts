@@ -52,6 +52,7 @@ import { bridgeTimeouts, type M4Deps, openBridge, registerM4Tools } from "../too
 import { DEFAULT_TRACE_FOLDER, registerM5Tools } from "../tools/m5";
 import { registerM6Tools, type SandboxRerunFn } from "../tools/m6";
 import { registerM7Tools } from "../tools/m7";
+import { getOrCreateWikiSealKey, readWikiSealKey } from "../tools/m7/knowledge/wiki-generated-seal";
 import { resolveWikiJudgeBackend } from "../tools/m7/knowledge/wiki-judge-typesafe";
 import { registerM8Tools } from "../tools/m8";
 import type { VaultRegistry } from "../vault/registry";
@@ -705,6 +706,9 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     // reflect.persist's memoryDefense guard — the SAME closure/metrics M5/M8 get above.
     memoryDefense,
     metrics: deps.metrics,
+    wikiGeneratedSealKey: () => getOrCreateWikiSealKey(config.cacheDir),
+    wikiGeneratedSealKeyForLint: () => readWikiSealKey(config.cacheDir),
+    scheduleWikiPageRegeneration: (run) => setImmediate(run),
     // reflect's per-vault citation_style / detail defaults (call arg > this > shipped default).
     reflectDefaults: (vaultId) => deps.reflectDefaultsByVault.get(vaultId) ?? {},
     // THE-497: the query-product cache (dark unless retrieval.cache.enabled). Built ONCE per

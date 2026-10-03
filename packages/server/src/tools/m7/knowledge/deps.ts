@@ -142,6 +142,13 @@ export interface M7Deps {
    *  reaches disk. Absent -> MEMORY_DEFENSE_OFF (mode "off", no scan). */
   memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
   metrics?: MetricsRecorder;
+  /** Stable HMAC key for generated index.md/log.md, loaded lazily from server state. */
+  wikiGeneratedSealKey?: () => string;
+  /** Read-only lookup for lint: absent state stays absent and is never created by a diagnostic. */
+  wikiGeneratedSealKeyForLint?: () => string | undefined;
+  /** Queue generated-page rebuilding after commit_wiki_page returns. Production uses setImmediate;
+   *  tests may inject a deterministic queue. */
+  scheduleWikiPageRegeneration?: (run: () => void) => void;
   /** Per-vault `reflect` config (citationStyle / detail), the middle tier of reflect's precedence:
    *  call argument > this > the shipped default. Absent -> no vault defaults. */
   reflectDefaults?: (vaultId: string) => VaultReflectConfig;

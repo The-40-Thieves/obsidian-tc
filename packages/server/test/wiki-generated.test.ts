@@ -1,9 +1,11 @@
 // The wiki folder's generated index.md and log.md: what they list, who may see it, what they never
 // do (clobber a hand edit, fail a commit, become a duplicate topic or a lint subject). The index is
 // built from the vault index and the log from write_provenance, both by the server.
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { FolderAcl } from "../src/acl";
 import type { Database } from "../src/db/types";
 import { appendProvenance } from "../src/provenance/store";
 import { buildAcls } from "../src/runtime/acl-build";
@@ -15,7 +17,12 @@ import {
 } from "../src/tools/m7/knowledge/wiki-generated";
 import { inspectGenerated, seal } from "../src/tools/m7/knowledge/wiki-generated-seal";
 import { makeTempDir } from "./tmp";
-import { hashTree, makeWikiHarness, type WikiHarness } from "./wiki-test-helpers";
+import {
+  hashTree,
+  makeWikiHarness,
+  WIKI_TEST_SEAL_KEY,
+  type WikiHarness,
+} from "./wiki-test-helpers";
 
 const SCHEMA = `---
 types:
@@ -39,9 +46,13 @@ const FILES: Record<string, string> = {
   "wiki/Linker.md": "See [[Learning techniques]].\n",
   "journal/Daily.md": "Daily\n",
 };
+const SEAL_KEY = WIKI_TEST_SEAL_KEY;
 
 let h: WikiHarness;
-afterEach(() => h?.v.cleanup());
+afterEach(() => {
+  h?.v.cleanup();
+  vi.restoreAllMocks();
+});
 
 function harness(opts: Parameters<typeof makeWikiHarness>[0] = {}): WikiHarness {
   h = makeWikiHarness({
@@ -77,8 +88,15 @@ const envFor = (hh: WikiHarness, over: Partial<WikiGenerateEnv> = {}): WikiGener
   exclusion: NO_EXCLUSION,
   db: hh.v.db as Database,
   snapshots: { enabled: true, retention: 10 },
+  sealKey: SEAL_KEY,
   ...over,
 });
+
+const oldSeal = (raw: string): string => {
+  const blank = raw.replace(/^generated_hash: ?.*$/m, "generated_hash: ");
+  const digest = createHash("sha256").update(blank, "utf8").digest("hex");
+  return blank.replace(/^generated_hash: ?.*$/m, `generated_hash: ${digest}`);
+};
 
 let ts = 1_800_000_000_000;
 const nextTs = (): number => {
@@ -121,7 +139,9 @@ describe("generated index.md", () => {
     const idx = hh.v.read("wiki/index.md");
     expect(idx.startsWith("---\ngenerated_by: obsidian-tc\ngenerated_page: index\n")).toBe(true);
     expect(idx).toContain("Do not edit by hand");
-    expect(inspectGenerated(idx)).toBe("ours");
+    expect(inspectGenerated(idx, SEAL_KEY, { vaultId: "test", path: "wiki/index.md" })).toBe(
+      "ours",
+    );
     // Types in the SCHEMA.md order, then the untyped pages; links carry the path.
     const headings = idx.split("\n").filter((l) => l.startsWith("## "));
     expect(headings).toEqual(["## concept (2)", "## entity (1)", "## (no type) (2)"]);
@@ -130,7 +150,7 @@ describe("generated index.md", () => {
     expect(idx).toContain("- [[wiki/Ada|Ada]]");
     // Never a page of its own: not SCHEMA.md, not itself, not the log, not other folders.
     expect(idx).not.toContain("SCHEMA");
-    expect(idx).not.toContain("wiki/index");
+    expect(idx).not.toContain("- [[wiki/index");
     expect(idx).not.toContain("journal/Daily");
   });
 
@@ -235,6 +255,7 @@ describe("a hand-edited or foreign generated page is never overwritten", () => {
     const edited = `${hh.v.read("wiki/index.md")}\nMy own note at the bottom.\n`;
     hh.v.write("wiki/index.md", edited);
     const tree = hashTree(hh.v.root);
+    const logged = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const second = await hh.data("commit_wiki_page", {
       ...commitInput({
         topic: "Another topic",
@@ -246,10 +267,8 @@ describe("a hand-edited or foreign generated page is never overwritten", () => {
       }),
     });
     expect(second.committed).toBe(true);
-    const flagged = second.problems.filter((p: any) => p.kind === "generated_page");
-    expect(flagged).toHaveLength(1);
-    expect(flagged[0]).toMatchObject({ path: "wiki/index.md" });
-    expect(flagged[0].message).toContain("edited by hand");
+    expect(second.problems.filter((p: any) => p.kind === "generated_page")).toEqual([]);
+    expect(logged.mock.calls.flat().join(" ")).toContain("edited by hand");
     expect(hh.v.read("wiki/index.md")).toBe(edited);
     // Only the new page was added to the vault by the second commit.
     expect(Object.keys(hashTree(hh.v.root)).filter((k) => !(k in tree))).toEqual([
@@ -265,7 +284,12 @@ describe("a hand-edited or foreign generated page is never overwritten", () => {
     // The remedy works: once it is deleted the next pass rebuilds it, sealed again.
     unlinkSync(join(hh.v.root, "wiki/index.md"));
     expect(regenerateWikiPages(envFor(hh)).written).toEqual(["wiki/index.md"]);
-    expect(inspectGenerated(hh.v.read("wiki/index.md"))).toBe("ours");
+    expect(
+      inspectGenerated(hh.v.read("wiki/index.md"), SEAL_KEY, {
+        vaultId: "test",
+        path: "wiki/index.md",
+      }),
+    ).toBe("ours");
   });
 
   it("a hand edit to the frontmatter alone is caught too", async () => {
@@ -274,17 +298,19 @@ describe("a hand-edited or foreign generated page is never overwritten", () => {
     const raw = hh.v
       .read("wiki/index.md")
       .replace("generated_page: index", "generated_page: index\ntags: [mine]");
-    expect(inspectGenerated(raw)).toBe("edited");
+    expect(inspectGenerated(raw, SEAL_KEY, { vaultId: "test", path: "wiki/index.md" })).toBe(
+      "edited",
+    );
   });
 
   it("foreign index.md (someone's own, no marker) is left alone and reported as foreign", async () => {
     const own = "# My index\n\n- [[Related]]\n";
     const hh = harness({ files: { ...FILES, "wiki/index.md": own } });
+    const logged = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const d = await hh.data("commit_wiki_page", commitInput());
     expect(hh.v.read("wiki/index.md")).toBe(own);
-    expect(d.problems.find((p: any) => p.kind === "generated_page")?.message).toContain(
-      "not generated by obsidian-tc",
-    );
+    expect(d.problems.find((p: any) => p.kind === "generated_page")).toBeUndefined();
+    expect(logged.mock.calls.flat().join(" ")).toContain("not generated by obsidian-tc");
     const lint = await hh.data("lint_wiki", { checks: ["generated_pages"] });
     expect(lint.proposals[0]).toMatchObject({
       kind: "generated_page",
@@ -306,25 +332,137 @@ describe("a hand-edited or foreign generated page is never overwritten", () => {
 });
 
 describe("generation never blocks the wiki write", () => {
-  it("a generation failure is a warning on a committed page, not an error", async () => {
+  it("queues generated pages after the commit instead of running them on the request path", async () => {
+    const queued: Array<() => void> = [];
+    const hh = harness({ scheduleWikiPageRegeneration: (run) => queued.push(run) });
+    const r = await commit(hh);
+    expect(r.ok).toBe(true);
+    expect(hh.v.exists("wiki/index.md")).toBe(false);
+    expect(queued).toHaveLength(1);
+    queued[0]?.();
+    expect(hh.v.exists("wiki/index.md")).toBe(true);
+  });
+
+  it("the real asynchronous scheduler runs generation only after the tool response", async () => {
+    let responded = false;
+    let ranBeforeResponse = false;
+    let finished!: () => void;
+    const generated = new Promise<void>((resolve) => (finished = resolve));
+    const hh = harness({
+      scheduleWikiPageRegeneration: (run) =>
+        setImmediate(() => {
+          ranBeforeResponse = !responded;
+          run();
+          finished();
+        }),
+    });
+    const r = await commit(hh);
+    responded = true;
+    expect(r.ok).toBe(true);
+    expect(hh.v.exists("wiki/index.md")).toBe(false);
+    await generated;
+    expect(ranBeforeResponse).toBe(false);
+    expect(hh.v.exists("wiki/index.md")).toBe(true);
+  });
+
+  it("coalesces a burst of commits into one queued regeneration per vault", async () => {
+    const queued: Array<() => void> = [];
+    const hh = harness({ scheduleWikiPageRegeneration: (run) => queued.push(run) });
+    expect((await commit(hh)).ok).toBe(true);
+    expect(
+      (
+        await commit(
+          hh,
+          commitInput({
+            topic: "Second topic",
+            page: {
+              path: "wiki/concepts/Second topic.md",
+              frontmatter: { type: "concept", summary: "Second", sources: ["x"] },
+              body: "# Second topic\n",
+            },
+          }),
+        )
+      ).ok,
+    ).toBe(true);
+    expect(queued).toHaveLength(1);
+    queued[0]?.();
+    const index = hh.v.read("wiki/index.md");
+    expect(index).toContain("Learning techniques");
+    expect(index).toContain("Second topic");
+  });
+
+  it("snapshots request context before queued regeneration", async () => {
+    const queued: Array<() => void> = [];
+    const hh = harness({ scheduleWikiPageRegeneration: (run) => queued.push(run) });
+    const callCtx = hh.v.ctx();
+    const r = await hh.v.registry.dispatch(
+      "commit_wiki_page",
+      { vault: "test", ...commitInput() },
+      callCtx,
+    );
+    expect(r.ok).toBe(true);
+    Object.assign(callCtx, {
+      acl: new FolderAcl({ readOnly: true, defaultScopes: [], rules: [] }),
+      db: new Proxy(hh.v.db, {
+        get() {
+          throw new Error("request db used after response");
+        },
+      }),
+      now: () => {
+        throw new Error("request clock used after response");
+      },
+    });
+    queued[0]?.();
+    expect(hh.v.exists("wiki/index.md")).toBe(true);
+  });
+
+  it("pins the current one-write lag in log.md", async () => {
+    const hh = harness();
+    expect((await commit(hh)).ok).toBe(true);
+    expect(hh.v.exists("wiki/log.md")).toBe(false);
+    // The harness intentionally has no dispatch provenance recorder. Model the outer dispatch:
+    // it appends this row only after the handler (and its synchronous test scheduler) returned.
+    record(hh.v.db as Database, "commit_wiki_page", [[PAGE, "absent", H1]]);
+    expect(
+      (
+        await commit(
+          hh,
+          commitInput({
+            topic: "Second topic",
+            page: {
+              path: "wiki/concepts/Second topic.md",
+              frontmatter: { type: "concept", summary: "Second", sources: ["x"] },
+              body: "# Second topic\n",
+            },
+          }),
+        )
+      ).ok,
+    ).toBe(true);
+    const lines = logLines(hh.v.read("wiki/log.md"));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(PAGE);
+    expect(lines[0]).not.toContain("Second topic.md");
+  });
+
+  it("a generation failure is logged after a committed page, not returned as an error", async () => {
     const hh = harness();
     mkdirSync(join(hh.v.root, "wiki/index.md"), { recursive: true });
+    const logged = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const d = await hh.data("commit_wiki_page", commitInput());
     expect(d.committed).toBe(true);
     expect(hh.v.exists(PAGE)).toBe(true);
-    expect(d.problems.find((p: any) => p.kind === "generated_page")?.message).toContain(
-      "is a folder",
-    );
+    expect(logged.mock.calls.flat().join(" ")).toContain("is a folder");
   });
 
   it("a vault ACL that does not allow writing index.md leaves it unwritten, with a warning", async () => {
     const hh = harness({
       acl: { writePaths: ["wiki/concepts/**", "wiki/Linker.md", "wiki/Related.md"] },
     });
+    const logged = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const d = await hh.data("commit_wiki_page", commitInput());
     expect(d.committed).toBe(true);
     expect(hh.v.exists("wiki/index.md")).toBe(false);
-    expect(d.problems.find((p: any) => p.kind === "generated_page")?.message).toContain("ACL");
+    expect(logged.mock.calls.flat().join(" ")).toContain("ACL");
   });
 
   it("a read-only vault is never written by a regeneration pass", () => {
@@ -420,7 +558,7 @@ describe("generated log.md", () => {
     record(db, "commit_wiki_page", [["wiki/Ada.md", H1, H2]], { outcome: "pending" });
     regenerateWikiPages(envFor(hh));
     const raw = hh.v.read("wiki/log.md");
-    expect(inspectGenerated(raw)).toBe("ours");
+    expect(inspectGenerated(raw, SEAL_KEY, { vaultId: "test", path: "wiki/log.md" })).toBe("ours");
     expect(raw).toContain("last_seq: 6");
     const lines = logLines(raw);
     expect(lines).toHaveLength(4);
@@ -561,7 +699,7 @@ describe("sec2: log.md carries attribution, so reading it needs read:provenance"
   it("the server's own write still lands and appends, with principal, model and tool", () => {
     const hh = seeded();
     const raw = hh.v.read("wiki/log.md");
-    expect(inspectGenerated(raw)).toBe("ours");
+    expect(inspectGenerated(raw, SEAL_KEY, { vaultId: "test", path: "wiki/log.md" })).toBe("ours");
     expect(logLines(raw)[0]).toMatch(
       /\| create \| wiki\/Ada\.md \| alice-the-principal \| claude-secret-model \| write_note#1$/,
     );
@@ -736,6 +874,27 @@ describe("sec4: an edit that lands after the seal check is never overwritten", (
 });
 
 describe("sec5: the cheap lows", () => {
+  it("does not trust a legacy SHA seal or its forged last_seq during one-time migration", () => {
+    const hh = harness();
+    record(hh.v.db as Database, "write_note", [["wiki/Ada.md", "absent", H1]]);
+    record(hh.v.db as Database, "write_note", [["wiki/Ada.md", H1, H2]]);
+    const legacy = oldSeal(
+      `---\ngenerated_by: obsidian-tc\ngenerated_page: log\nlast_seq: 999999\ngenerated_hash: \n---\n# Wiki log\n\nforged preamble\n`,
+    );
+    hh.v.write("wiki/log.md", legacy);
+    expect(inspectGenerated(legacy, SEAL_KEY, { vaultId: "test", path: "wiki/log.md" })).not.toBe(
+      "ours",
+    );
+    regenerateWikiPages(envFor(hh));
+    const migrated = hh.v.read("wiki/log.md");
+    expect(inspectGenerated(migrated, SEAL_KEY, { vaultId: "test", path: "wiki/log.md" })).toBe(
+      "ours",
+    );
+    expect(migrated).not.toContain("forged preamble");
+    expect(logLines(migrated)).toHaveLength(2);
+    expect(migrated).toContain("last_seq: 2");
+  });
+
   it("a rule-scoped index.md is not written (full path ACL, no scopes)", () => {
     const hh = harness({
       acl: { defaultScopes: [], rules: [{ glob: "wiki/index.md", scopes: ["admin:wiki"] }] },
@@ -775,8 +934,13 @@ describe("sec5: the cheap lows", () => {
     const hh = harness();
     record(hh.v.db as Database, "write_note", [["wiki/Ada.md", "absent", H1]]);
     regenerateWikiPages(envFor(hh));
-    const forged = seal(hh.v.read("wiki/log.md").replace(/^(last_seq: \d+)$/m, "$1 \t"));
-    expect(inspectGenerated(forged)).toBe("ours");
+    const identity = { vaultId: "test", path: "wiki/log.md" };
+    const forged = seal(
+      hh.v.read("wiki/log.md").replace(/^(last_seq: \d+)$/m, "$1 \t"),
+      SEAL_KEY,
+      identity,
+    );
+    expect(inspectGenerated(forged, SEAL_KEY, identity)).toBe("ours");
     hh.v.write("wiki/log.md", forged);
     record(hh.v.db as Database, "write_note", [["wiki/Ada.md", H1, H2]]);
     regenerateWikiPages(envFor(hh));

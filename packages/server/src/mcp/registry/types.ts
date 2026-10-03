@@ -472,7 +472,8 @@ export interface RegistryOptions {
 
 /** What dispatch needs from write provenance (provenance/recorder.ts implements it): hash the
  *  named paths before a mutating handler runs, then append the record once the call settled. The
- *  pending value is opaque to dispatch. Neither method throws. */
+ *  pending value is opaque to dispatch. `recordPending` may throw to fail a batch closed before
+ *  its first rename; `begin` and `commit` keep their best-effort contracts. */
 export interface ProvenanceSink {
   begin(
     def: ToolDefinition,
@@ -482,8 +483,14 @@ export interface ProvenanceSink {
   ): Promise<object>;
   /** `result` is the handler's return value (ok outcome only): a tool that reports the hash of the
    *  content it wrote has that hash, not a later disk read, recorded as the `after` digest. */
-  commit(pending: object, outcome: "ok" | "error", result?: unknown): Promise<void>;
+  commit(
+    pending: object,
+    outcome: "ok" | "error",
+    result?: unknown,
+    written?: ReadonlyMap<string, string>,
+  ): Promise<void>;
   /** A multi-note commit's durable intent, written before its first rename (the `pending` record):
-   *  `after` maps each named path to the sha256 it is about to hold. Synchronous; never throws. */
+   *  `after` maps each named path to the sha256 it is about to hold. Synchronous; throws when the
+   *  durable pending row cannot be recorded, before the batch is allowed to rename anything. */
   recordPending?(pending: object, after: ReadonlyMap<string, string>): void;
 }

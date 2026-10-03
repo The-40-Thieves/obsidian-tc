@@ -2,11 +2,12 @@
 // so a crash mid-commit leaves a trail. Through the real dispatch choke point with a probe tool that
 // stands in for the crash by throwing; checked against the signed, chained rows.
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import { ProvenanceRecorder } from "../src/provenance/recorder";
 import { verifyProvenance } from "../src/provenance/verify";
 import { provenanceFixture, rowsFor } from "./provenance-helpers";
 import { makeTempDir, rmTemp } from "./tmp";
@@ -17,7 +18,7 @@ const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 type Fx = Awaited<ReturnType<typeof provenanceFixture>>;
 const bodies = (fx: Fx) => rowsFor(fx.db).map((r) => JSON.parse(r.body));
 
-function registryFor(fx: Fx, crash: boolean): ToolRegistry {
+function registryFor(fx: Fx, crash: boolean, editAfterWrite = false): ToolRegistry {
   const registry = new ToolRegistry({ provenance: fx.recorder, rootResolver: () => root });
   registry.register({
     name: "probe_batch",
@@ -30,6 +31,7 @@ function registryFor(fx: Fx, crash: boolean): ToolRegistry {
       mkdirSync(root, { recursive: true });
       if (crash) throw new Error("killed mid-commit");
       for (const p of i.paths) writeFileSync(join(root, p), `new ${p}`);
+      if (editAfterWrite) writeFileSync(join(root, i.paths[0] as string), "concurrent edit");
       return { ok: true };
     },
   } as never);
@@ -45,6 +47,31 @@ const ctxFor = (fx: Fx): CallerContext => ({
 });
 
 describe("pending provenance records", () => {
+  it("names only paths the batch will actually write", async () => {
+    const fx = await provenanceFixture();
+    const registry = new ToolRegistry({ provenance: fx.recorder, rootResolver: () => root });
+    registry.register({
+      name: "probe_skipped_patch",
+      description: "test-only partial batch",
+      inputSchema: z.object({}),
+      requiredScopes: ["write:notes"],
+      pathAcl: () => [
+        { op: "write" as const, path: "written.md" },
+        { op: "write" as const, path: "skipped.md" },
+      ],
+      handler: (_i: unknown, ctx: CallerContext) => {
+        ctx.recordPendingWrite?.(new Map([["written.md", sha("written")]]));
+        writeFileSync(join(root, "written.md"), "written");
+        return { ok: true };
+      },
+    } as never);
+    expect((await registry.dispatch("probe_skipped_patch", {}, ctxFor(fx))).ok).toBe(true);
+    const [pending] = bodies(fx);
+    expect(pending.paths).toEqual([
+      { path: "written.md", before: "absent", after: sha("written") },
+    ]);
+  });
+
   it("a pending record precedes the ok record, with the hashes the call was about to write", async () => {
     const fx = await provenanceFixture();
     writeFileSync(join(root, "a.md"), "old a");
@@ -70,6 +97,47 @@ describe("pending provenance records", () => {
     const r = await registryFor(fx, true).dispatch("probe_batch", { paths: ["c.md"] }, ctxFor(fx));
     expect(r.ok).toBe(false);
     expect(bodies(fx).map((b) => b.outcome)).toEqual(["pending", "error"]);
+  });
+
+  it("settles with the batch's written digests, not bytes changed after its rename", async () => {
+    const fx = await provenanceFixture();
+    const r = await registryFor(fx, false, true).dispatch(
+      "probe_batch",
+      { paths: ["settled.md"] },
+      ctxFor(fx),
+    );
+    expect(r.ok).toBe(true);
+    const [, ok] = bodies(fx);
+    expect(ok.paths).toEqual([
+      { path: "settled.md", before: "absent", after: sha("new settled.md") },
+    ]);
+  });
+
+  it("refuses the write when the pending provenance row cannot be recorded", async () => {
+    const fx = await provenanceFixture();
+    const failingDb = new Proxy(fx.db, {
+      get(target, key, receiver) {
+        if (key !== "prepare") return Reflect.get(target, key, receiver);
+        return (sql: string) => {
+          if (/INSERT INTO write_provenance/.test(sql)) throw new Error("injected sink failure");
+          return target.prepare(sql);
+        };
+      },
+    });
+    const recorder = new ProvenanceRecorder({
+      db: failingDb,
+      host: "test-host",
+      serverVersion: "test",
+    });
+    const path = "must-not-land.md";
+    const r = await registryFor({ ...fx, recorder } as Fx, false).dispatch(
+      "probe_batch",
+      { paths: [path] },
+      { ...ctxFor(fx), db: failingDb },
+    );
+    expect(r.ok).toBe(false);
+    expect(JSON.stringify(r)).toContain("pending provenance");
+    expect(existsSync(join(root, path))).toBe(false);
   });
 
   it("the chain with a pending record verifies", async () => {
