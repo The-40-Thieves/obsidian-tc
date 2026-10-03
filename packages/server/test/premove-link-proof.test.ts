@@ -48,6 +48,9 @@ async function confirming(
 const moveNote = (v: TestVault, input: Record<string, unknown>) =>
   confirming(v, "move_note", input);
 
+// NTFS cannot hold `|` in a name, so an `a|b/` folder only exists on POSIX file systems.
+const PIPE_FOLDER = process.platform !== "win32";
+
 function folderWith(root: string, folder: string, file = "keep.md"): void {
   mkdirSync(join(root, folder), { recursive: true });
   writeFileSync(join(root, folder, file), "kept");
@@ -61,13 +64,15 @@ describe("move_note plans the backlink rewrite before it moves anything", () => 
   let v: TestVault | undefined;
   afterEach(() => v?.cleanup());
 
-  it.each([
-    ["a|b", "a|b/Note.md"],
-    ["C#", "C#/Note.md"],
-    ["a^b", "a^b/Note.md"],
-    ["a]b", "a]b/Note.md"],
-    ["a%%b", "a%%b/Note.md"],
-  ])("existing folder %s with a basename collision: refused, nothing moved", async (folder, to) => {
+  it.each(
+    [
+      ["a|b", "a|b/Note.md"],
+      ["C#", "C#/Note.md"],
+      ["a^b", "a^b/Note.md"],
+      ["a]b", "a]b/Note.md"],
+      ["a%%b", "a%%b/Note.md"],
+    ].filter(([folder]) => PIPE_FOLDER || folder !== "a|b"),
+  )("existing folder %s with a basename collision: refused, nothing moved", async (folder, to) => {
     v = makeTestVault({ files: COLLIDING });
     folderWith(v.root, folder);
     const r = await moveNote(v, { vault: "test", from: "Note.md", to });
@@ -89,13 +94,16 @@ describe("move_note plans the backlink rewrite before it moves anything", () => 
     }
   });
 
-  it("a retry after the refusal is still a plain refusal, not indeterminate_outcome", async () => {
-    v = makeTestVault({ files: COLLIDING });
-    folderWith(v.root, "a|b");
-    const input = { vault: "test", from: "Note.md", to: "a|b/Note.md" };
-    expectRefused(await moveNote(v, input));
-    expectRefused(await moveNote(v, input));
-  });
+  it.skipIf(!PIPE_FOLDER)(
+    "a retry after the refusal is still a plain refusal, not indeterminate_outcome",
+    async () => {
+      v = makeTestVault({ files: COLLIDING });
+      folderWith(v.root, "a|b");
+      const input = { vault: "test", from: "Note.md", to: "a|b/Note.md" };
+      expectRefused(await moveNote(v, input));
+      expectRefused(await moveNote(v, input));
+    },
+  );
 
   it("a unique basename in an existing C#/ folder moves with a correct bare link", async () => {
     v = makeTestVault({ files: { "Fresh.md": "body", "linker.md": "See [[Fresh]].\n" } });
@@ -106,13 +114,16 @@ describe("move_note plans the backlink rewrite before it moves anything", () => 
     expect(v.read("linker.md")).toBe("See [[Fresh]].\n");
   });
 
-  it("an existing a|b/ folder with a unique basename and a rename writes the bare link", async () => {
-    v = makeTestVault({ files: { "Old.md": "body", "linker.md": "See [[Old]].\n" } });
-    folderWith(v.root, "a|b");
-    const r = await moveNote(v, { vault: "test", from: "Old.md", to: "a|b/Fresh.md" });
-    expect(r.ok, JSON.stringify(r)).toBe(true);
-    expect(v.read("linker.md")).toBe("See [[Fresh]].\n");
-  });
+  it.skipIf(!PIPE_FOLDER)(
+    "an existing a|b/ folder with a unique basename and a rename writes the bare link",
+    async () => {
+      v = makeTestVault({ files: { "Old.md": "body", "linker.md": "See [[Old]].\n" } });
+      folderWith(v.root, "a|b");
+      const r = await moveNote(v, { vault: "test", from: "Old.md", to: "a|b/Fresh.md" });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(v.read("linker.md")).toBe("See [[Fresh]].\n");
+    },
+  );
 
   it("a markdown-link backlink to a name holding ) is refused before the move", async () => {
     v = makeTestVault({ files: { "Old.md": "body", "linker.md": "See [x](Old.md).\n" } });
@@ -215,23 +226,26 @@ describe("move_attachment plans the reference rewrite before it moves anything",
     "linker.md": "see ![[pic.png]] and [[pic.png]]\n",
   };
 
-  it.each(["a|b", "C#", "a^b"])("existing folder %s with a basename collision", async (folder) => {
-    const v = makeM3Vault({ files: FILES });
-    try {
-      folderWith(v.root, folder, "keep.png");
-      const r = await confirming(v, "move_attachment", {
-        vault: "test",
-        from: "pic.png",
-        to: `${folder}/pic.png`,
-      });
-      expectRefused(r);
-      expect(v.read("pic.png")).toBe("x");
-      expect(v.exists(`${folder}/pic.png`)).toBe(false);
-      expect(v.read("linker.md")).toBe(FILES["linker.md"]);
-    } finally {
-      v.cleanup();
-    }
-  });
+  it.each(["a|b", "C#", "a^b"].filter((f) => PIPE_FOLDER || f !== "a|b"))(
+    "existing folder %s with a basename collision",
+    async (folder) => {
+      const v = makeM3Vault({ files: FILES });
+      try {
+        folderWith(v.root, folder, "keep.png");
+        const r = await confirming(v, "move_attachment", {
+          vault: "test",
+          from: "pic.png",
+          to: `${folder}/pic.png`,
+        });
+        expectRefused(r);
+        expect(v.read("pic.png")).toBe("x");
+        expect(v.exists(`${folder}/pic.png`)).toBe(false);
+        expect(v.read("linker.md")).toBe(FILES["linker.md"]);
+      } finally {
+        v.cleanup();
+      }
+    },
+  );
 
   it("a unique basename in an existing C#/ folder moves and keeps the bare link", async () => {
     const v = makeM3Vault({ files: { "pic.png": "x", "linker.md": "see ![[pic.png]]\n" } });
