@@ -81,10 +81,33 @@ export function expandGraph(input: GraphExpansionInput): GraphExpansionResult {
     hopLimit,
     includeDerived: opts.densify?.includeInWalk ?? false,
   };
-  const nodes = expandGraphLiteral(db, expandFrom, {
+  const walkedNodes = expandGraphLiteral(db, expandFrom, {
     ...walkOpts,
     ...(aclSetId !== undefined ? { aclSetId } : {}),
   });
+  // Belt-and-braces live check. The keyed ACL set is the primary control, but app.json can change
+  // after that set was resolved and before hydration. Validate the whole predecessor chain against
+  // the live predicate so an excluded path is neither emitted as via_edge.source_path nor used as
+  // an earlier bridge to a later readable predecessor.
+  const walkedByRootPath = new Map(
+    walkedNodes.map((node) => [`${node.root_seed}\0${node.path}`, node] as const),
+  );
+  const liveChainReadable = (node: (typeof walkedNodes)[number]): boolean => {
+    if (!isReadable) return true;
+    let current = node;
+    const seen = new Set<string>();
+    while (true) {
+      const key = `${current.root_seed}\0${current.path}`;
+      if (seen.has(key) || !isReadable(current.path) || !isReadable(current.predecessor_path))
+        return false;
+      seen.add(key);
+      if (current.predecessor_path === current.root_seed) return isReadable(current.root_seed);
+      const predecessor = walkedByRootPath.get(`${current.root_seed}\0${current.predecessor_path}`);
+      if (!predecessor) return false;
+      current = predecessor;
+    }
+  };
+  const nodes = walkedNodes.filter(liveChainReadable);
   // THE-891 item 3 (additive-only observability): count paths the ACL join excluded from THIS
   // walk that an UNFILTERED walk over the same frontier/hopLimit/edge-types would have reached —
   // the filter's actual recall cost, made visible per THE-891's fail-safe-defaults argument (a

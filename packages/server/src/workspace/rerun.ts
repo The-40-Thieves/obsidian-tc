@@ -22,6 +22,7 @@ import {
   RERUN_TMP_PREFIX,
   scheduleDeferredCleanup,
   startSandboxHeartbeat,
+  touchSandboxHeartbeat,
 } from "./rerun-sandbox-cleanup";
 import {
   classifyRecord,
@@ -483,7 +484,9 @@ export async function stageSandbox(
     stopHeartbeat = startSandboxHeartbeat(base);
     const root = join(base, "vault");
     const cache = join(base, "cache");
+    touchSandboxHeartbeat(base);
     cpSync(vaultRoot, root, { recursive: true, dereference: true });
+    touchSandboxHeartbeat(base);
     for (const name of SANDBOX_DBS) {
       const src = join(cacheDir, name);
       if (existsSync(src)) await stageDatabase(src, join(cache, name), busyTimeoutMs);
@@ -496,8 +499,11 @@ export async function stageSandbox(
     // `no_capture` for every record on the only generation of session this server writes now. See
     // docs/design/workspace-rerun.md.
     const tracesSrc = join(cacheDir, CACHE_TRACE_SUBDIR);
-    if (existsSync(tracesSrc))
+    if (existsSync(tracesSrc)) {
+      touchSandboxHeartbeat(base);
       cpSync(tracesSrc, join(cache, CACHE_TRACE_SUBDIR), { recursive: true, dereference: true });
+      touchSandboxHeartbeat(base);
+    }
     return {
       root,
       cacheDir: cache,

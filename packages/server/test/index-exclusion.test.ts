@@ -88,7 +88,7 @@ describe("loading the effective list", () => {
   afterEach(() => rmTemp(root));
 
   it("a vault without .obsidian/app.json (or without the key) excludes nothing", () => {
-    expect(loadVaultExclusion(root)).toBe(NO_EXCLUSION);
+    expect(loadVaultExclusion(root, [], join(root, "cache", "last-good.json"))).toBe(NO_EXCLUSION);
     writeApp(JSON.stringify({ promptDelete: false }));
     expect(loadVaultExclusion(root)).toBe(NO_EXCLUSION);
     writeApp(JSON.stringify({ userIgnoreFilters: null }));
@@ -136,6 +136,20 @@ describe("loading the effective list", () => {
     const broken = loadVaultExclusion(root);
     expect(broken.isExcluded("Archive/x.md")).toBe(true);
     expect(broken.appConfigError).toMatch(/could not be read/);
+  });
+
+  it("loads a persisted last-good list after a process restart when app.json is still malformed", async () => {
+    const statePath = join(root, "cache", "last-good-exclusions.json");
+    writeApp(JSON.stringify({ userIgnoreFilters: ["Private/"] }));
+    expect(loadVaultExclusion(root, [], statePath).effective).toEqual(["Private/"]);
+
+    writeApp('{"userIgnoreFilters": ["Priv');
+    vi.resetModules();
+    const fresh = await import("../src/search/index-exclusion");
+    const degraded = fresh.loadVaultExclusion(root, [], statePath);
+    expect(degraded.effective).toEqual(["Private/"]);
+    expect(degraded.isExcluded("Private/secret.md")).toBe(true);
+    expect(degraded.appConfigError).toMatch(/could not be read/);
   });
 
   it.each(["missing", "symlink", "directory", "oversized"] as const)(

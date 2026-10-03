@@ -19,7 +19,15 @@
 // deferred retry settles, but a test asserting "no leaked dir" needs a way to flush (1)'s real
 // backoff timers before it can trust a negative result.
 
-import { readdirSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  lstatSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -54,18 +62,22 @@ const defaultDeps: DeferredCleanupDeps = {
 };
 
 /** Keep a staged sandbox visibly live to cleanup sweeps, including runs lasting over an hour. */
+export function touchSandboxHeartbeat(base: string): void {
+  const marker = join(base, RERUN_LIVE_MARKER);
+  try {
+    const st = lstatSync(marker);
+    if (!st.isFile() || st.isSymbolicLink()) return;
+    const now = new Date();
+    utimesSync(marker, now, now);
+  } catch {
+    // Disposal may remove the marker while a queued heartbeat is settling.
+  }
+}
+
 export function startSandboxHeartbeat(base: string): () => void {
   const marker = join(base, RERUN_LIVE_MARKER);
   writeFileSync(marker, `${process.pid}\n`, { flag: "wx" });
-  const touch = (): void => {
-    try {
-      const now = new Date();
-      utimesSync(marker, now, now);
-    } catch {
-      // Disposal may remove the marker while a queued heartbeat is settling.
-    }
-  };
-  const timer = setInterval(touch, HEARTBEAT_INTERVAL_MS);
+  const timer = setInterval(() => touchSandboxHeartbeat(base), HEARTBEAT_INTERVAL_MS);
   timer.unref();
   return () => {
     clearInterval(timer);
@@ -79,7 +91,8 @@ export function startSandboxHeartbeat(base: string): () => void {
 
 function hasFreshHeartbeat(base: string, now: number, maxAgeMs: number): boolean {
   try {
-    return now - statSync(join(base, RERUN_LIVE_MARKER)).mtimeMs < maxAgeMs;
+    const st = lstatSync(join(base, RERUN_LIVE_MARKER));
+    return st.isFile() && !st.isSymbolicLink() && now - st.mtimeMs < maxAgeMs;
   } catch {
     return false;
   }
@@ -160,7 +173,7 @@ export function sweepStaleSandboxDirs(
   opts: { tmpDir?: string; maxAgeMs?: number; now?: number } = {},
 ): void {
   const dir = opts.tmpDir ?? tmpdir();
-  const maxAgeMs = opts.maxAgeMs ?? 60 * 60 * 1000; // 1 hour
+  const maxAgeMs = opts.maxAgeMs ?? 24 * 60 * 60 * 1000; // 24 hours
   const now = opts.now ?? Date.now();
 
   let entries: string[];

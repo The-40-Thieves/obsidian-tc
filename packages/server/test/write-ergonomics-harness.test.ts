@@ -2,7 +2,7 @@
 // every task's checker must FAIL on the state a doing-nothing (or wrongly-doing) client leaves, and
 // PASS on the reference outcome. A checker that passes on an untouched vault would make every
 // client look perfect, so that is the case this file exists to pin.
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { type ClientOut, parseClaudeStream } from "../eval/write-ergonomics/clients";
@@ -81,6 +81,22 @@ const NEGATIVE: Record<string, (v: string) => void> = {
 };
 
 describe("write-ergonomics harness", () => {
+  it("refuses a dangling symlink at a seed destination instead of creating its target", () => {
+    const vault = makeTempDir("obtc-we-vault-");
+    const outside = makeTempDir("obtc-we-outside-");
+    dirs.push(vault, outside);
+    const target = join(outside, "not-created.md");
+    mkdirSync(join(vault, "Projects/Alpha"), { recursive: true });
+    try {
+      symlinkSync(target, join(vault, "Projects/Alpha/Plan.md"));
+    } catch {
+      return;
+    }
+
+    expect(() => writeSeeds(vault)).toThrow(/symlink/i);
+    expect(existsSync(target)).toBe(false);
+  });
+
   it("refuses a corpus symlink before a seed write can follow it", () => {
     const corpus = makeTempDir("obtc-we-corpus-");
     const vault = makeTempDir("obtc-we-vault-");

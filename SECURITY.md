@@ -74,18 +74,23 @@ assumptions:
 - Prometheus `/metrics` under `auth.mode` `jwt` or `oidc` requires a verified bearer that holds `admin:metrics` (the scope `get_metrics` already requires; `*` and `admin:*` satisfy it) and is bound to no vault or persona, on EVERY bind including loopback (a tunnel or reverse proxy to `127.0.0.1` makes remote callers look local, so the bind address is not trusted): a token without the scope gets `403` (`WWW-Authenticate: Bearer error="insufficient_scope"`), a vault- or persona-bound token gets `403`, a missing or unverifiable token gets `401`. The token is checked by the same verifier instance as the MCP HTTP edge. A loopback listener also applies the MCP route's `Host`-header DNS-rebinding guard (`transports.http.allowedHosts` names a tunnel's public host). Only `auth.mode: none` on a loopback bind stays open. The series are process-wide and computed without a per-caller ACL, so a verified bearer alone is not authorization
 - Idempotency keys on writes
 - Compare-and-swap (`prev_hash`) on note writes — optional by default, or **required** on the destructive paths via `writes.requireCas`; a stale/absent hash fails closed instead of clobbering
-- Obsidian Excluded-files rules are applied live to every search leg, including graph seeds,
-  bridges and final results. Once `.obsidian/app.json` has been read successfully, a missing,
-  symlinked, non-file, oversized, unreadable or malformed replacement keeps the last-good rules
-  and logs a warning instead of making formerly excluded notes indexable.
+- Obsidian Excluded-files rules are applied to index ingestion and the M7 retrieval routes,
+  including lexical routing, graph seeds, graph bridges, lessons and final results. The effective
+  list's digest is part of both the graph-walk permitted-set identity and the result-cache key, so
+  an app.json change takes effect before reconciliation bumps the index generation. A successfully
+  parsed list is persisted under `cacheDir`; after a restart, a missing, symlinked, non-file,
+  oversized, unreadable or malformed app.json keeps that persisted last-good list and logs a
+  warning. A vault with no in-process or persisted successful read and no app.json has no Obsidian
+  exclusions; a first-seen invalid app.json likewise has no last-good list to recover.
 - Bulk-operation throttling with configurable per-tier limits
 - Path-traversal prevention (byte-level rejection of `..` segments and absolute paths, plus a real-path symlink-containment check so in-vault symlinks cannot escape the vault root)
 - Deny-by-default command execution (disabled unless explicitly enabled, allowlisted, and HITL-gated)
 - Audit logging of every tool invocation
-- Rerun sandboxes carry a live heartbeat while staged. Age-based recovery cleanup skips a sandbox
-  with a fresh heartbeat, so a long-running rerun is not removed merely because its root mtime is old.
-- The write-ergonomics evaluator rejects corpus symlinks and refuses symlinked seed destinations,
-  preventing fixture setup from following a corpus-controlled link into another writable file.
+- Rerun sandboxes carry a regular, non-symlink heartbeat marker while staged. It is refreshed by a
+  timer and immediately before and after synchronous staging copies; the recovery sweep uses a
+  24-hour default age and follows neither a symlinked marker nor a marker outside the sandbox.
+- The write-ergonomics evaluator rejects symlinks in the copied corpus and in existing seed-path
+  components, including dangling symlinks, before fixture writes can follow them outside the vault.
 - Signed write provenance: one hash-chained, EdDSA-signed record per committed mutating tool call, tagged by what is verified versus self-reported (`obsidian-tc provenance verify`; stdio-only deployments have no registry key and are chain-only)
 - **Checksum-verified, lock-protected model downloads for the bundled local reranker and local
   embedder.** Both `@the-40-thieves/obsidian-tc-reranker-local` and

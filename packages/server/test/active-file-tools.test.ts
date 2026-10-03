@@ -28,7 +28,10 @@ vi.mock("../src/vault/notes-io", async (importOriginal) => {
   return {
     ...actual,
     statNote: (abs: string) => {
-      if (statRace.remove === abs) {
+      // Match on the vault-relative suffix: on Windows the absolute spelling (separators, case,
+      // 8.3 temp names) differs from the one the test built.
+      const norm = abs.replaceAll("\\", "/").toLowerCase();
+      if (statRace.remove && norm.endsWith(`/${statRace.remove.toLowerCase()}`)) {
         statRace.remove = "";
         rmSync(abs);
       }
@@ -216,10 +219,20 @@ describe("get_active_file", () => {
   it("omits stat when a non-markdown active file disappears after the existence check", async () => {
     const h = harness({ files: { "Boards/plan.canvas": "{}" } });
     h.focus("Boards/plan.canvas");
-    statRace.remove = join(h.roots.test, "Boards/plan.canvas");
+    statRace.remove = "Boards/plan.canvas";
 
     const d = okData<Record<string, unknown>>(await h.call("get_active_file", { vault: "test" }));
     expect(d).toMatchObject({ path: "Boards/plan.canvas", is_markdown: false });
+    expect(d).not.toHaveProperty("stat");
+  });
+
+  it("omits stat when a markdown active file disappears during read_note's stat race", async () => {
+    const h = harness({ files: { "Notes/a.md": NOTE_A } });
+    h.focus("Notes/a.md");
+    statRace.remove = "Notes/a.md";
+
+    const d = okData<Record<string, unknown>>(await h.call("get_active_file", { vault: "test" }));
+    expect(d).toMatchObject({ path: "Notes/a.md", content: NOTE_A, is_markdown: true });
     expect(d).not.toHaveProperty("stat");
   });
 

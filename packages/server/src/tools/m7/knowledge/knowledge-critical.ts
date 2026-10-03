@@ -4,6 +4,7 @@
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
+import { vaultExclusionFor, withVaultExclusion } from "../../../search/index-exclusion";
 import { readableRel } from "../../../vault/acl-read-filter";
 import { defineTool } from "../../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
@@ -37,13 +38,17 @@ export function createKnowledgeCriticalTool(deps: M7Deps): ToolDefinition {
           vault: v.id,
           kind: v.kind,
         });
+      const isReadable = withVaultExclusion(
+        (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
+        vaultExclusionFor(deps.vaultRegistry, v.id),
+      );
       const rows = ctx.db
         .prepare(
           "SELECT path, title, frontmatter FROM notes WHERE vault_id = ? AND json_extract(frontmatter, '$.severity') = 'critical' ORDER BY path",
         )
         .all(v.id) as Array<{ path: string; title: string; frontmatter: string | null }>;
       const items = rows
-        .filter((r) => readableRel(ctx.acl, r.path, ctx.grantedScopes))
+        .filter((r) => isReadable(r.path))
         .map((r) => {
           let fm: Record<string, unknown> = {};
           if (r.frontmatter) {

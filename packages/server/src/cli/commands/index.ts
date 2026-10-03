@@ -13,7 +13,7 @@ import {
   isExcludedPath,
 } from "../../plane/egress-filter";
 import { wireIndexResources } from "../../runtime/indexing-wiring";
-import { loadVaultExclusion } from "../../search/index-exclusion";
+import { exclusionStatePath, loadVaultExclusion } from "../../search/index-exclusion";
 import { maybeSummarizeVault } from "../../search/indexing/summarize-notes";
 import { normalizeVaultPath } from "../../vault/paths";
 import { canonicalizeVaultRoot } from "../../vault/registry";
@@ -149,8 +149,11 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
         isReadable: () => true,
         isEgressExcluded, // THE-934
         // Obsidian's Excluded files + this vault's index.excludePaths, read fresh for this pass.
-        isIndexExcluded: loadVaultExclusion(canonicalizeVaultRoot(v.path), v.index?.excludePaths)
-          .isExcluded,
+        isIndexExcluded: loadVaultExclusion(
+          canonicalizeVaultRoot(v.path),
+          v.index?.excludePaths,
+          exclusionStatePath(cfg.cacheDir, canonicalizeVaultRoot(v.path)),
+        ).isExcluded,
         walk: { streaming: cfg.indexing.streamingWalk },
       });
       totalChunks += stats.chunks_upserted;

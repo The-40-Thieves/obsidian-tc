@@ -11,6 +11,7 @@ import type { ToolDefinition } from "../../../mcp/registry";
 import { bm25Chunks } from "../../../search/chunk_fts";
 import { readGeneration } from "../../../search/generation";
 import type { GraphSearchResult } from "../../../search/graph_search";
+import { vaultExclusionFor, withVaultExclusion } from "../../../search/index-exclusion";
 import {
   callerAclFingerprint,
   DEFAULT_PREFETCH_TTL_MS,
@@ -75,6 +76,11 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
     tags: ["knowledge", "search", "external-network"],
     handler: async (input, ctx) => {
       const v = deps.vaultRegistry.resolve(input.vault);
+      const exclusion = vaultExclusionFor(deps.vaultRegistry, v.id);
+      const isReadable = withVaultExclusion(
+        (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
+        exclusion,
+      );
       // GH #1027: shaping happens on the way OUT. The prewarm cache below always stores and serves
       // the detailed bundle, so a concise call can never poison a later detailed one.
       const shape = <T extends z.infer<typeof VaultContextOutput>>(r: T) =>
@@ -90,7 +96,7 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
       if (query === undefined) {
         const rel = `${deps.memoryFolder?.(v.id) ?? "memory"}/${NEXT_SESSION_NOTE}`;
         const abs = resolveVaultPath(v.root, rel);
-        if (!readableRel(ctx.acl, rel, ctx.grantedScopes) || !existsSync(abs)) {
+        if (!isReadable(rel) || !existsSync(abs)) {
           throw err.invalidInput("query omitted and no readable next-session signal note", {
             signal: rel,
           });
@@ -126,9 +132,7 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
           if (
             cached?.bundle &&
             shaped?.success &&
-            prewarmBundlePaths(cached.bundle).every((rel) =>
-              readableRel(ctx.acl, rel, ctx.grantedScopes),
-            )
+            prewarmBundlePaths(cached.bundle).every(isReadable)
           ) {
             return shape({
               ...shaped.data,
@@ -142,14 +146,19 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
       // lexical-route short-circuit below AND the lesson-leg BM25 backfill further down, both of
       // which call bm25Chunks OUTSIDE the buildGraphSearchOptions pipeline (the "standard" route
       // resolves its own copy of the same thing, via the same function, inside that builder).
-      const walkFilter = resolveAclWalkFilter(ctx.db, v.id, ctx.acl, ctx.grantedScopes, (rel) =>
-        readableRel(ctx.acl, rel, ctx.grantedScopes),
+      const walkFilter = resolveAclWalkFilter(
+        ctx.db,
+        v.id,
+        ctx.acl,
+        ctx.grantedScopes,
+        isReadable,
+        exclusion.digest,
       );
       // Same front door as vault_graph_search: the class router when enabled, the measured
       // engine otherwise — vault_context adds composition, never a second retrieval path.
       const route = deps.classRouter
         ? routeQuery(ctx.db, v.id, query, {
-            isReadable: (p) => readableRel(ctx.acl, p, ctx.grantedScopes),
+            isReadable,
             // THE-694: the rare-term probe is only issued for callers who can read everything.
             readUnrestricted: readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes),
           })
@@ -162,7 +171,7 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
           v.id,
           query,
           input.k,
-          (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
+          isReadable,
           walkFilter.aclSetId,
           walkFilter.aclWalkFilter?.blocked,
         );
@@ -175,7 +184,7 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
             vaultId: v.id,
             finalTopK: input.k,
             reranker: deps.reranker,
-            isReadable: (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
+            isReadable,
             db: ctx.db,
             acl: ctx.acl,
             grantedScopes: ctx.grantedScopes,
@@ -271,7 +280,7 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
         ctx.db,
         v.id,
         notes.map((n) => n.path),
-        (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
+        isReadable,
         effectiveSinceMs,
       ).slice(0, 5);
 
@@ -371,17 +380,10 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
           // lesson-path filter runs. The readableRel check below stays as defense-in-depth.
           // THE-853: aclSetId threaded so a restricted caller's set is joined exactly, closing the
           // THE-695 residual length-interference channel this call used to carry.
-          for (const h of bm25Chunks(
-            ctx.db,
-            v.id,
-            query,
-            40,
-            (p) => readableRel(ctx.acl, p, ctx.grantedScopes),
-            walkFilter.aclSetId,
-          )) {
+          for (const h of bm25Chunks(ctx.db, v.id, query, 40, isReadable, walkFilter.aclSetId)) {
             if (lessons.length >= 5) break;
             if (seen.has(h.chunk_id) || !LESSON_PATH_RE.test(h.path)) continue;
-            if (!readableRel(ctx.acl, h.path, ctx.grantedScopes)) continue;
+            if (!isReadable(h.path)) continue;
             seen.add(h.chunk_id);
             lessons.push({
               chunk_id: h.chunk_id,

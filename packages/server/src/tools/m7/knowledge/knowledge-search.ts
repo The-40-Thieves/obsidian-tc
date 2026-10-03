@@ -5,6 +5,7 @@
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
+import { vaultExclusionFor, withVaultExclusion } from "../../../search/index-exclusion";
 import { cachedGraphSearch } from "../../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../../search/router";
 import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
@@ -73,10 +74,15 @@ export function createKnowledgeSearchTool(
           vault: v.id,
           kind: v.kind,
         });
+      const exclusion = vaultExclusionFor(deps.vaultRegistry, v.id);
+      const isReadable = withVaultExclusion(
+        (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
+        exclusion,
+      );
       const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
       let route = deps.classRouter
         ? routeQuery(ctx.db, v.id, input.query, {
-            isReadable: (p) => readableRel(ctx.acl, p, ctx.grantedScopes),
+            isReadable,
             // THE-694: the rare-term probe is only issued for callers who can read everything.
             readUnrestricted: readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes),
           })
@@ -94,15 +100,20 @@ export function createKnowledgeSearchTool(
         // THE-853: resolve the caller's ACL partition so the lexical-route bm25Chunks call takes
         // the exact JOIN path (or fails closed) instead of the leaky over-fetch fallback — same
         // resolution the "standard" route gets for free inside buildGraphSearchOptions below.
-        const walkFilter = resolveAclWalkFilter(ctx.db, v.id, ctx.acl, ctx.grantedScopes, (rel) =>
-          readableRel(ctx.acl, rel, ctx.grantedScopes),
+        const walkFilter = resolveAclWalkFilter(
+          ctx.db,
+          v.id,
+          ctx.acl,
+          ctx.grantedScopes,
+          isReadable,
+          exclusion.digest,
         );
         const results = lexicalRouteResults(
           ctx.db,
           v.id,
           input.query,
           input.final_top_k,
-          (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
+          isReadable,
           walkFilter.aclSetId,
           walkFilter.aclWalkFilter?.blocked,
         );
@@ -138,7 +149,7 @@ export function createKnowledgeSearchTool(
           // never reranks, independent of any server-side reranker config. Passed explicitly so
           // this stays a visible decision rather than looking like a dropped option.
           reranker: null,
-          isReadable: (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
+          isReadable,
           db: ctx.db,
           acl: ctx.acl,
           grantedScopes: ctx.grantedScopes,

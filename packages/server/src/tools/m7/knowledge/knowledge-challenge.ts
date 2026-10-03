@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { challengeProposal, isDecisionChunk } from "../../../plane/challenge";
 import { buildEvidence } from "../../../search/evidence";
+import { vaultExclusionFor, withVaultExclusion } from "../../../search/index-exclusion";
 import { semanticSearch } from "../../../search/semantic";
 import { readableRel } from "../../../vault/acl-read-filter";
 import { defineTool } from "../../m1/define";
@@ -48,11 +49,15 @@ export function createKnowledgeChallengeTool(
           message: "inference gateway not configured (set OBSIDIAN_TC_GATEWAY_URL)",
         };
       }
+      const isReadable = withVaultExclusion(
+        (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
+        vaultExclusionFor(deps.vaultRegistry, v.id),
+      );
       const queryVec = await retrieval.embedQuery(input.proposal);
       const hits = semanticSearch(ctx.db, v.id, queryVec, {
         k: CHALLENGE_RECALL,
         returnContent: true,
-        isReadable: (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
+        isReadable,
         model: deps.embeddingProvider.id, // THE-530: constrain to the active model
       });
       // THE-230: challenge recall is a real retrieval surface — log it like the search tools.
@@ -110,7 +115,7 @@ export function createKnowledgeChallengeTool(
         ctx.db,
         v.id,
         evidence.map((e) => e.path),
-        (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
+        isReadable,
       );
       const { output, model, excludedCount } = await challengeProposal(
         deps.roles,

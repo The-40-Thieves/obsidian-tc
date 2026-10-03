@@ -269,12 +269,22 @@ function refuseSymlink(path: string): void {
     throw new Error(`write-ergonomics vault refuses symlink: ${path}`);
 }
 
+function refuseSymlinkIfPresent(path: string): boolean {
+  try {
+    refuseSymlink(path);
+    return true;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw e;
+  }
+}
+
 function refuseExistingSymlinkComponents(root: string, rel: string): void {
-  if (existsSync(root)) refuseSymlink(root);
+  refuseSymlinkIfPresent(root);
   let current = root;
   for (const part of rel.split("/")) {
     current = join(current, part);
-    if (existsSync(current)) refuseSymlink(current);
+    refuseSymlinkIfPresent(current);
   }
 }
 

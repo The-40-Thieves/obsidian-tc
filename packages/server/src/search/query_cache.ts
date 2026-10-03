@@ -160,6 +160,9 @@ export interface RepresentationDescriptor {
 export interface QueryCacheBinding {
   /** THE-496 `aclFingerprint(config, grantedScopes)` for THIS caller and vault. */
   aclFingerprint: string;
+  /** Effective Excluded-files identity. Changes independently of the index generation when an
+   * app.json reconcile is delayed or fails, so result keys must carry it directly. */
+  exclusionDigest: string;
   /** THE-496 `readGeneration(db, vaultId)` — 0 on a pre-migration cache.db, which is safe: a
    *  never-bumping generation degrades this to a TTL-only cache, it never widens the key. */
   generation: number;
@@ -392,6 +395,7 @@ export function graphSearchKey(
     PRODUCT_GRAPH_SEARCH,
     base.vaultId,
     binding.aclFingerprint,
+    binding.exclusionDigest,
     binding.generation,
     binding.representation,
     denseText,

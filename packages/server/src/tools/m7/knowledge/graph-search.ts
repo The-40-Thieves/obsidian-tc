@@ -89,9 +89,10 @@ export async function searchOneVault(
   /** The retrieval-log surface these hits are attributed to. */
   surface = "vault_graph_search",
 ): Promise<VaultLegResult> {
+  const exclusion = vaultExclusionFor(deps.vaultRegistry, vaultId);
   const isReadable = withVaultExclusion(
     (rel) => readableRel(acl, rel, ctx.grantedScopes),
-    vaultExclusionFor(deps.vaultRegistry, vaultId),
+    exclusion,
   );
   let route = deps.classRouter
     ? routeQuery(ctx.db, vaultId, query.text, {
@@ -113,7 +114,14 @@ export async function searchOneVault(
     // THE-853: resolve THIS LEG's own ACL partition (never ctx.acl — see this file's header,
     // invariant 1) so the lexical-route bm25Chunks call takes the exact JOIN path (or fails
     // closed) instead of the leaky over-fetch fallback.
-    const walkFilter = resolveAclWalkFilter(ctx.db, vaultId, acl, ctx.grantedScopes, isReadable);
+    const walkFilter = resolveAclWalkFilter(
+      ctx.db,
+      vaultId,
+      acl,
+      ctx.grantedScopes,
+      isReadable,
+      exclusion.digest,
+    );
     const results = lexicalRouteResults(
       ctx.db,
       vaultId,

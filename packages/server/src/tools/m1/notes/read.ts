@@ -123,6 +123,7 @@ export function createReadNoteTool(deps: M1Deps): ToolDefinition {
           content_hash: hash,
           ...unparseable,
         };
+      const stat = statNote(abs);
       return {
         vault: v.id,
         path: rel,
@@ -131,7 +132,7 @@ export function createReadNoteTool(deps: M1Deps): ToolDefinition {
         body: parsed.body,
         has_frontmatter: parsed.hasFrontmatter,
         content_hash: hash,
-        stat: statNote(abs),
+        ...(stat ? { stat } : {}),
         ...(section ? { section } : {}),
         ...unparseable,
       };
