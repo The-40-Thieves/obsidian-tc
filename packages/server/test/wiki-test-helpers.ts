@@ -8,6 +8,7 @@ import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../src/db/types";
 import type { EgressFilter } from "../src/plane/egress-filter";
 import type { GatewayRoles } from "../src/plane/gateway";
+import type { ProvenanceStamper } from "../src/provenance/stamp";
 import { floatBlob } from "../src/search/vec";
 import { registerM7Tools } from "../src/tools/m7";
 import type { WikiJudgeBackend, WikiJudgeSettings } from "../src/tools/m7/knowledge/wiki-judge";
@@ -39,6 +40,8 @@ export function makeWikiHarness(
     wikiGeneratedSealKey?: () => string;
     wikiGeneratedSealKeyForLint?: () => string | undefined;
     scheduleWikiPageRegeneration?: (run: () => void) => void;
+    /** The optional provenance stamp, built over the harness's own cache DB. */
+    provenanceStamp?: (db: Database) => ProvenanceStamper;
   } = {},
 ): WikiHarness {
   const {
@@ -53,6 +56,7 @@ export function makeWikiHarness(
     wikiGeneratedSealKey,
     wikiGeneratedSealKeyForLint,
     scheduleWikiPageRegeneration,
+    provenanceStamp,
     ...vaultOpts
   } = opts;
   const v = makeTestVault(vaultOpts);
@@ -91,6 +95,7 @@ export function makeWikiHarness(
     ...(vaultOpts.snapshots ? { snapshots: vaultOpts.snapshots } : {}),
     ...(vaultOpts.reindex ? { reindex: vaultOpts.reindex } : {}),
     ...(vaultOpts.memoryDefense ? { memoryDefense: () => vaultOpts.memoryDefense as never } : {}),
+    ...(provenanceStamp ? { provenanceStamp: provenanceStamp(v.db) } : {}),
     wikiGeneratedSealKey: wikiGeneratedSealKey ?? (() => WIKI_TEST_SEAL_KEY),
     wikiGeneratedSealKeyForLint: wikiGeneratedSealKeyForLint ?? (() => WIKI_TEST_SEAL_KEY),
     scheduleWikiPageRegeneration: scheduleWikiPageRegeneration ?? ((run) => run()),

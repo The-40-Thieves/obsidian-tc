@@ -1,4 +1,4 @@
-// The write_provenance chain: append a signed record, read a vault's chain back, prune its head.
+// The write_provenance chain: append a signed record, read a vault's chain back (retention.ts prunes it).
 //
 // Every record's body embeds the previous record's hash, so the chain is per vault and dense. A
 // separate signed HEAD row pins the last (seq, hash) and the prune anchor, which is what makes a
@@ -67,7 +67,11 @@ const readHead = (db: Database, vaultId: string): HeadRow | undefined =>
     | HeadRow
     | undefined;
 
-function writeHead(db: Database, h: Omit<HeadRow, "kid" | "sig">, signer?: ProvenanceSigner): void {
+export function writeHead(
+  db: Database,
+  h: Omit<HeadRow, "kid" | "sig">,
+  signer?: ProvenanceSigner,
+): void {
   const kid = signer?.kid ?? null;
   const sig = signer?.sign(headMessage(h)) ?? null;
   db.prepare(
@@ -90,7 +94,7 @@ export class ProvenanceSignerUnavailable extends Error {
   }
 }
 
-interface ChainView {
+export interface ChainView {
   head: HeadRow | undefined;
   /** Where the next record chains from: the last record, else the head's pin, else genesis. */
   tip: { seq: number; hash: string };
@@ -109,7 +113,11 @@ type RecordEdge = { seq: number; hash: string; prev_hash: string; sig: string | 
  * record (or, with none left, its own anchor); the anchor matches the first surviving record; a
  * signature that was there is still there and verifies under a registry key (any state).
  */
-function checkHead(db: Database, vaultId: string, signer: ProvenanceSigner | undefined): ChainView {
+export function checkHead(
+  db: Database,
+  vaultId: string,
+  signer: ProvenanceSigner | undefined,
+): ChainView {
   const head = readHead(db, vaultId);
   const edge = (order: "ASC" | "DESC") =>
     db
@@ -245,61 +253,3 @@ export const readChain = (db: Database, vaultId: string): ProvenanceRow[] =>
     .all(vaultId) as ProvenanceRow[];
 
 export const readHeadRow = readHead;
-
-/**
- * Drop every record of `vaultId` older than `cutoffMs`, as one contiguous prefix, and move the
- * signed prune anchor up to the last one dropped so the surviving chain still verifies. A record
- * newer than the cutoff stops the prefix even when a later one is older (clocks step backwards).
- * Returns how many rows went. Refuses (returns 0) to re-sign a signed head without a signer, and to
- * touch a chain whose head fails validation (`onFault` is told why; nothing is deleted or signed).
- */
-export function pruneProvenance(
-  db: Database,
-  vaultId: string,
-  cutoffMs: number,
-  signer: ProvenanceSigner | undefined,
-  hooks?: WriteTxnHooks,
-  onFault?: (vaultId: string, reason: string) => void,
-): number {
-  return inWriteTransaction(
-    db,
-    "provenance_append",
-    () => {
-      const firstKept = db
-        .prepare("SELECT MIN(seq) AS s FROM write_provenance WHERE vault_id = ? AND ts >= ?")
-        .get(vaultId, cutoffMs) as { s: number | null };
-      // An unsigned head over a signed one would be a silent downgrade (a missing signature then
-      // reads as "this deployment never signed"): without a signer, leave a signed chain alone.
-      if (signer === undefined && readHead(db, vaultId)?.sig != null) return 0;
-      const { head, tip, fault } = checkHead(db, vaultId, signer);
-      if (fault !== undefined) {
-        onFault?.(vaultId, fault);
-        return 0;
-      }
-      const through = firstKept.s === null ? tip.seq : firstKept.s - 1;
-      if (through <= (head?.pruned_seq ?? 0)) return 0;
-      const anchor = db
-        .prepare("SELECT hash FROM write_provenance WHERE vault_id = ? AND seq = ?")
-        .get(vaultId, through) as { hash: string } | undefined;
-      // Nothing to anchor on (the record at `through` is already gone): leave the chain as it is
-      // rather than writing an anchor that names a hash nobody can check.
-      if (anchor === undefined) return 0;
-      const removed = db
-        .prepare("DELETE FROM write_provenance WHERE vault_id = ? AND seq <= ?")
-        .run(vaultId, through).changes;
-      writeHead(
-        db,
-        {
-          vault_id: vaultId,
-          head_seq: tip.seq,
-          head_hash: tip.hash,
-          pruned_seq: through,
-          pruned_hash: anchor.hash,
-        },
-        signer,
-      );
-      return removed;
-    },
-    hooks,
-  );
-}

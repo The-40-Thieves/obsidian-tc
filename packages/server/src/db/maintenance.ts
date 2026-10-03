@@ -9,8 +9,9 @@
 // explicit operator path that does one.
 import { readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { pruneProvenance } from "../provenance/retention";
 import type { SignerSource } from "../provenance/signer";
-import { provenanceVaults, pruneProvenance } from "../provenance/store";
+import { provenanceVaults } from "../provenance/store";
 import type { Scheduler } from "../scheduler/scheduler";
 import { closeExpiredExplicitSessions, closeStaleImplicitSessions } from "../workspace/sessions";
 import { FTS_TABLE_NAMES, tableExists } from "./introspect";
@@ -452,7 +453,7 @@ export function runMaintenanceSweep(
           // Never prune over a head that fails validation: that would re-anchor, and so launder, it.
           (v, reason) =>
             process.stderr.write(
-              `[maintenance] provenance retention skipped vault ${v}: the chain head failed validation (${reason}); run \`obsidian-tc provenance verify\`\n`,
+              `[maintenance] provenance retention skipped vault ${v}: the chain failed validation (${reason}); run \`obsidian-tc provenance verify\`\n`,
             ),
         );
       }

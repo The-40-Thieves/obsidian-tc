@@ -299,7 +299,10 @@ obsidian_tc_provenance:
 ```
 
 - **Creations only:** `write_note` when the note did not exist (`create`, or `upsert` of a new
-  note), `commit_capture`, and `execute_template` when the target did not exist before the call.
+  note), `commit_capture`, `commit_wiki_page` for the new page it creates (never for an overwrite or a
+  patched note; the page's frontmatter is checked against the wiki's `SCHEMA.md` with the stamp in it,
+  so a property vocabulary that does not declare the stamp key gets a `schema` problem), and
+  `execute_template` when the target did not exist before the call.
   `write_note` over an existing note, `append_note` (including `create_if_missing`), `patch_note`,
   `update_frontmatter`, `execute_template` with `overwrite` and every other tool never stamp.
 - **Human frontmatter is never modified.** The key is added with the vault's own line-preserving
@@ -358,5 +361,10 @@ explicit decision. When set, the maintenance sweep removes each vault's records 
 window as one contiguous prefix and moves a **signed prune anchor** (in the head row) up to the last
 record dropped. The surviving chain therefore still verifies. Removing any record that is not part
 of the oldest prefix, or dropping a prefix without a matching signed anchor, still fails
-verification. A sweep that has no signer available leaves a signed chain alone rather than
+verification. Records are chosen for deletion by their `ts` column, which is not itself signed, so
+before deleting anything the sweep verifies every record it is about to drop (its hash, its columns
+against the signed body, its link and sequence, its signature). A chain that fails this (an edited
+`ts`, a rewritten body) is left exactly as found, no anchor is signed, and the sweep logs the failing
+record; `provenance verify` keeps reporting the original problem instead of a clean, shorter chain.
+A sweep that has no signer available leaves a signed chain alone rather than
 downgrading its head to unsigned. The sweep reports the count as `provenance`.

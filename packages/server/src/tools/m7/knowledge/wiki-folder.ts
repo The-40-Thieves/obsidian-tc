@@ -33,17 +33,38 @@ export function pathInFolder(
 export const WIKI_INDEX_FILE = "index.md";
 export const WIKI_LOG_FILE = "log.md";
 
-/** Whether `path` is one of the wiki folder's generated pages: they are never wiki pages, so
- *  duplicate detection, lint and the link scans leave them out. Same fold as `pathInFolder`. */
+/** The names a vault's wiki folder goes by: the configured spelling, then the in-vault directory it
+ *  really is when that differs (a symlinked folder or ancestor; `""` is the vault root). The index
+ *  and the scans see the real spelling, so "is this a generated page?" takes this, not the configured
+ *  name alone. A folder that cannot be placed has only its configured name. */
+export type WikiFolders = string | readonly string[] | undefined;
+
+export function wikiFolderNames(root: string, wikiFolder: string): string[] {
+  try {
+    const real = resolveVaultPathChecked(root, wikiFolder).aclRel;
+    return real === wikiFolder ? [wikiFolder] : [wikiFolder, real];
+  } catch {
+    return [wikiFolder];
+  }
+}
+
+/** Whether `path` is one of the wiki folder's generated pages, under any of its names: they are never
+ *  wiki pages, so duplicate detection, lint, the link scans and the judge leave them out. Same fold
+ *  as `pathInFolder`. */
 export function isGeneratedWikiPath(
   path: string,
-  wikiFolder: string | undefined,
+  wikiFolder: WikiFolders,
   ci: boolean = CASE_INSENSITIVE_FS,
 ): boolean {
-  if (!wikiFolder) return false;
+  if (wikiFolder === undefined) return false;
   const p = foldPath(path, ci);
-  const dir = foldPath(wikiFolder, ci);
-  return p === `${dir}/${WIKI_INDEX_FILE}` || p === `${dir}/${WIKI_LOG_FILE}`;
+  const names = typeof wikiFolder === "string" ? [wikiFolder] : wikiFolder;
+  return names.some((name) => {
+    if (name === "" && typeof wikiFolder === "string") return false;
+    const dir = foldPath(name, ci);
+    const prefix = dir === "" ? "" : `${dir}/`;
+    return p === `${prefix}${WIKI_INDEX_FILE}` || p === `${prefix}${WIKI_LOG_FILE}`;
+  });
 }
 
 /** `dev:ino` of the directory at `abs` (symlinks followed); null when it is not an existing directory
@@ -116,11 +137,18 @@ export function insideFolder(root: string, folder: string, rel: string): boolean
   return folderAbove(root, folderId, rel) && folderAbove(root, folderId, realRel);
 }
 
-/** Whether a vault-relative path is inside the vault's raw-sources folder, by name. Raw notes are
- *  inputs, never wiki pages: the page checks (is there already a page on this topic, which notes
- *  should link to a new page) leave them out. No raw folder: nothing is raw. */
-export function rawPathFilter(rawFolder: string | undefined): (rel: string) => boolean {
-  return rawFolder === undefined ? () => false : (rel) => pathInFolder(rel, rawFolder);
+/** The names a vault's raw folder goes by: the configured spelling, then the in-vault directory it
+ *  really is when that differs (a symlinked folder or ancestor). One list per vault, built once, that
+ *  every "is this a raw note?" decision shares, so a note is as raw under `sources/` as under `raw/`. */
+export type RawFolders = string | readonly string[] | undefined;
+
+/** Whether a vault-relative path is inside the vault's raw-sources folder, under any of its names.
+ *  Raw notes are inputs, never wiki pages: the page checks (is there already a page on this topic,
+ *  which notes should link to a new page) and the judge leave them out. No raw folder: nothing is raw. */
+export function rawPathFilter(rawFolders: RawFolders): (rel: string) => boolean {
+  const names =
+    rawFolders === undefined ? [] : typeof rawFolders === "string" ? [rawFolders] : rawFolders;
+  return names.length === 0 ? () => false : (rel) => names.some((f) => pathInFolder(rel, f));
 }
 
 /** Where a vault's configured raw folder really is: `canonical` is the in-vault directory it leads to
@@ -150,6 +178,14 @@ export function rawFolderPlacement(root: string, rawFolder: string): RawFolderPl
   if (exists && dirIdentity(abs) === null)
     return { ok: false, reason: "its directory identity cannot be established" };
   return { ok: true, canonical: aclRel === rawFolder ? null : aclRel };
+}
+
+/** Every name of the configured raw folder: it, plus the canonical in-vault target when the folder is
+ *  a symlink (or sits under one). When the placement cannot be established the configured spelling
+ *  alone is all there is to go on (ingest refuses such a folder). */
+export function rawFolderNames(root: string, rawFolder: string): string[] {
+  const placed = rawFolderPlacement(root, rawFolder);
+  return placed.ok && placed.canonical !== null ? [rawFolder, placed.canonical] : [rawFolder];
 }
 
 /** Whether two configured folders are one directory, or one holds the other, as the filesystem

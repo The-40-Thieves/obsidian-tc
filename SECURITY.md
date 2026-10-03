@@ -286,7 +286,11 @@ each pinned by a test (`wiki-generated.test.ts`):
   note, so without a gate any `read:notes` caller could read them. The gate is an implicit per-path
   rule-scope on `${wiki.folder}/log.md`, added to the ACL of every vault with a wiki folder (the
   configured folder is escaped before it becomes a glob, so `*`, `?` and `[` stay literal; it keeps
-  any scope an operator rule already requires on that path), so every surface that honours rule-scopes
+  any scope an operator rule already requires on that path). Enforcement resolves symlinks before it
+  matches a rule, so when the wiki folder is a symlink (or sits under one) the same rule is also
+  installed on the directory it really is (`wiki -> pages` gates `pages/log.md` too, from server start;
+  a symlink made later is picked up on the next restart). A wiki folder that cannot be placed inside
+  the vault once symlinks are resolved is refused at startup rather than left ungated. So every surface that honours rule-scopes
   (`read_note`, search, listing, backlinks, resources, `lint_wiki`) denies it the same way, with no per-tool
   check. The scope also gates writing and deleting that path; the server's own regeneration holds exactly
   that scope for its write and reads the file directly, so it is unaffected. The self-reported fields are
@@ -814,6 +818,13 @@ so operators can reason about them rather than discover them.
   the vault root, or whose identity cannot be established (a dangling symlink) locks nothing extra and
   `draft_wiki_page` refuses to ingest from it (`reason: raw_folder_unsafe`): the failure mode never
   unlocks a path.
+- **A raw folder that is a symlink is raw under its target's name everywhere, from the same restart.**
+  The names a raw folder goes by (the configured one and, when it is a symlink, the directory it really
+  is) are placed once per vault, and every "is this a raw note?" decision takes that list: duplicate
+  detection (`find_existing_page`, `draft_wiki_page`, `commit_wiki_page`'s re-check), `lint_wiki` and
+  the scheduled lint, the link map, and the wiki judge, whose `loadSendable` refuses a raw note (also
+  one reached through a symlink from another folder) so its text never leaves the process. With
+  `raw -> sources`, `sources/Topic.md` is a source, never "an existing page" that blocks a commit.
 - **Token max-age applies only to `iat`-bearing tokens (M-3, THE-304).** The JWT verifier enforces
   `auth.tokenTtlSeconds` against a token's `iat`; a token minted without `iat` (exp-only) is accepted
   for its full `exp` lifetime and is not additionally aged. This is a deliberate contract (exp-only

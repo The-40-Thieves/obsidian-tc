@@ -1,8 +1,8 @@
 // get_provenance: the per-note query over the write_provenance chain. Records are appended with the
 // real store (signed by a real registry key), then read back through the tool as dispatch runs it.
 import { afterEach, describe, expect, it } from "vitest";
+import { pruneProvenance } from "../src/provenance/retention";
 import { registrySignerSource } from "../src/provenance/signer";
-import { pruneProvenance } from "../src/provenance/store";
 import { CLOCK0 } from "./provenance-helpers";
 import { h, moved, queryFixture } from "./provenance-query-helpers";
 

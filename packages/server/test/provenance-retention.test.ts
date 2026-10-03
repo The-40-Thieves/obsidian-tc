@@ -2,8 +2,9 @@
 // the invariant is: after a prune the chain still verifies, and any OTHER removal still does not.
 import { describe, expect, it } from "vitest";
 import { runMaintenanceSweep } from "../src/db/maintenance";
+import { pruneProvenance } from "../src/provenance/retention";
 import { registrySignerSource } from "../src/provenance/signer";
-import { appendProvenance, pruneProvenance } from "../src/provenance/store";
+import { appendProvenance } from "../src/provenance/store";
 import { verifyProvenance } from "../src/provenance/verify";
 import { sweepTotal } from "../src/runtime/maintenance-wiring";
 import { CLOCK0, provenanceFixture, rowsFor } from "./provenance-helpers";
@@ -120,6 +121,63 @@ describe("provenance retention", () => {
     seed(fx, 4, (i) => 10 - i);
     expect(pruneProvenance(fx.db, VAULT, CLOCK0 - 8 * DAY, undefined)).toBe(0);
     expect(verify(fx)).toMatchObject({ ok: true, records: 4 });
+  });
+
+  it("RED: a tampered ts column cannot launder rows out of the chain (the release review's reproduction)", async () => {
+    const fx = await provenanceFixture();
+    seed(fx, 2, () => 0); // two fresh records, nowhere near the cutoff
+    fx.db.prepare("UPDATE write_provenance SET ts = 0").run();
+    expect(verify(fx).problems.map((p) => p.code)).toEqual(["column_mismatch", "column_mismatch"]);
+    const faults: string[] = [];
+    const removed = pruneProvenance(
+      fx.db,
+      VAULT,
+      CLOCK0 - DAY,
+      registrySignerSource(fx.registry)(),
+      undefined,
+      (_v, reason) => faults.push(reason),
+    );
+    // A refusal: nothing deleted, no valid anchor signed, the chain error reported.
+    expect(removed).toBe(0);
+    expect(rowsFor(fx.db)).toHaveLength(2);
+    expect(faults).toHaveLength(1);
+    expect(faults[0]).toMatch(/seq 1.*column_mismatch/);
+    const after = verify(fx);
+    expect(after.ok).toBe(false);
+    expect(after.problems.map((p) => p.code)).toContain("column_mismatch");
+  });
+
+  it("RED: a record whose body was rewritten (hash no longer matches) is not pruned either", async () => {
+    const fx = await provenanceFixture();
+    seed(fx, 3, (i) => 10 - i);
+    const first = must(rowsFor(fx.db)[0]);
+    fx.db
+      .prepare("UPDATE write_provenance SET body = ? WHERE seq = 1")
+      .run(first.body.replace('"outcome":"ok"', '"outcome":"denied"'));
+    const faults: string[] = [];
+    expect(
+      pruneProvenance(
+        fx.db,
+        VAULT,
+        CLOCK0 - 8 * DAY,
+        registrySignerSource(fx.registry)(),
+        undefined,
+        (_v, reason) => faults.push(reason),
+      ),
+    ).toBe(0);
+    expect(rowsFor(fx.db)).toHaveLength(3);
+    expect(faults[0]).toMatch(/hash_mismatch/);
+    expect(verify(fx).ok).toBe(false);
+  });
+
+  it("a tampered record AFTER the prefix being pruned does not stop an honest prune", async () => {
+    const fx = await provenanceFixture();
+    seed(fx, 4, (i) => 10 - i);
+    fx.db.prepare("UPDATE write_provenance SET ts = ts + 1 WHERE seq = 4").run();
+    expect(
+      pruneProvenance(fx.db, VAULT, CLOCK0 - 7 * DAY, registrySignerSource(fx.registry)()),
+    ).toBe(2);
+    expect(rowsFor(fx.db)).toHaveLength(2);
   });
 
   it("only the named vault is pruned", async () => {

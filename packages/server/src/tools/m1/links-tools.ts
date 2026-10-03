@@ -422,6 +422,8 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
             acl: ctx.acl,
             grantedScopes: ctx.grantedScopes,
             wikiFolder: v.wikiFolder,
+            wikiFolders: v.wikiFolders,
+            rawFolders: v.rawFolders,
           },
           warnings,
           { folder: sub, requireNoOutgoing: input.require_no_outgoing },
