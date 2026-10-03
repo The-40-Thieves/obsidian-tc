@@ -44,8 +44,7 @@ export type Reranker = (
   documents: string[],
   topN: number,
   sourcePaths: string[],
-  /** Fires when the caller stops waiting (rerankWithScores' own timeout): the transport cancels the
-   *  in-flight request and any retry backoff instead of finishing a call nobody reads. */
+  /** Fires on rerankWithScores' timeout: the transport cancels the request and its backoff. */
   signal?: AbortSignal,
 ) => Promise<RerankHit[]>;
 
