@@ -29,6 +29,23 @@ export function pathInFolder(
   return foldPath(path, ci).startsWith(`${foldPath(folder, ci)}/`);
 }
 
+/** The two server-generated pages of a wiki folder (see wiki-generated.ts). */
+export const WIKI_INDEX_FILE = "index.md";
+export const WIKI_LOG_FILE = "log.md";
+
+/** Whether `path` is one of the wiki folder's generated pages: they are never wiki pages, so
+ *  duplicate detection, lint and the link scans leave them out. Same fold as `pathInFolder`. */
+export function isGeneratedWikiPath(
+  path: string,
+  wikiFolder: string | undefined,
+  ci: boolean = CASE_INSENSITIVE_FS,
+): boolean {
+  if (!wikiFolder) return false;
+  const p = foldPath(path, ci);
+  const dir = foldPath(wikiFolder, ci);
+  return p === `${dir}/${WIKI_INDEX_FILE}` || p === `${dir}/${WIKI_LOG_FILE}`;
+}
+
 /** `dev:ino` of the directory at `abs` (symlinks followed); null when it is not an existing directory
  *  or the filesystem reports no inode (a fake inode 0 proves nothing). */
 function dirIdentity(abs: string): string | null {

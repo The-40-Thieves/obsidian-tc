@@ -235,6 +235,25 @@ const WikiLintConfigSchema = z
   })
   .prefault({});
 
+// Scheduled regeneration of each wiki folder's generated index.md and log.md. OFF by default: it
+// writes into the vault without a request, so it is something to switch on.
+const WikiPagesConfigSchema = z
+  .object({
+    enabled: z
+      .boolean()
+      .default(false)
+      .describe(
+        "Regenerate every wiki folder's generated index.md (the pages grouped by their SCHEMA.md type) and log.md (an append-only projection of the write provenance chain) on a schedule, as commit_wiki_page does after each write. Writes inside vaults[].wiki.folder only, never over a hand-edited or foreign index.md/log.md (lint_wiki reports those), never in a read-only vault, and lists only paths readable without any rule-scope. Off by default. Also requires maintenance.enabled.",
+      ),
+    intervalHours: z
+      .number()
+      .positive()
+      .max(8760)
+      .default(6)
+      .describe("Hours between scheduled regeneration passes."),
+  })
+  .prefault({});
+
 // THE-292 — periodic cache.db maintenance sweep (expired idempotency/elicit rows + event_log
 // retention + PRAGMA optimize). Fully defaulted: a config predating it validates unchanged.
 export const MaintenanceConfigSchema = z
@@ -322,6 +341,7 @@ export const MaintenanceConfigSchema = z
       ),
     memoryOrphans: MemoryOrphansConfigSchema,
     wikiLint: WikiLintConfigSchema,
+    wikiPages: WikiPagesConfigSchema,
   })
   .prefault({});
 

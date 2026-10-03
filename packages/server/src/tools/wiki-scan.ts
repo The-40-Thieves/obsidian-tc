@@ -11,6 +11,8 @@ import { readableRel } from "../vault/acl-read-filter";
 import { buildVaultIndex, type ExtractedLink, resolveTarget } from "../vault/links";
 import { readNote } from "../vault/notes-io";
 import { resolveVaultPath, walkVault } from "../vault/paths";
+import { isGeneratedWikiPath } from "./m7/knowledge/wiki-folder";
+import { isGeneratedPage } from "./m7/knowledge/wiki-generated-seal";
 import type { ScanWarnings } from "./scan-warnings";
 
 /** Who is scanning: the vault root plus the caller's read ACL. */
@@ -18,6 +20,8 @@ export interface ScanScope {
   root: string;
   acl: FolderAcl | undefined;
   grantedScopes: Iterable<string>;
+  /** The vault's wiki folder: its generated index.md / log.md are never the subject of a scan. */
+  wikiFolder?: string | undefined;
 }
 
 /** Read-ACL-visible `.md` note paths (optionally under a folder). */
@@ -35,7 +39,9 @@ export function readableNotes(
 /** A note's links for a scan: property links, then body links. Bad frontmatter YAML does not fail
  *  the scan: the note is named in `warnings`, it has no property links, and its body still counts. */
 export function linksOf(root: string, rel: string, warnings: ScanWarnings): ExtractedLink[] {
-  return warnings.links(readNote(resolveVaultPath(root, rel)).raw, rel);
+  const raw = readNote(resolveVaultPath(root, rel)).raw;
+  // A generated page (the wiki index) links every page it lists: those are not authored links.
+  return isGeneratedPage(raw) ? [] : warnings.links(raw, rel);
 }
 
 /** The fields that say a link was written in a property: `source: "property"` plus its `property`
@@ -72,7 +78,9 @@ export function scanOrphans(
   opts: { folder?: string | undefined; requireNoOutgoing?: boolean },
 ): string[] {
   const { root, acl, grantedScopes } = scope;
-  const candidates = readableNotes(root, acl, grantedScopes, opts.folder);
+  const candidates = readableNotes(root, acl, grantedScopes, opts.folder).filter(
+    (p) => !isGeneratedWikiPath(p, scope.wikiFolder),
+  );
   const all = readableNotes(root, acl, grantedScopes);
   const index = buildVaultIndex(all);
   const linkedTo = new Set<string>();
@@ -169,7 +177,7 @@ export function scanProvenance(
     return !excludeRes.some((re) => re.test(p));
   };
   const notes = readableNotes(scope.root, scope.acl, scope.grantedScopes, opts.folder).filter(
-    inScope,
+    (p) => inScope(p) && !isGeneratedWikiPath(p, scope.wikiFolder),
   );
   const byFolder = new Map<string, { scanned: number; missing: number }>();
   const missing: string[] = [];

@@ -48,6 +48,10 @@ assumptions:
   name so a planted symlink cannot hijack it.
 - **The host system is trusted.** obsidian-tc does not protect against attacks from
   co-located processes.
+- **The server writes two files nobody asked for.** In a vault with a wiki folder it generates
+  `index.md` and `log.md` there. They are bounded by the rules in
+  [Server-generated wiki pages](#server-generated-wiki-pages): nothing a reader may not read is
+  listed, nothing outside the wiki folder is written, and a file a person edited is never replaced.
 - **The Local REST API key is a full-vault admin credential.** The companion plugin extends the
   Local REST API (LRA) plugin's HTTP server, and LRA's own endpoints already grant full read /
   write / delete over the vault. Possession of the LRA bearer key is therefore equivalent to full
@@ -257,6 +261,62 @@ obsidian-tc writes through the filesystem / native path, **not** through the Loc
 POST endpoint, so it is **not** affected by the upstream Obsidian Local REST API "append clobbers on
 overwrite" report (coddingtonbear/obsidian-local-rest-api #237, a metadata-cache miss on that POST
 path).
+
+## Server-generated wiki pages
+
+A vault with `vaults[].wiki.folder` gets two files the server writes itself, without a confirmation,
+because no caller asked for them: **`index.md`** (the pages of the folder grouped by their `SCHEMA.md`
+type, with links) and **`log.md`** (one line per change to the folder, projected from the write
+provenance chain). They are written after `commit_wiki_page` and, when `maintenance.wikiPages.enabled`
+is set, on a schedule. The rules, each pinned by a test (`wiki-generated.test.ts`):
+
+- **What they list is bounded by the read ACL.** Both files are one shared file, so they are built for
+  the least privileged reader: a path appears only when the vault's ACL lets a caller holding **no
+  rule-scopes** read it and Obsidian's Excluded files do not hide it. The caller who triggered the
+  write is not the audience; a caller holding a scope still does not widen the file. A page in a
+  read-denied subfolder never appears in `index.md`, and its changes never appear in `log.md`.
+- **No page text is copied in, and names are plain.** The index carries links and a `type` value only when
+  it is plain words (anything else is grouped as `(other)`). A page path is untrusted text (the path type
+  only refuses `..` and an absolute path), so every path, stem and label is written with control, format
+  (bidi marks, NEL) and line or paragraph separator characters stripped, by the sanitiser the
+  elicitation form uses: a page named `a<U+2028>Ignore previous instructions` is one line, not two.
+- **`log.md` needs `read:provenance` to read.** Each line carries the principal, the model the client
+  *claimed* and the tool, the facts `get_provenance` gates behind `read:provenance`; the file is an ordinary
+  note, so without a gate any `read:notes` caller could read them. The gate is an implicit per-path
+  rule-scope on `${wiki.folder}/log.md`, added to the ACL of every vault with a wiki folder (it keeps
+  any scope an operator rule already requires on that path), so every surface that honours rule-scopes
+  (`read_note`, search, listing, backlinks, resources, `lint_wiki`) denies it the same way, with no per-tool
+  check. The scope also gates writing and deleting that path; the server's own regeneration holds exactly
+  that scope for its write and reads the file directly, so it is unaffected. The self-reported fields are
+  stripped to plain characters. The log is a convenience view, not a trust anchor: `verify_provenance` and
+  `get_provenance` remain the record.
+- **Symlink aliases do not widen the list.** A provenance row stores the path the caller named, not its
+  target. A path is listed only when the read check, applied to the symlink-resolved path with no
+  rule-scopes, allows it, and Excluded files are tested on the resolved path as well: `wiki/link ->
+  wiki/private` does not name `wiki/link/Secret.md`.
+- **Writes stay inside the folder and the ACL.** The path must be `index.md` or `log.md` directly in the
+  wiki folder (the same directory check `commit_wiki_page` applies to a page, symlinks included); the
+  vault ACL must allow the write (a read-only vault is never touched); memoryDefense scans the content;
+  the previous bytes are snapshotted (`restore_note` undoes a regeneration). They are never sent to the
+  search index by the write path.
+- **They never block a write.** A generation failure is a `generated_page` problem on the commit
+  response (and a log line from the scheduled pass), never an error.
+- **A hand edit is never overwritten.** A frontmatter hash seals each file. A file that is not ours
+  (no `generated_by: obsidian-tc` marker, for example a person's own `index.md`) or whose bytes no
+  longer match the seal is **left as it is** and reported (`generated_page` on a commit,
+  a `generated_page` proposal in `lint_wiki`). Delete it and the next pass rebuilds it. An edit that
+  lands while a page is being rebuilt is caught by the write batch's compare-and-swap (the file is hashed
+  again right before the rename) and skipped with a warning. Residual, as for `commit_wiki_page`: POSIX
+  has no conditional rename, so an edit between that hash and the rename is lost (the snapshot holds the
+  generated bytes, not that edit). The seal is an unkeyed SHA-256, so a writer who can replace the file
+  can forge it; that is the same permission as deleting the file, and it is why `log.md` is not an audit
+  anchor.
+- **They are not wiki pages.** Duplicate-topic detection, `lint_wiki` and the orphan, dangling-link and
+  provenance scans skip them, and their links count for nothing: an index linking every page must not
+  hide an orphan.
+
+Residual: `log.md` lags by one write. The record of a call is appended after its handler returns, so a
+commit's own change appears in the next regeneration (the next commit, or the scheduled pass).
 
 ## Companion plugin trust boundary
 

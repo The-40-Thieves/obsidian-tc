@@ -21,6 +21,7 @@ import {
 
 const ProposalSchema = z.object({
   kind: z.enum([
+    "generated_page",
     "orphan",
     "unresolved_link",
     "contradiction",
@@ -77,7 +78,7 @@ export function createLintWikiTool(deps: M7Deps): ToolDefinition {
     name: "lint_wiki",
     domain: "knowledge",
     description:
-      "Wiki health check in ONE call: lint a folder (or the whole vault) and get a list of PROPOSED fixes, each with a suggested action and the tool that applies it. Combines find_orphans, find_unresolved_links (property links included), list_contradictions (open rows only), note_quality_report (stale / duplicated notes), audit_provenance (notes missing `sources`), gap_report (topics with no good page) and a NEW near-duplicate pass over note-level embeddings that finds pages restating the same topic (so you merge or link instead of keeping two), optionally with an LLM judge (judge=true) that reads each near-duplicate pair and adds a verdict (same_topic / overlapping / different) to the proposal. Use it for periodic wiki upkeep, after a batch of writes, or when asked to clean up, audit or dedupe a wiki. Read-only: it never writes and never blocks anything; apply the proposals with the named tool yourself. A check that cannot run (no rollup, no embeddings) is listed under `skipped` rather than failing the call. Respects the read ACL and Obsidian's Excluded files (an excluded note is never the subject of a proposal, but still counts as a link source and target). Pick checks with `checks`; response_format=concise returns {kind, subject, related, suggested_action, tool} per proposal without detail, tool_args and evidence.",
+      "Wiki health check in ONE call: lint a folder (or the whole vault) and get a list of PROPOSED fixes, each with a suggested action and the tool that applies it. Combines find_orphans, find_unresolved_links (property links included), list_contradictions (open rows only), note_quality_report (stale / duplicated notes), audit_provenance (notes missing `sources`), gap_report (topics with no good page) and a NEW near-duplicate pass over note-level embeddings that finds pages restating the same topic (so you merge or link instead of keeping two), optionally with an LLM judge (judge=true) that reads each near-duplicate pair and adds a verdict (same_topic / overlapping / different) to the proposal. Use it for periodic wiki upkeep, after a batch of writes, or when asked to clean up, audit or dedupe a wiki. Read-only: it never writes and never blocks anything; apply the proposals with the named tool yourself. A check that cannot run (no rollup, no embeddings) is listed under `skipped` rather than failing the call. Respects the read ACL and Obsidian's Excluded files (an excluded note is never the subject of a proposal, but still counts as a link source and target). The wiki folder's generated index.md and log.md are never the subject of a proposal and their links count for nothing; a hand-edited or foreign one is reported as a `generated_page` proposal. Pick checks with `checks`; response_format=concise returns {kind, subject, related, suggested_action, tool} per proposal without detail, tool_args and evidence.",
     inputSchema: z
       .object({
         vault: VaultId,
@@ -140,6 +141,7 @@ export function createLintWikiTool(deps: M7Deps): ToolDefinition {
           grantedScopes: ctx.grantedScopes,
           exclusion,
           embeddingModel: deps.embeddingProvider.id,
+          wikiFolder: v.wikiFolder,
         },
         {
           vaultId: v.id,

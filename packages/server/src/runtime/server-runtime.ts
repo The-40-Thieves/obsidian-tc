@@ -522,6 +522,7 @@ export async function buildServerRuntime(
         id: v.id,
         root: vaultRegistry.resolve(v.id).root,
         ...(v.workspace !== undefined ? { workspace: v.workspace } : {}),
+        wikiFolder: vaultRegistry.resolve(v.id).wikiFolder,
       })),
       eventVaultId: firstVault.id,
       listVaultIds: () => vaultRegistry.list().map((v) => v.id),
@@ -538,6 +539,9 @@ export async function buildServerRuntime(
       embeddingProvider,
       // The scheduled wiki lint leaves Excluded-files notes out of every proposal, as lint_wiki does.
       exclusionFor: (id) => vaultExclusionFor(vaultRegistry, id),
+      // The scheduled index.md / log.md regeneration writes under the vault's own ACL and policy.
+      aclFor: (id) => registry.aclFor(id),
+      memoryDefenseFor: memoryDefenseForM1,
       ...(transports.advisoryBus ? { advisoryBus: transports.advisoryBus } : {}), // THE-634
       telemetry, // THE-1125
       activeSessions, // THE-1108 fix

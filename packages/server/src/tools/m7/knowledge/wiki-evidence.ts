@@ -11,6 +11,7 @@ import { readNote } from "../../../vault/notes-io";
 import { resolveVaultPath } from "../../../vault/paths";
 import { ScanWarnings } from "../../scan-warnings";
 import { readableNotes, type ScanScope } from "../../wiki-scan";
+import { isGeneratedWikiPath } from "./wiki-folder";
 
 export type EvidenceKind =
   | "path"
@@ -133,8 +134,11 @@ export function collectIdentityEvidence(
   const folderPrefix = opts.folder ? `${opts.folder.replace(/\/+$/, "")}/` : "";
   const inFolder = (p: string): boolean => folderPrefix === "" || p.startsWith(folderPrefix);
   const candidates = new Map<string, PageCandidate>();
+  // The generated index.md / log.md are never a page, and never evidence for one: the index links
+  // every page under its own name, which would read as every topic already having a page.
+  const generated = (p: string): boolean => isGeneratedWikiPath(p, scope.wikiFolder);
   const add = (path: string, ev: Evidence): void => {
-    if (!inFolder(path)) return;
+    if (!inFolder(path) || generated(path)) return;
     const c = candidates.get(path) ?? { path, evidence: [], excluded: opts.isExcluded(path) };
     // One entry per (kind, detail): a note listing the same alias twice is one piece of evidence.
     if (!c.evidence.some((e) => e.kind === ev.kind && e.detail === ev.detail)) c.evidence.push(ev);
@@ -158,6 +162,7 @@ export function collectIdentityEvidence(
   const mentions: string[] = [];
   const linkers: string[] = [];
   for (const rel of all) {
+    if (generated(rel)) continue;
     const parsed = warnings.parse(readNote(resolveVaultPath(scope.root, rel)).raw, rel);
     const fm = parsed.frontmatter;
     if (fm) {

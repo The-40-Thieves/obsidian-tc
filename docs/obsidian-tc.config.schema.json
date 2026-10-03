@@ -2541,6 +2541,24 @@
               "maximum": 500
             }
           }
+        },
+        "wikiPages": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": false,
+              "description": "Regenerate every wiki folder's generated index.md (the pages grouped by their SCHEMA.md type) and log.md (an append-only projection of the write provenance chain) on a schedule, as commit_wiki_page does after each write. Writes inside vaults[].wiki.folder only, never over a hand-edited or foreign index.md/log.md (lint_wiki reports those), never in a read-only vault, and lists only paths readable without any rule-scope. Off by default. Also requires maintenance.enabled.",
+              "type": "boolean"
+            },
+            "intervalHours": {
+              "default": 6,
+              "description": "Hours between scheduled regeneration passes.",
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 8760
+            }
+          }
         }
       }
     },
