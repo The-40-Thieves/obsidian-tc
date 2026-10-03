@@ -343,7 +343,11 @@ describe("flag ON: the derived value reaches every per-vault site; explicit valu
     ).toBe(2);
     // Fail closed: a set id without the positive unrestricted marker keeps the constant.
     expect(
-      await effectiveK(tiny, { derivedDefaults: true, aclSetId: 1, aclWalkFilter: { enabled: false } }),
+      await effectiveK(tiny, {
+        derivedDefaults: true,
+        aclSetId: 1,
+        aclWalkFilter: { enabled: false },
+      }),
     ).toBe(10);
     expect(
       await effectiveK(tiny, {
