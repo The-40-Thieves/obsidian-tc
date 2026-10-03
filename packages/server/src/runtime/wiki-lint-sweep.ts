@@ -32,6 +32,7 @@ export interface WikiLintSweepDeps {
   intervalMs: number;
   folder?: string | undefined;
   maxNotes: number;
+  sealKey?: (() => string | undefined) | undefined;
   /** Per-vault summary sink. Production logs to stderr; tests capture the report. */
   onReport?: ((report: LintReport, judge?: PairJudgeReport) => void) | undefined;
   /** (maintenance.wikiLint.judge, on by default): rule on near-duplicate pairs with the wiki judge, at
@@ -100,6 +101,14 @@ export function registerWikiLintSweep(scheduler: Scheduler, deps: WikiLintSweepD
       for (const v of deps.vaults) {
         // Cooperate with graceful shutdown between vaults, as the gap sweep does.
         if (signal.aborted) return;
+        let sealKey: string | undefined;
+        try {
+          sealKey = deps.sealKey?.();
+        } catch (e) {
+          process.stderr.write(
+            `[wiki-lint] ${v.id}: generated-page seal check skipped: ${e instanceof Error ? e.message : String(e)}\n`,
+          );
+        }
         const report = runWikiLint(
           {
             root: v.root,
@@ -110,6 +119,7 @@ export function registerWikiLintSweep(scheduler: Scheduler, deps: WikiLintSweepD
             exclusion: deps.exclusionFor(v.id),
             embeddingModel: deps.embeddingModel,
             wikiFolder: v.wikiFolder,
+            sealKey,
           },
           {
             vaultId: v.id,

@@ -1,11 +1,12 @@
 // WP1.2: extracted from ../config.schema.ts (which stays a compatibility facade re-exporting
-// these same symbol names). Leaf schema — imports Zod and the sibling auth-acl leaf (for the
-// per-vault ACL override); no other shared scalars needed here.
+// these same symbol names). Leaf schema — imports Zod, the shared Windows-name classifier and the
+// sibling auth-acl leaf (for the per-vault ACL override).
 //
 // Import direction is non-negotiable: this file must never import config.schema.ts or any
 // other non-sibling schema module. AclConfigSchema comes from the sibling leaf
 // ./auth-acl.schema, never re-derived through the facade — that would be a cycle.
 import { z } from "zod";
+import { windowsNameProblem } from "../schemas/primitives";
 import { AclConfigSchema } from "./auth-acl.schema";
 
 // Per-vault plugin-bridge timeouts (M4 / THE-180, G2.2 §3.1 + §6). Inner fields
@@ -179,8 +180,13 @@ const folderPath = () =>
     .string()
     .max(512)
     .regex(
-      /^(?:(?!\.{1,2}(?:\/|$))[^/\\:\0]+)(?:\/(?!\.{1,2}(?:\/|$))[^/\\:\0]+)*$/,
-      "must be a folder path inside the vault: no leading or trailing slash, no `.` or `..` segment, no backslash or colon",
+      /^(?:(?!\.{1,2}(?:\/|$))[^/\\:\0]*[^/\\:\0 .])(?:\/(?!\.{1,2}(?:\/|$))[^/\\:\0]*[^/\\:\0 .])*$/,
+      "must be a folder path inside the vault: no leading or trailing slash, no `.` or `..` segment, no backslash or colon, and no segment ending in a space or dot",
+    )
+    .refine(
+      (path) =>
+        path.split("/").every((segment) => windowsNameProblem(segment) !== "trailing_dot_or_space"),
+      { message: "folder path segments must not end in a space or dot (Windows strips them)" },
     );
 
 const foldKey = (p: string): string => p.normalize("NFC").toLowerCase();
@@ -190,7 +196,7 @@ const foldKey = (p: string): string => p.normalize("NFC").toLowerCase();
 export const VaultWikiConfigSchema = z
   .object({
     folder: folderPath().describe(
-      "Vault-relative folder that holds this vault's LLM wiki, written `wiki` or `notes/wiki` (no leading or trailing slash; `.`, `/`, an absolute path and `..` are rejected). A `SCHEMA.md` in it declares the page types, the frontmatter each type requires and the allowed property vocabulary; draft_wiki_page proposes pages in this folder and commit_wiki_page only writes new pages inside it. Creating a page there needs no confirmation (snapshots and restore_note are the undo). Absent means the vault has no wiki folder: draft_wiki_page then applies no schema and commit_wiki_page refuses.",
+      "Vault-relative folder that holds this vault's LLM wiki, written `wiki` or `notes/wiki` (no leading or trailing slash; `.`, `/`, an absolute path, `..`, and segments ending in a space or dot are rejected). A `SCHEMA.md` in it declares the page types, the frontmatter each type requires and the allowed property vocabulary; draft_wiki_page proposes pages in this folder and commit_wiki_page only writes new pages inside it. Creating a page there needs no confirmation (snapshots and restore_note are the undo). Absent means the vault has no wiki folder: draft_wiki_page then applies no schema and commit_wiki_page refuses.",
     ),
     rawFolder: folderPath()
       .optional()

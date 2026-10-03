@@ -132,6 +132,14 @@ export function createLintWikiTool(deps: M7Deps): ToolDefinition {
     handler: async (input, ctx) => {
       const v = deps.vaultRegistry.resolve(input.vault);
       const exclusion = vaultExclusionFor(deps.vaultRegistry, v.id);
+      let sealKey: string | undefined;
+      try {
+        sealKey = deps.wikiGeneratedSealKeyForLint?.();
+      } catch (e) {
+        process.stderr.write(
+          `[wiki-lint] ${v.id}: generated-page seal check skipped: ${e instanceof Error ? e.message : String(e)}\n`,
+        );
+      }
       const report = runWikiLint(
         {
           root: v.root,
@@ -143,6 +151,7 @@ export function createLintWikiTool(deps: M7Deps): ToolDefinition {
           embeddingModel: deps.embeddingProvider.id,
           wikiFolder: v.wikiFolder,
           rawFolder: v.rawFolder,
+          sealKey,
         },
         {
           vaultId: v.id,

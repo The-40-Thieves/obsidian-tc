@@ -60,8 +60,9 @@ which would put note content into a label.
 
 ## provenanceFaults counter — obsidian_tc_provenance_faults_total
 
-Write provenance is fail-open: a recording fault is logged and the write it describes still
-succeeds, so before this counter an omitted record looked exactly like "no write happened".
+Write-provenance settlement is fail-open after a write commits: a recording fault is logged and the
+write it describes still succeeds, so before this counter an omitted record looked exactly like "no
+write happened". A multi-note pending-row failure happens before the first rename and fails closed.
 `kind=omitted` is a committed write with no record; `kind=head_untrusted` is a record written while
 the chain head failed validation (the head is then left as found, not re-signed). Labels are vault
 id, tool name and the two-value kind, never a path or an error message. `obsidian-tc doctor` reports

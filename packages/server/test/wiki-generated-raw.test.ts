@@ -5,6 +5,7 @@
 import { mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { escapeGlob } from "../src/acl";
 import type { Database } from "../src/db/types";
 import { appendProvenance } from "../src/provenance/store";
 import { buildAcls } from "../src/runtime/acl-build";
@@ -13,8 +14,13 @@ import {
   regenerateWikiPages,
   type WikiGenerateEnv,
 } from "../src/tools/m7/knowledge/wiki-generated";
-import { evaluatePathAcl } from "../src/vault/acl-path";
-import { hashTree, makeWikiHarness, type WikiHarness } from "./wiki-test-helpers";
+import { evaluatePathAcl, pathScopesSatisfied } from "../src/vault/acl-path";
+import {
+  hashTree,
+  makeWikiHarness,
+  WIKI_TEST_SEAL_KEY,
+  type WikiHarness,
+} from "./wiki-test-helpers";
 
 const FILES: Record<string, string> = {
   "wiki/Page.md": "---\ntype: entity\n---\n# Page\n",
@@ -38,6 +44,7 @@ const envFor = (hh: WikiHarness, over: Partial<WikiGenerateEnv> = {}): WikiGener
   acl: hh.v.acl,
   exclusion: NO_EXCLUSION,
   db: hh.v.db as Database,
+  sealKey: WIKI_TEST_SEAL_KEY,
   snapshots: { enabled: true, retention: 10 },
   ...over,
 });
@@ -168,5 +175,25 @@ describe("generated pages beside a raw folder", () => {
       expect(evaluatePathAcl(acl, "write", rel).allowed).toBe(false);
     expect(evaluatePathAcl(acl, "read", "raw/clip.md").allowed).toBe(true);
     expect(evaluatePathAcl(acl, "write", "wiki/Page.md").allowed).toBe(true);
+  });
+
+  it("keeps operator scopes on literal wiki folders containing glob metacharacters", () => {
+    for (const folder of ["wiki[1]", "wi*ki", "wi?ki"]) {
+      const base = {
+        readOnly: false,
+        defaultScopes: [],
+        rules: [{ glob: `${escapeGlob(folder)}/**`, scopes: ["secret:wiki"] }],
+        immutablePaths: [],
+      };
+      const acl = buildAcls(base, [{ id: "a", wiki: { folder } }]).aclByVault.get("a");
+      expect(acl?.scopesForPath(`${folder}/log.md`).sort()).toEqual([
+        "read:provenance",
+        "secret:wiki",
+      ]);
+      expect(pathScopesSatisfied(acl, `${folder}/log.md`, ["read:notes", "read:provenance"])).toBe(
+        false,
+      );
+      expect(acl?.scopesForPath("wixki/log.md")).toEqual([]);
+    }
   });
 });

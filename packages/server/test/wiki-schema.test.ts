@@ -318,6 +318,8 @@ describe("wiki.folder config", () => {
     "C:/wiki",
     "wiki\\sub",
     "wiki\0",
+    "wiki.",
+    "wiki ",
   ]) {
     it(`the schema rejects wiki.folder ${JSON.stringify(folder)}`, () => {
       expect(VaultConfigSchema.safeParse({ id: "a", path: "/x", wiki: { folder } }).success).toBe(
@@ -328,6 +330,21 @@ describe("wiki.folder config", () => {
       expect(() => new VaultRegistry([{ id: "a", path: "/tmp", wiki: { folder } }])).toThrow(
         /wiki\.folder/,
       );
+    });
+  }
+
+  for (const rawFolder of ["raw.", "raw "]) {
+    it(`the schema rejects wiki.rawFolder ${JSON.stringify(rawFolder)} with the Windows-safe rule`, () => {
+      const parsed = VaultConfigSchema.safeParse({
+        id: "a",
+        path: "/x",
+        wiki: { folder: "wiki", rawFolder },
+      });
+      expect(parsed.success).toBe(false);
+      if (!parsed.success)
+        expect(
+          parsed.error.issues.find((issue) => issue.path.at(-1) === "rawFolder")?.message,
+        ).toMatch(/space or dot/);
     });
   }
 

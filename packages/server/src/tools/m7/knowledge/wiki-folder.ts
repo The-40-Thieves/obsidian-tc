@@ -48,10 +48,20 @@ export function isGeneratedWikiPath(
 
 /** `dev:ino` of the directory at `abs` (symlinks followed); null when it is not an existing directory
  *  or the filesystem reports no inode (a fake inode 0 proves nothing). */
-function dirIdentity(abs: string): string | null {
+function dirIdentity(abs: string, requireDirectory = true): string | null {
   try {
     const st = statSync(abs, { bigint: true });
-    return st.isDirectory() && st.ino !== 0n ? `${st.dev}:${st.ino}` : null;
+    return (!requireDirectory || st.isDirectory()) && st.ino !== 0n ? `${st.dev}:${st.ino}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `dev:ino` of an existing path after symlinks, or null when no stable identity exists. */
+export function filesystemIdentity(root: string, rel: string): string | null {
+  try {
+    const checked = resolveVaultPathChecked(root, rel);
+    return dirIdentity(resolveVaultPath(root, checked.aclRel), false);
   } catch {
     return null;
   }

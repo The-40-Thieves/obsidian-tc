@@ -22,6 +22,7 @@ import { Scheduler } from "../scheduler/scheduler";
 import { NO_EXCLUSION, type VaultExclusion } from "../search/index-exclusion";
 import type { TelemetryWiring } from "../telemetry/wiring";
 import { DEFAULT_TRACE_FOLDER } from "../tools/m5";
+import { getOrCreateWikiSealKey, readWikiSealKey } from "../tools/m7/knowledge/wiki-generated-seal";
 import { schedulerPersistErrorSink } from "../util/errors";
 import type { ActiveSessionTracker } from "../workspace/sessions";
 import { registerAdvisorySweep } from "./advisory-sweep";
@@ -219,6 +220,7 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
       folder: config.maintenance.wikiLint.folder,
       maxNotes: config.maintenance.wikiLint.maxNotes,
       judge: wikiLintSweepJudge(config, deps.roles),
+      sealKey: () => readWikiSealKey(config.cacheDir),
     });
   }
 
@@ -234,6 +236,7 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
       memoryDefenseFor: deps.memoryDefenseFor,
       snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },
       intervalMs: config.maintenance.wikiPages.intervalHours * 3_600_000,
+      sealKey: () => getOrCreateWikiSealKey(config.cacheDir),
     });
   }
 

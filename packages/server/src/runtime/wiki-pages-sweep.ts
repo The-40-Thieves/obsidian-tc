@@ -23,6 +23,7 @@ export interface WikiPagesSweepDeps {
   memoryDefenseFor?: ((vaultId: string) => VaultMemoryDefenseConfig | undefined) | undefined;
   snapshots?: { enabled: boolean; retention: number } | undefined;
   intervalMs: number;
+  sealKey: () => string;
   /** Per-vault result sink. Production logs to stderr; tests capture it. */
   onResult?: ((vaultId: string, result: WikiGenerateResult) => void) | undefined;
 }
@@ -50,6 +51,7 @@ export function registerWikiPagesSweep(scheduler: Scheduler, deps: WikiPagesSwee
           db: deps.cacheDb,
           snapshots: deps.snapshots,
           memoryDefense: deps.memoryDefenseFor?.(v.id),
+          sealKey: deps.sealKey(),
         });
         if (deps.onResult) deps.onResult(v.id, result);
         else if (result.written.length > 0 || result.warnings.length > 0)

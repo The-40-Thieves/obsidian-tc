@@ -16,6 +16,7 @@ export function provenanceScope(
   rootResolver: RegistryOptions["rootResolver"],
 ): ProvenanceScope {
   let pending: object | undefined;
+  let written: ReadonlyMap<string, string> | undefined;
   let installedOn: CallerContext | undefined;
   const uninstall = (): void => {
     if (installedOn !== undefined) delete installedOn.recordPendingWrite;
@@ -28,15 +29,20 @@ export function provenanceScope(
       const p = await sink.begin(def, input, ctx, rootResolver?.(vault));
       pending = p;
       if (sink.recordPending !== undefined) {
-        ctx.recordPendingWrite = (after) => sink.recordPending?.(p, after);
+        ctx.recordPendingWrite = (after) => {
+          sink.recordPending?.(p, after);
+          written = new Map(after);
+        };
         installedOn = ctx;
       }
     },
     async settle(outcome, result) {
       const p = pending;
+      const settledWritten = written;
       pending = undefined;
+      written = undefined;
       uninstall();
-      if (p !== undefined) await sink?.commit(p, outcome, result);
+      if (p !== undefined) await sink?.commit(p, outcome, result, settledWritten);
     },
   };
 }
