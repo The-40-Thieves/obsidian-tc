@@ -6,6 +6,7 @@ import {
   jwtVerify,
   type RemoteJWKSetOptions,
 } from "jose";
+import { OidcFetchError } from "./oidc-discovery";
 
 /**
  * THE-520: why a token was refused. Every value is OPERATOR-facing — it belongs in logs and the
@@ -31,7 +32,7 @@ export type AuthRejectionReason =
   | "invalid_token_type" // oidc: the JOSE `typ` header is not an access-token type
   | "client_mismatch" // oidc: auth.oidc.clientId is set and the token's client_id/azp differs or is absent
   | "claim_not_allowed" // oidc: a mapped persona/vault claim is not a string or is outside its allowlist
-  | "idp_unavailable" // oidc: discovery or the JWKS could not be fetched/validated, so nothing can be verified
+  | "idp_unavailable" // oidc, or jwt mode's remote `jwksUri`: the key set could not be fetched or was refused, so nothing can be verified
   | "persona_denied"; // THE-647 item 2: `persona` claim named an unconfigured persona, or a
 // vault outside that persona's `vaults` — resolved one layer up in auth/persona.ts, not by
 // jwtVerify itself, but the SAME external "invalid or expired token" message applies: an
@@ -77,6 +78,10 @@ function peek(token: string): { caller: string | null; expStillFuture: boolean }
 export function classifyJwtFailure(err: unknown, token: string): AuthRejection {
   if (err instanceof AuthRejection) return err;
   const { caller, expStillFuture } = peek(token);
+  // A remote key set that was refused (address policy, redirect, size) or could not be fetched.
+  if (err instanceof OidcFetchError) {
+    return new AuthRejection("idp_unavailable", { caller, expStillFuture, cause: err });
+  }
   const code = (err as { code?: string })?.code;
   const claim = (err as { claim?: string })?.claim;
 

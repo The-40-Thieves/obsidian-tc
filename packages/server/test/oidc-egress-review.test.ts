@@ -262,6 +262,15 @@ describe("a jwks_uri carrying a credential in its PATH is never printed", () => 
     expect(chainText(err)).not.toContain(SECRET);
   });
 
+  it("a URL carrying userinfo is refused without echoing its path", async () => {
+    const err = await fetchBoundedText(`https://user:pass@idp.example/jwks/${SECRET}`, {
+      maxBytes: 1024,
+      what: "OIDC JWKS",
+    }).catch((e: unknown) => e);
+    expect(chainText(err)).toContain("must not carry credentials");
+    expect(chainText(err)).not.toContain(SECRET);
+  });
+
   it("the discovery document URL (issuer-derived, public) keeps its path", async () => {
     const issuer = "https://idp.example/realms/main";
     const err = await discoverOidc(issuer, {

@@ -28,9 +28,15 @@ import {
   judgeBaseUrlHost,
   normalizeHostForBind,
 } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  type AudienceFields,
+  jwksWithoutAudience,
+  jwksWithoutAudienceMessage,
+} from "../auth/protected-resource";
 import { resolveGatewayUrl } from "../gateway/client";
 import type { ResolveHost } from "../gateway/plain-http";
 import { unlistedPlainHttpMessage } from "../gateway/provider-fetch";
+import { jwksUriAdvice } from "./auth-jwks";
 import type { Check, CheckStatus } from "./types";
 
 export interface PlainHttpEndpointView {
@@ -175,6 +181,9 @@ export interface PlainHttpConfigView {
   experiential?: { citationInfer?: { judge?: JudgeBlockView | undefined } | undefined } | undefined;
   wikiJudge?: JudgeBlockView | undefined;
   network?: { plainHttpHosts?: readonly string[] | undefined } | undefined;
+  /** JWT mode's key sources: the remote key set is judged by auth/jwks-network.ts, the audience
+   *  binding by auth/protected-resource.ts `jwksWithoutAudience`. */
+  auth?: AudienceFields | undefined;
   gateway?: { baseUrl?: string | undefined } | undefined;
   embeddings?:
     | {
@@ -251,6 +260,10 @@ export function plainHttpDeprecations(cfg: PlainHttpConfigView): string[] {
   if (cfg.wikiJudge?.provider === "typesafe" && cfg.wikiJudge.allowPlainHttp) {
     out.push(allowPlainHttpDeprecation("wikiJudge"));
   }
+  // A JWKS key source with no effective audience (auth.allowMissingAudience opts out).
+  if (cfg.auth !== undefined && jwksWithoutAudience(cfg.auth)) {
+    out.push(jwksWithoutAudienceMessage(cfg.auth));
+  }
   return out;
 }
 
@@ -285,11 +298,17 @@ export async function plainHttpEndpointDeprecations(
     });
   const endpoints = plainHttpEndpoints(cfg).filter((ep) => ep.kind === "provider");
   const reports = await plainHttpReports({ endpoints, resolveHost: bounded });
-  return reports.flatMap((r) =>
+  const providers = reports.flatMap((r) =>
     (r.status === "deprecated-unlisted" || r.status === "refused") && r.reason !== undefined
       ? [r.reason]
       : [],
   );
+  // JWT mode's remote key set follows the same list and the same unlisted-private deprecation.
+  const jwks = await jwksUriAdvice(cfg.auth, {
+    plainHttpHosts: cfg.network?.plainHttpHosts ?? [],
+    resolveHost: bounded,
+  });
+  return [...providers, ...jwks];
 }
 
 export function plainHttpCheck(view: PlainHttpView): Check {

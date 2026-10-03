@@ -102,8 +102,9 @@ entry.
 | `mode` | `none \| jwt`, `none` | `none` is loopback-only (see the interlock below). |
 | `jwtSecret` | string ≥32 *(optional)* | HS256 shared secret; prefer `OBSIDIAN_TC_JWT_SECRET`. |
 | `tokenTtlSeconds` | int, 86400 | Token lifetime. |
-| `jwks` / `jwksFile` | object / path *(optional)* | Asymmetric verification (RS256/ES256/EdDSA) from an inline JWKS or a file loaded once at boot — never a URL fetch. Rotation is `kid`-based. HS256 verifies only against the secret and asymmetric algs only against the JWKS, so alg-confusion is structurally impossible. |
+| `jwks` / `jwksFile` / `jwksUri` | object / path / URL *(optional)* | Asymmetric verification (RS256/ES256/EdDSA) from an inline JWKS, a file loaded once at boot, or an authorization server's key set URL (pinned, https and public-only by default; see [Remote key set](/security/auth-model/#remote-key-set-authjwksuri)). Rotation is `kid`-based. HS256 verifies only against the secret and asymmetric algs only against the JWKS, so alg-confusion is structurally impossible. |
 | `algorithms` | string[] *(optional)* | Asymmetric-algorithm allowlist. |
+| `allowMissingAudience` | bool *(optional)* | Opt-out for the deprecation on a JWKS key source that binds no audience (`audience` unset and no complete Protected Resource Metadata). That is a startup error from the next minor release; `true` stops the warning. It does not waive the load-time rule that a JWKS needs `audience` or `resource`. |
 | `resource`, `authorizationServers`, `resourceName`, `scopesSupported` | *(optional)* | RFC 9728 Protected Resource Metadata: when `resource` + one `authorizationServers` entry are set, the HTTP transport advertises a PRM document + `WWW-Authenticate` challenge (OAuth 2.1 resource-server role). |
 
 `mode: "jwt"` requires `jwtSecret` **or** a JWKS — the config refuses to load otherwise.
@@ -389,6 +390,15 @@ carrier-grade NAT space is shared and not encrypted. So it is admitted **only** 
 loopback, private or in that range. An unlisted host that resolves into it is refused with no deprecation
 path. Tailscale traffic is WireGuard-encrypted; listing a host is your explicit statement that it is a
 tailnet peer, so list only tailnet hosts. Link-local and the cloud metadata address stay refused.
+
+### JWT-mode key set (`auth.jwksUri`)
+
+`auth.jwksUri` follows the same list. It must be `https://` on a public host (connected to the address that was
+validated, never resolved twice), unless the host is loopback (no entry) or listed in `network.plainHttpHosts`,
+which admits `http://` and loopback, RFC 1918, `fc00::/7` and (listed) tailnet addresses. An unlisted host that
+resolves only to private addresses still works for one more release with a deprecation; add it here to silence
+it. A public host over plain `http://`, and link-local or cloud metadata addresses, are refused even when listed.
+See [Remote key set](/security/auth-model/#remote-key-set-authjwksuri).
 
 Not covered, by design: Pensieve (`pensieve.baseUrl`) is an inbound, key-less GET whose documented target is
 a tailnet address (`100.64.0.0/10`), the Readwise and OIDC clients are

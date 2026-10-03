@@ -1,4 +1,6 @@
-import { decodeProtectedHeader } from "jose";
+import { customFetch, decodeProtectedHeader } from "jose";
+import { providerPlainHttpHosts, providerResolveHost } from "../gateway/provider-fetch";
+import { type JwksNetworkPolicy, jwksTargetResolver } from "./jwks-network";
 import {
   AuthRejection,
   createRemoteJwks,
@@ -8,6 +10,7 @@ import {
   verifyJwtJwks,
   verifyJwtWithKeySet,
 } from "./jwt";
+import { boundedJwksFetch } from "./oidc-discovery";
 import type { AuthRegistry } from "./registry";
 import { importVerificationKey } from "./signing-keys";
 
@@ -72,6 +75,10 @@ export interface TokenVerifierOptions {
    * key keeps verifying. Built once (jose caches internally), never per request.
    */
   jwksUri?: string;
+  /** Where `jwksUri` may point (auth/jwks-network.ts). Default: the process-wide
+   *  `network.plainHttpHosts` and the provider resolver, so the key set follows the same rules as a
+   *  provider URL. Test seam. */
+  jwksNetwork?: JwksNetworkPolicy;
   /** Algorithm allowlist, applied to EVERY path (default: HS256 plus RS256/ES256/EdDSA). Leaving
    *  HS256 out refuses HS256 outright; HS256 never verifies against the JWKS either way. */
   algorithms?: string[];
@@ -110,7 +117,22 @@ export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
   // Built ONCE per verifier, not per call: jose caches the fetched key set and re-fetches only on an
   // unknown `kid`, so rebuilding it per verification would make every token check an outbound HTTP
   // request and defeat the cache entirely.
-  const remote = o.jwksUri === undefined ? undefined : createRemoteJwks(o.jwksUri);
+  const remote =
+    o.jwksUri === undefined
+      ? undefined
+      : createRemoteJwks(o.jwksUri, {
+          // jose's own fetch resolves the name itself (rebinding) and has no size cap: the key set
+          // goes through the same checked, pinned, bounded transport as an OIDC key set instead.
+          [customFetch]: boundedJwksFetch({
+            what: "auth.jwksUri",
+            target: jwksTargetResolver(
+              o.jwksNetwork ?? {
+                plainHttpHosts: providerPlainHttpHosts,
+                resolveHost: providerResolveHost,
+              },
+            ),
+          }),
+        });
   const registry = o.registry;
   const revocation = revocationOptsFor(registry, o.requireJti);
   return {

@@ -2,6 +2,12 @@
 import type { BridgeStateReport } from "../bridge";
 import type { CapabilityProfile } from "../capability";
 import { embeddingsProviderNames, rerankerProviderNames } from "../providers/registry";
+import {
+  type AuthAudienceView,
+  type AuthJwksView,
+  authAudienceCheck,
+  authJwksCheck,
+} from "./auth-jwks";
 import { type AuthOidcView, authOidcCheck } from "./auth-oidc";
 import { type AuthRegistryView, authRegistryCheck } from "./auth-registry";
 // THE-891 item 3: capture-location lives in its own module (checks.ts is already at biome's
@@ -156,6 +162,8 @@ export interface DoctorConfigView {
    *  No `--probe` gate: it only stats the key files and opens auth.db read-only. */
   authRegistry?: AuthRegistryView;
   authOidc?: AuthOidcView;
+  authJwks?: AuthJwksView;
+  authAudience?: AuthAudienceView;
   provenance?: ProvenanceView;
   /** THE-1108: is any explicit (start_session) session stuck open past windowSeconds? Probe-only,
    *  same reasoning as derivedTables above. */
@@ -266,6 +274,8 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   if (config.wikiJudge) checks.push(wikiJudgeCheck(config.wikiJudge));
   if (config.authRegistry) checks.push(authRegistryCheck(config.authRegistry));
   if (config.authOidc) checks.push(authOidcCheck(config.authOidc));
+  if (config.authJwks) checks.push(authJwksCheck(config.authJwks));
+  if (config.authAudience) checks.push(authAudienceCheck(config.authAudience));
   if (config.provenance) checks.push(provenanceCheck(config.provenance));
   // THE-1108: sessions.liveness — same optional-view reasoning as derivedTables above.
   if (config.sessions) checks.push(sessionLivenessCheck(config.sessions));

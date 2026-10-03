@@ -789,12 +789,29 @@ endpoint that answers `200` and then stalls or streams forever is cut off at the
 caller's abort reaches the whole call, including the gateway `rerank` and the post-completion `/model/info`
 lookup.
 
-Accepted residuals, in addition to the one below: (1) JWT mode's remote key set (`auth.jwksUri`, read by jose's
-own fetch) is NOT run through the OIDC address check and pinned transport. The URL is the operator's own
-setting, never taken from a discovery document, jose refuses redirects and bounds the request by its timeout, but
-it reads the body without a size cap and resolves the name itself. Routing it through the OIDC transport would
-refuse `http://` and private-network key-set URLs that jwt mode accepts today, so it needs an opt-out and is a
-separate change; set `auth.jwksFile` for static keys. (2) The OIDC address check decodes the well-known NAT64
+**JWT-mode remote key set** (`auth.jwksUri`): fetched through the same checked, pinned transport as the
+OIDC key set, not by jose's own fetch (which resolved the name a second time and had no size cap). The host is
+resolved once; a public host over `https://` is connected to the addresses that were validated (SNI and
+certificate on the hostname), so a record that flips between the check and the connection (rebinding) cannot
+reach a private or metadata address. The decision follows the provider rules (`network.plainHttpHosts`): a
+loopback host needs no entry; a host listed there may be `http://` or private (loopback, RFC 1918, `fc00::/7`,
+and 100.64/10 for a listed host only); an unlisted host that resolves only to private addresses keeps working for
+one more release with a deprecation (startup line, `doctor`, `server_health`) and is refused from the next
+major release. Plain `http://` to a public host, a public/private mix, link-local and every cloud metadata
+address are refused, listed or not. Redirects are refused, the body is capped at 256 KiB and the request is
+bounded by a timeout. A pinned connection is direct, so `HTTPS_PROXY` is not used for it. A refusal rejects the
+token (`idp_unavailable` in the auth log); there is no fallback to another key source. The startup line and
+`obsidian-tc doctor` (`auth.jwks-uri`) say which mode is active.
+
+**JWKS without an audience**: a JWKS key source (`jwks`, `jwksFile`, `jwksUri`) that binds no audience accepts a
+token its issuer minted for another service (confused deputy). The schema requires `audience` or `resource`,
+but `resource` is used as the audience only when Protected Resource Metadata is complete
+(`authorizationServers` set too), so a `resource`-only config bound nothing and logged only a stderr line (none for
+`jwksUri`). That is now a deprecation at startup, in `doctor` (`auth.jwks-audience`, a warning with the fix) and
+in `server_health`, and becomes a startup error in the next minor release; `auth.allowMissingAudience: true` is the
+explicit opt-out. A configured audience is enforced exactly as before.
+
+Accepted residuals, in addition to the one below: the OIDC address check decodes the well-known NAT64
 prefix `64:ff9b::/96` and the 6to4 and Teredo embeddings, but not an operator-specific NAT64 prefix (RFC 6052
 permits any /32 to /96 network-specific prefix), so a network that translates a private IPv4 behind its own prefix
 is not recognised from the address alone; use `auth.oidc.allowedJwksHosts` and a network egress policy there.

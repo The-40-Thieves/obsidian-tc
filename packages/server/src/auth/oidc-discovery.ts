@@ -6,13 +6,14 @@
 // the operator listed), carries no credentials, and no fetch is made to a non-public address.
 import type { FetchImplementation } from "jose";
 import { createPinnedFetch } from "../gateway/plain-http";
+import { ProviderBodyTooLargeError, readBodyText } from "../gateway/read-body";
 import {
   redactEndpoint,
   redactEndpointWithPath,
   redactUrlsInText,
   scrubEndpointFromMessage,
 } from "../telemetry/redact-endpoint";
-import { assertPublicHost, type IdpNetworkPolicy } from "./oidc-network";
+import { assertPublicHost, type IdpNetworkPolicy, type ValidatedAddress } from "./oidc-network";
 
 /** Discovery documents are a few KiB; 64 KiB is generous and bounds memory per fetch. */
 export const DISCOVERY_MAX_BYTES = 64 * 1024;
@@ -37,13 +38,17 @@ export interface FetchBoundedOpts {
   accept?: string;
   signal?: AbortSignal;
   network?: IdpNetworkPolicy;
+  /** Replaces the https-only, public-address-only rule: it receives the parsed URL, may admit
+   *  `http:` as well, and returns the addresses to connect to (it throws to refuse). Redirects,
+   *  the timeout and the body cap apply as ever. JWT mode's `auth.jwksUri` (auth/jwks-network.ts). */
+  target?: (url: URL) => Promise<readonly ValidatedAddress[]>;
   /** The URL's path is public and may be shown in messages. Only the discovery document URL is:
    *  it is derived from the issuer, which every token carries. A key-set URL is NOT -- its path can
    *  be a credential (`/jwks/<token>`) -- so by default only its origin is ever shown. */
   pathIsPublic?: boolean;
 }
 
-function requireHttps(url: string, what: string, pathIsPublic = false): URL {
+function requireHttps(url: string, what: string, pathIsPublic = false, allowHttp = false): URL {
   let u: URL;
   try {
     u = new URL(url);
@@ -54,12 +59,12 @@ function requireHttps(url: string, what: string, pathIsPublic = false): URL {
   }
   if (u.username !== "" || u.password !== "") {
     throw new OidcFetchError(
-      `${what}: ${u.origin}${u.pathname} must not carry credentials in the URL`,
+      `${what}: ${u.origin}${pathIsPublic ? u.pathname : ""} must not carry credentials in the URL`,
     );
   }
-  if (u.protocol !== "https:") {
+  if (u.protocol !== "https:" && !(allowHttp && u.protocol === "http:")) {
     throw new OidcFetchError(
-      `${what}: ${(pathIsPublic ? redactEndpointWithPath : redactEndpoint)(url)} must use https (refusing to fetch identity-provider metadata over ${u.protocol.replace(":", "")})`,
+      `${what}: ${(pathIsPublic ? redactEndpointWithPath : redactEndpoint)(url)} must use ${allowHttp ? "http or https" : "https"} (refusing to fetch identity-provider metadata over ${u.protocol.replace(":", "")})`,
     );
   }
   return u;
@@ -67,13 +72,17 @@ function requireHttps(url: string, what: string, pathIsPublic = false): URL {
 
 /** GET a URL as text: https only, no redirects, timeout, and a hard cap on the body size. */
 export async function fetchBoundedText(url: string, o: FetchBoundedOpts): Promise<string> {
-  const u = requireHttps(url, o.what, o.pathIsPublic);
-  const validated = await assertPublicHost(
-    u.hostname,
-    o.network ?? {},
-    (message, cause) => new OidcFetchError(message, cause === undefined ? undefined : { cause }),
-    o.what,
-  );
+  const u = requireHttps(url, o.what, o.pathIsPublic, o.target !== undefined);
+  const validated =
+    o.target !== undefined
+      ? await o.target(u)
+      : await assertPublicHost(
+          u.hostname,
+          o.network ?? {},
+          (message, cause) =>
+            new OidcFetchError(message, cause === undefined ? undefined : { cause }),
+          o.what,
+        );
   const shown = (o.pathIsPublic === true ? redactEndpointWithPath : redactEndpoint)(u.href);
   // A transport error can embed the request URL verbatim; strip it (and, for a URL whose path is
   // not public, the path too) before it reaches a message.
@@ -125,23 +134,11 @@ export async function fetchBoundedText(url: string, o: FetchBoundedOpts): Promis
     );
   }
   try {
-    const reader = res.body?.getReader();
-    if (reader === undefined) return "";
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > o.maxBytes) {
-        void reader.cancel();
-        throw new OidcFetchError(`${o.what}: ${shown} is too large (over ${o.maxBytes} bytes)`);
-      }
-      chunks.push(value);
-    }
-    return new TextDecoder().decode(Buffer.concat(chunks));
+    return await readBodyText(res, o.maxBytes);
   } catch (e) {
-    if (e instanceof OidcFetchError) throw e;
+    if (e instanceof ProviderBodyTooLargeError) {
+      throw new OidcFetchError(`${o.what}: ${shown} is too large (over ${o.maxBytes} bytes)`);
+    }
     throw new OidcFetchError(
       timeout.aborted
         ? `${o.what}: ${shown} timed out after ${timeoutMs} ms`
@@ -159,16 +156,21 @@ export async function fetchBoundedText(url: string, o: FetchBoundedOpts): Promis
 export function boundedJwksFetch(o: {
   fetch?: typeof fetch;
   network?: IdpNetworkPolicy;
+  /** See FetchBoundedOpts.target. */
+  target?: FetchBoundedOpts["target"];
+  /** For error messages. Default "OIDC JWKS". */
+  what?: string;
 }): FetchImplementation {
   return async (url, init) => {
     const text = await fetchBoundedText(url, {
       ...(o.fetch !== undefined ? { fetch: o.fetch } : {}),
       ...(o.network !== undefined ? { network: o.network } : {}),
+      ...(o.target !== undefined ? { target: o.target } : {}),
       // jose owns the timeout for the JWKS request (its `timeoutDuration`); honour its signal.
       timeoutMs: 60_000,
       signal: init.signal,
       maxBytes: JWKS_MAX_BYTES,
-      what: "OIDC JWKS",
+      what: o.what ?? "OIDC JWKS",
       accept: "application/json, application/jwk-set+json",
     });
     return new Response(text, { status: 200, headers: { "content-type": "application/json" } });
