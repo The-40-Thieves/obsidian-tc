@@ -29,7 +29,9 @@
 // Only https:// passes through to the ordinary fetch, which DOES honour a proxy variable. That is
 // deliberate: an https request through a proxy is a CONNECT tunnel, so the proxy sees the host and
 // port but cannot read the key or the body, and operators behind a mandatory egress proxy need
-// it. node:http is used for the plain-http leg because it is the one client API that Node and Bun
+// it. It is called with `redirect: "manual"` and a 3xx answer is REFUSED, exactly as on the http
+// leg: the runtime's default follows a 307/308 and replays the POST body (key and vault text) to a
+// Location nobody checked against this policy. node:http is used for the plain-http leg because it is the one client API that Node and Bun
 // both honor a pinned `host` + explicit Host header on (and neither applies proxy variables to);
 // undici's `dispatcher` option is Node-only. node:http never follows redirects, which is what is
 // wanted here: a 3xx from a vetted host must not be able to bounce the request to an unchecked
@@ -54,8 +56,9 @@ export interface ResolvedAddress {
 /** Resolves a hostname to ALL of its addresses, in the resolver's order. The seam tests stub. */
 export type ResolveHost = (hostname: string) => Promise<ResolvedAddress[]>;
 
-/** Thrown when the policy refuses a plain-http request. The message names the host and, where it
- *  applies, the offending address; it never carries the key, a path or a query. */
+/** Thrown when the policy refuses an outbound request: a plain-http host or address that fails the
+ *  policy, or a redirect from any scheme. The message names the host and, where it applies, the
+ *  offending address; it never carries the key, a path, a query or a redirect target. */
 export class PlainHttpRefusedError extends Error {
   readonly code = "EPLAINHTTP_REFUSED";
   constructor(message: string) {
@@ -164,6 +167,13 @@ export async function resolvePlainHttpTarget(
 
 const NULL_BODY_STATUS = new Set([101, 204, 205, 304]);
 
+/** The refusal for an https answer that redirects. Nothing is sent to the Location target. */
+function httpsRedirectRefused(host: string, status: number): PlainHttpRefusedError {
+  return new PlainHttpRefusedError(
+    `https to ${host} refused: it answered with a redirect (HTTP ${status}); redirects are not followed`,
+  );
+}
+
 function abortError(): Error {
   const e = new Error("The operation was aborted");
   e.name = "AbortError";
@@ -263,7 +273,20 @@ export function createPlainHttpPolicyFetch(opts: PlainHttpPolicyFetchOptions): t
     const url = new URL(
       typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
     );
-    if (!isPlainHttp(url)) return baseFetch(input, init);
+    if (!isPlainHttp(url)) {
+      // Never let the runtime follow a redirect: it would replay the POST body to an unchecked
+      // destination. `manual` hands the 3xx back (Node and Bun surface the real status; a runtime
+      // that returns an opaque redirect is caught by its type), and it is refused here.
+      const res = await baseFetch(input, { ...init, redirect: "manual" });
+      const redirected =
+        res.type === "opaqueredirect" ||
+        (res.status >= 300 && res.status < 400 && res.headers.get("location") !== null);
+      if (redirected) {
+        void res.body?.cancel();
+        throw httpsRedirectRefused(url.hostname, res.status);
+      }
+      return res;
+    }
     const req = new Request(
       input as ConstructorParameters<typeof Request>[0],
       init as RequestInit | undefined,

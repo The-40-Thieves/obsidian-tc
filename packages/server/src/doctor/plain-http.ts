@@ -116,7 +116,7 @@ export function classifyPlainHttpHost(
       status: "refused",
       reason: cgnat
         ? `${ep.field}: ${host} resolves to ${bad.join(", ")}, a tailnet/CGNAT address; plain-http requests to it are refused unless the host is listed in ${listField(ep)} (list it only if it is a tailnet peer)`
-        : `${ep.field}: ${host} resolves to ${bad.join(", ")}, which is not a private address (loopback, 10/8, 172.16/12, 192.168/16, fc00::/7, or a listed tailnet host in 100.64/10); plain-http requests to it are refused, listed or not`,
+        : `${ep.field}: ${host} resolves to ${bad.join(", ")}, which is not a private address (loopback, 10/8, 172.16/12, 192.168/16, fc00::/7, or a listed tailnet host in 100.64/10); plain-http requests to it are refused, listed or not: use https://`,
     };
   }
   if (listed) {
@@ -236,11 +236,9 @@ export function allowPlainHttpDeprecation(field: string): string {
   return `${field}.allowPlainHttp is deprecated and will be removed in the next major release: list the exact host in ${field}.plainHttpHosts instead`;
 }
 
-/** Deprecation lines for what the next major release removes: every TypeSafe judge block that
- *  still sets `allowPlainHttp`, and every provider endpoint whose non-loopback http:// host is not
- *  in `network.plainHttpHosts` (it works today only while it resolves to a private address). What
- *  server_health reports, and what the doctor check above leads with. Config-only, no I/O: the
- *  doctor adds the resolved address and the verdict. */
+/** Deprecation lines for the config alone: every TypeSafe judge block that still sets
+ *  `allowPlainHttp`. No I/O, no host names. What server_health reports first; the per-endpoint
+ *  advice (which needs DNS) is `plainHttpEndpointDeprecations`. */
 export function plainHttpDeprecations(cfg: PlainHttpConfigView): string[] {
   const out: string[] = [];
   const cj = cfg.experiential?.citationInfer?.judge;
@@ -250,13 +248,45 @@ export function plainHttpDeprecations(cfg: PlainHttpConfigView): string[] {
   if (cfg.wikiJudge?.provider === "typesafe" && cfg.wikiJudge.allowPlainHttp) {
     out.push(allowPlainHttpDeprecation("wikiJudge"));
   }
-  for (const ep of plainHttpEndpoints(cfg)) {
-    if (ep.kind !== "provider" || classifyJudgeBaseUrl(ep.baseUrl) !== "http-remote") continue;
-    const host = judgeBaseUrlHost(ep.baseUrl);
-    if (host === undefined || isPlainHttpHostListed(host, ep.plainHttpHosts ?? [])) continue;
-    out.push(`${ep.field}: ${unlistedPlainHttpMessage(host)}`);
-  }
   return out;
+}
+
+/** Per-endpoint advice for every provider client whose plain-http endpoint the transport does not
+ *  simply allow, from the SAME resolver and the SAME classification the doctor check uses
+ *  (`classifyPlainHttpHost`), so it can never advise what the transport then refuses or, worse,
+ *  advise listing a host the transport would then send to:
+ *    - resolves only to RFC1918 / ULA, not listed: told to list it (works today, refused from the
+ *      next major release);
+ *    - resolves to 100.64/10, not listed: refused; list it ONLY if it is a tailnet peer;
+ *    - resolves to anything else (public, link-local, metadata, did not resolve): refused, use https.
+ *  Names hosts, addresses and vault ids: server_health shows it only to a caller that may see every
+ *  vault. Resolves each host once, bounded by `timeoutMs` (a timeout reads as "did not resolve"). */
+export async function plainHttpEndpointDeprecations(
+  cfg: PlainHttpConfigView,
+  resolveHost: ResolveHost,
+  timeoutMs = 3_000,
+): Promise<string[]> {
+  const bounded: ResolveHost = (host) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("DNS lookup timed out")), timeoutMs);
+      resolveHost(host).then(
+        (v) => {
+          clearTimeout(timer);
+          resolve(v);
+        },
+        (e: unknown) => {
+          clearTimeout(timer);
+          reject(e);
+        },
+      );
+    });
+  const endpoints = plainHttpEndpoints(cfg).filter((ep) => ep.kind === "provider");
+  const reports = await plainHttpReports({ endpoints, resolveHost: bounded });
+  return reports.flatMap((r) =>
+    (r.status === "deprecated-unlisted" || r.status === "refused") && r.reason !== undefined
+      ? [r.reason]
+      : [],
+  );
 }
 
 export function plainHttpCheck(view: PlainHttpView): Check {

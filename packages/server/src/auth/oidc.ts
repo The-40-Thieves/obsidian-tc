@@ -29,6 +29,7 @@ import {
   type JwtIdentity,
   subjectOf,
 } from "./jwt";
+import { redactEndpointWithPath } from "../telemetry/redact-endpoint";
 import {
   boundedJwksFetch,
   discoverOidc,
@@ -65,6 +66,12 @@ export interface OidcDescription {
   audience: string | string[];
   allowedAlgs: string[];
   discoveredAt: number;
+}
+
+/** The one startup line for an oidc verifier. The jwks_uri is shown without its query or userinfo:
+ *  a key-set URL can carry a credential, and this line reaches logs and support tickets. */
+export function oidcBootNotice(d: Omit<OidcDescription, "discoveredAt">): string {
+  return `auth: oidc verification only; issuer=${redactEndpointWithPath(d.issuer)} jwks_uri=${redactEndpointWithPath(d.jwksUri)} audience=${JSON.stringify(d.audience)} algs=${d.allowedAlgs.join(",")}\n`;
 }
 
 export interface OidcVerifier extends TokenVerifier {

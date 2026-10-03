@@ -31,6 +31,15 @@ export function redactEndpointWithPath(url: string): string {
   }
 }
 
+/** Strip userinfo, query and fragment from every http(s) URL inside free text (an error message a
+ *  fetch implementation wrote, which can embed the request URL verbatim). The scheme, host and path
+ *  stay, so the message still says where it went. */
+export function redactUrlsInText(text: string): string {
+  return text
+    .replace(/(https?:\/\/)[^\s/@"'<>]*@/gi, "$1")
+    .replace(/(https?:\/\/[^\s?#"'<>]*)[?#][^\s"'<>]*/gi, "$1");
+}
+
 /**
  * Scrub every occurrence of the raw `endpoint` string out of `message`, replacing it with
  * `redactEndpoint`'s scheme+host form. Defends against a transport error whose OWN message

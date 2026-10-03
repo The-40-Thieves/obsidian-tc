@@ -5,9 +5,10 @@
 //
 // It is createPlainHttpPolicyFetch (gateway/plain-http.ts) with the process-wide host list from the
 // top-level `network.plainHttpHosts`:
-//   - https:// goes through the ordinary fetch, untouched;
+//   - https:// goes through the ordinary fetch, with redirects refused;
 //   - every http:// request is sent directly (never through HTTP_PROXY), to a checked address, with
-//     redirects refused;
+//     redirects refused; an https:// answer that redirects (any 3xx with a Location) is refused
+//     too, so a 307/308 can never replay the key and vault text to an unchecked destination;
 //   - a loopback host needs no entry;
 //   - a non-loopback host is refused when it resolves to ANYTHING but loopback / RFC1918 / IPv6
 //     ULA, listed or not: a public address, link-local and the cloud metadata address never get
@@ -55,9 +56,14 @@ export function unlistedPlainHttpMessage(host: string, address?: string): string
   );
 }
 
+/** The resolver the provider transport uses. The doctor and server_health classify endpoints with
+ *  THIS one, so their verdict is the transport's verdict (same DNS, same test seam). */
+export const providerResolveHost: ResolveHost = (host) =>
+  (resolveOverride ?? defaultResolveHost)(host);
+
 export const providerFetch: typeof fetch = createPlainHttpPolicyFetch({
   plainHttpHosts: () => plainHttpHosts,
-  resolveHost: (host) => (resolveOverride ?? defaultResolveHost)(host),
+  resolveHost: providerResolveHost,
   allowUnlistedPrivate: true,
   onUnlistedPrivate: ({ host, address }) => {
     if (warned.has(host)) return;

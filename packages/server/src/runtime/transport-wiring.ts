@@ -11,7 +11,7 @@
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
 import { buildJwtVerifier } from "../auth/jwt-boot";
-import { createOidcVerifier, type OidcVerifier } from "../auth/oidc";
+import { createOidcVerifier, type OidcVerifier, oidcBootNotice } from "../auth/oidc";
 import type { AuthRegistry } from "../auth/registry";
 import { openAuthRegistry } from "../auth/registry-open";
 import type { TokenVerifier } from "../auth/verifier";
@@ -138,9 +138,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
     ) {
       oidcVerifier = await createOidcVerifier(config.auth, { registry: authRegistry });
       const d = oidcVerifier.describe();
-      process.stderr.write(
-        `auth: oidc verification only; issuer=${d.issuer} jwks_uri=${d.jwksUri} audience=${JSON.stringify(d.audience)} algs=${d.allowedAlgs.join(",")}\n`,
-      );
+      process.stderr.write(oidcBootNotice(d));
     }
     const verifier: TokenVerifier | undefined =
       oidcVerifier ??

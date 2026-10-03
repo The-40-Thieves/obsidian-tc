@@ -5,6 +5,7 @@
 // Where it may point is bounded too: the discovered `jwks_uri` stays on the issuer's origin (or a host
 // the operator listed), carries no credentials, and no fetch is made to a non-public address.
 import type { FetchImplementation } from "jose";
+import { redactEndpointWithPath, redactUrlsInText } from "../telemetry/redact-endpoint";
 import { assertPublicHost, type IdpNetworkPolicy } from "./oidc-network";
 
 /** Discovery documents are a few KiB; 64 KiB is generous and bounds memory per fetch. */
@@ -37,7 +38,7 @@ function requireHttps(url: string, what: string): URL {
   try {
     u = new URL(url);
   } catch {
-    throw new OidcFetchError(`${what}: ${JSON.stringify(url)} is not a valid URL`);
+    throw new OidcFetchError(`${what}: ${redactUrlsInText(JSON.stringify(url))} is not a valid URL`);
   }
   if (u.username !== "" || u.password !== "") {
     throw new OidcFetchError(
@@ -46,7 +47,7 @@ function requireHttps(url: string, what: string): URL {
   }
   if (u.protocol !== "https:") {
     throw new OidcFetchError(
-      `${what}: ${url} must use https (refusing to fetch identity-provider metadata over ${u.protocol.replace(":", "")})`,
+      `${what}: ${redactEndpointWithPath(url)} must use https (refusing to fetch identity-provider metadata over ${u.protocol.replace(":", "")})`,
     );
   }
   return u;
@@ -61,6 +62,7 @@ export async function fetchBoundedText(url: string, o: FetchBoundedOpts): Promis
     (message, cause) => new OidcFetchError(message, cause === undefined ? undefined : { cause }),
     o.what,
   );
+  const shown = redactEndpointWithPath(u.href);
   const doFetch = o.fetch ?? fetch;
   const timeoutMs = o.timeoutMs ?? IDP_FETCH_TIMEOUT_MS;
   const timeout = AbortSignal.timeout(timeoutMs);
@@ -77,26 +79,26 @@ export async function fetchBoundedText(url: string, o: FetchBoundedOpts): Promis
     const timedOut = timeout.aborted;
     throw new OidcFetchError(
       timedOut
-        ? `${o.what}: ${u.href} timed out after ${timeoutMs} ms`
-        : `${o.what}: ${u.href} could not be fetched (${e instanceof Error ? e.message : String(e)})`,
+        ? `${o.what}: ${shown} timed out after ${timeoutMs} ms`
+        : `${o.what}: ${shown} could not be fetched (${redactUrlsInText(e instanceof Error ? e.message : String(e))})`,
       { cause: e },
     );
   }
   if (res.status >= 300 && res.status < 400) {
     void res.body?.cancel();
     throw new OidcFetchError(
-      `${o.what}: ${u.href} answered a ${res.status} redirect; redirects are not followed`,
+      `${o.what}: ${shown} answered a ${res.status} redirect; redirects are not followed`,
     );
   }
   if (res.status !== 200) {
     void res.body?.cancel();
-    throw new OidcFetchError(`${o.what}: ${u.href} answered HTTP ${res.status}`);
+    throw new OidcFetchError(`${o.what}: ${shown} answered HTTP ${res.status}`);
   }
   const declared = Number(res.headers.get("content-length"));
   if (Number.isFinite(declared) && declared > o.maxBytes) {
     void res.body?.cancel();
     throw new OidcFetchError(
-      `${o.what}: ${u.href} is too large (${declared} bytes declared, limit ${o.maxBytes})`,
+      `${o.what}: ${shown} is too large (${declared} bytes declared, limit ${o.maxBytes})`,
     );
   }
   try {
@@ -110,7 +112,7 @@ export async function fetchBoundedText(url: string, o: FetchBoundedOpts): Promis
       total += value.byteLength;
       if (total > o.maxBytes) {
         void reader.cancel();
-        throw new OidcFetchError(`${o.what}: ${u.href} is too large (over ${o.maxBytes} bytes)`);
+        throw new OidcFetchError(`${o.what}: ${shown} is too large (over ${o.maxBytes} bytes)`);
       }
       chunks.push(value);
     }
@@ -119,8 +121,8 @@ export async function fetchBoundedText(url: string, o: FetchBoundedOpts): Promis
     if (e instanceof OidcFetchError) throw e;
     throw new OidcFetchError(
       timeout.aborted
-        ? `${o.what}: ${u.href} timed out after ${timeoutMs} ms`
-        : `${o.what}: reading ${u.href} failed (${e instanceof Error ? e.message : String(e)})`,
+        ? `${o.what}: ${shown} timed out after ${timeoutMs} ms`
+        : `${o.what}: reading ${shown} failed (${redactUrlsInText(e instanceof Error ? e.message : String(e))})`,
       { cause: e },
     );
   }
@@ -189,6 +191,7 @@ export async function discoverOidc(
   o: { fetch?: typeof fetch; timeoutMs?: number } & DiscoveryPolicy = {},
 ): Promise<OidcDiscovery> {
   const url = discoveryUrl(issuer);
+  const shownDiscovery = redactEndpointWithPath(url);
   const text = await fetchBoundedText(url, {
     ...(o.fetch !== undefined ? { fetch: o.fetch } : {}),
     ...(o.timeoutMs !== undefined ? { timeoutMs: o.timeoutMs } : {}),
@@ -200,33 +203,36 @@ export async function discoverOidc(
   try {
     doc = JSON.parse(text);
   } catch {
-    throw new OidcFetchError(`OIDC discovery: ${url} did not return JSON`);
+    throw new OidcFetchError(`OIDC discovery: ${shownDiscovery} did not return JSON`);
   }
   if (typeof doc !== "object" || doc === null || Array.isArray(doc)) {
-    throw new OidcFetchError(`OIDC discovery: ${url} did not return a JSON object`);
+    throw new OidcFetchError(`OIDC discovery: ${shownDiscovery} did not return a JSON object`);
   }
   const d = doc as Record<string, unknown>;
   if (d.issuer !== issuer) {
     throw new OidcFetchError(
-      `OIDC discovery: the document at ${url} names issuer ${JSON.stringify(d.issuer)}, which does not match the configured issuer ${JSON.stringify(issuer)} (compared exactly); refusing it`,
+      `OIDC discovery: the document at ${shownDiscovery} names issuer ${JSON.stringify(d.issuer)}, which does not match the configured issuer ${JSON.stringify(issuer)} (compared exactly); refusing it`,
     );
   }
   if (typeof d.jwks_uri !== "string") {
-    throw new OidcFetchError(`OIDC discovery: the document at ${url} has no jwks_uri`);
+    throw new OidcFetchError(`OIDC discovery: the document at ${shownDiscovery} has no jwks_uri`);
   }
   try {
     const jwks = requireHttps(d.jwks_uri, "OIDC discovery: jwks_uri");
     if (o.pinJwksUri !== false) {
       const sameOrigin = jwks.origin === new URL(issuer).origin;
-      if (!sameOrigin && !(o.allowedJwksHosts ?? []).includes(jwks.hostname)) {
+      // A listed hostname admits the default https port only (`URL.port` is "" for 443): the
+      // same-origin rule is port-aware, so the allow-list must not be a way around it.
+      const listed = (o.allowedJwksHosts ?? []).includes(jwks.hostname) && jwks.port === "";
+      if (!sameOrigin && !listed) {
         throw new OidcFetchError(
-          `OIDC discovery: jwks_uri ${jwks.origin} is not on the issuer's origin ${new URL(issuer).origin}; list its hostname in auth.oidc.allowedJwksHosts (or set auth.oidc.jwksUri) if the identity provider really serves its keys from there`,
+          `OIDC discovery: jwks_uri ${jwks.origin} is not on the issuer's origin ${new URL(issuer).origin}; list its hostname in auth.oidc.allowedJwksHosts (default https port 443 only) or set auth.oidc.jwksUri if the identity provider really serves its keys from there`,
         );
       }
     }
   } catch (e) {
     throw new OidcFetchError(
-      `OIDC discovery: the document at ${url} has an unusable jwks_uri: ${(e as Error).message}`,
+      `OIDC discovery: the document at ${shownDiscovery} has an unusable jwks_uri: ${(e as Error).message}`,
     );
   }
   return { issuer, jwksUri: d.jwks_uri, document: d };

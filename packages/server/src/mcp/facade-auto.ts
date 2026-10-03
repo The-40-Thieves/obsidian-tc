@@ -85,6 +85,9 @@ export function healthToolsWiringFields<V extends readonly { id: string }[]>(
   },
   telemetry?: { getStatus: () => TelemetryStatusInfo },
   db?: Database,
+  /** The per-endpoint egress advice resolved at boot (doctor/plain-http.ts
+   *  `plainHttpEndpointDeprecations`); it needs DNS, so the caller awaits it. */
+  endpointAdvice: readonly string[] = [],
 ): {
   vaults: V;
   toolFacade: typeof cfg.toolFacade;
@@ -93,7 +96,7 @@ export function healthToolsWiringFields<V extends readonly { id: string }[]>(
   sessions?: { windowSeconds: number };
   deprecations?: string[];
 } {
-  const deprecations = plainHttpDeprecations(cfg);
+  const deprecations = [...plainHttpDeprecations(cfg), ...endpointAdvice];
   return {
     vaults: cfg.vaults,
     toolFacade: cfg.toolFacade,

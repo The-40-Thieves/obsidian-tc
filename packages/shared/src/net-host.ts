@@ -101,6 +101,7 @@ function isDisallowedPrivateIpv6(h: string): boolean {
  */
 export function isDisallowedLiteralHost(host: string): boolean {
   const h = normalizeHostForBind(host);
+  if (isCloudMetadataAddress(h)) return true;
   const direct = ipv4OctetsOf(h);
   if (direct) return direct[0] !== 127 && isDisallowedPrivateIpv4(direct);
   if (h.startsWith("::ffff:")) {
@@ -292,6 +293,83 @@ function ipv4OfMappedHex(h: string): string | null {
   return m ? ipv4MappedHexToDotted(`${m[1]}:${m[2]}`) : null;
 }
 
+/** The canonical compressed lowercase text of an IPv6 literal (what `new URL` reports, brackets
+ *  dropped), or null when `bare` is not an IPv6 literal. */
+function canonicalIpv6(bare: string): string | null {
+  const UrlCtor = (globalThis as { URL?: MinimalUrlCtor }).URL;
+  if (typeof UrlCtor !== "function") return null;
+  if (!bare.includes(":") || /[^0-9a-f:.]/.test(bare)) return null;
+  try {
+    return new UrlCtor(`http://[${bare}]`).hostname.slice(1, -1);
+  } catch {
+    return null;
+  }
+}
+
+/** The eight 16-bit groups of a canonical IPv6 text, or null. */
+function ipv6Groups(canonical: string): number[] | null {
+  if (canonical.includes(".")) return null;
+  const [head = "", tail, ...extra] = canonical.split("::");
+  if (extra.length > 0) return null;
+  const side = (s: string): string[] => (s === "" ? [] : s.split(":"));
+  const left = side(head);
+  const right = tail === undefined ? [] : side(tail);
+  const missing = 8 - left.length - right.length;
+  if (tail === undefined ? missing !== 0 : missing < 1) return null;
+  const groups = [...left, ...Array<string>(tail === undefined ? 0 : missing).fill("0"), ...right];
+  const nums = groups.map((g) => (/^[0-9a-f]{1,4}$/.test(g) ? Number.parseInt(g, 16) : Number.NaN));
+  return nums.length === 8 && nums.every((n) => !Number.isNaN(n)) ? nums : null;
+}
+
+// The ONE list of cloud instance-metadata service addresses. A request to one returns instance
+// credentials, so nothing that carries a bearer key or vault text may be sent there, even though
+// three of these sit inside a range the policy otherwise treats as private or tailnet:
+//   169.254.169.254        AWS, GCP, Azure, OCI (link-local, so never private anyway)
+//   100.100.100.200        Alibaba Cloud (inside the CGNAT range a LISTED host may use)
+//   fd00:ec2::254          AWS over IPv6 (unique-local)
+//   fd00:64:64:64::254     Alibaba Cloud over IPv6 (unique-local)
+//   fd20:ce::254           GCP over IPv6 (unique-local)
+const METADATA_IPV4 = new Set(["169.254.169.254", "100.100.100.200"]);
+const METADATA_IPV6_TEXT = ["fd00:ec2::254", "fd00:64:64:64::254", "fd20:ce::254"];
+let metadataIpv6: ReadonlySet<string> | undefined;
+
+/** True for a cloud instance-metadata address, in any spelling (dotted, bracketed, upper case,
+ *  zero-padded, IPv4-mapped). The one list behind the provider send policy, the config literal
+ *  check and the OIDC address check. */
+export function isCloudMetadataAddress(addr: string): boolean {
+  const bare = normalizeHostForBind(addr);
+  const v4 = ipv4OctetsOf(bare);
+  if (v4) return METADATA_IPV4.has(v4.join("."));
+  const canonical = canonicalIpv6(bare);
+  if (canonical === null) return false;
+  if (canonical.startsWith("::ffff:")) {
+    const mapped = ipv4OfMappedHex(canonical);
+    return mapped !== null && METADATA_IPV4.has(mapped);
+  }
+  metadataIpv6 ??= new Set(METADATA_IPV6_TEXT.map((t) => canonicalIpv6(t) ?? t));
+  return metadataIpv6.has(canonical);
+}
+
+/** The IPv4 address(es) an IPv6 transition address embeds: the one inside a 6to4 address
+ *  (2002::/16), and the server and the (de-obfuscated) client inside a Teredo address
+ *  (2001:0::/32). Empty for anything else. A caller that must not reach a blocked IPv4 judges
+ *  these too, so wrapping one in a tunnel prefix does not get it past the check. */
+export function embeddedIpv4Addresses(addr: string): string[] {
+  const canonical = canonicalIpv6(normalizeHostForBind(addr));
+  const g = canonical === null ? null : ipv6Groups(canonical);
+  if (g === null) return [];
+  const dotted = (hi: number, lo: number): string =>
+    `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+  if (g[0] === 0x2002) return [dotted(g[1] as number, g[2] as number)];
+  if (g[0] === 0x2001 && g[1] === 0) {
+    return [
+      dotted(g[2] as number, g[3] as number),
+      dotted((g[6] as number) ^ 0xffff, (g[7] as number) ^ 0xffff),
+    ];
+  }
+  return [];
+}
+
 function isPrivateIpv4(o: readonly [number, number, number, number]): boolean {
   const [a, b] = o;
   return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
@@ -302,7 +380,9 @@ function isPrivateIpv4(o: readonly [number, number, number, number]): boolean {
  * (10/8, 172.16/12, 192.168/16) and IPv6 unique-local (fc00::/7), plus an IPv4-mapped IPv6 address
  * wrapping any of the IPv4 ones. Link-local is deliberately NOT in the set: 169.254.169.254 is the
  * cloud metadata service on AWS, GCP, Azure and OCI, and no provider endpoint lives on a link-local
- * address (a Docker bridge is 172.16/12). Everything else — public, carrier-grade NAT (100.64/10),
+ * address (a Docker bridge is 172.16/12). The IPv6 metadata addresses inside fc00::/7
+ * (isCloudMetadataAddress: fd00:ec2::254 and its Alibaba and GCP siblings) are carved out of the
+ * unique-local block. Everything else — public, carrier-grade NAT (100.64/10),
  * 0/8, "::", fe80::/10, site-local, NAT64, IPv4-compatible `::a.b.c.d` — and anything that does
  * not parse as an IP literal is false: the caller fails closed. Accepts the text a resolver returns
  * or a URL hostname, in any IPv6 spelling.
@@ -328,6 +408,8 @@ export function isPrivateNetworkAddress(addr: string): boolean {
     return o ? isPrivateIpv4(o) : false;
   }
   if (h === "::1") return true;
+  // fd00:ec2::254 (AWS) and friends are unique-local but are credential endpoints.
+  if (isCloudMetadataAddress(h)) return false;
   // The canonical form drops leading zeros, so "fc::1" is 00fc::1 (NOT unique-local): only a
   // four-digit first group can sit in fc00::/7.
   const first = h.split(":")[0] ?? "";
@@ -351,5 +433,8 @@ export function isListedOnlyPrivateAddress(addr: string): boolean {
       return false;
     }
   }
-  return o !== null && o[0] === 100 && o[1] >= 64 && o[1] <= 127;
+  // 100.100.100.200 is Alibaba Cloud's metadata service: inside the range, never sendable.
+  return (
+    o !== null && o[0] === 100 && o[1] >= 64 && o[1] <= 127 && !isCloudMetadataAddress(o.join("."))
+  );
 }

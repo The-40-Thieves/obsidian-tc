@@ -3,6 +3,7 @@ import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/open";
+import { plainHttpEndpointDeprecations } from "../src/doctor/plain-http";
 import { provisionCacheDb } from "../src/db/provision";
 import { toJson } from "../src/mcp/facade";
 import {
@@ -199,9 +200,11 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
       vecEnabled: false,
       ...(wiring.deprecations ? { deprecations: wiring.deprecations } : {}),
     });
+    // The deprecation lines are behind the same gate as the vault list (see
+    // health-egress-deprecations.test.ts): an unrestricted authenticated caller reads them.
     const out = tool.handler({}, {
       ...ctxBase,
-      authenticated: false,
+      authenticated: true,
     } as CallerContext) as HealthInfo;
     expect(out.deprecations).toEqual([
       expect.stringMatching(
@@ -227,15 +230,19 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
 
   // A provider whose plain-http host is not in network.plainHttpHosts works today only while the
   // host resolves private: server_health names the host and the config to add, once per provider URL.
-  it("deprecations: an unlisted plain-http provider host is reported by name; a listed, https or loopback one is not", () => {
-    const wiring = healthToolsWiringFields({
+  it("deprecations: an unlisted private plain-http provider host is reported by name; a listed, https or loopback one is not", async () => {
+    const cfg = {
       vaults: [{ id: "v1", restApiUrl: "http://127.0.0.1:27123" }],
-      toolFacade: { mode: "triad", profile: "full" },
+      toolFacade: { mode: "triad" as const, profile: "full" as const },
       network: { plainHttpHosts: ["litellm"] },
       gateway: { baseUrl: "http://litellm:4000" },
       embeddings: { provider: "openai-compatible", baseUrl: "http://emb.lan:8080/v1" },
       reranker: { provider: "cohere-compatible", baseUrl: "https://rerank.example.com/v2" },
-    });
+    };
+    const advice = await plainHttpEndpointDeprecations(cfg, async (h) => [
+      { address: h === "litellm" ? "172.18.0.5" : "192.168.1.20", family: 4 },
+    ]);
+    const wiring = healthToolsWiringFields(cfg, undefined, undefined, advice);
     expect(wiring.deprecations).toEqual([
       expect.stringMatching(/^embeddings\.baseUrl: .*emb\.lan.*network\.plainHttpHosts/),
     ]);

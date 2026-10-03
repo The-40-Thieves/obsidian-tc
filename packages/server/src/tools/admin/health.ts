@@ -277,7 +277,7 @@ const HealthInfoOutput = z.object({
   deprecations: z
     .array(z.string())
     .describe(
-      "Config still in use that the next major release removes: a TypeSafe judge's allowPlainHttp, and a plain-http provider URL (gateway, embeddings, reranker, plur, a vault's restApiUrl) whose host is not in network.plainHttpHosts. Config paths, host names and replacements only. Absent when none.",
+      "Config still in use that the next major release removes (a TypeSafe judge's allowPlainHttp), and advice on plain-http provider URLs (gateway, embeddings, reranker, plur, a vault's restApiUrl) that are unlisted or refused. Entries name config paths, vault ids, host names and addresses, so only a caller that may read every vault sees them; any other caller gets ONE generic line carrying the count. Absent when none.",
     )
     .optional(),
   leader_role: z.enum(["leader", "follower"]).optional(),
@@ -481,8 +481,16 @@ export function createHealthTool(opts: {
               };
             })()
           : {}),
+        // The lines name vault ids, hostnames and resolved addresses (other tenants'): the same
+        // gate as `index.detail`, a caller that reads every vault. Anyone else gets a count.
         ...(opts.deprecations && opts.deprecations.length > 0
-          ? { deprecations: [...opts.deprecations] }
+          ? {
+              deprecations: indexDetail
+                ? [...opts.deprecations]
+                : [
+                    `${opts.deprecations.length} deprecation notice${opts.deprecations.length === 1 ? "" : "s"} in effect; the detail names hosts and vaults and is withheld from this caller (run \`obsidian-tc doctor\` on the server, or call server_health as an unrestricted administrator)`,
+                  ],
+            }
           : {}),
         ...(opts.getLeaderRole ? { leader_role: opts.getLeaderRole() } : {}),
         ...(opts.getLeaderRoleDetail

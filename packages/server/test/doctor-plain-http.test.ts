@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   plainHttpCheck,
   plainHttpDeprecations,
+  plainHttpEndpointDeprecations,
   plainHttpEndpoints,
 } from "../src/doctor/plain-http";
 import type { ResolveHost } from "../src/gateway/plain-http";
@@ -290,14 +291,30 @@ describe("plainHttpEndpoints: every provider client's baseUrl", () => {
     ).toEqual([]);
   });
 
-  it("plainHttpDeprecations names each unlisted non-loopback provider host and the config to add", () => {
+  it("plainHttpDeprecations is the config-only half: allowPlainHttp lines, no host names", () => {
     const out = plainHttpDeprecations({
       ...base,
       network: { plainHttpHosts: ["litellm"] },
       gateway: { baseUrl: "http://litellm:4000" },
       embeddings: { provider: "openai-compatible", baseUrl: "http://emb.lan:8080/v1" },
-      plur: { endpoint: "http://127.0.0.1:7077" },
+      wikiJudge: { provider: "typesafe", allowPlainHttp: true },
     });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatch(/^wikiJudge\.allowPlainHttp is deprecated/);
+    expect(out[0]).not.toContain("emb.lan");
+  });
+
+  it("plainHttpEndpointDeprecations names each unlisted private provider host and the config to add", async () => {
+    const out = await plainHttpEndpointDeprecations(
+      {
+        ...base,
+        network: { plainHttpHosts: ["litellm"] },
+        gateway: { baseUrl: "http://litellm:4000" },
+        embeddings: { provider: "openai-compatible", baseUrl: "http://emb.lan:8080/v1" },
+        plur: { endpoint: "http://127.0.0.1:7077" },
+      },
+      resolver({ litellm: ["172.18.0.5"], "emb.lan": ["192.168.1.20"] }),
+    );
     expect(out).toHaveLength(1);
     expect(out[0]).toMatch(/^embeddings\.baseUrl: .*emb\.lan/);
     expect(out[0]).toContain('add "emb.lan" to network.plainHttpHosts');

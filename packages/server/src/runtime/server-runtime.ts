@@ -18,6 +18,8 @@ import { version as VERSION } from "../../package.json";
 import { experientialMigrations } from "../cli/shared";
 import { createStdioElicitCodec } from "../elicit";
 import { buildMemoryDefenseLookup } from "../experiential/memory-defense";
+import { plainHttpEndpointDeprecations } from "../doctor/plain-http";
+import { providerResolveHost } from "../gateway/provider-fetch";
 import { healthToolsWiringFields, mcpServerFacadeOptions } from "../mcp/facade-auto";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
 import { createMcpServer } from "../mcp/server";
@@ -263,7 +265,14 @@ export async function buildServerRuntime(
     wireHealthTools({
       registry,
       version: VERSION,
-      ...healthToolsWiringFields(config, telemetry, db), // THE-1108: db -> getStaleExplicitSessions.
+      // THE-1108: db -> getStaleExplicitSessions. The last argument is the per-endpoint egress
+      // advice, classified with the transport's own resolver (needs DNS, so awaited once here).
+      ...healthToolsWiringFields(
+        config,
+        telemetry,
+        db,
+        await plainHttpEndpointDeprecations(config, providerResolveHost),
+      ),
       startedAt,
       hasVec,
       hasFts,
