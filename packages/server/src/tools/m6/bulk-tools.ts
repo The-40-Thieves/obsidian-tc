@@ -49,7 +49,7 @@ import {
   writeNotesAllOrNothingGuarded,
 } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
-import { rewriteLinks } from "../../vault/rewrite";
+import { rewriteLinksForMove } from "../../vault/rewrite";
 import { createModeConflictError, overwriteModeMissingError } from "../../vault/write-mode-errors";
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
@@ -115,14 +115,18 @@ function rewriteForMoves(
       continue; // a path that vanished mid-pass is skipped, not fatal
     }
     const inThisNote = new Map<string, number>();
-    const { text, count } = rewriteLinks(raw, (target) => {
-      const r = resolveTarget(oldIndex, target);
-      if (!r.resolved || r.target_path === undefined) return null;
-      const toRel = moveMap.get(r.target_path);
-      if (toRel === undefined) return null;
-      inThisNote.set(r.target_path, (inThisNote.get(r.target_path) ?? 0) + 1);
-      return newTargetFor(toRel, postIndex);
-    });
+    const { text, count } = rewriteLinksForMove(
+      raw,
+      (target) => {
+        const r = resolveTarget(oldIndex, target);
+        if (!r.resolved || r.target_path === undefined) return null;
+        const toRel = moveMap.get(r.target_path);
+        if (toRel === undefined) return null;
+        inThisNote.set(r.target_path, (inThisNote.get(r.target_path) ?? 0) + 1);
+        return newTargetFor(toRel, postIndex);
+      },
+      p,
+    );
     if (count > 0 && !skips.blocks(p)) {
       if (visible(p)) {
         total += count;
@@ -569,6 +573,22 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             })),
           };
         }
+
+        // Plan the whole backlink rewrite and prove every link BEFORE the first file moves: the dry
+        // run's pass over the current tree throws on a link it cannot write (an existing `C#/`
+        // destination folder, a `)` in a markdown target), refusing the whole batch while nothing
+        // has moved. A throwaway skips tracker, so the real pass below reports each skip once.
+        if (input.update_backlinks)
+          rewriteForMoves(
+            v.root,
+            moveMap,
+            prePaths,
+            false,
+            mdConfig,
+            deps.metrics,
+            visible,
+            new ImmutableRewriteSkips(ctx.acl, v.root, ctx.grantedScopes),
+          );
 
         // Real move — phase 1: relocate each valid file; drop any that throw.
         // THE-572: everything above this line is read-only (validation + the dry_run preview), so

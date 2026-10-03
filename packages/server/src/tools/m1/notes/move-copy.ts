@@ -2,7 +2,7 @@
 // buildNotesTools. Paired because both relocate/duplicate a note to a new path with the same
 // overwrite-then-trash-destination shape (soft-delete the existing destination to .trash before
 // writing over it, so overwritten content stays recoverable). move_note additionally rewrites
-// backlinks in every other note that pointed at the old path — updateBacklinks below is private
+// backlinks in every other note that pointed at the old path — planBacklinks below is private
 // to move_note; copy_note does not rewrite links (see its description).
 import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import {
@@ -25,7 +25,7 @@ import {
   writeNotesAllOrNothingGuarded,
 } from "../../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../../vault/paths";
-import { rewriteLinks } from "../../../vault/rewrite";
+import { rewriteLinksForMove } from "../../../vault/rewrite";
 import { captureSnapshot } from "../../../vault/snapshots";
 import { type RewriteWarning, rewriteWarningsOut } from "../../scan-warnings";
 import { defineTool } from "../define";
@@ -44,35 +44,40 @@ function basenameNoExt(p: string): string {
   return b.replace(/\.md$/i, "");
 }
 
-/** Rewrite links in every other note that pointed at the moved note. Runs after
- *  the file has moved on disk; reconstructs the pre-move path set so old-target
- *  links still resolve to fromRel, then repoints them at the new location. */
+/** The backlink rewrite of a move, computed and PROVEN before anything is moved (planBacklinks),
+ *  then written by commitBacklinks once the move has landed. */
+interface BacklinkPlan {
+  pending: Array<{ abs: string; rel: string; text: string; count: number }>;
+  warnings: RewriteWarning[];
+}
+
+/** Plan the rewrite of every other note that pointed at the moved note: the new text of each, with
+ *  every changed link re-parsed (rewriteLinksForMove). It only reads, so it runs BEFORE the move and
+ *  a link that cannot be written refuses the whole move while the file is still in place. Both path
+ *  sets are rebuilt from the vault as it is now, whichever side of the move that is, so old-target
+ *  links still resolve to fromRel and are repointed at the new location. */
 // ACL carve-out: this rewrites links in EVERY referencing note to keep links valid,
 // including notes outside the caller's write whitelist. Deliberate graph-integrity
 // invariant (a constrained link-text update, not arbitrary write access) — audit #12.
-function updateBacklinks(
+function planBacklinks(
   root: string,
   fromRel: string,
   toRel: string,
-  mdConfig: VaultMemoryDefenseConfig,
-  metrics: MetricsRecorder | undefined,
   readable: (rel: string) => boolean,
   skips: ImmutableRewriteSkips,
-): {
-  notes: number;
-  links: number;
-  rewritten: Array<{ rel: string; text: string }>;
-  warnings: RewriteWarning[];
-} {
-  const postPaths = walkVault(root, { extensions: [".md"] }).map((e) => e.relPath);
-  const oldPaths = postPaths.filter((p) => p !== toRel).concat(fromRel);
+): BacklinkPlan {
+  const current = walkVault(root, { extensions: [".md"] }).map((e) => e.relPath);
+  const postPaths = current.filter((p) => p !== fromRel);
+  if (!postPaths.includes(toRel)) postPaths.push(toRel);
+  const oldPaths = current.filter((p) => p !== toRel);
+  if (!oldPaths.includes(fromRel)) oldPaths.push(fromRel);
   const oldIndex = buildVaultIndex(oldPaths);
   const newIndex = buildVaultIndex(postPaths);
   const newBase = basenameNoExt(toRel);
   const unique = (newIndex.byBasename.get(newBase.toLowerCase()) ?? []).length === 1;
   const newTarget = unique ? newBase : toRel.replace(/\.md$/i, "");
 
-  const pending: Array<{ abs: string; rel: string; text: string; count: number }> = [];
+  const pending: BacklinkPlan["pending"] = [];
   const warnings: RewriteWarning[] = [];
   for (const p of postPaths) {
     if (p === toRel) continue; // the moved note's own outgoing links are unaffected
@@ -82,14 +87,33 @@ function updateBacklinks(
       text,
       count,
       warnings: ws,
-    } = rewriteLinks(raw, (target) => {
-      const r = resolveTarget(oldIndex, target);
-      return r.resolved && r.target_path === fromRel ? newTarget : null;
-    });
+    } = rewriteLinksForMove(
+      raw,
+      (target) => {
+        const r = resolveTarget(oldIndex, target);
+        return r.resolved && r.target_path === fromRel ? newTarget : null;
+      },
+      p,
+    );
     // a warning names its note, and the rewrite is vault-wide: only name notes the caller may read
     if (readable(p)) for (const w of ws) warnings.push({ path: p, ...w });
     if (count > 0 && !skips.blocks(p)) pending.push({ abs, rel: p, text, count });
   }
+  return { pending, warnings };
+}
+
+/** Write a planned backlink rewrite, once the move has landed. */
+function commitBacklinks(
+  plan: BacklinkPlan,
+  mdConfig: VaultMemoryDefenseConfig,
+  metrics: MetricsRecorder | undefined,
+): {
+  notes: number;
+  links: number;
+  rewritten: Array<{ rel: string; text: string }>;
+  warnings: RewriteWarning[];
+} {
+  const { pending, warnings } = plan;
   // Security review round (GH #994 follow-up) + residual fix: scan every rewritten body BEFORE
   // any of them is written — the shared all-or-nothing helper (vault/notes-io.ts). A note being
   // rewritten here can carry a pre-existing secret that predates memoryDefense; a block-worthy
@@ -169,6 +193,20 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
           actual: hash,
         });
 
+      // Plan and PROVE the whole backlink rewrite before anything is touched: a destination whose
+      // links cannot be written (an existing `C#/` folder, a `)` in a markdown link target) refuses
+      // here, with the file still in place and its backlinks still valid.
+      const skips = new ImmutableRewriteSkips(ctx.acl, v.root, ctx.grantedScopes);
+      const backlinkPlan = input.update_backlinks
+        ? planBacklinks(
+            v.root,
+            fromRel,
+            toRel,
+            (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
+            skips,
+          )
+        : null;
+
       const crossFolder = dirOf(fromRel) !== dirOf(toRel);
       const overwriteExisting = toEx.exists && input.overwrite;
       requireConfirmation(ctx, "move_note", input, crossFolder || overwriteExisting, {
@@ -213,17 +251,8 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
       // index the destination, and reindex every backlink-rewritten note below.
       deps.deindex?.(v.id, fromRel);
       deps.reindex?.(v.id, toRel, scannedRaw);
-      const skips = new ImmutableRewriteSkips(ctx.acl, v.root, ctx.grantedScopes);
-      const backlinks = input.update_backlinks
-        ? updateBacklinks(
-            v.root,
-            fromRel,
-            toRel,
-            mdConfig,
-            deps.metrics,
-            (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
-            skips,
-          )
+      const backlinks = backlinkPlan
+        ? commitBacklinks(backlinkPlan, mdConfig, deps.metrics)
         : { notes: 0, links: 0, rewritten: [], warnings: [] };
       for (const rw of backlinks.rewritten) deps.reindex?.(v.id, rw.rel, rw.text);
       return {

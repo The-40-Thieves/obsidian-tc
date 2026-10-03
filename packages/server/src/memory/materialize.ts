@@ -102,6 +102,16 @@ export function sanitizeSegment(s: string): string {
   return cleaned.length > 0 ? cleaned : "untitled";
 }
 
+/** What goes between `[[` and `]]` for a relation's target entity: the name its note is FILED under
+ *  (sanitizeSegment), so the link resolves to that note, with whatever sanitizeSegment leaves that
+ *  a link body cannot hold (`%%`, control characters) neutralised too. A raw name is caller-chosen
+ *  free text: `Bob]]\n# Heading` spliced into `[[...]]` closes the link early and writes the rest
+ *  into the note. An ordinary name comes back unchanged. */
+function relationLinkTarget(name: string): string {
+  const filed = sanitizeSegment(name).replaceAll("%%", "%-");
+  return Array.from(filed, (ch) => (ch <= "\u001f" || ch === "\u007f" ? "-" : ch)).join("");
+}
+
 /** Vault-relative path for an entity's materialized note: <folder>/<type>/<name>.md.
  *  Both type and name are sanitized to single segments — no traversal can escape; the final check
  *  also covers a configured `folder` that itself carries a `..` segment. */
@@ -171,7 +181,7 @@ export function renderEntityNote(input: RenderEntityInput): string {
   );
   if (rels.length === 0) lines.push("_No relations._", "");
   else {
-    for (const r of rels) lines.push(`- ${r.relationType} [[${r.targetName}]]`);
+    for (const r of rels) lines.push(`- ${r.relationType} [[${relationLinkTarget(r.targetName)}]]`);
     lines.push("");
   }
   return serializeNote(fm, lines.join("\n"));

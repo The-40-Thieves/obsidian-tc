@@ -14,7 +14,7 @@ import { parseNoteLenient } from "../vault/frontmatter";
 import { extractNoteLinks } from "../vault/links";
 import { readNote, writeNotesAllOrNothingGuarded } from "../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../vault/paths";
-import { rewriteLinks } from "../vault/rewrite";
+import { rewriteLinksForMove } from "../vault/rewrite";
 
 export const DEFAULT_ATTACHMENT_EXTS = [
   ".png",
@@ -130,6 +130,11 @@ export function findAttachmentReferences(root: string, attachmentRel: string): s
   return out;
 }
 
+/** The new body of every note that references a moved attachment, proven and not yet written. */
+export interface AttachmentReferencePlan {
+  pending: Array<{ abs: string; rel: string; text: string; count: number }>;
+}
+
 /**
  * Repoint every link that RESOLVES to a moved attachment, fenced-code aware. A
  * path-style link is rewritten only when its vault-relative path matches the moved
@@ -139,10 +144,13 @@ export function findAttachmentReferences(root: string, attachmentRel: string): s
  * at a DIFFERENT file in another folder. Link style is preserved (bare -> new
  * basename, path -> new vault-relative path). Returns notes/links rewritten.
  *
- * Resolution uses the PRE-move attachment set: the caller relocates the file
- * (fromRel -> toRel) before calling this, so the current toRel entry is mapped back
- * to fromRel, and fromRel is always seeded even when no attachment file is on disk
- * (e.g. a link to an attachment that was never materialized).
+ * Resolution uses the PRE-move attachment set. It works from the vault on either side of the move:
+ * a toRel entry already on disk is mapped back to fromRel, and fromRel is always seeded even when
+ * no attachment file is on disk (e.g. a link to an attachment that was never materialized).
+ *
+ * Planning and writing are separate: `planAttachmentReferences` computes and proves every new body
+ * (it only reads), so move_attachment runs it BEFORE the move and a link that cannot be written
+ * refuses the whole move; `commitAttachmentReferences` writes the plan after the move.
  *
  * Review finding: the rewritten link text lands in an ordinary note BODY (not the binary
  * attachment), so it gets the same memoryDefense scan every other note-content writer applies —
@@ -154,14 +162,12 @@ export function findAttachmentReferences(root: string, attachmentRel: string): s
 // ACL carve-out: this rewrites links in EVERY referencing note to keep links valid,
 // including notes outside the caller's write whitelist. Deliberate graph-integrity
 // invariant (a constrained link-text update, not arbitrary write access) — audit #12.
-export function rewriteAttachmentReferences(
+export function planAttachmentReferences(
   root: string,
   fromRel: string,
   toRel: string,
-  mdConfig: VaultMemoryDefenseConfig | undefined,
-  metrics: MetricsRecorder | undefined,
   skips: ImmutableRewriteSkips,
-): { notes: number; refs: number } {
+): AttachmentReferencePlan {
   const fromPathLower = fromRel.toLowerCase();
   const toBase = baseOf(toRel);
   const preSet = new Set(
@@ -210,15 +216,29 @@ export function rewriteAttachmentReferences(
   for (const e of walkVault(root, { extensions: [".md"] })) {
     const abs = resolveVaultPath(root, e.relPath);
     const { raw } = readNote(abs);
-    const { text, count } = rewriteLinks(raw, (targetRaw) => {
-      const t = normalizeTarget(targetRaw);
-      if (t === "") return null;
-      const hadSlash = t.includes("/");
-      if (!resolvesToFrom(t, hadSlash)) return null;
-      return hadSlash ? toRel : toBaseUnique ? toBase : toRel;
-    });
+    const { text, count } = rewriteLinksForMove(
+      raw,
+      (targetRaw) => {
+        const t = normalizeTarget(targetRaw);
+        if (t === "") return null;
+        const hadSlash = t.includes("/");
+        if (!resolvesToFrom(t, hadSlash)) return null;
+        return hadSlash ? toRel : toBaseUnique ? toBase : toRel;
+      },
+      e.relPath,
+    );
     if (count > 0 && !skips.blocks(e.relPath)) pending.push({ abs, rel: e.relPath, text, count });
   }
+  return { pending };
+}
+
+/** Write a planned attachment-reference rewrite, once the move has landed. */
+export function commitAttachmentReferences(
+  plan: AttachmentReferencePlan,
+  mdConfig: VaultMemoryDefenseConfig | undefined,
+  metrics: MetricsRecorder | undefined,
+): { notes: number; refs: number } {
+  const { pending } = plan;
   // Scan every rewritten body BEFORE any of them is written, then persist — the shared
   // all-or-nothing helper (vault/notes-io.ts): a block-worthy match in note N refuses the whole
   // rewrite rather than leaving notes 1..N-1 repointed and N..last still pointing at the old
@@ -231,6 +251,22 @@ export function rewriteAttachmentReferences(
   let refs = 0;
   for (const p of pending) refs += p.count;
   return { notes: pending.length, refs };
+}
+
+/** Plan + write in one call, for a caller that has nothing to refuse before the move. */
+export function rewriteAttachmentReferences(
+  root: string,
+  fromRel: string,
+  toRel: string,
+  mdConfig: VaultMemoryDefenseConfig | undefined,
+  metrics: MetricsRecorder | undefined,
+  skips: ImmutableRewriteSkips,
+): { notes: number; refs: number } {
+  return commitAttachmentReferences(
+    planAttachmentReferences(root, fromRel, toRel, skips),
+    mdConfig,
+    metrics,
+  );
 }
 
 /** Whether a vault-relative path has a recognized attachment extension. */

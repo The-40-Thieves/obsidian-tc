@@ -26,15 +26,16 @@ import {
 import { redactSecrets } from "../../experiential/redact";
 import {
   checkBase64Payload,
+  commitAttachmentReferences,
   DEFAULT_ATTACHMENT_EXTS,
   extOf,
   findAttachmentReferences,
   isAttachment,
   isBareAttachmentName,
   mimeOf,
+  planAttachmentReferences,
   resolveAttachmentFolder,
   resolveAttachmentWritePath,
-  rewriteAttachmentReferences,
 } from "../../formats/attachments";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl, ImmutableRewriteSkips } from "../../vault/acl-path";
@@ -464,6 +465,15 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         if (toEx.exists && !input.overwrite)
           throw err.noteExists("destination already exists; set overwrite", { path: toRel });
 
+        // Plan and PROVE the reference rewrite before anything is touched: a destination whose links
+        // cannot be written (an existing `C#/` folder, a `)` in a markdown target) refuses here,
+        // with the attachment still in place and its references still valid.
+        const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
+        const skips = new ImmutableRewriteSkips(ctx.acl, v.root, ctx.grantedScopes);
+        const referencePlan = input.update_references
+          ? planAttachmentReferences(v.root, fromRel, toRel, skips)
+          : null;
+
         const crossFolder = dirOf(fromRel) !== dirOf(toRel);
         const overwriteExisting = toEx.exists && input.overwrite;
         requireConfirmation(ctx, "move_attachment", input, crossFolder || overwriteExisting, {
@@ -475,7 +485,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         // The source is read BEFORE the destination is touched, so an unreadable source (a
         // hard-linked or non-regular file) refuses while the destination is still in place.
         const bytes = readFileChecked(fromAbs);
-        // THE-572: copy + hardDelete + rewriteAttachmentReferences is multi-step, and the reference
+        // THE-572: copy + hardDelete + commitAttachmentReferences is multi-step, and the reference
         // rewrite at the end is fallible. replaceDestination marks the effect committed once the
         // copy landed, so a throw after that point is an accurate indeterminate_outcome on retry
         // instead of a not-found for the source that already moved. On overwrite the destination is
@@ -492,11 +502,9 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         });
         hardDelete(fromAbs);
         // the rewritten link text lands in referencing notes' bodies — same guard every
-        // other note-content writer gets (see rewriteAttachmentReferences's own doc comment).
-        const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
-        const skips = new ImmutableRewriteSkips(ctx.acl, v.root, ctx.grantedScopes);
-        const references = input.update_references
-          ? rewriteAttachmentReferences(v.root, fromRel, toRel, mdConfig, deps.metrics, skips)
+        // other note-content writer gets (see planAttachmentReferences's own doc comment).
+        const references = referencePlan
+          ? commitAttachmentReferences(referencePlan, mdConfig, deps.metrics)
           : { notes: 0, refs: 0 };
         return {
           vault: v.id,
