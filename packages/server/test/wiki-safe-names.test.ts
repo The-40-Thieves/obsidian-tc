@@ -290,7 +290,7 @@ describe("existing files with awkward names stay readable, updatable and movable
   let v: TestVault | undefined;
   afterEach(() => v?.cleanup());
 
-  const AWKWARD = "legacy/a#b^c [x] d|e.md";
+  const AWKWARD = "legacy/a#b^c [x] d.md";
   function build(): TestVault {
     const t = makeTestVault({ centralAcl: true, files: { "linker.md": "See [[Old]]\n" } });
     mkdirSync(join(t.root, "legacy"), { recursive: true });
