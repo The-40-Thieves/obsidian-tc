@@ -249,6 +249,9 @@ describe("rewriteLinks proves each rewritten link (defence in depth)", () => {
     ["markdown url closes early", "[x](Old)", "a) injected (b"],
     ["markdown url with newline", "[x](Old)", "a\nb"],
     ["trailing bracket", "[[Old]]", "[br]"],
+    ["wikilink with only a line break", "[[Old]]", "a\nb"],
+    ["wikilink with only a carriage return", "[[Old]]", "a\rb"],
+    ["wikilink with a comment marker", "[[Old]]", "a%%b"],
   ])("refuses: %s", (_l, text, to) => {
     expect(() => rewriteLinks(text, map(to))).toThrow(/invalid_input|cannot be written|link/i);
   });
