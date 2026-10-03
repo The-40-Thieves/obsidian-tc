@@ -26,20 +26,26 @@ export function defaultSetupConfigPath(): string {
   return join(homedir(), ".obsidian-tc", "config.json");
 }
 
-/** Render a schema-validation failure of the config FILE at `target` as one actionable line: the
- *  file, each offending field, and what to do next — instead of the raw Zod issue array
- *  `ServerConfigSchema.parse` throws (which named neither the file nor the way out). A missing
- *  required key reads "<path> is required" (Zod's own text for it is "expected array, received
- *  undefined"); anything else keeps Zod's message under the dotted field path. */
-function invalidConfigError(target: string, error: z.ZodError): CliError {
-  const problems = error.issues.map((issue) => {
+/** Each offending field of a schema-validation failure, one string per issue: a missing required
+ *  key reads "<path> is required" (Zod's own text for it is "expected array, received undefined");
+ *  anything else keeps Zod's message under the dotted field path. Shared by every command that
+ *  reports a config that does not validate (this module's serve/index path, and `setup`'s refusal
+ *  to overwrite one). */
+export function configIssueLines(error: z.ZodError): string[] {
+  return error.issues.map((issue) => {
     const field = issue.path.length > 0 ? issue.path.join(".") : "(root)";
     return issue.code === "invalid_type" && issue.message.endsWith("received undefined")
       ? `${field} is required`
       : `${field}: ${issue.message}`;
   });
+}
+
+/** Render a schema-validation failure of the config FILE at `target` as one actionable line: the
+ *  file, each offending field, and what to do next — instead of the raw Zod issue array
+ *  `ServerConfigSchema.parse` throws (which named neither the file nor the way out). */
+function invalidConfigError(target: string, error: z.ZodError): CliError {
   return new CliError(
-    `${target} is not a valid config: ${problems.join("; ")} — fix that file, run \`obsidian-tc setup\`, or pass a vault folder.`,
+    `${target} is not a valid config: ${configIssueLines(error).join("; ")} — fix that file, run \`obsidian-tc setup\`, or pass a vault folder.`,
   );
 }
 
@@ -174,7 +180,7 @@ export function resolveServeConfigWithProvenance(input?: string): ResolvedServeC
         `obsidian-tc: the config at ${target} could not be parsed as JSON (empty or ` +
           "corrupted) — this is the default path obsidian-tc's first-run fallback writes to, " +
           "and an interrupted write can leave it broken. Delete it and try again, or run " +
-          "`obsidian-tc setup` to write a fresh one.\n",
+          "`obsidian-tc setup --replace-invalid-config` to back it up and write a fresh one.\n",
       );
     }
     throw e;

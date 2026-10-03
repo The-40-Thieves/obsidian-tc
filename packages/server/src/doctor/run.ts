@@ -44,6 +44,7 @@ import { type CitationJudgeView, citationJudgeCheck } from "./citation-judge";
 // above — its own resolution step (finding the install root) that no other check needs.
 import { type ConflictCopiesView, conflictCopiesCheck } from "./conflict-copies";
 import { type DbSpaceView, dbSpaceCheck } from "./db-space";
+import { type DeadPathGlobsView, deadPathGlobsCheck } from "./dead-path-globs";
 import { type EmbeddingsBuildableView, embeddingsBuildableCheck } from "./embeddings-buildable";
 import { type EntryPointsView, entryPointsCheck } from "./entrypoints";
 // THE-1108: sessions.liveness lives in its own module, same reasoning as capture-location above —
@@ -161,6 +162,7 @@ export interface DoctorConfigView {
   sessions?: SessionLivenessView;
   hitlConfirmations?: HitlConfirmationsView;
   memoryReadAcl?: MemoryReadAclView;
+  pathGlobs?: DeadPathGlobsView;
 }
 
 export interface AssembleOptions {
@@ -269,6 +271,7 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   if (config.sessions) checks.push(sessionLivenessCheck(config.sessions));
   if (config.hitlConfirmations) checks.push(hitlConfirmationsCheck(config.hitlConfirmations));
   if (config.memoryReadAcl) checks.push(memoryReadAclCheck(config.memoryReadAcl));
+  if (config.pathGlobs) checks.push(deadPathGlobsCheck(config.pathGlobs));
 
   // bridge.state (THE-523) is added only when the caller probed the vaults — doctor's CLI wiring
   // does; a pure profile-only call omits it rather than reporting a hollow "no bridge".

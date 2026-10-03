@@ -12,7 +12,16 @@ describe("parseCliArgs setup", () => {
       yes: false,
       dryRun: false,
       force: false,
+      replaceInvalidConfig: false,
     });
+  });
+
+  it("--replace-invalid-config is its own flag, never implied by --force", () => {
+    expect(parseCliArgs(["setup", "--replace-invalid-config"])).toMatchObject({
+      force: false,
+      replaceInvalidConfig: true,
+    });
+    expect(parseCliArgs(["setup", "--force"])).toMatchObject({ replaceInvalidConfig: false });
   });
 
   it("--yes, --dry-run, --force are independent booleans", () => {

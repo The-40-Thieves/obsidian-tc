@@ -19,6 +19,7 @@ import {
   renderText,
   resolveInstallRoot,
 } from "../../doctor";
+import { deadPathGlobsView } from "../../doctor/dead-path-globs";
 import { HITL_DOCTOR_WINDOW_DAYS, probeHitlConfirmations } from "../../doctor/hitl-confirmations";
 import { probeIndexCoverage } from "../../doctor/index-coverage";
 import { probeNoteSummariesScale } from "../../doctor/note-summary-scale";
@@ -686,6 +687,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
           ...(memoryEntities !== undefined ? { probe: () => memoryEntities } : {}),
         };
       })(),
+      pathGlobs: deadPathGlobsView(config),
       sessions: {
         windowSeconds: config.sessions.windowSeconds,
         ...(sessionLiveness !== undefined ? { probe: () => sessionLiveness } : {}),

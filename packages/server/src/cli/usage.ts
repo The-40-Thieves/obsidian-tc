@@ -9,7 +9,7 @@ Usage:
   obsidian-tc serve [path]                Same as above; path may be a vault folder or a config file
   obsidian-tc config show [path]          Print the effective config with secrets redacted
   obsidian-tc config validate [path]      Validate the config (exit non-zero on error)
-  obsidian-tc setup [--yes] [--dry-run] [--force] [--config <path>] [--vault <path>]
+  obsidian-tc setup [--yes] [--dry-run] [--force] [--replace-invalid-config] [--config <path>] [--vault <path>]
                      [--install-client claude-code|claude-desktop|cursor]
                                           Detect the environment ONCE and write an explicit config
                                           (GH #995's fix): Obsidian vaults, an existing index's
@@ -25,7 +25,12 @@ Usage:
                                           before writing; without a TTY, behaves like --dry-run
                                           unless --yes is given. Refuses to overwrite an existing
                                           config unless --force, which backs it up first
-                                          (<path>.bak-<timestamp>). Point obsidian-tc at the result
+                                          (<path>.bak-<timestamp>). Never touches an existing
+                                          config that is not valid (malformed JSON, a root that is
+                                          not an object, a schema failure), even with --force,
+                                          --yes or --dry-run: it prints the problem and exits 1.
+                                          Only --replace-invalid-config replaces such a file, after
+                                          a backup, discarding its acl/auth/egress settings. Point obsidian-tc at the result
                                           with --config or OBSIDIAN_TC_CONFIG. Without
                                           --install-client, prints ready-to-paste MCP client
                                           snippets for Claude Code, Claude Desktop and Cursor; with

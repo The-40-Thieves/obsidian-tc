@@ -18,6 +18,7 @@ import {
   SnapshotsConfigSchema,
   WatchConfigSchema,
 } from "./config/observability.schema";
+import { isRegexExclusionEntry } from "./config/path-glob";
 import {
   type PersonaConfig,
   PersonaConfigSchema,
@@ -130,6 +131,7 @@ export {
   HttpConfigSchema,
   IndexingConfigSchema,
   isFeedbackExemptFromReadOnly,
+  isRegexExclusionEntry,
   isUnusableEgressExcludePattern,
   LOCAL_CATALOG_DIMENSIONS,
   MaintenanceConfigSchema,

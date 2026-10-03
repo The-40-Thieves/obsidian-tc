@@ -122,6 +122,49 @@ server never binds a routable address.
 | `readPaths` / `writePaths` / `deletePaths` | glob[] *(optional)* | Per-operation whitelists. Omitted = that operation unrestricted; present = a path must match at least one glob. `.obsidian/`, `.git/`, `.trash/` are always denied (case-folded, so case variants can't evade it). |
 | `strictReadDefault` | bool, false | When true, an **undefined** `readPaths` fails closed on reads instead of allowing all. |
 
+### Path globs: write `/`, a backslash is a separator
+
+Every config field that holds a vault path pattern is normalised once, when the config loads:
+each backslash becomes `/` and repeated separators collapse. So `Private\**` (the natural spelling on
+Windows, written `"Private\\**"` inside JSON) is exactly `Private/**`, and `notes//drafts` is `notes/drafts`. A vault path can never
+contain a backslash, so there is nothing to escape in operator input: a backslash is always a
+separator, and `\*` is not a way to match a literal `*`.
+
+The fields this covers: `acl.rules[].glob`, `acl.readPaths` / `writePaths` / `deletePaths` (also under
+a vault's own `acl`), `egress.excludePaths`, and `vaults[].index.excludePaths` (path-prefix entries
+only; an entry written `/regex/` is a regular expression and is left exactly as written).
+
+`acl.rules[].glob` and the three `*Paths` whitelists are stricter than the rest: an ACL pattern is
+matched against a path **relative to the vault root** (`Private/x.md`), so one that is still anchored
+at a root after normalising can never match. Config load **refuses** it, with the vault-relative
+spelling in the error, rather than guessing:
+
+- a leading separator (`/Private/**`, `\Private\**`), a drive letter (`C:\notes\**`), a UNC prefix
+  (`\\server\share`), or a leading `./`: write `Private/**`, `notes/**`;
+- a trailing separator (`notes\private\`): that is the exact path `notes/private/`, not the folder.
+  Write `notes/private/**`.
+- a `.` or `..` path segment anywhere (`../Private/**`, `Private/./**`, `Private/../**`): the server
+  rejects `..` and drops `.` in every path it checks, so a rule written that way never matches the
+  folder it names. Spell the folder itself (`Private/**`). Names that merely contain dots
+  (`.obsidian/**`, `a..b/**`, `v1.2/**`) are fine;
+- a control character (NUL, tab, newline, DEL and the other C0/C1 controls), which no ACL pattern may
+  contain. NUL in particular is the matcher's own internal marker for `**` and would over-match.
+
+Refusing instead of stripping is deliberate: an `acl.rules` entry that never matched left its extra
+scopes unenforced, and stripping the marker from a whitelist entry would turn one that granted nothing
+into a grant. **Upgrade note:** a config that carries such a pattern now fails to start (`serve`,
+`doctor` and the other commands print the field and the fix). Those rules never worked, so the fix is to
+rewrite them vault-relative. The egress and index fields keep stripping a leading separator and
+widening a trailing one to the folder.
+
+Before this, a backslash glob compiled to a pattern no vault path could match. For a whitelist
+(`readPaths` and friends) that failed closed, which is safe. For a restriction (`egress.excludePaths`,
+`acl.rules`, `index.excludePaths`) it failed **open**: the exclusion silently excluded nothing.
+
+`obsidian-tc doctor` runs `config.path-globs`, which warns about any configured glob that matches no
+file in its vault (a typo, the wrong case, a renamed folder). A dead restriction is reported as one that
+protects nothing; a dead whitelist entry as one that grants nothing.
+
 ## `embeddings`
 
 | Field | Type / default | What it does |

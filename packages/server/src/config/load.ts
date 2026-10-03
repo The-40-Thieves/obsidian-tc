@@ -127,7 +127,35 @@ export function isCacheDirExplicit(raw: Record<string, unknown>): boolean {
  *  is applied. Exported so a caller can inspect what the file itself said -- e.g.
  *  `isPlaneEnabledExplicit` -- without re-implementing this read. */
 export function readConfigFile(path: string): Record<string, unknown> {
-  return JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, "")) as Record<string, unknown>;
+  const parsed: unknown = JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, ""));
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new ConfigRootTypeError(path, parsed);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+/** The JSON in a config file is valid but its root is not an object (`null`, `123`, `"x"`, `false`,
+ *  an array). Every raw-object reader below (`"cacheDir" in raw`, `raw.embeddings`, ...) would
+ *  otherwise die on it with an untyped TypeError, which a catch-all can mistake for "no config". */
+export class ConfigRootTypeError extends Error {
+  readonly rootType: "null" | "array" | "number" | "string" | "boolean" | "other";
+  constructor(path: string, parsed: unknown) {
+    super(`config root must be an object, but ${path} holds ${describeRoot(parsed)}`);
+    this.name = "ConfigRootTypeError";
+    this.rootType = rootKind(parsed);
+  }
+}
+
+function rootKind(parsed: unknown): ConfigRootTypeError["rootType"] {
+  if (parsed === null) return "null";
+  if (Array.isArray(parsed)) return "array";
+  const t = typeof parsed;
+  return t === "number" || t === "string" || t === "boolean" ? t : "other";
+}
+
+function describeRoot(parsed: unknown): string {
+  const kind = rootKind(parsed);
+  return kind === "null" ? "null" : `a JSON ${kind}`;
 }
 
 export function finalizeConfig(
