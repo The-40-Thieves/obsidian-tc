@@ -7,12 +7,19 @@
 # runtime stage copies ONLY packages/server/dist. The bundle is built --target node with all npm
 # deps (incl. @the-40-thieves/obsidian-tc-shared) inlined and only better-sqlite3 kept external.
 # At runtime the entrypoint runs under Bun, so openDatabase() uses the built-in bun:sqlite; the
-# external better-sqlite3 and the node:sqlite fallback are never reached, and the native module +
-# sqlite-vec are createRequire()-optional (graceful pure-JS fallback when absent). So the runtime
-# needs no node_modules: bun runtime + dist (bundle + copy-assets output: migrations/, schema.sql,
-# plugin/) is sufficient to boot. The one exception is the optional @redis/client (see below). ca-certificates stays in the runtime stage for outbound TLS
-# (embedding providers / gateway / OTEL exporter). Built + pushed to ghcr.io by publish.yml on a
-# human v* tag; the PR gate (ci-docker.yml) does a build + `version` smoke.
+# external better-sqlite3 and the node:sqlite fallback are never reached. The runtime stage does
+# ship a small node_modules next to dist/ (see "Runtime-only node_modules" below): the bundle
+# resolves sqlite-vec and @the-40-thieves/obsidian-tc-native through createRequire() at run time, and
+# @redis/client through a lazy import, none of which `bun build` can inline. Both createRequire
+# lookups degrade silently (brute-force cosine scan / pure-JS fallback) when the package is absent,
+# so a missing copy never fails the boot: it only shows up as `vec=off` / `native=js-fallback` in
+# the ready banner. ci-docker boots the image with no network and asserts `vec=on native=on` so that
+# degradation fails the PR instead. Do NOT rely on Bun's runtime auto-install to fill the gap: it
+# is disabled the moment ANY node_modules directory is found above the importing file (that is
+# how 1.32.0, which gained a node_modules for @redis/client, lost vec=on), and it needs the network.
+# ca-certificates stays in the runtime stage for outbound TLS (embedding providers / gateway / OTEL
+# exporter). Built + pushed to ghcr.io by publish.yml on a human v* tag; the PR gate (ci-docker.yml)
+# does a build + `version` smoke + the offline boot smoke.
 
 # ---- builder: install deps, build shared then server (this whole stage is discarded) ----
 FROM oven/bun:1.4.2-slim AS build
@@ -26,16 +33,52 @@ RUN bun install --frozen-lockfile --ignore-scripts \
  && (cd packages/server && bun run build) \
  && (cd packages/embedder-local && bun install --frozen-lockfile && bun run build)
 
-# Stage @redis/client (the optional rate-limit backend, throttle.backend "redis") for the runtime
-# stage. The bundle keeps it external, so it must be resolvable next to dist/. Bun's isolated
-# install keeps the package and its dependency symlinks under one .bun/@redis+client@<ver>*/
-# node_modules directory; `cp -rL` flattens that into a plain node_modules holding EXACTLY the
-# lockfile-pinned version and its lockfile-pinned dependencies, and nothing else from the tree.
-# The glob matches whatever bun.lock pins (packages/server/package.json holds the exact pin); if
-# the package ever stops being installed the glob matches nothing and `cp` fails the build.
-RUN mkdir -p /out/redis-client \
- && cp -rL /app/node_modules/.bun/@redis+client@*/node_modules/. /out/redis-client/ \
- && test -f /out/redis-client/@redis/client/package.json
+# Runtime-only node_modules, staged into /out/node_modules for the runtime stage. Everything the
+# bundle resolves at run time from dist/ rather than inlining:
+#   - @redis/client (+ cluster-key-slot, @opentelemetry/api): the optional rate-limit backend,
+#     throttle.backend "redis".
+#   - sqlite-vec (+ the platform package sqlite-vec-linux-<arch> bun picked for THIS build
+#     platform): the vec0 extension loaded by search/vec.ts through createRequire().
+# Bun's isolated install keeps each package and its dependency symlinks under one
+# .bun/<name>@<ver>*/node_modules directory; `cp -rL` flattens that into a plain node_modules
+# holding EXACTLY the lockfile-pinned versions and their lockfile-pinned dependencies, and nothing
+# else from the tree. The globs match whatever bun.lock pins (the sqlite-vec glob cannot match the
+# sqlite-vec-linux-* platform directories: the `@` must follow the bare name); if a package ever
+# stops being installed the glob matches nothing and `cp` fails the build. The multi-arch build runs
+# this stage once per platform (linux/amd64, linux/arm64), so each image gets its own platform
+# package without any arch logic here; the last command resolves the extension the way
+# search/vec.ts does.
+RUN mkdir -p /out/node_modules \
+ && cp -rL /app/node_modules/.bun/@redis+client@*/node_modules/. /out/node_modules/ \
+ && cp -rL /app/node_modules/.bun/sqlite-vec@*/node_modules/. /out/node_modules/ \
+ && test -f /out/node_modules/@redis/client/package.json \
+ && (cd /out && bun --eval 'const p = require("sqlite-vec").getLoadablePath(); if (!p.endsWith("/vec0.so")) throw new Error(p); console.log("sqlite-vec loadable:", p)')
+
+# @the-40-thieves/obsidian-tc-native: the compiled napi module (cosine/BM25 + the symlink-safe vault
+# I/O). It is a workspace package, so `bun install` links it but nothing here compiles it (no Rust
+# toolchain in this image); the prebuilt glibc .node for this image's arch has to be in the build
+# context as packages/native/obsidian-tc-native.linux-<x64|arm64>-gnu.node, which is exactly where
+# packages/native/index.js looks first. ci-docker builds it from source on the runner, publish.yml
+# downloads the release matrix's build, release-image.yml unpacks it from the published npm
+# platform package. Without it the server silently runs the pure-JS fallback (`native=js-fallback`
+# in the ready banner), so the build fails when it is missing unless NATIVE_REQUIRED=0 is passed
+# (local builds with no Rust toolchain).
+ARG TARGETARCH
+ARG NATIVE_REQUIRED=1
+RUN set -eu; \
+    case "$TARGETARCH" in amd64) napi_arch=x64 ;; arm64) napi_arch=arm64 ;; *) napi_arch="unsupported-$TARGETARCH" ;; esac; \
+    node_file="packages/native/obsidian-tc-native.linux-${napi_arch}-gnu.node"; \
+    dest=/out/node_modules/@the-40-thieves/obsidian-tc-native; \
+    mkdir -p "$dest"; \
+    cp packages/native/package.json packages/native/index.js packages/native/fallback.js "$dest/"; \
+    if [ -f "$node_file" ]; then \
+      cp "$node_file" "$dest/"; \
+    elif [ "$NATIVE_REQUIRED" = "1" ]; then \
+      echo "missing $node_file: build the native module for linux-${napi_arch}-gnu first (see packages/native), or pass --build-arg NATIVE_REQUIRED=0 to accept the pure-JS fallback" >&2; \
+      exit 1; \
+    else \
+      echo "WARNING: no $node_file; this image will run the pure-JS fallback" >&2; \
+    fi
 
 # ---- runtime: bun + ca-certs + the server dist only ----
 FROM oven/bun:1.4.2-slim
@@ -45,9 +88,9 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && chown bun:bun /app
 # Copy the built server bundle + its runtime assets (dist/migrations, dist/schema.sql,
-# dist/plugin from scripts/copy-assets.mjs). No source, no node_modules — except for
-# packages/embedder-local below, which needs its own dist AND node_modules (@huggingface/
-# transformers) present.
+# dist/plugin from scripts/copy-assets.mjs). No source; node_modules only as staged above
+# (packages/server/node_modules) plus packages/embedder-local below, which needs its own dist AND
+# node_modules (@huggingface/transformers) present.
 #
 # THE-1122 review round 3: @the-40-thieves/obsidian-tc-embedder-local (the DEFAULT embeddings
 # provider — no config block resolves to it) is reachable from this image via the SAME
@@ -67,10 +110,10 @@ RUN apt-get update \
 # provider `search_semantic` cannot work at all without.
 COPY --from=build --chown=bun:bun /app/packages/server/dist /app/packages/server/dist
 COPY --from=build --chown=bun:bun /app/packages/embedder-local /app/packages/embedder-local
-# @redis/client for throttle.backend "redis" (multi-instance fleets run from this image): copied to
-# packages/server/node_modules so the bare specifier resolves from dist/ by the ordinary walk up.
-# About 14 MB (client + cluster-key-slot + @opentelemetry/api); the rest of the tree stays out.
-COPY --from=build --chown=bun:bun /out/redis-client /app/packages/server/node_modules
+# Runtime-only node_modules (sqlite-vec, @the-40-thieves/obsidian-tc-native, @redis/client and its
+# dependencies), copied to packages/server/node_modules so the bare specifiers resolve from dist/ by
+# the ordinary walk up. A few tens of MB; the rest of the tree stays out.
+COPY --from=build --chown=bun:bun /out/node_modules /app/packages/server/node_modules
 # Run unprivileged. The `bun` user (uid 1000) owns /app, so the default cache dir
 # (<cwd>/.obsidian-tc) stays writable; mount any external cache/vault dir writable by uid 1000.
 USER bun

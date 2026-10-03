@@ -223,7 +223,11 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
 - **Companion plugin zip** — for `.obsidian/plugins/` (plus the loose `manifest.json` / `main.js` /
   `styles.css` set for BRAT).
 - **`.mcpb` bundle** — the single-file MCPB server bundle.
-- **Docker image** — `ghcr.io/the-40-thieves/obsidian-tc` (amd64 + arm64).
+- **Docker image** — `ghcr.io/the-40-thieves/obsidian-tc` (amd64 + arm64). Both release routes push the
+  image to a `smoke-<x.y.z>` staging tag first, boot linux/amd64 and linux/arm64 of that exact digest
+  offline (`scripts/docker-boot-smoke.mjs`, must report `native=on vec=on`), and only then re-tag the same
+  digest as `<x.y.z>` / `latest` (`.github/actions/smoke-and-promote-image`). A failed smoke leaves only
+  the `smoke-` tag behind.
 - **Cosign signatures** — the `sign-artifacts` job signs every binary artifact keylessly (GitHub OIDC,
   Sigstore Fulcio + Rekor; no key to manage) and re-verifies each bundle against the run's own workflow
   identity. Covers the 8 native `.node` prebuilds, the 5 standalone binaries, both plugin zips, the 3
@@ -236,7 +240,10 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
   release as a draft, `check-release-assets.sh` compares it to the checksum list, the signature manifest
   and the pinned per-family counts, and only then is it published. This is separate from, and does not
   replace, the SSH-signed tag (`RELEASE-SIGNING.md`), the plugin's GitHub build-provenance attestation, or
-  npm provenance. The `release-image` dispatch workflow (an image-only re-push) does not sign.
+  npm provenance. The `release-image` dispatch workflow (an image-only re-push from the `v<x.y.z>` tag) does not sign the
+  image; it does verify each npm-delivered native `.node` against that release's `.sigstore.json` bundle
+  before building, and it needs a tag whose source already contains the image's native/sqlite-vec
+  staging (an older tag fails the boot smoke and is never promoted: cut a patch release instead).
   Consumer verification is documented in `SECURITY.md`.
 - **Published GitHub Release** (`v<x.y.z>`) — binaries, plugin zips, `.mcpb`, `SHASUMS256.txt`, and the `.sigstore.json` bundles (created as a draft, validated, then published).
 - **Un-prefixed plugin release** (`<x.y.z>`, THE-955) — `mirror-plugin-release` mirrors the three

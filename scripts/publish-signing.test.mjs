@@ -372,3 +372,114 @@ test("the identity the docs name is the workflow file and ref shape this repo ac
   assert.match(WORKFLOW, /^name: publish$/m);
   assert.match(WORKFLOW, /^ {4}tags: \['v\*'\]$/m);
 });
+
+// ---- the GHCR image: smoke the exact release digest on both platforms before the public tags move ----
+//
+// Neither release route runs on a PR, so these pin the properties by structure: the image is pushed
+// under a staging tag only, the shared composite action boots BOTH platforms of that digest and
+// re-tags that same digest (never a rebuild), and the signature is over that same digest.
+
+const SMOKE_ACTION = readFileSync(
+  resolve(import.meta.dirname, "../.github/actions/smoke-and-promote-image/action.yml"),
+  "utf8",
+);
+const RELEASE_IMAGE = readFileSync(
+  resolve(import.meta.dirname, "../.github/workflows/release-image.yml"),
+  "utf8",
+);
+const PUBLIC_TAG = /obsidian-tc:\$\{\{ (needs\.verify-tag\.outputs\.version|inputs\.version) \}\}/;
+
+/** The `tags:` input of the build-push-action step, up to the next `labels:` key. */
+function buildTags(text) {
+  const m = text.match(/docker\/build-push-action@[\s\S]*?\n {10}tags:([\s\S]*?)\n {10}labels:/);
+  assert.ok(m, "no build-push-action tags: block found");
+  return m[1];
+}
+
+for (const [name, text] of [
+  ["publish.yml build-docker", jobBlock("build-docker")],
+  ["release-image.yml", RELEASE_IMAGE],
+]) {
+  test(`${name}: the image is pushed under a staging tag only, never a public one`, () => {
+    const tags = buildTags(text);
+    assert.match(
+      tags,
+      /obsidian-tc:smoke-\$\{\{ (needs\.verify-tag\.outputs\.version|inputs\.version) \}\}/,
+    );
+    assert.doesNotMatch(tags, PUBLIC_TAG);
+    assert.doesNotMatch(tags, /:latest/);
+  });
+
+  test(`${name}: the public tags are given by the smoke-and-promote action, from the pushed digest, after the push`, () => {
+    assert.match(text, /uses: docker\/build-push-action@[0-9a-f]{40}[^\n]*\n\s+id: push\n/);
+    const step = text.match(
+      /uses: \.\/\.github\/actions\/smoke-and-promote-image\n([\s\S]*?)(?=\n {6}- |\n {2}[a-z]|(?![\s\S]))/,
+    );
+    assert.ok(step, "smoke-and-promote-image step not found");
+    assert.match(step[1], /digest: \$\{\{ steps\.push\.outputs\.digest \}\}/);
+    assert.match(step[1], PUBLIC_TAG);
+    assert.ok(text.indexOf("id: push") < text.indexOf("smoke-and-promote-image"));
+    // QEMU is what lets an amd64 runner boot the arm64 image
+    assert.match(text, /uses: docker\/setup-qemu-action@[0-9a-f]{40}/);
+  });
+}
+
+test("publish.yml: the image signature is over the smoked digest, after the promotion", () => {
+  const docker = jobBlock("build-docker");
+  assert.ok(docker.indexOf("smoke-and-promote-image") >= 0);
+  assert.ok(docker.indexOf("smoke-and-promote-image") < docker.indexOf("cosign sign --yes"));
+  assert.match(docker, /DIGEST: \$\{\{ steps\.push\.outputs\.digest \}\}/);
+});
+
+test("the smoke-and-promote action boots both platforms of the digest, then re-tags that digest and checks it", () => {
+  const run = stripComments(SMOKE_ACTION);
+  assert.match(run, /for platform in linux\/amd64 linux\/arm64/);
+  assert.match(run, /docker pull --platform "\$platform" "\$ref"/);
+  assert.match(run, /ref="\$\{IMAGE\}@\$\{DIGEST\}"/);
+  assert.match(run, /node scripts\/docker-boot-smoke\.mjs "\$ref" --platform "\$platform"/);
+  // the architecture of what was pulled is checked, so a wrong-platform image cannot pass as the other
+  assert.match(run, /docker image inspect --format '\{\{\.Architecture\}\}'/);
+  // promotion is a re-tag of the digest (no rebuild), and every promoted tag is read back
+  assert.match(run, /docker buildx imagetools create "\$\{args\[@\]\}" "\$\{IMAGE\}@\$\{DIGEST\}"/);
+  assert.match(run, /imagetools inspect "\$t" --format '\{\{\.Manifest\.Digest\}\}'/);
+  assert.doesNotMatch(run, /build-push-action|docker build\b|buildx build/);
+  // the smoke strictly precedes the promotion
+  assert.ok(run.indexOf("docker-boot-smoke.mjs") < run.indexOf("imagetools create"));
+});
+
+test("release-image.yml builds from the release tag, not the dispatch ref, and checks the version", () => {
+  assert.match(
+    RELEASE_IMAGE,
+    /uses: actions\/checkout@[0-9a-f]{40}[^\n]*\n\s+with:\n\s+ref: refs\/tags\/v\$\{\{ inputs\.version \}\}/,
+  );
+  assert.match(RELEASE_IMAGE, /tag v\$\{VERSION\} holds package version \$\{have\}/);
+  // the revision label is the tag commit that was built, not the dispatching ref's github.sha
+  assert.match(
+    RELEASE_IMAGE,
+    /org\.opencontainers\.image\.revision=\$\{\{ steps\.source\.outputs\.revision \}\}/,
+  );
+  assert.doesNotMatch(RELEASE_IMAGE, /github\.sha/);
+  // the input is validated before it becomes a ref or a package spec
+  assert.ok(
+    RELEASE_IMAGE.indexOf("validate the version input") <
+      RELEASE_IMAGE.indexOf("actions/checkout@"),
+  );
+});
+
+test("release-image.yml verifies each npm-delivered .node against the release's Sigstore bundle before staging it", () => {
+  const run = stripComments(RELEASE_IMAGE);
+  assert.match(run, /gh release download "v\$\{VERSION\}" --pattern "\$\{file\}\.sigstore\.json"/);
+  assert.match(run, /cosign verify-blob --bundle "\$work\/\$\{file\}\.sigstore\.json"/);
+  assert.match(
+    run,
+    /IDENTITY="\$\{GITHUB_SERVER_URL\}\/\$\{GITHUB_REPOSITORY\}\/\.github\/workflows\/publish\.yml@refs\/tags\/v\$\{VERSION\}"/,
+  );
+  assert.match(run, /--certificate-identity "\$IDENTITY"/);
+  assert.match(run, /--certificate-oidc-issuer "\$ISSUER"/);
+  assert.match(run, /uses: sigstore\/cosign-installer@[0-9a-f]{40} # v\d+\.\d+\.\d+/);
+  // verified in a scratch directory, and only moved into the build context afterwards
+  assert.ok(run.indexOf("cosign verify-blob") < run.indexOf('mv "$work/'));
+  assert.doesNotMatch(run, /tar [^\n]*-C packages\/native/);
+  // and the build comes after the whole fetch+verify step
+  assert.ok(run.indexOf("cosign verify-blob") < run.indexOf("docker/build-push-action"));
+});
