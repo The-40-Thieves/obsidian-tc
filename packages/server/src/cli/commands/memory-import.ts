@@ -123,7 +123,7 @@ export async function run_memory_import(cmd: Cmd<"memory-import">): Promise<void
     provisionCacheDb(cacheDb, { version: VERSION });
   }
   try {
-    const vaultRegistry = new VaultRegistry(cfg.vaults);
+    const vaultRegistry = new VaultRegistry(cfg.vaults, undefined, cfg.cacheDir);
     const registry = new ToolRegistry({});
     registerM1Tools(registry, {
       vaultRegistry,

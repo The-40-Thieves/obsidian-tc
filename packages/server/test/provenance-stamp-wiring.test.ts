@@ -54,6 +54,8 @@ interface BootOpts {
   routes?: Record<string, FakeRoute>;
   /** Runs inside the fake bridge when a request lands (stands in for the plugin's own writes). */
   onBridge?: (info: FakeRequestInfo, root: string) => void;
+  /** Runs after the stamp reads the plugin output but before it attempts the conditional write. */
+  onStamp?: (root: string) => void;
 }
 
 async function boot(opts: BootOpts = {}) {
@@ -74,6 +76,14 @@ async function boot(opts: BootOpts = {}) {
         },
       })
     : undefined;
+  if (stamper && opts.onStamp) {
+    const stampNewNote = stamper.stampNewNote.bind(stamper);
+    stamper.stampNewNote = (content, vaultId, ctx) => {
+      const stamped = stampNewNote(content, vaultId, ctx);
+      opts.onStamp?.(root);
+      return stamped;
+    };
+  }
   const vaultRegistry = new VaultRegistry([{ id: VAULT, name: VAULT, path: root }]);
   const requests: FakeRequestInfo[] = [];
   const capabilities = new CapabilityCache();
@@ -372,6 +382,29 @@ describe("frontmatter stamp", () => {
     );
     expect(replaced.ok).toBe(true);
     expect(b.read("out/new.md")).toBe("---\ntitle: From template\n---\nexpanded\n");
+  });
+
+  it("preserves a concurrent edit while stamping a Templater-created note and reports the skip", async () => {
+    const b = await boot({
+      stamp: { frontmatter: true },
+      routes: templaterRoutes,
+      onBridge: plugin,
+      onStamp: (root) => writeFileSync(join(root, "out/new.md"), "concurrent human edit\n"),
+    });
+    b.put("tpl.md", "template");
+
+    const result = await b.confirmed(
+      "execute_template",
+      { vault: VAULT, template: "tpl.md", target: "out/new.md" },
+      ALICE,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(b.read("out/new.md")).toBe("concurrent human edit\n");
+    if (result.ok)
+      expect(result.data).toMatchObject({
+        provenance_stamp: { applied: false, reason: "concurrent_modification" },
+      });
   });
 });
 

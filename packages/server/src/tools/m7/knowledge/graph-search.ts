@@ -20,6 +20,7 @@ import type { CallerContext, ToolDefinition } from "../../../mcp/registry";
 import { type FederatedLeg, federatedGraphSearch } from "../../../search/federated_search";
 import type { GraphSearchResult } from "../../../search/graph_search";
 import type { CoverageEstimate } from "../../../search/graph_search_stages/types";
+import { vaultExclusionFor, withVaultExclusion } from "../../../search/index-exclusion";
 import { multiQueryGraphSearch } from "../../../search/multi_query";
 import { cachedGraphSearch, type QueryCacheContext } from "../../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../../search/router";
@@ -88,9 +89,14 @@ export async function searchOneVault(
   /** The retrieval-log surface these hits are attributed to. */
   surface = "vault_graph_search",
 ): Promise<VaultLegResult> {
+  const exclusion = vaultExclusionFor(deps.vaultRegistry, vaultId);
+  const isReadable = withVaultExclusion(
+    (rel) => readableRel(acl, rel, ctx.grantedScopes),
+    exclusion,
+  );
   let route = deps.classRouter
     ? routeQuery(ctx.db, vaultId, query.text, {
-        isReadable: (p) => readableRel(acl, p, ctx.grantedScopes),
+        isReadable,
         // THE-694: the rare-term probe is only issued for callers who can read everything.
         readUnrestricted: readEnumerationUnrestricted(acl, ctx.grantedScopes),
       })
@@ -108,15 +114,20 @@ export async function searchOneVault(
     // THE-853: resolve THIS LEG's own ACL partition (never ctx.acl — see this file's header,
     // invariant 1) so the lexical-route bm25Chunks call takes the exact JOIN path (or fails
     // closed) instead of the leaky over-fetch fallback.
-    const walkFilter = resolveAclWalkFilter(ctx.db, vaultId, acl, ctx.grantedScopes, (rel) =>
-      readableRel(acl, rel, ctx.grantedScopes),
+    const walkFilter = resolveAclWalkFilter(
+      ctx.db,
+      vaultId,
+      acl,
+      ctx.grantedScopes,
+      isReadable,
+      exclusion.digest,
     );
     const results = lexicalRouteResults(
       ctx.db,
       vaultId,
       query.text,
       query.finalTopK,
-      (rel) => readableRel(acl, rel, ctx.grantedScopes),
+      isReadable,
       walkFilter.aclSetId,
       walkFilter.aclWalkFilter?.blocked,
     );
@@ -136,7 +147,7 @@ export async function searchOneVault(
     vaultId,
     finalTopK: query.finalTopK,
     reranker: deps.reranker,
-    isReadable: (rel) => readableRel(acl, rel, ctx.grantedScopes),
+    isReadable,
     // THE-852: this leg's OWN per-vault acl, never ctx.acl — same rule cacheContextFor already
     // follows (see this file's header, invariant 1/2).
     db: ctx.db,

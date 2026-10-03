@@ -111,6 +111,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // deleted) — the kNN delta's change signal. A note with no plan this pass had no embedding change.
   const changedChunkPaths = new Set<string>();
   const deletedPaths = new Set<string>();
+  const isIndexExcluded = args.isIndexExcluded ?? (() => false);
   // Cross-path embedding dedup (migration 20260719_001): ONE registry shared across the whole walk,
   // so an EMBED text produced under the first walked path is reused/skipped everywhere else this pass.
   // Keyed on content_hash (the enriched embed text under THE-406), not the raw body_sha, so distinctly
@@ -127,6 +128,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       )
       .all(args.vaultId) as Array<{ contentHash: string; path: string }>;
     for (const row of seeded) {
+      if (isIndexExcluded(row.path)) continue;
       if (!dedupRegistry.has(row.contentHash)) dedupRegistry.set(row.contentHash, row.path);
     }
   }
@@ -140,7 +142,6 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   let notes: string[] = [];
   // Obsidian's Excluded files (search/index-exclusion.ts): walked, present, link targets — but
   // never indexed. They stay in walkedSet (the file exists) and out of `notes`.
-  const isIndexExcluded = args.isIndexExcluded ?? (() => false);
   const excludedWalked: string[] = [];
   if (!streamWalk) {
     const walked = walkVault(args.root, { sub: args.sub, extensions: [".md"] });

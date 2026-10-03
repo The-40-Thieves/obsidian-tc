@@ -51,6 +51,7 @@ const RESTRICTED_ACL = {
 
 const bindingFor = (acl: typeof OPEN_ACL, generation: number): QueryCacheBinding => ({
   aclFingerprint: aclFingerprint(acl, ["read:notes"]),
+  exclusionDigest: "e".repeat(64),
   generation,
   representation: REPRESENTATION,
 });

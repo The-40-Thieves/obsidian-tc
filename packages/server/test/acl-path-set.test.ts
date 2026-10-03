@@ -68,6 +68,7 @@ const build = (db: Database, over: Partial<EnsureAclPathSetOpts> = {}): number |
   ensureAclPathSet(db, {
     vaultId: "main",
     aclFingerprint: "fp-a",
+    exclusionDigest: "exclusion-a",
     generation: 1,
     allPaths: () => ["02-projects/a.md", "09-secret/b.md", "02-projects/c.md"],
     isReadable: (p) => p.startsWith("02-projects/"),
@@ -109,6 +110,18 @@ describe("ensureAclPathSet", () => {
     });
     expect(second).toBe(first); // same surrogate id — members replaced, not accumulated
     expect(members(db, second as number)).toStrictEqual(["02-projects/a.md", "02-projects/new.md"]);
+    db.close?.();
+  });
+
+  it("builds a different keyed set when the effective exclusion digest changes", () => {
+    const db = cacheDb();
+    const first = build(db);
+    const second = build(db, {
+      exclusionDigest: "exclusion-b",
+      isReadable: (path) => path !== "09-secret/b.md",
+    });
+    expect(second).not.toBe(first);
+    expect(members(db, second as number)).toStrictEqual(["02-projects/a.md", "02-projects/c.md"]);
     db.close?.();
   });
 

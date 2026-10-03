@@ -206,7 +206,14 @@ export function buildActiveFileTools(deps: M4Deps, lookup: DelegateLookup): Tool
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("active file not found on disk", { vault: v.id, path: rel });
-        return { vault: v.id, path: rel, extension, is_markdown: false, stat: statNote(abs) };
+        const stat = statNote(abs);
+        return {
+          vault: v.id,
+          path: rel,
+          extension,
+          is_markdown: false,
+          ...(stat ? { stat } : {}),
+        };
       },
     }),
 

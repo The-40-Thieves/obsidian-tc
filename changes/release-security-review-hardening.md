@@ -1,0 +1,4 @@
+---
+type: Security
+---
+- **Harden release-sensitive file, search, cache, and concurrency paths.** Eval vault setup now rejects corpus links and dangling seed symlinks; index ingestion and M7 retrieval routes share live Excluded-files rules, with persisted last-good Excluded-files rules surviving restarts and exclusion digests separating permitted-path sets and cached results; dedup reconciliation cannot inherit an excluded vector owner; unrestricted graph calls receive derived defaults; cache replay sizing is non-vacuous; Templater provenance stamping preserves concurrent edits; active-file races omit vanished stats; and rerun cleanup trusts only non-symlink heartbeat markers refreshed around synchronous staging copies. The documented sequential memory-observation identifier remains compatibility-stable with its activity-metadata residual made explicit.

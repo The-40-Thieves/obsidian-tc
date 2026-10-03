@@ -2,13 +2,13 @@
 // every task's checker must FAIL on the state a doing-nothing (or wrongly-doing) client leaves, and
 // PASS on the reference outcome. A checker that passes on an untouched vault would make every
 // client look perfect, so that is the case this file exists to pin.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { type ClientOut, parseClaudeStream } from "../eval/write-ergonomics/clients";
 import { writeConfig } from "../eval/write-ergonomics/config";
 import { decide, type ModeCell, trialNotFound } from "../eval/write-ergonomics/facade-analyze";
-import { MEMORY_ENTITY, SEED, writeSeeds } from "../eval/write-ergonomics/fixtures";
+import { buildVault, MEMORY_ENTITY, SEED, writeSeeds } from "../eval/write-ergonomics/fixtures";
 import { friction, hookFiredOnError } from "../eval/write-ergonomics/friction";
 import {
   applyHook,
@@ -81,6 +81,40 @@ const NEGATIVE: Record<string, (v: string) => void> = {
 };
 
 describe("write-ergonomics harness", () => {
+  it("refuses a dangling symlink at a seed destination instead of creating its target", () => {
+    const vault = makeTempDir("obtc-we-vault-");
+    const outside = makeTempDir("obtc-we-outside-");
+    dirs.push(vault, outside);
+    const target = join(outside, "not-created.md");
+    mkdirSync(join(vault, "Projects/Alpha"), { recursive: true });
+    try {
+      symlinkSync(target, join(vault, "Projects/Alpha/Plan.md"));
+    } catch {
+      return;
+    }
+
+    expect(() => writeSeeds(vault)).toThrow(/symlink/i);
+    expect(existsSync(target)).toBe(false);
+  });
+
+  it("refuses a corpus symlink before a seed write can follow it", () => {
+    const corpus = makeTempDir("obtc-we-corpus-");
+    const vault = makeTempDir("obtc-we-vault-");
+    const victimDir = makeTempDir("obtc-we-victim-");
+    dirs.push(corpus, vault, victimDir);
+    const victim = join(victimDir, "victim.md");
+    writeFileSync(victim, "keep me");
+    mkdirSync(join(corpus, "Projects/Alpha"), { recursive: true });
+    try {
+      symlinkSync(victim, join(corpus, "Projects/Alpha/Plan.md"));
+    } catch {
+      return;
+    }
+
+    expect(() => buildVault(vault, corpus)).toThrow(/symlink/i);
+    expect(readFileSync(victim, "utf8")).toBe("keep me");
+  });
+
   it("has a non-trivial task list with unique ids and both arms", () => {
     expect(TASKS.length).toBeGreaterThanOrEqual(25);
     expect(new Set(TASKS.map((t) => t.id)).size).toBe(TASKS.length);

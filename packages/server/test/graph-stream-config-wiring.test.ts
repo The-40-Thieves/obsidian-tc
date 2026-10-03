@@ -22,6 +22,8 @@ import { buildGraphSearchOptions } from "../src/tools/m7/knowledge/retrieval-run
 const deps = (retrieval?: M7Deps["retrieval"]): M7Deps =>
   ({
     embeddingProvider: { id: "test:embed" },
+    // A vault with no app.json: the live exclusion predicate resolves to an empty set.
+    vaultRegistry: { resolve: () => ({ root: "/nonexistent-vault", indexExcludePaths: [] }) },
     ...(retrieval ? { retrieval } : {}),
   }) as unknown as M7Deps;
 

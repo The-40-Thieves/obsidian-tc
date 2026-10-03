@@ -4,13 +4,14 @@
 // hardcoded HITL floor (scopes.ts) — meaning dispatch ALWAYS requires a human
 // elicit token before the handler runs. Template expansion is never silently
 // executable. Uses the longer templater timeout (expansion can be slow).
-import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { err, ObsidianTcError, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readEnumerationUnrestricted } from "../../vault/acl-read-filter";
-import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
+import { noteExists, readNote } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
+import { applyWriteBatch } from "../../vault/write-batch";
 import { defineTool } from "../m1/define";
 import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
@@ -32,7 +33,7 @@ function stampCreatedNote(
   vaultId: string,
   root: string,
   rel: string,
-): string | undefined {
+): { contentHash?: string; skipped?: "concurrent_modification" } | undefined {
   const stamp = deps.provenanceStamp;
   if (!stamp?.frontmatter) return undefined;
   try {
@@ -40,10 +41,12 @@ function stampCreatedNote(
     const { raw } = readNote(abs);
     const stamped = stamp.stampNewNote(raw, vaultId, ctx);
     if (stamped === raw) return undefined;
-    writeNoteAtomic(abs, stamped, false);
+    applyWriteBatch([{ abs, rel, content: stamped, prevRaw: raw, createDirs: false }]);
     deps.reindex?.(vaultId, rel, stamped);
-    return contentHash(stamped);
-  } catch {
+    return { contentHash: contentHash(stamped) };
+  } catch (e) {
+    if (e instanceof ObsidianTcError && e.code === "concurrent_modification")
+      return { skipped: "concurrent_modification" };
     return undefined;
   }
 }
@@ -128,7 +131,7 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
           timeoutMs: bridgeTimeouts(deps, v.id).templaterTimeoutMs,
         });
         // Only a note this call created is stamped: `overwrite` over an existing target is not.
-        const stampedHash = existed
+        const stampResult = existed
           ? undefined
           : stampCreatedNote(deps, ctx, v.id, v.root, targetFile);
         return {
@@ -137,8 +140,11 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
           target,
           ...result,
           // A companion that reports the hash of what it wrote must not contradict the stamp.
-          ...(stampedHash !== undefined && typeof result.content_hash === "string"
-            ? { content_hash: stampedHash }
+          ...(stampResult?.contentHash !== undefined && typeof result.content_hash === "string"
+            ? { content_hash: stampResult.contentHash }
+            : {}),
+          ...(stampResult?.skipped
+            ? { provenance_stamp: { applied: false, reason: stampResult.skipped } }
             : {}),
         };
       },

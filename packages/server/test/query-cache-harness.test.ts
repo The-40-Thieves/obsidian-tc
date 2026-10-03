@@ -2,6 +2,7 @@
 // the restricted caller really being restricted) rest on these, so they are pinned here rather than
 // trusted from one run's output.
 import { describe, expect, it } from "vitest";
+import * as cacheLib from "../eval/query-cache-lib";
 import {
   buildStream,
   differingKeys,
@@ -12,6 +13,19 @@ import {
   summarize,
   underFolders,
 } from "../eval/query-cache-lib";
+
+describe("replay cache sizing", () => {
+  it("covers the full bump replay and rejects an explicitly undersized cache", () => {
+    expect(cacheLib).toHaveProperty("replayCacheEntries");
+    const replayCacheEntries = (
+      cacheLib as typeof cacheLib & {
+        replayCacheEntries: (required: number, configured?: number) => number;
+      }
+    ).replayCacheEntries;
+    expect(replayCacheEntries(100)).toBeGreaterThanOrEqual(100);
+    expect(() => replayCacheEntries(100, 64)).toThrow(/at least 100/i);
+  });
+});
 
 describe("buildStream", () => {
   it("is reproducible from its seed and differs across seeds", () => {

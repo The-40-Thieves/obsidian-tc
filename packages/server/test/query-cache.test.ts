@@ -15,6 +15,7 @@ import {
 
 const binding = (over: Partial<QueryCacheBinding> = {}): QueryCacheBinding => ({
   aclFingerprint: "a".repeat(64),
+  exclusionDigest: "e".repeat(64),
   generation: 7,
   representation: {
     id: "local",

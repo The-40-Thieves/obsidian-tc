@@ -19,13 +19,23 @@
 // deferred retry settles, but a test asserting "no leaked dir" needs a way to flush (1)'s real
 // backoff timers before it can trust a negative result.
 
-import { readdirSync, rmSync, statSync } from "node:fs";
+import {
+  lstatSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /** `stageSandbox`'s own `mkdtempSync` prefix — the one source of truth both the mint site
  *  (workspace/rerun.ts) and this module's sweep/retry logic read, so they cannot drift apart. */
 export const RERUN_TMP_PREFIX = "obtc-rerun-";
+export const RERUN_LIVE_MARKER = ".obtc-rerun-active";
+const HEARTBEAT_INTERVAL_MS = 30_000;
 
 /** `mkdtempSync`'s suffix is plain alphanumeric appended with no separator — matches EXACTLY what
  *  `stageSandbox` mints, and deliberately excludes this repo's other, differently-suffixed
@@ -50,6 +60,43 @@ const defaultDeps: DeferredCleanupDeps = {
   remove: (path) => rmSync(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
   delaysMs: DEFAULT_RETRY_DELAYS_MS,
 };
+
+/** Keep a staged sandbox visibly live to cleanup sweeps, including runs lasting over an hour. */
+export function touchSandboxHeartbeat(base: string): void {
+  const marker = join(base, RERUN_LIVE_MARKER);
+  try {
+    const st = lstatSync(marker);
+    if (!st.isFile() || st.isSymbolicLink()) return;
+    const now = new Date();
+    utimesSync(marker, now, now);
+  } catch {
+    // Disposal may remove the marker while a queued heartbeat is settling.
+  }
+}
+
+export function startSandboxHeartbeat(base: string): () => void {
+  const marker = join(base, RERUN_LIVE_MARKER);
+  writeFileSync(marker, `${process.pid}\n`, { flag: "wx" });
+  const timer = setInterval(() => touchSandboxHeartbeat(base), HEARTBEAT_INTERVAL_MS);
+  timer.unref();
+  return () => {
+    clearInterval(timer);
+    try {
+      unlinkSync(marker);
+    } catch {
+      // The sandbox may already have been disposed.
+    }
+  };
+}
+
+function hasFreshHeartbeat(base: string, now: number, maxAgeMs: number): boolean {
+  try {
+    const st = lstatSync(join(base, RERUN_LIVE_MARKER));
+    return st.isFile() && !st.isSymbolicLink() && now - st.mtimeMs < maxAgeMs;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Retry removing `base` in the background, on an increasing backoff, without blocking the caller
@@ -126,7 +173,7 @@ export function sweepStaleSandboxDirs(
   opts: { tmpDir?: string; maxAgeMs?: number; now?: number } = {},
 ): void {
   const dir = opts.tmpDir ?? tmpdir();
-  const maxAgeMs = opts.maxAgeMs ?? 60 * 60 * 1000; // 1 hour
+  const maxAgeMs = opts.maxAgeMs ?? 24 * 60 * 60 * 1000; // 24 hours
   const now = opts.now ?? Date.now();
 
   let entries: string[];
@@ -146,7 +193,9 @@ export function sweepStaleSandboxDirs(
       continue;
     }
     if (now - mtimeMs < maxAgeMs) continue;
+    if (hasFreshHeartbeat(full, now, maxAgeMs)) continue;
     try {
+      if (hasFreshHeartbeat(full, now, maxAgeMs)) continue;
       rmSync(full, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     } catch (e) {
       process.stderr.write(

@@ -14,8 +14,9 @@
 //   - an entry that fails to compile is skipped (Obsidian logs "Bad regex for user ignore filter");
 //   - the subject is the vault-relative, forward-slash path of the file.
 // An excluded note stays an ordinary vault file for link resolution; only the index leaves it out.
-import { lstatSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { isRegexExclusionEntry } from "@the-40-thieves/obsidian-tc-shared";
 import { OBSIDIAN_APP_CONFIG } from "../vault/watcher";
 
@@ -43,6 +44,14 @@ export interface VaultExclusion {
   invalid: readonly string[];
   /** Set when app.json exists but could not be read or parsed (the last good list is kept). */
   appConfigError?: string;
+  /** Stable identity of `effective`, used by ACL-set and result-cache keys. */
+  digest: string;
+}
+
+/** Stable digest of the effective exclusion list. Order is retained so the persisted snapshot and
+ * runtime identity describe the exact same config value, even though matching itself is an OR. */
+export function exclusionDigest(entries: readonly string[]): string {
+  return createHash("sha256").update(JSON.stringify(entries)).digest("hex");
 }
 
 /** Nothing excluded. */
@@ -52,6 +61,7 @@ export const NO_EXCLUSION: VaultExclusion = {
   obsidian: [],
   config: [],
   invalid: [],
+  digest: exclusionDigest([]),
 };
 
 const clean = (entries: readonly unknown[]): string[] =>
@@ -93,22 +103,110 @@ interface AppConfigRead {
 
 // Last good read per vault root, keyed by file size + mtime: re-reading is a stat per call, and a
 // half-written app.json keeps the previous list rather than silently un-excluding every note.
-const appConfigCache = new Map<string, { sig: string; read: AppConfigRead }>();
+const appConfigCache = new Map<
+  string,
+  { sig: string; read: AppConfigRead; lastGood: readonly string[] | undefined }
+>();
 
-function readAppConfig(root: string): AppConfigRead {
+interface PersistedLastGood {
+  version: 1;
+  root: string;
+  entries: string[];
+}
+
+/** Durable last-good location beside the index, keyed by canonical vault root rather than a
+ * caller-controlled vault id. */
+export function exclusionStatePath(cacheDir: string, root: string): string {
+  const key = createHash("sha256").update(root).digest("hex");
+  return join(cacheDir, "index-exclusions", `${key}.json`);
+}
+
+function readPersistedLastGood(path: string | undefined, root: string): string[] | undefined {
+  if (!path) return undefined;
+  try {
+    const st = lstatSync(path);
+    if (!st.isFile() || st.size > MAX_APP_CONFIG_BYTES) return undefined;
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<PersistedLastGood>;
+    if (parsed.version !== 1 || parsed.root !== root || !Array.isArray(parsed.entries))
+      return undefined;
+    return clean(parsed.entries);
+  } catch {
+    return undefined;
+  }
+}
+
+function persistLastGood(path: string | undefined, root: string, entries: readonly string[]): void {
+  if (!path) return;
+  const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    const value: PersistedLastGood = { version: 1, root, entries: [...entries] };
+    writeFileSync(temp, `${JSON.stringify(value)}\n`, { flag: "wx", mode: 0o600 });
+    renameSync(temp, path);
+  } catch (e) {
+    try {
+      unlinkSync(temp);
+    } catch {
+      // The temp may never have been created.
+    }
+    process.stderr.write(
+      `[index] warning: could not persist last-good exclusion list: ${e instanceof Error ? e.message : String(e)}\n`,
+    );
+  }
+}
+
+function failedRead(
+  root: string,
+  sig: string,
+  error: string,
+  cached: (typeof appConfigCache extends Map<string, infer V> ? V : never) | undefined,
+  statePath?: string,
+  persisted?: readonly string[],
+): AppConfigRead {
+  if (cached?.sig === sig) return cached.read;
+  const lastGood = cached?.lastGood ?? persisted ?? readPersistedLastGood(statePath, root);
+  const read = { entries: [...(lastGood ?? [])], error };
+  appConfigCache.set(root, { sig, read, lastGood });
+  process.stderr.write(
+    lastGood
+      ? `[index] warning: ${error}; keeping the last-good exclusion list\n`
+      : `[index] warning: ${error}; no last-good exclusion list is available\n`,
+  );
+  return read;
+}
+
+function readAppConfig(root: string, statePath?: string): AppConfigRead {
   const file = join(root, OBSIDIAN_APP_CONFIG);
   let sig: string;
   try {
     const st = lstatSync(file);
     // A symlink or non-file is not read (same stance as the vault's own file reads).
     if (!st.isFile() || st.size > MAX_APP_CONFIG_BYTES) {
-      appConfigCache.delete(root);
-      return { entries: [], error: "app.json is not a regular file of readable size" };
+      return failedRead(
+        root,
+        `invalid:${st.mode}:${st.size}:${st.mtimeMs}`,
+        "app.json is not a regular file of readable size",
+        appConfigCache.get(root),
+        statePath,
+      );
     }
     sig = `${st.size}:${st.mtimeMs}`;
-  } catch {
-    appConfigCache.delete(root);
-    return { entries: [] };
+  } catch (e) {
+    const cached = appConfigCache.get(root);
+    const code = (e as NodeJS.ErrnoException).code;
+    const persisted = cached === undefined ? readPersistedLastGood(statePath, root) : undefined;
+    if (code === "ENOENT" && cached === undefined && persisted === undefined)
+      return { entries: [] };
+    return failedRead(
+      root,
+      code === "ENOENT" ? "missing" : `unreadable:${code ?? "unknown"}`,
+      code === "ENOENT"
+        ? "app.json became unavailable"
+        : `app.json could not be inspected: ${e instanceof Error ? e.message : String(e)}`,
+      cached,
+      statePath,
+      persisted,
+    );
   }
   const cached = appConfigCache.get(root);
   if (cached?.sig === sig) return cached.read;
@@ -119,15 +217,12 @@ function readAppConfig(root: string): AppConfigRead {
         ? (parsed as { userIgnoreFilters?: unknown }).userIgnoreFilters
         : undefined;
     const read = { entries: Array.isArray(raw) ? clean(raw) : [] };
-    appConfigCache.set(root, { sig, read });
+    appConfigCache.set(root, { sig, read, lastGood: read.entries });
+    persistLastGood(statePath, root, read.entries);
     return read;
   } catch (e) {
     const error = `app.json could not be read: ${e instanceof Error ? e.message : String(e)}`;
-    // Keep the last good list; remember the failing signature so it is not re-parsed per call.
-    const last = cached?.read.entries ?? [];
-    const read = { entries: last, error };
-    appConfigCache.set(root, { sig, read });
-    return read;
+    return failedRead(root, sig, error, cached, statePath);
   }
 }
 
@@ -141,8 +236,9 @@ const compiledCache = new Map<string, ReturnType<typeof compileExclusionEntries>
 export function loadVaultExclusion(
   root: string,
   configEntries: readonly string[] = [],
+  statePath?: string,
 ): VaultExclusion {
-  const app = readAppConfig(root);
+  const app = readAppConfig(root, statePath);
   const config = clean(configEntries);
   if (app.entries.length === 0 && config.length === 0 && app.error === undefined)
     return NO_EXCLUSION;
@@ -160,19 +256,36 @@ export function loadVaultExclusion(
     obsidian: app.entries,
     config,
     invalid: compiled.invalid,
+    digest: exclusionDigest(effective),
     ...(app.error !== undefined ? { appConfigError: app.error } : {}),
   };
 }
 
 /** The vault-resolving slice of `VaultRegistry` this module needs (keeps the dependency one-way). */
 export interface ExclusionVaultLookup {
-  resolve(vault?: string | null): { root: string; indexExcludePaths?: readonly string[] };
+  resolve(vault?: string | null): {
+    root: string;
+    indexExcludePaths?: readonly string[];
+    exclusionCacheDir?: string;
+  };
 }
 
 /** Per-vault exclusion snapshot for `vaultId`, resolved through the registry. */
 export function vaultExclusionFor(lookup: ExclusionVaultLookup, vaultId: string): VaultExclusion {
   const v = lookup.resolve(vaultId);
-  return loadVaultExclusion(v.root, v.indexExcludePaths ?? []);
+  return loadVaultExclusion(
+    v.root,
+    v.indexExcludePaths ?? [],
+    v.exclusionCacheDir ? exclusionStatePath(v.exclusionCacheDir, v.root) : undefined,
+  );
+}
+
+/** Add the vault's live Excluded-files rule to an existing readability predicate. */
+export function withVaultExclusion(
+  isReadable: (rel: string) => boolean,
+  exclusion: VaultExclusion,
+): (rel: string) => boolean {
+  return (rel) => isReadable(rel) && !exclusion.isExcluded(rel);
 }
 
 /** Do two snapshots exclude by the same effective list? Used to decide whether a reload matters. */

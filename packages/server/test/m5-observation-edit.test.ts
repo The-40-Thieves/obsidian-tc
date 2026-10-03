@@ -2,6 +2,8 @@
 // key needed. RED fixture: the write-ergonomics eval's `memory-observation` task verbatim — an
 // entity created with keyless observations, one of which is wrong (0/3 before: add_observation
 // supersedes only by key and nothing else could edit or remove a fact).
+
+import { readFileSync } from "node:fs";
 import { type ToolResult, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -110,6 +112,12 @@ describe("update_observation: the write-ergonomics `memory-observation` fixture"
 });
 
 describe("observation ids", () => {
+  it("documents the compatibility-preserved cross-boundary activity residual", () => {
+    const security = readFileSync(new URL("../../../SECURITY.md", import.meta.url), "utf8");
+    expect(security).toMatch(/observation IDs are globally sequential/i);
+    expect(security).toMatch(/intervening activity/i);
+  });
+
   it("are stable across reads and writes, and the same from create_entity and get_entity", async () => {
     const v = makeM5Vault();
     try {

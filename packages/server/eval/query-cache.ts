@@ -40,6 +40,7 @@ import {
   differingKeys,
   foldersCovering,
   median,
+  replayCacheEntries,
   summarize,
   underFolders,
 } from "./query-cache-lib";
@@ -136,7 +137,20 @@ const newCaches = (entries = MAX_ENTRIES) =>
   createRetrievalCaches({ maxEntries: entries, ttlMs: TTL_MS });
 // isolation and bump replay a working set larger than 64 entries; a cache that evicts it before the
 // replay would make both arms vacuous (no hit to isolate or invalidate), so they size it explicitly.
-const workingSetEntries = Number(flag("--cache-entries") ?? MAX_ENTRIES);
+const configuredCacheEntries = flag("--cache-entries");
+const replayEntriesRequired =
+  mode === "bump"
+    ? Math.min(100, queries.length)
+    : mode === "isolation"
+      ? 2 * Math.min(120, queries.length)
+      : MAX_ENTRIES;
+const workingSetEntries =
+  mode === "bump" || mode === "isolation"
+    ? replayCacheEntries(
+        replayEntriesRequired,
+        configuredCacheEntries === undefined ? undefined : Number(configuredCacheEntries),
+      )
+    : Number(configuredCacheEntries ?? MAX_ENTRIES);
 
 function inputFor(q: string, topK?: number): Record<string, unknown> {
   switch (tool) {

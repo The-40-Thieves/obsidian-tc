@@ -19,7 +19,7 @@ import { resolveSearchVaultMode } from "../../experiential/search-mode-preferenc
 import type { ToolDefinition } from "../../mcp/registry";
 import { autoNeedsSemanticLeg, fuseTextAndSemantic } from "../../search/auto-route";
 import { mtimesByPath, noteFreshness } from "../../search/freshness";
-import { vaultExclusionFor } from "../../search/index-exclusion";
+import { vaultExclusionFor, withVaultExclusion } from "../../search/index-exclusion";
 import { evaluatesTruthy } from "../../search/jsonlogic";
 import { createQueryEncoder } from "../../search/query-encoder";
 import { DEFAULT_RRF_K } from "../../search/retrieval-defaults";
@@ -269,10 +269,10 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       id: v.id,
       rootPath: v.root,
       sub,
-      readable: (rel) =>
-        readableRel(ctx.acl, rel, ctx.grantedScopes) &&
-        underRoot(rel, sub) &&
-        !excluded.isExcluded(rel),
+      readable: withVaultExclusion(
+        (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes) && underRoot(rel, sub),
+        excluded,
+      ),
     };
   };
 

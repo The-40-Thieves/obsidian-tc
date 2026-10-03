@@ -308,7 +308,9 @@ async function graphSearchCore(
   // ADR-0007 class (b): one resolver owns the constant and the (flag-gated) stat derivation. The
   // derivation is skipped for a partition-restricted caller — see GraphSearchOptions.derivedDefaults.
   const derivedAllowed =
-    opts.derivedDefaults === true && opts.aclSetId === undefined && !opts.aclWalkFilter?.blocked;
+    opts.derivedDefaults === true &&
+    !opts.aclWalkFilter?.blocked &&
+    (opts.aclSetId === undefined || opts.aclWalkFilter?.unrestricted === true);
   const rrfK = resolveRetrievalDefaultsForVault(
     db,
     opts.vaultId,

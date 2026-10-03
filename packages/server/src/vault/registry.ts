@@ -69,6 +69,8 @@ export interface ResolvedVault {
   /** `index.excludePaths` from this vault's config, merged with Obsidian's own Excluded files list
    *  (search/index-exclusion.ts). Absent for a vault added at runtime. */
   indexExcludePaths?: readonly string[];
+  /** Global cache directory that owns this vault's durable last-good exclusion snapshot. */
+  exclusionCacheDir?: string;
   /** `wiki.folder` from this vault's config, normalized (no trailing slash). Absent: no wiki folder. */
   wikiFolder?: string;
   /** Every name of the wiki folder, placed once at registration: `wikiFolder` and, when that is a
@@ -97,9 +99,11 @@ function wikiFolderOf(vaultId: string, folder: string | undefined): string | und
 export class VaultRegistry {
   private readonly byId = new Map<string, ResolvedVault>();
   private readonly defaultId: string;
+  private readonly exclusionCacheDir: string | undefined;
 
-  constructor(vaults: VaultConfigInput[], defaultId?: string) {
+  constructor(vaults: VaultConfigInput[], defaultId?: string, exclusionCacheDir?: string) {
     if (vaults.length === 0) throw new Error("VaultRegistry requires at least one vault");
+    this.exclusionCacheDir = exclusionCacheDir;
     for (const v of vaults) {
       const { root, canonical } = canonicalizeVaultRootWithStatus(v.path);
       const wikiFolder = wikiFolderOf(v.id, v.wiki?.folder);
@@ -115,6 +119,7 @@ export class VaultRegistry {
         restApiUrl: v.restApiUrl,
         restApiKey: v.restApiKey,
         ...(v.index?.excludePaths?.length ? { indexExcludePaths: v.index.excludePaths } : {}),
+        ...(exclusionCacheDir ? { exclusionCacheDir } : {}),
         ...(wikiFolder ? { wikiFolder, wikiFolders: wikiFolderNames(root, wikiFolder) } : {}),
         ...(rawFolder ? { rawFolder, rawFolders: rawFolderNames(root, rawFolder) } : {}),
       });
@@ -154,6 +159,7 @@ export class VaultRegistry {
       kind: v.kind ?? "private",
       restApiUrl: v.restApiUrl,
       restApiKey: v.restApiKey,
+      ...(this.exclusionCacheDir ? { exclusionCacheDir: this.exclusionCacheDir } : {}),
     };
     this.byId.set(v.id, resolved);
     return resolved;

@@ -42,7 +42,7 @@ import {
 import type { ProviderDescriptor } from "../../providers/types";
 import { buildAcls } from "../../runtime/acl-build";
 import type { NotesFtsIntegrity } from "../../search/fts";
-import { loadVaultExclusion } from "../../search/index-exclusion";
+import { exclusionStatePath, loadVaultExclusion } from "../../search/index-exclusion";
 import { createQueryEncoder } from "../../search/query-encoder";
 import { redactEndpoint } from "../../telemetry/redact-endpoint";
 import { canonicalizeVaultRoot } from "../../vault/registry";
@@ -382,7 +382,11 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
             id: v.id,
             root: canonicalizeVaultRoot(v.path),
             isReadable: indexReadableFor(v.id),
-            exclusion: loadVaultExclusion(canonicalizeVaultRoot(v.path), v.index?.excludePaths),
+            exclusion: loadVaultExclusion(
+              canonicalizeVaultRoot(v.path),
+              v.index?.excludePaths,
+              exclusionStatePath(config.cacheDir, canonicalizeVaultRoot(v.path)),
+            ),
           })),
           busyTimeoutMs,
         );

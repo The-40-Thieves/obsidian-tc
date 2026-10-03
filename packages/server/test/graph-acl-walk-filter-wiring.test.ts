@@ -12,6 +12,8 @@
 // exactly the THE-852 Defect 2 shape). Every chunk's cosine to the query is far below the
 // seed-strength router's routerSim (0.62 default), so classify() never routes to seeds-only and
 // expansion always runs — the property under test.
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
@@ -21,11 +23,13 @@ import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { ensureAclPathSet } from "../src/search/acl_path_set";
 import { expandGraph } from "../src/search/graph_search_stages/graph_expansion";
 import type { GraphSearchOptions } from "../src/search/graph_search_stages/types";
+import { NO_EXCLUSION } from "../src/search/index-exclusion";
 import { floatBlob } from "../src/search/vec";
 import { registerM7Tools } from "../src/tools/m7";
 import { resolveAclWalkFilter } from "../src/tools/m7/knowledge/retrieval-runtime";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const VAULT = "v1";
 const GRANTED = new Set(["read:notes"]);
@@ -96,10 +100,9 @@ function harness(
   db: Database,
   acl: FolderAcl | undefined,
   onAclWalkPruned?: (vault: string, count: number) => void,
+  root = "/nonexistent/does-not-need-to-exist",
 ): Harness {
-  const vaultRegistry = new VaultRegistry([
-    { id: VAULT, path: "/nonexistent/does-not-need-to-exist" },
-  ]);
+  const vaultRegistry = new VaultRegistry([{ id: VAULT, path: root }]);
   const registry = new ToolRegistry({ aclResolver: () => acl });
   registerM7Tools(registry, {
     vaultRegistry,
@@ -139,7 +142,14 @@ describe("THE-852 wiring — resolveAclWalkFilter", () => {
   it("restricted caller + resolvable substrate -> filter enabled with a real aclSetId", () => {
     const db = buildFixture();
     const acl = new FolderAcl(RESTRICTED_ACL);
-    const result = resolveAclWalkFilter(db, VAULT, acl, GRANTED, (p) => !p.startsWith("secret/"));
+    const result = resolveAclWalkFilter(
+      db,
+      VAULT,
+      acl,
+      GRANTED,
+      (p) => !p.startsWith("secret/"),
+      NO_EXCLUSION.digest,
+    );
     expect(result.aclWalkFilter?.enabled).toBe(true);
     expect(result.aclWalkFilter?.blocked).toBeUndefined();
     expect(typeof result.aclSetId).toBe("number");
@@ -147,28 +157,51 @@ describe("THE-852 wiring — resolveAclWalkFilter", () => {
     // whether it may re-walk unfiltered for the prune count — set here because this caller
     // genuinely can lose recall to the filter.
     expect(result.aclWalkFilter?.restricted).toBe(true);
+    expect(result.aclWalkFilter?.unrestricted).toBeUndefined();
   });
 
   it("unrestricted caller + resolvable substrate -> filter enabled WITHOUT `restricted` (THE-891 item 3)", () => {
     const db = buildFixture();
-    const result = resolveAclWalkFilter(db, VAULT, undefined, GRANTED, () => true);
+    const result = resolveAclWalkFilter(
+      db,
+      VAULT,
+      undefined,
+      GRANTED,
+      () => true,
+      NO_EXCLUSION.digest,
+    );
     expect(result.aclWalkFilter?.enabled).toBe(true);
     expect(typeof result.aclSetId).toBe("number");
     // Unset, not false: an unrestricted caller's join is a proven structural no-op, so the
     // prune-count re-walk must never even be attempted for them.
     expect(result.aclWalkFilter?.restricted).toBeUndefined();
+    expect(result.aclWalkFilter?.unrestricted).toBe(true);
   });
 
   it("unrestricted caller + missing substrate -> no-op ({}), byte-identical to before this ticket", () => {
     const db = openMemoryDb(); // no migrations at all -> acl_path_sets absent
-    const result = resolveAclWalkFilter(db, VAULT, undefined, GRANTED, () => true);
+    const result = resolveAclWalkFilter(
+      db,
+      VAULT,
+      undefined,
+      GRANTED,
+      () => true,
+      NO_EXCLUSION.digest,
+    );
     expect(result).toEqual({});
   });
 
   it("restricted caller + missing substrate -> FAILS CLOSED (blocked:true, no aclSetId)", () => {
     const db = openMemoryDb(); // acl_path_sets absent -> ensureAclPathSet returns null
     const acl = new FolderAcl(RESTRICTED_ACL);
-    const result = resolveAclWalkFilter(db, VAULT, acl, GRANTED, (p) => !p.startsWith("secret/"));
+    const result = resolveAclWalkFilter(
+      db,
+      VAULT,
+      acl,
+      GRANTED,
+      (p) => !p.startsWith("secret/"),
+      NO_EXCLUSION.digest,
+    );
     expect(result.aclWalkFilter).toEqual({ enabled: true, blocked: true });
     expect(result.aclSetId).toBeUndefined();
   });
@@ -181,6 +214,7 @@ describe("THE-852 wiring — resolveAclWalkFilter", () => {
       new FolderAcl(RESTRICTED_ACL),
       GRANTED,
       undefined,
+      NO_EXCLUSION.digest,
     );
     expect(result).toEqual({});
   });
@@ -188,7 +222,7 @@ describe("THE-852 wiring — resolveAclWalkFilter", () => {
   it("empty readable set (restricted, everything denied) also fails closed, never silently unfiltered", () => {
     const db = buildFixture();
     const acl = new FolderAcl({ ...RESTRICTED_ACL, readPaths: ["nowhere/**"] });
-    const result = resolveAclWalkFilter(db, VAULT, acl, GRANTED, () => false);
+    const result = resolveAclWalkFilter(db, VAULT, acl, GRANTED, () => false, NO_EXCLUSION.digest);
     // ensureAclPathSet's own empty-set floor returns null here (acl_path_set.ts), and the caller is
     // restricted, so this must still be the fail-closed branch, not a silent no-op.
     expect(result.aclWalkFilter).toEqual({ enabled: true, blocked: true });
@@ -203,7 +237,7 @@ describe("THE-852 wiring — expandGraph honors `blocked`", () => {
     // graph-walk-acl.test.ts's own "documents the defect" test).
     const unfiltered = expandGraph({
       db,
-      opts: { query: "q", queryVec: QUERY_VEC, vaultId: VAULT, isReadable } as GraphSearchOptions,
+      opts: { query: "q", queryVec: QUERY_VEC, vaultId: VAULT } as GraphSearchOptions,
       seedPaths: ["public/a.md"],
       seedChunkIds: new Set(),
       hopLimit: 2,
@@ -247,6 +281,79 @@ describe("THE-852 wiring — expandGraph honors `blocked`", () => {
 });
 
 describe("THE-852 wiring — real vault_graph_search dispatch", () => {
+  it("rebuilds a previously warm walk set when app.json newly excludes its bridge", async () => {
+    const root = makeTempDir("obtc-graph-exclusion-stale-");
+    try {
+      mkdirSync(join(root, ".obsidian"), { recursive: true });
+      const h = harness(buildFixture(), undefined, undefined, root);
+
+      const before = await search(h);
+      expect(before.some((r) => r.path === "secret/s.md")).toBe(true);
+      expect(before.some((r) => r.via_edge?.source_path === "secret/s.md")).toBe(true);
+
+      writeFileSync(
+        join(root, ".obsidian/app.json"),
+        JSON.stringify({ userIgnoreFilters: ["secret/"] }),
+      );
+      const after = await search(h);
+      expect(JSON.stringify(after)).not.toContain("secret/s.md");
+    } finally {
+      rmTemp(root);
+    }
+  });
+
+  it("rebuilds a walk set first warmed by vault_context when app.json changes", async () => {
+    const root = makeTempDir("obtc-context-exclusion-stale-");
+    try {
+      mkdirSync(join(root, ".obsidian"), { recursive: true });
+      const h = harness(buildFixture(), undefined, undefined, root);
+      const context = await h.registry.dispatch(
+        "vault_context",
+        { vault: VAULT, query: "q", k: 50, include_lessons: false },
+        h.ctx(),
+      );
+      expect(context.ok).toBe(true);
+
+      writeFileSync(
+        join(root, ".obsidian/app.json"),
+        JSON.stringify({ userIgnoreFilters: ["secret/"] }),
+      );
+      const after = await search(h);
+      expect(JSON.stringify(after)).not.toContain("secret/s.md");
+    } finally {
+      rmTemp(root);
+    }
+  });
+
+  it("applies a live Excluded-files change to seeds, bridges, and results before reconciliation", async () => {
+    const cases = [
+      ["public/a.md", ["public/a.md"]],
+      ["secret/s.md", ["secret/"]],
+      ["public/b.md", ["public/b.md"]],
+    ] as const;
+    for (const [absentPath, entries] of cases) {
+      const root = makeTempDir("obtc-graph-exclusion-");
+      try {
+        mkdirSync(join(root, ".obsidian"), { recursive: true });
+        writeFileSync(
+          join(root, ".obsidian/app.json"),
+          JSON.stringify({ userIgnoreFilters: entries }),
+        );
+        const results = await search(harness(buildFixture(), undefined, undefined, root));
+        expect(
+          results.some((r) => r.path === absentPath),
+          absentPath,
+        ).toBe(false);
+        expect(
+          results.some((r) => r.via_edge?.source_path === absentPath),
+          `${absentPath} as bridge`,
+        ).toBe(false);
+      } finally {
+        rmTemp(root);
+      }
+    }
+  });
+
   it("restricted caller: no ACL-denied path anywhere in the response payload (Defect 1)", async () => {
     const h = harness(buildFixture(), new FolderAcl(RESTRICTED_ACL));
     const res = await h.registry.dispatch(
@@ -333,6 +440,7 @@ describe("THE-891 item 3 — onAclWalkPruned prune counter", () => {
       new FolderAcl(RESTRICTED_ACL),
       GRANTED,
       isReadable,
+      NO_EXCLUSION.digest,
     );
     // Non-vacuous: the gate this test exercises is actually open.
     expect(walkFilter.aclWalkFilter?.restricted).toBe(true);
@@ -366,7 +474,14 @@ describe("THE-891 item 3 — onAclWalkPruned prune counter", () => {
 
   it("unrestricted caller: never fires — the structural-no-op claim, checked empirically", () => {
     const db = buildFixture();
-    const walkFilter = resolveAclWalkFilter(db, VAULT, undefined, GRANTED, () => true);
+    const walkFilter = resolveAclWalkFilter(
+      db,
+      VAULT,
+      undefined,
+      GRANTED,
+      () => true,
+      NO_EXCLUSION.digest,
+    );
     // Non-vacuous: the gate stays closed for this caller.
     expect(walkFilter.aclWalkFilter?.restricted).toBeUndefined();
 

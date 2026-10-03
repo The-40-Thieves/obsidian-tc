@@ -34,7 +34,7 @@ export async function run_prefetch(cmd: Cmd<"prefetch">): Promise<void> {
     excludeFilter: egressFilter,
     cacheDir: cfg.cacheDir,
   });
-  const pfVaultRegistry = new VaultRegistry(cfg.vaults);
+  const pfVaultRegistry = new VaultRegistry(cfg.vaults, undefined, cfg.cacheDir);
   const memByVault = new Map<string, string>();
   for (const v of cfg.vaults) if (v.memory) memByVault.set(v.id, v.memory.folder);
   const pfRegistry = new ToolRegistry({});

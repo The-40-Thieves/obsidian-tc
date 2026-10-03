@@ -7,17 +7,16 @@
 // undefined, and Bun cannot resolve `node:sqlite` either), so a scalar predicate is not an option
 // and a joinable table is.
 //
-// THE SECURITY PROPERTY this rests on: for a fixed (fingerprint, path-string), `readableRel` is
-// CONSTANT over time. Its only inputs are `isDefaultDenied(path)` — pure in the path string — plus
-// `matchedPathGlob("read", path)` and `strictReadDefault`, and `aclFingerprint` canonicalizes both
-// of the latter. So a stale set can only ever MISS a readable path (recall loss); it can never hold
-// a path that has since become unreadable, because that change moves the fingerprint and makes the
-// old set UNREACHABLE rather than wrong. A missed `generation` bump therefore costs recall, never
-// confidentiality — which matters, because generation is the weaker of the two keys.
+// THE SECURITY PROPERTY this rests on: for a fixed (fingerprint, path-string), the combined folder
+// ACL + effective Excluded-files predicate is CONSTANT over time. The fingerprint below hashes both
+// callerAclFingerprint and the exclusion digest. A permission or exclusion change therefore makes
+// the old set UNREACHABLE rather than stale-readable. A missed `generation` bump can still cost
+// recall after corpus changes, but cannot preserve a path whose live policy became unreadable.
 //
 // NOT a cache in the ordinary sense: a miss must never fail a query. Every path returns null rather
 // than throwing, and every caller treats null as "keep your existing JS filter".
 
+import { createHash } from "node:crypto";
 import { tableExists } from "../db/introspect";
 import { inWriteTransaction } from "../db/txn";
 import type { Database } from "../db/types";
@@ -42,6 +41,9 @@ export interface EnsureAclPathSetOpts {
   vaultId: string;
   /** THE-496 `aclFingerprint(config, grantedScopes)` for THIS caller and vault. */
   aclFingerprint: string;
+  /** Digest of the vault's effective Excluded-files list. The live readability predicate depends
+   * on it, so it belongs in the materialized set identity just as much as the folder ACL does. */
+  exclusionDigest: string;
   /** THE-496 `readGeneration(db, vaultId)`. 0 on a pre-migration db, which is safe: a never-bumping
    *  generation degrades this to build-once; it never widens the key. */
   generation: number;
@@ -70,11 +72,17 @@ export function hasAclPathSets(db: Database): boolean {
 export function ensureAclPathSet(db: Database, opts: EnsureAclPathSetOpts): number | null {
   if (!hasAclPathSets(db)) return null;
   try {
+    const fingerprint = createHash("sha256")
+      .update("acl-path-set-v2\0")
+      .update(opts.aclFingerprint)
+      .update("\0")
+      .update(opts.exclusionDigest)
+      .digest("hex");
     const existing = db
       .prepare(
         "SELECT set_id, generation FROM acl_path_sets WHERE acl_fingerprint = ? AND vault_id = ?",
       )
-      .get(opts.aclFingerprint, opts.vaultId) as { set_id: number; generation: number } | undefined;
+      .get(fingerprint, opts.vaultId) as { set_id: number; generation: number } | undefined;
     // A hit must not touch the universe — enumerating and re-filtering it is the expensive half.
     if (existing && existing.generation === opts.generation) return existing.set_id;
 
@@ -96,10 +104,10 @@ export function ensureAclPathSet(db: Database, opts: EnsureAclPathSetOpts): numb
            generation = excluded.generation,
            built_at   = excluded.built_at,
            path_count = excluded.path_count`,
-      ).run(opts.aclFingerprint, opts.vaultId, opts.generation, opts.nowMs, readable.length);
+      ).run(fingerprint, opts.vaultId, opts.generation, opts.nowMs, readable.length);
       const row = db
         .prepare("SELECT set_id FROM acl_path_sets WHERE acl_fingerprint = ? AND vault_id = ?")
-        .get(opts.aclFingerprint, opts.vaultId) as { set_id: number };
+        .get(fingerprint, opts.vaultId) as { set_id: number };
       db.prepare("DELETE FROM acl_path_members WHERE set_id = ?").run(row.set_id);
       const ins = db.prepare("INSERT INTO acl_path_members (set_id, path) VALUES (?, ?)");
       for (const p of readable) ins.run(row.set_id, p);

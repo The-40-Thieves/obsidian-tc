@@ -74,10 +74,23 @@ assumptions:
 - Prometheus `/metrics` under `auth.mode` `jwt` or `oidc` requires a verified bearer that holds `admin:metrics` (the scope `get_metrics` already requires; `*` and `admin:*` satisfy it) and is bound to no vault or persona, on EVERY bind including loopback (a tunnel or reverse proxy to `127.0.0.1` makes remote callers look local, so the bind address is not trusted): a token without the scope gets `403` (`WWW-Authenticate: Bearer error="insufficient_scope"`), a vault- or persona-bound token gets `403`, a missing or unverifiable token gets `401`. The token is checked by the same verifier instance as the MCP HTTP edge. A loopback listener also applies the MCP route's `Host`-header DNS-rebinding guard (`transports.http.allowedHosts` names a tunnel's public host). Only `auth.mode: none` on a loopback bind stays open. The series are process-wide and computed without a per-caller ACL, so a verified bearer alone is not authorization
 - Idempotency keys on writes
 - Compare-and-swap (`prev_hash`) on note writes — optional by default, or **required** on the destructive paths via `writes.requireCas`; a stale/absent hash fails closed instead of clobbering
+- Obsidian Excluded-files rules are applied to index ingestion and the M7 retrieval routes,
+  including lexical routing, graph seeds, graph bridges, lessons and final results. The effective
+  list's digest is part of both the graph-walk permitted-set identity and the result-cache key, so
+  an app.json change takes effect before reconciliation bumps the index generation. A successfully
+  parsed list is persisted under `cacheDir`; after a restart, a missing, symlinked, non-file,
+  oversized, unreadable or malformed app.json keeps that persisted last-good list and logs a
+  warning. A vault with no in-process or persisted successful read and no app.json has no Obsidian
+  exclusions; a first-seen invalid app.json likewise has no last-good list to recover.
 - Bulk-operation throttling with configurable per-tier limits
 - Path-traversal prevention (byte-level rejection of `..` segments and absolute paths, plus a real-path symlink-containment check so in-vault symlinks cannot escape the vault root)
 - Deny-by-default command execution (disabled unless explicitly enabled, allowlisted, and HITL-gated)
 - Audit logging of every tool invocation
+- Rerun sandboxes carry a regular, non-symlink heartbeat marker while staged. It is refreshed by a
+  timer and immediately before and after synchronous staging copies; the recovery sweep uses a
+  24-hour default age and follows neither a symlinked marker nor a marker outside the sandbox.
+- The write-ergonomics evaluator rejects symlinks in the copied corpus and in existing seed-path
+  components, including dangling symlinks, before fixture writes can follow them outside the vault.
 - Signed write provenance: one hash-chained, EdDSA-signed record per committed mutating tool call, tagged by what is verified versus self-reported (`obsidian-tc provenance verify`; stdio-only deployments have no registry key and are chain-only)
 - **Checksum-verified, lock-protected model downloads for the bundled local reranker and local
   embedder.** Both `@the-40-thieves/obsidian-tc-reranker-local` and
@@ -258,6 +271,11 @@ setups (e.g. several agents writing one vault). It is optional by default; set *
 to make it **mandatory** on the destructive paths (`write_note` overwrite, `append_note` to an existing
 note), which then fail closed with `invalid_input` when `prev_hash` is absent (THE-252). Making it the
 non-configurable hard default remains deferred to a future major (a breaking API change).
+
+When `execute_template` creates a note and provenance frontmatter stamping is enabled, the
+post-plugin stamp is also a compare-and-swap against the exact bytes read from the new note. If a
+person or another process edits the note before the stamp lands, the edit is preserved and the
+tool result reports `provenance_stamp: { applied: false, reason: "concurrent_modification" }`.
 
 obsidian-tc writes through the filesystem / native path, **not** through the Local REST API plugin's
 POST endpoint, so it is **not** affected by the upstream Obsidian Local REST API "append clobbers on
@@ -753,6 +771,13 @@ vault text.
 
 These are deliberate design decisions or narrow residuals tracked in the issue log, documented here
 so operators can reason about them rather than discover them.
+
+- **Memory observation IDs are globally sequential.** The public `obs_<number>` value is derived
+  from the existing interval row and is accepted by `update_observation`; changing it would break
+  persisted references held by clients and existing vault workflows. A caller that can bracket
+  authorized writes can therefore infer that intervening activity occurred across ACL or vault
+  boundaries, although the IDs reveal neither the other vault nor observation content. Treat the
+  gap as process-level activity metadata until a future breaking release can migrate to opaque IDs.
 
 - **`move_attachment` rewrites references in notes outside the caller's write ACL (N-3, THE-303).**
   When an attachment moves, every note that links to it is updated so links do not break — including

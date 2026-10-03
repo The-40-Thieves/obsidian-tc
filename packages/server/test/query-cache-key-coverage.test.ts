@@ -54,6 +54,7 @@ const DENSE = "alpha beta";
 
 const binding = (over: Partial<QueryCacheBinding> = {}): QueryCacheBinding => ({
   aclFingerprint: "a".repeat(64),
+  exclusionDigest: "e".repeat(64),
   generation: 3,
   representation: {
     id: "local",
@@ -229,8 +230,11 @@ describe("THE-497 graph-search cache key covers every option", () => {
     );
   });
 
-  it("keys the caller (ACL fingerprint) and the vault state (generation)", () => {
+  it("keys the caller, effective exclusions, and vault generation", () => {
     expect(graphSearchKey(BASE, binding({ aclFingerprint: "b".repeat(64) }), DENSE)).not.toBe(
+      graphSearchKey(BASE, binding(), DENSE),
+    );
+    expect(graphSearchKey(BASE, binding({ exclusionDigest: "f".repeat(64) }), DENSE)).not.toBe(
       graphSearchKey(BASE, binding(), DENSE),
     );
     expect(graphSearchKey(BASE, binding({ generation: 4 }), DENSE)).not.toBe(

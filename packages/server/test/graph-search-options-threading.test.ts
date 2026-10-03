@@ -23,7 +23,8 @@ import { openMemoryDb } from "./helpers";
 function depsWith(extra: Partial<M7Deps>): M7Deps {
   return {
     embeddingProvider: { id: "test-model" },
-    vaultRegistry: {},
+    // A vault with no app.json: the live exclusion predicate resolves to an empty set.
+    vaultRegistry: { resolve: () => ({ root: "/nonexistent-vault", indexExcludePaths: [] }) },
     reranker: null,
     roles: null,
     ...extra,
