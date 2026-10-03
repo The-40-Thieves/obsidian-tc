@@ -277,9 +277,14 @@ describe("parity: detailed output keeps exactly the pre-#1027 field set", () => 
 
 describe("concise shapes", () => {
   it("every scenario keeps its shape floor and is strictly smaller (or equal) than detailed", async () => {
+    // Two worlds for the sweep, not a fresh pair per scenario (see "the config default reaches every
+    // domain" below): the same scenarios run in the same order in both, so a mutating one leaves
+    // them in the same state.
+    const wDetailed = await world();
+    const wConcise = await world();
     for (const s of SCENARIOS) {
-      const detailed = await call(s, { response_format: "detailed" });
-      const concise = await call(s, { response_format: "concise" });
+      const detailed = dataOf(await runScenario(wDetailed, s, { response_format: "detailed" }));
+      const concise = dataOf(await runScenario(wConcise, s, { response_format: "concise" }));
       for (const k of s.conciseKeys) expect(keys(concise), `${s.name} keeps ${k}`).toContain(k);
       expect(JSON.stringify(concise).length, s.name).toBeLessThanOrEqual(
         JSON.stringify(detailed).length,
@@ -805,13 +810,24 @@ describe("precedence through dispatch: explicit > alias > config default > detai
   });
 
   it("the config default reaches every domain (m1, m2, m3, m5, m7, m8)", async () => {
+    // TWO worlds for the whole sweep, not a fresh pair per scenario: building a world (two vaults,
+    // an index pass, the seeding) is ~130 ms on Linux and several times that on Windows, and ~136 of
+    // them took 22 s here and over 60 s on windows-latest (the recurring timeout). Both worlds run
+    // the same scenarios in the same order, so a scenario that mutates leaves them in the same state
+    // and the next comparison is still like for like.
+    const configured = await world("concise");
+    const bare = await world();
     for (const s of SCENARIOS) {
-      // A volatile scenario cannot be compared across two worlds: ask the configured world both ways.
+      // A volatile scenario cannot be compared across two worlds: ask the configured world both ways
+      // (it is read-only, so the second call sees what the first did).
       const [viaConfig, viaParam] = s.volatile
-        ? (await callAll(s, [{}, { response_format: "concise" }], "concise")).map(strip)
+        ? [
+            strip(dataOf(await runScenario(configured, s, {}))),
+            strip(dataOf(await runScenario(configured, s, { response_format: "concise" }))),
+          ]
         : [
-            strip(await call(s, {}, "concise")),
-            strip(await call(s, { response_format: "concise" })),
+            strip(dataOf(await runScenario(configured, s, {}))),
+            strip(dataOf(await runScenario(bare, s, { response_format: "concise" }))),
           ];
       expect(viaConfig, s.name).toEqual(viaParam);
     }

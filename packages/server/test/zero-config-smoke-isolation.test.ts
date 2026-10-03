@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -9,6 +9,8 @@ import {
   createIsolatedHome,
   isolatedHomeEnv,
   isUnder,
+  removeTree,
+  waitForPidExit,
 } from "../scripts/lib/isolated-home.mjs";
 import { runBunSync } from "./spawn-cli";
 import { stallTimeout } from "./stall-timeouts";
@@ -70,6 +72,40 @@ describe("isolated-home helper", () => {
     } finally {
       iso.cleanup();
     }
+  });
+});
+
+describe("isolated-home teardown helpers", () => {
+  // The incident (windows-latest, 2026-10-02/03): the smoke's server child was SIGTERMed and its
+  // transport closed, but the process itself was still going when the script's exit handler removed
+  // the fixture vault and the isolated home, so 4-8 MB of bun cache and the vault outlived the test.
+  it("waitForPidExit resolves true only once the process is really gone", async () => {
+    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 600)"], { stdio: "ignore" });
+    const pid = child.pid as number;
+    const started = Date.now();
+    expect(await waitForPidExit(pid, stallTimeout(20_000))).toBe(true);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(400); // stall-ok: lower bound on the child's life
+    expect(() => process.kill(pid, 0)).toThrow();
+  });
+
+  it("waitForPidExit gives up (false) on a process that outlives the budget", async () => {
+    const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"], {
+      stdio: "ignore",
+    });
+    try {
+      expect(await waitForPidExit(child.pid as number, 300)).toBe(false); // stall-ok: the budget under test
+    } finally {
+      child.kill();
+    }
+  });
+
+  it("removeTree removes a nested tree and tolerates one that is already gone", () => {
+    const dir = makeTempDir("otc-remove-tree-");
+    mkdirSync(join(dir, "a", "b"), { recursive: true });
+    writeFileSync(join(dir, "a", "b", "f.txt"), "x");
+    removeTree(dir);
+    expect(existsSync(dir)).toBe(false);
+    expect(() => removeTree(dir)).not.toThrow();
   });
 });
 

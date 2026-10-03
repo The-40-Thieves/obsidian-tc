@@ -24,6 +24,7 @@ export default defineConfig({
       resolve(here, "test/tmp-guard-setup.ts"),
       resolve(here, "test/tmpdir-realpath-setup.ts"),
       resolve(here, "test/home-isolation-setup.ts"),
+      resolve(here, "test/hardware-probe-stub-setup.ts"),
     ],
     environment: "node",
     // Worker cap OUTSIDE CI. Vitest defaults maxWorkers to available parallelism, i.e. one worker

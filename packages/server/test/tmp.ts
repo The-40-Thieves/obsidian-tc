@@ -23,6 +23,15 @@ const live = new Set<string>();
 // What Windows answers when a handle (a SQLite connection, an antivirus scan) outlives every retry.
 const WINDOWS_LOCK_CODES = new Set(["EPERM", "EBUSY", "ENOTEMPTY"]);
 
+// Node's rmSync retry backoff is linear (retryDelay * attempt). On win32 the holder is often a child
+// the test spawned, or the one `systeminformation` abandons after hardware.ts's 2 s bound, that is
+// still exiting: 10 x 100 ms (~5.5 s worst case, only when it is locked) rides that out where
+// 5 x 50 ms (~0.75 s) did not. Everywhere else a lock is not expected, so keep the short budget.
+const RM_RETRY =
+  process.platform === "win32"
+    ? { maxRetries: 10, retryDelay: 100 }
+    : { maxRetries: 5, retryDelay: 50 };
+
 /** Recursively remove a test temp dir, retrying the Windows file-lock errors.
  *
  *  On win32 a lock error that survives the retries is logged, not thrown: the directory is the
@@ -34,7 +43,7 @@ const WINDOWS_LOCK_CODES = new Set(["EPERM", "EBUSY", "ENOTEMPTY"]);
  *  is never removed. Every other platform, and every other error, still throws. */
 export function rmTemp(dir: string): void {
   try {
-    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(dir, { recursive: true, force: true, ...RM_RETRY });
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
     if (process.platform !== "win32" || code === undefined || !WINDOWS_LOCK_CODES.has(code)) {

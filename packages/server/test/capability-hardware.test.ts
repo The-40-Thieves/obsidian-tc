@@ -6,9 +6,13 @@
 // on a locked-down box — so the enricher is injected here to prove that a throwing provider degrades
 // to the os-only baseline rather than taking down the whole profile.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { hardwareEnvelope } from "../src/capability/hardware";
 import { stallTimeout } from "./stall-timeouts";
+
+// hardware-probe-stub-setup.ts stubs systeminformation for the whole suite; the first case below
+// is the one that runs the real enricher.
+vi.unmock("systeminformation");
 
 describe("THE-522 hardware envelope", () => {
   // The ONLY case here that runs the real systeminformation enricher, so it is the only one whose

@@ -209,6 +209,51 @@ export function scanLeaks(
   return leaks;
 }
 
+/** How long the win32 teardown waits for a leftover to disappear on its own before it is a leak. */
+export const WIN32_SETTLE_BUDGET_MS = 8_000;
+const SETTLE_POLL_MS = 250;
+
+/** Block the thread for `ms` (the globalSetup teardown is synchronous). */
+export function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+export interface SettleOptions {
+  readonly platform?: NodeJS.Platform;
+  readonly budgetMs?: number;
+  readonly pollMs?: number;
+  /** Re-reads the leftovers (defaults to `scanLeaks(runRoot)`). */
+  readonly scan?: () => Leak[];
+  readonly sleep?: (ms: number) => void;
+}
+
+/** Leftovers still there after a short wait. On win32 a process that is still exiting (an abandoned
+ *  PowerShell probe, a worker running its own exit sweep, a child whose handle keeps a directory in
+ *  delete-pending) removes its files a moment AFTER the run ended, so the first scan sees entries
+ *  that no longer exist a second later. Re-scan (without deleting anything: deleting would hide a
+ *  real forgotten teardown) until the list is empty or the budget runs out; what survives the wait
+ *  was not about to disappear. Linux and macOS scan once: nothing there lingers, so a leftover is
+ *  a forgotten teardown on the first look. */
+export function settleLeaks(
+  runRoot: string,
+  {
+    platform = process.platform,
+    budgetMs = WIN32_SETTLE_BUDGET_MS,
+    pollMs = SETTLE_POLL_MS,
+    ...rest
+  }: SettleOptions = {},
+): Leak[] {
+  const scan = rest.scan ?? (() => scanLeaks(runRoot));
+  const sleep = rest.sleep ?? sleepSync;
+  let leaks = scan();
+  if (platform !== "win32") return leaks;
+  for (let waited = 0; leaks.length > 0 && waited < budgetMs; waited += pollMs) {
+    sleep(pollMs);
+    leaks = scan();
+  }
+  return leaks;
+}
+
 function size(bytes: number): string {
   return bytes >= 1024 * 1024
     ? `${(bytes / 1024 / 1024).toFixed(0)} MB`

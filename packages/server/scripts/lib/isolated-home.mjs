@@ -26,14 +26,36 @@ export function isUnder(path, root) {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
+/** Remove a scratch tree, riding out a Windows handle that is still being released (a child that
+ *  was just killed holds its cwd, its caches and any mapped file until the OS finishes tearing it
+ *  down). Node's retry backoff is linear: 10 x 100 ms is ~5.5 s, spent only when something is held. */
+export function removeTree(path) {
+  rmSync(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+}
+
+/** Resolves true once no process has `pid`, false if it is still there after `timeoutMs`. A child's
+ *  stdio closing is NOT its exit: on Windows the process (and the handles it keeps on the scratch
+ *  tree) can outlive its pipes, so "the client saw the transport close" must not gate the cleanup. */
+export async function waitForPidExit(pid, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      process.kill(pid, 0);
+    } catch (err) {
+      if (err && err.code === "ESRCH") return true;
+    }
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
 /** A throwaway home under the real (symlink-resolved) tmpdir, removed on `cleanup()` or at exit.
  *  `env` is the full set of overrides to merge over `process.env` for a spawned child. */
 export function createIsolatedHome(prefix) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
   const home = join(root, "home");
   mkdirSync(home, { recursive: true });
-  const cleanup = () =>
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  const cleanup = () => removeTree(root);
   process.once("exit", cleanup);
   return { root, home, env: isolatedHomeEnv(home), cleanup };
 }
