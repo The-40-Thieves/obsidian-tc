@@ -523,6 +523,7 @@ export async function buildServerRuntime(
         root: vaultRegistry.resolve(v.id).root,
         ...(v.workspace !== undefined ? { workspace: v.workspace } : {}),
         wikiFolder: vaultRegistry.resolve(v.id).wikiFolder,
+        rawFolders: vaultRegistry.resolve(v.id).rawFolders,
       })),
       eventVaultId: firstVault.id,
       listVaultIds: () => vaultRegistry.list().map((v) => v.id),

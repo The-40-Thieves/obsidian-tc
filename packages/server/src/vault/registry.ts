@@ -3,6 +3,7 @@
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { err, type VaultConfigInput, type VaultKind } from "@the-40-thieves/obsidian-tc-shared";
+import { rawFolderNames } from "../tools/m7/knowledge/wiki-folder";
 import { canonicalFolderOf, rawFolderOf } from "./raw-folder";
 
 /**
@@ -73,6 +74,11 @@ export interface ResolvedVault {
   /** The vault's raw-sources folder (`wiki.rawFolder`, default `raw` beside the wiki folder): its
    *  files are immutable (runtime/acl-build.ts) and are not wiki pages. Absent: none. */
   rawFolder?: string;
+  /** Every name of the raw folder, placed once at registration: `rawFolder` and, when that is a
+   *  symlink (or under one), the in-vault directory it really is. Every "is this a raw note?" decision
+   *  (rawPathFilter, the judge's loadSendable) takes this, never `rawFolder` alone. A symlink made
+   *  after startup is picked up on the next restart, like the ACL's immutable rule. */
+  rawFolders?: readonly string[];
 }
 
 /** The configured wiki folder, exactly as written. The config schema rejects `""`, `.`, `/`, an
@@ -105,7 +111,7 @@ export class VaultRegistry {
         restApiKey: v.restApiKey,
         ...(v.index?.excludePaths?.length ? { indexExcludePaths: v.index.excludePaths } : {}),
         ...(wikiFolder ? { wikiFolder } : {}),
-        ...(rawFolder ? { rawFolder } : {}),
+        ...(rawFolder ? { rawFolder, rawFolders: rawFolderNames(root, rawFolder) } : {}),
       });
     }
     const first = vaults[0];

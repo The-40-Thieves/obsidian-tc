@@ -22,8 +22,8 @@ export interface ScanScope {
   grantedScopes: Iterable<string>;
   /** The vault's wiki folder: its generated index.md / log.md are never the subject of a scan. */
   wikiFolder?: string | undefined;
-  /** The vault's raw-sources folder: raw notes are inputs, never the subject of a scan. */
-  rawFolder?: string | undefined;
+  /** Every name of the vault's raw-sources folder: raw notes are inputs, never the subject of a scan. */
+  rawFolders?: readonly string[] | undefined;
 }
 
 /** Read-ACL-visible `.md` note paths (optionally under a folder). */
@@ -80,7 +80,7 @@ export function scanOrphans(
   opts: { folder?: string | undefined; requireNoOutgoing?: boolean },
 ): string[] {
   const { root, acl, grantedScopes } = scope;
-  const isRaw = rawPathFilter(scope.rawFolder);
+  const isRaw = rawPathFilter(scope.rawFolders);
   const candidates = readableNotes(root, acl, grantedScopes, opts.folder).filter(
     (p) => !isGeneratedWikiPath(p, scope.wikiFolder) && !isRaw(p),
   );
@@ -179,7 +179,7 @@ export function scanProvenance(
     if (includeRes.length && !includeRes.some((re) => re.test(p))) return false;
     return !excludeRes.some((re) => re.test(p));
   };
-  const isRaw = rawPathFilter(scope.rawFolder);
+  const isRaw = rawPathFilter(scope.rawFolders);
   const notes = readableNotes(scope.root, scope.acl, scope.grantedScopes, opts.folder).filter(
     (p) => inScope(p) && !isGeneratedWikiPath(p, scope.wikiFolder) && !isRaw(p),
   );

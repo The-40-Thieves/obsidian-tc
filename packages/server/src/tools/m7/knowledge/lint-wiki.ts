@@ -150,7 +150,7 @@ export function createLintWikiTool(deps: M7Deps): ToolDefinition {
           exclusion,
           embeddingModel: deps.embeddingProvider.id,
           wikiFolder: v.wikiFolder,
-          rawFolder: v.rawFolder,
+          rawFolders: v.rawFolders,
           sealKey,
         },
         {
@@ -176,7 +176,13 @@ export function createLintWikiTool(deps: M7Deps): ToolDefinition {
         judge = await judgeNearDuplicates(
           report,
           wiki,
-          { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes, exclusion },
+          {
+            root: v.root,
+            acl: ctx.acl,
+            grantedScopes: ctx.grantedScopes,
+            exclusion,
+            rawFolders: v.rawFolders,
+          },
           deps.excludeFilter,
           input.max_judge_calls,
         );

@@ -1,8 +1,9 @@
 import { FolderAcl } from "../acl";
 import { foldersShareDirectory, rawFolderPlacement } from "../tools/m7/knowledge/wiki-folder";
 import { withWikiLogScope } from "../tools/m7/knowledge/wiki-log-acl";
+import { resolveVaultPathChecked } from "../vault/paths";
 import { immutableGlobsFor, rawFolderOf } from "../vault/raw-folder";
-import { canonicalizeVaultRoot } from "../vault/registry";
+import { canonicalizeVaultRoot, canonicalizeVaultRootWithStatus } from "../vault/registry";
 
 type FolderAclConfig = ConstructorParameters<typeof FolderAcl>[0];
 
@@ -15,7 +16,8 @@ type FolderAclConfig = ConstructorParameters<typeof FolderAcl>[0];
  *  Change ACL construction HERE and nowhere else.
  *
  *  A vault with a wiki folder gets its own ACL even when its config declares none: the root ACL plus
- *  the implicit rule that makes the generated `log.md` need `read:provenance` (wiki-log-acl.ts), and
+ *  the implicit rule that makes the generated `log.md` need `read:provenance` (wiki-log-acl.ts, on
+ *  the wiki folder's real directory too when it is a symlink), and
  *  the raw-sources folder (`wiki.rawFolder`), which is immutable whatever the ACL says. The two are
  *  independent additions on different fields (a `rules` entry that only adds a scope, and
  *  `immutablePaths` entries that only add write denials), so neither can loosen the other nor an
@@ -37,6 +39,7 @@ export function buildAcls(
     const base = withWikiLogScope(
       (v.acl as FolderAclConfig | undefined) ?? aclConfig,
       v.wiki?.folder,
+      canonicalWikiFolder(v),
     );
     const locked = raw === undefined ? [] : [raw, ...canonicalRawTarget(v, raw)];
     aclByVault.set(
@@ -52,6 +55,31 @@ export function buildAcls(
     );
   }
   return { acl: new FolderAcl(aclConfig), aclByVault };
+}
+
+/** The in-vault directory a symlinked wiki folder really is (`""`: the vault root), so that the
+ *  `log.md` read scope holds when the log is reached by that name: undefined when the folder is the
+ *  directory it says, or the vault root is unavailable now (there is no symlink to follow; a restart
+ *  with the vault present picks it up, like the raw folder's). A folder that cannot be placed inside
+ *  the vault throws: the scope cannot be installed on a path nobody can name, and starting without
+ *  it would leave the log readable, so this fails closed. */
+function canonicalWikiFolder(v: {
+  id: string;
+  path?: string;
+  wiki?: { folder: string } | undefined;
+}): string | undefined {
+  if (v.path === undefined || v.wiki === undefined) return undefined;
+  const { root, canonical } = canonicalizeVaultRootWithStatus(v.path);
+  if (!canonical) return undefined;
+  let real: string;
+  try {
+    real = resolveVaultPathChecked(root, v.wiki.folder).aclRel;
+  } catch {
+    throw new Error(
+      `vault "${v.id}": wiki.folder (${JSON.stringify(v.wiki.folder)}) cannot be placed inside the vault once symlinks are resolved, so the read:provenance scope on its log.md cannot be installed`,
+    );
+  }
+  return real === v.wiki.folder ? undefined : real;
 }
 
 /** The in-vault directory a symlinked raw folder really is, so that writing it by that name is as

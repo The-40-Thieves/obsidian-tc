@@ -4,8 +4,9 @@
 // and hope the server re-signs the planted head. The server must refuse to, keep the evidence, and
 // still record the write in a form `verify` flags.
 import { describe, expect, it } from "vitest";
+import { pruneProvenance } from "../src/provenance/retention";
 import { registrySignerSource } from "../src/provenance/signer";
-import { appendProvenance, pruneProvenance, readHeadRow } from "../src/provenance/store";
+import { appendProvenance, readHeadRow } from "../src/provenance/store";
 import { verifyProvenance } from "../src/provenance/verify";
 import { CLOCK0, provenanceFixture, rowsFor } from "./provenance-helpers";
 

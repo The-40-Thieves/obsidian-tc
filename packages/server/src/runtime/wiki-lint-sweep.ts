@@ -26,7 +26,13 @@ export interface WikiLintSweepDeps {
   /** The experiential store, when open; without it the quality and coverage-gap checks are skipped. */
   experientialDb?: Database | undefined;
   /** Canonical vault roots. */
-  vaults: readonly { id: string; root: string; wikiFolder?: string | undefined }[];
+  vaults: readonly {
+    id: string;
+    root: string;
+    wikiFolder?: string | undefined;
+    /** Every name of the vault's raw folder (registry `rawFolders`): raw notes are never lint subjects. */
+    rawFolders?: readonly string[] | undefined;
+  }[];
   exclusionFor: (vaultId: string) => VaultExclusion;
   embeddingModel: string;
   intervalMs: number;
@@ -119,6 +125,7 @@ export function registerWikiLintSweep(scheduler: Scheduler, deps: WikiLintSweepD
             exclusion: deps.exclusionFor(v.id),
             embeddingModel: deps.embeddingModel,
             wikiFolder: v.wikiFolder,
+            rawFolders: v.rawFolders,
             sealKey,
           },
           {
@@ -145,6 +152,7 @@ export function registerWikiLintSweep(scheduler: Scheduler, deps: WikiLintSweepD
               acl: undefined,
               grantedScopes: ["read:notes"],
               exclusion: deps.exclusionFor(v.id),
+              rawFolders: v.rawFolders,
             },
             deps.judge.excludeFilter,
             deps.judge.maxCalls,

@@ -476,7 +476,9 @@ note that links the target is left as it was, so its link now points at the old 
 so: `immutable_not_updated` lists those notes you may read, `immutable_not_updated_hidden` counts the
 ones you may not (a count, never a path), and `immutable_warning` explains. Repoint them outside the
 server. If `raw` is a symlink to another folder in the vault, that folder is immutable too (from the
-next server restart), and the raw folder and wiki folder must not be the same directory.
+next server restart), is raw under its real name everywhere (duplicate checks, `lint_wiki`, the judge:
+with `raw -> sources`, `sources/Topic.md` is a source, never an existing page), and the raw folder and
+wiki folder must not be the same directory.
 
 **Ingest.** Pass one raw note to `draft_wiki_page` as `source` (a `.md` note inside the raw folder, with
 the `topic` of the page it feeds). You get the usual duplicate check, link map and changeset skeleton,
@@ -522,8 +524,10 @@ already flagged on a touched note are listed in `contradictions`; new ones are f
 afterwards.
 
 **Confirmation.** Per operation, as the single-note tools ask it. Creating a page inside the wiki folder
-needs **no confirmation**: every note a commit replaces is snapshotted first, so `restore_note` undoes
-it. Patching a related note anywhere asks nothing either, as `patch_note` does, under the same ACL (both
+needs **no confirmation**: every existing note a commit patches or replaces is snapshotted first, so
+`restore_note` undoes those. A new page has no prior state, so it has no snapshot and `restore_note`
+cannot undo it; remove it with `delete_note` (which asks for confirmation, and moves the page to the
+trash). Patching a related note anywhere asks nothing either, as `patch_note` does, under the same ACL (both
 read and write permission on the note). Overwriting an existing non-empty page (`page.mode: overwrite`,
 which needs `prev_hash`) asks for confirmation exactly like `write_note`. Everything else keeps its
 existing rules: `write_note`, `patch_note`, `delete_note` and the rest behave as before.
@@ -544,7 +548,11 @@ the old text back (with a no-replace create), so it never deletes or overwrites 
 write; while a note is aside its name is briefly empty, and a note another process writes there in that
 gap is kept. When any undo is incomplete (`internal_error`, `details.reason: rollback_incomplete`) the
 snapshots taken for the call are kept, so `restore_note` can recover each pre-image; after a clean
-rollback they are dropped. Snapshot retention is pruned only after the batch succeeds. A process crash (SIGKILL,
+rollback they are dropped. Snapshot retention is pruned only after the batch succeeds, and that
+cleanup, like reindexing, is best-effort: a fault there (a locked database, say) cannot undo a batch
+that has landed, so it is logged and returned as a `post_commit` problem, never as an error. When the
+provenance frontmatter stamp is on, the new page is checked against `SCHEMA.md` with the stamp in
+it. A process crash (SIGKILL,
 power loss) between two renames can leave a partial batch: the `pending` record then has no `ok` or
 `error` record after it, which is how the batch is found, and `restore_note` returns each replaced note.
 The re-hash narrows the window for an edit by another process to the gap between the hash and the

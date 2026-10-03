@@ -91,7 +91,7 @@
                     },
                     "scopes": {
                       "default": [],
-                      "description": "Scopes REQUIRED to operate on paths matching this rule (P1.4): a caller must hold every listed scope, in addition to the tool's own required scopes, to read/write/delete a matching path. The LAST matching rule wins, replacing rather than merging the scopes of earlier matches. An empty list adds no requirement. Enforced at dispatch on tool operations; it does not filter search/enumeration result visibility, which is governed by readPaths.",
+                      "description": "Scopes REQUIRED to operate on paths matching this rule (P1.4): a caller must hold every listed scope, in addition to the tool's own required scopes, to read/write/delete a matching path. The LAST matching rule wins, replacing rather than merging the scopes of earlier matches. An empty list adds no requirement. Enforced at dispatch on tool operations, and applied to results too: a search, listing or graph result for a path whose scopes the caller lacks is dropped, exactly as a path outside readPaths is.",
                       "type": "array",
                       "items": {
                         "type": "string"
@@ -802,7 +802,7 @@
               },
               "scopes": {
                 "default": [],
-                "description": "Scopes REQUIRED to operate on paths matching this rule (P1.4): a caller must hold every listed scope, in addition to the tool's own required scopes, to read/write/delete a matching path. The LAST matching rule wins, replacing rather than merging the scopes of earlier matches. An empty list adds no requirement. Enforced at dispatch on tool operations; it does not filter search/enumeration result visibility, which is governed by readPaths.",
+                "description": "Scopes REQUIRED to operate on paths matching this rule (P1.4): a caller must hold every listed scope, in addition to the tool's own required scopes, to read/write/delete a matching path. The LAST matching rule wins, replacing rather than merging the scopes of earlier matches. An empty list adds no requirement. Enforced at dispatch on tool operations, and applied to results too: a search, listing or graph result for a path whose scopes the caller lacks is dropped, exactly as a path outside readPaths is.",
                 "type": "array",
                 "items": {
                   "type": "string"

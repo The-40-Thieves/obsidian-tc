@@ -94,8 +94,8 @@ export interface LintEnv {
   embeddingModel: string;
   /** The vault's wiki folder. Its generated index.md / log.md are never the subject of a proposal. */
   wikiFolder?: string | undefined;
-  /** The vault's raw-sources folder. Raw notes are inputs: never the subject of a proposal. */
-  rawFolder?: string | undefined;
+  /** Every name of the vault's raw-sources folder. Raw notes are inputs: never the subject of a proposal. */
+  rawFolders?: readonly string[] | undefined;
   /** Server-local key that authenticates generated pages. */
   sealKey?: string | undefined;
 }
@@ -157,12 +157,12 @@ export function runWikiLint(env: LintEnv, input: LintInput): LintReport {
     acl: env.acl,
     grantedScopes: env.grantedScopes,
     wikiFolder: env.wikiFolder,
-    rawFolder: env.rawFolder,
+    rawFolders: env.rawFolders,
   };
   const folder = input.folder?.replace(/\/+$/, "");
   const prefix = folder ? `${folder}/` : "";
   const inFolder = (p: string): boolean => prefix === "" || p.startsWith(prefix);
-  const isRaw = rawPathFilter(env.rawFolder);
+  const isRaw = rawPathFilter(env.rawFolders);
   const subjectOk = (p: string): boolean =>
     !env.exclusion.isExcluded(p) && !isGeneratedWikiPath(p, env.wikiFolder) && !isRaw(p);
   const readable = (p: string): boolean => readableRel(env.acl, p, env.grantedScopes);
