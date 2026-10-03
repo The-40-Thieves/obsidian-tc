@@ -71,12 +71,14 @@ export class RewriteScan {
   /** Read a note for the plan. A note that vanished mid-pass is null (nothing to rewrite); any
    *  other failure (a hard-linked file, an I/O error) is recorded like an unprovable link and the
    *  note is skipped, so it refuses the move through `refuseIfFailed`: named only when the caller
-   *  can read it, and never with the reader's own message or details (they carry absolute paths). */
-  read(abs: string, rel: string): { raw: string; hash: string } | null {
+   *  can read it, and never with the reader's own message or details (they carry absolute paths).
+   *  `record: false` skips such a note silently instead (bulk_move_notes does this for a note that
+   *  is not one of its moves: one unreadable bystander does not fail the other rows). */
+  read(abs: string, rel: string, record = true): { raw: string; hash: string } | null {
     try {
       return readNote(abs);
     } catch (e) {
-      if (isVanished(e)) return null;
+      if (isVanished(e) || !record) return null;
       this.failures.push({
         rel,
         target: undefined,

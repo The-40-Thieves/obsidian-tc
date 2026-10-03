@@ -91,8 +91,9 @@ export function planMoves(args: {
     const abs = resolveVaultPath(root, p);
     const toRel = moveMap.get(p);
     // a note that vanished mid-pass is skipped (a source that vanished is not a plan: its row's
-    // bytes are needed); any other read failure is a recorded refusal (RewriteScan.read)
-    const note = scan.read(abs, p);
+    // bytes are needed). An unreadable SOURCE is a recorded refusal (RewriteScan.read); an unreadable
+    // note that is not moving is skipped, as it was before, so it cannot fail the other rows.
+    const note = scan.read(abs, p, toRel !== undefined);
     if (!note) {
       if (toRel !== undefined && !existsSync(abs))
         throw err.noteNotFound("source note not found", { path: p });
