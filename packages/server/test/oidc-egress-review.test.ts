@@ -70,7 +70,7 @@ describe("a jwks_uri carrying query credentials is never printed", () => {
   const URL_WITH_SECRET = `https://idp.example/jwks?token=${SECRET}`;
   const okNet = { resolveHost: async () => ["93.184.216.34"] };
 
-  it("fetchBoundedText: HTTP 503 error names the host and path, not the query", async () => {
+  it("fetchBoundedText: HTTP 503 error names the host, not the path or query", async () => {
     const err = await fetchBoundedText(URL_WITH_SECRET, {
       fetch: async () => new Response("nope", { status: 503 }),
       maxBytes: 1024,
@@ -78,7 +78,7 @@ describe("a jwks_uri carrying query credentials is never printed", () => {
       network: okNet,
     }).catch((e: Error) => e);
     expect(err).toBeInstanceOf(Error);
-    expect((err as Error).message).toMatch(/idp\.example\/jwks/);
+    expect((err as Error).message).toMatch(/https:\/\/idp\.example(?!\/jwks)/);
     expect((err as Error).message).toMatch(/503/);
     expect((err as Error).message).not.toContain(SECRET);
   });
@@ -135,19 +135,19 @@ describe("a jwks_uri carrying query credentials is never printed", () => {
     expect((err as Error).message).not.toContain(SECRET);
   });
 
-  it("the startup line prints the jwks_uri without its query", () => {
+  it("the startup line prints the jwks_uri as its origin only", () => {
     const line = oidcBootNotice({
       issuer: "https://idp.example",
       jwksUri: URL_WITH_SECRET,
       audience: "aud",
       allowedAlgs: ["RS256"],
     });
-    expect(line).toMatch(/jwks_uri=https:\/\/idp\.example\/jwks/);
+    expect(line).toMatch(/jwks_uri=https:\/\/idp\.example /);
     expect(line).not.toContain(SECRET);
     expect(line).toMatch(/issuer=https:\/\/idp\.example/);
   });
 
-  it("doctor: the probed jwks_uri is shown without its query, in the summary and the details", async () => {
+  it("doctor: the probed jwks_uri is shown as its origin only, in the summary and the details", async () => {
     const r = await authOidcCheck({
       authMode: "oidc",
       issuer: "https://idp.example",
@@ -159,7 +159,8 @@ describe("a jwks_uri carrying query credentials is never printed", () => {
       probe: async () => ({ ok: true, jwksUri: URL_WITH_SECRET, keyCount: 1 }),
     }).run({ serverVersion: "t" });
     expect(JSON.stringify(r)).not.toContain(SECRET);
-    expect(JSON.stringify(r)).toContain("https://idp.example/jwks");
+    expect(JSON.stringify(r)).toContain("https://idp.example");
+    expect(JSON.stringify(r)).not.toContain("/jwks");
   });
 
   it("doctor: a probe failure message carrying the URL is scrubbed", async () => {
@@ -174,5 +175,125 @@ describe("a jwks_uri carrying query credentials is never printed", () => {
       probe: async () => ({ ok: false, error: `could not fetch ${URL_WITH_SECRET}: HTTP 503` }),
     }).run({ serverVersion: "t" });
     expect(JSON.stringify(r)).not.toContain(SECRET);
+  });
+});
+
+// A key-set URL's PATH can be the credential too (`/jwks/<token>`). The first fix dropped only the
+// query and userinfo; the startup line, the doctor output and the fetch errors still printed the path.
+describe("a jwks_uri carrying a credential in its PATH is never printed", () => {
+  const SECRET = "TOPSECRET";
+  const PATH_URL = `https://idp.example/jwks/${SECRET}`;
+  const okNet = { resolveHost: async () => ["93.184.216.34"] };
+  const chainText = (e: unknown): string => {
+    const parts: string[] = [];
+    for (let cur: unknown = e, i = 0; cur !== undefined && i < 10; i++) {
+      parts.push(cur instanceof Error ? `${cur.name} ${cur.message}` : String(cur));
+      cur = cur instanceof Error ? cur.cause : undefined;
+    }
+    return parts.join("\n");
+  };
+
+  it("the startup line", () => {
+    const line = oidcBootNotice({
+      issuer: "https://idp.example",
+      jwksUri: PATH_URL,
+      audience: "aud",
+      allowedAlgs: ["RS256"],
+    });
+    expect(line).not.toContain(SECRET);
+    expect(line).toContain("jwks_uri=https://idp.example ");
+  });
+
+  it("doctor output", async () => {
+    const r = await authOidcCheck({
+      authMode: "oidc",
+      issuer: "https://idp.example",
+      audience: "aud",
+      allowedAlgs: ["RS256"],
+      clockToleranceSeconds: 30,
+      prmConfigured: true,
+      requireJti: true,
+      probe: async () => ({ ok: true, jwksUri: PATH_URL, keyCount: 1 }),
+    }).run({ serverVersion: "t" });
+    expect(JSON.stringify(r)).not.toContain(SECRET);
+  });
+
+  it.each([
+    ["HTTP 503", async () => new Response("nope", { status: 503 })],
+    [
+      "a network error naming the URL",
+      async () => Promise.reject(new Error(`connect ${PATH_URL}`)),
+    ],
+    ["a redirect", async () => new Response(null, { status: 302, headers: { location: "/x" } })],
+  ])(
+    "fetchBoundedText on %s: neither the message nor the cause chain has the path",
+    async (_n, f) => {
+      const err = await fetchBoundedText(PATH_URL, {
+        fetch: f as typeof fetch,
+        maxBytes: 1024,
+        what: "OIDC JWKS",
+        network: okNet,
+      }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(chainText(err)).not.toContain(SECRET);
+    },
+  );
+
+  it("a stream that fails mid-read names no path in the message or the cause chain", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      pull() {
+        throw new Error(`reset while reading ${PATH_URL}`);
+      },
+    });
+    const err = await fetchBoundedText(PATH_URL, {
+      fetch: (async () => new Response(body, { status: 200 })) as typeof fetch,
+      maxBytes: 1024,
+      what: "OIDC JWKS",
+      network: okNet,
+    }).catch((e: unknown) => e);
+    expect(chainText(err)).not.toContain(SECRET);
+  });
+
+  it("a malformed URL is not echoed", async () => {
+    const err = await fetchBoundedText(`https://idp.example:bad/jwks/${SECRET}`, {
+      maxBytes: 1024,
+      what: "OIDC JWKS",
+    }).catch((e: unknown) => e);
+    expect(chainText(err)).not.toContain(SECRET);
+  });
+
+  it("the discovery document URL (issuer-derived, public) keeps its path", async () => {
+    const issuer = "https://idp.example/realms/main";
+    const err = await discoverOidc(issuer, {
+      fetch: async () => new Response("nope", { status: 503 }),
+      ...okNet,
+    }).catch((e: Error) => e);
+    expect((err as Error).message).toContain("https://idp.example/realms/main/.well-known/");
+  });
+
+  it("an idp_unavailable rejection's cause chain (a JWKS transport error naming the URL) is clean", async () => {
+    const idp = await startMockIdp();
+    try {
+      const jwksUri = `${ISSUER}/jwks/${SECRET}`;
+      const v = await createOidcVerifier(
+        ServerConfigSchema.parse({
+          vaults: [{ id: "v1", path: "/tmp/v1" }],
+          auth: { mode: "oidc", oidc: { issuer: ISSUER, audience: AUDIENCE, jwksUri } },
+        }).auth,
+        {
+          fetch: ((u: string, init?: RequestInit) =>
+            String(u).includes(SECRET)
+              ? Promise.reject(new Error(`connect ECONNRESET ${u}`))
+              : idp.fetch(u, init)) as typeof fetch,
+          jwksCooldownMs: 0,
+          resolveHost: publicResolver,
+        },
+      );
+      const err = await v.verify(await idp.sign()).catch((e: unknown) => e);
+      expect((err as { reason?: string }).reason).toBe("idp_unavailable");
+      expect(chainText(err)).not.toContain(SECRET);
+    } finally {
+      await idp.close();
+    }
   });
 });

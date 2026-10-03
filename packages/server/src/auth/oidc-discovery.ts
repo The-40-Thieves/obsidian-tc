@@ -6,7 +6,12 @@
 // the operator listed), carries no credentials, and no fetch is made to a non-public address.
 import type { FetchImplementation } from "jose";
 import { createPinnedFetch } from "../gateway/plain-http";
-import { redactEndpointWithPath, redactUrlsInText } from "../telemetry/redact-endpoint";
+import {
+  redactEndpoint,
+  redactEndpointWithPath,
+  redactUrlsInText,
+  scrubEndpointFromMessage,
+} from "../telemetry/redact-endpoint";
 import { assertPublicHost, type IdpNetworkPolicy } from "./oidc-network";
 
 /** Discovery documents are a few KiB; 64 KiB is generous and bounds memory per fetch. */
@@ -32,15 +37,19 @@ export interface FetchBoundedOpts {
   accept?: string;
   signal?: AbortSignal;
   network?: IdpNetworkPolicy;
+  /** The URL's path is public and may be shown in messages. Only the discovery document URL is:
+   *  it is derived from the issuer, which every token carries. A key-set URL is NOT -- its path can
+   *  be a credential (`/jwks/<token>`) -- so by default only its origin is ever shown. */
+  pathIsPublic?: boolean;
 }
 
-function requireHttps(url: string, what: string): URL {
+function requireHttps(url: string, what: string, pathIsPublic = false): URL {
   let u: URL;
   try {
     u = new URL(url);
   } catch {
     throw new OidcFetchError(
-      `${what}: ${redactUrlsInText(JSON.stringify(url))} is not a valid URL`,
+      `${what}: ${pathIsPublic ? redactUrlsInText(JSON.stringify(url)) : "(unparseable)"} is not a valid URL`,
     );
   }
   if (u.username !== "" || u.password !== "") {
@@ -50,7 +59,7 @@ function requireHttps(url: string, what: string): URL {
   }
   if (u.protocol !== "https:") {
     throw new OidcFetchError(
-      `${what}: ${redactEndpointWithPath(url)} must use https (refusing to fetch identity-provider metadata over ${u.protocol.replace(":", "")})`,
+      `${what}: ${(pathIsPublic ? redactEndpointWithPath : redactEndpoint)(url)} must use https (refusing to fetch identity-provider metadata over ${u.protocol.replace(":", "")})`,
     );
   }
   return u;
@@ -58,14 +67,23 @@ function requireHttps(url: string, what: string): URL {
 
 /** GET a URL as text: https only, no redirects, timeout, and a hard cap on the body size. */
 export async function fetchBoundedText(url: string, o: FetchBoundedOpts): Promise<string> {
-  const u = requireHttps(url, o.what);
+  const u = requireHttps(url, o.what, o.pathIsPublic);
   const validated = await assertPublicHost(
     u.hostname,
     o.network ?? {},
     (message, cause) => new OidcFetchError(message, cause === undefined ? undefined : { cause }),
     o.what,
   );
-  const shown = redactEndpointWithPath(u.href);
+  const shown = (o.pathIsPublic === true ? redactEndpointWithPath : redactEndpoint)(u.href);
+  // A transport error can embed the request URL verbatim; strip it (and, for a URL whose path is
+  // not public, the path too) before it reaches a message.
+  const scrub = (e: unknown): string => {
+    const raw = e instanceof Error ? e.message : String(e);
+    const text = o.pathIsPublic === true ? raw : scrubEndpointFromMessage(raw, u.href);
+    return redactUrlsInText(
+      o.pathIsPublic === true || u.pathname === "/" ? text : text.split(u.pathname).join("/…"),
+    );
+  };
   // An injected fetch is the test seam. Otherwise connect to the addresses just validated (never
   // the name again); with the private-network opt-in nothing was validated, so the ordinary fetch.
   const doFetch =
@@ -86,8 +104,7 @@ export async function fetchBoundedText(url: string, o: FetchBoundedOpts): Promis
     throw new OidcFetchError(
       timedOut
         ? `${o.what}: ${shown} timed out after ${timeoutMs} ms`
-        : `${o.what}: ${shown} could not be fetched (${redactUrlsInText(e instanceof Error ? e.message : String(e))})`,
-      { cause: e },
+        : `${o.what}: ${shown} could not be fetched (${scrub(e)})`,
     );
   }
   if (res.status >= 300 && res.status < 400) {
@@ -128,8 +145,7 @@ export async function fetchBoundedText(url: string, o: FetchBoundedOpts): Promis
     throw new OidcFetchError(
       timeout.aborted
         ? `${o.what}: ${shown} timed out after ${timeoutMs} ms`
-        : `${o.what}: reading ${shown} failed (${redactUrlsInText(e instanceof Error ? e.message : String(e))})`,
-      { cause: e },
+        : `${o.what}: reading ${shown} failed (${scrub(e)})`,
     );
   }
 }
@@ -204,6 +220,7 @@ export async function discoverOidc(
     network: o,
     maxBytes: DISCOVERY_MAX_BYTES,
     what: "OIDC discovery",
+    pathIsPublic: true,
   });
   let doc: unknown;
   try {

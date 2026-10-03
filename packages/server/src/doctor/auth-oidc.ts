@@ -2,7 +2,7 @@
 // boot when discovery fails, so a failed probe here is a FAIL, not a warning. The probe is the same
 // discovery + JWKS-location validation boot performs (built by the CLI from `discoverOidc`), injected
 // so the doctor stays a leaf module and tests need no network.
-import { redactEndpointWithPath, redactUrlsInText } from "../telemetry/redact-endpoint";
+import { redactEndpoint, redactUrlsInText } from "../telemetry/redact-endpoint";
 import type { Check, CheckResult } from "./types";
 
 export type OidcProbeResult =
@@ -57,8 +57,8 @@ export function authOidcCheck(view: AuthOidcView): Check {
             "Check auth.oidc.issuer (https, exactly the `issuer` in the IdP's discovery document), that this host can reach the IdP, and auth.oidc.jwksUri if set.",
         };
       }
-      // Shown without its query or userinfo: a key-set URL can carry a credential.
-      const jwksShown = redactEndpointWithPath(result.jwksUri);
+      // Origin only: a key-set URL can carry a credential in its path, query or userinfo.
+      const jwksShown = redactEndpoint(result.jwksUri);
       details.jwksUri = jwksShown;
       if (result.keyCount !== undefined) details.keys = String(result.keyCount);
       const issues: string[] = [];

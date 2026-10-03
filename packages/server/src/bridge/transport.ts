@@ -15,6 +15,7 @@ import {
 } from "@the-40-thieves/obsidian-tc-shared";
 import { PlainHttpRefusedError } from "../gateway/plain-http";
 import { providerFetch } from "../gateway/provider-fetch";
+import { readBodyText } from "../gateway/read-body";
 
 /** Injectable transport: the global `fetch` in production, a fake in tests. */
 export type BridgeFetch = typeof fetch;
@@ -113,11 +114,14 @@ export function createBridgeClient(opts: BridgeClientOptions): BridgeClient {
   // Shared transport: fetch `url` with bearer auth + a per-request timeout, mapping a
   // network/abort failure onto plugin_unreachable (the endpoint did not answer). The
   // token is never logged nor placed in an error payload.
-  async function doFetch(url: string, r: BridgeRequest): Promise<Awaited<ReturnType<BridgeFetch>>> {
+  async function doFetch(
+    url: string,
+    r: BridgeRequest,
+  ): Promise<{ res: Awaited<ReturnType<BridgeFetch>>; text: string }> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), r.timeoutMs ?? defaultTimeout);
     try {
-      return await fetchFn(url, {
+      const res = await fetchFn(url, {
         method: r.method,
         headers: {
           accept: "application/json",
@@ -127,6 +131,9 @@ export function createBridgeClient(opts: BridgeClientOptions): BridgeClient {
         ...(r.body !== undefined ? { body: JSON.stringify(r.body) } : {}),
         signal: ctrl.signal,
       });
+      // The timer stays armed through the body: a companion that answers and then stalls is as
+      // unreachable as one that never answers.
+      return { res, text: await readBodyText(res) };
     } catch (e) {
       // THE-922/THE-923: extractCauseCode is shared (packages/shared/src/fetch-cause.ts) so
       // bridgeState can tell a TLS trust failure apart from ECONNREFUSED/ENOTFOUND/an abort
@@ -146,11 +153,11 @@ export function createBridgeClient(opts: BridgeClientOptions): BridgeClient {
   return {
     baseUrl: base,
     async request<T>(r: BridgeRequest): Promise<T> {
-      const res = await doFetch(`${base}${prefix}${r.path}`, r);
+      const { res, text } = await doFetch(`${base}${prefix}${r.path}`, r);
 
       let env: BridgeEnvelope | undefined;
       try {
-        env = (await res.json()) as BridgeEnvelope;
+        env = JSON.parse(text) as BridgeEnvelope;
       } catch {
         env = undefined;
       }
@@ -166,10 +173,10 @@ export function createBridgeClient(opts: BridgeClientOptions): BridgeClient {
     },
     async requestNative<T>(r: BridgeRequest): Promise<NativeResponse<T>> {
       // NO api prefix: Local REST API's own routes live at the server root (e.g. /commands/).
-      const res = await doFetch(`${base}${r.path}`, r);
+      const { res, text } = await doFetch(`${base}${r.path}`, r);
       let data: T | null = null;
       try {
-        data = (await res.json()) as T;
+        data = JSON.parse(text) as T;
       } catch {
         data = null; // empty body (e.g. a 204) or a non-JSON payload.
       }

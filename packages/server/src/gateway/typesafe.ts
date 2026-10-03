@@ -7,6 +7,7 @@
 import { version as VERSION } from "../../package.json";
 import { abortableSleep } from "../util/abortable-sleep";
 import { createPlainHttpPolicyFetch, PlainHttpRefusedError, type ResolveHost } from "./plain-http";
+import { ProviderBodyTooLargeError, readBodyText } from "./read-body";
 
 export type FetchFn = typeof fetch;
 
@@ -251,6 +252,7 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), timeoutMs);
       let res: Awaited<ReturnType<FetchFn>> | undefined;
+      let text = "";
       try {
         res = await fetchFn(`${base}/v1/systemone`, {
           method: "POST",
@@ -269,7 +271,13 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
           }),
           signal: req.signal ? AbortSignal.any([ctrl.signal, req.signal]) : ctrl.signal,
         });
+        // The timer stays armed through the body (success or error answer alike): a provider that
+        // answers and then stalls must hit the same timeout as one that never answers.
+        text = await readBodyText(res);
       } catch (e) {
+        res = undefined;
+        if (e instanceof ProviderBodyTooLargeError)
+          throw new TypesafeError(`typesafe: ${e.message}`, { kind: "shape" });
         // A plain-http policy refusal is a configuration fact, not a transient failure: never
         // retried, and its message (host and address only, never the key) is what the operator
         // needs to see.
@@ -298,7 +306,7 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
         if (res.ok) {
           let parsed: unknown;
           try {
-            parsed = await res.json();
+            parsed = JSON.parse(text);
           } catch {
             throw new TypesafeError("typesafe: response was not valid JSON", { kind: "shape" });
           }
@@ -342,7 +350,7 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
         }
         let requestId: string | undefined;
         try {
-          const errBody = (await res.clone().json()) as { request_id?: string };
+          const errBody = JSON.parse(text) as { request_id?: string };
           requestId = errBody.request_id;
         } catch {
           /* body wasn't JSON or already consumed — requestId stays undefined */

@@ -279,8 +279,8 @@ const RERANKERS: Record<string, RerankerEntry> = {
       } catch {
         return null; // no base URL configured -> graceful no-op, as today
       }
-      return (q, docs, topN, sourcePaths) =>
-        gw.rerank({ query: q, documents: docs, topN, sourcePaths }).then((r) => r.results);
+      return (q, docs, topN, sourcePaths, signal) =>
+        gw.rerank({ query: q, documents: docs, topN, sourcePaths, signal }).then((r) => r.results);
     },
   },
   // The profile-gated escape hatch — see module-loader.ts's header comment. Unlike the embeddings

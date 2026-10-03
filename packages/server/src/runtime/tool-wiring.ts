@@ -254,8 +254,8 @@ export async function wireGatewaySeams(
   const gw = gateway;
   // W-RETRIEVAL rerank seam -> gateway /rerank passthrough (graceful no-op fallback when null).
   const gatewayReranker: Reranker | null = gw
-    ? (q, docs, topN, sourcePaths) =>
-        gw.rerank({ query: q, documents: docs, topN, sourcePaths }).then((r) => r.results)
+    ? (q, docs, topN, sourcePaths, signal) =>
+        gw.rerank({ query: q, documents: docs, topN, sourcePaths, signal }).then((r) => r.results)
     : null;
   // Prefer the model-tier BGE /v1/rerank when its service is configured; else the gateway
   // passthrough; else — THE-944 — the bundled local cross-encoder, IF it happens to resolve on

@@ -1,6 +1,7 @@
 import { err, extractCauseCode } from "@the-40-thieves/obsidian-tc-shared";
 import { PlainHttpRefusedError } from "../gateway/plain-http";
 import { providerFetch } from "../gateway/provider-fetch";
+import { ProviderBodyTooLargeError, readBodyText } from "../gateway/read-body";
 export type FetchFn = typeof fetch;
 /** Which config block actually holds this endpoint's credential (THE-680).
  *
@@ -84,6 +85,7 @@ export async function postJson<T>(o: PostJsonOptions): Promise<T> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), o.timeoutMs ?? 30_000);
   let res: Awaited<ReturnType<FetchFn>>;
+  let text = "";
   try {
     res = await fetchFn(o.url, {
       method: "POST",
@@ -91,7 +93,13 @@ export async function postJson<T>(o: PostJsonOptions): Promise<T> {
       body: JSON.stringify(o.body),
       signal: ctrl.signal,
     });
+    // The timer stays armed through the body: a provider that answers 200 and then stalls must hit
+    // the same timeout as one that never answers.
+    if (res.ok) text = await readBodyText(res);
+    else void res.body?.cancel().catch(() => undefined);
   } catch (e) {
+    if (e instanceof ProviderBodyTooLargeError)
+      throw err.embeddingProviderError(e.message, { provider: o.provider, url: o.url });
     if ((e as Error).name === "AbortError")
       throw err.operationTimeout("timed out", { provider: o.provider, url: o.url });
     // A plain-http policy refusal is a configuration fact: say which host and why (the message
@@ -125,7 +133,7 @@ export async function postJson<T>(o: PostJsonOptions): Promise<T> {
       hint: providerHint(o),
     });
   try {
-    return (await res.json()) as T;
+    return JSON.parse(text) as T;
   } catch {
     // A 2xx with a malformed / non-JSON body: surface the typed provider error (with
     // provider/url/hint) instead of leaking a raw SyntaxError to callers.

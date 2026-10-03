@@ -44,6 +44,9 @@ export type Reranker = (
   documents: string[],
   topN: number,
   sourcePaths: string[],
+  /** Fires when the caller stops waiting (rerankWithScores' own timeout): the transport cancels the
+   *  in-flight request and any retry backoff instead of finishing a call nobody reads. */
+  signal?: AbortSignal,
 ) => Promise<RerankHit[]>;
 
 /**
@@ -57,9 +60,9 @@ export type Reranker = (
  * `withEgressGuard` for the bug this exact shape was written to avoid.
  */
 export function guardReranker(reranker: Reranker, filter: EgressFilter): Reranker {
-  return async (query, documents, topN, sourcePaths) => {
+  return async (query, documents, topN, sourcePaths, signal) => {
     assertSourcePathsAllowed(filter, "rerank", sourcePaths);
-    return reranker(query, documents, topN, sourcePaths);
+    return reranker(query, documents, topN, sourcePaths, signal);
   };
 }
 
@@ -124,16 +127,20 @@ class RerankTimeoutError extends Error {}
 /** Races `promise` against a timer, per the hardware.ts/scheduler.ts Promise.race idiom. The timer
  *  is `unref`'d so it never keeps the process alive, and always cleared so the loser of the race
  *  cannot fire later. */
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  onTimeout: () => void,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       promise,
       new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(
-          () => reject(new RerankTimeoutError(`reranker exceeded ${timeoutMs}ms`)),
-          timeoutMs,
-        );
+        timer = setTimeout(() => {
+          onTimeout();
+          reject(new RerankTimeoutError(`reranker exceeded ${timeoutMs}ms`));
+        }, timeoutMs);
         timer.unref?.();
       }),
     ]);
@@ -217,16 +224,21 @@ export async function rerankWithScores<T extends RankableDoc>(
       ...excludedScored,
     ].slice(0, topN);
   try {
+    const abort = new AbortController();
     const call = reranker(
       query,
       keep.map((d) => formatRerankPassage(d, passageFormat)),
       Math.min(topN, keep.length),
       // THE-934: the egress guard's backstop check — every path here already cleared the filter.
       keep.map((d) => d.path),
+      abort.signal,
     );
     // No timeout unless the caller asked for one — see DEFAULT_RERANK_TIMEOUT_MS above. Awaiting
     // the bare promise keeps the pre-change bound (provider/gateway budget) exactly as it was.
-    const hits = timeoutMs === undefined ? await call : await withTimeout(call, timeoutMs);
+    const hits =
+      timeoutMs === undefined
+        ? await call
+        : await withTimeout(call, timeoutMs, () => abort.abort());
     const out: Array<{ item: T; score: number }> = [];
     for (const h of hits) {
       const item = keep[h.index];
