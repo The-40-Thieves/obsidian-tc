@@ -454,6 +454,24 @@ describe("ambient proxy variables never see plain-http judge traffic", () => {
   });
 });
 
+describe("an IPv4-mapped IPv6 target is connected as the IPv4 address it spells", () => {
+  it.each([
+    ["http://[::ffff:127.0.0.1]", "127.0.0.1"],
+    ["http://[::ffff:10.0.0.1]", "10.0.0.1"],
+  ])("%s connects to %s", async (base, want) => {
+    const requestSpy = vi.spyOn(http, "request").mockImplementation((() => {
+      throw new Error("stop before connecting");
+    }) as unknown as typeof http.request);
+    const f = createPlainHttpPolicyFetch({
+      plainHttpHosts: [new URL(base).hostname],
+      resolveHost: async () => [],
+    });
+    await expect(f(`${base}:${port}/x`, { method: "POST", body: "{}" })).rejects.toThrow(/stop/);
+    const [opts] = requestSpy.mock.calls[0] as unknown as [{ host: string }];
+    expect(opts.host).toBe(want);
+  });
+});
+
 describe("https keeps the ordinary fetch", () => {
   it("an https judge URL is handed to the global fetch, no resolver, no pinning", async () => {
     const globalFetch = stubGlobalFetch();

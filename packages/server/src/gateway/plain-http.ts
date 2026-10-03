@@ -140,6 +140,18 @@ function abortError(): Error {
   return e;
 }
 
+/** The address to hand to the socket. An IPv4-mapped IPv6 literal (`::ffff:7f00:1`, or the dotted
+ *  `::ffff:127.0.0.1`) is connected as the IPv4 address it spells: the policy judged it as that
+ *  address, and Windows has no route for the mapped form (ECONNREFUSED). */
+function connectAddress(address: string): string {
+  const m = /^::ffff:(?:(\d{1,3}(?:\.\d{1,3}){3})|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/i.exec(address);
+  if (m === null) return address;
+  if (m[1] !== undefined) return m[1];
+  const hi = Number.parseInt(m[2] as string, 16);
+  const lo = Number.parseInt(m[3] as string, 16);
+  return `${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`;
+}
+
 function sendPinned(
   target: ResolvedAddress,
   req: { url: URL; method: string; headers: Headers; body: Uint8Array | undefined },
@@ -156,7 +168,7 @@ function sendPinned(
     if (headers["accept-encoding"] === undefined) headers["accept-encoding"] = "identity";
     if (req.body !== undefined) headers["content-length"] = String(req.body.byteLength);
     const out = http.request({
-      host: target.address,
+      host: connectAddress(target.address),
       port: req.url.port === "" ? 80 : Number(req.url.port),
       method: req.method,
       path: `${req.url.pathname}${req.url.search}`,
