@@ -671,3 +671,110 @@ shaped corpus or the owner's call**, with a migration follow-up (re-embed plan, 
 cost). `gemini-embedding-001` is not a candidate. Two shapes are still fewer than the three class (c) requires, both
 are English, the public one is likely in every model's training data, and the private labels come from one author for
 one vault; this result justifies planning a migration and sourcing a third shape, not changing the default.
+
+## Status (2026-10-03): title-prefixed reranker passages, pre-registered re-test; `reranker.passageFormat` ships opt-in, the default stays `chunk`
+
+**What changed in the product.** `reranker.passageFormat: "chunk" | "title+chunk"` (default `chunk`, so nothing changes
+unless an operator sets it). With `title+chunk` every candidate is sent to the reranker as `<note title>`, a blank line,
+then the chunk, where the title is the file name without `.md`; a cluster-summary row is sent as-is. The format is applied
+once, inside `rerankWithScores`, so gated rerank, `rrf_rerank` and `score_merge` all get it; it never widens
+`egress.excludePaths` and it is part of the query-cache key. The eval harness now calls that same seam, so the arms below
+scored the shipped passage rather than an inline copy of its formula (a unit test pins the two equal). The flag needs a
+`reranker` block: the auto-selected local reranker keeps `chunk`.
+
+**Question and pre-registration.** Does `title+chunk` make a reranker over the same dense top-30 win or tie against the
+dense order on a public single-hop shape and a private multi-hop shape? Pre-registered before the first measured call:
+sha256 `c2cc33983692b134a476ccddf6faf484cd025aace581865c6eb0168d356226fb` (written 2026-10-03T07:08:44Z), with the ADR
+0007 decision rule applied unchanged to the title variant. Same stored candidate pools and queries as the 2026-10-02
+exploratory addendum (sha256 of the pool files and golden sets are in the document), contamination guard on and passing,
+labels normalized at load, K = 30 only, pure rerank order primary, RRF fusion (k = 10) secondary, Benjamini-Hochberg
+q 0.10 across the three arms of each (corpus, label set), one run at a time, 21 rows recorded with `eval/history.ts`.
+Artifacts: `/data/obsidian-tc-eval/reranker-2026-10/title-prefix-20261003/`.
+
+**What this run is not.** It is a replication on the same queries, not an independent confirmation: the evergreen queries
+are the set the hypothesis was formed on, and the private set had already been scored with the variant once. Most arms are
+deterministic on a fixed pool, so numbers close to the addendum's were expected; the run's value is the rule fixed in
+advance, the shipped code path, and a re-measurement of today's provider endpoints, latency and cost.
+
+**Controls** (dense-only nDCG@10 at K = 30): evergreen strict 0.8683, lenient 0.6277, private multi-hop 0.7476 (0.7515 on
+the K = 50 pool); production `graph_rrf` 0.9143 / 0.6895 / 0.7746 (against the K = 50 dense control). Pool recall ceiling
+(share of expected notes in the dense top-30 / top-50 chunks): strict 0.957 / 0.964, lenient 0.709 / 0.763, private 0.867
+/ 0.895, so a K = 30 rerank can only reorder, not add, most of what is findable.
+
+**Primary result: `title+chunk`, pure rerank order, K = 30.** Dense to arm nDCG@10, paired delta, verdict under the
+pre-registered rule (`p` is the paired permutation p, not the BH-adjusted one):
+
+| arm | evergreen strict (n=78) | evergreen lenient (n=78) | private multi-hop (n=250) |
+| --- | --- | --- | --- |
+| local MiniLM-L6 int8 | 0.868 to 0.912 (+0.044, p 0.024) WIN | 0.628 to 0.658 (+0.030, p 0.046) WIN | 0.748 to 0.758 (+0.010, p 0.43, lower bound -0.010) TIE |
+| DeepInfra Qwen3-Reranker-0.6B | 0.868 to 0.823 (-0.046, p 0.12, lower bound -0.093) UNDERPOWERED | 0.628 to 0.630 (+0.002, p 0.92) UNDERPOWERED | 0.748 to 0.781 (+0.033, p 0.013) WIN |
+| NVIDIA nemotron-rerank-vl-1b (public only) | 0.868 to 0.937 (+0.069, p 0.0002) WIN | 0.628 to 0.693 (+0.065, p 0.0003) WIN | not run (terms allow training on content) |
+| Cloudflare bge-reranker-base (private only) | not run (budget) | not run (budget) | 0.748 to 0.761 (+0.014, p 0.29, lower bound -0.008) TIE |
+
+Realized MDE at the arms' own sigma: 0.041 to 0.080 on evergreen, 0.036 to 0.037 on private. No arm is LOSS or
+CATASTROPHIC on any cell. Against the raw-chunk rows of the 2026-10-02 section (every arm CATASTROPHIC or LOSS on strict,
+CATASTROPHIC on private), the passage change moves each arm that ran both by +0.14 to +0.24 on evergreen strict and by +0.08 to +0.10 on
+private.
+
+**Replication against addendum 1** (pure rerank deltas, today against 2026-10-02): MiniLM, nemotron and Cloudflare equal
+to four digits on every cell they share; DeepInfra differs by 0.015 on strict (-0.046 against -0.031) and 0.008 on
+lenient (+0.002 against +0.010), and by 0.0002 on private. All within the pre-registered 0.02 drift threshold. DeepInfra's evergreen result is the
+one that moved, and it moved against it.
+
+**Secondary: RRF fusion of dense and rerank orders (k = 10), `title+chunk`** (delta nDCG@10; p in parentheses):
+
+| arm | evergreen strict | evergreen lenient | private multi-hop |
+| --- | --- | --- | --- |
+| local MiniLM-L6 int8 | +0.041 (0.006) | +0.034 (0.004) | +0.012 (0.084) |
+| DeepInfra Qwen3-Reranker-0.6B | +0.006 (0.74) | +0.026 (0.037) | +0.022 (0.0006) |
+| NVIDIA nemotron (public only) | +0.042 (0.0004) | +0.047 (0.0001) | not run |
+| Cloudflare bge-reranker-base | not run | not run | +0.020 (0.018) |
+
+The fused point estimate is above dense on every cell (DeepInfra strict only just, lower bound -0.022), which the pure
+rerank order cannot say for DeepInfra on evergreen.
+Fusion gives up part of the best cells (nemotron strict 0.937 pure, 0.910 fused) and buys the floor.
+
+**Mechanism checks.** On evergreen strict the largest raw-chunk losses were `keyword` and `author-work` queries; with
+the title, MiniLM gains on both (+0.037, +0.041) and nemotron on `author-work` (+0.041) with `keyword` flat, while
+DeepInfra still loses on `keyword` (-0.288, n = 10), which is most of its strict deficit. On private multi-hop, bridge-note
+nDCG@10 over the 103 bridge queries rises for every arm (dense 0.209; MiniLM 0.237, DeepInfra 0.260 with p 0.016,
+Cloudflare 0.214). By hop class, DeepInfra gains on single-hop (+0.042, p 0.030) more than multi-hop (+0.022, p 0.16);
+Cloudflare gains on multi-hop (+0.037, p 0.021) and is flat on single-hop (-0.002); MiniLM is near zero on both. These
+per-class cuts are uncorrected and descriptive. MRR@10 does not move with nDCG on every cell: DeepInfra's lenient MRR@10
+falls from 0.883 to 0.818 while its recall@10 rises from 0.631 to 0.663.
+
+**Latency and cost** (provider call from the Cave host, load average 4 to 12 on 4 cores, so the local figure is inflated;
+p50 / p95 ms, K = 30, about 6,900 estimated tokens per private search and 9,700 per evergreen search): DeepInfra 401 /
+853 (evergreen) and 349 / 954 (private), NVIDIA 430 / 672, Cloudflare 529 / 900, local MiniLM 4,652 / 7,058 (evergreen)
+and 2,946 / 3,692 (private). DeepInfra is about $0.00007 to $0.0001 per search at $0.010 per million tokens (estimated
+from characters, 4 per token). **Cloudflare neurons: the harness estimate understates real use.** The estimate (283
+neurons per million tokens) gave 1.94 per search and 486 for the 250 queries; the account's analytics reading rose from
+31.6 to 916.6 neurons across the run's 260 Cloudflare calls (10 probe plus 250), about 885, or roughly 3.4 per search, 1.8
+times the estimate. That reading is account-wide, so a little of it may be the gateway's own embedding traffic, and the
+earlier study's "about 1.9 neurons per search" figure is the same underestimate. Today's total stayed under the 3,000
+budget for this eval and at 9.2 percent of the free pool.
+
+**Verdict (ADR 0007 class (c)): no default flips, and none could.** Two English shapes cannot meet the three-shape bar,
+both are the queries the variant was formed or first scored on, and the bar needs no catastrophic loss on any, which the
+title variant clears on every cell it ran. By the pre-registered candidate rule (every shape the arm ran is WIN or TIE):
+
+- **Local MiniLM + `title+chunk` is a candidate** on both shapes: WIN on evergreen strict and lenient, TIE on private.
+  It is the only arm that cleared both. It costs 3 to 5 s per search on one CPU thread under load.
+- **Nemotron + `title+chunk` is a candidate on the public shape only.** It cannot be run on private text under the
+  NVIDIA trial terms, so it can never be validated on the second shape here; it is the strongest cell (0.937, above
+  `graph_rrf`'s 0.914) and not a recommendation for a private vault.
+- **Cloudflare bge-reranker-base + `title+chunk` is a TIE on one shape** (private, not run on evergreen), no evidence of a
+  win.
+- **DeepInfra Qwen3-Reranker-0.6B + `title+chunk` is NOT a candidate under the rule**, although it is the best private
+  result (+0.033, WIN): on evergreen it is UNDERPOWERED on both label sets (strict -0.046, lower bound -0.093), driven by
+  `keyword` queries. Its fused (RRF) order is above dense on every cell by point estimate.
+
+**Recommendation.** The title prefix is the right passage for a reranker, and `reranker.passageFormat: "title+chunk"` is an
+opt-in setting an operator can try; the default stays `chunk` (and a reranker stays off unless configured) pending a third
+differently shaped corpus, with queries not used to form or first-score the variant, or the owner's call. If an opt-in
+preset is written it should be labelled "validated on: two English shapes, same queries as the hypothesis" and prefer the
+`rrf_rerank` fusion shape, whose point estimate was above dense on every cell, over pure rerank. What a third shape would have to show: a
+corpus of a different language or size, pre-registered, where a candidate arm wins or ties with no catastrophic loss on any
+of the three. `graph_rrf` stays the production order: on the two shapes it is above dense everywhere (+0.023 to +0.062),
+and only nemotron on evergreen strict (+0.023 over it, untested) and DeepInfra on private (+0.006 over it, untested) exceed
+it in pure rerank.
