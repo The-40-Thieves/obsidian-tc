@@ -494,9 +494,6 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           overwrite: overwriteExisting,
         });
 
-        // The source is read BEFORE the destination is touched, so an unreadable source (a
-        // hard-linked or non-regular file) refuses while the destination is still in place.
-        const bytes = readFileChecked(fromAbs);
         // THE-572: copy + reference rewrite + hardDelete is multi-step. replaceDestination marks the
         // effect committed once the copy landed, so a throw after that point is an accurate
         // indeterminate_outcome on retry instead of a not-found for the source that already moved.
@@ -507,8 +504,8 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         // The reference rewrite is one write batch (vault/write-batch.ts) run right after the copy:
         // each referencing note is replaced only if it still holds the bytes the plan was made from,
         // and a CAS miss or an I/O error rolls every rewrite back. The copy is then removed again, so
-        // a failed move leaves the vault as it was (the source is only deleted after the batch
-        // landed). An INCOMPLETE rollback keeps the copy: the rewrites that could not be undone
+        // a failed move leaves the vault as it was (the source is removed as the batch's last step,
+        // and only if it still holds the bytes that were copied). An INCOMPLETE rollback keeps the copy: the rewrites that could not be undone
         // already point at it.
         const snapshots = new PreImageSnapshots(
           ctx.db,
@@ -524,6 +521,10 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           fingerprint: (p) => planFingerprint(p.pending),
           commit: (p, recheck) => {
             try {
+              // The source is read BEFORE the destination is touched (an unreadable source, a
+              // hard-linked or non-regular file, refuses while the destination is still in place),
+              // and again for each attempt: a re-plan after the source changed copies the new bytes.
+              const bytes = readFileChecked(fromAbs);
               for (const r of p.pending) snapshots.capture(r.rel, r.raw);
               ({ trashedTo: trashedDestTo } = replaceDestination({
                 root: v.root,
@@ -541,7 +542,10 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
                         prevRaw: r.raw,
                         createDirs: false,
                       })),
-                      { beforeCommit: recheck },
+                      {
+                        beforeCommit: recheck,
+                        removals: [{ abs: fromAbs, rel: fromRel, expected: bytes }],
+                      },
                     );
                   } catch (e) {
                     if (!isIncompleteRollback(e)) hardDelete(toAbs);
@@ -557,7 +561,6 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           },
         });
         snapshots.landed();
-        hardDelete(fromAbs);
         return {
           vault: v.id,
           from: fromRel,

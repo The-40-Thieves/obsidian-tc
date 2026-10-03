@@ -46,7 +46,6 @@ import {
   planFingerprint,
 } from "../../vault/move-plan";
 import {
-  hardDelete,
   noteExists,
   readNote,
   restoreTrashed,
@@ -522,7 +521,8 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
         // batch (vault/write-batch.ts), which re-checks each pre-image immediately before replacing
         // it and rolls everything back, moves included, on a CAS miss or an I/O error. A plan gone
         // stale (a note edited, a new backlink) is re-planned and re-proved once, then refused with
-        // nothing moved (commitPlanned). Sources are deleted only after the batch landed.
+        // nothing moved (commitPlanned). Each source is removed as the batch's last step, and only if it
+        // still holds the planned bytes: an edit after the final recheck keeps it and rolls the batch back.
         // THE-572: replaceDestination's marker, now for the batch as a whole: the effect is marked
         // committed once the move is not undone, so a retry after a half-applied failure is an
         // accurate indeterminate_outcome and a cleanly rolled-back one is a plain re-run.
@@ -539,7 +539,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           fingerprint: (p) =>
             planFingerprint(
               p.rewrites,
-              p.moved.map((m) => `${m.fromRel}\0${m.hash}`),
+              p.moved.map((m) => `${m.fromRel}\0${m.hash}\0${contentHash(m.content)}`),
             ),
           commit: (p, recheck) => {
             const trashed: Array<{ trashedTo: string; abs: string }> = [];
@@ -584,7 +584,14 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
                     createDirs: false,
                   })),
                 ],
-                { beforeCommit: recheck },
+                {
+                  beforeCommit: recheck,
+                  removals: p.moved.map((m) => ({
+                    abs: m.fromAbs,
+                    rel: m.fromRel,
+                    expected: m.raw,
+                  })),
+                },
               );
             } catch (e) {
               snapshots.failed(e);
@@ -625,7 +632,6 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
         });
         snapshots.landed();
         for (const m of committed.moved) {
-          hardDelete(m.fromAbs);
           deps.deindex?.(v.id, m.fromRel);
           deps.reindex?.(v.id, m.toRel, m.content);
         }

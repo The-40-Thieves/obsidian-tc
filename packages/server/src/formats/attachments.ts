@@ -217,7 +217,9 @@ export function planAttachmentReferences(
   const scan = new RewriteScan(skips);
   for (const e of walkVault(root, { extensions: [".md"] })) {
     const abs = resolveVaultPath(root, e.relPath);
-    const { raw } = readNote(abs);
+    const note = scan.read(abs, e.relPath);
+    if (!note) continue;
+    const { raw } = note;
     const rewrite = scan.note(
       raw,
       (targetRaw) => {

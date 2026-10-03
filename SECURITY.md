@@ -749,26 +749,37 @@ so operators can reason about them rather than discover them.
   `block`-mode refusal both happen while nothing has moved. An immutable (raw-sources) note is skipped
   and reported BEFORE its links are proven, so an unrepresentable link inside one never refuses a move.
   A refusal names a note only if the caller could read it (`callerCanReadVaultPath`); notes the caller
-  cannot read are a count (`details.hidden_notes`), never a path. The plan records each note's
+  cannot read are reported as a flag (`details.hidden_notes: true`), never a path and never a count (how
+  many unreadable notes link the target would be a link-graph oracle). A note the planner cannot read at
+  all (a hard-linked file, an I/O error) is refused the same way, with a fixed message: the reader's own
+  error carries an absolute path and is never passed on. The plan records each note's
   pre-image (the exact bytes it was planned from) and is NOT recomputed afterwards: `bulk_move_notes`
   commits the plan it proved.
   The COMMIT reuses the wiki-core batch (`applyWriteBatch`, `vault/write-batch.ts`). Order: (1) pre-image
   snapshots of every note it will replace, then, for an overwrite, the destination is soft-deleted to
   `.trash`; (2) ONE batch: the moved note is created at its destination (exclusive, never replacing)
   and each backlink note is replaced only if its bytes still hash to the pre-image, re-checked
-  immediately before its rename; (3) only then is the source deleted. A CAS miss or an I/O error in (2)
+  immediately before its rename; (3) as the batch's last step the source is moved aside and dropped only
+  if it still holds the bytes the plan was made from (an attachment: the same bytes), nothing being dropped
+  until every source verified. A CAS miss or an I/O error in (2)
   rolls back every write of the batch, the moved note included, and puts a trashed destination back;
   `move_attachment` copies the file first and removes the copy again if its reference batch fails. If
-  the plan has gone stale (a planned note was edited, or a note that links the target appeared) the
+  the plan has gone stale (a planned note was edited, a note that links the target appeared, or a
+  note appeared that changes which link form a rewrite must take: the fingerprint covers each rewrite's
+  planned OUTPUT as well as its pre-image) the
   batch is abandoned, the plan is rebuilt and re-proved ONCE, and a second change refuses with
   `concurrent_modification` and nothing moved. A new unrepresentable backlink fails the re-proof the
   same way an old one does. In `bulk_move_notes` a row whose source cannot be read, is refused by a
   `block`-mode scan, whose destination cannot be moved aside, or whose destination appeared after
   validation fails alone and the rest are planned again without it. Snapshots are dropped after a clean rollback and kept when the rollback was
   incomplete (`rollback_incomplete`: restore those notes with `restore_note`).
-  **Failure paths that remain after the move has committed:** (a) deleting the source can fail, which
-  leaves it beside the destination with every link already repointed (the call fails and a retry is an
-  `indeterminate_outcome`); (b) the post-move index callbacks (`deindex`, `reindex`) run after the
+  A source edited after the final recheck is therefore kept and the batch rolled back (the move is
+  re-planned once around the edit, then refused with `concurrent_modification`).
+  **Failure paths that remain after the move has committed:** (a) dropping the verified source can still
+  fail at the unlink, which leaves it beside the destination with every link already repointed (the call
+  fails and a retry is an `indeterminate_outcome`); and while a source is moved aside for the check its
+  name is briefly empty, a note another process writes there in that gap winning (the moved-aside bytes
+  are kept and named in the error); (b) the post-move index callbacks (`deindex`, `reindex`) run after the
   files moved, so one that throws fails a call that did move; (c) the batch is not crash-atomic: a
   process killed between two renames leaves the earlier renames in place (the snapshots are the way
   back); (d) POSIX has no conditional rename, so an edit by another process in the gap between the

@@ -19,6 +19,7 @@ import { enforceMemoryDefenseOnNoteWrite } from "../experiential/memory-defense"
 import { redactSecrets } from "../experiential/redact";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { ImmutableRewriteSkips } from "./acl-path";
+import { readNote } from "./notes-io";
 import { contentHash } from "./paths";
 import { type LinkRewrite, rewriteLinks } from "./rewrite";
 import type { TargetMapper } from "./rewrite-properties";
@@ -41,6 +42,11 @@ export interface PlannedRewrite {
   count: number;
 }
 
+/** A read that found no file: readNote throws an ENOENT (or the typed not-found) for one. */
+const isVanished = (e: unknown): boolean =>
+  (e as NodeJS.ErrnoException | undefined)?.code === "ENOENT" ||
+  (e instanceof ObsidianTcError && e.code === "note_not_found");
+
 /** A refusal collected while scanning: the link in `rel` cannot be written as exactly one link. */
 interface ScanFailure {
   rel: string;
@@ -61,6 +67,27 @@ export class RewriteScan {
   private readonly failures: ScanFailure[] = [];
 
   constructor(private readonly skips: ImmutableRewriteSkips) {}
+
+  /** Read a note for the plan. A note that vanished mid-pass is null (nothing to rewrite); any
+   *  other failure (a hard-linked file, an I/O error) is recorded like an unprovable link and the
+   *  note is skipped, so it refuses the move through `refuseIfFailed`: named only when the caller
+   *  can read it, and never with the reader's own message or details (they carry absolute paths). */
+  read(abs: string, rel: string): { raw: string; hash: string } | null {
+    try {
+      return readNote(abs);
+    } catch (e) {
+      if (isVanished(e)) return null;
+      this.failures.push({
+        rel,
+        target: undefined,
+        cause: new ObsidianTcError(
+          "invalid_input",
+          "The note could not be read, so its links could not be checked",
+        ),
+      });
+      return null;
+    }
+  }
 
   /** The note's rewrite, or null when it is skipped (immutable) or could not be proven (recorded). */
   note(raw: string, map: TargetMapper, rel: string): LinkRewrite | null {
@@ -111,16 +138,16 @@ export class RewriteScan {
     const hidden = this.failures.filter((f) => !this.skips.canRead(f.rel)).length;
     const some = this.failures[0];
     if (!some) return;
-    const hiddenDetail = hidden > 0 ? { hidden_notes: hidden } : {};
+    // `hidden_notes` is a flag, not a count: how MANY unreadable notes link the target is a link-graph
+    // oracle on notes the caller may not see (the same reason `hidden_backlinks` is a flag).
+    const hiddenDetail = hidden > 0 ? { hidden_notes: true } : {};
     if (first) {
       const note = redactSecrets(first.rel).text;
       throw err.invalidInput(
         `move refused: a link in ${note} cannot be rewritten to point at the destination${
           first.target === undefined ? "" : ` (${first.target})`
         }. ${first.cause.message}.${
-          hidden > 0
-            ? ` ${hidden} more note${hidden === 1 ? "" : "s"} you cannot read have the same problem.`
-            : ""
+          hidden > 0 ? " Other notes you cannot read have the same problem." : ""
         } Nothing was moved.`,
         {
           ...first.cause.details,
@@ -132,10 +159,10 @@ export class RewriteScan {
     }
     const target = some.target;
     throw err.invalidInput(
-      `move refused: links in ${hidden} note${hidden === 1 ? "" : "s"} you cannot read cannot be rewritten to point at the destination${
+      `move refused: links in notes you cannot read cannot be rewritten to point at the destination${
         target === undefined ? "" : ` (${target})`
       }. Nothing was moved.`,
-      { hidden_notes: hidden, ...(target === undefined ? {} : { target }) },
+      { hidden_notes: true, ...(target === undefined ? {} : { target }) },
     );
   }
 }
@@ -157,14 +184,20 @@ export function plannedRewrite(
   return { abs, rel, raw, text: scanned.content, count: rewrite.count };
 }
 
-/** What a plan was made from, as one string: every planned note's path and pre-image hash, plus
- *  whatever else the plan rests on (`extra`: the moved sources' hashes). Two plans with the same
- *  fingerprint rewrite the same notes from the same bytes. */
+/** What a plan was made from AND what it will write, as one string: every planned note's path,
+ *  pre-image hash and planned output hash, plus whatever else the plan rests on (`extra`: the
+ *  moved sources' hashes and outputs). The output is part of it because the pre-image is not
+ *  enough: a note added elsewhere can change which link form a rewrite must take (a bare `[[B]]`
+ *  becomes `[[sub/B]]` once another `B` exists) while every linker still holds the same bytes. Two
+ *  plans with the same fingerprint rewrite the same notes from the same bytes into the same text. */
 export function planFingerprint(
   rewrites: readonly PlannedRewrite[],
   extra: readonly string[] = [],
 ) {
-  return [...extra, ...rewrites.map((r) => `${r.rel}\0${contentHash(r.raw)}`)].join("\n");
+  return [
+    ...extra,
+    ...rewrites.map((r) => `${r.rel}\0${contentHash(r.raw)}\0${contentHash(r.text)}`),
+  ].join("\n");
 }
 
 class StalePlan extends Error {}

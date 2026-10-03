@@ -7,7 +7,8 @@
 // BEFORE its links are proven, so an unrepresentable link in it cannot veto the move.
 //
 // Each case runs against move_note, bulk_move_notes and move_attachment: they share one planner.
-import { readdirSync } from "node:fs";
+import { linkSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { issueElicitToken } from "../src/elicit";
@@ -81,6 +82,13 @@ interface Case {
   mdLink: string;
   ok: string;
   okLink: string;
+  /** The link to `ok` once another file shares its name: the path form. */
+  okPathLink: string;
+  /** A second file with `ok`'s name, nearer the root (so it wins a bare link), and its body. */
+  twin: string;
+  twinBody: string;
+  /** What the source holds after a hand edit. */
+  edited: string;
   hostile: string;
   hostileLink: string;
   input: (to: string) => Record<string, unknown>;
@@ -95,6 +103,10 @@ const CASES: Case[] = [
     mdLink: "[x](Old.md)",
     ok: "notes/Fresh.md",
     okLink: "[[Fresh]]",
+    okPathLink: "[[notes/Fresh]]",
+    twin: "Fresh.md",
+    twinBody: "twin\n",
+    edited: "body, edited\n",
     hostile: "notes/Report (final).md",
     hostileLink: "[[Report (final)]]",
     input: (to) => ({ from: "notes/Old.md", to }),
@@ -107,6 +119,10 @@ const CASES: Case[] = [
     mdLink: "[x](Old.md)",
     ok: "notes/Fresh.md",
     okLink: "[[Fresh]]",
+    okPathLink: "[[notes/Fresh]]",
+    twin: "Fresh.md",
+    twinBody: "twin\n",
+    edited: "body, edited\n",
     hostile: "notes/Report (final).md",
     hostileLink: "[[Report (final)]]",
     input: (to) => ({ moves: [{ from: "notes/Old.md", to }], dry_run: false }),
@@ -119,6 +135,10 @@ const CASES: Case[] = [
     mdLink: "![x](pic.png)",
     ok: "assets/pic2.png",
     okLink: "![[pic2.png]]",
+    okPathLink: "![[assets/pic2.png]]",
+    twin: "pic2.png",
+    twinBody: "PNG-twin",
+    edited: "PNG, edited",
     hostile: "assets/pic (1).png",
     hostileLink: "![[pic (1).png]]",
     input: (to) => ({ from: "assets/pic.png", to }),
@@ -146,7 +166,7 @@ describe.each(CASES)("$tool: a refusal never names a note the caller cannot read
     const wire = JSON.stringify(r);
     expect(wire).not.toContain("private");
     expect(wire).not.toContain("hidden.md");
-    if (!r.ok) expect(r.error.details).toMatchObject({ hidden_notes: 1 });
+    if (!r.ok) expect(r.error.details).toMatchObject({ hidden_notes: true });
     expect(hashTree(h.v.root)).toEqual(before);
   });
 
@@ -162,7 +182,7 @@ describe.each(CASES)("$tool: a refusal never names a note the caller cannot read
     expectRefused(r);
     if (!r.ok) {
       expect(r.error.message).toContain("notes/visible.md");
-      expect(r.error.details).toMatchObject({ note: "notes/visible.md", hidden_notes: 1 });
+      expect(r.error.details).toMatchObject({ note: "notes/visible.md", hidden_notes: true });
     }
     expect(JSON.stringify(r)).not.toContain("private");
   });
@@ -234,6 +254,19 @@ describe.each(CASES)("$tool: a stale plan is re-planned, then refused with nothi
       ...before,
       "notes/late.md": undefined,
     });
+  });
+
+  it("a same-name note that appears after planning turns the rewrite into the path form", async () => {
+    // the plan wrote the bare link because the destination's name was unique; the new note takes
+    // the bare name (it is nearer the root), so a bare link would now point at the wrong file
+    rig(files());
+    const spy = drift(() => h.v.write(c.twin, c.twinBody), "recheck");
+    const r = await confirmed(c.tool, c.input(c.ok));
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(h.v.read("notes/linker.md")).not.toContain(c.okLink);
+    expect(h.v.read("notes/linker.md")).toBe(`See ${c.okPathLink}.\n`);
+    expect(h.v.read(c.twin)).toBe(c.twinBody);
   });
 
   it("a vault that keeps changing is refused after the one re-plan, nothing moved", async () => {
@@ -309,6 +342,26 @@ describe.each(CASES)("$tool: memoryDefense block mode refuses before anything mo
 });
 
 describe("bulk reuses its preflight plan", () => {
+  it("a moved note's own link is re-planned when a same-name note appears after planning", async () => {
+    // no linker besides the moved note itself: only the moved note's planned CONTENT changes
+    rig({ "notes/A.md": "see [[B]]\n", "notes/B.md": "b\n" });
+    const real = writeBatch.applyWriteBatch;
+    let n = 0;
+    vi.spyOn(writeBatch, "applyWriteBatch").mockImplementation((writes, hooks = {}) => {
+      if (n++ === 0) h.v.write("Fresh.md", "twin\n");
+      return real(writes, hooks);
+    });
+    const r = await confirmed("bulk_move_notes", {
+      moves: [
+        { from: "notes/A.md", to: "notes/A2.md" },
+        { from: "notes/B.md", to: "notes/Fresh.md" },
+      ],
+      dry_run: false,
+    });
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    expect(h.v.read("notes/A2.md")).toBe("see [[notes/Fresh]]\n");
+  });
+
   it("a row refused by the scan drops out BEFORE the plan, so nothing moves under a plan that assumed it", async () => {
     // n/Note.md is refused (a secret in it), so after the batch Note is still ambiguous and the
     // surviving move needs a path link, which the existing C#/ folder cannot carry. The old code
@@ -470,5 +523,85 @@ describe.each(CASES)("$tool: the immutable raw folder is skipped before it is pr
     expect((r as { data: Record<string, unknown> }).data.immutable_not_updated).toEqual([
       "raw/clip.md",
     ]);
+  });
+});
+
+describe.each(CASES)("$tool: the source is deleted only if it is still what was planned", (c) => {
+  const files = (): Record<string, string> => base(c, { "notes/linker.md": `See ${c.link}.\n` });
+
+  /** Edit the source right after the batch's LAST write landed: after the recheck and the CAS,
+   *  before the source is removed. `times` bounds how many attempts are hit. */
+  function editAfterLastWrite(times: number): void {
+    const real = notesIo.stageNoteWrite;
+    let n = 0;
+    vi.spyOn(notesIo, "stageNoteWrite").mockImplementation((abs, ...rest) => {
+      const staged = real(abs, ...rest);
+      if (!/[\\/]notes[\\/]linker\.md$/.test(abs)) return staged;
+      return {
+        commit() {
+          staged.commit();
+          if (n < times) h.v.write(c.src, `${c.edited}#${n++}`);
+        },
+        discard: () => staged.discard(),
+      };
+    });
+  }
+
+  it("a source edited after the last write survives: the move is re-planned around the edit", async () => {
+    rig(files());
+    editAfterLastWrite(1);
+    const r = await confirmed(c.tool, c.input(c.ok));
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    expect(h.v.exists(c.src)).toBe(false);
+    expect(h.v.read(c.ok)).toBe(`${c.edited}#0`);
+    expect(h.v.read("notes/linker.md")).toBe(`See ${c.okLink}.\n`);
+  });
+
+  it("a source edited on every attempt is kept, the move undone, and refused as concurrent_modification", async () => {
+    rig(files(), { snapshots: { enabled: true, retention: 5 } });
+    editAfterLastWrite(9);
+    const r = await confirmed(c.tool, c.input(c.ok));
+    expectRefused(r, "concurrent_modification");
+    expect(h.v.read(c.src)).toMatch(/#1$/);
+    expect(h.v.exists(c.ok)).toBe(false);
+    expect(h.v.read("notes/linker.md")).toBe(`See ${c.link}.\n`);
+    expect(
+      readdirSync(h.v.root, { recursive: true }).filter((p) => String(p).includes(".tmp-")),
+    ).toEqual([]);
+  });
+});
+
+describe.each(CASES)("$tool: a note the planner cannot read", (c) => {
+  const acl = { readPaths: ["notes/**", "assets/**", "wiki/**"] };
+
+  /** A note with a second hard link: readNote refuses it (inode aliasing) and says so in details. */
+  function hardLinked(rel: string): void {
+    h.v.write(rel, "x\n");
+    linkSync(join(h.v.root, rel), join(h.v.root, `${rel}.twin.md`));
+  }
+
+  it("is refused without naming a hidden path or any absolute path", async () => {
+    rig(base(c), { acl });
+    hardLinked("private/hard.md");
+    const before = hashTree(h.v.root);
+    const r = await confirmed(c.tool, c.input(c.ok));
+    expectRefused(r);
+    const wire = JSON.stringify(r);
+    expect(wire).not.toContain("private");
+    expect(wire).not.toContain("hard");
+    expect(wire).not.toContain(h.v.root);
+    if (!r.ok) expect(r.error.details).toMatchObject({ hidden_notes: true });
+    expect(hashTree(h.v.root)).toEqual(before);
+    expect(h.v.exists(c.src)).toBe(true);
+  });
+
+  it("in a readable folder is still a refusal, and never carries an absolute path", async () => {
+    // the ACL fails closed on a hard-linked note, so even `notes/` cannot read it: it is counted
+    rig(base(c), { acl });
+    hardLinked("notes/hard.md");
+    const r = await confirmed(c.tool, c.input(c.ok));
+    expectRefused(r);
+    expect(JSON.stringify(r)).not.toContain(h.v.root);
+    expect(h.v.exists(c.src)).toBe(true);
   });
 });

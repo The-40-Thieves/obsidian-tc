@@ -24,13 +24,7 @@ import {
   plannedRewrite,
   RewriteScan,
 } from "../../../vault/move-plan";
-import {
-  hardDelete,
-  noteExists,
-  readNote,
-  replaceDestination,
-  writeNoteAtomic,
-} from "../../../vault/notes-io";
+import { noteExists, readNote, replaceDestination, writeNoteAtomic } from "../../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../../vault/paths";
 import { captureSnapshot } from "../../../vault/snapshots";
 import { applyWriteBatch } from "../../../vault/write-batch";
@@ -53,6 +47,8 @@ function basenameNoExt(p: string): string {
 
 /** Everything move_note decided before it touches the vault. */
 interface MovePlan {
+  /** The source's bytes as planned: the source is removed only if it still holds them. */
+  raw: string;
   /** Hash of the source as planned: the plan is stale if it has changed. */
   hash: string;
   /** The source's content as it will land at the destination (memoryDefense-scanned). */
@@ -102,7 +98,9 @@ function planBacklinks(
   for (const p of postPaths) {
     if (p === toRel) continue; // the moved note's own outgoing links are unaffected
     const abs = resolveVaultPath(root, p);
-    const { raw } = readNote(abs);
+    const note = scan.read(abs, p);
+    if (!note) continue;
+    const { raw } = note;
     const rewrite = scan.note(
       raw,
       (target) => {
@@ -192,7 +190,7 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
         const backlinks = input.update_backlinks
           ? planBacklinks(v.root, fromRel, toRel, readable, skips, mdConfig, metrics)
           : { pending: [], warnings: [] };
-        return { hash, scannedRaw, backlinks };
+        return { raw, hash, scannedRaw, backlinks };
       };
       const first = planMove(true);
 
@@ -208,7 +206,9 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
       // moved note is created at its destination (exclusive: a note that appeared there is never
       // replaced) and each backlink note is replaced only if it still holds the bytes the plan was
       // made from. A CAS miss or an I/O error rolls the whole batch back, the moved note included,
-      // and replaceDestination puts a trashed destination back. Only then is the source removed.
+      // and replaceDestination puts a trashed destination back. The source is removed as the batch's
+      // last step and only if it still holds the planned bytes (an edit that lands after the final
+      // recheck keeps it and rolls the batch back, then the move is planned again around the edit).
       // On overwrite, the destination is soft-deleted first so its content is recoverable (the
       // source is hardDelete'd after, but its content survives at toRel); the effect is marked
       // committed once the move is not undone (THE-572: a retry after the source is gone would
@@ -247,7 +247,10 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
                       createDirs: false,
                     })),
                   ],
-                  { beforeCommit: recheck },
+                  {
+                    beforeCommit: recheck,
+                    removals: [{ abs: fromAbs, rel: fromRel, expected: p.raw }],
+                  },
                 ),
               markEffectCommitted: ctx.markEffectCommitted,
             }));
@@ -258,7 +261,6 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
         },
       });
       snapshots.landed();
-      hardDelete(fromAbs);
       // THE-291: keep the search index coherent across the move — drop the source path,
       // index the destination, and reindex every backlink-rewritten note.
       deps.deindex?.(v.id, fromRel);

@@ -1,12 +1,12 @@
 // bulk_move_notes' PLAN: every note a batch of moves rewrites, proven and scanned, before anything
 // moves. Split out of bulk-tools.ts so that file stays under the line ceiling; see planMoves.
-import type { VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { existsSync } from "node:fs";
+import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { enforceMemoryDefenseOnNoteWrite } from "../../experiential/memory-defense";
 import type { MetricsRecorder } from "../../metrics/registry";
 import type { ImmutableRewriteSkips } from "../../vault/acl-path";
 import { buildVaultIndex, resolveTarget, type VaultIndex } from "../../vault/links";
 import { type PlannedRewrite, plannedRewrite, RewriteScan } from "../../vault/move-plan";
-import { readNote } from "../../vault/notes-io";
 import { resolveVaultPath } from "../../vault/paths";
 
 function basenameNoExt(p: string): string {
@@ -30,6 +30,8 @@ export interface PlannedMove {
   fromAbs: string;
   toAbs: string;
   hash: string;
+  /** The bytes `hash` is of: what the source removal compares against. */
+  raw: string;
   content: string;
 }
 
@@ -88,12 +90,13 @@ export function planMoves(args: {
   for (const p of scanPaths) {
     const abs = resolveVaultPath(root, p);
     const toRel = moveMap.get(p);
-    let note: { raw: string; hash: string };
-    try {
-      note = readNote(abs);
-    } catch (e) {
-      if (toRel !== undefined) throw e; // a source that vanished is not a plan
-      continue; // any other path that vanished mid-pass is skipped, not fatal
+    // a note that vanished mid-pass is skipped (a source that vanished is not a plan: its row's
+    // bytes are needed); any other read failure is a recorded refusal (RewriteScan.read)
+    const note = scan.read(abs, p);
+    if (!note) {
+      if (toRel !== undefined && !existsSync(abs))
+        throw err.noteNotFound("source note not found", { path: p });
+      continue;
     }
     const { raw, hash } = note;
     const inThisNote = new Map<string, number>();
@@ -132,6 +135,7 @@ export function planMoves(args: {
         fromAbs: abs,
         toAbs: resolveVaultPath(root, toRel),
         hash,
+        raw,
         content,
       });
     } else if (rewritten) rewrites.push(plannedRewrite(abs, p, raw, rewritten, defense, metrics));

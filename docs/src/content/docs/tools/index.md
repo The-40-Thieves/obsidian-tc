@@ -230,7 +230,7 @@ two guards keep a name from becoming link syntax:
   written, the call is refused with `invalid_input` naming the note it sits in and the target it would
   have carried, nothing is moved or written (for `bulk_move_notes`, the whole batch is refused), and a
   retry is an ordinary refusal, not an `indeterminate_outcome`. A note you cannot read is never named:
-  the refusal counts such notes (`details.hidden_notes`) instead. Notes in a wiki's immutable raw
+  the refusal says only that such notes exist (`details.hidden_notes: true`, a flag and never a count). A note that cannot be read at all, such as a hard-linked file, is refused the same way. Notes in a wiki's immutable raw
   folder are skipped and reported before any of this, so an unrepresentable link in one never refuses
   the move. Two things reach the refusal even though the destination's NEW segments pass the name
   check above. A path-qualified link into an EXISTING folder whose name holds `#` or `^` (`C#/Note`)
