@@ -330,6 +330,13 @@ jobs:
         uses: ./.github/actions/bun-audit
         with:
           working-directory: docs
+          # GHSA-ch52-4w7c-c8xp: http-cache-semantics <= 4.2.0 (max-stale handling can disclose
+          # cross-user cached responses), no fixed version published. Reaches only the static docs
+          # build through astro 7.3.5; no shared HTTP cache serves different users and neither the
+          # server nor the CLI ships this tree. The bun-audit action has no expiry mechanism, so
+          # THIS COMMENT is the reminder: revisit on 2026-11-02 or when a fixed release lands,
+          # then drop the ignore. Keep in sync with the same-dated ignore in docs/osv-scanner.toml.
+          ignore: GHSA-ch52-4w7c-c8xp
       # packages/reranker-local is a THIRD separate bun workspace (its own lockfile, not a root
       # workspace member — see reranker-local's job in ci-server.yml), so it is invisible to both
       # audits above for the same reason docs/ was: `bun audit` only walks the lockfile it runs
