@@ -5,7 +5,7 @@
 import type { Database } from "../../db/types";
 import { bm25Chunks, type LexicalHit } from "../chunk_fts";
 import { type SemanticHit, semanticSearch } from "../semantic";
-import { type SparseHit, type SparseVec, sparseSearch } from "../sparse";
+import { type SparseHit, sparseSearch } from "../sparse";
 import type { GraphSearchOptions } from "./types";
 
 export interface SeedGenerationInput {
@@ -72,7 +72,7 @@ export function generateSeeds(input: SeedGenerationInput): SeedGenerationResult 
     ? sparseSearch(
         db,
         opts.vaultId,
-        opts.querySparse as SparseVec,
+        opts.querySparse,
         opts.sparseCount ?? seedCount,
         ...(isReadable ? ([isReadable] as const) : ([] as const)),
       )

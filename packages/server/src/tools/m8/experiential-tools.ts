@@ -313,7 +313,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
                   "UPDATE agent_episodes SET blocked = 1 WHERE id = ? AND blocked = 0 AND caller IS ?",
                 )
                 .run(input.episode_id, ctx.caller ?? null);
-          changes = res.changes as number;
+          changes = res.changes;
           // Only append when a real transition happened. work_forget is documented idempotent — a
           // repeat call, a foreign id, or an unknown id already yields changes === 0 via the
           // predicate above, so logging unconditionally here would spam the hash chain and make a

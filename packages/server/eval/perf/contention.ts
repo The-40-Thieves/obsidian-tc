@@ -212,7 +212,7 @@ export function detectContention(
       : maxBad
         ? `slowest calibration sample ${max.toFixed(1)}ms is ${maxRatio.toFixed(2)}x the median ${med.toFixed(1)}ms (threshold ${maxOverMedianThreshold}x)`
         : referenceBad
-          ? `calibration median ${med.toFixed(1)}ms is more than ${(referenceTol * 100).toFixed(0)}% above the committed quiet-host reference ${(referenceMs as number).toFixed(1)}ms (sustained load, not just noise)`
+          ? `calibration median ${med.toFixed(1)}ms is more than ${(referenceTol * 100).toFixed(0)}% above the committed quiet-host reference ${(referenceMs).toFixed(1)}ms (sustained load, not just noise)`
           : undefined,
   };
 }
@@ -231,9 +231,7 @@ export type ChannelThresholdOverrides = Partial<Record<CalibrationChannel, Conte
 /** Drop undefined-valued keys so a partially-filled override object cannot blank out a default. */
 function definedOnly(o: ContentionThresholds | undefined): ContentionThresholds {
   if (!o) return {};
-  return Object.fromEntries(
-    Object.entries(o).filter(([, v]) => v !== undefined),
-  ) as ContentionThresholds;
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 }
 
 export interface VectorContentionResult {

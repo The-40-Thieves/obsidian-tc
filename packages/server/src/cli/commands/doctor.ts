@@ -39,7 +39,6 @@ import {
   buildRerankerDoctorProbes,
   embeddingsDeprecation,
 } from "../../providers/registry";
-import type { ProviderDescriptor } from "../../providers/types";
 import { buildAcls } from "../../runtime/acl-build";
 import type { NotesFtsIntegrity } from "../../search/fts";
 import { exclusionStatePath, loadVaultExclusion } from "../../search/index-exclusion";
@@ -420,7 +419,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
   // THE-1079 (GH #949): resolved ONCE, up front — retrieval.heads and rerankerBuildable below both
   // read this SAME outcome, so the two checks cannot disagree.
   const rerankerDoctorProbes = buildRerankerDoctorProbes({
-    rerankerCfg: config.reranker as ProviderDescriptor | undefined,
+    rerankerCfg: config.reranker,
     embeddings: config.embeddings,
     gatewayBaseUrl: config.gateway?.baseUrl,
     gatewayUrlEnv: process.env.OBSIDIAN_TC_GATEWAY_URL,

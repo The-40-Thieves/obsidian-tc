@@ -11,7 +11,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { openDatabase } from "../db/open";
 import { type HitlToolStats, readHitlConfirmationStats, total } from "../hitl-telemetry";
-import type { Check, CheckResult, CheckStatus } from "./types";
+import type { Check, CheckResult } from "./types";
 
 /** Token accepts needed on one tool before the headless smell is considered at all... */
 export const HEADLESS_MIN_TOKEN_APPROVALS = 5;
@@ -50,7 +50,7 @@ export function hitlConfirmationsCheck(view: HitlConfirmationsView): Check {
     run: (): CheckResult => {
       if (!view.probe) {
         return {
-          status: "ok" as CheckStatus,
+          status: "ok",
           summary:
             "confirmation outcomes (not probed): run `doctor --probe` to read the recent HITL answers",
           details: { confirmations: "not probed" },
@@ -59,7 +59,7 @@ export function hitlConfirmationsCheck(view: HitlConfirmationsView): Check {
       const probed = view.probe();
       if (probed.error !== undefined) {
         return {
-          status: "warning" as CheckStatus,
+          status: "warning",
           summary: `confirmation outcomes could not be read: ${probed.error}`,
           details: { confirmations: "unreadable" },
         };
@@ -68,7 +68,7 @@ export function hitlConfirmationsCheck(view: HitlConfirmationsView): Check {
       const window = `${view.windowDays}d`;
       if (tools.length === 0) {
         return {
-          status: "ok" as CheckStatus,
+          status: "ok",
           summary: `no confirmation outcomes recorded in the last ${window}`,
           details: { window, confirmations: "0" },
         };
@@ -90,7 +90,7 @@ export function hitlConfirmationsCheck(view: HitlConfirmationsView): Check {
       }
       const flagged = tools.filter(isHeadlessSmell);
       const summary = `${all} confirmation outcome(s) across ${tools.length} tool(s) in the last ${window}, acceptance ${pct(accepted, all)}`;
-      if (flagged.length === 0) return { status: "ok" as CheckStatus, summary, details };
+      if (flagged.length === 0) return { status: "ok", summary, details };
       const clientLines = flagged.map((s) => {
         const clients = Object.entries(s.tokenClients)
           .sort((a, b) => b[1] - a[1])
@@ -99,7 +99,7 @@ export function hitlConfirmationsCheck(view: HitlConfirmationsView): Check {
         return `${s.tool}: ${s.tokenAccept} of ${s.accept} approvals redeemed a headless token (${clients})`;
       });
       return {
-        status: "warning" as CheckStatus,
+        status: "warning",
         summary: `${summary}; ${flagged.length} tool(s) mostly approved by headless token`,
         details,
         issues: clientLines,
@@ -137,6 +137,8 @@ export async function probeHitlConfirmations(
   } finally {
     try {
       db?.close?.();
-    } catch {}
+    } catch {
+      // best-effort close: the outcome is already decided, a failing close changes nothing
+    }
   }
 }

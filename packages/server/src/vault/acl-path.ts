@@ -48,7 +48,7 @@ export function evaluatePathAcl(
   if (isDefaultDenied(path))
     return {
       allowed: false,
-      deniedBy: `${op}_paths` as "read_paths" | "write_paths" | "delete_paths",
+      deniedBy: `${op}_paths`,
       matchedGlob: null,
     };
   if (op !== "read") {
@@ -56,7 +56,7 @@ export function evaluatePathAcl(
     if (immutable !== null)
       return {
         allowed: false,
-        deniedBy: `${op}_paths` as "write_paths" | "delete_paths",
+        deniedBy: `${op}_paths`,
         matchedGlob: immutable,
         immutable: true,
       };
@@ -77,7 +77,7 @@ export function evaluatePathAcl(
   if (matchedGlob === null)
     return {
       allowed: false,
-      deniedBy: `${op}_paths` as "read_paths" | "write_paths" | "delete_paths",
+      deniedBy: `${op}_paths`,
       matchedGlob: null,
     };
   return { allowed: true, deniedBy: null, matchedGlob };

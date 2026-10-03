@@ -124,8 +124,7 @@ export function stampOpenWindow(edb: Database, opts: StampOptions): StampOutcome
             AND episode_type = 'tool_call'
             AND ts <= ?`,
       )
-      .run(opts.result, verdictAt, opts.source, opts.policy ?? null, opts.sessionId, asOf)
-      .changes as number;
+      .run(opts.result, verdictAt, opts.source, opts.policy ?? null, opts.sessionId, asOf).changes;
 
     // THE-726 review finding: `reflect.ts`'s hold rule is ORDER-DEPENDENT, and close-time stamping
     // is exactly the order that defeats it. `evaluateEpisodes` selects `eligibility = 'pending'`
@@ -142,13 +141,13 @@ export function stampOpenWindow(edb: Database, opts: StampOptions): StampOutcome
     // would re-run the evaluator over the whole corpus for no change in outcome.
     const demoted =
       opts.result === -1
-        ? (edb
+        ? edb
             .prepare(
               `UPDATE agent_episodes
                   SET eligibility = 'pending', eligibility_reason = NULL, eligibility_policy = NULL
                 WHERE session_id = ? AND verdict_at = ? AND eligibility = 'eligible'`,
             )
-            .run(opts.sessionId, verdictAt).changes as number)
+            .run(opts.sessionId, verdictAt).changes
         : 0;
 
     return { stamped, demoted, verdictAt };

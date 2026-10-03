@@ -641,7 +641,9 @@ export const TelemetryConfigSchema = z
       try {
         const u = new URL(cfg.endpoint);
         hasUserinfo = u.username.length > 0 || u.password.length > 0;
-      } catch {}
+      } catch {
+        // unparseable endpoint: `hasUserinfo` stays false
+      }
       if (hasUserinfo) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -654,7 +656,9 @@ export const TelemetryConfigSchema = z
       let host: string | undefined;
       try {
         host = new URL(cfg.endpoint).hostname;
-      } catch {}
+      } catch {
+        // unparseable endpoint: `host` stays undefined and the literal-host check below is skipped
+      }
       if (host !== undefined && !isLoopbackHost(host) && isDisallowedLiteralHost(host)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

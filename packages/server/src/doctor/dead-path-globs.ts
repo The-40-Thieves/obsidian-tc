@@ -13,7 +13,7 @@ import { compileEgressFilter, isExcludedPath } from "../plane/egress-filter";
 import { compileExclusionEntries } from "../search/index-exclusion";
 import { walkVault } from "../vault/paths";
 import { canonicalizeVaultRoot } from "../vault/registry";
-import type { Check, CheckResult, CheckStatus } from "./types";
+import type { Check, CheckResult } from "./types";
 
 /** One configured pattern and the vaults it applies to. `matches` is the SAME predicate the
  *  enforcing code uses for that field, so a "dead" verdict cannot disagree with enforcement. */
@@ -174,7 +174,7 @@ export function deadPathGlobsCheck(view: DeadPathGlobsView): Check {
       const notes = unchecked.length > 0 ? [`not checked: ${unchecked.join("; ")}`] : undefined;
       if (dead.length === 0) {
         return {
-          status: "ok" as CheckStatus,
+          status: "ok",
           summary: "every configured path glob matches at least one file in its vault",
           details: { patterns: String(view.entries.length) },
           ...(notes ? { notes } : {}),
@@ -188,7 +188,7 @@ export function deadPathGlobsCheck(view: DeadPathGlobsView): Check {
             : `${e.field} "${e.pattern}" matches no file: this whitelist entry grants nothing`,
       );
       return {
-        status: "warning" as CheckStatus,
+        status: "warning",
         summary: `${dead.length} configured path glob(s) match no file (${dead.filter((e) => e.failOpen).length} fail open)`,
         details: { dead: dead.map((e) => `${e.field}: ${e.pattern}`) },
         issues,

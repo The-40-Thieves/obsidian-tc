@@ -54,7 +54,7 @@ export function publicJwkOf(alg: AsymmetricAlg, jwk: JWK): PublicJwk {
     kty: jwk.kty as string,
     crv: jwk.crv as string,
     x: jwk.x as string,
-    ...(alg === "ES256" ? { y: jwk.y as string } : {}),
+    ...(alg === "ES256" ? { y: jwk.y } : {}),
   };
 }
 

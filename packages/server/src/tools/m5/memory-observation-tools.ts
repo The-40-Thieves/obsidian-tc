@@ -130,7 +130,7 @@ export function buildMemoryObservationTools(deps: M5Deps): ToolDefinition[] {
               { metrics: deps.metrics },
             );
             const scanned = joinScan.fields.observations as string[];
-            text = scanned[scanned.length - 1] as string;
+            text = scanned[scanned.length - 1];
             redactions = joinScan.redactions;
           }
 

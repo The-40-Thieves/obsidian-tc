@@ -350,7 +350,7 @@ export function withRoundOutcome(
           }
         : {}),
       details: { ...error.details, reason: "approval_not_obtained" },
-    } as ErrorJSON;
+    };
   }
   const declined = outcome === "declined";
   return {
@@ -362,7 +362,7 @@ export function withRoundOutcome(
         (command ? `\`${command}\`` : "`obsidian-tc elicit --hash <args_hash> --tool <name>`") +
         " and resend with elicit_token. Never reuse an old token.",
     details: { ...error.details, reason: declined ? "approval_declined" : "approval_not_obtained" },
-  } as ErrorJSON;
+  };
 }
 
 /** An explicit decline is a HARD STOP: the error to return INSTEAD of dispatching, or undefined when

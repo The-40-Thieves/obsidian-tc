@@ -146,7 +146,9 @@ export function elicitRequiredError(
     // mint closed and must not turn this `elicit_required` into an internal error.
     try {
       record();
-    } catch {}
+    } catch {
+      // deliberately swallowed, see above
+    }
   }
   return err.elicitRequired("human confirmation required", {
     ...details,

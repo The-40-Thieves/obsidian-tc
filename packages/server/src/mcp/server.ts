@@ -552,12 +552,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
         : {}),
     };
     // THE-583 + THE-1106 (CRITICAL fix — see resolveElicitConfirmation's doc comment, elicit-form.ts).
-    const confirmation = resolveElicitConfirmation(
-      extra.mcpReq as {
-        requestState?: <T>() => T | undefined;
-        inputResponses?: Record<string, unknown>;
-      },
-    );
+    const confirmation = resolveElicitConfirmation(extra.mcpReq);
     const { roundOutcome, approvedRound } = confirmation;
     // THE-1106 fix round 2: elicitStateContextPatch's doc comment (./elicit-form.ts) covers why.
     ctx = elicitConfirmationContext(ctx, opts.registry, confirmation, server, isModern);
@@ -733,12 +728,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     server.setRequestHandler(
       "resources/templates/list",
       (_req, _extra): Promise<ListResourceTemplatesResult> =>
-        Promise.resolve(
-          withCacheHint(
-            { resourceTemplates: [] } as ListResourceTemplatesResult,
-            CACHE_PRIVATE,
-          ) as ListResourceTemplatesResult,
-        ),
+        Promise.resolve(withCacheHint({ resourceTemplates: [] }, CACHE_PRIVATE)),
     );
     server.setRequestHandler("resources/read", (req, extra): Promise<ReadResourceResult> => {
       const ctx = opts.context(extra.mcpReq.signal);

@@ -20,7 +20,7 @@ import type { AggregateMetrics, GoldenQuery, QueryMetrics } from "./metrics";
  */
 export function categoriesOf(q: GoldenQuery): string[] {
   const explicit = Array.isArray((q as { categories?: unknown }).categories)
-    ? ((q as { categories: unknown[] }).categories.filter((c) => typeof c === "string") as string[])
+    ? (q as { categories: unknown[] }).categories.filter((c) => typeof c === "string")
     : [];
   // seed_domain === target_domain means the answer lives where the question started: no domain hop
   // is required. That distinction is the single most useful free axis in the existing schema.

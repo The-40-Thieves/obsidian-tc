@@ -165,7 +165,7 @@ export function runClaude(c: ClientCtx): ClientOut {
     out.finalText = String(j.result ?? "");
     out.turns = Number(j.num_turns ?? 0);
     out.costUsd = typeof j.total_cost_usd === "number" ? j.total_cost_usd : undefined;
-    out.model = Object.keys((j.modelUsage ?? {}) as object)[0];
+    out.model = Object.keys(j.modelUsage ?? {})[0];
     out.otherTools = ((j.permission_denials ?? []) as { tool_name?: string }[]).map(
       (d) => `denied:${d.tool_name ?? "?"}`,
     );

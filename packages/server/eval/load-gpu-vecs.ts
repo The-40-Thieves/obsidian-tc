@@ -45,7 +45,7 @@ async function main(): Promise<void> {
     db.exec("ROLLBACK");
     throw err;
   }
-  loadVec(db as never);
+  loadVec(db);
   db.exec("DROP TABLE IF EXISTS vec_chunks");
   process.stdout.write(`loaded ${ids.length} vecs (${n} rows updated), dropped vec_chunks\n`);
   db.close?.();

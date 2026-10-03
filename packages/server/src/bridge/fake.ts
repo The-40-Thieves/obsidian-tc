@@ -76,5 +76,5 @@ export function fakeBridgeTransport(opts: FakeBridgeOptions = {}): BridgeFetch {
       fakeResponse(route.status ?? 200, route.body ?? { ok: true, result: {} }),
     );
   };
-  return fn as unknown as BridgeFetch;
+  return fn;
 }

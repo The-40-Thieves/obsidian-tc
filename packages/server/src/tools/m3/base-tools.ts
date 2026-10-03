@@ -254,7 +254,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         // THE-280: surface the obsidian-tc aliases as deprecations (removal at v2.0) so authors
         // migrate toward real Bases shapes (top-level filters; per-view order/groupBy).
         const deprecations: string[] = [];
-        const doc = input.base as Record<string, unknown>;
+        const doc = input.base;
         if (doc.source !== undefined)
           deprecations.push(
             "`source` is an obsidian-tc alias; real Bases selects notes via top-level `filters` (removal at v2.0)",
@@ -443,9 +443,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         const viewLimit =
           view && typeof view.limit === "number" && view.limit > 0 ? view.limit : undefined;
         const sortSpec = view && Array.isArray(view.sort) ? (view.sort as unknown[]) : [];
-        const rawGroupBy = view
-          ? ((view as Record<string, unknown>).groupBy ?? view.group)
-          : undefined;
+        const rawGroupBy = view ? (view.groupBy ?? view.group) : undefined;
         const groupProp =
           typeof rawGroupBy === "string"
             ? rawGroupBy

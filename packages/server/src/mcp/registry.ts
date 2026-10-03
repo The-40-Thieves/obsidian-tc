@@ -288,8 +288,8 @@ export class ToolRegistry {
   ): Promise<T> {
     const now = ctx.now ?? Date.now;
     const start = now();
-    const hash = argsHash(name, (args ?? {}) as Record<string, unknown>);
-    const scopeClass = scopeClassOf(requiredScopes as never);
+    const hash = argsHash(name, args ?? {});
+    const scopeClass = scopeClassOf(requiredScopes);
 
     // THE-514 item 1: status classification and the completion fan-out are now the exact
     // functions tool dispatch uses (callStatusForError, relayCompletion) instead of a hand-copied

@@ -217,7 +217,7 @@ export function errorToCallToolResult(error: ErrorJSON): CallToolResult {
         text: `Error [${error.code}]: ${error.message}${error.retryable ? " (retryable)" : ""}${detail ? `\n${detail}` : ""}`,
       },
     ],
-    structuredContent: error as unknown as Record<string, unknown>,
+    structuredContent: error,
     isError: true,
   };
 }

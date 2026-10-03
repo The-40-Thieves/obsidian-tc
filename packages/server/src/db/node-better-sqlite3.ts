@@ -77,7 +77,7 @@ export async function openBetterSqlite3(
   const make = (sql: string): Statement => {
     const st = db.prepare(sql);
     return {
-      run: (...params: unknown[]): RunResult => st.run(...params) as RunResult,
+      run: (...params: unknown[]): RunResult => st.run(...params),
       get: (...params: unknown[]): unknown => st.get(...params),
       all: (...params: unknown[]): unknown[] => st.all(...params),
     };

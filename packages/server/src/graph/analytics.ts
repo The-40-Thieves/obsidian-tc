@@ -259,7 +259,7 @@ export function louvain(
       totalDegree[own] = (totalDegree[own] as number) - deg;
 
       let bestC = own;
-      let bestGain = (links.get(own) ?? 0) - ((totalDegree[own] as number) * deg) / m2;
+      let bestGain = (links.get(own) ?? 0) - (totalDegree[own] * deg) / m2;
       for (const [c, k] of [...links.entries()].sort((a, b) => a[0] - b[0])) {
         if (c === own) continue;
         const gain = k - ((totalDegree[c] as number) * deg) / m2;

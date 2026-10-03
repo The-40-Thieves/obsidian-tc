@@ -352,5 +352,5 @@ export type ServerConfig = z.infer<typeof ServerConfigSchema>;
  * someone is part-way through typing.
  */
 export function configJsonSchema(): Record<string, unknown> {
-  return z.toJSONSchema(ServerConfigSchema, { io: "input" }) as Record<string, unknown>;
+  return z.toJSONSchema(ServerConfigSchema, { io: "input" });
 }

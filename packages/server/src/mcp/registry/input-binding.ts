@@ -137,7 +137,7 @@ function acceptedKeysAt(
   path: ReadonlyArray<PropertyKey>,
   rawInput: unknown,
 ): string[] | undefined {
-  let cur = unwrapSchema(root as unknown as IntrospectableSchema);
+  let cur = unwrapSchema(root);
   let curValue = rawInput;
   for (const seg of path) {
     if (cur.def?.type !== "object" || !cur.shape) return undefined;
@@ -246,7 +246,7 @@ function unrecognizedKeyHints(
   const aliases = CROSS_TOOL_ALIASES[def.name];
   for (const issue of issues) {
     if (issue.code === "unrecognized_keys") {
-      const acceptedForPath = acceptedKeysAt(def.inputSchema as z.ZodType, issue.path, rawInput);
+      const acceptedForPath = acceptedKeysAt(def.inputSchema, issue.path, rawInput);
       if (!acceptedForPath) continue;
       const pathKey = pathKeyOf(issue.path);
       accepted_keys[pathKey] = acceptedForPath;

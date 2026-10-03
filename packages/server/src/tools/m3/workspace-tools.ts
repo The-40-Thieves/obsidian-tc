@@ -27,7 +27,7 @@ interface WorkspacesDoc {
 
 function workspacesOf(data: WorkspacesDoc): Record<string, unknown> {
   const w = data.workspaces;
-  return w && typeof w === "object" && !Array.isArray(w) ? (w as Record<string, unknown>) : {};
+  return w && typeof w === "object" && !Array.isArray(w) ? w : {};
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -171,7 +171,7 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
           Array.isArray(data.workspaces)
         )
           data.workspaces = {};
-        const ws = data.workspaces as Record<string, unknown>;
+        const ws = data.workspaces;
 
         const exists = input.name in ws;
         if (exists && !input.overwrite)

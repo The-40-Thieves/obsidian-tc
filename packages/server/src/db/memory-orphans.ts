@@ -139,7 +139,7 @@ function sweepClass(
     () => db.prepare(`SELECT 1 FROM (${c.pick} LIMIT 1)`).get(...c.args) !== undefined,
     (limit) =>
       db.prepare(`DELETE FROM ${c.table} WHERE rowid IN (${c.pick} LIMIT ?)`).run(...c.args, limit)
-        .changes as number,
+        .changes,
   );
 }
 
@@ -218,13 +218,13 @@ export function sweepMemoryOrphans(db: Database, opts: MemoryOrphanOptions): Mem
             .prepare(
               `DELETE FROM memory_relations WHERE source_id IN (${inList}) OR target_id IN (${inList})`,
             )
-            .run(...ids, ...ids).changes as number;
+            .run(...ids, ...ids).changes;
           if (hasIntervals)
             out.removed_vault_intervals += db
               .prepare(`DELETE FROM memory_observation_intervals WHERE entity_id IN (${inList})`)
-              .run(...ids).changes as number;
+              .run(...ids).changes;
           return db.prepare(`DELETE FROM memory_entities WHERE id IN (${inList})`).run(...ids)
-            .changes as number;
+            .changes;
         },
       );
     }

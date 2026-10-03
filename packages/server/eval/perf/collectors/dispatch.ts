@@ -85,7 +85,7 @@ export async function collectDispatch(vault: VaultCtx): Promise<MetricSample[]> 
     ctx,
   );
   const freshMs = performance.now() - t0;
-  const items = found.ok ? (((found.data as { items?: unknown[] }).items ?? []) as unknown[]) : [];
+  const items = found.ok ? ((found.data as { items?: unknown[] }).items ?? []) : [];
   const visible = found.ok && items.length > 0 ? 1 : 0;
 
   return [

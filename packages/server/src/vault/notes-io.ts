@@ -272,7 +272,9 @@ function commitNoReplace(tmp: string, abs: string): void {
   // The target now exists under its final name; a temp name we cannot drop is only litter.
   try {
     unlinkSync(tmp);
-  } catch {}
+  } catch {
+    // best-effort cleanup: nothing more to do if the removal fails
+  }
 }
 
 /** Write every byte of `data` (writeSync may write fewer than asked). */
@@ -359,7 +361,9 @@ function writeTempFile(abs: string, data: Buffer, sync: boolean): string {
 function removeTemp(tmp: string): void {
   try {
     unlinkSync(tmp);
-  } catch {}
+  } catch {
+    // best-effort cleanup: nothing more to do if the removal fails
+  }
 }
 
 export interface StagedWrite {
@@ -446,7 +450,9 @@ export function moveNoReplace(fromAbs: string, toAbs: string): void {
     // leaves the file under both names, then surface the error as renameSync would have.
     try {
       unlinkSync(toAbs);
-    } catch {}
+    } catch {
+      // best-effort cleanup: nothing more to do if the removal fails
+    }
     throw e;
   }
 }
@@ -485,7 +491,9 @@ function copyExclusiveThenUnlink(fromAbs: string, toAbs: string): void {
   } catch (e) {
     try {
       unlinkSync(toAbs);
-    } catch {}
+    } catch {
+      // best-effort cleanup: nothing more to do if the removal fails
+    }
     throw e;
   }
 }

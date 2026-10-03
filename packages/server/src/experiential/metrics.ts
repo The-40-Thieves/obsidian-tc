@@ -44,7 +44,7 @@ export function vaultMetrics(
   const staleBefore = opts.nowMs - staleMs;
 
   const one = (db: Database, sql: string, ...args: unknown[]): number =>
-    ((db.prepare(sql).get(...args) as { n: number } | undefined)?.n ?? 0) as number;
+    (db.prepare(sql).get(...args) as { n: number } | undefined)?.n ?? 0;
 
   const chunks = one(cacheDb, "SELECT COUNT(*) AS n FROM chunks WHERE vault_id = ?", opts.vaultId);
   const notes = one(cacheDb, "SELECT COUNT(*) AS n FROM notes WHERE vault_id = ?", opts.vaultId);

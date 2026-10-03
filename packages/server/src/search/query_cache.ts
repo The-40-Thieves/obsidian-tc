@@ -317,7 +317,7 @@ export function hashInto(h: Hash, v: unknown): void {
     if (v.length > 0 && v.every((x) => typeof x === "number")) {
       h.update("AD");
       updateLength(h, v.length);
-      h.update(Buffer.from(Float64Array.from(v as number[]).buffer));
+      h.update(Buffer.from(Float64Array.from(v).buffer));
       return;
     }
     h.update("A");
