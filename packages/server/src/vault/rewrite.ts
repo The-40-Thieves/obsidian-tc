@@ -2,6 +2,7 @@
 // and Domain 5's rewrite_link. Fenced code blocks are skipped so code samples are
 // never mutated; the dominant line ending is preserved. Inline-code spans on an
 // otherwise-prose line are not excluded (a documented M1 limitation).
+import { err, wikiLinkNameProblem } from "@the-40-thieves/obsidian-tc-shared";
 import { frontmatterYamlSpan, splitFrontmatterBody } from "./frontmatter";
 import { applyScanReplacements, scanMdLinks, scanWikilinks } from "./link-scan";
 import {
@@ -41,10 +42,90 @@ function splitParts(inner: string): {
 /** Map a link target to its replacement, or null to leave it unchanged. */
 export type { TargetMapper };
 
+/** Refuse the whole rewrite: `next` cannot be written as exactly one link. Names the characters
+ *  that break it, never the target itself (it is caller-chosen and may be secret-shaped). */
+function refuseLink(next: string): never {
+  const chars = wikiLinkNameProblem(next);
+  throw err.invalidInput(
+    `link rewrite refused: the new link target cannot be written as a single link${
+      chars ? ` (it contains ${chars.join(" ")})` : ""
+    }`,
+    chars ? { characters: chars } : undefined,
+  );
+}
+
+/** Defence in depth for every link `rewriteText` changes: the caller-chosen target is spliced into
+ *  link syntax, so re-parse what was emitted and prove it is still exactly ONE link, spanning the
+ *  whole emitted text, whose target (and heading, alias, separator) are the intended ones. A target
+ *  that closes the link early, opens a second one, starts an alias or heading, or breaks the line
+ *  would write text into the note around the link. Throws, so a note's edit is refused whole and
+ *  the all-or-nothing writer persists none of them. */
+function proveWikilink(
+  emitted: string,
+  intended: ReturnType<typeof splitParts>,
+  next: string,
+  bang: boolean,
+  context: LinkContext,
+): void {
+  // A frontmatter property value is a YAML scalar that already carries its own proof (#1115's
+  // rewrite-properties.ts: the value must re-parse as the intended string), and its target may
+  // legitimately hold `#` or a lone bracket there. It still must not close or open a link, start an
+  // alias, open a comment or break the line.
+  if (context === "property") {
+    if (/[\r\n]|\[\[|\]\]|%%|\|/.test(next)) refuseLink(next);
+    return;
+  }
+  const found = scanWikilinks(emitted);
+  const only = found.length === 1 ? found[0] : undefined;
+  const again = only ? splitParts(only.inner) : undefined;
+  // `next` may itself end in a `#heading` (rewrite_link's to_target is free text): that tail joins
+  // the heading the link already had, and anything else about the target must survive the re-parse.
+  const hash = next.indexOf("#");
+  const expectedTarget = (hash < 0 ? next : next.slice(0, hash)).trim();
+  const expectedHeading =
+    hash < 0
+      ? intended.heading
+      : `${next.slice(hash + 1)}${intended.heading === null ? "" : `#${intended.heading}`}`;
+  if (
+    /[\r\n]/.test(next) ||
+    next.includes("%%") ||
+    !only ||
+    only.start !== 0 ||
+    only.end !== emitted.length ||
+    only.bang !== bang ||
+    !again ||
+    again.target !== expectedTarget ||
+    again.heading !== expectedHeading ||
+    again.display !== intended.display ||
+    again.pipeSep !== intended.pipeSep
+  )
+    refuseLink(next);
+}
+
+function proveMdLink(emitted: string, display: string, next: string, bang: boolean): void {
+  const found = scanMdLinks(emitted);
+  const only = found.length === 1 ? found[0] : undefined;
+  if (
+    /[\r\n]/.test(next) ||
+    !only ||
+    only.start !== 0 ||
+    only.end !== emitted.length ||
+    only.bang !== bang ||
+    only.display !== display ||
+    only.url.trim() !== next.trim()
+  )
+    refuseLink(next);
+}
+
+/** Where the text being rewritten lives: a note body (every changed link is re-parsed and proven),
+ *  or a frontmatter property value (see proveWikilink). */
+type LinkContext = "body" | "property";
+
 function rewriteText(
   raw: string,
   map: TargetMapper,
   crlf = raw.includes("\r\n"),
+  context: LinkContext = "body",
 ): { text: string; count: number } {
   let count = 0;
   const lines = raw.split(/\r?\n/);
@@ -57,21 +138,26 @@ function rewriteText(
     if (fenced) return line;
     let l = applyScanReplacements(line, scanWikilinks(line), (m) => {
       const bang = m.bang ? "!" : "";
-      const { target, display, heading, pipeSep } = splitParts(m.inner);
+      const parts = splitParts(m.inner);
+      const { target, display, heading, pipeSep } = parts;
       const next = map(target, m.bang ? "embed" : "wikilink");
       if (next === null) return m.raw;
       count++;
       let v = next;
       if (heading !== null) v += `#${heading}`;
       if (display !== null) v += `${pipeSep}${display}`;
-      return `${bang}[[${v}]]`;
+      const emitted = `${bang}[[${v}]]`;
+      proveWikilink(emitted, parts, next, m.bang, context);
+      return emitted;
     });
     l = applyScanReplacements(l, scanMdLinks(l), (m) => {
       const bang = m.bang ? "!" : "";
       const next = map(m.url.trim(), m.bang ? "embed" : "markdown");
       if (next === null) return m.raw;
       count++;
-      return `${bang}[${m.display}](${next})`;
+      const emitted = `${bang}[${m.display}](${next})`;
+      proveMdLink(emitted, m.display, next, m.bang);
+      return emitted;
     });
     return l;
   });
@@ -99,11 +185,13 @@ export function rewriteLinks(raw: string, map: TargetMapper): LinkRewrite {
   let count = 0;
   let warnings: PropertyRewriteWarning[] = [];
   if (/\[\[|\]\(/.test(yamlText)) {
-    const props = rewriteFrontmatterProperties(yamlText, map, rewriteText);
+    const props = rewriteFrontmatterProperties(yamlText, map, (t, m) =>
+      rewriteText(t, m, undefined, "property"),
+    );
     if (props) ({ text: yamlOut, count, warnings } = props);
     else {
       // Already invalid YAML: nothing to prove a rewrite against, and it cannot get more invalid.
-      const legacy = rewriteText(yamlText, map, crlf);
+      const legacy = rewriteText(yamlText, map, crlf, "property");
       yamlOut = legacy.text;
       count = legacy.count;
       if (count > 0)

@@ -53,6 +53,32 @@ export function windowsNameProblem(segment: string): WindowsNameProblem | null {
   return null;
 }
 
+/**
+ * The characters in one NAME (a single path segment) that cannot live inside a `[[wikilink]]`, as
+ * the short labels an error message can show, or null when the name is link-safe. Obsidian's own
+ * link rule (help.obsidian.md "Internal links"): a name with `# | ^ : %% [[ ]]` "may not work as a
+ * link"; `:` is already refused by {@link windowsNameProblem}. A newline or any other control
+ * character is added because a link body is one line, and the rewrite splices the name into it.
+ *
+ * Such a name closes the link early (`]]`), starts an alias (`|`), a heading (`#`) or a block
+ * reference (`^`), opens a comment (`%%`), or breaks out of the line, so renaming a note TO it makes
+ * the backlink rewrite write the rest into every note that links the old name.
+ *
+ * NOT part of {@link VaultPath}, for the reason {@link windowsNameProblem} is not: reading or
+ * linking an EXISTING file with such a name must keep working. The server applies this to a write
+ * that would CREATE the name (see `assertCreatableName`).
+ */
+export function wikiLinkNameProblem(segment: string): string[] | null {
+  const found = new Set<string>();
+  for (const ch of segment) {
+    if ("[]#^|".includes(ch)) found.add(ch);
+    else if (ch === "\n" || ch === "\r") found.add("newline");
+    else if (ch <= "\u001f" || ch === "\u007f") found.add("control character");
+  }
+  if (segment.includes("%%")) found.add("%%");
+  return found.size === 0 ? null : [...found];
+}
+
 /** 32-char hex HITL elicit token (matches issueElicitToken: randomBytes(16).hex). */
 export const ElicitToken = z.string().regex(/^[a-f0-9]{32}$/, "malformed elicit token");
 
