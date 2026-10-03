@@ -239,7 +239,9 @@ describe("ACL patterns that stay root-marked or end in a separator are refused a
         }),
       );
       expect(() => resolveServeConfigWithProvenance(file)).toThrow(
-        new RegExp(`${file.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")} is not a valid config: .*acl\\.rules\\.0\\.glob.*Private/\\*\\*`),
+        new RegExp(
+          `${file.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")} is not a valid config: .*acl\\.rules\\.0\\.glob.*Private/\\*\\*`,
+        ),
       );
     } finally {
       rmTemp(dir);
