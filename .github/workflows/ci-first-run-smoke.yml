@@ -1,0 +1,234 @@
+name: ci-first-run-smoke
+# The first-run matrix: the SAME first run (no config file, a vault folder as the only argument,
+# semantic search ON via the default in-process local embedder) over the three distribution paths a
+# user can start from, on three operating systems:
+#
+#   npm     `npm install obsidian-tc@<spec>` into a clean prefix, then the generated bin shim (what
+#           `npx obsidian-tc` and a global install both run). Installs the PUBLISHED package, latest by
+#           default: part 2 needs the published truth, and the unpublished tarball cannot be
+#           installed alone (its workspace deps are pinned to registry versions by publish.yml).
+#   mcpb    the .mcpb built once on ubuntu (as publish.yml's build-mcpb does), unpacked on each OS
+#           and started the way a desktop host starts an extension: read manifest.json's
+#           server.mcp_config, expand ${__dirname}/${user_config.*}, spawn `node` from PATH.
+#           ASSUMPTION: the host's Node is the runner's Node 24 (the supported floor). Real desktop
+#           hosts bundle their own; what they bundle is recorded in the PR that added this workflow.
+#   binary  `bun build --compile` in the job with publish.yml's build-binaries steps, for the
+#           runner's own arch (ubuntu x64, macos arm64, windows x64), run from a tree with
+#           node_modules deleted so only the binary itself can provide sqlite-vec.
+#
+# Each cell runs packages/server/scripts/first-run-smoke.ts (bundled to one .mjs first, so node_modules
+# can be deleted before it runs): boot, banner (native/vec), boot reconcile, then search_semantic with
+# a paraphrase query only a real dense retriever answers. It writes a per-stage report; the `matrix`
+# job folds the reports into the 3x3 table on the run summary.
+#
+# EXPECTED_FAILURES is the explicit list of cells that fail today. A listed cell still runs and its
+# failure is still recorded in the table; it just does not turn the run red, so the matrix can record
+# today's truth without blocking unrelated PRs. Part 2 of the install-friction work removes an entry
+# when it fixes that cell. An entry that starts passing is flagged as XPASS (a warning and a table
+# note): delete it. A cell NOT on the list that fails turns the run red.
+#
+# The exemption is on the smoke STEP (`continue-on-error` there), not the job. GitHub's job-level
+# continue-on-error does not survive a failed step: every later step would be skipped, including the
+# report upload the table is built from (see ci-server.yml's node portability run).
+on:
+  pull_request:
+    paths:
+      - 'packages/**'
+      - 'mcpb/**'
+      - 'scripts/bundle-mcpb.ts'
+      - 'scripts/gen-embedded-*.mjs'
+      - '.mcpbignore'
+      - 'bun.lock'
+      - '.github/workflows/ci-first-run-smoke.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Space-separated `<path>/<os>` cells that fail today. Keep one cell per line.
+  EXPECTED_FAILURES: >-
+    mcpb/ubuntu-latest
+    mcpb/macos-latest
+    mcpb/windows-latest
+    binary/ubuntu-latest
+    binary/macos-latest
+    binary/windows-latest
+  # The model weights the local embedder downloads on first use, cached like ci-server.yml's
+  # zero-config-smoke-local-embeddings job (same key: bump with model-info.ts's pinned revision).
+  EMBEDDER_REVISION: e9b6763023c676ca8431644204f50c2b100d9aab
+
+jobs:
+  build-mcpb:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-repo
+        with:
+          node-required: 'true'
+      - name: build shared + server
+        run: |
+          (cd packages/shared && bun run build)
+          (cd packages/server && bun run build)
+      - name: pack the .mcpb bundle
+        run: bun run bundle
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: first-run-mcpb-bundle
+          path: dist/obsidian-tc.mcpb
+          if-no-files-found: error
+
+  first-run:
+    name: first-run (${{ matrix.path }}, ${{ matrix.os }})
+    # Only the mcpb cells read the bundle; the others must run even if the pack failed.
+    needs: build-mcpb
+    if: ${{ !cancelled() }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        path: [npm, mcpb, binary]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          # The bun --compile target for the runner's own arch (a binary must run where it was built).
+          - os: ubuntu-latest
+            target: bun-linux-x64
+          - os: macos-latest
+            target: bun-darwin-arm64
+          - os: windows-latest
+            target: bun-windows-x64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      FR_PATH: ${{ matrix.path }}
+      FR_OS: ${{ matrix.os }}
+      FR_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-repo
+        with:
+          node-required: 'true'
+          # Lifecycle scripts on, as publish.yml's build-binaries installs.
+          install-mode: frozen
+
+      - id: expect
+        name: is this cell on the expected-failure list?
+        run: |
+          if [[ " $EXPECTED_FAILURES " == *" $FR_PATH/$FR_OS "* ]]; then
+            echo "expected=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$FR_PATH/$FR_OS is on EXPECTED_FAILURES: a failure here is recorded, not blocking"
+          else
+            echo "expected=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The harness imports the MCP SDK; bundling it to one file lets the node_modules tree be
+      # deleted before the smoke runs, so nothing resolves out of the build checkout.
+      - name: bundle the harness
+        run: bun build packages/server/scripts/first-run-smoke.ts --target node --outfile "$RUNNER_TEMP/first-run-smoke.mjs"
+
+      - name: download the .mcpb bundle
+        if: matrix.path == 'mcpb'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: first-run-mcpb-bundle
+          path: ${{ runner.temp }}/mcpb
+
+      # Mirrors publish.yml's build-binaries (same embeds, same flags). Keep them in step: a binary
+      # built differently here would measure something users never get.
+      - name: build shared (binary)
+        if: matrix.path == 'binary'
+        working-directory: packages/shared
+        run: bun run build
+      - name: embed sqlite-vec for this target (binary)
+        if: matrix.path == 'binary'
+        run: node scripts/gen-embedded-vec.mjs --target "$FR_TARGET"
+      - name: embed vanilla SQLite (binary, darwin only)
+        if: matrix.path == 'binary' && matrix.os == 'macos-latest'
+        run: node scripts/gen-embedded-sqlite.mjs --target "$FR_TARGET"
+      - name: compile standalone binary
+        if: matrix.path == 'binary'
+        run: bun build packages/server/src/cli.ts --compile --bytecode --minify --sourcemap --external @the-40-thieves/obsidian-tc-reranker-local --external @the-40-thieves/obsidian-tc-embedder-local --target="$FR_TARGET" --outfile "packages/server/dist/obsidian-tc-$FR_TARGET"
+
+      - name: cache local embedder model weights (nomic-embed-text-v1.5, q8)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/obtc-smoke-models/embedder-local/nomic-ai/nomic-embed-text-v1.5/${{ env.EMBEDDER_REVISION }}
+          key: first-run-model-nomic-embed-text-v1.5-q8-${{ env.EMBEDDER_REVISION }}-${{ runner.os }}
+
+      - id: smoke
+        name: first-run smoke
+        # Step-level, deliberately: see the header. The step's own outcome stays `failure`.
+        continue-on-error: ${{ steps.expect.outputs.expected == 'true' }}
+        run: |
+          # A clean tree, like a user's machine: only what the path itself installs may provide
+          # sqlite-vec, the embedder and the native addon.
+          rm -rf node_modules packages/*/node_modules
+          mkdir -p "$RUNNER_TEMP/first-run-report"
+          args=(--path "$FR_PATH")
+          case "$FR_PATH" in
+            mcpb) args+=(--artifact "$RUNNER_TEMP/mcpb/obsidian-tc.mcpb") ;;
+            binary) args+=(--artifact "packages/server/dist/obsidian-tc-$FR_TARGET") ;;
+          esac
+          node "$RUNNER_TEMP/first-run-smoke.mjs" "${args[@]}" \
+            --reconcile-timeout-ms 600000 \
+            --model-cache "$RUNNER_TEMP/obtc-smoke-models" \
+            --report "$RUNNER_TEMP/first-run-report/report.json"
+
+      - name: record the outcome
+        if: always()
+        env:
+          OUTCOME: ${{ steps.smoke.outcome }}
+          EXPECTED: ${{ steps.expect.outputs.expected }}
+        run: |
+          if [ "$OUTCOME" = "success" ] && [ "$EXPECTED" = "true" ]; then
+            echo "::warning::XPASS: $FR_PATH/$FR_OS passed but is on EXPECTED_FAILURES; remove it from the list"
+          fi
+          if [ -f "$RUNNER_TEMP/first-run-report/report.json" ]; then
+            node -e "const r=JSON.parse(require('node:fs').readFileSync(process.argv[1],'utf8')); console.log(JSON.stringify(r.stages,null,1)); console.log('result:', r.result, r.firstFailure ?? '')" "$RUNNER_TEMP/first-run-report/report.json"
+          else
+            echo "::warning::no report was written for $FR_PATH/$FR_OS (the harness did not reach its report)"
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: first-run-${{ matrix.path }}-${{ matrix.os }}
+          path: ${{ runner.temp }}/first-run-report/report.json
+          if-no-files-found: warn
+
+  matrix:
+    name: first-run 3x3 table
+    needs: first-run
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: first-run-*
+          path: ${{ runner.temp }}/reports
+      - name: write the 3x3 table to the run summary
+        run: |
+          {
+            echo "## first-run matrix"
+            echo
+            node packages/server/scripts/first-run-matrix-table.mjs "$RUNNER_TEMP/reports" "npm,mcpb,binary" "ubuntu-latest,macos-latest,windows-latest"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
