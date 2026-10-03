@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
-import { effectiveAudience } from "./protected-resource";
+import {
+  effectiveAudience,
+  jwksWithoutAudience,
+  jwksWithoutAudienceMessage,
+} from "./protected-resource";
 import type { AuthRegistry } from "./registry";
 import { createTokenVerifier, type TokenVerifier } from "./verifier";
 
@@ -27,16 +31,16 @@ export function buildJwtVerifier(
   // THE-456: bind the token audience. An explicit auth.audience wins; otherwise, when PRM is
   // configured, default it to the canonical `resource` URI (RFC 9728 / MCP 2025-11-25 require a
   // protected resource to accept only tokens whose aud is itself). Undefined keeps the legacy
-  // behavior for local self-issued HS256. A JWKS (shared external issuer) with no effective
-  // audience is the confused-deputy hole, so warn.
+  // behavior for local self-issued HS256. A JWKS (shared external issuer, `jwksUri` included) with
+  // no effective audience is the confused-deputy hole: it still works this release, as a
+  // deprecation (also in `doctor` and server_health) unless the operator opted out.
   const audience = effectiveAudience(auth);
-  if (jwks && audience === undefined) {
-    process.stderr.write(
-      "auth: JWKS configured without an audience — set auth.audience (or auth.resource) so tokens " +
-        "minted by the same issuer for a different service are rejected (THE-456)\n",
-    );
+  if (jwksWithoutAudience(auth)) {
+    process.stderr.write(`auth: DEPRECATED: ${jwksWithoutAudienceMessage(auth)}\n`);
   }
-  if (!(auth.jwtSecret || jwks || registry)) return null;
+  // A remote key set (`jwksUri`) is a key source on its own: leaving it out returned no verifier for
+  // a config whose only key source is the URL, which the edge then reported as "no verifier".
+  if (!(auth.jwtSecret || jwks || auth.jwksUri || registry)) return null;
   return createTokenVerifier({
     secret: auth.jwtSecret,
     jwks,

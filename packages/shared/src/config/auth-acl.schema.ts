@@ -302,7 +302,7 @@ export const AuthConfigSchema = z.object({
     .url()
     .optional()
     .describe(
-      "URL of an authorization server's JWKS (its `jwks_uri`), fetched and cached for asymmetric verification. Opt-in: it adds a network dependency to token verification, which jwks/jwksFile do not. Use it when an external AS rotates keys.",
+      "URL of an authorization server's JWKS (its `jwks_uri`), fetched and cached for asymmetric verification. Opt-in: it adds a network dependency to token verification, which jwks/jwksFile do not. Use it when an external AS rotates keys. The host is resolved once and the connection is pinned to the validated address (SNI and certificate on the hostname); redirects are refused and the body is capped. Default: `https://` on a public host. A loopback host needs no entry; a host listed in `network.plainHttpHosts` may be `http://` or on a private/tailnet address (the provider rules); link-local and cloud metadata addresses are refused even when listed. An unlisted host that resolves only to private addresses still works for one release with a deprecation (startup, doctor, server_health).",
     ),
   algorithms: z
     .array(z.string())
@@ -321,6 +321,12 @@ export const AuthConfigSchema = z.object({
     .optional()
     .describe(
       "Expected `aud` claim. Binding it rejects a token an issuer minted for a DIFFERENT service (confused deputy). Required with a JWKS or a non-loopback bind; defaults to `resource` when Protected Resource Metadata is configured.",
+    ),
+  allowMissingAudience: z
+    .boolean()
+    .optional()
+    .describe(
+      "DEPRECATION OPT-OUT. A JWKS key source (jwks, jwksFile, jwksUri) with no EFFECTIVE audience accepts a token its issuer minted for another service. `audience` is effective; `resource` is used as the audience only when Protected Resource Metadata is complete (`authorizationServers` set too), so a `resource`-only config passes validation and binds nothing. That keeps working for one release with a warning at startup, in `obsidian-tc doctor` and in server_health, and becomes a startup error in the next minor release. Set `true` only if you really mean to accept tokens regardless of `aud`; the warning then stops. It does NOT waive the rule above: a JWKS still needs `audience` or `resource` at config load.",
     ),
   issuer: z
     .string()

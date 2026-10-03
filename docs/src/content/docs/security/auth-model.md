@@ -30,8 +30,10 @@ with an **asymmetric** key, so the server holds only a *public* key while the is
 keeps the private key. Provide a JWKS in place of (or alongside) `jwtSecret`:
 
 - **`auth.jwks`** — an inline JWKS document (`{ "keys": [ … ] }`).
-- **`auth.jwksFile`** — a path to a JWKS document, loaded **once** at transport boot.
-  File or inline only — there is no URL fetch, so no new network attack surface.
+- **`auth.jwksFile`** — a path to a JWKS document, loaded **once** at transport boot. No network dependency.
+- **`auth.jwksUri`** — the URL of an authorization server's JWKS, fetched and cached (see
+  [Remote key set](#remote-key-set-authjwksuri) below). Use it when the issuer rotates keys; prefer
+  `jwksFile` for static keys.
 - **`auth.algorithms`** — an allowlist of JWT algorithms, applied to every verify path (HS256,
   registry keys, the JWKS and `/metrics`, which share one verifier built at boot). Omitted, HS256 plus `RS256`, `ES256` and `EdDSA` are
   accepted; a list that leaves HS256 out (such as `["RS256", "EdDSA"]`) refuses HS256 tokens
@@ -46,6 +48,34 @@ keeps the private key. Provide a JWKS in place of (or alongside) `jwtSecret`:
   }
 }
 ```
+
+### Remote key set (`auth.jwksUri`)
+
+The key set URL is fetched through the same checked transport as OIDC discovery, never by `jose`'s own fetch:
+the host is resolved **once**, every answer must be acceptable, and the connection goes to the addresses that
+were validated (the name is never resolved again, so a DNS record that flips in between cannot reach a private
+or metadata address). TLS keeps SNI and certificate validation on the hostname, a redirect is refused, the body
+is capped at 256 KiB and the request has a timeout. A refusal rejects the token; there is no fallback to another
+key source.
+
+| `jwksUri` host | Result |
+| --- | --- |
+| `https://`, every address public | Works. **The default.** Connected to the validated address. |
+| Loopback (`127.0.0.1`, `[::1]`, `localhost`), `http://` or `https://` | Works with no entry. |
+| Listed in [`network.plainHttpHosts`](/configuration/config-yaml/#plain-http-provider-endpoints-networkplainhttphosts), `http://` or `https://`, every address loopback, RFC 1918, `fc00::/7` (or `100.64.0.0/10`, listed tailnet host) | Works, silently. This is the opt-out for an `http://` or LAN/tailnet key set. |
+| **Not** listed, every address loopback, RFC 1918 or `fc00::/7` | Works for **one more release** with a deprecation (startup line, `doctor`, `server_health`). Refused from the next major release: list the host. |
+| `http://` to a public host, a public and private mix, an unlisted `100.64.0.0/10` host | **Refused.** A key set read in clear can be forged in transit. |
+| Link-local and every cloud metadata address | **Refused**, listed or not. |
+
+The startup line (`auth: jwt auth.jwksUri ...`) and `obsidian-tc doctor` (`auth.jwks-uri`) say which mode is
+active. A pinned connection is direct: `HTTPS_PROXY` is not used for the key set.
+
+**Bind an audience.** A JWKS trusts an external issuer, so without an enforced `aud` it accepts a token that
+issuer minted for another service. Set `auth.audience`. `auth.resource` is used as the audience only when
+Protected Resource Metadata is complete (`auth.authorizationServers` set too); a `resource`-only config binds
+nothing. That works for one more release with a deprecation (startup line, `doctor` `auth.jwks-audience`,
+`server_health`) and becomes a startup error in the next minor release. `auth.allowMissingAudience: true` is the
+explicit opt-out and stops the warning.
 
 **Key rotation is `kid`-based:** publish the old and new keys together in the JWKS
 set and the token's `kid` header selects the verifying key (handled by `jose`).

@@ -10,12 +10,14 @@
 // unwindReversed pattern for the boot-time layers.
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
+import { describeJwksTarget, jwksModeLine } from "../auth/jwks-network";
 import { buildJwtVerifier } from "../auth/jwt-boot";
 import { createOidcVerifier, type OidcVerifier, oidcBootNotice } from "../auth/oidc";
 import type { AuthRegistry } from "../auth/registry";
 import { openAuthRegistry } from "../auth/registry-open";
 import type { TokenVerifier } from "../auth/verifier";
 import type { Database } from "../db/types";
+import { providerResolveHost } from "../gateway/provider-fetch";
 import { type AdvisoryBus, createAdvisoryBus } from "../mcp/advisories";
 import type { ToolRegistry } from "../mcp/registry";
 import { type MetricsHandle, startMetricsEndpoint } from "../metrics/endpoint";
@@ -145,6 +147,22 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
       (config.transports.http.enabled || config.observability.prometheus.enabled
         ? (buildJwtVerifier(config.auth, authRegistry) ?? undefined)
         : undefined);
+    if (verifier !== undefined && oidcVerifier === undefined && config.auth.jwksUri !== undefined) {
+      // One line saying how the remote key set is fetched (pinned public, loopback, listed, or the
+      // deprecated unlisted private host), from the decision the fetch itself applies. Advisory: a
+      // DNS hiccup here must not stop the server, the fetch decides again per request.
+      const jwks = await describeJwksTarget(config.auth.jwksUri, {
+        plainHttpHosts: config.network.plainHttpHosts,
+        resolveHost: (host) =>
+          Promise.race([
+            providerResolveHost(host),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("DNS lookup timed out")), 3_000).unref(),
+            ),
+          ]),
+      });
+      process.stderr.write(`auth: jwt ${jwksModeLine(jwks)}\n`);
+    }
     if (config.transports.http.enabled) {
       // THE-585 (#11): time the transport's construction + bind.
       const httpT0 = performance.now();

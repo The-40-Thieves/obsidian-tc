@@ -19,6 +19,7 @@ import {
   renderText,
   resolveInstallRoot,
 } from "../../doctor";
+import { authJwksViews } from "../../doctor/auth-jwks";
 import { deadPathGlobsView } from "../../doctor/dead-path-globs";
 import { HITL_DOCTOR_WINDOW_DAYS, probeHitlConfirmations } from "../../doctor/hitl-confirmations";
 import { probeIndexCoverage } from "../../doctor/index-coverage";
@@ -657,6 +658,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         jwksConfigured: !!(config.auth.jwks || config.auth.jwksFile || config.auth.jwksUri),
         rotationGraceSeconds: config.auth.rotationGraceSeconds,
       },
+      ...authJwksViews(config.auth, config.network.plainHttpHosts, defaultResolveHost),
       ...(config.auth.mode === "oidc" && config.auth.oidc !== undefined
         ? {
             authOidc: (() => {

@@ -10,6 +10,13 @@ import { getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/serv
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 
 type AuthConfig = ServerConfig["auth"];
+/** The fields the audience and PRM decisions read, so server_health and `doctor` can ask with the
+ *  config slice they already hold. */
+export type PrmFields = Partial<
+  Pick<AuthConfig, "mode" | "oidc" | "resource" | "authorizationServers">
+>;
+export type AudienceFields = PrmFields &
+  Partial<Pick<AuthConfig, "audience" | "jwks" | "jwksFile" | "jwksUri" | "allowMissingAudience">>;
 
 export interface ProtectedResourceMetadata {
   resource: string;
@@ -43,7 +50,7 @@ export interface ProtectedResourceMetadata {
  * when either (a) a third-party MCP client needs access with no prior relationship, so
  * pre-registration stops being sufficient, or (b) access becomes multi-user.
  */
-export function isPrmConfigured(auth: AuthConfig): boolean {
+export function isPrmConfigured(auth: PrmFields): boolean {
   return !!auth.resource && authorizationServersOf(auth).length > 0;
 }
 
@@ -52,7 +59,7 @@ export function isPrmConfigured(auth: AuthConfig): boolean {
  * identity provider's issuer, by construction (the schema refuses any other explicit list), so a
  * bring-your-own-IdP deployment needs `auth.resource` and nothing else to be discoverable.
  */
-function authorizationServersOf(auth: AuthConfig): string[] {
+function authorizationServersOf(auth: PrmFields): string[] {
   if (auth.mode === "oidc" && auth.oidc !== undefined) return [auth.oidc.issuer];
   return auth.authorizationServers ?? [];
 }
@@ -62,11 +69,42 @@ function authorizationServersOf(auth: AuthConfig): string[] {
  * a complete PRM is configured, else undefined (not checked). ONE definition, shared by the MCP
  * HTTP edge and the `/metrics` scrape so the two cannot disagree about which tokens they accept.
  */
-export function effectiveAudience(auth: AuthConfig): string | string[] | undefined {
+export function effectiveAudience(
+  auth: AudienceFields | AuthConfig,
+): string | string[] | undefined {
   // oidc mode binds ONLY its own audience: the PRM `resource` is a URL the client sees, while an IdP
   // API audience may be any registered identifier (`api://...`), so the two are not assumed equal.
   if (auth.mode === "oidc") return auth.oidc?.audience;
   return auth.audience ?? (isPrmConfigured(auth) ? auth.resource : undefined);
+}
+
+/**
+ * True when `auth.mode: jwt` verifies tokens against a JWKS (inline, file or URI) but binds NO
+ * audience, and the operator has not opted out with `auth.allowMissingAudience`: a token the same
+ * issuer minted for another service is then accepted here (confused deputy). The schema requires
+ * `audience` or `resource` with a JWKS, but `resource` binds only with a complete PRM
+ * (`isPrmConfigured`), so a `resource`-only config lands here. ONE definition for the startup line,
+ * `doctor` and server_health.
+ */
+export function jwksWithoutAudience(auth: AudienceFields): boolean {
+  return (
+    auth.mode === "jwt" &&
+    !!(auth.jwks || auth.jwksFile || auth.jwksUri) &&
+    effectiveAudience(auth) === undefined &&
+    auth.allowMissingAudience !== true
+  );
+}
+
+/** The deprecation text for `jwksWithoutAudience`: what is wrong, the fix, the opt-out, the deadline. */
+export function jwksWithoutAudienceMessage(auth: Pick<AuthConfig, "resource">): string {
+  const resourceNote = auth.resource
+    ? ` auth.resource is set but is used as the audience only when Protected Resource Metadata is complete (auth.authorizationServers too), so it binds nothing here.`
+    : "";
+  return (
+    `auth.mode 'jwt' verifies tokens against a JWKS but no audience is enforced, so a token the same issuer minted for ANOTHER service is accepted (confused deputy).${resourceNote} ` +
+    `Set auth.audience to this server's resource identifier. This becomes a startup error in the next minor release; ` +
+    `auth.allowMissingAudience: true opts out (and stops this warning).`
+  );
 }
 
 /**
