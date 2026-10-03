@@ -121,9 +121,10 @@ export interface TypesafeClientOptions {
   /** Bearer key. Never logged, never included in a thrown error's message. */
   apiKey?: string;
   /** Transport override (tests). Absent, requests go through the plain-http policy fetch: https://
-   *  and loopback http:// as the ordinary fetch, any other http:// only to a `plainHttpHosts` host
-   *  that resolves solely to private addresses (gateway/plain-http.ts). An injected fetchFn is
-   *  used as given and is not subject to the connect-time check. */
+   *  goes through the ordinary fetch (which honours proxy variables: a CONNECT tunnel), and every
+   *  http:// request is sent directly with no proxy: loopback to a loopback address, anything else
+   *  only to a `plainHttpHosts` host that resolves solely to private addresses
+   *  (gateway/plain-http.ts). An injected fetchFn is used as given and is not subject to either. */
   fetchFn?: FetchFn;
   /** Exact hostnames a non-loopback http:// baseUrl may name. Default none. */
   plainHttpHosts?: readonly string[];

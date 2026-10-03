@@ -4,8 +4,10 @@
 // address that was checked. Run against a stub resolver and a local server so no real DNS or
 // internet is touched; globalThis.fetch is a tripwire wherever a plain-http request must never
 // reach it.
+import { spawn } from "node:child_process";
 import http from "node:http";
-import type { AddressInfo } from "node:net";
+import net, { type AddressInfo } from "node:net";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createPlainHttpPolicyFetch,
@@ -331,5 +333,133 @@ describe("existing paths are unchanged", () => {
     );
     await client.noul(NOUL);
     expect(injected).toHaveBeenCalledTimes(1);
+  });
+});
+
+// A proxy variable in the environment must never reroute judge traffic. Bun's global fetch honours
+// HTTP_PROXY / http_proxy / ALL_PROXY, so any plain-http leg that reached it would hand the bearer
+// key and the vault-derived body to the proxy. Node's does not, so these cases run the real client
+// in a Bun child (fixtures/plain-http-proxy-child.ts) against a stub proxy in this process, and the
+// proxy must see zero bytes. https is deliberately left on the ordinary fetch: through a proxy that
+// is a CONNECT tunnel, and the proxy cannot read the TLS body.
+const CHILD = fileURLToPath(new URL("./fixtures/plain-http-proxy-child.ts", import.meta.url));
+
+function runChild(
+  spec: Record<string, unknown>,
+  env: Record<string, string>,
+): Promise<{ ok: boolean; noul?: number; message?: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("bun", [CHILD, JSON.stringify(spec)], {
+      env: { ...process.env, ...env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let out = "";
+    child.stdout.on("data", (c) => {
+      out += c;
+    });
+    const timer = setTimeout(() => child.kill("SIGKILL"), 15_000);
+    child.once("error", reject);
+    child.once("close", () => {
+      clearTimeout(timer);
+      try {
+        resolve(JSON.parse(out.trim().split("\n").pop() ?? ""));
+      } catch {
+        reject(new Error(`child printed no result: ${out}`));
+      }
+    });
+  });
+}
+
+describe("ambient proxy variables never see plain-http judge traffic", () => {
+  let proxy: net.Server;
+  let proxyBytes: number;
+  const proxySockets = new Set<net.Socket>();
+  let proxyEnv: Record<string, string>;
+
+  beforeEach(async () => {
+    proxyBytes = 0;
+    proxy = net.createServer((sock) => {
+      proxySockets.add(sock);
+      sock.on("data", (c) => {
+        proxyBytes += c.length;
+      });
+      sock.on("error", () => {});
+    });
+    await new Promise<void>((r) => proxy.listen(0, "127.0.0.1", r));
+    const url = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`;
+    // The child gets these explicitly (the parent's own env is never touched), upper and lower case.
+    proxyEnv = {
+      HTTP_PROXY: url,
+      http_proxy: url,
+      ALL_PROXY: url,
+      all_proxy: url,
+      NO_PROXY: "",
+      no_proxy: "",
+    };
+  });
+
+  afterEach(async () => {
+    for (const sock of proxySockets) sock.destroy();
+    proxySockets.clear();
+    await new Promise<void>((r) => proxy.close(() => r()));
+  });
+
+  it.each(["127.0.0.1", "[::ffff:127.0.0.1]", "localhost"])(
+    "a loopback judge call (%s) reaches the service directly and the proxy gets zero bytes",
+    async (host) => {
+      const r = await runChild(
+        { baseUrl: `http://${host}:${port}`, resolveTo: "127.0.0.1" },
+        proxyEnv,
+      );
+      expect(r).toEqual({ ok: true, noul: 0.9 });
+      expect(seen).toHaveLength(1);
+      expect(seen[0]?.auth).toBe("Bearer sk-secret-key");
+      expect(proxyBytes).toBe(0);
+    },
+  );
+
+  it("a listed private host reaches the service directly and the proxy gets zero bytes", async () => {
+    const r = await runChild(
+      { baseUrl: `http://litellm:${port}`, plainHttpHosts: ["litellm"], resolveTo: "127.0.0.1" },
+      proxyEnv,
+    );
+    expect(r).toEqual({ ok: true, noul: 0.9 });
+    expect(seen).toHaveLength(1);
+    expect(proxyBytes).toBe(0);
+  });
+
+  it("a loopback name that resolves off-loopback is refused and nothing is sent", async () => {
+    const r = await runChild(
+      { baseUrl: `http://localhost:${port}`, resolveTo: "93.184.216.34" },
+      proxyEnv,
+    );
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/not a loopback/i);
+    expect(r.message).not.toContain("sk-secret-key");
+    expect(seen).toHaveLength(0);
+    expect(proxyBytes).toBe(0);
+  });
+
+  it("a loopback redirect is refused, not followed", async () => {
+    respond = (res) => {
+      res.writeHead(307, { location: "http://169.254.169.254/latest" });
+      res.end();
+    };
+    const r = await runChild({ baseUrl: `http://127.0.0.1:${port}` }, proxyEnv);
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/redirect/i);
+    expect(seen).toHaveLength(1);
+    expect(proxyBytes).toBe(0);
+  });
+});
+
+describe("https keeps the ordinary fetch", () => {
+  it("an https judge URL is handed to the global fetch, no resolver, no pinning", async () => {
+    const globalFetch = stubGlobalFetch();
+    const resolveHost = vi.fn<ResolveHost>(async () => []);
+    const { client } = buildTypesafeJudgeClient(cfg({}), NAMES, undefined, { resolveHost });
+    await client.noul(NOUL);
+    expect(globalFetch).toHaveBeenCalledTimes(1);
+    expect(resolveHost).not.toHaveBeenCalled();
   });
 });

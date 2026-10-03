@@ -276,6 +276,11 @@ converted to punycode); wildcards, ports and paths are config errors. A numeric 
 be sent at all. `obsidian-tc doctor` lists each plain-http host with the addresses it resolves to and warns
 about any that are not private.
 
+Every `http://` request, loopback included, is sent directly: `HTTP_PROXY`, `http_proxy` and `ALL_PROXY` are
+not applied to it, so a proxy in the environment never receives the key or the vault text. A loopback name
+such as `localhost` must resolve only to loopback addresses. `https://` requests do honour those variables;
+through a proxy that is a CONNECT tunnel, so the proxy sees the host and port but cannot read the body.
+
 `allowPlainHttp: true` is **deprecated** and is removed in the next major release. Until then it means "this
 `baseUrl`'s own host is listed", and it no longer waives the private-address check: a host that resolves to a
 public address is refused. `doctor` and `server_health` (`deprecations`) warn while it is set. Replace it with

@@ -12,11 +12,20 @@
 // second DNS answer cannot swap a public address in between the check and the send (rebinding).
 // Every refusal is fail-closed and happens before a socket exists: no fallback, nothing sent.
 //
-// https:// and loopback http:// URLs are not this module's business and pass straight through to
-// the ordinary fetch. node:http is used for the plain-http leg because it is the one client API
-// that Node and Bun both honor a pinned `host` + explicit Host header on; undici's `dispatcher`
-// option is Node-only. node:http never follows redirects, which is what is wanted here: a 3xx from
-// a vetted host must not be able to bounce the request to an address nobody checked.
+// A loopback http:// URL needs no host list, but it takes the SAME direct transport: connected to
+// a loopback address (a literal, or a name whose every answer is loopback), no agent, no proxy,
+// redirects refused. It must never reach the global fetch: Bun's honours HTTP_PROXY / http_proxy /
+// ALL_PROXY, and a proxy in the environment would receive the bearer key and the vault text while
+// the loopback service got nothing. Every plain-http request is therefore sent from this module.
+//
+// Only https:// passes through to the ordinary fetch, which DOES honour a proxy variable. That is
+// deliberate: an https request through a proxy is a CONNECT tunnel, so the proxy sees the host and
+// port but cannot read the key or the body, and operators behind a mandatory egress proxy need
+// it. node:http is used for the plain-http leg because it is the one client API that Node and Bun
+// both honor a pinned `host` + explicit Host header on (and neither applies proxy variables to);
+// undici's `dispatcher` option is Node-only. node:http never follows redirects, which is what is
+// wanted here: a 3xx from a vetted host must not be able to bounce the request to an unchecked
+// address.
 import { lookup } from "node:dns/promises";
 import http from "node:http";
 import { isIP } from "node:net";
@@ -59,9 +68,33 @@ export interface PlainHttpPolicyOptions {
   resolveHost?: ResolveHost | undefined;
 }
 
-/** True for an http:// URL the policy governs: plain http on a host that is not loopback. */
-export function isGovernedPlainHttp(url: URL): boolean {
-  return url.protocol === "http:" && !isLoopbackHost(url.hostname);
+/** True for an http:// URL, loopback or not: every one is sent by this module, never by the global
+ *  fetch (see the header). Only the target check differs. */
+export function isPlainHttp(url: URL): boolean {
+  return url.protocol === "http:";
+}
+
+/**
+ * The ONE loopback address to connect to for a loopback http:// URL. No host list applies. An IP
+ * literal is its own answer; `localhost` (RFC 6761) is resolved and every answer must be loopback,
+ * and when the resolver gives nothing it means 127.0.0.1.
+ * @throws PlainHttpRefusedError when any resolved address is not loopback.
+ */
+export async function resolveLoopbackTarget(
+  url: URL,
+  resolveHost: ResolveHost | undefined,
+): Promise<ResolvedAddress> {
+  const bare = normalizeHostForBind(url.hostname);
+  const literalFamily = isIP(bare);
+  if (literalFamily === 4 || literalFamily === 6) return { address: bare, family: literalFamily };
+  const addresses = await (resolveHost ?? defaultResolveHost)(bare).catch(() => []);
+  const bad = addresses.find((a) => !isLoopbackHost(a.address));
+  if (bad !== undefined) {
+    throw new PlainHttpRefusedError(
+      `plain http to ${url.hostname} refused: it resolves to ${bad.address}, which is not a loopback address`,
+    );
+  }
+  return addresses[0] ?? { address: "127.0.0.1", family: 4 };
 }
 
 /**
@@ -171,13 +204,13 @@ function sendPinned(
 }
 
 export interface PlainHttpPolicyFetchOptions extends PlainHttpPolicyOptions {
-  /** The transport for https:// and loopback http:// requests. Defaults to the global fetch,
-   *  looked up per call so a test or instrumentation layer that replaces it is honored. */
+  /** The transport for https:// requests only. Defaults to the global fetch, looked up per call so
+   *  a test or instrumentation layer that replaces it is honored. */
   baseFetch?: typeof fetch | undefined;
 }
 
 /**
- * A `fetch` that enforces the plain-http policy above and otherwise behaves like `baseFetch`.
+ * A `fetch` that enforces the plain-http policy above and sends https:// through `baseFetch`.
  * Request bodies must be a string, a Uint8Array or absent (every caller here sends JSON).
  */
 export function createPlainHttpPolicyFetch(opts: PlainHttpPolicyFetchOptions): typeof fetch {
@@ -189,17 +222,16 @@ export function createPlainHttpPolicyFetch(opts: PlainHttpPolicyFetchOptions): t
     const url = new URL(
       typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
     );
-    if (!isGovernedPlainHttp(url)) return baseFetch(input, init);
+    if (!isPlainHttp(url)) return baseFetch(input, init);
     const req = new Request(
       input as ConstructorParameters<typeof Request>[0],
       init as RequestInit | undefined,
     );
     req.signal.throwIfAborted();
     // Refuse before reading the body or opening anything.
-    const target = await resolvePlainHttpTarget(url, {
-      plainHttpHosts,
-      resolveHost: opts.resolveHost,
-    });
+    const target = isLoopbackHost(url.hostname)
+      ? await resolveLoopbackTarget(url, opts.resolveHost)
+      : await resolvePlainHttpTarget(url, { plainHttpHosts, resolveHost: opts.resolveHost });
     const body = req.body === null ? undefined : new Uint8Array(await req.arrayBuffer());
     return sendPinned(target, { url, method: req.method, headers: req.headers, body }, req.signal);
   }) as typeof fetch;
