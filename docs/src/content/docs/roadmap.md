@@ -3,7 +3,7 @@ title: Roadmap
 description: What has shipped through v1.8, and what remains deferred or out of scope.
 ---
 
-## Shipped (current: v1.31.8)
+## Shipped (current: v1.32.0)
 
 The complete G2.1 tool surface — every tool across all domains — plus everything the
 v1.x line added on top of the v1.0 hardening gate (OpenTelemetry, Prometheus,

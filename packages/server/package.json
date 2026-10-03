@@ -1,6 +1,6 @@
 {
   "name": "obsidian-tc",
-  "version": "1.31.8",
+  "version": "1.32.0",
   "mcpName": "io.github.The-40-Thieves/obsidian-tc",
   "description": "Governed Obsidian vault access: hybrid retrieval, Markdown-native memory, HITL confirmations.",
   "license": "AGPL-3.0-only",
@@ -66,7 +66,7 @@
   },
   "optionalDependencies": {
     "@redis/client": "6.2.1",
-    "@the-40-thieves/obsidian-tc-embedder-local": "1.31.8"
+    "@the-40-thieves/obsidian-tc-embedder-local": "1.32.0"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.31.0",

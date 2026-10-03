@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
@@ -6,10 +6,14 @@ const security = readFileSync(
   fileURLToPath(new URL("../../../SECURITY.md", import.meta.url)),
   "utf8",
 );
-const fragment = readFileSync(
-  fileURLToPath(new URL("../../../changes/release-security-review-hardening.md", import.meta.url)),
-  "utf8",
+// The release note lives in its fragment until a release folds it into CHANGELOG.md and deletes
+// the file, so read whichever holds it.
+const fragmentPath = fileURLToPath(
+  new URL("../../../changes/release-security-review-hardening.md", import.meta.url),
 );
+const fragment = existsSync(fragmentPath)
+  ? readFileSync(fragmentPath, "utf8")
+  : readFileSync(fileURLToPath(new URL("../../../CHANGELOG.md", import.meta.url)), "utf8");
 
 describe("release security hardening claims", () => {
   it("states the exact exclusion, symlink, and rerun-cleanup coverage", () => {

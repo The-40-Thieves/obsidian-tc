@@ -1,4 +1,0 @@
----
-type: Changed
----
-- **The docs now recommend a `toolFacade.mode` per client, from a measurement.** Claude Code (tool search on, 32 trials per cell) and Codex (`triad` only; its usage limit ended the run) were run headless on find-then-act tasks in every mode: Claude Code succeeded 32 of 32 in each mode, so the modes differ on cost and friction (`flat` about 38% more billable tokens, `domain` an argument-validation error in every trial) and no mode beat the default `triad` by the pre-registered margin. The recommendation is `triad` for Claude Code and Codex; Cursor, Gemini CLI, Claude Desktop and VS Code are marked unmeasured. The MCP clients page also records how approval prompts behave headless (Claude Code auto-cancels, Codex auto-declines). The write-ergonomics harness gained `--facade`, domain-call unwrapping and ten discovery tasks.

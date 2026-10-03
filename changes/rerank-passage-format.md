@@ -1,4 +1,0 @@
----
-type: Added
----
-- **`reranker.passageFormat`: opt in to sending the reranker the note title with each chunk.** A reranker has always been handed the bare chunk text, which carries no title, and on the repository's own evaluations that cost it every title-identified query. Set `reranker.passageFormat: "title+chunk"` and each candidate is sent as `<note title>`, a blank line, then the chunk (the title is the file name without `.md`; a cluster-summary row is sent as-is). It applies to every reranker backend and to gated rerank and the `rrf_rerank` / `score_merge` fusion modes, never widens what `egress.excludePaths` allows out, and is part of the query-cache key. The default stays `"chunk"`, so nothing changes unless you set it; the evidence for and against is in ADR 0007, and a reranker is still off unless you configure one. Needs a `reranker` block: the auto-selected local reranker keeps `chunk`.

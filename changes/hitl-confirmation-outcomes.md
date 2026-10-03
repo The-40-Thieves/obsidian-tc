@@ -1,4 +1,0 @@
----
-type: Added
----
-- **Confirmation outcomes are recorded, and `doctor --probe` reports them.** Every human-confirmation round trip now leaves a code-only `event_log` row (`hitl_accept`, `hitl_decline`, `hitl_cancel`, `hitl_offered`) carrying the source (stdio form round trip, requestState, redeemed `obsidian-tc elicit` token), the route (direct, `call_capability`, domain verb) and the sanitized client name, never arguments or content; it is swept with the existing `observability.retention.eventLogDays`. A new `hitl.confirmations` doctor check shows per-tool counts and acceptance rate over 7 days (timeouts are derived from offers nobody answered) and warns on a tool mostly approved by headless token. Confirmation level stays a security floor: a test now fails if any HITL gate references the preference store or the reflect pass (#1063).
