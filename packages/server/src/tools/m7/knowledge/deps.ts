@@ -16,7 +16,7 @@ import type { GatewayRoles } from "../../../plane/gateway";
 import type { ProvenanceStamper } from "../../../provenance/stamp";
 import type { StageMetric } from "../../../search/graph_search_stages/instrumentation";
 import type { RetrievalCaches } from "../../../search/query_cache";
-import type { Reranker, RerankOutcome } from "../../../search/rerank";
+import type { Reranker, RerankOutcome, RerankPassageFormat } from "../../../search/rerank";
 import type { VaultRegistry } from "../../../vault/registry";
 import type { WikiJudgeBackend, WikiJudgeSettings } from "./wiki-judge";
 
@@ -182,6 +182,9 @@ export interface M7Deps {
    *  first-class hit even though it has no vector — this is what makes it a gateway leg, not the
    *  embedding one. */
   excludeFilter?: EgressFilter;
+  /** `reranker.passageFormat`: the text each candidate is sent to the reranker as. Absent ->
+   *  "chunk" (raw chunk text). */
+  rerankPassageFormat?: RerankPassageFormat;
   /** `wikiJudge` config: the LLM judge for ambiguous find_existing_page / lint_wiki matches. Absent
    *  -> DEFAULT_WIKI_JUDGE_SETTINGS (off unless a call asks, and it needs `roles`). */
   wikiJudge?: WikiJudgeSettings;

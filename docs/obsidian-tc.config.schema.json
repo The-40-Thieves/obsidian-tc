@@ -1084,6 +1084,14 @@
           "description": "Explicit path to @the-40-thieves/obsidian-tc-reranker-local's BUILT module entry (its dist/index.js), for provider 'local'. Absolute, or resolved against the config file's directory (same convention as modulePath). Tried FIRST, before the bare package specifier and the source-checkout default — see that package's README for when you need this. Ignored by every other provider.",
           "type": "string",
           "minLength": 1
+        },
+        "passageFormat": {
+          "description": "What text each candidate is sent to the reranker as. \"chunk\" (the default when unset): the raw chunk text. \"title+chunk\": the note title (its file name without the .md extension), a blank line, then the chunk text, so a title-identified note is rankable on its title. Applies to every reranker backend, to gated rerank and to the rrf_rerank / score_merge fusion modes; a cluster-summary candidate is always sent as-is. Experimental: on the repository's two English corpora a reranker fed raw chunks lost on every shape while title+chunk won or tied for most rerankers, but two shapes are too few for a default (ADR 0007), so the default stays \"chunk\".",
+          "type": "string",
+          "enum": [
+            "chunk",
+            "title+chunk"
+          ]
         }
       },
       "required": [

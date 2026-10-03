@@ -12,6 +12,29 @@ import {
 const base = { vaults: [{ id: "main", path: "/v" }] };
 
 describe("ServerConfigSchema", () => {
+  // reranker.passageFormat: the text each candidate is sent to the reranker as. The default must
+  // stay "chunk" until ADR 0007's evidence bar is met.
+  it("leaves reranker.passageFormat unset by default (= chunk) and accepts title+chunk", () => {
+    const rr = { provider: "cohere-compatible", model: "m", baseUrl: "https://x.example/v2" };
+    expect(
+      ServerConfigSchema.parse({ ...base, reranker: rr }).reranker?.passageFormat,
+    ).toBeUndefined();
+    expect(
+      ServerConfigSchema.parse({ ...base, reranker: { ...rr, passageFormat: "chunk" } }).reranker
+        ?.passageFormat,
+    ).toBe("chunk");
+    expect(
+      ServerConfigSchema.parse({ ...base, reranker: { ...rr, passageFormat: "title+chunk" } })
+        .reranker?.passageFormat,
+    ).toBe("title+chunk");
+    expect(ServerConfigSchema.parse(base).reranker).toBeUndefined();
+  });
+
+  it("rejects an unknown reranker.passageFormat", () => {
+    const rr = { provider: "local", passageFormat: "title" };
+    expect(ServerConfigSchema.safeParse({ ...base, reranker: rr }).success).toBe(false);
+  });
+
   it("accepts a minimal config and applies transport/auth defaults", () => {
     const c = ServerConfigSchema.parse(base);
     expect(c.auth.mode).toBe("none");

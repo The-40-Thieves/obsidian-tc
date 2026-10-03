@@ -6,7 +6,7 @@
 import type { RetrievalConfidence, ScoreCalibration } from "../../experiential/calibration";
 import type { EgressFilter } from "../../plane/egress-filter";
 import type { ColbertMatrix } from "../colbert";
-import type { OnRerankOutcome, Reranker } from "../rerank";
+import type { OnRerankOutcome, Reranker, RerankPassageFormat } from "../rerank";
 import type { SparseVec } from "../sparse";
 import type { OnRetrievalTrace, OnStageMetric } from "./instrumentation";
 
@@ -349,6 +349,9 @@ export interface GraphSearchOptions {
    *  this pipeline (score_merge, rrf_rerank, gatedRerank) threads it through so an excluded-path
    *  candidate's text never reaches the hosted reranker. Absent -> nothing excluded. */
   rerankExcludeFilter?: EgressFilter;
+  /** `reranker.passageFormat`: the text every rerankWithScores call in this pipeline hands the
+   *  reranker. Keyed by the query cache (it changes the ranking). Absent -> "chunk". */
+  rerankPassageFormat?: RerankPassageFormat;
   isReadable?: (path: string) => boolean;
   /** cached_activation_score lookup from vault_object_state (W-SCHEMA); inert when absent. */
   activationFor?: (chunkId: string) => number | null | undefined;

@@ -26,7 +26,11 @@ import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { compileEgressFilter } from "../src/plane/egress-filter";
 import { graphSearch } from "../src/search/graph_search";
 import { buildRepresentationManifest } from "../src/search/representation";
-import { rerankWithScores } from "../src/search/rerank";
+import {
+  formatRerankPassage,
+  type RerankPassageFormat,
+  rerankWithScores,
+} from "../src/search/rerank";
 import { routeQuery } from "../src/search/router";
 import { registerM2Tools } from "../src/tools/m2";
 import { VaultRegistry } from "../src/vault/registry";
@@ -201,14 +205,12 @@ interface ResultFile {
   perQuery: Record<string, QueryResult>;
 }
 
-/** An Obsidian note's title is its file name without the extension. */
-const titleOf = (path: string): string => (path.split("/").pop() ?? path).replace(/\.md$/i, "");
-
 async function stageRerank(): Promise<void> {
   const [poolsPath] = pos;
   const arm = flag("--arm") as ArmName | undefined;
   const k = Number(flag("--k") ?? 30);
   const titlePrefix = argv.includes("--title-prefix");
+  const passageFormat: RerankPassageFormat = titlePrefix ? "title+chunk" : "chunk";
   const out = flag("--out");
   const limit = flag("--limit") ? Number(flag("--limit")) : undefined;
   const neuronCap = flag("--neuron-cap") ? Number(flag("--neuron-cap")) : undefined;
@@ -234,13 +236,11 @@ async function stageRerank(): Promise<void> {
     if (limit !== undefined && done >= limit) break;
     if (res.perQuery[full.id]?.outcome === "executed") continue;
     const pool = truncatePool(full, k);
-    const docs = pool.candidates.map((c, index) => ({
-      content: titlePrefix ? `${titleOf(c.path)}\n\n${c.text}` : c.text,
-      path: c.path,
-      index,
-    }));
+    const docs = pool.candidates.map((c, index) => ({ content: c.text, path: c.path, index }));
+    // Neuron-cost proxy: the characters actually sent, i.e. the passages as the product formats them.
     const chars =
-      docs.reduce((a, d) => a + d.content.length, 0) + full.query_text.length * docs.length;
+      docs.reduce((a, d) => a + formatRerankPassage(d, passageFormat).length, 0) +
+      full.query_text.length * docs.length;
     if (
       arm === "cf-bge-reranker-base" &&
       neuronCap !== undefined &&
@@ -263,6 +263,8 @@ async function stageRerank(): Promise<void> {
       },
       undefined,
       filter,
+      // The SHIPPED seam (`reranker.passageFormat`), so the arm measures the product's passage.
+      passageFormat,
     );
     // Provider time of the successful call; wall time (which includes throttle sleeps) only as a fallback.
     const latency = reranker.lastMs > 0 ? reranker.lastMs : performance.now() - t0;
