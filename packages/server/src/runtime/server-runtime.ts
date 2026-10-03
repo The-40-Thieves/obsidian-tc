@@ -16,9 +16,9 @@ import {
 } from "@the-40-thieves/obsidian-tc-shared";
 import { version as VERSION } from "../../package.json";
 import { experientialMigrations } from "../cli/shared";
+import { plainHttpEndpointDeprecations } from "../doctor/plain-http";
 import { createStdioElicitCodec } from "../elicit";
 import { buildMemoryDefenseLookup } from "../experiential/memory-defense";
-import { plainHttpEndpointDeprecations } from "../doctor/plain-http";
 import { providerResolveHost } from "../gateway/provider-fetch";
 import { healthToolsWiringFields, mcpServerFacadeOptions } from "../mcp/facade-auto";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";

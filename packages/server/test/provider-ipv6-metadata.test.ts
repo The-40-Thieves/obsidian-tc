@@ -15,18 +15,21 @@ import {
 const METADATA_V6 = ["fd00:ec2::254", "fd00:64:64:64::254", "fd20:ce::254"];
 
 describe("IPv6 metadata addresses are refused by the send policy", () => {
-  it.each(METADATA_V6)("%s as an IP literal, unlisted (deprecated unlisted-private path)", async (ip) => {
-    const url = new URL(`http://[${ip}]/latest/meta-data/iam/security-credentials/role#`);
-    await expect(
-      resolvePlainHttpTarget(url, { plainHttpHosts: [], allowUnlistedPrivate: true }),
-    ).rejects.toBeInstanceOf(PlainHttpRefusedError);
-  });
+  it.each(METADATA_V6)(
+    "%s as an IP literal, unlisted (deprecated unlisted-private path)",
+    async (ip) => {
+      const url = new URL(`http://[${ip}]/latest/meta-data/iam/security-credentials/role#`);
+      await expect(
+        resolvePlainHttpTarget(url, { plainHttpHosts: [], allowUnlistedPrivate: true }),
+      ).rejects.toBeInstanceOf(PlainHttpRefusedError);
+    },
+  );
 
   it.each(METADATA_V6)("%s as an IP literal, listed", async (ip) => {
     const url = new URL(`http://[${ip}]/x`);
-    await expect(
-      resolvePlainHttpTarget(url, { plainHttpHosts: [url.hostname] }),
-    ).rejects.toThrow(/not a private address/);
+    await expect(resolvePlainHttpTarget(url, { plainHttpHosts: [url.hostname] })).rejects.toThrow(
+      /not a private address/,
+    );
   });
 
   it.each(METADATA_V6)("a LISTED name that resolves to %s", async (ip) => {

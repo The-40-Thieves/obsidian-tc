@@ -380,9 +380,8 @@ function isPrivateIpv4(o: readonly [number, number, number, number]): boolean {
  * (10/8, 172.16/12, 192.168/16) and IPv6 unique-local (fc00::/7), plus an IPv4-mapped IPv6 address
  * wrapping any of the IPv4 ones. Link-local is deliberately NOT in the set: 169.254.169.254 is the
  * cloud metadata service on AWS, GCP, Azure and OCI, and no provider endpoint lives on a link-local
- * address (a Docker bridge is 172.16/12). The IPv6 metadata addresses inside fc00::/7
- * (isCloudMetadataAddress: fd00:ec2::254 and its Alibaba and GCP siblings) are carved out of the
- * unique-local block. Everything else — public, carrier-grade NAT (100.64/10),
+ * address (a Docker bridge is 172.16/12). The IPv6 metadata addresses (isCloudMetadataAddress)
+ * are carved out of fc00::/7. Everything else — public, carrier-grade NAT (100.64/10),
  * 0/8, "::", fe80::/10, site-local, NAT64, IPv4-compatible `::a.b.c.d` — and anything that does
  * not parse as an IP literal is false: the caller fails closed. Accepts the text a resolver returns
  * or a URL hostname, in any IPv6 spelling.
@@ -408,7 +407,6 @@ export function isPrivateNetworkAddress(addr: string): boolean {
     return o ? isPrivateIpv4(o) : false;
   }
   if (h === "::1") return true;
-  // fd00:ec2::254 (AWS) and friends are unique-local but are credential endpoints.
   if (isCloudMetadataAddress(h)) return false;
   // The canonical form drops leading zeros, so "fc::1" is 00fc::1 (NOT unique-local): only a
   // four-digit first group can sit in fc00::/7.
@@ -433,7 +431,6 @@ export function isListedOnlyPrivateAddress(addr: string): boolean {
       return false;
     }
   }
-  // 100.100.100.200 is Alibaba Cloud's metadata service: inside the range, never sendable.
   return (
     o !== null && o[0] === 100 && o[1] >= 64 && o[1] <= 127 && !isCloudMetadataAddress(o.join("."))
   );

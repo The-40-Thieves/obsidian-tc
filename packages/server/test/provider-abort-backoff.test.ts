@@ -3,9 +3,9 @@
 // long after the tool had timed out. The reviewer's repro: `429 Retry-After: 60` with a deadline
 // far below 60 s. The backoff must end the moment the caller aborts, with no timer left behind.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { abortableSleep } from "../src/util/abortable-sleep";
 import { createGatewayClient } from "../src/gateway/client";
 import { createTypesafeClient } from "../src/gateway/typesafe";
+import { abortableSleep } from "../src/util/abortable-sleep";
 
 beforeEach(() => {
   vi.useFakeTimers();

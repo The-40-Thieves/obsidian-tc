@@ -14,7 +14,12 @@ const resolverOf =
   async (host: string): Promise<{ address: string; family: 4 | 6 }[]> =>
     (table[host] ?? []).map((address) => ({ address, family: address.includes(":") ? 6 : 4 }));
 
-const ctxBase = { caller: null, grantedScopes: new Set<string>(), vaultId: "vault-a", db: {} as never };
+const ctxBase = {
+  caller: null,
+  grantedScopes: new Set<string>(),
+  vaultId: "vault-a",
+  db: {} as never,
+};
 const anonymous = { ...ctxBase, authenticated: false } as unknown as CallerContext;
 const vaultBound = {
   ...ctxBase,
@@ -24,10 +29,7 @@ const vaultBound = {
 const admin = { ...ctxBase, authenticated: true } as unknown as CallerContext;
 
 const cfgWithSecretVault = {
-  vaults: [
-    { id: "vault-a" },
-    { id: "secret-vault", restApiUrl: "http://secret-obsidian:27123" },
-  ],
+  vaults: [{ id: "vault-a" }, { id: "secret-vault", restApiUrl: "http://secret-obsidian:27123" }],
   toolFacade: { mode: "triad" as const, profile: "full" as const },
   experiential: { citationInfer: { judge: { provider: "typesafe", allowPlainHttp: true } } },
 };
@@ -69,8 +71,12 @@ describe("server_health deprecations are behind the same gate as the vault list"
   it("a caller that may see every vault gets the full detail", async () => {
     const out = await healthFor(admin);
     expect(out.deprecations).toHaveLength(2);
-    expect(out.deprecations?.join("\n")).toMatch(/experiential\.citationInfer\.judge\.allowPlainHttp is deprecated/);
-    expect(out.deprecations?.join("\n")).toMatch(/vaults\[secret-vault\]\.restApiUrl.*secret-obsidian/);
+    expect(out.deprecations?.join("\n")).toMatch(
+      /experiential\.citationInfer\.judge\.allowPlainHttp is deprecated/,
+    );
+    expect(out.deprecations?.join("\n")).toMatch(
+      /vaults\[secret-vault\]\.restApiUrl.*secret-obsidian/,
+    );
   });
 
   it("no deprecations: the field is absent for everyone", async () => {
@@ -110,18 +116,27 @@ describe("plainHttpEndpointDeprecations classifies with the doctor's resolver an
     ["the metadata address", "http://169.254.169.254", {}],
     ["an IPv6 metadata address", "http://[fd00:ec2::254]", {}],
     ["a name resolving public", "http://pub.example", { "pub.example": ["93.184.216.34"] }],
-    ["a name resolving to metadata", "http://imds.example", { "imds.example": ["169.254.169.254"] }],
-  ])("%s is 'refused: use https', never 'works' and never 'add the host'", async (_n, url, table) => {
-    const lines = await advice(url, table);
-    expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatch(/refused/i);
-    expect(lines[0]).toMatch(/use https/i);
-    expect(lines[0]).not.toMatch(/works only because/);
-    expect(lines[0]).not.toMatch(/add ".*" to network\.plainHttpHosts/);
-  });
+    [
+      "a name resolving to metadata",
+      "http://imds.example",
+      { "imds.example": ["169.254.169.254"] },
+    ],
+  ])(
+    "%s is 'refused: use https', never 'works' and never 'add the host'",
+    async (_n, url, table) => {
+      const lines = await advice(url, table);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatch(/refused/i);
+      expect(lines[0]).toMatch(/use https/i);
+      expect(lines[0]).not.toMatch(/works only because/);
+      expect(lines[0]).not.toMatch(/add ".*" to network\.plainHttpHosts/);
+    },
+  );
 
   it("a listed host resolving public is still refused (listing never helps)", async () => {
-    const lines = await advice("http://pub.example", { "pub.example": ["93.184.216.34"] }, ["pub.example"]);
+    const lines = await advice("http://pub.example", { "pub.example": ["93.184.216.34"] }, [
+      "pub.example",
+    ]);
     expect(lines[0]).toMatch(/refused.*use https|use https.*refused|refused/i);
   });
 
@@ -135,7 +150,9 @@ describe("plainHttpEndpointDeprecations classifies with the doctor's resolver an
   });
 
   it("a host with a private AND a CGNAT answer, unlisted, is refused, not advised", async () => {
-    const lines = await advice("http://mixed.example", { "mixed.example": ["172.18.0.9", "100.100.100.100"] });
+    const lines = await advice("http://mixed.example", {
+      "mixed.example": ["172.18.0.9", "100.100.100.100"],
+    });
     expect(lines[0]).toMatch(/refused/i);
     expect(lines[0]).not.toMatch(/works only because/);
   });

@@ -19,6 +19,7 @@
 // code path with jwt mode, not a parallel one.
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { customFetch, decodeProtectedHeader, jwtVerify } from "jose";
+import { redactEndpointWithPath } from "../telemetry/redact-endpoint";
 import {
   AuthRejection,
   type ClaimMapping,
@@ -29,7 +30,6 @@ import {
   type JwtIdentity,
   subjectOf,
 } from "./jwt";
-import { redactEndpointWithPath } from "../telemetry/redact-endpoint";
 import {
   boundedJwksFetch,
   discoverOidc,

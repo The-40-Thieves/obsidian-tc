@@ -62,7 +62,9 @@ afterEach(async () => {
 
 /** The https endpoint of the repro, served by the local origin. Forwards `init` untouched. */
 const httpsAsLocalOrigin: typeof fetch = (input, init) => {
-  const u = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+  const u = new URL(
+    typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
+  );
   expect(u.protocol).toBe("https:");
   return realFetch(`http://127.0.0.1:${originPort}${u.pathname}`, init);
 };
@@ -111,7 +113,9 @@ describe("an https endpoint that answers with a redirect", () => {
       plainHttpHosts: [],
       baseFetch: async () => new Response('{"ok":true}', { status: 200 }),
     });
-    expect(await (await f("https://provider.example/x", { method: "POST", body: "{}" })).json()).toEqual({
+    expect(
+      await (await f("https://provider.example/x", { method: "POST", body: "{}" })).json(),
+    ).toEqual({
       ok: true,
     });
   });
@@ -119,7 +123,10 @@ describe("an https endpoint that answers with a redirect", () => {
   it("the shared providerFetch (every provider client's default transport) refuses it too", async () => {
     vi.stubGlobal("fetch", httpsAsLocalOrigin);
     await expect(
-      providerFetch("https://provider.example/v1/embeddings", { method: "POST", body: SECRET_BODY }),
+      providerFetch("https://provider.example/v1/embeddings", {
+        method: "POST",
+        body: SECRET_BODY,
+      }),
     ).rejects.toBeInstanceOf(PlainHttpRefusedError);
     expect(sinkHits).toEqual([]);
   });

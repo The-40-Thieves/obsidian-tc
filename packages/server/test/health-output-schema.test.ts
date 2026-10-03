@@ -3,8 +3,8 @@ import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/open";
-import { plainHttpEndpointDeprecations } from "../src/doctor/plain-http";
 import { provisionCacheDb } from "../src/db/provision";
+import { plainHttpEndpointDeprecations } from "../src/doctor/plain-http";
 import { toJson } from "../src/mcp/facade";
 import {
   AUTO_FACADE_DEPRECATION,

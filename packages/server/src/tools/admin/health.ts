@@ -481,8 +481,6 @@ export function createHealthTool(opts: {
               };
             })()
           : {}),
-        // The lines name vault ids, hostnames and resolved addresses (other tenants'): the same
-        // gate as `index.detail`, a caller that reads every vault. Anyone else gets a count.
         ...(opts.deprecations && opts.deprecations.length > 0
           ? {
               deprecations: indexDetail

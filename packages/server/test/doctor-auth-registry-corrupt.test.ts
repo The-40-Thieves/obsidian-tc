@@ -46,7 +46,10 @@ describe("doctor: a corrupt auth.db", () => {
   it("is reported by the probe and FAILS the check, with a static key configured (the repro)", async () => {
     const cacheDir = freshDir();
     mkdirSync(cacheDir, { recursive: true });
-    writeFileSync(authDbPath(cacheDir), Buffer.from("this is definitely not a sqlite file ".repeat(200)));
+    writeFileSync(
+      authDbPath(cacheDir),
+      Buffer.from("this is definitely not a sqlite file ".repeat(200)),
+    );
     const probe = await probeAuthRegistry(cfgFor(cacheDir));
     expect(probe.unreadable).toMatch(/not a database|malformed|corrupt/i);
     const r = await authRegistryCheck(viewOf(probe)).run(ctx);

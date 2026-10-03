@@ -35,6 +35,8 @@ export interface TypesafeNoulRequest {
   model: string;
   instructions: string;
   criteria: TypesafeCriteria;
+  /** Caller's deadline: aborting it cancels the in-flight attempt and stops further retries. */
+  signal?: AbortSignal;
 }
 
 export interface TypesafeUsage {

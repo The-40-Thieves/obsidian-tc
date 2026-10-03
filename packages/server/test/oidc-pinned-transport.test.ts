@@ -32,7 +32,10 @@ function fakeHttps(plan: ("refused" | { status: number; body?: string; location?
     req.end = () => {
       queueMicrotask(() => {
         if (step === "refused") {
-          req.emit("error", Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }));
+          req.emit(
+            "error",
+            Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }),
+          );
           return;
         }
         const res = Object.assign(Readable.from([Buffer.from(step?.body ?? "{}")]), {
@@ -89,14 +92,23 @@ describe("OIDC fetches are pinned to the validated address", () => {
     const globalFetch = vi.fn(async () => new Response("{}"));
     vi.stubGlobal("fetch", globalFetch);
     fakeHttps([{ status: 200 }]);
-    await fetchBoundedText("https://idp.test/jwks", opts(async () => ["93.184.216.34"]));
+    await fetchBoundedText(
+      "https://idp.test/jwks",
+      opts(async () => ["93.184.216.34"]),
+    );
     expect(globalFetch).not.toHaveBeenCalled();
   });
 
   it("a non-default port is kept, an IP-literal host sets no SNI name", async () => {
     const { calls } = fakeHttps([{ status: 200 }]);
-    await fetchBoundedText("https://idp.test:8443/jwks", opts(async () => ["93.184.216.34"]));
-    await fetchBoundedText("https://93.184.216.34/jwks", opts(async () => []));
+    await fetchBoundedText(
+      "https://idp.test:8443/jwks",
+      opts(async () => ["93.184.216.34"]),
+    );
+    await fetchBoundedText(
+      "https://93.184.216.34/jwks",
+      opts(async () => []),
+    );
     expect(calls[0]?.port).toBe(8443);
     expect(calls[0]?.headers.host).toBe("idp.test:8443");
     expect(calls[1]?.host).toBe("93.184.216.34");
@@ -113,14 +125,20 @@ describe("OIDC fetches are pinned to the validated address", () => {
   it("when every validated address refuses, it fails with the last error", async () => {
     fakeHttps(["refused"]);
     await expect(
-      fetchBoundedText("https://idp.test/jwks", opts(async () => ["93.184.216.34"])),
+      fetchBoundedText(
+        "https://idp.test/jwks",
+        opts(async () => ["93.184.216.34"]),
+      ),
     ).rejects.toThrow(/could not be fetched.*ECONNREFUSED/);
   });
 
   it("a 3xx is reported as a redirect and the Location is never contacted", async () => {
     const { calls } = fakeHttps([{ status: 307, location: "https://169.254.169.254/latest" }]);
     await expect(
-      fetchBoundedText("https://idp.test/jwks", opts(async () => ["93.184.216.34"])),
+      fetchBoundedText(
+        "https://idp.test/jwks",
+        opts(async () => ["93.184.216.34"]),
+      ),
     ).rejects.toThrow(/307 redirect; redirects are not followed/);
     expect(calls).toHaveLength(1);
   });

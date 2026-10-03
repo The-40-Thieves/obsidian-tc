@@ -39,7 +39,9 @@ function requireHttps(url: string, what: string): URL {
   try {
     u = new URL(url);
   } catch {
-    throw new OidcFetchError(`${what}: ${redactUrlsInText(JSON.stringify(url))} is not a valid URL`);
+    throw new OidcFetchError(
+      `${what}: ${redactUrlsInText(JSON.stringify(url))} is not a valid URL`,
+    );
   }
   if (u.username !== "" || u.password !== "") {
     throw new OidcFetchError(

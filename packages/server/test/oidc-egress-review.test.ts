@@ -86,7 +86,10 @@ describe("a jwks_uri carrying query credentials is never printed", () => {
   it.each([
     ["a redirect", async () => new Response(null, { status: 302, headers: { location: "/x" } })],
     ["a network error", async () => Promise.reject(new Error(`connect failed ${URL_WITH_SECRET}`))],
-    ["an oversized declared body", async () => new Response("x", { headers: { "content-length": "999999" } })],
+    [
+      "an oversized declared body",
+      async () => new Response("x", { headers: { "content-length": "999999" } }),
+    ],
   ])("fetchBoundedText: %s leaks no secret", async (_name, fetchImpl) => {
     const err = await fetchBoundedText(URL_WITH_SECRET, {
       fetch: fetchImpl as typeof fetch,
@@ -114,6 +117,7 @@ describe("a jwks_uri carrying query credentials is never printed", () => {
     const err = await f(URL_WITH_SECRET, {
       signal: undefined as unknown as AbortSignal,
       headers: new Headers(),
+      method: "GET",
       redirect: "manual",
     }).catch((e: Error) => e);
     expect((err as Error).message).toMatch(/503/);
