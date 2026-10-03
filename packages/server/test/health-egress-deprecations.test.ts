@@ -157,6 +157,24 @@ describe("plainHttpEndpointDeprecations classifies with the doctor's resolver an
     expect(lines[0]).not.toMatch(/works only because/);
   });
 
+  it.each([
+    ["public", "93.184.216.34"],
+    ["metadata", "169.254.169.254"],
+    ["Alibaba metadata (inside 100.64/10)", "100.100.100.200"],
+  ])(
+    "an unlisted host with a CGNAT answer AND a %s answer is refused, never advised to be listed",
+    async (_n, other) => {
+      const lines = await advice("http://mixed.example", {
+        "mixed.example": ["100.100.100.100", other],
+      });
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatch(/refused/i);
+      expect(lines[0]).toMatch(/use https/i);
+      expect(lines[0]).not.toMatch(/list it only if it is a tailnet peer/i);
+      expect(lines[0]).not.toMatch(/unless the host is listed/i);
+    },
+  );
+
   it("an unresolvable host says so", async () => {
     const lines = await advice("http://gone.example", {});
     expect(lines[0]).toMatch(/did not resolve/);

@@ -42,6 +42,8 @@ import https from "node:https";
 import { isIP } from "node:net";
 import { Readable } from "node:stream";
 import {
+  embeddedIpv4Addresses,
+  isCloudMetadataAddress,
   isListedOnlyPrivateAddress,
   isLoopbackHost,
   isPlainHttpHostListed,
@@ -173,6 +175,18 @@ function httpsRedirectRefused(host: string, status: number): PlainHttpRefusedErr
   return new PlainHttpRefusedError(
     `https to ${host} refused: it answered with a redirect (HTTP ${status}); redirects are not followed`,
   );
+}
+
+/** An https:// URL whose host is a cloud instance-metadata literal (any spelling, IPv4-mapped or
+ *  wrapped in a 6to4/Teredo prefix): refused before a socket exists. Names are not resolved here;
+ *  this only judges the literal text, the same rule the plain-http leg applies to its addresses. */
+function assertNotMetadataLiteral(url: URL): void {
+  const host = normalizeHostForBind(url.hostname);
+  if (isCloudMetadataAddress(host) || embeddedIpv4Addresses(host).some(isCloudMetadataAddress)) {
+    throw new PlainHttpRefusedError(
+      `https to ${url.hostname} refused: it is a cloud instance-metadata address`,
+    );
+  }
 }
 
 function abortError(): Error {
@@ -312,6 +326,7 @@ export function createPlainHttpPolicyFetch(opts: PlainHttpPolicyFetchOptions): t
       typeof input === "string" ? input : input instanceof URL ? input.href : input.url,
     );
     if (!isPlainHttp(url)) {
+      assertNotMetadataLiteral(url);
       // Never let the runtime follow a redirect: it would replay the POST body to an unchecked
       // destination. `manual` hands the 3xx back (Node and Bun surface the real status; a runtime
       // that returns an opaque redirect is caught by its type), and it is refused here.

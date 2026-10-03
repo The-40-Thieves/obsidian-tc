@@ -312,7 +312,7 @@ What to know before turning it on:
   is direct, so `HTTPS_PROXY` is not used for the identity provider (with `allowPrivateNetwork: true` nothing is
   pinned and the ordinary fetch applies). IPv6 transition addresses that embed a blocked IPv4 (6to4, Teredo) are
   blocked too. `allowedJwksHosts` admits a hostname on the default https port only; a `jwks_uri` on another port needs
-  `jwksUri`. A `jwks_uri` with a query string is shown in logs, errors and `doctor` without it.
+  `jwksUri`. A `jwks_uri` is shown in logs, errors and `doctor` as its origin only (its path and query string can carry a credential).
 - **`audience` is required.** Register a dedicated API audience at the IdP. Using a client id as the audience would
   let an ID token through.
 - **Algorithms are asymmetric only** (`allowedAlgs`, default RS256, ES256, EdDSA). HS256 and `none` cannot be

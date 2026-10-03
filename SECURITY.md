@@ -747,7 +747,7 @@ IPv4 one inside `100.64.0.0/10`; one list, `isCloudMetadataAddress` in `packages
 shared with the OIDC and config checks) and every public address are refused, listed or not, and IPv4-mapped
 IPv6 and numeric or hex IPv4 spellings are judged as the address they spell. The connection goes to the checked
 address with the original `Host` header (no DNS rebinding between check and send), and a redirect from
-the host is refused, not followed. That holds for `https://` too: the ordinary fetch is called with
+the host is refused, not followed. That holds for `https://` too (and an `https://` URL whose host is a cloud-metadata literal, such as `https://169.254.169.254/` or `https://[fd00:ec2::254]/`, is refused before any socket exists): the ordinary fetch is called with
 `redirect: "manual"` and a 3xx answer is refused, because the runtime's default follows a 307/308 and replays
 the POST body (the key and vault text) to a `Location` that was never checked against this policy. Every `http://` request, loopback included, is sent directly:
 `HTTP_PROXY`, `http_proxy` and `ALL_PROXY` are not applied to it, so a proxy in the environment never
@@ -781,7 +781,23 @@ A pinned connection is direct, so `HTTPS_PROXY` is not used for the identity pro
 `auth.oidc.allowPrivateNetwork: true` nothing is validated and the ordinary fetch (and a proxy) applies.
 The check also blocks the IPv6 transition prefixes that embed an IPv4 address (6to4 `2002::/16`, Teredo
 `2001:0::/32`) when that IPv4 is blocked. `allowedJwksHosts` admits a hostname on the default https port
-only. A `jwks_uri` is shown in logs, errors and `doctor` without its query string or userinfo.
+only. A `jwks_uri` is shown in logs, errors and `doctor` as its origin only (scheme, host, port): its path, query string and userinfo can each carry a credential, and neither the message nor the error `cause` chain carries them.
+
+Every provider call (gateway, TypeSafe, embeddings, reranker, TEI, bridge) holds its timeout until the response
+BODY is fully read, not only until the headers arrive, and a body is capped at 32 MiB (`gateway/read-body.ts`): an
+endpoint that answers `200` and then stalls or streams forever is cut off at the timeout with its socket closed. A
+caller's abort reaches the whole call, including the gateway `rerank` and the post-completion `/model/info`
+lookup.
+
+Accepted residuals, in addition to the one below: (1) JWT mode's remote key set (`auth.jwksUri`, read by jose's
+own fetch) is NOT run through the OIDC address check and pinned transport. The URL is the operator's own
+setting, never taken from a discovery document, jose refuses redirects and bounds the request by its timeout, but
+it reads the body without a size cap and resolves the name itself. Routing it through the OIDC transport would
+refuse `http://` and private-network key-set URLs that jwt mode accepts today, so it needs an opt-out and is a
+separate change; set `auth.jwksFile` for static keys. (2) The OIDC address check decodes the well-known NAT64
+prefix `64:ff9b::/96` and the 6to4 and Teredo embeddings, but not an operator-specific NAT64 prefix (RFC 6052
+permits any /32 to /96 network-specific prefix), so a network that translates a private IPv4 behind its own prefix
+is not recognised from the address alone; use `auth.oidc.allowedJwksHosts` and a network egress policy there.
 
 Accepted residuals: the traffic to a listed private host is still cleartext, so a hostile peer on that
 private network can read it. The tailnet range (`100.64.0.0/10`) is admitted only for a listed host and

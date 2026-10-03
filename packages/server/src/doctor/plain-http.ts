@@ -111,7 +111,10 @@ export function classifyPlainHttpHost(
     (a) => !(isPrivateNetworkAddress(a) || (listed && isListedOnlyPrivateAddress(a))),
   );
   if (bad.length > 0) {
-    const cgnat = !listed && bad.some(isListedOnlyPrivateAddress);
+    // Listing helps only when it would admit EVERY refused address. With a public or metadata
+    // answer alongside the CGNAT one the transport still refuses after listing, so the advice is
+    // the plain refusal, never "list it".
+    const cgnat = !listed && bad.every(isListedOnlyPrivateAddress);
     return {
       status: "refused",
       reason: cgnat

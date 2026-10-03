@@ -3,8 +3,9 @@
 // capability cache, degradation, execute-scope, HITL, and every proxy tool are
 // tested with zero Obsidian. Routes are keyed by "METHOD <pathname>", where the
 // pathname includes the /obsidian-tc/v1 prefix
-// (e.g. "POST /obsidian-tc/v1/dataview/query"). The returned value is a minimal
-// Response-like object (ok/status/json) so the fake needs no global Response.
+// (e.g. "POST /obsidian-tc/v1/dataview/query"). The returned value is a real Response: the
+// transport reads the body as a stream under its timeout and size cap, which a bare
+// Response-like object (ok/status/json) cannot satisfy.
 import type { BridgeFetch } from "./transport";
 
 export interface FakeRoute {
@@ -38,11 +39,11 @@ type FetchInit = Parameters<BridgeFetch>[1];
 type FetchReturn = Awaited<ReturnType<BridgeFetch>>;
 
 function fakeResponse(status: number, body: unknown): FetchReturn {
-  return {
-    ok: status >= 200 && status < 300,
+  const nullBody = status === 204 || status === 205 || status === 304;
+  return new Response(nullBody ? null : JSON.stringify(body), {
     status,
-    json: () => Promise.resolve(body),
-  } as unknown as FetchReturn;
+    headers: { "content-type": "application/json" },
+  });
 }
 
 function urlOf(input: FetchInput): string {
