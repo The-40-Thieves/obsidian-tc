@@ -11,7 +11,7 @@ import { readableRel } from "../vault/acl-read-filter";
 import { buildVaultIndex, type ExtractedLink, resolveTarget } from "../vault/links";
 import { readNote } from "../vault/notes-io";
 import { resolveVaultPath, walkVault } from "../vault/paths";
-import { isGeneratedWikiPath } from "./m7/knowledge/wiki-folder";
+import { isGeneratedWikiPath, rawPathFilter } from "./m7/knowledge/wiki-folder";
 import { isGeneratedPage } from "./m7/knowledge/wiki-generated-seal";
 import type { ScanWarnings } from "./scan-warnings";
 
@@ -22,6 +22,8 @@ export interface ScanScope {
   grantedScopes: Iterable<string>;
   /** The vault's wiki folder: its generated index.md / log.md are never the subject of a scan. */
   wikiFolder?: string | undefined;
+  /** The vault's raw-sources folder: raw notes are inputs, never the subject of a scan. */
+  rawFolder?: string | undefined;
 }
 
 /** Read-ACL-visible `.md` note paths (optionally under a folder). */
@@ -78,8 +80,9 @@ export function scanOrphans(
   opts: { folder?: string | undefined; requireNoOutgoing?: boolean },
 ): string[] {
   const { root, acl, grantedScopes } = scope;
+  const isRaw = rawPathFilter(scope.rawFolder);
   const candidates = readableNotes(root, acl, grantedScopes, opts.folder).filter(
-    (p) => !isGeneratedWikiPath(p, scope.wikiFolder),
+    (p) => !isGeneratedWikiPath(p, scope.wikiFolder) && !isRaw(p),
   );
   const all = readableNotes(root, acl, grantedScopes);
   const index = buildVaultIndex(all);
@@ -176,8 +179,9 @@ export function scanProvenance(
     if (includeRes.length && !includeRes.some((re) => re.test(p))) return false;
     return !excludeRes.some((re) => re.test(p));
   };
+  const isRaw = rawPathFilter(scope.rawFolder);
   const notes = readableNotes(scope.root, scope.acl, scope.grantedScopes, opts.folder).filter(
-    (p) => inScope(p) && !isGeneratedWikiPath(p, scope.wikiFolder),
+    (p) => inScope(p) && !isGeneratedWikiPath(p, scope.wikiFolder) && !isRaw(p),
   );
   const byFolder = new Map<string, { scanned: number; missing: number }>();
   const missing: string[] = [];
