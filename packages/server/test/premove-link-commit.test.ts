@@ -257,7 +257,7 @@ describe.each(CASES)("$tool: the move and its rewrites land as one batch", (c) =
     const real = notesIo.stageNoteWrite;
     vi.spyOn(notesIo, "stageNoteWrite").mockImplementation((abs, ...rest) => {
       const staged = real(abs, ...rest);
-      if (!abs.endsWith("notes/b.md")) return staged;
+      if (!/[\\/]notes[\\/]b\.md$/.test(abs)) return staged;
       return {
         commit() {
           staged.discard();
@@ -385,7 +385,7 @@ describe("bulk reuses its preflight plan", () => {
     const real = notesIo.stageNoteWrite;
     vi.spyOn(notesIo, "stageNoteWrite").mockImplementation((abs, ...rest) => {
       const staged = real(abs, ...rest);
-      if (!abs.endsWith("notes/b.md")) return staged;
+      if (!/[\\/]notes[\\/]b\.md$/.test(abs)) return staged;
       return {
         commit() {
           staged.discard();
