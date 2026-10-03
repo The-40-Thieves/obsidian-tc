@@ -1,8 +1,8 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/open";
-import { createPlainHttpPolicyFetch } from "../src/gateway/plain-http";
 import { provisionCacheDb } from "../src/db/provision";
+import { createPlainHttpPolicyFetch } from "../src/gateway/plain-http";
 import { TelemetryCollector } from "../src/telemetry/collector";
 import { redactEndpoint } from "../src/telemetry/redact-endpoint";
 import { sendTelemetry } from "../src/telemetry/sender";
