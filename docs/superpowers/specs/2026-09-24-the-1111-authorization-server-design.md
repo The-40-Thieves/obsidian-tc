@@ -1,5 +1,8 @@
 # THE-1111 — an authorization server for obsidian-tc (design, G1)
 
+> **Superseded 2026-10-03** by `2026-10-03-authorization-server-design-v2.md` in this directory
+> (library decision, key purposes, `oauth.db`, build slices). Kept for its research digest.
+
 Status: **design for owner review, not built.** Written 2026-09-24 against `main` `101c91c6`
 (v1.31.3 + three unreleased changes). Supersedes the 2026-07-29 "pre-registration only" decision on
 THE-661, whose two re-check triggers (a third-party client with no prior relationship; multi-user
