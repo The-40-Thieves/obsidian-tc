@@ -68,6 +68,13 @@ function authorizationServersOf(auth: PrmFields): string[] {
  * The audience every bearer check binds: an explicit `auth.audience`, else the PRM `resource` when
  * a complete PRM is configured, else undefined (not checked). ONE definition, shared by the MCP
  * HTTP edge and the `/metrics` scrape so the two cannot disagree about which tokens they accept.
+ *
+ * This is the single source for "was this token issued for this server". The SDK 2.3
+ * `expectedResource` option of `requireBearerAuth` / `verifyBearerToken` is deliberately NOT
+ * adopted: neither function runs here (bearer auth is the Hono middleware in transports/http.ts,
+ * verified by jose with `audience` from this function), so there is no plug-in point, and wiring a
+ * second comparison would need a second copy of this resolution (including the oidc exception
+ * above and the string-array form) that could drift from the first.
  */
 export function effectiveAudience(
   auth: AudienceFields | AuthConfig,

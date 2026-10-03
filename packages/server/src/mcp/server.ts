@@ -74,6 +74,7 @@ import {
   type TaskCallPayload,
   toCreateTaskResult,
 } from "./tasks";
+import { oversizedToolInput } from "./tool-input-cap";
 import { toMcpTool } from "./tool-projection";
 import type { VisibilityCaller } from "./visibility";
 
@@ -509,6 +510,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
   };
 
   server.setRequestHandler("tools/call", async (req, extra): Promise<CallToolResult> => {
+    // Refuse a pathologically large argument tree before anything walks it (tool-input-cap.ts).
+    const oversized = oversizedToolInput(req.params.name, req.params.arguments);
+    if (oversized !== null) return oversized;
     const rawArgs = (req.params.arguments ?? {}) as Record<string, unknown>;
     let args: Record<string, unknown> = rawArgs;
     let ctx = opts.context(extra.mcpReq.signal);

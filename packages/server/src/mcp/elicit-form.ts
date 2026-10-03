@@ -2,7 +2,7 @@
 // noExcessiveLinesPerFile), mirroring error-rendering.ts's own split for the same reason.
 //
 // This module used to also hand-roll a server-initiated `elicitation/create` round trip for
-// stdio. That was WRONG: the installed `@modelcontextprotocol/server@2.2.0`'s low-level `Server`
+// stdio. That was WRONG: the installed `@modelcontextprotocol/server@2.3.0`'s low-level `Server`
 // class (what createMcpServer builds) already does this for any `inputRequired` a handler returns
 // on a 2025-era connection, via a DEFAULT-ON `LegacyInputRequiredShim`
 // (`Server._wrapHandler("tools/call", ...)` -> `_invokeInputRequiredCapableHandler` ->
