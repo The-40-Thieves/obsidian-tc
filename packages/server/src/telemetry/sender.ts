@@ -12,7 +12,9 @@
 // — both are exclusively about vault-relative sourcePaths). Telemetry's own safety net is
 // therefore config-time: TelemetryConfigSchema refuses `enabled` without `endpoint`, and refuses a
 // non-loopback `endpoint` that is not `https://` — see observability.schema.ts.
+
 import type { Database } from "../db/types";
+import { providerFetch } from "../gateway/provider-fetch";
 import type { TelemetryCollector } from "./collector";
 import { buildTelemetryDocument, type TelemetryDocument } from "./document";
 import { capMessageLength, redactEndpoint, scrubSecretsFromMessage } from "./redact-endpoint";
@@ -47,7 +49,7 @@ export interface TelemetrySendDeps {
   serverVersion: string;
   facadeMode: "triad" | "domain" | "flat";
   now?: () => number;
-  /** Test seam. Defaults to the runtime global `fetch`. */
+  /** Test seam. Defaults to the shared provider transport (gateway/provider-fetch.ts). */
   fetchImpl?: typeof fetch;
   /** Test seam / production wiring: where the one-line warning on failure goes. Defaults to
    *  stderr, matching plane-wiring.ts's `onError` convention for other best-effort background
@@ -79,7 +81,7 @@ export interface TelemetrySendResult {
  */
 export async function sendTelemetry(deps: TelemetrySendDeps): Promise<TelemetrySendResult> {
   const now = deps.now ?? Date.now;
-  const fetchImpl = deps.fetchImpl ?? fetch;
+  const fetchImpl = deps.fetchImpl ?? providerFetch;
   const warn = deps.onWarn ?? ((m: string) => process.stderr.write(`[telemetry] ${m}\n`));
 
   // Redacted (scheme+host — never path/userinfo/query) in every log/persisted-error line below.

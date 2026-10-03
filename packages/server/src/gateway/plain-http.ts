@@ -5,9 +5,11 @@
 //      no wildcards — the deprecated `allowPlainHttp` flag maps to "this baseUrl's own host"), and
 //   2. at connect time, every address that host resolves to is loopback, RFC1918 or IPv6
 //      unique-local (isPrivateNetworkAddress; link-local is excluded: 169.254.169.254 is the cloud
-//      metadata service). A host that resolves to anything else is
-//      refused even when it is listed: listing a name asserts the operator trusts the NAME, not
-//      whatever DNS says today.
+//      metadata service), or, because the host IS listed, the Tailscale / CGNAT range 100.64/10
+//      (isListedOnlyPrivateAddress: listing a host is the operator's statement that it is a tailnet
+//      peer, whose WireGuard link is encrypted; an unlisted host never gets this range). A host
+//      that resolves to anything else is refused even when it is listed: listing a name asserts the
+//      operator trusts the NAME, not whatever DNS says today.
 // The request then connects to the address that was checked, with the original Host header, so a
 // second DNS answer cannot swap a public address in between the check and the send (rebinding).
 // Every refusal is fail-closed and happens before a socket exists: no fallback, nothing sent.
@@ -17,6 +19,12 @@
 // redirects refused. It must never reach the global fetch: Bun's honours HTTP_PROXY / http_proxy /
 // ALL_PROXY, and a proxy in the environment would receive the bearer key and the vault text while
 // the loopback service got nothing. Every plain-http request is therefore sent from this module.
+//
+// One compatibility mode, `allowUnlistedPrivate`, exists for the provider clients (see
+// gateway/provider-fetch.ts): before the policy existed any http:// provider URL worked, so a host
+// that is NOT listed but resolves only to private addresses is still sent to, and reported through
+// `onUnlistedPrivate` (a deprecation, removed at the next major). Everything else about the check is
+// unchanged: a public, link-local or metadata address is refused whether the host is listed or not.
 //
 // Only https:// passes through to the ordinary fetch, which DOES honour a proxy variable. That is
 // deliberate: an https request through a proxy is a CONNECT tunnel, so the proxy sees the host and
@@ -31,6 +39,7 @@ import http from "node:http";
 import { isIP } from "node:net";
 import { Readable } from "node:stream";
 import {
+  isListedOnlyPrivateAddress,
   isLoopbackHost,
   isPlainHttpHostListed,
   isPrivateNetworkAddress,
@@ -64,9 +73,19 @@ export const defaultResolveHost: ResolveHost = async (hostname) => {
 };
 
 export interface PlainHttpPolicyOptions {
-  plainHttpHosts: readonly string[];
+  /** The exact-host allow-list. A function is read on every request, so one long-lived fetch
+   *  follows a config that is loaded after the client is built. */
+  plainHttpHosts: readonly string[] | (() => readonly string[]);
   resolveHost?: ResolveHost | undefined;
+  /** DEPRECATED compatibility, removed at the next major release: send to a non-loopback host that
+   *  is not listed when every address it resolves to is private. Default false (judge clients). */
+  allowUnlistedPrivate?: boolean | undefined;
+  /** Called once per request that took the `allowUnlistedPrivate` path, with the checked address. */
+  onUnlistedPrivate?: ((info: { host: string; address: string }) => void) | undefined;
 }
+
+const hostsOf = (h: PlainHttpPolicyOptions["plainHttpHosts"]): readonly string[] =>
+  typeof h === "function" ? h() : h;
 
 /** True for an http:// URL, loopback or not: every one is sent by this module, never by the global
  *  fetch (see the header). Only the target check differs. */
@@ -99,15 +118,16 @@ export async function resolveLoopbackTarget(
 
 /**
  * Check `url` against the policy and return the ONE address to connect to.
- * @throws PlainHttpRefusedError when the host is unlisted, does not resolve, or any resolved
- *  address is not private.
+ * @throws PlainHttpRefusedError when the host is unlisted (unless `allowUnlistedPrivate`), does not
+ *  resolve, or any resolved address is not private.
  */
 export async function resolvePlainHttpTarget(
   url: URL,
   opts: PlainHttpPolicyOptions,
 ): Promise<ResolvedAddress> {
   const host = url.hostname;
-  if (!isPlainHttpHostListed(host, opts.plainHttpHosts)) {
+  const listed = isPlainHttpHostListed(host, hostsOf(opts.plainHttpHosts));
+  if (!listed && opts.allowUnlistedPrivate !== true) {
     throw new PlainHttpRefusedError(
       `plain http to ${host} refused: the host is not listed in plainHttpHosts (use https://, a loopback host, or list the exact hostname)`,
     );
@@ -123,12 +143,22 @@ export async function resolvePlainHttpTarget(
   if (first === undefined) {
     throw new PlainHttpRefusedError(`plain http to ${host} refused: the host did not resolve`);
   }
-  const bad = addresses.find((a) => !isPrivateNetworkAddress(a.address));
+  // The tailnet/CGNAT range counts only for a LISTED host: the unlisted-private compatibility path
+  // below never admits it. Every resolved address must pass.
+  const bad = addresses.find(
+    (a) =>
+      !(isPrivateNetworkAddress(a.address) || (listed && isListedOnlyPrivateAddress(a.address))),
+  );
   if (bad !== undefined) {
+    const tailnetHint =
+      !listed && isListedOnlyPrivateAddress(bad.address)
+        ? `; a tailnet (100.64/10) host must be listed in plainHttpHosts, and only if it really is a tailnet peer`
+        : "";
     throw new PlainHttpRefusedError(
-      `plain http to ${host} refused: it resolves to ${bad.address}, which is not a private address (loopback, 10/8, 172.16/12, 192.168/16, fc00::/7)`,
+      `plain http to ${host} refused: it resolves to ${bad.address}, which is not a private address (loopback, 10/8, 172.16/12, 192.168/16, fc00::/7${listed ? ", or a listed tailnet host in 100.64/10" : ""})${tailnetHint}`,
     );
   }
+  if (!listed) opts.onUnlistedPrivate?.({ host, address: first.address });
   return first;
 }
 
@@ -226,7 +256,6 @@ export interface PlainHttpPolicyFetchOptions extends PlainHttpPolicyOptions {
  * Request bodies must be a string, a Uint8Array or absent (every caller here sends JSON).
  */
 export function createPlainHttpPolicyFetch(opts: PlainHttpPolicyFetchOptions): typeof fetch {
-  const plainHttpHosts = opts.plainHttpHosts;
   const baseFetch = (...a: Parameters<typeof fetch>) => (opts.baseFetch ?? globalThis.fetch)(...a);
   return (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     // Decide from the URL alone: building a Request here would consume a streamed body that the
@@ -243,7 +272,7 @@ export function createPlainHttpPolicyFetch(opts: PlainHttpPolicyFetchOptions): t
     // Refuse before reading the body or opening anything.
     const target = isLoopbackHost(url.hostname)
       ? await resolveLoopbackTarget(url, opts.resolveHost)
-      : await resolvePlainHttpTarget(url, { plainHttpHosts, resolveHost: opts.resolveHost });
+      : await resolvePlainHttpTarget(url, opts);
     const body = req.body === null ? undefined : new Uint8Array(await req.arrayBuffer());
     return sendPinned(target, { url, method: req.method, headers: req.headers, body }, req.signal);
   }) as typeof fetch;

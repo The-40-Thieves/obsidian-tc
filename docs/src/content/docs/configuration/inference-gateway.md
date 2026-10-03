@@ -64,6 +64,11 @@ docker run -d --name litellm-gateway --restart unless-stopped \
 Then set `OBSIDIAN_TC_GATEWAY_URL=http://127.0.0.1:4000` in your MCP client's
 server entry (the `env` block) and restart the client.
 
+A plain `http://` gateway URL on loopback needs nothing else. A non-loopback `http://` URL (for example a
+LiteLLM container at `http://litellm:4000`) must resolve to a private address and should be named in
+`network.plainHttpHosts`; a public address is refused. See
+[Plain-http provider endpoints](/configuration/config-yaml/#plain-http-provider-endpoints-networkplainhttphosts).
+
 Deployment notes, learned the hard way:
 
 - **Pin the image.** LiteLLM's PyPI channel was compromised in early 2026; the

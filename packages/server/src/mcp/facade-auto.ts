@@ -16,7 +16,7 @@
 // FALLBACK_FACADE_MODE is the existing ADR-anchored default
 // (docs/adr/0006-the-default-surface-is-the-triad.md).
 import type { Database } from "../db/types";
-import { plainHttpDeprecations } from "../doctor/plain-http";
+import { type PlainHttpConfigView, plainHttpDeprecations } from "../doctor/plain-http";
 import type { TelemetryStatusInfo } from "../telemetry/wiring";
 import type { FacadeMode } from "./facade";
 import type { AutoFacadeExplanation } from "./facade-mode";
@@ -74,7 +74,7 @@ export function toolFacadeHealthView(cfg: {
  *  `createHealthTool`'s `getStaleExplicitSessions` accessor — folded into this same spread rather
  *  than two more dedicated lines at the call site, the reason this file exists. */
 export function healthToolsWiringFields<V extends readonly { id: string }[]>(
-  cfg: {
+  cfg: PlainHttpConfigView & {
     vaults: V;
     toolFacade: {
       mode: FacadeMode | "auto";
@@ -82,8 +82,6 @@ export function healthToolsWiringFields<V extends readonly { id: string }[]>(
       profile: "full" | "core";
     };
     sessions?: { windowSeconds: number };
-    experiential?: Parameters<typeof plainHttpDeprecations>[0]["experiential"];
-    wikiJudge?: Parameters<typeof plainHttpDeprecations>[0]["wikiJudge"];
   },
   telemetry?: { getStatus: () => TelemetryStatusInfo },
   db?: Database,

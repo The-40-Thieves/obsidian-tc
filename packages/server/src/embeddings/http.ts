@@ -1,4 +1,6 @@
 import { err, extractCauseCode } from "@the-40-thieves/obsidian-tc-shared";
+import { PlainHttpRefusedError } from "../gateway/plain-http";
+import { providerFetch } from "../gateway/provider-fetch";
 export type FetchFn = typeof fetch;
 /** Which config block actually holds this endpoint's credential (THE-680).
  *
@@ -78,7 +80,7 @@ function providerHint(o: PostJsonOptions): string {
 }
 
 export async function postJson<T>(o: PostJsonOptions): Promise<T> {
-  const fetchFn = o.fetchFn ?? fetch;
+  const fetchFn = o.fetchFn ?? providerFetch;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), o.timeoutMs ?? 30_000);
   let res: Awaited<ReturnType<FetchFn>>;
@@ -92,6 +94,15 @@ export async function postJson<T>(o: PostJsonOptions): Promise<T> {
   } catch (e) {
     if ((e as Error).name === "AbortError")
       throw err.operationTimeout("timed out", { provider: o.provider, url: o.url });
+    // A plain-http policy refusal is a configuration fact: say which host and why (the message
+    // carries the host and address only, never a key, path or query).
+    if (e instanceof PlainHttpRefusedError)
+      throw err.embeddingProviderError("request refused", {
+        provider: o.provider,
+        url: o.url,
+        hint: e.message,
+        cause_code: e.code,
+      });
     // THE-923: the fetch cause (TLS trust, ECONNREFUSED, ENOTFOUND, ...), same shared unwrapper
     // as the bridge transport — this catch previously discarded it entirely.
     const causeCode = extractCauseCode(e);

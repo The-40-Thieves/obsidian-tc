@@ -32,7 +32,8 @@ beforeEach(() => {
   savedUrl = process.env[ENV_URL];
   savedToken = process.env[ENV_TOKEN];
   savedFetch = globalThis.fetch;
-  process.env[ENV_URL] = "http://gateway.invalid";
+  // https: an http:// gateway URL never reaches the stubbed global fetch (gateway/provider-fetch.ts).
+  process.env[ENV_URL] = "https://gateway.invalid";
   process.env[ENV_TOKEN] = "test-token";
 });
 

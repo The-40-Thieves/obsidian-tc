@@ -46,15 +46,15 @@ describe("wireGatewaySeams — gateway config threading (THE-832)", () => {
       }),
     );
     const { gateway } = await wireGatewaySeams(embeddingsOnly(), undefined, undefined, undefined, {
-      baseUrl: "http://from-config:4001",
+      baseUrl: "https://from-config:4001",
     });
     expect(gateway).not.toBeNull();
     await gateway?.ping();
-    expect(urls).toEqual(["http://from-config:4001/health"]);
+    expect(urls).toEqual(["https://from-config:4001/health"]);
   });
 
   it("config.gateway.baseUrl set AND env set to something different -> config wins", async () => {
-    process.env.OBSIDIAN_TC_GATEWAY_URL = "http://from-env:9999";
+    process.env.OBSIDIAN_TC_GATEWAY_URL = "https://from-env:9999";
     const urls: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -64,15 +64,15 @@ describe("wireGatewaySeams — gateway config threading (THE-832)", () => {
       }),
     );
     const { gateway } = await wireGatewaySeams(embeddingsOnly(), undefined, undefined, undefined, {
-      baseUrl: "http://from-config:4001",
+      baseUrl: "https://from-config:4001",
     });
     await gateway?.ping();
-    // If precedence flipped, this would hit http://from-env:9999/health instead.
-    expect(urls).toEqual(["http://from-config:4001/health"]);
+    // If precedence flipped, this would hit https://from-env:9999/health instead.
+    expect(urls).toEqual(["https://from-config:4001/health"]);
   });
 
   it("config.gateway.token set -> forwarded as the bearer, config wins over the env token too", async () => {
-    process.env.OBSIDIAN_TC_GATEWAY_URL = "http://from-config:4001";
+    process.env.OBSIDIAN_TC_GATEWAY_URL = "https://from-config:4001";
     process.env.OBSIDIAN_TC_GATEWAY_TOKEN = "env-token";
     const authHeaders: Array<string | null> = [];
     vi.stubGlobal(
@@ -116,7 +116,7 @@ describe("get_server_config — gateway.token never leaks (THE-832)", () => {
     ServerConfigSchema.parse({
       vaults: [{ id: "main", path: "/v" }],
       embeddings: { provider: "ollama" },
-      gateway: { baseUrl: "http://gw:4001", token: secret },
+      gateway: { baseUrl: "https://gw:4001", token: secret },
     });
     v = makeM6Vault({ authMode: "jwt", register });
     const result = await v.call("get_server_config", {});

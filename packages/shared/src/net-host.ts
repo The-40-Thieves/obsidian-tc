@@ -333,3 +333,23 @@ export function isPrivateNetworkAddress(addr: string): boolean {
   const first = h.split(":")[0] ?? "";
   return first.length === 4 && /^f[cd]/.test(first);
 }
+
+// 100.64.0.0/10 (Tailscale/CGNAT), incl. IPv4-mapped. Not private in general, so consult it ONLY for a
+// host listed in a plainHttpHosts list (listing = "this is a tailnet peer"), never for an unlisted one.
+export function isListedOnlyPrivateAddress(addr: string): boolean {
+  const UrlCtor = (globalThis as { URL?: MinimalUrlCtor }).URL;
+  if (typeof UrlCtor !== "function") return false;
+  const bare = normalizeHostForBind(addr);
+  if (bare === "") return false;
+  let o = ipv4OctetsOf(bare);
+  if (!o && bare.includes(":") && !/[^0-9a-f:.]/.test(bare)) {
+    try {
+      const h = new UrlCtor(`http://[${bare}]`).hostname.slice(1, -1);
+      const dotted = h.startsWith("::ffff:") ? ipv4OfMappedHex(h) : null;
+      o = dotted ? ipv4OctetsOf(dotted) : null;
+    } catch {
+      return false;
+    }
+  }
+  return o !== null && o[0] === 100 && o[1] >= 64 && o[1] <= 127;
+}

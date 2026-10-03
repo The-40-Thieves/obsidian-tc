@@ -87,8 +87,8 @@ function modelTierEmbeddings() {
       provider: "model-tier",
       dimensions: 4,
       modelTier: {
-        dense: { baseUrl: "http://dense" },
-        full: { baseUrl: "http://model-tier-full" },
+        dense: { baseUrl: "https://dense" },
+        full: { baseUrl: "https://model-tier-full" },
       },
     },
   }).embeddings;
@@ -226,7 +226,7 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
     });
 
     it("a gateway URL configured -> gateway wins; local auto-select never fires", async () => {
-      process.env.OBSIDIAN_TC_GATEWAY_URL = "http://gw";
+      process.env.OBSIDIAN_TC_GATEWAY_URL = "https://gw";
       const hits: string[] = [];
       vi.stubGlobal(
         "fetch",
@@ -246,8 +246,8 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
       );
       expect(reranker).not.toBeNull();
       await reranker?.("q", ["a"], 1, []);
-      // Hits the gateway, not local inference (which would never call fetch("http://gw/rerank")).
-      expect(hits).toEqual(["http://gw/rerank"]);
+      // Hits the gateway, not local inference (which would never call fetch("https://gw/rerank")).
+      expect(hits).toEqual(["https://gw/rerank"]);
     });
 
     it("model-tier configured -> model-tier wins over the now-resolvable local package", async () => {
@@ -270,7 +270,7 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
         resolveStagedLocalReranker,
       );
       await reranker?.("q", ["a"], 1, []);
-      expect(hits).toEqual(["http://model-tier-full/v1/rerank"]);
+      expect(hits).toEqual(["https://model-tier-full/v1/rerank"]);
     });
 
     it("a DECLARED reranker block still wins over auto-select entirely (unaffected by THE-944)", async () => {
@@ -280,7 +280,7 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
         reranker: {
           provider: "cohere-compatible",
           model: "rerank-v3.5",
-          baseUrl: "http://declared/v2",
+          baseUrl: "https://declared/v2",
         },
       }).reranker;
       const hits: string[] = [];
@@ -301,7 +301,7 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
         resolveStagedLocalReranker,
       );
       await reranker?.("q", ["a"], 1, []);
-      expect(hits).toEqual(["http://declared/v2/rerank"]);
+      expect(hits).toEqual(["https://declared/v2/rerank"]);
     });
   });
 });
@@ -379,7 +379,7 @@ describe("wireGatewaySeams — THE-944 review round 2 (G3): boot skips auto-sele
   });
 
   it("does NOT log on an unsupported platform when a gateway is configured — platform is not why it's skipped", async () => {
-    process.env.OBSIDIAN_TC_GATEWAY_URL = "http://gw";
+    process.env.OBSIDIAN_TC_GATEWAY_URL = "https://gw";
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
       vi.stubGlobal(

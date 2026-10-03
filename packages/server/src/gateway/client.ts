@@ -4,6 +4,8 @@ import {
   compileEgressFilter,
   type EgressFilter,
 } from "../plane/egress-filter";
+import { PlainHttpRefusedError } from "./plain-http";
+import { providerFetch } from "./provider-fetch";
 
 export type GatewayRole = "extract" | "synthesize" | "judge";
 
@@ -200,7 +202,7 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
   }
   const base = baseUrl.replace(/\/+$/, "");
   const token = opts.token ?? process.env.OBSIDIAN_TC_GATEWAY_TOKEN;
-  const fetchFn = opts.fetchFn ?? fetch;
+  const fetchFn = opts.fetchFn ?? providerFetch;
   const timeoutMs = opts.timeoutMs ?? 60_000;
   const maxAttempts = Math.max(1, opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
   const retryBaseDelayMs = opts.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_MS;
@@ -234,6 +236,12 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
           signal: callerSignal ? AbortSignal.any([ctrl.signal, callerSignal]) : ctrl.signal,
         });
       } catch (e) {
+        // A plain-http policy refusal is a configuration fact, never retried: fail now with the
+        // host and reason (never the token).
+        if (e instanceof PlainHttpRefusedError)
+          throw new ObsidianTcError("internal", `gateway request refused: ${e.message}`, {
+            cause_code: e.code,
+          });
         // A network-level throw or our own per-attempt timeout — both transient by nature.
         // THE-923: cause_code (same shared unwrapper as the bridge transport and embeddings
         // client) replaces the old `cause: (e as Error).message`, which was always the

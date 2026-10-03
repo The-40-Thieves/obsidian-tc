@@ -225,6 +225,38 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     expect(wiring.deprecations).toBeUndefined();
   });
 
+  // A provider whose plain-http host is not in network.plainHttpHosts works today only while the
+  // host resolves private: server_health names the host and the config to add, once per provider URL.
+  it("deprecations: an unlisted plain-http provider host is reported by name; a listed, https or loopback one is not", () => {
+    const wiring = healthToolsWiringFields({
+      vaults: [{ id: "v1", restApiUrl: "http://127.0.0.1:27123" }],
+      toolFacade: { mode: "triad", profile: "full" },
+      network: { plainHttpHosts: ["litellm"] },
+      gateway: { baseUrl: "http://litellm:4000" },
+      embeddings: { provider: "openai-compatible", baseUrl: "http://emb.lan:8080/v1" },
+      reranker: { provider: "cohere-compatible", baseUrl: "https://rerank.example.com/v2" },
+    });
+    expect(wiring.deprecations).toEqual([
+      expect.stringMatching(/^embeddings\.baseUrl: .*emb\.lan.*network\.plainHttpHosts/),
+    ]);
+    const tool = createHealthTool({
+      version: "test",
+      vaults: ["v1"],
+      startedAt: 0,
+      nativeLoaded: false,
+      vecEnabled: false,
+      ...(wiring.deprecations ? { deprecations: wiring.deprecations } : {}),
+    });
+    const out = tool.handler({}, {
+      ...ctxBase,
+      authenticated: false,
+    } as CallerContext) as HealthInfo;
+    // biome-ignore lint/style/noNonNullAssertion: outputSchema is defined for this tool.
+    const schema = toJson(tool.outputSchema!);
+    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
+    expect(validate(JSON.parse(JSON.stringify(out))).valid).toBe(true);
+  });
+
   // `toolFacade.explainAutoMode`: the optional `explanation` sub-object must survive the SDK's ajv
   // validator too (zod's safeParse strips unknown keys; ajv rejects them), so a field added to the
   // explanation but not to the output schema fails here.

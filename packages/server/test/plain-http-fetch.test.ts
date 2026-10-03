@@ -144,6 +144,46 @@ describe("plain http outbound policy (connect time)", () => {
     expect(t).toEqual({ address: "172.18.0.5", family: 4 });
   });
 
+  it("a LISTED host resolving into the tailnet/CGNAT range (100.64.0.0/10) is accepted; unlisted it is refused even where unlisted private hosts are tolerated", async () => {
+    for (const address of ["100.101.102.103", "100.64.0.1", "100.127.255.255"]) {
+      const resolveHost: ResolveHost = async () => [{ address, family: 4 }];
+      expect(
+        await resolvePlainHttpTarget(new URL("http://ts-peer:4000/"), {
+          plainHttpHosts: ["ts-peer"],
+          resolveHost,
+        }),
+      ).toEqual({ address, family: 4 });
+      const onUnlistedPrivate = vi.fn();
+      await expect(
+        resolvePlainHttpTarget(new URL("http://ts-peer:4000/"), {
+          plainHttpHosts: [],
+          allowUnlistedPrivate: true,
+          onUnlistedPrivate,
+          resolveHost,
+        }),
+      ).rejects.toBeInstanceOf(PlainHttpRefusedError);
+      expect(onUnlistedPrivate).not.toHaveBeenCalled();
+    }
+  });
+
+  it("a LISTED host must still resolve ONLY to private or CGNAT addresses: public, 100.128/9, link-local and mixed answers are refused", async () => {
+    for (const answers of [
+      ["93.184.216.34"],
+      ["100.128.0.1"],
+      ["100.63.255.255"],
+      ["169.254.169.254"],
+      ["100.101.102.103", "8.8.8.8"],
+      ["100.101.102.103", "169.254.169.254"],
+    ]) {
+      await expect(
+        resolvePlainHttpTarget(new URL("http://ts-peer:4000/"), {
+          plainHttpHosts: ["ts-peer"],
+          resolveHost: async () => answers.map((address) => ({ address, family: 4 as const })),
+        }),
+      ).rejects.toBeInstanceOf(PlainHttpRefusedError);
+    }
+  });
+
   it("a LISTED host that resolves to the cloud metadata address is refused", async () => {
     for (const address of ["169.254.169.254", "fe80::1"]) {
       await expect(

@@ -43,7 +43,7 @@ function capture(): {
   return { fetchFn, urls, bodies, headers };
 }
 
-const CFG = { provider: "cohere-compatible", model: "rerank-v3.5", baseUrl: "http://gw:4001/v2" };
+const CFG = { provider: "cohere-compatible", model: "rerank-v3.5", baseUrl: "https://gw:4001/v2" };
 
 describe("reranker slot", () => {
   it("registers the expected names", () => {
@@ -70,7 +70,7 @@ describe("reranker slot", () => {
     expect(Object.keys(bodies[0] ?? {}).sort()).toEqual(["documents", "model", "query", "top_n"]);
     expect(bodies[0]).not.toHaveProperty("max_tokens_per_doc");
     expect(bodies[0]).not.toHaveProperty("max_chunks_per_doc");
-    expect(urls[0]).toBe("http://gw:4001/v2/rerank");
+    expect(urls[0]).toBe("https://gw:4001/v2/rerank");
     expect(hits).toEqual([{ index: 1, relevanceScore: 0.9 }]);
   });
 
@@ -129,7 +129,7 @@ describe("reranker slot", () => {
           provider: "model-tier",
           model: "q",
           dimensions: 1024,
-          modelTier: { dense: { baseUrl: "http://dense" }, full: { baseUrl: "http://full" } },
+          modelTier: { dense: { baseUrl: "https://dense" }, full: { baseUrl: "https://full" } },
         },
       },
     );
@@ -143,7 +143,7 @@ describe("reranker slot", () => {
     let message = "";
     try {
       await resolveReranker(
-        { provider: "model-tier", baseUrl: "http://stale-host/v1/rerank" },
+        { provider: "model-tier", baseUrl: "https://stale-host/v1/rerank" },
         { embeddings: { provider: "model-tier", model: "q", dimensions: 1024 } },
       );
     } catch (e) {
@@ -156,7 +156,7 @@ describe("reranker slot", () => {
   it("cohere-compatible throws at boot if reranker.model is absent, naming the field", async () => {
     let message = "";
     try {
-      await resolveReranker({ provider: "cohere-compatible", baseUrl: "http://gw:4001/v2" }, {});
+      await resolveReranker({ provider: "cohere-compatible", baseUrl: "https://gw:4001/v2" }, {});
     } catch (e) {
       message = JSON.stringify(e);
     }
@@ -182,13 +182,13 @@ describe("reranker slot", () => {
       {
         provider: "gateway",
         model: "my-declared-rerank-model",
-        baseUrl: "http://gw",
+        baseUrl: "https://gw",
         apiKey: "sekret",
       },
       { fetchFn },
     );
     await r?.("q", ["a", "b"], 1, []);
-    expect(urls[0]).toBe("http://gw/rerank");
+    expect(urls[0]).toBe("https://gw/rerank");
     expect(bodies[0]?.model).toBe("my-declared-rerank-model");
     expect(headers[0]?.authorization).toBe("Bearer sekret");
   });
@@ -200,7 +200,7 @@ describe("reranker slot", () => {
   // retry loop) instead of failing in well under a second.
   it("gateway forwards the declared timeoutMs into the gateway client's request budget", async () => {
     const r = await resolveReranker(
-      { provider: "gateway", model: "m", baseUrl: "http://gw", timeoutMs: 5 },
+      { provider: "gateway", model: "m", baseUrl: "https://gw", timeoutMs: 5 },
       { fetchFn: hangingFetch },
     );
     await expect(r?.("q", ["a", "b"], 1, [])).rejects.toMatchObject({ code: "operation_timeout" });
@@ -223,7 +223,7 @@ describe("local reranker (THE-705)", () => {
     let message = "";
     try {
       await buildLocalReranker(
-        { provider: "local", model: "m", baseUrl: "http://x", timeoutMs: 5 },
+        { provider: "local", model: "m", baseUrl: "https://x", timeoutMs: 5 },
         {},
         async () => ({ ok: true, mod: { createReranker: () => async () => [] }, attempts: [] }),
       );
@@ -404,7 +404,7 @@ describe("wireGatewaySeams — absent-block precedence is unchanged", () => {
             provider: "model-tier",
             dimensions: 4,
             modelTier: {
-              dense: { baseUrl: "http://dense" },
+              dense: { baseUrl: "https://dense" },
               full: { baseUrl: modelTierFullBaseUrl },
             },
           }
@@ -437,18 +437,18 @@ describe("wireGatewaySeams — absent-block precedence is unchanged", () => {
 
   it("only model-tier.full configured -> the model-tier reranker is reachable", async () => {
     delete process.env.OBSIDIAN_TC_GATEWAY_URL;
-    const { reranker } = await wireGatewaySeams(embeddingsWith("http://model-tier-full"));
+    const { reranker } = await wireGatewaySeams(embeddingsWith("https://model-tier-full"));
     expect(reranker).not.toBeNull();
   });
 
   it("only a gateway URL configured -> the gateway reranker is reachable", async () => {
-    process.env.OBSIDIAN_TC_GATEWAY_URL = "http://gw";
+    process.env.OBSIDIAN_TC_GATEWAY_URL = "https://gw";
     const { reranker } = await wireGatewaySeams(embeddingsWith());
     expect(reranker).not.toBeNull();
   });
 
   it("BOTH configured, no reranker block -> model-tier wins over gateway (unchanged precedence)", async () => {
-    process.env.OBSIDIAN_TC_GATEWAY_URL = "http://gw";
+    process.env.OBSIDIAN_TC_GATEWAY_URL = "https://gw";
     const hits: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -457,15 +457,15 @@ describe("wireGatewaySeams — absent-block precedence is unchanged", () => {
         return new Response(JSON.stringify({ results: [] }), { status: 200 });
       }),
     );
-    const { reranker } = await wireGatewaySeams(embeddingsWith("http://model-tier-full"));
+    const { reranker } = await wireGatewaySeams(embeddingsWith("https://model-tier-full"));
     await reranker?.("q", ["a"], 1, []);
     // If precedence flipped (?? swapped for the gateway fallback, or the model-tier branch
-    // dropped), this would hit http://gw/rerank instead.
-    expect(hits).toEqual(["http://model-tier-full/v1/rerank"]);
+    // dropped), this would hit https://gw/rerank instead.
+    expect(hits).toEqual(["https://model-tier-full/v1/rerank"]);
   });
 
   it("a declared reranker block wins even when model-tier.full is ALSO configured", async () => {
-    process.env.OBSIDIAN_TC_GATEWAY_URL = "http://gw";
+    process.env.OBSIDIAN_TC_GATEWAY_URL = "https://gw";
     const hits: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -479,15 +479,15 @@ describe("wireGatewaySeams — absent-block precedence is unchanged", () => {
       reranker: {
         provider: "cohere-compatible",
         model: "rerank-v3.5",
-        baseUrl: "http://declared/v2",
+        baseUrl: "https://declared/v2",
       },
     }).reranker;
     const { reranker } = await wireGatewaySeams(
-      embeddingsWith("http://model-tier-full"),
+      embeddingsWith("https://model-tier-full"),
       rerankerCfg,
     );
     await reranker?.("q", ["a"], 1, []);
-    expect(hits).toEqual(["http://declared/v2/rerank"]);
+    expect(hits).toEqual(["https://declared/v2/rerank"]);
   });
 });
 

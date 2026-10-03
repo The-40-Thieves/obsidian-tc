@@ -19,7 +19,8 @@ beforeEach(() => {
   // Any non-empty base URL makes wireGatewaySeams's createGatewayClient({}) succeed, which is all
   // it takes for `roles` to resolve non-null (tool-wiring.ts's wireGatewaySeams) — no real network
   // reachability is required until something actually calls it.
-  process.env[ENV_URL] = "http://gateway.invalid";
+  // https: an http:// gateway URL never reaches the stubbed global fetch (gateway/provider-fetch.ts).
+  process.env[ENV_URL] = "https://gateway.invalid";
 });
 
 afterEach(() => {
