@@ -162,7 +162,6 @@ export interface DoctorConfigView {
   sessions?: SessionLivenessView;
   hitlConfirmations?: HitlConfirmationsView;
   memoryReadAcl?: MemoryReadAclView;
-  /** Configured path globs that match no file in their vault. */
   pathGlobs?: DeadPathGlobsView;
 }
 
