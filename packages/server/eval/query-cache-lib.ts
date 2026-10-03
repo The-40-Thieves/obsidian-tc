@@ -25,6 +25,16 @@ export interface StreamCall {
  *  evicts a query before its repeat arrives. */
 export const MAX_REPEAT_GAP = 20;
 
+/** Size a replay cache so every first-pass entry survives until the second pass. */
+export function replayCacheEntries(required: number, configured?: number): number {
+  if (!Number.isInteger(required) || required < 1)
+    throw new Error("required replay entries must be a positive integer");
+  if (configured === undefined) return Math.max(64, required);
+  if (!Number.isInteger(configured) || configured < required)
+    throw new Error(`--cache-entries must be an integer of at least ${required} for this replay`);
+  return configured;
+}
+
 /**
  * `distinct` first sightings in a seeded shuffled order, plus `ceil(distinct * r / (1 - r))` repeats.
  * Each repeat re-asks the query `1..MAX_REPEAT_GAP` calls behind it, so the repeat fraction is r to

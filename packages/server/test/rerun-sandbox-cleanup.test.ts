@@ -3,9 +3,10 @@
 // match `stageSandbox`'s own mint shape exactly AND are older than its threshold, and a deferred
 // cleanup retry eventually removes a directory whose first removal attempt failed.
 
-import { existsSync, mkdirSync, mkdtempSync, utimesSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import * as sandboxCleanup from "../src/workspace/rerun-sandbox-cleanup";
 import {
   awaitPendingSandboxCleanup,
   RERUN_TMP_PREFIX,
@@ -57,6 +58,23 @@ describe("sweepStaleSandboxDirs", () => {
     sweepStaleSandboxDirs({ tmpDir: root, maxAgeMs: 60 * 60 * 1000, now });
 
     expect(existsSync(fresh)).toBe(true);
+  });
+
+  it("keeps an old sandbox whose live heartbeat is fresh", () => {
+    expect(sandboxCleanup).toHaveProperty("RERUN_LIVE_MARKER");
+    const marker = (sandboxCleanup as typeof sandboxCleanup & { RERUN_LIVE_MARKER: string })
+      .RERUN_LIVE_MARKER;
+    const root = makeTempDir("obtc-sweep-test-");
+    tmpDirs.push(root);
+    const now = Date.now();
+    const active = mintAgedSandboxDir(root, 2 * 60 * 60 * 1000, now);
+    writeFileSync(join(active, marker), "active\n");
+    const old = new Date(now - 2 * 60 * 60 * 1000);
+    utimesSync(active, old, old);
+
+    sweepStaleSandboxDirs({ tmpDir: root, maxAgeMs: 60 * 60 * 1000, now });
+
+    expect(existsSync(active)).toBe(true);
   });
 
   it("ignores an entry whose name does not match the mint shape exactly, however old", () => {

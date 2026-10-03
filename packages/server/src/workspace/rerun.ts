@@ -18,7 +18,11 @@ import { openDatabase } from "../db/open";
 import type { Database } from "../db/types";
 import { READ_ONLY_DENIAL_MESSAGE, type ToolRegistry } from "../mcp/registry";
 
-import { RERUN_TMP_PREFIX, scheduleDeferredCleanup } from "./rerun-sandbox-cleanup";
+import {
+  RERUN_TMP_PREFIX,
+  scheduleDeferredCleanup,
+  startSandboxHeartbeat,
+} from "./rerun-sandbox-cleanup";
 import {
   classifyRecord,
   type RerunRecord,
@@ -471,10 +475,12 @@ export async function stageSandbox(
   busyTimeoutMs: number,
 ): Promise<{ root: string; cacheDir: string; dispose(): void }> {
   const base = mkdtempSync(join(tmpdir(), RERUN_TMP_PREFIX));
+  let stopHeartbeat = (): void => {};
   // A mid-copy failure must not leave `base` behind — nothing downstream calls `dispose()` for a
   // staging call that never returned. Every throwing path from here on cleans up before
   // rethrowing. See docs/design/workspace-rerun.md.
   try {
+    stopHeartbeat = startSandboxHeartbeat(base);
     const root = join(base, "vault");
     const cache = join(base, "cache");
     cpSync(vaultRoot, root, { recursive: true, dereference: true });
@@ -495,11 +501,15 @@ export async function stageSandbox(
     return {
       root,
       cacheDir: cache,
-      dispose: () => safeDispose(base),
+      dispose: () => {
+        stopHeartbeat();
+        safeDispose(base);
+      },
     };
   } catch (e) {
     // safeDispose never throws (see above), so the ORIGINAL error `e` — the reason staging
     // failed — is what propagates, not whatever rmSync ran into while cleaning up after it.
+    stopHeartbeat();
     safeDispose(base);
     throw e;
   }

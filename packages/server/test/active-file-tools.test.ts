@@ -6,10 +6,10 @@
 // delete_note handlers (M1 is registered beside M4), so these tests pin the resolution and binding
 // seams and only spot-check that the delegate's own behavior (CAS, snapshot, memoryDefense, the
 // overwrite confirmation) is the one that runs.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import type { FakeRequestInfo, FakeRoute } from "../src/bridge";
 import { CapabilityCache, createBridgeClient, fakeBridgeTransport } from "../src/bridge";
@@ -21,6 +21,21 @@ import { registerM4Tools } from "../src/tools/m4";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
+
+const statRace = vi.hoisted(() => ({ remove: "" }));
+vi.mock("../src/vault/notes-io", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/vault/notes-io")>();
+  return {
+    ...actual,
+    statNote: (abs: string) => {
+      if (statRace.remove === abs) {
+        statRace.remove = "";
+        rmSync(abs);
+      }
+      return actual.statNote(abs);
+    },
+  };
+});
 
 const ACTIVE = "GET /obsidian-tc/v1/files/active";
 const active = (path: string | null, extension?: string | null): FakeRoute => ({
@@ -196,6 +211,16 @@ describe("get_active_file", () => {
     });
     expect(d.stat).toMatchObject({ size: 2 });
     expect(d.content).toBeUndefined();
+  });
+
+  it("omits stat when a non-markdown active file disappears after the existence check", async () => {
+    const h = harness({ files: { "Boards/plan.canvas": "{}" } });
+    h.focus("Boards/plan.canvas");
+    statRace.remove = join(h.roots.test, "Boards/plan.canvas");
+
+    const d = okData<Record<string, unknown>>(await h.call("get_active_file", { vault: "test" }));
+    expect(d).toMatchObject({ path: "Boards/plan.canvas", is_markdown: false });
+    expect(d).not.toHaveProperty("stat");
   });
 
   it("does not accept a path: the target is never caller-chosen", async () => {

@@ -22,6 +22,7 @@ import type {
 } from "../../../search/graph_search";
 import type { StageMetric } from "../../../search/graph_search_stages/instrumentation";
 import { gatedRerankOptionsFromConfig } from "../../../search/graph_search_stages/rerank_stage";
+import { vaultExclusionFor, withVaultExclusion } from "../../../search/index-exclusion";
 import { callerAclFingerprint } from "../../../search/prefetch";
 import type { QueryCacheContext, QueryVectors } from "../../../search/query_cache";
 import type { RerankOutcome } from "../../../search/rerank";
@@ -390,6 +391,9 @@ export function buildGraphSearchOptions(
     since?: GraphSearchOptions["since"];
   },
 ): Omit<GraphSearchOptions, "queryVec"> & { queryVec?: number[] } {
+  const isReadable = site.isReadable
+    ? withVaultExclusion(site.isReadable, vaultExclusionFor(deps.vaultRegistry, site.vaultId))
+    : undefined;
   return {
     ...(site.route.class === "temporal" ? { temporal: { enabled: true } } : {}),
     query: site.query,
@@ -440,11 +444,11 @@ export function buildGraphSearchOptions(
     rerankExcludeFilter: deps.excludeFilter,
     // Same "every M7 surface gets it by construction" rule: one config value, read here once.
     ...(deps.rerankPassageFormat ? { rerankPassageFormat: deps.rerankPassageFormat } : {}),
-    isReadable: site.isReadable,
+    isReadable,
     // THE-852: default-on graph-walk ACL filter — see resolveAclWalkFilter's own header for the
     // fail-closed contract. Unconditional (not gated by deps.retrieval), same as the rest of this
     // function's "every M7 surface gets it by construction" rule.
-    ...resolveAclWalkFilter(site.db, site.vaultId, site.acl, site.grantedScopes, site.isReadable),
+    ...resolveAclWalkFilter(site.db, site.vaultId, site.acl, site.grantedScopes, isReadable),
     ...(site.onFusionWeights ? { onFusionWeights: site.onFusionWeights } : {}),
     ...(site.onCoverage ? { onCoverage: site.onCoverage } : {}),
     // THE-733: the vault's persisted score calibration, read ONLY when a caller asked for

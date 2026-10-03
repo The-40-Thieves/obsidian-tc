@@ -2,9 +2,9 @@
 // dialect is taken from Obsidian 1.13.7's own metadata cache (the help site does not specify it), so
 // these cases pin each rule of it: trim/skip-empty, `/.../` regex (case-insensitive, unanchored),
 // every other entry a case-insensitive literal PREFIX, uncompilable entries skipped.
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   compileExclusionEntries,
   loadVaultExclusion,
@@ -137,6 +137,39 @@ describe("loading the effective list", () => {
     expect(broken.isExcluded("Archive/x.md")).toBe(true);
     expect(broken.appConfigError).toMatch(/could not be read/);
   });
+
+  it.each(["missing", "symlink", "directory", "oversized"] as const)(
+    "keeps the last good list when app.json becomes %s",
+    (failure) => {
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      try {
+        writeApp(JSON.stringify({ userIgnoreFilters: ["Private/"] }));
+        expect(loadVaultExclusion(root).isExcluded("Private/secret.md")).toBe(true);
+        const app = join(root, OBSIDIAN_APP_CONFIG);
+        rmSync(app);
+        if (failure === "symlink") {
+          const outside = join(root, "outside.json");
+          writeFileSync(outside, JSON.stringify({ userIgnoreFilters: [] }));
+          try {
+            symlinkSync(outside, app);
+          } catch {
+            return;
+          }
+        } else if (failure === "directory") {
+          mkdirSync(app);
+        } else if (failure === "oversized") {
+          writeFileSync(app, " ".repeat(1024 * 1024 + 1));
+        }
+
+        const degraded = loadVaultExclusion(root);
+        expect(degraded.isExcluded("Private/secret.md")).toBe(true);
+        expect(degraded.appConfigError).toBeDefined();
+        expect(stderr).toHaveBeenCalledWith(expect.stringContaining("last-good exclusion list"));
+      } finally {
+        stderr.mockRestore();
+      }
+    },
+  );
 
   it("an app.json that is a symlink is not read", () => {
     mkdirSync(join(root, ".obsidian"), { recursive: true });

@@ -93,7 +93,23 @@ interface AppConfigRead {
 
 // Last good read per vault root, keyed by file size + mtime: re-reading is a stat per call, and a
 // half-written app.json keeps the previous list rather than silently un-excluding every note.
-const appConfigCache = new Map<string, { sig: string; read: AppConfigRead }>();
+const appConfigCache = new Map<
+  string,
+  { sig: string; read: AppConfigRead; lastGood: readonly string[] | undefined }
+>();
+
+function failedRead(
+  root: string,
+  sig: string,
+  error: string,
+  cached: (typeof appConfigCache extends Map<string, infer V> ? V : never) | undefined,
+): AppConfigRead {
+  if (cached?.sig === sig) return cached.read;
+  const read = { entries: [...(cached?.lastGood ?? [])], error };
+  appConfigCache.set(root, { sig, read, lastGood: cached?.lastGood });
+  process.stderr.write(`[index] warning: ${error}; keeping the last-good exclusion list\n`);
+  return read;
+}
 
 function readAppConfig(root: string): AppConfigRead {
   const file = join(root, OBSIDIAN_APP_CONFIG);
@@ -102,13 +118,26 @@ function readAppConfig(root: string): AppConfigRead {
     const st = lstatSync(file);
     // A symlink or non-file is not read (same stance as the vault's own file reads).
     if (!st.isFile() || st.size > MAX_APP_CONFIG_BYTES) {
-      appConfigCache.delete(root);
-      return { entries: [], error: "app.json is not a regular file of readable size" };
+      return failedRead(
+        root,
+        `invalid:${st.mode}:${st.size}:${st.mtimeMs}`,
+        "app.json is not a regular file of readable size",
+        appConfigCache.get(root),
+      );
     }
     sig = `${st.size}:${st.mtimeMs}`;
-  } catch {
-    appConfigCache.delete(root);
-    return { entries: [] };
+  } catch (e) {
+    const cached = appConfigCache.get(root);
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" && cached === undefined) return { entries: [] };
+    return failedRead(
+      root,
+      code === "ENOENT" ? "missing" : `unreadable:${code ?? "unknown"}`,
+      code === "ENOENT"
+        ? "app.json became unavailable"
+        : `app.json could not be inspected: ${e instanceof Error ? e.message : String(e)}`,
+      cached,
+    );
   }
   const cached = appConfigCache.get(root);
   if (cached?.sig === sig) return cached.read;
@@ -119,15 +148,11 @@ function readAppConfig(root: string): AppConfigRead {
         ? (parsed as { userIgnoreFilters?: unknown }).userIgnoreFilters
         : undefined;
     const read = { entries: Array.isArray(raw) ? clean(raw) : [] };
-    appConfigCache.set(root, { sig, read });
+    appConfigCache.set(root, { sig, read, lastGood: read.entries });
     return read;
   } catch (e) {
     const error = `app.json could not be read: ${e instanceof Error ? e.message : String(e)}`;
-    // Keep the last good list; remember the failing signature so it is not re-parsed per call.
-    const last = cached?.read.entries ?? [];
-    const read = { entries: last, error };
-    appConfigCache.set(root, { sig, read });
-    return read;
+    return failedRead(root, sig, error, cached);
   }
 }
 
@@ -173,6 +198,14 @@ export interface ExclusionVaultLookup {
 export function vaultExclusionFor(lookup: ExclusionVaultLookup, vaultId: string): VaultExclusion {
   const v = lookup.resolve(vaultId);
   return loadVaultExclusion(v.root, v.indexExcludePaths ?? []);
+}
+
+/** Add the vault's live Excluded-files rule to an existing readability predicate. */
+export function withVaultExclusion(
+  isReadable: (rel: string) => boolean,
+  exclusion: VaultExclusion,
+): (rel: string) => boolean {
+  return (rel) => isReadable(rel) && !exclusion.isExcluded(rel);
 }
 
 /** Do two snapshots exclude by the same effective list? Used to decide whether a reload matters. */

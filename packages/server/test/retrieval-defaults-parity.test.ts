@@ -37,6 +37,7 @@ import {
   buildGraphSearchOptions,
   capturePolicy,
 } from "../src/tools/m7/knowledge/retrieval-runtime";
+import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 
 const INIT_SQL = readFileSync(
@@ -116,7 +117,7 @@ async function effectiveK(
 const depsWith = (retrieval?: Record<string, unknown>): M7Deps =>
   ({
     embeddingProvider: { id: MODEL },
-    vaultRegistry: {},
+    vaultRegistry: new VaultRegistry([{ id: VAULT, path: "/nonexistent/retrieval-defaults" }]),
     reranker: null,
     roles: null,
     ...(retrieval ? { retrieval } : {}),
@@ -330,9 +331,24 @@ describe("flag ON: the derived value reaches every per-vault site; explicit valu
     expect(await effectiveK(indexOf(60), { derivedDefaults: true, seedCount: 60 })).toBe(20);
   });
 
-  it("an ACL-partition-restricted caller never derives from whole-vault stats (size would leak)", async () => {
+  it("only a genuinely restricted ACL partition disables derived defaults", async () => {
     const tiny = indexOf(6);
-    expect(await effectiveK(tiny, { derivedDefaults: true, aclSetId: 1 })).toBe(10);
+    expect(
+      await effectiveK(tiny, {
+        derivedDefaults: true,
+        aclSetId: 1,
+        // The set id alone is enough to reproduce the old derivation guard; keep the join dark in
+        // this focused unit fixture because it intentionally provisions no ACL-set tables.
+        aclWalkFilter: { enabled: false },
+      }),
+    ).toBe(2);
+    expect(
+      await effectiveK(tiny, {
+        derivedDefaults: true,
+        aclSetId: 1,
+        aclWalkFilter: { enabled: false, restricted: true },
+      }),
+    ).toBe(10);
     expect(
       await effectiveK(tiny, { derivedDefaults: true, aclWalkFilter: { blocked: true } as never }),
     ).toBe(10);

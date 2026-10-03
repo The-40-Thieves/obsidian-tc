@@ -1,7 +1,7 @@
 // The scratch vault for the write-ergonomics eval: a COPY of the public evergreen corpus (under
 // notes/) plus a small set of seeded notes that exercise the write paths. Every seed is plain text
 // kept here so a task's checker can compare the result against the exact original.
-import { cpSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const bigReference = (): string => {
@@ -264,13 +264,29 @@ export const MEMORY_ENTITY = {
   path: "memory/person/Maya Chen.md",
 };
 
+function refuseSymlink(path: string): void {
+  if (lstatSync(path).isSymbolicLink())
+    throw new Error(`write-ergonomics vault refuses symlink: ${path}`);
+}
+
+function refuseExistingSymlinkComponents(root: string, rel: string): void {
+  if (existsSync(root)) refuseSymlink(root);
+  let current = root;
+  for (const part of rel.split("/")) {
+    current = join(current, part);
+    if (existsSync(current)) refuseSymlink(current);
+  }
+}
+
 /** `omit` drops seeded paths. The facade-mode study omits the broken-YAML note: it makes every
  *  vault-wide read (backlinks, tag and base queries) fail, which would swamp what that study measures. */
 export function writeSeeds(vault: string, omit: readonly string[] = []): void {
   for (const [rel, text] of Object.entries(SEED)) {
     if (omit.includes(rel)) continue;
     const p = join(vault, rel);
+    refuseExistingSymlinkComponents(vault, rel);
     mkdirSync(dirname(p), { recursive: true });
+    refuseExistingSymlinkComponents(vault, rel);
     writeFileSync(p, text);
   }
 }
@@ -278,7 +294,14 @@ export function writeSeeds(vault: string, omit: readonly string[] = []): void {
 /** Corpus copy + seeds. The corpus is the public evergreen notes crawl; its own root holds notes/. */
 export function buildVault(dest: string, corpusDir: string, omit: readonly string[] = []): void {
   if (!existsSync(corpusDir)) throw new Error(`corpus not found: ${corpusDir}`);
+  refuseSymlink(corpusDir);
   mkdirSync(dest, { recursive: true });
-  cpSync(corpusDir, dest, { recursive: true });
+  cpSync(corpusDir, dest, {
+    recursive: true,
+    filter: (source) => {
+      refuseSymlink(source);
+      return true;
+    },
+  });
   writeSeeds(dest, omit);
 }

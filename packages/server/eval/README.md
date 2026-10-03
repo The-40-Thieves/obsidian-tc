@@ -300,7 +300,9 @@ bun eval/query-cache.ts <config.json> <golden-set> --query-vecs <vecs.json> --mo
 within the LRU window) per arm with the arms alternating order, and compares every ON response to the
 OFF response byte for byte, naming the top-level keys that differ. `isolation` interleaves an
 unrestricted and a folder-restricted caller on one shared cache; `bump` bumps the generation between
-replays; `memory` reports bytes per cached entry at `final_top_k` 10/30/100 and the heap held at the
+replays. Both replay modes automatically size the cache to retain their full first-pass working set;
+an explicit `--cache-entries` smaller than that set is rejected instead of producing a vacuous
+zero-hit replay. `memory` reports bytes per cached entry at `final_top_k` 10/30/100 and the heap held at the
 shipped `maxEntries`. `--embed stub` answers query embeddings from `--query-vecs` (cost ~0 in both arms,
 so the win shown is the DB and fusion work alone); `live` calls the configured provider.
 `knowledge_search` cannot be driven here (it only serves a docs-kind vault). The artifact is recordable

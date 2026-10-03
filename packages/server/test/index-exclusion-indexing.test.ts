@@ -3,7 +3,7 @@
 // back from a search tool, but it stays an ordinary vault file: links to it resolve, read_note works
 // and the ACL is untouched. Becoming excluded de-indexes (dismissing its open contradiction rows with
 // a reason); un-excluding re-indexes.
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -247,6 +247,38 @@ describe("an excluded note is still a normal vault file", () => {
 });
 
 describe("transitions", () => {
+  it("does not seed embedding dedup from a path excluded in the same reconcile", async () => {
+    const body = "# Same\n\nidentical semantic body\n";
+    const v = makeM2Vault({ files: { "a.md": body } });
+    try {
+      expect((await v.call("index_vault", { vault: v.id })).ok).toBe(true);
+      writeFileSync(join(v.root, "z.md"), body);
+      setExcluded(v, ["a.md"]);
+
+      const reconciled = await v.call("index_vault", { vault: v.id });
+      expect(reconciled.ok).toBe(true);
+      if (reconciled.ok)
+        expect(
+          (reconciled.data as { chunks_dedup_unresolved: number }).chunks_dedup_unresolved,
+        ).toBe(0);
+      expect(chunkPaths(v)).toEqual(["z.md"]);
+      expect(
+        count(
+          v,
+          "SELECT COUNT(*) AS n FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id WHERE c.vault_id = ? AND c.path = 'z.md' AND e.is_active = 1",
+          v.id,
+        ),
+      ).toBeGreaterThan(0);
+      const found = await v.call("search_semantic", {
+        vault: v.id,
+        query: "identical semantic body",
+      });
+      expect(hitPaths(found)).toContain("z.md");
+    } finally {
+      v.cleanup();
+    }
+  });
+
   it("a note that becomes excluded is de-indexed and its open contradictions are dismissed with a reason; un-excluding re-indexes", async () => {
     const { provider, seen } = spyProvider();
     const v = makeM2Vault({ files: FILES, provider });
@@ -334,7 +366,7 @@ describe("transitions", () => {
       expect(chunkPaths(v)).not.toContain("Archive/Old decision.md");
 
       // Un-exclude: it is indexed again, and its text reaches the embedder again.
-      rmSync(join(v.root, APP));
+      setExcluded(v, []);
       await v.call("index_vault", { vault: v.id });
       expect(chunkPaths(v)).toContain("Archive/Old decision.md");
       expect(noteRows(v)).toContain("Archive/Old decision.md");
