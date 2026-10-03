@@ -35,6 +35,8 @@ export interface AuthRegistryView {
   detail?: string;
   dbPath: string;
   keysDir: string;
+  /** Why auth.db cannot be opened although it exists (not a SQLite file, a malformed image). */
+  unreadable?: string;
   /** Key files (or the directory) failing the trust check. */
   keyFileIssues: string[];
   requireJti: boolean;
@@ -81,6 +83,19 @@ export function authRegistryCheck(view: AuthRegistryView): Check {
             }
           : {}),
       };
+      // A damaged auth.db makes `serve` abort (it opens the registry in jwt AND oidc mode), whatever
+      // static key is configured: say so before the state-based readings below, which would
+      // otherwise read the failed open as "not initialised" and report OK.
+      if (view.unreadable !== undefined && (view.authMode === "jwt" || view.authMode === "oidc")) {
+        return {
+          status: "fail",
+          summary: `auth registry UNREADABLE: ${view.dbPath} exists but cannot be opened (${view.unreadable}); the server will not start`,
+          details: { ...details, unreadable: view.unreadable },
+          remediation:
+            `restore auth.db from backup (it is NOT regenerable, and \`rm cache.db*\` never touches it). ` +
+            `Only if you accept that revoked tokens and retired keys become valid again, move ${view.dbPath} and ${view.keysDir} aside to return to auth.jwtSecret alone (destructive).`,
+        };
+      }
       // oidc holds no signing keys here (the IdP's keys verify), but the registry still answers
       // "is this jti revoked?", so a LOST one refuses every IdP token exactly as it does in jwt mode
       // and falls through to the fail below; otherwise it is only the revocation list.

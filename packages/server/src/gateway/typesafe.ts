@@ -5,6 +5,7 @@
 // diverge for no reason. See experiential/citation-judge.ts for the adapter that calls this from
 // the citation judge seam.
 import { version as VERSION } from "../../package.json";
+import { abortableSleep } from "../util/abortable-sleep";
 import { createPlainHttpPolicyFetch, PlainHttpRefusedError, type ResolveHost } from "./plain-http";
 
 export type FetchFn = typeof fetch;
@@ -141,12 +142,10 @@ export interface TypesafeClientOptions {
   /** Jitter fraction applied to a computed backoff delay. Default 0.25 (±25%). */
   retryJitter?: number;
   /** Delay seam for tests. */
-  sleepFn?: (ms: number) => Promise<void>;
+  sleepFn?: (ms: number, signal?: AbortSignal) => Promise<void>;
   /** Jitter seam for tests — returns a value in [0, 1). Default Math.random. */
   randomFn?: () => number;
 }
-
-const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** `Retry-After` per RFC 9110 §10.2.3: either delay-seconds or an HTTP-date. */
 function parseRetryAfterMs(value: string | null): number | null {
@@ -232,7 +231,7 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
   const retryBaseDelayMs = opts.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_MS;
   const retryMaxDelayMs = opts.retryMaxDelayMs ?? DEFAULT_RETRY_MAX_MS;
   const retryJitter = opts.retryJitter ?? DEFAULT_RETRY_JITTER;
-  const sleepFn = opts.sleepFn ?? realSleep;
+  const sleepFn = opts.sleepFn ?? abortableSleep;
   const randomFn = opts.randomFn ?? Math.random;
 
   /** One question per call; `read` returns the typed value of a well-formed answer of `type`, or
@@ -371,7 +370,7 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
           const delay =
             honoredRetryAfterMs ??
             backoffDelayMs(attempt, retryBaseDelayMs, retryMaxDelayMs, retryJitter, randomFn);
-          await sleepFn(delay);
+          await sleepFn(delay, req.signal);
           continue;
         }
         throw lastError;
@@ -380,6 +379,7 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
       if (attempt < maxAttempts) {
         await sleepFn(
           backoffDelayMs(attempt, retryBaseDelayMs, retryMaxDelayMs, retryJitter, randomFn),
+          req.signal,
         );
         continue;
       }

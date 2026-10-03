@@ -4,6 +4,7 @@ import {
   compileEgressFilter,
   type EgressFilter,
 } from "../plane/egress-filter";
+import { abortableSleep } from "../util/abortable-sleep";
 import { PlainHttpRefusedError } from "./plain-http";
 import { providerFetch } from "./provider-fetch";
 
@@ -104,7 +105,7 @@ export interface GatewayClientOptions {
   /** Cap on a computed backoff delay, in ms. Does not cap an honored `Retry-After`. Default 2000ms. */
   retryMaxDelayMs?: number;
   /** Delay seam for tests — default a real setTimeout-based wait. */
-  sleepFn?: (ms: number) => Promise<void>;
+  sleepFn?: (ms: number, signal?: AbortSignal) => Promise<void>;
   /** THE-934 fix round 1: egress.excludePaths, compiled. Absent -> an empty filter (excludes
    *  nothing) -- but the sourcePaths DECLARATION requirement below is unconditional regardless,
    *  so every caller of the returned client must still declare sourcePaths on every
@@ -150,8 +151,6 @@ const DEFAULT_RETRY_MAX_MS = 2_000;
 function backoffDelayMs(attempt: number, baseMs: number, maxMs: number): number {
   return Math.min(baseMs * 2 ** Math.max(0, attempt - 1), maxMs);
 }
-
-const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** `Retry-After` per RFC 9110 §10.2.3: either delay-seconds or an HTTP-date. Returns null (=
  *  "not present / not honored") for anything else, which callers treat as a bare, non-retryable
@@ -207,7 +206,7 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
   const maxAttempts = Math.max(1, opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
   const retryBaseDelayMs = opts.retryBaseDelayMs ?? DEFAULT_RETRY_BASE_MS;
   const retryMaxDelayMs = opts.retryMaxDelayMs ?? DEFAULT_RETRY_MAX_MS;
-  const sleepFn = opts.sleepFn ?? realSleep;
+  const sleepFn = opts.sleepFn ?? abortableSleep;
 
   async function postRaw<T>(
     path: string,
@@ -270,14 +269,17 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
         const retryableStatus = res.status >= 500 || retryAfterMs !== null;
         if (!retryableStatus) throw lastError;
         if (attempt < maxAttempts) {
-          await sleepFn(retryAfterMs ?? backoffDelayMs(attempt, retryBaseDelayMs, retryMaxDelayMs));
+          await sleepFn(
+            retryAfterMs ?? backoffDelayMs(attempt, retryBaseDelayMs, retryMaxDelayMs),
+            callerSignal,
+          );
           continue;
         }
         throw lastError;
       }
 
       if (attempt < maxAttempts) {
-        await sleepFn(backoffDelayMs(attempt, retryBaseDelayMs, retryMaxDelayMs));
+        await sleepFn(backoffDelayMs(attempt, retryBaseDelayMs, retryMaxDelayMs), callerSignal);
         continue;
       }
       throw lastError;

@@ -358,20 +358,24 @@ What a plain `http://` provider URL does:
 
 | URL host | Result |
 | --- | --- |
-| `https://` anything | Unchanged. Goes through the ordinary fetch, which honours `HTTPS_PROXY` as a CONNECT tunnel. |
+| `https://` anything | Goes through the ordinary fetch, which honours `HTTPS_PROXY` as a CONNECT tunnel. A redirect (any 3xx with a `Location`) is **refused**, never followed: following a 307/308 would replay the key and vault text to an unchecked destination. |
 | Loopback (`127.0.0.1`, `[::1]`, `localhost`) | Works with no entry. Sent directly, never through `HTTP_PROXY` / `ALL_PROXY`. |
 | Listed, and every address it resolves to is loopback, RFC 1918 or `fc00::/7` | Works, silently. |
 | **Not** listed, and every address it resolves to is loopback, RFC 1918 or `fc00::/7` | Works for **one more release** with a deprecation warning that names the host and the config to add. Refused from the next major release. |
 | Listed, and it resolves to a tailnet/CGNAT address (`100.64.0.0/10`), the rest private | Works, silently. `doctor` shows `allowed (listed tailnet/CGNAT)`. |
 | **Not** listed, and it resolves to a tailnet/CGNAT address (`100.64.0.0/10`) | **Refused**, nothing sent. There is no deprecation path for this range. |
 | Resolves to any public address, listed or not | **Refused**, nothing sent. |
-| Link-local, including the `169.254.169.254` cloud metadata address | **Refused**, nothing sent. |
+| Link-local, including the `169.254.169.254` cloud metadata address, and the other cloud metadata addresses (`100.100.100.200`, `fd00:ec2::254`, `fd00:64:64:64::254`, `fd20:ce::254`) | **Refused**, nothing sent, listed or not. |
 
 A refusal fails the request with the host and the offending address in the error (never the key, a path or a
 query) and is not retried. Every plain-http request, loopback included, connects straight to the address that
 was checked, with the original `Host` header; a redirect is refused. `obsidian-tc doctor` lists every
 plaintext provider host with its resolved address and a status (`allowed`, `allowed (listed tailnet/CGNAT)`, `deprecated-unlisted` or
-`refused`), and `server_health` (`deprecations`) names each unlisted host.
+`refused`). `server_health` (`deprecations`) gives the same advice, resolved once at startup: only a host that
+resolves solely to private addresses is told to be listed, a tailnet/CGNAT host is told to be listed only if it
+is a tailnet peer, and a public or metadata host is told it is refused and to use `https://`. The entries name
+hosts, addresses and vault ids, so only a caller that may read every vault sees them; anyone else gets one
+generic line with the count.
 
 On Cave, `embeddings.baseUrl` and `gateway.baseUrl` are `http://litellm:4000`, a Docker bridge address in
 `172.16.0.0/12`. They keep working unchanged; add `network: { plainHttpHosts: ["litellm"] }` to silence the

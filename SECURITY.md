@@ -741,10 +741,15 @@ punycode-normalized, no wildcards); every other provider lists its host in the r
 host is checked again on every request: it is resolved once and refused, with nothing sent, unless every
 resolved address is loopback, RFC 1918 or IPv6 unique-local (`fc00::/7`), or, for a listed host only, in
 the Tailscale/CGNAT range `100.64.0.0/10`. Link-local, including the
-`169.254.169.254` cloud metadata address, and every public address are refused, and IPv4-mapped IPv6 and
-numeric or hex IPv4 spellings are judged as the address they spell. The connection goes to the checked
+`169.254.169.254` cloud metadata address, the other cloud metadata addresses (`100.100.100.200`,
+`fd00:ec2::254`, `fd00:64:64:64::254`, `fd20:ce::254`: the IPv6 ones sit inside `fc00::/7`, the Alibaba
+IPv4 one inside `100.64.0.0/10`; one list, `isCloudMetadataAddress` in `packages/shared/src/net-host.ts`,
+shared with the OIDC and config checks) and every public address are refused, listed or not, and IPv4-mapped
+IPv6 and numeric or hex IPv4 spellings are judged as the address they spell. The connection goes to the checked
 address with the original `Host` header (no DNS rebinding between check and send), and a redirect from
-the host is refused, not followed. Every `http://` request, loopback included, is sent directly:
+the host is refused, not followed. That holds for `https://` too: the ordinary fetch is called with
+`redirect: "manual"` and a 3xx answer is refused, because the runtime's default follows a 307/308 and replays
+the POST body (the key and vault text) to a `Location` that was never checked against this policy. Every `http://` request, loopback included, is sent directly:
 `HTTP_PROXY`, `http_proxy` and `ALL_PROXY` are not applied to it, so a proxy in the environment never
 receives the key or the vault text (a loopback name must resolve only to loopback addresses). `https://`
 requests do honour those variables: through a proxy that is a CONNECT tunnel, and the proxy sees the host and
@@ -758,6 +763,25 @@ NOT in `network.plainHttpHosts` but resolves only to private addresses is still 
 names the host and the config to add (`doctor` and `server_health` report it too), and is refused from the
 next major release. A host that resolves to any public address is refused at once, listed or not, so a typo
 or a hostile config can no longer send the key and vault text to an arbitrary host or through `HTTP_PROXY`.
+
+`server_health`'s `deprecations` classify each endpoint with the same resolver and logic as the `doctor`
+check, once at startup: only a host that resolves solely to RFC 1918 / unique-local addresses is told to be
+listed; an unlisted tailnet/CGNAT host is told it is refused and to list it only if it is a tailnet peer; a
+public, link-local or metadata host is told it is refused and to use `https://`. The entries name vault ids,
+host names and addresses, so they are behind the same gate as the `vaults` list and the index detail: a
+caller that may read every vault sees them, an anonymous or vault-bound caller sees ONE generic line with
+the count.
+
+**OIDC identity-provider fetches** (`auth.mode: "oidc"`): discovery and JWKS requests resolve the host,
+require every answer to be a public address, and then connect to those validated addresses only
+(`createPinnedFetch`, `gateway/plain-http.ts`): the name is never resolved a second time, so a DNS record
+that flips between the check and the connection (rebinding) cannot reach a private or metadata address; TLS
+keeps SNI and certificate validation on the issuer's hostname, and a redirect is reported, never followed.
+A pinned connection is direct, so `HTTPS_PROXY` is not used for the identity provider; with
+`auth.oidc.allowPrivateNetwork: true` nothing is validated and the ordinary fetch (and a proxy) applies.
+The check also blocks the IPv6 transition prefixes that embed an IPv4 address (6to4 `2002::/16`, Teredo
+`2001:0::/32`) when that IPv4 is blocked. `allowedJwksHosts` admits a hostname on the default https port
+only. A `jwks_uri` is shown in logs, errors and `doctor` without its query string or userinfo.
 
 Accepted residuals: the traffic to a listed private host is still cleartext, so a hostile peer on that
 private network can read it. The tailnet range (`100.64.0.0/10`) is admitted only for a listed host and
