@@ -569,3 +569,105 @@ loss on the other.
 requires for `--corpus private`), `gemini-embedding-2` @1024 first; `gemini-embedding-001` is the secondary arm. The
 private phase needs the pre-drift index copy and the 250-query multi-hop set, with the corrected dense baseline
 0.7515, and its own pre-registration.
+
+## Status (2026-10-02): Gemini embeddings on the private multi-hop vault: `gemini-embedding-2` @1024 wins, `gemini-embedding-001` ties; a default-change candidate, no default changes
+
+**Pre-registration.** Written before the first measured call of the phase: sha256
+`ee379b9e83206bcef9c5a3a0c17e86ca33c1494a493ece725ddc80ceeaa1ea00` (2026-10-03T00:47:40Z). A key-route addendum, also
+written before the first Gemini call, has its own hash `0e9b4e7777f86af257fb00c35268dd59b3b6737c7ad639c44b7108bb6513415f`
+(2026-10-03T00:57:35Z); the original is not edited. Harness: `eval/embedder-arms.ts` (+ `rerank-arms.ts pools`).
+Artifacts, per-arm index copies, `runs.db` (3 recorded runs) and the scripts are under
+`/data/obsidian-tc-eval/embedder-gemini-2026-10/private-20261002/`; nothing in an existing directory was modified.
+
+**Key route.** The harness refuses a private corpus when `GEMINI_API_KEY` equals `GEMINI_API_KEY_PAID`, because the
+public phase treated `GEMINI_API_KEY` as the free-tier key. In the gateway env file both names held the same value, so
+the first attempt stopped before any request. The cause was the owner replacing the gateway's Gemini key with a key
+from their own billed Google Cloud project on 2026-10-02, with the calls confirmed in that project's metrics; the
+same key was then copied into `GEMINI_API_KEY_PAID`. Both names are the billed key and paid terms apply to every call.
+The guard was not weakened. The Gemini stages ran from a temporary mode-600 env file holding only
+`GEMINI_API_KEY_PAID` (both names unset in the shell first), so no free-tier key was visible to the check; the file
+was deleted afterwards. The gateway env file was not passed to those stages.
+
+**Setup.** Corpus: the pre-drift index copy of the private vault minus the note that quotes the golden set: 1,181
+notes, 13,731 chunks. Golden set: n = 250 (103 declare bridge notes, 147 do not). Every arm embeds the same 13,731
+chunks and is scored through the brute-force cosine path; pool = top 50 chunks of `search_semantic`; paired by query
+id; Benjamini-Hochberg q 0.10 across the two decision-bearing 1024-wide arms. Per-arm formatting as in the public phase
+(`gemini-embedding-2` document and query prefixes without a task type, `gemini-embedding-001` with `taskType`, truncated
+vectors L2-normalized). **Control validity held:** bge-m3 dense nDCG@10 is 0.7516 against the corrected 0.7515 (within
+the pre-registered 0.001), and a 24-chunk sample re-embedded through the harness has cosine >= 0.99999 with the stored
+vectors. Every arm embedded all 13,731 chunks, one call at a time with a 1.5 s gap, 0 retries on `gemini-embedding-2`
+@1024 and one each on the other two.
+
+**Result** (dense order; delta against bge-m3 with permutation p and the one-sided 95% lower bound; MDE is the
+realised minimum detectable effect of that contrast at n = 250):
+
+| arm | nDCG@10 | delta (p, lower 95%, MDE) | MRR@10 | recall@10 | recall@50 | bridge-nDCG@10 (n = 103) | `graph_rrf` nDCG@10 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| bge-m3 (control) | 0.7516 | | 0.8188 | 0.8412 | 0.8954 | 0.2260 | 0.7746 |
+| gemini-embedding-2 @1024 | 0.7877 | +0.0361 (p 0.0105, +0.0143, 0.038) WIN | 0.8453 | 0.8698 | 0.9200 | 0.2213 | 0.8116 |
+| gemini-embedding-001 @1024 | 0.7595 | +0.0079 (p 0.5375, -0.0127, 0.036) TIE | 0.8118 | 0.8617 | 0.9098 | 0.2129 | 0.7887 |
+| gemini-embedding-2 @3072 (exploratory) | 0.7962 | +0.0446 (p 0.0014, +0.0230, 0.038) | 0.8548 | 0.8721 | 0.9260 | 0.2241 | 0.8097 |
+
+Secondary contrasts for `gemini-embedding-2` @1024: MRR@10 +0.0264 (p 0.149, not significant), recall@10 +0.0285
+(p 0.025), recall@50 +0.0245 (p 0.005), bridge-nDCG@10 -0.0047 (p 0.83, no change); per query it wins 88 and loses 58
+on nDCG@10. The delta (+0.0361) is at the pre-registered MDE (0.0352) and just under the realised one (0.038): a WIN,
+but one the set can barely resolve. For `gemini-embedding-001` every contrast is inside its MDE and the lower bound on
+nDCG@10 (-0.0127) clears the -0.015 floor, hence TIE rather than UNDERPOWERED. The `graph_rrf` order rescored under
+each embedder (its derived edges were built on bge-m3 vectors, so descriptive only) moves the same way: +0.0370 (p
+0.0015) for `gemini-embedding-2` @1024, +0.0141 (p 0.146) for `gemini-embedding-001`. The native 3072 width adds +0.0085
+nDCG@10 over the 1024 arm of the same model (not tested against it) for three times the vector storage.
+
+Class slices (nDCG@10 delta against bge-m3, descriptive; the small cells are well under their MDE):
+
+| slice | n | gemini-embedding-2 @1024 | gemini-embedding-001 @1024 | gemini-embedding-2 @3072 |
+| --- | ---: | --- | --- | --- |
+| multi-hop | 103 | +0.0355 (p 0.051) | -0.0017 (p 0.93) | +0.0400 (p 0.023) |
+| single-hop | 147 | +0.0365 (p 0.063) | +0.0146 (p 0.41) | +0.0478 (p 0.015) |
+| route: standard | 216 | +0.0406 (p 0.004) | +0.0056 (p 0.68) | +0.0474 (p 0.001) |
+| route: lexical | 13 | +0.0251 (p 0.75) | +0.0730 (p 0.38) | +0.0289 (p 0.69) |
+| route: temporal | 21 | -0.0035 (p 0.95) | -0.0085 (p 0.87) | +0.0248 (p 0.59) |
+
+The gain is the same on multi-hop and single-hop queries and sits in the standard route; it does not show up on
+bridge notes, the hard indirect targets, which matches the pre-registered expectation that bridge-nDCG moves less
+than nDCG@10.
+
+**Predictions against outcome.** `gemini-embedding-2` @1024: predicted about +0.03 (range -0.01 to +0.08), observed
++0.0361. `gemini-embedding-001` @1024: predicted about +0.02 (range -0.02 to +0.06), observed +0.0079. Bridge-nDCG
+moved less than nDCG@10: yes. The public phase's larger gains (+0.055 and +0.089 for `gemini-embedding-2`) shrank on
+text no model has seen, as predicted.
+
+**Embed latency** (Cave host, 4 cores, and not quiet: the 1-minute load average sampled at the start of each
+stage ranged from 1.1 to 13.8 across the run, 11.2 and 11.5 for the bge-m3 control; Gemini direct over the internet,
+bge-m3 through the gateway on the tailnet, so indicative only and not a speed comparison):
+
+| arm | query p50 / p95 (250 single calls) | document batch of 100 (138 calls): p50 / p95 |
+| --- | --- | --- |
+| bge-m3 | 118 / 217 ms | 24-chunk sample, batches of 16: 263 / 379 ms |
+| gemini-embedding-2 @1024 | 183 / 270 ms | 690 / 1,302 ms (129 s in calls) |
+| gemini-embedding-001 @1024 | 213 / 319 ms | 726 / 2,164 ms (141 s in calls) |
+| gemini-embedding-2 @3072 | 187 / 283 ms | 885 / 2,621 ms (179 s in calls) |
+
+**Cost actually incurred.** The harness does not record the API's token count and the key was removed before a
+calibration sample could be counted, so tokens are the 4 characters per token estimate: 2.77M tokens per
+`gemini-embedding-2` arm (11.09M characters with the prefixes), 2.73M for `gemini-embedding-001`; the 750 query
+embeddings are negligible. At the current `gemini-embedding-2` standard price ($0.20 per 1M input tokens; Gemini API
+pricing page, last updated 2026-10-01) that is about $0.55 per arm, $1.11 for the two `gemini-embedding-2` arms.
+`gemini-embedding-001` is not on that pricing page, so no price is asserted for it; at the same $0.20 it would be about
+$0.55, which puts a ceiling of about $1.66 on the whole phase. The billing page was not visible from this box, so none
+of this is compared with an invoice. A full re-embed of one 2.9M-token vault is about $0.58 on `gemini-embedding-2`
+standard against about $0.03 for bge-m3 on Workers AI: cents either way, and not the decider.
+
+**Caveats.** One vault, one author's labels, English only, n = 250 and a delta at the detection floor. On 58 of 250 queries (23
+percent) `gemini-embedding-2` @1024 ranks worse than bge-m3 on nDCG@10, against 88 (35 percent) where it ranks better. Both
+decision-bearing arms were chosen from the public phase, so the arm selection is not blind to the public result.
+Adopting Gemini would need a provider in `src/` (there is none; the gateway has no Gemini alias), a key, a full
+re-embed of every vault, and vault text leaving the box to Google under a paid project's terms for every user who opts
+in; none of that is in this verdict. The temporary key route above is a measurement route only.
+
+**Verdict (ADR 0007 class (c)): no default changes.** Under the pre-registered rule, `gemini-embedding-2` @1024 is a WIN
+on private nDCG@10 and no arm is a LOSS or CATASTROPHIC (`gemini-embedding-001` is a TIE), so "Gemini wins private too"
+holds. **Recommendation: `gemini-embedding-2` @1024 is a candidate for a default change, pending a third differently
+shaped corpus or the owner's call**, with a migration follow-up (re-embed plan, a provider and fallback, key handling,
+cost). `gemini-embedding-001` is not a candidate. Two shapes are still fewer than the three class (c) requires, both
+are English, the public one is likely in every model's training data, and the private labels come from one author for
+one vault; this result justifies planning a migration and sourcing a third shape, not changing the default.
