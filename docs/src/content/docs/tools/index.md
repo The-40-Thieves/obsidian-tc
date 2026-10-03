@@ -224,6 +224,18 @@ two guards keep a name from becoming link syntax:
   `x]]` followed by a newline and text, or one containing `|`, is refused. A target may still end in
   its own `#Heading`. In a note's properties the new target additionally must not contain `[[`, `]]`,
   `|`, `%%` or a line break.
+- **The whole rewrite is planned and proven before anything moves.** `move_note`, `bulk_move_notes`
+  and `move_attachment` compute every note's new text, and prove every changed link, before they
+  touch a file. If one link cannot be written, the call is refused with `invalid_input` naming the
+  note it sits in and the target it would have carried, nothing is moved or written (for
+  `bulk_move_notes`, the whole batch is refused), and a retry is an ordinary refusal, not an
+  `indeterminate_outcome`. Two things reach this refusal even though the destination's NEW segments
+  pass the name check above. A path-qualified link into an EXISTING folder whose name holds `#` or
+  `^` (`C#/Note`) would be read as a heading or block reference, so a path-form link must come back
+  from the re-parse exactly as written; when the new basename is unique, the bare link `[[Note]]` is
+  written instead and the move goes ahead. And a markdown link cannot carry a `)` in its target, since
+  the scanner ends the link there and has no `<...>` form: moving a note to `Report (final).md` is
+  refused while a `[text](...)` link points at it, and fine while only `[[wikilinks]]` do.
 
 ## Wiki checks (page-exists and lint)
 

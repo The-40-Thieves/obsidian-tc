@@ -18,7 +18,9 @@ default), a regenerable `.md` projection under the vault's memory folder — so 
 resolve in Obsidian's own graph view. An **observation** is one fact, stored newline-delimited on
 that row (`serializeObservations`/`parseObservations`) and rendered as one bullet. A **relation**
 is a typed, directed edge in `memory_relations`, rendered as a `[[wikilink]]` under `## Related` on
-the *source* entity's note.
+the *source* entity's note. The link names the target's note as it is filed (the entity name with
+path and link characters such as `/ : # ^ | [ ]` replaced by `-`), so a name holding `]]` can never
+close the link early, and the link still resolves to that note.
 
 The shape below is a real note — specifically, the output of `obsidian-tc memory import --from
 basic-memory --apply` (the importer covered later on this page), which itself calls `create_entity`,
