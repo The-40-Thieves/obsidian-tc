@@ -41,7 +41,7 @@ What `tools/list` advertises is controlled by `toolFacade.mode`:
   client-sniffing: MCP 2026-07-28 says list endpoints no longer vary per
   connection. Set one explicit `toolFacade.mode` per client; see
   [Choosing a facade mode per client](/getting-started/mcp-clients/#choosing-a-facade-mode-per-client)
-  for the measured recommendations (`triad` for Claude Code and Codex).
+  for the measured recommendations (`triad` for Claude Code, `domain` for Codex).
 
   **Explaining an `auto` decision.** `toolFacade.explainAutoMode: true` (default
   `false`) writes one `obsidian-tc toolFacade.explain {...}` JSON line to stderr
