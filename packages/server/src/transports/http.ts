@@ -20,6 +20,7 @@ import {
   isPrmConfigured,
   wwwAuthenticateChallenge,
 } from "../auth/protected-resource";
+import { mountAsMetadata } from "../auth/as-metadata";
 import type { AuthRegistry } from "../auth/registry";
 import { serverSecret } from "../auth/server-secret";
 import type { TokenVerifier } from "../auth/verifier";
@@ -476,6 +477,10 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
     app.get("/.well-known/oauth-protected-resource", (c) => c.json(prm));
     app.get("/.well-known/oauth-protected-resource/mcp", (c) => c.json(prm));
   }
+
+  // RFC 8414 metadata of the bundled authorization server (`auth.as`): public, built from config
+  // alone (never the request's Host), and absent while the AS is off.
+  mountAsMetadata(app, opts.auth);
 
   // JWKS of the registry's ES256/EdDSA signing keys, so a verifier that is not this process can
   // validate the tokens `token mint` issues. Public keys only, active and in-window retiring ones

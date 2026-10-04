@@ -8,6 +8,7 @@
 import { z } from "zod";
 import { isLoopbackHost } from "../net-host";
 import { AclConfigSchema, AuthConfigSchema } from "./auth-acl.schema";
+import { refineAuthAs } from "./auth-as.schema";
 import { GatewayConfigSchema } from "./gateway.schema";
 import { EmbeddingsConfigSchema, IndexingConfigSchema } from "./indexing-embeddings.schema";
 import { NetworkConfigSchema } from "./network.schema";
@@ -298,6 +299,9 @@ export const ServerConfigSchema = ServerConfigObject.superRefine((cfg, ctx) => {
       message: `auth.oidc is set but auth.mode is "${cfg.auth.mode}": nothing would verify tokens against it. Set auth.mode to "oidc", or remove auth.oidc.`,
     });
   }
+  // The bundled authorization server (`auth.as`): refused where it would protect nothing (`none`) or
+  // double an issuer (`oidc`), and where its tokens could not verify (see refineAuthAs).
+  refineAuthAs(cfg.auth, ctx);
   // THE-456 (audit #3): a remote or JWKS-verified deployment MUST bind the token audience — warn-only
   // was insufficient. Without an audience, a token an issuer minted for a DIFFERENT service is accepted
   // here (confused deputy). The verifier treats the PRM `resource` as the audience when set, so an

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { enabledAs } from "./as-metadata";
 import {
   effectiveAudience,
   jwksWithoutAudience,
@@ -29,9 +30,6 @@ export function warnJwksWithoutAudience(auth: ServerConfig["auth"]): void {
 export function buildJwtVerifier(
   auth: ServerConfig["auth"],
   registry?: AuthRegistry,
-  /** `asIssuer`: `auth.as.issuer`, which the auth.as config block supplies (a later slice). Until
-   *  then nothing passes it and a token signed by an `as` registry key is refused `misconfigured`. */
-  opts: { asIssuer?: string } = {},
 ): TokenVerifier | null {
   if (auth.mode !== "jwt") return null;
   const jwks =
@@ -60,7 +58,10 @@ export function buildJwtVerifier(
     issuer: auth.issuer,
     registry,
     requireJti: auth.requireJti,
-    asIssuer: opts.asIssuer,
+    // A token signed by an `as`-purpose registry key is verified only when the bundled authorization
+    // server is enabled: its issuer comes from `auth.as`, the audience from `auth.resource`. With the
+    // AS off, no `as` key's token verifies (`misconfigured`), whatever the registry holds.
+    asIssuer: enabledAs(auth)?.issuer,
     resource: auth.resource,
   });
 }

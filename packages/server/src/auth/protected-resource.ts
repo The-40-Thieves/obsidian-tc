@@ -8,12 +8,13 @@
 // stays pre-registration-only (THE-661; see isPrmConfigured for the dated decision).
 import { getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/server";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { enabledAs } from "./as-metadata";
 
 type AuthConfig = ServerConfig["auth"];
 /** The fields the audience and PRM decisions read, so server_health and `doctor` can ask with the
  *  config slice they already hold. */
 export type PrmFields = Partial<
-  Pick<AuthConfig, "mode" | "oidc" | "resource" | "authorizationServers">
+  Pick<AuthConfig, "mode" | "oidc" | "resource" | "authorizationServers" | "as">
 >;
 export type AudienceFields = PrmFields &
   Partial<Pick<AuthConfig, "audience" | "jwks" | "jwksFile" | "jwksUri" | "allowMissingAudience">>;
@@ -61,6 +62,10 @@ export function isPrmConfigured(auth: PrmFields): boolean {
  */
 function authorizationServersOf(auth: PrmFields): string[] {
   if (auth.mode === "oidc" && auth.oidc !== undefined) return [auth.oidc.issuer];
+  // The bundled authorization server defaults to advertising itself. An explicit list is kept as
+  // written (the schema already requires the issuer to be its first entry: Claude reads only that).
+  const bundled = enabledAs(auth)?.issuer;
+  if (bundled !== undefined) return auth.authorizationServers ?? [bundled];
   return auth.authorizationServers ?? [];
 }
 

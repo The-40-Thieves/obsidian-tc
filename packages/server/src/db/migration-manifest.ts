@@ -139,6 +139,23 @@ export const AUTH_MIGRATION_FILES = [
 ] as const;
 
 /**
+ * oauth.db chain (auth/oauth-db.ts, db/provision.ts `provisionOauthDb`).
+ *
+ * A FOURTH file: the bundled authorization server's state (operator account, sessions, clients,
+ * grants, codes, refresh families). Not cache.db (disposable) and not auth.db (the signing-key and
+ * revocation registry, which fails closed when lost): losing oauth.db is FAIL-SAFE, so it carries no
+ * lost-registry marker, but it is operator state and is backed up beside auth.db.
+ *
+ * Its numbering is its own, the 95x sequence, so a version can never collide with a cache (`_00x`)
+ * or auth (`_90x`) one landing the same day (migrations-manifest.test.ts pins the sets disjoint).
+ */
+export const OAUTH_MIGRATION_FILES = [
+  // 20261003_950 creates every table of the authorization server's state in one step (design v2
+  // section 4.8). See the migration header.
+  "20261003_950_oauth_core.sql",
+] as const;
+
+/**
  * experiential.db chain (cli.ts).
  *
  * THE-713, the admission test (stated here, not in a migration header, because headers are
