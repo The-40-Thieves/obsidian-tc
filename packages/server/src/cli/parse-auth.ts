@@ -1,7 +1,13 @@
 // `obsidian-tc auth rotate-key|list|revoke` argv parsing. Split out of args.ts for the same reason
 // parse-telemetry.ts documents: args.ts sits at biome's file-length floor. No dependency on
 // args.ts, so importing it from there creates no cycle.
-import { isKeyAlg, type KeyAlg, MAX_ROTATION_GRACE_SECONDS } from "../auth/signing-keys";
+import {
+  isKeyAlg,
+  isKeyPurpose,
+  type KeyAlg,
+  type KeyPurpose,
+  MAX_ROTATION_GRACE_SECONDS,
+} from "../auth/signing-keys";
 import { CliError } from "./cli-error";
 import { flagValue, positional } from "./flag-value";
 
@@ -17,8 +23,11 @@ export interface AuthCommand {
   /** `rotate-key`: seconds the previous key keeps verifying. Absent -> auth.rotationGraceSeconds
    *  (default 0, immediate). An explicit 0 overrides a non-zero config default. */
   graceSeconds?: number;
-  /** `rotate-key`: algorithm of the new key. Default HS256. */
+  /** `rotate-key`: algorithm of the new key. Default HS256 (`mint`) or ES256 (`as`). */
   alg?: KeyAlg;
+  /** `rotate-key`: which key to rotate, `mint` (default: hand-minted tokens) or `as` (the
+   *  authorization server's access-token key). The other purpose's key is untouched. */
+  purpose?: KeyPurpose;
   /** `list`: include expired tokens. */
   all?: boolean;
   /** `list`: show signing keys instead of tokens. */
@@ -26,7 +35,7 @@ export interface AuthCommand {
 }
 
 const SUBS = ["rotate-key", "list", "revoke"] as const;
-const VALUE_FLAGS = ["--config", "--reason", "--grace", "--alg"];
+const VALUE_FLAGS = ["--config", "--reason", "--grace", "--alg", "--purpose"];
 
 export function parseAuth(rest: string[]): AuthCommand | { kind: "error"; message: string } {
   const sub = SUBS.find((s) => s === rest[0]);
@@ -67,6 +76,13 @@ export function parseAuth(rest: string[]): AuthCommand | { kind: "error"; messag
   if (algRaw !== undefined && sub !== "rotate-key") {
     throw new CliError("--alg applies only to `auth rotate-key`");
   }
+  const purposeRaw = flagValue(args, "--purpose");
+  if (purposeRaw !== undefined && !isKeyPurpose(purposeRaw)) {
+    throw new CliError(`--purpose must be one of mint, as, got: ${purposeRaw}`);
+  }
+  if (purposeRaw !== undefined && sub !== "rotate-key") {
+    throw new CliError("--purpose applies only to `auth rotate-key`");
+  }
   const reason = flagValue(args, "--reason");
   return {
     kind: "auth",
@@ -77,6 +93,7 @@ export function parseAuth(rest: string[]): AuthCommand | { kind: "error"; messag
     ...(reason !== undefined ? { reason } : {}),
     ...(graceSeconds !== undefined ? { graceSeconds } : {}),
     ...(algRaw !== undefined ? { alg: algRaw } : {}),
+    ...(purposeRaw !== undefined ? { purpose: purposeRaw as KeyPurpose } : {}),
     all: args.includes("--all"),
     keys: args.includes("--keys"),
   };

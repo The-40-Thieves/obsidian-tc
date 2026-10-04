@@ -14,19 +14,33 @@ export function authDbPath(cacheDir: string): string {
   return join(cacheDir, "auth.db");
 }
 
-/** Which registry table a durable marker protects. */
-export type RegistryTable = "keys" | "tokens";
+/** Which part of the registry a durable marker protects: `mint`-purpose keys, `as`-purpose keys, or
+ *  the issued/revoked tokens. */
+export type RegistryTable = "keys" | "as-keys" | "tokens";
 
-/** Marker written with the first key rotation (`keys`) or the first recorded token or revocation
- *  (`tokens`). Lives beside the key files, outside the database, so that losing a table is
- *  detectable. */
+/** File-name prefix of an `as`-purpose key file (`as-<kid>.key`): how a key file is attributed to a
+ *  purpose without opening it or the database. */
+export const AS_KEY_FILE_PREFIX = "as-";
+
+const MARKER_FILES: Record<RegistryTable, string> = {
+  keys: ".keys-initialized",
+  "as-keys": ".as-keys-initialized",
+  tokens: ".tokens-initialized",
+};
+
+/** Marker written with the first `mint` key rotation (`keys`), the first `as` key (`as-keys`) or the
+ *  first recorded token or revocation (`tokens`). Lives beside the key files, outside the database,
+ *  so that losing a table is detectable. Per purpose, so a registry holding only `as` keys still
+ *  reads as "no mint key was ever rotated in": the configured secret stays the only mint key. */
 export function registryMarkerPath(keysDir: string, table: RegistryTable): string {
-  return join(keysDir, table === "keys" ? ".keys-initialized" : ".tokens-initialized");
+  return join(keysDir, MARKER_FILES[table]);
 }
 
 export interface RegistryInitState {
-  /** A key was ever rotated in: the keys marker, or any `*.key` file. */
+  /** A `mint` key was ever rotated in: the keys marker, or any `*.key` file that is not an `as` key's. */
   keys: boolean;
+  /** An `as` key was ever created: the as-keys marker, or any `as-*.key` file. */
+  asKeys: boolean;
   /** A token or revocation was ever written: the tokens marker. */
   tokens: boolean;
   /** Set when `keysDir` is a symlink or not a directory. Both tables then count as initialised: an
@@ -38,17 +52,20 @@ export interface RegistryInitState {
  *  directory) is a refusal, and is never followed to look for markers or key files. */
 export function registryInitState(keysDir: string): RegistryInitState {
   const dirProblem = keysDirProblem(keysDir);
-  if (dirProblem !== undefined) return { keys: true, tokens: true, dirProblem };
+  if (dirProblem !== undefined) return { keys: true, asKeys: true, tokens: true, dirProblem };
+  const files = keyFileNames(keysDir);
+  const isAsFile = (f: string) => f.startsWith(AS_KEY_FILE_PREFIX);
   return {
-    keys: existsNoFollow(registryMarkerPath(keysDir, "keys")) || keyFileNames(keysDir).length > 0,
+    keys: existsNoFollow(registryMarkerPath(keysDir, "keys")) || files.some((f) => !isAsFile(f)),
+    asKeys: existsNoFollow(registryMarkerPath(keysDir, "as-keys")) || files.some(isAsFile),
     tokens: existsNoFollow(registryMarkerPath(keysDir, "tokens")),
   };
 }
 
-/** Has this deployment ever used the registry (either table)? */
+/** Has this deployment ever used the registry (any part of it)? */
 export function registryInitialized(keysDir: string): boolean {
   const s = registryInitState(keysDir);
-  return s.keys || s.tokens;
+  return s.keys || s.asKeys || s.tokens;
 }
 
 /** The operator-facing explanation of a lost registry, naming the recovery. `cause` says what is

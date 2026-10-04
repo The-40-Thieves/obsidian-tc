@@ -304,11 +304,17 @@ describe("configureMaintenance", () => {
       const { m, emitted } = fakeMorgiana();
       const sched = new Scheduler();
       const reapRetired = vi.fn(() => 3);
-      configureMaintenance(sched, { ...baseDeps(db, m), authRegistry: { reapRetired } });
+      const reapExpiredTokens = vi.fn(() => 5);
+      configureMaintenance(sched, {
+        ...baseDeps(db, m),
+        authRegistry: { reapRetired, reapExpiredTokens },
+      });
       sched.start();
       await vi.advanceTimersByTimeAsync(61_000);
       await sched.stop();
       expect(reapRetired).toHaveBeenCalledTimes(1);
+      // The expired-token reaper rides the same arm; its count is not a "key retired".
+      expect(reapExpiredTokens).toHaveBeenCalledTimes(1);
       const payload = emitted.find(([, name]) => name === "tc.maintenance.sweep")?.[2] as {
         count: number;
         rows_dropped: SweepCounts;

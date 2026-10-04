@@ -14,7 +14,7 @@ import { type Context, Hono } from "hono";
 import type { FolderAcl } from "../acl";
 import { AuthRejection, type AuthRejectionReason } from "../auth/jwt";
 import { buildJwtVerifier } from "../auth/jwt-boot";
-import { resolvePersona } from "../auth/persona";
+import { narrowToTokenScopes, resolvePersona } from "../auth/persona";
 import {
   buildProtectedResourceMetadata,
   isPrmConfigured,
@@ -239,7 +239,8 @@ async function resolveAuth(
   try {
     const id = await verifier.verify(token);
     // THE-647 item 2: a `persona` claim resolves to an effective scope/vault/toolVisibility
-    // bundle that REPLACES the token's own — never a union with it. FAILS CLOSED: an unknown
+    // bundle that REPLACES the token's own — never a union with it (an authorization-server token
+    // is the one exception: it narrows, see below). FAILS CLOSED: an unknown
     // persona name, or a `vault` claim outside that persona's `vaults`, is refused entirely
     // rather than falling through to the token's raw (wider) grant.
     if (id.persona !== undefined) {
@@ -255,7 +256,12 @@ async function resolveAuth(
       return {
         ok: true,
         caller: id.caller,
-        scopes: resolved.resolution.scopes,
+        // An authorization-server token narrows its persona to persona ∩ token scope (removal
+        // only); a hand-minted persona token keeps "the persona's scopes replace the token's".
+        scopes:
+          id.keyPurpose === "as"
+            ? narrowToTokenScopes(resolved.resolution.scopes, id.scopes)
+            : resolved.resolution.scopes,
         vault: resolved.resolution.vaultId,
         persona: resolved.resolution.persona,
         toolVisibility: resolved.resolution.toolVisibility,

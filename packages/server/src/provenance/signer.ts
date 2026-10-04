@@ -59,11 +59,14 @@ export function registrySignerSource(
   };
 }
 
-/** Every EdDSA key the registry holds, whatever its state, by kid. */
+/** Every `mint` EdDSA key the registry holds, whatever its state, by kid. An `as` key (the
+ *  authorization server's access-token key) is never a provenance key: it signs for another purpose. */
 export function registryKeyResolver(keys: readonly AuthKey[]): KeyResolver {
   const byKid = new Map<string, PublicJwk>();
   for (const k of keys) {
-    if (k.alg === "EdDSA" && k.publicJwk !== null) byKid.set(k.kid, k.publicJwk);
+    if (k.purpose !== "as" && k.alg === "EdDSA" && k.publicJwk !== null) {
+      byKid.set(k.kid, k.publicJwk);
+    }
   }
   return (kid) => byKid.get(kid);
 }

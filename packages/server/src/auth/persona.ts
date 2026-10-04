@@ -5,7 +5,11 @@
 // call is refused. It is never a union of "whatever the token said" and "whatever the persona
 // says" — see PersonaConfigSchema's `scopes` doc comment for why that would be a privilege-widening
 // bug, not a convenience.
-import type { PersonasConfig, ToolVisibilityConfig } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  grantsScope,
+  type PersonasConfig,
+  type ToolVisibilityConfig,
+} from "@the-40-thieves/obsidian-tc-shared";
 
 export interface PersonaResolution {
   vaultId: string;
@@ -45,4 +49,24 @@ export function resolvePersona(
       persona: personaName,
     },
   };
+}
+
+/**
+ * Authorization-server tokens only (design v2 section 4.2, owner decision 4): the effective scopes
+ * of a persona are `persona.scopes` INTERSECT the token's own `scope`. It only ever REMOVES: a scope
+ * the token holds but the persona lacks is not granted, and a token wider than its persona leaves
+ * the persona's scopes as they are. That is what keeps an OAuth client's down-scoping meaningful.
+ * A hand-minted persona token does not come through here; its persona's scopes replace its own.
+ *
+ * Honours family and global wildcards on either side (`grantsScope`), keeping the NARROWER scope
+ * when they differ (persona `read:*` with token `read:notes` -> `read:notes`).
+ */
+export function narrowToTokenScopes(
+  personaScopes: ReadonlySet<string>,
+  tokenScopes: ReadonlySet<string>,
+): Set<string> {
+  const out = new Set<string>();
+  for (const p of personaScopes) if (grantsScope(tokenScopes, p)) out.add(p);
+  for (const t of tokenScopes) if (grantsScope(personaScopes, t)) out.add(t);
+  return out;
 }

@@ -109,12 +109,14 @@ Three commands operate on that registry:
 ```bash
 obsidian-tc auth list [--all] [--keys] [--json] [config-path]
 obsidian-tc auth revoke <jti> [--reason <text>] [config-path]
-obsidian-tc auth rotate-key [--grace <seconds>] [--alg HS256|ES256|EdDSA] [config-path]
+obsidian-tc auth rotate-key [--purpose mint|as] [--grace <seconds>] [--alg HS256|ES256|EdDSA] [config-path]
 ```
 
 - **`auth list`** prints `jti`, `kid`, `sub`, `exp` and state (`active`, `revoked`,
   `expired`) for issued tokens, and never a token or key. `--all` includes expired
-  tokens; `--keys` lists the signing keys (kid, state, created, retire_after) instead.
+  tokens, but a record is deleted once its token is more than a day past `exp` (at server start and
+  by the periodic maintenance sweep; revocation tombstones are kept, and so is the newest record, so
+  the table never empties); `--keys` lists the signing keys (kid, alg, purpose, state, created, retire_after) instead.
 - **`auth revoke <jti>`** kills one token before it expires. The verifier checks the
   token's `jti` on every request, after the signature verifies, so the revoked token
   is refused (logged and counted as `token_revoked`; the caller sees the same generic
@@ -123,8 +125,9 @@ obsidian-tc auth rotate-key [--grace <seconds>] [--alg HS256|ES256|EdDSA] [confi
   registry never issued (a token minted before the registry existed, or by an external issuer
   behind a JWKS) is revoked by recording a *tombstone*, so `auth revoke` works for any jti you can
   name.
-- **`auth rotate-key`** generates a new signing key and makes it the only active one.
-  The old key is `retiring` for `--grace` seconds and verifies alongside the new one until
+- **`auth rotate-key`** generates a new signing key and makes it the only active one **of its
+  purpose** (see "Key purposes" below; with no `--purpose` that is `mint`, the key `token mint`
+  signs with). The old key is `retiring` for `--grace` seconds and verifies alongside the new one until
   then. Without `--grace` the window is `auth.rotationGraceSeconds` (default `0`: retired at
   once, and every token it signed stops verifying; maximum `604800`, 7 days). An explicit
   `--grace`, including `--grace 0`, always wins over the config value.
@@ -190,6 +193,48 @@ checked, and `alg: none` is refused everywhere. A configured `auth.algorithms` l
 registry algorithms too, and it applies to HS256 as well: `["EdDSA"]` refuses HS256 on the MCP edge
 and on `/metrics` alike.
 
+### Key purposes (`mint` and `as`)
+
+Every registry key has a **purpose**, and the registry holds one **active** key per purpose:
+
+| purpose | signs | algorithms | verified by |
+| --- | --- | --- | --- |
+| `mint` (the default) | the tokens `obsidian-tc token mint` prints, and the write-provenance chain | HS256, ES256, EdDSA | exactly the rules above, including `auth.issuer` and `auth.audience` when set |
+| `as` | the access tokens of the bundled authorization server (RFC 9068 JWTs) | ES256, EdDSA only | stricter rules of its own, below |
+
+Every key that existed before purposes was a `mint` key, and a deployment that never creates an
+`as` key behaves exactly as before: the `<cacheDir>/auth.db` migration adds the column with `mint` as its default.
+Because each purpose has its own active key, `obsidian-tc auth rotate-key --purpose as` never
+retires your HS256 (or any other) `mint` key, and a `mint` rotation never retires the `as` key. Your
+hand-minted tokens therefore keep verifying however often the `as` key rotates.
+
+```bash
+obsidian-tc auth rotate-key --purpose as [--alg ES256|EdDSA] [--grace <seconds>] [config-path]
+```
+
+- The algorithm defaults to ES256 for `as`; HS256 is refused. The key's `kid` is its RFC 7638
+  thumbprint, and its private JWK lives in `auth-keys/as-<kid>.key` (0600), never in the database.
+- Replacing an `as` key needs a grace window of at least the access-token lifetime plus 60 seconds
+  (1860 s with the default 1800 s lifetime), so a rotation never kills a live access token. An
+  omitted `--grace` uses that floor (or `auth.rotationGraceSeconds` when that is longer); an explicit
+  shorter one is refused and nothing changes.
+- `/.well-known/jwks.json` publishes the active and in-window retiring asymmetric keys of **both**
+  purposes, public members only.
+
+A token whose `kid` names an `as` key is checked by the **key's** purpose, never by what the token
+says about itself. It must carry `iss` equal to the authorization server's issuer, the JOSE header
+`typ: at+jwt`, a non-empty `client_id`, `aud` equal to `auth.resource` (a single string; an
+`auth.audience` override does not apply), and a `jti` (required even with `auth.requireJti` off).
+Its scopes come from the `scope` claim only. The legacy `auth.issuer` never applies to an `as`
+token, and still binds only `mint` tokens. A token signed by an `as` key but shaped like a
+hand-minted one (no `typ`, no `client_id`, the legacy issuer) is refused. The verifier refuses every
+`as` token until the issuer and resource are configured, so creating a key alone enables nothing.
+
+**Personas narrow `as` tokens.** For a token signed by an `as` key that carries a `persona`, the
+effective scopes are the persona's scopes **intersected** with the token's `scope`: this only ever
+removes, and a scope the token holds but the persona lacks is not granted. A hand-minted persona token
+keeps the existing rule: the persona's scopes replace the token's.
+
 ### Removing `auth.jwtSecret`
 
 Once `rotate-key` has retired the `config` key, `auth.jwtSecret` verifies and signs nothing, and
@@ -219,9 +264,11 @@ retire a key. `rm <cacheDir>/cache.db*` (the documented way to reset the index),
 `reset_vault_cache` and every other cache wipe leave them alone; back both up with your other
 operator state.
 
-The server fails closed if the registry is lost, and it judges the two tables separately. Two marker
-files sit in `auth-keys/`, outside the database: `.keys-initialized` (the first `rotate-key`; any `*.key`
-file counts too) and `.tokens-initialized` (the first `token mint` or `revoke`). A table whose marker
+The server fails closed if the registry is lost, and it judges each part separately. Three marker
+files sit in `auth-keys/`, outside the database: `.keys-initialized` (the first `mint` `rotate-key`; any
+`*.key` file other than an `as` key's counts too), `.as-keys-initialized` (the first `rotate-key
+--purpose as`; any `as-*.key` file counts too) and `.tokens-initialized` (the first `token mint` or
+`revoke`). A part whose marker
 exists but which now holds no rows, or an `<cacheDir>/auth.db` that is missing altogether, makes the
 verifier refuse every HS256 bearer (reason `registry_lost`), the startup log and `doctor` name the
 problem, and `auth *` and `token mint` refuse to run. That covers a partial restore too: an emptied

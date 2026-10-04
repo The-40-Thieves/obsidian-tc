@@ -16,6 +16,8 @@ export const LONG_GRACE_SECONDS = 86_400;
 export interface AuthKeyView {
   kid: string;
   alg: string;
+  /** `mint` (hand-minted tokens) or `as` (the authorization server's); absent reads as `mint`. */
+  purpose?: string;
   state: "active" | "retiring" | "retired";
   /** Epoch ms a retiring key stops verifying. */
   retireAfter: number | null;
@@ -196,7 +198,13 @@ export function authRegistryCheck(view: AuthRegistryView): Check {
         );
         remediation ??= "Remove auth.jwtSecret and OBSIDIAN_TC_JWT_SECRET once you accept that.";
       }
-      if (view.keys !== undefined && keys.length > 0 && !keys.some((k) => k.state === "active")) {
+      // `token mint` signs with the active `mint` key: an active `as` key does not make up for it.
+      const mintKeys = keys.filter((k) => k.purpose !== "as");
+      if (
+        view.keys !== undefined &&
+        mintKeys.length > 0 &&
+        !mintKeys.some((k) => k.state === "active")
+      ) {
         issues.push("no active signing key: `token mint` will fail until `auth rotate-key` is run");
         remediation ??= "Run `obsidian-tc auth rotate-key`.";
       }

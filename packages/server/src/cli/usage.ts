@@ -323,7 +323,7 @@ Usage:
                                           tombstone. The server checks the jti on every request, in
                                           every process sharing auth.db. A token with no jti cannot
                                           be revoked; rotate the key, or set auth.requireJti.
-  obsidian-tc auth rotate-key [path] [--grace <seconds>] [--alg HS256|ES256|EdDSA]
+  obsidian-tc auth rotate-key [path] [--purpose mint|as] [--grace <seconds>] [--alg HS256|ES256|EdDSA]
                                           Generate a new active signing key. The previous key keeps
                                           verifying for --grace seconds (default auth.rotationGraceSeconds,
                                           itself 0: retired at once, so its tokens stop verifying;
@@ -331,6 +331,13 @@ Usage:
                                           --alg picks the new key's algorithm (default HS256); an
                                           ES256/EdDSA key's public half is served as a JWKS at
                                           /.well-known/jwks.json.
+                                          --purpose picks WHICH key rotates: mint (default, the
+                                          hand-minted tokens' key) or as (the authorization server's
+                                          access-token key: ES256, the default there, or EdDSA).
+                                          Each purpose has its own active key, so rotating one never
+                                          retires the other. Replacing an as key needs a --grace of
+                                          at least accessTokenSeconds + 60 (1860 by default, which is
+                                          also the default there), so no live access token is killed.
   obsidian-tc elicit [path] --hash <args_hash> --tool <name> [--vault <id>] [--caller <id>]
                         [--state-fp <fp>] [--json]
                                           Mint a single-use HITL confirmation token bound to the
