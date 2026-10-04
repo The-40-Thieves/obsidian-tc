@@ -27,10 +27,10 @@ export interface GoldenContamination {
   queries: number;
 }
 
-const norm = (s: string): string => s.toLowerCase().replace(/\s+/g, " ").trim();
+export const norm = (s: string): string => s.toLowerCase().replace(/\s+/g, " ").trim();
 // A wikilink or embed names another note, it does not quote a question: a hub note that links five
 // notes whose titles happen to equal golden queries is ordinary vault structure, not a copy.
-const stripWikilinks = (s: string): string => s.replace(/!?\[\[[^\]]*\]\]/g, " ");
+export const stripWikilinks = (s: string): string => s.replace(/!?\[\[[^\]]*\]\]/g, " ");
 
 /** Resolve the threshold: explicit option, else env, else the default. `null` means disabled. */
 export function resolveContaminationThreshold(

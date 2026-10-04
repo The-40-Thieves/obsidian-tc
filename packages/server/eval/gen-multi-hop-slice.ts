@@ -243,6 +243,14 @@ export function toYaml(queries: SliceQuery[]): string {
     lines.push(`    query_text: ${JSON.stringify(q.query_text)}`);
     lines.push(`    seed_domain: ${q.seed_domain}`);
     lines.push(`    target_domain: ${q.target_domain}`);
+    // `GoldenQuerySchema` requires a description; a slice without one cannot be loaded by any scorer.
+    lines.push(
+      `    description: ${JSON.stringify(
+        q.bridge_paths.length > 0
+          ? "synthetic two-hop chain: seed, bridge, target, no direct seed-to-target link"
+          : "synthetic distinctive-term lookup",
+      )}`,
+    );
     for (const [key, paths] of [
       ["seed_paths", q.seed_paths],
       ["target_paths", q.target_paths],
