@@ -1,0 +1,1884 @@
+{
+  "queries": [
+    {
+      "id": "qd-link-001",
+      "query_text": "For information on how to add, remove or configure plugins, see the Configuration page.",
+      "seed_domain": "plugins",
+      "target_domain": "(root)",
+      "seed_paths": [
+        "plugins/Darkmode.md"
+      ],
+      "target_paths": [
+        "configuration.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-002",
+      "query_text": "This functionality is provided by the ContentIndex plugin.",
+      "seed_domain": "features",
+      "target_domain": "plugins",
+      "seed_paths": [
+        "features/RSS Feed.md"
+      ],
+      "target_paths": [
+        "plugins/ContentIndex.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-003",
+      "query_text": "If you are coming from Quartz 4 or Quartz 3, check out the migration guide for more info.",
+      "seed_domain": "getting-started",
+      "target_domain": "getting-started",
+      "seed_paths": [
+        "getting-started/upgrading.md"
+      ],
+      "target_paths": [
+        "getting-started/migrating.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-004",
+      "query_text": "The RSS Feed allows users to subscribe to content on your site and the sitemap allows search engines to better index your site.",
+      "seed_domain": "plugins",
+      "target_domain": "features",
+      "seed_paths": [
+        "plugins/ContentIndex.md"
+      ],
+      "target_paths": [
+        "features/RSS Feed.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-005",
+      "query_text": "It uses the default page frame (three-column layout with sidebars).",
+      "seed_domain": "plugins",
+      "target_domain": "(root)",
+      "seed_paths": [
+        "plugins/FolderPage.md"
+      ],
+      "target_paths": [
+        "layout.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-006",
+      "query_text": "RSS Feed — RSS feed generation for content syndication",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [
+        "features/index.md"
+      ],
+      "target_paths": [
+        "features/RSS Feed.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-007",
+      "query_text": "mermaid: If true (default), enables Mermaid diagram rendering within Markdown files.",
+      "seed_domain": "plugins",
+      "target_domain": "features",
+      "seed_paths": [
+        "plugins/ObsidianFlavoredMarkdown.md"
+      ],
+      "target_paths": [
+        "features/Mermaid diagrams.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-008",
+      "query_text": "Should match the markdownLinkResolution setting of the CrawlLinks plugin.",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [
+        "plugins/BasesPage.md"
+      ],
+      "target_paths": [
+        "plugins/CrawlLinks.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-009",
+      "query_text": "By default, Quartz uses the RemoveDrafts plugin which filters out any note that has draft: true in the frontmatter.",
+      "seed_domain": "features",
+      "target_domain": "plugins",
+      "seed_paths": [
+        "features/private pages.md"
+      ],
+      "target_paths": [
+        "plugins/RemoveDrafts.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-010",
+      "query_text": "Deploy — Host your site for free on GitHub Pages, Cloudflare, Netlify, or Vercel",
+      "seed_domain": "getting-started",
+      "target_domain": "(root)",
+      "seed_paths": [
+        "getting-started/index.md"
+      ],
+      "target_paths": [
+        "hosting.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-011",
+      "query_text": "You will be prompted to set this during npx quartz create.",
+      "seed_domain": "(root)",
+      "target_domain": "cli",
+      "seed_paths": [
+        "configuration.md"
+      ],
+      "target_paths": [
+        "cli/create.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-012",
+      "query_text": "This functionality is provided by the CustomOgImages plugin.",
+      "seed_domain": "features",
+      "target_domain": "plugins",
+      "seed_paths": [
+        "features/social images.md"
+      ],
+      "target_paths": [
+        "plugins/CustomOgImages.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-013",
+      "query_text": "Authoring Content — Write and organize your Markdown notes in the content/ folder",
+      "seed_domain": "getting-started",
+      "target_domain": "getting-started",
+      "seed_paths": [
+        "getting-started/index.md"
+      ],
+      "target_paths": [
+        "getting-started/authoring-content.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-014",
+      "query_text": "explorer — File tree sidebar for browsing notes",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [
+        "features/index.md"
+      ],
+      "target_paths": [
+        "features/explorer.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-015",
+      "query_text": "The EncryptedPages plugin also sets file.data.unlisted when its unlistWhenEncrypted: true option is set or when a page has unlisted: true in frontmatter.",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [
+        "plugins/UnlistedPages.md"
+      ],
+      "target_paths": [
+        "plugins/EncryptedPages.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-016",
+      "query_text": "This plugin is not enabled by default as this doesn't follow the semantics of actual Markdown but you may enable it if you'd like parity with Obsidian.",
+      "seed_domain": "plugins",
+      "target_domain": "features",
+      "seed_paths": [
+        "plugins/HardLineBreaks.md"
+      ],
+      "target_paths": [
+        "features/Obsidian compatibility.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-017",
+      "query_text": "Authoring Content — Write and organize your notes",
+      "seed_domain": "getting-started",
+      "target_domain": "getting-started",
+      "seed_paths": [
+        "getting-started/installation.md"
+      ],
+      "target_paths": [
+        "getting-started/authoring-content.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-018",
+      "query_text": "Bases — Database-like views for your notes (tables, cards, galleries, and more)",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [
+        "features/index.md"
+      ],
+      "target_paths": [
+        "features/Bases.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-019",
+      "query_text": "Each page type can use a different page frame to control its overall HTML structure.",
+      "seed_domain": "(root)",
+      "target_domain": "(root)",
+      "seed_paths": [
+        "configuration.md"
+      ],
+      "target_paths": [
+        "layout.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-link-020",
+      "query_text": "This is a live demo of the EncryptedPages plugin.",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [
+        "plugins/EncryptedPages Demo.md"
+      ],
+      "target_paths": [
+        "plugins/EncryptedPages.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "qd-bridge-001",
+      "query_text": "How does creating components relate to configuration?",
+      "seed_domain": "advanced",
+      "target_domain": "(root)",
+      "seed_paths": [
+        "advanced/creating components.md"
+      ],
+      "target_paths": [
+        "configuration.md"
+      ],
+      "bridge_paths": [
+        "advanced/making plugins.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "qd-bridge-002",
+      "query_text": "How does BasesPage relate to creating components?",
+      "seed_domain": "plugins",
+      "target_domain": "advanced",
+      "seed_paths": [
+        "plugins/BasesPage.md"
+      ],
+      "target_paths": [
+        "advanced/creating components.md"
+      ],
+      "bridge_paths": [
+        "layout.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "qd-bridge-003",
+      "query_text": "How does popover previews relate to making plugins?",
+      "seed_domain": "features",
+      "target_domain": "advanced",
+      "seed_paths": [
+        "features/popover previews.md"
+      ],
+      "target_paths": [
+        "advanced/making plugins.md"
+      ],
+      "bridge_paths": [
+        "advanced/creating components.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "qd-bridge-004",
+      "query_text": "How does Frontmatter relate to Mermaid diagrams?",
+      "seed_domain": "plugins",
+      "target_domain": "features",
+      "seed_paths": [
+        "plugins/Frontmatter.md"
+      ],
+      "target_paths": [
+        "features/Mermaid diagrams.md"
+      ],
+      "bridge_paths": [
+        "features/Obsidian compatibility.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "qd-bridge-005",
+      "query_text": "How does authoring-content relate to Obsidian compatibility?",
+      "seed_domain": "getting-started",
+      "target_domain": "features",
+      "seed_paths": [
+        "getting-started/authoring-content.md"
+      ],
+      "target_paths": [
+        "features/Obsidian compatibility.md"
+      ],
+      "bridge_paths": [
+        "features/wikilinks.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "qd-bridge-006",
+      "query_text": "How does installation relate to wikilinks?",
+      "seed_domain": "getting-started",
+      "target_domain": "features",
+      "seed_paths": [
+        "getting-started/installation.md"
+      ],
+      "target_paths": [
+        "features/wikilinks.md"
+      ],
+      "bridge_paths": [
+        "getting-started/authoring-content.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "qd-bridge-007",
+      "query_text": "How does Frontmatter relate to CrawlLinks?",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [
+        "plugins/Frontmatter.md"
+      ],
+      "target_paths": [
+        "plugins/CrawlLinks.md"
+      ],
+      "bridge_paths": [
+        "features/wikilinks.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "qd-bridge-008",
+      "query_text": "How does FolderPage relate to creating components?",
+      "seed_domain": "plugins",
+      "target_domain": "advanced",
+      "seed_paths": [
+        "plugins/FolderPage.md"
+      ],
+      "target_paths": [
+        "advanced/creating components.md"
+      ],
+      "bridge_paths": [
+        "layout.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "qd-bridge-009",
+      "query_text": "How does ObsidianFlavoredMarkdown relate to SyntaxHighlighting?",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [
+        "plugins/ObsidianFlavoredMarkdown.md"
+      ],
+      "target_paths": [
+        "plugins/SyntaxHighlighting.md"
+      ],
+      "bridge_paths": [
+        "features/callouts.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "qd-bridge-010",
+      "query_text": "How does authoring-content relate to hosting?",
+      "seed_domain": "getting-started",
+      "target_domain": "(root)",
+      "seed_paths": [
+        "getting-started/authoring-content.md"
+      ],
+      "target_paths": [
+        "hosting.md"
+      ],
+      "bridge_paths": [
+        "plugins/CreatedModifiedDate.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "qd-quote-001",
+      "query_text": "plugins ship with Quartz, covering everything from search and graph",
+      "seed_domain": "getting-started",
+      "target_domain": "getting-started",
+      "seed_paths": [],
+      "target_paths": [
+        "getting-started/whats-new.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-002",
+      "query_text": "(default), enables parsing of == style highlights within content",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/ObsidianFlavoredMarkdown.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-003",
+      "query_text": "panes overflow the viewport, earlier panes collapse to a thin",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/StackedPages.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-004",
+      "query_text": "content, taking a Markdown file and outputting modified content or",
+      "seed_domain": "advanced",
+      "target_domain": "advanced",
+      "seed_paths": [],
+      "target_paths": [
+        "advanced/making plugins.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-005",
+      "query_text": "a different system with per-heading variables (--h1-font through --h6-font), --font-text",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/Fonts.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-006",
+      "query_text": "was dispatched, so graph, explorer, and search re-initialized with the",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/EncryptedPages Demo.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-007",
+      "query_text": "have an impact on build speed if you have a",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/syntax highlighting.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-008",
+      "query_text": "on git for dates, make sure defaultDateType is set to",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/CreatedModifiedDate.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-009",
+      "query_text": "works on plugin add and the other plugin subcommands that",
+      "seed_domain": "cli",
+      "target_domain": "cli",
+      "seed_paths": [],
+      "target_paths": [
+        "cli/plugin.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-010",
+      "query_text": "the ability to hook into various providers to enable readers",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/comments.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-011",
+      "query_text": "perform parallel work accept -c as a no-op, so it's",
+      "seed_domain": "cli",
+      "target_domain": "cli",
+      "seed_paths": [],
+      "target_paths": [
+        "cli/index.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-012",
+      "query_text": "are built into Quartz core (Assets, Static, ComponentResources, NotFoundPage)",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/index.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-013",
+      "query_text": "to disable it, set enableCaseRedirects: false in the plugin options",
+      "seed_domain": "getting-started",
+      "target_domain": "getting-started",
+      "seed_paths": [],
+      "target_paths": [
+        "getting-started/migrating.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-014",
+      "query_text": "to translate text in the Quartz interface into various supported",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/i18n.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-015",
+      "query_text": "still emitted as HTML and remains accessible by direct URL",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/UnlistedPages.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-016",
+      "query_text": "generated by ox-hugo is not pure Markdown but Hugo specific",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/OxHugo compatibility.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-017",
+      "query_text": "view shows files that either link to the current file",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/graph view.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-018",
+      "query_text": "just set up a new repository and haven't pushed anything",
+      "seed_domain": "cli",
+      "target_domain": "cli",
+      "seed_paths": [],
+      "target_paths": [
+        "cli/sync.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-019",
+      "query_text": "indexes every page on the site with Markdown syntax removed",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/full-text search.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-020",
+      "query_text": "this, it skips the installation and build steps entirely, making",
+      "seed_domain": "cli",
+      "target_domain": "cli",
+      "seed_paths": [],
+      "target_paths": [
+        "cli/plugin.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-021",
+      "query_text": "any page whose slug matches Quartz's folder-path convention (trailing slash",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/recent notes.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-022",
+      "query_text": "a full page and can be individually scrolled or closed",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/StackedPages.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-023",
+      "query_text": "example filters on the title but you can also do",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/explorer.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-024",
+      "query_text": "local development server AND automatically watches for changes (implies --watch)",
+      "seed_domain": "cli",
+      "target_domain": "cli",
+      "seed_paths": [],
+      "target_paths": [
+        "cli/build.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-025",
+      "query_text": "makes unlisted: true in a page's frontmatter a first-class way",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/UnlistedPages.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-026",
+      "query_text": "quartz upgrade, type errors can occur if the update changed",
+      "seed_domain": "(root)",
+      "target_domain": "(root)",
+      "seed_paths": [],
+      "target_paths": [
+        "troubleshooting.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-027",
+      "query_text": "OG Images emitter plugin is enabled, it will be treated",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/CustomOgImages.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-028",
+      "query_text": "renderers for the same type, or add new view types",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/BasesPage.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-029",
+      "query_text": "site fully self-contained with no external requests to Google at",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/Fonts.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-quote-030",
+      "query_text": "cases where you may have more than one $ in",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/Latex.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "qd-unique-001",
+      "query_text": "Inline Highlighting",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/syntax highlighting.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-002",
+      "query_text": "ConditionalRender Component",
+      "seed_domain": "(root)",
+      "target_domain": "(root)",
+      "seed_paths": [],
+      "target_paths": [
+        "layout-components.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-003",
+      "query_text": "Frame Resolution",
+      "seed_domain": "advanced",
+      "target_domain": "advanced",
+      "seed_paths": [],
+      "target_paths": [
+        "advanced/architecture.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-004",
+      "query_text": "Option B: Clone Directly",
+      "seed_domain": "getting-started",
+      "target_domain": "getting-started",
+      "seed_paths": [],
+      "target_paths": [
+        "getting-started/installation.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-005",
+      "query_text": "New Plugins",
+      "seed_domain": "getting-started",
+      "target_domain": "getting-started",
+      "seed_paths": [],
+      "target_paths": [
+        "getting-started/whats-new.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-006",
+      "query_text": "Setting Up Your GitHub Repository",
+      "seed_domain": "getting-started",
+      "target_domain": "getting-started",
+      "seed_paths": [],
+      "target_paths": [
+        "getting-started/installation.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-007",
+      "query_text": "Using mhchem",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/Latex.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-008",
+      "query_text": "plugin install hangs, OOMs, or fails on low-end hardware",
+      "seed_domain": "(root)",
+      "target_domain": "(root)",
+      "seed_paths": [],
+      "target_paths": [
+        "troubleshooting.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-009",
+      "query_text": "Handling Conflicts",
+      "seed_domain": "cli",
+      "target_domain": "cli",
+      "seed_paths": [],
+      "target_paths": [
+        "cli/upgrade.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-010",
+      "query_text": "Guides & Tutorials",
+      "seed_domain": "(root)",
+      "target_domain": "(root)",
+      "seed_paths": [],
+      "target_paths": [
+        "community.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-011",
+      "query_text": "Filter Plugins",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/private pages.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-012",
+      "query_text": "Tools & Integrations",
+      "seed_domain": "(root)",
+      "target_domain": "(root)",
+      "seed_paths": [],
+      "target_paths": [
+        "community.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-013",
+      "query_text": "Plugin Resolution",
+      "seed_domain": "advanced",
+      "target_domain": "advanced",
+      "seed_paths": [],
+      "target_paths": [
+        "advanced/architecture.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-014",
+      "query_text": "Appearance & Reading",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/index.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-015",
+      "query_text": "Sync from Another Device",
+      "seed_domain": "cli",
+      "target_domain": "cli",
+      "seed_paths": [],
+      "target_paths": [
+        "cli/sync.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-016",
+      "query_text": "See Also",
+      "seed_domain": "cli",
+      "target_domain": "cli",
+      "seed_paths": [],
+      "target_paths": [
+        "cli/upgrade.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-017",
+      "query_text": "🚧 Troubleshooting + Updating",
+      "seed_domain": "(root)",
+      "target_domain": "(root)",
+      "seed_paths": [],
+      "target_paths": [
+        "index.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-018",
+      "query_text": "🪴 Get Started",
+      "seed_domain": "(root)",
+      "target_domain": "(root)",
+      "seed_paths": [],
+      "target_paths": [
+        "index.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-019",
+      "query_text": "Properties panel",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/Frontmatter.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-020",
+      "query_text": "Help and Versioning",
+      "seed_domain": "cli",
+      "target_domain": "cli",
+      "seed_paths": [],
+      "target_paths": [
+        "cli/index.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-021",
+      "query_text": "Try it yourself",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/EncryptedPages Demo.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-022",
+      "query_text": "Frontmatter Aliases",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/AliasRedirects.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-023",
+      "query_text": "Development Mode",
+      "seed_domain": "cli",
+      "target_domain": "cli",
+      "seed_paths": [],
+      "target_paths": [
+        "cli/build.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-024",
+      "query_text": "TS Override",
+      "seed_domain": "(root)",
+      "target_domain": "(root)",
+      "seed_paths": [],
+      "target_paths": [
+        "layout-components.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-025",
+      "query_text": "Layout Panel",
+      "seed_domain": "cli",
+      "target_domain": "cli",
+      "seed_paths": [],
+      "target_paths": [
+        "cli/tui.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-026",
+      "query_text": "Add custom callouts",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/callouts.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-027",
+      "query_text": "Conditionally display comments",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/comments.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-028",
+      "query_text": "Upgrading & Migrating",
+      "seed_domain": "getting-started",
+      "target_domain": "getting-started",
+      "seed_paths": [],
+      "target_paths": [
+        "getting-started/index.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-029",
+      "query_text": "Why Switch?",
+      "seed_domain": "getting-started",
+      "target_domain": "getting-started",
+      "seed_paths": [],
+      "target_paths": [
+        "getting-started/upgrading.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-unique-030",
+      "query_text": "Per-note overrides",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/Frontmatter.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "qd-exact-001",
+      "query_text": "reader mode",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/reader mode.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-002",
+      "query_text": "Roam Research compatibility",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/Roam Research compatibility.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-003",
+      "query_text": "NoteProperties",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/NoteProperties.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-004",
+      "query_text": "create",
+      "seed_domain": "cli",
+      "target_domain": "cli",
+      "seed_paths": [],
+      "target_paths": [
+        "cli/create.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-005",
+      "query_text": "HardLineBreaks",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/HardLineBreaks.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-006",
+      "query_text": "TagList",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/TagList.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-007",
+      "query_text": "table of contents",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/table of contents.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-008",
+      "query_text": "BasesPage",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/BasesPage.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-009",
+      "query_text": "Footer",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/Footer.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-010",
+      "query_text": "RemoveDrafts",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/RemoveDrafts.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-011",
+      "query_text": "RecentNotes",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/RecentNotes.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-012",
+      "query_text": "ExplicitPublish",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/ExplicitPublish.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-013",
+      "query_text": "FolderPage",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/FolderPage.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-014",
+      "query_text": "full-text search",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/full-text search.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-015",
+      "query_text": "showcase",
+      "seed_domain": "(root)",
+      "target_domain": "(root)",
+      "seed_paths": [],
+      "target_paths": [
+        "showcase.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-016",
+      "query_text": "Static",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/Static.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-017",
+      "query_text": "wikilinks",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/wikilinks.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-018",
+      "query_text": "callouts",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/callouts.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-019",
+      "query_text": "restore",
+      "seed_domain": "cli",
+      "target_domain": "cli",
+      "seed_paths": [],
+      "target_paths": [
+        "cli/restore.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-020",
+      "query_text": "CreatedModifiedDate",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/CreatedModifiedDate.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-021",
+      "query_text": "graph view",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/graph view.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-022",
+      "query_text": "SyntaxHighlighting",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/SyntaxHighlighting.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-023",
+      "query_text": "Canvas",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/Canvas.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-024",
+      "query_text": "ReaderMode",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/ReaderMode.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-025",
+      "query_text": "ArticleTitle",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/ArticleTitle.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-026",
+      "query_text": "social images",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/social images.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-027",
+      "query_text": "Favicon",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/Favicon.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-028",
+      "query_text": "TagPage",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/TagPage.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-029",
+      "query_text": "ComponentResources",
+      "seed_domain": "plugins",
+      "target_domain": "plugins",
+      "seed_paths": [],
+      "target_paths": [
+        "plugins/ComponentResources.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "qd-exact-030",
+      "query_text": "private pages",
+      "seed_domain": "features",
+      "target_domain": "features",
+      "seed_paths": [],
+      "target_paths": [
+        "features/private pages.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    }
+  ]
+}

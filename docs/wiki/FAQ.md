@@ -6,7 +6,7 @@
 
 **Why do I only see three tools?** That's the default **triad facade**: `find_capability` / `describe_capability` / `call_capability` keep agent context lean while every tool stays reachable (and directly callable by name). Set `toolFacade.mode` to `domain` or `flat` for other shapes. See **[[Tool Reference]]**.
 
-**Does it do GraphRAG / hybrid retrieval?** Yes — shipped and **measured**: `vault_graph_search` (vector seeds + wikilink expansion fused with RRF), FTS5 BM25, and vec0 dense search, gated by an n=250 golden set with a statistical ship rule (contextual chunk enrichment measured +0.223 nDCG and defaults on). Mechanisms that lost their A/B (rerankers, learned sparse, query decomposition) ship dark behind flags with their numbers. See **[[Architecture]]**.
+**Does it do GraphRAG / hybrid retrieval?** Yes — shipped and **measured**: `vault_graph_search` (vector seeds + wikilink expansion fused with RRF), FTS5 BM25, and vec0 dense search, gated by an n=250 golden set with a statistical ship rule (contextual chunk enrichment measured +0.223 nDCG and defaults on). Mechanisms that did not earn a default ship dark behind flags: rerankers have recorded A/B results, learned sparse and query decomposition have none. See **[[Architecture]]**.
 
 **What is the "work-memory tier"?** A quarantined second store (`experiential.db`) for agent work episodes and retrieval telemetry — physically separate from your authored notes, readable only through eligibility-gated tools (`work_search`, `work_episodes`), with a poison scanner on ingest and a hash-chain-audited `forget`. Content capture is **off by default**. See **[[Architecture]]**.
 

@@ -8,6 +8,7 @@
 // "no effect", which is the exact failure feedback-state-the-detectable-effect-before-running
 // describes.
 import { describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 import {
   assertSliceInvariants,
   DEFAULT_QUERIES,
@@ -15,6 +16,7 @@ import {
   generateSlice,
   toYaml,
 } from "../eval/gen-multi-hop-slice";
+import { GoldenSetSchema } from "../eval/metrics";
 
 describe("multi-hop slice — size is derived from the MDE, not chosen", () => {
   it("defaults to a size that can detect the smallest effect worth shipping", () => {
@@ -130,5 +132,12 @@ describe("multi-hop slice — reproducible and leak-free by construction", () =>
     ]) {
       expect(yaml).toContain(key);
     }
+  });
+
+  it("emits a set every scorer can load (GoldenQuerySchema requires a description)", () => {
+    const parsed = GoldenSetSchema.parse(
+      parseYaml(toYaml(generateSlice(30, DEFAULT_SEED).queries)),
+    );
+    expect(parsed.queries).toHaveLength(30);
   });
 });

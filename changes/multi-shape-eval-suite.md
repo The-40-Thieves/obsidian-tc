@@ -1,0 +1,4 @@
+---
+type: Added
+---
+- **A public multi-shape eval suite, and an inventory of the dark retrieval mechanisms.** `packages/server/eval/corpora/` pins two third-party corpora (a code-documentation set and a Chinese personal garden, both MIT) by commit and content digest, with a fetch-and-verify tool, shape statistics, planned power, and output-derived golden sets whose generator is deterministic and guard-clean; a synthetic multi-hop set joins them, and the generator now emits the `description` field the golden schema requires. `docs/DARK_MECHANISMS.md` lists every default-off retrieval flag with its config key, storage, dependency and recorded result, and a test keeps it in step with the config schema. `docs/EVALUATION.md` records the suite, its preregistration and one harness smoke; no default changes. The architecture and roadmap notes no longer claim recorded A/B numbers for learned sparse, ColBERT, convex fusion, query decomposition or MMR, which have none.

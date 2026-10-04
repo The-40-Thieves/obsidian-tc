@@ -778,3 +778,14 @@ corpus of a different language or size, pre-registered, where a candidate arm wi
 of the three. `graph_rrf` stays the production order: on the two shapes it is above dense everywhere (+0.023 to +0.062),
 and only nemotron on evergreen strict (+0.023 over it, untested) and DeepInfra on private (+0.006 over it, untested) exceed
 it in pure rerank.
+
+## Status (2026-10-03): two of the missing shapes are now sourced; no evidence yet, nothing flips
+
+The public multi-shape suite (`packages/server/eval/corpora/`) supplies a code-documentation corpus (`quartz-docs`,
+English, 111 notes), a Chinese personal garden (`knowledge-garden`, 959 notes, 51% CJK) and a generated multi-hop
+slice, each pinned by commit and digest, with golden sets fixed before any arm ran and planned minimum detectable
+effects of 0.053, 0.039 and 0.053 on nDCG@10 at the widest measured spread. The Obsidian help vault was considered and
+rejected for lack of a licence. The one scored run is a harness smoke of the default stack on `quartz-docs`; it tests no
+mechanism, and no dark mechanism (see `docs/DARK_MECHANISMS.md`) has been scored on any new shape. So the bar this ADR
+sets is exactly as unmet as before: shapes exist to run against, evidence does not, and no default changes. See
+`docs/EVALUATION.md`, "Multi-shape suite".

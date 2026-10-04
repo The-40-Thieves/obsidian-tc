@@ -15,6 +15,7 @@
       "!**/packages/native/target",
       "!**/bun.lock",
       "!**/eval/perf/baseline.*.json",
+      "!**/eval/corpora/golden/*.json",
       "!**/eval/perf/.node-parity.mjs*",
       "!**/packages/server/perf-node-parity.json",
       "!**/.dependency-cruiser-known-violations.json",

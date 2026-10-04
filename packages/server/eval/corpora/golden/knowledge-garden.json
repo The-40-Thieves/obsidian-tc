@@ -1,0 +1,3504 @@
+{
+  "queries": [
+    {
+      "id": "kg-link-001",
+      "query_text": "使用File Cooker将这些符合某些tags或者properties的md，先批量移动到一个临时文件夹，然后在cursor中@这个文件夹。",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/如何使用Cursor管理Obsidian知识库.md"
+      ],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/Plugins/File Cooker.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-002",
+      "query_text": "快速过一遍obsidian一些社区插件的功能点：快速了解常用插件的核心功能。",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/∑ obsidian相关笔记.md"
+      ],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/快速过一遍obsidian一些社区插件的功能点.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-003",
+      "query_text": "所以我将其放在ACCESS 笔记组织法的Sources文件夹下。",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/obsidian如何做短课程笔记.md"
+      ],
+      "target_paths": [
+        "Spaces/2-Area/知识管理/ACCESS 笔记组织法.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-004",
+      "query_text": "第一：对内容相互关系的思考，是 自主思考 的一部分。",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [
+        "Sources/Articles/常青笔记阅读笔记/优先选择明确的关联，而不是推断的关联.md"
+      ],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/自主思考.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-005",
+      "query_text": "Obsidian拎包入住开荒仓库：一个现成的开荒仓库。",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/∑ obsidian相关笔记.md"
+      ],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/Obsidian拎包入住开荒仓库.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-006",
+      "query_text": "或者使用File Cooker，有几个可以批量插入链接到canvas的命令。",
+      "seed_domain": "Atlas",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [
+        "Atlas/Canvas/» canvas使用经验和技巧.md"
+      ],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/Plugins/File Cooker.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-007",
+      "query_text": "用 Linter 格式化以后，一个内容块儿，前后有空格，则这个内容块整体是一个 block",
+      "seed_domain": "Spaces",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [
+        "Spaces/2-Area/知识管理/markdown 中如何界定一个块block.md"
+      ],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/Plugins/Linter.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-008",
+      "query_text": "这个形式，引导我们去忽略路径，让链接成为我们笔记的第一公民，即链接优先。",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/∑ 本库obsidian基本配置及原因.md"
+      ],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/链接优先.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-009",
+      "query_text": "这样随着时间的推移，而笔记不断更新、链接，你会逐步发现不同书籍和领域之间的联系（常青笔记之间应该建立大量链接）。",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [
+        "Sources/Articles/常青笔记阅读笔记/常青笔记应面向概念.md"
+      ],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/常青笔记之间应该建立大量链接.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-010",
+      "query_text": "因为知识工作应能聚沙成塔和常青笔记有助于积累阅读成果",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [
+        "Sources/Articles/常青笔记阅读笔记/写你所读，以求内化.md"
+      ],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/知识工作应能聚沙成塔.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-011",
+      "query_text": "∑ 本库 ACCESS 的文件夹入口汇总",
+      "seed_domain": "Spaces",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [
+        "Spaces/2-Area/数字花园建设与维护/§ TOCs.md"
+      ],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/∑ 本库 ACCESS 的文件夹入口汇总.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-012",
+      "query_text": "使用插件将摘录和想法批量导出到Obsidian",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Spaces/2-Area/知识管理/个人信息管理系统.md"
+      ],
+      "target_paths": [
+        "Spaces/3-Resource/软件梳理/安卓软件/Obsidian.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-013",
+      "query_text": "有研究发现，相比强度一成不变的匀速运动，穿插进高强度的变换强度运动（68%～92%最大摄氧量），虽然运动中的热量消耗并没有明显提高，但运动后恢复期静止的摄氧量却显著提高了。",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Spaces/2-Area/运动健康/EPOC.md"
+      ],
+      "target_paths": [
+        "Spaces/2-Area/运动健康/最大摄氧量.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-014",
+      "query_text": "关于待办处理和复习回顾见：» 我的标签使用工作流、» 我的复习回顾工作流。",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "Cards",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/∑ 本库 ACCESS 工作流汇总.md"
+      ],
+      "target_paths": [
+        "Cards/» 我的标签使用工作流.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-015",
+      "query_text": "当然，本库中，当提到卡片笔记的时候，更多的是指卢曼发明的卡片盒笔记法 - Zettelkasten。",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Spaces/2-Area/知识管理/卡片笔记.md"
+      ],
+      "target_paths": [
+        "Spaces/3-Resource/人/卢曼.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-016",
+      "query_text": "创建更高大上，更多定制功能的图片shots.so",
+      "seed_domain": "Spaces",
+      "target_domain": "Cards",
+      "seed_paths": [
+        "Spaces/3-Resource/软件梳理/macos软件/CleanShot X.md"
+      ],
+      "target_paths": [
+        "Cards/shots.so.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-017",
+      "query_text": "这种文字形式为主的数字花园，将是你的好选择。",
+      "seed_domain": "Cards",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Cards/要多分享自己的思考成果.md"
+      ],
+      "target_paths": [
+        "Spaces/2-Area/数字花园建设与维护/数字花园.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-018",
+      "query_text": "如果要我安利obsidian给别人，我会怎么做：如何向他人介绍 Obsidian 的魅力。",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/∑ obsidian相关笔记.md"
+      ],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/如果要我安利obsidian给别人，我会怎么做.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-019",
+      "query_text": "Bases (数据库)：作为 Notion Database 的替代品，Bases 提供了强大的数据库功能，但更灵活。",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/∑ Obsidian 从入门到精通.md"
+      ],
+      "target_paths": [
+        "Spaces/3-Resource/软件梳理/安卓软件/Notion.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-020",
+      "query_text": "%%我的理解:: 我以前的笔记就是如此，为了闭合开环，为了完成任务，为了当前。",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [
+        "Sources/Articles/常青笔记阅读笔记/大多数人把笔记当作贮藏容器或思想草稿.md"
+      ],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/闭合开环.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-021",
+      "query_text": "从浏览器输入一个网址到得到网站页面，中间发生了什么",
+      "seed_domain": "Spaces",
+      "target_domain": "Sources",
+      "seed_paths": [
+        "Spaces/1-Project/入门到精通 ChatGPT和LLM 应用及原理/让cursor把各种流程用mermaid画一遍.md"
+      ],
+      "target_paths": [
+        "Sources/AIGC/从浏览器输入一个网址到得到网站页面，中间发生了什么.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-022",
+      "query_text": "索引TOC和∑ MOCs才重要，不仅可以检索细粒度，而且可以附加描述信息。",
+      "seed_domain": "Sources",
+      "target_domain": "Atlas",
+      "seed_paths": [
+        "Sources/Articles/常青笔记阅读笔记/被索引的参考资料与标签.md"
+      ],
+      "target_paths": [
+        "Atlas/MOCs/∑ MOCs.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-023",
+      "query_text": "用 双链笔记 就可以完美实现 ZK 笔记法的核心要义。",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "Cards",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/obsidian的使用感受.md"
+      ],
+      "target_paths": [
+        "Cards/双链笔记.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-024",
+      "query_text": "markdown 是对文本的标记语言，给本文标记后，显示不同的视觉效果。",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Spaces/2-Area/知识管理/vim、markdown与org-mode.md"
+      ],
+      "target_paths": [
+        "Spaces/2-Area/知识管理/markdown.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-025",
+      "query_text": "因为它带给了我深度思考和沉淀以及增援未来的感觉。",
+      "seed_domain": "Spaces",
+      "target_domain": "Cards",
+      "seed_paths": [
+        "Spaces/Published/已发布文章/从anki、onenote到obsidian，一名小镇做题家的笔记进化史.md"
+      ],
+      "target_paths": [
+        "Cards/增援未来.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-026",
+      "query_text": "分享至Notion或Onenote或多或少都有兼容性问题，还可能会失败，没必要。",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Spaces/2-Area/知识管理/个人信息管理系统.md"
+      ],
+      "target_paths": [
+        "Spaces/3-Resource/软件梳理/安卓软件/Notion.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-027",
+      "query_text": "相比于P.A.R.A，更容易融入GTD，并强调了定期回顾和检视流程的重要性。",
+      "seed_domain": "Cards",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Cards/PPV.md"
+      ],
+      "target_paths": [
+        "Spaces/2-Area/知识管理/P.A.R.A.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-028",
+      "query_text": "因为这些是常青笔记，你现在有一个明确的立足点，可以在这个具体的想法上进行迭代。",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [
+        "Sources/Articles/常青笔记阅读笔记/常青笔记有助于积累洞见.md"
+      ],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/常青笔记.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-029",
+      "query_text": "你不一定要链接到你已经写过的笔记：反向链接可以用来隐式定义知识管理系统中的节点。",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [
+        "Sources/Articles/常青笔记阅读笔记/常青笔记之间应该建立大量链接.md"
+      ],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/反向链接可以用来隐式定义知识管理系统中的节点.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-030",
+      "query_text": "而有了卡片笔记写作法，当下写的笔记增援未来，可以让我们在写作之前，不必完全依赖临时的搜集，大脑和笔记库已经有了相应的知识组块可供调用了。",
+      "seed_domain": "Sources",
+      "target_domain": "Cards",
+      "seed_paths": [
+        "Sources/Articles/flomo101阅读笔记/笔记的误区.md"
+      ],
+      "target_paths": [
+        "Cards/增援未来.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-031",
+      "query_text": "从入门到精通，Obsidian 最终将成为您的 个人知识笔记系统，一个不断生长的 数字花园。",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/∑ Obsidian 从入门到精通.md"
+      ],
+      "target_paths": [
+        "Spaces/2-Area/知识管理/个人知识笔记系统.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-032",
+      "query_text": "他们当中有些人阅读时做的事很简单——在后页记下一些关键的参考资料，或者偶尔在边角上写东西——但他们都没有一套持续坚持的阅读习惯，如写你所读，以求内化中描述的做法。",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [
+        "Sources/Articles/常青笔记阅读笔记/我所认识的高效阅读者和思想家在阅读时不做笔记.md"
+      ],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/写你所读，以求内化.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-033",
+      "query_text": "倒是需要考虑，如何用Obsidian写那种给别人看的长文，引用卡片还是直接复制,目前看 logseq 的块引用很有用，但现在太卡了，而且块引用的语法也不兼容 ^d67e1d",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Spaces/2-Area/知识管理/PARA和MOC联用组织笔记.md"
+      ],
+      "target_paths": [
+        "Spaces/3-Resource/软件梳理/安卓软件/Obsidian.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-034",
+      "query_text": "其中一些条目比其他条目与特定标签的主题更相关，所以我们应该 优先选择明确的关联，而不是推断的关联。",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [
+        "Sources/Articles/常青笔记阅读笔记/标签是无效的关联结构.md"
+      ],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/优先选择明确的关联，而不是推断的关联.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-035",
+      "query_text": "更重要的是，这样的思考方式下，人们意识不到笔记写作可能是思考创意本身（常青笔记是知识工作的基本单位）。",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [
+        "Sources/Articles/常青笔记阅读笔记/大多数人把笔记当作贮藏容器或思想草稿.md"
+      ],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/常青笔记是知识工作的基本单位.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-036",
+      "query_text": "对于Templater和Dataview插件。",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "Sources",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/1012发现的obsidian有用插件分享.md"
+      ],
+      "target_paths": [
+        "Sources/GithubStarsSync/Templater.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-037",
+      "query_text": "通过URL scheme和obsidian联动即可。",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "Cards",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/本库设计哲学及理念.md"
+      ],
+      "target_paths": [
+        "Cards/URL scheme.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-038",
+      "query_text": "预览obsidian主题的markdown语法效果",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Spaces/2-Area/知识管理/obsidian的markdown语法.md"
+      ],
+      "target_paths": [
+        "Spaces/2-Area/知识管理/预览obsidian主题的markdown语法效果.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-039",
+      "query_text": "并且都是干净纯粹的md文件，则意味着可以如何使用Cursor管理Obsidian知识库",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/∑ Obsidian 从入门到精通.md"
+      ],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/如何使用Cursor管理Obsidian知识库.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-link-040",
+      "query_text": "∑ Obsidian 从入门到精通：一个已经存在的优秀 MOC，可作为参考。",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/∑ obsidian相关笔记.md"
+      ],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/∑ Obsidian 从入门到精通.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a sentence of the seed note, link markup removed; its link is the target",
+      "categories": [
+        "link-context"
+      ]
+    },
+    {
+      "id": "kg-bridge-001",
+      "query_text": "流动式框架和frontmatter之间有什么联系？",
+      "seed_domain": "Spaces",
+      "target_domain": "Cards",
+      "seed_paths": [
+        "Spaces/2-Area/数字花园建设与维护/流动式框架.md"
+      ],
+      "target_paths": [
+        "Cards/frontmatter.md"
+      ],
+      "bridge_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/obsidian组织笔记的5个要素.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-002",
+      "query_text": "HOMEPAGE和卡片盒笔记法 - Zettelkasten之间有什么联系？",
+      "seed_domain": "Cards",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Cards/HOMEPAGE.md"
+      ],
+      "target_paths": [
+        "Spaces/2-Area/知识管理/卡片盒笔记法 - Zettelkasten.md"
+      ],
+      "bridge_paths": [
+        "Spaces/2-Area/数字花园建设与维护/LYT 笔记框架.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-003",
+      "query_text": "∑ 本库教程汇总和🧰 本库使用指南之间有什么联系？",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/∑ 本库教程汇总.md"
+      ],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/🧰 本库使用指南.md"
+      ],
+      "bridge_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/本库使用时遵守的核心原则.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-004",
+      "query_text": "∑ 快捷键（MacOS + Windows）和MacOS Windows 修饰键 对比之间有什么联系？",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Spaces/2-Area/windows高效使用/∑ 快捷键（MacOS + Windows）.md"
+      ],
+      "target_paths": [
+        "Spaces/2-Area/macos高效使用/MacOS Windows 修饰键 对比.md"
+      ],
+      "bridge_paths": [
+        "Spaces/2-Area/macos高效使用/MacOS 常用快捷键.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-005",
+      "query_text": "本库ACCESS文件夹结构与混合笔记法和Tiago Forte之间有什么联系？",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/本库ACCESS文件夹结构与混合笔记法.md"
+      ],
+      "target_paths": [
+        "Spaces/3-Resource/人/Tiago Forte.md"
+      ],
+      "bridge_paths": [
+        "Cards/混合笔记法.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-006",
+      "query_text": "∑ obsidian相关笔记和链接优先之间有什么联系？",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/∑ obsidian相关笔记.md"
+      ],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/链接优先.md"
+      ],
+      "bridge_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/obsidian组织笔记的N个 xx first.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-007",
+      "query_text": "Obsidian和个人知识笔记系统之间有什么联系？",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Spaces/3-Resource/软件梳理/安卓软件/Obsidian.md"
+      ],
+      "target_paths": [
+        "Spaces/2-Area/知识管理/个人知识笔记系统.md"
+      ],
+      "bridge_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/如果要我安利obsidian给别人，我会怎么做.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-008",
+      "query_text": "Supercharged Links和Advanced URL之间有什么联系？",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "Cards",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/Plugins/Supercharged Links.md"
+      ],
+      "target_paths": [
+        "Cards/Advanced URL.md"
+      ],
+      "bridge_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/Plugins/∑ obsidian插件.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-009",
+      "query_text": "常见笔记组织方法和∑ MOCs之间有什么联系？",
+      "seed_domain": "Spaces",
+      "target_domain": "Atlas",
+      "seed_paths": [
+        "Spaces/2-Area/知识管理/常见笔记组织方法.md"
+      ],
+      "target_paths": [
+        "Atlas/MOCs/∑ MOCs.md"
+      ],
+      "bridge_paths": [
+        "Spaces/2-Area/知识管理/PARA和MOC联用组织笔记.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-010",
+      "query_text": "第二大脑和P.A.R.A之间有什么联系？",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Spaces/2-Area/知识管理/第二大脑.md"
+      ],
+      "target_paths": [
+        "Spaces/2-Area/知识管理/P.A.R.A.md"
+      ],
+      "bridge_paths": [
+        "Spaces/3-Resource/人/Tiago Forte.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-011",
+      "query_text": "§ 本库obsidian使用说明书和主页与工作区之间有什么联系？",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "Cards",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/§ 本库obsidian使用说明书.md"
+      ],
+      "target_paths": [
+        "Cards/主页与工作区.md"
+      ],
+      "bridge_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/本库工作区、界面划分逻辑及图标.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-012",
+      "query_text": "如果要我安利obsidian给别人，我会怎么做和卡片盒笔记法 - Zettelkasten之间有什么联系？",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/如果要我安利obsidian给别人，我会怎么做.md"
+      ],
+      "target_paths": [
+        "Spaces/2-Area/知识管理/卡片盒笔记法 - Zettelkasten.md"
+      ],
+      "bridge_paths": [
+        "Spaces/3-Resource/软件梳理/安卓软件/Notion.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-013",
+      "query_text": "常青笔记的标题就像 API和常青笔记有助于积累洞见之间有什么联系？",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [
+        "Sources/Articles/常青笔记阅读笔记/常青笔记的标题就像 API.md"
+      ],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/常青笔记有助于积累洞见.md"
+      ],
+      "bridge_paths": [
+        "Sources/Articles/常青笔记阅读笔记/常青笔记是知识工作的基本单位.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-014",
+      "query_text": "🧰 本库使用指南和本库建设数字花园的愿景和理念之间有什么联系？",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "Cards",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/🧰 本库使用指南.md"
+      ],
+      "target_paths": [
+        "Cards/本库建设数字花园的愿景和理念.md"
+      ],
+      "bridge_paths": [
+        "🍀 花园导览/🧰 本库指南/🌏 本库发布指南.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-015",
+      "query_text": "如何通过obsidian打造自己的第二大脑和PKM 的指导性原则 from lyt之间有什么联系？",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/如何通过obsidian打造自己的第二大脑.md"
+      ],
+      "target_paths": [
+        "Spaces/2-Area/知识管理/PKM 的指导性原则 from lyt.md"
+      ],
+      "bridge_paths": [
+        "Spaces/2-Area/数字花园建设与维护/LYT 笔记框架.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-016",
+      "query_text": "🗜 效率工具使用和VSCode之间有什么联系？",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "🍀 花园导览/🗜 效率工具使用.md"
+      ],
+      "target_paths": [
+        "Spaces/3-Resource/软件梳理/macos软件/VSCode.md"
+      ],
+      "bridge_paths": [
+        "Spaces/3-Resource/VSCode插件/∑ VSCode插件.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-017",
+      "query_text": "§ 本库obsidian使用说明书和Image auto upload Plugin之间有什么联系？",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/§ 本库obsidian使用说明书.md"
+      ],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/Plugins/Image auto upload Plugin.md"
+      ],
+      "bridge_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/本库需要单独配置的插件.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-018",
+      "query_text": "为什么要开源笔记和Roam Research之间有什么联系？",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "Cards",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/为什么要开源笔记.md"
+      ],
+      "target_paths": [
+        "Cards/Roam Research.md"
+      ],
+      "bridge_paths": [
+        "Cards/双链笔记.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-019",
+      "query_text": "obsidian 不可回避的缺点及其解决方案和Onedrive之间有什么联系？",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Spaces/Published/已发布文章/obsidian 不可回避的缺点及其解决方案.md"
+      ],
+      "target_paths": [
+        "Spaces/3-Resource/软件梳理/macos软件/Onedrive.md"
+      ],
+      "bridge_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/Plugins/Remotely Save.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-020",
+      "query_text": "常青笔记和卡片盒笔记法的异同点和RemNote之间有什么联系？",
+      "seed_domain": "Sources",
+      "target_domain": "Cards",
+      "seed_paths": [
+        "Sources/Articles/常青笔记阅读笔记/常青笔记和卡片盒笔记法的异同点.md"
+      ],
+      "target_paths": [
+        "Cards/RemNote.md"
+      ],
+      "bridge_paths": [
+        "Sources/Articles/常青笔记阅读笔记/助记媒介可以扩展到个人笔记上.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-021",
+      "query_text": "笔记写作的反馈不足和自下而上之间有什么联系？",
+      "seed_domain": "Sources",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Sources/Articles/常青笔记阅读笔记/笔记写作的反馈不足.md"
+      ],
+      "target_paths": [
+        "Spaces/2-Area/知识管理/自下而上.md"
+      ],
+      "bridge_paths": [
+        "Sources/Articles/常青笔记阅读笔记/可执行的写作策略.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-022",
+      "query_text": "∑ PKM和obsidian的markdown语法之间有什么联系？",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Spaces/2-Area/知识管理/∑ PKM.md"
+      ],
+      "target_paths": [
+        "Spaces/2-Area/知识管理/obsidian的markdown语法.md"
+      ],
+      "bridge_paths": [
+        "Spaces/2-Area/知识管理/markdown.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-023",
+      "query_text": "常青笔记之间应该建立大量链接和自下而上之间有什么联系？",
+      "seed_domain": "Sources",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Sources/Articles/常青笔记阅读笔记/常青笔记之间应该建立大量链接.md"
+      ],
+      "target_paths": [
+        "Spaces/2-Area/知识管理/自下而上.md"
+      ],
+      "bridge_paths": [
+        "Sources/Articles/常青笔记阅读笔记/优先建立信息间的联系来分类，而非使用层级式分类法.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-024",
+      "query_text": "软件界面经常将破坏性操作作为最终决定，而不是视情况而定的选择和闭合开环之间有什么联系？",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [
+        "Sources/Articles/常青笔记阅读笔记/软件界面经常将破坏性操作作为最终决定，而不是视情况而定的选择.md"
+      ],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/闭合开环.md"
+      ],
+      "bridge_paths": [
+        "Sources/Articles/常青笔记阅读笔记/收件箱需要可靠的清空流程才有效.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-025",
+      "query_text": "🆕 本库更新日志和Quick Switcher++之间有什么联系？",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [
+        "🍀 花园导览/🧰 本库指南/🆕 本库更新日志.md"
+      ],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/Plugins/Quick Switcher++.md"
+      ],
+      "bridge_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/Plugins/Better Command Palette.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-026",
+      "query_text": "🗜 效率工具使用和∑ 常青笔记阅读笔记之间有什么联系？",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "Sources",
+      "seed_paths": [
+        "🍀 花园导览/🗜 效率工具使用.md"
+      ],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/∑ 常青笔记阅读笔记.md"
+      ],
+      "bridge_paths": [
+        "🍀 花园导览/🧀 个人知识管理.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-027",
+      "query_text": "🧀 个人知识管理和∑ 力量训练动作库之间有什么联系？",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "🍀 花园导览/🧀 个人知识管理.md"
+      ],
+      "target_paths": [
+        "Spaces/2-Area/运动健康/力量训练动作库/∑ 力量训练动作库.md"
+      ],
+      "bridge_paths": [
+        "🍀 花园导览/🏋 如何保持健康.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-028",
+      "query_text": "第二大脑与数字花园和∑ PKM之间有什么联系？",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Spaces/2-Area/计算机知识/第二大脑与数字花园.md"
+      ],
+      "target_paths": [
+        "Spaces/2-Area/知识管理/∑ PKM.md"
+      ],
+      "bridge_paths": [
+        "Spaces/2-Area/知识管理/第二大脑.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-029",
+      "query_text": "常青笔记有助于积累洞见和在写作时创建推测性大纲之间有什么联系？",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [
+        "Sources/Articles/常青笔记阅读笔记/常青笔记有助于积累洞见.md"
+      ],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/在写作时创建推测性大纲.md"
+      ],
+      "bridge_paths": [
+        "Sources/Articles/常青笔记阅读笔记/可执行的写作策略.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-bridge-030",
+      "query_text": "MacOS 常用快捷键和ChatGPT之间有什么联系？",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [
+        "Spaces/2-Area/macos高效使用/MacOS 常用快捷键.md"
+      ],
+      "target_paths": [
+        "Spaces/3-Resource/软件梳理/安卓软件/ChatGPT.md"
+      ],
+      "bridge_paths": [
+        "Spaces/2-Area/macos高效使用/MacOS 应用的Hyper快捷键.md"
+      ],
+      "description": "templated: seed links to bridge, bridge links to target, no link between seed and target",
+      "categories": [
+        "bridge-2hop"
+      ]
+    },
+    {
+      "id": "kg-quote-001",
+      "query_text": "自己按需逐步一个个开启第三方插件，进行渐进式",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/🧰 本库使用指南.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-002",
+      "query_text": "也可以点击上面的「显示」来暂时显示已经屏蔽的",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/CuboxSync/「内容农场」属实在玷污 Google 搜索结果 - ChrAlpha's Blog-2022-05-31.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-003",
+      "query_text": "卡片笔记原子化的特点，让你可以随时抽离，而不",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/∑ 常青笔记阅读笔记.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-004",
+      "query_text": "造笔记方法的人，根本就没提过这套方法是什么，",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/flomo101阅读笔记/笔记的误区.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-005",
+      "query_text": "进的一点是，andy擅长面向概念进行笔记，我",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/常青笔记之间应该建立大量链接.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-006",
+      "query_text": "： 有效使用标题、图标（通过Google M",
+      "seed_domain": "Extras",
+      "target_domain": "Extras",
+      "seed_paths": [],
+      "target_paths": [
+        "Extras/Prompts/通用/Canvas Assistant - 中文版.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-007",
+      "query_text": "以后，需要将各种外置资源放置Extras文件",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/∑ 本库 ACCESS 工作流汇总.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-008",
+      "query_text": "质醇在机体中具有重要的作用，不仅与机体的应激",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/皮质醇.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-009",
+      "query_text": "是基于Borg量表进行的，这是一种衡量您锻炼",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/RPE.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-010",
+      "query_text": "：知道是什么的知识，是关于历史事实、经验总结",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/flomo101阅读笔记/知识定义与管理.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-011",
+      "query_text": "ect（项目）：是指一个将要发生的独立事件，",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/flomo101阅读笔记/如何用 IARP 规划标签.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-012",
+      "query_text": "10个必装，还有其他在某些场景可能需要使用，",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/Published/已发布文章/2022年7月，obsidian 依然必装的 10 个插件.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-013",
+      "query_text": "让旧概念和新概念交融，如果每个卡片都被割裂到",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/flomo101阅读笔记/为何要写卡片.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-014",
+      "query_text": "天发现页面x和y其实说的是同一个东西，则在x",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/obsidian中2个均被引用过的页面如何重组合并.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-015",
+      "query_text": "Cortisol）是一种由肾上腺皮质分泌的激",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/皮质醇.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-016",
+      "query_text": "你的卡片盒，仔细阅读你在第一步或第二步所做的",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Books/微信读书同步/文学/卡片笔记写作法：如何实现从阅读到写作-申克·阿伦斯.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-017",
+      "query_text": " 金句 标签，得到一大堆结果，我搜 人生箴言",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/Published/已发布文章/obsidian 是可以用一辈子不换的笔记软件吗.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-018",
+      "query_text": "说的「输出 = 做出更好地决策」之外，当我们",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/flomo101阅读笔记/输出究竟是什么.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-019",
+      "query_text": "就妙在，这个权力，不是管理上的实权，而是基于",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/1-Project/项目管理/项目owner机制.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-020",
+      "query_text": "要根据自己的工作特性和工作流，独立思考，让插",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/Published/已发布文章/2022年7月，obsidian 依然必装的 10 个插件.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-021",
+      "query_text": "按照上面的方法，把信息放在一个文件夹里，它们",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/flomo101阅读笔记/没有完美的分类.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-022",
+      "query_text": "内已存在的文档，让cursor分析汇总，并生",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/Obsidian canvas 使用 cursor生成.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-023",
+      "query_text": "理解:: 传统的阅读+笔记的模式，不同书本和",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/常青笔记有助于积累阅读成果.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-024",
+      "query_text": "结了 Christian Tietze 的流",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/如何将阅读标注处理成常青笔记.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-025",
+      "query_text": "片盒笔记法业已存档，但卢曼的做法代表另一种关",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/常青笔记和卡片盒笔记法的异同点.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-026",
+      "query_text": "可以有氧为主，力量训练也要做，但以保持肌肉为",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/运动健康/体脂率对增肌效果的影响.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-027",
+      "query_text": "题的链接足够多时，用 Architect F",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/obsidian组织笔记的N个 xx first.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-028",
+      "query_text": "事情会一直盘踞在我们的脑子里，干扰我们专注于",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/CuboxSync/年度征文 - 我的效率系统三原则 - 少数派-2022-05-29.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-029",
+      "query_text": "来或者做砸了，也没什么大的问题，因为本来就没",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/flomo101阅读笔记/该积累什么领域知识.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-030",
+      "query_text": "大的弊端，就是google统计1会被墙，导致",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/本库数字花园如何嵌入访问统计系统.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-031",
+      "query_text": "人的习惯不同，再加上刚开发完我们也在摸索，如",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/flomo101阅读笔记/如何设计笔记的回顾机制.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-032",
+      "query_text": "ge上的返回和前进按钮，我将菜单栏最左边的这",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/本库工作区、界面划分逻辑及图标.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-033",
+      "query_text": "低碳水减脂对于增肌人群来说是不可取的，至少不",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Books/微信读书同步/生活百科/闪电增肌-仰望尾迹云.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-034",
+      "query_text": "先，人的基因差异就决定了使用同一种补充剂的不",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/运动健康/健身营养书：让增肌减脂变简单-仰望尾迹云,杨昌林.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-035",
+      "query_text": "id全局唯一不变，不会因为app内部的组织结",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/deeplink.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-036",
+      "query_text": "了对别人有帮助，做砸了自己要承担责任的事情，",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/flomo101阅读笔记/该积累什么领域知识.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-037",
+      "query_text": "把注意力集中在「做笔记」上，因为它是一个虚无",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/更好地记笔记这个描述太过流于表面；核心在于更好地思考.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-038",
+      "query_text": "标、需要投入一段时间、围绕一个主题的学习对象",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/» 本库 PARA 笔记组织法工作流.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-039",
+      "query_text": "密组织后的互链，信息量更高——你不希望自己的",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/优先选择明确的关联，而不是推断的关联.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-040",
+      "query_text": "一下官方到时候的作品出来后，是否能帮我们真的",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/本库不建议在obsidian中搞任务管理.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-041",
+      "query_text": "er插件支持一键对全库进行markdown格",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/Published/已发布文章/obsidian 目前最完美的免费发布方案 - 渐进式教程.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-042",
+      "query_text": "available operators depends on the property type (text, date, number",
+      "seed_domain": "Extras",
+      "target_domain": "Extras",
+      "seed_paths": [],
+      "target_paths": [
+        "Extras/Documents/Obsidian Bases View 视图.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-043",
+      "query_text": "一直没人开发竞品，可能这东西核心的是算法，软",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/Plugins/Spaced Repetition.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-044",
+      "query_text": "bsidian的使用目标不同，分为3个层次，",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/∑ 本库 ACCESS 工作流汇总.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-045",
+      "query_text": "内容 (Form Over Function",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/本库不建议在obsidian中搞homepage仪表盘主页.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-046",
+      "query_text": "大多数人来说，他们其实并没有一个关于自己生活",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/flomo101阅读笔记/如何用 IARP 规划标签.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-047",
+      "query_text": "ow your heart，记笔记是为了让自",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/本库不建议在obsidian中搞太多奇技淫巧.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-048",
+      "query_text": "dian插件就像我们那该死的欲望，不能满足便",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/obsidian的不同人的用法.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-049",
+      "query_text": "中，没有动力驱使你把围绕这个概念的新旧想法融",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/常青笔记应面向概念.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-quote-050",
+      "query_text": "hear or read a new trick or a new result",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Books/微信读书同步/未分类/Building a Second Brain-Tiago Forte.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a fragment of a sentence that occurs in exactly one note",
+      "categories": [
+        "quote-fragment"
+      ]
+    },
+    {
+      "id": "kg-unique-001",
+      "query_text": "MacOS 系统配置",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/3-Resource/软件梳理/macos软件/macos m3 重装list.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-002",
+      "query_text": "clean_frontmatter.py - Frontmatter 清理工具",
+      "seed_domain": "Extras",
+      "target_domain": "Extras",
+      "seed_paths": [],
+      "target_paths": [
+        "Extras/Other/_ Other readme.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-003",
+      "query_text": "为什么要区分知识管理和信息管理",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/知识管理/∑ 工作和生活的效率体系建设.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-004",
+      "query_text": "将上面的格式，压缩后才能使用",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/Plugins/Actions URI.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-005",
+      "query_text": "一般的常见心率公式 - 最大心率",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/运动健康/运动心率的依据和选择.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-006",
+      "query_text": "📚 Sources - 来源文献",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/📂 文件夹结构总览.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-007",
+      "query_text": "📊 核心统计数据",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/AIGC/🌱 数字花园增长分析报告.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-008",
+      "query_text": "distill：内化",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/building your second brain读书笔记 - CODE方法.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-009",
+      "query_text": "排版与编辑",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/Published/已发布文章/obsidian 不可回避的缺点及其解决方案.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-010",
+      "query_text": "快速使用",
+      "seed_domain": "Extras",
+      "target_domain": "Extras",
+      "seed_paths": [],
+      "target_paths": [
+        "Extras/Scripts/ts-scripts/obsidian-scripts/时间筛选笔记使用示例.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-011",
+      "query_text": "哪个好？",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/运动健康/运动心率的依据和选择.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-012",
+      "query_text": "得到app的短课程",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Courses/∑ 课程笔记.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-013",
+      "query_text": "大学人文社科通识课程",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Courses/∑ 课程笔记.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-014",
+      "query_text": "7.4 咖啡因与减脂和增肌",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/运动健康/健身营养书：让增肌减脂变简单-仰望尾迹云,杨昌林.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-015",
+      "query_text": "正文描述",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/1-Project/2025下半年小红书探索/做一个假装很有效率的分屏男孩.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-016",
+      "query_text": "社区资源",
+      "seed_domain": "Atlas",
+      "target_domain": "Atlas",
+      "seed_paths": [],
+      "target_paths": [
+        "Atlas/MOCs/∑ Raycast.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-017",
+      "query_text": "无法自拔地爱上：双链笔记，最大的优点是挖坑方便",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/Published/已发布文章/obsidian 是可以用一辈子不换的笔记软件吗.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-018",
+      "query_text": "我成功了吗？",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/如何提高Obsidian的启动速度？.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-019",
+      "query_text": "特定场景",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/∑ obsidian相关笔记.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-020",
+      "query_text": "常见错误-",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/三分化与五分化.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-021",
+      "query_text": "主题与外观",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/∑ obsidian相关笔记.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-022",
+      "query_text": "相关卡片",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/3-Resource/∑ 3-Resource.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-023",
+      "query_text": "2个回车的换行",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/知识管理/markdown.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-024",
+      "query_text": "5. 其他技巧 (Miscellaneous)",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/∑ 本库教程汇总.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-025",
+      "query_text": "典型特征",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/渐进式 - progressive.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-026",
+      "query_text": "非定向版本：",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/可执行的写作策略.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-027",
+      "query_text": "效率工具",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/3-Resource/软件梳理/macos软件/∑ macOS 必备软件.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-028",
+      "query_text": "用量监控claude code monitor",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/claude code.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-029",
+      "query_text": "一手研究",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/测试效应.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-030",
+      "query_text": "一周的训练计划该如何制订——训练动作的安排",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Books/微信读书同步/生活百科/闪电增肌-仰望尾迹云.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-031",
+      "query_text": "HIIT心率：",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/运动健康/HIIT.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-032",
+      "query_text": "Note properties",
+      "seed_domain": "Extras",
+      "target_domain": "Extras",
+      "seed_paths": [],
+      "target_paths": [
+        "Extras/Documents/Obsidian Bases syntax 规范.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-033",
+      "query_text": "质量指标",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/AIGC/🌱 数字花园增长分析报告.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-034",
+      "query_text": "提示词模板",
+      "seed_domain": "Extras",
+      "target_domain": "Extras",
+      "seed_paths": [],
+      "target_paths": [
+        "Extras/Prompts/∑ MOC - prompts 提示词管理.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-035",
+      "query_text": "分配启动模板",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/如何提高Obsidian的启动速度？.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-036",
+      "query_text": "# 知识管理的意义",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/flomo101阅读笔记/知识定义与管理.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-037",
+      "query_text": "写完后自动进行lint检查等",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/claude code.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-038",
+      "query_text": "🗂️ Spaces - PARA空间",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/📂 文件夹结构总览.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-039",
+      "query_text": "最近新出的ghostty，有空试试好使不",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/3-Resource/软件梳理/macos软件/Warp App.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-040",
+      "query_text": "准则五：少盐少油，控糖限酒",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/运动健康/中国居民膳食指南.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-041",
+      "query_text": "布局与尺寸基线（可按需调整）",
+      "seed_domain": "Extras",
+      "target_domain": "Extras",
+      "seed_paths": [],
+      "target_paths": [
+        "Extras/Prompts/Obsidian相关/Obsidian Canvas 生成提示词.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-042",
+      "query_text": "ID 生成与命名建议",
+      "seed_domain": "Extras",
+      "target_domain": "Extras",
+      "seed_paths": [],
+      "target_paths": [
+        "Extras/Prompts/Obsidian相关/Obsidian Canvas 生成提示词.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-043",
+      "query_text": "信息来源载体和平台",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/知识管理/个人信息管理系统.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-044",
+      "query_text": "2. 入门与配置 (Getting Started & Setup)",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/∑ 本库教程汇总.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-045",
+      "query_text": "需要 Mehrmaid插件，让mermaid支持内嵌markdown。",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/Plugins/Diagram Zoom Drag.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-046",
+      "query_text": "LYT 笔记框架是什么",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/数字花园建设与维护/LYT 笔记框架.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-047",
+      "query_text": "它叫「内容农场」",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/CuboxSync/「内容农场」属实在玷污 Google 搜索结果 - ChrAlpha's Blog-2022-05-31.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-048",
+      "query_text": "# References",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/flomo101阅读笔记/为何知识需要连接.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-049",
+      "query_text": "资源来源",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/运动健康/∑ 运动健康.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-unique-050",
+      "query_text": "核心论点：Obsidian 的力量源于网络化的思考，而非中心化的仪表盘",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/本库不建议在obsidian中搞homepage仪表盘主页.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: a heading carried by exactly one note (and equal to no title)",
+      "categories": [
+        "unique-heading"
+      ]
+    },
+    {
+      "id": "kg-exact-001",
+      "query_text": "Commander",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/Plugins/Commander.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-002",
+      "query_text": "项目owner机制",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/1-Project/项目管理/项目owner机制.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-003",
+      "query_text": "obsidian canvas",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/obsidian canvas.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-004",
+      "query_text": "干净饮食的定义",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/干净饮食的定义.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-005",
+      "query_text": "细粒度权限控制",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/细粒度权限控制.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-006",
+      "query_text": "Chronology",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/Plugins/Chronology.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-007",
+      "query_text": "本库ACCESS文件夹索引的索引",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/本库ACCESS文件夹索引的索引.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-008",
+      "query_text": "∑ flomo101阅读笔记",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/flomo101阅读笔记/∑ flomo101阅读笔记.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-009",
+      "query_text": "alfred插件 - shimmering-obsidian",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/obsidian相关笔记/alfred插件 - shimmering-obsidian.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-010",
+      "query_text": "渐进式总结",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/渐进式总结.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-011",
+      "query_text": "仰卧起坐",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/运动健康/力量训练动作库/仰卧起坐.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-012",
+      "query_text": "肩胛下肌",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/运动健康/肌肉库/肩胛下肌.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-013",
+      "query_text": "2022年前后，具有变革性的创新笔记软件类型",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/知识管理/2022年前后，具有变革性的创新笔记软件类型.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-014",
+      "query_text": "有效的系统设计需要从真刀真枪的使用情境汲取洞见",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/有效的系统设计需要从真刀真枪的使用情境汲取洞见.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-015",
+      "query_text": "被索引的参考资料与标签",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/被索引的参考资料与标签.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-016",
+      "query_text": "注册营养师和公共营养师",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/注册营养师和公共营养师.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-017",
+      "query_text": "滴答清单",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/3-Resource/软件梳理/安卓软件/滴答清单.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-018",
+      "query_text": "我们塑造了工具，工具又塑造了我们。——麦克卢汉《理解媒介：论人的延伸》",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/3-Resource/有意思的语言/名言/我们塑造了工具，工具又塑造了我们。——麦克卢汉《理解媒介：论人的延伸》.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-019",
+      "query_text": "∑ 快捷键（MacOS + Windows）",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/windows高效使用/∑ 快捷键（MacOS + Windows）.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-020",
+      "query_text": "Github",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/3-Resource/软件梳理/好用网站/Github.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-021",
+      "query_text": "MacOS F区功能键快捷键分配",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/macos高效使用/MacOS F区功能键快捷键分配.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-022",
+      "query_text": "Dataview",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/Plugins/Dataview.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-023",
+      "query_text": "80%时间输入，20%时间输出",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/80%时间输入，20%时间输出.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-024",
+      "query_text": "我所认识的高效阅读者和思想家在阅读时不做笔记",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/我所认识的高效阅读者和思想家在阅读时不做笔记.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-025",
+      "query_text": "颈后臂屈伸",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/运动健康/力量训练动作库/颈后臂屈伸.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-026",
+      "query_text": "mdlink",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/mdlink.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-027",
+      "query_text": "本库不建议在obsidian中搞美化和排版",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/本库不建议在obsidian中搞美化和排版.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-028",
+      "query_text": "健身计划安排",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/运动健康/健身计划安排.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-029",
+      "query_text": "L侧平举",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/运动健康/力量训练动作库/L侧平举.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-030",
+      "query_text": "🍫 本库方法论指南",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/🍫 本库方法论指南.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-031",
+      "query_text": "shots.so",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/shots.so.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-032",
+      "query_text": "平台＋插件",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/3-Resource/软件梳理/平台＋插件.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-033",
+      "query_text": "🆕 本库更新日志",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/🆕 本库更新日志.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-034",
+      "query_text": "Actions URI",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/Plugins/Actions URI.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-035",
+      "query_text": "Awesome-AI-GPTs",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/GithubStarsSync/Awesome-AI-GPTs.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-036",
+      "query_text": "Quick Switcher++",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Obsidian/Plugins/Quick Switcher++.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-037",
+      "query_text": "OMAD轻断食",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/OMAD轻断食.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-038",
+      "query_text": "内容、工具与方法论",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/内容、工具与方法论.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-039",
+      "query_text": "常青笔记实现顺畅而渐进的写作（「渐进写作」）",
+      "seed_domain": "Sources",
+      "target_domain": "Sources",
+      "seed_paths": [],
+      "target_paths": [
+        "Sources/Articles/常青笔记阅读笔记/常青笔记实现顺畅而渐进的写作（「渐进写作」）.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-040",
+      "query_text": "力量训练动作命名的宏观概括",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/运动健康/力量训练动作命名的宏观概括.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-041",
+      "query_text": "git submodule",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/计算机知识/git submodule.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-042",
+      "query_text": "Obsidian Base 规范 - moc",
+      "seed_domain": "Extras",
+      "target_domain": "Extras",
+      "seed_paths": [],
+      "target_paths": [
+        "Extras/Documents/Obsidian Base 规范 - moc.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-043",
+      "query_text": "背后臂屈伸",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/2-Area/运动健康/力量训练动作库/背后臂屈伸.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-044",
+      "query_text": "vibe browsing",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/vibe browsing.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-045",
+      "query_text": "谁家好人往电脑上装20多个浏览器？",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/1-Project/2025下半年小红书探索/谁家好人往电脑上装20多个浏览器？.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-046",
+      "query_text": "Alfred",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/3-Resource/软件梳理/macos软件/Alfred.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-047",
+      "query_text": "本库ACCESS文件夹结构与混合笔记法",
+      "seed_domain": "🍀 花园导览",
+      "target_domain": "🍀 花园导览",
+      "seed_paths": [],
+      "target_paths": [
+        "🍀 花园导览/🧰 本库指南/Tutorials/本库ACCESS文件夹结构与混合笔记法.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-048",
+      "query_text": "_ Extras Readme",
+      "seed_domain": "Extras",
+      "target_domain": "Extras",
+      "seed_paths": [],
+      "target_paths": [
+        "Extras/_ Extras Readme.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-049",
+      "query_text": "obsidian web clipper",
+      "seed_domain": "Spaces",
+      "target_domain": "Spaces",
+      "seed_paths": [],
+      "target_paths": [
+        "Spaces/3-Resource/chrome插件/obsidian web clipper.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    },
+    {
+      "id": "kg-exact-050",
+      "query_text": "正则表达式",
+      "seed_domain": "Cards",
+      "target_domain": "Cards",
+      "seed_paths": [],
+      "target_paths": [
+        "Cards/正则表达式.md"
+      ],
+      "bridge_paths": [],
+      "description": "mechanical: the note's own title is the query (title unique in the corpus)",
+      "categories": [
+        "exact-title"
+      ]
+    }
+  ]
+}
