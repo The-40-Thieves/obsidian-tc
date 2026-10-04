@@ -10,8 +10,11 @@
 // unwindReversed pattern for the boot-time layers.
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
+import { configuredJwksOverlap, ensureAsKey } from "../auth/as-boot";
+import { enabledAs } from "../auth/as-metadata";
 import { describeJwksTarget, jwksModeLine } from "../auth/jwks-network";
 import { buildJwtVerifier, warnJwksWithoutAudience } from "../auth/jwt-boot";
+import { gcOauthDb, type OpenedOauthDb, openOauthDb } from "../auth/oauth-db";
 import { createOidcVerifier, type OidcVerifier, oidcBootNotice } from "../auth/oidc";
 import type { AuthRegistry } from "../auth/registry";
 import { openAuthRegistry } from "../auth/registry-open";
@@ -55,6 +58,9 @@ export interface TransportsWiring {
   /** The auth registry opened for the bearer-checking listeners, when there is one. The scheduler's
    *  maintenance sweep reaps elapsed signing-key windows through it. */
   authRegistry?: AuthRegistry;
+  /** oauth.db housekeeping (`gcOauthDb`) over the authorization server's own store, present only
+   *  while `auth.as` is enabled. The maintenance sweep runs it; `close()` releases the handle. */
+  reapOauthDb?: () => number;
   /** Idempotent: closes whichever of HTTP/metrics were actually opened; a no-op transport
    *  contributes nothing. Safe to call more than once (each handle's own close() is awaited only
    *  the first time — see server-runtime.ts's close(), which guards the whole shutdown sequence). */
@@ -89,6 +95,8 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
   const opened = needsRegistry ? await openAuthRegistry(config, { reapRetired: true }) : undefined;
   const authRegistry = opened?.registry;
   const registryHealth = authRegistry?.health();
+  let oauthDb: OpenedOauthDb | undefined;
+  let reapOauthDb: (() => number) | undefined;
   if (registryHealth?.state === "lost") {
     process.stderr.write(`auth: ERROR ${registryHealth.detail}\n`);
   }
@@ -99,6 +107,9 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
     // bearer rejected.
     const { jwtSecret, jwks, jwksFile, jwksUri } = config.auth;
     const staticKey = !!jwtSecret || !!jwks || !!jwksFile || !!jwksUri;
+    // S5 NOTE: this refusal runs before `ensureAsKey` below, so an AS-only deployment (no static key and
+    // no registry key) is refused at boot. That is right while no token can be issued (S3); the slice
+    // that mounts the issuing routes must generate the `as` key ahead of this check.
     if (!staticKey && registryHealth?.state !== "lost") {
       const n = authRegistry.keyCounts();
       if (n.active + n.retiring === 0) {
@@ -129,6 +140,35 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
   }
 
   try {
+    const as = enabledAs(config.auth);
+    if (authRegistry !== undefined && as !== undefined && config.auth.mode === "jwt") {
+      // A configured JWKS key is verified under the hand-minted-token rules, so an `as` key listed
+      // there would skip the `as` rules: refuse the boot. A remote `auth.jwksUri` cannot be checked.
+      const dup = await configuredJwksOverlap(config.auth, authRegistry);
+      if (dup !== undefined) {
+        throw new Error(
+          `${dup.source} contains the public key of the authorization server's signing key ${dup.kids.join(", ")}: ` +
+            `remove it from ${dup.source} (the server publishes its own key at ${as.issuer}/.well-known/jwks.json)`,
+        );
+      }
+      const key = await ensureAsKey(authRegistry, {
+        alg: as.signingAlg,
+        accessTokenSeconds: as.accessTokenSeconds,
+      });
+      if (key.created) {
+        process.stderr.write(`auth: generated the authorization server signing key ${key.kid}\n`);
+      } else if (key.skipped === "alg_mismatch") {
+        process.stderr.write(
+          `auth: WARNING the active authorization server key ${key.kid} is ${key.existingAlg} but auth.as.signingAlg is ${as.signingAlg}; ` +
+            "rotate it with `obsidian-tc auth rotate-key --purpose as` to switch\n",
+        );
+      }
+      oauthDb = await openOauthDb(config);
+      const store = oauthDb;
+      reapOauthDb = () =>
+        gcOauthDb(store.db, { now: Date.now(), dcrUnusedDays: as.dcr.unusedDays }).total;
+      reapOauthDb();
+    }
     // ONE bearer verifier for every listener that checks bearers. oidc: discover the identity
     // provider NOW (a failure throws, naming the issuer, and the server does not start). jwt: build
     // it from config (secret, inline/file/URI JWKS, registry keys). The MCP edge and /metrics are
@@ -238,13 +278,16 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
       httpConstructSeconds,
       ...(advisoryBus ? { advisoryBus } : {}),
       ...(authRegistry ? { authRegistry } : {}),
+      ...(reapOauthDb ? { reapOauthDb } : {}),
       close: async () => {
         if (httpHandle) await httpHandle.close();
         if (metricsHandle) await metricsHandle.close();
+        oauthDb?.close();
         opened?.close();
       },
     };
   } catch (e) {
+    oauthDb?.close();
     opened?.close();
     throw e;
   }

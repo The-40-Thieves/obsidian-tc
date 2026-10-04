@@ -62,6 +62,8 @@ export interface SchedulerWiringDeps {
   listVaultIds?: () => readonly string[];
   /** The auth registry wireTransports opened, when it opened one (see maintenance-wiring.ts). */
   authRegistry?: AuthRegistry;
+  /** oauth.db housekeeping, when the authorization server's store is open (see maintenance-wiring.ts). */
+  reapOauthDb?: () => number;
   /** The write-provenance recorder (absent when disabled): the retention arm re-signs a pruned
    *  chain's head with its live signer. */
   provenance?: ProvenanceRecorder;
@@ -136,6 +138,7 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
     memoryOrphanSqlHooks: deps.observability.sqlHooksFor("scheduler"),
     metrics: deps.observability.metrics,
     ...(deps.authRegistry !== undefined ? { authRegistry: deps.authRegistry } : {}),
+    ...(deps.reapOauthDb !== undefined ? { reapOauthDb: deps.reapOauthDb } : {}),
     // Absent retentionDays (the default) keeps the audit trail forever: the arm is not armed.
     ...(deps.provenance !== undefined && config.provenance.retentionDays !== undefined
       ? {

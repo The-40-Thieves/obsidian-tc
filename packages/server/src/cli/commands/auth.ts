@@ -51,10 +51,12 @@ export async function run_auth(cmd: Cmd<"auth">): Promise<void> {
         // The flag wins, including an explicit 0; only an ABSENT flag falls back to the config. An
         // `as` rotation never falls below the floor on its own (access-token lifetime plus skew): an
         // explicit shorter --grace is refused by the registry, not silently raised.
+        // The floor and the registry's refusal both use the CONFIGURED lifetime, as boot does.
+        const accessTokenSeconds = cfg.auth.as?.accessTokenSeconds;
         const graceSeconds =
           cmd.graceSeconds ??
           (purpose === "as"
-            ? Math.max(cfg.auth.rotationGraceSeconds, asGraceFloorSeconds())
+            ? Math.max(cfg.auth.rotationGraceSeconds, asGraceFloorSeconds(accessTokenSeconds))
             : cfg.auth.rotationGraceSeconds);
         const alg = cmd.alg ?? (purpose === "as" ? "ES256" : "HS256");
         // Asymmetric key generation is async, so it happens before the (synchronous) registry write.
@@ -62,6 +64,7 @@ export async function run_auth(cmd: Cmd<"auth">): Promise<void> {
           purpose,
           graceSeconds,
           alg,
+          ...(accessTokenSeconds !== undefined ? { accessTokenSeconds } : {}),
           ...(isAsymmetricAlg(alg) ? { generated: await generateSigningKey(alg) } : {}),
         });
         await audit("auth_key_rotated", null);

@@ -14,7 +14,12 @@
 // Both paths now provision through this chain. Divergence is no longer possible.
 import { backfillObservationIntervalsJs } from "./backfill-observation-intervals";
 import { type Migration, runMigrations } from "./migrate";
-import { AUTH_MIGRATION_FILES, CACHE_MIGRATION_FILES, versionOf } from "./migration-manifest";
+import {
+  AUTH_MIGRATION_FILES,
+  CACHE_MIGRATION_FILES,
+  OAUTH_MIGRATION_FILES,
+  versionOf,
+} from "./migration-manifest";
 import { embeddedSql } from "./migrations-embedded";
 import type { Database } from "./types";
 
@@ -82,4 +87,18 @@ export function provisionAuthDb(
   opts: { version?: string; now?: () => number } = {},
 ): string[] {
   return runMigrations(db, AUTH_MIGRATIONS, opts);
+}
+
+/** The oauth.db migration chain (the bundled authorization server's state). */
+export const OAUTH_MIGRATIONS: Migration[] = OAUTH_MIGRATION_FILES.map((file) => ({
+  version: versionOf(file),
+  sql: embeddedSql(file),
+}));
+
+/** Bring an oauth.db up to the current schema. */
+export function provisionOauthDb(
+  db: Database,
+  opts: { version?: string; now?: () => number } = {},
+): string[] {
+  return runMigrations(db, OAUTH_MIGRATIONS, opts);
 }

@@ -7,6 +7,7 @@
 // interlock in ServerConfigSchema.superRefine) stays in config.schema.ts.
 import { z } from "zod";
 import { isQualifiedScope } from "../scopes";
+import { AsConfigSchema, HOSTNAME_RE } from "./auth-as.schema";
 import { aclPathGlob } from "./path-glob";
 
 // `auth.oidc`: verify access tokens issued by an EXTERNAL OpenID Connect provider (bring your own
@@ -47,9 +48,6 @@ const isHttpsUrl = (v: string, o: { allowQueryFragment: boolean }): boolean => {
 // Auth0 namespaced form) can only be written as the array `["https://app.example.com/roles"]`: a
 // string is always walked, so a forged top-level `realm_access.roles` never shadows the nested claim.
 const ClaimPathSchema = z.union([z.string().min(1), z.array(z.string().min(1)).min(1)]);
-
-const HOSTNAME_RE =
-  /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/;
 
 const OidcConfigSchema = z
   .strictObject({
@@ -362,6 +360,9 @@ export const AuthConfigSchema = z.object({
     .array(z.string())
     .optional()
     .describe("Scopes advertised as supported in the Protected Resource Metadata document."),
+  as: AsConfigSchema.optional().describe(
+    "The bundled authorization server (opt-in; see `auth.as.enabled`). Absent means disabled. Needs `mode: jwt`; with it enabled, `authorizationServers` defaults to the issuer, and when set must list the issuer first.",
+  ),
 });
 export const AclRuleSchema = z.object({
   glob: aclPathGlob()

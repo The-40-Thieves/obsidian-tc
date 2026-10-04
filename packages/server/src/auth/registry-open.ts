@@ -64,7 +64,7 @@ export async function openAuthRegistry(
     };
   }
   mkdirSync(cfg.cacheDir, { recursive: true });
-  const db = await openConfiguredDatabase(cfg, "auth.db");
+  const db = await openConfiguredDatabase(cfg, "auth.db", { ownerOnly: true });
   try {
     provisionAuthDb(db, { version: VERSION });
   } catch (e) {

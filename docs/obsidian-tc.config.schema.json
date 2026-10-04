@@ -771,6 +771,164 @@
           "items": {
             "type": "string"
           }
+        },
+        "as": {
+          "description": "The bundled authorization server (opt-in; see `auth.as.enabled`). Absent means disabled. Needs `mode: jwt`; with it enabled, `authorizationServers` defaults to the issuer, and when set must list the issuer first.",
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": false,
+              "description": "Opt-in. Serves RFC 8414 authorization-server metadata and generates the server's own access-token signing key at boot. Requires `auth.mode: jwt`, `auth.resource` and `issuer`; refused under `none` and `oidc`. With false (the default) nothing about the bearer paths changes.",
+              "type": "boolean"
+            },
+            "issuer": {
+              "description": "The authorization server's issuer identifier, an origin such as `https://vault.example.com`. Required when `enabled`. Derived from here and never from the request's Host header; the same string appears byte for byte in the metadata, in Protected Resource Metadata and in every token's `iss`.",
+              "type": "string"
+            },
+            "signingAlg": {
+              "default": "ES256",
+              "description": "Algorithm of the key that signs access tokens, `ES256` or `EdDSA`. The key is generated at first boot with this enabled and kept in the auth registry under its own purpose, so rotating it never retires a hand-minted token's key. When `auth.algorithms` is set it must include this value.",
+              "type": "string",
+              "enum": [
+                "ES256",
+                "EdDSA"
+              ]
+            },
+            "accessTokenSeconds": {
+              "default": 1800,
+              "description": "Lifetime of an issued access token in seconds (300 to 3600, default 1800). `auth.tokenTtlSeconds` must be at least this, or the age cap would reject tokens before they expire.",
+              "type": "integer",
+              "minimum": 300,
+              "maximum": 3600
+            },
+            "refreshTokenDays": {
+              "default": 30,
+              "description": "Absolute lifetime of a refresh-token family in days (1 to 90, default 30), counted from the grant. Refresh tokens rotate on every use.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 90
+            },
+            "dynamicRegistration": {
+              "default": false,
+              "description": "Default false. Serves RFC 7591 Dynamic Client Registration at `/oauth/register` and advertises `registration_endpoint`. DCR is deprecated by the MCP authorization spec and opens an unauthenticated client-creation surface (rate-limited and row-capped by `dcr`); claude.ai, Claude Code, ChatGPT and Codex use Client ID Metadata Documents and do not need it. A boot notice is logged whenever it is on.",
+              "type": "boolean"
+            },
+            "dcr": {
+              "description": "Limits applied when `dynamicRegistration` is on. Ignored while it is off.",
+              "default": {},
+              "type": "object",
+              "properties": {
+                "maxClients": {
+                  "default": 1000,
+                  "description": "Most dynamically registered clients kept at once (default 1000).",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "perIpPerHour": {
+                  "default": 10,
+                  "description": "Registrations accepted per source address per hour (default 10).",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "unusedDays": {
+                  "default": 90,
+                  "description": "A dynamically registered client unused for this many days is deleted (default 90).",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "additionalProperties": false
+            },
+            "cimd": {
+              "description": "Client ID Metadata Document registration, the default way clients register.",
+              "default": {},
+              "type": "object",
+              "properties": {
+                "allowedHosts": {
+                  "default": [],
+                  "description": "Hostnames a Client ID Metadata Document URL may be hosted on. Empty (the default) admits any public https host; set it to restrict which clients can ask the operator for consent.",
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "setupTokenEnv": {
+              "default": "OBSIDIAN_TC_AS_SETUP_TOKEN",
+              "description": "Name of the environment variable whose value is the one-time setup token that claims the operator account on a host with no terminal (default `OBSIDIAN_TC_AS_SETUP_TOKEN`). The token is never read from the config file.",
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "login": {
+              "description": "Operator login brute-force limits.",
+              "default": {},
+              "type": "object",
+              "properties": {
+                "maxFailuresPerWindow": {
+                  "default": 5,
+                  "description": "Wrong passwords tolerated per account within the window (default 5).",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                },
+                "windowSeconds": {
+                  "default": 900,
+                  "description": "Length of the failure window in seconds (default 900).",
+                  "type": "integer",
+                  "minimum": 60,
+                  "maximum": 86400
+                }
+              },
+              "additionalProperties": false
+            },
+            "clients": {
+              "default": [],
+              "description": "Pre-registered clients. They are the only confidential clients (`secretEnv`); every other client registers by metadata document or, when enabled, dynamically.",
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "clientId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Stable identifier the client presents as `client_id`. Any string that is not an `https://` URL with a path (such strings are Client ID Metadata Document identifiers and are resolved by URL)."
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Human-readable name shown on the consent page."
+                  },
+                  "redirectUris": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Exact redirect URIs this client may use. Loopback http URIs (`127.0.0.1`, `[::1]`, `localhost`) match with the port ignored and the path exact; every other URI must match exactly."
+                  },
+                  "secretEnv": {
+                    "description": "Optional. Name of the environment variable holding this client's secret, which makes it a confidential client authenticating with `client_secret_basic`. The secret itself is never written in the config file; static clients are the only confidential ones.",
+                    "type": "string",
+                    "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                  }
+                },
+                "required": [
+                  "clientId",
+                  "name",
+                  "redirectUris"
+                ],
+                "additionalProperties": false,
+                "description": "A pre-registered client of the bundled authorization server."
+              }
+            }
+          },
+          "additionalProperties": false
         }
       }
     },

@@ -1,3 +1,4 @@
+import { chmodSync, closeSync, existsSync, openSync } from "node:fs";
 import { join } from "node:path";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database, OpenOptions } from "./types";
@@ -57,7 +58,16 @@ export async function openConfiguredDatabase(
   filename: string,
   opts: OpenOptions = {},
 ): Promise<Database> {
-  return openDatabase(join(cfg.cacheDir, filename), cfg.db.busyTimeoutMs, opts);
+  const path = join(cfg.cacheDir, filename);
+  if (!opts.ownerOnly || opts.readonly) return openDatabase(path, cfg.db.busyTimeoutMs, opts);
+  // SQLite gives a new -wal/-shm the mode of the main file, so creating that one 0600 first covers
+  // every sidecar born later; chmod below covers files a previous version left at the umask's mode.
+  if (!existsSync(path)) closeSync(openSync(path, "a", 0o600));
+  const db = await openDatabase(path, cfg.db.busyTimeoutMs, opts);
+  for (const suffix of ["", "-wal", "-shm"]) {
+    if (existsSync(path + suffix)) chmodSync(path + suffix, 0o600);
+  }
+  return db;
 }
 
 function isBetterSqlite3Unavailable(err: unknown): boolean {

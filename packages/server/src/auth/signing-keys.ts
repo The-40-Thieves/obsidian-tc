@@ -32,7 +32,16 @@ export const AS_KEY_SKEW_SECONDS = 60;
  *  stops verifying: its lifetime plus skew. Rotating faster would kill live access tokens. */
 export const asGraceFloorSeconds = (
   accessTokenSeconds: number = DEFAULT_AS_ACCESS_TOKEN_SECONDS,
-): number => accessTokenSeconds + AS_KEY_SKEW_SECONDS;
+): number => {
+  // NaN compares false against every grace window and Infinity or a non-positive lifetime sizes the
+  // floor to something no window can meet or to nothing: refuse rather than compute.
+  if (!Number.isFinite(accessTokenSeconds) || accessTokenSeconds <= 0) {
+    throw new Error(
+      `access-token lifetime must be a positive, finite number of seconds, got ${String(accessTokenSeconds)}`,
+    );
+  }
+  return accessTokenSeconds + AS_KEY_SKEW_SECONDS;
+};
 
 export const isKeyAlg = (alg: string): alg is KeyAlg =>
   (KEY_ALGS as readonly string[]).includes(alg);

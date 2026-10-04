@@ -79,6 +79,18 @@ describe("hardened profile sets auth.requireJti", () => {
     expect(await reasonOf(verifier.verify(await hs256({ jti: "abc" })))).toBe("accepted");
   });
 
+  it("an empty-string jti is no jti: refused under requireJti, so it can never dodge revocation", async () => {
+    const verifier = createTokenVerifier({ secret: SECRET, requireJti: true });
+    expect(await reasonOf(verifier.verify(await hs256({ jti: "" })))).toBe("jti_required");
+    expect(await reasonOf(verifier.verify(await hs256({ jti: "abc" })))).toBe("accepted");
+  });
+
+  it("without requireJti an empty-string jti is not echoed into the identity", async () => {
+    const verifier = createTokenVerifier({ secret: SECRET });
+    const id = await verifier.verify(await hs256({ jti: "" }));
+    expect(id.jti).toBeUndefined();
+  });
+
   it("a hardened config rejects a jti-less JWKS token with jti_required", async () => {
     const { publicKey, privateKey } = await generateKeyPair("EdDSA");
     const jwk = { ...(await exportJWK(publicKey)), kid: "k1", alg: "EdDSA", use: "sig" };
@@ -126,5 +138,20 @@ describe("hardened profile: OIDC", () => {
     });
     expect(await reasonOf(v.verify(await idp.sign({}, { unset: ["jti"] })))).toBe("jti_required");
     expect(await reasonOf(v.verify(await idp.sign({})))).toBe("accepted");
+  });
+
+  it("a hardened oidc config also refuses an empty-string jti", async () => {
+    const cfg = finalizeConfig({
+      vaults: VAULTS,
+      securityProfile: "hardened",
+      auth: { mode: "oidc", oidc: { issuer: ISSUER, audience: AUDIENCE } },
+      cacheDir: ".otc-test-cache",
+    });
+    const v = await createOidcVerifier(cfg.auth, {
+      fetch: idp.fetch,
+      jwksCooldownMs: 0,
+      resolveHost: publicResolver,
+    });
+    expect(await reasonOf(v.verify(await idp.sign({ jti: "" })))).toBe("jti_required");
   });
 });
