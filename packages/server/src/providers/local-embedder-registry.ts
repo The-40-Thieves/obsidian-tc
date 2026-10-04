@@ -15,6 +15,7 @@ import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { embeddedEmbedder } from "../embeddings/embedded-embedder";
+import { extractEmbeddedRuntime } from "../embeddings/embedded-runtime";
 import type { EmbeddingProvider } from "../embeddings/provider";
 import { isUnderNodeModules, type SourceCheckoutResolution } from "./local-package-resolution";
 import type { EmbeddingsConfigLike, ResolveContext } from "./types";
@@ -170,9 +171,14 @@ export async function resolveLocalEmbedderModule(
   // other install leaves `embeddedEmbedder` undefined and skips straight to the package lookup.
   if (embeddedEmbedder) {
     try {
-      const mod = (await embeddedEmbedder({
-        cacheDir: ctx.cacheDir ?? join(homedir(), ".obsidian-tc"),
-      })) as LocalEmbedderModule;
+      // The binding finds its library next to itself, so unpack first and point the bundled
+      // onnxruntime-node loader (scripts/lib/ort-binding-loader.mjs) at that directory.
+      (globalThis as Record<symbol, unknown>)[Symbol.for("obsidian-tc.ort-dir")] =
+        extractEmbeddedRuntime({
+          cacheDir: ctx.cacheDir ?? join(homedir(), ".obsidian-tc"),
+          files: embeddedEmbedder.files,
+        });
+      const mod = (await embeddedEmbedder.load()) as LocalEmbedderModule;
       attempts.push({ route: "embedded", target: LOCAL_EMBEDDER_PACKAGE, ok: true });
       return { ok: true, mod, attempts, inSourceCheckout: EMBEDDER_SOURCE_CHECKOUT_ANCHOR_FOUND };
     } catch (e) {

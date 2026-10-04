@@ -1,8 +1,8 @@
 // Unpacks the native files a compiled standalone binary carries for the local embedder
 // (onnxruntime-node's binding + the onnxruntime library), so the binding can be dlopen'ed from a real
 // directory: a native addon cannot be loaded from inside the executable, and it finds libonnxruntime
-// next to itself. embedded-embedder.ts (generated at compile time by scripts/build-binary.ts) calls
-// this with the files it embedded; outside a compiled binary nothing here runs.
+// next to itself. providers/local-embedder-registry.ts calls this with the files embedded-embedder.ts
+// (generated at compile time by scripts/build-binary.ts) carries; outside a compiled binary nothing here runs.
 //
 // The directory is a per-content cache under the server's cacheDir, not a per-process temp dir like
 // the sqlite-vec extension (search/vec.ts): these are 25-45 MB and unpacking them on every start

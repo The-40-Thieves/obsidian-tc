@@ -11,12 +11,12 @@ import { extractEmbeddedRuntime } from "../src/embeddings/embedded-runtime";
 import { resolveLocalEmbedderModule } from "../src/providers/local-embedder-registry";
 import { makeTempDir, rmTemp } from "./tmp";
 
-const loader = vi.hoisted(() => ({
-  fn: undefined as undefined | ((o: unknown) => Promise<unknown>),
+const embedded = vi.hoisted(() => ({
+  spec: undefined as undefined | { files: unknown[]; load: () => Promise<unknown> },
 }));
 vi.mock("../src/embeddings/embedded-embedder", () => ({
   get embeddedEmbedder() {
-    return loader.fn;
+    return embedded.spec;
   },
 }));
 
@@ -76,38 +76,53 @@ describe("resolveLocalEmbedderModule: the embedded route", () => {
   const failImport = async (): Promise<never> => {
     throw new Error("package lookup must not be needed");
   };
+  const ortDirKey = Symbol.for("obsidian-tc.ort-dir");
+  const cacheRoot = makeTempDir("obtc-embedded-route-");
+  afterAll(() => rmTemp(cacheRoot));
 
-  it("uses the embedded embedder first, handing it the cacheDir", async () => {
+  it("unpacks the runtime, points the loader at it, then loads the embedder", async () => {
+    const bytes = Buffer.from("binding");
+    const gz = join(cacheRoot, "binding.gz");
+    writeFileSync(gz, gzipSync(bytes));
     const mod = { createEmbeddingProvider: () => ({}) };
-    loader.fn = vi.fn(async () => mod);
+    const load = vi.fn(async () => mod);
+    embedded.spec = { files: [{ name: "b.node", asset: gz, sha256: sha(bytes) }], load };
     try {
-      const r = await resolveLocalEmbedderModule({}, { cacheDir: "/cache" }, failImport);
+      const r = await resolveLocalEmbedderModule({}, { cacheDir: cacheRoot }, failImport);
       expect(r.ok).toBe(true);
       expect(r.mod).toBe(mod);
       expect(r.attempts).toEqual([
         { route: "embedded", target: "@the-40-thieves/obsidian-tc-embedder-local", ok: true },
       ]);
-      expect(loader.fn).toHaveBeenCalledWith({ cacheDir: "/cache" });
+      const dir = (globalThis as Record<symbol, unknown>)[ortDirKey] as string;
+      expect(dir.startsWith(join(cacheRoot, "runtime", "onnxruntime-"))).toBe(true);
+      expect(readFileSync(join(dir, "b.node"), "utf8")).toBe("binding");
+      expect(load).toHaveBeenCalledTimes(1);
     } finally {
-      loader.fn = undefined;
+      embedded.spec = undefined;
+      delete (globalThis as Record<symbol, unknown>)[ortDirKey];
     }
   });
 
   it("records a failed embedded load and falls through to the package lookup", async () => {
-    loader.fn = async () => {
-      throw new Error("extract failed");
+    embedded.spec = {
+      files: [],
+      load: async () => {
+        throw new Error("load failed");
+      },
     };
     try {
       const mod = { createEmbeddingProvider: () => ({}) };
-      const r = await resolveLocalEmbedderModule({}, { cacheDir: "/cache" }, async () => mod);
+      const r = await resolveLocalEmbedderModule({}, { cacheDir: cacheRoot }, async () => mod);
       expect(r.ok).toBe(true);
       expect(r.attempts.map((a) => [a.route, a.ok])).toEqual([
         ["embedded", false],
         ["bare-specifier", true],
       ]);
-      expect(r.attempts[0]?.error).toBe("extract failed");
+      expect(r.attempts[0]?.error).toBe("load failed");
     } finally {
-      loader.fn = undefined;
+      embedded.spec = undefined;
+      delete (globalThis as Record<symbol, unknown>)[ortDirKey];
     }
   });
 

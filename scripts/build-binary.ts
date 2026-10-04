@@ -10,7 +10,7 @@
 // be found at run time. For a target onnxruntime-node ships a build for, this script bundles
 // packages/embedder-local (+ @huggingface/transformers + onnxruntime-node, rewritten by
 // scripts/lib/embedder-bundle.mjs) into the executable and embeds that target's onnxruntime native
-// files, gzipped; packages/server/src/embeddings/embedded-runtime.ts unpacks them on first use.
+// files, gzipped; packages/server/src/providers/local-embedder-registry.ts unpacks them on first use.
 // Prerequisites: packages/embedder-local installed and built (`bun install --frozen-lockfile && bun
 // run build` there); sqlite-vec / SQLite are embedded by their own earlier steps.
 import { createHash } from "node:crypto";
@@ -61,14 +61,13 @@ try {
       return { name, gz, sha256: createHash("sha256").update(bytes).digest("hex") };
     });
     // The module that replaces embeddings/embedded-embedder.ts for this build (see its header).
-    const generated = `import { extractEmbeddedRuntime } from "./embedded-runtime";
-${files.map((f, i) => `import asset${i} from ${JSON.stringify(f.gz)} with { type: "file" };`).join("\n")}
+    const generated = `${files.map((f, i) => `import asset${i} from ${JSON.stringify(f.gz)} with { type: "file" };`).join("\n")}
 const files = [
 ${files.map((f, i) => `  { name: ${JSON.stringify(f.name)}, asset: asset${i}, sha256: ${JSON.stringify(f.sha256)} },`).join("\n")}
 ];
-export const embeddedEmbedder = async ({ cacheDir }) => {
-  globalThis[Symbol.for("obsidian-tc.ort-dir")] = extractEmbeddedRuntime({ cacheDir, files });
-  return import(${JSON.stringify(EMBEDDER_PACKAGE)});
+export const embeddedEmbedder = {
+  files,
+  load: () => import(${JSON.stringify(EMBEDDER_PACKAGE)}),
 };
 `;
     const placeholder = join(server, "src", "embeddings", "embedded-embedder.ts");

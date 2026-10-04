@@ -9,8 +9,8 @@
 //   .mcpb bundle       the binding + libonnxruntime sit in `ort/<platform>-<arch>/` next to the
 //                      bundled embedder file (the default below).
 //   compiled binary    the files are embedded in the executable and extracted at first use; the
-//                      server's generated embedded-embedder module sets ORT_DIR_KEY to the
-//                      extracted directory before importing the embedder.
+//                      server's local-embedder-registry sets ORT_DIR_KEY to the
+//                      extracted directory before loading the embedder.
 //
 // The binding is loaded with process.dlopen from a REAL directory (never from inside the
 // executable) because onnxruntime_binding.node finds libonnxruntime next to itself ($ORIGIN /
