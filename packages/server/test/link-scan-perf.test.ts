@@ -12,7 +12,7 @@ import { inlineCodeRanges, scanLinks } from "../src/vault/link-scan";
 import { extractLinks } from "../src/vault/links";
 import { rewriteLinks } from "../src/vault/rewrite";
 import { extractInlineTags } from "../src/vault/tags";
-import { expectLinear } from "./scaling";
+import { expectLinear, expectLinearWork } from "./scaling";
 
 // Each case runs several 8x passes; keep it clear of vitest's 5 s default under CI load.
 const CASE_TIMEOUT_MS = 60_000;
@@ -60,19 +60,23 @@ describe("link scanning stays linear under crafted adversarial input", {
 
   it("the backtick check can fail: a scan that re-copies its span list per match is refused", () => {
     // Control for the case above: same shape, quadratic scan (concat copies every span so far).
-    const quadratic = (line: string): void => {
+    // Counted, not timed (expectLinearWork): a refusal measured on a clock can pass by luck on a
+    // fast or coarse-clocked runner, which is what made the sibling control in
+    // trace-args-capture.test.ts flake. `tick` charges the copy the concat makes.
+    const quadratic = (line: string, tick: (n: number) => void): void => {
       let spans: number[] = [];
       let open = line.indexOf("`");
       while (open >= 0) {
         const close = line.indexOf("`", open + 1);
         if (close < 0) break;
         spans = spans.concat([open, close + 1]);
+        tick(spans.length);
         open = line.indexOf("`", close + 1);
       }
     };
-    expect(() =>
-      expectLinear("`x", quadratic, { baseBytes: 8 * 1024, boundMsPer80KB: null }),
-    ).toThrow(/log-log slope/);
+    expect(() => expectLinearWork("`x", quadratic, { baseBytes: 2 * 1024 })).toThrow(
+      /log-log slope/,
+    );
   });
 
   it("inline-code spans interleaved with links: extractLinks marks code in O(n log n)", () => {

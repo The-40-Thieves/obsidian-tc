@@ -20,7 +20,7 @@ import { redactSecrets } from "../src/experiential/redact";
 import { captureArgs } from "../src/mcp/registry/dispatch-observability";
 import { appendTrace } from "../src/workspace/sessions";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";
-import { expectLinear } from "./scaling";
+import { expectLinearWork } from "./scaling";
 
 const MAX = 4096;
 
@@ -142,44 +142,52 @@ describe("THE-736 — the redaction scanner is not a DoS surface", { timeout: 60
   // input is attacker-controlled and unbounded at that point.
   //
   // A correctness test would not have caught this — the unbounded pattern redacts correctly, it
-  // just takes polynomial time doing it. So the assertion is a TIME BUDGET on the pathological
-  // shape CodeQL named: many repetitions of the BEGIN marker with no END to terminate the scan.
+  // just takes polynomial time doing it. So the assertion is on how WORK GROWS with the input, on
+  // the pathological shape CodeQL named: many repetitions of the BEGIN marker with no END to
+  // terminate the scan.
+  //
+  // The work is COUNTED, not timed (expectLinearWork). This test used to fit a log-log slope over
+  // CPU time, and its negative control flaked on windows-latest in a merge group: at the sizes the
+  // quadratic regex can be given without taking minutes it costs only milliseconds, under that
+  // platform's ~15 ms CPU-time tick, so the slope fit could land under the cap and the control
+  // PASSED, which fails it. A step count is the same on every runner, so neither the real scanner
+  // nor the control can pass or fail by luck. The cost of counting: the scanner's regex-free walk
+  // is visible (String.prototype indexOf/slice/startsWith/charCodeAt are charged for what they
+  // touch), a regex-driven rewrite is not, and `minWorkPerByte` turns that into a loud failure
+  // rather than a vacuous pass.
+  const marker = "-----BEGIN PRIVATE KEY-----";
+
   it("scales LINEARLY on repeated BEGIN markers, not quadratically", () => {
-    // An absolute budget alone cannot express the polynomial shape. Measured on this box, the
-    // unbounded pattern ran 257ms at 108KB and 2460ms at 324KB -- 3x the input for 9.6x the time.
-    // A bounded regex ran 245ms and 742ms: 3x for 3x. At 108KB the two are INDISTINGUISHABLE, so
-    // a budget picked there passes against the vulnerable pattern.
-    //
-    // So the assertion is the SCALING EXPONENT (expectLinear: log-log slope of CPU time over four
-    // sizes), not a single ratio: a two-point ratio measured 5.74 against a cap of 5 on a windows
-    // runner for a LINEAR pattern.
-    //
-    // That bounded regex was linear in the limit but cost ~600 steps per input byte (every BEGIN
-    // re-walked its 16 KB window, ~2 ms per KB), and a windows runner measured 3.1-3.5x per
-    // doubling at 54-216 KB (slope 1.73 against the 1.6 cap). The scan is now one pass, so the
-    // base input is 1 MiB: the 1x pass costs ~10 ms, above timer noise, where 54 KB (~0.7 ms)
-    // would not. The absolute bound (40 ms per 80 KB, ~30x the measured cost and 4x under the old
-    // regex's ~160 ms) is what fails a return of that constant, which a slope cannot see.
-    const marker = "-----BEGIN PRIVATE KEY-----";
-    expectLinear(marker, (s) => redactSecrets(s), {
-      baseBytes: 1024 * 1024,
-      boundMsPer80KB: 40,
+    // Measured: ~3.1 work units per byte at every size (slope 1.00). The old bounded regex did
+    // ~600 steps per byte on this input; the ceiling refuses a return of a constant that size,
+    // and the floor guards the counter itself (see above).
+    expectLinearWork(marker, (s) => void redactSecrets(s), {
+      baseBytes: 16 * 1024,
+      countStringOps: true,
+      minWorkPerByte: 0.5,
+      maxWorkPerByte: 8,
     });
     // And nothing matches -- there is no END marker, so zero redactions is the correct answer.
     expect(redactSecrets(marker.repeat(12000)).redactions).toBe(0);
   });
 
   it("the scaling assertion FAILS on the quadratic (unbounded) pattern", () => {
-    // RED proof, kept: the CodeQL-flagged form of the PEM pattern, run through the same helper
-    // with the same slope cap, must be refused. Without it a loosened helper or a vacuous input
-    // shape would pass the real test above while proving nothing.
-    const unbounded = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g;
-    const marker = "-----BEGIN PRIVATE KEY-----";
+    // RED proof, kept: the unbounded form of the PEM scan (CodeQL's
+    //   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g
+    // in plain string operations: every BEGIN searches forward for an END, and with no END it
+    // walks to the end of the text) run through the same counter and the same slope cap must be
+    // refused. Without it a loosened helper or a vacuous input shape would pass the real test
+    // above while proving nothing.
+    const unbounded = (text: string): void => {
+      for (let from = 0; ; ) {
+        const begin = text.indexOf("-----BEGIN ", from);
+        if (begin === -1) return;
+        const end = text.indexOf("-----END ", begin + marker.length);
+        from = end === -1 ? begin + 1 : end + 1;
+      }
+    };
     expect(() =>
-      expectLinear(marker, (s) => s.replace(unbounded, "[REDACTED]"), {
-        baseBytes: 1000 * marker.length,
-        boundMsPer80KB: null,
-      }),
+      expectLinearWork(marker, unbounded, { baseBytes: 4 * 1024, countStringOps: true }),
     ).toThrow(/log-log slope/);
   });
 
