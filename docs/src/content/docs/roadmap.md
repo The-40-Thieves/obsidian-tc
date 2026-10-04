@@ -14,10 +14,11 @@ CloudEvents, rate limiter, 8-triple native prebuilds, this docs site):
   gated by an n=250 golden set with a statistical ship rule (permutation test, FDR,
   a non-inferiority floor). Contextual chunk enrichment measured **+0.223 nDCG** and
   defaults on. k-means clustering and ACT-R activation recompute run as offline CLI
-  passes. Per-vault GraphRAG edge isolation shipped. Mechanisms that lost their A/B
-  (cross-encoder rerankers, learned sparse, ColBERT, convex fusion, query
-  decomposition, MMR, the class router's lexical short-circuit) ship **dark** behind
-  flags, with the numbers recorded in the evaluation notes (`docs/EVALUATION.md`). **Graph densification** (derived `shared_tag` / vec0-kNN / LLM Pass-3 edges beyond authored wikilinks, `retrieval.densify.*`) is wired but **unmeasured** — it ships dark pending a multi-hop golden-set A/B (the earlier virtual-hop experiment hit an 80% bridge-recall ceiling; the champion figure it was compared against has since been [withdrawn as unreproducible](https://github.com/The-40-Thieves/obsidian-tc/pull/752), so that comparison needs re-deriving before it means anything).
+  passes. Per-vault GraphRAG edge isolation shipped. Mechanisms that did not earn a
+  default ship **dark** behind flags. Cross-encoder rerankers and the class router have
+  A/B results on the record (`docs/EVALUATION.md`, ADR 0007); learned sparse, ColBERT,
+  convex fusion, query decomposition and MMR have **no recorded result**
+  (`docs/DARK_MECHANISMS.md` is the inventory). **Graph densification** (derived `shared_tag` / vec0-kNN / LLM Pass-3 edges beyond authored wikilinks, `retrieval.densify.*`) is wired but **unmeasured** — it ships dark pending a multi-hop golden-set A/B (the earlier virtual-hop experiment hit an 80% bridge-recall ceiling; the champion figure it was compared against has since been [withdrawn as unreproducible](https://github.com/The-40-Thieves/obsidian-tc/pull/752), so that comparison needs re-deriving before it means anything).
 - **The experiential work-memory tier** (v1.6): a quarantined second store with
   serve-path retrieval logging, auto-captured work episodes (poison-scanned,
   evaluator-stamped eligibility), and reader tools under a strict contract.

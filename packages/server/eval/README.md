@@ -286,6 +286,15 @@ bun run docgen:sync-facts --golden ~/obsidian-tc-eval/multi-hop-golden-set.yaml 
 
 Then `bun run docgen:render`, review `git diff docs/`, and commit — merging republishes the wiki.
 
+## Public multi-shape suite (`corpora/`)
+
+Fetchable corpora of three more shapes (code documentation, a Chinese personal garden, generated multi-hop
+chains), each pinned by commit and content digest, with output-derived golden sets and planned power.
+Fetch, verify and regenerate commands, licences and the golden-set recipe are in
+[`corpora/README.md`](./corpora/README.md); the shape statistics, n, MDE table and the one harness smoke
+result are in [`docs/EVALUATION.md`](../../../docs/EVALUATION.md) ("Multi-shape suite"). Score a fetched
+corpus with `run.ts` like any other vault, using its config and `corpora/golden/<name>.json`.
+
 ## `retrieval.cache` harness (`query-cache.ts`)
 
 Cache ON versus OFF through the real tool dispatch path, on a COPY of an index (it bumps the vault

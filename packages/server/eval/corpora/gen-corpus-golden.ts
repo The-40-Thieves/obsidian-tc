@@ -16,6 +16,8 @@
 //
 // Deterministic from its seed. `--check` regenerates in memory and fails when a committed set
 // differs, so a corpus or generator change cannot leave a stale golden set behind.
+// The committed `golden/*.json` are this file's raw output and are excluded from biome in
+// `biome.json`: reformatting them would break the byte comparison.
 //
 //   bun eval/corpora/gen-corpus-golden.ts <name> --corpus <dir> --out <file>
 //   bun eval/corpora/gen-corpus-golden.ts <name> --corpus <dir> --check <file>

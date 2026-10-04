@@ -603,6 +603,81 @@ No default changes as a result of this section. What changes is that every defau
 currently reports as a golden-set win is now also on record as evidence *for one vault shape*, not
 evidence that the field's own literature says a single vault can give.
 
+## Multi-shape suite (2026-10-03)
+
+ADR 0007 asks for three or more corpus shapes before a judgment mechanism earns a default, and until
+this section the public record held two (the private multi-hop vault and the evergreen corpus). Part 1
+of the suite adds three shapes anyone can fetch, with golden sets fixed before any arm ran. It records
+**no mechanism result**: the only scored run is a single harness smoke. Corpora, licences, pins and the
+golden-set recipe are in [`packages/server/eval/corpora/README.md`](../packages/server/eval/corpora/README.md);
+the dark mechanisms the suite exists to test are inventoried in [`DARK_MECHANISMS.md`](./DARK_MECHANISMS.md).
+
+| corpus | shape | source | notes |
+| --- | --- | --- | ---: |
+| `quartz-docs` | code documentation, English | `jackyzha0/quartz` `docs/` at a pinned commit, MIT | 111 |
+| `knowledge-garden` | personal garden, Chinese, deep folders | `oldwinter/knowledge-garden` at a pinned commit, MIT | 959 |
+| `synthetic-multihop` | generated multi-hop chains | `eval/gen-multi-hop-slice.ts`, seed 652 | 638 |
+
+Shape statistics, computed with the indexer's own link extraction (`vault/links.ts`):
+
+| corpus | notes | resolved links | links per note, mean (median) | orphan rate | no inbound link | folder depth, mean (max) | body chars, mean / median | CJK share |
+| --- | ---: | ---: | --- | ---: | ---: | --- | --- | ---: |
+| evergreen | 1357 | 4638 | 3.42 (2) | 0.0% | 0.07% | 1 (1) | 2319 / 1398 | 0% |
+| quartz-docs | 111 | 314 | 2.83 (2) | 0.0% | 23.4% | 0.92 (1) | 3146 / 1602 | 0% |
+| knowledge-garden | 959 | 2239 | 2.33 (0) | 5.2% | 7.9% | 2.73 (4) | 862 / 306 | 51% |
+| synthetic-multihop | 638 | 518 | 0.81 (0) | 0.0% | 18.8% | 1 (1) | 71 / 71 | 0% |
+
+The shapes differ on the axes ADR 0007 names: a small, link-sparse, long-note documentation set; a
+large, folder-deep, short-note set in a language the default English tokenisation barely splits; and a
+vault whose only structure is the planted chains.
+
+**Golden sets** are mined from the corpus files alone (no arm's ranking is consulted) in five mechanical
+classes: exact title, unique heading, unique sentence fragment, link context (a sentence of note A with its
+link markup removed, target the note A links to) and bridge 2-hop (A links to B links to C, no A-C link
+either way). The generator builds the contamination guard's rule in, so no note carries three or more
+queries verbatim, and `--check` regenerates a set and fails on a byte difference.
+
+**n and minimum detectable effect** on nDCG@10 (alpha 0.05 two-sided, power 0.8, through `powerReport`),
+planned at the widest paired spread measured so far (sigma_d 0.206) and the narrowest (0.135):
+
+| corpus | n | MDE at 0.206 | MDE at 0.135 |
+| --- | ---: | ---: | ---: |
+| evergreen (existing) | 78 | 0.065 | 0.043 |
+| quartz-docs | 120 | 0.053 | 0.035 |
+| knowledge-garden | 220 | 0.039 | 0.026 |
+| synthetic-multihop | 120 | 0.053 | 0.035 |
+
+Per-class n: quartz-docs link 20, bridge 10, quote 30, heading 30, title 30; knowledge-garden 40, 30, 50, 50,
+50. A per-class cell is far below any of these n, so class means are descriptive only.
+
+**Preregistration.** Before any scored run, `suite-plan.json` (committed beside the tools, sha256
+`530470ee61141074d96cd903910c0ab08f04ed63365846c4e3f3fefafa41d2b6`) and the golden-set digests were
+written down, together with this scope: one baseline run on `quartz-docs`, alone, a harness smoke with no
+hypothesis and no authority to move a default, and two predictions: dense nDCG@10 well above 0.5, and a
+graph-minus-baseline delta inside the planned MDE of 0.053.
+
+**Smoke result (`quartz-docs`, default stack, bge-m3 1024d, n=120).** The artifact is
+`/data/obsidian-tc-eval/multishape/smoke-quartz-docs/artifact.json`, sha256
+`b9b97f52bd63fbbf81331f524d949c59d87b566b4c0188aa73880f0c60aee1e4`; the corpus pin was verified before the
+run and the contamination guard passed.
+
+| metric | dense baseline | graph | delta |
+| --- | ---: | ---: | --- |
+| nDCG@10 | 0.8443 | 0.8952 | +0.051, 95% CI [0.021, 0.084], permutation p = 0.0015 |
+| recall@10 | 0.9167 | 0.9736 | +0.057, 95% CI [0.018, 0.103], p = 0.0067 |
+| MRR@10 | 0.849 | 0.888 | +0.039 |
+
+Observed sigma_d was 0.177, so the achieved MDE at n=120 is 0.045, narrower than the planned 0.053.
+nDCG@10 by class, baseline to graph: link 0.821 to 0.868 (n=20), bridge 0.729 to 0.678 (n=10), quote
+0.707 to 0.857 (n=30), heading 0.892 to 0.952 (n=30), title 0.988 to 0.967 (n=30).
+
+How the predictions fared. Dense above 0.5 held (0.844). The delta prediction held on its letter
+(+0.051 is below the planned 0.053) and missed on its point: the planned MDE was a conservative spread, the
+realised spread was narrower, and the delta is significant. It is also one corpus, one run and the
+default stack, so it is a statement about this shape and does not flip anything: ADR 0007 still needs
+the other shapes and the mechanisms themselves scored, and none has been. The bridge class moving the
+wrong way is a ten-query cell and is noted, not interpreted.
+
 ## Why there is no headline benchmark number
 
 Not for lack of a benchmark to run. Because the available ones measure something else, and because

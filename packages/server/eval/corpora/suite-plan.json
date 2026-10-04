@@ -1,0 +1,220 @@
+{
+  "sigmaD": {
+    "evergreen-lenient": 0.135,
+    "private-multihop": 0.198,
+    "evergreen-strict": 0.206
+  },
+  "headlineSigmaD": 0.206,
+  "entries": [
+    {
+      "name": "evergreen",
+      "stats": {
+        "notes": 1357,
+        "resolvedLinks": 4638,
+        "linkOccurrences": 6241,
+        "unresolvedShare": 0.2194,
+        "linksPerNote": {
+          "mean": 3.42,
+          "median": 2,
+          "max": 156
+        },
+        "orphanRate": 0,
+        "noInboundRate": 0.0007,
+        "folderDepth": {
+          "mean": 1,
+          "median": 1,
+          "max": 1
+        },
+        "folderDepthHistogram": {
+          "1": 1357
+        },
+        "bodyChars": {
+          "mean": 2319,
+          "median": 1398,
+          "max": 165246
+        },
+        "bodyWords": {
+          "mean": 343,
+          "median": 192,
+          "max": 25642
+        },
+        "cjkShare": 0
+      },
+      "golden": {
+        "n": 78,
+        "sha256": "0bda70db2eb1d26e18f5506d598e64dd54a74d6312b9e071b8dc52d36fa391fe",
+        "perClass": {
+          "exact-title": 10,
+          "conceptual": 23,
+          "linked-neighborhood": 6,
+          "keyword": 10,
+          "author-work": 9,
+          "quote-fragment": 8,
+          "ambiguous-topic": 9,
+          "disambiguation": 3
+        }
+      },
+      "mde": {
+        "evergreen-lenient": 0.0428,
+        "private-multihop": 0.0628,
+        "evergreen-strict": 0.0653
+      },
+      "headlineMde": 0.0653
+    },
+    {
+      "name": "quartz-docs",
+      "stats": {
+        "notes": 111,
+        "resolvedLinks": 314,
+        "linkOccurrences": 628,
+        "unresolvedShare": 0.4076,
+        "linksPerNote": {
+          "mean": 2.83,
+          "median": 2,
+          "max": 32
+        },
+        "orphanRate": 0,
+        "noInboundRate": 0.2342,
+        "folderDepth": {
+          "mean": 0.92,
+          "median": 1,
+          "max": 1
+        },
+        "folderDepthHistogram": {
+          "0": 9,
+          "1": 102
+        },
+        "bodyChars": {
+          "mean": 3146,
+          "median": 1602,
+          "max": 29073
+        },
+        "bodyWords": {
+          "mean": 409,
+          "median": 222,
+          "max": 3704
+        },
+        "cjkShare": 0
+      },
+      "golden": {
+        "n": 120,
+        "sha256": "abeca518ac4463aa7dc8c751ad34dc772857488e175bb9e10155fcca53ae7cbc",
+        "perClass": {
+          "link-context": 20,
+          "bridge-2hop": 10,
+          "quote-fragment": 30,
+          "unique-heading": 30,
+          "exact-title": 30
+        }
+      },
+      "mde": {
+        "evergreen-lenient": 0.0345,
+        "private-multihop": 0.0506,
+        "evergreen-strict": 0.0527
+      },
+      "headlineMde": 0.0527
+    },
+    {
+      "name": "knowledge-garden",
+      "stats": {
+        "notes": 959,
+        "resolvedLinks": 2239,
+        "linkOccurrences": 4928,
+        "unresolvedShare": 0.5101,
+        "linksPerNote": {
+          "mean": 2.33,
+          "median": 0,
+          "max": 69
+        },
+        "orphanRate": 0.0521,
+        "noInboundRate": 0.0792,
+        "folderDepth": {
+          "mean": 2.73,
+          "median": 3,
+          "max": 4
+        },
+        "folderDepthHistogram": {
+          "0": 5,
+          "1": 219,
+          "2": 60,
+          "3": 418,
+          "4": 257
+        },
+        "bodyChars": {
+          "mean": 862,
+          "median": 306,
+          "max": 44352
+        },
+        "bodyWords": {
+          "mean": 63,
+          "median": 15,
+          "max": 4181
+        },
+        "cjkShare": 0.5101
+      },
+      "golden": {
+        "n": 220,
+        "sha256": "90cce4da953531fff710f3b66a08d0b1850884406f5ae3709a48f821a4cc4a34",
+        "perClass": {
+          "link-context": 40,
+          "bridge-2hop": 30,
+          "quote-fragment": 50,
+          "unique-heading": 50,
+          "exact-title": 50
+        }
+      },
+      "mde": {
+        "evergreen-lenient": 0.0255,
+        "private-multihop": 0.0374,
+        "evergreen-strict": 0.0389
+      },
+      "headlineMde": 0.0389
+    },
+    {
+      "name": "synthetic-multihop",
+      "stats": {
+        "notes": 638,
+        "resolvedLinks": 518,
+        "linkOccurrences": 518,
+        "unresolvedShare": 0,
+        "linksPerNote": {
+          "mean": 0.81,
+          "median": 0,
+          "max": 5
+        },
+        "orphanRate": 0,
+        "noInboundRate": 0.1881,
+        "folderDepth": {
+          "mean": 1,
+          "median": 1,
+          "max": 1
+        },
+        "folderDepthHistogram": {
+          "1": 638
+        },
+        "bodyChars": {
+          "mean": 71,
+          "median": 71,
+          "max": 160
+        },
+        "bodyWords": {
+          "mean": 11,
+          "median": 11,
+          "max": 26
+        },
+        "cjkShare": 0
+      },
+      "golden": {
+        "n": 120,
+        "sha256": "f2967b0cd34c3618a53535072dfc67a1efda23511de35b91bf133d8139198307",
+        "perClass": {}
+      },
+      "mde": {
+        "evergreen-lenient": 0.0345,
+        "private-multihop": 0.0506,
+        "evergreen-strict": 0.0527
+      },
+      "headlineMde": 0.0527
+    }
+  ]
+}
