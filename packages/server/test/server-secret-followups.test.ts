@@ -1,33 +1,40 @@
 // Residuals from the server-local secret review: concurrent repair of a corrupt key, the refusal
 // message for an exposed key, and the HITL boot line.
-import { spawn } from "node:child_process";
-import {
-  chmodSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  utimesSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { type ChildProcess, spawn } from "node:child_process";
+import { chmodSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { serverSecret } from "../src/auth/server-secret";
 import { bootHitl, hsConfig } from "./hitl-wire-helpers";
 import { stallTimeout } from "./stall-timeouts";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dirs: string[] = [];
 const tmp = (): string => {
-  const d = mkdtempSync(join(tmpdir(), "obtc-secret-fu-"));
+  const d = makeTempDir("obtc-secret-fu-");
   dirs.push(d);
   return d;
 };
-afterEach(() => {
+// Spawning is the slow part on Windows, and the property (every racer returns the one final key)
+// holds with fewer processes, so Windows races 6.
+const RACERS = process.platform === "win32" ? 6 : 24;
+const children: ChildProcess[] = [];
+afterEach(async () => {
   vi.restoreAllMocks();
-  for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  // Nothing may still hold the directory when it is removed: kill stragglers and wait for each exit.
+  const live = children.splice(0).filter((p) => p.exitCode === null && p.signalCode === null);
+  await Promise.all(
+    live.map(
+      (p) =>
+        new Promise<void>((resolve) => {
+          p.once("close", () => resolve());
+          p.kill("SIGKILL");
+        }),
+    ),
+  );
+  for (const d of dirs.splice(0)) rmTemp(d);
 });
 
 const secretFile = (dir: string): string => join(dir, "server-secrets", "wiki-generated.key");
@@ -38,17 +45,33 @@ const corruptSecret = (dir: string): void => {
   chmodSync(secretFile(dir), 0o600);
 };
 
-function child(dir: string, startAt: number): Promise<{ code: number | null; out: string }> {
-  return new Promise((resolve) => {
-    const p = spawn("bun", [join(here, "server-secret-child.ts"), dir, String(startAt)], {
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    let out = "";
-    p.stdout.on("data", (b) => {
-      out += b;
-    });
-    p.on("close", (code) => resolve({ code, out }));
+interface Racer {
+  ready: Promise<void>;
+  done: Promise<{ code: number | null; out: string }>;
+}
+
+/** A child that prints `ready`, waits for `goFile`, then prints the key `serverSecret` returned. */
+function racer(dir: string, goFile: string): Racer {
+  const p = spawn("bun", [join(here, "server-secret-child.ts"), dir, goFile], {
+    stdio: ["ignore", "pipe", "ignore"],
   });
+  children.push(p);
+  let out = "";
+  let markReady: () => void = () => {};
+  const ready = new Promise<void>((resolve) => {
+    markReady = resolve;
+  });
+  p.stdout.on("data", (b) => {
+    out += b;
+    if (out.includes("ready\n")) markReady();
+  });
+  const done = new Promise<{ code: number | null; out: string }>((resolve) => {
+    p.on("close", (code) => {
+      markReady();
+      resolve({ code, out: out.replace(/^ready\n/, "") });
+    });
+  });
+  return { ready, done };
 }
 
 describe("concurrent repair of a corrupt server secret", () => {
@@ -57,9 +80,13 @@ describe("concurrent repair of a corrupt server secret", () => {
     async () => {
       const dir = tmp();
       corruptSecret(dir);
-      const startAt = Date.now() + stallTimeout(3000);
-      const runs = await Promise.all(Array.from({ length: 24 }, () => child(dir, startAt)));
-      expect(runs.map((r) => r.code)).toEqual(Array(24).fill(0));
+      const goFile = join(tmp(), "go");
+      const racers = Array.from({ length: RACERS }, () => racer(dir, goFile));
+      // Release them only once every child is up, so they all enter `serverSecret` together.
+      await Promise.all(racers.map((r) => r.ready));
+      writeFileSync(goFile, "go");
+      const runs = await Promise.all(racers.map((r) => r.done));
+      expect(runs.map((r) => r.code)).toEqual(Array(RACERS).fill(0));
       const final = readFileSync(secretFile(dir), "utf8").trim();
       expect(final).toMatch(/^[A-Za-z0-9_-]{43}$/);
       expect(new Set(runs.map((r) => r.out))).toEqual(new Set([final]));

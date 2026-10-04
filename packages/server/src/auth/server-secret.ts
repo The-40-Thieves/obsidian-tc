@@ -127,6 +127,22 @@ function acquireRepairLock(path: string, lock: string): string | undefined {
   }
 }
 
+/** `rename` over `path`, riding out the brief sharing violation Windows raises while a waiting
+ *  process has the corrupt file open for its validity poll. Bounded: a lock that never clears
+ *  surfaces as the original error, not a hang. */
+function renameOverBusy(from: string, path: string): void {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      renameSync(from, path);
+      return;
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (attempt >= 100 || (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")) throw e;
+      sleep(10);
+    }
+  }
+}
+
 /** Replace a corrupt file with a fully written and fsynced temporary key, under a lock, so exactly
  *  one process repairs it and every other adopts that key. An unconditional rename let N racing
  *  processes each return their own key while only the last one's survived in the file. */
@@ -147,7 +163,7 @@ function repairCorrupt(path: string): string {
     const tmp = tempPath(path);
     try {
       createKeyFile(tmp, newSecret());
-      renameSync(tmp, path);
+      renameOverBusy(tmp, path);
     } finally {
       removeTemp(tmp);
     }
