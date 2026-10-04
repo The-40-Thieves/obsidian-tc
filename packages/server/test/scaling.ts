@@ -94,6 +94,15 @@ export function expectLinear(
     points.push({ bytes: input.length, ms });
     if (ms > SLOW_MS && points.length >= 2) break; // larger sizes would only cost minutes
   }
+  assertScalingFit(unit, points, boundMsPer80KB);
+}
+
+/** The verdict half of `expectLinear`, split out so it can be tested on fixed points: no clock. */
+export function assertScalingFit(
+  unit: string,
+  points: Array<{ bytes: number; ms: number }>,
+  boundMsPer80KB: number | null,
+): void {
   const slope = logLogSlope(points);
   const series = points.map((p) => `${p.bytes}B=${p.ms.toFixed(1)}ms`).join(", ");
   // SCALING_TRACE=1 prints every fit, for calibrating a new shape or reading a flake after the fact.
@@ -107,6 +116,124 @@ export function expectLinear(
   for (const { bytes, ms } of points) {
     expect(ms, `${JSON.stringify(unit)} at ${bytes} bytes`).toBeLessThan(
       (boundMsPer80KB * bytes) / (80 * 1024),
+    );
+  }
+}
+
+// ---- Deterministic variant: count WORK, not time -------------------------------------------------
+//
+// A clock cannot prove that a quadratic subject is refused. On a fast or quiet runner the quadratic
+// pass at the sizes a test can afford is only milliseconds, under the timer's resolution (windows
+// CPU times tick every ~15 ms), so the fitted slope can land under the cap and the NEGATIVE control
+// passes by luck (windows-latest, merge group: `expected [Function] to throw an error`). A step
+// count has no noise: the same input does the same work on every runner, every run.
+//
+// `expectLinearWork` fits the same log-log slope over the same four sizes, over the work `run`
+// reports. Work comes from two places: `tick(n)` calls the subject makes itself (an instrumented
+// model of an algorithm), and, with `countStringOps`, the String.prototype searches and reads a
+// real, uninstrumented scanner performs (`indexOf` charged for the characters it walks, `slice`
+// for the characters it copies, `startsWith`/`charCodeAt` for what they read). Regex-driven code
+// does its work inside the regex engine, where neither is visible: that reads as ~0 work, and
+// `minWorkPerByte` makes that fail loudly instead of passing vacuously.
+const WORK_MAX_SLOPE = 1.3; // linear counts fit ~1.00; quadratic fits ~2.0
+const WORK_SIZE_MULTIPLIERS = [1, 2, 4, 8];
+
+export interface ExpectLinearWorkOptions {
+  /** Size of the 1x input. Counts are exact, so this only has to be large enough to show the shape. */
+  baseBytes: number;
+  /** Floor on work per input byte at every size: the existence check for the counter itself. */
+  minWorkPerByte?: number;
+  /** Ceiling on work per input byte at every size: what fails a return of a large linear constant. */
+  maxWorkPerByte?: number;
+  /** Also charge the String.prototype searches and reads `run` performs (see above). */
+  countStringOps?: boolean;
+}
+
+type StringMethods = {
+  indexOf: typeof String.prototype.indexOf;
+  slice: typeof String.prototype.slice;
+  startsWith: typeof String.prototype.startsWith;
+  charCodeAt: typeof String.prototype.charCodeAt;
+};
+
+/** Run `fn` with the String.prototype methods charged to `tick`; always restores the originals. */
+function withStringOpsCounted(fn: () => void, tick: (n: number) => void): void {
+  const proto = String.prototype;
+  const orig: StringMethods = {
+    indexOf: proto.indexOf,
+    slice: proto.slice,
+    startsWith: proto.startsWith,
+    charCodeAt: proto.charCodeAt,
+  };
+  proto.indexOf = function (this: string, search: string, from?: number): number {
+    const start = Math.max(0, from ?? 0);
+    const found = orig.indexOf.call(this, search, start);
+    tick(1 + (found === -1 ? this.length : found) - start);
+    return found;
+  };
+  proto.slice = function (this: string, start?: number, end?: number): string {
+    const out = orig.slice.call(this, start, end);
+    tick(1 + out.length);
+    return out;
+  };
+  proto.startsWith = function (this: string, search: string, pos?: number): boolean {
+    tick(1 + search.length);
+    return orig.startsWith.call(this, search, pos);
+  };
+  proto.charCodeAt = function (this: string, index?: number): number {
+    tick(1);
+    return orig.charCodeAt.call(this, index ?? 0);
+  };
+  try {
+    fn();
+  } finally {
+    Object.assign(proto, orig);
+  }
+}
+
+/** Work `run` performs on `input`, in the units described above. Deterministic. */
+export function countWork(
+  run: (input: string, tick: (n: number) => void) => void,
+  input: string,
+  countStringOps = false,
+): number {
+  let work = 0;
+  const tick = (n: number): void => {
+    work += n;
+  };
+  if (countStringOps) withStringOpsCounted(() => run(input, tick), tick);
+  else run(input, tick);
+  return work;
+}
+
+/** Assert the work `run` does over 1x..8x inputs of `unit` fits a slope under 1.3 (quadratic is 2). */
+export function expectLinearWork(
+  unit: string,
+  run: (input: string, tick: (n: number) => void) => void,
+  {
+    baseBytes,
+    minWorkPerByte = 0,
+    maxWorkPerByte = Number.POSITIVE_INFINITY,
+    countStringOps = false,
+  }: ExpectLinearWorkOptions,
+): void {
+  const points: Array<{ bytes: number; work: number }> = [];
+  for (const k of WORK_SIZE_MULTIPLIERS) {
+    const input = repeatTo(unit, k * baseBytes);
+    points.push({ bytes: input.length, work: countWork(run, input, countStringOps) });
+  }
+  const series = points.map((p) => `${p.bytes}B=${p.work}`).join(", ");
+  const slope = logLogSlope(points.map((p) => ({ bytes: p.bytes, ms: p.work })));
+  const label = `${JSON.stringify(unit)} work over ${series}`;
+  if (process.env.SCALING_TRACE)
+    process.stderr.write(`[scaling] ${label} slope=${slope.toFixed(3)}\n`);
+  expect(slope, `${label}: log-log slope`).toBeLessThan(WORK_MAX_SLOPE);
+  for (const { bytes, work } of points) {
+    expect(work / bytes, `${label}: work per byte at ${bytes} bytes`).toBeGreaterThanOrEqual(
+      minWorkPerByte,
+    );
+    expect(work / bytes, `${label}: work per byte at ${bytes} bytes`).toBeLessThanOrEqual(
+      maxWorkPerByte,
     );
   }
 }
