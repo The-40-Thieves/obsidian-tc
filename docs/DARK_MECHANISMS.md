@@ -18,37 +18,42 @@ is 0.035) and the public **evergreen** corpus (Matuschak notes, English, n=78 un
 MDE 0.065 strict and 0.043 lenient). ADR 0007 asks for three or more shapes before a judgment
 mechanism earns a default, so no row below could flip on today's evidence. The suite built to supply
 the missing shapes is in [`packages/server/eval/corpora/`](../packages/server/eval/corpora/README.md).
+Since 2026-10-04 the **recorded A/B** and **shapes tested** cells also carry the multi-shape matrix
+([`EVALUATION.md`](./EVALUATION.md), "Multi-shape suite, part 2"): evergreen, quartz-docs, knowledge-garden and
+synthetic-multihop, each arm judged against the preregistered MDE (WIN, LOSS, TIE; "inert" where no query's
+ranking changed). The synthetic cells are templated-query artifacts and carry no mechanism claim. Rows 1, 2,
+5, 10, 20, 21, 22, 24 and 26 were not run, and the reranker re-test (rows 3, 4) is pending.
 
 ## Summary
 
 | # | mechanism | config key | needs | recorded A/B | shapes tested |
 | ---: | --- | --- | --- | --- | --- |
-| 1 | learned-sparse stream | `retrieval.sparse` | multi-vector encoder | none on record | none |
-| 2 | ColBERT late-interaction rerank | `retrieval.colbert` | multi-vector encoder | none on record | none |
-| 3 | gated cross-encoder rerank | `retrieval.gatedRerank` | reranker backend | null | private multi-hop |
-| 4 | reranker passage format | `reranker.passageFormat` | reranker backend | win or tie, opt-in | evergreen, private multi-hop |
-| 5 | LLM-inferred edges | `retrieval.densify.llmEdges` | inference gateway | none on record | none |
-| 6 | kNN edges | `retrieval.densify.knnEdges` | none | null; fails floor on evergreen strict | private multi-hop, evergreen |
-| 7 | shared-tag edges | `retrieval.densify.tagEdges` | none | null | private multi-hop |
+| 1 | learned-sparse stream | `retrieval.sparse` | multi-vector encoder | none on record; pending (encoder) | none |
+| 2 | ColBERT late-interaction rerank | `retrieval.colbert` | multi-vector encoder | none on record; pending (encoder) | none |
+| 3 | gated cross-encoder rerank | `retrieval.gatedRerank` | reranker backend | null; TIE on 3 new shapes (inert on 1) | private multi-hop, evergreen, quartz-docs, knowledge-garden |
+| 4 | reranker passage format | `reranker.passageFormat` | reranker backend | win or tie, opt-in; new shapes pending (GPU) | evergreen, private multi-hop |
+| 5 | LLM-inferred edges | `retrieval.densify.llmEdges` | inference gateway | none on record; not run (spend) | none |
+| 6 | kNN edges | `retrieval.densify.knnEdges` | none | null; fails floor on evergreen strict; TIE on 4 new shapes | private multi-hop, evergreen, quartz-docs, knowledge-garden, synthetic-multihop |
+| 7 | shared-tag edges | `retrieval.densify.tagEdges` | none | null; inert on 3 new shapes, TIE on quartz-docs | private multi-hop, quartz-docs |
 | 8 | derived edges in the walk | `retrieval.densify.includeInWalk` | edges 5 to 7 | the toggle behind rows 6 and 7 | private multi-hop |
-| 9 | convex fusion | none (search option) | none | none on record | none |
-| 10 | query decomposition | none (eval flag, prompt) | local LLM for the flag | none on record | none |
-| 11 | multi-query fan-out | `query_variants` tool argument | none | loss | private multi-hop |
-| 12 | MMR final pick | none (search option) | none | none on record | none |
-| 13 | cluster-diversity cap | none (search option) | offline clustering | "negative at every k", no figures | private multi-hop |
-| 14 | class router | `retrieval.classRouter` | none | tie, below MDE | private multi-hop |
-| 15 | z-margin router | none (search option) | none | none on record | none |
-| 16 | adaptive RRF | `retrieval.adaptiveRrf.enabled` | none | none on record | none |
-| 17 | capped graph-expansion stream | `retrieval.graphStream.enabled` | none | neutral, non-inferior | private multi-hop |
-| 18 | smooth expansion scoring | none (search option) | none | none on record | none |
-| 19 | metadata prior | `ranking.metadataPrior.enabled` | frontmatter rules | none on record | none |
-| 20 | activation rerank and bubble pass | `experiential.activationRerank` | experiential store | none on public record | none |
-| 21 | note summaries | `retrieval.summaries.enabled` | inference gateway | none | none |
-| 22 | cluster summaries | `retrieval.summaries.clusters.enabled` | inference gateway, clustering | none | none |
-| 23 | derived defaults (`rrfK`) | `retrieval.derivedDefaults` | none | parity | evergreen, private multi-hop |
-| 24 | search-mode preference reader | `retrieval.useSearchModePreference` | experiential store | catastrophic loss | evergreen, private multi-hop |
-| 25 | `auto` routes beyond text-first | `retrieval.searchAutoRoute` | embeddings provider | helps on evergreen, no-op on private | evergreen, private multi-hop |
-| 26 | query-product cache | `retrieval.cache.enabled` | none | results identical; latency only | private (15.9k chunks) |
+| 9 | convex fusion | none (search option) | none | LOSS on 2 new shapes, TIE on 2 | quartz-docs, knowledge-garden, evergreen, synthetic-multihop |
+| 10 | query decomposition | none (eval flag, prompt) | local LLM for the flag | none on record; not run | none |
+| 11 | multi-query fan-out | `query_variants` tool argument | none | loss; LOSS on 3 new shapes, WIN on synthetic (artifact) | private multi-hop, evergreen, quartz-docs, knowledge-garden, synthetic-multihop |
+| 12 | MMR final pick | none (search option) | none | TIE on 4 new shapes | evergreen, quartz-docs, knowledge-garden, synthetic-multihop |
+| 13 | cluster-diversity cap | none (search option) | offline clustering | "negative at every k", no figures; TIE on 3 new shapes, WIN on synthetic (artifact) | private multi-hop, evergreen, quartz-docs, knowledge-garden, synthetic-multihop |
+| 14 | class router | `retrieval.classRouter` | none | tie, below MDE; TIE on 2 new shapes, inert on evergreen, WIN on synthetic (artifact) | private multi-hop, quartz-docs, knowledge-garden, synthetic-multihop |
+| 15 | z-margin router | none (search option) | none | TIE on 4 new shapes | evergreen, quartz-docs, knowledge-garden, synthetic-multihop |
+| 16 | adaptive RRF | `retrieval.adaptiveRrf.enabled` | none | TIE on 4 new shapes | evergreen, quartz-docs, knowledge-garden, synthetic-multihop |
+| 17 | capped graph-expansion stream | `retrieval.graphStream.enabled` | none | neutral, non-inferior; TIE on 3 new shapes (inert on 1) | private multi-hop, evergreen, quartz-docs, knowledge-garden |
+| 18 | smooth expansion scoring | none (search option) | none | TIE on 4 new shapes | evergreen, quartz-docs, knowledge-garden, synthetic-multihop |
+| 19 | metadata prior | `ranking.metadataPrior.enabled` | frontmatter rules | inert on 4 new shapes | none with an effect |
+| 20 | activation rerank and bubble pass | `experiential.activationRerank` | experiential store | none on public record; not run | none |
+| 21 | note summaries | `retrieval.summaries.enabled` | inference gateway | none; not run | none |
+| 22 | cluster summaries | `retrieval.summaries.clusters.enabled` | inference gateway, clustering | none; not run | none |
+| 23 | derived defaults (`rrfK`) | `retrieval.derivedDefaults` | none | parity; inert (identical) on 4 new shapes | evergreen, private multi-hop, quartz-docs, knowledge-garden, synthetic-multihop |
+| 24 | search-mode preference reader | `retrieval.useSearchModePreference` | experiential store | catastrophic loss; not run on new shapes | evergreen, private multi-hop |
+| 25 | `auto` routes beyond text-first | `retrieval.searchAutoRoute` | embeddings provider | helps on evergreen, no-op on private; text-first WIN on 2 new shapes, hybrid and weak-text TIE or inert | evergreen, private multi-hop, quartz-docs, knowledge-garden, synthetic-multihop |
+| 26 | query-product cache | `retrieval.cache.enabled` | none | results identical; latency only; not run on new shapes | private (15.9k chunks) |
 
 ## Per mechanism
 
@@ -64,6 +69,7 @@ the missing shapes is in [`packages/server/eval/corpora/`](../packages/server/ev
   to run `--sparse` against such a provider.
 - **A/B on record:** none. `docs/src/content/docs/roadmap.md` and `ARCHITECTURE.md` say the numbers are
   recorded in this evaluation document; they are not (see [Gaps](#gaps-found-while-writing-this)).
+- **Multi-shape (2026-10-04):** not run. Pending: needs the bge-m3 multi-vector encoder. Shapes tested: none.
 
 ### 2. ColBERT late-interaction rerank
 
@@ -73,6 +79,7 @@ the missing shapes is in [`packages/server/eval/corpora/`](../packages/server/ev
   JavaScript max-sim, not a PLAID index; the workload-partition plan records real late interaction as
   needing the model and a GPU.
 - **A/B on record:** none.
+- **Multi-shape (2026-10-04):** not run. Pending: needs the bge-m3 multi-vector encoder. Shapes tested: none.
 
 ### 3. Gated cross-encoder rerank
 
@@ -87,6 +94,7 @@ the missing shapes is in [`packages/server/eval/corpora/`](../packages/server/ev
   A well-powered null, so the flag stays off.
 - **Ungated reranking** over the dense top-30 (ADR 0007, 2026-10-02): every raw-chunk arm loses on the evergreen
   strict labels (-0.08 to -0.21 nDCG@10, called catastrophic) and on private multi-hop (-0.05 to -0.09).
+- **Multi-shape (2026-10-04):** `cosine@0.55` against off is a TIE on evergreen (-0.009), quartz-docs (-0.006) and knowledge-garden (-0.008), and inert on synthetic-multihop (0 queries changed). Shapes tested: 3 new, plus 1 inert. The ungated reranker re-test on the new shapes is pending (GPU).
 
 ### 4. Reranker passage format
 
@@ -96,6 +104,7 @@ the missing shapes is in [`packages/server/eval/corpora/`](../packages/server/ev
   wins on evergreen strict and lenient and ties on private multi-hop; DeepInfra Qwen3-0.6B wins on private
   (+0.033) but is underpowered on evergreen. Two English shapes, queries the variant was formed on, so ADR 0007
   keeps the default at `chunk`.
+- **Multi-shape (2026-10-04):** not run on the new shapes; part of the pending reranker re-test (GPU). Shapes tested: none new.
 
 ### 5. LLM-inferred edges
 
@@ -105,6 +114,7 @@ the missing shapes is in [`packages/server/eval/corpora/`](../packages/server/ev
 - **Outside dependency:** the configured inference gateway, batch only. Note text leaves the machine, so it is
   subject to `egress.excludePaths`.
 - **A/B on record:** none. The densification study measured rows 6 and 7 only.
+- **Multi-shape (2026-10-04):** not run: `densify-llm` needs the metered `extract` model, which is new spend. Shapes tested: none.
 
 ### 6. kNN edges
 
@@ -116,6 +126,7 @@ the missing shapes is in [`packages/server/eval/corpora/`](../packages/server/ev
   -0.008, -0.008 and +0.000 (p 0.73 to 1.0). Re-measured on the decontaminated vault: -0.0015 (p 0.63). On the
   public evergreen corpus the floor-0.0 arm **fails** the -0.015 non-inferiority floor on strict labels
   (-0.009, lower bound -0.026).
+- **Multi-shape (2026-10-04):** TIE on all four: evergreen -0.009, quartz-docs +0.000, knowledge-garden -0.003, synthetic-multihop -0.020 (sig, sub-MDE). On evergreen strict the interval is [-0.026, +0.000] (n=78), the same lower end as the earlier floor-0.0 record. Shapes tested: 4.
 
 ### 7. Shared-tag edges
 
@@ -123,12 +134,14 @@ the missing shapes is in [`packages/server/eval/corpora/`](../packages/server/ev
 - **Storage:** `vault_edges` rows with `edge_type = 'shared_tag'`. **Outside dependency:** none (6.5 s to build).
 - **A/B on record:** private multi-hop, n=250: nDCG@10 -0.002, bridge recall +0.000 (p 1.0), 30 queries reordered;
   re-measured -0.0009 (p 0.76). Not run on evergreen.
+- **Multi-shape (2026-10-04):** inert on evergreen, knowledge-garden and synthetic-multihop (no tags, so no edges were built); TIE on quartz-docs (-0.003, 5 queries changed). Shapes with an effect to measure: 1.
 
 ### 8. Derived edges in the walk
 
 - **Key:** `retrieval.densify.includeInWalk` (default `false`), `derivedWeight` 0.5.
 - This is the switch rows 6 and 7 are measured through: edges 5 to 7 are built either way and only this flag
   lets the graph walk traverse them.
+- **Multi-shape (2026-10-04):** the same runs as rows 6 and 7 (`DENSIFY=1` on an edge-built index copy); no separate verdict.
 
 ### 9. Convex fusion
 
@@ -136,6 +149,7 @@ the missing shapes is in [`packages/server/eval/corpora/`](../packages/server/ev
   `CONVEX_ALPHA`. No running server sets it, so it is reachable only from the harness.
 - **Storage / dependency:** none. **A/B on record:** none; the release note that added it says "pending its A/B
   against RRF k=10".
+- **Multi-shape (2026-10-04):** LOSS on quartz-docs (-0.076) and knowledge-garden (-0.106); TIE on evergreen (-0.018) and synthetic-multihop (-0.018, sig, sub-MDE). Shapes tested: 4. Two LOSS cells, no WIN.
 
 ### 10. Query decomposition
 
@@ -145,6 +159,7 @@ the missing shapes is in [`packages/server/eval/corpora/`](../packages/server/ev
   variable points at a live backend. The product-side counterpart is the `decompose_and_research` MCP prompt, where
   the client's own model does the decomposing.
 - **A/B on record:** none for the spike. See row 11 for the fan-out the prompt can drive.
+- **Multi-shape (2026-10-04):** not run: the local LLM backend was removed 2026-07-31. Shapes tested: none.
 
 ### 11. Multi-query fan-out
 
@@ -152,17 +167,20 @@ the missing shapes is in [`packages/server/eval/corpora/`](../packages/server/ev
 - **A/B on record** (EVALUATION.md, "Multi-query fan-out"): private multi-hop, n=250, three phrasings against single
   query, paired: nDCG@10 -0.047 (p 0.0004), MRR@10 -0.063, recall@10 -0.002 (not significant). The same documents
   in a worse order. Re-measured on the decontaminated vault: -0.0396 (p 0.0011). Not run on evergreen.
+- **Multi-shape (2026-10-04):** LOSS on evergreen (-0.197), quartz-docs (-0.201) and knowledge-garden (-0.280), paired against a path-deduped control; WIN on synthetic-multihop (+0.149), a templated-query artifact (the same signature as rows 13 and 14 on that corpus). Shapes tested: 4.
 
 ### 12. MMR final pick
 
 - **Key:** none. `diversify.mmr` (`lambda` 0.7) on the search options, eval flag `--mmr`.
 - **Storage / dependency:** none. **A/B on record:** none.
+- **Multi-shape (2026-10-04):** TIE on all four (knowledge-garden -0.005 is significant and below the MDE). Shapes tested: 4.
 
 ### 13. Cluster-diversity cap
 
 - **Key:** none. `maxPerCluster` on the search options, eval flag `--max-per-cluster`. Needs the offline
   `obsidian-tc cluster` pass, which fills `chunks.cluster_id`; on an unclustered index the harness refuses.
 - **A/B on record:** EVALUATION.md says "measured negative at every k tested" and gives no table.
+- **Multi-shape (2026-10-04):** TIE on evergreen (-0.028, sig, sub-MDE), quartz-docs (-0.013) and knowledge-garden (-0.022, BH-significant, below the MDE); WIN on synthetic-multihop (+0.162), a templated-query artifact. `--max-per-cluster 2`, k = round(sqrt(chunks)). Shapes tested: 4.
 
 ### 14. Class router
 
@@ -172,16 +190,19 @@ the missing shapes is in [`packages/server/eval/corpora/`](../packages/server/ev
 - **A/B on record** (ADR 0007, 2026-10-02 re-measure): private multi-hop, n=250. Router arm 0.7712 on the old index
   copy and 0.7770 on the decontaminated copy, against the default path 0.7696 and 0.7740: within 0.004, far below
   the 0.035 MDE. No per-class aggregate is recorded on the public side.
+- **Multi-shape (2026-10-04):** inert on evergreen; TIE on quartz-docs (-0.009) and knowledge-garden (+0.001); WIN on synthetic-multihop (+0.207), a templated-query artifact (likely because the lexical short-circuit meets queries whose minted token appears in the seed and target note; not diagnosed further), not a general win. Shapes tested: 4, with 1 inert and 1 artifact.
 
 ### 15. z-margin router
 
 - **Key:** none. `router.zThreshold` on the search options skips graph expansion on a confident dense lock; eval
   flag `--z-router`. **A/B on record:** none.
+- **Multi-shape (2026-10-04):** TIE on all four, threshold 2.66 fixed in advance (synthetic-multihop +0.018 is sig, sub-MDE). Shapes tested: 4.
 
 ### 16. Adaptive RRF
 
 - **Keys:** `retrieval.adaptiveRrf.enabled` (default `false`), `gain` 0.5. Eval flag `--adaptive-rrf`.
 - **Storage / dependency:** none (uses lexical specificity from the text index). **A/B on record:** none.
+- **Multi-shape (2026-10-04):** TIE on all four (quartz-docs -0.013 is sig, sub-MDE). Shapes tested: 4.
 
 ### 17. Capped graph-expansion stream
 
@@ -189,16 +210,19 @@ the missing shapes is in [`packages/server/eval/corpora/`](../packages/server/ev
 - **A/B on record** (config schema description): private multi-hop, n=250: 0 of 8 metrics significant after
   Benjamini-Hochberg, non-inferior on nDCG@10 (lower bound -0.002 against the -0.015 floor); it removes about 22%
   of the expansion candidate pool. A cost lever, corpus-specific.
+- **Multi-shape (2026-10-04):** TIE on evergreen (-0.007), quartz-docs (-0.005) and knowledge-garden (+0.000); inert on synthetic-multihop. Shapes tested: 3 plus 1 inert.
 
 ### 18. Smooth expansion scoring
 
 - **Key:** none. `smoothExpansion` (`lambda` 0.8, `hubMu` 75, `hubGamma` 6) on the search options.
 - **A/B on record:** none; the release note says "pending its A/B". Its defaults were tuned on the private vault.
+- **Multi-shape (2026-10-04):** TIE on all four (knowledge-garden +0.003 is sig, sub-MDE). Shapes tested: 4.
 
 ### 19. Metadata prior
 
 - **Keys:** `ranking.metadataPrior.enabled` (default `false`), `rules`, `clampFraction` 0.5. Eval flag
   `--metadata-prior`. **Storage / dependency:** none (reads frontmatter). **A/B on record:** none.
+- **Multi-shape (2026-10-04):** inert on all four corpora (none carries the frontmatter the representative rule set reads); no verdict on the mechanism. Shapes tested: none with an effect.
 
 ### 20. Activation rerank and bounded bubble pass
 
@@ -208,6 +232,7 @@ the missing shapes is in [`packages/server/eval/corpora/`](../packages/server/ev
   activation-recompute pass writes. Inert without recorded retrievals.
 - **A/B on record:** none in this repo's docs. The pre-registered paired test (nDCG@10 gain of at least 0.010 after
   Benjamini-Hochberg) has artifacts under the eval data directory but no write-up here.
+- **Multi-shape (2026-10-04):** not run: no public corpus has recorded retrieval history. Shapes tested: none.
 
 ### 21 and 22. Note and cluster summaries
 
@@ -217,6 +242,7 @@ the missing shapes is in [`packages/server/eval/corpora/`](../packages/server/ev
   need the offline cluster pass.
 - **A/B on record:** none. The mechanism is gated on a pre-registered global-query eval, and the canonical n=250
   set holds no global queries.
+- **Multi-shape (2026-10-04):** not run: gated on a global-query eval and the public golden sets hold no global query. Shapes tested: none.
 
 ### 23. Derived defaults
 
@@ -225,6 +251,7 @@ the missing shapes is in [`packages/server/eval/corpora/`](../packages/server/ev
   constant (every vault with 30 or more chunks derives `k = 10`). On constructed 6- and 10-note vaults the
   derived `k` reordered 20 of 188 queries and moved no metric (nDCG@10 at its 0.995 to 0.997 ceiling). Parity,
   not effectiveness.
+- **Multi-shape (2026-10-04):** inert (identical to the constant) on all four corpora: every index above 30 chunks derives `rrfK` 10. Parity, not effectiveness. Shapes tested: 4 for parity.
 
 ### 24. Search-mode preference reader
 
@@ -232,6 +259,7 @@ the missing shapes is in [`packages/server/eval/corpora/`](../packages/server/ev
 - **A/B on record** (ADR 0007, class (c)): forced `text` is worse on every query it changes. Evergreen strict
   0.8491 to 0.2543; private multi-hop 0.7515 to 0.0000 on the decontaminated copy; lower bounds far below the
   -0.015 floor.
+- **Multi-shape (2026-10-04):** not run: needs recorded retrieval history. Shapes tested: none new.
 
 ### 25. `auto` routes beyond text-first
 
@@ -240,6 +268,7 @@ the missing shapes is in [`packages/server/eval/corpora/`](../packages/server/ev
 - **A/B on record** (ADR 0007, 2026-10-01): evergreen strict `hybrid` +0.037 nDCG@10 (p 0.049, below its 0.065
   MDE), lenient +0.028 (p 0.010). On the decontaminated private vault all three routes are identical (the text
   leg returns nothing), so the mechanism is a no-op there.
+- **Multi-shape (2026-10-04):** against `text-first`: `hybrid` is a TIE on evergreen (+0.037, sig, sub-MDE), quartz-docs (+0.018) and knowledge-garden (+0.006) and inert on synthetic-multihop; `weak-text` is inert on three corpora and a TIE on knowledge-garden (-0.002). `text-first` itself against dense `search_semantic`: WIN on knowledge-garden (+0.133) and quartz-docs (+0.064), TIE on evergreen (-0.019), inert on synthetic-multihop. Shapes tested: 4.
 
 ### 26. Query-product cache
 
@@ -276,3 +305,5 @@ only.
   figures on the public side.
 - Rows 9, 10, 12, 13, 15 and 18 have no config key at all: a running server cannot turn them on, only the eval
   harness or a caller-supplied argument can.
+- **Multi-shape (2026-10-04):** not run: it changes latency, not ranking. Shapes tested: none.
+

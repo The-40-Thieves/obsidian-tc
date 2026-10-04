@@ -678,6 +678,286 @@ default stack, so it is a statement about this shape and does not flip anything:
 the other shapes and the mechanisms themselves scored, and none has been. The bridge class moving the
 wrong way is a ten-query cell and is noted, not interpreted.
 
+## Multi-shape suite, part 2: the arm matrix (2026-10-04)
+
+Part 1 sourced the shapes. Part 2 runs the dark mechanisms and the shipped defaults on four corpora, one `eval/run.ts` (or
+`eval/search-mode.ts`) process at a time, every run recorded with `eval/history.ts` (80 runs in
+`/data/obsidian-tc-eval/multishape/part2/runs.db`; artifacts `artifacts/<corpus>--<arm>.json`, none deleted). It changes no
+default. Two parts of the planned matrix are **pending**, not run: the reranker re-test (needs a GPU, awaiting the owner's
+approval) and the learned-sparse and ColBERT arms (need a multi-vector encoder). Both are listed again at the end.
+
+**Preregistration.** `PREREGISTRATION-part2.md` (sha256 `43863ad7559c9cad0b34e39953059c92ccb5694a75083fd1fbcfa4965bfbd647`,
+2026-10-04T03:59:22Z) fixed the corpora, golden sets, MDEs, statistics and verdict rule before any part-2 arm ran; addendum 1
+(sha256 `ce937d40d3f56559f129ed95f6697e16baeb6bc5e4035a8e2fa6d79e1b44df8c`, 2026-10-04T04:44:47Z) added the tier C arms below.
+Disclosed there: tier A and B had been scored on two corpora when the addendum was written, and nothing in it was tuned on a
+result. No preregistered MDE was changed.
+
+| corpus | n | labels | MDE nDCG@10 | index |
+| --- | ---: | --- | ---: | --- |
+| evergreen | 78 | strict (existing set) | 0.0653 | copy of the reranker-study index (bge-m3 1024d) |
+| quartz-docs | 120 | `golden/quartz-docs.json` | 0.0527 | copy of the part-1 smoke index; 575 chunks of 110 of 111 notes |
+| knowledge-garden | 220 | `golden/knowledge-garden.json` | 0.0389 | `obsidian-tc index`; 2422 chunks of 832 of 959 notes (see below) |
+| synthetic-multihop | 120 | `golden/synthetic-multihop.example.yaml` | 0.0527 | `obsidian-tc index`; 878 chunks of 638 notes |
+
+Embeddings are `BAAI/bge-m3` 1024d through the gateway alias on every corpus. The contamination guard passed in every call. A control
+re-run on `quartz-docs` was bit-identical to the part-1 smoke (nDCG@10 0.8443 to 0.8952, p 0.0015), so runs are deterministic.
+
+**Why the knowledge-garden index holds 832 of 959 files.** The pin counts Markdown files; the index counts notes that yield a chunk.
+The chunker consumes heading lines into the breadcrumb and drops a section with no body text, so a note that is only frontmatter, or
+only headings, has a `notes` row and no chunk. All 127 missing notes were inspected: 123 are frontmatter-only and 4 are
+headings-only. None was excluded for size, language or a parse failure (0 embed failures, 0 frontmatter failures, 0 secret-gated). The
+same rule leaves 1 of 111 quartz-docs notes and 66 of 1357 evergreen notes unchunked (none has body text beyond headings). Recorded
+in [`corpora/README.md`](../packages/server/eval/corpora/README.md), "What the indexer keeps".
+
+**Verdict rule** (mechanical, per arm and corpus, against the MDE above). WIN: delta above zero, Benjamini-Hochberg significant
+(q 0.10, one family per corpus, nDCG@10) and delta at least the MDE. LOSS: the mirror image. TIE (within MDE): everything else; a tie
+with raw p below 0.05 and a delta below the MDE is annotated "sig, sub-MDE" and is **not** a win. A TIE means "no effect larger than
+the MDE", not "no effect". The default stack row compares the control's own two sides (production graph order against dense-only), one
+comparison per corpus, raw p below 0.05. `queries changed` counts queries whose ranked list differs from the control's.
+
+**Tier C arms (addendum 1).** `fanout`: three phrasings per golden query from `openai/gpt-5.4-nano` through the gateway (538 short
+completions in total, public query text only, written once to a file and reused), against `default-pathdedup` (the fan-out dedupes
+by note, so the control must too). `route-weak-text` and `route-hybrid` against `route-text-first` (the shipped route), through
+`eval/search-mode.ts` with the pools stage's query vectors. `cluster-cap`: `obsidian-tc cluster --k round(sqrt(chunks))` on an index
+copy (k = 24, 55, 49, 30 for quartz-docs, evergreen, knowledge-garden, synthetic-multihop), then `--max-per-cluster 2`, against
+`default`. `llm-edges` was **not run** (see the skipped list).
+
+### Per-corpus results
+
+Each table is the output of `bun eval/corpora/matrix-report.ts` on the artifact directory, pasted verbatim. Columns: nDCG@10 of the
+control side to the arm side, paired delta with a bootstrap 95% interval, permutation p, Benjamini-Hochberg result within the
+corpus family, recall@10 and MRR@10 deltas, bridge nDCG@10 delta where queries declare bridges (n in brackets), queries changed, verdict.
+The control row of each group is the comparison of the default stack (or the route or path-dedup control) against dense.
+
+#### evergreen (MDE 0.0653, control: default)
+
+| arm | nDCG@10 control to arm | delta nDCG@10, 95% CI | p | BH | delta recall@10 | delta MRR@10 | delta bridge nDCG@10 (n) | queries changed | verdict |
+| --- | --- | --- | ---: | --- | --- | --- | --- | ---: | --- |
+| default stack, graph vs dense | 0.8683 to 0.9143 | +0.046 [+0.001, +0.094] | 0.053 | ns | +0.036 (p 0.123) | +0.041 (p 0.180) | n/a | 23 | TIE |
+| adaptive-rrf | 0.9143 to 0.9060 | -0.008 [-0.030, +0.013] | 0.481 | no | -0.019 (p 0.495) | -0.004 (p 0.905) | n/a | 10 | TIE |
+| class-router | 0.9143 to 0.9143 | +0.000 [+0.000, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | n/a | 0 | TIE |
+| cluster-cap | 0.9143 to 0.8862 | -0.028 [-0.054, -0.008] | 0.031 | no | -0.056 (p 0.031) | -0.010 (p 0.251) | n/a | 6 | TIE (sig, sub-MDE) |
+| convex | 0.9143 to 0.8966 | -0.018 [-0.045, +0.009] | 0.213 | no | -0.036 (p 0.062) | +0.006 (p 0.778) | n/a | 15 | TIE |
+| derived-defaults | 0.9143 to 0.9143 | +0.000 [+0.000, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | n/a | 0 | TIE |
+| gated-rerank | 0.9143 to 0.9057 | -0.009 [-0.022, +0.000] | 0.492 | no | -0.013 (p 1.000) | -0.008 (p 0.492) | n/a | 2 | TIE |
+| graph-stream | 0.9143 to 0.9072 | -0.007 [-0.022, +0.003] | 0.369 | no | +0.000 (p 1.000) | -0.010 (p 0.363) | n/a | 7 | TIE |
+| knn | 0.9143 to 0.9056 | -0.009 [-0.026, +0.000] | 0.509 | no | +0.000 (p 1.000) | -0.011 (p 0.509) | n/a | 2 | TIE |
+| metadata-prior | 0.9143 to 0.9143 | +0.000 [+0.000, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | n/a | 0 | TIE |
+| mmr | 0.9143 to 0.9132 | -0.001 [-0.004, +0.001] | 0.435 | no | +0.000 (p 1.000) | -0.000 (p 1.000) | n/a | 5 | TIE |
+| no-lexical | 0.9143 to 0.8508 | -0.063 [-0.113, -0.015] | 0.011 | no | -0.019 (p 0.495) | -0.062 (p 0.063) | n/a | 25 | TIE (sig, sub-MDE) |
+| smooth-expansion | 0.9143 to 0.9141 | -0.000 [-0.002, +0.002] | 1.000 | no | +0.000 (p 1.000) | -0.002 (p 1.000) | n/a | 2 | TIE |
+| tag | 0.9143 to 0.9143 | +0.000 [+0.000, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | n/a | 0 | TIE |
+| z-router | 0.9143 to 0.9103 | -0.004 [-0.023, +0.008] | 1.000 | no | +0.004 (p 1.000) | -0.008 (p 1.000) | n/a | 4 | TIE |
+
+#### evergreen (MDE 0.0653, control: default-pathdedup)
+
+| arm | nDCG@10 control to arm | delta nDCG@10, 95% CI | p | BH | delta recall@10 | delta MRR@10 | delta bridge nDCG@10 (n) | queries changed | verdict |
+| --- | --- | --- | ---: | --- | --- | --- | --- | ---: | --- |
+| default-pathdedup (control) vs dense | 0.8683 to 0.9143 | +0.046 [+0.001, +0.094] | 0.053 | ns | +0.036 (p 0.123) | +0.041 (p 0.180) | n/a | 23 | TIE |
+| fanout | 0.9143 to 0.7172 | -0.197 [-0.259, -0.134] | <0.001 | yes | -0.019 (p 0.495) | -0.255 (p <0.001) | n/a | 45 | LOSS |
+
+#### evergreen (MDE 0.0653, control: route-text-first)
+
+| arm | nDCG@10 control to arm | delta nDCG@10, 95% CI | p | BH | delta recall@10 | delta MRR@10 | delta bridge nDCG@10 (n) | queries changed | verdict |
+| --- | --- | --- | ---: | --- | --- | --- | --- | ---: | --- |
+| route-text-first (control) vs dense | 0.8683 to 0.8491 | -0.019 [-0.068, +0.030] | 0.442 | ns | -0.006 (p 1.000) | -0.017 (p 0.587) | n/a | 10 | TIE |
+| route-hybrid | 0.8491 to 0.8865 | +0.037 [+0.002, +0.079] | 0.049 | yes | +0.019 (p 0.502) | +0.036 (p 0.155) | n/a | 9 | TIE (sig, sub-MDE) |
+| route-weak-text | 0.8491 to 0.8491 | +0.000 [+0.000, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | n/a | 0 | TIE |
+
+#### knowledge-garden (MDE 0.0389, control: default)
+
+| arm | nDCG@10 control to arm | delta nDCG@10, 95% CI | p | BH | delta recall@10 | delta MRR@10 | delta bridge nDCG@10 (n) | queries changed | verdict |
+| --- | --- | --- | ---: | --- | --- | --- | --- | ---: | --- |
+| default stack, graph vs dense | 0.7008 to 0.7975 | +0.097 [+0.063, +0.133] | <0.001 | p<0.05 | +0.093 (p <0.001) | +0.096 (p <0.001) | -0.021 (p 0.537) (30) | 98 | WIN |
+| adaptive-rrf | 0.7975 to 0.8103 | +0.013 [-0.001, +0.027] | 0.084 | no | +0.002 (p 1.000) | +0.018 (p 0.069) | +0.000 (p 1.000) (30) | 31 | TIE |
+| class-router | 0.7975 to 0.7986 | +0.001 [-0.007, +0.010] | 0.752 | no | +0.000 (p 1.000) | +0.002 (p 0.752) | +0.000 (p 1.000) (30) | 5 | TIE |
+| cluster-cap | 0.7975 to 0.7750 | -0.022 [-0.035, -0.011] | <0.001 | yes | -0.050 (p <0.001) | -0.005 (p 0.043) | -0.060 (p 0.082) (30) | 36 | TIE (sig, sub-MDE) |
+| convex | 0.7975 to 0.6911 | -0.106 [-0.140, -0.075] | <0.001 | yes | -0.139 (p <0.001) | -0.085 (p <0.001) | -0.040 (p 0.248) (30) | 79 | LOSS |
+| derived-defaults | 0.7975 to 0.7975 | +0.000 [+0.000, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | +0.000 (p 1.000) (30) | 0 | TIE |
+| gated-rerank | 0.7975 to 0.7897 | -0.008 [-0.021, +0.003] | 0.204 | no | +0.009 (p 0.501) | -0.013 (p 0.109) | +0.000 (p 1.000) (30) | 7 | TIE |
+| graph-stream | 0.7975 to 0.7979 | +0.000 [-0.011, +0.010] | 0.949 | no | -0.002 (p 1.000) | -0.002 (p 0.629) | +0.055 (p 0.069) (30) | 19 | TIE |
+| knn | 0.7975 to 0.7944 | -0.003 [-0.013, +0.005] | 0.544 | no | -0.006 (p 0.501) | -0.003 (p 0.625) | +0.017 (p 0.373) (30) | 11 | TIE |
+| metadata-prior | 0.7975 to 0.7975 | +0.000 [+0.000, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | +0.000 (p 1.000) (30) | 0 | TIE |
+| mmr | 0.7975 to 0.7924 | -0.005 [-0.010, -0.001] | 0.022 | yes | -0.002 (p 1.000) | -0.006 (p 0.002) | +0.005 (p 1.000) (30) | 34 | TIE (sig, sub-MDE) |
+| no-lexical | 0.7975 to 0.6736 | -0.124 [-0.161, -0.089] | <0.001 | yes | -0.113 (p <0.001) | -0.114 (p <0.001) | -0.032 (p 0.506) (30) | 80 | LOSS |
+| smooth-expansion | 0.7975 to 0.8002 | +0.003 [+0.001, +0.006] | 0.032 | yes | +0.005 (p 0.251) | +0.002 (p 0.252) | +0.021 (p 0.254) (30) | 9 | TIE (sig, sub-MDE) |
+| tag | 0.7975 to 0.7975 | +0.000 [+0.000, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | +0.000 (p 1.000) (30) | 0 | TIE |
+| z-router | 0.7975 to 0.8047 | +0.007 [-0.001, +0.015] | 0.072 | no | +0.007 (p 0.509) | +0.003 (p 0.395) | +0.039 (p 0.018) (30) | 22 | TIE |
+
+#### knowledge-garden (MDE 0.0389, control: default-pathdedup)
+
+| arm | nDCG@10 control to arm | delta nDCG@10, 95% CI | p | BH | delta recall@10 | delta MRR@10 | delta bridge nDCG@10 (n) | queries changed | verdict |
+| --- | --- | --- | ---: | --- | --- | --- | --- | ---: | --- |
+| default-pathdedup (control) vs dense | 0.7008 to 0.7975 | +0.097 [+0.063, +0.133] | <0.001 | p<0.05 | +0.093 (p <0.001) | +0.096 (p <0.001) | -0.021 (p 0.537) (30) | 99 | WIN |
+| fanout | 0.7975 to 0.5174 | -0.280 [-0.321, -0.239] | <0.001 | yes | -0.090 (p <0.001) | -0.347 (p <0.001) | -0.064 (p 0.133) (30) | 167 | LOSS |
+
+#### knowledge-garden (MDE 0.0389, control: route-text-first)
+
+| arm | nDCG@10 control to arm | delta nDCG@10, 95% CI | p | BH | delta recall@10 | delta MRR@10 | delta bridge nDCG@10 (n) | queries changed | verdict |
+| --- | --- | --- | ---: | --- | --- | --- | --- | ---: | --- |
+| route-text-first (control) vs dense | 0.7008 to 0.8335 | +0.133 [+0.082, +0.184] | <0.001 | p<0.05 | +0.077 (p 0.003) | +0.151 (p <0.001) | +0.000 (p 1.000) (30) | 58 | WIN |
+| route-hybrid | 0.8335 to 0.8396 | +0.006 [-0.009, +0.022] | 0.455 | no | +0.039 (p 0.004) | -0.007 (p 0.375) | +0.000 (p 1.000) (30) | 18 | TIE |
+| route-weak-text | 0.8335 to 0.8317 | -0.002 [-0.012, +0.009] | 0.726 | no | +0.011 (p 0.249) | -0.008 (p 0.216) | +0.000 (p 1.000) (30) | 8 | TIE |
+
+#### quartz-docs (MDE 0.0527, control: default)
+
+| arm | nDCG@10 control to arm | delta nDCG@10, 95% CI | p | BH | delta recall@10 | delta MRR@10 | delta bridge nDCG@10 (n) | queries changed | verdict |
+| --- | --- | --- | ---: | --- | --- | --- | --- | ---: | --- |
+| default stack, graph vs dense | 0.8443 to 0.8952 | +0.051 [+0.021, +0.084] | 0.001 | p<0.05 | +0.057 (p 0.007) | +0.039 (p 0.038) | -0.011 (p 0.932) (10) | 34 | TIE (sig, sub-MDE) |
+| adaptive-rrf | 0.8952 to 0.8821 | -0.013 [-0.027, -0.003] | 0.015 | yes | +0.000 (p 1.000) | -0.013 (p 0.032) | -0.013 (p 1.000) (10) | 20 | TIE (sig, sub-MDE) |
+| class-router | 0.8952 to 0.8863 | -0.009 [-0.026, +0.009] | 0.341 | no | -0.014 (p 0.088) | -0.007 (p 0.597) | +0.026 (p 1.000) (10) | 12 | TIE |
+| cluster-cap | 0.8952 to 0.8820 | -0.013 [-0.027, -0.002] | 0.052 | no | -0.031 (p 0.056) | -0.004 (p 0.503) | -0.063 (p 1.000) (10) | 13 | TIE |
+| convex | 0.8952 to 0.8193 | -0.076 [-0.117, -0.039] | <0.001 | yes | -0.101 (p <0.001) | -0.066 (p <0.001) | -0.017 (p 0.872) (10) | 35 | LOSS |
+| derived-defaults | 0.8952 to 0.8952 | +0.000 [+0.000, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | +0.000 (p 1.000) (10) | 0 | TIE |
+| gated-rerank | 0.8952 to 0.8893 | -0.006 [-0.028, +0.012] | 0.689 | no | -0.008 (p 1.000) | -0.006 (p 0.737) | +0.000 (p 1.000) (10) | 7 | TIE |
+| graph-stream | 0.8952 to 0.8900 | -0.005 [-0.017, +0.005] | 0.392 | no | +0.003 (p 1.000) | -0.008 (p 0.378) | +0.043 (p 1.000) (10) | 17 | TIE |
+| knn | 0.8952 to 0.8952 | +0.000 [-0.008, +0.006] | 1.000 | no | +0.006 (p 0.511) | -0.004 (p 1.000) | +0.069 (p 0.504) (10) | 5 | TIE |
+| metadata-prior | 0.8952 to 0.8952 | +0.000 [+0.000, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | +0.000 (p 1.000) (10) | 0 | TIE |
+| mmr | 0.8952 to 0.8921 | -0.003 [-0.008, +0.002] | 0.248 | no | +0.000 (p 1.000) | -0.002 (p 0.695) | -0.013 (p 1.000) (10) | 12 | TIE |
+| no-lexical | 0.8952 to 0.8240 | -0.071 [-0.108, -0.038] | <0.001 | yes | -0.072 (p 0.002) | -0.055 (p 0.007) | -0.093 (p 0.254) (10) | 41 | LOSS |
+| smooth-expansion | 0.8952 to 0.8931 | -0.002 [-0.012, +0.006] | 0.658 | no | +0.006 (p 0.493) | -0.006 (p 0.502) | +0.018 (p 1.000) (10) | 10 | TIE |
+| tag | 0.8952 to 0.8922 | -0.003 [-0.010, +0.001] | 0.570 | no | +0.000 (p 1.000) | -0.004 (p 1.000) | +0.000 (p 1.000) (10) | 5 | TIE |
+| z-router | 0.8952 to 0.8977 | +0.002 [-0.003, +0.008] | 0.449 | no | +0.000 (p 1.000) | +0.003 (p 0.251) | +0.030 (p 1.000) (10) | 6 | TIE |
+
+#### quartz-docs (MDE 0.0527, control: default-pathdedup)
+
+| arm | nDCG@10 control to arm | delta nDCG@10, 95% CI | p | BH | delta recall@10 | delta MRR@10 | delta bridge nDCG@10 (n) | queries changed | verdict |
+| --- | --- | --- | ---: | --- | --- | --- | --- | ---: | --- |
+| default-pathdedup (control) vs dense | 0.8443 to 0.8952 | +0.051 [+0.021, +0.084] | 0.001 | p<0.05 | +0.057 (p 0.007) | +0.039 (p 0.038) | -0.011 (p 0.932) (10) | 33 | TIE (sig, sub-MDE) |
+| fanout | 0.8952 to 0.6938 | -0.201 [-0.248, -0.158] | <0.001 | yes | -0.010 (p 0.505) | -0.254 (p <0.001) | -0.012 (p 0.755) (10) | 81 | LOSS |
+
+#### quartz-docs (MDE 0.0527, control: route-text-first)
+
+| arm | nDCG@10 control to arm | delta nDCG@10, 95% CI | p | BH | delta recall@10 | delta MRR@10 | delta bridge nDCG@10 (n) | queries changed | verdict |
+| --- | --- | --- | ---: | --- | --- | --- | --- | ---: | --- |
+| route-text-first (control) vs dense | 0.8443 to 0.9085 | +0.064 [+0.016, +0.116] | 0.011 | p<0.05 | +0.042 (p 0.128) | +0.071 (p 0.012) | +0.000 (p 1.000) (10) | 24 | WIN |
+| route-hybrid | 0.9085 to 0.9260 | +0.018 [+0.001, +0.036] | 0.093 | no | +0.008 (p 1.000) | +0.021 (p 0.108) | +0.000 (p 1.000) (10) | 7 | TIE |
+| route-weak-text | 0.9085 to 0.9085 | +0.000 [+0.000, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | +0.000 (p 1.000) (10) | 0 | TIE |
+
+#### synthetic-multihop (MDE 0.0527, control: default)
+
+| arm | nDCG@10 control to arm | delta nDCG@10, 95% CI | p | BH | delta recall@10 | delta MRR@10 | delta bridge nDCG@10 (n) | queries changed | verdict |
+| --- | --- | --- | ---: | --- | --- | --- | --- | ---: | --- |
+| default stack, graph vs dense | 0.7654 to 0.7849 | +0.020 [+0.010, +0.031] | 0.002 | p<0.05 | +0.028 (p 0.002) | +0.000 (p 1.000) | +0.042 (p 0.002) (120) | 119 | TIE (sig, sub-MDE) |
+| adaptive-rrf | 0.7849 to 0.7863 | +0.001 [+0.000, +0.004] | 1.000 | no | +0.003 (p 1.000) | +0.000 (p 1.000) | +0.003 (p 1.000) (120) | 2 | TIE |
+| class-router | 0.7849 to 0.9922 | +0.207 [+0.194, +0.219] | <0.001 | yes | +0.294 (p <0.001) | +0.000 (p 1.000) | +0.442 (p <0.001) (120) | 107 | WIN |
+| cluster-cap | 0.7849 to 0.9467 | +0.162 [+0.151, +0.171] | <0.001 | yes | +0.300 (p <0.001) | +0.000 (p 1.000) | +0.345 (p <0.001) (120) | 108 | WIN |
+| convex | 0.7849 to 0.7665 | -0.018 [-0.030, -0.008] | 0.002 | yes | -0.025 (p 0.005) | +0.000 (p 1.000) | -0.039 (p 0.002) (120) | 12 | TIE (sig, sub-MDE) |
+| derived-defaults | 0.7849 to 0.7849 | +0.000 [+0.000, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | +0.000 (p 1.000) (120) | 0 | TIE |
+| gated-rerank | 0.7849 to 0.7849 | +0.000 [+0.000, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | +0.000 (p 1.000) (120) | 0 | TIE |
+| graph-stream | 0.7849 to 0.7849 | +0.000 [+0.000, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | +0.000 (p 1.000) (120) | 0 | TIE |
+| knn | 0.7849 to 0.7654 | -0.020 [-0.031, -0.010] | 0.002 | yes | -0.028 (p 0.002) | +0.000 (p 1.000) | -0.042 (p 0.002) (120) | 11 | TIE (sig, sub-MDE) |
+| metadata-prior | 0.7849 to 0.7849 | +0.000 [+0.000, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | +0.000 (p 1.000) (120) | 0 | TIE |
+| mmr | 0.7849 to 0.7917 | +0.007 [+0.001, +0.013] | 0.064 | no | +0.014 (p 0.064) | +0.000 (p 1.000) | +0.023 (p <0.001) (120) | 5 | TIE |
+| no-lexical | 0.7849 to 0.7858 | +0.001 [-0.003, +0.006] | 1.000 | no | +0.003 (p 1.000) | +0.000 (p 1.000) | +0.014 (p 0.011) (120) | 110 | TIE |
+| smooth-expansion | 0.7849 to 0.7846 | -0.000 [-0.001, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | -0.001 (p 1.000) (120) | 1 | TIE |
+| tag | 0.7849 to 0.7849 | +0.000 [+0.000, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | +0.000 (p 1.000) (120) | 0 | TIE |
+| z-router | 0.7849 to 0.8025 | +0.018 [+0.002, +0.033] | 0.049 | no | +0.025 (p 0.048) | +0.000 (p 1.000) | +0.037 (p 0.049) (120) | 18 | TIE (sig, sub-MDE) |
+
+#### synthetic-multihop (MDE 0.0527, control: default-pathdedup)
+
+| arm | nDCG@10 control to arm | delta nDCG@10, 95% CI | p | BH | delta recall@10 | delta MRR@10 | delta bridge nDCG@10 (n) | queries changed | verdict |
+| --- | --- | --- | ---: | --- | --- | --- | --- | ---: | --- |
+| default-pathdedup (control) vs dense | 0.7654 to 0.7849 | +0.020 [+0.010, +0.031] | 0.002 | p<0.05 | +0.028 (p 0.002) | +0.000 (p 1.000) | +0.042 (p 0.002) (120) | 119 | TIE (sig, sub-MDE) |
+| fanout | 0.7849 to 0.9341 | +0.149 [+0.139, +0.158] | <0.001 | yes | +0.300 (p <0.001) | +0.000 (p 1.000) | +0.344 (p <0.001) (120) | 108 | WIN |
+
+#### synthetic-multihop (MDE 0.0527, control: route-text-first)
+
+| arm | nDCG@10 control to arm | delta nDCG@10, 95% CI | p | BH | delta recall@10 | delta MRR@10 | delta bridge nDCG@10 (n) | queries changed | verdict |
+| --- | --- | --- | ---: | --- | --- | --- | --- | ---: | --- |
+| route-text-first (control) vs dense | 0.7654 to 0.7654 | +0.000 [+0.000, +0.000] | 1.000 | ns | +0.000 (p 1.000) | +0.000 (p 1.000) | +0.000 (p 1.000) (120) | 0 | TIE |
+| route-hybrid | 0.7654 to 0.7654 | +0.000 [+0.000, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | +0.000 (p 1.000) (120) | 0 | TIE |
+| route-weak-text | 0.7654 to 0.7654 | +0.000 [+0.000, +0.000] | 1.000 | no | +0.000 (p 1.000) | +0.000 (p 1.000) | +0.000 (p 1.000) (120) | 0 | TIE |
+
+### Reading the matrix
+
+Delta nDCG@10 and verdict per arm and corpus (the paired control is the one named in the group headings above: `default` for every
+row except `fanout` against `default-pathdedup` and the two route arms against `route-text-first`). "inert" marks a cell where no query's
+ranking changed.
+
+| arm | evergreen | quartz-docs | knowledge-garden | synthetic-multihop |
+| --- | --- | --- | --- | --- |
+| default stack (graph vs dense) | +0.046 TIE | +0.051 TIE (sig, sub-MDE) | +0.097 WIN | +0.020 TIE (sig, sub-MDE) |
+| no-lexical (ablation of a default) | -0.063 TIE (sig, sub-MDE) | -0.071 LOSS | -0.124 LOSS | +0.001 TIE |
+| convex fusion | -0.018 TIE | -0.076 LOSS | -0.106 LOSS | -0.018 TIE (sig, sub-MDE) |
+| fanout | -0.197 LOSS | -0.201 LOSS | -0.280 LOSS | +0.149 WIN (templated artifact, below) |
+| cluster-cap | -0.028 TIE (sig, sub-MDE) | -0.013 TIE | -0.022 TIE (sig, sub-MDE) | +0.162 WIN (templated artifact, below) |
+| class-router | inert | -0.009 TIE | +0.001 TIE | +0.207 WIN (templated artifact, below) |
+| route-hybrid vs text-first | +0.037 TIE (sig, sub-MDE) | +0.018 TIE | +0.006 TIE | inert |
+| route-weak-text vs text-first | inert | inert | -0.002 TIE | inert |
+| adaptive-rrf | -0.008 TIE | -0.013 TIE (sig, sub-MDE) | +0.013 TIE | +0.001 TIE |
+| z-router 2.66 | -0.004 TIE | +0.002 TIE | +0.007 TIE | +0.018 TIE (sig, sub-MDE) |
+| knn edges | -0.009 TIE | +0.000 TIE | -0.003 TIE | -0.020 TIE (sig, sub-MDE) |
+| mmr | -0.001 TIE | -0.003 TIE | -0.005 TIE (sig, sub-MDE) | +0.007 TIE |
+| gated-rerank (cosine@0.55) | -0.009 TIE | -0.006 TIE | -0.008 TIE | inert |
+| graph-stream | -0.007 TIE | -0.005 TIE | +0.000 TIE | inert |
+| smooth-expansion | -0.000 TIE | -0.002 TIE | +0.003 TIE (sig, sub-MDE) | -0.000 TIE |
+| shared-tag edges | inert | -0.003 TIE | inert | inert |
+| metadata-prior | inert | inert | inert | inert |
+| derived-defaults | inert | inert | inert | inert |
+
+What the matrix supports, and what it does not.
+
+- **Nothing flips a default.** No arm wins on a majority of shapes with no loss on another: the only WIN cells outside the default
+  stack are the three templated-artifact cells on `synthetic-multihop`, and each of those mechanisms loses or is flat elsewhere
+  (fan-out loses on all three other corpora). The mechanisms that lose are `convex` (two LOSS, two TIE) and `fanout` (three LOSS), which
+  agrees in sign with the private-vault fan-out loss recorded in "Multi-query fan-out" above (-0.047) at a much larger size. The fan-out golden queries are
+  lookup-style (exact title, heading, quote fragment, link context); a paraphrase fan-out dilutes a query that names its target, and the
+  MRR@10 deltas (-0.25 to -0.35) show the first hit displaced. That is a statement about these shapes and this generator, not about every
+  fan-out.
+- **The synthetic class-router win is a templated-query artifact; do not read it as a general win.** The 120 synthetic queries are
+  templated ("How does the term-NNNN procedure described in Seed N conclude?"), each carries a minted token that appears in exactly its seed and its target
+  note (checked on the first query), which is the kind of query a lexical short-circuit answers straight from the text index. The nDCG@10 move
+  (0.7849 to 0.9922) comes with recall@10 +0.294 and MRR@10 +0.000 across 107 of 120 queries. Fan-out (+0.149) and cluster-cap (+0.162)
+  show the same signature on this corpus (recall@10 +0.300, MRR@10 +0.000, 108 queries changed); three unrelated mechanisms producing one
+  signature points at the corpus and not at the mechanisms, so treat all three synthetic cells as properties of the generated corpus. Its single shape cannot carry a
+  mechanism claim. The cause was not diagnosed further here. On the three natural corpora, class-router is inert (evergreen) or a tie (-0.009, +0.001).
+- **Inert arms are reported as inert, not as evidence about the mechanism.** `metadata-prior` changed no query on any corpus (none of
+  these corpora carries the frontmatter the representative rule set reads), `derived-defaults` changed none (every index above 30 chunks derives
+  the same `rrfK` of 10, so the arm is the constant), `shared-tag edges` built zero edges on evergreen, knowledge-garden and
+  synthetic-multihop (no tags), `class-router` is inert on evergreen, `route-weak-text` and `route-hybrid` changed nothing on synthetic-multihop (and
+  `route-weak-text` also nothing on evergreen and quartz-docs), and `gated-rerank` and `graph-stream` changed nothing on synthetic-multihop. A zero
+  delta in these cells says the arm had nothing to act on; it is not a measurement that the mechanism does not help.
+- **Significant but sub-MDE ties are not wins.** `default stack` on quartz-docs (+0.051 against an MDE of 0.0527) and synthetic-multihop,
+  `no-lexical` on evergreen (-0.063 against 0.0653, BH not significant), `mmr` and `smooth-expansion` on knowledge-garden are
+  ties in the preregistered words.
+- **Bridge nDCG@10** is reported where the golden set declares bridges (quartz-docs 10 queries, knowledge-garden 30, synthetic-multihop 120,
+  evergreen none); per-class cells are descriptive only, far below any of these n.
+
+### Per-default "validated on shapes" labels (ADR 0007)
+
+ADR 0007's rollout asks that every default say what evidence it rests on. This is that label for each current default, after part 2.
+Shapes here are evergreen (English notes), quartz-docs (code documentation), knowledge-garden (Chinese, deep folders) and
+synthetic-multihop (generated; templated queries). No label below moves a default.
+
+| default | arm that tests it | validated on shapes | label |
+| --- | --- | --- | --- |
+| dense plus graph expansion (`graph_rrf` order) | default stack, graph vs dense | 4: WIN on knowledge-garden, TIE on the other three (two of them sig, sub-MDE); point estimate above dense on all four | validated on 4 shapes, no negative cell; one WIN, three TIEs; evergreen's interval touches zero (p 0.053) |
+| lexical (BM25) stream fused with dense | `--no-lexical` ablation | 3 of 4 shapes show a loss on removal: LOSS quartz-docs and knowledge-garden, TIE (sig, sub-MDE, -0.063) on evergreen; neutral on synthetic-multihop | validated on 3 shapes; the synthetic shape is neutral and templated |
+| `rrfK` = 10 | `derived-defaults` | none: the arm is identical to the constant on all four corpora | parity only; k=10 against another k is not tested on any new shape; stays ADR 0007 class (b), unaudited |
+| `searchAutoRoute` = `text-first` | `route-text-first` vs dense (`search_vault` auto vs `search_semantic`); `weak-text` and `hybrid` against it | WIN knowledge-garden (+0.133) and quartz-docs (+0.064), TIE evergreen (-0.019), inert on synthetic-multihop (identical to dense) | text-first validated on 2 shapes (WIN), 1 TIE, 1 inert; no other route beats it by the MDE on any shape (hybrid +0.037 on evergreen is sig, sub-MDE) |
+| no reranker | `gated-rerank` (cosine@0.55, shipped local MiniLM) vs off; the ungated re-test is pending | TIE on evergreen, quartz-docs, knowledge-garden; inert on synthetic-multihop | off, with a gated variant that ties on 3 shapes; the ungated reranker re-test on these shapes is pending (GPU) |
+| `embeddings.chunkContext` = true | none: needs one freshly embedded index per corpus per arm | none | unaudited on these shapes (index-time ablation not run) |
+| embedding model (bge-m3 through the gateway in every arm) | not varied | none | held fixed here; model comparisons are in ADR 0007's Gemini sections |
+
+### Skipped before or while running, with the reason
+
+| arm (`DARK_MECHANISMS.md` row) | status | reason |
+| --- | --- | --- |
+| LLM-inferred edges (5) | not run | `densify-llm` sends every note body to the gateway role `extract`, which is a metered per-token Google model, not a free or included one (about 80 batches of 12 notes, roughly 20k input tokens each, per corpus). New spend; skipped under the no-new-spend rule |
+| learned sparse (1), ColBERT (2) | pending | need the bge-m3 multi-vector encoder; the gateway's bge-m3 routes are dense-only and no encoder is deployed |
+| reranker re-test (3, 4) | pending | gte-reranker-modernbert needs a GPU (about 12 hours on this box's CPU); awaiting approval |
+| query decomposition (10) | not run | the local LLM backend it needs was removed 2026-07-31 |
+| note and cluster summaries (21, 22) | not run | the mechanism is gated on a global-query eval and the public golden sets hold no global query |
+| activation rerank (20), search-mode preference reader (24) | not run | need recorded retrieval history; no public corpus has any |
+| query-product cache (26) | not run | changes latency, not ranking |
+| `embeddings.chunkContext` index-time ablation | not run | needs a fresh embedded index per corpus per arm, outside this matrix |
+
+**Pending: reranker re-test (GPU) and learned sparse/ColBERT (encoder).** The reranker re-test (shipped local reranker against
+`gte-reranker-modernbert`, same dense top-30 pools, ADR 0007 class (c) rule) is prepared (`eval/modal_rerank_gte.py`, preregistered in
+`PREREGISTRATION-part2.md`) and has not been run. Until it is, the reranker label above stands on the gated arm only, and the learned-sparse and
+ColBERT rows of `DARK_MECHANISMS.md` have no shape tested.
+
 ## Why there is no headline benchmark number
 
 Not for lack of a benchmark to run. Because the available ones measure something else, and because
