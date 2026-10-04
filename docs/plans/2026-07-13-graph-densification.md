@@ -10,7 +10,7 @@
 Status: building (2026-07-13). Branch `feat/graph-densification`.
 Lineage: vault decisions `2026-07-02-graphify-plur-plane-split` (spec donor, Seam 1 densification)
 + `2026-06-26-graphify-separate-non-vault-mcp` (vault-egress boundary). Evidence base:
-`08-research/graphify-deep-dive-v8`.
+`<vault note path>`.
 
 ## Why (reconciled to the SHIPPED engine, not the vault-note plan)
 
