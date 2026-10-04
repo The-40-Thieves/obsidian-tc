@@ -203,7 +203,7 @@ Every registry key has a **purpose**, and the registry holds one **active** key 
 | `as` | the access tokens of the bundled authorization server (RFC 9068 JWTs) | ES256, EdDSA only | stricter rules of its own, below |
 
 Every key that existed before purposes was a `mint` key, and a deployment that never creates an
-`as` key behaves exactly as before: the `auth.db` migration adds the column with `mint` as its default.
+`as` key behaves exactly as before: the `<cacheDir>/auth.db` migration adds the column with `mint` as its default.
 Because each purpose has its own active key, `obsidian-tc auth rotate-key --purpose as` never
 retires your HS256 (or any other) `mint` key, and a `mint` rotation never retires the `as` key. Your
 hand-minted tokens therefore keep verifying however often the `as` key rotates.
