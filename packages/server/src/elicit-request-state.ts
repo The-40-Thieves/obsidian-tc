@@ -15,7 +15,7 @@
 //
 // If one-time semantics are wanted back, the shape to add is a consumed-nonce table keyed on the
 // state's `jti` checked at verify time — the wire contract below does not have to change for it.
-import { createHash } from "node:crypto";
+import { createHash, hkdfSync } from "node:crypto";
 import { createRequestStateCodec } from "@modelcontextprotocol/server";
 import { assertNoReplayDrift, type StateProbe } from "./elicit-drift";
 
@@ -44,18 +44,30 @@ export interface ElicitRequestState {
 }
 
 /**
- * Derive the codec key from the server's JWT secret.
+ * Derive a codec key from an arbitrary secret string. Used for stdio's per-process random secret
+ * and by tests; the HTTP transport keys its codec from the server-local secret instead
+ * (`deriveServerElicitKey`), never from `auth.jwtSecret`.
  *
- * Hashed rather than used directly, for two reasons: the codec requires >= 32 bytes and a
- * configured `jwtSecret` may be shorter, and reusing one secret verbatim for two purposes means a
- * flaw in either primitive touches both. The domain-separation string makes this a distinct key
- * derived from the same root, so rotating the secret rotates outstanding confirmations too — which
- * is the behaviour you want from a rotation.
+ * Hashed rather than used directly: the codec requires >= 32 bytes, and reusing one secret verbatim
+ * for two purposes means a flaw in either primitive touches both.
  */
-export function deriveRequestStateKey(jwtSecret: string): Uint8Array {
+export function deriveRequestStateKey(secret: string): Uint8Array {
   return new Uint8Array(
-    createHash("sha256").update(`${jwtSecret}|obsidian-tc/elicit-request-state`).digest(),
+    createHash("sha256").update(`${secret}|obsidian-tc/elicit-request-state`).digest(),
   );
+}
+
+const SERVER_ELICIT_INFO = "obsidian-tc/elicit-request-state/v1";
+
+/**
+ * The HTTP codec key: HKDF-SHA256 over the per-server secret (auth/server-secret.ts) under this
+ * codec's own `info` label. The wiki seal uses the same secret raw as an HMAC key under its own
+ * message prefix, so the two derivations are independent. The key is bound to the secret file
+ * alone, never to `auth.jwtSecret`: rotating the bearer key neither voids pending confirmations
+ * nor leaves an `oidc` or asymmetric-only `jwt` deployment without a codec.
+ */
+export function deriveServerElicitKey(serverSecret: string): Uint8Array {
+  return new Uint8Array(hkdfSync("sha256", serverSecret, "", SERVER_ELICIT_INFO, 32));
 }
 
 export interface ElicitCodec {
@@ -71,18 +83,23 @@ export interface ElicitCodec {
   ttlSeconds: number;
 }
 
+const codecFor = (key: Uint8Array, ttlSeconds: number): ElicitCodec => ({
+  ...(createRequestStateCodec({ key, ttlSeconds }) as unknown as Omit<ElicitCodec, "ttlSeconds">),
+  ttlSeconds,
+});
+
 /**
- * Build the HITL request-state codec. `ttlSeconds` mirrors the elicit-token TTL it replaces so the
- * configured confirmation window is unchanged by the migration.
+ * Build a HITL request-state codec from an arbitrary secret (stdio's per-process one, tests).
+ * `ttlSeconds` mirrors the elicit-token TTL it replaces so the configured confirmation window is
+ * unchanged by the migration.
  */
-export function createElicitCodec(jwtSecret: string, ttlSeconds: number): ElicitCodec {
-  return {
-    ...(createRequestStateCodec({
-      key: deriveRequestStateKey(jwtSecret),
-      ttlSeconds,
-    }) as unknown as Omit<ElicitCodec, "ttlSeconds">),
-    ttlSeconds,
-  };
+export function createElicitCodec(secret: string, ttlSeconds: number): ElicitCodec {
+  return codecFor(deriveRequestStateKey(secret), ttlSeconds);
+}
+
+/** The HTTP transport's codec, keyed from the per-server secret (`deriveServerElicitKey`). */
+export function createServerElicitCodec(serverSecret: string, ttlSeconds: number): ElicitCodec {
+  return codecFor(deriveServerElicitKey(serverSecret), ttlSeconds);
 }
 
 /**

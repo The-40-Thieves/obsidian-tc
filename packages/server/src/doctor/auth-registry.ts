@@ -192,7 +192,7 @@ export function authRegistryCheck(view: AuthRegistryView): Check {
       );
       if (configRetired && view.jwtSecretConfigured === true) {
         issues.push(
-          "auth.jwtSecret is still set but the `config` signing key is retired: it no longer verifies or signs anything, and can be removed (the registry keys carry authentication). Removing it also stops it keying the HTTP elicit round trip (which falls back to the plain elicit_required error + `elicit_token` CLI) and makes bulk-read cursors per-process",
+          "auth.jwtSecret is still set but the `config` signing key is retired: it no longer verifies or signs anything, and can be removed (the registry keys carry authentication). Removing it makes bulk-read cursors per-process (the HTTP elicit round trip is keyed from the server-local secret and is unaffected)",
         );
         remediation ??= "Remove auth.jwtSecret and OBSIDIAN_TC_JWT_SECRET once you accept that.";
       }

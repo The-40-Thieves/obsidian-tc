@@ -195,10 +195,11 @@ and on `/metrics` alike.
 Once `rotate-key` has retired the `config` key, `auth.jwtSecret` verifies and signs nothing, and
 verification and minting work from the registry keys alone: you can remove `auth.jwtSecret` (and
 `OBSIDIAN_TC_JWT_SECRET`), and `doctor` tells you when. A `jwt` server that has no `jwtSecret`, no
-JWKS and no registry key refuses to start. Removing the secret has two side effects, because
-it also keys them when set: the HTTP elicit round trip (`requestState`) falls back to the plain
-`elicit_required` error plus the `elicit_token` CLI, and `read_notes` continuation cursors become
-per-process (a cursor does not survive a restart).
+JWKS and no registry key refuses to start. Removing the secret has one side effect, because it
+also keys them when set: `read_notes` continuation cursors become per-process (a cursor does not
+survive a restart). It does not touch the HTTP elicit round trip (`requestState`): that is keyed
+from the server-local secret (see [HITL Elicitation](/security/hitl-elicit/)), so it works the
+same under `oidc`, under asymmetric-only `jwt`, and across a `jwtSecret` change.
 
 ### Tokens with no `jti`
 
