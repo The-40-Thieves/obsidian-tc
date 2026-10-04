@@ -93,6 +93,13 @@ async function boot(personas: Record<string, unknown>) {
       persona: ctx.persona ?? null,
     }),
   } as never);
+  registry.register({
+    name: "writer",
+    description: "test-only: needs write:notes, to see a narrowed grant refuse a real call",
+    inputSchema: z.object({}),
+    requiredScopes: ["write:notes"],
+    handler: () => ({ wrote: true }),
+  } as never);
   const parsed = ServerConfigSchema.parse({
     vaults: [
       { id: "main", path: "/tmp/main" },
@@ -141,7 +148,11 @@ const hs256 = (claims: Record<string, unknown>) => {
     .sign(new TextEncoder().encode(SECRET));
 };
 
-async function whoami(port: number, jwt: string): Promise<{ status: number; body: any }> {
+async function whoami(
+  port: number,
+  jwt: string,
+  tool = "whoami",
+): Promise<{ status: number; body: any; raw: any }> {
   const res = await fetch(`http://127.0.0.1:${port}/mcp`, {
     method: "POST",
     headers: {
@@ -150,14 +161,14 @@ async function whoami(port: number, jwt: string): Promise<{ status: number; body
       authorization: `Bearer ${jwt}`,
       "mcp-protocol-version": MODERN,
       "mcp-method": "tools/call",
-      "mcp-name": "whoami",
+      "mcp-name": tool,
     },
     body: JSON.stringify({
       jsonrpc: "2.0",
       id: 1,
       method: "tools/call",
       params: {
-        name: "whoami",
+        name: tool,
         arguments: {},
         _meta: {
           "io.modelcontextprotocol/protocolVersion": MODERN,
@@ -170,7 +181,7 @@ async function whoami(port: number, jwt: string): Promise<{ status: number; body
   const text = await res.text();
   const line = text.split("\n").find((l) => l.startsWith("data: "));
   const body = JSON.parse(line ? line.slice(6) : text || "{}");
-  return { status: res.status, body: body.result?.structuredContent ?? body };
+  return { status: res.status, body: body.result?.structuredContent ?? body, raw: body };
 }
 
 const PERSONAS = {
@@ -215,6 +226,40 @@ describe("persona over HTTP: `as` tokens narrow, hand-minted tokens replace", ()
         );
         expect(none.status).toBe(200);
         expect(none.body.scopes).toEqual([]);
+      } finally {
+        await handle.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
+
+  it(
+    "a call needing a scope outside the `as` token's scope is refused; the same call on a mint token is not",
+    async () => {
+      const { handle, asToken } = await boot(PERSONAS);
+      try {
+        // The persona holds write:notes, the token's scope does not: the narrowed grant refuses it.
+        const narrowed = await whoami(
+          handle.port,
+          await asToken({ persona: "author", scope: "read:notes" }),
+          "writer",
+        );
+        expect(JSON.stringify(narrowed.raw)).not.toContain('"wrote":true');
+        expect(JSON.stringify(narrowed.raw)).toMatch(/forbidden|scope|denied/i);
+        // The `as` token that does carry write:notes may call it.
+        const allowed = await whoami(
+          handle.port,
+          await asToken({ persona: "author", scope: "read:notes write:notes" }),
+          "writer",
+        );
+        expect(JSON.stringify(allowed.raw)).toContain('"wrote":true');
+        // A hand-minted persona token keeps the persona's scopes, whatever it names itself.
+        const minted = await whoami(
+          handle.port,
+          await hs256({ sub: "agent-1", persona: "author", scopes: ["read:notes"] }),
+          "writer",
+        );
+        expect(JSON.stringify(minted.raw)).toContain('"wrote":true');
       } finally {
         await handle.close();
       }

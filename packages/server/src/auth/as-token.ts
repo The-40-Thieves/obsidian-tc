@@ -6,6 +6,11 @@
 // `auth.issuer` (that one belongs to `mint` keys), the JOSE `typ` is `at+jwt`, and `client_id`,
 // `aud` (exactly the protected resource), `iss` and `jti` are all required, so an `as` key can
 // never be made to vouch for a token that is not an access token for THIS resource.
+//
+// Cross-slice contract: the issuing path (slice S5) must sign every access token with header
+// `typ: "at+jwt"` and claims iss, sub, aud, client_id, scope, iat, exp, jti, or this verifier
+// refuses it. jose compares `typ` case-insensitively and accepts the `application/` media-type form
+// (RFC 8725 section 3.11), which test/auth-key-purpose.test.ts pins.
 import { jwtVerify } from "jose";
 import {
   AuthRejection,

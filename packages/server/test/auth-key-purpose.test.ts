@@ -190,7 +190,12 @@ describe("section 7 step 1: hand-minted HS256 tokens survive the AS key", () => 
 
   it("the mint flow is byte-identical with and without an `as` key present", async () => {
     const f = fixture();
-    const claims = { sub: "agent-1", scopes: ["read:notes"], iat: 1_900_000_000, exp: 1_900_003_600 };
+    const claims = {
+      sub: "agent-1",
+      scopes: ["read:notes"],
+      iat: 1_900_000_000,
+      exp: 1_900_003_600,
+    };
     const mintBytes = async () => {
       const k = f.registry.signingKey();
       return new SignJWT({ ...claims, jti: "fixed-jti" })
@@ -249,7 +254,9 @@ describe("`as` keys rotate independently of `mint` keys", () => {
     const as1 = await rotate(f, "as");
     const mint = await rotate(f, "mint", "EdDSA");
     expect(f.registry.signingKey().kid).toBe(mint.kid);
-    expect((f.registry.signingKey({ purpose: "as" } as never) as { kid: string }).kid).toBe(as1.kid);
+    expect((f.registry.signingKey({ purpose: "as" } as never) as { kid: string }).kid).toBe(
+      as1.kid,
+    );
   });
 
   it("the previous `as` key keeps verifying during the grace window, then is retired", async () => {
@@ -365,6 +372,20 @@ describe("verifier: per-purpose rules for an `as` key", () => {
     expect(await reasonOf(f.verifier.verify(await asToken(f, {}, { typ: undefined })))).toBe(
       "invalid_token_type",
     );
+  });
+
+  it("accepts the media-type form of typ (application/at+jwt, RFC 8725 section 3.11), nothing else", async () => {
+    // Cross-slice contract: the issuing path (S5) sets `typ: "at+jwt"` on every access token it signs.
+    const f = fixture();
+    await rotate(f, "as");
+    expect(
+      await reasonOf(f.verifier.verify(await asToken(f, {}, { typ: "application/at+jwt" }))),
+    ).toBe("accepted");
+    for (const typ of ["id_token+jwt", "application/jwt", "at+jwt+x", "JWT"]) {
+      expect(await reasonOf(f.verifier.verify(await asToken(f, {}, { typ })))).toBe(
+        "invalid_token_type",
+      );
+    }
   });
 
   it("refuses a token with no client_id or an empty one", async () => {
@@ -558,7 +579,11 @@ describe("fail-closed: losing one purpose's keys is a lost registry", () => {
   it("a missing auth.db with only `as` key files on disk opens as a lost registry, not a fresh one", async () => {
     const dir = makeTempDir("auth-purpose-lost-");
     dirs.push(dir);
-    const first = await openAuthRegistry({ cacheDir: dir, db: {}, auth: { jwtSecret: SECRET } } as never);
+    const first = await openAuthRegistry({
+      cacheDir: dir,
+      db: {},
+      auth: { jwtSecret: SECRET },
+    } as never);
     first.registry.rotateKey({
       purpose: "as",
       alg: "ES256",
@@ -569,7 +594,11 @@ describe("fail-closed: losing one purpose's keys is a lost registry", () => {
     for (const f of readdirSync(dir)) {
       if (f.startsWith("auth.db")) rmSync(join(dir, f)); // the database only; auth-keys/ stays
     }
-    const second = await openAuthRegistry({ cacheDir: dir, db: {}, auth: { jwtSecret: SECRET } } as never);
+    const second = await openAuthRegistry({
+      cacheDir: dir,
+      db: {},
+      auth: { jwtSecret: SECRET },
+    } as never);
     expect(second.registry.health().state).toBe("lost");
   });
 });
@@ -693,8 +722,17 @@ describe("`auth rotate-key --purpose`", () => {
     return JSON.parse(out) as { kid: string; alg: string; previous_kid: string | null };
   };
   const keysOf = async (cacheDir: string) => {
-    const { registry, close } = await openAuthRegistry({ cacheDir, db: {}, auth: { jwtSecret: SECRET } } as never);
-    const keys = registry.listKeys() as { kid: string; purpose: string; state: string; alg: string }[];
+    const { registry, close } = await openAuthRegistry({
+      cacheDir,
+      db: {},
+      auth: { jwtSecret: SECRET },
+    } as never);
+    const keys = registry.listKeys() as {
+      kid: string;
+      purpose: string;
+      state: string;
+      alg: string;
+    }[];
     close();
     return keys;
   };
@@ -742,7 +780,13 @@ describe("`auth rotate-key --purpose`", () => {
     const d = deployment();
     await rotateCli(d.configPath, { purpose: "as" });
     out = "";
-    await run_auth({ kind: "auth", sub: "list", keys: true, configPath: d.configPath, json: true } as never);
+    await run_auth({
+      kind: "auth",
+      sub: "list",
+      keys: true,
+      configPath: d.configPath,
+      json: true,
+    } as never);
     expect(JSON.parse(out)).toEqual([expect.objectContaining({ purpose: "as" })]);
   });
 });
