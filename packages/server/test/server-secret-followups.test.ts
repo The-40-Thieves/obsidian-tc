@@ -57,7 +57,7 @@ describe("concurrent repair of a corrupt server secret", () => {
     async () => {
       const dir = tmp();
       corruptSecret(dir);
-      const startAt = Date.now() + 3000;
+      const startAt = Date.now() + stallTimeout(3000);
       const runs = await Promise.all(Array.from({ length: 24 }, () => child(dir, startAt)));
       expect(runs.map((r) => r.code)).toEqual(Array(24).fill(0));
       const final = readFileSync(secretFile(dir), "utf8").trim();
