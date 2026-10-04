@@ -1,7 +1,7 @@
 # Close the competitive gaps (2026-09-03)
 
 Spec: the Gate 1 to Gate 3 record on the owner's tickets , , , , ,  and the vault note
-`02-projects/obsidian-tc/2026-09-03-competitive-read` (the analysis this plan executes, with its
+`<vault note path>` (the analysis this plan executes, with its
 corrections). Owner decisions already made: accept the companion-plugin rename; model weights are
 downloaded with a checksum, never bundled; the registry publishes from CI via GitHub OIDC on the next
 tag; one release (1.26.0) at the end.

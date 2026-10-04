@@ -59,7 +59,8 @@ bun eval/corpora/gen-corpus-golden.ts quartz-docs --corpus <dir> --check eval/co
 The golden JSON is generator output and is excluded from biome (`biome.json`), because a reformat would make
 every committed set read as stale. The synthetic set is `eval/gen-multi-hop-slice.ts` output at seed 652, committed as
 `synthetic-multihop.example.yaml` (the `.example.yaml` suffix is what `scripts/check-vault-leak.mjs` accepts for a
-synthetic set);
+synthetic set; it accepts a golden JSON in this directory only for a corpus id registered in `corpora.json` with a
+pinned public repo, a full commit and a licence);
 `test/eval-corpora.test.ts` checks it regenerates identically.
 
 *Addendum, 2026-10-04.* `suite-plan.json` records the synthetic set's sha256 as `f2967b0c...8307`, the digest of the file
