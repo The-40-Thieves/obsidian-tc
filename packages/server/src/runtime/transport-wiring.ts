@@ -172,6 +172,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
         registry: deps.registry,
         vaultRegistry: deps.vaultRegistry,
         auth: config.auth,
+        cacheDir: config.cacheDir,
         db: deps.db,
         authRegistry,
         ...(verifier ? { verifier } : {}),

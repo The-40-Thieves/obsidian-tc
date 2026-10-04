@@ -68,6 +68,22 @@ with no raised request stays unbound.
 The elicitation thresholds are **hardcoded floors** — a client cannot configure
 them away. This keeps the confirmation gate present even under a permissive config.
 
+## What keys the confirmation state
+
+The `requestState` the HTTP transport mints is signed and expires after the confirmation TTL
+(300 s by default). Its key comes from a per-server secret, `<cacheDir>/server-secrets/wiki-generated.key`
+(random, `0600`, created on first use, the same file that seals generated wiki pages), run through HKDF
+under a label of its own. It does **not** come from `auth.jwtSecret`, so the round trip exists in every
+HTTP auth mode (`jwt` with a secret, `jwt` with only a JWKS or registry keys, `oidc`), and rotating or
+removing `jwtSecret` does not void a pending confirmation. Processes that share a `cacheDir` accept each
+other's states; a server with a different `cacheDir` does not. Deleting `server-secrets/` voids pending
+confirmations (the client is offered a fresh one) and regenerates the wiki pages.
+
+**Upgrading.** A confirmation that was pending when the server was upgraded was keyed from
+`auth.jwtSecret` and is refused once; the client is offered a fresh confirmation, inside the
+window the old one would have had anyway. There is no dual-key verify: it would keep the old
+coupling alive.
+
 ## The `inputRequired` round trip, on stdio too
 
 A client that advertises the MCP **elicitation** capability (`elicitation/create`,

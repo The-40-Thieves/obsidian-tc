@@ -27,8 +27,9 @@ export function getDefaultElicitTtlSeconds(): number {
   return defaultTtlSeconds;
 }
 
-/** THE-1106: stdio's own `requestState` codec (HTTP's is keyed off `auth.jwtSecret`, which stdio
- *  has none of — trusted local transport, no bearer auth). A per-process random secret is fine:
+/** THE-1106: stdio's own `requestState` codec (HTTP's is keyed off the per-server secret under
+ *  `cacheDir`, see `createServerElicitCodec`; this is also HTTP's fallback with no cacheDir).
+ *  A per-process random secret is fine:
  *  the codec only needs to authenticate a state THIS process minted, never one from elsewhere, and
  *  restart invalidates every outstanding confirmation exactly like a token TTL would. Never logged
  *  — `createElicitCodec` only ever derives a hash from it. */

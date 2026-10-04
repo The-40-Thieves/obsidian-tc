@@ -21,10 +21,11 @@ import {
   wwwAuthenticateChallenge,
 } from "../auth/protected-resource";
 import type { AuthRegistry } from "../auth/registry";
+import { serverSecret } from "../auth/server-secret";
 import type { TokenVerifier } from "../auth/verifier";
 import type { Database } from "../db/types";
-import { getDefaultElicitTtlSeconds } from "../elicit";
-import { createElicitCodec } from "../elicit-request-state";
+import { createStdioElicitCodec, getDefaultElicitTtlSeconds } from "../elicit";
+import { createServerElicitCodec } from "../elicit-request-state";
 import type { AdvisoryBus } from "../mcp/advisories";
 import { serveAdvisorySubscription, subscribesToAdvisories } from "../mcp/advisories";
 import type { FacadeMode } from "../mcp/facade";
@@ -143,6 +144,10 @@ export interface HttpAppOptions {
    *  Absent -> the configured secret alone, with no revocation: `wireTransports` always supplies one
    *  (opened by `openAuthRegistry`), so only a direct `createHttpApp` caller can omit it. */
   authRegistry?: AuthRegistry;
+  /** The server's cache directory: where the per-server secret that keys the HITL codec lives
+   *  (`auth/server-secret.ts`). `wireTransports` always supplies it; absent -> a per-process random
+   *  secret, so confirmations do not survive a restart or cross processes. */
+  cacheDir?: string;
   /** Optional bearer-token verifier (W-AUTH seam). Defaults to an HS256 JWT verifier from `auth`. */
   verifier?: TokenVerifier;
   /** THE-583: durable queue backing the Tasks extension; when absent, tasks/* are not served.
@@ -443,9 +448,13 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
     { legacy: "stateless" },
   );
 
-  const elicitCodec = opts.auth.jwtSecret
-    ? createElicitCodec(opts.auth.jwtSecret, getDefaultElicitTtlSeconds())
-    : undefined;
+  // HITL codec, in EVERY auth mode: keyed from the per-server secret under `cacheDir`, not from
+  // `auth.jwtSecret` (which `oidc` and asymmetric-only `jwt` deployments do not have, and whose
+  // rotation would void pending confirmations). Processes sharing a cacheDir share confirmations.
+  // A caller that supplies no cacheDir (a test, an embedder) gets a per-process secret.
+  const elicitCodec = opts.cacheDir
+    ? createServerElicitCodec(serverSecret(opts.cacheDir), getDefaultElicitTtlSeconds())
+    : createStdioElicitCodec();
   // Token verifier seam (W-AUTH): `opts.verifier` is the ONE verifier built at boot and shared with
   // /metrics (wireTransports). A caller that injects none (tests, embedders) gets the same jwt
   // construction from `buildJwtVerifier`, so there is a single recipe either way. null in "none"
