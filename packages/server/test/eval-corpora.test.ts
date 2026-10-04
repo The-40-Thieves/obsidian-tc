@@ -206,7 +206,10 @@ describe("committed golden sets", () => {
   });
 
   it("includes a synthetic set that regenerates byte for byte from its seed", () => {
-    const committed = readFileSync(join(CORPORA_DIR, "golden", "synthetic-multihop.yaml"), "utf8");
+    const committed = readFileSync(
+      join(CORPORA_DIR, "golden", "synthetic-multihop.example.yaml"),
+      "utf8",
+    );
     const spec = registry.corpora["synthetic-multihop"];
     expect(spec?.kind).toBe("generated");
     if (spec?.kind !== "generated") return;
