@@ -90,6 +90,15 @@ describe("runtime without crypto.argon2", () => {
     expect(argon2Unsupported({ version: "26.0.0", hasArgon2: false })).toMatch(/crypto\.argon2/);
   });
 
+  it("refuses a Node older than 24.7 even if the function is there, and accepts 24.7 and later", async () => {
+    const { argon2Unsupported } = await mod();
+    expect(argon2Unsupported({ version: "24.6.9", hasArgon2: true })).toMatch(/24\.7/);
+    expect(argon2Unsupported({ version: "22.12.0", hasArgon2: true })).toMatch(/24\.7/);
+    for (const version of ["24.7.0", "24.10.1", "25.0.0"]) {
+      expect(argon2Unsupported({ version, hasArgon2: true }), version).toBeUndefined();
+    }
+  });
+
   it("assertArgon2Runtime throws that message, and passes on the real runtime", async () => {
     const { assertArgon2Runtime } = await mod();
     expect(() => assertArgon2Runtime({ version: "24.6.0", hasArgon2: false })).toThrow(/24\.7/);

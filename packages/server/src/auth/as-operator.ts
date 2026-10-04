@@ -16,6 +16,7 @@ import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { Database } from "../db/types";
+import { sha256Hex } from "../provenance/store";
 import { FailureLimiter } from "./as-login-limiter";
 import { enabledAs } from "./as-metadata";
 import {
@@ -28,7 +29,6 @@ import {
   normalizeUsername,
   SESSION_ABSOLUTE_MS,
   type SessionInfo,
-  sha256Hex,
   tokenBurned,
   upgradePasswordHash,
 } from "./as-operator-store";

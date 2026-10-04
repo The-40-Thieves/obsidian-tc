@@ -322,11 +322,12 @@ describe("session cookie and server-side session store", () => {
     const op = await claimed();
     const jar = new Jar();
     await login(op, jar);
-    for (let i = 0; i < 13; i++) {
-      op.clock.t += 55 * MIN;
-      await get(op, "/oauth/login", jar);
+    // Every step is inside the 30 minute idle window, so only the absolute limit can end the session.
+    for (let i = 0; i < 28; i++) {
+      op.clock.t += 25 * MIN;
+      expect((await get(op, "/oauth/login", jar)).text, `step ${i}`).toMatch(/\/oauth\/logout/);
     }
-    op.clock.t += 10 * MIN; // 12 h 5 min after login
+    op.clock.t += 25 * MIN; // 12 h 5 min after login, 25 minutes after the last request
     const page = await get(op, "/oauth/login", jar);
     expect(page.text).toMatch(/type="password"/);
     expect(sessionRows(op)).toHaveLength(0);
@@ -383,10 +384,15 @@ describe("session cookie and server-side session store", () => {
 
 describe("CSRF on every state-changing form (CSRF row)", () => {
   it("refuses a login POST with no token, a forged one, or another form's token", async () => {
-    const op = await claimed();
+    // The same browser (one nonce cookie) fetches the setup form while the server is unclaimed, then
+    // someone claims it; the setup form's token must not open the login form.
+    const op = await makeOperator();
     const jar = new Jar();
+    const setup = await get(op, "/oauth/setup", jar);
+    expect(setup.csrf).not.toBe("");
+    await claimViaSetup(op);
     const form = await get(op, "/oauth/login", jar);
-    const setup = await get(op, "/oauth/setup", new Jar());
+    expect(form.csrf).not.toBe(setup.csrf);
     for (const csrf of [undefined, "", "forged", `${form.csrf}x`, setup.csrf]) {
       const r = await post(
         op,
@@ -576,6 +582,13 @@ describe("no secret reaches a log line or the output streams (token leakage row)
     }
     const op = await makeOperator();
     const typed = "TyPeD-secret-in-the-username-box-77";
+    const wrongToken = "wrong-setup-token-value-0123456789";
+    await submit(op, "/oauth/setup", {
+      token: wrongToken,
+      username: "x",
+      password: "y",
+      confirm: "y",
+    });
     await claimViaSetup(op);
     const jar = new Jar();
     await login(op, jar, { username: typed, password: "wrong-password-value-42" });
@@ -587,7 +600,8 @@ describe("no secret reaches a log line or the output streams (token leakage row)
     const page = await get(op, "/oauth/login", jar);
     await post(op, "/oauth/logout", { csrf: page.csrf }, jar);
 
-    const everything = [...op.logs, ...lines].join("\n");
+    // Lower-cased as well: the server normalises a typed username before it could log it.
+    const everything = [...op.logs, ...lines].join("\n").toLowerCase();
     // Existence floor: the sinks did receive events, so a clean scan means something.
     expect(op.logs.length).toBeGreaterThanOrEqual(3);
     for (const secret of [
@@ -595,6 +609,7 @@ describe("no secret reaches a log line or the output streams (token leakage row)
       SETUP_TOKEN,
       session,
       typed,
+      wrongToken,
       "wrong-password-value-42",
       "wrong-password-value-43",
       "CODE-abc123",
@@ -602,7 +617,7 @@ describe("no secret reaches a log line or the output streams (token leakage row)
       "TOK-zzz",
       jar.cookies.get("__Host-otc_as_csrf") ?? "never-set",
     ]) {
-      expect(everything, secret).not.toContain(secret);
+      expect(everything, secret).not.toContain(secret.toLowerCase());
     }
     expect(everything).not.toMatch(/\$argon2id\$/);
   });

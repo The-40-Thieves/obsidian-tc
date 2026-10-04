@@ -46,17 +46,26 @@ async function readAllStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/** The terminal ends of a hidden prompt; the real process streams unless a test injects its own. */
+export interface PromptTerminal {
+  stdin: Pick<NodeJS.ReadStream, "on" | "off" | "pause" | "resume" | "setEncoding" | "setRawMode">;
+  write: (text: string) => unknown;
+}
+
 /** Ask for a line with no echo. Only used on a terminal. */
-function promptHidden(label: string): Promise<string> {
-  const stdin = process.stdin;
-  process.stderr.write(label);
+export function promptHidden(
+  label: string,
+  term: PromptTerminal = { stdin: process.stdin, write: (t) => process.stderr.write(t) },
+): Promise<string> {
+  const { stdin } = term;
+  term.write(label);
   return new Promise((resolve, reject) => {
     let buf = "";
     const finish = (): void => {
       stdin.off("data", onData);
       stdin.setRawMode(false);
       stdin.pause();
-      process.stderr.write("\n");
+      term.write("\n");
     };
     const onData = (chunk: string): void => {
       for (const ch of chunk) {

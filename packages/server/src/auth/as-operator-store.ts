@@ -3,14 +3,13 @@
 // never as itself. The claim is ONE write transaction shared by the CLI and `/oauth/setup`, so a
 // first-run race has exactly one winner whichever door each contender used and however many
 // processes share the file.
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { inWriteTransaction } from "../db/txn";
 import type { Database } from "../db/types";
+import { sha256Hex } from "../provenance/store";
 
 export const SESSION_IDLE_MS = 30 * 60_000;
 export const SESSION_ABSOLUTE_MS = 12 * 3_600_000;
-
-export const sha256Hex = (s: string): string => createHash("sha256").update(s).digest("hex");
 
 const USERNAME_RE = /^[a-z0-9._@-]{1,64}$/;
 

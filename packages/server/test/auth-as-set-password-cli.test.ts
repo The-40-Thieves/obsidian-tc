@@ -1,6 +1,7 @@
 // `obsidian-tc auth as set-password` (design v2 section 4.5), slice S4: the CLI way to claim the
 // bundled authorization server, driven through the same function cli.ts dispatches to, against a
 // real config file and a real oauth.db on disk.
+import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
@@ -10,6 +11,7 @@ import { openOauthDb } from "../src/auth/oauth-db";
 import { parseCliArgs } from "../src/cli/args";
 import { CliError } from "../src/cli/cli-error";
 import { run_auth } from "../src/cli/commands/auth";
+import { promptHidden } from "../src/cli/commands/auth-as";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const PW = "correct horse battery staple";
@@ -255,5 +257,66 @@ describe("claiming from the CLI", () => {
     } finally {
       store.close();
     }
+  });
+});
+
+describe("the hidden prompt on a real terminal", () => {
+  /** A stand-in for process.stdin in raw mode: records the mode changes, feeds keystrokes. */
+  function fakeTerminal() {
+    const input = new EventEmitter() as EventEmitter & {
+      setRawMode: (on: boolean) => void;
+      setEncoding: (e: string) => void;
+      resume: () => void;
+      pause: () => void;
+    };
+    const raw: boolean[] = [];
+    let paused = false;
+    input.setRawMode = (on) => void raw.push(on);
+    input.setEncoding = () => {};
+    input.resume = () => {
+      paused = false;
+    };
+    input.pause = () => {
+      paused = true;
+    };
+    const written: string[] = [];
+    return {
+      term: { stdin: input as never, write: (t: string) => void written.push(t) },
+      type: (keys: string) => input.emit("data", keys),
+      raw,
+      written,
+      paused: () => paused,
+      listeners: () => input.listenerCount("data"),
+    };
+  }
+
+  it("echoes nothing, honours backspace, and restores the terminal on Enter", async () => {
+    const t = fakeTerminal();
+    const answer = promptHidden("Password: ", t.term);
+    expect(t.raw).toEqual([true]);
+    t.type("hunter2");
+    t.type("x\u007f\r");
+    await expect(answer).resolves.toBe("hunter2");
+    expect(t.raw).toEqual([true, false]);
+    expect(t.paused()).toBe(true);
+    expect(t.listeners()).toBe(0);
+    // The label and the closing newline only: no typed character is ever written back.
+    expect(t.written).toEqual(["Password: ", "\n"]);
+  });
+
+  it("aborts on Ctrl-C, and still restores the terminal", async () => {
+    const t = fakeTerminal();
+    const answer = promptHidden("Password: ", t.term);
+    t.type("abc\u0003");
+    await expect(answer).rejects.toThrow(CliError);
+    expect(t.raw).toEqual([true, false]);
+    expect(t.listeners()).toBe(0);
+  });
+
+  it("takes a pasted line in one chunk and stops at the first line break", async () => {
+    const t = fakeTerminal();
+    const answer = promptHidden("Password: ", t.term);
+    t.type("pasted value\nrest");
+    await expect(answer).resolves.toBe("pasted value");
   });
 });

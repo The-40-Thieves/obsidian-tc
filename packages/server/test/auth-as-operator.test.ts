@@ -51,6 +51,17 @@ describe("an unclaimed authorization server refuses (first-run claim race row)",
     }
   });
 
+  it("treats a store it cannot read as unclaimed (fails closed)", async () => {
+    const op = await makeOperator();
+    await claimViaSetup(op);
+    op.db.close();
+    for (const path of ["/oauth/login", "/oauth/authorize?client_id=x"]) {
+      const res = await op.app.request(op.url(path));
+      expect(res.status, path).toBe(503);
+      expect(await res.text()).toMatch(/not claimed/i);
+    }
+  });
+
   it("stops refusing once claimed (the refusal is the claim state, not a constant)", async () => {
     const op = await makeOperator();
     await claimViaSetup(op);
