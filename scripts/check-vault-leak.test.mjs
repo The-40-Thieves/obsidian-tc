@@ -235,8 +235,8 @@ test("deep mode output carries counts and file:line, never the note path text", 
 });
 
 test("RED: a non-ASCII, unnumbered folder is caught, whatever the Unicode normalisation", () => {
-  const vault = makeVault(["Projets/Résumé Plan.md"]); // NFC in the vault
-  const nfd = "Projets/Résumé Plan.md"; // NFD in the tracked file
+  const vault = makeVault(["Dossier/Résumé Plan.md"]); // NFC in the vault
+  const nfd = "Dossier/Résumé Plan.md"; // NFD in the tracked file
   const dir = makeRepo({ "t/a.test.ts": `const p = "${nfd}";\n` });
   assert.equal(run(dir, "--vault", vault).code, 1);
 });
