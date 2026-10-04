@@ -40,9 +40,10 @@ packages/native/src/
 packages/native/Cargo.*
 packages/native/build.rs
 
-# Dependencies — the server entry bundles its JS deps; vendoring native runtime
-# deps for a fully self-contained cross-platform bundle is a packaging follow-up.
-node_modules/
+# Dependencies — the server entry bundles its JS deps. Install trees are never packed from the repo:
+# the staging directory (scripts/lib/mcpb-staging.mjs) skips every node_modules and then assembles
+# the bundle's own, holding only what the server reaches by bare specifier at run time (sqlite-vec,
+# the local embedder). So node_modules is deliberately NOT ignored here.
 
 # Repo + tooling + local state (never part of the distributable)
 .git/

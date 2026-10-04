@@ -19,11 +19,14 @@
 // in a `finally`, which was not kill-safe: a process killed between the swap and the restore left
 // the plugin's manifest.json permanently overwritten on disk (reproduced with `kill -9` by the
 // THE-950 review).
-import { existsSync, statSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { $ } from "bun";
-import { packFromStaging } from "./lib/mcpb-staging.mjs";
+import { embedderBundlePlugin, ORT_PLATFORMS, ortNativeFiles } from "./lib/embedder-bundle.mjs";
+import { packFromStaging, stageRuntimeModules } from "./lib/mcpb-staging.mjs";
+import { fetchVerifiedNpmPackage } from "./lib/npm-tarball.mjs";
 
 const MCPB = "@anthropic-ai/mcpb@2.1.2";
 const repoRoot = resolve(import.meta.dir, "..");
@@ -43,16 +46,75 @@ if (!existsSync(serverEntry)) {
   throw new Error(`server entry not found after build: ${serverEntry}`);
 }
 
-// 2. Validate the MCPB manifest, then stage the bundle inputs into a throwaway directory and pack
+// 2. The bundle's node_modules: sqlite-vec (every platform's vec0) and the bundled local embedder.
+// packages/embedder-local is its own install root, so it is installed and built here when it is not.
+const embedderDir = join(repoRoot, "packages", "embedder-local");
+const ortNodeDir = join(embedderDir, "node_modules", "onnxruntime-node");
+if (!existsSync(join(embedderDir, "dist", "index.js")) || !existsSync(ortNodeDir)) {
+  console.log("embedder-local not installed/built — installing + building…");
+  await $`bun install --frozen-lockfile`.cwd(embedderDir);
+  await $`bun run build`.cwd(embedderDir);
+}
+const embedderVersion = JSON.parse(readFileSync(join(embedderDir, "package.json"), "utf8")).version;
+const vecDir = join(repoRoot, "packages", "server", "node_modules", "sqlite-vec");
+const vecManifest = JSON.parse(readFileSync(join(vecDir, "package.json"), "utf8"));
+const scratch = await mkdtemp(join(tmpdir(), "obtc-mcpb-modules-"));
+
+// 3. Validate the MCPB manifest, then stage the bundle inputs into a throwaway directory and pack
 // from there — see scripts/lib/mcpb-staging.mjs for why. The staging directory is always removed,
 // success or failure.
-await mkdir(outDir, { recursive: true });
-await $`npx -y ${MCPB} validate ${mcpbManifestPath}`.cwd(repoRoot);
-await packFromStaging(repoRoot, outFile, {
-  pack: (stagingDir, out) => $`npx -y ${MCPB} pack ${stagingDir} ${out}`.cwd(repoRoot),
-});
+try {
+  await mkdir(outDir, { recursive: true });
+  await $`npx -y ${MCPB} validate ${mcpbManifestPath}`.cwd(repoRoot);
 
-// 3. Confirm the artifact exists and report its size.
+  const bundled = await Bun.build({
+    entrypoints: [join(embedderDir, "dist", "index.js")],
+    outdir: scratch,
+    naming: "embedder.mjs",
+    target: "node",
+    format: "esm",
+    minify: true,
+    plugins: [embedderBundlePlugin()],
+  });
+  if (!bundled.success) {
+    for (const log of bundled.logs) console.error(String(log));
+    throw new Error("bundling the local embedder failed");
+  }
+  // One sqlite-vec platform package per entry in its own optionalDependencies, fetched from the
+  // registry (and integrity-checked) because the host install only has its own.
+  const platformPackages = await Promise.all(
+    Object.entries(vecManifest.optionalDependencies as Record<string, string>).map(
+      async ([name, version]) => ({
+        name,
+        dir: await fetchVerifiedNpmPackage(name, version, (m) => console.log(`sqlite-vec: ${m}`)),
+      }),
+    ),
+  );
+  try {
+    await packFromStaging(repoRoot, outFile, {
+      populate: (stagingDir) =>
+        stageRuntimeModules(stagingDir, {
+          sqliteVec: { dir: vecDir, platformPackages },
+          embedder: {
+            version: embedderVersion,
+            bundleFile: join(scratch, "embedder.mjs"),
+            ortFiles: Object.fromEntries(
+              Object.keys(ORT_PLATFORMS).map((key) => [key, ortNativeFiles(ortNodeDir, key)]),
+            ),
+          },
+        }),
+      pack: (stagingDir, out) => $`npx -y ${MCPB} pack ${stagingDir} ${out}`.cwd(repoRoot),
+    });
+  } finally {
+    await Promise.all(
+      platformPackages.map((p) => rm(dirname(p.dir), { recursive: true, force: true })),
+    );
+  }
+} finally {
+  await rm(scratch, { recursive: true, force: true });
+}
+
+// 4. Confirm the artifact exists and report its size.
 if (!existsSync(outFile)) throw new Error(`bundle was not produced: ${outFile}`);
 const sizeMb = (statSync(outFile).size / 1_048_576).toFixed(2);
 console.log(`\n✓ packed ${outFile} (${sizeMb} MB)`);

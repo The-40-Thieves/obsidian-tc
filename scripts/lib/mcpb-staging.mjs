@@ -16,6 +16,7 @@
 // the actual `mcpb` CLI; this module only touches the filesystem.
 import {
   copyFile,
+  cp,
   link,
   lstat,
   mkdir,
@@ -74,6 +75,9 @@ async function stageTree(src, dest) {
   if (st.isDirectory()) {
     await mkdir(dest, { recursive: true });
     for (const name of await readdir(src)) {
+      // Workspace-level install trees (packages/*/node_modules, symlinked into the bun store) never
+      // ship; the bundle's own node_modules is assembled by stageRuntimeModules below.
+      if (name === "node_modules") continue;
       await stageTree(join(src, name), join(dest, name));
     }
     return;
@@ -97,16 +101,60 @@ export async function stageBundleInputs(repoRoot, stagingDir) {
   await writeFile(join(stagingDir, "manifest.json"), mcpbManifest);
 }
 
+const EMBEDDER_PACKAGE = "@the-40-thieves/obsidian-tc-embedder-local";
+
 /**
- * Builds a staging directory under the OS temp dir, populates it via stageBundleInputs, calls
- * `pack(stagingDir, outFile)` to produce the bundle, and always removes the staging directory
- * (success or failure — the `finally` is what makes a thrown pack leave nothing behind). The live
- * tree at `repoRoot` is never written to except `outFile` itself.
+ * Assembles the bundle's own `node_modules` (the one thing stageBundleInputs deliberately does not
+ * copy): the packages the server reaches by bare specifier at run time that a bundle would
+ * otherwise lack.
+ *
+ *   sqlite-vec       the loader package plus ALL of its platform packages: one .mcpb runs on every
+ *                    OS, so vec0 for each must be inside it (they are ~150 KB each).
+ *   embedder-local   the default embeddings provider, as ONE bundled file (scripts/lib/
+ *                    embedder-bundle.mjs inlines transformers.js and onnxruntime-node's JS) plus
+ *                    onnxruntime's native files per platform under `ort/<platform>-<arch>/`, which
+ *                    that file loads at run time.
+ *
+ * `sources` is `{ sqliteVec: { dir, platformPackages: [{ name, dir }] },
+ *   embedder: { version, bundleFile, ortFiles: { "<platform>-<arch>": [{ name, path }] } } }`.
  */
-export async function packFromStaging(repoRoot, outFile, { pack }) {
+export async function stageRuntimeModules(stagingDir, sources) {
+  const modules = join(stagingDir, "node_modules");
+  const vec = sources.sqliteVec;
+  await cp(vec.dir, join(modules, "sqlite-vec"), { recursive: true, dereference: true });
+  for (const p of vec.platformPackages) {
+    await cp(p.dir, join(modules, p.name), { recursive: true, dereference: true });
+  }
+  const embedderDir = join(modules, ...EMBEDDER_PACKAGE.split("/"));
+  await mkdir(embedderDir, { recursive: true });
+  await copyFile(sources.embedder.bundleFile, join(embedderDir, "index.mjs"));
+  const manifest = {
+    name: EMBEDDER_PACKAGE,
+    version: sources.embedder.version,
+    type: "module",
+    main: "./index.mjs",
+    exports: { ".": "./index.mjs", "./package.json": "./package.json" },
+  };
+  await writeFile(join(embedderDir, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  for (const [platformKey, files] of Object.entries(sources.embedder.ortFiles)) {
+    const ortDir = join(embedderDir, "ort", platformKey);
+    await mkdir(ortDir, { recursive: true });
+    for (const f of files) await copyFile(f.path, join(ortDir, f.name));
+  }
+}
+
+/**
+ * Builds a staging directory under the OS temp dir, populates it via stageBundleInputs (then
+ * `populate(stagingDir)`, for the bundle's node_modules), calls `pack(stagingDir, outFile)` to
+ * produce the bundle, and always removes the staging directory (success or failure — the `finally`
+ * is what makes a thrown pack leave nothing behind). The live tree at `repoRoot` is never written
+ * to except `outFile` itself.
+ */
+export async function packFromStaging(repoRoot, outFile, { pack, populate }) {
   const stagingDir = await mkdtemp(join(tmpdir(), "obsidian-tc-mcpb-"));
   try {
     await stageBundleInputs(repoRoot, stagingDir);
+    await populate?.(stagingDir);
     await pack(stagingDir, outFile);
   } finally {
     await rm(stagingDir, { recursive: true, force: true });

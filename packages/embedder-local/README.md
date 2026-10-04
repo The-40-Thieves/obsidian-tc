@@ -78,12 +78,16 @@ fully functional).
   `embed()` promise; the existing boot-reconcile degradation path (same one an unreachable Ollama
   endpoint has always used) catches it. `obsidian-tc doctor` keeps it loud via the
   `embeddings.buildable` check.
-- **`bun --compile` and the `.mcpb` bundle are out of scope.** `onnxruntime-node` (a transitive
-  dependency) dlopens a sidecar `.node`/`.so` file next to itself at runtime — that cannot survive
-  being embedded in a single-file Bun standalone binary or a `.mcpb` bundle. The `local` embedder is
-  unreachable from those two install methods; set `embeddings.provider` to a hosted or self-hosted
-  backend there instead. It IS reachable from a source checkout (route iii above) and from an
-  npm-installed server pointed at it via an explicit module path (route i).
+- **`bun --compile` and the `.mcpb` bundle carry a BUNDLED copy.** `onnxruntime-node` (a transitive
+  dependency) dlopens a sidecar `.node`/`.so` file next to itself at runtime, which a single-file
+  executable or a bundle cannot satisfy as published. `scripts/build-binary.ts` and
+  `scripts/bundle-mcpb.ts` therefore bundle this package, transformers.js and onnxruntime-node's JS
+  into one file (build-time rewrites in `scripts/lib/embedder-bundle.mjs`, each asserted so a pinned
+  dependency changing shape fails the build) and ship the platform's onnxruntime files next to it:
+  embedded in the binary and unpacked into `<cacheDir>/runtime/` on first use, or under `ort/` in the
+  bundle. That needs the dynamic `import("@huggingface/transformers")` in `src/index.ts` to stay a
+  literal specifier, so a bundler can follow it. onnxruntime-node ships no macOS x64 build, so that
+  binary has no local embedder; set `embeddings.provider` to a hosted or self-hosted backend there.
 
 ## Provenance
 

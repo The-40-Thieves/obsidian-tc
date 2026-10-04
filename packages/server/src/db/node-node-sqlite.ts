@@ -16,9 +16,12 @@ interface NsDatabase {
   // GH #995 fix round (LOCK_TXN_LOSS): node:sqlite's own name for what bun:sqlite/better-sqlite3
   // call `.inTransaction` — see db/types.ts's Database.inTransaction doc comment.
   readonly isTransaction: boolean;
+  loadExtension(path: string): void;
+  enableLoadExtension(allow: boolean): void;
 }
 interface NsDatabaseOptions {
   readOnly?: boolean;
+  allowExtension?: boolean;
 }
 
 /**
@@ -27,8 +30,8 @@ interface NsDatabaseOptions {
  * ships no `node_modules`. `node:sqlite` is built into Node (the MCPB manifest requires Node >=24;
  * it has been flag-free since 22.13 / 23.4), so no native module needs to be present. The whole test
  * suite already runs on `node:sqlite` (test/helpers `openMemoryDb`), so query compatibility is
- * established. Loadable extensions (sqlite-vec) are intentionally NOT exposed here, so vector search
- * uses the in-process brute-force fallback (see the `loadExtension` note in db/types.ts).
+ * established. sqlite-vec loads through `loadExtension` below, so the packed .mcpb (which ships
+ * sqlite-vec but no better-sqlite3) gets the same dense index as an npm install.
  */
 export async function openNodeSqlite(
   path: string,
@@ -56,6 +59,14 @@ export async function openNodeSqlite(
   // cannot do is prevent SQLite's checkpoint-on-close — see pragmas.ts's
   // `readonlyConnectionPragmas` and types.ts's `OpenOptions` for the narrowed guarantee this
   // implies.
+  // `allowExtension` is what permits `loadExtension` at all, and it also turns on SQL-callable
+  // `load_extension()`, which better-sqlite3 and bun:sqlite never expose. So it is switched back
+  // off at once and re-enabled only around the one trusted call in `loadExtension` below.
+  const openDb = (o: NsDatabaseOptions = {}): NsDatabase => {
+    const d = new DatabaseSync(path, { ...o, allowExtension: true });
+    d.enableLoadExtension(false);
+    return d;
+  };
   let db: NsDatabase;
   let readonlyMode: "native" | "fallback" | undefined;
   // Same per-connection baseline as the other adapters (THE-273), shared so the ORDER cannot drift —
@@ -66,8 +77,8 @@ export async function openNodeSqlite(
   if (opts.readonly) {
     const open = openReadonlyWithFallback(
       path,
-      () => new DatabaseSync(path, { readOnly: true }),
-      () => new DatabaseSync(path),
+      () => openDb({ readOnly: true }),
+      () => openDb(),
       {
         configure: (d) => {
           for (const p of readonlyConnectionPragmas(busyTimeoutMs)) d.exec(`PRAGMA ${p}`);
@@ -83,7 +94,7 @@ export async function openNodeSqlite(
     db = open.db;
     readonlyMode = open.readonlyMode;
   } else {
-    db = new DatabaseSync(path);
+    db = openDb();
     applyConnectionPragmasOrClose(db, (p) => db.exec(`PRAGMA ${p}`), busyTimeoutMs);
   }
   const make = (sql: string): Statement => {
@@ -109,6 +120,14 @@ export async function openNodeSqlite(
     },
     close: (): void => {
       db.close();
+    },
+    loadExtension: (extPath: string): void => {
+      db.enableLoadExtension(true);
+      try {
+        db.loadExtension(extPath);
+      } finally {
+        db.enableLoadExtension(false);
+      }
     },
     // GH #995 fix round (LOCK_TXN_LOSS) — see db/types.ts's Database.inTransaction doc comment.
     inTransaction: (): boolean => db.isTransaction,

@@ -876,21 +876,25 @@ jobs:
         if: startsWith(matrix.target, 'bun-darwin')
         run: node scripts/gen-embedded-sqlite.mjs --target ${{ matrix.target }}
         shell: bash
-      # THE-705: --external the optional local-reranker package, the same reasoning as the npm dist
-      # build's script in packages/server/package.json — it is never installed here (not a
-      # dependency of packages/server; see packages/reranker-local/README.md), and its own
-      # dependency (@huggingface/transformers, via onnxruntime-node) dlopens a sidecar .node/.so
-      # that cannot survive being embedded in a single-file standalone binary regardless. Marking it
-      # external keeps the dynamic import() a genuine runtime lookup instead of a bundler resolution
-      # failure; the "local" reranker is unreachable from a compiled binary either way (documented,
-      # not fought — see the THE-705 research brief), and this only ensures that fact doesn't also
-      # break every OTHER provider's compile. THE-1122: the local EMBEDDER package is --external for
-      # the identical reason (same onnxruntime-node dlopen constraint) — it is now the DEFAULT
-      # embeddings provider, so its unreachability from a compiled binary is user-visible (docs say
-      # so: install.md's standalone-binary section names a hosted/self-hosted provider as the
-      # workaround there), but the compile-time handling is the same "mark external, never fought."
+      # The local embeddings provider (the schema DEFAULT) lives in packages/embedder-local, its own
+      # install root. scripts/build-binary.ts bundles it, transformers.js and onnxruntime-node into
+      # the executable and embeds the target's onnxruntime native files (see that script's header),
+      # so it must be installed and built first.
+      - name: install + build embedder-local
+        working-directory: packages/embedder-local
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+        shell: bash
+      # THE-705: the local RERANKER package stays --external (scripts/build-binary.ts): it is never
+      # installed here (not a dependency of packages/server; see packages/reranker-local/README.md)
+      # and its onnxruntime-node dlopen cannot survive being embedded without the same bundling the
+      # embedder gets, so "local" reranking remains unreachable from a compiled binary (documented).
+      # The embedder, by contrast, now works inside the binary on every target onnxruntime-node
+      # ships a build for (all but darwin-x64): the first-run matrix (ci-first-run-smoke.yml) builds
+      # it with this same script and runs a real semantic search.
       - name: compile standalone binary
-        run: bun build packages/server/src/cli.ts --compile --bytecode --minify --sourcemap --external @the-40-thieves/obsidian-tc-reranker-local --external @the-40-thieves/obsidian-tc-embedder-local --target=${{ matrix.target }} --outfile packages/server/dist/obsidian-tc-${{ matrix.target }}
+        run: bun scripts/build-binary.ts --target ${{ matrix.target }} --outfile packages/server/dist/obsidian-tc-${{ matrix.target }}
         shell: bash
       # THE-578: RUN the thing we are about to ship. Two assertions, because the first alone is not
       # enough: `version` proves the module graph loads (the old failure was at load time, in
@@ -1232,6 +1236,13 @@ jobs:
         run: |
           (cd packages/shared && bun run build)
           (cd packages/server && bun run build)
+      # The bundle ships the local embedder (scripts/bundle-mcpb.ts bundles it), and
+      # packages/embedder-local is its own install root.
+      - name: install + build embedder-local
+        working-directory: packages/embedder-local
+        run: |
+          bun install --frozen-lockfile
+          bun run build
       - name: pack the .mcpb bundle
         run: bun run bundle
       # THE-966: the Smithery server card (real tool/prompt/resource definitions, WITH inputSchema

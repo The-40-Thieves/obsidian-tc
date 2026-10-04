@@ -151,9 +151,9 @@ async function loadSession(
       // Re-verify the FINAL directory immediately before use — closes the TOCTOU window between
       // fetchAndVerifyModel's own check and the pipeline() call below.
       await assertVerified(modelDir, spec);
-      const transformersPackage = "@huggingface/transformers";
-      // eslint-disable-next-line no-unsanitized/method -- transformersPackage is a variable, not a literal, so tsc need not resolve this optional dependency.
-      const { pipeline, env } = (await import(transformersPackage)) as TransformersModule;
+      // A LITERAL specifier, so a bundler can follow it: scripts/lib/embedder-bundle.mjs bundles this
+      // package for the .mcpb and the standalone binaries, neither of which has a node_modules.
+      const { pipeline, env } = (await import("@huggingface/transformers")) as TransformersModule;
       env.allowRemoteModels = false;
       // `modelDir` is passed as `path_or_repo_id` directly, NOT env.localModelPath + a bare model
       // id — same reasoning as reranker-local's index.ts: Transformers.js treats a multi-slash
