@@ -62,6 +62,12 @@ every committed set read as stale. The synthetic set is `eval/gen-multi-hop-slic
 synthetic set);
 `test/eval-corpora.test.ts` checks it regenerates identically.
 
+*Addendum, 2026-10-04.* `suite-plan.json` records the synthetic set's sha256 as `f2967b0c...8307`, the digest of the file
+as first generated. The committed file differs from it in line 1 only: the generator's header comment named an internal
+ticket, which does not belong in a public data file, and the header was reworded (the committed sha256 is
+`98b67277c9ffe4292a21a33841955c2a4aa42679b2b9f32f66125a2a8f3ccf02`). The 120 queries, ids, paths and descriptions are
+byte-identical, and `suite-plan.json` is left as written so the preregistration hash does not move.
+
 ## Planned power
 
 `suite-plan.ts` computes each corpus's shape statistics (through `vault/links.ts`, the code the indexer

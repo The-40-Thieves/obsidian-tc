@@ -213,6 +213,7 @@ describe("committed golden sets", () => {
     const spec = registry.corpora["synthetic-multihop"];
     expect(spec?.kind).toBe("generated");
     if (spec?.kind !== "generated") return;
+    expect(committed, "no ticket id in a public data file").not.toMatch(/THE-\d+|linear\.app/);
     expect(spec.seed).toBe(DEFAULT_SEED);
     expect(spec.queries).toBe(DEFAULT_QUERIES);
     expect(toYaml(generateSlice(spec.queries, spec.seed).queries)).toBe(committed);
