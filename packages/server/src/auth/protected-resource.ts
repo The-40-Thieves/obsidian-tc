@@ -8,7 +8,7 @@
 // stays pre-registration-only (THE-661; see isPrmConfigured for the dated decision).
 import { getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/server";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
-import { enabledAs } from "./as-metadata";
+import { asIssuing, enabledAs } from "./as-metadata";
 
 type AuthConfig = ServerConfig["auth"];
 /** The fields the audience and PRM decisions read, so server_health and `doctor` can ask with the
@@ -62,9 +62,11 @@ export function isPrmConfigured(auth: PrmFields): boolean {
  */
 function authorizationServersOf(auth: PrmFields): string[] {
   if (auth.mode === "oidc" && auth.oidc !== undefined) return [auth.oidc.issuer];
-  // The bundled authorization server defaults to advertising itself. An explicit list is kept as
-  // written (the schema already requires the issuer to be its first entry: Claude reads only that).
-  const bundled = enabledAs(auth)?.issuer;
+  // The bundled authorization server defaults to advertising itself, but only once it can issue: a
+  // PRM naming an issuer whose authorize and token routes do not exist sends clients into a dead
+  // flow. An explicit list is kept as written (the schema already requires the issuer to be its
+  // first entry: Claude reads only that).
+  const bundled = asIssuing(auth) ? enabledAs(auth)?.issuer : undefined;
   if (bundled !== undefined) return auth.authorizationServers ?? [bundled];
   return auth.authorizationServers ?? [];
 }
@@ -87,7 +89,11 @@ export function effectiveAudience(
   // oidc mode binds ONLY its own audience: the PRM `resource` is a URL the client sees, while an IdP
   // API audience may be any registered identifier (`api://...`), so the two are not assumed equal.
   if (auth.mode === "oidc") return auth.oidc?.audience;
-  return auth.audience ?? (isPrmConfigured(auth) ? auth.resource : undefined);
+  // The bundled AS's default PRM entry is deliberately NOT read here (`as: undefined`): it exists for
+  // discovery, and binding the audience on its account would turn every hand-minted token without an
+  // `aud` into a 401 the moment `auth.as` is enabled (design v2 section 7). Tokens the AS issues are
+  // checked against `auth.resource` by their own, stricter rules in the verifier.
+  return auth.audience ?? (isPrmConfigured({ ...auth, as: undefined }) ? auth.resource : undefined);
 }
 
 /**

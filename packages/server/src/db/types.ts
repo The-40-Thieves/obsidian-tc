@@ -72,6 +72,10 @@ export interface Database {
  */
 export interface OpenOptions {
   readonly?: boolean;
+  /** Owner-only (0600) database and WAL/SHM sidecars, for a file that holds credentials or
+   *  revocations (`auth.db`, `oauth.db`). Honoured by `openConfiguredDatabase`; ignored when
+   *  `readonly`, which never changes a file. */
+  ownerOnly?: boolean;
 }
 
 /** prepareCached when the adapter provides it (production bun / better-sqlite3), else prepare. */

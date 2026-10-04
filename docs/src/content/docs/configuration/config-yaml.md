@@ -118,7 +118,8 @@ server never binds a routable address.
 Opt-in. Everything under `auth.as` is off while `auth.as.enabled` is false (the default), and the bearer paths
 do not change. When enabled it needs `auth.mode: jwt`, `auth.resource` and `auth.as.issuer` (it is refused under
 `none` and `oidc`). This release ships the configuration, the signing key and the discovery document; the
-authorize, token and revoke routes arrive in later releases, so no client can sign in yet.
+authorize, token and revoke routes arrive in later releases, so no client can sign in yet, and until they
+exist the metadata, the Protected Resource Metadata default and the challenge pointer are not served either.
 
 | Field | Type / default | What it does |
 | --- | --- | --- |
@@ -136,8 +137,9 @@ authorize, token and revoke routes arrive in later releases, so no client can si
 
 Cross-checks refused at load: `auth.authorizationServers`, when set, must list `auth.as.issuer` first (it defaults
 to `[issuer]`); `auth.jwksUri` may not point at this server's own `/.well-known/jwks.json`; `clientId`s must be
-unique. Once `auth.resource` and the authorization server are both set, a hand-minted token's `aud` must equal
-`auth.resource`.
+unique. Hand-minted tokens keep their rules: enabling the AS does not bind an `aud` to them (a hand-minted HS256
+token without `aud` is still accepted); only `auth.audience`, or an explicit `auth.authorizationServers` list
+with `auth.resource`, does that. The tokens the AS issues are always checked against `auth.resource`.
 
 A configured `auth.jwks` or `auth.jwksFile` that contains the public key of the server's own `as` key stops the
 server at boot, naming the kid: a JWKS key is verified under the hand-minted-token rules, which would let a token

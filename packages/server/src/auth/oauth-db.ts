@@ -29,7 +29,7 @@ export interface OpenedOauthDb {
 
 /** Open (creating on first use) and provision oauth.db. Never refuses for a missing file. */
 export async function openOauthDb(cfg: OauthCfg): Promise<OpenedOauthDb> {
-  const db = await openConfiguredDatabase(cfg, "oauth.db");
+  const db = await openConfiguredDatabase(cfg, "oauth.db", { ownerOnly: true });
   try {
     provisionOauthDb(db, { version: VERSION });
   } catch (e) {

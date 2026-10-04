@@ -107,6 +107,9 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
     // bearer rejected.
     const { jwtSecret, jwks, jwksFile, jwksUri } = config.auth;
     const staticKey = !!jwtSecret || !!jwks || !!jwksFile || !!jwksUri;
+    // S5 NOTE: this refusal runs before `ensureAsKey` below, so an AS-only deployment (no static key and
+    // no registry key) is refused at boot. That is right while no token can be issued (S3); the slice
+    // that mounts the issuing routes must generate the `as` key ahead of this check.
     if (!staticKey && registryHealth?.state !== "lost") {
       const n = authRegistry.keyCounts();
       if (n.active + n.retiring === 0) {

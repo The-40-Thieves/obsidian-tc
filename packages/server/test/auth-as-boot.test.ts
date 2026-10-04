@@ -246,7 +246,8 @@ describe("boot: verifier and the as key", () => {
     const config = configFor({});
     const wiring = await wireTransports(deps(config));
     try {
-      const token = await new SignJWT({ sub: "me", aud: RESOURCE, scope: "read:notes" })
+      // No `aud`, as a hand-minted token has always been: it must keep verifying (design v2 section 7).
+      const token = await new SignJWT({ sub: "me", scope: "read:notes" })
         .setProtectedHeader({ alg: "HS256" })
         .setIssuedAt()
         .setExpirationTime("10m")
@@ -326,6 +327,7 @@ describe("doctor: the `as` section", () => {
     enabled: true,
     issuer: ISSUER,
     metadataUrl: `${ISSUER}/.well-known/oauth-authorization-server`,
+    issuing: true,
     signingAlg: "ES256",
     accessTokenSeconds: 1800,
     tokenTtlSeconds: 3600,
@@ -370,6 +372,18 @@ describe("doctor: the `as` section", () => {
     expect(text).toContain("claude.ai");
     expect(text).toContain("3 redirect URIs");
     expect(text).toMatch(/back up oauth\.db/i);
+  });
+
+  it("says the issuing routes are not yet available while they are not mounted, and ok otherwise", async () => {
+    const early = await run({ issuing: false });
+    expect(early.status).toBe("ok");
+    expect(early.summary).toMatch(/AS enabled, issuing routes not yet available/);
+    expect(JSON.stringify(early.details)).toMatch(/not yet available/);
+    expect((await run({ issuing: true })).summary).not.toMatch(/not yet available/);
+    // Also with a problem to report: the note rides along with the problem summary.
+    expect(
+      (await run({ issuing: false, oauthDb: { path: "p", exists: true, claimed: false } })).summary,
+    ).toMatch(/issuing routes not yet available/);
   });
 
   it("is a no-op (ok, not in use) when the AS is disabled", async () => {

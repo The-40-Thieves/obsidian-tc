@@ -295,7 +295,7 @@ export function identityFrom(
   if (payload.jti !== undefined && typeof payload.jti !== "string") {
     throw new AuthRejection("missing_claim", { caller });
   }
-  const jti = typeof payload.jti === "string" ? payload.jti : undefined;
+  const jti = typeof payload.jti === "string" && payload.jti !== "" ? payload.jti : undefined;
   revocation.assertRegistryUsable?.();
   if (jti === undefined && revocation.requireJti === true) {
     throw new AuthRejection("jti_required", { caller });

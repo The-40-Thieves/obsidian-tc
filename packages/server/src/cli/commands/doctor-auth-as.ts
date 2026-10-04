@@ -2,7 +2,7 @@
 // and a read-only look at oauth.db. Kept out of doctor.ts, which sits at the file-length ceiling.
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { configuredJwksOverlap } from "../../auth/as-boot";
-import { AS_METADATA_PATH, enabledAs } from "../../auth/as-metadata";
+import { AS_METADATA_PATH, asIssuingRoutesMounted, enabledAs } from "../../auth/as-metadata";
 import { probeOauthDb } from "../../auth/oauth-db";
 import type { AuthRegistryProbe } from "../../auth/registry-open";
 import type { AuthAsView } from "../../doctor/auth-as";
@@ -27,6 +27,7 @@ export async function probeAuthAsView(
     enabled: true,
     issuer: as.issuer,
     metadataUrl: `${as.issuer}${AS_METADATA_PATH}`,
+    issuing: asIssuingRoutesMounted(),
     signingAlg: as.signingAlg,
     accessTokenSeconds: as.accessTokenSeconds,
     tokenTtlSeconds: config.auth.tokenTtlSeconds,

@@ -23,6 +23,31 @@ export const AS_PATHS = {
   jwks: "/.well-known/jwks.json",
 } as const;
 
+/** An issuing route the bundled authorization server can serve. */
+export type AsRouteName = "authorize" | "token" | "revoke" | "register";
+/** A capability behind a metadata member that has its own slice: client-ID metadata documents
+ *  (`cimd`) and refresh tokens (`refresh`). */
+export type AsFeature = "cimd" | "refresh";
+type AsRouteMounter = (app: Hono, auth: AuthConfig) => void;
+
+/**
+ * The ONE capability source for "what the authorization server actually serves". A slice that
+ * implements a route registers its mounter here (and one that implements CIMD or refresh tokens adds
+ * its feature below); discovery (the metadata document, the PRM default and the 401 challenge, the
+ * `doctor` line) is derived from these and from nothing else, so none of it can advertise a flow
+ * that does not exist yet. Empty in this slice: no issuing route is implemented.
+ */
+export const AS_ROUTES = new Map<AsRouteName, AsRouteMounter>();
+export const AS_FEATURES = new Set<AsFeature>();
+
+/** True once the routes a client needs to complete a flow, authorize AND token, are mounted. */
+export const asIssuingRoutesMounted = (): boolean =>
+  AS_ROUTES.has("authorize") && AS_ROUTES.has("token");
+
+/** The AS is on AND can actually issue: the one condition under which discovery points clients at it. */
+export const asIssuing = (auth: Pick<AuthConfig, "as">): boolean =>
+  enabledAs(auth) !== undefined && asIssuingRoutesMounted();
+
 export const AS_METADATA_PATH = "/.well-known/oauth-authorization-server";
 /** OpenID Connect discovery alias: the same document, discovery fields only (no `id_token`). */
 export const AS_DISCOVERY_ALIAS_PATH = "/.well-known/openid-configuration";
@@ -31,14 +56,14 @@ export interface AsMetadata {
   issuer: string;
   authorization_endpoint: string;
   token_endpoint: string;
-  revocation_endpoint: string;
+  revocation_endpoint?: string;
   jwks_uri: string;
   registration_endpoint?: string;
   response_types_supported: string[];
   grant_types_supported: string[];
   code_challenge_methods_supported: string[];
   token_endpoint_auth_methods_supported: string[];
-  client_id_metadata_document_supported: boolean;
+  client_id_metadata_document_supported?: boolean;
   authorization_response_iss_parameter_supported: boolean;
   scopes_supported: string[];
 }
@@ -65,34 +90,47 @@ export function buildAsMetadata(auth: AuthConfig): AsMetadata {
   }
   const { issuer } = as;
   const confidential = as.clients.some((c) => c.secretEnv !== undefined);
+  const refresh = AS_FEATURES.has("refresh");
   const scopes = [...(auth.scopesSupported ?? [])];
-  if (!scopes.includes("offline_access")) scopes.push("offline_access");
+  if (refresh && !scopes.includes("offline_access")) scopes.push("offline_access");
   return {
     issuer,
     authorization_endpoint: `${issuer}${AS_PATHS.authorize}`,
     token_endpoint: `${issuer}${AS_PATHS.token}`,
-    revocation_endpoint: `${issuer}${AS_PATHS.revoke}`,
+    // authorization_endpoint and token_endpoint are REQUIRED by RFC 8414 for this grant type and are
+    // the two routes that gate the whole document. Everything below with its own slice appears only
+    // when that slice's route or feature is registered, never ahead of it.
+    ...(AS_ROUTES.has("revoke") ? { revocation_endpoint: `${issuer}${AS_PATHS.revoke}` } : {}),
     jwks_uri: `${issuer}${AS_PATHS.jwks}`,
-    // Only when DCR is on: a client that finds the member tries to register, so advertising it with
-    // the flag off would turn every first connection into a failed registration.
-    ...(as.dynamicRegistration ? { registration_endpoint: `${issuer}${AS_PATHS.register}` } : {}),
+    // Only when DCR is on AND its route is mounted: a client that finds the member tries to register,
+    // so advertising it with the flag off would turn every first connection into a failed registration.
+    ...(as.dynamicRegistration && AS_ROUTES.has("register")
+      ? { registration_endpoint: `${issuer}${AS_PATHS.register}` }
+      : {}),
     response_types_supported: ["code"],
-    grant_types_supported: ["authorization_code", "refresh_token"],
+    grant_types_supported: refresh
+      ? ["authorization_code", "refresh_token"]
+      : ["authorization_code"],
     code_challenge_methods_supported: ["S256"],
     // `none` (public client + PKCE) is all CIMD clients need; `client_secret_basic` only for a
     // configured confidential client. `private_key_jwt` is deliberately never advertised.
     token_endpoint_auth_methods_supported: confidential
       ? ["none", "client_secret_basic"]
       : ["none"],
-    client_id_metadata_document_supported: true,
+    // Claude uses a metadata-document client id only when this is true, so it is stated only once
+    // resolution exists; absent means false (draft-ietf-oauth-client-id-metadata-document).
+    ...(AS_FEATURES.has("cimd") ? { client_id_metadata_document_supported: true } : {}),
     authorization_response_iss_parameter_supported: true,
     scopes_supported: scopes,
   };
 }
 
-/** Serve the metadata (and its discovery alias) when the AS is enabled; a no-op otherwise. */
+/**
+ * Serve the metadata (and its discovery alias) once the AS is enabled AND can issue; a no-op
+ * otherwise, so enabling `auth.as` before the issuing routes exist changes nothing a client sees.
+ */
 export function mountAsMetadata(app: Hono, auth: AuthConfig): void {
-  if (enabledAs(auth) === undefined) return;
+  if (!asIssuing(auth)) return;
   const body = JSON.stringify(buildAsMetadata(auth));
   const serve = () =>
     new Response(body, {
@@ -101,4 +139,10 @@ export function mountAsMetadata(app: Hono, auth: AuthConfig): void {
     });
   app.get(AS_METADATA_PATH, serve);
   app.get(AS_DISCOVERY_ALIAS_PATH, serve);
+}
+
+/** Mount every registered issuing route; a no-op while the AS is off. */
+export function mountAsRoutes(app: Hono, auth: AuthConfig): void {
+  if (enabledAs(auth) === undefined) return;
+  for (const mount of AS_ROUTES.values()) mount(app, auth);
 }

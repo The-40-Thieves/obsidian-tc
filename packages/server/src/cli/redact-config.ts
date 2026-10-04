@@ -14,14 +14,23 @@ const SECRET_KEY = /(secret|token|password|key)$/i;
 const CREDENTIAL_HEADER =
   /^(authorization|proxy-authorization|cookie|set-cookie|x-api-key|x-auth-token|api-key)$/i;
 
+// RFC 7517/7518 private members of a JWK: `d` (RSA, EC, OKP), the RSA CRT members `p q dp dq qi`, the
+// multi-prime list `oth`, and `k` (the key of an `oct` JWK). They do not look secret by name, so an
+// inline `auth.jwks` carrying a private key would print them. Applied only to an object that is a
+// JWK (has a string `kty`), so an unrelated field that happens to be called `d` or `k` is untouched.
+const JWK_PRIVATE_MEMBER = /^(d|p|q|dp|dq|qi|k|oth)$/;
+const isJwk = (v: object): boolean => typeof (v as { kty?: unknown }).kty === "string";
+
 /** Deep-clone a value with secret-looking string fields masked, for `config show`. */
 export function redactConfig(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactConfig);
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
+    const jwk = isJwk(value);
     for (const [k, v] of Object.entries(value)) {
       out[k] =
-        typeof v === "string" && v.length > 0 && (SECRET_KEY.test(k) || CREDENTIAL_HEADER.test(k))
+        (jwk && JWK_PRIVATE_MEMBER.test(k) && v !== undefined && v !== null) ||
+        (typeof v === "string" && v.length > 0 && (SECRET_KEY.test(k) || CREDENTIAL_HEADER.test(k)))
           ? "<redacted>"
           : redactConfig(v);
     }

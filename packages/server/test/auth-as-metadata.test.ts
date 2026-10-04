@@ -4,8 +4,9 @@
 // threat-model Host-header-spoofing row. Nothing here issues a token: no issuing route exists yet.
 import { request } from "node:http";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
+import { AS_FEATURES, AS_ROUTES, type AsRouteName } from "../src/auth/as-metadata";
 import { redactConfig } from "../src/cli/redact-config";
 import { provisionCacheDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
@@ -35,7 +36,16 @@ function authOf(over: Record<string, unknown> = {}, as: Record<string, unknown> 
 const handles: HttpHandle[] = [];
 afterEach(async () => {
   for (const h of handles.splice(0)) await h.close();
+  AS_ROUTES.clear();
+  AS_FEATURES.clear();
 });
+
+/** Stand in for the slices that mount the issuing routes: the capability source is the registry. */
+function serve(routes: AsRouteName[], features: Array<"cimd" | "refresh"> = []) {
+  for (const r of routes) AS_ROUTES.set(r, () => {});
+  for (const f of features) AS_FEATURES.add(f);
+}
+const serveEverything = () => serve(["authorize", "token", "revoke"], ["cimd", "refresh"]);
 
 async function boot(auth: ServerConfig["auth"]) {
   const db = openMemoryDb();
@@ -83,6 +93,8 @@ const metadataOf = async (base: string): Promise<Meta> => {
 };
 
 describe("GET /.well-known/oauth-authorization-server", () => {
+  beforeEach(serveEverything);
+
   it("carries every RFC 8414 required member, all URLs under the issuer", async () => {
     const { base } = await boot(authOf());
     const m = await metadataOf(base);
@@ -142,6 +154,7 @@ describe("GET /.well-known/oauth-authorization-server", () => {
   });
 
   it("advertises registration_endpoint only when DCR is enabled", async () => {
+    serve(["register"]);
     const { base } = await boot(authOf({}, { dynamicRegistration: true }));
     expect((await metadataOf(base)).registration_endpoint).toBe(`${ISSUER}/oauth/register`);
   });
@@ -183,6 +196,8 @@ describe("GET /.well-known/oauth-authorization-server", () => {
 });
 
 describe("threat row: Host-header spoofing", () => {
+  beforeEach(serveEverything);
+
   it("metadata fetched with `Host: evil.example` still names the configured issuer", async () => {
     const { handle } = await boot(authOf());
     for (const host of ["evil.example", "evil.example:8443", "vault.example.com.evil.example"]) {
@@ -206,6 +221,8 @@ describe("threat row: Host-header spoofing", () => {
 });
 
 describe("Protected Resource Metadata with the AS enabled (design 4.3 PRM row)", () => {
+  beforeEach(serveEverything);
+
   it("defaults authorization_servers to the issuer, byte-identical to the metadata issuer", async () => {
     const { base } = await boot(authOf());
     const prm = (await (await fetch(base + PRM_PATH)).json()) as Meta;
@@ -255,6 +272,8 @@ describe("`config show` never prints secrets", () => {
 });
 
 describe("buildAsMetadata", () => {
+  beforeEach(serveEverything);
+
   it("is a pure function of config: no request, no environment", async () => {
     const { buildAsMetadata } = await import("../src/auth/as-metadata");
     const a = buildAsMetadata(authOf());
@@ -267,5 +286,103 @@ describe("buildAsMetadata", () => {
     const { buildAsMetadata } = await import("../src/auth/as-metadata");
     expect(() => buildAsMetadata(authOf({}, { enabled: false }))).toThrow(/auth\.as/);
     expect(() => buildAsMetadata(authOf({ as: undefined }))).toThrow(/auth\.as/);
+  });
+});
+
+describe("discovery advertises only what is mounted (review: dead flow)", () => {
+  const challengeOf = async (base: string) => {
+    const r = await fetch(`${base}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+    });
+    expect(r.status).toBe(401);
+    return r.headers.get("www-authenticate");
+  };
+  const discovery = async (base: string) => ({
+    metadata: (await fetch(base + METADATA_PATH)).status,
+    alias: (await fetch(`${base}/.well-known/openid-configuration`)).status,
+    prm: (await fetch(base + PRM_PATH)).status,
+    challenge: await challengeOf(base),
+  });
+
+  it("enabling auth.as before any issuing route exists changes nothing a client discovers", async () => {
+    const off = await boot(authOf({}, { enabled: false }));
+    const on = await boot(authOf());
+    const before = await discovery(off.base);
+    expect(before).toEqual({ metadata: 404, alias: 404, prm: 404, challenge: null });
+    expect(await discovery(on.base)).toEqual(before);
+  });
+
+  it("authorize alone is not enough: the token route must be mounted too", async () => {
+    serve(["authorize"]);
+    const { base } = await boot(authOf());
+    expect((await discovery(base)).metadata).toBe(404);
+    expect((await discovery(base)).prm).toBe(404);
+  });
+
+  it("with authorize and token mounted: metadata, PRM [issuer] and the challenge pointer all appear", async () => {
+    serve(["authorize", "token"]);
+    const { base } = await boot(authOf());
+    const d = await discovery(base);
+    expect(d).toMatchObject({ metadata: 200, alias: 200, prm: 200 });
+    expect(d.challenge).toContain(
+      `resource_metadata="${RESOURCE.replace("/mcp", "")}/.well-known/oauth-protected-resource/mcp"`,
+    );
+    expect(((await (await fetch(base + PRM_PATH)).json()) as Meta).authorization_servers).toEqual([
+      ISSUER,
+    ]);
+  });
+
+  it("keeps the RFC 8414 required endpoints but omits revocation, CIMD and refresh until they exist", async () => {
+    serve(["authorize", "token"]);
+    const { base } = await boot(authOf());
+    const m = await metadataOf(base);
+    expect(m.authorization_endpoint).toBe(`${ISSUER}/oauth/authorize`);
+    expect(m.token_endpoint).toBe(`${ISSUER}/oauth/token`);
+    expect(m.issuer).toBe(ISSUER);
+    expect(m.response_types_supported).toEqual(["code"]);
+    expect("revocation_endpoint" in m).toBe(false);
+    expect(m.client_id_metadata_document_supported).not.toBe(true);
+    expect(m.grant_types_supported).toEqual(["authorization_code"]);
+    expect(m.scopes_supported).not.toContain("offline_access");
+  });
+
+  it("each later slice flips exactly its own member", async () => {
+    serve(["authorize", "token", "revoke"], ["cimd", "refresh"]);
+    const m = await metadataOf((await boot(authOf())).base);
+    expect(m.revocation_endpoint).toBe(`${ISSUER}/oauth/revoke`);
+    expect(m.client_id_metadata_document_supported).toBe(true);
+    expect(m.grant_types_supported).toEqual(["authorization_code", "refresh_token"]);
+  });
+
+  it("registration_endpoint needs BOTH the flag and a mounted register route", async () => {
+    serve(["authorize", "token"]);
+    expect(
+      "registration_endpoint" in
+        (await metadataOf((await boot(authOf({}, { dynamicRegistration: true }))).base)),
+    ).toBe(false);
+    serve(["register"]);
+    expect(
+      (await metadataOf((await boot(authOf({}, { dynamicRegistration: true }))).base))
+        .registration_endpoint,
+    ).toBe(`${ISSUER}/oauth/register`);
+  });
+
+  it("mounted route handlers are actually served at the app", async () => {
+    AS_ROUTES.set("authorize", (app) => app.get("/oauth/authorize", (c) => c.text("authorize-ok")));
+    AS_ROUTES.set("token", (app) => app.post("/oauth/token", (c) => c.text("token-ok")));
+    const { base } = await boot(authOf());
+    expect(await (await fetch(`${base}/oauth/authorize`)).text()).toBe("authorize-ok");
+    expect(await (await fetch(`${base}/oauth/token`, { method: "POST" })).text()).toBe("token-ok");
+  });
+
+  it("a route mounter is not called while the AS is disabled", async () => {
+    AS_ROUTES.set("authorize", (app) => app.get("/oauth/authorize", (c) => c.text("nope")));
+    const { base } = await boot(authOf({}, { enabled: false }));
+    expect((await fetch(`${base}/oauth/authorize`)).status).toBe(404);
   });
 });

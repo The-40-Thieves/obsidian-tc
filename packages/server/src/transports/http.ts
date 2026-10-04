@@ -12,7 +12,7 @@ import type {
 } from "@the-40-thieves/obsidian-tc-shared";
 import { type Context, Hono } from "hono";
 import type { FolderAcl } from "../acl";
-import { mountAsMetadata } from "../auth/as-metadata";
+import { mountAsMetadata, mountAsRoutes } from "../auth/as-metadata";
 import { AuthRejection, type AuthRejectionReason } from "../auth/jwt";
 import { buildJwtVerifier } from "../auth/jwt-boot";
 import { narrowToTokenScopes, resolvePersona } from "../auth/persona";
@@ -479,8 +479,9 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
   }
 
   // RFC 8414 metadata of the bundled authorization server (`auth.as`): public, built from config
-  // alone (never the request's Host), and absent while the AS is off.
+  // alone (never the request's Host), and absent while the AS is off or has no issuing routes yet.
   mountAsMetadata(app, opts.auth);
+  mountAsRoutes(app, opts.auth);
 
   // JWKS of the registry's ES256/EdDSA signing keys, so a verifier that is not this process can
   // validate the tokens `token mint` issues. Public keys only, active and in-window retiring ones

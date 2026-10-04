@@ -38,6 +38,9 @@ export interface AuthAsView {
   enabled: boolean;
   issuer?: string;
   metadataUrl?: string;
+  /** Whether the authorize and token routes are mounted (`asIssuingRoutesMounted`). While false the
+   *  server publishes no authorization-server metadata, PRM default or challenge pointer. */
+  issuing: boolean;
   signingAlg: string;
   accessTokenSeconds: number;
   tokenTtlSeconds: number;
@@ -126,15 +129,19 @@ export function authAsCheck(view: AuthAsView): Check {
       const status: CheckStatus =
         failures.length > 0 ? "fail" : warnings.length > 0 ? "warning" : "ok";
       const issues = [...failures, ...warnings];
+      const issuingNote = view.issuing ? "" : "; AS enabled, issuing routes not yet available";
       return {
         status,
         summary:
           status === "ok"
-            ? `authorization server enabled: ${view.issuer} (claimed, signing key ${active?.kid})`
-            : `authorization server: ${issues.length} problem${issues.length === 1 ? "" : "s"} (${(failures[0] ?? warnings[0] ?? "").split(":")[0]})`,
+            ? `authorization server enabled: ${view.issuer} (claimed, signing key ${active?.kid})${issuingNote}`
+            : `authorization server: ${issues.length} problem${issues.length === 1 ? "" : "s"} (${(failures[0] ?? warnings[0] ?? "").split(":")[0]})${issuingNote}`,
         details: {
           issuer: view.issuer ?? "",
-          metadataUrl: view.metadataUrl ?? "",
+          metadataUrl: view.issuing
+            ? (view.metadataUrl ?? "")
+            : `${view.metadataUrl ?? ""} (not served yet: issuing routes not yet available)`,
+          issuing: view.issuing ? "available" : "not yet available",
           state: view.oauthDb.claimed ? "claimed" : "unclaimed",
           signingKey:
             active === undefined
