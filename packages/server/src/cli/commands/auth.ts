@@ -10,7 +10,7 @@ import { mkdirSync } from "node:fs";
 import { version as VERSION } from "../../../package.json";
 import { writeEvent } from "../../audit";
 import { openAuthRegistry } from "../../auth/registry-open";
-import { generateSigningKey, isAsymmetricAlg } from "../../auth/signing-keys";
+import { asGraceFloorSeconds, generateSigningKey, isAsymmetricAlg } from "../../auth/signing-keys";
 import { openConfiguredDatabase } from "../../db/open";
 import { provisionCacheDb } from "../../db/provision";
 import type { Database } from "../../db/types";
@@ -47,11 +47,19 @@ export async function run_auth(cmd: Cmd<"auth">): Promise<void> {
 
     switch (cmd.sub) {
       case "rotate-key": {
-        // The flag wins, including an explicit 0; only an ABSENT flag falls back to the config.
-        const graceSeconds = cmd.graceSeconds ?? cfg.auth.rotationGraceSeconds;
-        const alg = cmd.alg ?? "HS256";
+        const purpose = cmd.purpose ?? "mint";
+        // The flag wins, including an explicit 0; only an ABSENT flag falls back to the config. An
+        // `as` rotation never falls below the floor on its own (access-token lifetime plus skew): an
+        // explicit shorter --grace is refused by the registry, not silently raised.
+        const graceSeconds =
+          cmd.graceSeconds ??
+          (purpose === "as"
+            ? Math.max(cfg.auth.rotationGraceSeconds, asGraceFloorSeconds())
+            : cfg.auth.rotationGraceSeconds);
+        const alg = cmd.alg ?? (purpose === "as" ? "ES256" : "HS256");
         // Asymmetric key generation is async, so it happens before the (synchronous) registry write.
         const r = registry.rotateKey({
+          purpose,
           graceSeconds,
           alg,
           ...(isAsymmetricAlg(alg) ? { generated: await generateSigningKey(alg) } : {}),
@@ -63,9 +71,12 @@ export async function run_auth(cmd: Cmd<"auth">): Promise<void> {
             : graceSeconds > 0
               ? `previous key ${r.previousKid} verifies until ${iso(r.previousRetireAfter)}`
               : `previous key ${r.previousKid} retired immediately: its tokens no longer verify`;
-        out(`new active ${alg} signing key ${r.kid}; ${window}`, {
+        // A `mint` rotation reads exactly as it always has; only an `as` one names its purpose.
+        const named = purpose === "as" ? `${alg} \`as\`` : alg;
+        out(`new active ${named} signing key ${r.kid}; ${window}`, {
           kid: r.kid,
           alg,
+          purpose,
           previous_kid: r.previousKid,
           previous_retire_after: r.previousRetireAfter,
         });
@@ -76,13 +87,14 @@ export async function run_auth(cmd: Cmd<"auth">): Promise<void> {
           const rows = registry.listKeys().map((k) => ({
             kid: k.kid,
             alg: k.alg,
+            purpose: k.purpose,
             state: k.state,
             created: iso(k.createdAt),
             retire_after: iso(k.retireAfter),
           }));
           out(
             [
-              "kid\talg\tstate\tcreated\tretire_after",
+              "kid\talg\tpurpose\tstate\tcreated\tretire_after",
               ...rows.map((r) => Object.values(r).join("\t")),
             ].join("\n"),
             rows,

@@ -44,6 +44,7 @@ import {
   readKeyFile,
 } from "./key-files";
 import {
+  AS_KEY_FILE_PREFIX,
   authDbPath,
   authKeysDir,
   type RegistryTable,
@@ -56,10 +57,13 @@ import {
 } from "./registry-markers";
 import {
   type AsymmetricAlg,
+  asGraceFloorSeconds,
   type GeneratedSigningKey,
   isAsymmetricAlg,
   isKeyAlg,
+  isKeyPurpose,
   type KeyAlg,
+  type KeyPurpose,
   MAX_ROTATION_GRACE_SECONDS,
   type PublicJwk,
   type PublishedJwk,
@@ -106,6 +110,8 @@ export type RegistryHealth =
 export interface AuthKey {
   kid: string;
   alg: string;
+  /** What the key signs: `mint` (hand-minted tokens) or `as` (the authorization server's). */
+  purpose: KeyPurpose;
   keyRef: string;
   createdAt: number;
   state: KeyState;
@@ -115,10 +121,11 @@ export interface AuthKey {
   publicJwk: PublicJwk | null;
 }
 
-/** What verifies a token for one key: an HMAC secret, or a public key for the row's algorithm. */
+/** What verifies a token for one key: an HMAC secret, or a public key for the row's algorithm, plus
+ *  the key's purpose (which decides the claim rules the verifier applies). */
 export type VerificationMaterial =
-  | { alg: "HS256"; secret: Uint8Array }
-  | { alg: AsymmetricAlg; publicJwk: PublicJwk };
+  | { alg: "HS256"; secret: Uint8Array; purpose: KeyPurpose }
+  | { alg: AsymmetricAlg; publicJwk: PublicJwk; purpose: KeyPurpose };
 
 export interface AuthTokenRecord {
   jti: string;
@@ -143,6 +150,7 @@ export interface AuthRegistryOptions {
 type KeyRow = {
   kid: string;
   alg: string;
+  purpose: KeyPurpose;
   key_ref: string;
   created_at: number;
   state: KeyState;
@@ -160,6 +168,7 @@ const parsePublic = (text: string | null): PublicJwk | null => {
 const toKey = (r: KeyRow): AuthKey => ({
   kid: r.kid,
   alg: r.alg,
+  purpose: r.purpose,
   keyRef: r.key_ref,
   createdAt: r.created_at,
   state: r.state,
@@ -191,15 +200,24 @@ const DUE_SQL =
   "SELECT 1 AS x FROM auth_keys WHERE state = 'retiring' AND retire_after <= ? LIMIT 1";
 const REAP_SQL =
   "UPDATE auth_keys SET state = 'retired' WHERE state = 'retiring' AND retire_after <= ?";
-const KEY_COLS = "kid, alg, key_ref, created_at, state, retire_after, public_jwk";
+const KEY_COLS = "kid, alg, purpose, key_ref, created_at, state, retire_after, public_jwk";
+/** Reaped `auth_tokens` rows are those more than this long past their `exp`. */
+const EXPIRED_TOKEN_RETENTION_MS = 86_400_000;
 
 export interface RotateOptions {
-  /** Seconds the previous key keeps verifying. 0 (default) retires it at once. */
+  /** Which key to rotate: `mint` (default, hand-minted tokens) or `as` (the authorization server's
+   *  access-token key, which exists beside the mint key and rotates independently). */
+  purpose?: KeyPurpose;
+  /** Seconds the previous key keeps verifying. 0 (default) retires it at once. Replacing an `as`
+   *  key needs at least `accessTokenSeconds` + 60 s, so no live access token is killed. */
   graceSeconds?: number;
-  /** Algorithm of the NEW key. Default HS256; an asymmetric one needs `generated`. */
+  /** Algorithm of the NEW key. Default HS256 (`mint`); an asymmetric one needs `generated`, and an
+   *  `as` key must be asymmetric. */
   alg?: KeyAlg;
   /** ES256/EdDSA material from `generateSigningKey` (async, so made outside the write lock). */
   generated?: GeneratedSigningKey;
+  /** `auth.as.accessTokenSeconds`, which sizes the `as` grace floor. Default 1800. */
+  accessTokenSeconds?: number;
 }
 
 export interface RotateResult {
@@ -219,9 +237,14 @@ export interface AuthRegistry {
   verificationMaterial(kid: string | undefined): VerificationMaterial;
   /** Does the registry hold `kid` (any state)? Throws `registry_lost` for a lost keys table. */
   hasKey(kid: string | undefined): boolean;
-  /** The key `token mint` signs with: the active key, or the config key while the registry is empty.
-   *  `kid` must name the ACTIVE key. `secret` is the HMAC secret, or the private JWK as JSON. */
-  signingKey(opts?: { kid?: string }): { kid: string; alg: KeyAlg; secret: string };
+  /** The key `token mint` signs with: the active `mint` key, or the config key while no `mint` key
+   *  was ever rotated in. `purpose` picks the other one (`as`, which has no config fallback). `kid`
+   *  must name the ACTIVE key of that purpose. `secret` is the HMAC secret, or the private JWK as JSON. */
+  signingKey(opts?: { kid?: string; purpose?: KeyPurpose }): {
+    kid: string;
+    alg: KeyAlg;
+    secret: string;
+  };
   recordToken(t: Omit<AuthTokenRecord, "revokedAt" | "revokedReason">): void;
   /** Revoke by jti. A jti this registry never issued gets a tombstone (`tombstoned`), so tokens
    *  minted before the registry, or by an external issuer, can be revoked too. Idempotent on an
@@ -229,10 +252,15 @@ export interface AuthRegistry {
   revoke(jti: string, reason: string | null): "revoked" | "already_revoked" | "tombstoned";
   listTokens(opts?: { includeExpired?: boolean }): AuthTokenRecord[];
   listKeys(): AuthKey[];
-  /** Generate a new active key; the previous one becomes `retiring` for `graceSeconds`. */
+  /** Generate a new active key of `opts.purpose`; that purpose's previous key becomes `retiring`
+   *  for `graceSeconds`. The other purpose's active key is untouched. */
   rotateKey(opts?: RotateOptions): RotateResult;
   /** Persist `retiring` -> `retired` for elapsed windows; returns how many. Housekeeping only. */
   reapRetired(): number;
+  /** Delete token rows more than a day past their `exp` (a tombstone has none, and stays). The
+   *  newest row is always kept: an empty `auth_tokens` beside its marker reads as a lost registry.
+   *  Housekeeping only; returns how many rows went. */
+  reapExpiredTokens(): number;
   /** Keys per EFFECTIVE state (an elapsed window counts as retired before it is reaped). */
   keyCounts(): Record<KeyState, number>;
   /** The JWKS of every active, and every in-window retiring, ES256/EdDSA key: public members only. */
@@ -272,6 +300,7 @@ export function createLostAuthRegistry(
     listKeys: refuse,
     rotateKey: refuse,
     reapRetired: refuse,
+    reapExpiredTokens: refuse,
     keyCounts: refuse,
     publicJwks: refuse,
     publishedJwks: refuse,
@@ -287,6 +316,7 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
   const configKey = (): AuthKey => ({
     kid: CONFIG_KID,
     alg: "HS256",
+    purpose: "mint",
     keyRef: CONFIG_REF,
     createdAt: 0,
     state: "active",
@@ -322,8 +352,15 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
   };
 
   const rowSql: Record<RegistryTable, string> = {
-    keys: "SELECT 1 AS x FROM auth_keys LIMIT 1",
+    keys: "SELECT 1 AS x FROM auth_keys WHERE purpose = 'mint' LIMIT 1",
+    "as-keys": "SELECT 1 AS x FROM auth_keys WHERE purpose = 'as' LIMIT 1",
     tokens: "SELECT 1 AS x FROM auth_tokens LIMIT 1",
+  };
+  const TABLES: readonly RegistryTable[] = ["keys", "as-keys", "tokens"];
+  const lostMessage: Record<RegistryTable, string> = {
+    keys: "auth.db holds no signing keys",
+    "as-keys": "auth.db holds no authorization-server (`as`) signing keys",
+    tokens: "auth.db holds no token or revocation rows",
   };
   const hasRows = (table: RegistryTable): boolean => q(rowSql[table]).get() !== undefined;
   // A never-initialised table would otherwise pay a SELECT, an lstat and a readdir on every miss to
@@ -331,7 +368,7 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
   // `lost` if the database is replaced by an empty one WHILE the marker appears, which a one-second
   // detection delay does not change. Our own writes clear it. Nothing else is cached: a table that
   // empties under a live connection is noticed on the next miss.
-  const uninitialisedUntil: Record<RegistryTable, number> = { keys: 0, tokens: 0 };
+  const uninitialisedUntil: Record<RegistryTable, number> = { keys: 0, "as-keys": 0, tokens: 0 };
   /** Re-read the emptiness of `table` while holding the write lock. A marker is created inside the
    *  first write's transaction, BEFORE its commit, so a reader can see "marker, no rows" for the
    *  length of that commit; waiting for the lock resolves it to either committed rows or a real
@@ -348,30 +385,34 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
     if (keysDir === undefined || hasRows(table)) return undefined;
     if (uninitialisedUntil[table] > Date.now()) return undefined;
     const state = registryInitState(keysDir);
-    if (!state[table]) {
+    if (!(table === "as-keys" ? state.asKeys : state[table])) {
       uninitialisedUntil[table] = Date.now() + UNINITIALISED_TTL_MS;
       return undefined;
     }
     if (!emptyUnderLock(table)) return undefined;
     if (state.dirProblem !== undefined) return registryLostMessageFor(keysDir, state);
-    return registryLostMessage(
-      keysDir,
-      table === "keys"
-        ? "auth.db holds no signing keys"
-        : "auth.db holds no token or revocation rows",
-    );
+    return registryLostMessage(keysDir, lostMessage[table]);
+  };
+  /** The first lost part of the registry (`mint` keys, `as` keys, tokens), as the operator message. */
+  const anyLost = (): string | undefined => {
+    for (const t of TABLES) {
+      const detail = lostCause(t);
+      if (detail !== undefined) return detail;
+    }
+    return undefined;
   };
   const health = (): RegistryHealth => {
-    const detail = lostCause("keys") ?? lostCause("tokens");
+    const detail = anyLost();
     if (detail !== undefined) return { state: "lost", detail };
-    return hasRows("keys") || hasRows("tokens") ? { state: "ok" } : { state: "uninitialised" };
+    return TABLES.some(hasRows) ? { state: "ok" } : { state: "uninitialised" };
   };
-  /** Refuse (throw the operator message) when either table is lost; the guard in front of every
-   *  path that would otherwise read an empty table as "never used". */
+  /** Refuse (throw the operator message) when any part is lost; the guard in front of every path
+   *  that would otherwise read an empty table as "never used". */
   const assertNotLost = (): void => {
-    const detail = lostCause("keys") ?? lostCause("tokens");
+    const detail = anyLost();
     if (detail !== undefined) throw new Error(detail);
   };
+  /** No `mint` key was ever rotated in (rows only): the configured secret is the one mint key. */
   const keysEmpty = (): boolean => !hasRows("keys");
 
   /** Write the marker for `table`. Returns true when THIS call created it. */
@@ -410,8 +451,7 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
         created = markInitialized(table);
         return written;
       });
-      uninitialisedUntil.keys = 0;
-      uninitialisedUntil.tokens = 0;
+      for (const t of TABLES) uninitialisedUntil[t] = 0;
       return out;
     } catch (e) {
       releaseMarker(table, created);
@@ -431,7 +471,11 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
         // Never rotated: the configured secret verifies. Initialised but empty: lost, refused.
         if (keysEmpty()) {
           if (lostCause("keys") !== undefined) throw new AuthRejection("registry_lost");
-          return { alg: "HS256", secret: new TextEncoder().encode(loadSecret(configKey())) };
+          return {
+            alg: "HS256",
+            secret: new TextEncoder().encode(loadSecret(configKey())),
+            purpose: "mint",
+          };
         }
         throw new AuthRejection("unknown_key");
       }
@@ -442,7 +486,11 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
         (key.state === "retiring" && key.retireAfter !== null && now() < key.retireAfter);
       if (!live) throw new AuthRejection("key_retired");
       if (key.alg === "HS256") {
-        return { alg: "HS256", secret: new TextEncoder().encode(loadSecret(key)) };
+        return {
+          alg: "HS256",
+          secret: new TextEncoder().encode(loadSecret(key)),
+          purpose: key.purpose,
+        };
       }
       // An asymmetric key verifies with its row's PUBLIC key only, never as an HMAC secret.
       if (!isAsymmetricAlg(key.alg) || key.publicJwk === null) {
@@ -453,7 +501,7 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
       } catch (e) {
         throw new AuthRejection("misconfigured", { cause: e });
       }
-      return { alg: key.alg, publicJwk: key.publicJwk };
+      return { alg: key.alg, publicJwk: key.publicJwk, purpose: key.purpose };
     } catch (e) {
       if (e instanceof KeyFileError) throw new AuthRejection("misconfigured", { cause: e });
       throw e;
@@ -478,7 +526,9 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
 
     verificationKey(kid) {
       const m = verificationMaterial(kid);
-      if (m.alg !== "HS256") throw new AuthRejection("unsupported_alg");
+      // HMAC verifies hand-minted tokens only: an `as` row is asymmetric by construction, and one
+      // that is not (a tampered database) is refused, never read as an HMAC secret.
+      if (m.alg !== "HS256" || m.purpose !== "mint") throw new AuthRejection("unsupported_alg");
       return m.secret;
     },
 
@@ -488,12 +538,17 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
         q("SELECT 1 AS x FROM auth_keys WHERE kid = ?").get(kid) !== undefined
       )
         return true;
-      // Not held: a lost keys table must not let the token fall through to an external JWKS.
-      if (lostCause("keys") !== undefined) throw new AuthRejection("registry_lost");
+      // Not held: a lost keys table (either purpose) must not let the token fall through to an
+      // external JWKS.
+      if (lostCause("keys") !== undefined || lostCause("as-keys") !== undefined) {
+        throw new AuthRejection("registry_lost");
+      }
       return false;
     },
 
     signingKey(o = {}) {
+      const purpose = o.purpose ?? "mint";
+      if (!isKeyPurpose(purpose)) throw new Error(`unknown key purpose ${String(purpose)}`);
       const signing = (row: KeyRow) => {
         const key = toKey(row);
         if (!isKeyAlg(key.alg))
@@ -505,6 +560,11 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
           | KeyRow
           | undefined;
         if (pinned !== undefined) {
+          if (pinned.purpose !== purpose) {
+            throw new Error(
+              `key ${o.kid} is a \`${pinned.purpose}\` key, not \`${purpose}\`: a key signs only for its own purpose (see \`auth list --keys\`)`,
+            );
+          }
           if (pinned.state !== "active") {
             throw new Error(
               `key ${o.kid} is ${pinned.state}, not active: minting is pinned to the active key (see \`auth list --keys\`)`,
@@ -513,16 +573,19 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
           return signing(pinned);
         }
         assertNotLost();
-        if (o.kid === CONFIG_KID && keysEmpty() && opts.configSecret) {
+        if (purpose === "mint" && o.kid === CONFIG_KID && keysEmpty() && opts.configSecret) {
           return { kid: CONFIG_KID, alg: "HS256", secret: opts.configSecret };
         }
         throw new Error(`unknown signing key ${o.kid} (see \`auth list --keys\`)`);
       }
-      const row = q(`SELECT ${KEY_COLS} FROM auth_keys WHERE state = 'active'`).get() as
-        | KeyRow
-        | undefined;
+      const row = q(`SELECT ${KEY_COLS} FROM auth_keys WHERE state = 'active' AND purpose = ?`).get(
+        purpose,
+      ) as KeyRow | undefined;
       if (row !== undefined) return signing(row);
       assertNotLost();
+      if (purpose === "as") {
+        throw new Error("no active `as` signing key: run `auth rotate-key --purpose as`");
+      }
       if (!keysEmpty()) throw new Error("no active signing key: run `auth rotate-key`");
       if (!opts.configSecret) {
         throw new Error(
@@ -571,8 +634,17 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
 
     listKeys,
 
-    rotateKey({ graceSeconds = 0, alg = "HS256", generated } = {}) {
+    rotateKey({
+      purpose = "mint",
+      graceSeconds = 0,
+      alg = purpose === "as" ? "ES256" : "HS256",
+      generated,
+      accessTokenSeconds,
+    } = {}) {
       if (!keysDir) throw new Error("rotate-key needs a cache directory to store the new key");
+      if (!isKeyPurpose(purpose)) {
+        throw new Error(`rotate-key: unknown purpose ${String(purpose)} (mint or as)`);
+      }
       if (!Number.isFinite(graceSeconds) || graceSeconds < 0) {
         throw new Error("rotate-key: the grace window must be a non-negative number of seconds");
       }
@@ -582,6 +654,9 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
         );
       }
       if (!isKeyAlg(alg)) throw new Error(`rotate-key: unsupported algorithm ${String(alg)}`);
+      if (purpose === "as" && alg === "HS256") {
+        throw new Error("rotate-key: an `as` key signs RFC 9068 access tokens: ES256 or EdDSA only");
+      }
       let fileText: string;
       let publicJwk: string | null = null;
       if (alg === "HS256") {
@@ -595,23 +670,36 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
       }
       assertNotLost();
       const t = now();
-      const kid = `k_${randomBytes(8).toString("hex")}`;
-      const file = `${kid}.key`;
+      // An `as` key's kid is its RFC 7638 thumbprint (what a client reads from the JWKS); a `mint`
+      // key keeps its random id. The `as-` file prefix is what attributes the file to a purpose.
+      const kid =
+        purpose === "as" ? (generated?.thumbprint ?? "") : `k_${randomBytes(8).toString("hex")}`;
+      if (kid === "") throw new Error("rotate-key: an `as` key needs the thumbprint of its key");
+      const file = `${purpose === "as" ? AS_KEY_FILE_PREFIX : ""}${kid}.key`;
       ensureKeysDir(keysDir, { create: true });
       const path = join(keysDir, file);
       createKeyFile(path, fileText);
       try {
-        return writeAndArm("keys", () => {
-          // First rotation of a deployment that has only ever used the configured secret: enrol it
-          // as the `config` key so it is the one being retired, not silently forgotten.
-          if (keysEmpty() && opts.configSecret) {
+        return writeAndArm(purpose === "as" ? "as-keys" : "keys", () => {
+          // First `mint` rotation of a deployment that has only ever used the configured secret:
+          // enrol it as the `config` key so it is the one being retired, not silently forgotten.
+          if (purpose === "mint" && keysEmpty() && opts.configSecret) {
             q(
               "INSERT INTO auth_keys (kid, alg, key_ref, created_at, state) VALUES (?, 'HS256', ?, ?, 'active')",
             ).run(CONFIG_KID, CONFIG_REF, t);
           }
-          const prev = q("SELECT kid FROM auth_keys WHERE state = 'active'").get() as
-            | { kid: string }
-            | undefined;
+          // One active key PER PURPOSE: the other purpose's key is never touched.
+          const prev = q("SELECT kid FROM auth_keys WHERE state = 'active' AND purpose = ?").get(
+            purpose,
+          ) as { kid: string } | undefined;
+          // Replacing an `as` key with a window shorter than an access token's life (plus skew)
+          // would kill tokens that have not expired yet.
+          const floor = asGraceFloorSeconds(accessTokenSeconds);
+          if (purpose === "as" && prev !== undefined && graceSeconds < floor) {
+            throw new Error(
+              `rotate-key: replacing the \`as\` key needs a grace window of at least ${floor}s (access-token lifetime plus 60s skew), got ${graceSeconds}s: a shorter one would kill live access tokens`,
+            );
+          }
           const retireAfter = t + Math.max(0, graceSeconds) * 1000;
           if (prev !== undefined) {
             q("UPDATE auth_keys SET state = ?, retire_after = ? WHERE kid = ?").run(
@@ -623,8 +711,8 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
           // Settle already-elapsed windows (same statement as the periodic reaper).
           q(REAP_SQL).run(t);
           q(
-            "INSERT INTO auth_keys (kid, alg, key_ref, created_at, state, public_jwk) VALUES (?, ?, ?, ?, 'active', ?)",
-          ).run(kid, alg, `file:${file}`, t, publicJwk);
+            "INSERT INTO auth_keys (kid, alg, purpose, key_ref, created_at, state, public_jwk) VALUES (?, ?, ?, ?, ?, 'active', ?)",
+          ).run(kid, alg, purpose, `file:${file}`, t, publicJwk);
           return {
             kid,
             previousKid: prev?.kid ?? null,
@@ -654,10 +742,27 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
            FROM auth_keys GROUP BY s`,
       ).all(now()) as { s: KeyState; n: number }[];
       for (const r of rows) counts[r.s] = r.n;
-      // Nothing rotated yet: the configured secret is the one implicit active key.
-      if (rows.length === 0 && opts.configSecret && lostCause("keys") === undefined)
-        counts.active = 1;
+      // No `mint` key rotated in yet: the configured secret is the one implicit active mint key.
+      if (keysEmpty() && opts.configSecret && lostCause("keys") === undefined) counts.active += 1;
       return counts;
+    },
+
+    reapExpiredTokens() {
+      const cutoff = now() - EXPIRED_TOKEN_RETENTION_MS;
+      // A read first: the write lock is only taken when there is something to drop.
+      if (q("SELECT 1 AS x FROM auth_tokens WHERE expires_at < ? LIMIT 1").get(cutoff) === undefined) {
+        return 0;
+      }
+      // The newest row stays whatever its age. The table must never empty: an empty `auth_tokens`
+      // beside its marker is exactly what reads as a lost registry.
+      return inWriteTransaction(
+        db,
+        "auth_registry",
+        () =>
+          q(
+            "DELETE FROM auth_tokens WHERE expires_at < ? AND rowid <> (SELECT MAX(rowid) FROM auth_tokens)",
+          ).run(cutoff).changes,
+      );
     },
 
     publicJwks() {

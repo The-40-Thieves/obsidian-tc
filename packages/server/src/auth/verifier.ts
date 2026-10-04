@@ -1,5 +1,6 @@
 import { customFetch, decodeProtectedHeader } from "jose";
 import { providerPlainHttpHosts, providerResolveHost } from "../gateway/provider-fetch";
+import { verifyAsToken } from "./as-token";
 import { type JwksNetworkPolicy, jwksTargetResolver } from "./jwks-network";
 import {
   AuthRejection,
@@ -99,6 +100,14 @@ export interface TokenVerifierOptions {
   registry?: AuthRegistry;
   /** auth.requireJti: reject any token with no `jti` on every path (HS256, JWKS, remote JWKS). */
   requireJti?: boolean;
+  /** `auth.as.issuer`: the issuer a token signed by an `as`-purpose registry key must carry. Kept
+   *  apart from `issuer` above, which binds hand-minted (`mint`) tokens only. Absent -> every `as`
+   *  token is refused `misconfigured`. */
+  asIssuer?: string;
+  /** `auth.resource`: the audience a token signed by an `as` key must carry, exactly. Distinct from
+   *  `audience` (which an operator may override for hand-minted tokens). Absent -> every `as`
+   *  token is refused `misconfigured`. */
+  resource?: string;
 }
 
 /**
@@ -111,7 +120,8 @@ export interface TokenVerifierOptions {
  * A `kid` the registry holds is decided by the registry row alone: its algorithm must equal the
  * header's, or the token is refused `unsupported_alg` before any signature is checked. That holds in
  * both directions (an HS256 header naming an asymmetric key, an asymmetric header naming an HS256
- * key), so no header can steer a key into the wrong algorithm.
+ * key), so no header can steer a key into the wrong algorithm. The row's PURPOSE likewise picks the
+ * claim rules: `mint` keys keep the rules below, `as` keys get auth/as-token.ts's.
  */
 export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
   // Built ONCE per verifier, not per call: jose caches the fetched key set and re-fetches only on an
@@ -170,17 +180,34 @@ export function createTokenVerifier(o: TokenVerifierOptions): TokenVerifier {
         ) {
           throw new AuthRejection("unsupported_alg");
         }
-        return verifyJwtWithKeySet(
-          token,
-          await importVerificationKey(material.alg, material.publicJwk),
-          {
-            ...revocation,
-            maxAgeSeconds: o.maxAgeSeconds,
-            algorithms: [material.alg],
-            audience: o.audience,
-            issuer: o.issuer,
-          },
-        );
+        const key = await importVerificationKey(material.alg, material.publicJwk);
+        // The row's purpose, not the token, picks the rules, and nothing else is ever verified: an
+        // `as` key vouches only for RFC 9068 access tokens of the AS issuer for this resource (the
+        // legacy `issuer` never applies), a `mint` key keeps the generic rules, and a purpose this
+        // code does not know is refused rather than defaulted to the looser set.
+        switch (material.purpose) {
+          case "as":
+            if (o.asIssuer === undefined || o.resource === undefined) {
+              throw new AuthRejection("misconfigured");
+            }
+            return verifyAsToken(
+              token,
+              key,
+              material.alg,
+              { issuer: o.asIssuer, resource: o.resource, maxAgeSeconds: o.maxAgeSeconds },
+              revocation,
+            );
+          case "mint":
+            return verifyJwtWithKeySet(token, key, {
+              ...revocation,
+              maxAgeSeconds: o.maxAgeSeconds,
+              algorithms: [material.alg],
+              audience: o.audience,
+              issuer: o.issuer,
+            });
+          default:
+            throw new AuthRejection("misconfigured");
+        }
       }
       if (remote !== undefined) {
         return verifyJwtWithKeySet(token, remote, {

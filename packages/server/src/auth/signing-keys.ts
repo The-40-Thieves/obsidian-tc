@@ -5,7 +5,7 @@
 // boundary (generated, read back from a 0600 file, stored as `public_jwk`, published in the JWKS) is
 // re-checked against the algorithm it claims to be. A JWK that does not fit its algorithm is refused,
 // never coerced.
-import { exportJWK, generateKeyPair, importJWK, type JWK } from "jose";
+import { calculateJwkThumbprint, exportJWK, generateKeyPair, importJWK, type JWK } from "jose";
 
 export const KEY_ALGS = ["HS256", "ES256", "EdDSA"] as const;
 export type KeyAlg = (typeof KEY_ALGS)[number];
@@ -15,6 +15,24 @@ export type AsymmetricAlg = Exclude<KeyAlg, "HS256">;
  *  retiring key keeps verifying every token it ever signed, so an unbounded window is a key that
  *  is never really rotated. Mirrored by the `auth.rotationGraceSeconds` schema bound. */
 export const MAX_ROTATION_GRACE_SECONDS = 604_800;
+
+/** What a registry key signs: `mint` is the operator's hand-minted tokens (today's behaviour), `as`
+ *  the bundled authorization server's access tokens. One ACTIVE key per purpose; the verifier picks
+ *  its rules from the purpose of the row a token's `kid` names. */
+export const KEY_PURPOSES = ["mint", "as"] as const;
+export type KeyPurpose = (typeof KEY_PURPOSES)[number];
+export const isKeyPurpose = (p: unknown): p is KeyPurpose =>
+  (KEY_PURPOSES as readonly unknown[]).includes(p);
+
+/** Default `auth.as.accessTokenSeconds`. */
+export const DEFAULT_AS_ACCESS_TOKEN_SECONDS = 1800;
+/** Clock skew allowed on top of an access token's lifetime when sizing an `as` rotation window. */
+export const AS_KEY_SKEW_SECONDS = 60;
+/** The shortest grace window that lets every access token an `as` key signed expire before the key
+ *  stops verifying: its lifetime plus skew. Rotating faster would kill live access tokens. */
+export const asGraceFloorSeconds = (
+  accessTokenSeconds: number = DEFAULT_AS_ACCESS_TOKEN_SECONDS,
+): number => accessTokenSeconds + AS_KEY_SKEW_SECONDS;
 
 export const isKeyAlg = (alg: string): alg is KeyAlg =>
   (KEY_ALGS as readonly string[]).includes(alg);
@@ -36,6 +54,8 @@ export interface GeneratedSigningKey {
   /** Written to the 0600 key file, never to the database. */
   privateJwk: JWK;
   publicJwk: PublicJwk;
+  /** RFC 7638 thumbprint of the public key: the `kid` of an `as` key. */
+  thumbprint: string;
 }
 
 const isStr = (v: unknown): v is string => typeof v === "string" && v.length > 0;
@@ -75,7 +95,8 @@ export function parsePrivateJwk(alg: AsymmetricAlg, text: string): JWK {
 export async function generateSigningKey(alg: AsymmetricAlg): Promise<GeneratedSigningKey> {
   const { publicKey, privateKey } = await generateKeyPair(alg, { extractable: true });
   const privateJwk = await exportJWK(privateKey);
-  return { alg, privateJwk, publicJwk: publicJwkOf(alg, await exportJWK(publicKey)) };
+  const publicJwk = publicJwkOf(alg, await exportJWK(publicKey));
+  return { alg, privateJwk, publicJwk, thumbprint: await calculateJwkThumbprint(publicJwk) };
 }
 
 /** The signing key for a token: the private JWK from a key file, imported for `alg`. */

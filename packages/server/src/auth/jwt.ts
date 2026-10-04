@@ -29,7 +29,7 @@ export type AuthRejectionReason =
   | "registry_lost" // the registry was initialised but auth.db is missing/empty: refuse, never trust
   | "jti_required" // auth.requireJti is on and the token carries no jti (so it could never be revoked)
   | "token_not_yet_valid" // `nbf` (or an `iat`) is in the future beyond the clock tolerance
-  | "invalid_token_type" // oidc: the JOSE `typ` header is not an access-token type
+  | "invalid_token_type" // oidc, and an `as`-purpose key's tokens: the JOSE `typ` header is not an access-token type
   | "client_mismatch" // oidc: auth.oidc.clientId is set and the token's client_id/azp differs or is absent
   | "claim_not_allowed" // oidc: a mapped persona/vault claim is not a string or is outside its allowlist
   | "idp_unavailable" // oidc, or jwt mode's remote `jwksUri`: the key set could not be fetched or was refused, so nothing can be verified
@@ -96,6 +96,7 @@ export function classifyJwtFailure(err: unknown, token: string): AuthRejection {
     else if (claim === "aud") reason = "audience_mismatch";
     else if (claim === "iss") reason = "issuer_mismatch";
     else if (claim === "nbf") reason = "token_not_yet_valid";
+    else if (claim === "typ") reason = "invalid_token_type";
   }
   return new AuthRejection(reason, { caller, expStillFuture, cause: err });
 }
@@ -115,6 +116,12 @@ export interface JwtIdentity {
   persona?: string;
   /** The token's `jti` when it carries one — the handle `auth revoke` acts on. */
   jti?: string;
+  /** Set to `as` when the token was signed by an authorization-server registry key (auth/as-token.ts).
+   *  Absent for every other token. The HTTP edge narrows a persona by the token's scopes only when
+   *  this is set; a hand-minted persona token keeps "the persona's scopes replace the token's". */
+  keyPurpose?: "as";
+  /** `as` tokens only: the OAuth client the token was issued to (`client_id`). */
+  clientId?: string;
 }
 
 /** Options every verify path shares. `isRevoked` is consulted with the token's `jti` AFTER the

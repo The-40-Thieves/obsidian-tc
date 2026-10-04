@@ -21,6 +21,9 @@ import { createTokenVerifier, type TokenVerifier } from "./verifier";
 export function buildJwtVerifier(
   auth: ServerConfig["auth"],
   registry?: AuthRegistry,
+  /** `asIssuer`: `auth.as.issuer`, which the auth.as config block supplies (a later slice). Until
+   *  then nothing passes it and a token signed by an `as` registry key is refused `misconfigured`. */
+  opts: { asIssuer?: string } = {},
 ): TokenVerifier | null {
   if (auth.mode !== "jwt") return null;
   const jwks =
@@ -51,5 +54,7 @@ export function buildJwtVerifier(
     issuer: auth.issuer,
     registry,
     requireJti: auth.requireJti,
+    asIssuer: opts.asIssuer,
+    resource: auth.resource,
   });
 }

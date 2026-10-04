@@ -47,8 +47,9 @@ export async function openAuthRegistry(
   cfg: RegistryCfg,
   opts: {
     now?: () => number;
-    /** Persist `retiring` -> `retired` for windows that elapsed while nothing was running. Server
-     *  start passes true; it is housekeeping (verification never depends on it) and best-effort. */
+    /** Persist `retiring` -> `retired` for windows that elapsed while nothing was running, and drop
+     *  token records a day past their `exp`. Server start passes true; it is housekeeping
+     *  (verification never depends on it) and best-effort. */
     reapRetired?: boolean;
   } = {},
 ): Promise<OpenedAuthRegistry> {
@@ -56,7 +57,7 @@ export async function openAuthRegistry(
   // `registryInitState` lstats auth-keys/ first: a symlink (even to an empty directory) counts as
   // initialised, so it is refused here instead of being recreated as a fresh, healthy-looking auth.db.
   const state = registryInitState(keysDir);
-  if (!existsSync(authDbPath(cfg.cacheDir)) && (state.keys || state.tokens)) {
+  if (!existsSync(authDbPath(cfg.cacheDir)) && (state.keys || state.asKeys || state.tokens)) {
     return {
       registry: createLostAuthRegistry(keysDir, registryLostMessageFor(keysDir, state)),
       close: () => undefined,
@@ -81,6 +82,13 @@ export async function openAuthRegistry(
     } catch (e) {
       process.stderr.write(
         `auth: could not persist retired signing keys (verification is unaffected): ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+    }
+    try {
+      registry.reapExpiredTokens();
+    } catch (e) {
+      process.stderr.write(
+        `auth: could not drop expired token records (verification is unaffected): ${e instanceof Error ? e.message : String(e)}\n`,
       );
     }
   }
@@ -115,7 +123,7 @@ export async function probeAuthRegistry(cfg: RegistryCfg): Promise<AuthRegistryP
   const dbPath = authDbPath(cfg.cacheDir);
   const state = registryInitState(keysDir);
   let health: RegistryHealth =
-    state.keys || state.tokens
+    state.keys || state.asKeys || state.tokens
       ? { state: "lost", detail: registryLostMessageFor(keysDir, state) }
       : { state: "uninitialised" };
   let keys: AuthKey[] | undefined;

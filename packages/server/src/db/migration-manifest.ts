@@ -133,6 +133,9 @@ export const AUTH_MIGRATION_FILES = [
   "20260930_902_auth_tokens.sql",
   // 20260930_903 adds auth_keys.public_jwk for ES256/EdDSA signing keys. See the migration header.
   "20260930_903_auth_keys_public_jwk.sql",
+  // 20261003_904 adds auth_keys.purpose (`mint`/`as`) and makes the active-key index per purpose.
+  // See the migration header.
+  "20261003_904_auth_keys_purpose.sql",
 ] as const;
 
 /**

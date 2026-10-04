@@ -84,7 +84,7 @@ export interface MaintenanceWiringDeps {
   defaultTraceFolder: string;
   /** The auth registry, when this process opened one: the sweep persists elapsed signing-key
    *  grace windows through it. Absent -> that arm is not armed (no registry, nothing to reap). */
-  authRegistry?: { reapRetired(): number };
+  authRegistry?: { reapRetired(): number; reapExpiredTokens?(): number };
   /** config.provenance.retentionDays plus the recorder's live signer source (a rotation is picked
    *  up by the next prune). Absent -> the provenance arm is not armed: rows are kept forever. */
   provenanceRetention?: { days: number; signer: SignerSource; hooks?: WriteTxnHooks };
@@ -114,6 +114,23 @@ export interface MaintenanceWiringDeps {
  *  summing `Object.values` unfiltered would silently degrade to string concatenation the moment
  *  it joined the mix. Excluded by NAME rather than by `typeof v === "number"`, so a future
  *  numeric arm still joins the total automatically without this function changing again. */
+type AuthReaper = { reapRetired(): number; reapExpiredTokens?(): number };
+
+/** The sweep's auth.db arm: persist elapsed key windows (the count the sweep reports), and drop
+ *  token records a day past their `exp`. The second is best-effort and must not turn the first's
+ *  count into a failure: nothing verifies against either. */
+function reapAuthRegistry(registry: AuthReaper): number {
+  const retired = registry.reapRetired();
+  try {
+    registry.reapExpiredTokens?.();
+  } catch (e) {
+    process.stderr.write(
+      `auth: could not drop expired token records: ${e instanceof Error ? e.message : String(e)}\n`,
+    );
+  }
+  return retired;
+}
+
 export function sweepTotal(counts: SweepCounts): number {
   const { fts_merged: _fts_merged, ...numeric } = counts;
   return Object.values(numeric).reduce((a, b) => a + b, 0);
@@ -175,7 +192,7 @@ export function configureMaintenance(scheduler: Scheduler, deps: MaintenanceWiri
       ? { onExplicitSessionClosed: deps.onExplicitSessionClosed }
       : {}),
     ...(deps.authRegistry !== undefined
-      ? { reapAuthKeys: () => (deps.authRegistry as { reapRetired(): number }).reapRetired() }
+      ? { reapAuthKeys: () => reapAuthRegistry(deps.authRegistry as AuthReaper) }
       : {}),
     ...(deps.provenanceRetention !== undefined
       ? { provenanceRetention: deps.provenanceRetention }
