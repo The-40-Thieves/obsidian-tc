@@ -70,12 +70,32 @@ key source.
 The startup line (`auth: jwt auth.jwksUri ...`) and `obsidian-tc doctor` (`auth.jwks-uri`) say which mode is
 active. A pinned connection is direct: `HTTPS_PROXY` is not used for the key set.
 
+The startup line is advisory and the fetch decides again on every request. It says `REFUSED` only for a
+definitive policy refusal (plain `http://` to a public host, a metadata address, a public and private mix). When
+the startup lookup itself fails or times out (3 s) it says `could not verify the key set at startup; will retry on
+each request` instead. A key set that answers `200` with something that is not a JWKS (not JSON, no `keys` array)
+is rejected as `idp_unavailable`, like any other failed fetch.
+
 **Bind an audience.** A JWKS trusts an external issuer, so without an enforced `aud` it accepts a token that
 issuer minted for another service. Set `auth.audience`. `auth.resource` is used as the audience only when
 Protected Resource Metadata is complete (`auth.authorizationServers` set too); a `resource`-only config binds
 nothing. That works for one more release with a deprecation (startup line, `doctor` `auth.jwks-audience`,
 `server_health`) and becomes a startup error in the next minor release. `auth.allowMissingAudience: true` is the
-explicit opt-out and stops the warning.
+explicit opt-out and stops the warning. The warning is printed on every boot of such a config, including a
+stdio-only one.
+
+The two places that read `auth.resource` currently disagree, on purpose until that release:
+
+| Config with a JWKS (`jwks`, `jwksFile` or `jwksUri`) | Config schema | Verifier |
+|---|---|---|
+| `auth.audience` set | accepted | enforces it |
+| `auth.resource` **and** `auth.authorizationServers` | accepted | enforces `resource` as the audience |
+| `auth.resource` **alone** | accepted (counts as "an audience is bound") | enforces **no** audience: a token minted for another service is accepted, with the deprecation as the only signal |
+| neither `audience` nor `resource` | refused at config load | n/a |
+
+In the next minor release the two are aligned (a `resource`-only JWKS config stops being accepted without an
+enforced audience). Until then, set `auth.audience` explicitly. `test/auth-resource-alone-audience.test.ts` pins
+the current behaviour.
 
 **Key rotation is `kid`-based:** publish the old and new keys together in the JWKS
 set and the token's `kid` header selects the verifying key (handled by `jose`).

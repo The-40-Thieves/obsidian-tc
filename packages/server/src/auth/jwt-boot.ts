@@ -8,6 +8,14 @@ import {
 import type { AuthRegistry } from "./registry";
 import { createTokenVerifier, type TokenVerifier } from "./verifier";
 
+/** The missing-audience deprecation line, once per call. `buildJwtVerifier` emits it; so does a boot
+ *  that builds no verifier (stdio only), which would otherwise never say it. */
+export function warnJwksWithoutAudience(auth: ServerConfig["auth"]): void {
+  if (jwksWithoutAudience(auth)) {
+    process.stderr.write(`auth: DEPRECATED: ${jwksWithoutAudienceMessage(auth)}\n`);
+  }
+}
+
 /**
  * Build the `auth.mode: jwt` bearer verifier from config, ONCE per process. The MCP HTTP edge and
  * `/metrics` are handed this same instance (see `wireTransports`), so they cannot disagree about
@@ -38,9 +46,7 @@ export function buildJwtVerifier(
   // no effective audience is the confused-deputy hole: it still works this release, as a
   // deprecation (also in `doctor` and server_health) unless the operator opted out.
   const audience = effectiveAudience(auth);
-  if (jwksWithoutAudience(auth)) {
-    process.stderr.write(`auth: DEPRECATED: ${jwksWithoutAudienceMessage(auth)}\n`);
-  }
+  warnJwksWithoutAudience(auth);
   // A remote key set (`jwksUri`) is a key source on its own: leaving it out returned no verifier for
   // a config whose only key source is the URL, which the edge then reported as "no verifier".
   if (!(auth.jwtSecret || jwks || auth.jwksUri || registry)) return null;

@@ -86,7 +86,9 @@ export function classifyJwtFailure(err: unknown, token: string): AuthRejection {
   const claim = (err as { claim?: string })?.claim;
 
   let reason: AuthRejectionReason = "malformed";
-  if (code === "ERR_JWT_EXPIRED") reason = "token_expired";
+  // jose gave up waiting for the remote key set (only a remote fetch raises this).
+  if (code === "ERR_JWKS_TIMEOUT") reason = "idp_unavailable";
+  else if (code === "ERR_JWT_EXPIRED") reason = "token_expired";
   else if (code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED") reason = "bad_signature";
   else if (code === "ERR_JOSE_ALG_NOT_ALLOWED") reason = "unsupported_alg";
   else if (code === "ERR_JWKS_NO_MATCHING_KEY") reason = "unknown_key";
