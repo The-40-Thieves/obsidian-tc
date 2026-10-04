@@ -2,6 +2,7 @@
 import type { BridgeStateReport } from "../bridge";
 import type { CapabilityProfile } from "../capability";
 import { embeddingsProviderNames, rerankerProviderNames } from "../providers/registry";
+import { type AuthAsView, authAsCheck } from "./auth-as";
 import {
   type AuthAudienceView,
   type AuthJwksView,
@@ -161,6 +162,7 @@ export interface DoctorConfigView {
   /** Is the signing-key / revocation registry (auth.db) usable, and are its key files trusted?
    *  No `--probe` gate: it only stats the key files and opens auth.db read-only. */
   authRegistry?: AuthRegistryView;
+  authAs?: AuthAsView;
   authOidc?: AuthOidcView;
   authJwks?: AuthJwksView;
   authAudience?: AuthAudienceView;
@@ -273,6 +275,7 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   if (config.telemetry) checks.push(telemetryCheck(config.telemetry));
   if (config.wikiJudge) checks.push(wikiJudgeCheck(config.wikiJudge));
   if (config.authRegistry) checks.push(authRegistryCheck(config.authRegistry));
+  if (config.authAs) checks.push(authAsCheck(config.authAs));
   if (config.authOidc) checks.push(authOidcCheck(config.authOidc));
   if (config.authJwks) checks.push(authJwksCheck(config.authJwks));
   if (config.authAudience) checks.push(authAudienceCheck(config.authAudience));

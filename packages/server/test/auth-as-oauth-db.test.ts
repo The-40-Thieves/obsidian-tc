@@ -9,8 +9,8 @@ import { SignJWT } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
 import { authKeysDir, createAuthRegistry } from "../src/auth/registry";
 import { createTokenVerifier } from "../src/auth/verifier";
-import { openConfiguredDatabase } from "../src/db/open";
 import { OAUTH_MIGRATION_FILES } from "../src/db/migration-manifest";
+import { openConfiguredDatabase } from "../src/db/open";
 import { provisionAuthDb } from "../src/db/provision";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
@@ -161,22 +161,48 @@ describe("gcOauthDb: housekeeping deletes only what is past its time", () => {
       ["r-old", NOW - 1],
       ["r-live", NOW + 1000],
     ] as const) {
-      run("INSERT INTO auth_requests VALUES (?, 'c', 'https://c/cb', 'read:notes', 'r', 'ch', NULL, 1, ?)", h, exp);
+      run(
+        "INSERT INTO auth_requests VALUES (?, 'c', 'https://c/cb', 'read:notes', 'r', 'ch', NULL, 1, ?)",
+        h,
+        exp,
+      );
     }
     // CIMD cache
     run("INSERT INTO cimd_cache VALUES ('https://old/c', '{}', 1, ?)", NOW - 1);
     run("INSERT INTO cimd_cache VALUES ('https://live/c', '{}', 1, ?)", NOW + 1000);
     // DCR clients: unused for 91 days, used 10 days ago, never used but created 91 days ago, new
-    run("INSERT INTO oauth_clients VALUES ('dcr-stale','dcr','{}',?,?,NULL,NULL)", NOW - 200 * DAY, NOW - 91 * DAY);
-    run("INSERT INTO oauth_clients VALUES ('dcr-used','dcr','{}',?,?,NULL,NULL)", NOW - 200 * DAY, NOW - 10 * DAY);
-    run("INSERT INTO oauth_clients VALUES ('dcr-never','dcr','{}',?,NULL,NULL,NULL)", NOW - 91 * DAY);
+    run(
+      "INSERT INTO oauth_clients VALUES ('dcr-stale','dcr','{}',?,?,NULL,NULL)",
+      NOW - 200 * DAY,
+      NOW - 91 * DAY,
+    );
+    run(
+      "INSERT INTO oauth_clients VALUES ('dcr-used','dcr','{}',?,?,NULL,NULL)",
+      NOW - 200 * DAY,
+      NOW - 10 * DAY,
+    );
+    run(
+      "INSERT INTO oauth_clients VALUES ('dcr-never','dcr','{}',?,NULL,NULL,NULL)",
+      NOW - 91 * DAY,
+    );
     run("INSERT INTO oauth_clients VALUES ('dcr-new','dcr','{}',?,NULL,NULL,NULL)", NOW - DAY);
     // grants stay (remembered consent); codes / refresh families / access jtis hang off them
-    run("INSERT INTO grants VALUES ('g1','u1','c','https://c/cb','read:notes','r',NULL,NULL,1,NULL)");
-    run("INSERT INTO auth_codes VALUES ('code-old','g1','s','https://c/cb','r','ch',?,NULL)", NOW - 1);
-    run("INSERT INTO auth_codes VALUES ('code-live','g1','s','https://c/cb','r','ch',?,NULL)", NOW + 1000);
+    run(
+      "INSERT INTO grants VALUES ('g1','u1','c','https://c/cb','read:notes','r',NULL,NULL,1,NULL)",
+    );
+    run(
+      "INSERT INTO auth_codes VALUES ('code-old','g1','s','https://c/cb','r','ch',?,NULL)",
+      NOW - 1,
+    );
+    run(
+      "INSERT INTO auth_codes VALUES ('code-live','g1','s','https://c/cb','r','ch',?,NULL)",
+      NOW + 1000,
+    );
     run("INSERT INTO refresh_tokens VALUES ('rt-old','f1','g1',NULL,'s',1,NULL,?,NULL)", NOW - 1);
-    run("INSERT INTO refresh_tokens VALUES ('rt-live','f2','g1',NULL,'s',1,NULL,?,NULL)", NOW + DAY);
+    run(
+      "INSERT INTO refresh_tokens VALUES ('rt-live','f2','g1',NULL,'s',1,NULL,?,NULL)",
+      NOW + DAY,
+    );
     run("INSERT INTO issued_access VALUES ('jti-old','f1','g1',?)", NOW - 1);
     run("INSERT INTO issued_access VALUES ('jti-live','f2','g1',?)", NOW + 1000);
     return db;
@@ -308,7 +334,9 @@ describe("probeOauthDb (doctor): read-only", () => {
     const cfg = tempCfg();
     const opened = await openOauthDb(cfg);
     opened.db
-      .prepare("INSERT INTO users (sub, username, password_hash, created_at) VALUES ('u','op','h',1)")
+      .prepare(
+        "INSERT INTO users (sub, username, password_hash, created_at) VALUES ('u','op','h',1)",
+      )
       .run();
     opened.close();
     expect(await probeOauthDb(cfg)).toMatchObject({ exists: true, claimed: true });

@@ -47,6 +47,7 @@ import { createQueryEncoder } from "../../search/query-encoder";
 import { redactEndpoint } from "../../telemetry/redact-endpoint";
 import { canonicalizeVaultRoot } from "../../vault/registry";
 import { type Cmd, resolveOrUsageExitWithProvenance } from "../shared";
+import { probeAuthAsView } from "./doctor-auth-as";
 import { probeMemoryEntities } from "./doctor-memory-probe";
 import {
   probeDbSpace,
@@ -398,6 +399,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
   const telemetryEndpointRedacted =
     config.telemetry.endpoint !== undefined ? redactEndpoint(config.telemetry.endpoint) : undefined;
   const authProbe = await probeAuthRegistry(config);
+  const authAs = await probeAuthAsView(config, authProbe);
   const provenance = await inspectProvenance(config).then(
     (r) => ({
       registryState: r.registry.state,
@@ -648,6 +650,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
               keys: authProbe.keys.map((k) => ({
                 kid: k.kid,
                 alg: k.alg,
+                purpose: k.purpose,
                 state: k.state,
                 retireAfter: k.retireAfter,
               })),
@@ -657,6 +660,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         jwksConfigured: !!(config.auth.jwks || config.auth.jwksFile || config.auth.jwksUri),
         rotationGraceSeconds: config.auth.rotationGraceSeconds,
       },
+      ...(authAs !== undefined ? { authAs } : {}),
       ...authJwksViews(config.auth, config.network.plainHttpHosts, defaultResolveHost),
       ...(config.auth.mode === "oidc" && config.auth.oidc !== undefined
         ? {

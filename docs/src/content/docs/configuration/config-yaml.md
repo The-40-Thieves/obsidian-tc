@@ -113,6 +113,38 @@ entry.
 true on a **non-loopback** host while `auth.mode` is `none`. An unauthenticated
 server never binds a routable address.
 
+### Bundled authorization server (`auth.as`)
+
+Opt-in. Everything under `auth.as` is off while `auth.as.enabled` is false (the default), and the bearer paths
+do not change. When enabled it needs `auth.mode: jwt`, `auth.resource` and `auth.as.issuer` (it is refused under
+`none` and `oidc`). This release ships the configuration, the signing key and the discovery document; the
+authorize, token and revoke routes arrive in later releases, so no client can sign in yet.
+
+| Field | Type / default | What it does |
+| --- | --- | --- |
+| `auth.as.enabled` | bool, `false` | Serves RFC 8414 metadata at `/.well-known/oauth-authorization-server` (and the OpenID discovery alias) and generates the server's own access-token signing key at boot. |
+| `auth.as.issuer` | origin *(required when enabled)* | The issuer identifier, e.g. `https://vault.example.com`: an https origin with no path, trailing slash, query, port 443 or upper case (`http` only for a loopback host). Taken from here and never from the request's `Host`, so the same string appears in the metadata, in Protected Resource Metadata and in every token's `iss`. |
+| `auth.as.signingAlg` | `ES256 \| EdDSA`, `ES256` | Algorithm of the generated `as` key. When `auth.algorithms` is set it must include it. |
+| `auth.as.accessTokenSeconds` | int 300 to 3600, `1800` | Access-token lifetime. `auth.tokenTtlSeconds` must be at least this. |
+| `auth.as.refreshTokenDays` | int 1 to 90, `30` | Absolute lifetime of a refresh-token family. |
+| `auth.as.dynamicRegistration` | bool, `false` | RFC 7591 Dynamic Client Registration. Off by default: it is deprecated by the MCP authorization spec, opens an unauthenticated client-creation surface, and the clients that matter register by metadata document instead. `registration_endpoint` is advertised only when this is on. |
+| `auth.as.dcr.maxClients` / `perIpPerHour` / `unusedDays` | int, `1000` / `10` / `90` | Limits used when DCR is on; an unused dynamic client is deleted after `unusedDays`. |
+| `auth.as.cimd.allowedHosts` | hostname[], `[]` | Hosts a Client ID Metadata Document may be served from. Empty admits any public https host. |
+| `auth.as.setupTokenEnv` | env name, `OBSIDIAN_TC_AS_SETUP_TOKEN` | Name of the variable holding the one-time token that claims the operator account on a host with no terminal. The token is never read from the config file. |
+| `auth.as.login.maxFailuresPerWindow` / `windowSeconds` | int, `5` / `900` | Wrong passwords tolerated per account per window. |
+| `auth.as.clients[]` | list, `[]` | Pre-registered clients (`clientId`, `name`, `redirectUris`, optional `secretEnv`). Only these can be confidential. |
+
+Cross-checks refused at load: `auth.authorizationServers`, when set, must list `auth.as.issuer` first (it defaults
+to `[issuer]`); `auth.jwksUri` may not point at this server's own `/.well-known/jwks.json`; `clientId`s must be
+unique. Once `auth.resource` and the authorization server are both set, a hand-minted token's `aud` must equal
+`auth.resource`.
+
+A configured `auth.jwks` or `auth.jwksFile` that contains the public key of the server's own `as` key stops the
+server at boot, naming the kid: a JWKS key is verified under the hand-minted-token rules, which would let a token
+signed by the `as` key skip the stricter `as` rules. A remote `auth.jwksUri` cannot be checked at boot, so keep
+the authorization server's key out of any key set you publish. `obsidian-tc doctor` has an `auth.as` check. See
+[the bundled authorization server](/security/auth-model/#the-bundled-authorization-server-authas).
+
 ## `acl` (root, inherited by every vault without its own)
 
 | Field | Type / default | What it does |

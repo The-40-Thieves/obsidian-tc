@@ -538,6 +538,7 @@ export async function buildServerRuntime(
       eventVaultId: firstVault.id,
       listVaultIds: () => vaultRegistry.list().map((v) => v.id),
       ...(transports.authRegistry ? { authRegistry: transports.authRegistry } : {}),
+      ...(transports.reapOauthDb ? { reapOauthDb: transports.reapOauthDb } : {}),
       ...(governance.provenance ? { provenance: governance.provenance } : {}),
       experientialOpen,
       experientialDb,

@@ -9,9 +9,14 @@
 import { randomUUID } from "node:crypto";
 import { SignJWT } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
+import { AuthRejection, verifyJwt } from "../src/auth/jwt";
 import { narrowToTokenScopes } from "../src/auth/persona";
 import { authKeysDir, createAuthRegistry } from "../src/auth/registry";
-import { asGraceFloorSeconds, generateSigningKey, importSigningKey } from "../src/auth/signing-keys";
+import {
+  asGraceFloorSeconds,
+  generateSigningKey,
+  importSigningKey,
+} from "../src/auth/signing-keys";
 import { createTokenVerifier } from "../src/auth/verifier";
 import { provisionAuthDb } from "../src/db/provision";
 import { openMemoryDb } from "./helpers";
@@ -140,5 +145,34 @@ describe("asGraceFloorSeconds", () => {
     ["a negative lifetime", -30],
   ])("refuses %s", (_name, v) => {
     expect(() => asGraceFloorSeconds(v)).toThrow(/access.?token/i);
+  });
+});
+
+describe("generic identityFrom: a present but non-string jti is invalid, not absent", () => {
+  const hs = (claims: Record<string, unknown>) =>
+    new SignJWT(claims)
+      .setProtectedHeader({ alg: "HS256" })
+      .setExpirationTime("10m")
+      .sign(new TextEncoder().encode(SECRET));
+
+  it.each([
+    ["a number", 1],
+    ["null", null],
+    ["an object", { a: 1 }],
+    ["an array", ["x"]],
+  ])(
+    "refuses a token whose jti is %s (it would otherwise be silently unrevocable)",
+    async (_n, v) => {
+      const token = await hs({ sub: "a", jti: v });
+      await expect(verifyJwt(token, SECRET)).rejects.toMatchObject({ reason: "missing_claim" });
+      await expect(verifyJwt(token, SECRET)).rejects.toBeInstanceOf(AuthRejection);
+    },
+  );
+
+  it("still accepts a string jti and a token with no jti at all", async () => {
+    await expect(verifyJwt(await hs({ sub: "a", jti: "j-1" }), SECRET)).resolves.toMatchObject({
+      jti: "j-1",
+    });
+    await expect(verifyJwt(await hs({ sub: "a" }), SECRET)).resolves.toMatchObject({ caller: "a" });
   });
 });

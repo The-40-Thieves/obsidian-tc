@@ -319,6 +319,37 @@ registry. Work already queued as a background task keeps the scopes it was enque
 revocation is checked when a request is authenticated, and a queued task has no request, so
 revoking a token does not stop a task it already enqueued.
 
+## The bundled authorization server (`auth.as`)
+
+Opt-in (`auth.as.enabled`, default off; see [config](/configuration/config-yaml/#bundled-authorization-server-authas)).
+This release adds the pieces that exist before any token is issued: the metadata, the signing key and the store.
+
+- **Metadata.** `GET /.well-known/oauth-authorization-server` (and `/.well-known/openid-configuration`) returns
+  the RFC 8414 document. Every URL in it is built from `auth.as.issuer`; the `Host` and `X-Forwarded-*` headers
+  are never consulted, so a forged `Host` cannot move the issuer. It advertises `code_challenge_methods_supported:
+  ["S256"]`, the RFC 9207 `iss` response parameter, `client_id_metadata_document_supported: true` and `none` as a
+  client-authentication method (what Claude needs for Client ID Metadata Documents), and `registration_endpoint`
+  only while `auth.as.dynamicRegistration` is on. `private_key_jwt` is never advertised. Protected Resource
+  Metadata names the issuer first by default.
+- **Signing key.** At boot with the AS enabled the server generates one `as`-purpose key
+  ([Key purposes](#key-purposes-mint-and-as)) if there is none: idempotent, never in a lost registry, and never
+  replacing an existing key because the configured algorithm changed (rotate with `auth rotate-key --purpose as`;
+  `doctor` and a startup warning name the mismatch). Its public half is published at `/.well-known/jwks.json`.
+- **A fourth store, `<cacheDir>/oauth.db`.** It holds the authorization server's own state (operator account,
+  grants, refresh tokens, registered clients, pending requests). Unlike `<cacheDir>/auth.db` it is **fail-safe when lost**:
+  a missing file is recreated empty, clients sign in again after the account is re-claimed, access tokens already
+  issued expire on their own and revocations live in `<cacheDir>/auth.db`. Back it up anyway: **`<cacheDir>/oauth.db` (with `-wal`),
+  `<cacheDir>/auth.db` and `auth-keys/` together**, so a restore never pairs a new key set with an old registry. Expired
+  rows (sessions, pending requests, codes, access-token ids, refresh families past their cap, idle dynamic
+  clients) are deleted at boot and by the maintenance sweep; grants and the operator account are kept.
+- **Verification.** A token signed by the `as` key is accepted only while the AS is enabled
+  (`iss` = the issuer, `aud` = `auth.resource`); with it off the same token is `misconfigured`. An `as` token
+  must carry a string `sub`, `jti` and `client_id` and a numeric `iat`, and only fully qualified scopes
+  (`read:notes`, not bare `read`) count. Hand-minted tokens keep their rules; a non-string `jti` on any token is
+  now refused instead of being treated as absent, which would have made it impossible to revoke.
+- **No JWKS duplicate.** A configured `auth.jwks` or `auth.jwksFile` holding the `as` key's public key stops the
+  boot; a remote `auth.jwksUri` cannot be checked.
+
 ## Verifying an external OpenID Connect provider (`oidc` mode)
 
 If you already run an identity provider (Keycloak, Auth0, Entra ID, Okta, Zitadel, Cloudflare Access), obsidian-tc

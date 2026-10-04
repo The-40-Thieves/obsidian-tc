@@ -72,6 +72,7 @@ describe("sweepTotal — every arm joins the total", () => {
         sessions_closed: 0,
         sessions_expired: 0,
         signing_keys_retired: 0,
+        oauth_rows_reaped: 0,
         orphan_schedule_rows: 0,
         fts_merged: [],
         capture_queue: 0,
@@ -91,6 +92,7 @@ describe("sweepTotal — every arm joins the total", () => {
         sessions_closed: 0,
         sessions_expired: 0,
         signing_keys_retired: 0,
+        oauth_rows_reaped: 0,
         orphan_schedule_rows: 0,
         fts_merged: [],
         capture_queue: 5,
@@ -117,6 +119,7 @@ describe("sweepTotal — every arm joins the total", () => {
         sessions_closed: 0,
         sessions_expired: 0,
         signing_keys_retired: 0,
+        oauth_rows_reaped: 0,
         orphan_schedule_rows: 0,
         fts_merged: ["notes_fts", "chunk_fts"],
         capture_queue: 0,
@@ -158,6 +161,7 @@ describe("sweepTotal — every arm joins the total", () => {
         sessions_closed: 0,
         sessions_expired: 0,
         signing_keys_retired: 0,
+        oauth_rows_reaped: 0,
         orphan_schedule_rows: 0,
         fts_merged: [],
         capture_queue: 0,
@@ -321,6 +325,29 @@ describe("configureMaintenance", () => {
       };
       expect(payload.rows_dropped.signing_keys_retired).toBe(3);
       expect(payload.count).toBe(3); // a new numeric arm is counted in the total for free
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("periodic sweep: threads the oauth.db reaper into the sweep (oauth_rows_reaped)", async () => {
+    vi.useFakeTimers();
+    try {
+      const db = freshDb();
+      const { m, emitted } = fakeMorgiana();
+      const sched = new Scheduler();
+      const reapOauthDb = vi.fn(() => 4);
+      configureMaintenance(sched, { ...baseDeps(db, m), reapOauthDb });
+      sched.start();
+      await vi.advanceTimersByTimeAsync(61_000);
+      await sched.stop();
+      expect(reapOauthDb).toHaveBeenCalledTimes(1);
+      const payload = emitted.find(([, name]) => name === "tc.maintenance.sweep")?.[2] as {
+        count: number;
+        rows_dropped: SweepCounts;
+      };
+      expect(payload.rows_dropped.oauth_rows_reaped).toBe(4);
+      expect(payload.count).toBe(4);
     } finally {
       vi.useRealTimers();
     }

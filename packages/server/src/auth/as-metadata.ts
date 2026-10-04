@@ -44,7 +44,9 @@ export interface AsMetadata {
 }
 
 /** The enabled AS block with its issuer, or undefined: the one definition of "the AS is on". */
-export function enabledAs(auth: Pick<AuthConfig, "as">): (AsConfig & { issuer: string }) | undefined {
+export function enabledAs(
+  auth: Pick<AuthConfig, "as">,
+): (AsConfig & { issuer: string }) | undefined {
   const as = auth.as;
   return as?.enabled === true && as.issuer !== undefined
     ? (as as AsConfig & { issuer: string })
@@ -79,7 +81,9 @@ export function buildAsMetadata(auth: AuthConfig): AsMetadata {
     code_challenge_methods_supported: ["S256"],
     // `none` (public client + PKCE) is all CIMD clients need; `client_secret_basic` only for a
     // configured confidential client. `private_key_jwt` is deliberately never advertised.
-    token_endpoint_auth_methods_supported: confidential ? ["none", "client_secret_basic"] : ["none"],
+    token_endpoint_auth_methods_supported: confidential
+      ? ["none", "client_secret_basic"]
+      : ["none"],
     client_id_metadata_document_supported: true,
     authorization_response_iss_parameter_supported: true,
     scopes_supported: scopes,

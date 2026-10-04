@@ -185,9 +185,9 @@ describe("auth.algorithms must admit auth.as.signingAlg (design 4.4 condition 2)
   it("refuses an allowlist that leaves the signing algorithm out", () => {
     const issues = issuesOf(jwtAuth({ algorithms: ["HS256"] }));
     expect(issues.join("\n")).toMatch(/algorithms.*ES256/);
-    expect(issuesOf(jwtAuth({ algorithms: ["ES256"] }, { signingAlg: "EdDSA" })).join("\n")).toMatch(
-      /algorithms.*EdDSA/,
-    );
+    expect(
+      issuesOf(jwtAuth({ algorithms: ["ES256"] }, { signingAlg: "EdDSA" })).join("\n"),
+    ).toMatch(/algorithms.*EdDSA/);
   });
 
   it("accepts one that names it, and an absent one", () => {
@@ -307,9 +307,9 @@ describe("auth.as.clients (static clients)", () => {
     ["a fragment", "https://client.example/cb#frag"],
     ["a relative URI", "/cb"],
   ])("refuses a redirect URI that is %s", (_name, uri) => {
-    expect(issuesOf(jwtAuth({}, { clients: [client({ redirectUris: [uri] })] })).length).toBeGreaterThan(
-      0,
-    );
+    expect(
+      issuesOf(jwtAuth({}, { clients: [client({ redirectUris: [uri] })] })).length,
+    ).toBeGreaterThan(0);
   });
 
   it("needs at least one redirect URI, and refuses a duplicate clientId", () => {

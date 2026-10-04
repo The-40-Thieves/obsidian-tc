@@ -85,6 +85,9 @@ export interface MaintenanceWiringDeps {
   /** The auth registry, when this process opened one: the sweep persists elapsed signing-key
    *  grace windows through it. Absent -> that arm is not armed (no registry, nothing to reap). */
   authRegistry?: { reapRetired(): number; reapExpiredTokens?(): number };
+  /** oauth.db housekeeping (`gcOauthDb`), when the bundled authorization server opened its store.
+   *  Absent -> that arm is not armed. */
+  reapOauthDb?: () => number;
   /** config.provenance.retentionDays plus the recorder's live signer source (a rotation is picked
    *  up by the next prune). Absent -> the provenance arm is not armed: rows are kept forever. */
   provenanceRetention?: { days: number; signer: SignerSource; hooks?: WriteTxnHooks };
@@ -194,6 +197,7 @@ export function configureMaintenance(scheduler: Scheduler, deps: MaintenanceWiri
     ...(deps.authRegistry !== undefined
       ? { reapAuthKeys: () => reapAuthRegistry(deps.authRegistry as AuthReaper) }
       : {}),
+    ...(deps.reapOauthDb !== undefined ? { reapOauthDb: deps.reapOauthDb } : {}),
     ...(deps.provenanceRetention !== undefined
       ? { provenanceRetention: deps.provenanceRetention }
       : {}),

@@ -7,6 +7,7 @@
 // THE-688 fix 2: the opt-in probe's result type, so the CLI can build a probe without importing
 // through the checks module directly.
 
+export { type AuthAsView, authAsCheck } from "./auth-as";
 // THE-1125: telemetry's view type, same barrel reasoning as every other doctor/*.ts submodule
 // above — the CLI builds it without importing through checks.ts.
 export {

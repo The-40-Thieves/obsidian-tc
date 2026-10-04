@@ -55,6 +55,7 @@ describe("cache.db maintenance sweep (THE-292)", () => {
       sessions_expired: 0,
       // No `reapAuthKeys` was passed (no auth registry in this process), so the arm is skipped.
       signing_keys_retired: 0,
+      oauth_rows_reaped: 0,
       provenance: 0,
       orphan_schedule_rows: 0,
       // THE-610 arm 2: no `edb` was passed, so both experiential arms skip entirely — which is the
@@ -435,6 +436,40 @@ describe("auth key reaper arm", () => {
       expect(counts.signing_keys_retired).toBe(0);
       expect(counts.event_log).toBe(1);
       expect(String(err.mock.calls[0]?.[0])).toContain("auth key reaper failed");
+    } finally {
+      err.mockRestore();
+    }
+  });
+});
+
+describe("oauth.db reaper arm", () => {
+  const base = { now: () => 1_000, eventLogDays: 30, jobsCompleteDays: 7, jobsFailedDays: 30 };
+
+  it("reports how many oauth.db rows the housekeeping deleted", () => {
+    const reap = vi.fn(() => 6);
+    expect(runMaintenanceSweep(freshDb(), { ...base, reapOauthDb: reap }).oauth_rows_reaped).toBe(
+      6,
+    );
+    expect(reap).toHaveBeenCalledTimes(1);
+  });
+
+  it("is skipped (0) when oauth.db is not open", () => {
+    expect(runMaintenanceSweep(freshDb(), base).oauth_rows_reaped).toBe(0);
+  });
+
+  it("a throwing reaper is reported on stderr and does not take the other arms down", () => {
+    const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const counts = runMaintenanceSweep(freshDb(), {
+        ...base,
+        reapAuthKeys: () => 2,
+        reapOauthDb: () => {
+          throw new Error("oauth.db is busy");
+        },
+      });
+      expect(counts.oauth_rows_reaped).toBe(0);
+      expect(counts.signing_keys_retired).toBe(2);
+      expect(String(err.mock.calls[0]?.[0])).toContain("authorization-server store reaper failed");
     } finally {
       err.mockRestore();
     }

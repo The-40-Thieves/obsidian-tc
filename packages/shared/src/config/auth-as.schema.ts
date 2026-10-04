@@ -78,7 +78,8 @@ export function isOwnJwksUri(jwksUri: string, issuer: string): boolean {
   } catch {
     return false;
   }
-  const origin = (x: URL) => `${x.protocol}//${x.hostname.replace(/\.$/, "")}${x.port ? `:${x.port}` : ""}`;
+  const origin = (x: URL) =>
+    `${x.protocol}//${x.hostname.replace(/\.$/, "")}${x.port ? `:${x.port}` : ""}`;
   let path: string;
   try {
     path = decodeURIComponent(u.pathname);
@@ -199,7 +200,9 @@ export const AsConfigSchema = z
           .int()
           .min(1)
           .default(90)
-          .describe("A dynamically registered client unused for this many days is deleted (default 90)."),
+          .describe(
+            "A dynamically registered client unused for this many days is deleted (default 90).",
+          ),
       })
       .prefault({})
       .describe("Limits applied when `dynamicRegistration` is on. Ignored while it is off."),

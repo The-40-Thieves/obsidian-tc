@@ -290,8 +290,12 @@ export function identityFrom(
       expStillFuture:
         typeof payload.exp === "number" && payload.exp > Math.floor(Date.now() / 1000),
     });
-  const jti = typeof payload.jti === "string" ? payload.jti : undefined;
   const caller = subject ?? null;
+  // A present non-string `jti` must not read as "no jti" (never looked up, so never revocable).
+  if (payload.jti !== undefined && typeof payload.jti !== "string") {
+    throw new AuthRejection("missing_claim", { caller });
+  }
+  const jti = typeof payload.jti === "string" ? payload.jti : undefined;
   revocation.assertRegistryUsable?.();
   if (jti === undefined && revocation.requireJti === true) {
     throw new AuthRejection("jti_required", { caller });

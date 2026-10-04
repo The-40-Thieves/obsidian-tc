@@ -12,6 +12,7 @@ import type {
 } from "@the-40-thieves/obsidian-tc-shared";
 import { type Context, Hono } from "hono";
 import type { FolderAcl } from "../acl";
+import { mountAsMetadata } from "../auth/as-metadata";
 import { AuthRejection, type AuthRejectionReason } from "../auth/jwt";
 import { buildJwtVerifier } from "../auth/jwt-boot";
 import { narrowToTokenScopes, resolvePersona } from "../auth/persona";
@@ -20,7 +21,6 @@ import {
   isPrmConfigured,
   wwwAuthenticateChallenge,
 } from "../auth/protected-resource";
-import { mountAsMetadata } from "../auth/as-metadata";
 import type { AuthRegistry } from "../auth/registry";
 import { serverSecret } from "../auth/server-secret";
 import type { TokenVerifier } from "../auth/verifier";

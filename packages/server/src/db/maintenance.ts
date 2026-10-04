@@ -61,6 +61,10 @@ export interface SweepCounts {
    *  elapsed. Housekeeping only: the verifier refuses an elapsed window itself, so this count is
    *  0 for a deployment without a registry and never affects which tokens verify. */
   signing_keys_retired: number;
+  /** Rows deleted from the authorization server's own store by its housekeeping (expired sessions, pending requests, authorization
+   *  codes, metadata-document cache, access-token jtis, refresh-token families past their cap, idle
+   *  dynamic clients). 0 while the bundled authorization server is off (no such store is open). */
+  oauth_rows_reaped: number;
   /** write_provenance rows pruned past `provenance.retentionDays`, across every vault's chain. A
    *  contiguous oldest prefix only, with the signed prune anchor moved up so the rest still
    *  verifies; 0 forever when the knob is absent (the default keeps the audit trail). */
@@ -318,6 +322,11 @@ export function runMaintenanceSweep(
      *  and `signing_keys_retired` is 0. A throw is reported and counted as 0: the verifier never
      *  depends on this arm, so it must not take the rest of the sweep down. */
     reapAuthKeys?: () => number;
+    /** Housekeeping for the authorization server's store (`gcOauthDb`, which lives in the authorization server's own
+     *  database, not this cache.db): returns how many rows it deleted. Omitted -> the arm is skipped
+     *  and `oauth_rows_reaped` is 0. A throw is reported and counted as 0: nothing verifies against
+     *  these rows being gone, so it must not take the rest of the sweep down. */
+    reapOauthDb?: () => number;
     /** provenance.retentionDays and the signer the re-anchored head is signed with (resolved per
      *  vault, so a rotation is picked up). Omitted -> the arm is skipped and `provenance` is 0. A
      *  throw is reported and counted as 0: a retention failure must not take the sweep down. */
@@ -439,6 +448,16 @@ export function runMaintenanceSweep(
       );
     }
   }
+  let oauthRowsReaped = 0;
+  if (opts.reapOauthDb !== undefined) {
+    try {
+      oauthRowsReaped = opts.reapOauthDb();
+    } catch (e) {
+      process.stderr.write(
+        `[maintenance] authorization-server store reaper failed (token verification is unaffected): ${e instanceof Error ? e.message : String(e)}\n`,
+      );
+    }
+  }
   let provenancePruned = 0;
   if (opts.provenanceRetention !== undefined) {
     const { days, signer, hooks } = opts.provenanceRetention;
@@ -478,6 +497,7 @@ export function runMaintenanceSweep(
     fts_merged: ftsMerged,
     capture_queue: captureQueue,
     signing_keys_retired: authKeysRetired,
+    oauth_rows_reaped: oauthRowsReaped,
     provenance: provenancePruned,
   };
 }
@@ -508,6 +528,8 @@ export interface MaintenanceDeps {
   onExplicitSessionClosed?: (row: { id: string; principal: string | null }) => void;
   /** see runMaintenanceSweep's option of the same name. */
   reapAuthKeys?: () => number;
+  /** see runMaintenanceSweep's option of the same name. */
+  reapOauthDb?: () => number;
   /** see runMaintenanceSweep's option of the same name. */
   provenanceRetention?: { days: number; signer: SignerSource; hooks?: WriteTxnHooks };
   now?: () => number;
@@ -550,6 +572,7 @@ export function registerMaintenanceSweep(scheduler: Scheduler, deps: Maintenance
           ? { onExplicitSessionClosed: deps.onExplicitSessionClosed }
           : {}),
         ...(deps.reapAuthKeys !== undefined ? { reapAuthKeys: deps.reapAuthKeys } : {}),
+        ...(deps.reapOauthDb !== undefined ? { reapOauthDb: deps.reapOauthDb } : {}),
         ...(deps.provenanceRetention !== undefined
           ? { provenanceRetention: deps.provenanceRetention }
           : {}),

@@ -58,14 +58,17 @@ async function boot(auth: ServerConfig["auth"]) {
 /** GET with an explicit Host header (fetch will not let a caller choose it). */
 function getWithHost(port: number, path: string, host: string) {
   return new Promise<{ status: number; body: string }>((resolve, reject) => {
-    const req = request({ host: "127.0.0.1", port, path, method: "GET", headers: { host } }, (res) => {
-      let body = "";
-      res.setEncoding("utf8");
-      res.on("data", (d) => {
-        body += d;
-      });
-      res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
-    });
+    const req = request(
+      { host: "127.0.0.1", port, path, method: "GET", headers: { host } },
+      (res) => {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (d) => {
+          body += d;
+        });
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+      },
+    );
     req.on("error", reject);
     req.end();
   });
@@ -212,7 +215,9 @@ describe("Protected Resource Metadata with the AS enabled (design 4.3 PRM row)",
   });
 
   it("an explicit list keeps the issuer first, and the other entries after it", async () => {
-    const { base } = await boot(authOf({ authorizationServers: [ISSUER, "https://other.example"] }));
+    const { base } = await boot(
+      authOf({ authorizationServers: [ISSUER, "https://other.example"] }),
+    );
     const prm = (await (await fetch(base + PRM_PATH)).json()) as Meta;
     expect(prm.authorization_servers).toEqual([ISSUER, "https://other.example"]);
   });
