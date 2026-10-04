@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   type Artifact,
+  armGroups,
   baselineSide,
   discover,
   formatCorpusTable,
@@ -147,5 +148,28 @@ describe("discover", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("armGroups", () => {
+  it("pairs a path-deduped or routed arm with its own control and never lists a control as an arm", () => {
+    const g = armGroups([
+      "default",
+      "default-pathdedup",
+      "route-text-first",
+      "fanout",
+      "route-hybrid",
+      "mmr",
+      "graph-stream",
+    ]);
+    expect(g.get("default")).toEqual(["graph-stream", "mmr"]);
+    expect(g.get("default-pathdedup")).toEqual(["fanout"]);
+    expect(g.get("route-text-first")).toEqual(["route-hybrid"]);
+    expect([...g.keys()].sort()).toEqual(["default", "default-pathdedup", "route-text-first"]);
+  });
+  it("labels a non-default control's own row by its name", () => {
+    const rep = reportCorpus("c", 0.05, artifact(flat, flat), [], "route-text-first");
+    expect(rep.control).toBe("route-text-first");
+    expect(formatCorpusTable(rep)).toContain("route-text-first (control) vs dense");
   });
 });

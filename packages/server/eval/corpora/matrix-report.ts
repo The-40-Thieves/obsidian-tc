@@ -142,6 +142,8 @@ export interface ArmRow {
 
 export interface CorpusReport {
   corpus: string;
+  /** Name of the control artifact the arms below were paired against. */
+  control: string;
   mde: number;
   defaultStack: (PairedResult & Judged) | null;
   arms: ArmRow[];
@@ -154,6 +156,7 @@ export function reportCorpus(
   mde: number,
   control: Artifact,
   arms: Array<{ arm: string; artifact: Artifact }>,
+  controlName = "default",
 ): CorpusReport {
   const own = pairSides(control, baselineSide, control, graphSide);
   const defaultStack = { ...own, ...judge(own.ndcg.mean, own.ndcg.p, own.ndcg.p < 0.05, mde) };
@@ -169,7 +172,7 @@ export function reportCorpus(
     const sig = bh[i]?.rejected ?? false;
     return { ...r, bh: sig, ...judge(r.result.ndcg.mean, r.result.ndcg.p, sig, mde) };
   });
-  return { corpus, mde, defaultStack, arms: rows };
+  return { corpus, control: controlName, mde, defaultStack, arms: rows };
 }
 
 const sgn = (x: number, d = 3): string => `${x >= 0 ? "+" : ""}${x.toFixed(d)}`;
@@ -194,7 +197,9 @@ export function formatCorpusTable(r: CorpusReport): string {
   const rows = [
     d
       ? line(
-          "default stack, graph vs dense",
+          r.control === "default"
+            ? "default stack, graph vs dense"
+            : `${r.control} (control) vs dense`,
           d,
           d.ndcg.p < 0.05 ? "p<0.05" : "ns",
           d.verdict,
@@ -218,6 +223,26 @@ export function formatCorpusTable(r: CorpusReport): string {
 
 function readArtifact(path: string): Artifact {
   return JSON.parse(readFileSync(path, "utf8")) as Artifact;
+}
+
+/** The control an arm is paired against when it is not the plain default stack: an arm that changes
+ *  the unit or the entry point of the search is only comparable with a control built the same way. */
+export const ARM_CONTROL: Readonly<Record<string, string>> = {
+  fanout: "default-pathdedup",
+  "route-weak-text": "route-text-first",
+  "route-hybrid": "route-text-first",
+};
+const CONTROLS: ReadonlySet<string> = new Set(["default", ...Object.values(ARM_CONTROL)]);
+
+/** Arm names grouped by the control each is paired against; a control is never an arm. */
+export function armGroups(names: string[]): Map<string, string[]> {
+  const groups = new Map<string, string[]>();
+  for (const name of [...names].sort()) {
+    if (CONTROLS.has(name)) continue;
+    const control = ARM_CONTROL[name] ?? "default";
+    groups.set(control, [...(groups.get(control) ?? []), name]);
+  }
+  return groups;
 }
 
 /** `<corpus>--<arm>.json` files of one directory, grouped by corpus. */
@@ -257,19 +282,28 @@ if ((import.meta as unknown as { main?: boolean }).main) {
   );
   const reports: CorpusReport[] = [];
   for (const [corpus, files] of [...discover(dir)].sort()) {
-    const control = files.get("default");
     const mde = mdes.get(corpus);
-    if (!control || mde === undefined) continue;
-    const arms = [...files]
-      .filter(([arm]) => arm !== "default")
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([arm, path]) => ({ arm, artifact: readArtifact(path) }));
-    reports.push(reportCorpus(corpus, mde, readArtifact(control), arms));
+    if (mde === undefined) continue;
+    for (const [control, names] of armGroups([...files.keys()])) {
+      const controlPath = files.get(control);
+      if (!controlPath) continue;
+      const arms = names.map((arm) => ({ arm, artifact: readArtifact(files.get(arm) as string) }));
+      reports.push(reportCorpus(corpus, mde, readArtifact(controlPath), arms, control));
+    }
+    // A control with no arms still carries its own graph-against-dense comparison.
+    for (const control of CONTROLS) {
+      const controlPath = files.get(control);
+      if (controlPath && !reports.some((r) => r.corpus === corpus && r.control === control))
+        reports.push(reportCorpus(corpus, mde, readArtifact(controlPath), [], control));
+    }
   }
   writeFileSync(out, JSON.stringify(reports, null, 2));
   const md = flag("--markdown");
   const text = reports
-    .map((r) => `### ${r.corpus} (MDE ${r.mde.toFixed(4)})\n\n${formatCorpusTable(r)}`)
+    .map(
+      (r) =>
+        `### ${r.corpus} (MDE ${r.mde.toFixed(4)}, control: ${r.control})\n\n${formatCorpusTable(r)}`,
+    )
     .join("\n");
   if (md) writeFileSync(md, text);
   process.stdout.write(`${text}\n`);
