@@ -251,9 +251,10 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
     supplied: string,
     session?: SessionInfo,
   ): boolean => {
-    const bind = session !== undefined ? `s:${session.idHash}` : `n:${nonceFor(c, false)}`;
-    if (bind === "n:undefined" || supplied === "") return false;
-    return constantTimeEqual(token(purpose, bind), supplied);
+    const nonce = session === undefined ? nonceFor(c, false) : undefined;
+    if (session === undefined && nonce === undefined) return false; // no browser binding to check
+    const bind = session !== undefined ? `s:${session.idHash}` : `n:${nonce}`;
+    return supplied !== "" && constantTimeEqual(token(purpose, bind), supplied);
   };
 
   const forbidden = (c: Context) =>
