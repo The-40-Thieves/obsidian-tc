@@ -312,6 +312,23 @@ after startup is noticed within that window), and keys are created with
 `O_EXCL|O_NOFOLLOW`. On **Windows** there are no POSIX modes, owner check or `O_NOFOLLOW`, so
 none of this is enforced: protect the directory with its ACL (`doctor` warns).
 
+### Rotating the server secret
+
+The server-local secret (`<cacheDir>/server-secrets/wiki-generated.key`) keys the HITL confirmation
+state and seals generated wiki pages; it is not a bearer credential. There is no rotate command:
+stop the server, **delete the file**, start it again. A new key is generated on the next start.
+Consequences: every pending confirmation is refused once (the client is offered a fresh one), and
+every generated wiki page then reads as edited (its seal no longer verifies) and is regenerated, so
+copy out any hand edit you want to keep first.
+
+Delete the file rather than `chmod 600` it when the server refuses it for being readable by group or
+other. The server cannot know who read it while it was open, so a key that was ever exposed is
+replaced, never re-adopted. A corrupt or empty file is regenerated automatically; processes that
+start at the same moment settle on one key.
+
+Keep `server-secrets/` on the same persistent volume as `auth-keys/` (mount the whole `cacheDir`).
+Back it up with them.
+
 ### What revocation does not cover
 
 An external issuer's token is affected only by a `jti` you revoked (tombstone) or that is in the
