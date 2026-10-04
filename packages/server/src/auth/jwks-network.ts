@@ -68,6 +68,11 @@ const refuse = (message: string): never => {
   throw new OidcFetchError(`JWKS fetch refused: ${message}`);
 };
 
+/** The host could not be resolved right now (resolver error or timeout). Unlike a policy refusal this
+ *  says nothing about the address, so the startup line reports it as "could not verify", and the
+ *  fetch simply decides again on the next request. */
+export class JwksUnresolvedError extends OidcFetchError {}
+
 /**
  * Decide whether `url` may be fetched and return the validated addresses to connect to.
  * @throws OidcFetchError (a refusal: the message names the host and address, never the path).
@@ -84,8 +89,8 @@ export async function resolveJwksTarget(url: URL, policy: JwksNetworkPolicy): Pr
     try {
       addresses = await (policy.resolveHost ?? defaultResolveHost)(bare);
     } catch (e) {
-      return refuse(
-        `${host} could not be resolved (${e instanceof Error ? e.message : String(e)})`,
+      throw new JwksUnresolvedError(
+        `JWKS fetch refused: ${host} could not be resolved (${e instanceof Error ? e.message : String(e)})`,
       );
     }
     // `localhost` with no answer means 127.0.0.1 to the transport (resolveLoopbackTarget).
@@ -146,7 +151,14 @@ export function jwksTargetResolver(
 
 export type JwksDescription =
   | { ok: true; host: string; secure: boolean; mode: JwksFetchMode; addresses: string[] }
-  | { ok: false; host: string; reason: string };
+  | {
+      ok: false;
+      host: string;
+      reason: string;
+      /** True when the lookup itself failed (resolver error or timeout), not when the policy said no:
+       *  every request decides again, so this is "could not verify", not a refusal. */
+      inconclusive?: true;
+    };
 
 /** The decision for a configured `auth.jwksUri`, as data (never throws): what the startup line,
  *  `doctor` and `server_health` report, from the same resolver and rules the fetch applies. */
@@ -180,13 +192,22 @@ export async function describeJwksTarget(
       addresses: t.addresses.map((a) => a.address),
     };
   } catch (e) {
-    return { ok: false, host: url.hostname, reason: e instanceof Error ? e.message : String(e) };
+    return {
+      ok: false,
+      host: url.hostname,
+      reason: e instanceof Error ? e.message : String(e),
+      ...(e instanceof JwksUnresolvedError ? { inconclusive: true as const } : {}),
+    };
   }
 }
 
 /** One human line for a description: the startup line, and the `doctor` summary. */
 export function jwksModeLine(d: JwksDescription): string {
-  if (!d.ok) return `auth.jwksUri REFUSED (every asymmetric token will be rejected): ${d.reason}`;
+  if (!d.ok) {
+    return d.inconclusive
+      ? `auth.jwksUri could not verify the key set at startup; will retry on each request: ${d.reason}`
+      : `auth.jwksUri REFUSED (every asymmetric token will be rejected): ${d.reason}`;
+  }
   const where = `${d.host} -> ${d.addresses.join(", ")}`;
   switch (d.mode) {
     case "public":

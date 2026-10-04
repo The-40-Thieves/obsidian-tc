@@ -173,8 +173,26 @@ export function boundedJwksFetch(o: {
       what: o.what ?? "OIDC JWKS",
       accept: "application/json, application/jwk-set+json",
     });
+    // A 200 that is not a key set is the IdP failing, not a bad token: say so here, where it is an
+    // OidcFetchError (reason `idp_unavailable`), rather than leaving jose to throw a generic error
+    // that classifies as `malformed`.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      throw new OidcFetchError(`${o.what}: the response is not valid JSON`);
+    }
+    if (!isKeySet(parsed)) {
+      throw new OidcFetchError(
+        `${o.what}: the response is not a JSON Web Key Set (no "keys" array)`,
+      );
+    }
     return new Response(text, { status: 200, headers: { "content-type": "application/json" } });
   };
+}
+
+function isKeySet(v: unknown): boolean {
+  return typeof v === "object" && v !== null && Array.isArray((v as { keys?: unknown }).keys);
 }
 
 export interface OidcDiscovery {

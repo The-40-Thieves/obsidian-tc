@@ -11,7 +11,7 @@
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
 import { describeJwksTarget, jwksModeLine } from "../auth/jwks-network";
-import { buildJwtVerifier } from "../auth/jwt-boot";
+import { buildJwtVerifier, warnJwksWithoutAudience } from "../auth/jwt-boot";
 import { createOidcVerifier, type OidcVerifier, oidcBootNotice } from "../auth/oidc";
 import type { AuthRegistry } from "../auth/registry";
 import { openAuthRegistry } from "../auth/registry-open";
@@ -142,11 +142,14 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
       const d = oidcVerifier.describe();
       process.stderr.write(oidcBootNotice(d));
     }
+    const listensForBearers =
+      config.transports.http.enabled || config.observability.prometheus.enabled;
     const verifier: TokenVerifier | undefined =
       oidcVerifier ??
-      (config.transports.http.enabled || config.observability.prometheus.enabled
-        ? (buildJwtVerifier(config.auth, authRegistry) ?? undefined)
-        : undefined);
+      (listensForBearers ? (buildJwtVerifier(config.auth, authRegistry) ?? undefined) : undefined);
+    // buildJwtVerifier says it when it runs; a stdio-only boot never builds one, but the config is
+    // the same and the operator should hear it.
+    if (!listensForBearers) warnJwksWithoutAudience(config.auth);
     if (verifier !== undefined && oidcVerifier === undefined && config.auth.jwksUri !== undefined) {
       // One line saying how the remote key set is fetched (pinned public, loopback, listed, or the
       // deprecated unlisted private host), from the decision the fetch itself applies. Advisory: a

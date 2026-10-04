@@ -168,6 +168,26 @@ describe("jwt-mode jwksUri is pinned to the validated address", () => {
     const v = verifierFor("https://as.test/jwks");
     expect(await reasonOf(v.verify(await token()))).toBe("idp_unavailable");
   });
+
+  // A 200 whose body is not a key set is the IdP failing, not a bad token: the verdict is still a
+  // rejection, but the reason (and the metric label it feeds) must say so.
+  it.each([
+    ["not JSON", "not-json"],
+    ["JSON that is not a key set", "{}"],
+    ["a keys member that is not an array", '{"keys":"nope"}'],
+  ])("a 200 with %s is idp_unavailable, not malformed", async (_n, body) => {
+    fakeNet([{ body }]);
+    const v = verifierFor("https://as.test/jwks");
+    expect(await reasonOf(v.verify(await token()))).toBe("idp_unavailable");
+  });
+
+  it("a key set fetch that timed out inside jose is idp_unavailable too", async () => {
+    const { errors } = await import("jose");
+    const { classifyJwtFailure } = await import("../src/auth/jwt");
+    expect(classifyJwtFailure(new errors.JWKSTimeout(), await token()).reason).toBe(
+      "idp_unavailable",
+    );
+  });
 });
 
 describe("opting out: loopback, and hosts listed in network.plainHttpHosts", () => {
