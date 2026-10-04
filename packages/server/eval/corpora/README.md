@@ -84,3 +84,15 @@ paired nDCG@10 spread measured so far. `suite-plan.json` is the plan written bef
 
 Per-class n: quartz-docs link-context 20, bridge-2hop 10, quote-fragment 30, unique-heading 30,
 exact-title 30; knowledge-garden 40, 30, 50, 50, 50.
+
+## What the indexer keeps
+
+The pins above count Markdown files; the index counts notes that produce at least one chunk. `chunkNote`
+(`src/search/chunk.ts`) consumes heading lines into the breadcrumb and drops any section whose body text is
+empty, so a note that is only frontmatter, or only headings, has a `notes` row and no chunk. That is why the
+`knowledge-garden` index of the part-2 matrix holds 832 notes and 2422 chunks of 959 files. The 127 missing
+notes were checked one by one: 123 are frontmatter-only (21 to 488 bytes) and 4 carry only headings (34 to 47 characters). Nothing was excluded for size, language or a parse
+failure (the build log reports 0 embed failures, 0 frontmatter failures, 0 secret-gated). The same rule leaves 1 of
+111 `quartz-docs` notes and 66 of 1357 `evergreen` notes without chunks, none of which has body text beyond headings, and
+`synthetic-multihop` indexes 638 of 638. A golden target that is one of these notes cannot be retrieved by any arm; the
+runs report golden-set coverage (`120/120` on quartz-docs) before scoring.

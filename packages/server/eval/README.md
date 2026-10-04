@@ -295,6 +295,13 @@ Fetch, verify and regenerate commands, licences and the golden-set recipe are in
 result are in [`docs/EVALUATION.md`](../../../docs/EVALUATION.md) ("Multi-shape suite"). Score a fetched
 corpus with `run.ts` like any other vault, using its config and `corpora/golden/<name>.json`.
 
+`corpora/matrix-report.ts` turns a directory of `<corpus>--<arm>.json` artifacts (`run.ts` or `search-mode.ts`
+output) into the per-corpus arm tables of the matrix: paired delta in nDCG@10 with a bootstrap interval,
+permutation p, Benjamini-Hochberg per corpus, an inert-arm count (queries whose ranking changed) and a verdict
+against the preregistered minimum detectable effect. `modal_rerank_gte.py` is the GPU scorer for the
+`gte-reranker-modernbert` arm of the reranker re-test; it is run by the owner on one Modal GPU and has not been run for the
+recorded matrix.
+
 ## `retrieval.cache` harness (`query-cache.ts`)
 
 Cache ON versus OFF through the real tool dispatch path, on a COPY of an index (it bumps the vault

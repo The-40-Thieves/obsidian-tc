@@ -789,3 +789,17 @@ rejected for lack of a licence. The one scored run is a harness smoke of the def
 mechanism, and no dark mechanism (see `docs/DARK_MECHANISMS.md`) has been scored on any new shape. So the bar this ADR
 sets is exactly as unmet as before: shapes exist to run against, evidence does not, and no default changes. See
 `docs/EVALUATION.md`, "Multi-shape suite".
+
+## Status (2026-10-04): the arm matrix ran on four shapes; every default now carries a label, nothing flips, the reranker re-test is pending
+
+Part 2 of the multi-shape suite ran the dark mechanisms and the shipped defaults on evergreen, `quartz-docs`, `knowledge-garden` and
+`synthetic-multihop`, preregistered (minimum detectable effects 0.065, 0.053, 0.039, 0.053 on nDCG@10) and recorded run by run; the
+tables, the verdict rule and the per-default "validated on shapes" labels are in `docs/EVALUATION.md`, "Multi-shape suite, part 2". In
+short: the default dense-plus-graph order is above dense on all four shapes (one WIN, three TIEs), removing the lexical stream loses on
+two shapes and ties on two, `text-first` routing beats dense on two shapes, and `rrfK` 10 has parity only. Of the mechanisms that are off
+by default, `convex` fusion loses on two of the three natural corpora and multi-query fan-out on all three, the rest tie or are inert, and the three WIN cells on
+`synthetic-multihop` (class router, fan-out, cluster cap) share one signature and are flagged as templated-query artifacts, which a
+single shape cannot turn into a mechanism result. So no class (c) mechanism has won or tied on a majority of shapes with no loss, and
+no default changes. The reranker re-test (the shipped reranker against `gte-reranker-modernbert` over the same pools, class (c) rule)
+needs a GPU and is **pending**, as are the learned-sparse and ColBERT arms (they need a multi-vector encoder); the reranker stays off and
+the verdict this ADR's rule would give for it is not yet recorded.
