@@ -1,7 +1,7 @@
 // Residuals from the server-local secret review: concurrent repair of a corrupt key, the refusal
 // message for an exposed key, and the HITL boot line.
 import { type ChildProcess, spawn } from "node:child_process";
-import { chmodSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -51,8 +51,12 @@ interface Racer {
 }
 
 /** A child that prints `ready`, waits for `goFile`, then prints the key `serverSecret` returned. */
-function racer(dir: string, goFile: string): Racer {
-  const p = spawn("bun", [join(here, "server-secret-child.ts"), dir, goFile], {
+function racer(
+  dir: string,
+  goFile: string,
+  cfg: { staleMs?: number; stallUntil?: string } = {},
+): Racer {
+  const p = spawn("bun", [join(here, "server-secret-child.ts"), dir, goFile, JSON.stringify(cfg)], {
     stdio: ["ignore", "pipe", "ignore"],
   });
   children.push(p);
@@ -93,6 +97,64 @@ describe("concurrent repair of a corrupt server secret", () => {
     },
     stallTimeout(60_000),
   );
+
+  it(
+    "a live repairer stalled past the stale threshold cannot split the instance key",
+    async () => {
+      const dir = tmp();
+      corruptSecret(dir);
+      const scratch = tmp();
+      const goFile = join(scratch, "go");
+      const release = join(scratch, "release");
+      const lockOwner = `${secretFile(dir)}.repair-lock`;
+      writeFileSync(goFile, "go");
+      // The holder takes the repair lock and freezes there, alive, until `release` appears.
+      const holder = racer(dir, goFile, { stallUntil: release });
+      await holder.ready;
+      for (let i = 0; i < stallTimeout(20_000) / 50 && !existsSync(lockOwner); i++) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(existsSync(lockOwner)).toBe(true);
+      // Others find its lock stale, take it over, repair, and finish while it is still frozen.
+      const racersGo = join(scratch, "racers-go");
+      const racers = Array.from({ length: 6 }, () => racer(dir, racersGo, { staleMs: 300 }));
+      await Promise.all(racers.map((r) => r.ready));
+      writeFileSync(racersGo, "go");
+      const raced = await Promise.all(racers.map((r) => r.done));
+      // The holder wakes only now, holding a lock that is no longer its own.
+      writeFileSync(release, "go");
+      const late = await holder.done;
+      const final = readFileSync(secretFile(dir), "utf8").trim();
+      expect([...raced, late].map((r) => r.code)).toEqual(Array(7).fill(0));
+      expect(final).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(new Set([...raced, late].map((r) => r.out))).toEqual(new Set([final]));
+    },
+    stallTimeout(60_000),
+  );
+
+  it("a stale lock that cannot be removed fails within the deadline, naming the lock", () => {
+    const dir = tmp();
+    corruptSecret(dir);
+    const lock = `${secretFile(dir)}.repair-lock`;
+    mkdirSync(lock);
+    writeFileSync(join(lock, "unrelated"), "x"); // a non-empty directory: rmdir refuses
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(lock, old, old);
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const t0 = performance.now();
+    let msg = "";
+    try {
+      serverSecret(dir, { staleMs: 100, waitMs: 600 });
+    } catch (e) {
+      msg = (e as Error).message;
+    }
+    const elapsed = performance.now() - t0;
+    expect(msg).toContain(lock);
+    expect(msg).toMatch(/delete/i);
+    expect(elapsed).toBeGreaterThanOrEqual(500); // it waited out the deadline, not a hot retry
+    expect(elapsed).toBeLessThan(stallTimeout(5_000));
+    expect(readFileSync(secretFile(dir), "utf8")).toBe("truncated");
+  });
 
   it("a repair lock left by a crashed repairer does not wedge the next start", () => {
     const dir = tmp();
