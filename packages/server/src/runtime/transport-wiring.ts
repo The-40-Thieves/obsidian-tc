@@ -12,9 +12,10 @@ import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
 import { configuredJwksOverlap, ensureAsKey } from "../auth/as-boot";
 import { enabledAs } from "../auth/as-metadata";
+import { assertArgon2Runtime } from "../auth/as-password";
 import { describeJwksTarget, jwksModeLine } from "../auth/jwks-network";
 import { buildJwtVerifier, warnJwksWithoutAudience } from "../auth/jwt-boot";
-import { gcOauthDb, type OpenedOauthDb, openOauthDb } from "../auth/oauth-db";
+import { gcOauthDb, isClaimed, type OpenedOauthDb, openOauthDb } from "../auth/oauth-db";
 import { createOidcVerifier, type OidcVerifier, oidcBootNotice } from "../auth/oidc";
 import type { AuthRegistry } from "../auth/registry";
 import { openAuthRegistry } from "../auth/registry-open";
@@ -163,8 +164,18 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
             "rotate it with `obsidian-tc auth rotate-key --purpose as` to switch\n",
         );
       }
+      // Passwords are Argon2id: a runtime without crypto.argon2 (Node 24.0 to 24.6) refuses the
+      // boot here, not at the first login.
+      assertArgon2Runtime();
       oauthDb = await openOauthDb(config);
       const store = oauthDb;
+      if (!isClaimed(store.db)) {
+        const viaPage = (process.env[as.setupTokenEnv] ?? "") !== "";
+        process.stderr.write(
+          "auth: the authorization server is not claimed: it refuses authorize, token and register until " +
+            `the operator claims it with \`obsidian-tc auth as set-password\` on this host${viaPage ? `, or at ${as.issuer}/oauth/setup with the setup token` : ""}\n`,
+        );
+      }
       reapOauthDb = () =>
         gcOauthDb(store.db, { now: Date.now(), dcrUnusedDays: as.dcr.unusedDays }).total;
       reapOauthDb();
@@ -218,6 +229,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
         cacheDir: config.cacheDir,
         db: deps.db,
         authRegistry,
+        ...(oauthDb ? { oauthDb: oauthDb.db } : {}),
         ...(verifier ? { verifier } : {}),
         vaultId: deps.firstVaultId,
         acl: deps.acl,

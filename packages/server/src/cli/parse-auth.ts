@@ -1,4 +1,4 @@
-// `obsidian-tc auth rotate-key|list|revoke` argv parsing. Split out of args.ts for the same reason
+// `obsidian-tc auth rotate-key|list|revoke` and `auth as set-password` argv parsing. Split out of args.ts for the same reason
 // parse-telemetry.ts documents: args.ts sits at biome's file-length floor. No dependency on
 // args.ts, so importing it from there creates no cycle.
 import {
@@ -13,7 +13,7 @@ import { flagValue, positional } from "./flag-value";
 
 export interface AuthCommand {
   kind: "auth";
-  sub: "rotate-key" | "list" | "revoke";
+  sub: "rotate-key" | "list" | "revoke" | "as-set-password";
   configPath?: string;
   json?: boolean;
   /** `revoke`: the token id to revoke. */
@@ -32,12 +32,40 @@ export interface AuthCommand {
   all?: boolean;
   /** `list`: show signing keys instead of tokens. */
   keys?: boolean;
+  /** `as set-password`: the operator account name (default `operator`). */
+  user?: string;
+  /** `as set-password`: read the password from standard input instead of prompting. */
+  stdin?: boolean;
 }
 
 const SUBS = ["rotate-key", "list", "revoke"] as const;
-const VALUE_FLAGS = ["--config", "--reason", "--grace", "--alg", "--purpose"];
+const VALUE_FLAGS = ["--config", "--reason", "--grace", "--alg", "--purpose", "--user"];
+
+/** `auth as <sub>`: only `set-password` exists. */
+function parseAuthAs(rest: string[]): AuthCommand | { kind: "error"; message: string } {
+  if (rest[0] !== "set-password") {
+    return { kind: "error", message: `unknown auth as subcommand: ${rest[0] ?? "(none)"}` };
+  }
+  const args = rest.slice(1);
+  const user = flagValue(args, "--user");
+  const scan = args.filter((a, i) => {
+    if (a.startsWith("-")) return false;
+    const prev = args[i - 1];
+    return !(prev !== undefined && VALUE_FLAGS.includes(prev));
+  });
+  const configPath = flagValue(args, "--config") ?? positional(scan);
+  return {
+    kind: "auth",
+    sub: "as-set-password",
+    ...(configPath !== undefined ? { configPath } : {}),
+    json: args.includes("--json"),
+    stdin: args.includes("--stdin"),
+    ...(user !== undefined ? { user } : {}),
+  };
+}
 
 export function parseAuth(rest: string[]): AuthCommand | { kind: "error"; message: string } {
+  if (rest[0] === "as") return parseAuthAs(rest.slice(1));
   const sub = SUBS.find((s) => s === rest[0]);
   if (sub === undefined) {
     return { kind: "error", message: `unknown auth subcommand: ${rest[0] ?? "(none)"}` };
@@ -50,6 +78,9 @@ export function parseAuth(rest: string[]): AuthCommand | { kind: "error"; messag
     const prev = args[i - 1];
     return !(prev !== undefined && VALUE_FLAGS.includes(prev));
   });
+  if (args.includes("--stdin") || flagValue(args, "--user") !== undefined) {
+    throw new CliError("--stdin and --user apply only to `auth as set-password`");
+  }
   const configFlag = flagValue(args, "--config");
   let jti: string | undefined;
   let configPositional = scan;

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   createMcpHandler,
   type ServerNotifier,
@@ -13,6 +13,7 @@ import type {
 import { type Context, Hono } from "hono";
 import type { FolderAcl } from "../acl";
 import { mountAsMetadata, mountAsRoutes } from "../auth/as-metadata";
+import { mountAsOperator } from "../auth/as-operator";
 import { AuthRejection, type AuthRejectionReason } from "../auth/jwt";
 import { buildJwtVerifier } from "../auth/jwt-boot";
 import { narrowToTokenScopes, resolvePersona } from "../auth/persona";
@@ -145,6 +146,9 @@ export interface HttpAppOptions {
    *  Absent -> the configured secret alone, with no revocation: `wireTransports` always supplies one
    *  (opened by `openAuthRegistry`), so only a direct `createHttpApp` caller can omit it. */
   authRegistry?: AuthRegistry;
+  /** oauth.db, the bundled authorization server's store (`auth.as`). Absent -> the operator routes
+   *  (`/oauth/login`, `/oauth/setup`, ...) are not mounted. `wireTransports` supplies it. */
+  oauthDb?: Database;
   /** The server's cache directory: where the per-server secret that keys the HITL codec lives
    *  (`auth/server-secret.ts`). `wireTransports` always supplies it; absent -> a per-process random
    *  secret, so confirmations do not survive a restart or cross processes. */
@@ -481,6 +485,13 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
   // RFC 8414 metadata of the bundled authorization server (`auth.as`): public, built from config
   // alone (never the request's Host), and absent while the AS is off or has no issuing routes yet.
   mountAsMetadata(app, opts.auth);
+  // Operator identity first, so its unclaimed-server refusal guards the routes mounted after it.
+  if (opts.oauthDb !== undefined) {
+    const secret = opts.cacheDir
+      ? serverSecret(opts.cacheDir)
+      : randomBytes(32).toString("base64url");
+    mountAsOperator(app, { auth: opts.auth, db: opts.oauthDb, secret });
+  }
   mountAsRoutes(app, opts.auth);
 
   // JWKS of the registry's ES256/EdDSA signing keys, so a verifier that is not this process can

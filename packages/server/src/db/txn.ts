@@ -188,6 +188,9 @@ export type WriteTxnLabel =
   // The auth registry (auth.db, its own file): a first-write marker arm/undo and the lost-registry
   // confirmation read, all of which must serialise against another process's registry write.
   | "auth_registry"
+  // The bundled authorization server's operator account (oauth.db, its own file): the first-run
+  // claim and a password change, which must serialise against another process doing the same.
+  | "as_operator"
   | "memory_observation"
   // THE-1124 review round 2: rename_entity/unlink_entities/delete_entity each mutate more than
   // one row (an entity row, its relations, an ACL-checked filesystem write) — wrapped so a
