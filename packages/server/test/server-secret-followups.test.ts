@@ -54,7 +54,12 @@ interface Racer {
 function racer(
   dir: string,
   goFile: string,
-  cfg: { staleMs?: number; stallUntil?: string } = {},
+  cfg: {
+    staleMs?: number;
+    stallUntil?: string;
+    stallBeforeMove?: string;
+    stallInGap?: string;
+  } = {},
 ): Racer {
   const p = spawn("bun", [join(here, "server-secret-child.ts"), dir, goFile, JSON.stringify(cfg)], {
     stdio: ["ignore", "pipe", "pipe"],
@@ -140,11 +145,78 @@ describe("concurrent repair of a corrupt server secret", () => {
     stallTimeout(60_000),
   );
 
+  it(
+    "24 racers on a valid key all return that key and leave the file unchanged",
+    async () => {
+      const dir = tmp();
+      const initial = serverSecret(dir);
+      const goFile = join(tmp(), "go");
+      const racers = Array.from({ length: RACERS }, () => racer(dir, goFile));
+      await Promise.all(racers.map((r) => r.ready));
+      writeFileSync(goFile, "go");
+      const runs = await Promise.all(racers.map((r) => r.done));
+      expect(runs.filter((r) => r.code !== 0).map((r) => r.err.slice(0, 400))).toEqual([]);
+      expect(new Set(runs.map((r) => r.out))).toEqual(new Set([initial]));
+      expect(readFileSync(secretFile(dir), "utf8").trim()).toBe(initial);
+    },
+    stallTimeout(60_000),
+  );
+
+  it(
+    "a stale repairer that passed the ownership check cannot move a valid key aside or split it",
+    async () => {
+      const dir = tmp();
+      corruptSecret(dir);
+      const scratch = tmp();
+      const goFile = join(scratch, "go");
+      const releaseMove = join(scratch, "release-move");
+      const releaseGap = join(scratch, "release-gap");
+      const lockOwner = `${secretFile(dir)}.repair-lock`;
+      writeFileSync(goFile, "go");
+      // The holder owns the lock when it freezes just before moving the corrupt file aside.
+      const holder = racer(dir, goFile, { stallBeforeMove: releaseMove, stallInGap: releaseGap });
+      await holder.ready;
+      for (let i = 0; i < stallTimeout(20_000) / 50 && !existsSync(lockOwner); i++) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(existsSync(lockOwner)).toBe(true);
+      // Its lock goes stale: others take it over and publish the key the instance will keep.
+      const racersGo = join(scratch, "racers-go");
+      const racers = Array.from({ length: 6 }, () => racer(dir, racersGo, { staleMs: 300 }));
+      await Promise.all(racers.map((r) => r.ready));
+      writeFileSync(racersGo, "go");
+      const raced = await Promise.all(racers.map((r) => r.done));
+      const keep = readFileSync(secretFile(dir), "utf8").trim();
+      expect(keep).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      // The holder wakes holding a stale view of a corrupt file. If it moves the now-valid key
+      // aside, a third process must still not mint its own key into that gap.
+      let holderDone = false;
+      void holder.done.then(() => {
+        holderDone = true;
+      });
+      writeFileSync(releaseMove, "go");
+      for (let i = 0; i < stallTimeout(10_000) / 20 && !holderDone; i++) {
+        if (!existsSync(secretFile(dir))) break; // the holder has the key aside
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      const third = racer(dir, racersGo, {});
+      await third.ready;
+      const thirdRun = await third.done;
+      writeFileSync(releaseGap, "go");
+      const late = await holder.done;
+      const all = [...raced, thirdRun, late];
+      expect(all.filter((r) => r.code !== 0).map((r) => r.err.slice(0, 400))).toEqual([]);
+      expect(new Set(all.map((r) => r.out))).toEqual(new Set([keep]));
+      expect(readFileSync(secretFile(dir), "utf8").trim()).toBe(keep);
+    },
+    stallTimeout(60_000),
+  );
+
   it.skipIf(process.platform === "win32")(
     "a reader never errors on the instant the key is absent while a repairer has it aside",
     async () => {
       const dir = tmp();
-      serverSecret(dir);
+      const initial = serverSecret(dir);
       const mover = spawn("bun", [join(here, "server-secret-mover.ts"), secretFile(dir)], {
         stdio: ["ignore", "pipe", "ignore"],
       });
@@ -152,10 +224,13 @@ describe("concurrent repair of a corrupt server secret", () => {
       await new Promise<void>((resolve) => {
         mover.stdout.once("data", () => resolve());
       });
-      // Each call that opens the path in the gap must adopt or publish a key, never throw ENOENT.
-      for (let i = 0; i < 20_000; i++) {
-        expect(serverSecret(dir)).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      // A call that opens the path in the gap must wait for the lock holder and adopt the key it
+      // puts back: never throw ENOENT, never publish a different key.
+      for (let i = 0; i < 5_000; i++) {
+        expect(serverSecret(dir)).toBe(initial);
       }
+      expect(mover.exitCode).toBeNull();
+      expect(readFileSync(secretFile(dir), "utf8").trim()).toBe(initial);
     },
     stallTimeout(60_000),
   );

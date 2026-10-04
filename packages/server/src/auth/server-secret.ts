@@ -43,6 +43,10 @@ export interface ServerSecretOptions {
   waitMs?: number;
   /** Runs after the repairer has judged the file corrupt and just before it replaces it (a test stalls a holder here). */
   beforeRepair?: () => void;
+  /** Runs once the repairer has re-checked it still holds the lock, just before it moves the file aside. */
+  beforeMoveAside?: () => void;
+  /** Runs while the file is moved aside, before the repairer links a key back in. */
+  inMoveGap?: () => void;
 }
 
 const secretPath = (cacheDir: string): string => join(cacheDir, SECRET_DIR, SECRET_FILE);
@@ -89,12 +93,7 @@ const tempPath = (path: string): string =>
 export function readServerSecret(cacheDir: string): string | undefined {
   const path = secretPath(cacheDir);
   if (!existsNoFollow(path)) return undefined;
-  try {
-    return readValidated(path);
-  } catch (e) {
-    if (isMissing(e)) return undefined; // vanished while a repairer had it moved aside
-    throw e;
-  }
+  return readIfPresent(path); // absent again if a repairer has it moved aside
 }
 
 /** Publish a fully written and fsynced temporary key with an atomic, no-replace hard link. */
@@ -118,17 +117,13 @@ function publishNew(path: string, secret: string): void {
 const isMissing = (e: unknown): boolean =>
   e instanceof KeyFileError && (e.cause as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
 
-/** Read the key, publishing one first if the file is missing (no-replace, so whichever key is
- *  linked first wins and everyone reads it back). Retries a bounded number of times, because the
- *  file can vanish again while a repairer moves a corrupt one aside. */
-function readOrPublish(path: string): string {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return readValidated(path);
-    } catch (e) {
-      if (!isMissing(e) || attempt >= 20) throw e;
-      publishNew(path, newSecret());
-    }
+/** Read the key; `undefined` when the file is absent (a repairer has the corrupt one aside). */
+function readIfPresent(path: string): string | undefined {
+  try {
+    return readValidated(path);
+  } catch (e) {
+    if (isMissing(e)) return undefined;
+    throw e;
   }
 }
 
@@ -152,11 +147,12 @@ function renameOverBusy(from: string, to: string): void {
   }
 }
 
-// The repair lock is a directory holding an `owner` token (mkdir is atomic). The lock only keeps
-// repairers from queueing on each other; it is NOT what makes the repair safe. A holder can stall
-// past the stale threshold while alive and have its lock taken over, so every step re-checks that
-// it still owns the lock, never replaces a file with its own key (it moves the corrupt file aside
-// and links its key in with no-replace), and every caller returns what the file holds afterwards.
+// The repair lock is a directory holding an `owner` token (mkdir is atomic). Whoever holds it is
+// the only process that publishes a key or moves one aside, so a reader that finds the file absent
+// waits for the lock instead of minting a key of its own into a repairer's gap. A holder can still
+// stall past the stale threshold and have its lock taken over, so before it moves a file aside it
+// re-checks that it owns the lock and that the file is still the corrupt one, and it never replaces
+// a file (it links its key in with no-replace). Every caller returns what the file holds afterwards.
 const ownerFile = (lock: string): string => join(lock, "owner");
 
 const ownsLock = (lock: string, token: string): boolean => {
@@ -239,11 +235,12 @@ function acquireRepairLock(
   }
 }
 
-/** Repair a corrupt file while holding the lock; `undefined` means the lock was lost and the
- *  caller must take it again. A valid file is never replaced: the corrupt one is moved aside and
- *  our key is linked in with no-replace, so a repairer that is late loses to whoever linked first
- *  (or finds the file already valid) and everyone adopts the file's bytes. */
-function repairHeld(
+/** Settle the key while holding the lock: publish one if the file is absent, or repair a corrupt
+ *  one. `undefined` means the lock was lost or the file changed under us, and the caller must take
+ *  the lock again. A valid file is never replaced: the corrupt one is moved aside and our key is
+ *  linked in with no-replace, so a late repairer finds the file already valid or loses to whoever
+ *  linked first, and everyone adopts the file's bytes. */
+function settleHeld(
   path: string,
   lock: string,
   token: string,
@@ -251,9 +248,12 @@ function repairHeld(
 ): string | undefined {
   if (!ownsLock(lock, token)) return undefined;
   try {
-    return readValidated(path); // repaired between our read and taking the lock
+    return readValidated(path); // settled between our read and taking the lock
   } catch (e) {
-    if (isMissing(e) || !existsNoFollow(path)) return readOrPublish(path);
+    if (isMissing(e)) {
+      publishNew(path, newSecret());
+      return readIfPresent(path);
+    }
     if (!isCorrupt(e)) throw e;
   }
   opts.beforeRepair?.();
@@ -262,7 +262,17 @@ function repairHeld(
   try {
     createKeyFile(tmp, newSecret());
     if (!ownsLock(lock, token)) return undefined;
+    opts.beforeMoveAside?.();
+    // Ownership is not atomic with the move below: a lock taken over while we were descheduled
+    // means the file may already be the new owner's valid key, which must stay where it is.
+    try {
+      return readValidated(path);
+    } catch (e) {
+      if (isMissing(e)) return undefined;
+      if (!isCorrupt(e)) throw e;
+    }
     renameOverBusy(path, aside);
+    opts.inMoveGap?.();
     let moved: string | undefined;
     try {
       moved = readValidated(aside);
@@ -274,20 +284,21 @@ function repairHeld(
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
     }
-    return readOrPublish(path);
+    return readIfPresent(path);
   } finally {
     removeTemp(tmp);
     removeTemp(aside);
   }
 }
 
-function repairCorrupt(path: string, opts: ServerSecretOptions): string {
+/** Run `settleHeld` under the repair lock until it yields a key (bounded: each lost round backs off). */
+function settleUnderLock(path: string, opts: ServerSecretOptions): string {
   const lock = `${path}.repair-lock`;
-  for (;;) {
+  for (let round = 0; round < 50; round++) {
     const got = acquireRepairLock(path, lock, opts);
     if ("key" in got) return got.key;
     try {
-      const key = repairHeld(path, lock, got.token, opts);
+      const key = settleHeld(path, lock, got.token, opts);
       if (key !== undefined) return key;
     } finally {
       if (ownsLock(lock, got.token)) {
@@ -298,7 +309,9 @@ function repairCorrupt(path: string, opts: ServerSecretOptions): string {
         }
       }
     }
+    sleep(10);
   }
+  throw new KeyFileError(`${path} kept changing while it was being settled; try again`);
 }
 
 /** The stable per-server secret, created on first use through the same descriptor-based
@@ -311,10 +324,10 @@ export function serverSecret(cacheDir: string, opts: ServerSecretOptions = {}): 
   try {
     return readValidated(path);
   } catch (e) {
-    if (isMissing(e) || !existsNoFollow(path)) return readOrPublish(path);
+    if (isMissing(e) || !existsNoFollow(path)) return settleUnderLock(path, opts);
     if (isCorrupt(e)) {
       process.stderr.write(`[server-secret] ${path} is corrupt; regenerating it atomically\n`);
-      return repairCorrupt(path, opts);
+      return settleUnderLock(path, opts);
     }
     throw e;
   }
