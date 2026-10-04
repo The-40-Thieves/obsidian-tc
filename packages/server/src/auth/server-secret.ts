@@ -89,7 +89,12 @@ const tempPath = (path: string): string =>
 export function readServerSecret(cacheDir: string): string | undefined {
   const path = secretPath(cacheDir);
   if (!existsNoFollow(path)) return undefined;
-  return readValidated(path);
+  try {
+    return readValidated(path);
+  } catch (e) {
+    if (isMissing(e)) return undefined; // vanished while a repairer had it moved aside
+    throw e;
+  }
 }
 
 /** Publish a fully written and fsynced temporary key with an atomic, no-replace hard link. */
@@ -104,6 +109,26 @@ function publishNew(path: string, secret: string): void {
     }
   } finally {
     removeTemp(tmp);
+  }
+}
+
+/** The read failed because there was no file: a repairer has the corrupt one moved aside and has
+ *  not linked its key in yet. Decided from the failed open itself, not from a second look at the
+ *  path, which can already show the repaired file. */
+const isMissing = (e: unknown): boolean =>
+  e instanceof KeyFileError && (e.cause as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
+
+/** Read the key, publishing one first if the file is missing (no-replace, so whichever key is
+ *  linked first wins and everyone reads it back). Retries a bounded number of times, because the
+ *  file can vanish again while a repairer moves a corrupt one aside. */
+function readOrPublish(path: string): string {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return readValidated(path);
+    } catch (e) {
+      if (!isMissing(e) || attempt >= 20) throw e;
+      publishNew(path, newSecret());
+    }
   }
 }
 
@@ -228,10 +253,7 @@ function repairHeld(
   try {
     return readValidated(path); // repaired between our read and taking the lock
   } catch (e) {
-    if (!existsNoFollow(path)) {
-      publishNew(path, newSecret());
-      return readValidated(path);
-    }
+    if (isMissing(e) || !existsNoFollow(path)) return readOrPublish(path);
     if (!isCorrupt(e)) throw e;
   }
   opts.beforeRepair?.();
@@ -252,7 +274,7 @@ function repairHeld(
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
     }
-    return readValidated(path);
+    return readOrPublish(path);
   } finally {
     removeTemp(tmp);
     removeTemp(aside);
@@ -289,10 +311,7 @@ export function serverSecret(cacheDir: string, opts: ServerSecretOptions = {}): 
   try {
     return readValidated(path);
   } catch (e) {
-    if (!existsNoFollow(path)) {
-      publishNew(path, newSecret());
-      return readValidated(path);
-    }
+    if (isMissing(e) || !existsNoFollow(path)) return readOrPublish(path);
     if (isCorrupt(e)) {
       process.stderr.write(`[server-secret] ${path} is corrupt; regenerating it atomically\n`);
       return repairCorrupt(path, opts);

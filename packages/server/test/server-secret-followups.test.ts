@@ -47,7 +47,7 @@ const corruptSecret = (dir: string): void => {
 
 interface Racer {
   ready: Promise<void>;
-  done: Promise<{ code: number | null; out: string }>;
+  done: Promise<{ code: number | null; out: string; err: string }>;
 }
 
 /** A child that prints `ready`, waits for `goFile`, then prints the key `serverSecret` returned. */
@@ -57,22 +57,26 @@ function racer(
   cfg: { staleMs?: number; stallUntil?: string } = {},
 ): Racer {
   const p = spawn("bun", [join(here, "server-secret-child.ts"), dir, goFile, JSON.stringify(cfg)], {
-    stdio: ["ignore", "pipe", "ignore"],
+    stdio: ["ignore", "pipe", "pipe"],
   });
   children.push(p);
   let out = "";
+  let err = "";
   let markReady: () => void = () => {};
   const ready = new Promise<void>((resolve) => {
     markReady = resolve;
+  });
+  p.stderr.on("data", (b) => {
+    err += b;
   });
   p.stdout.on("data", (b) => {
     out += b;
     if (out.includes("ready\n")) markReady();
   });
-  const done = new Promise<{ code: number | null; out: string }>((resolve) => {
+  const done = new Promise<{ code: number | null; out: string; err: string }>((resolve) => {
     p.on("close", (code) => {
       markReady();
-      resolve({ code, out: out.replace(/^ready\n/, "") });
+      resolve({ code, out: out.replace(/^ready\n/, ""), err });
     });
   });
   return { ready, done };
@@ -90,6 +94,7 @@ describe("concurrent repair of a corrupt server secret", () => {
       await Promise.all(racers.map((r) => r.ready));
       writeFileSync(goFile, "go");
       const runs = await Promise.all(racers.map((r) => r.done));
+      expect(runs.filter((r) => r.code !== 0).map((r) => r.err.slice(0, 400))).toEqual([]);
       expect(runs.map((r) => r.code)).toEqual(Array(RACERS).fill(0));
       const final = readFileSync(secretFile(dir), "utf8").trim();
       expect(final).toMatch(/^[A-Za-z0-9_-]{43}$/);
@@ -125,9 +130,32 @@ describe("concurrent repair of a corrupt server secret", () => {
       writeFileSync(release, "go");
       const late = await holder.done;
       const final = readFileSync(secretFile(dir), "utf8").trim();
+      expect([...raced, late].filter((r) => r.code !== 0).map((r) => r.err.slice(0, 400))).toEqual(
+        [],
+      );
       expect([...raced, late].map((r) => r.code)).toEqual(Array(7).fill(0));
       expect(final).toMatch(/^[A-Za-z0-9_-]{43}$/);
       expect(new Set([...raced, late].map((r) => r.out))).toEqual(new Set([final]));
+    },
+    stallTimeout(60_000),
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "a reader never errors on the instant the key is absent while a repairer has it aside",
+    async () => {
+      const dir = tmp();
+      serverSecret(dir);
+      const mover = spawn("bun", [join(here, "server-secret-mover.ts"), secretFile(dir)], {
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      children.push(mover);
+      await new Promise<void>((resolve) => {
+        mover.stdout.once("data", () => resolve());
+      });
+      // Each call that opens the path in the gap must adopt or publish a key, never throw ENOENT.
+      for (let i = 0; i < 20_000; i++) {
+        expect(serverSecret(dir)).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      }
     },
     stallTimeout(60_000),
   );
