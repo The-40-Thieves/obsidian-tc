@@ -83,7 +83,20 @@ async function main(): Promise<void> {
   }
   loadVec(db);
   db.exec("DROP TABLE IF EXISTS vec_chunks");
-  process.stdout.write(`loaded ${ids.length} vecs (${n} rows updated), dropped vec_chunks\n`);
+  // DROPPING THE TABLE IS NOT ENOUGH. ensureVecChunks does its full backfill only when the STORED
+  // representation fingerprint differs from the manifest's; an absent table alone does not trigger
+  // it. Dropping vec_chunks while the stored fingerprint already matches therefore gets it
+  // recreated and filled only by the incremental per-chunk path — observed as 390 of 16882 rows,
+  // 2.3% dense coverage, with no error anywhere. Invalidating the fingerprint is what makes the
+  // next `obsidian-tc index` (or boot reconcile) rebuild from chunk_embeddings in full. The value
+  // is a sentinel that cannot collide with a real manifest; index rewrites it with the true one.
+  db.exec(
+    "UPDATE vec_index_fingerprint SET fingerprint = 'invalidated-by-load-gpu-vecs' WHERE id = 1",
+  );
+  process.stdout.write(
+    `loaded ${ids.length} vecs (${n} rows updated), dropped vec_chunks and invalidated the ` +
+      "representation fingerprint — run `obsidian-tc index` to backfill the dense index\n",
+  );
   db.close?.();
 }
 
