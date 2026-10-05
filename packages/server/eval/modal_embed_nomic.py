@@ -48,19 +48,28 @@ PINS = {
 READ_BLOCK = 1048576
 BATCH = 64
 PER_CALL = 256  # texts per remote call, keeps each argument well under Modal's limit
-# RTLD_GLOBAL preload targets, relative to the `nvidia` package root.
-CUDA_LIB_GLOBS = (
-    "cuda_runtime/lib/libcudart*.so*",
-    "cublas/lib/libcublas*.so*",
-    "cudnn/lib/libcudnn*.so*",
+# RTLD_GLOBAL preload target, relative to each `nvidia` namespace root. Deliberately EVERY shared
+# object rather than a named list: naming them one at a time is whack-a-mole, because the CUDA
+# provider's unmet dependency is only reported one library per run (cublasLt, then curand, then...).
+CUDA_LIB_GLOB = "*/lib/*.so*"
+PRELOAD_PASSES = (
+    3  # RTLD_GLOBAL in glob order can need a retry when one lib depends on another
 )
 
 app = modal.App("otc-embed-nomic")
 image = modal.Image.debian_slim(python_version="3.11").uv_pip_install(
     "onnxruntime-gpu==1.23.2",
+    # The full CUDA 12 runtime set the ORT CUDA provider links against. torch would supply these
+    # implicitly (as eval/modal_rerank_gte.py gets for free) at the cost of a ~2.5 GB image.
     "nvidia-cuda-runtime-cu12",
+    "nvidia-cuda-nvrtc-cu12",
     "nvidia-cublas-cu12",
     "nvidia-cudnn-cu12",
+    "nvidia-curand-cu12",
+    "nvidia-cufft-cu12",
+    "nvidia-cusparse-cu12",
+    "nvidia-cusolver-cu12",
+    "nvidia-nvjitlink-cu12",
     "tokenizers==0.23.1",
     "huggingface-hub==1.1.2",
     "numpy==2.3.4",
@@ -83,19 +92,29 @@ class Embedder:
 
         # `nvidia` is a NAMESPACE package -- it has no __init__.py, so __file__ is None and
         # os.path.dirname(nvidia.__file__) raises. __path__ is the only way to its roots.
-        loaded = 0
+        candidates: list[str] = []
         for root in list(nvidia.__path__):
-            for pattern in CUDA_LIB_GLOBS:
-                for so in sorted(glob.glob(os.path.join(root, pattern))):
-                    try:
-                        ctypes.CDLL(so, mode=ctypes.RTLD_GLOBAL)
-                        loaded += 1
-                    except OSError:
-                        pass  # a sibling in the same glob may be the one the provider needs
+            candidates.extend(sorted(glob.glob(os.path.join(root, CUDA_LIB_GLOB))))
+        pending = list(candidates)
+        loaded = 0
+        for _ in range(PRELOAD_PASSES):
+            retry: list[str] = []
+            for so in pending:
+                try:
+                    ctypes.CDLL(so, mode=ctypes.RTLD_GLOBAL)
+                    loaded += 1
+                except OSError:
+                    retry.append(
+                        so
+                    )  # may load once a dependency of its own is in the namespace
+            pending = retry
+            if not pending:
+                break
         if loaded == 0:
             raise SystemExit(
-                "preloaded no CUDA libraries from nvidia.__path__ -- the CUDA provider cannot "
-                "dlopen without them; check the nvidia-*-cu12 wheels are present in the image"
+                f"preloaded no CUDA libraries from {len(candidates)} candidate(s) under "
+                "nvidia.__path__ -- the CUDA provider cannot dlopen without them; check the "
+                "nvidia-*-cu12 wheels are present in the image"
             )
 
         import onnxruntime as ort  # imported AFTER the preload above
