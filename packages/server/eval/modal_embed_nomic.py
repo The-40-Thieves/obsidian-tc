@@ -19,6 +19,14 @@ run; the two files are positionally joined and nothing downstream can detect a m
 
 Checksums below are model-info.ts's pins. A mismatch means the pin moved on one side only, which is
 exactly the silent divergence this verifies away -- a hard failure, not a warning.
+
+WHY THE NVIDIA PIP WHEELS AND THE ctypes PRELOAD: unlike eval/modal_rerank_gte.py, this image has
+no torch, and torch is what silently supplies CUDA 12 / cuDNN 9 to a debian_slim image. Without
+them onnxruntime-gpu cannot dlopen libonnxruntime_providers_cuda.so ("libcublasLt.so.12: cannot
+open shared object file") and falls back to CPU -- which for a GPU batch job is a 100x slowdown
+that still produces correct-looking output. Preloading RTLD_GLOBAL from nvidia.__file__ satisfies
+the provider's link-time deps without guessing a site-packages path or an image registry tag, and
+the CUDA assertion below turns a silent CPU fallback into a hard failure.
 """
 
 import json
@@ -40,10 +48,19 @@ PINS = {
 READ_BLOCK = 1048576
 BATCH = 64
 PER_CALL = 256  # texts per remote call, keeps each argument well under Modal's limit
+# RTLD_GLOBAL preload targets, relative to the `nvidia` package root.
+CUDA_LIB_GLOBS = (
+    "cuda_runtime/lib/libcudart*.so*",
+    "cublas/lib/libcublas*.so*",
+    "cudnn/lib/libcudnn*.so*",
+)
 
 app = modal.App("otc-embed-nomic")
 image = modal.Image.debian_slim(python_version="3.11").uv_pip_install(
     "onnxruntime-gpu==1.23.2",
+    "nvidia-cuda-runtime-cu12",
+    "nvidia-cublas-cu12",
+    "nvidia-cudnn-cu12",
     "tokenizers==0.23.1",
     "huggingface-hub==1.1.2",
     "numpy==2.3.4",
@@ -54,12 +71,25 @@ image = modal.Image.debian_slim(python_version="3.11").uv_pip_install(
 class Embedder:
     @modal.enter()
     def load(self) -> None:
+        import ctypes
+        import glob
         import hashlib
+        import os
 
+        import nvidia
         import numpy as np
-        import onnxruntime as ort
         from huggingface_hub import hf_hub_download
         from tokenizers import Tokenizer
+
+        nvidia_root = os.path.dirname(nvidia.__file__)
+        for pattern in CUDA_LIB_GLOBS:
+            for so in sorted(glob.glob(os.path.join(nvidia_root, pattern))):
+                try:
+                    ctypes.CDLL(so, mode=ctypes.RTLD_GLOBAL)
+                except OSError:
+                    pass  # a sibling in the same glob may be the one the provider needs
+
+        import onnxruntime as ort  # imported AFTER the preload above
 
         self.np = np
         paths = {}
