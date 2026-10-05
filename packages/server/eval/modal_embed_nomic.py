@@ -46,7 +46,13 @@ PINS = {
     "config.json": "9ab00bd92cee80a569f708140b7b6c1661a65891ff3765b1519e181ba2f2c92b",
 }
 READ_BLOCK = 1048576
-BATCH = 64
+MAX_BATCH = 32
+# Bound on batch_size * seq_len^2, the term attention memory scales with. A FIXED batch of 64 OOM'd
+# a 16 GB T4: chunks.token_count is an ESTIMATE (max 524 here) but real tokenization of code and
+# URLs runs higher, and one ~1350-token member padded the whole batch up with it --
+# 64 * 12 heads * 1350^2 * 4 B = 5.6 GB in a single attention buffer. 3e7 keeps the worst case
+# near 1.4 GB while still allowing the full MAX_BATCH at typical lengths.
+ATTN_BUDGET = 30_000_000
 PER_CALL = 256  # texts per remote call, keeps each argument well under Modal's limit
 # RTLD_GLOBAL preload target, relative to each `nvidia` namespace root. Deliberately EVERY shared
 # object rather than a named list: naming them one at a time is whack-a-mole, because the CUDA
@@ -138,12 +144,18 @@ class Embedder:
         self.tok = Tokenizer.from_file(paths["tokenizer.json"])
         with open(paths["tokenizer_config.json"]) as f:
             tcfg = json.load(f)
-        # Mirror transformers.js's pipeline: padding=True, truncation=True at the tokenizer's own
-        # model_max_length. Chunks are bounded by indexing.chunkTokens well under this, so
-        # truncation is a guard rather than the normal path.
+        # Truncation mirrors transformers.js's pipeline: the tokenizer's own model_max_length (8192
+        # here). Chunks are bounded by indexing.chunkTokens well under that, so truncation is a
+        # guard rather than the normal path -- and capping it lower would silently diverge from the
+        # query side for any chunk between the two limits.
         self.max_len = int(tcfg.get("model_max_length", 8192))
         self.tok.enable_truncation(max_length=self.max_len)
-        self.tok.enable_padding(length=None)
+        # NO tokenizer padding: embed() pads each batch itself so it can bucket by length. Mean
+        # pooling is mask-weighted, so manual padding is arithmetically identical to the
+        # tokenizer's -- it only changes how much wasted width each forward pass carries.
+        self.tok.no_padding()
+        pad = self.tok.token_to_id("[PAD]")
+        self.pad_id = 0 if pad is None else int(pad)
 
         self.sess = ort.InferenceSession(
             paths["onnx/model.onnx"],
@@ -158,12 +170,33 @@ class Embedder:
     @modal.method()
     def embed(self, texts: list[str]) -> list[list[float]]:
         np = self.np
-        out: list[list[float]] = []
-        for i in range(0, len(texts), BATCH):
-            batch = texts[i : i + BATCH]
-            encs = self.tok.encode_batch(batch)
-            ids = np.array([e.ids for e in encs], dtype=np.int64)
-            mask = np.array([e.attention_mask for e in encs], dtype=np.int64)
+        seqs = [e.ids for e in self.tok.encode_batch(texts)]
+        # Length-sorted so each batch's padding width is set by a near neighbour, not by the one
+        # longest chunk in an arbitrary 64-wide window.
+        order = sorted(range(len(seqs)), key=lambda i: len(seqs[i]))
+        out: list[list[float] | None] = [None] * len(texts)
+
+        pos = 0
+        while pos < len(order):
+            take = 1
+            t_max = len(seqs[order[pos]])
+            while take < MAX_BATCH and pos + take < len(order):
+                cand = max(t_max, len(seqs[order[pos + take]]))
+                if cand * cand * (take + 1) > ATTN_BUDGET:
+                    break
+                t_max = cand
+                take += 1
+            idx = order[pos : pos + take]
+            pos += take
+
+            width = max(len(seqs[i]) for i in idx)
+            ids = np.full((len(idx), width), self.pad_id, dtype=np.int64)
+            mask = np.zeros((len(idx), width), dtype=np.int64)
+            for row, i in enumerate(idx):
+                s = seqs[i]
+                ids[row, : len(s)] = s
+                mask[row, : len(s)] = 1
+
             feed = {"input_ids": ids, "attention_mask": mask}
             if "token_type_ids" in self.input_names:
                 feed["token_type_ids"] = np.zeros_like(ids)
@@ -177,11 +210,17 @@ class Embedder:
             counts = np.maximum(m.sum(axis=1), 1e-9)
             mean = summed / counts
             norms = np.maximum(np.linalg.norm(mean, axis=1, keepdims=True), 1e-12)
-            vecs = mean / norms
+            vecs = (mean / norms).astype(np.float32)
             if vecs.shape[1] != DIM:
                 raise SystemExit(f"width {vecs.shape[1]} != expected {DIM}")
-            out.extend(vecs.astype(np.float32).tolist())
-        return out
+            for row, i in enumerate(idx):
+                out[i] = vecs[row].tolist()
+
+        missing = sum(1 for v in out if v is None)
+        if missing:
+            raise SystemExit(f"internal: {missing} text(s) produced no vector")
+        # Restored to INPUT order: load-gpu-vecs.ts joins these positionally against ids.json.
+        return [v for v in out if v is not None]
 
 
 @app.local_entrypoint()
