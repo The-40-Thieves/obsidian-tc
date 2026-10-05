@@ -46,6 +46,17 @@ async function main(): Promise<void> {
     : db.prepare(
         "UPDATE chunk_embeddings SET embedding = ?, generated_at = ? WHERE chunk_id = ? AND model = ?",
       );
+  // SINGLE-ACTIVE INVARIANT: exactly one is_active = 1 row per chunk_id. Both writers in the real
+  // ingest path maintain it (persist-note-plan.ts, dedup.ts) and `idx_chunk_embeddings_active` is
+  // built for it. `--insert` must too: leaving a previous provider's rows active makes
+  // note-plan.ts's `active_model` LEFT JOIN non-deterministic, and ensureVecChunks then backfills
+  // vec_chunks for whichever model that join happened to return. Observed on a real load — a
+  // 384-dim model stayed active beside the new 768-dim rows, so the backfill's
+  // `length(embedding) = dims * 4` filter matched NOTHING and vec_chunks came back with 0 rows and
+  // no error. Dense search was silently dead with every embedding present and correct.
+  const deactivateSiblings = db.prepare(
+    "UPDATE chunk_embeddings SET is_active = 0 WHERE chunk_id = ? AND model != ? AND is_active = 1",
+  );
   const now = 1_700_000_000_000; // fixed (Date.now avoided for reproducibility); value is cosmetic
   let n = 0;
   db.exec("BEGIN");
@@ -56,6 +67,7 @@ async function main(): Promise<void> {
         ? upd.run(ids[i], model, dim, Buffer.from(slice), now)
         : upd.run(Buffer.from(slice), now, ids[i], model);
       n += (r as { changes?: number }).changes ?? 0;
+      if (INSERT) deactivateSiblings.run(ids[i], model);
     }
     db.exec("COMMIT");
   } catch (err) {
