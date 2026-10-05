@@ -81,13 +81,22 @@ class Embedder:
         from huggingface_hub import hf_hub_download
         from tokenizers import Tokenizer
 
-        nvidia_root = os.path.dirname(nvidia.__file__)
-        for pattern in CUDA_LIB_GLOBS:
-            for so in sorted(glob.glob(os.path.join(nvidia_root, pattern))):
-                try:
-                    ctypes.CDLL(so, mode=ctypes.RTLD_GLOBAL)
-                except OSError:
-                    pass  # a sibling in the same glob may be the one the provider needs
+        # `nvidia` is a NAMESPACE package -- it has no __init__.py, so __file__ is None and
+        # os.path.dirname(nvidia.__file__) raises. __path__ is the only way to its roots.
+        loaded = 0
+        for root in list(nvidia.__path__):
+            for pattern in CUDA_LIB_GLOBS:
+                for so in sorted(glob.glob(os.path.join(root, pattern))):
+                    try:
+                        ctypes.CDLL(so, mode=ctypes.RTLD_GLOBAL)
+                        loaded += 1
+                    except OSError:
+                        pass  # a sibling in the same glob may be the one the provider needs
+        if loaded == 0:
+            raise SystemExit(
+                "preloaded no CUDA libraries from nvidia.__path__ -- the CUDA provider cannot "
+                "dlopen without them; check the nvidia-*-cu12 wheels are present in the image"
+            )
 
         import onnxruntime as ort  # imported AFTER the preload above
 
