@@ -62,7 +62,7 @@ const checks = [
     required: false,
     pinned: readPin(miseToml, "python"),
     found: versionOf("python3", ["--version"], (s) => s.replace(/^Python\s+/, "")),
-    // mise.toml pins the minor only ("3.11") — compare on the minor, not the patch.
+    // mise.toml pins the minor only ("3.14") — compare on the minor, not the patch.
     compareMinorOnly: true,
   },
   {

@@ -17,7 +17,7 @@ import modal  # type: ignore[import-not-found]
 SERVICE_PKG = Path(__file__).resolve().parent.parent / "obsidian_tc_bge"
 
 image = (
-    modal.Image.debian_slim(python_version="3.11")
+    modal.Image.debian_slim(python_version="3.14")
     .pip_install(
         "torch",
         "numpy",
