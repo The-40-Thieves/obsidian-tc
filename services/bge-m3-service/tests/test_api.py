@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-import obsidian_tc_bge.api as api
+from obsidian_tc_bge import api
 from obsidian_tc_bge.config import Settings
 from obsidian_tc_bge.contracts import EncodeItem, SparseVec
 
@@ -128,7 +128,7 @@ def test_encode_rejects_a_prefix_of_the_real_token(monkeypatch):
     "raw",
     [
         pytest.param(b"Bearer \xff", id="single-byte-0xff"),
-        pytest.param("Bearer 你好".encode("utf-8"), id="utf8-multibyte"),
+        pytest.param("Bearer 你好".encode(), id="utf8-multibyte"),
         pytest.param(b"Bearer tok\x80", id="valid-token-plus-high-byte"),
     ],
 )
@@ -177,7 +177,7 @@ def test_a_non_ascii_token_in_config_still_authenticates(monkeypatch):
     with _client(monkeypatch, token="tök") as c:
         r = c.post(
             "/v1/encode",
-            headers={b"authorization": "Bearer tök".encode("utf-8")},
+            headers={b"authorization": "Bearer tök".encode()},
             json={"input": ["hi"], "outputs": ["dense"]},
         )
         assert r.status_code == 200

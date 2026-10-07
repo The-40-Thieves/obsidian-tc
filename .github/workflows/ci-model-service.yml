@@ -103,7 +103,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[test]"
-          pip install ruff==0.15.22
+          pip install ruff==0.16.10
       - name: ruff
         run: ruff check .
       - name: pytest

@@ -7,12 +7,13 @@ from __future__ import annotations
 
 import sys
 import types
+from typing import ClassVar
 
 import pytest
 
 
 class _FakeTorch(types.ModuleType):
-    class cuda:  # noqa: N801 - mirrors torch.cuda's attribute shape
+    class cuda:
         @staticmethod
         def is_available() -> bool:
             return False
@@ -24,7 +25,7 @@ class _FakeBGEM3FlagModel:
     caught by asserting both the call count and that `encoder._model` IS the recorded instance,
     which a `last_call`-only fake cannot distinguish from the correct single-construction case."""
 
-    instances: list["_FakeBGEM3FlagModel"] = []
+    instances: ClassVar[list[_FakeBGEM3FlagModel]] = []
 
     def __init__(self, model_name_or_path, **kwargs):
         self.call = {"model_name_or_path": model_name_or_path, **kwargs}
@@ -47,7 +48,7 @@ def _model_module():
     # The heavy imports (torch, FlagEmbedding, huggingface_hub) live INSIDE BgeM3Encoder.__init__,
     # so importing this module never touches them - the fakes in sys.modules only need to be in
     # place by construction time, not by import time.
-    import obsidian_tc_bge.model as model
+    from obsidian_tc_bge import model
 
     return model
 

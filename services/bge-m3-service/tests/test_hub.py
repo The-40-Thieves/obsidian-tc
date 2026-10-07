@@ -15,7 +15,7 @@ def _install_fake_hub(monkeypatch, *, snapshot_download):
 
 
 def _hub_module():
-    import obsidian_tc_bge.hub as hub
+    from obsidian_tc_bge import hub
 
     return hub
 

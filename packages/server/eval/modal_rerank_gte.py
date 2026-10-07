@@ -26,8 +26,8 @@ BATCH = 16
 PER_CALL = 20  # queries per remote call, keeps each argument small
 
 app = modal.App("otc-eval-gte-rerank")
-image = modal.Image.debian_slim(python_version="3.11").uv_pip_install(
-    "torch==2.14.1", "transformers==5.18.0"
+image = modal.Image.debian_slim(python_version="3.14").uv_pip_install(
+    "torch==2.14.1", "transformers==5.19.0"
 )
 
 

@@ -19,9 +19,7 @@ _ALLOW_PATTERNS = ["*.json", "*.txt", "*.model", "*.bin", "*.safetensors", "*.pt
 _IGNORE_PATTERNS = ["onnx/*"]
 
 
-def pinned_snapshot(
-    model_id: str, revision: str, cache_dir: str | None = None
-) -> tuple[str, str]:
+def pinned_snapshot(model_id: str, revision: str, cache_dir: str | None = None) -> tuple[str, str]:
     """Resolve `revision` to a local snapshot directory before anything loads it.
 
     A local directory as `model_id` (an operator's own weights already on disk) is passed through

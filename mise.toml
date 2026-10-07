@@ -37,7 +37,7 @@ node = "26.10.0"
 #
 # This was 3.11 on the argument that much of the ML wheel ecosystem lagged 3.14. Checked and no
 # longer true: every dependency of both services, including the heavy stack (torch 2.14,
-# FlagEmbedding 1.4.2, sentence-transformers 5.7, transformers 5.19, docling 2.135, langextract
+# FlagEmbedding 1.4.2, sentence-transformers 6.1, transformers 5.19, docling 2.135, langextract
 # 1.7), installs binary-only (`--only-binary :all:`) on cp314 for linux x86_64 (CI) and aarch64,
 # and the hash-locked requirements*.txt resolve for 3.14 with their pins unchanged. Neither service
 # depends on onnxruntime. torch comes from the CPU index on aarch64: the PyPI aarch64 wheel pulls
