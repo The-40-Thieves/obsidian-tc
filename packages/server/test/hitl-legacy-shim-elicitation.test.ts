@@ -7,7 +7,7 @@
 // the REPLACEMENT design: an `elicitCodec` wired for stdio too, `dispatchToResult` returning
 // `inputRequired(...)` gated on `negotiatedModern() || (legacyElicitationShim && shim-asserted)`,
 // and the shim doing the actual round trip. Traced against the INSTALLED
-// `@modelcontextprotocol/server@2.3.0` (dist/mcp-*.mjs): `Server._wrapHandler("tools/call", ...)`
+// `@modelcontextprotocol/server@2.3.1` (dist/mcp-*.mjs): `Server._wrapHandler("tools/call", ...)`
 // (~L1124) wraps every `setRequestHandler("tools/call", ...)` registration (via the base
 // `Protocol.setRequestHandler`, src-*.mjs, which calls `this._wrapHandler`, resolving to
 // the `Server` override) with `_invokeInputRequiredCapableHandler` (~L1184), which — when
@@ -18,7 +18,8 @@
 // on 2.2.0: the `mcp-*.mjs` bundle differs from 2.1.0's by one four-line `subscriptions/listen` guard
 // (~L288), so this span is again byte-identical and only the line numbers moved. Re-diffed on 2.3.0:
 // the bundle adds a `Server.connect()` ALREADY_CONNECTED guard (~L1056) and the `expectedResource` /
-// `maxToolInputElements` options, none inside this span, so it is byte-identical once more. Item
+// `maxToolInputElements` options, none inside this span, so it is byte-identical once more. Re-diffed on 2.3.1: `dist/` is
+// byte-identical to 2.3.0's (`diff -r`), only the package version and the `core-internal` dependency range changed. Item
 // (5) of the fix-round brief: this is the wire test proving the shim is reachable through our
 // EXACT `Server` + `setRequestHandler("tools/call")` shape, not assumed from reading source alone.
 
@@ -198,12 +199,12 @@ describe(`THE-1106 fix round 1: SDK legacy shim (proven against @modelcontextpro
   // THE-1106 fix round 2 (LOW 4): the version was printed in the describe label but never
   // actually asserted — a silent SDK bump would drift the label without failing anything. This is
   // the floor: every trace/line-number citation in this suite and in mcp/elicit-form.ts's doc
-  // comments is pinned to 2.3.0's SOURCE (THE-1133: re-traced byte-for-byte identical to 2.0.0's and
-  // again on 2.2.0 and 2.3.0, only line numbers shifted), not just its behaviour, so a version bump should fail loudly here
+  // comments is pinned to 2.3.1's SOURCE (THE-1133: re-traced byte-for-byte identical to 2.0.0's and
+  // again on 2.2.0, 2.3.0 and 2.3.1, only line numbers shifted), not just its behaviour, so a version bump should fail loudly here
   // and prompt re-verifying the trace, not pass silently on a coincidentally-compatible newer
   // release.
   it("(SDK version floor) the installed package is the version this suite's trace was verified against", () => {
-    expect(SDK_VERSION).toBe("2.3.0");
+    expect(SDK_VERSION).toBe("2.3.1");
   });
 
   it("(shim-reachable) destructive call -> SDK sends elicitation/create -> accept completes it, exactly one leg", async () => {
