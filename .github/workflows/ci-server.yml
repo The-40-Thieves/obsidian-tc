@@ -198,9 +198,16 @@ jobs:
         run: bun run test:scripts
 
   build-test:
+    # Node 26 is the target runtime and Node 24 the floor (`engines.node: ">=24"`); the FULL server
+    # suite runs on both, on every OS. The job name is spelled out so the Node 26 legs keep the
+    # exact check names (`build-test (<os>)`) that are already required in branch protection; the
+    # Node 24 legs are the additional `build-test (<os>, node 24)` contexts. A 26-only API that
+    # sneaks past the typecheck fails on the 24 legs.
+    name: ${{ matrix.node == '26' && format('build-test ({0})', matrix.os) || format('build-test ({0}, node {1})', matrix.os, matrix.node) }}
     strategy:
       fail-fast: false
       matrix:
+        node: ['26', '24']
         # The matrix covers three OSes and, until now, one ISA. That gap is not theoretical here:
         # this repo SHIPS aarch64-unknown-linux-gnu (publish.yml) and the maintainer's own
         # deployment is an Ampere Neoverse-N1, so production runs an architecture CI never
@@ -230,7 +237,7 @@ jobs:
       # Node >=22 on PATH. setup-node provides it for the test step below.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24'
+          node-version: ${{ matrix.node }}
       - name: cache bun install
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -253,11 +260,11 @@ jobs:
       - name: build server
         run: bun run build
         working-directory: packages/server
-      # The v8 coverage gate is platform-independent, so it runs once here on Linux
-      # (folded in to avoid a separate full-suite job); macOS/Windows run the same
-      # suite without instrumentation for cross-platform verification.
-      - name: test server (vitest under Node; coverage gate on Linux)
-        run: node ./node_modules/vitest/vitest.mjs run ${{ matrix.os == 'ubuntu-latest' && '--coverage' || '' }}
+      # The v8 coverage gate is platform- and runtime-independent, so it runs once here on Linux
+      # under Node 26 (folded in to avoid a separate full-suite job); every other leg, including
+      # the whole Node 24 column, runs the same full suite without instrumentation.
+      - name: test server (vitest under Node; coverage gate on Linux, Node 26)
+        run: node ./node_modules/vitest/vitest.mjs run ${{ matrix.os == 'ubuntu-latest' && matrix.node == '26' && '--coverage' || '' }}
         working-directory: packages/server
 
   # Rate-limit backends against a REAL Redis. The shared conformance suite (ratelimit-conformance),
@@ -780,19 +787,29 @@ jobs:
       #
       # continue-on-error is on the STEP, not the job: a job-level setting does not survive a
       # failed step -- every later step is SKIPPED -- which would silently drop the upload below.
+      #
+      # Run on the target (26) and the floor (24); the script writes a fixed filename, so each run
+      # is renamed before the next one overwrites it.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '26'
+      - name: node portability run, Node 26 (informational, never gated; THE-494)
+        continue-on-error: true
+        run: bun run perf:node-parity && mv perf-node-parity.json perf-node-parity-node26.json
+        working-directory: packages/server
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
-      - name: node portability run (informational, never gated; THE-494)
+      - name: node portability run, Node 24 (informational, never gated; THE-494)
         continue-on-error: true
-        run: bun run perf:node-parity
+        run: bun run perf:node-parity && mv perf-node-parity.json perf-node-parity-node24.json
         working-directory: packages/server
       - name: upload node parity report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: perf-node-parity
-          path: packages/server/perf-node-parity.json
+          path: packages/server/perf-node-parity-node*.json
           if-no-files-found: warn
       # THE-1122: the "local" embeddings provider's cold-start budget — a fresh HF model download
       # plus real ONNX CPU inference over a small (500-note) fixture vault, through the BUILT CLI

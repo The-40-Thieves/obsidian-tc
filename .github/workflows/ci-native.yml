@@ -162,6 +162,13 @@ jobs:
   # implementations in search/native.ts end-to-end so they stay correct as the
   # native API evolves; a throwing or incorrect fallback fails the vitest run here.
   fallback-test:
+    # Full suite on the target (26) and the floor (24). The Node 26 leg keeps the plain
+    # `fallback-test` check name; the floor leg is `fallback-test (node 24)`.
+    name: ${{ matrix.node == '26' && 'fallback-test' || format('fallback-test (node {0})', matrix.node) }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['26', '24']
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -171,7 +178,7 @@ jobs:
       # vitest forks Node workers; node:sqlite + --experimental-sqlite need Node >=22.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24'
+          node-version: ${{ matrix.node }}
       - name: cache bun install
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -209,7 +216,7 @@ jobs:
       # vitest forks Node workers; node:sqlite + --experimental-sqlite need Node >=22.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24'
+          node-version: '26'
       - uses: ./.github/actions/setup-rust
         with:
           targets: aarch64-apple-darwin
