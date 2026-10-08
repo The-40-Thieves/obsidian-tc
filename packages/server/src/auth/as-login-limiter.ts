@@ -36,18 +36,11 @@ export class FailureLimiter {
     this.maxKeys = opts.maxKeys ?? DEFAULT_MAX_KEYS;
   }
 
-  /** Is the key locked right now? Reading it neither counts as an attempt nor extends a lock. */
-  check(key: string, now: number): Lock {
-    const e = this.entries.get(key);
-    if (e === undefined || e.lockedUntil <= now) return { locked: false };
-    return { locked: true, retryAfterMs: e.lockedUntil - now };
-  }
-
   /**
-   * Admit one attempt, or refuse it. Unlike `check`, an admitted attempt is COUNTED while it runs:
+   * Admit one attempt, or refuse it. An admitted attempt is COUNTED while it runs:
    * the failures already on the books plus the attempts still in flight may not exceed the budget,
-   * so N requests that arrive together cannot all slip past a check that only sees settled
-   * failures. Past the budget (a lock that has lapsed) one probe at a time is admitted. Every
+   * so N requests that arrive together cannot all slip past a test that only sees settled
+   * failures. There is deliberately no read-only `check`: it would invite check-then-await-then-fail. Past the budget (a lock that has lapsed) one probe at a time is admitted. Every
    * admitted attempt must be settled with `release`, after it has called `fail` or `succeed`.
    */
   reserve(key: string, now: number): Lock {

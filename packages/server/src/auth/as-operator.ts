@@ -454,17 +454,31 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
 
     const ip = clientIp(c);
     const t = now();
-    for (const key of ["setup", ...(ip ? [`ip:${ip}`] : [])]) {
-      const lock = setupLimiter.check(key, t);
-      if (lock.locked) return retryAfter(c, lock.retryAfterMs);
+    const keys = ["setup", ...(ip ? [`ip:${ip}`] : [])];
+    const admitted: string[] = [];
+    for (const key of keys) {
+      const lock = setupLimiter.reserve(key, t);
+      if (lock.locked) {
+        for (const k of admitted) setupLimiter.release(k);
+        return retryAfter(c, lock.retryAfterMs);
+      }
+      admitted.push(key);
     }
     const supplied = form.get("token") ?? "";
     const suppliedHash = sha256Hex(supplied);
-    // Constant-time, and a token that already claimed the server is refused like a wrong one.
-    const right = constantTimeEqual(supplied, expected);
-    const burned = tokenBurned(db, sha256Hex(expected));
-    if (!right || burned) {
-      for (const key of ["setup", ...(ip ? [`ip:${ip}`] : [])]) setupLimiter.fail(key, now());
+    // Admission, the comparison and the recorded failure share one synchronous stretch (nothing is
+    // awaited between them), and the reservation is given back in it.
+    let refused = false;
+    try {
+      // Constant-time, and a token that already claimed the server is refused like a wrong one.
+      const right = constantTimeEqual(supplied, expected);
+      const burned = tokenBurned(db, sha256Hex(expected));
+      refused = !right || burned;
+      if (refused) for (const key of keys) setupLimiter.fail(key, now());
+    } finally {
+      for (const key of admitted) setupLimiter.release(key);
+    }
+    if (refused) {
       log(`setup token refused${ip ? ` (${ip})` : ""}`);
       return setupClosed(c);
     }

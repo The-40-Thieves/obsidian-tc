@@ -15,6 +15,7 @@ import {
   PASSWORD,
   sessionCookieName,
   sessionRows,
+  submit,
   T0,
   userRows,
 } from "./as-operator-harness";
@@ -339,4 +340,22 @@ describe("concurrent attempts cannot cross the brute-force budget together", () 
     },
     ARGON_BUDGET_MS,
   );
+});
+
+describe("concurrent setup-token guesses", () => {
+  it("are held to the budget exactly: ten are answered, the rest are refused", async () => {
+    const op = await makeOperator();
+    const guesses = Array.from({ length: 14 }, (_, i) =>
+      submit(op, "/oauth/setup", {
+        token: `wrong-guess-${i}-0123456789-abcdefghij`,
+        username: "operator",
+        password: PASSWORD,
+        confirm: PASSWORD,
+      }),
+    );
+    const statuses = (await Promise.all(guesses)).map((r) => r.res.status);
+    expect(statuses.filter((s) => s === 403)).toHaveLength(10);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(4);
+    expect(userRows(op)).toHaveLength(0);
+  });
 });
