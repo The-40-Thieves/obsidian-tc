@@ -173,7 +173,7 @@ export const AsConfigSchema = z
       .max(90)
       .default(30)
       .describe(
-        "Absolute lifetime of a refresh-token family in days (1 to 90, default 30), counted from the grant. Refresh tokens rotate on every use.",
+        "Absolute lifetime of a refresh-token family in days (1 to 90, default 30), counted from the code exchange that started the family; rotation never extends it. Refresh tokens rotate on every use.",
       ),
     dynamicRegistration: z
       .boolean()

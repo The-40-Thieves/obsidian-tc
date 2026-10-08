@@ -63,6 +63,7 @@ describe("oauth.db migration chain", () => {
         "issued_access",
         "oauth_clients",
         "refresh_tokens",
+        "revocation_outbox",
         "schema_migrations",
         "sessions",
         "setup_state",
@@ -198,9 +199,12 @@ describe("gcOauthDb: housekeeping deletes only what is past its time", () => {
       "INSERT INTO auth_codes VALUES ('code-live','g1','s','https://c/cb','r','ch',?,NULL)",
       NOW + 1000,
     );
-    run("INSERT INTO refresh_tokens VALUES ('rt-old','f1','g1',NULL,'s',1,NULL,?,NULL)", NOW - 1);
     run(
-      "INSERT INTO refresh_tokens VALUES ('rt-live','f2','g1',NULL,'s',1,NULL,?,NULL)",
+      "INSERT INTO refresh_tokens VALUES ('rt-old','f1','g1',NULL,'s',1,NULL,?,NULL,NULL,NULL)",
+      NOW - 1,
+    );
+    run(
+      "INSERT INTO refresh_tokens VALUES ('rt-live','f2','g1',NULL,'s',1,NULL,?,NULL,NULL,NULL)",
       NOW + DAY,
     );
     // A jti is kept for the verifier's 60 s skew past its expiry (ISSUED_ACCESS_GC_GRACE_MS), so the

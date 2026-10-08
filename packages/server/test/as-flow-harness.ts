@@ -73,6 +73,8 @@ export interface Flow extends OperatorFixture {
   auth: ServerConfig["auth"];
   /** The same oauth.db the routes use. */
   db: ReturnType<typeof openMemoryDb>;
+  /** The same stores behind a freshly started app whose server secret is `secret` (a replaced secret). */
+  restartWith(secret: string): Flow;
 }
 
 export async function makeFlow(
@@ -150,43 +152,48 @@ export async function makeFlow(
     handler: () => ({}),
   } as never);
 
-  const handle = createHttpApp({
-    name: "obsidian-tc",
-    version: "t",
-    registry: tools,
-    vaultRegistry,
-    auth,
-    db: cacheDb,
-    authRegistry: registry,
-    vaultId: opts.defaultVault ?? vaultDefs[0]?.id ?? "v1",
-    acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
-    enableDnsRebindingProtection: false,
-    personas: config.personas,
-  });
-
   const clock = { t: Date.now() };
   const logs: string[] = [];
   const log = (line: string) => logs.push(line);
-  mountAsOperator(handle.app, {
-    auth,
-    db,
-    secret: SECRET,
-    now: () => clock.t,
-    log,
-    env: {},
-    clientIp: (c) => c.req.header("x-test-ip"),
-  });
-  mountAsRoutes(handle.app, auth, {
-    db,
-    registry,
-    secret: SECRET,
-    personas: config.personas,
-    now: () => clock.t,
-    log,
-    clientIp: (c) => c.req.header("x-test-ip"),
-  });
+  // The HTTP app over THIS oauth.db and registry, for the server secret `secret`: a restart with a
+  // replaced secret is a second app over the same stores.
+  const appFor = (secret: string): HttpApp => {
+    const handle = createHttpApp({
+      name: "obsidian-tc",
+      version: "t",
+      registry: tools,
+      vaultRegistry,
+      auth,
+      db: cacheDb,
+      authRegistry: registry,
+      vaultId: opts.defaultVault ?? vaultDefs[0]?.id ?? "v1",
+      acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
+      enableDnsRebindingProtection: false,
+      personas: config.personas,
+    });
+    mountAsOperator(handle.app, {
+      auth,
+      db,
+      secret,
+      now: () => clock.t,
+      log,
+      env: {},
+      clientIp: (c) => c.req.header("x-test-ip"),
+    });
+    mountAsRoutes(handle.app, auth, {
+      db,
+      registry,
+      secret,
+      personas: config.personas,
+      now: () => clock.t,
+      log,
+      clientIp: (c) => c.req.header("x-test-ip"),
+    });
+    return handle;
+  };
+  const handle = appFor(SECRET);
 
-  return {
+  const flow: Flow = {
     handle,
     app: handle.app,
     db,
@@ -198,7 +205,12 @@ export async function makeFlow(
     url: (path: string) => `${ISSUER}${path}`,
     registry,
     auth,
+    restartWith: (secret: string) => {
+      const next = appFor(secret);
+      return { ...flow, handle: next, app: next.app };
+    },
   };
+  return flow;
 }
 
 export const sha256Url = (s: string): string => createHash("sha256").update(s).digest("base64url");
@@ -349,6 +361,59 @@ export const tokenFields = (
   resource: RESOURCE,
   ...over,
 });
+
+export const refreshFields = (
+  refreshToken: string | undefined,
+  over: Record<string, string | undefined> = {},
+): Record<string, string | undefined> => ({
+  grant_type: "refresh_token",
+  refresh_token: refreshToken,
+  client_id: CLIENT_ID,
+  ...over,
+});
+
+export interface Issued {
+  access: string;
+  refresh: string;
+  body: Record<string, unknown>;
+}
+
+/** The whole authorization-code flow for the default client: its first access and refresh token. */
+export async function issue(
+  flow: Flow,
+  over: Record<string, string | undefined> = {},
+  consent: Record<string, string> = {},
+): Promise<Issued> {
+  const { verifier, challenge } = pkce();
+  const { code } = await obtainCode(flow, new Jar(), challenge, over, consent);
+  // A client other than the default names itself (and its redirect) in the authorize query: so does the exchange.
+  const bound: Record<string, string> = {};
+  if (over.client_id !== undefined) bound.client_id = over.client_id;
+  if (over.redirect_uri !== undefined) bound.redirect_uri = over.redirect_uri;
+  const { res, body } = await exchange(flow, tokenFields(code, verifier, bound));
+  if (res.status !== 200) throw new Error(`token exchange failed: ${JSON.stringify(body)}`);
+  return { access: body.access_token as string, refresh: body.refresh_token as string, body };
+}
+
+export const basicAuth = (id: string, secret: string): Record<string, string> => ({
+  authorization: `Basic ${Buffer.from(`${id}:${secret}`).toString("base64")}`,
+});
+
+/** `POST /oauth/revoke`: RFC 7009 answers with an empty body, so the text is returned as is. */
+export async function revokeCall(
+  flow: Flow,
+  fields: Record<string, string | undefined>,
+  headers: Record<string, string> = {},
+): Promise<{ res: Response; text: string }> {
+  const body = new URLSearchParams();
+  for (const [k, v] of Object.entries(fields)) if (v !== undefined) body.set(k, v);
+  const res = await flow.app.request(flow.url("/oauth/revoke"), {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+    body: body.toString(),
+  });
+  return { res, text: await res.text() };
+}
 
 /** A bearer call to the MCP edge; 200 means the token verified. */
 export async function mcpPing(flow: Flow, token: string): Promise<number> {

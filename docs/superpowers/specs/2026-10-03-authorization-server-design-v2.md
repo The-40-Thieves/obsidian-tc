@@ -423,6 +423,73 @@ Config validation enforces three conditions:
   client's PKCE-bound grant.
 - A refresh may narrow scope, never widen it. `invalid_grant` on every failure.
 
+**As built (S6).** Where the bullets above left a choice, the code decided it:
+
+- **The window is idempotent: it returns the same response.** Only a hash is stored, so a retry could not be
+  handed "the token its first request made". A token's successor is therefore DERIVED: `base64url(HMAC-SHA256(server
+  secret, "as-refresh-successor" ‖ parent))`. And the whole first response is kept: the access token the rotation
+  returned is stored on the successor's row (`refresh_tokens.replay`), sealed with AES-256-GCM under an HKDF
+  subkey of the server secret and bound to the parent's hash (a seal copied onto another row does not open). A
+  retry of the parent while the successor is unused is answered with that stored response: the same access
+  token (same `jti`), the same successor, `expires_in` = what is left. It mints and records nothing, so one stolen
+  parent cannot be turned into any number of live bearers (the first design returned the same successor but a
+  NEW access token per retry: unbounded simultaneously valid tokens, no reuse detection, `issued_access`
+  growing to the family cap). Chosen over capping retries at one because a client may legitimately retry more
+  than once while a cold start outlasts its budget, and idempotence costs one column. The stored copy is
+  dropped when the successor is first used (the window closes), and a retry is refused (`invalid_grant`, no
+  minting, nothing revoked) when the stored access token has expired or was revoked, the seal does not open, or
+  the request asks for a different scope or vault than the first response carried. Two simultaneous refreshes of
+  one token are the same operation: the one that commits first is THE response; a loser that had already signed
+  a token revokes it and answers with the winner's. (So "two simultaneous refreshes: at most one succeeds" does
+  not hold, by design: the Railway cold start that motivates the window is exactly a client retrying while the
+  first request is still running.) Deriving the successor gives a holder nothing they lacked: holding a token
+  already lets them rotate it.
+- **A refresh token belongs to the secret that minted it.** Every `refresh_tokens` row records
+  `secret_gen`, `HMAC(server secret, "as-refresh-generation")` truncated to 128 bits: non-secret and one-way.
+  A token is rotated or retried only while its row's `secret_gen` equals the current secret's. A mismatch, the
+  current leaf included, is `invalid_grant` and **revokes the family** (its access tokens die at `/mcp`): replacing
+  the server secret retires every family instead of letting each current token start a new chain under the new
+  one. Rows written before the column existed hold NULL, which never matches: after upgrading, the first
+  refresh of an old family is refused and the client signs in again once (acceptable: S6 is unreleased). Only the
+  token's own client can trigger the revocation, like a reuse.
+- **One step, recorded on the parent.** `successor_first_used_at` is set on the PARENT row when the successor is
+  first presented. A token whose row has it set, and any token two or more steps behind, is a reuse: the whole
+  family is revoked (refresh tokens marked, then every `issued_access` jti sent to the registry's revoked set;
+  the two database steps are one write transaction).
+- **Only the owner's presentation can revoke.** The token's client is the grant's client. A request from any
+  other client, for an unknown token, a revoked or expired family or a revoked grant, is refused and changes
+  nothing; the same holds for a replay that cannot name the right client (a confidential client also needs its
+  secret). Every refusal is the same `invalid_grant` with the same description, including a requested `scope`
+  wider than the family holds (RFC 6749 would say `invalid_scope`; that would tell a token holder apart from
+  a non-holder).
+- **Cap.** The family dies `refreshTokenDays` after the code exchange that started it. Rotation copies the
+  cap and never extends it. A family and its refresh rows are swept once past the cap.
+- **Bounds.** The account's `scopes_allowed` and `vaults_allowed` are applied at every refresh with the same
+  `applyBounds` the code exchange uses (empty bounds deny, the effective-vault rule). A narrowed account gets a
+  narrower access token and keeps its refresh token (lifting the bound lifts the narrowing, since nothing is
+  copied into the family); an account narrowed to nothing, or disabled, gets `invalid_grant` and nothing is
+  burned. The family keeps the scope it was issued with, so a request that narrows its `scope` still gets the
+  full scope on the next refresh that does not name one.
+- **Ordering.** As on the code exchange, the new access token's `jti` is recorded before the rotation
+  commits. The rotation re-decides under the write lock; if the family was revoked meanwhile it refuses and
+  revokes the jti it just recorded.
+- **Revocation is durable (outbox).** Revoking a family or a grant touches two files, and the registry
+  (`auth.db`) cannot join an `oauth.db` transaction. The family/grant update and one `revocation_outbox` row per
+  access-token `jti` therefore commit in ONE transaction, and the rows are then drained into the registry
+  (`registry.revoke` is idempotent). A row is deleted only after its registry write succeeded; one failing jti
+  does not stop the others and its error is rethrown after the pass. The outbox is drained right after every
+  revocation, at boot and on the maintenance sweep, and before a refresh decides anything (a drain that cannot
+  reach the registry is a `server_error`, never a refresh on top of an unpaid revocation). A busy or full
+  `auth.db`, or a crash between the two writes, therefore leaves the debt on disk instead of live tokens behind
+  a family that reads `dead` forever; repeating `auth as grants revoke <id>` also re-drains.
+- **Revocation endpoint.** `POST /oauth/revoke` authenticates the client exactly like `/oauth/token`. A refresh
+  token revokes its family; an `at+jwt` signed by an `as` key for this resource, with this client's
+  `client_id`, revokes its `jti`. Everything else (unknown, expired, forged, another client's, already
+  revoked) is the same empty 200, which departs from RFC 7009 section 2.1 ("refused" for another client's token)
+  so the response is never an oracle. `token_type_hint` only picks which to try first.
+- **`auth as grants list|revoke <id>`.** Revoking a grant marks it revoked (so its codes and refresh tokens are
+  refused from then on) and revokes every family and jti under it.
+
 ### 4.7 Client registration
 
 - **Static** (`auth.as.clients[]`): `clientId`, `name`, `redirectUris`, optional `secretEnv` (a
@@ -725,7 +792,7 @@ Each row is a RED test written before its mitigation (the slice in brackets). Th
 | Clickjacking | `frame-ancestors 'none'`, `X-Frame-Options: DENY` | every AS HTML response carries both headers [S4] |
 | Login brute force | per-account failure window (5 / 15 min → exponential backoff, constant-time compare, same error for unknown user); per-IP counter where the socket IP is real; setup token single-use | a 6th wrong password within the window is refused **even if the password is right**, until backoff elapses; a reused setup token → 403 [S4] |
 | First-run claim race | unclaimed AS refuses authorize, token, register | fresh `oauth.db` → `/oauth/authorize` 503 "not claimed" [S4] |
-| Refresh-token theft | rotation; family revocation on reuse beyond the one-step window; hash-only storage; absolute cap | use RT1→RT2, use RT2→RT3, replay RT1 → `invalid_grant` and RT3 + the family's access tokens die; the DB holds no plaintext RT (grep the file) [S6] |
+| Refresh-token theft | rotation; family revocation on reuse beyond the one-step window; the window is idempotent (a retry gets the stored first response, never a new bearer); a token of a replaced server secret is retired; revocation is a durable outbox; hash-only storage; absolute cap | use RT1→RT2, use RT2→RT3, replay RT1 → `invalid_grant` and RT3 + the family's access tokens die; N retries of RT0 return one access token and one `issued_access` row; a replaced secret → the current leaf is `invalid_grant` and its family dies; a failing `registry.revoke` mid-family is repaired by a drain; the DB holds no plaintext RT (grep the file) [S6] |
 | Token leakage in logs | never log `Authorization`, `code`, `code_verifier`, `refresh_token`, setup token, password, session cookie; request logging of `/oauth/*` records path only (no query); Referrer-Policy no-referrer | drive a full flow with a capture logger and assert none of those values appears in any log line or telemetry attribute [S5, S6] |
 | Host-header spoofing | issuer and URLs from config only | metadata fetched with `Host: evil.example` still names the configured issuer [S3] |
 | Credential re-POST on redirect | 303 after login/consent POSTs | status is 303, never 307/308 [S4, S5] |

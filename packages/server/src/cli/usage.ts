@@ -346,6 +346,14 @@ Usage:
                                           At least 12 characters, stored as an Argon2id hash in
                                           <cacheDir>/oauth.db. --user names the account (default
                                           operator). Needs Node 24.7 or later (or Bun).
+  obsidian-tc auth as grants list [path] [--all] [--json]
+                                          List the grants the bundled authorization server holds:
+                                          client, scope, persona, vault and how many refresh-token
+                                          families are still live. --all adds the revoked ones.
+  obsidian-tc auth as grants revoke <grant id> [path] [--reason <text>] [--json]
+                                          Revoke a grant: its refresh tokens and every live access
+                                          token issued under it stop working at once, and it issues
+                                          no more. The id comes from "auth as grants list".
   obsidian-tc elicit [path] --hash <args_hash> --tool <name> [--vault <id>] [--caller <id>]
                         [--state-fp <fp>] [--json]
                                           Mint a single-use HITL confirmation token bound to the

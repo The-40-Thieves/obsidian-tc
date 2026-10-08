@@ -355,15 +355,28 @@ This release adds the pieces that exist before any token is issued: the metadata
 
 - **Metadata, once the server can issue.** `GET /.well-known/oauth-authorization-server` (and
   `/.well-known/openid-configuration`) returns the RFC 8414 document, and Protected Resource Metadata names the
-  issuer first by default, only when the authorize and token routes are actually served. This release serves
-  neither, so enabling `auth.as` changes nothing a client discovers: no metadata, no PRM default, no
-  `resource_metadata` pointer in a 401 challenge (`doctor` says "AS enabled, issuing routes not yet available").
-  Every URL in the document is built from `auth.as.issuer`; the `Host` and `X-Forwarded-*` headers are never
-  consulted, so a forged `Host` cannot move the issuer. It carries `code_challenge_methods_supported: ["S256"]`,
-  the RFC 9207 `iss` response parameter and `none` as a client-authentication method; `revocation_endpoint`,
-  `client_id_metadata_document_supported`, the `refresh_token` grant and `registration_endpoint` (also needs
-  `auth.as.dynamicRegistration`) appear only when the slice that implements each ships. `private_key_jwt` is
-  never advertised.
+  issuer first by default, only when the authorize and token routes are actually served (a build without them
+  changes nothing a client discovers: no metadata, no PRM default, no `resource_metadata` pointer in a 401
+  challenge). Every URL in the document is built from `auth.as.issuer`; the `Host` and `X-Forwarded-*` headers are
+  never consulted, so a forged `Host` cannot move the issuer. It carries `code_challenge_methods_supported:
+  ["S256"]`, the RFC 9207 `iss` response parameter, `none` as a client-authentication method, the `refresh_token`
+  grant, `offline_access` among the scopes and `revocation_endpoint`; `client_id_metadata_document_supported` and
+  `registration_endpoint` (the latter also needs `auth.as.dynamicRegistration`) appear only when the slice that
+  implements each ships. `private_key_jwt` is never advertised.
+- **Refresh tokens and revocation.** Every code exchange returns a refresh token (opaque, 32 random bytes, stored
+  only as a SHA-256). It rotates on every use and its family ends `auth.as.refreshTokenDays` after the exchange.
+  A client that lost a refresh response may retry the previous token until its successor has been used, and is
+  handed the same response again (the same access token and refresh token, nothing new minted; once that access
+  token has expired the retry is refused and the client signs in again); any
+  older token, or the previous one after that, **revokes the family**: the refresh token and every access token
+  issued from it stop working. Only the owning client's request can do that, and every refresh failure is the
+  same `invalid_grant`. A refresh token belongs to the server secret that minted it: replacing the secret retires
+  every family (the next use of any token is `invalid_grant` and revokes it). Revoking a family or a grant is
+  recorded durably before the registry is told, so a busy token registry database cannot leave a revoked family's access tokens
+  live. The account's `scopes_allowed` / `vaults_allowed` are applied again at each refresh.
+  `POST /oauth/revoke` (RFC 7009) revokes a refresh token's family or an access token's `jti`, and answers an empty
+  200 for anything else. On the host, `obsidian-tc auth as grants list [--all]` shows what has been granted and
+  `auth as grants revoke <id>` kills a grant's refresh tokens and live access tokens at once.
 - **Signing key.** At boot with the AS enabled the server generates one `as`-purpose key
   ([Key purposes](#key-purposes-mint-and-as)) if there is none: idempotent, never in a lost registry, and never
   replacing an existing key because the configured algorithm changed (rotate with `auth rotate-key --purpose as`;
