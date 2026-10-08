@@ -238,6 +238,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
+          check-latest: true
       - name: cache bun install
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -793,6 +794,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '26'
+          check-latest: true
       - name: node portability run, Node 26 (informational, never gated; THE-494)
         continue-on-error: true
         run: bun run perf:node-parity && mv perf-node-parity.json perf-node-parity-node26.json
@@ -800,6 +802,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
+          check-latest: true
       - name: node portability run, Node 24 (informational, never gated; THE-494)
         continue-on-error: true
         run: bun run perf:node-parity && mv perf-node-parity.json perf-node-parity-node24.json

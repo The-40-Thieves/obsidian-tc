@@ -8,7 +8,7 @@ Python model services.
 | | pin | source of truth |
 |---|---|---|
 | Bun | **1.4.2** | `mise.toml` + `packageManager` in `package.json` — must agree |
-| Node | **26.10.0** target / **24** supported floor | `mise.toml`; `engines.node: ">=24"`. CI runs the full server suite on **both** 26 and 24 (`build-test`, `fallback-test`) — the 24 legs catch a 26-only API |
+| Node | **26.11.1** target / **24** supported floor | `mise.toml`; `engines.node: ">=24"`. CI runs the full server suite on **both** 26 and 24 (`build-test`, `fallback-test`) — the 24 legs catch a 26-only API |
 | Python | **3.14** | `mise.toml`; both services declare `requires-python = ">=3.10"` (a supported range, not the tested version) |
 | Rust | **1.99.0** exact | `packages/native/rust-toolchain.toml` |
 | TypeScript | **7.0.2** | root + `packages/shared`. `docs/` is a *separate install root* still on 6.0.3 (THE-604) |
