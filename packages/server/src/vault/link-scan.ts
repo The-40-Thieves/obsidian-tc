@@ -18,6 +18,18 @@
 // semantics, so output is byte-identical to the regex it replaces (see
 // test/link-scan-equivalence.test.ts) at O(n) total cost (see test/link-scan-perf.test.ts).
 
+// Test-only work probe. A scaling test cannot see the plain `line[i]` reads and the Int32Array
+// pass these scanners make (no String.prototype call to count), so each scan reports the steps it
+// took to `workProbe` when one is installed: test/link-scan-perf.test.ts asserts how that count
+// GROWS with the input, which a clock cannot do without flaking on a loaded runner. Production
+// installs none: the cost is a local integer increment per step and one null check per call.
+let workProbe: ((steps: number) => void) | null = null;
+
+/** Install (or, with `null`, remove) the work probe described above. Tests only. */
+export function setLinkScanWorkProbe(probe: ((steps: number) => void) | null): void {
+  workProbe = probe;
+}
+
 /** next[i] = index of the first occurrence of `ch` in `line` at position >= i, or -1. */
 function nextOccurrence(line: string, ch: string): Int32Array {
   const n = line.length;
@@ -28,6 +40,7 @@ function nextOccurrence(line: string, ch: string): Int32Array {
     if (line[i] === ch) last = i;
     next[i] = last;
   }
+  workProbe?.(n + 1);
   return next;
 }
 
@@ -58,7 +71,9 @@ export function scanWikilinks(line: string): WikiScanMatch[] {
   if (n === 0) return out;
   const nextBracket = nextOccurrence(line, "]");
   let i = 0;
+  let steps = 0;
   while (i < n) {
+    steps++;
     const bang = line[i] === "!";
     const open = bang ? i + 1 : i;
     if (line[open] !== "[" || line[open + 1] !== "[") {
@@ -82,6 +97,7 @@ export function scanWikilinks(line: string): WikiScanMatch[] {
     });
     i = end;
   }
+  workProbe?.(steps);
   return out;
 }
 
@@ -93,7 +109,9 @@ export function scanMdLinks(line: string): MdScanMatch[] {
   const nextBracket = nextOccurrence(line, "]");
   const nextParen = nextOccurrence(line, ")");
   let i = 0;
+  let steps = 0;
   while (i < n) {
+    steps++;
     const bang = line[i] === "!";
     const open = bang ? i + 1 : i;
     if (line[open] !== "[") {
@@ -125,6 +143,7 @@ export function scanMdLinks(line: string): MdScanMatch[] {
     });
     i = end;
   }
+  workProbe?.(steps);
   return out;
 }
 
@@ -164,7 +183,9 @@ export function scanLinks(line: string): LinkScanMatch[] {
   const nextBracket = nextOccurrence(line, "]");
   const nextParen = nextOccurrence(line, ")");
   let i = 0;
+  let steps = 0;
   while (i < n) {
+    steps++;
     const bang = line[i] === "!";
     const open = bang ? i + 1 : i;
     if (line[open] === "[" && line[open + 1] === "[") {
@@ -208,6 +229,7 @@ export function scanLinks(line: string): LinkScanMatch[] {
     }
     i++;
   }
+  workProbe?.(steps);
   return out;
 }
 
@@ -219,13 +241,16 @@ export function scanLinks(line: string): LinkScanMatch[] {
  *  slope 1.64 over the 1.6 cap); the flat list allocates no per-span object. */
 export function inlineCodeRanges(line: string): number[] {
   const spans: number[] = [];
+  let steps = 0;
   let open = line.indexOf("`");
   while (open >= 0) {
+    steps++;
     const close = line.indexOf("`", open + 1);
     if (close < 0) break; // an unclosed run has no closing backtick, so no later run can match either
     spans.push(open, close + 1);
     open = line.indexOf("`", close + 1);
   }
+  workProbe?.(steps);
   return spans;
 }
 
@@ -235,11 +260,17 @@ export function inlineCodeRanges(line: string): number[] {
 export function inCodeRange(ranges: ReadonlyArray<number>, idx: number): boolean {
   let lo = 0;
   let hi = (ranges.length >> 1) - 1;
+  let steps = 0;
   while (lo <= hi) {
+    steps++;
     const mid = (lo + hi) >>> 1;
     if (idx < (ranges[mid * 2] as number)) hi = mid - 1;
     else if (idx >= (ranges[mid * 2 + 1] as number)) lo = mid + 1;
-    else return true;
+    else {
+      workProbe?.(steps);
+      return true;
+    }
   }
+  workProbe?.(steps);
   return false;
 }
