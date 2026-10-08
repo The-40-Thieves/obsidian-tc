@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto";
 import { decodeJwt } from "jose";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { revokeFamily } from "../src/auth/as-grants";
+import { revokeFamily, revokeGrant } from "../src/auth/as-grants";
 import {
   CLIENT_ID,
   cleanupFlows,
@@ -515,26 +515,50 @@ describe("what is recorded before a token may leave", () => {
     expect((await refresh(flow, a.refresh)).res.status).toBe(200);
   });
 
-  it("a revocation landing while a refresh is being signed: the refresh is refused and the jti it recorded is revoked", async () => {
-    const flow = await makeFlow();
-    const a = await issue(flow);
-    const familyId = familyRows(flow)[0]?.family_id as string;
-    const record = flow.registry.recordToken.bind(flow.registry);
-    // The family is revoked (a reuse elsewhere, `auth as grants revoke`) at the very moment the new
-    // access token is recorded, before the rotation commits.
-    vi.spyOn(flow.registry, "recordToken").mockImplementation((t) => {
-      record(t);
-      revokeFamily(flow.db, flow.registry, familyId, "reuse elsewhere", flow.clock.t);
+  // The state changes AFTER the outer check passed, at the very moment the new access token is
+  // recorded and before the rotation commits: only the re-check under the write lock can catch it.
+  const LANDING: Array<[string, (flow: Flow, familyId: string) => void]> = [
+    [
+      "the family is revoked",
+      (f, id) => revokeFamily(f.db, f.registry, id, "elsewhere", f.clock.t),
+    ],
+    [
+      "the grant is revoked",
+      (f) => revokeGrant(f.db, f.registry, grantIdOf(f), "operator", f.clock.t),
+    ],
+    [
+      "the family reaches its cap",
+      (f) => {
+        f.clock.t += 31 * DAY;
+      },
+    ],
+  ];
+  const grantIdOf = (f: Flow): string =>
+    rows<{ id: string }>(f, "SELECT id FROM grants")[0]?.id as string;
+
+  for (const [name, land] of LANDING) {
+    it(`${name} while a refresh is being signed: invalid_grant, nothing issued, the recorded jti revoked`, async () => {
+      const flow = await makeFlow();
+      const a = await issue(flow);
+      const familyId = familyRows(flow)[0]?.family_id as string;
+      const record = flow.registry.recordToken.bind(flow.registry);
+      vi.spyOn(flow.registry, "recordToken").mockImplementation((t) => {
+        record(t);
+        land(flow, familyId);
+      });
+      const { res, body } = await refresh(flow, a.refresh);
+      expect(res.status).toBe(400);
+      expect(body.error).toBe("invalid_grant");
+      expect(body).not.toHaveProperty("access_token");
+      expect(body).not.toHaveProperty("refresh_token");
+      const jtis = rows<{ jti: string }>(flow, "SELECT jti FROM issued_access");
+      expect(jtis).toHaveLength(2);
+      // The refused refresh revoked the jti it recorded (the first token's too, in the revocations).
+      const fresh = jtis.find((j) => j.jti !== decodeJwt(a.access).jti);
+      expect(flow.registry.isRevoked(fresh?.jti as string)).toBe(true);
+      expect(familyRows(flow)).toHaveLength(1);
     });
-    const { res, body } = await refresh(flow, a.refresh);
-    expect(res.status).toBe(400);
-    expect(body.error).toBe("invalid_grant");
-    expect(body).not.toHaveProperty("access_token");
-    const jtis = rows<{ jti: string }>(flow, "SELECT jti FROM issued_access");
-    expect(jtis).toHaveLength(2);
-    for (const { jti } of jtis) expect(flow.registry.isRevoked(jti), jti).toBe(true);
-    expect(familyRows(flow)).toHaveLength(1);
-  });
+  }
 
   it("the new access token's jti is in issued_access under the family before the refresh is answered", async () => {
     const flow = await makeFlow();
