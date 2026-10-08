@@ -31,10 +31,24 @@ export declare function bm25Score(
  *  TypeScript. A negative id in `a` marks a token absent from `b` and never matches. */
 export declare function rougeLLcs(a: Int32Array, b: Int32Array): number;
 
+/** A configured folder pinned by the server: `dir` is its real directory (absolute, a strict ancestor
+ *  of the path opened), `dev` / `ino` its identity when pinned (`statSync(dir, { bigint: true })`).
+ *  The safe open fstats `dir` right after opening it and refuses a different directory. */
+export interface PinnedDir {
+  dir: string;
+  dev: bigint;
+  ino: bigint;
+}
+
+/** True on a native module whose safe-open checks a {@link PinnedDir}; undefined on an older binary
+ *  (which ignores the extra argument) and on the pure-JS fallback. */
+export declare const SAFE_IO_PINNED_DIR: true | undefined;
+
 /** THE-272: symlink-safe, TOCTOU-free note read — opens following no symlink in any path component,
- *  rejects a non-regular or hard-linked file, returns the bytes. Present only on the native module
- *  (undefined on the pure-JS fallback). */
-export declare function safeReadNote(abs: string): Buffer;
+ *  rejects a non-regular or hard-linked file, returns the bytes. With `pinned`, also refuses a pinned
+ *  directory replaced since it was pinned. Present only on the native module (undefined on the
+ *  pure-JS fallback). */
+export declare function safeReadNote(abs: string, pinned?: PinnedDir): Buffer;
 
 /** THE-272: symlink-safe atomic note write (randomized O_EXCL|O_NOFOLLOW temp + rename, no symlink
  *  followed in any component). The parent directory must exist. Native module only. */
@@ -49,9 +63,14 @@ export declare function safeWriteNoteExclusive(abs: string, data: Buffer): void;
 
 /** Symlink-safe no-replace rename of `fromAbs` onto `toAbs` (each parent opened following no symlink
  *  in any component). Moves a note into `.trash/` and back without a planted symlink redirecting
- *  either leg. An existing target throws an error whose message starts with `exists:`. Unix native
- *  module only. */
-export declare function safeRenameNoReplace(fromAbs: string, toAbs: string): void;
+ *  either leg. An existing target throws an error whose message starts with `exists:`. Each leg takes
+ *  an optional {@link PinnedDir}. Unix native module only. */
+export declare function safeRenameNoReplace(
+  fromAbs: string,
+  toAbs: string,
+  fromPinned?: PinnedDir,
+  toPinned?: PinnedDir,
+): void;
 
 /** True when the compiled native binary is active; false when on the pure-JS fallback. */
 export declare const nativeLoaded: boolean;
