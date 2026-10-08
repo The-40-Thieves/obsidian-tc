@@ -338,6 +338,14 @@ Usage:
                                           retires the other. Replacing an as key needs a --grace of
                                           at least accessTokenSeconds + 60 (1860 by default, which is
                                           also the default there), so no live access token is killed.
+  obsidian-tc auth as set-password [path] [--user <name>] [--stdin] [--json]
+                                          Claim the bundled authorization server (auth.as) by creating
+                                          its operator account, or change the operator's password and
+                                          end their sessions. Asks twice on a terminal; with --stdin it
+                                          reads the password from the first line of standard input.
+                                          At least 12 characters, stored as an Argon2id hash in
+                                          <cacheDir>/oauth.db. --user names the account (default
+                                          operator). Needs Node 24.7 or later (or Bun).
   obsidian-tc elicit [path] --hash <args_hash> --tool <name> [--vault <id>] [--caller <id>]
                         [--state-fp <fp>] [--json]
                                           Mint a single-use HITL confirmation token bound to the

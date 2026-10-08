@@ -347,6 +347,8 @@ This release adds the pieces that exist before any token is issued: the metadata
   `<cacheDir>/auth.db` and `auth-keys/` together**, so a restore never pairs a new key set with an old registry. Expired
   rows (sessions, pending requests, codes, access-token ids, refresh families past their cap, idle dynamic
   clients) are deleted at boot and by the maintenance sweep; grants and the operator account are kept.
+- **Operator login.** One operator account signs in to the server's own pages; there is no other way in.
+  See [Operator login](#operator-login-and-claiming-the-server) below.
 - **Verification.** A token signed by the `as` key is accepted only while the AS is enabled
   (`iss` = the issuer, `aud` = `auth.resource`); with it off the same token is `misconfigured`. An `as` token
   must carry a string `sub`, `jti` and `client_id` and a numeric `iat`, and only fully qualified scopes
@@ -356,6 +358,60 @@ This release adds the pieces that exist before any token is issued: the metadata
   absent, which would have made it impossible to revoke.
 - **No JWKS duplicate.** A configured `auth.jwks` or `auth.jwksFile` holding the `as` key's public key stops the
   boot; a remote `auth.jwksUri` cannot be checked.
+
+### Operator login and claiming the server
+
+The bundled server has one operator account, stored in `<cacheDir>/oauth.db` (the `users` table is multi-row, but
+adding users is a later change). Until it exists the server is **unclaimed**: `/oauth/login` answers `503`
+"not claimed", and so do `/oauth/authorize`, `/oauth/token` and `/oauth/register` (this release serves no
+authorize or token route; the refusal is already in place for when they arrive). The server logs a notice at boot
+while it is unclaimed. Claim it one of two ways.
+
+- **From the host.** `obsidian-tc auth as set-password [--user <name>] [--stdin]` asks for a password twice
+  without echo, or reads one line from standard input with `--stdin` (the only way without a terminal). The
+  default account name is `operator`. Run again, it changes that operator's password and ends their sessions. It
+  needs `auth.as.enabled` and Node 24.7 or later (or Bun).
+- **From a browser, with a setup token.** Put a random value of at least 24 characters in the environment variable
+  named by `auth.as.setupTokenEnv` (default `OBSIDIAN_TC_AS_SETUP_TOKEN`; for example `openssl rand -base64 32`),
+  start the server and open `<issuer>/oauth/setup`. The token is read from the environment on each request and is
+  never logged. It works **once**: its SHA-256 is recorded as used, so the same value is refused afterwards even if
+  the account is later removed (set a new one). It also stops working 24 hours after the server started (restart to
+  open it again), and ten wrong guesses lock the page for a while. With the variable unset, empty or too short,
+  `/oauth/setup` does not exist (`404`). Remove the variable once you have claimed the server.
+
+Two claims at once have exactly one winner, whether they arrive by the CLI or the page, from one process or
+several: the claim is a single `BEGIN IMMEDIATE` transaction in `oauth.db`.
+
+**Passwords** are at least 12 characters and are stored as Argon2id (`node:crypto.argon2`, the OWASP minimum:
+19 MiB, 2 passes, 1 lane) in a PHC string, so the parameters can be raised later with a rehash at the next login.
+A Node older than 24.7 has no `crypto.argon2`; with `auth.as.enabled` the server then refuses to start, naming
+the version it needs (the rest of the server does not need it).
+
+**Sign-in** is `/oauth/login`. The session cookie is `__Host-otc_as` (`HttpOnly; Secure; SameSite=Lax; Path=/`);
+only on a loopback `http` issuer is it the un-prefixed `otc_as` without `Secure`, since a `__Host-` cookie
+cannot be set over plain http. The value is a random id that exists only in the browser: the server keeps its
+SHA-256, a fresh id is issued at every login (one the client supplied is never adopted, and the one it presented is
+retired), and the row is deleted at sign-out, so an old cookie is dead server-side. A session ends after 30 minutes
+without a request or 12 hours after login, and when its account is disabled. Sign-out is `POST /oauth/logout`.
+
+**Brute force.** After `auth.as.login.maxFailuresPerWindow` wrong passwords for one name within
+`windowSeconds`, that name is locked: 30 s, doubling with each further failure, never longer than the window,
+and even the right password is refused until it passes (`429` with `Retry-After`). Attempts made while locked
+do not extend it. The counter is keyed on the submitted name whether or not the account exists, an unknown name
+gets the same answer as a wrong password and still costs one password verification, so neither the response nor
+the lock shows which names are real. One peer address is also limited, to four times that budget across all
+names; the address is the TCP peer, never `X-Forwarded-For`, and a loopback peer (a reverse proxy or tunnel on the
+same host) is not counted, so behind one the per-name limit is the one that applies. At most four verifications
+run at once; beyond that login answers `503`. Counters are in memory and reset at restart.
+
+**The pages** carry `Content-Security-Policy: default-src 'none'; style-src 'self'; form-action 'self';
+frame-ancestors 'none'`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` and
+`X-Content-Type-Options: nosniff`, on every response including errors and redirects. Every form is protected
+against cross-site requests three ways: a token bound to the form and to the browser (before sign-in a per-browser
+cookie, after it the session), an `Origin` header equal to the issuer's origin (a request without one is refused),
+and the urlencoded content type; bodies are capped at 16 KiB. A successful POST answers `303`, never a status
+a browser would repeat the POST for. The server logs only that something happened (claimed, login failed,
+locked, signed out) with the peer address: never a name, password, token, cookie or query string.
 
 ## Verifying an external OpenID Connect provider (`oidc` mode)
 

@@ -1,4 +1,4 @@
-// `obsidian-tc auth rotate-key|list|revoke`: operator control over the signing-key and issued-token
+// `obsidian-tc auth rotate-key|list|revoke` (and `auth as set-password`, in auth-as.ts): operator control over the signing-key and issued-token
 // registry (auth/registry.ts), which lives in `<cacheDir>/auth.db`, NOT cache.db. Same authorization
 // boundary as `token mint` and `elicit`: filesystem access to the cache directory is the credential,
 // since whoever can write auth.db and the key files can already mint any token.
@@ -16,10 +16,13 @@ import { provisionCacheDb } from "../../db/provision";
 import type { Database } from "../../db/types";
 import { CliError } from "../cli-error";
 import { type Cmd, resolveOrUsageExit } from "../shared";
+import { type AuthAsIo, runAuthAsSetPassword } from "./auth-as";
 
 const iso = (ms: number | null): string => (ms === null ? "-" : new Date(ms).toISOString());
 
-export async function run_auth(cmd: Cmd<"auth">): Promise<void> {
+export async function run_auth(cmd: Cmd<"auth">, io: AuthAsIo = {}): Promise<void> {
+  // oauth.db is the authorization server's own store and fail-safe to lose: this needs no auth.db.
+  if (cmd.sub === "as-set-password") return runAuthAsSetPassword(cmd, io);
   const cfg = resolveOrUsageExit(cmd.configPath);
   const { registry, close } = await openAuthRegistry(cfg);
   try {
