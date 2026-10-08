@@ -423,6 +423,47 @@ Config validation enforces three conditions:
   client's PKCE-bound grant.
 - A refresh may narrow scope, never widen it. `invalid_grant` on every failure.
 
+**As built (S6).** Where the bullets above left a choice, the code decided it:
+
+- **The window returns the same successor.** Only a hash is stored, so a retry could not be handed "the
+  token its first request made". A token's successor is therefore DERIVED: `base64url(HMAC-SHA256(server secret,
+  "as-refresh-successor" ‖ parent))`. Presenting a token that already has an unused successor returns that
+  same successor with a fresh access token. Two simultaneous refreshes of one token, and a retry of a lost
+  response, are the same operation: every success carries the one successor, the family never holds two live
+  tokens for one step, and nothing is revoked. (So "two simultaneous refreshes: at most one succeeds" does
+  not hold, by design: the Railway cold start that motivates the window is exactly a client retrying while the
+  first request is still running.) Deriving it gives a holder nothing they lacked: holding a token already lets
+  them rotate it. If the server secret was replaced since, the stored successor no longer matches and the
+  token is simply refused (`invalid_grant`, nothing revoked).
+- **One step, recorded on the parent.** `successor_first_used_at` is set on the PARENT row when the successor is
+  first presented. A token whose row has it set, and any token two or more steps behind, is a reuse: the whole
+  family is revoked (refresh tokens marked, then every `issued_access` jti sent to the registry's revoked set;
+  the two database steps are one write transaction).
+- **Only the owner's presentation can revoke.** The token's client is the grant's client. A request from any
+  other client, for an unknown token, a revoked or expired family or a revoked grant, is refused and changes
+  nothing; the same holds for a replay that cannot name the right client (a confidential client also needs its
+  secret). Every refusal is the same `invalid_grant` with the same description, including a requested `scope`
+  wider than the family holds (RFC 6749 would say `invalid_scope`; that would tell a token holder apart from
+  a non-holder).
+- **Cap.** The family dies `refreshTokenDays` after the code exchange that started it. Rotation copies the
+  cap and never extends it. A family and its refresh rows are swept once past the cap.
+- **Bounds.** The account's `scopes_allowed` and `vaults_allowed` are applied at every refresh with the same
+  `applyBounds` the code exchange uses (empty bounds deny, the effective-vault rule). A narrowed account gets a
+  narrower access token and keeps its refresh token (lifting the bound lifts the narrowing, since nothing is
+  copied into the family); an account narrowed to nothing, or disabled, gets `invalid_grant` and nothing is
+  burned. The family keeps the scope it was issued with, so a request that narrows its `scope` still gets the
+  full scope on the next refresh that does not name one.
+- **Ordering.** As on the code exchange, the new access token's `jti` is recorded before the rotation
+  commits. The rotation re-decides under the write lock; if the family was revoked meanwhile it refuses and
+  revokes the jti it just recorded.
+- **Revocation endpoint.** `POST /oauth/revoke` authenticates the client exactly like `/oauth/token`. A refresh
+  token revokes its family; an `at+jwt` signed by an `as` key for this resource, with this client's
+  `client_id`, revokes its `jti`. Everything else (unknown, expired, forged, another client's, already
+  revoked) is the same empty 200, which departs from RFC 7009 section 2.1 ("refused" for another client's token)
+  so the response is never an oracle. `token_type_hint` only picks which to try first.
+- **`auth as grants list|revoke <id>`.** Revoking a grant marks it revoked (so its codes and refresh tokens are
+  refused from then on) and revokes every family and jti under it.
+
 ### 4.7 Client registration
 
 - **Static** (`auth.as.clients[]`): `clientId`, `name`, `redirectUris`, optional `secretEnv` (a

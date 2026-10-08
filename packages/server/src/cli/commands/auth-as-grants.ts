@@ -4,6 +4,7 @@
 // as `auth revoke`: whoever can write `<cacheDir>` can already do this, so the credential is the
 // shell. Nothing here prints a token (none is stored in the clear); a grant id is not a secret.
 
+import { mkdirSync } from "node:fs";
 import { listGrants, revokeGrant } from "../../auth/as-grants";
 import { enabledAs } from "../../auth/as-metadata";
 import { openOauthDb } from "../../auth/oauth-db";
@@ -23,6 +24,8 @@ export async function runAuthAsGrants(cmd: Cmd<"auth">): Promise<void> {
   }
   const out = (human: string, json: unknown) =>
     process.stdout.write(cmd.json ? `${JSON.stringify(json, null, 2)}\n` : `${human}\n`);
+  // The first command to touch a fresh deployment creates cacheDir (auth.db, oauth.db, secrets): owner-only.
+  mkdirSync(cfg.cacheDir, { recursive: true, mode: 0o700 });
   const store = await openOauthDb(cfg);
   try {
     if (cmd.sub === "as-grants-list") {

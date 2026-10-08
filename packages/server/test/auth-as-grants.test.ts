@@ -2,7 +2,7 @@
 // tokens and every live access token issued under it, and nothing of another grant. The store
 // functions run over the HTTP fixture so "dies" is observed at /mcp; the CLI runs against a real
 // config file with a real oauth.db and auth.db on disk.
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -53,7 +53,8 @@ describe("revokeGrant", () => {
     }
     expect(await mcpPing(flow, other.access)).toBe(200);
     expect(
-      (await exchange(flow, refreshFields(other.refresh, { client_id: OTHER.client_id }))).res.status,
+      (await exchange(flow, refreshFields(other.refresh, { client_id: OTHER.client_id }))).res
+        .status,
     ).toBe(200);
     expect(
       rows<{ revoked_at: number | null }>(
@@ -245,6 +246,29 @@ describe("the CLI against files on disk", () => {
       store.close();
       reg.close();
     }
+  });
+
+  it("creates a missing cacheDir owner-only (it holds auth.db, oauth.db and the secrets)", async () => {
+    const root = makeTempDir("as-grants-cli-mode-");
+    dirs.push(root);
+    mkdirSync(join(root, "v"));
+    const configPath = join(root, "config.json");
+    const cacheDir = join(root, "fresh", "cache");
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        vaults: [{ id: "main", path: join(root, "v") }],
+        cacheDir,
+        auth: {
+          mode: "jwt",
+          jwtSecret: "test-only-secret-not-a-real-credential-0123456789",
+          resource: "https://vault.example.com/mcp",
+          as: { enabled: true, issuer: "https://vault.example.com" },
+        },
+      }),
+    );
+    await cmd("as-grants-list", configPath);
+    expect(statSync(cacheDir).mode & 0o777).toBe(0o700);
   });
 
   it("revoking an unknown grant fails and names it", async () => {

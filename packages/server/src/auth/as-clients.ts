@@ -109,7 +109,8 @@ export interface ScopeOutcome {
  * (a requested scope must be covered by a listed one), otherwise any fully-qualified scope. Unknown
  * scopes are dropped, not refused (the granted set is echoed in the token response). Nothing
  * requested means the vocabulary's own default, so a client that omits `scope` still gets a flow.
- * `offline_access` is dropped: refresh tokens are not issued yet.
+ * `offline_access` is dropped: a refresh token is issued on every code exchange (design v2 section
+ * 4.6), so asking for it changes nothing and it never reaches a grant or a token's `scope`.
  */
 export function resolveScopes(
   requested: readonly string[],

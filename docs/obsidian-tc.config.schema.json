@@ -803,7 +803,7 @@
             },
             "refreshTokenDays": {
               "default": 30,
-              "description": "Absolute lifetime of a refresh-token family in days (1 to 90, default 30), counted from the grant. Refresh tokens rotate on every use.",
+              "description": "Absolute lifetime of a refresh-token family in days (1 to 90, default 30), counted from the code exchange that started the family; rotation never extends it. Refresh tokens rotate on every use.",
               "type": "integer",
               "minimum": 1,
               "maximum": 90

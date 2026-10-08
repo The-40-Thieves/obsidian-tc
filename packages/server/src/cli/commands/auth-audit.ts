@@ -16,7 +16,7 @@ export async function auditAuthEvent(
 ): Promise<void> {
   let cache: Database | undefined;
   try {
-    mkdirSync(cfg.cacheDir, { recursive: true });
+    mkdirSync(cfg.cacheDir, { recursive: true, mode: 0o700 });
     cache = await openConfiguredDatabase(cfg, "cache.db");
     provisionCacheDb(cache, { version: VERSION });
     writeEvent(cache, { ts: Date.now(), tool_name: null, caller, status: "ok", event_type });

@@ -297,10 +297,11 @@ export function consumeCode(db: Database, codeHash: string, now: number): boolea
 /**
  * Revoke everything issued from a code or a refresh-token family (RFC 6749 section 4.1.2, RFC 9700
  * section 4.14): the family's refresh tokens die and each access token's `jti` goes to the registry's
- * revoked set. The family id is the code's hash. The tokens are marked FIRST and the jtis read after:
- * an exchange or refresh in flight records its jti before it commits, so either it commits before the
- * marking (and its jti is read below) or it finds its token revoked at commit, refuses, and revokes
- * the jti it recorded itself. Neither order leaves a live access token behind.
+ * revoked set. The family id is the code's hash. Marking the tokens and reading the jtis are ONE write
+ * transaction: an exchange or refresh in another process records its jti before it commits, so either
+ * it committed before this transaction (its jti is read here) or it finds its token revoked at commit,
+ * refuses, and revokes the jti it recorded itself. Neither order leaves a live access token behind.
+ * The registry (auth.db) is written after the commit, one jti at a time.
  */
 export function revokeFamily(
   db: Database,
@@ -309,12 +310,14 @@ export function revokeFamily(
   reason: string,
   now: number,
 ): number {
-  db.prepare(
-    "UPDATE refresh_tokens SET revoked_at = ? WHERE family_id = ? AND revoked_at IS NULL",
-  ).run(now, familyId);
-  const jtis = db
-    .prepare("SELECT jti FROM issued_access WHERE family_id = ?")
-    .all(familyId) as Array<{ jti: string }>;
+  const jtis = inWriteTransaction(db, "as_grants", () => {
+    db.prepare(
+      "UPDATE refresh_tokens SET revoked_at = ? WHERE family_id = ? AND revoked_at IS NULL",
+    ).run(now, familyId);
+    return db.prepare("SELECT jti FROM issued_access WHERE family_id = ?").all(familyId) as Array<{
+      jti: string;
+    }>;
+  });
   for (const { jti } of jtis) registry.revoke(jti, reason);
   return jtis.length;
 }
