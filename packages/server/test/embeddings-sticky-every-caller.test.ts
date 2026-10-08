@@ -82,8 +82,8 @@ async function seedOllamaCache(cacheDir: string): Promise<void> {
 // `vec_index_fingerprint` is only created inside `ensureVecChunks`, gated on `loadVec(db)`
 // succeeding (search/vec.ts) — the same guard `probeStoredEmbeddingsProvider`
 // (cli/commands/doctor-probes.ts) and `activeVecFingerprint` (metrics/gauge-sources.ts) already
-// apply before reading it. CI's `build-test` job runs vitest under plain `node` with
-// `--ignore-scripts` (no better-sqlite3 native build), so `openDatabase` falls back to the
+// apply before reading it. CI's Node 24 `build-test` legs delete better-sqlite3 after install,
+// so `openDatabase` falls back to the
 // `node:sqlite` adapter, which exposes no `loadExtension` — `loadVec` returns false there and the
 // table never gets created (see db/node-node-sqlite.ts's own header). Returning `undefined` here
 // mirrors that production guard exactly, via the same shared `tableExists` (db/introspect.ts),

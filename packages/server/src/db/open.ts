@@ -11,7 +11,8 @@ function isBun(): boolean {
  * Open a SQLite-backed Database for the current runtime: bun:sqlite under Bun,
  * better-sqlite3 under Node. Adapters are imported dynamically so the inactive
  * runtime's native module is never evaluated. node:sqlite is the last-resort fallback when
- * better-sqlite3 cannot be resolved (e.g. the packed .mcpb); it is also what the test suite runs on.
+ * better-sqlite3 cannot be resolved (e.g. the packed .mcpb); CI's Node 24 legs remove better-sqlite3
+ * so the suite also runs on it.
  *
  * @param busyTimeoutMs THE-935: config's `db.busyTimeoutMs`, forwarded to whichever adapter opens
  *   the connection. Omitted falls back to DEFAULT_BUSY_TIMEOUT_MS (pragmas.ts).
