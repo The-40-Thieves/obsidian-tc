@@ -10,14 +10,28 @@
 // The access token's jti is recorded before the successor is committed, as on the code exchange, and
 // revokeFamily marks the tokens before it reads the jtis: a reuse that races a refresh in flight
 // either sees its jti or finds the refresh refused at commit (and the refresh revokes its own jti).
+//
+// The one-step window is idempotent: a retry of a parent whose successor exists is answered with the
+// stored first response (same access token, same successor) and mints nothing, so one stolen token
+// cannot be turned into any number of bearers. A token minted under another server secret is retired.
+
 import type { Context } from "hono";
+import { decodeJwt } from "jose";
 import type { Database } from "../db/types";
 import { type AccessContext, mintAccessToken } from "./as-access";
 import { accountBounds, applyBounds } from "./as-account";
 import type { FormReader } from "./as-client-auth";
 import { type AsClient, sameResource, scopesCovered, splitScope } from "./as-clients";
-import { revokeFamily } from "./as-grants";
-import { loadRefresh, REFRESH_TOKEN_RE, standing, successorToken, useRefresh } from "./as-refresh";
+import { drainRevocations, revokeFamily } from "./as-grants";
+import {
+  loadRefresh,
+  loadReplay,
+  REFRESH_TOKEN_RE,
+  standing,
+  successorToken,
+  useRefresh,
+} from "./as-refresh";
+import { openResponse, sealResponse, secretGeneration } from "./as-refresh-replay";
 import type { AuthRegistry } from "./registry";
 
 export interface RefreshContext {
@@ -53,6 +67,14 @@ export async function refreshGrant(
     return x.fail(400, "invalid_grant", "the refresh token is invalid");
   };
 
+  // ---- revocations owed to the registry are paid before anything is decided on top of them
+  try {
+    drainRevocations(db, registry);
+  } catch (e) {
+    log(`token not refreshed: ${e instanceof Error ? e.message : "revocations not recorded"}`);
+    return x.fail(500, "server_error", "the access token could not be issued");
+  }
+
   // ---- the token, and who it belongs to
   if (!REFRESH_TOKEN_RE.test(token)) return bad("not a refresh token");
   const rec = loadRefresh(db, token);
@@ -60,11 +82,44 @@ export async function refreshGrant(
   // Bound to the client it was issued to: anyone else learns nothing and changes nothing.
   if (rec.clientId !== client.clientId) return bad("refresh token issued to another client");
   const successor = successorToken(x.secret, token);
-  const state = standing(db, rec, successor, now());
-  if (state === "reuse") {
-    revokeFamily(db, registry, rec.familyId, "refresh_token_reuse", now());
-    return bad(`refresh token reuse, client=${rec.clientId}: the family is revoked`);
-  }
+  const secretGen = secretGeneration(x.secret);
+  /** The token's own client presented a reuse, or a token of a retired secret: the family goes. */
+  const retire = (why: "reuse" | "foreign") => {
+    revokeFamily(db, registry, rec.familyId, `refresh_token_${why}`, now());
+    return bad(
+      why === "reuse"
+        ? `refresh token reuse, client=${rec.clientId}: the family is revoked`
+        : `refresh token of a replaced server secret, client=${rec.clientId}: the family is revoked`,
+    );
+  };
+  const answer = (r: { token: string; scope: string; expiresIn: number }) => {
+    log(`token refreshed client=${client.clientId}`);
+    c.header("pragma", "no-cache");
+    return c.json({
+      access_token: r.token,
+      token_type: "Bearer",
+      expires_in: r.expiresIn,
+      refresh_token: successor,
+      scope: r.scope,
+    });
+  };
+  /** The stored first response, if it is still good for exactly what this request asks. */
+  const replayed = (vault: string | null, scope: string): Response | undefined => {
+    const stored = openResponse(x.secret, rec.tokenHash, loadReplay(db, rec.tokenHash));
+    const left = stored === undefined ? 0 : stored.exp * 1000 - now();
+    if (
+      stored === undefined ||
+      left <= 0 ||
+      stored.vault !== vault ||
+      stored.scope !== scope ||
+      registry.isRevoked(stored.jti)
+    ) {
+      return undefined;
+    }
+    return answer({ token: stored.token, scope: stored.scope, expiresIn: Math.ceil(left / 1000) });
+  };
+  const state = standing(db, rec, { successor, secretGen, now: now() });
+  if (state === "reuse" || state === "foreign") return retire(state);
   if (state === "dead") return bad("revoked, expired or no longer usable");
 
   // ---- the scope: narrower than the family's, never wider
@@ -81,6 +136,10 @@ export async function refreshGrant(
     return bad(`account bounds no longer allow this grant, client=${rec.clientId}`);
   }
   const scope = bounded.scopes.join(" ");
+
+  // ---- the window: a retry gets the first response again and mints nothing
+  if (state === "retry")
+    return replayed(bounded.vault, scope) ?? bad("the stored response cannot be repeated");
 
   // ---- issue: record and sign the access token, then commit the rotation
   let minted: { token: string; jti: string };
@@ -100,28 +159,28 @@ export async function refreshGrant(
   }
   let outcome: ReturnType<typeof useRefresh>;
   try {
-    outcome = useRefresh(db, { token, successor, now: now() });
+    const replay = sealResponse(x.secret, rec.tokenHash, {
+      token: minted.token,
+      jti: minted.jti,
+      exp: decodeJwt(minted.token).exp as number,
+      scope,
+      vault: bounded.vault,
+    });
+    outcome = useRefresh(db, { token, successor, secretGen, replay, now: now() });
   } catch (e) {
     registry.revoke(minted.jti, "refresh_not_committed");
     log(`token not refreshed: ${e instanceof Error ? e.message : "rotation failed"}`);
     return x.fail(500, "server_error", "the access token could not be issued");
   }
-  if (outcome === "reuse") {
-    // Lost a race to the successor's first use: the token is behind, and that is a reuse.
-    revokeFamily(db, registry, rec.familyId, "refresh_token_reuse", now());
-    return bad(`refresh token reuse, client=${rec.clientId}: the family is revoked`);
-  }
+  if (outcome === "reuse" || outcome === "foreign") return retire(outcome);
   if (outcome === "dead") {
     registry.revoke(minted.jti, "refresh_refused");
     return bad("revoked or expired while refreshing");
   }
-  log(`token refreshed client=${client.clientId}`);
-  c.header("pragma", "no-cache");
-  return c.json({
-    access_token: minted.token,
-    token_type: "Bearer",
-    expires_in: x.access.accessTokenSeconds,
-    refresh_token: successor,
-    scope,
-  });
+  if (outcome === "retry") {
+    // Another request of this token committed first: its response is THE response, ours was never out.
+    registry.revoke(minted.jti, "refresh_superseded");
+    return replayed(bounded.vault, scope) ?? bad("the stored response cannot be repeated");
+  }
+  return answer({ token: minted.token, scope, expiresIn: x.access.accessTokenSeconds });
 }

@@ -159,6 +159,9 @@ export const OAUTH_MIGRATION_FILES = [
   "20261003_950_oauth_core.sql",
   // 20261008_951 adds auth_requests.source_hash for the per-source admission limit. See the header.
   "20261008_951_auth_requests_source.sql",
+  // 20261008_952 adds refresh_tokens.secret_gen and .replay and the revocation_outbox table (refresh
+  // hardening after review). See the header.
+  "20261008_952_refresh_hardening.sql",
 ] as const;
 
 /**

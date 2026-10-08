@@ -21,6 +21,7 @@ import { loadCode, revokeFamily } from "./as-grants";
 import { type AsRouteDeps, enabledAs } from "./as-metadata";
 import { consumeCodeAndStartFamily, newRefreshToken } from "./as-refresh";
 import { refreshGrant } from "./as-refresh-grant";
+import { secretGeneration } from "./as-refresh-replay";
 
 type AuthConfig = ServerConfig["auth"];
 
@@ -171,6 +172,7 @@ export function mountTokenRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps)
         scope,
         now: now(),
         days: as.refreshTokenDays,
+        secretGen: secretGeneration(deps.secret),
       });
     } catch (e) {
       revokeFamily(db, registry, rec.codeHash, "authorization_code_failed", now());

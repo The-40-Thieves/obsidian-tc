@@ -301,7 +301,11 @@ export function consumeCode(db: Database, codeHash: string, now: number): boolea
  * transaction: an exchange or refresh in another process records its jti before it commits, so either
  * it committed before this transaction (its jti is read here) or it finds its token revoked at commit,
  * refuses, and revokes the jti it recorded itself. Neither order leaves a live access token behind.
- * The registry (auth.db) is written after the commit, one jti at a time.
+ *
+ * The registry (auth.db) is a different file, so the jtis are not written there inside the transaction:
+ * each is queued in `revocation_outbox` in the SAME transaction, then drained into the registry after
+ * the commit. A registry that fails (busy, full) or a crash in between leaves the debt on disk; it is
+ * paid by the next drain (see `drainRevocations`), so a committed revocation never strands a live token.
  */
 export function revokeFamily(
   db: Database,
@@ -310,16 +314,57 @@ export function revokeFamily(
   reason: string,
   now: number,
 ): number {
-  const jtis = inWriteTransaction(db, "as_grants", () => {
-    db.prepare(
-      "UPDATE refresh_tokens SET revoked_at = ? WHERE family_id = ? AND revoked_at IS NULL",
-    ).run(now, familyId);
-    return db.prepare("SELECT jti FROM issued_access WHERE family_id = ?").all(familyId) as Array<{
-      jti: string;
-    }>;
-  });
-  for (const { jti } of jtis) registry.revoke(jti, reason);
-  return jtis.length;
+  const jtis = inWriteTransaction(db, "as_grants", () =>
+    queueFamilyRevocation(db, familyId, reason, now),
+  );
+  drainRevocations(db, registry);
+  return jtis;
+}
+
+/** Inside the caller's write transaction: mark the family and queue every jti it issued. Returns how many. */
+function queueFamilyRevocation(
+  db: Database,
+  familyId: string,
+  reason: string,
+  now: number,
+): number {
+  db.prepare(
+    "UPDATE refresh_tokens SET revoked_at = ? WHERE family_id = ? AND revoked_at IS NULL",
+  ).run(now, familyId);
+  db.prepare(
+    `INSERT INTO revocation_outbox (jti, reason, created_at)
+     SELECT jti, ?, ? FROM issued_access WHERE family_id = ? ON CONFLICT (jti) DO NOTHING`,
+  ).run(reason, now, familyId);
+  const n = db
+    .prepare("SELECT COUNT(*) AS n FROM issued_access WHERE family_id = ?")
+    .get(familyId) as { n: number };
+  return n.n;
+}
+
+/**
+ * Pay the revocations oauth.db owes the registry: write each queued jti to auth.db, deleting its row
+ * only after that write succeeded. Idempotent (the registry treats an already revoked jti as done), so
+ * two drains at once, or a drain after a crash, are harmless. One failing jti does not stop the others;
+ * the first failure is rethrown after the pass, with its row still queued. Returns how many it paid.
+ * Called after every revocation, at startup and on the maintenance sweep, and before a refresh decides.
+ */
+export function drainRevocations(db: Database, registry: Pick<AuthRegistry, "revoke">): number {
+  const owed = db
+    .prepare("SELECT jti, reason FROM revocation_outbox ORDER BY created_at, jti")
+    .all() as Array<{ jti: string; reason: string }>;
+  let paid = 0;
+  let failure: unknown;
+  for (const { jti, reason } of owed) {
+    try {
+      registry.revoke(jti, reason);
+      db.prepare("DELETE FROM revocation_outbox WHERE jti = ?").run(jti);
+      paid += 1;
+    } catch (e) {
+      failure ??= e;
+    }
+  }
+  if (failure !== undefined) throw failure;
+  return paid;
 }
 
 export interface GrantSummary {
@@ -363,7 +408,9 @@ export interface GrantRevocation {
 /**
  * Revoke a grant: it can issue no more (its codes and refresh tokens are refused), and every family
  * issued under it is revoked with its access tokens. Safe to repeat: a second call re-sweeps and
- * reports `already_revoked`. The grant is marked first, so a refresh in flight refuses at commit.
+ * reports `already_revoked`. The grant, every family and the queued jtis are ONE write transaction (a
+ * refresh in flight refuses at commit), drained into the registry after it: a failure there is
+ * repaired by the next drain or by repeating the command.
  */
 export function revokeGrant(
   db: Database,
@@ -372,27 +419,31 @@ export function revokeGrant(
   reason: string,
   now: number,
 ): GrantRevocation {
-  const row = db.prepare("SELECT revoked_at FROM grants WHERE id = ?").get(grantId) as
-    | { revoked_at: number | null }
-    | undefined;
-  if (row === undefined) return { status: "not_found", families: 0, accessTokens: 0 };
-  db.prepare("UPDATE grants SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?").run(
-    now,
-    grantId,
-  );
-  const families = db
-    .prepare(
-      `SELECT family_id FROM refresh_tokens WHERE grant_id = ?
-       UNION SELECT family_id FROM issued_access WHERE grant_id = ?`,
-    )
-    .all(grantId, grantId) as Array<{ family_id: string }>;
-  let accessTokens = 0;
-  for (const { family_id } of families) {
-    accessTokens += revokeFamily(db, registry, family_id, reason, now);
-  }
-  return {
-    status: row.revoked_at === null ? "revoked" : "already_revoked",
-    families: families.length,
-    accessTokens,
-  };
+  const out = inWriteTransaction(db, "as_grants", (): GrantRevocation => {
+    const row = db.prepare("SELECT revoked_at FROM grants WHERE id = ?").get(grantId) as
+      | { revoked_at: number | null }
+      | undefined;
+    if (row === undefined) return { status: "not_found", families: 0, accessTokens: 0 };
+    db.prepare("UPDATE grants SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?").run(
+      now,
+      grantId,
+    );
+    const families = db
+      .prepare(
+        `SELECT family_id FROM refresh_tokens WHERE grant_id = ?
+         UNION SELECT family_id FROM issued_access WHERE grant_id = ?`,
+      )
+      .all(grantId, grantId) as Array<{ family_id: string }>;
+    let accessTokens = 0;
+    for (const { family_id } of families) {
+      accessTokens += queueFamilyRevocation(db, family_id, reason, now);
+    }
+    return {
+      status: row.revoked_at === null ? "revoked" : "already_revoked",
+      families: families.length,
+      accessTokens,
+    };
+  });
+  drainRevocations(db, registry);
+  return out;
 }

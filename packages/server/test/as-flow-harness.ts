@@ -73,6 +73,8 @@ export interface Flow extends OperatorFixture {
   auth: ServerConfig["auth"];
   /** The same oauth.db the routes use. */
   db: ReturnType<typeof openMemoryDb>;
+  /** The same stores behind a freshly started app whose server secret is `secret` (a replaced secret). */
+  restartWith(secret: string): Flow;
 }
 
 export async function makeFlow(
@@ -150,43 +152,48 @@ export async function makeFlow(
     handler: () => ({}),
   } as never);
 
-  const handle = createHttpApp({
-    name: "obsidian-tc",
-    version: "t",
-    registry: tools,
-    vaultRegistry,
-    auth,
-    db: cacheDb,
-    authRegistry: registry,
-    vaultId: opts.defaultVault ?? vaultDefs[0]?.id ?? "v1",
-    acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
-    enableDnsRebindingProtection: false,
-    personas: config.personas,
-  });
-
   const clock = { t: Date.now() };
   const logs: string[] = [];
   const log = (line: string) => logs.push(line);
-  mountAsOperator(handle.app, {
-    auth,
-    db,
-    secret: SECRET,
-    now: () => clock.t,
-    log,
-    env: {},
-    clientIp: (c) => c.req.header("x-test-ip"),
-  });
-  mountAsRoutes(handle.app, auth, {
-    db,
-    registry,
-    secret: SECRET,
-    personas: config.personas,
-    now: () => clock.t,
-    log,
-    clientIp: (c) => c.req.header("x-test-ip"),
-  });
+  // The HTTP app over THIS oauth.db and registry, for the server secret `secret`: a restart with a
+  // replaced secret is a second app over the same stores.
+  const appFor = (secret: string): HttpApp => {
+    const handle = createHttpApp({
+      name: "obsidian-tc",
+      version: "t",
+      registry: tools,
+      vaultRegistry,
+      auth,
+      db: cacheDb,
+      authRegistry: registry,
+      vaultId: opts.defaultVault ?? vaultDefs[0]?.id ?? "v1",
+      acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
+      enableDnsRebindingProtection: false,
+      personas: config.personas,
+    });
+    mountAsOperator(handle.app, {
+      auth,
+      db,
+      secret,
+      now: () => clock.t,
+      log,
+      env: {},
+      clientIp: (c) => c.req.header("x-test-ip"),
+    });
+    mountAsRoutes(handle.app, auth, {
+      db,
+      registry,
+      secret,
+      personas: config.personas,
+      now: () => clock.t,
+      log,
+      clientIp: (c) => c.req.header("x-test-ip"),
+    });
+    return handle;
+  };
+  const handle = appFor(SECRET);
 
-  return {
+  const flow: Flow = {
     handle,
     app: handle.app,
     db,
@@ -198,7 +205,12 @@ export async function makeFlow(
     url: (path: string) => `${ISSUER}${path}`,
     registry,
     auth,
+    restartWith: (secret: string) => {
+      const next = appFor(secret);
+      return { ...flow, handle: next, app: next.app };
+    },
   };
+  return flow;
 }
 
 export const sha256Url = (s: string): string => createHash("sha256").update(s).digest("base64url");

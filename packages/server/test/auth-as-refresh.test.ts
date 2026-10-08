@@ -278,9 +278,10 @@ describe("the one-step window", () => {
     const b = await next(flow, a.refresh);
     const retry = await next(flow, a.refresh); // the response carrying `b` was lost
     expect(retry.refresh).toBe(b.refresh);
-    expect(retry.access).not.toBe(b.access);
+    // The whole response is idempotent: the retry is handed the access token the first request made.
+    expect(retry.access).toBe(b.access);
     expect(familyRows(flow)).toHaveLength(2);
-    for (const t of [a.access, b.access, retry.access]) expect(await mcpPing(flow, t)).toBe(200);
+    for (const t of [a.access, b.access]) expect(await mcpPing(flow, t)).toBe(200);
     // ...and the family carries on from there.
     const c = await next(flow, retry.refresh);
     expect(c.refresh).not.toBe(b.refresh);
@@ -325,6 +326,7 @@ describe("two simultaneous refreshes of the same token", () => {
     // The design's window accepts the previous token until its successor is used, so every success
     // carries the one successor: no second live token ever exists.
     expect(new Set(ok.map((r) => r.body.refresh_token)).size).toBe(1);
+    expect(new Set(ok.map((r) => r.body.access_token)).size).toBe(1);
     expect(familyRows(flow)).toHaveLength(2);
     expect(familyRows(flow).every((r) => r.revoked_at === null)).toBe(true);
     const successor = ok[0]?.body.refresh_token as string;

@@ -11,6 +11,7 @@
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
 import { configuredJwksOverlap, ensureAsKey } from "../auth/as-boot";
+import { drainRevocations } from "../auth/as-grants";
 import { enabledAs } from "../auth/as-metadata";
 import { assertArgon2Runtime } from "../auth/as-password";
 import { describeJwksTarget, jwksModeLine } from "../auth/jwks-network";
@@ -183,8 +184,19 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
             `the operator claims it with \`obsidian-tc auth as set-password\` on this host${viaPage ? `, or at ${as.issuer}/oauth/setup with the setup token` : ""}\n`,
         );
       }
-      reapOauthDb = () =>
-        gcOauthDb(store.db, { now: Date.now(), dcrUnusedDays: as.dcr.unusedDays }).total;
+      const registry = authRegistry;
+      // The revocations a crash or a busy auth.db left owed (`revocation_outbox`) are paid first, at boot
+      // and on every sweep; a registry that still cannot take them is reported, never fatal here.
+      reapOauthDb = () => {
+        try {
+          drainRevocations(store.db, registry);
+        } catch (e) {
+          process.stderr.write(
+            `[as] revocations not yet recorded in the registry: ${e instanceof Error ? e.message : String(e)}\n`,
+          );
+        }
+        return gcOauthDb(store.db, { now: Date.now(), dcrUnusedDays: as.dcr.unusedDays }).total;
+      };
       reapOauthDb();
     }
     // ONE bearer verifier for every listener that checks bearers. oidc: discover the identity
