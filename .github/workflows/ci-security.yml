@@ -231,19 +231,39 @@ jobs:
         # unrelated PR turns red the week a rule is added. The same reasoning pins it in the host
         # mise config. Bump deliberately, and re-run the baseline when doing so.
         run: pip install --disable-pip-version-check checkov==3.3.26
-      - name: checkov (Dockerfile + GitHub Actions policy)
-        # Exceptions live in .checkov.yml with their reasons, matching how _typos.toml and
-        # .gitleaks.toml carry this repo's other scanner exceptions. Two rules are skipped there;
-        # 996 checks still run (58 Dockerfile + 938 workflows at wiring time).
-        #
-        # --framework is explicit so the run cannot silently widen: checkov auto-detects ~30
-        # frameworks, and a future terraform/ or helm/ directory appearing in the repo would
-        # otherwise start gating this job on rules nobody reviewed.
+      # TWO invocations, one per target. A single run with both `-f Dockerfile` and
+      # `-d .github/workflows` printed only the github_actions block: the dockerfile framework
+      # result never appeared, so the Dockerfile had no checkov coverage in CI (measured on checkov
+      # 3.2.395 and 3.3.26: Dockerfile alone = 102 passed, the combined run = github_actions only).
+      #
+      # Each step carries an EXISTENCE FLOOR: it writes checkov's JSON next to the human-readable
+      # log (`--output-file-path console,<file>`) and fails when the summary reports zero checks,
+      # so a framework that silently stops running cannot read as green.
+      #
+      # Exceptions live in .checkov.yml with their reasons, matching how _typos.toml and
+      # .gitleaks.toml carry this repo's other scanner exceptions. Two rules are skipped there.
+      #
+      # --framework is explicit so the run cannot silently widen: checkov auto-detects ~30
+      # frameworks, and a future terraform/ or helm/ directory appearing in the repo would
+      # otherwise start gating this job on rules nobody reviewed.
+      - name: checkov (Dockerfile policy)
         run: |
           set -euo pipefail
+          out="${RUNNER_TEMP}/checkov-dockerfile.json"
           checkov --config-file .checkov.yml --quiet --compact \
-            --framework dockerfile --framework github_actions \
-            -f Dockerfile -d .github/workflows
+            --framework dockerfile -f Dockerfile \
+            -o cli -o json --output-file-path "console,${out}"
+          jq -e '[.] | flatten | map((.summary // .) | .passed + .failed) | add > 0' "${out}" >/dev/null \
+            || { echo "::error::checkov reported 0 dockerfile checks (existence floor)"; exit 1; }
+      - name: checkov (GitHub Actions policy)
+        run: |
+          set -euo pipefail
+          out="${RUNNER_TEMP}/checkov-github-actions.json"
+          checkov --config-file .checkov.yml --quiet --compact \
+            --framework github_actions -d .github/workflows \
+            -o cli -o json --output-file-path "console,${out}"
+          jq -e '[.] | flatten | map((.summary // .) | .passed + .failed) | add > 0' "${out}" >/dev/null \
+            || { echo "::error::checkov reported 0 github_actions checks (existence floor)"; exit 1; }
 
   cargo-audit:
     runs-on: ubuntu-latest
