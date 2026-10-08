@@ -24,13 +24,15 @@
 // has the mirror-image residual: while a note is moved aside its name is empty, and a note another
 // process writes there in that gap is kept, so the pre-image then lives only in the snapshot.
 import { randomBytes } from "node:crypto";
-import { existsSync, lstatSync, renameSync, rmdirSync, unlinkSync } from "node:fs";
+import { existsSync, lstatSync } from "node:fs";
 import { dirname } from "node:path";
 import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import {
+  hardDelete,
   moveNoReplace,
   readFileChecked,
   readNote,
+  removeEmptyDir,
   type StagedWrite,
   stageNoteWrite,
   writeNoteAtomic,
@@ -90,7 +92,7 @@ function missingDirs(abs: string): string[] {
 function removeMadeDirs(dirs: readonly string[]): void {
   for (const d of [...dirs].reverse()) {
     try {
-      rmdirSync(d);
+      removeEmptyDir(d);
     } catch {
       // not empty or already gone
     }
@@ -109,7 +111,7 @@ function currentHash(abs: string): string | null {
 /** Drop a file we own; a name that will not go is only litter. */
 function dropQuietly(abs: string): void {
   try {
-    unlinkSync(abs);
+    hardDelete(abs);
   } catch {
     // best-effort cleanup: nothing more to do if the removal fails
   }
@@ -133,7 +135,7 @@ type UndoOutcome = "undone" | "diverged" | "stuck";
 function undoWrittenNote(abs: string, writtenHash: string, prevRaw: string | null): UndoOutcome {
   const aside = `${abs}.tmp-${process.pid}-${randomBytes(8).toString("hex")}`;
   try {
-    renameSync(abs, aside);
+    moveNoReplace(abs, aside);
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === "ENOENT")
       return prevRaw === null ? "undone" : "diverged";
@@ -217,7 +219,7 @@ function removeUnchanged(removals: readonly BatchRemoval[]): void {
     const suffix = `.tmp-${process.pid}-${randomBytes(8).toString("hex")}`;
     const tmp = `${r.abs}${suffix}`;
     try {
-      renameSync(r.abs, tmp);
+      moveNoReplace(r.abs, tmp);
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === "ENOENT") continue;
       failure = e;

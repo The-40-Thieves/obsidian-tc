@@ -72,6 +72,13 @@ export declare function safeRenameNoReplace(
   toPinned?: PinnedDir,
 ): void;
 
+/** Symlink-safe unlink of the leaf `abs`: the parent is opened following no symlink in any component
+ *  (with `pinned`, the pinned directory must still be the directory it was pinned as), then the leaf
+ *  is removed on that verified directory, so a retarget after the caller's check cannot redirect it.
+ *  Resolves true when the leaf was removed, false when it was already absent; a directory is an
+ *  error. Unix native module only (undefined on an older binary and on the pure-JS fallback). */
+export declare function safeUnlink(abs: string, pinned?: PinnedDir): boolean;
+
 /** True when the compiled native binary is active; false when on the pure-JS fallback. */
 export declare const nativeLoaded: boolean;
 

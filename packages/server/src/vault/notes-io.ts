@@ -19,13 +19,13 @@ import {
   readFileSync,
   readSync,
   renameSync,
+  rmdirSync,
   rmSync,
   type Stats,
   statSync,
   unlinkSync,
   writeSync,
 } from "node:fs";
-import { createRequire } from "node:module";
 import { basename, dirname, join, parse, relative, sep } from "node:path";
 import {
   err,
@@ -36,7 +36,13 @@ import { existsNoFollow } from "../auth/key-files";
 import { enforceMemoryDefenseOnNoteWrite } from "../experiential/memory-defense";
 import { redactSecrets } from "../experiential/redact";
 import type { MetricsRecorder } from "../metrics/registry";
-import { type PinnedDir, pinnedOpenPath } from "./folder-links";
+import {
+  type NativeVaultIo,
+  nativeIo,
+  nativeOpen,
+  nativeVaultIo,
+  refuseJsThroughPin,
+} from "./native-io";
 import { assertCreatableName, contentHash } from "./paths";
 
 // O_NOFOLLOW is POSIX-only (undefined on Windows Node): 0 is a no-op there, and the st_nlink inode
@@ -44,58 +50,10 @@ import { assertCreatableName, contentHash } from "./paths";
 const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 
 // THE-272: prefer the native, symlink-safe, TOCTOU-free open when the compiled module is loaded: it
-// follows no symlink in ANY path component. Without it (unsupported platform, no addon, or
-// `OBSIDIAN_TC_FORCE_JS_FALLBACK=1`) the JS path keeps its documented residual.
-interface NativeVaultIo {
-  safeReadNote(abs: string, pinned?: PinnedDir): Buffer;
-  safeWriteNoteAtomic(abs: string, data: Buffer): void;
-  /** No-replace write / rename. Optional: an older .node predates them and the JS link+unlink path
-   *  is used (an extra argument to safeWriteNoteAtomic would be silently ignored by such a binary). */
-  safeWriteNoteExclusive?(abs: string, data: Buffer): void;
-  safeRenameNoReplace?(
-    fromAbs: string,
-    toAbs: string,
-    fromPinned?: PinnedDir,
-    toPinned?: PinnedDir,
-  ): void;
-  /** The binary verifies a PinnedDir (`SAFE_IO_PINNED_DIR`). An older one would ignore the pin, so
-   *  without it no path is translated to a pinned directory (the walk refuses the symlink). */
-  pinnedDirs: boolean;
-}
-const NATIVE_PKG = ["@the-40-thieves", "obsidian-tc-native"].join("/");
-function loadNativeIo(): NativeVaultIo | null {
-  if (process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK === "1") return null;
-  try {
-    const mod = createRequire(import.meta.url)(NATIVE_PKG) as Partial<NativeVaultIo> & {
-      nativeLoaded?: boolean;
-      SAFE_IO_PINNED_DIR?: boolean;
-    };
-    if (
-      mod.nativeLoaded === true &&
-      typeof mod.safeReadNote === "function" &&
-      typeof mod.safeWriteNoteAtomic === "function"
-    ) {
-      return {
-        safeReadNote: mod.safeReadNote,
-        safeWriteNoteAtomic: mod.safeWriteNoteAtomic,
-        pinnedDirs: mod.SAFE_IO_PINNED_DIR === true,
-        ...(typeof mod.safeWriteNoteExclusive === "function"
-          ? { safeWriteNoteExclusive: mod.safeWriteNoteExclusive }
-          : {}),
-        ...(typeof mod.safeRenameNoReplace === "function"
-          ? { safeRenameNoReplace: mod.safeRenameNoReplace }
-          : {}),
-      };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-const nativeIo = loadNativeIo();
-
-/** True when note reads/writes route through the native symlink-safe open (THE-272). */
-export const nativeVaultIo: boolean = nativeIo !== null;
+// follows no symlink in ANY path component (vault/native-io.ts). Without it (unsupported platform, no
+// addon, or `OBSIDIAN_TC_FORCE_JS_FALLBACK=1`) the JS path keeps its documented residual, and refuses
+// any path that runs through a configured symlinked (pinned) folder.
+export { nativeVaultIo };
 
 /** Reclassify a native safe-open rejection at `abs`: a genuinely-missing path keeps ENOENT
  *  semantics (matching the JS path's openSync), while a path that resolves — through a symlink or a
@@ -109,29 +67,15 @@ function mapNativeReadError(e: unknown, abs: string): never {
   throw err.aclDenied(`safe open refused the path: ${(e as Error).message}`, { path: abs });
 }
 
-/** `abs` as the native open takes it: under a placed folder pin (vault/folder-links.ts), the pinned
- *  directory plus the identity the native walk verifies; otherwise `abs` itself. */
-function nativeOpen(abs: string): { path: string; pinned?: PinnedDir } {
-  return nativeIo?.pinnedDirs ? pinnedOpenPath(abs) : { path: abs };
-}
-
 function nativeRead(io: NativeVaultIo, abs: string): Buffer {
   const { path, pinned } = nativeOpen(abs);
   return io.safeReadNote(path, pinned);
 }
 
-/** The JS fallback opens the pinned directory too, after checking it is still the directory that
- *  was pinned. Node has no openat, so this check and the open are two lookups: a narrower window,
- *  not a closed one (the fallback's open-time TOCTOU is a documented residual). */
+/** The JS read path: refuse a path through a pinned folder, else open `abs` as it is. */
 function fallbackOpenPath(abs: string): string {
-  const { path, pinned } = pinnedOpenPath(abs);
-  if (pinned === undefined) return path;
-  const st = statSync(pinned.dir, { bigint: true, throwIfNoEntry: false });
-  if (st?.dev !== pinned.dev || st.ino !== pinned.ino)
-    throw err.aclDenied("a pinned folder is no longer the directory it was pinned as", {
-      path: abs,
-    });
-  return path;
+  refuseJsThroughPin(abs);
+  return abs;
 }
 
 export interface NoteStat {
@@ -337,12 +281,13 @@ export function writeFileAtomic(
 ): void {
   // Backstop for writers that skipped enforcePathAcl("write"): creating a Windows-hostile leaf name
   // is refused here too (an existing file stays updatable in place).
-  if (!opts.replacesExisting && !existsNoFollow(abs))
-    assertCreatableName(basename(abs), basename(abs));
-  if (createDirs) ensureDirNoFollow(dirname(abs));
   const nativeWrite = opts.exclusive
     ? nativeIo?.safeWriteNoteExclusive
     : nativeIo?.safeWriteNoteAtomic;
+  if (!nativeWrite) refuseJsThroughPin(abs);
+  if (!opts.replacesExisting && !existsNoFollow(abs))
+    assertCreatableName(basename(abs), basename(abs));
+  if (createDirs) ensureDirNoFollow(dirname(abs));
   if (nativeIo && nativeWrite) {
     try {
       nativeWrite(abs, data);
@@ -415,6 +360,7 @@ export function stageNoteWrite(
 ): StagedWrite {
   const data = Buffer.from(content, "utf8");
   if (nativeIo) return { commit: () => writeFileAtomic(abs, data, createDirs, opts), discard() {} };
+  refuseJsThroughPin(abs);
   if (!opts.replacesExisting && !existsNoFollow(abs))
     assertCreatableName(basename(abs), basename(abs));
   if (createDirs) ensureDirNoFollow(dirname(abs));
@@ -466,6 +412,8 @@ export function moveNoReplace(fromAbs: string, toAbs: string): void {
       });
     }
   }
+  refuseJsThroughPin(fromAbs);
+  refuseJsThroughPin(toAbs);
   ensureDirNoFollow(dirname(fromAbs), false);
   ensureDirNoFollow(dirname(toAbs), false);
   try {
@@ -679,6 +627,31 @@ export function replaceDestination<T = void>(args: {
   return { trashedTo, value };
 }
 
+/**
+ * Permanently remove the file at `abs` (a missing one is not an error). Native: `unlinkat` on a
+ * parent opened following no symlink, through the pinned directory under a pinned folder, so a
+ * symlink retargeted after the caller's ACL decision cannot redirect the delete. Without the native
+ * primitive a path through a pinned folder is refused (vault/native-io.ts).
+ */
 export function hardDelete(abs: string): void {
+  if (nativeIo?.safeUnlink) {
+    const { path, pinned } = nativeOpen(abs);
+    try {
+      nativeIo.safeUnlink(path, pinned);
+      return;
+    } catch (e) {
+      // A parent that is not there leaves nothing to remove, as `rmSync({ force })` would say.
+      if (pinned === undefined && !existsSync(dirname(abs))) return;
+      throw err.aclDenied(`safe delete refused the path: ${(e as Error).message}`, { path: abs });
+    }
+  }
+  refuseJsThroughPin(abs);
   rmSync(abs, { force: true });
+}
+
+/** Remove the empty directory at `abs`, which a batch made. Never through a pinned folder: a pin is
+ *  opened only by the native walk, which has no directory removal, so that is refused. */
+export function removeEmptyDir(abs: string): void {
+  refuseJsThroughPin(abs);
+  rmdirSync(abs);
 }

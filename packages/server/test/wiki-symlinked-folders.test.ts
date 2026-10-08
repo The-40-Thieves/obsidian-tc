@@ -18,6 +18,7 @@ import { NO_EXCLUSION } from "../src/search/index-exclusion";
 import { registerM1Tools } from "../src/tools/m1";
 import { isGeneratedWikiPath, rawPathFilter } from "../src/tools/m7/knowledge/wiki-folder";
 import { loadSendable } from "../src/tools/m7/knowledge/wiki-judge";
+import { nativeVaultIo } from "../src/vault/notes-io";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 import { makeWikiHarness, type WikiHarness } from "./wiki-test-helpers";
@@ -71,7 +72,8 @@ describe.skipIf(process.platform === "win32")(
 
     it("with read:provenance both spellings read; an unrelated log.md is untouched", async () => {
       symlinked();
-      expect((await read("wiki/log.md", WITH_PROVENANCE)).ok).toBe(true);
+      // The symlinked spelling is served through the pin, which only the native module can open.
+      expect((await read("wiki/log.md", WITH_PROVENANCE)).ok).toBe(nativeVaultIo);
       expect((await read("pages/log.md", WITH_PROVENANCE)).ok).toBe(true);
       expect((await read("notes/log.md", NOTES_ONLY)).ok).toBe(true);
     });
@@ -162,7 +164,8 @@ describe.skipIf(process.platform === "win32")(
         const denied = await read(path, ["read:notes"]);
         expect(denied.ok).toBe(false);
         expect(JSON.stringify(denied)).not.toContain("alice-the-principal");
-        expect((await read(path, ["read:notes", "read:provenance"])).ok).toBe(true);
+        const served = path.startsWith("wiki/") ? nativeVaultIo : true;
+        expect((await read(path, ["read:notes", "read:provenance"])).ok).toBe(served);
       }
     });
   },

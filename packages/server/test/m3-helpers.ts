@@ -27,6 +27,10 @@ export interface M3VaultOptions {
   reindex?: M3Deps["reindex"];
   /** GH #1027: the operator default (`tools.defaults.responseFormat`) a call naming no format gets. */
   responseFormat?: ResponseFormat;
+  /** Runs after `files` are written and before the registry is built (lay out a symlinked folder). */
+  setup?: (root: string) => void;
+  /** `vaults[].wiki.folder`: the registry then pins it when it is a symlink, and dispatch runs in its frame. */
+  wikiFolder?: string;
 }
 
 export interface EventRow {
@@ -70,12 +74,19 @@ export function makeM3Vault(opts: M3VaultOptions = {}): M3Vault {
   };
   for (const [rel, content] of Object.entries(opts.files ?? {})) writeFile(rel, content);
 
+  opts.setup?.(root);
+
   const db = openMemoryDb();
   provisionCacheDb(db);
   const aclCfg: AclConfigT = { readOnly: false, defaultScopes: [], rules: [], ...opts.acl };
   const acl = new FolderAcl(aclCfg);
-  const vaultRegistry = new VaultRegistry([{ id, path: root }]);
-  const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
+  const vaultRegistry = new VaultRegistry([
+    { id, path: root, ...(opts.wikiFolder ? { wiki: { folder: opts.wikiFolder } } : {}) },
+  ]);
+  const registry = new ToolRegistry({
+    verifyElicit: elicitVerifier,
+    folderPins: vaultRegistry.folderPins,
+  });
   registerM3Tools(registry, {
     vaultRegistry,
     ...(opts.templaterBridge ? { templaterBridge: opts.templaterBridge } : {}),

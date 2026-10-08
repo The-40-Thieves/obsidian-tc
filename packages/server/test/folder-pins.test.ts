@@ -296,7 +296,10 @@ describe.skipIf(process.platform === "win32")(
       const t = openAndRaw();
       seam.beforeTrash = () => swapRawIntoOpen(t.root);
       await confirmedDelete(t, "wiki/x.md");
-      expect(readFileSync(join(t.root, "open", "x.md"), "utf8")).toBe("RAW SOURCE\n");
+      // Without the native module the delete is refused at its first read through the pinned folder,
+      // so the swap never ran and the raw source is still in raw/.
+      const where = nativeVaultIo ? "open" : "raw";
+      expect(readFileSync(join(t.root, where, "x.md"), "utf8")).toBe("RAW SOURCE\n");
     });
 
     /** A wiki vault whose root is missing when the registry and the ACL are built. */
@@ -346,17 +349,20 @@ describe.skipIf(process.platform === "win32")(
         setup: (root) => symlinkSync(join(root, "pages"), join(root, "wiki")),
       });
 
-    it("a second registry (a sandbox's) built later leaves this registry's pins alone", async () => {
-      const t = pagesAndScratch();
-      const sandbox = makeTempDir("obtc-folder-pins-sandbox-");
-      temps.push(sandbox);
-      new VaultRegistry([{ id: "sandbox", path: sandbox }]);
-      const r = await t.call("read_note", { vault: "test", path: "wiki/a.md" });
-      expect(r.ok).toBe(true);
-      expect(JSON.stringify(r)).toContain("page A");
-    });
+    it.skipIf(!nativeVaultIo)(
+      "a second registry (a sandbox's) built later leaves this registry's pins alone",
+      async () => {
+        const t = pagesAndScratch();
+        const sandbox = makeTempDir("obtc-folder-pins-sandbox-");
+        temps.push(sandbox);
+        new VaultRegistry([{ id: "sandbox", path: sandbox }]);
+        const r = await t.call("read_note", { vault: "test", path: "wiki/a.md" });
+        expect(r.ok).toBe(true);
+        expect(JSON.stringify(r)).toContain("page A");
+      },
+    );
 
-    it("a resource read runs against the registry's pins too", async () => {
+    it.skipIf(!nativeVaultIo)("a resource read runs against the registry's pins too", async () => {
       const t = pagesAndScratch();
       const ctx = t.ctx();
       const uri = buildResourceUri(t.id, "wiki/a.md");
