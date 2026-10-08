@@ -201,6 +201,49 @@ describe("code injection and replay", () => {
     ).toBe(true);
   });
 
+  describe("knowing a used code is not enough to revoke what it issued", () => {
+    // Each case replays with ONE binding wrong: it is refused AND the first exchange's token survives.
+    const cases: Array<[string, Record<string, string | undefined>]> = [
+      ["another client", { client_id: LOOPBACK_CLIENT }],
+      ["another redirect_uri", { redirect_uri: "https://app.example/other" }],
+      ["another resource", { resource: "https://elsewhere.example/mcp" }],
+      ["a verifier that does not hash to the challenge", { code_verifier: pkce().verifier }],
+      ["a malformed verifier", { code_verifier: "short" }],
+      ["no verifier", { code_verifier: undefined }],
+    ];
+    for (const [name, over] of cases) {
+      it(`a replay with ${name} is refused and revokes nothing`, async () => {
+        const flow = await makeFlow();
+        const { code, verifier } = await codeFor(flow);
+        const first = await exchange(flow, tokenFields(code, verifier));
+        const token = first.body.access_token as string;
+        expect(await mcpPing(flow, token)).toBe(200);
+
+        const attempt = await exchange(flow, tokenFields(code, verifier, over));
+        expect(attempt.res.status).toBe(400);
+        expect(flow.registry.isRevoked(decodeJwt(token).jti as string)).toBe(false);
+        expect(await mcpPing(flow, token)).toBe(200);
+
+        // The real client replaying with every binding right still revokes the family.
+        const real = await exchange(flow, tokenFields(code, verifier));
+        expect(real.body.error).toBe("invalid_grant");
+        expect(await mcpPing(flow, token)).toBe(401);
+      });
+    }
+
+    it("a replay naming a confidential client without its secret is refused and revokes nothing", async () => {
+      const flow = await makeFlow();
+      const { code, verifier } = await codeFor(flow);
+      const token = (await exchange(flow, tokenFields(code, verifier))).body.access_token as string;
+      const attempt = await exchange(
+        flow,
+        tokenFields(code, verifier, { client_id: SECRET_CLIENT }),
+      );
+      expect(attempt.res.status).toBe(401);
+      expect(await mcpPing(flow, token)).toBe(200);
+    });
+  });
+
   it("a code lives 60 seconds", async () => {
     const flow = await makeFlow();
     const { code, verifier } = await codeFor(flow);

@@ -119,12 +119,8 @@ export function mountTokenRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps)
       return fail(c, 400, "invalid_grant", "the authorization code is invalid");
     };
     if (rec === undefined) return bad("unknown code");
-    if (rec.usedAt !== null) {
-      revokeFamily(db, registry, rec.codeHash, "authorization_code_reuse", now());
-      return bad(`code replay, client=${rec.clientId}: tokens issued from it are revoked`);
-    }
-    if (rec.expiresAt <= now()) return bad("expired code");
-    if (rec.grantRevoked) return bad("revoked grant");
+    // Every binding is proved BEFORE a used code counts as a replay by its holder: a code that became
+    // known to someone else (callback history, a loopback observer) must not let them revoke what it issued.
     if (rec.clientId !== client.clientId) return bad("code issued to another client");
     if (rec.redirectUri !== redirectUri) return bad("redirect_uri differs from the request");
     if (!sameResource(rec.resource, resource)) return bad("resource differs from the request");
@@ -133,6 +129,12 @@ export function mountTokenRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps)
       return bad("no usable verifier");
     const computed = createHash("sha256").update(verifier).digest("base64url");
     if (!secretsEqual(computed, rec.codeChallenge)) return bad("PKCE verifier mismatch");
+    if (rec.usedAt !== null) {
+      revokeFamily(db, registry, rec.codeHash, "authorization_code_reuse", now());
+      return bad(`code replay, client=${rec.clientId}: tokens issued from it are revoked`);
+    }
+    if (rec.expiresAt <= now()) return bad("expired code");
+    if (rec.grantRevoked) return bad("revoked grant");
 
     // ---- the account's bounds as they are NOW, not as they were at consent
     const bounds = accountBounds(db, rec.sub);
@@ -144,6 +146,7 @@ export function mountTokenRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps)
       return bad(`account bounds no longer allow this grant, client=${rec.clientId}`);
     }
     const scope = bounded.scopes.join(" ");
+    const vault = bounded.vault;
 
     // ---- issue
     const iat = Math.floor(now() / 1000);
@@ -172,7 +175,7 @@ export function mountTokenRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps)
         client_id: client.clientId,
         scope,
         ...(rec.persona !== null ? { persona: rec.persona } : {}),
-        ...(rec.vault !== null ? { vault: rec.vault } : {}),
+        ...(vault !== null ? { vault } : {}),
       })
         .setProtectedHeader({ alg, typ: "at+jwt", kid })
         .setIssuer(as.issuer)

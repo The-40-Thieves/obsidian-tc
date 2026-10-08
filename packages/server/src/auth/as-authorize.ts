@@ -6,7 +6,7 @@
 // answer to a form POST is a 303, so a browser never re-sends credentials to the redirect target.
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Context, Hono } from "hono";
-import { accountBounds, applyBounds } from "./as-account";
+import { accountBounds, applyBounds, narrowScopes } from "./as-account";
 import {
   type AsClient,
   describeScope,
@@ -27,6 +27,7 @@ import {
   type PendingRequest,
 } from "./as-grants";
 import { type AsRouteDeps, enabledAs } from "./as-metadata";
+import { socketClientIp } from "./as-operator";
 import type { SessionInfo } from "./as-operator-store";
 import { consentPage, messagePage } from "./as-pages";
 import { parseAuthorizeRequest } from "./as-request";
@@ -76,6 +77,7 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
   const { db, now, html } = b;
   const log = deps.log ?? defaultLog;
   const resource = auth.resource as string;
+  const clientIp = deps.clientIp ?? socketClientIp;
   const findClient = (id: string): AsClient | undefined => findStaticClient(as.clients, id);
 
   const localError = (c: Context, message: string) =>
@@ -127,7 +129,7 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
         state: outcome.state,
       });
     }
-    const handle = createPending(db, outcome.request, now());
+    const handle = createPending(db, outcome.request, now(), clientIp(c));
     if (handle === undefined) {
       c.header("retry-after", "60");
       return html(c, 503, messagePage("Busy", "Too many sign-ins are waiting. Try again shortly."));
@@ -207,11 +209,8 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
     }
     // Offer only what the account can still grant (POST re-applies the bounds either way).
     const bounds = accountBounds(db, session.sub);
-    const offered =
-      bounds === undefined
-        ? undefined
-        : applyBounds(bounds, { scopes: pending.scopes, vault: null });
-    const shown = offered?.ok ? offered.scopes : pending.scopes;
+    const offered = bounds === undefined ? [] : narrowScopes(bounds, pending.scopes);
+    const shown = offered.length > 0 ? offered : pending.scopes;
     const personas = Object.entries(deps.personas ?? {}).map(([name, p]) => ({
       name,
       vaults: p.vaults,
@@ -281,13 +280,22 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
     if (bounds === undefined) return localError(c, "This account is not available.");
     const bounded = applyBounds(bounds, { scopes: pending.scopes, vault });
     if (!bounded.ok && bounded.reason === "vault") {
-      return localError(c, "This account may not use that vault.");
+      return localError(
+        c,
+        vault === null
+          ? "This account is limited to specific vaults. Choose a persona that names one."
+          : "This account may not use that vault.",
+      );
     }
     if (!bounded.ok) {
       discardPending(db, handle, now());
       return deniedTo(c, pending, "access_denied", "this account may not grant those scopes");
     }
-    const scopes = bounded.scopes;
-    return issue(c, handle, pending, session, { scopes, persona, vault });
+    // `bounded.vault` is the concrete vault: a vault-bounded account never gets an unbound grant.
+    return issue(c, handle, pending, session, {
+      scopes: bounded.scopes,
+      persona,
+      vault: bounded.vault,
+    });
   });
 }

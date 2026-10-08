@@ -15,6 +15,7 @@ import {
   Jar,
   loginFor,
   makeFlow,
+  mcpVaults,
   obtainCode,
   pkce,
   rows,
@@ -232,6 +233,7 @@ describe("accountBounds / applyBounds", () => {
     expect(applyBounds(b, { scopes: ["read:notes", "write:notes"], vault: "v1" })).toEqual({
       ok: true,
       scopes: ["read:notes"],
+      vault: "v1",
     });
     expect(applyBounds(b, { scopes: ["read:notes"], vault: "v2" })).toEqual({
       ok: false,
@@ -244,6 +246,157 @@ describe("accountBounds / applyBounds", () => {
     expect(applyBounds({}, { scopes: ["write:notes"], vault: "v9" })).toEqual({
       ok: true,
       scopes: ["write:notes"],
+      vault: "v9",
     });
+    expect(applyBounds({}, { scopes: ["write:notes"], vault: null })).toEqual({
+      ok: true,
+      scopes: ["write:notes"],
+      vault: null,
+    });
+  });
+
+  it("a vault-bounded account with no vault chosen gets its one permitted vault, never none", () => {
+    const want = { scopes: ["read:notes"], vault: null };
+    // The Codex finding, verbatim: this used to return success with no vault at all.
+    expect(applyBounds({ vaults: ["v1"] }, want)).toEqual({
+      ok: true,
+      scopes: ["read:notes"],
+      vault: "v1",
+    });
+    expect(applyBounds({ vaults: ["v1", "v2"] }, want)).toEqual({ ok: false, reason: "vault" });
+    expect(applyBounds({ vaults: [] }, want)).toEqual({ ok: false, reason: "vault" });
+  });
+
+  it("empty bounds are deny-all for their dimension; only a missing (NULL) bound is unbounded", async () => {
+    const flow = await makeFlow();
+    const sub = rows<{ sub: string }>(flow, "SELECT sub FROM users")[0]?.sub ?? "";
+    for (const empty of ["", "   ", ",", " , "]) {
+      narrow(flow, "scopes_allowed", empty);
+      narrow(flow, "vaults_allowed", empty);
+      expect(accountBounds(flow.db, sub), JSON.stringify(empty)).toEqual({
+        scopes: [],
+        vaults: [],
+      });
+    }
+    expect(applyBounds({ scopes: [] }, { scopes: ["read:notes"], vault: null })).toEqual({
+      ok: false,
+      reason: "scopes",
+    });
+    expect(applyBounds({ vaults: [] }, { scopes: ["read:notes"], vault: "v1" })).toEqual({
+      ok: false,
+      reason: "vault",
+    });
+  });
+});
+
+describe("empty account bounds deny issuance end to end", () => {
+  it("empty scopes_allowed: consent is access_denied and no code exists", async () => {
+    const flow = await makeFlow();
+    narrow(flow, "scopes_allowed", "");
+    const { code, location } = await obtainCode(flow, new Jar(), pkce().challenge, WIDE);
+    expect(code).toBe("");
+    expect(new URL(location).searchParams.get("error")).toBe("access_denied");
+    expect(rows(flow, "SELECT 1 FROM auth_codes")).toHaveLength(0);
+  });
+
+  it("empty vaults_allowed: no grant, no code", async () => {
+    const flow = await makeFlow({ personas: PERSONAS });
+    narrow(flow, "vaults_allowed", "");
+    const { code } = await obtainCode(flow, new Jar(), pkce().challenge, WIDE, {
+      persona: "reader",
+    });
+    expect(code).toBe("");
+    expect(rows(flow, "SELECT 1 FROM grants")).toHaveLength(0);
+  });
+
+  it("empty vaults_allowed narrowed after a code was issued: the exchange gives no token", async () => {
+    const flow = await makeFlow();
+    const { verifier, challenge } = pkce();
+    const { code } = await obtainCode(flow, new Jar(), challenge, WIDE);
+    narrow(flow, "vaults_allowed", "");
+    const { res, body } = await exchange(flow, tokenFields(code, verifier));
+    expect(res.status).toBe(400);
+    expect(body).not.toHaveProperty("access_token");
+  });
+});
+
+describe("a vault-bounded account reaches only its vault, even with the server default elsewhere", () => {
+  const TWO = { vaults: ["v1", "v2"], defaultVault: "v2" };
+  const READ = { scope: "read:vault read:notes" };
+
+  async function token(flow: Flow, over = READ, consent: Record<string, string> = {}) {
+    const { verifier, challenge } = pkce();
+    const { code } = await obtainCode(flow, new Jar(), challenge, over, consent);
+    expect(code).not.toBe("");
+    const { res, body } = await exchange(flow, tokenFields(code, verifier));
+    return { res, body, access: (body.access_token as string | undefined) ?? "" };
+  }
+
+  it("control: an unbounded account's unbound token rides the server default vault", async () => {
+    const flow = await makeFlow(TWO);
+    const { access } = await token(flow);
+    expect(decodeJwt(access).vault).toBeUndefined();
+    expect(await mcpVaults(flow, access)).toEqual(["v2"]);
+  });
+
+  it("vaults_allowed=v1, no persona or vault chosen: the grant, the code and the token carry v1, and /mcp shows only v1", async () => {
+    const flow = await makeFlow(TWO);
+    narrow(flow, "vaults_allowed", "v1");
+    const { res, access } = await token(flow);
+    expect(res.status).toBe(200);
+    expect(decodeJwt(access).vault).toBe("v1");
+    expect(rows<{ vault: string | null }>(flow, "SELECT vault FROM grants")[0]?.vault).toBe("v1");
+    expect(await mcpVaults(flow, access)).toEqual(["v1"]);
+    expect(await mcpVaults(flow, access)).not.toContain("v2");
+  });
+
+  it("two permitted vaults and none chosen: nothing is issued (the operator must pick one)", async () => {
+    const flow = await makeFlow(TWO);
+    narrow(flow, "vaults_allowed", "v1 v2");
+    const { code } = await obtainCode(flow, new Jar(), pkce().challenge, READ);
+    expect(code).toBe("");
+    expect(rows(flow, "SELECT 1 FROM auth_codes")).toHaveLength(0);
+    expect(rows(flow, "SELECT 1 FROM grants")).toHaveLength(0);
+  });
+
+  it("a remembered unbound grant, then the account is limited to v1: the next token is bound to v1", async () => {
+    const flow = await makeFlow(TWO);
+    await token(flow);
+    narrow(flow, "vaults_allowed", "v1");
+    const second = await token(flow);
+    expect(decodeJwt(second.access).vault).toBe("v1");
+    expect(await mcpVaults(flow, second.access)).toEqual(["v1"]);
+  });
+
+  it("a remembered unbound grant, then the account is limited to two vaults: asked again, not silently reused", async () => {
+    const flow = await makeFlow(TWO);
+    await token(flow);
+    narrow(flow, "vaults_allowed", "v1 v2");
+    const { code } = await obtainCode(flow, new Jar(), pkce().challenge, READ);
+    expect(code).toBe("");
+    expect(rows(flow, "SELECT 1 FROM auth_codes")).toHaveLength(1);
+  });
+
+  it("a code issued unbound, then the account is limited to v1 before the exchange: the token is bound to v1", async () => {
+    const flow = await makeFlow(TWO);
+    const { verifier, challenge } = pkce();
+    const { code } = await obtainCode(flow, new Jar(), challenge, READ);
+    narrow(flow, "vaults_allowed", "v1");
+    const { res, body } = await exchange(flow, tokenFields(code, verifier));
+    expect(res.status).toBe(200);
+    const access = body.access_token as string;
+    expect(decodeJwt(access).vault).toBe("v1");
+    expect(await mcpVaults(flow, access)).toEqual(["v1"]);
+  });
+
+  it("a code issued unbound, then the account is limited to two vaults: no token", async () => {
+    const flow = await makeFlow(TWO);
+    const { verifier, challenge } = pkce();
+    const { code } = await obtainCode(flow, new Jar(), challenge, READ);
+    narrow(flow, "vaults_allowed", "v1 v2");
+    const { res, body } = await exchange(flow, tokenFields(code, verifier));
+    expect(res.status).toBe(400);
+    expect(body).not.toHaveProperty("access_token");
+    expect(rows(flow, "SELECT 1 FROM issued_access")).toHaveLength(0);
   });
 });

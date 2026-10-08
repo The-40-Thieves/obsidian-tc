@@ -9,7 +9,7 @@
 // (`authorization_response_iss_parameter_supported`), and stops sending a `private_key_jwt`
 // assertion on every exchange when that method is simply not advertised.
 import type { PersonasConfig, ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
-import type { Hono } from "hono";
+import type { Context, Hono } from "hono";
 import type { Database } from "../db/types";
 import type { AuthRegistry } from "./registry";
 
@@ -41,6 +41,8 @@ export interface AsRouteDeps {
   personas?: PersonasConfig | undefined;
   now?: () => number;
   log?: (line: string) => void;
+  /** The caller's address for admission limits. Default: the TCP peer, never a forwarded header. */
+  clientIp?: (c: Context) => string | undefined;
 }
 type AsRouteMounter = (app: Hono, auth: AuthConfig, deps?: AsRouteDeps) => void;
 

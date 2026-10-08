@@ -1,5 +1,6 @@
 // The account's own upper bounds on what any grant may carry (design v2 section 4.5): `users.scopes_allowed`
-// and `users.vaults_allowed`, each space- or comma-separated, null = unbounded. They are read from the
+// and `users.vaults_allowed`, each space- or comma-separated; ONLY SQL NULL is unbounded (an empty or
+// blank value is an empty list, which allows nothing). They are read from the
 // row at the moment of every decision (consent approval, a remembered consent, the token exchange), never
 // copied into a grant or a code, so narrowing an account takes effect on everything not yet issued.
 import { grantsScope } from "@the-40-thieves/obsidian-tc-shared";
@@ -13,7 +14,7 @@ export interface AccountBounds {
 }
 
 const list = (raw: string | null): string[] | undefined =>
-  raw === null || raw.trim() === "" ? undefined : raw.split(/[\s,]+/).filter(Boolean);
+  raw === null ? undefined : raw.split(/[\s,]+/).filter(Boolean);
 
 /** The bounds of an ENABLED account, or undefined when `sub` is not one (gone or disabled: nothing may issue). */
 export function accountBounds(db: Database, sub: string): AccountBounds | undefined {
@@ -28,18 +29,32 @@ export function accountBounds(db: Database, sub: string): AccountBounds | undefi
   return { ...(scopes ? { scopes } : {}), ...(vaults ? { vaults } : {}) };
 }
 
-export type Bounded = { ok: true; scopes: string[] } | { ok: false; reason: "vault" | "scopes" };
+export type Bounded =
+  | { ok: true; scopes: string[]; vault: string | null }
+  | { ok: false; reason: "vault" | "scopes" };
 
-/** The scopes the bounds leave, or why nothing may be issued: a vault outside them, or no scope left. */
+/** The scopes the bounds leave (possibly none). */
+export const narrowScopes = (bounds: AccountBounds, scopes: readonly string[]): string[] => {
+  const allowed = bounds.scopes;
+  return allowed === undefined ? [...scopes] : scopes.filter((s) => grantsScope(allowed, s));
+};
+
+/**
+ * The scopes the bounds leave and the vault the token binds to, or why nothing may be issued: a vault
+ * outside the bounds, no concrete vault for a vault-bounded account, or no scope left. A token with no
+ * `vault` claim rides the server's DEFAULT vault, which the account's bounds know nothing about, so a
+ * vault-bounded account never gets an unbound token: with no vault chosen it gets its one permitted
+ * vault, and with several the operator must choose (consent persona). Unbounded accounts keep `null`.
+ */
 export function applyBounds(
   bounds: AccountBounds,
   want: { scopes: readonly string[]; vault: string | null },
 ): Bounded {
-  if (want.vault !== null && bounds.vaults !== undefined && !bounds.vaults.includes(want.vault)) {
-    return { ok: false, reason: "vault" };
+  let vault = want.vault;
+  if (bounds.vaults !== undefined) {
+    vault = want.vault ?? (bounds.vaults.length === 1 ? (bounds.vaults[0] ?? null) : null);
+    if (vault === null || !bounds.vaults.includes(vault)) return { ok: false, reason: "vault" };
   }
-  const allowed = bounds.scopes;
-  const scopes =
-    allowed === undefined ? [...want.scopes] : want.scopes.filter((s) => grantsScope(allowed, s));
-  return scopes.length === 0 ? { ok: false, reason: "scopes" } : { ok: true, scopes };
+  const scopes = narrowScopes(bounds, want.scopes);
+  return scopes.length === 0 ? { ok: false, reason: "scopes" } : { ok: true, scopes, vault };
 }

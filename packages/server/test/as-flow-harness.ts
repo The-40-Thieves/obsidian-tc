@@ -4,6 +4,8 @@
 // signs still verify at /mcp), a log sink, and helpers that walk a flow the way a client and a
 // browser would.
 import { createHash, randomBytes } from "node:crypto";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
@@ -79,13 +81,21 @@ export async function makeFlow(
     personas?: Record<string, unknown>;
     claim?: boolean;
     scopesSupported?: string[];
+    /** Vault ids the server holds (default `["v1"]`); the first is also the HTTP default unless `defaultVault`. */
+    vaults?: string[];
+    defaultVault?: string;
   } = {},
 ): Promise<Flow> {
   process.env[SECRET_CLIENT_ENV] = SECRET_CLIENT_SECRET;
   const dir = makeTempDir("as-flow-");
   dirs.push(dir);
+  const vaultDefs = (opts.vaults ?? ["v1"]).map((id, i) => {
+    const path = i === 0 ? dir : join(dir, id);
+    mkdirSync(path, { recursive: true });
+    return { id, path };
+  });
   const config = ServerConfigSchema.parse({
-    vaults: [{ id: "v1", path: dir }],
+    vaults: vaultDefs,
     cacheDir: dir,
     auth: {
       mode: "jwt",
@@ -119,7 +129,7 @@ export async function makeFlow(
 
   const cacheDb = openMemoryDb();
   provisionCacheDb(cacheDb);
-  const vaultRegistry = new VaultRegistry([{ id: "v1", path: dir }]);
+  const vaultRegistry = new VaultRegistry(vaultDefs);
   const tools = new ToolRegistry();
   for (const t of buildRegistryTools(
     {
@@ -148,7 +158,7 @@ export async function makeFlow(
     auth,
     db: cacheDb,
     authRegistry: registry,
-    vaultId: "v1",
+    vaultId: opts.defaultVault ?? vaultDefs[0]?.id ?? "v1",
     acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
     enableDnsRebindingProtection: false,
     personas: config.personas,
@@ -173,6 +183,7 @@ export async function makeFlow(
     personas: config.personas,
     now: () => clock.t,
     log,
+    clientIp: (c) => c.req.header("x-test-ip"),
   });
 
   return {
@@ -223,12 +234,13 @@ export async function authorize(
   jar: Jar,
   challenge: string,
   over: Record<string, string | undefined> = {},
+  headers: Record<string, string> = {},
 ): Promise<Response> {
   const cookie = jar.header();
   const res = await flow.app.request(
     flow.url(`/oauth/authorize?${authorizeQuery(challenge, over)}`),
     {
-      headers: cookie ? { cookie } : {},
+      headers: { ...(cookie ? { cookie } : {}), ...headers },
       redirect: "manual",
     },
   );
@@ -272,7 +284,7 @@ export const consentPost = (
 ): Promise<Seen> => post(flow, "/oauth/consent", fields, jar, extra);
 
 export function codeOf(location: string | null): string {
-  return new URL(location ?? "https://x.invalid/").searchParams.get("code") ?? "";
+  return new URL(location || "https://x.invalid/").searchParams.get("code") ?? "";
 }
 
 /** authorize -> login -> consent -> approve, returning the code the client would receive. */
@@ -350,6 +362,41 @@ export async function mcpPing(flow: Flow, token: string): Promise<number> {
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
   });
   return res.status;
+}
+
+/** The vault ids `list_vaults` shows a bearer token over /mcp (a vault-bound token sees only its own). */
+export async function mcpVaults(flow: Flow, token: string): Promise<string[]> {
+  const res = await flow.app.request("http://localhost/mcp", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      "mcp-protocol-version": "2026-07-28",
+      "mcp-method": "tools/call",
+      "mcp-name": "list_vaults",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: {
+        name: "list_vaults",
+        arguments: {},
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientInfo": { name: "harness", version: "1" },
+          "io.modelcontextprotocol/clientCapabilities": {},
+        },
+      },
+    }),
+  });
+  const text = await res.text();
+  const line = text.split("\n").find((l) => l.startsWith("data: "));
+  const msg = JSON.parse(line ? line.slice(6) : text) as {
+    result?: { structuredContent?: { vaults: Array<{ id: string }> } };
+  };
+  return msg.result?.structuredContent?.vaults.map((v) => v.id) ?? [];
 }
 
 export const rows = <T>(flow: Flow, sql: string, ...p: unknown[]): T[] =>

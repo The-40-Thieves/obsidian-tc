@@ -157,6 +157,8 @@ export const OAUTH_MIGRATION_FILES = [
   // 20261003_950 creates every table of the authorization server's state in one step (design v2
   // section 4.8). See the migration header.
   "20261003_950_oauth_core.sql",
+  // 20261008_951 adds auth_requests.source_hash for the per-source admission limit. See the header.
+  "20261008_951_auth_requests_source.sql",
 ] as const;
 
 /**
