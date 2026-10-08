@@ -12,8 +12,8 @@
 // (see embeddings-sticky-provider-wiring.test.ts).
 //
 // `vec_index_fingerprint` is only created inside `ensureVecChunks` when the sqlite-vec extension
-// actually loads (search/vec.ts's `loadVec`) — CI's `build-test` job runs vitest under plain `node`
-// with `--ignore-scripts` (no better-sqlite3 native build), so `openDatabase` falls back to the
+// actually loads (search/vec.ts's `loadVec`) — CI's Node 24 `build-test` legs delete
+// better-sqlite3 after install, so `openDatabase` falls back to the
 // `node:sqlite` adapter, which exposes no `loadExtension` (db/node-node-sqlite.ts's own header),
 // and the table never gets created. This test's PRIMARY evidence is therefore the sticky notice
 // `run_index` prints to stdout before any vec DDL runs (index.ts) — proven in every environment —

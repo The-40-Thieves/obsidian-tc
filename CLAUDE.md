@@ -11,12 +11,13 @@ Python model services.
 | Node | **26.10.0** target / **24** supported floor | `mise.toml`; `engines.node: ">=24"`. CI runs the full server suite on **both** 26 and 24 (`build-test`, `fallback-test`) — the 24 legs catch a 26-only API |
 | Python | **3.14** | `mise.toml`; both services declare `requires-python = ">=3.10"` (a supported range, not the tested version) |
 | Rust | **1.99.0** exact | `packages/native/rust-toolchain.toml` |
-| TypeScript | **7.0.2** | root + `packages/shared`. `docs/` is a *separate install root* still on 6.0.3 (THE-604) |
-| Vitest | **4** | AST-aware coverage remapping is mandatory in v4 — numbers are not comparable to v3 |
+| TypeScript | **7.0.2** | root + `packages/*`. `docs/` is a *separate install root* held on 6.0.3: `astro check` refuses TS 7 ("does not currently support TypeScript 7.0") and `@astrojs/check` peers `^5 || ^6`; revisit when TS 7.1 stable + `@astrojs/ts-content-mapper` land |
+| Vitest | **5** | AST-aware coverage remapping is mandatory in v4 — numbers are not comparable to v3 |
 | Biome | **2.5.x** | format + lint; there is no ESLint/Prettier here |
 
-`@types/node` stays on **^24**, matching the CI floor rather than the dev runtime. That is
-deliberate — typing against 26 would let Node-26-only APIs compile and fail on the supported floor.
+`@types/node` is on **^26** (owner decision 2026-10): types target Node 26, the runtime floor stays
+`engines.node: ">=24"` and is enforced by CI running on 24. The cost is deliberate and known — a
+Node-26-only API now compiles, so the Node 24 CI leg (not the typechecker) is what catches it.
 
 **Rust pin trap:** `dtolnay/rust-toolchain` does **not** read `rust-toolchain.toml`. Pinning only
 the file splits cargo's toolchain from the one targets install onto → `E0463: can't find crate for

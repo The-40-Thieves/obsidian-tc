@@ -17,9 +17,9 @@
 // throws under Node), so that leg spawns `test/param-binding-bun-probe.ts` as a real `bun` process
 // and asserts on its JSON stdout — mirroring test/otel-lazy-load.test.ts + eval/perf/otel-lazy-probe.ts.
 //
-// better-sqlite3's native binding is not built on CI (build-test installs with --ignore-scripts),
-// so that leg probes-and-skips using test/db-baseline.test.ts's existing pattern rather than a new
-// one — it is verified LOCALLY ONLY. node:sqlite and bun:sqlite are CI-guaranteed, so a coverage
+// better-sqlite3 (prebuilt since v13) loads on CI's Node 26 build-test legs and is deleted after
+// install on the Node 24 legs, so the node:sqlite fallback stays covered; that leg probes-and-skips
+// using test/db-baseline.test.ts's pattern. node:sqlite and bun:sqlite are CI-guaranteed, so a coverage
 // floor at the bottom of this file prints exactly which adapters ran and fails outright if that set
 // is empty or missing either of the two CI-guaranteed ones — a gate that silently skips everything
 // is worse than no gate, because it reports success over an empty set.
@@ -55,12 +55,11 @@ try {
   nodeSqliteOk = false;
 }
 
-// better-sqlite3's native binding is not built in every local env (test/db-baseline.test.ts
-// established this probe-and-skip pattern first; reused here rather than inventing a second
-// mechanism). CI's build-test jobs install with `--ignore-scripts` (ci-server.yml — "M0 tests use
-// node:sqlite and do not need the native / better-sqlite3 compiles"), so the binding is ABSENT
-// there too: this leg is verified LOCALLY ONLY today, never on CI. It would start running in CI if
-// a job installed with lifecycle scripts enabled (no --ignore-scripts) before this file runs.
+// better-sqlite3 is not loadable everywhere (test/db-baseline.test.ts established this
+// probe-and-skip pattern first; reused here rather than inventing a second mechanism). Since v13
+// it ships prebuilt binaries, so it loads even under `--ignore-scripts`: CI's Node 26 build-test
+// legs run this leg, and the Node 24 legs delete the package after install (ci-server.yml) so the
+// whole suite there runs on the node:sqlite fallback the self-contained .mcpb bundle uses.
 let betterSqlite3Ok = true;
 try {
   const d = await openBetterSqlite3(":memory:");
@@ -79,13 +78,13 @@ const bunAvailable = spawnSync("bun", ["--version"], { encoding: "utf8" }).statu
 // than it claims to cover — precisely THE-665's own failure mode (a passing "row exists" check that
 // covered a corrupted row). Print exactly which adapters ran on THIS invocation, and fail outright
 // if the covered set is empty or missing an adapter CI guarantees. Only better-sqlite3 is allowed
-// to be absent, and only because CI's install step deliberately skips native builds — see above.
+// to be absent, and only because CI's Node 24 legs deliberately remove it — see above.
 const adaptersRun: string[] = [];
 const adaptersSkipped: string[] = [];
 if (nodeSqliteOk) adaptersRun.push("node:sqlite");
 else adaptersSkipped.push("node:sqlite (probe failed)");
-if (betterSqlite3Ok) adaptersRun.push("better-sqlite3 (local only — CI installs --ignore-scripts)");
-else adaptersSkipped.push("better-sqlite3 (native binding not built)");
+if (betterSqlite3Ok) adaptersRun.push("better-sqlite3");
+else adaptersSkipped.push("better-sqlite3 (not loadable; removed on CI Node 24 legs)");
 if (bunAvailable) adaptersRun.push("bun:sqlite (subprocess)");
 else adaptersSkipped.push("bun:sqlite (bun not on PATH)");
 console.log(

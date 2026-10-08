@@ -244,10 +244,28 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
-      # M0 tests use node:sqlite and do not need the native / better-sqlite3
-      # compiles; --ignore-scripts mirrors the verified local + clean-room run.
+      # --ignore-scripts mirrors the verified local + clean-room run.
       - name: install
         run: bun install --frozen-lockfile --ignore-scripts
+      # better-sqlite3 >= 13 ships prebuilt binaries, so it loads despite --ignore-scripts and
+      # `openDatabase` prefers it under Node. The self-contained .mcpb bundle ships no node_modules
+      # and runs on the node:sqlite fallback, so the Node 24 legs delete the package to keep that
+      # path under the full suite while the Node 26 legs run on better-sqlite3. The probe fails the
+      # leg if it did not get the adapter it is meant to cover.
+      - name: sqlite adapter for this leg (node 24 = node:sqlite, node 26 = better-sqlite3)
+        shell: bash
+        env:
+          NODE_LEG: ${{ matrix.node }}
+        run: |
+          if [ "$NODE_LEG" = "24" ]; then rm -rf node_modules/.bun/better-sqlite3@*; fi
+          cd packages/server
+          node -e '
+            let loaded = false;
+            try { new (require("better-sqlite3"))(":memory:").close(); loaded = true; } catch {}
+            const want = process.env.NODE_LEG !== "24";
+            console.log("better-sqlite3 loadable: " + loaded + " (want " + want + ")");
+            if (loaded !== want) process.exit(1);
+          '
       - name: typecheck shared (fully strict)
         run: bun run typecheck
         working-directory: packages/shared
