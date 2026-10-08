@@ -22,7 +22,7 @@ import { parse as parseYaml } from "yaml";
 import { loadConfig } from "../src/config/load";
 import { openConfiguredDatabase } from "../src/db/open";
 import { compileEgressFilter, isExcludedPath } from "../src/plane/egress-filter";
-import { loadVec } from "../src/search/vec";
+import { invalidateVecIndex } from "../src/search/vec";
 import {
   armByName,
   BGE_M3_NEURONS_PER_M_TOKENS,
@@ -316,8 +316,7 @@ async function stageIndex(): Promise<void> {
     }
   }
   // Brute-force cosine over chunk_embeddings for EVERY arm, so an arm differs only in its vectors.
-  loadVec(db);
-  db.exec("DROP TABLE IF EXISTS vec_chunks");
+  invalidateVecIndex(db);
   const done = (
     db.prepare("SELECT count(*) AS c FROM chunk_embeddings WHERE model = ?").get(model) as {
       c: number;

@@ -130,14 +130,50 @@ export function loadVec(db: Database): boolean {
 export interface VecRebuildEvent {
   /** "legacy_shape": a pre-partition table was found and reshaped in place. "fingerprint_changed":
    *  the stored representation (provider/model/dims/metric/enrichment/chunker/schema) no longer
-   *  matches what was last built — a deploy changed the embedding model, or one config field did. */
-  reason: "legacy_shape" | "fingerprint_changed";
+   *  matches what was last built — a deploy changed the embedding model, or one config field did.
+   *  "table_missing": vec_chunks was absent while chunk_embeddings held active vectors (dropped by
+   *  hand or by an eval loader, or never built because sqlite-vec was unavailable) — GH #1161. */
+  reason: "legacy_shape" | "fingerprint_changed" | "table_missing";
   /** Active vectors NOT backfilled because they were captured at a different representation than
    *  the one this rebuild is for — a re-embed regenerates them on the next reconcile. */
   skippedVectors: number;
   /** GH #1160: present only when the backfill left the dense index empty or mostly empty, or found a
    *  chunk with more than one active embedding — see search/vec-backfill-shortfall.ts. */
   shortfall?: BackfillShortfall;
+}
+
+const VEC_FINGERPRINT_DDL =
+  "CREATE TABLE IF NOT EXISTS vec_index_fingerprint (id INTEGER PRIMARY KEY CHECK (id = 1), fingerprint TEXT NOT NULL)";
+
+function hasActiveEmbeddingsToMirror(db: Database): boolean {
+  if (
+    db.prepare("SELECT 1 AS x FROM sqlite_master WHERE name = 'chunk_embeddings'").get() ===
+    undefined
+  )
+    return false;
+  return (
+    db
+      .prepare(
+        "SELECT 1 AS x FROM chunk_embeddings e JOIN chunks c ON c.id = e.chunk_id WHERE e.is_active = 1 LIMIT 1",
+      )
+      .get() !== undefined
+  );
+}
+
+/**
+ * GH #1161: declare vec_chunks stale after chunk_embeddings was written out of band, so the next
+ * `ensureVecChunks` (the index pass, the boot reconcile) rebuilds it from chunk_embeddings IN FULL.
+ * The public rebuild trigger for a loader; no sentinel value is ever written into the fingerprint.
+ *
+ * Two independent triggers, so it holds whichever runtime the caller has: the stored fingerprint row
+ * is removed (a table that survives is then "built under a representation nobody recorded" and takes
+ * the ordinary fingerprint-mismatch rebuild), and vec_chunks is dropped when sqlite-vec loads (an
+ * absent table over active vectors takes the `table_missing` rebuild). Never touches chunk_embeddings.
+ */
+export function invalidateVecIndex(db: Database): void {
+  db.exec(VEC_FINGERPRINT_DDL);
+  db.prepare("DELETE FROM vec_index_fingerprint WHERE id = 1").run();
+  if (loadVec(db)) db.exec("DROP TABLE IF EXISTS vec_chunks");
 }
 
 /**
@@ -184,9 +220,7 @@ export function ensureVecChunks(
   // THE-460: a dedicated one-row table tracks the computed fingerprint string. Created up front
   // (idempotent) so both the "table missing" and "table present" branches below can read/compare
   // against whatever was last recorded.
-  db.exec(
-    "CREATE TABLE IF NOT EXISTS vec_index_fingerprint (id INTEGER PRIMARY KEY CHECK (id = 1), fingerprint TEXT NOT NULL)",
-  );
+  db.exec(VEC_FINGERPRINT_DDL);
   const computedFp = representationFingerprint(manifest);
   const storedFp = (
     db.prepare("SELECT fingerprint FROM vec_index_fingerprint WHERE id = 1").get() as
@@ -196,17 +230,23 @@ export function ensureVecChunks(
 
   const hasTable =
     db.prepare("SELECT 1 AS x FROM sqlite_master WHERE name = 'vec_chunks'").get() !== undefined;
-  if (!hasTable) {
-    db.exec(ddl);
-  } else {
+  // GH #1161: vec_chunks is DERIVED from chunk_embeddings, so an absent table over active vectors
+  // is rebuilt in full like any other stale one. It used to be re-created empty and filled only by
+  // the incremental per-chunk path (390 of 16,882 rows, no error) — every caller that drops the
+  // table (the eval loaders) hit it, not just the one that reported it.
+  const missingWithRows = !hasTable && hasActiveEmbeddingsToMirror(db);
+  if (!hasTable) db.exec(ddl);
+  if (hasTable || missingWithRows) {
     // Shape-detect a legacy (pre-partition) table and rebuild it IN PLACE from the stored
     // embeddings — chunk_embeddings holds every active vector, so no re-embed is needed and
     // the rebuilt index is bit-identical (same vectors, same cosine metric).
     let legacy = false;
-    try {
-      db.prepare("SELECT vault_id FROM vec_chunks LIMIT 1").get();
-    } catch {
-      legacy = true;
+    if (hasTable) {
+      try {
+        db.prepare("SELECT vault_id FROM vec_chunks LIMIT 1").get();
+      } catch {
+        legacy = true;
+      }
     }
     // THE-460: a fingerprint mismatch is the general rebuild trigger — it SUBSUMES the old
     // THE-457 dims-only check (dimensions are one of the fields folded into the fingerprint) and
@@ -215,7 +255,7 @@ export function ensureVecChunks(
     // (length = dims*4), so a mid-swap re-embed fills the rest on its own reconcile — same as
     // before.
     const fpChanged = storedFp !== computedFp;
-    if (legacy || fpChanged) {
+    if (legacy || fpChanged || missingWithRows) {
       db.exec("DROP TABLE vec_chunks");
       db.exec(ddl);
       const canBackfill =
@@ -271,11 +311,19 @@ export function ensureVecChunks(
           `vec0:partition+aux:${dims}${skipped > 0 ? `:skipped${skipped}` : ""}${shortfall ? `:short${shortfall.inserted}of${shortfall.active}` : ""}`,
         );
       }
-      // THE-612: a full re-embed of every vault sharing this table, previously silent. `legacy`
-      // and `fpChanged` are the only two ways into this block, so exactly one reason applies.
-      const reason = legacy ? "legacy_shape" : "fingerprint_changed";
+      // THE-612: a full re-embed of every vault sharing this table, previously silent. `legacy`,
+      // `fpChanged` and `missingWithRows` are the only ways into this block; one reason applies.
+      const reason: VecRebuildEvent["reason"] = legacy
+        ? "legacy_shape"
+        : hasTable
+          ? "fingerprint_changed"
+          : "table_missing";
+      const what =
+        reason === "table_missing"
+          ? "the table was absent while chunk_embeddings holds active vectors; it is"
+          : "every vault's dense index was dropped and is";
       process.stderr.write(
-        `[vec] rebuilding vec_chunks (${reason}): every vault's dense index was dropped and is ` +
+        `[vec] rebuilding vec_chunks (${reason}): ${what} ` +
           `backfilling from chunk_embeddings${skipped > 0 ? `; ${skipped} vector(s) at a different representation are left for the next re-embed` : ""}.\n`,
       );
       // GH #1160: a rebuild that left the dense index empty/mostly empty is a WARNING of its own,

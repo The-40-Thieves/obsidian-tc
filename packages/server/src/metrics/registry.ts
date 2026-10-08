@@ -263,7 +263,7 @@ export class MetricsRecorder {
     // See docs/design/metrics-registry.md.
     this.vecRebuild = new Counter({
       name: "obsidian_tc_vec_rebuild_total",
-      help: "vec_chunks DROP+rebuild events, by reason. legacy_shape is a one-time pre-partition upgrade; fingerprint_changed means the embedding provider/model/dimensions, distance metric, or chunk/enrichment representation changed since the index was built. Either way every vault's dense index is cold until it re-embeds — any non-zero count outside a deliberate model migration is worth investigating.",
+      help: "vec_chunks DROP+rebuild events, by reason. legacy_shape is a one-time pre-partition upgrade; fingerprint_changed means the embedding provider/model/dimensions, distance metric, or chunk/enrichment representation changed since the index was built; table_missing means vec_chunks was absent over active embeddings and was rebuilt from them. Every vault's dense index is cold until it re-embeds — any non-zero count outside a deliberate model migration is worth investigating.",
       labelNames: ["reason"],
       registers,
     });
@@ -672,7 +672,7 @@ export class MetricsRecorder {
     if (n > 0) this.activationRecomputeChunks.inc({ vault }, n);
   }
   /** THE-612: one vec_chunks DROP+rebuild event. */
-  incVecRebuild(reason: "legacy_shape" | "fingerprint_changed"): void {
+  incVecRebuild(reason: "legacy_shape" | "fingerprint_changed" | "table_missing"): void {
     this.vecRebuild.inc({ reason });
   }
   /** one rerankWithScores decision (see the counter's help text for the full outcome

@@ -13,16 +13,16 @@
 //   titles-headings (b) neighbor titles + each neighbor's folder/domain as light heading context
 import { loadConfig } from "../src/config/load";
 import { openConfiguredDatabase } from "../src/db/open";
+import type { Database } from "../src/db/types";
 import { createEmbeddingProvider } from "../src/embeddings";
 import { compileEgressFilter } from "../src/plane/egress-filter";
 import { enrichChunkText } from "../src/search/chunk";
-import { loadVec } from "../src/search/vec";
+import { invalidateVecIndex } from "../src/search/vec";
 
-// Dropping the vec0 virtual table requires the sqlite-vec module to be registered on the
-// connection first (else "no such module: vec0"). loadVec is the same loader semantic.ts uses.
-function dropVecChunks(db: { exec: (s: string) => void }): void {
-  loadVec(db as never);
-  db.exec("DROP TABLE IF EXISTS vec_chunks");
+// invalidateVecIndex drops vec_chunks (loading the sqlite-vec module first) AND marks it for a full
+// rebuild, so a later `obsidian-tc index` on this db backfills instead of leaving it near-empty.
+function dropVecChunks(db: Database): void {
+  invalidateVecIndex(db);
 }
 
 const argv = process.argv.slice(2);
