@@ -10,6 +10,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
@@ -17,7 +18,7 @@ import {
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { issueElicitToken } from "../src/elicit";
-import { pinnedFolderPath, replaceFolderPins } from "../src/vault/folder-links";
+import { pinnedOpenPath, withFolderPins } from "../src/vault/folder-links";
 import { moveNoReplace, nativeVaultIo, readNote } from "../src/vault/notes-io";
 import { resolveVaultPathChecked } from "../src/vault/paths";
 import { VaultRegistry } from "../src/vault/registry";
@@ -47,6 +48,9 @@ vi.mock("../src/vault/notes-io", async (importOriginal) => {
     },
   };
 });
+
+/** Run `fn` as a dispatch through `reg` does: against that registry's folder pins. */
+const under = <T>(reg: VaultRegistry, fn: () => T): T => withFolderPins(reg.folderPins, fn);
 
 const LOG = "# Log\n\n2026-01-01T00:00:00Z | create | wiki/Ada.md | alice-the-principal | m\n";
 const NOTES_ONLY = { grantedScopes: new Set(["read:notes"]) };
@@ -140,25 +144,29 @@ describe.skipIf(process.platform === "win32" || !nativeVaultIo)(
   () => {
     it("a read after a retarget still opens the pinned directory", () => {
       const root = plainVault("pages");
-      new VaultRegistry([{ id: "v", path: root, wiki: { folder: "wiki" } }]);
+      const reg = new VaultRegistry([{ id: "v", path: root, wiki: { folder: "wiki" } }]);
       retarget(root, "scratch");
-      expect(readNote(join(root, "wiki", "a.md")).raw).toBe("page A\n");
+      expect(under(reg, () => readNote(join(root, "wiki", "a.md"))).raw).toBe("page A\n");
     });
 
     it("a move after a retarget moves the pinned file, not the retargeted one", () => {
       const root = plainVault("open");
-      new VaultRegistry([{ id: "v", path: root, wiki: { folder: "wiki" } }]);
+      const reg = new VaultRegistry([{ id: "v", path: root, wiki: { folder: "wiki" } }]);
       retarget(root, "raw");
-      moveNoReplace(join(root, "wiki", "x.md"), join(root, "moved.md"));
+      under(reg, () => moveNoReplace(join(root, "wiki", "x.md"), join(root, "moved.md")));
       expect(readFileSync(join(root, "moved.md"), "utf8")).toBe("open note\n");
       expect(readFileSync(join(root, "raw", "x.md"), "utf8")).toBe("RAW SOURCE\n");
     });
 
-    it("a registry rebuilt without the wiki config takes the pin away", () => {
+    it("a registry built without the wiki config has no pin, and leaves the first one's alone", () => {
       const root = plainVault("pages");
-      new VaultRegistry([{ id: "v", path: root, wiki: { folder: "wiki" } }]);
-      expect(readNote(join(root, "wiki", "a.md")).raw).toBe("page A\n");
-      new VaultRegistry([{ id: "v", path: root }]);
+      const first = new VaultRegistry([{ id: "v", path: root, wiki: { folder: "wiki" } }]);
+      const read = (reg: VaultRegistry) => under(reg, () => readNote(join(root, "wiki", "a.md")));
+      expect(read(first).raw).toBe("page A\n");
+      const second = new VaultRegistry([{ id: "v", path: root }]);
+      expect(() => read(second)).toThrow(/safe open refused/);
+      expect(read(first).raw).toBe("page A\n");
+      // outside any dispatch frame there are no pins at all
       expect(() => readNote(join(root, "wiki", "a.md"))).toThrow(/safe open refused/);
     });
 
@@ -176,8 +184,9 @@ describe.skipIf(process.platform === "win32" || !nativeVaultIo)(
         symlinkSync(join(a, "pagesA"), join(b, "wiki"));
         const va = { id: "a", path: a, wiki: { folder: "inner/wiki" } };
         const vb = { id: "b", path: b, wiki: { folder: "wiki" } };
-        new VaultRegistry(order === "inner-first" ? [vb, va] : [va, vb]);
-        expect(readNote(join(a, "inner", "wiki", "x.md")).raw, order).toBe("A's page\n");
+        const reg = new VaultRegistry(order === "inner-first" ? [vb, va] : [va, vb]);
+        const read = () => readNote(join(a, "inner", "wiki", "x.md"));
+        expect(under(reg, read).raw, order).toBe("A's page\n");
       }
     });
   },
@@ -227,28 +236,133 @@ describe.skipIf(process.platform === "win32")("the pin table", () => {
     const base = makeTempDir("obtc-folder-pins-late-");
     temps.push(base);
     const root = join(base, "vault");
-    new VaultRegistry([{ id: "v", path: root, wiki: { folder: "wiki" } }]);
+    const reg = new VaultRegistry([{ id: "v", path: root, wiki: { folder: "wiki" } }]);
     for (const d of ["pages", "scratch"]) mkdirSync(join(root, d), { recursive: true });
     symlinkSync(join(root, "pages"), join(root, "wiki"));
-    expect(pinnedFolderPath(join(root, "wiki", "a.md"))).toBe(join(root, "wiki", "a.md"));
-    expect(resolveVaultPathChecked(root, "wiki/a.md").aclRel).toBe("pages/a.md");
-    expect(pinnedFolderPath(join(root, "wiki", "a.md"))).toBe(join(root, "pages", "a.md"));
+    const sinkPath = () => under(reg, () => pinnedOpenPath(join(root, "wiki", "a.md")).path);
+    expect(sinkPath()).toBe(join(root, "wiki", "a.md"));
+    expect(under(reg, () => resolveVaultPathChecked(root, "wiki/a.md")).aclRel).toBe("pages/a.md");
+    expect(sinkPath()).toBe(join(root, "pages", "a.md"));
     retarget(root, "scratch");
-    expect(() => resolveVaultPathChecked(root, "wiki/a.md")).toThrow(/no longer leads/);
-  });
-
-  it("the more specific root's pin wins, in either table order", () => {
-    const outer = { root: "/v", alias: "/v/inner/wiki", target: "/v/outer-pages" };
-    const inner = { root: "/v/inner", alias: "/v/inner/wiki", target: "/v/inner/pages" };
-    for (const table of [
-      [outer, inner],
-      [inner, outer],
-    ]) {
-      replaceFolderPins(table);
-      expect(pinnedFolderPath("/v/inner/wiki/x.md")).toBe("/v/inner/pages/x.md");
-      expect(pinnedFolderPath("/v/inner/wikipedia/x.md")).toBe("/v/inner/wikipedia/x.md");
-    }
-    replaceFolderPins([]);
-    expect(pinnedFolderPath("/v/inner/wiki/x.md")).toBe("/v/inner/wiki/x.md");
+    expect(() => under(reg, () => resolveVaultPathChecked(root, "wiki/a.md"))).toThrow(
+      /no longer leads/,
+    );
   });
 });
+
+// Round 3 of the cross-vendor review. Each case below was reproduced against the native addon.
+describe.skipIf(process.platform === "win32")(
+  "a pin holds the folder's identity, per registry",
+  () => {
+    const vault = (opts: Parameters<typeof makeTestVault>[0]): TestVault =>
+      (v = makeTestVault(opts));
+    /** Confirm `delete_note` once (the dispatcher refuses it before the handler runs), then run it. */
+    const confirmedDelete = async (t: TestVault, path: string) => {
+      const input = { vault: "test", path };
+      const need = await t.call("delete_note", input);
+      if (need.ok) return need;
+      const argsHash = String((need.error.details as { args_hash?: string }).args_hash);
+      const token = issueElicitToken(t.db, {
+        vaultId: t.id,
+        toolName: "delete_note",
+        argsHash,
+        caller: "test",
+      });
+      return t.call("delete_note", input, { elicitToken: token });
+    };
+    /** Rename `open` away and the immutable `raw` into its place: the same pathname, another folder. */
+    const swapRawIntoOpen = (root: string): void => {
+      renameSync(join(root, "open"), join(root, "open-gone"));
+      renameSync(join(root, "raw"), join(root, "open"));
+    };
+    const openAndRaw = (): TestVault =>
+      vault({
+        files: { "open/x.md": "open note\n", "raw/x.md": "RAW SOURCE\n" },
+        wikiFolder: "wiki",
+        centralAcl: true,
+        setup: (root) => symlinkSync(join(root, "open"), join(root, "wiki")),
+      });
+
+    it("read: the pinned directory renamed away and raw renamed into its name is refused", async () => {
+      const t = openAndRaw();
+      seam.beforeRead = () => swapRawIntoOpen(t.root);
+      const r = await t.call("read_note", { vault: "test", path: "wiki/x.md" });
+      expect(JSON.stringify(r)).not.toContain("RAW SOURCE");
+      expect(r.ok).toBe(false);
+    });
+
+    it("trash: the same swap before the move leaves the raw source where it is", async () => {
+      const t = openAndRaw();
+      seam.beforeTrash = () => swapRawIntoOpen(t.root);
+      await confirmedDelete(t, "wiki/x.md");
+      expect(readFileSync(join(t.root, "open", "x.md"), "utf8")).toBe("RAW SOURCE\n");
+    });
+
+    /** A wiki vault whose root is missing when the registry and the ACL are built. */
+    const lateVault = (): TestVault =>
+      vault({
+        wikiFolder: "wiki",
+        rawFolder: "raw",
+        centralAcl: true,
+        setup: (root) => rmTemp(root),
+      });
+    const appear = (root: string, links: Record<string, string>): void => {
+      mkdirSync(join(root, "shared"), { recursive: true });
+      writeFileSync(join(root, "shared", "x.md"), "RAW SOURCE\n");
+      for (const [at, target] of Object.entries(links))
+        symlinkSync(join(root, target), join(root, at));
+    };
+
+    it("deferred: wiki and raw both -> shared after startup: deleting wiki/x.md never moves the raw source", async () => {
+      const t = lateVault();
+      appear(t.root, { wiki: "shared", raw: "shared" });
+      const r = await confirmedDelete(t, "wiki/x.md");
+      expect(r.ok).toBe(false);
+      expect(readFileSync(join(t.root, "shared", "x.md"), "utf8")).toBe("RAW SOURCE\n");
+      const read = await t.call("read_note", { vault: "test", path: "wiki/x.md" });
+      expect(read.ok).toBe(false);
+      if (!read.ok) expect(read.error.message).toMatch(/raw folder/);
+    });
+
+    it("deferred: a raw folder that is a symlink stays refused until restart, with a clear error", async () => {
+      const t = lateVault();
+      appear(t.root, { raw: "shared" });
+      for (const r of [
+        await t.call("read_note", { vault: "test", path: "raw/x.md" }),
+        await confirmedDelete(t, "raw/x.md"),
+      ]) {
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.message).toMatch(/restart/);
+      }
+      expect(readFileSync(join(t.root, "shared", "x.md"), "utf8")).toBe("RAW SOURCE\n");
+    });
+
+    const pagesAndScratch = (): TestVault =>
+      vault({
+        files: { "pages/a.md": "page A\n", "scratch/a.md": "scratch A\n" },
+        wikiFolder: "wiki",
+        centralAcl: true,
+        setup: (root) => symlinkSync(join(root, "pages"), join(root, "wiki")),
+      });
+
+    it("a second registry (a sandbox's) built later leaves this registry's pins alone", async () => {
+      const t = pagesAndScratch();
+      const sandbox = makeTempDir("obtc-folder-pins-sandbox-");
+      temps.push(sandbox);
+      new VaultRegistry([{ id: "sandbox", path: sandbox }]);
+      const r = await t.call("read_note", { vault: "test", path: "wiki/a.md" });
+      expect(r.ok).toBe(true);
+      expect(JSON.stringify(r)).toContain("page A");
+    });
+
+    it("a second registry built mid-request cannot re-pin the folder the ACL already decided on", async () => {
+      const t = pagesAndScratch();
+      seam.beforeRead = () => {
+        retarget(t.root, "scratch");
+        new VaultRegistry([{ id: "other", path: t.root, wiki: { folder: "wiki" } }]);
+      };
+      const r = await t.call("read_note", { vault: "test", path: "wiki/a.md" });
+      expect(JSON.stringify(r)).not.toContain("scratch A");
+    });
+  },
+);

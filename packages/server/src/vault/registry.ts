@@ -4,7 +4,7 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { err, type VaultConfigInput, type VaultKind } from "@the-40-thieves/obsidian-tc-shared";
 import { rawFolderNames, wikiFolderNames } from "../tools/m7/knowledge/wiki-folder";
-import { pinFolders, replaceFolderPins } from "./folder-links";
+import { FolderPins } from "./folder-links";
 import { canonicalFolderOf, rawFolderOf } from "./raw-folder";
 
 /**
@@ -111,6 +111,9 @@ export class VaultRegistry {
   private readonly byId = new Map<string, ResolvedVault>();
   private readonly defaultId: string;
   private readonly exclusionCacheDir: string | undefined;
+  /** This registry's folder pins (vault/folder-links.ts), fixed at construction: a request through
+   *  this registry sees them (mcp/registry.ts sets the frame), and no other registry can alter them. */
+  readonly folderPins: FolderPins;
 
   constructor(vaults: VaultConfigInput[], defaultId?: string, exclusionCacheDir?: string) {
     if (vaults.length === 0) throw new Error("VaultRegistry requires at least one vault");
@@ -128,16 +131,7 @@ export class VaultRegistry {
         const conflict = sharedRootConflict(q, p);
         if (conflict !== null) throw new Error(conflict);
       }
-    // Pin the configured folders before anything below resolves a path through them, replacing
-    // every earlier pin: a folder this build no longer configures loses its pin.
-    replaceFolderPins(
-      placed.flatMap((p) =>
-        pinFolders(
-          p.root,
-          [p.wikiFolder, p.rawFolder].filter((f) => f !== undefined),
-        ),
-      ),
-    );
+    this.folderPins = new FolderPins(placed);
     for (const { v, root, canonical, wikiFolder, rawFolder } of placed) {
       this.byId.set(v.id, {
         id: v.id,

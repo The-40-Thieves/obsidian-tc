@@ -36,7 +36,7 @@ import { existsNoFollow } from "../auth/key-files";
 import { enforceMemoryDefenseOnNoteWrite } from "../experiential/memory-defense";
 import { redactSecrets } from "../experiential/redact";
 import type { MetricsRecorder } from "../metrics/registry";
-import { pinnedFolderPath } from "./folder-links";
+import { type PinnedDir, pinnedOpenPath } from "./folder-links";
 import { assertCreatableName, contentHash } from "./paths";
 
 // O_NOFOLLOW is POSIX-only (undefined on Windows Node): 0 is a no-op there, and the st_nlink inode
@@ -47,12 +47,20 @@ const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 // follows no symlink in ANY path component. Without it (unsupported platform, no addon, or
 // `OBSIDIAN_TC_FORCE_JS_FALLBACK=1`) the JS path keeps its documented residual.
 interface NativeVaultIo {
-  safeReadNote(abs: string): Buffer;
+  safeReadNote(abs: string, pinned?: PinnedDir): Buffer;
   safeWriteNoteAtomic(abs: string, data: Buffer): void;
   /** No-replace write / rename. Optional: an older .node predates them and the JS link+unlink path
    *  is used (an extra argument to safeWriteNoteAtomic would be silently ignored by such a binary). */
   safeWriteNoteExclusive?(abs: string, data: Buffer): void;
-  safeRenameNoReplace?(fromAbs: string, toAbs: string): void;
+  safeRenameNoReplace?(
+    fromAbs: string,
+    toAbs: string,
+    fromPinned?: PinnedDir,
+    toPinned?: PinnedDir,
+  ): void;
+  /** The binary verifies a PinnedDir (`SAFE_IO_PINNED_DIR`). An older one would ignore the pin, so
+   *  without it no path is translated to a pinned directory (the walk refuses the symlink). */
+  pinnedDirs: boolean;
 }
 const NATIVE_PKG = ["@the-40-thieves", "obsidian-tc-native"].join("/");
 function loadNativeIo(): NativeVaultIo | null {
@@ -60,6 +68,7 @@ function loadNativeIo(): NativeVaultIo | null {
   try {
     const mod = createRequire(import.meta.url)(NATIVE_PKG) as Partial<NativeVaultIo> & {
       nativeLoaded?: boolean;
+      SAFE_IO_PINNED_DIR?: boolean;
     };
     if (
       mod.nativeLoaded === true &&
@@ -69,6 +78,7 @@ function loadNativeIo(): NativeVaultIo | null {
       return {
         safeReadNote: mod.safeReadNote,
         safeWriteNoteAtomic: mod.safeWriteNoteAtomic,
+        pinnedDirs: mod.SAFE_IO_PINNED_DIR === true,
         ...(typeof mod.safeWriteNoteExclusive === "function"
           ? { safeWriteNoteExclusive: mod.safeWriteNoteExclusive }
           : {}),
@@ -99,6 +109,31 @@ function mapNativeReadError(e: unknown, abs: string): never {
   throw err.aclDenied(`safe open refused the path: ${(e as Error).message}`, { path: abs });
 }
 
+/** `abs` as the native open takes it: under a placed folder pin (vault/folder-links.ts), the pinned
+ *  directory plus the identity the native walk verifies; otherwise `abs` itself. */
+function nativeOpen(abs: string): { path: string; pinned?: PinnedDir } {
+  return nativeIo?.pinnedDirs ? pinnedOpenPath(abs) : { path: abs };
+}
+
+function nativeRead(io: NativeVaultIo, abs: string): Buffer {
+  const { path, pinned } = nativeOpen(abs);
+  return io.safeReadNote(path, pinned);
+}
+
+/** The JS fallback opens the pinned directory too, after checking it is still the directory that
+ *  was pinned. Node has no openat, so this check and the open are two lookups: a narrower window,
+ *  not a closed one (the fallback's open-time TOCTOU is a documented residual). */
+function fallbackOpenPath(abs: string): string {
+  const { path, pinned } = pinnedOpenPath(abs);
+  if (pinned === undefined) return path;
+  const st = statSync(pinned.dir, { bigint: true, throwIfNoEntry: false });
+  if (st?.dev !== pinned.dev || st.ino !== pinned.ino)
+    throw err.aclDenied("a pinned folder is no longer the directory it was pinned as", {
+      path: abs,
+    });
+  return path;
+}
+
 export interface NoteStat {
   size: number;
   mtime: string;
@@ -127,13 +162,13 @@ function assertRegularSingleLink(fd: number, abs: string): Stats {
 export function readNote(abs: string): { raw: string; hash: string } {
   if (nativeIo) {
     try {
-      const raw = nativeIo.safeReadNote(pinnedFolderPath(abs)).toString("utf8");
+      const raw = nativeRead(nativeIo, abs).toString("utf8");
       return { raw, hash: contentHash(raw) };
     } catch (e) {
       mapNativeReadError(e, abs);
     }
   }
-  const fd = openSync(abs, constants.O_RDONLY);
+  const fd = openSync(fallbackOpenPath(abs), constants.O_RDONLY);
   try {
     assertRegularSingleLink(fd, abs);
     const raw = readFileSync(fd, "utf8");
@@ -147,13 +182,13 @@ export function readNote(abs: string): { raw: string; hash: string } {
 export function readNoteBounded(abs: string, maxBytes: number): { raw: string | null } {
   if (nativeIo) {
     try {
-      const buf = nativeIo.safeReadNote(pinnedFolderPath(abs));
+      const buf = nativeRead(nativeIo, abs);
       return { raw: buf.length > maxBytes ? null : buf.toString("utf8") };
     } catch (e) {
       mapNativeReadError(e, abs);
     }
   }
-  const fd = openSync(abs, constants.O_RDONLY);
+  const fd = openSync(fallbackOpenPath(abs), constants.O_RDONLY);
   try {
     assertRegularSingleLink(fd, abs);
     const buf = Buffer.allocUnsafe(maxBytes + 1);
@@ -173,12 +208,12 @@ export function readNoteBounded(abs: string, maxBytes: number): { raw: string | 
 export function readFileChecked(abs: string): Buffer {
   if (nativeIo) {
     try {
-      return nativeIo.safeReadNote(pinnedFolderPath(abs));
+      return nativeRead(nativeIo, abs);
     } catch (e) {
       mapNativeReadError(e, abs);
     }
   }
-  const fd = openSync(abs, constants.O_RDONLY);
+  const fd = openSync(fallbackOpenPath(abs), constants.O_RDONLY);
   try {
     assertRegularSingleLink(fd, abs);
     return readFileSync(fd);
@@ -413,7 +448,9 @@ export function stageNoteWrite(
 export function moveNoReplace(fromAbs: string, toAbs: string): void {
   if (nativeIo?.safeRenameNoReplace) {
     try {
-      nativeIo.safeRenameNoReplace(pinnedFolderPath(fromAbs), pinnedFolderPath(toAbs));
+      const from = nativeOpen(fromAbs);
+      const to = nativeOpen(toAbs);
+      nativeIo.safeRenameNoReplace(from.path, to.path, from.pinned, to.pinned);
       return;
     } catch (e) {
       if (isNativeExists(e)) throw noteExistsConcurrently();
