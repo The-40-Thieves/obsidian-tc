@@ -13,7 +13,8 @@ import type {
 } from "@the-40-thieves/obsidian-tc-shared";
 import { type Context, Hono } from "hono";
 import type { FolderAcl } from "../acl";
-import { mountAsMetadata, mountAsRoutes } from "../auth/as-metadata";
+import "../auth/as-issuing";
+import { type AsRouteDeps, mountAsMetadata, mountAsRoutes } from "../auth/as-metadata";
 import { mountAsOperator } from "../auth/as-operator";
 import { AuthRejection, type AuthRejectionReason } from "../auth/jwt";
 import { buildJwtVerifier } from "../auth/jwt-boot";
@@ -491,13 +492,22 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
   // alone (never the request's Host), and absent while the AS is off or has no issuing routes yet.
   mountAsMetadata(app, opts.auth);
   // Operator identity first, so its unclaimed-server refusal guards the routes mounted after it.
+  let asRouteDeps: AsRouteDeps | undefined;
   if (opts.oauthDb !== undefined) {
     const secret = opts.cacheDir
       ? serverSecret(opts.cacheDir)
       : randomBytes(32).toString("base64url");
     mountAsOperator(app, { auth: opts.auth, db: opts.oauthDb, secret });
+    if (opts.authRegistry !== undefined) {
+      asRouteDeps = {
+        db: opts.oauthDb,
+        registry: opts.authRegistry,
+        secret,
+        personas: opts.personas,
+      };
+    }
   }
-  mountAsRoutes(app, opts.auth);
+  mountAsRoutes(app, opts.auth, asRouteDeps);
 
   // JWKS of the registry's ES256/EdDSA signing keys, so a verifier that is not this process can
   // validate the tokens `token mint` issues. Public keys only, active and in-window retiring ones

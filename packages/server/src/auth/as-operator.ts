@@ -10,11 +10,10 @@
 // and the urlencoded content type. Success always answers 303 so a browser never re-POSTs
 // credentials to the redirect target. Nothing here logs a username, a password, a token, a cookie
 // or a query string.
-import { createHmac, hkdfSync, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { Database } from "../db/types";
 import { sha256Hex } from "../provenance/store";
 import { FailureLimiter } from "./as-login-limiter";
@@ -24,11 +23,7 @@ import {
   deleteSession,
   finalizeLogin,
   findOperator,
-  isSessionId,
-  lookupSession,
   normalizeUsername,
-  SESSION_ABSOLUTE_MS,
-  type SessionInfo,
   soleOperator,
   tokenBurned,
 } from "./as-operator-store";
@@ -49,7 +44,7 @@ import {
   passwordProblem,
   verifyPassword,
 } from "./as-password";
-import { isClaimed } from "./oauth-db";
+import { type AsBrowser, createAsBrowser, requestHandleOf } from "./as-session";
 
 type AuthConfig = ServerConfig["auth"];
 
@@ -63,8 +58,6 @@ const SETUP_WINDOW_FAILURE_MS = 15 * 60_000;
  *  budget: enough that a household behind one NAT is not locked out by one typo each. */
 const IP_BUDGET_FACTOR = 4;
 const DEFAULT_MAX_CONCURRENT_HASHES = 4;
-const CSRF_INFO = "obsidian-tc/as-csrf/v1";
-const NONCE_RE = /^[A-Za-z0-9_-]{22}$/;
 
 export interface PasswordHasher {
   hash(password: string): Promise<string>;
@@ -86,6 +79,8 @@ export interface AsOperatorDeps {
   passwords?: PasswordHasher;
   /** Password verifications running at once before login answers 503. */
   maxConcurrentHashes?: number;
+  /** The shared browser plumbing (as-session.ts). Default: built from `auth`, `db` and `secret`. */
+  browser?: AsBrowser;
 }
 
 const LOOPBACK_RE = /^(127\.|::1$|0:0:0:0:0:0:0:1$)/;
@@ -120,7 +115,29 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
   const as = enabledAs(deps.auth);
   if (as === undefined) return;
 
-  const now = deps.now ?? Date.now;
+  const browser =
+    deps.browser ??
+    createAsBrowser({
+      auth: deps.auth,
+      db: deps.db,
+      secret: deps.secret,
+      ...(deps.now ? { now: deps.now } : {}),
+    });
+  const {
+    now,
+    db,
+    html,
+    claimed,
+    notClaimed,
+    forbidden,
+    sessionId: presentedSession,
+    sessionOf,
+    formToken,
+    tokenValid,
+    readForm,
+    setSession: sessionCookie,
+    clearSession,
+  } = browser;
   const env = deps.env ?? process.env;
   const clientIp = deps.clientIp ?? socketClientIp;
   const log = deps.log ?? defaultLog;
@@ -128,13 +145,6 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
     hash: hashPassword,
     verify: verifyPassword,
   };
-  const db = deps.db;
-  const issuer = new URL(as.issuer);
-  const secureCookies = issuer.protocol === "https:";
-  const prefix = secureCookies ? ("host" as const) : undefined;
-  const SESSION = "otc_as";
-  const NONCE = "otc_as_csrf";
-  const csrfKey = Buffer.from(hkdfSync("sha256", deps.secret, "", CSRF_INFO, 32));
   const startedAt = now();
   const maxHashes = deps.maxConcurrentHashes ?? DEFAULT_MAX_CONCURRENT_HASHES;
   const accountLimiter = new FailureLimiter({
@@ -154,31 +164,15 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
   const fallbackHash = (): Promise<string> =>
     (dummyHash ??= passwords.hash(randomBytes(18).toString("base64url")));
 
-  const claimed = (): boolean => {
-    try {
-      return isClaimed(db);
-    } catch {
-      return false; // an unreadable store is not a claimed one: fail closed
-    }
-  };
-  const html = (c: Context, status: 200 | 400 | 401 | 403 | 404 | 429 | 503, body: string) =>
-    c.html(body, status);
-  const notClaimed = (c: Context) =>
-    html(
-      c,
-      503,
-      messagePage(
-        "Not claimed",
-        "This authorization server has not been claimed yet. The operator claims it with `obsidian-tc auth as set-password` on the host, or with a setup token.",
-      ),
-    );
-
   // Every response under /oauth/ is frame-proof and uncacheable, whichever handler or middleware
   // produced it (a 413 from the body cap, a 404, a redirect).
   app.use("/oauth/*", async (c, next) => {
     for (const [k, v] of Object.entries(AS_RESPONSE_HEADERS)) c.header(k, v);
     await next();
     for (const [k, v] of Object.entries(AS_RESPONSE_HEADERS)) {
+      // The consent page widens `form-action` to its own client's redirect (as-authorize.ts), so a
+      // policy a handler already set is kept; every other header is forced.
+      if (k === "content-security-policy" && c.res.headers.has(k)) continue;
       try {
         c.res.headers.set(k, v);
       } catch {
@@ -210,92 +204,6 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
 
   app.get(AS_CSS_PATH, (c) => c.body(AS_CSS, 200, { "content-type": "text/css; charset=utf-8" }));
 
-  // ---- form tokens -------------------------------------------------------------------------
-
-  const token = (purpose: string, bind: string): string =>
-    createHmac("sha256", csrfKey).update(`${purpose}\0${bind}`).digest("base64url");
-
-  /** The browser's pre-sign-in nonce, set as a cookie on first use. */
-  const nonceFor = (c: Context, create: boolean): string | undefined => {
-    const have = getCookie(c, NONCE, prefix);
-    if (have !== undefined && NONCE_RE.test(have)) return have;
-    if (!create) return undefined;
-    const fresh = randomBytes(16).toString("base64url");
-    setCookie(c, NONCE, fresh, {
-      prefix,
-      httpOnly: true,
-      secure: secureCookies,
-      sameSite: "Strict",
-      path: "/",
-      maxAge: 3600,
-    });
-    return fresh;
-  };
-
-  const sessionOf = (c: Context): SessionInfo | undefined => {
-    const id = getCookie(c, SESSION, prefix);
-    if (!isSessionId(id)) return undefined;
-    try {
-      return lookupSession(db, id, now());
-    } catch {
-      return undefined;
-    }
-  };
-
-  const formToken = (c: Context, purpose: string, session?: SessionInfo): string =>
-    session !== undefined
-      ? token(purpose, `s:${session.idHash}`)
-      : token(purpose, `n:${nonceFor(c, true)}`);
-
-  const tokenValid = (
-    c: Context,
-    purpose: string,
-    supplied: string,
-    session?: SessionInfo,
-  ): boolean => {
-    const nonce = session === undefined ? nonceFor(c, false) : undefined;
-    if (session === undefined && nonce === undefined) return false; // no browser binding to check
-    const bind = session !== undefined ? `s:${session.idHash}` : `n:${nonce}`;
-    return supplied !== "" && constantTimeEqual(token(purpose, bind), supplied);
-  };
-
-  const forbidden = (c: Context) =>
-    html(
-      c,
-      403,
-      messagePage(
-        "Request refused",
-        "This request could not be verified. Reload the page and try again.",
-      ),
-    );
-
-  /** Content type, then Origin, then the parsed body. A returned Response is the refusal. */
-  const readForm = async (c: Context): Promise<URLSearchParams | Response> => {
-    const type = c.req.header("content-type") ?? "";
-    if (!/^application\/x-www-form-urlencoded(?:\s*;|$)/i.test(type)) {
-      return c.text("Unsupported Media Type", 415);
-    }
-    if (c.req.header("origin") !== issuer.origin) return forbidden(c);
-    try {
-      return new URLSearchParams(await c.req.text());
-    } catch {
-      return c.text("Payload Too Large", 413);
-    }
-  };
-
-  const sessionCookie = (c: Context, id: string): void =>
-    setCookie(c, SESSION, id, {
-      prefix,
-      httpOnly: true,
-      secure: secureCookies,
-      sameSite: "Lax",
-      path: "/",
-      maxAge: SESSION_ABSOLUTE_MS / 1000,
-    });
-  const clearSession = (c: Context): void => {
-    deleteCookie(c, SESSION, { prefix, secure: secureCookies, path: "/" });
-  };
-
   const retryAfter = (c: Context, ms: number) => {
     c.header("retry-after", String(Math.max(1, Math.ceil(ms / 1000))));
     return html(
@@ -307,17 +215,22 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
 
   // ---- login ---------------------------------------------------------------------------------
 
+  // A pending authorization request rides through login as `request` (its handle, shape-checked so
+  // nothing else can be put in the redirect); `reauth=1` asks for a fresh login even if signed in.
   app.get("/oauth/login", (c) => {
     if (!claimed()) return notClaimed(c);
+    const request = requestHandleOf(c.req.query("request"));
+    const reauth = request !== undefined && c.req.query("reauth") === "1";
     const session = sessionOf(c);
-    if (session !== undefined) {
+    if (session !== undefined && !reauth) {
+      if (request !== undefined) return c.redirect(`/oauth/consent?request=${request}`, 303);
       return html(
         c,
         200,
         signedInPage({ username: session.username, csrf: formToken(c, "logout", session) }),
       );
     }
-    return html(c, 200, loginPage({ csrf: formToken(c, "login") }));
+    return html(c, 200, loginPage({ csrf: formToken(c, "login"), request, reauth }));
   });
 
   app.post("/oauth/login", async (c) => {
@@ -325,6 +238,7 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
     const form = await readForm(c);
     if (form instanceof Response) return form;
     if (!tokenValid(c, "login", form.get("csrf") ?? "")) return forbidden(c);
+    const request = requestHandleOf(form.get("request") ?? undefined);
 
     const rawName = (form.get("username") ?? "").trim().toLowerCase();
     const password = form.get("password") ?? "";
@@ -352,7 +266,7 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
         return html(c, 503, messagePage("Busy", "The server is busy. Try again in a moment."));
       }
 
-      const presented = getCookie(c, SESSION, prefix);
+      const presented = presentedSession(c);
       let sessionId: string | undefined;
       inflight++;
       try {
@@ -377,7 +291,7 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
             sub: user.sub,
             verifiedHash: user.passwordHash,
             ...(upgradedHash !== undefined ? { upgradedHash } : {}),
-            ...(isSessionId(presented) ? { replaces: presented } : {}),
+            ...(presented !== undefined ? { replaces: presented } : {}),
             now: now(),
           });
         }
@@ -395,6 +309,7 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
           loginPage({
             csrf: formToken(c, "login"),
             username: rawName.slice(0, 64),
+            request,
             error: "Sign-in failed. Check the username and password.",
           }),
         );
@@ -405,7 +320,10 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
       // retired in the same transaction.
       sessionCookie(c, sessionId);
       log("operator login ok");
-      return c.redirect("/oauth/login", 303);
+      return c.redirect(
+        request !== undefined ? `/oauth/consent?request=${request}` : "/oauth/login",
+        303,
+      );
     } finally {
       settle();
     }
@@ -419,8 +337,8 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
     const session = sessionOf(c);
     if (session !== undefined) {
       if (!tokenValid(c, "logout", form.get("csrf") ?? "", session)) return forbidden(c);
-      const id = getCookie(c, SESSION, prefix);
-      if (isSessionId(id)) deleteSession(db, id);
+      const id = presentedSession(c);
+      if (id !== undefined) deleteSession(db, id);
       log("operator logout");
     }
     clearSession(c);

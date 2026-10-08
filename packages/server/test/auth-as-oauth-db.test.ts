@@ -162,7 +162,7 @@ describe("gcOauthDb: housekeeping deletes only what is past its time", () => {
       ["r-live", NOW + 1000],
     ] as const) {
       run(
-        "INSERT INTO auth_requests VALUES (?, 'c', 'https://c/cb', 'read:notes', 'r', 'ch', NULL, 1, ?)",
+        "INSERT INTO auth_requests (handle_hash, client_id, redirect_uri, scope, resource, code_challenge, state, created_at, expires_at) VALUES (?, 'c', 'https://c/cb', 'read:notes', 'r', 'ch', NULL, 1, ?)",
         h,
         exp,
       );

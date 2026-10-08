@@ -21,6 +21,9 @@ const RESOURCE = "https://vault.example.com/mcp";
 
 const handles: HttpHandle[] = [];
 const dirs: string[] = [];
+beforeEach(() => {
+  AS_ROUTES.clear();
+});
 afterEach(async () => {
   for (const h of handles.splice(0)) await h.close();
   for (const d of dirs.splice(0)) rmTemp(d);
