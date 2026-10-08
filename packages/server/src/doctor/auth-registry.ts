@@ -51,6 +51,9 @@ export interface AuthRegistryView {
   jwtSecretConfigured?: boolean;
   /** A JWKS is configured (auth.jwks / jwksFile / jwksUri). */
   jwksConfigured?: boolean;
+  /** `auth.as.enabled`: the server generates the `as` signing key at start, ahead of the
+   *  no-signing-key refusal, so an otherwise keyless deployment still boots. */
+  asEnabled?: boolean;
   /** `auth.rotationGraceSeconds`. */
   rotationGraceSeconds?: number;
 }
@@ -138,7 +141,8 @@ export function authRegistryCheck(view: AuthRegistryView): Check {
       if (
         view.state === "uninitialised" &&
         view.jwtSecretConfigured === false &&
-        view.jwksConfigured === false
+        view.jwksConfigured === false &&
+        view.asEnabled !== true
       ) {
         return {
           status: "fail",
@@ -147,6 +151,14 @@ export function authRegistryCheck(view: AuthRegistryView): Check {
           details,
           remediation:
             "Create a registry signing key with `obsidian-tc auth rotate-key`, or set auth.jwtSecret (or OBSIDIAN_TC_JWT_SECRET).",
+        };
+      }
+      if (view.state === "uninitialised" && view.asEnabled === true) {
+        return {
+          status: "ok",
+          summary:
+            "auth registry: not initialised (the authorization server generates its signing key at server start; see auth.as)",
+          details,
         };
       }
       if (view.state === "uninitialised") {

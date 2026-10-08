@@ -203,7 +203,10 @@ describe("gcOauthDb: housekeeping deletes only what is past its time", () => {
       "INSERT INTO refresh_tokens VALUES ('rt-live','f2','g1',NULL,'s',1,NULL,?,NULL)",
       NOW + DAY,
     );
-    run("INSERT INTO issued_access VALUES ('jti-old','f1','g1',?)", NOW - 1);
+    // A jti is kept for the verifier's 60 s skew past its expiry (ISSUED_ACCESS_GC_GRACE_MS), so the
+    // expired one is older than that and the one inside the allowance survives (and `jti-live` too).
+    run("INSERT INTO issued_access VALUES ('jti-old','f1','g1',?)", NOW - 60_000);
+    run("INSERT INTO issued_access VALUES ('jti-skew','f1','g1',?)", NOW - 1);
     run("INSERT INTO issued_access VALUES ('jti-live','f2','g1',?)", NOW + 1000);
     return db;
   }
@@ -220,7 +223,7 @@ describe("gcOauthDb: housekeeping deletes only what is past its time", () => {
     expect(keys(db, "SELECT client_id AS k FROM oauth_clients")).toEqual(["dcr-new", "dcr-used"]);
     expect(keys(db, "SELECT code_hash AS k FROM auth_codes")).toEqual(["code-live"]);
     expect(keys(db, "SELECT token_hash AS k FROM refresh_tokens")).toEqual(["rt-live"]);
-    expect(keys(db, "SELECT jti AS k FROM issued_access")).toEqual(["jti-live"]);
+    expect(keys(db, "SELECT jti AS k FROM issued_access")).toEqual(["jti-live", "jti-skew"]);
     // 1 session + 1 request + 1 cimd + 2 dcr + 1 code + 1 refresh + 1 jti
     expect(counts.total).toBe(8);
   });

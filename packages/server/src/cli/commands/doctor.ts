@@ -656,6 +656,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
               })),
             }
           : {}),
+        asEnabled: authAs !== undefined,
         jwtSecretConfigured: !!config.auth.jwtSecret,
         jwksConfigured: !!(config.auth.jwks || config.auth.jwksFile || config.auth.jwksUri),
         rotationGraceSeconds: config.auth.rotationGraceSeconds,

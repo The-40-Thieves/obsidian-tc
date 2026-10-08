@@ -1,0 +1,4 @@
+---
+type: Changed
+---
+- **The bundled authorization server (`auth.as`) now boots on its own signing key, and access-token bookkeeping can no longer be swept from under a live token.** The `as` key is generated before the "no signing key" refusal, so a deployment whose only key is the authorization server's (`auth.as.enabled` with no `auth.jwtSecret`, no JWKS and no `mint` key) starts instead of being refused; with `auth.as` off the refusal is unchanged, and `doctor`'s `auth.registry` no longer reports such a deployment as unable to start. The `oauth.db` sweep keeps an issued access token's `jti` for 60 seconds (the verifier skew) past its expiry instead of deleting it at the instant of `exp`, and a new internal `recordIssuedAccess` records the `jti`, its family and grant, and the token in the auth registry in one step, refusing an `exp` that is not whole seconds. Nothing is mounted yet: the authorize and token routes still arrive in a later release.

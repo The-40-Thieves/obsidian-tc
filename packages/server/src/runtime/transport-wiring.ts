@@ -101,6 +101,38 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
   if (registryHealth?.state === "lost") {
     process.stderr.write(`auth: ERROR ${registryHealth.detail}\n`);
   }
+  const as = enabledAs(config.auth);
+  if (authRegistry !== undefined && as !== undefined && config.auth.mode === "jwt") {
+    // The `as` key is generated BEFORE the no-signing-key refusal below, so an AS-only deployment
+    // (no jwtSecret, no JWKS, no `mint` key) boots with the key it issues tokens with. With the AS
+    // off nothing is generated here and that refusal judges the deployment exactly as before.
+    try {
+      // A configured JWKS key is verified under the hand-minted-token rules, so an `as` key listed
+      // there would skip the `as` rules: refuse the boot. A remote `auth.jwksUri` cannot be checked.
+      const dup = await configuredJwksOverlap(config.auth, authRegistry);
+      if (dup !== undefined) {
+        throw new Error(
+          `${dup.source} contains the public key of the authorization server's signing key ${dup.kids.join(", ")}: ` +
+            `remove it from ${dup.source} (the server publishes its own key at ${as.issuer}/.well-known/jwks.json)`,
+        );
+      }
+      const key = await ensureAsKey(authRegistry, {
+        alg: as.signingAlg,
+        accessTokenSeconds: as.accessTokenSeconds,
+      });
+      if (key.created) {
+        process.stderr.write(`auth: generated the authorization server signing key ${key.kid}\n`);
+      } else if (key.skipped === "alg_mismatch") {
+        process.stderr.write(
+          `auth: WARNING the active authorization server key ${key.kid} is ${key.existingAlg} but auth.as.signingAlg is ${as.signingAlg}; ` +
+            "rotate it with `obsidian-tc auth rotate-key --purpose as` to switch\n",
+        );
+      }
+    } catch (e) {
+      opened?.close();
+      throw e;
+    }
+  }
   if (authRegistry !== undefined && config.auth.mode === "jwt") {
     // A jwt server whose only key source is the registry must HAVE a key there. The config no
     // longer demands auth.jwtSecret (it can be removed once the `config` key is retired), so this
@@ -108,9 +140,6 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
     // bearer rejected.
     const { jwtSecret, jwks, jwksFile, jwksUri } = config.auth;
     const staticKey = !!jwtSecret || !!jwks || !!jwksFile || !!jwksUri;
-    // S5 NOTE: this refusal runs before `ensureAsKey` below, so an AS-only deployment (no static key and
-    // no registry key) is refused at boot. That is right while no token can be issued (S3); the slice
-    // that mounts the issuing routes must generate the `as` key ahead of this check.
     if (!staticKey && registryHealth?.state !== "lost") {
       const n = authRegistry.keyCounts();
       if (n.active + n.retiring === 0) {
@@ -141,29 +170,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
   }
 
   try {
-    const as = enabledAs(config.auth);
     if (authRegistry !== undefined && as !== undefined && config.auth.mode === "jwt") {
-      // A configured JWKS key is verified under the hand-minted-token rules, so an `as` key listed
-      // there would skip the `as` rules: refuse the boot. A remote `auth.jwksUri` cannot be checked.
-      const dup = await configuredJwksOverlap(config.auth, authRegistry);
-      if (dup !== undefined) {
-        throw new Error(
-          `${dup.source} contains the public key of the authorization server's signing key ${dup.kids.join(", ")}: ` +
-            `remove it from ${dup.source} (the server publishes its own key at ${as.issuer}/.well-known/jwks.json)`,
-        );
-      }
-      const key = await ensureAsKey(authRegistry, {
-        alg: as.signingAlg,
-        accessTokenSeconds: as.accessTokenSeconds,
-      });
-      if (key.created) {
-        process.stderr.write(`auth: generated the authorization server signing key ${key.kid}\n`);
-      } else if (key.skipped === "alg_mismatch") {
-        process.stderr.write(
-          `auth: WARNING the active authorization server key ${key.kid} is ${key.existingAlg} but auth.as.signingAlg is ${as.signingAlg}; ` +
-            "rotate it with `obsidian-tc auth rotate-key --purpose as` to switch\n",
-        );
-      }
       // Passwords are Argon2id: a runtime without crypto.argon2 (Node 24.0 to 24.6) refuses the
       // boot here, not at the first login.
       assertArgon2Runtime();
