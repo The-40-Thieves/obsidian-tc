@@ -248,28 +248,32 @@ describe("the CLI against files on disk", () => {
     }
   });
 
-  it("creates a missing cacheDir owner-only (it holds auth.db, oauth.db and the secrets)", async () => {
-    const root = makeTempDir("as-grants-cli-mode-");
-    dirs.push(root);
-    mkdirSync(join(root, "v"));
-    const configPath = join(root, "config.json");
-    const cacheDir = join(root, "fresh", "cache");
-    writeFileSync(
-      configPath,
-      JSON.stringify({
-        vaults: [{ id: "main", path: join(root, "v") }],
-        cacheDir,
-        auth: {
-          mode: "jwt",
-          jwtSecret: "test-only-secret-not-a-real-credential-0123456789",
-          resource: "https://vault.example.com/mcp",
-          as: { enabled: true, issuer: "https://vault.example.com" },
-        },
-      }),
-    );
-    await cmd("as-grants-list", configPath);
-    expect(statSync(cacheDir).mode & 0o777).toBe(0o700);
-  });
+  // POSIX permission bits only: Windows reports 0o666 for any directory.
+  it.skipIf(process.platform === "win32")(
+    "creates a missing cacheDir owner-only (it holds auth.db, oauth.db and the secrets)",
+    async () => {
+      const root = makeTempDir("as-grants-cli-mode-");
+      dirs.push(root);
+      mkdirSync(join(root, "v"));
+      const configPath = join(root, "config.json");
+      const cacheDir = join(root, "fresh", "cache");
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          vaults: [{ id: "main", path: join(root, "v") }],
+          cacheDir,
+          auth: {
+            mode: "jwt",
+            jwtSecret: "test-only-secret-not-a-real-credential-0123456789",
+            resource: "https://vault.example.com/mcp",
+            as: { enabled: true, issuer: "https://vault.example.com" },
+          },
+        }),
+      );
+      await cmd("as-grants-list", configPath);
+      expect(statSync(cacheDir).mode & 0o777).toBe(0o700);
+    },
+  );
 
   it("revoking an unknown grant fails and names it", async () => {
     const { configPath } = await deployment();
