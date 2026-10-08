@@ -480,8 +480,9 @@ issued_access(jti PK, family_id, grant_id, expires_at)    -- for code-replay / f
 ```
 
 Garbage collection rides the existing housekeeping tick: expired requests, codes, sessions and
-CIMD rows; DCR clients unused for 90 days; families past their cap. Rate-limit counters live in
-memory.
+CIMD rows; DCR clients unused for 90 days; families past their cap; `issued_access` rows 60 s
+(the §4.2 skew) past their access token's `exp`, so a sweep never orphans a token a lagging verifier
+still accepts. Rate-limit counters live in memory.
 
 ### 4.9 Seams to the separate pieces of work
 

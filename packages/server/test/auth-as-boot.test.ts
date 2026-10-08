@@ -171,6 +171,54 @@ describe("boot: the `as` signing key", () => {
     expect(existsSync(authDbPath(config.cacheDir))).toBe(false);
   });
 
+  describe("an AS-only deployment (no jwtSecret, no JWKS, no mint key)", () => {
+    const asOnly = (as: Record<string, unknown> | undefined, root?: string) =>
+      configFor(as, { jwtSecret: undefined }, root);
+
+    it("boots with its generated `as` key instead of being refused for having no signing key", async () => {
+      const config = asOnly({});
+      const keys = await bootAndClose(config);
+      expect(keys.filter((k) => k.purpose === "mint")).toHaveLength(0);
+      expect(asKeys({ listKeys: () => keys })).toHaveLength(1);
+      expect(asKeys({ listKeys: () => keys })[0]).toMatchObject({ state: "active", alg: "ES256" });
+      // And the key it generated is the one that signs AS access tokens.
+      const wiring = await wireTransports(deps(config));
+      try {
+        const reg = wiring.authRegistry as NonNullable<typeof wiring.authRegistry>;
+        expect(reg.signingKey({ purpose: "as" }).kid).toBe(asKeys(reg)[0]?.kid);
+      } finally {
+        await wiring.close();
+      }
+    });
+
+    it("a second boot of the same deployment adds no key", async () => {
+      const root = makeTempDir("as-only-twice-");
+      const first = await bootAndClose(asOnly({}, root));
+      const second = await bootAndClose(asOnly({}, root));
+      expect(asKeys({ listKeys: () => second }).map((k) => k.kid)).toEqual(
+        asKeys({ listKeys: () => first }).map((k) => k.kid),
+      );
+    });
+
+    it("is still refused when the AS is disabled (no key of any purpose), and nothing is generated", async () => {
+      const config = ServerConfigSchema.parse({
+        vaults: [{ id: "v1", path: "/tmp/v1" }],
+        cacheDir: join(makeTempDir("as-only-off-"), "cache"),
+        auth: { mode: "jwt", resource: RESOURCE, as: { enabled: false, issuer: ISSUER } },
+        transports: { stdio: false, http: { enabled: false } },
+        observability: { prometheus: { enabled: true, bind: "127.0.0.1", port: 0 } },
+      });
+      await expect(wireTransports(deps(config))).rejects.toThrow(/no signing key/);
+      expect(existsSync(join(config.cacheDir, "oauth.db"))).toBe(false);
+      const opened = await openAuthRegistry(config);
+      try {
+        expect(opened.registry.listKeys()).toHaveLength(0);
+      } finally {
+        opened.close();
+      }
+    });
+  });
+
   it("does not replace an existing `as` key whose algorithm differs from the config", async () => {
     const root = makeTempDir("as-boot-alg-");
     await bootAndClose(configFor({ signingAlg: "ES256" }, {}, root));

@@ -189,4 +189,27 @@ describe("auth.registry doctor check: rotation grace visibility", () => {
         .status,
     ).toBe("ok");
   });
+
+  it("is ok for an AS-only deployment: the server generates its `as` key at start, ahead of the no-key refusal", async () => {
+    const r = await run({
+      state: "uninitialised",
+      jwtSecretConfigured: false,
+      jwksConfigured: false,
+      asEnabled: true,
+    });
+    expect(r.status).toBe("ok");
+    expect(r.summary).toMatch(/authorization server/);
+    expect(r.summary).toMatch(/at server start/);
+    // The AS being off does not change the verdict: still a FAIL.
+    expect(
+      (
+        await run({
+          state: "uninitialised",
+          jwtSecretConfigured: false,
+          jwksConfigured: false,
+          asEnabled: false,
+        })
+      ).status,
+    ).toBe("fail");
+  });
 });
