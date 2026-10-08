@@ -8,8 +8,10 @@
 // method; ChatGPT needs `code_challenge_methods_supported: ["S256"]` and RFC 9207 `iss`
 // (`authorization_response_iss_parameter_supported`), and stops sending a `private_key_jwt`
 // assertion on every exchange when that method is simply not advertised.
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { PersonasConfig, ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Hono } from "hono";
+import type { Database } from "../db/types";
+import type { AuthRegistry } from "./registry";
 
 type AuthConfig = ServerConfig["auth"];
 type AsConfig = NonNullable<AuthConfig["as"]>;
@@ -28,14 +30,26 @@ export type AsRouteName = "authorize" | "token" | "revoke" | "register";
 /** A capability behind a metadata member that has its own slice: client-ID metadata documents
  *  (`cimd`) and refresh tokens (`refresh`). */
 export type AsFeature = "cimd" | "refresh";
-type AsRouteMounter = (app: Hono, auth: AuthConfig) => void;
+/** What an issuing route needs beyond config: the stores, the per-server secret and the clock. */
+export interface AsRouteDeps {
+  /** oauth.db. */
+  db: Database;
+  /** auth.db: the `as` signing key and the revoked-token set. */
+  registry: AuthRegistry;
+  /** The per-server secret (auth/server-secret.ts). */
+  secret: string;
+  personas?: PersonasConfig | undefined;
+  now?: () => number;
+  log?: (line: string) => void;
+}
+type AsRouteMounter = (app: Hono, auth: AuthConfig, deps?: AsRouteDeps) => void;
 
 /**
  * The ONE capability source for "what the authorization server actually serves". A slice that
  * implements a route registers its mounter here (and one that implements CIMD or refresh tokens adds
  * its feature below); discovery (the metadata document, the PRM default and the 401 challenge, the
  * `doctor` line) is derived from these and from nothing else, so none of it can advertise a flow
- * that does not exist yet. Empty in this slice: no issuing route is implemented.
+ * that does not exist yet. Filled by as-issuing.ts.
  */
 export const AS_ROUTES = new Map<AsRouteName, AsRouteMounter>();
 export const AS_FEATURES = new Set<AsFeature>();
@@ -142,7 +156,7 @@ export function mountAsMetadata(app: Hono, auth: AuthConfig): void {
 }
 
 /** Mount every registered issuing route; a no-op while the AS is off. */
-export function mountAsRoutes(app: Hono, auth: AuthConfig): void {
+export function mountAsRoutes(app: Hono, auth: AuthConfig, deps?: AsRouteDeps): void {
   if (enabledAs(auth) === undefined) return;
-  for (const mount of AS_ROUTES.values()) mount(app, auth);
+  for (const mount of AS_ROUTES.values()) mount(app, auth, deps);
 }

@@ -34,6 +34,11 @@ function authOf(over: Record<string, unknown> = {}, as: Record<string, unknown> 
 }
 
 const handles: HttpHandle[] = [];
+beforeEach(() => {
+  // Importing the HTTP transport registers the issuing routes; start from none.
+  AS_ROUTES.clear();
+  AS_FEATURES.clear();
+});
 afterEach(async () => {
   for (const h of handles.splice(0)) await h.close();
   AS_ROUTES.clear();

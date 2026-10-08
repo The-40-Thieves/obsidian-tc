@@ -3,7 +3,7 @@
 // token route exists yet, so nothing may be advertised).
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import type { Context } from "hono";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { AS_ROUTES } from "../src/auth/as-metadata";
 import { provisionCacheDb, provisionOauthDb } from "../src/db/provision";
@@ -24,6 +24,10 @@ import {
 import { openMemoryDb } from "./helpers";
 
 const closers: Array<() => Promise<void>> = [];
+beforeEach(() => {
+  // Importing the HTTP transport registers the issuing routes; these tests are about the world before.
+  AS_ROUTES.clear();
+});
 afterEach(async () => {
   for (const c of closers.splice(0)) await c();
   AS_ROUTES.clear();

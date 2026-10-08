@@ -31,6 +31,13 @@ const MAX_EPOCH_SECONDS = 1e11;
  */
 export const ISSUED_ACCESS_GC_GRACE_MS = AS_KEY_SKEW_SECONDS * 1000;
 
+/**
+ * How long past its expiry a USED authorization code's row survives the sweep: the longest an access
+ * token issued from it can live (the 3600 s config maximum) plus the same skew. The row is what lets
+ * a replayed code revoke the tokens it already produced, so it must outlast them.
+ */
+export const USED_CODE_KEEP_MS = 3_600_000 + ISSUED_ACCESS_GC_GRACE_MS;
+
 export const oauthDbPath = (cacheDir: string): string => join(cacheDir, "oauth.db");
 
 export interface OpenedOauthDb {
@@ -74,7 +81,8 @@ export interface OauthGcCounts {
 
 /**
  * Housekeeping for oauth.db, run on the maintenance sweep and at boot: deletes expired pending
- * requests, authorization codes, sessions and metadata-document cache rows; dynamically registered
+ * requests, unused authorization codes (a used one is kept for `USED_CODE_KEEP_MS`, to catch a replay),
+ * sessions and metadata-document cache rows; dynamically registered
  * clients unused for `dcrUnusedDays` (a client never used counts from its creation); refresh-token
  * rows past their family's absolute cap; and access-token jtis once `ISSUED_ACCESS_GC_GRACE_MS` has
  * passed their expiry (nothing can accept the token, or need the jti to revoke it, after that). Deliberately NOT deleted: users, setup state and grants, since a grant is
@@ -97,7 +105,11 @@ export function gcOauthDb(
       dcrCutoff,
       now,
     ),
-    authCodes: del("DELETE FROM auth_codes WHERE expires_at <= ?", now),
+    authCodes: del(
+      "DELETE FROM auth_codes WHERE expires_at <= ? AND (used_at IS NULL OR used_at <= ?)",
+      now,
+      now - USED_CODE_KEEP_MS,
+    ),
     refreshTokens: del("DELETE FROM refresh_tokens WHERE family_expires_at <= ?", now),
     issuedAccess: del(
       "DELETE FROM issued_access WHERE expires_at <= ?",

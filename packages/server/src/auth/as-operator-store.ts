@@ -158,6 +158,8 @@ export interface SessionInfo {
   sub: string;
   username: string;
   idHash: string;
+  /** When this session was opened, i.e. when the operator last typed the password. */
+  createdAt: number;
 }
 
 /**
@@ -178,14 +180,16 @@ export function lookupSession(db: Database, id: string, now: number): SessionInf
       `UPDATE sessions SET last_seen_at = ?
         WHERE id_hash = ? AND expires_at > ? AND last_seen_at > ?
           AND EXISTS (SELECT 1 FROM users u WHERE u.sub = sessions.sub AND u.disabled_at IS NULL)
-        RETURNING sub, (SELECT username FROM users u WHERE u.sub = sessions.sub) AS username`,
+        RETURNING sub, created_at AS createdAt, (SELECT username FROM users u WHERE u.sub = sessions.sub) AS username`,
     )
-    .get(now, idHash, now, now - SESSION_IDLE_MS) as { sub: string; username: string } | undefined;
+    .get(now, idHash, now, now - SESSION_IDLE_MS) as
+    | { sub: string; username: string; createdAt: number }
+    | undefined;
   if (row === undefined) {
     db.prepare("DELETE FROM sessions WHERE id_hash = ?").run(idHash);
     return undefined;
   }
-  return { sub: row.sub, username: row.username, idHash };
+  return { sub: row.sub, username: row.username, idHash, createdAt: row.createdAt };
 }
 
 export function deleteSession(db: Database, id: string): void {
