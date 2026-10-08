@@ -112,6 +112,10 @@ export const CACHE_MIGRATION_FILES = [
   // 20261002_001: the wiki judge's verdict cache (keyed on both notes' content hashes and the
   // resolved model) and its per-day call counter. See the migration header.
   "20261002_001_wiki_judge.sql",
+  // GH #1160: repairs chunks left with >1 active embedding (newest generated_at wins, model breaks
+  // ties; the rest are deactivated, not deleted) and makes idx_chunk_embeddings_active UNIQUE so a
+  // second active row is a constraint error instead of a silently misread store. See the header.
+  "20261008_001_chunk_embeddings_single_active.sql",
 ] as const;
 
 /**

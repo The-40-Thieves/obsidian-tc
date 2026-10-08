@@ -52,6 +52,7 @@ import { type CitationJudgeView, citationJudgeCheck } from "./citation-judge";
 import { type ConflictCopiesView, conflictCopiesCheck } from "./conflict-copies";
 import { type DbSpaceView, dbSpaceCheck } from "./db-space";
 import { type DeadPathGlobsView, deadPathGlobsCheck } from "./dead-path-globs";
+import { type EmbeddingIntegrityView, embeddingIntegrityCheck } from "./embedding-integrity";
 import { type EmbeddingsBuildableView, embeddingsBuildableCheck } from "./embeddings-buildable";
 import { type EntryPointsView, entryPointsCheck } from "./entrypoints";
 // THE-1108: sessions.liveness lives in its own module, same reasoning as capture-location above —
@@ -151,6 +152,7 @@ export interface DoctorConfigView {
   /** THE-1073: per-vault notes-on-disk vs notes-indexed counts, only under `--probe` (same
    *  reasoning as every other store-touching view above). */
   indexCoverage?: IndexCoverageView;
+  embeddingIntegrity?: EmbeddingIntegrityView;
   /** THE-1123: `toolFacade.mode`, plus (for "auto") the merged per-client resolution table. Always
    *  present when supplied — no `--probe` gate, same reasoning as captureLocation/conflictCopies
    *  above: reads only already-resolved config, nothing store-touching. */
@@ -268,6 +270,7 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   // THE-1073: is every note on disk actually reaching the index? Same optional-view reasoning as
   // retrieval/snapshots above.
   if (config.indexCoverage) checks.push(indexCoverageCheck(config.indexCoverage));
+  if (config.embeddingIntegrity) checks.push(embeddingIntegrityCheck(config.embeddingIntegrity));
   // THE-1123: toolFacade.mode, plus (for "auto") the merged per-client resolution table. Same
   // optional-view reasoning as captureLocation/conflictCopies above.
   if (config.toolFacade) checks.push(toolFacadeCheck(config.toolFacade));

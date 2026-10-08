@@ -13,7 +13,6 @@ import { SPAN_ATTR } from "../otel/attrs";
 import { requestVerboseSpans } from "../otel/dispatch-spans";
 import { withTraceCarrier } from "../otel/propagation";
 import { callerHash, type RateLimiter } from "../throttle";
-import { type FolderPins, withFolderPins } from "../vault/folder-links";
 import { markDispatchActive, markInFlight } from "../workspace/sessions";
 import { type DispatchDeps, runDispatch as runDispatchPipeline } from "./registry/dispatch";
 import {
@@ -88,7 +87,6 @@ export class ToolRegistry {
   private readonly onOutputSchemaDrift?: RegistryOptions["onOutputSchemaDrift"];
   private readonly aclResolver?: RegistryOptions["aclResolver"];
   private readonly rootResolver?: RegistryOptions["rootResolver"];
-  private readonly folderPins?: FolderPins;
   private readonly vaultKindResolver?: RegistryOptions["vaultKindResolver"];
   private readonly visibleVaultIds?: RegistryOptions["visibleVaultIds"];
   private readonly strictOutputSchema: boolean;
@@ -127,7 +125,6 @@ export class ToolRegistry {
     this.onOutputSchemaDrift = opts.onOutputSchemaDrift;
     this.aclResolver = opts.aclResolver;
     this.rootResolver = opts.rootResolver;
-    this.folderPins = opts.folderPins;
     this.vaultKindResolver = opts.vaultKindResolver;
     this.visibleVaultIds = opts.visibleVaultIds;
     this.strictOutputSchema = opts.strictOutputSchema ?? strictOutputSchemaDefault();
@@ -341,7 +338,7 @@ export class ToolRegistry {
     }
 
     try {
-      const out = await withFolderPins(this.folderPins, fn);
+      const out = await fn();
       const size = takeSerialized(out)?.length ?? JSON.stringify(out ?? null).length;
       emit("ok", now() - start, size);
       return out;
@@ -419,8 +416,6 @@ export class ToolRegistry {
     rootSpan?: Span,
     effect?: { vaultId?: string },
   ): Promise<ToolResult> {
-    return withFolderPins(this.folderPins, () =>
-      runDispatchPipeline(this.dispatchDeps, name, rawInput, ctx, rootSpan, effect),
-    );
+    return runDispatchPipeline(this.dispatchDeps, name, rawInput, ctx, rootSpan, effect);
   }
 }

@@ -4,7 +4,6 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { err, type VaultConfigInput, type VaultKind } from "@the-40-thieves/obsidian-tc-shared";
 import { rawFolderNames, wikiFolderNames } from "../tools/m7/knowledge/wiki-folder";
-import { FolderPins } from "./folder-links";
 import { canonicalFolderOf, rawFolderOf } from "./raw-folder";
 
 /**
@@ -97,42 +96,20 @@ function wikiFolderOf(vaultId: string, folder: string | undefined): string | und
   return folder === undefined ? undefined : canonicalFolderOf(vaultId, "wiki.folder", folder);
 }
 
-type WikiPlacement = Pick<ResolvedVault, "id" | "root" | "wikiFolder" | "rawFolder">;
-
-/** Why two vault ids on one root that configure different wiki/raw folders are refused, or null: the
- *  folder pins (vault/folder-links.ts) are keyed by path, so one id's pin would apply to the other's. */
-function sharedRootConflict(a: WikiPlacement, b: WikiPlacement): string | null {
-  if (a.root !== b.root || (a.wikiFolder === b.wikiFolder && a.rawFolder === b.rawFolder))
-    return null;
-  return `vaults "${a.id}" and "${b.id}" share the vault root ${a.root} but configure different wiki folders (wiki.folder / wiki.rawFolder): give them the same wiki block, or separate roots`;
-}
-
 export class VaultRegistry {
   private readonly byId = new Map<string, ResolvedVault>();
   private readonly defaultId: string;
   private readonly exclusionCacheDir: string | undefined;
-  /** This registry's folder pins (vault/folder-links.ts), fixed at construction: a request through
-   *  this registry sees them (mcp/registry.ts sets the frame), and no other registry can alter them. */
-  readonly folderPins: FolderPins;
 
   constructor(vaults: VaultConfigInput[], defaultId?: string, exclusionCacheDir?: string) {
     if (vaults.length === 0) throw new Error("VaultRegistry requires at least one vault");
     this.exclusionCacheDir = exclusionCacheDir;
-    const placed = vaults.map((v) => {
+    for (const v of vaults) {
       const { root, canonical } = canonicalizeVaultRootWithStatus(v.path);
       const wikiFolder = wikiFolderOf(v.id, v.wiki?.folder);
       const rawFolder = wikiFolder
         ? rawFolderOf(v.id, { folder: wikiFolder, rawFolder: v.wiki?.rawFolder })
         : undefined;
-      return { v, id: v.id, root, canonical, wikiFolder, rawFolder };
-    });
-    for (const [i, p] of placed.entries())
-      for (const q of placed.slice(0, i)) {
-        const conflict = sharedRootConflict(q, p);
-        if (conflict !== null) throw new Error(conflict);
-      }
-    this.folderPins = new FolderPins(placed);
-    for (const { v, root, canonical, wikiFolder, rawFolder } of placed) {
       this.byId.set(v.id, {
         id: v.id,
         name: v.name ?? v.id,
@@ -173,10 +150,6 @@ export class VaultRegistry {
     if (this.byId.has(v.id))
       throw err.invalidInput(`vault already registered: ${v.id}`, { vault: v.id });
     const { root, canonical } = canonicalizeVaultRootWithStatus(v.path);
-    for (const q of this.byId.values()) {
-      const conflict = sharedRootConflict(q, { id: v.id, root });
-      if (conflict !== null) throw err.invalidInput(conflict, { vault: v.id });
-    }
     const resolved: ResolvedVault = {
       id: v.id,
       name: v.name ?? v.id,

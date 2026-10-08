@@ -179,8 +179,10 @@ export function applyNoteWrites(
       // body's already-stored vectors from the first walked path — same provider call cost, but every
       // path stays semantically retrievable.
     } else if (!d.skipEmbed) {
-      upEmb.run(d.id, provider.id, provider.dimensions, floatBlob(vec), plan.ts);
+      // GH #1160: retire the other-model rows BEFORE activating this one — idx_chunk_embeddings_active
+      // is UNIQUE per chunk, so the new row's insert would be refused while a sibling is still active.
       deactivateOld.run(d.id, provider.id); // THE-531: retire any superseded-model row for this chunk
+      upEmb.run(d.id, provider.id, provider.dimensions, floatBlob(vec), plan.ts);
       if (hasVec) upsertVec(db, d.id, vec, { vaultId, path: plan.path, model: provider.id });
     } else {
       const { resolved } = copyDedupVectors(

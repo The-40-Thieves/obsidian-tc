@@ -16,7 +16,6 @@ import { existsNoFollow } from "../auth/key-files";
 // (episode log, trace capture, ambient import, acl-path.ts's aclDenied).
 import { redactSecrets } from "../experiential/redact";
 import { recordPathUse } from "./acl-audit";
-import { folderPinVerdict } from "./folder-links";
 
 /** Full SHA-256 hex of UTF-8 content. Used for content_hash / CAS (prev_hash). */
 export function contentHash(content: string): string {
@@ -196,14 +195,7 @@ export function resolveVaultPathChecked(vaultRoot: string, relPath: string): Res
   const realRoot = realpathOrNull(root);
   if (realRoot === null)
     throw err.vaultNotFound("vault root could not be resolved", { path: redactedRelPath });
-  const pin = folderPinVerdict(abs);
-  if (pin.kind === "refused") throw err.aclDenied(pin.reason, { path: redactedRelPath });
-  const realAbs = realpathDeepest(abs);
-  if (pin.kind === "pinned" && realAbs !== pin.path)
-    throw err.aclDenied("a configured folder no longer leads where it did at registration", {
-      path: redactedRelPath,
-    });
-  const realRel = relative(realRoot, realAbs);
+  const realRel = relative(realRoot, realpathDeepest(abs));
   if (escapesBase(realRel))
     throw err.pathInvalid("path escapes the vault root", { path: redactedRelPath });
   return { abs, aclRel: realRel.split(sep).join("/") };

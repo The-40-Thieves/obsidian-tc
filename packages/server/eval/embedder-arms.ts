@@ -289,6 +289,12 @@ async function stageIndex(): Promise<void> {
       ).map((r) => r.chunk_id),
     );
     const todo = all.filter((c) => !have.has(c.id)).slice(0, limit);
+    // GH #1160: idx_chunk_embeddings_active is UNIQUE per chunk. This arm's DB was copied from the
+    // source cache (gateway-bge keeps its rows), so retire the other models' active rows BEFORE the
+    // insert — INSERT OR REPLACE alone would DELETE the conflicting active row instead of refusing.
+    const retire = db.prepare(
+      "UPDATE chunk_embeddings SET is_active = 0 WHERE chunk_id = ? AND model != ? AND is_active = 1",
+    );
     const ins = db.prepare(
       "INSERT OR REPLACE INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, ?, ?, ?, 1, ?)",
     );
@@ -297,8 +303,10 @@ async function stageIndex(): Promise<void> {
       const r = await embed(part.map(textOf), "document");
       log.batches.push(r.stat);
       db.exec("BEGIN");
-      for (const [j, c] of part.entries())
+      for (const [j, c] of part.entries()) {
+        retire.run(c.id, model);
         ins.run(c.id, model, arm.dims, f32(r.vecs[j] as number[]), Date.now());
+      }
       db.exec("COMMIT");
       writeFileSync(logPath, JSON.stringify(log));
       process.stderr.write(

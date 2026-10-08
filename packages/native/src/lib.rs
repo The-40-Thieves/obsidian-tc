@@ -10,7 +10,7 @@
 //! fallback on the TypeScript side, so the server runs without this module.
 
 #[cfg(unix)]
-use napi::bindgen_prelude::{BigInt, Buffer};
+use napi::bindgen_prelude::Buffer;
 use napi::bindgen_prelude::{Float32Array, Float64Array, Int32Array};
 use napi_derive::napi;
 
@@ -210,48 +210,12 @@ pub fn bm25_score(tf: f64, doc_len: f64, avg_doc_len: f64, doc_freq: f64, doc_co
 // surfaced as a JS error the caller maps to acl_denied. The TS side keeps a pure-JS fallback for
 // hosts without the compiled module.
 
-/// A configured folder the server pinned when it built its vault registry: `dir` is the real
-/// directory (absolute, an ancestor of the path being opened) and `dev` / `ino` its identity then.
-/// The walk opens `dir` component by component with O_NOFOLLOW like any other path, then fstats the
-/// opened directory and refuses on a different identity, so a directory renamed into the pinned
-/// name after the server's ACL decision is never opened through the pin.
-#[cfg(unix)]
-#[napi(object)]
-pub struct PinnedDir {
-    pub dir: String,
-    pub dev: BigInt,
-    pub ino: BigInt,
-}
-
-/// True on a module whose safe-open takes a `PinnedDir`: an older binary silently ignores the
-/// extra argument, so the server only passes a pin (and so only opens a pinned path) when this is set.
-#[cfg(unix)]
-#[napi]
-pub const SAFE_IO_PINNED_DIR: bool = true;
-
-#[cfg(unix)]
-fn pin_of(pinned: Option<PinnedDir>) -> napi::Result<Option<safe_io::Pin>> {
-    let Some(p) = pinned else { return Ok(None) };
-    let word = |b: &BigInt, what: &str| match b.get_u64() {
-        (false, v, true) => Ok(v),
-        _ => Err(napi::Error::from_reason(format!(
-            "pinned folder {what} is not an unsigned 64-bit value"
-        ))),
-    };
-    Ok(Some(safe_io::Pin {
-        dev: word(&p.dev, "dev")?,
-        ino: word(&p.ino, "ino")?,
-        dir: p.dir,
-    }))
-}
-
 /// Symlink-safe read: opens `abs` following no symlink in any component, rejects a non-regular or
-/// hard-linked (nlink>1) file, returns the bytes. With `pinned`, the pinned directory component must
-/// still be the directory it was pinned as (see `PinnedDir`). Unix-only (see the module note above).
+/// hard-linked (nlink>1) file, returns the bytes. Unix-only (see the module note above).
 #[cfg(unix)]
 #[napi]
-pub fn safe_read_note(abs: String, pinned: Option<PinnedDir>) -> napi::Result<Buffer> {
-    safe_io::read(&abs, pin_of(pinned)?.as_ref())
+pub fn safe_read_note(abs: String) -> napi::Result<Buffer> {
+    safe_io::read(&abs)
 }
 
 /// Symlink-safe atomic write: walks to the parent following no symlink, writes a randomized
@@ -278,21 +242,11 @@ pub fn safe_write_note_exclusive(abs: String, data: Buffer) -> napi::Result<()> 
 /// symlink in any component, then the leaf is renamed with RENAME_NOREPLACE semantics (see
 /// `safe_write_note_exclusive`). Used to move a note into `.trash/` and to put it back on rollback,
 /// so a planted `.trash` symlink cannot redirect either leg. An existing target is an error whose
-/// message starts with `exists:`. Each leg takes its own optional `PinnedDir`. Unix-only.
+/// message starts with `exists:`. Unix-only.
 #[cfg(unix)]
 #[napi]
-pub fn safe_rename_no_replace(
-    from_abs: String,
-    to_abs: String,
-    from_pinned: Option<PinnedDir>,
-    to_pinned: Option<PinnedDir>,
-) -> napi::Result<()> {
-    safe_io::rename_no_replace(
-        &from_abs,
-        &to_abs,
-        pin_of(from_pinned)?.as_ref(),
-        pin_of(to_pinned)?.as_ref(),
-    )
+pub fn safe_rename_no_replace(from_abs: String, to_abs: String) -> napi::Result<()> {
+    safe_io::rename_no_replace(&from_abs, &to_abs)
 }
 
 #[cfg(unix)]
@@ -328,40 +282,9 @@ mod safe_io {
         Ok(out)
     }
 
-    /// A pinned directory (see `PinnedDir`), its identity as two plain words.
-    pub struct Pin {
-        pub dir: String,
-        pub dev: u64,
-        pub ino: u64,
-    }
-
-    /// How many leading components of `comps` the pin covers: it must be a strict ancestor of the
-    /// leaf, so the walk below opens it as a directory.
-    fn pinned_depth(comps: &[&str], pin: &Pin) -> Result<usize, Error> {
-        let dir = components(&pin.dir)?;
-        if dir.len() >= comps.len() || comps[..dir.len()] != dir[..] {
-            return Err(denied("the pinned folder is not an ancestor of the path"));
-        }
-        Ok(dir.len())
-    }
-
-    /// fstat the opened directory: refuse it unless it is still the directory that was pinned.
-    fn still_pinned(dir: OwnedFd, pin: &Pin) -> Result<OwnedFd, Error> {
-        let file = std::fs::File::from(dir);
-        let meta = file.metadata().map_err(|e| denied(format!("fstat: {e}")))?;
-        if meta.dev() != pin.dev || meta.ino() != pin.ino {
-            return Err(denied(
-                "refusing a pinned folder that is no longer the directory it was pinned as",
-            ));
-        }
-        Ok(OwnedFd::from(file))
-    }
-
     /// Open the parent directory of the leaf, opening each component with NOFOLLOW so a symlink
-    /// component fails (ELOOP) rather than redirecting resolution. With `pin`, the component that
-    /// completes the pinned directory is checked against its identity right after it is opened.
-    fn open_parent(comps: &[&str], pin: Option<&Pin>) -> Result<OwnedFd, Error> {
-        let depth = pin.map(|p| pinned_depth(comps, p)).transpose()?;
+    /// component fails (ELOOP) rather than redirecting resolution.
+    fn open_parent(comps: &[&str]) -> Result<OwnedFd, Error> {
         let mut dir = openat(
             CWD,
             "/",
@@ -369,7 +292,7 @@ mod safe_io {
             Mode::empty(),
         )
         .map_err(|e| denied(format!("open root: {e}")))?;
-        for (i, comp) in comps[..comps.len() - 1].iter().enumerate() {
+        for comp in &comps[..comps.len() - 1] {
             dir = openat(
                 &dir,
                 *comp,
@@ -381,18 +304,13 @@ mod safe_io {
                     "refusing symlinked or missing path component: {comp:?}"
                 ))
             })?;
-            if let (Some(d), Some(p)) = (depth, pin)
-                && d == i + 1
-            {
-                dir = still_pinned(dir, p)?;
-            }
         }
         Ok(dir)
     }
 
-    pub fn read(abs: &str, pin: Option<&Pin>) -> Result<Buffer, Error> {
+    pub fn read(abs: &str) -> Result<Buffer, Error> {
         let comps = components(abs)?;
-        let parent = open_parent(&comps, pin)?;
+        let parent = open_parent(&comps)?;
         let leaf = comps[comps.len() - 1];
         let fd = openat(
             &parent,
@@ -468,16 +386,11 @@ mod safe_io {
         }
     }
 
-    pub fn rename_no_replace(
-        from: &str,
-        to: &str,
-        from_pin: Option<&Pin>,
-        to_pin: Option<&Pin>,
-    ) -> Result<(), Error> {
+    pub fn rename_no_replace(from: &str, to: &str) -> Result<(), Error> {
         let from_comps = components(from)?;
         let to_comps = components(to)?;
-        let from_parent = open_parent(&from_comps, from_pin)?;
-        let to_parent = open_parent(&to_comps, to_pin)?;
+        let from_parent = open_parent(&from_comps)?;
+        let to_parent = open_parent(&to_comps)?;
         rename_noreplace(
             &from_parent,
             from_comps[from_comps.len() - 1],
@@ -497,7 +410,7 @@ mod safe_io {
 
     fn write_impl(abs: &str, data: &[u8], no_replace: bool) -> Result<(), Error> {
         let comps = components(abs)?;
-        let parent = open_parent(&comps, None)?;
+        let parent = open_parent(&comps)?;
         let leaf = comps[comps.len() - 1];
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -837,14 +750,12 @@ mod safe_io_tests {
         let d = scratch();
         fs::write(d.join("from.md"), b"payload").unwrap();
         fs::write(d.join("taken.md"), b"taken").unwrap();
-        let e =
-            safe_io::rename_no_replace(&s(&d.join("from.md")), &s(&d.join("taken.md")), None, None)
-                .unwrap_err();
+        let e = safe_io::rename_no_replace(&s(&d.join("from.md")), &s(&d.join("taken.md")))
+            .unwrap_err();
         assert!(e.reason.starts_with("exists:"), "got {}", e.reason);
         assert_eq!(fs::read(d.join("from.md")).unwrap(), b"payload");
         assert_eq!(fs::read(d.join("taken.md")).unwrap(), b"taken");
-        safe_io::rename_no_replace(&s(&d.join("from.md")), &s(&d.join("free.md")), None, None)
-            .unwrap();
+        safe_io::rename_no_replace(&s(&d.join("from.md")), &s(&d.join("free.md"))).unwrap();
         assert!(!d.join("from.md").exists());
         assert_eq!(fs::read(d.join("free.md")).unwrap(), b"payload");
         fs::remove_dir_all(&d).unwrap();
@@ -858,12 +769,7 @@ mod safe_io_tests {
         fs::write(d.join("note.md"), b"payload").unwrap();
         // `.trash` planted as a symlink to a directory outside the vault.
         symlink(&outside, d.join(".trash")).unwrap();
-        let r = safe_io::rename_no_replace(
-            &s(&d.join("note.md")),
-            &s(&d.join(".trash/note.md")),
-            None,
-            None,
-        );
+        let r = safe_io::rename_no_replace(&s(&d.join("note.md")), &s(&d.join(".trash/note.md")));
         assert!(r.is_err(), "rename followed a planted symlink");
         assert!(d.join("note.md").exists());
         assert!(!outside.join("note.md").exists());
@@ -927,72 +833,6 @@ mod safe_io_tests {
         .unwrap();
         assert!(!d.join("from.md").exists());
         assert_eq!(fs::read(d.join("to.md")).unwrap(), b"payload");
-        fs::remove_dir_all(&d).unwrap();
-    }
-
-    /// The pin of `dir` as it is now.
-    fn pin(dir: &std::path::Path) -> safe_io::Pin {
-        use std::os::unix::fs::MetadataExt;
-        let m = fs::metadata(dir).unwrap();
-        safe_io::Pin {
-            dir: s(dir),
-            dev: m.dev(),
-            ino: m.ino(),
-        }
-    }
-
-    /// `open` pinned, then renamed away and `raw` renamed into its name: same pathname, another
-    /// directory. Both the read and the move must refuse it; with the identity intact both work.
-    #[test]
-    fn a_pinned_directory_replaced_under_its_name_is_refused() {
-        let d = scratch();
-        for (dir, body) in [("open", b"open note"), ("raw", b"RAW SRC!!")] {
-            fs::create_dir(d.join(dir)).unwrap();
-            fs::write(d.join(dir).join("x.md"), body).unwrap();
-        }
-        let open = pin(&d.join("open"));
-        let x = s(&d.join("open/x.md"));
-        assert_eq!(
-            safe_io::read(&x, Some(&open)).unwrap().as_ref(),
-            b"open note"
-        );
-        fs::rename(d.join("open"), d.join("gone")).unwrap();
-        fs::rename(d.join("raw"), d.join("open")).unwrap();
-        let Err(e) = safe_io::read(&x, Some(&open)) else {
-            panic!("read through a replaced pinned folder");
-        };
-        assert!(
-            e.reason.contains("no longer the directory"),
-            "got {}",
-            e.reason
-        );
-        assert!(
-            safe_io::read(&x, None).is_ok(),
-            "control: unpinned, the path itself is fine"
-        );
-        let moved = s(&d.join("moved.md"));
-        assert!(safe_io::rename_no_replace(&x, &moved, Some(&open), None).is_err());
-        assert!(safe_io::rename_no_replace(&moved, &x, None, Some(&open)).is_err());
-        assert_eq!(fs::read(d.join("open/x.md")).unwrap(), b"RAW SRC!!");
-        let now = pin(&d.join("open"));
-        safe_io::rename_no_replace(&x, &moved, Some(&now), None).unwrap();
-        assert_eq!(fs::read(d.join("moved.md")).unwrap(), b"RAW SRC!!");
-        fs::remove_dir_all(&d).unwrap();
-    }
-
-    #[test]
-    fn a_pin_that_is_not_a_strict_ancestor_is_refused() {
-        let d = scratch();
-        fs::create_dir(d.join("open")).unwrap();
-        fs::create_dir(d.join("other")).unwrap();
-        fs::write(d.join("other/x.md"), b"x").unwrap();
-        let open = pin(&d.join("open"));
-        for path in [d.join("other/x.md"), d.join("open")] {
-            let Err(e) = safe_io::read(&s(&path), Some(&open)) else {
-                panic!("read with a pin that is not an ancestor");
-            };
-            assert!(e.reason.contains("not an ancestor"), "got {}", e.reason);
-        }
         fs::remove_dir_all(&d).unwrap();
     }
 }

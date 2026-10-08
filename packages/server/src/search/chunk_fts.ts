@@ -122,7 +122,7 @@ export function ensureChunkFts(
  * and the hasChunkFts guard.
  */
 export function upsertChunkFtsRow(db: Database, rowid: number, content: string): void {
-  db.prepare("DELETE FROM chunk_fts WHERE rowid = ?").run(rowid);
+  deleteFtsRowIgnoringRowidRange(db, rowid);
   db.prepare("INSERT INTO chunk_fts (rowid, content) VALUES (?, ?)").run(rowid, content);
 }
 
@@ -144,7 +144,24 @@ export function upsertChunkFtsRow(db: Database, rowid: number, content: string):
  * performance regression rather than a missing search result.
  */
 export function deleteChunkFtsRow(db: Database, rowid: number): void {
-  db.prepare("DELETE FROM chunk_fts WHERE rowid = ?").run(rowid);
+  deleteFtsRowIgnoringRowidRange(db, rowid);
+}
+
+/**
+ * `DELETE FROM chunk_fts WHERE rowid = ?`, tolerating node:sqlite's result conversion. FTS5 flushes
+ * its pending segment during a delete when rowids arrive out of order, and its own `chunk_fts_data`
+ * writes (ids at 2^53 and above) are what `sqlite3_last_insert_rowid()` then reports. node:sqlite
+ * builds `run()`'s result AFTER the statement has executed and throws ERR_OUT_OF_RANGE for a rowid
+ * above 2^53, so the throw carries no information: the row is already deleted. Which statement
+ * order triggers the flush follows query plans, so an unrelated index change (GH #1160's unique
+ * index) can surface it. Only that exact error is swallowed.
+ */
+function deleteFtsRowIgnoringRowidRange(db: Database, rowid: number): void {
+  try {
+    db.prepare("DELETE FROM chunk_fts WHERE rowid = ?").run(rowid);
+  } catch (e) {
+    if ((e as { code?: unknown }).code !== "ERR_OUT_OF_RANGE") throw e;
+  }
 }
 
 /**
