@@ -217,10 +217,18 @@ describe("concurrent repair of a corrupt server secret", () => {
     async () => {
       const dir = tmp();
       const initial = serverSecret(dir);
-      const mover = spawn("bun", [join(here, "server-secret-mover.ts"), secretFile(dir)], {
-        stdio: ["ignore", "pipe", "ignore"],
-      });
+      const stopFile = join(tmp(), "stop-mover");
+      const mover = spawn(
+        "bun",
+        [join(here, "server-secret-mover.ts"), secretFile(dir), stopFile],
+        {
+          stdio: ["ignore", "pipe", "ignore"],
+        },
+      );
       children.push(mover);
+      const moverExit = new Promise<number | null>((resolve) => {
+        mover.once("close", (code) => resolve(code));
+      });
       await new Promise<void>((resolve) => {
         mover.stdout.once("data", () => resolve());
       });
@@ -229,7 +237,13 @@ describe("concurrent repair of a corrupt server secret", () => {
       for (let i = 0; i < 5_000; i++) {
         expect(serverSecret(dir)).toBe(initial);
       }
+      // The mover was running (the key was being moved aside) for the whole read loop.
       expect(mover.exitCode).toBeNull();
+      // Stop it and wait for the exit: it stops between iterations, so the key is back in place. A read
+      // while it is alive races the next move-aside and can see ENOENT, which is the test's own read
+      // failing, not a reader.
+      writeFileSync(stopFile, "stop");
+      expect(await moverExit).toBe(0);
       expect(readFileSync(secretFile(dir), "utf8").trim()).toBe(initial);
     },
     stallTimeout(60_000),
