@@ -312,6 +312,35 @@ after startup is noticed within that window), and keys are created with
 `O_EXCL|O_NOFOLLOW`. On **Windows** there are no POSIX modes, owner check or `O_NOFOLLOW`, so
 none of this is enforced: protect the directory with its ACL (`doctor` warns).
 
+### Rotating the server secret
+
+The server-local secret (`<cacheDir>/server-secrets/wiki-generated.key`) keys the HITL confirmation
+state and seals generated wiki pages; it is not a bearer credential. There is no rotate command:
+**stop every process that shares the `cacheDir`** (a worker still running keeps the old key in
+memory and keeps accepting state minted with it, which matters most when the key was disclosed),
+**delete the file once**, then restart them all. A new key is generated on the first start, and the
+others adopt it.
+Consequences: every pending confirmation is refused once (the client is offered a fresh one), and
+every generated wiki page then reads as edited (its seal no longer verifies) and is regenerated, so
+copy out any hand edit you want to keep first.
+
+Delete the file rather than `chmod 600` it when the server refuses it for being readable by group or
+other. The server cannot know who read it while it was open, so a key that was ever exposed is
+replaced, never re-adopted. A corrupt or empty file is regenerated automatically; processes that
+start at the same moment settle on one key.
+
+A corrupt key is repaired under a lock (`wiki-generated.key.repair-lock/`, a directory beside the
+key). A waiter takes that lock over only when its holder is provably dead: the same host, and a pid
+that no longer exists (or now belongs to a process that started at another time). A holder that is
+merely slow or stopped is never taken over, since it could still act on a stale view and leave two
+servers on two keys. When the holder is on another host, or cannot be judged, the start fails after
+15 seconds with an error naming the lock and its holder. Stop every process sharing the `cacheDir`,
+delete that directory (and any `wiki-generated.key.repair-lock.takeover.*` file beside it), and start
+again.
+
+Keep `server-secrets/` on the same persistent volume as `auth-keys/` (mount the whole `cacheDir`).
+Back it up with them.
+
 ### What revocation does not cover
 
 An external issuer's token is affected only by a `jti` you revoked (tombstone) or that is in the

@@ -79,6 +79,27 @@ removing `jwtSecret` does not void a pending confirmation. Processes that share 
 other's states; a server with a different `cacheDir` does not. Deleting `server-secrets/` voids pending
 confirmations (the client is offered a fresh one) and regenerates the wiki pages.
 
+**Which key is in use is logged at startup**: an `elicit:` line on stderr says either that the codec is
+keyed from `<cacheDir>/server-secrets` (stable across restarts) or, when the server was given no
+`cacheDir`, from a per-process random key (confirmations do not survive a restart and are not shared
+between processes). Keep `server-secrets/` on the **same persistent volume as `auth-keys/`** (in a
+container, mount the whole `cacheDir`): a `server-secrets/` that is recreated empty on every start
+silently voids pending confirmations and makes every generated wiki page read as edited.
+
+**`auth.mode: none`.** The round trip works there too, which is only reachable on a loopback bind.
+There is no token to take an identity from, so every request is the one caller `http-local` and a
+confirmation is bound to it: any process on the machine that can reach the port is that caller, and
+can replay a state it captured within the TTL (see below). Use `jwt` or `oidc` when more than one
+principal can reach the port.
+
+**Replay widens with the modes.** A `requestState` is not consumed, so within its TTL (300 s by
+default) the same principal can present it again for the same vault, tool and arguments. Before
+this keying the round trip existed only under `jwt` with a secret; it now also covers `oidc`,
+asymmetric-only `jwt`, and servers that share a `cacheDir`, so the same replay window applies to
+all of them. A consumed-state store would close it; none exists yet.
+
+**Rotating the key.** See [Rotating the server secret](/security/auth-model/#rotating-the-server-secret).
+
 **Upgrading.** A confirmation that was pending when the server was upgraded was keyed from
 `auth.jwtSecret` and is refused once; the client is offered a fresh confirmation, inside the
 window the old one would have had anyway. There is no dual-key verify: it would keep the old

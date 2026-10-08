@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { join } from "node:path";
 import {
   createMcpHandler,
   type ServerNotifier,
@@ -418,10 +419,6 @@ export interface HttpApp {
 
 export function createHttpApp(opts: HttpAppOptions): HttpApp {
   const app = new Hono();
-  // THE-583: one codec per server, not per request — a state minted on one request is verified on
-  // the NEXT one, so the key has to outlive both. Only available under `jwt` auth: without a
-  // secret there is nothing to sign with, and an unauthenticated deployment has no caller identity
-  // to bind a confirmation to anyway, so it keeps the 2025 token path.
   /**
    * THE-583: the MCP handler, created ONCE for the app rather than per request.
    *
@@ -459,13 +456,21 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
     { legacy: "stateless" },
   );
 
-  // HITL codec, in EVERY auth mode: keyed from the per-server secret under `cacheDir`, not from
-  // `auth.jwtSecret` (which `oidc` and asymmetric-only `jwt` deployments do not have, and whose
-  // rotation would void pending confirmations). Processes sharing a cacheDir share confirmations.
-  // A caller that supplies no cacheDir (a test, an embedder) gets a per-process secret.
+  // One HITL codec per server, not per request: a state minted on one request is verified on the
+  // NEXT one, so the key has to outlive both. It exists in EVERY auth mode, keyed from the
+  // per-server secret under `cacheDir`, not from `auth.jwtSecret` (which `oidc` and asymmetric-only
+  // `jwt` deployments do not have, and whose rotation would void pending confirmations). Processes
+  // sharing a cacheDir share confirmations. Under `auth.mode: none` (loopback only) the round trip
+  // completes for the one unauthenticated caller, "http-local". A caller that supplies no cacheDir
+  // (a test, an embedder) gets a per-process random key.
   const elicitCodec = opts.cacheDir
     ? createServerElicitCodec(serverSecret(opts.cacheDir), getDefaultElicitTtlSeconds())
     : createStdioElicitCodec();
+  process.stderr.write(
+    opts.cacheDir
+      ? `elicit: HITL codec keyed from ${join(opts.cacheDir, "server-secrets")} (stable across restarts and shared by servers on this cacheDir)\n`
+      : "elicit: HITL codec keyed from a per-process random key (no cacheDir): confirmations do not survive a restart\n",
+  );
   // Token verifier seam (W-AUTH): `opts.verifier` is the ONE verifier built at boot and shared with
   // /metrics (wireTransports). A caller that injects none (tests, embedders) gets the same jwt
   // construction from `buildJwtVerifier`, so there is a single recipe either way. null in "none"
