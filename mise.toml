@@ -17,17 +17,18 @@
 # per check-bun-version-coherence.mjs.
 bun = "1.4.2"
 
-# Every package declares `engines.node: ">=24"`, so 24 is the floor, not the target. This pin is
-# the exact version in use here and is deliberately ABOVE the floor: you develop on a newer
-# runtime than the minimum you support, and CI validates on the floor itself.
+# Node 26 is the TARGET runtime and this pin is the exact version developed against. Every package
+# still declares `engines.node: ">=24"`: 24 is the supported FLOOR, and CI still validates it — the
+# full server suite runs on both 26 and 24 (ci-server.yml `build-test`, ci-native.yml
+# `fallback-test`), and `perf:node-parity` runs on both. So you develop on the target and CI catches
+# a Node-26-only API before it ships to a user on the floor.
 #
-# That split is intentional, and CI is now consistent about its half — every `node-version:` in
-# .github is '24', including the setup-repo default. It was not: ci-security.yml and
-# release-lag.yml ran on 22, BELOW the floor their own package.json declares.
+# CI's general-purpose jobs follow the target through .github/actions/setup-repo's `node-version`
+# default ('26'); the jobs that pin '24' explicitly are deliberate floor coverage.
 #
 # `perf:node-parity` is the job that actually executes under Node, so a dev/CI major mismatch
 # would surface there first.
-node = "26.5.0"
+node = "26.10.0"
 
 # Both Python services declare `requires-python = ">=3.10"` (services/bge-m3-service,
 # services/docs-ingest), and ci-model-service.yml sets up `python-version: '3.11'`. 3.11 is what

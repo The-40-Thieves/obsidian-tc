@@ -8,9 +8,9 @@ Python model services.
 | | pin | source of truth |
 |---|---|---|
 | Bun | **1.4.2** | `mise.toml` + `packageManager` in `package.json` — must agree |
-| Node | **26.5.0** dev / **24** in CI | `mise.toml`; `engines.node: ">=24"`. Dev runs ahead of the supported floor **deliberately** — CI validates the floor |
+| Node | **26.10.0** target / **24** supported floor | `mise.toml`; `engines.node: ">=24"`. CI runs the full server suite on **both** 26 and 24 (`build-test`, `fallback-test`) — the 24 legs catch a 26-only API |
 | Python | **3.11** | `mise.toml`; both services declare `requires-python = ">=3.10"` |
-| Rust | **1.98.1** exact | `packages/native/rust-toolchain.toml` |
+| Rust | **1.99.0** exact | `packages/native/rust-toolchain.toml` |
 | TypeScript | **7.0.2** | root + `packages/shared`. `docs/` is a *separate install root* still on 6.0.3 (THE-604) |
 | Vitest | **4** | AST-aware coverage remapping is mandatory in v4 — numbers are not comparable to v3 |
 | Biome | **2.5.x** | format + lint; there is no ESLint/Prettier here |
