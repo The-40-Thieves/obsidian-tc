@@ -295,10 +295,12 @@ export function consumeCode(db: Database, codeHash: string, now: number): boolea
 }
 
 /**
- * Revoke everything issued from a code (RFC 6749 section 4.1.2, RFC 9700 section 4.14): each access
- * token's `jti` goes to the registry's revoked set and any refresh token of the family dies. The
- * family id is the code's hash; a token recorded concurrently by the winning exchange is already in
- * `issued_access` (it is recorded before the code is consumed), so it is covered too.
+ * Revoke everything issued from a code or a refresh-token family (RFC 6749 section 4.1.2, RFC 9700
+ * section 4.14): the family's refresh tokens die and each access token's `jti` goes to the registry's
+ * revoked set. The family id is the code's hash. The tokens are marked FIRST and the jtis read after:
+ * an exchange or refresh in flight records its jti before it commits, so either it commits before the
+ * marking (and its jti is read below) or it finds its token revoked at commit, refuses, and revokes
+ * the jti it recorded itself. Neither order leaves a live access token behind.
  */
 export function revokeFamily(
   db: Database,
@@ -307,12 +309,87 @@ export function revokeFamily(
   reason: string,
   now: number,
 ): number {
+  db.prepare(
+    "UPDATE refresh_tokens SET revoked_at = ? WHERE family_id = ? AND revoked_at IS NULL",
+  ).run(now, familyId);
   const jtis = db
     .prepare("SELECT jti FROM issued_access WHERE family_id = ?")
     .all(familyId) as Array<{ jti: string }>;
   for (const { jti } of jtis) registry.revoke(jti, reason);
-  db.prepare(
-    "UPDATE refresh_tokens SET revoked_at = ? WHERE family_id = ? AND revoked_at IS NULL",
-  ).run(now, familyId);
   return jtis.length;
+}
+
+export interface GrantSummary {
+  id: string;
+  sub: string;
+  username: string | null;
+  clientId: string;
+  redirectUri: string;
+  scope: string;
+  persona: string | null;
+  vault: string | null;
+  createdAt: number;
+  revokedAt: number | null;
+  /** Refresh-token families of this grant that are neither revoked nor past their cap. */
+  liveFamilies: number;
+}
+
+/** The grants (newest first): live ones, or every one with `all`. */
+export function listGrants(db: Database, opts: { now: number; all?: boolean }): GrantSummary[] {
+  return db
+    .prepare(
+      `SELECT g.id, g.sub, u.username, g.client_id AS clientId, g.redirect_uri AS redirectUri,
+              g.scope, g.persona, g.vault, g.created_at AS createdAt, g.revoked_at AS revokedAt,
+              (SELECT COUNT(DISTINCT r.family_id) FROM refresh_tokens r
+                WHERE r.grant_id = g.id AND r.revoked_at IS NULL AND r.family_expires_at > ?) AS liveFamilies
+         FROM grants g LEFT JOIN users u ON u.sub = g.sub
+        ${opts.all === true ? "" : "WHERE g.revoked_at IS NULL"}
+        ORDER BY g.created_at DESC, g.rowid DESC`,
+    )
+    .all(opts.now) as GrantSummary[];
+}
+
+export interface GrantRevocation {
+  status: "revoked" | "already_revoked" | "not_found";
+  /** Refresh-token families revoked. */
+  families: number;
+  /** Access-token jtis revoked (the ones still recorded; expired ones have been swept). */
+  accessTokens: number;
+}
+
+/**
+ * Revoke a grant: it can issue no more (its codes and refresh tokens are refused), and every family
+ * issued under it is revoked with its access tokens. Safe to repeat: a second call re-sweeps and
+ * reports `already_revoked`. The grant is marked first, so a refresh in flight refuses at commit.
+ */
+export function revokeGrant(
+  db: Database,
+  registry: Pick<AuthRegistry, "revoke">,
+  grantId: string,
+  reason: string,
+  now: number,
+): GrantRevocation {
+  const row = db.prepare("SELECT revoked_at FROM grants WHERE id = ?").get(grantId) as
+    | { revoked_at: number | null }
+    | undefined;
+  if (row === undefined) return { status: "not_found", families: 0, accessTokens: 0 };
+  db.prepare("UPDATE grants SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?").run(
+    now,
+    grantId,
+  );
+  const families = db
+    .prepare(
+      `SELECT family_id FROM refresh_tokens WHERE grant_id = ?
+       UNION SELECT family_id FROM issued_access WHERE grant_id = ?`,
+    )
+    .all(grantId, grantId) as Array<{ family_id: string }>;
+  let accessTokens = 0;
+  for (const { family_id } of families) {
+    accessTokens += revokeFamily(db, registry, family_id, reason, now);
+  }
+  return {
+    status: row.revoked_at === null ? "revoked" : "already_revoked",
+    families: families.length,
+    accessTokens,
+  };
 }

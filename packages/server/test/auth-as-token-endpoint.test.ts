@@ -42,7 +42,7 @@ describe("issuing", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(body).toMatchObject({ token_type: "Bearer", expires_in: 1800, scope: "read:notes" });
-    expect(body).not.toHaveProperty("refresh_token");
+    expect(body.refresh_token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     const token = body.access_token as string;
     expect(decodeProtectedHeader(token)).toMatchObject({ alg: "ES256", typ: "at+jwt" });
     const claims = decodeJwt(token);
@@ -351,7 +351,7 @@ describe("client authentication and request shape", () => {
     expect(decodeJwt(ok.body.access_token as string).client_id).toBe(SECRET_CLIENT);
   });
 
-  it("only authorization_code and only urlencoded bodies", async () => {
+  it("only authorization_code and refresh_token, and only urlencoded bodies", async () => {
     const flow = await makeFlow();
     const { code, verifier } = await codeFor(flow);
     const refresh = await exchange(flow, {
@@ -359,7 +359,7 @@ describe("client authentication and request shape", () => {
       refresh_token: "x",
       client_id: CLIENT_ID,
     });
-    expect(refresh.body.error).toBe("unsupported_grant_type");
+    expect(refresh.body.error).toBe("invalid_grant");
     const cc = await exchange(flow, { grant_type: "client_credentials", client_id: CLIENT_ID });
     expect(cc.body.error).toBe("unsupported_grant_type");
     const missing = await exchange(flow, tokenFields(code, verifier, { grant_type: undefined }));

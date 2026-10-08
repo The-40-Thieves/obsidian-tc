@@ -3,6 +3,9 @@
 // ChatGPT hard requirements this slice owns, issuer byte-identity (mix-up), and the token-leakage
 // row: a capture of everything the process writes while a full flow runs.
 
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import {
   InMemorySpanExporter,
   NodeTracerProvider,
@@ -38,9 +41,9 @@ afterEach(async () => {
   for (const d of dirs.splice(0)) rmTemp(d);
 });
 
-async function boot() {
-  const dir = makeTempDir("as-conformance-");
-  dirs.push(dir);
+async function boot(reuse?: string) {
+  const dir = reuse ?? makeTempDir("as-conformance-");
+  if (reuse === undefined) dirs.push(dir);
   const config = ServerConfigSchema.parse({
     vaults: [{ id: "v1", path: dir }],
     cacheDir: dir,
@@ -96,13 +99,18 @@ async function boot() {
     host: "127.0.0.1",
     port: 0,
   });
-  closers.push(async () => {
+  let stopped = false;
+  const stop = async (): Promise<void> => {
+    if (stopped) return;
+    stopped = true;
     await handle.close();
     await provider.shutdown();
     oauth.close();
     opened.close();
-  });
+  };
+  closers.push(stop);
   return {
+    stop,
     base: `http://127.0.0.1:${handle.port}`,
     dir,
     secret: serverSecret(dir),
@@ -188,6 +196,7 @@ async function capturing<T>(fn: () => Promise<T>): Promise<{ value: T; out: stri
 
 interface Walked {
   token: string;
+  refresh: string;
   code: string;
   verifier: string;
   location: string;
@@ -254,15 +263,24 @@ async function walk(s: Server): Promise<Walked> {
     }),
   });
   expect(t.status).toBe(200);
-  const body = (await t.json()) as { access_token: string };
+  const body = (await t.json()) as { access_token: string; refresh_token: string };
   const sessionCookie = [...jar.cookies.values()].join(" ");
   return {
     token: body.access_token,
+    refresh: body.refresh_token,
     code,
     verifier,
     location,
     jar,
-    seen: [PASSWORD, code, verifier, body.access_token, ...jar.cookies.values(), sessionCookie],
+    seen: [
+      PASSWORD,
+      code,
+      verifier,
+      body.access_token,
+      body.refresh_token,
+      ...jar.cookies.values(),
+      sessionCookie,
+    ],
   };
 }
 
@@ -385,7 +403,7 @@ describe("mix-up and the ChatGPT requirements this slice owns (section 9.1)", ()
     expect(new URL(ISSUER).pathname).toBe("/");
   });
 
-  it("advertises exactly what is mounted: S256 only, `none`, RFC 9207, no refresh/DCR/CIMD/private_key_jwt yet", async () => {
+  it("advertises exactly what is mounted: S256 only, `none`, RFC 9207, refresh and revocation, no DCR/CIMD/private_key_jwt yet", async () => {
     const s = await boot();
     const meta = (await (
       await fetch(`${s.base}/.well-known/oauth-authorization-server`)
@@ -394,19 +412,16 @@ describe("mix-up and the ChatGPT requirements this slice owns (section 9.1)", ()
       authorization_endpoint: `${ISSUER}/oauth/authorize`,
       token_endpoint: `${ISSUER}/oauth/token`,
       response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code"],
+      revocation_endpoint: `${ISSUER}/oauth/revoke`,
+      grant_types_supported: ["authorization_code", "refresh_token"],
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none"],
       authorization_response_iss_parameter_supported: true,
     });
-    for (const absent of [
-      "registration_endpoint",
-      "revocation_endpoint",
-      "client_id_metadata_document_supported",
-    ]) {
+    for (const absent of ["registration_endpoint", "client_id_metadata_document_supported"]) {
       expect(meta).not.toHaveProperty(absent);
     }
-    expect(meta.scopes_supported).not.toContain("offline_access");
+    expect(meta.scopes_supported).toContain("offline_access");
     expect(JSON.stringify(meta)).not.toContain("private_key_jwt");
   });
 
@@ -494,5 +509,104 @@ describe("token leakage in logs", () => {
     );
     expect(out).not.toContain("visible-state-value");
     expect(out).not.toContain("redirect_uri");
+  });
+});
+
+describe("refresh tokens over a real socket", () => {
+  const refreshBody = (rt: string) =>
+    new URLSearchParams({ grant_type: "refresh_token", refresh_token: rt, client_id: "agent" });
+  const tokenPost = (s: Server, body: URLSearchParams, path = "/oauth/token") =>
+    fetch(`${s.base}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body,
+    });
+
+  it("rotate, rotate, replay the first: invalid_grant, and the family's access tokens die at /mcp", async () => {
+    const s = await boot();
+    const w = await walk(s);
+    const r2 = (await (await tokenPost(s, refreshBody(w.refresh))).json()) as Record<
+      string,
+      string
+    >;
+    const r3 = (await (
+      await tokenPost(s, refreshBody(r2.refresh_token as string))
+    ).json()) as Record<string, string>;
+    const ping = (t: string) => mcp(s, t, { jsonrpc: "2.0", id: 1, method: "ping" });
+    expect((await ping(r3.access_token as string)).res.status).not.toBe(401);
+    const replay = await tokenPost(s, refreshBody(w.refresh));
+    expect(replay.status).toBe(400);
+    expect(((await replay.json()) as { error: string }).error).toBe("invalid_grant");
+    for (const t of [w.token, r2.access_token, r3.access_token]) {
+      expect((await ping(t as string)).res.status).toBe(401);
+    }
+    expect((await tokenPost(s, refreshBody(r3.refresh_token as string))).status).toBe(400);
+  });
+
+  it("the oauth.db file (and its WAL) holds no plaintext refresh token, only the hashes", async () => {
+    const s = await boot();
+    const w = await walk(s);
+    const second = (await (await tokenPost(s, refreshBody(w.refresh))).json()) as Record<
+      string,
+      string
+    >;
+    const bytes = ["oauth.db", "oauth.db-wal"]
+      .filter((f) => existsSync(join(s.dir, f)))
+      .map((f) => readFileSync(join(s.dir, f)).toString("latin1"))
+      .join("\n");
+    expect(bytes.length).toBeGreaterThan(1000);
+    for (const rt of [w.refresh, second.refresh_token as string]) {
+      expect(bytes).not.toContain(rt);
+      expect(bytes).toContain(createHash("sha256").update(rt).digest("hex"));
+    }
+  });
+
+  it("a refresh and a revocation write no token value to any log line or telemetry attribute", async () => {
+    const s = await boot();
+    const w = await walk(s);
+    const { value, out } = await capturing(async () => {
+      const r = (await (await tokenPost(s, refreshBody(w.refresh))).json()) as Record<
+        string,
+        string
+      >;
+      await tokenPost(s, refreshBody(w.refresh)); // the retry inside the window
+      await tokenPost(s, refreshBody("A".repeat(43))); // an unknown token
+      const used = await mcp(s, r.access_token as string, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "ping",
+      });
+      await tokenPost(
+        s,
+        new URLSearchParams({ token: r.refresh_token as string, client_id: "agent" }),
+        "/oauth/revoke",
+      );
+      return { r, used: used.text };
+    });
+    const secrets = [
+      w.refresh,
+      w.token,
+      value.r.access_token,
+      value.r.refresh_token,
+      "A".repeat(43),
+    ] as string[];
+    const everything = `${out}\n${s.telemetry()}`;
+    for (const secret of secrets) {
+      expect(everything, `leaked ${secret.slice(0, 6)}...`).not.toContain(secret);
+    }
+    expect(everything).not.toContain("refresh_token");
+    expect(everything).toMatch(/\[as\] token refreshed client=agent/);
+  });
+
+  it("losing oauth.db is fail-safe: the old refresh token is invalid_grant, an HS256 token still works", async () => {
+    const first = await boot();
+    const w = await walk(first);
+    await first.stop();
+    for (const f of ["oauth.db", "oauth.db-wal", "oauth.db-shm"])
+      rmSync(join(first.dir, f), { force: true });
+    const again = await boot(first.dir);
+    const res = await tokenPost(again, refreshBody(w.refresh));
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("invalid_grant");
   });
 });

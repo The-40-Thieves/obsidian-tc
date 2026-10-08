@@ -6,45 +6,27 @@
 // Nothing here prints a token or key material. `list` shows jti/kid/sub/exp/state only. Every
 // subcommand refuses, naming the recovery, when the registry was initialised but auth.db is lost:
 // answering from (or recreating) an empty one would hide that revocations are gone.
-import { mkdirSync } from "node:fs";
-import { version as VERSION } from "../../../package.json";
-import { writeEvent } from "../../audit";
 import { openAuthRegistry } from "../../auth/registry-open";
 import { asGraceFloorSeconds, generateSigningKey, isAsymmetricAlg } from "../../auth/signing-keys";
-import { openConfiguredDatabase } from "../../db/open";
-import { provisionCacheDb } from "../../db/provision";
-import type { Database } from "../../db/types";
 import { CliError } from "../cli-error";
 import { type Cmd, resolveOrUsageExit } from "../shared";
 import { type AuthAsIo, runAuthAsSetPassword } from "./auth-as";
+import { runAuthAsGrants } from "./auth-as-grants";
+import { auditAuthEvent } from "./auth-audit";
 
 const iso = (ms: number | null): string => (ms === null ? "-" : new Date(ms).toISOString());
 
 export async function run_auth(cmd: Cmd<"auth">, io: AuthAsIo = {}): Promise<void> {
   // oauth.db is the authorization server's own store and fail-safe to lose: this needs no auth.db.
   if (cmd.sub === "as-set-password") return runAuthAsSetPassword(cmd, io);
+  if (cmd.sub === "as-grants-list" || cmd.sub === "as-grants-revoke") return runAuthAsGrants(cmd);
   const cfg = resolveOrUsageExit(cmd.configPath);
   const { registry, close } = await openAuthRegistry(cfg);
   try {
     const health = registry.health();
     if (health.state === "lost") throw new CliError(health.detail);
-    // The registry write is authoritative and already done when this runs; the audit row goes to
-    // cache.db's event_log (the audit store) and must not turn a completed revocation into an error.
-    const audit = async (event_type: string, caller: string | null) => {
-      let cache: Database | undefined;
-      try {
-        mkdirSync(cfg.cacheDir, { recursive: true });
-        cache = await openConfiguredDatabase(cfg, "cache.db");
-        provisionCacheDb(cache, { version: VERSION });
-        writeEvent(cache, { ts: Date.now(), tool_name: null, caller, status: "ok", event_type });
-      } catch (e) {
-        process.stderr.write(
-          `auth: ${event_type} done, but the audit event was not recorded: ${e instanceof Error ? e.message : String(e)}\n`,
-        );
-      } finally {
-        cache?.close?.();
-      }
-    };
+    const audit = (event_type: string, caller: string | null) =>
+      auditAuthEvent(cfg, event_type, caller);
     const out = (human: string, json: unknown) =>
       process.stdout.write(cmd.json ? `${JSON.stringify(json, null, 2)}\n` : `${human}\n`);
 

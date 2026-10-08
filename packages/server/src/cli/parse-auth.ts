@@ -13,7 +13,7 @@ import { flagValue, positional } from "./flag-value";
 
 export interface AuthCommand {
   kind: "auth";
-  sub: "rotate-key" | "list" | "revoke" | "as-set-password";
+  sub: "rotate-key" | "list" | "revoke" | "as-set-password" | "as-grants-list" | "as-grants-revoke";
   configPath?: string;
   json?: boolean;
   /** `revoke`: the token id to revoke. */
@@ -28,8 +28,10 @@ export interface AuthCommand {
   /** `rotate-key`: which key to rotate, `mint` (default: hand-minted tokens) or `as` (the
    *  authorization server's access-token key). The other purpose's key is untouched. */
   purpose?: KeyPurpose;
-  /** `list`: include expired tokens. */
+  /** `list`: include expired tokens (`as grants list`: include revoked grants). */
   all?: boolean;
+  /** `as grants revoke`: the grant id to revoke. */
+  grantId?: string;
   /** `list`: show signing keys instead of tokens. */
   keys?: boolean;
   /** `as set-password`: the operator account name (default `operator`). */
@@ -41,8 +43,39 @@ export interface AuthCommand {
 const SUBS = ["rotate-key", "list", "revoke"] as const;
 const VALUE_FLAGS = ["--config", "--reason", "--grace", "--alg", "--purpose", "--user"];
 
-/** `auth as <sub>`: only `set-password` exists. */
+/** `auth as grants list|revoke <id>`. */
+function parseAuthAsGrants(args: string[]): AuthCommand | { kind: "error"; message: string } {
+  const sub = args[0];
+  if (sub !== "list" && sub !== "revoke") {
+    return { kind: "error", message: `unknown auth as grants subcommand: ${sub ?? "(none)"}` };
+  }
+  const rest = args.slice(1);
+  const scan = rest.filter((a, i) => {
+    if (a.startsWith("-")) return false;
+    const prev = rest[i - 1];
+    return !(prev !== undefined && VALUE_FLAGS.includes(prev));
+  });
+  const grantId = sub === "revoke" ? scan[0] : undefined;
+  if (sub === "revoke" && grantId === undefined) {
+    return { kind: "error", message: "auth as grants revoke requires a <grant id>" };
+  }
+  const configPath =
+    flagValue(rest, "--config") ?? positional(sub === "revoke" ? scan.slice(1) : scan);
+  const reason = flagValue(rest, "--reason");
+  return {
+    kind: "auth",
+    sub: sub === "list" ? "as-grants-list" : "as-grants-revoke",
+    ...(configPath !== undefined ? { configPath } : {}),
+    json: rest.includes("--json"),
+    all: rest.includes("--all"),
+    ...(grantId !== undefined ? { grantId } : {}),
+    ...(reason !== undefined ? { reason } : {}),
+  };
+}
+
+/** `auth as <sub>`: `set-password` and `grants`. */
 function parseAuthAs(rest: string[]): AuthCommand | { kind: "error"; message: string } {
+  if (rest[0] === "grants") return parseAuthAsGrants(rest.slice(1));
   if (rest[0] !== "set-password") {
     return { kind: "error", message: `unknown auth as subcommand: ${rest[0] ?? "(none)"}` };
   }

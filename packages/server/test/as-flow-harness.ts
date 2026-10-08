@@ -350,6 +350,59 @@ export const tokenFields = (
   ...over,
 });
 
+export const refreshFields = (
+  refreshToken: string | undefined,
+  over: Record<string, string | undefined> = {},
+): Record<string, string | undefined> => ({
+  grant_type: "refresh_token",
+  refresh_token: refreshToken,
+  client_id: CLIENT_ID,
+  ...over,
+});
+
+export interface Issued {
+  access: string;
+  refresh: string;
+  body: Record<string, unknown>;
+}
+
+/** The whole authorization-code flow for the default client: its first access and refresh token. */
+export async function issue(
+  flow: Flow,
+  over: Record<string, string | undefined> = {},
+  consent: Record<string, string> = {},
+): Promise<Issued> {
+  const { verifier, challenge } = pkce();
+  const { code } = await obtainCode(flow, new Jar(), challenge, over, consent);
+  // A client other than the default names itself (and its redirect) in the authorize query: so does the exchange.
+  const bound: Record<string, string> = {};
+  if (over.client_id !== undefined) bound.client_id = over.client_id;
+  if (over.redirect_uri !== undefined) bound.redirect_uri = over.redirect_uri;
+  const { res, body } = await exchange(flow, tokenFields(code, verifier, bound));
+  if (res.status !== 200) throw new Error(`token exchange failed: ${JSON.stringify(body)}`);
+  return { access: body.access_token as string, refresh: body.refresh_token as string, body };
+}
+
+export const basicAuth = (id: string, secret: string): Record<string, string> => ({
+  authorization: `Basic ${Buffer.from(`${id}:${secret}`).toString("base64")}`,
+});
+
+/** `POST /oauth/revoke`: RFC 7009 answers with an empty body, so the text is returned as is. */
+export async function revokeCall(
+  flow: Flow,
+  fields: Record<string, string | undefined>,
+  headers: Record<string, string> = {},
+): Promise<{ res: Response; text: string }> {
+  const body = new URLSearchParams();
+  for (const [k, v] of Object.entries(fields)) if (v !== undefined) body.set(k, v);
+  const res = await flow.app.request(flow.url("/oauth/revoke"), {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+    body: body.toString(),
+  });
+  return { res, text: await res.text() };
+}
+
 /** A bearer call to the MCP edge; 200 means the token verified. */
 export async function mcpPing(flow: Flow, token: string): Promise<number> {
   const res = await flow.app.request("http://localhost/mcp", {
