@@ -16,6 +16,7 @@ import type { TraceCarrier } from "../../otel/propagation";
 import type { ClaimedProvenance } from "../../provenance/types";
 import type { RateLimiter } from "../../throttle";
 import type { AclOp } from "../../vault/acl-path";
+import type { FolderPins } from "../../vault/folder-links";
 import type { TraceRecord } from "../../workspace/sessions";
 import type { ClientInfo } from "../client-info";
 import type { AutoFacadeExplanation, FacadeMode } from "../facade-mode";
@@ -429,6 +430,10 @@ export interface RegistryOptions {
    *  enforcePathAcl the handlers do. Wired from the VaultRegistry in cli.ts; when absent (unit
    *  tests that omit it) central enforcement is skipped and handler-side checks still apply. */
   rootResolver?: (vaultId: string) => string | undefined;
+  /** The vault registry's folder pins (vault/folder-links.ts): every tool and resource call runs
+   *  against them, so its ACL and its sinks share them. Unset: no pins (the native open refuses a
+   *  symlinked folder). */
+  folderPins?: FolderPins;
   /** THE-569 vault-kind resolver: the reverse of P1.5's read:docs gate. When wired, dispatch
    *  refuses any MUTATING call (destructive tools or a required scope in a mutating family) whose
    *  effective vault resolves to `docs` or `system` kind — a reserved docs/system corpus is
