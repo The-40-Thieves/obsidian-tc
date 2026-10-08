@@ -41,6 +41,8 @@ export interface ServerSecretOptions {
   staleMs?: number;
   /** How long to wait on another repairer before giving up with an error. */
   waitMs?: number;
+  /** Runs right after the repairer has made the lock directory, before it writes its owner token (a test removes the lock here, as a stale-breaker would). */
+  afterLockMade?: () => void;
   /** Runs after the repairer has judged the file corrupt and just before it replaces it (a test stalls a holder here). */
   beforeRepair?: () => void;
   /** Runs once the repairer has re-checked it still holds the lock, just before it moves the file aside. */
@@ -197,8 +199,13 @@ function acquireRepairLock(
       mkdirSync(lock, { mode: 0o700 });
       const token = `${process.pid}.${randomBytes(8).toString("hex")}`;
       try {
+        opts.afterLockMade?.();
         writeFileSync(ownerFile(lock), token, { mode: 0o600 });
       } catch (e) {
+        // A slow start can leave the new lock ownerless long enough for a racer to judge it stale
+        // and remove it. The directory is then gone (and may already be someone else's, which must
+        // not be removed): take the lock again instead of failing the start.
+        if ((e as NodeJS.ErrnoException).code === "ENOENT") continue;
         try {
           removeLock(lock);
         } catch {

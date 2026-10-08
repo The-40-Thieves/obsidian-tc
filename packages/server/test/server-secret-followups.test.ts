@@ -1,7 +1,15 @@
 // Residuals from the server-local secret review: concurrent repair of a corrupt key, the refusal
 // message for an exposed key, and the HITL boot line.
 import { type ChildProcess, spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmdirSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -99,7 +107,7 @@ describe("concurrent repair of a corrupt server secret", () => {
       await Promise.all(racers.map((r) => r.ready));
       writeFileSync(goFile, "go");
       const runs = await Promise.all(racers.map((r) => r.done));
-      expect(runs.filter((r) => r.code !== 0).map((r) => r.err.slice(0, 400))).toEqual([]);
+      expect(runs.filter((r) => r.code !== 0).map((r) => r.err.slice(-400))).toEqual([]);
       expect(runs.map((r) => r.code)).toEqual(Array(RACERS).fill(0));
       const final = readFileSync(secretFile(dir), "utf8").trim();
       expect(final).toMatch(/^[A-Za-z0-9_-]{43}$/);
@@ -135,7 +143,7 @@ describe("concurrent repair of a corrupt server secret", () => {
       writeFileSync(release, "go");
       const late = await holder.done;
       const final = readFileSync(secretFile(dir), "utf8").trim();
-      expect([...raced, late].filter((r) => r.code !== 0).map((r) => r.err.slice(0, 400))).toEqual(
+      expect([...raced, late].filter((r) => r.code !== 0).map((r) => r.err.slice(-400))).toEqual(
         [],
       );
       expect([...raced, late].map((r) => r.code)).toEqual(Array(7).fill(0));
@@ -155,7 +163,7 @@ describe("concurrent repair of a corrupt server secret", () => {
       await Promise.all(racers.map((r) => r.ready));
       writeFileSync(goFile, "go");
       const runs = await Promise.all(racers.map((r) => r.done));
-      expect(runs.filter((r) => r.code !== 0).map((r) => r.err.slice(0, 400))).toEqual([]);
+      expect(runs.filter((r) => r.code !== 0).map((r) => r.err.slice(-400))).toEqual([]);
       expect(new Set(runs.map((r) => r.out))).toEqual(new Set([initial]));
       expect(readFileSync(secretFile(dir), "utf8").trim()).toBe(initial);
     },
@@ -205,7 +213,7 @@ describe("concurrent repair of a corrupt server secret", () => {
       writeFileSync(releaseGap, "go");
       const late = await holder.done;
       const all = [...raced, thirdRun, late];
-      expect(all.filter((r) => r.code !== 0).map((r) => r.err.slice(0, 400))).toEqual([]);
+      expect(all.filter((r) => r.code !== 0).map((r) => r.err.slice(-400))).toEqual([]);
       expect(new Set(all.map((r) => r.out))).toEqual(new Set([keep]));
       expect(readFileSync(secretFile(dir), "utf8").trim()).toBe(keep);
     },
@@ -271,6 +279,25 @@ describe("concurrent repair of a corrupt server secret", () => {
     expect(elapsed).toBeGreaterThanOrEqual(500); // it waited out the deadline, not a hot retry
     expect(elapsed).toBeLessThan(stallTimeout(5_000));
     expect(readFileSync(secretFile(dir), "utf8")).toBe("truncated");
+  });
+
+  it("a lock a racer judged stale and removed before its owner token was written is taken again", () => {
+    const dir = tmp();
+    corruptSecret(dir);
+    const lock = `${secretFile(dir)}.repair-lock`;
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    let removed = false;
+    const key = serverSecret(dir, {
+      afterLockMade: () => {
+        if (removed) return;
+        removed = true;
+        rmdirSync(lock); // what a stale-breaker does to a lock whose creator is slow to write `owner`
+      },
+    });
+    expect(removed).toBe(true);
+    expect(key).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(readFileSync(secretFile(dir), "utf8").trim()).toBe(key);
+    expect(existsSync(lock)).toBe(false);
   });
 
   it("a repair lock left by a crashed repairer does not wedge the next start", () => {
