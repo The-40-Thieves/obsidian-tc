@@ -372,7 +372,7 @@ This release adds the pieces that exist before any token is issued: the metadata
   issued from it stop working. Only the owning client's request can do that, and every refresh failure is the
   same `invalid_grant`. A refresh token belongs to the server secret that minted it: replacing the secret retires
   every family (the next use of any token is `invalid_grant` and revokes it). Revoking a family or a grant is
-  recorded durably before the registry is told, so a busy `auth.db` cannot leave a revoked family's access tokens
+  recorded durably before the registry is told, so a busy token registry database cannot leave a revoked family's access tokens
   live. The account's `scopes_allowed` / `vaults_allowed` are applied again at each refresh.
   `POST /oauth/revoke` (RFC 7009) revokes a refresh token's family or an access token's `jti`, and answers an empty
   200 for anything else. On the host, `obsidian-tc auth as grants list [--all]` shows what has been granted and
