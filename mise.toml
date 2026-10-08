@@ -28,7 +28,7 @@ bun = "1.4.2"
 #
 # `perf:node-parity` is the job that actually executes under Node, so a dev/CI major mismatch
 # would surface there first.
-node = "26.10.0"
+node = "26.11.1"
 
 # Both Python services declare `requires-python = ">=3.10"` (services/bge-m3-service,
 # services/docs-ingest) as their SUPPORTED range; 3.14 is what they are built and tested against

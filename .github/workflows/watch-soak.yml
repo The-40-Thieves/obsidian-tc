@@ -57,6 +57,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
+          check-latest: true
       # No install step: the harness is dependency-free plain node, on purpose. A repro that needs
       # `bun install` is not the minimal repro a Node bug report would want.
       # Inputs go through `env:`, never interpolated into the run: line. `workflow_dispatch` inputs
