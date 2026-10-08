@@ -399,7 +399,13 @@ Config validation enforces three conditions:
   password is ever logged or echoed by `config show`/`doctor`.
 - **Multi-user** means each `sub` has its own `scopes_allowed` (an upper bound on any grant) and
   `vaults_allowed` (the `vault` claim or persona must fall inside it), on top of the existing
-  per-vault ACL, which still applies at dispatch. The table is multi-row from day one. Adding users
+  per-vault ACL, which still applies at dispatch. A NULL bound is unbounded; an empty or blank one
+  allows nothing. A token with no `vault` claim rides the server's default vault, which the bounds
+  know nothing about, so a vault-bounded account is never issued an unbound token: with no
+  persona or vault chosen it gets its one permitted vault (in the grant, the code and the `vault`
+  claim), and with several permitted vaults consent refuses until a persona names one. The same
+  rule runs at the remembered-consent branch and at the token exchange. The table is multi-row
+  from day one. Adding users
   (`auth as user add/disable`) is a later slice (decided, §12).
 - **Passkeys** come in a later slice (S10, decided). The options and recommendation are in §4.11.
 
@@ -706,10 +712,11 @@ Each row is a RED test written before its mitigation (the slice in brackets). Th
 | --- | --- | --- |
 | Open redirect | client and redirect validated before any redirect; exact match; port-agnostic loopback only; errors before validation render locally | `/oauth/authorize` with an unregistered `redirect_uri=https://evil.example/cb` returns 400 HTML and **no `Location`**; `http://localhost:9999/cb` matches `http://localhost/cb`; `http://localhost.evil.example/cb` does not [S5] |
 | PKCE downgrade | S256 required on every request; plain or absent refused; verifier required at token | `code_challenge_method=plain` → `invalid_request`; a token request without `code_verifier` for a code that has a challenge → `invalid_grant`; a wrong verifier → `invalid_grant` [S5] |
-| Code injection / replay | 60 s single-use codes bound to client, redirect, resource; reuse revokes the issued tokens | second exchange of the same code → `invalid_grant` **and** the first exchange's access token now fails at `/mcp` [S5] |
+| Code injection / replay | 60 s single-use codes bound to client, redirect, resource; reuse revokes the issued tokens, but only a replay that proves the client (and its secret), redirect, resource and PKCE verifier counts as reuse: a used code that leaked is `invalid_grant` and revokes nothing for anyone who cannot prove them | second exchange of the same code → `invalid_grant` **and** the first exchange's access token now fails at `/mcp` [S5] |
 | Mix-up | `iss` on every authorization response incl. errors; one byte-identical issuer string | every `Location` from `/oauth/authorize` and `/oauth/consent` carries `iss=<issuer>`; metadata, PRM `[0]` and token `iss` compare equal byte-for-byte [S3, S5] |
 | CIMD SSRF | `fetchBoundedText`: https only, no redirects, public addresses checked after resolution, pinned connect, 5 KiB, 5 s; no `logo_uri`/`jwks_uri` fetch | `client_id` that 302s; one that resolves to `127.0.0.1` / `169.254.169.254` / `10.0.0.5`; a 6 KiB body; an `http://` id; a document whose `client_id` differs; a 500 followed by success (the error is not cached) [S7] |
 | Localhost impersonation (CIMD) | consent shows `client_id` host + redirect host; warning when all redirects are loopback; optional host allowlist | consent HTML for a loopback-only client contains the warning; a disallowed host is refused when `allowedHosts` is set [S7] |
+| Authorize flooding (unauthenticated pending requests) | admission in one `BEGIN IMMEDIATE`: expired rows purged, then at most 20 live rows per TCP peer (hashed, `source_hash`; the S4 socket-address rule, never `X-Forwarded-For`; an unknown or loopback peer is held to the client quota only), 250 per client, 1000 overall with the last 100 reserved for peers holding none | one peer past 20 → 503 while another peer still gets a pending request; a table of expired rows admits a new request and is purged; two connections never exceed the cap [S5] |
 | DCR flooding | off by default; per-IP rate limit; row cap; 90-day unused GC; public clients only | flag off → `/oauth/register` 404 and absent from metadata; 11th registration in an hour from one IP → 429; at cap → 503 with a clear error; `token_endpoint_auth_method=client_secret_basic` → refused [S8] |
 | Audience confusion | `resource` must equal `auth.resource`; `aud` = resource; `as`-key tokens must carry `aud`, `iss`, `typ`, `client_id` | `resource=https://other.example/mcp` → `invalid_target`; an `as`-key token with another `aud` → 401; one missing `client_id` or with `typ: JWT` → 401 [S2, S5] |
 | Key-purpose confusion | per-purpose active key; purpose-specific verify rules | rotating the `as` key leaves the HS256 mint key active; an `as`-signed token with `iss` = the legacy `auth.issuer` → 401 [S2] |
