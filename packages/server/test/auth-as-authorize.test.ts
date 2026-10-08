@@ -89,7 +89,7 @@ describe("open redirect: the redirect URI is validated before anything can redir
     expect(v4.status).toBe(303);
   });
 
-  it("http://localhost.evil.example/cb does not match, nor do other loopback look-alikes", async () => {
+  it("http://localhost.evil.example/cb does not match, nor does any other lookalike host", async () => {
     const flow = await makeFlow();
     for (const uri of [
       "http://localhost.evil.example/cb",
