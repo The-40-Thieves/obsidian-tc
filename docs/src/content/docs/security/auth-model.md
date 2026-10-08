@@ -365,10 +365,15 @@ This release adds the pieces that exist before any token is issued: the metadata
   implements each ships. `private_key_jwt` is never advertised.
 - **Refresh tokens and revocation.** Every code exchange returns a refresh token (opaque, 32 random bytes, stored
   only as a SHA-256). It rotates on every use and its family ends `auth.as.refreshTokenDays` after the exchange.
-  A client that lost a refresh response may retry the previous token until its successor has been used; any
+  A client that lost a refresh response may retry the previous token until its successor has been used, and is
+  handed the same response again (the same access token and refresh token, nothing new minted; once that access
+  token has expired the retry is refused and the client signs in again); any
   older token, or the previous one after that, **revokes the family**: the refresh token and every access token
   issued from it stop working. Only the owning client's request can do that, and every refresh failure is the
-  same `invalid_grant`. The account's `scopes_allowed` / `vaults_allowed` are applied again at each refresh.
+  same `invalid_grant`. A refresh token belongs to the server secret that minted it: replacing the secret retires
+  every family (the next use of any token is `invalid_grant` and revokes it). Revoking a family or a grant is
+  recorded durably before the registry is told, so a busy `auth.db` cannot leave a revoked family's access tokens
+  live. The account's `scopes_allowed` / `vaults_allowed` are applied again at each refresh.
   `POST /oauth/revoke` (RFC 7009) revokes a refresh token's family or an access token's `jti`, and answers an empty
   200 for anything else. On the host, `obsidian-tc auth as grants list [--all]` shows what has been granted and
   `auth as grants revoke <id>` kills a grant's refresh tokens and live access tokens at once.

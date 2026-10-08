@@ -31,7 +31,7 @@ export const secretGeneration = (secret: string): string =>
 
 export function sealResponse(secret: string, parentHash: string, r: ReplayedResponse): string {
   const iv = randomBytes(IV_BYTES);
-  const cipher = createCipheriv("aes-256-gcm", keyOf(secret), iv);
+  const cipher = createCipheriv("aes-256-gcm", keyOf(secret), iv, { authTagLength: TAG_BYTES });
   cipher.setAAD(Buffer.from(parentHash));
   const body = Buffer.concat([cipher.update(JSON.stringify(r), "utf8"), cipher.final()]);
   return Buffer.concat([iv, cipher.getAuthTag(), body]).toString("base64url");
@@ -47,7 +47,9 @@ export function openResponse(
   try {
     const raw = Buffer.from(sealed, "base64url");
     if (raw.length <= IV_BYTES + TAG_BYTES) return undefined;
-    const decipher = createDecipheriv("aes-256-gcm", keyOf(secret), raw.subarray(0, IV_BYTES));
+    const decipher = createDecipheriv("aes-256-gcm", keyOf(secret), raw.subarray(0, IV_BYTES), {
+      authTagLength: TAG_BYTES,
+    });
     decipher.setAAD(Buffer.from(parentHash));
     decipher.setAuthTag(raw.subarray(IV_BYTES, IV_BYTES + TAG_BYTES));
     const text = Buffer.concat([
