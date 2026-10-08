@@ -15,6 +15,8 @@ const DEFAULT_MAX_KEYS = 50_000;
 interface Entry {
   failures: number[];
   lockedUntil: number;
+  /** Attempts admitted by `reserve` that have not settled yet. */
+  pending: number;
 }
 
 export interface LimiterOptions {
@@ -42,6 +44,36 @@ export class FailureLimiter {
   }
 
   /**
+   * Admit one attempt, or refuse it. Unlike `check`, an admitted attempt is COUNTED while it runs:
+   * the failures already on the books plus the attempts still in flight may not exceed the budget,
+   * so N requests that arrive together cannot all slip past a check that only sees settled
+   * failures. Past the budget (a lock that has lapsed) one probe at a time is admitted. Every
+   * admitted attempt must be settled with `release`, after it has called `fail` or `succeed`.
+   */
+  reserve(key: string, now: number): Lock {
+    const e = this.entries.get(key);
+    if (e === undefined) {
+      this.entries.set(key, { failures: [], lockedUntil: 0, pending: 1 });
+      this.evictOldest();
+      return { locked: false };
+    }
+    if (e.lockedUntil > now) return { locked: true, retryAfterMs: e.lockedUntil - now };
+    const settled = e.failures.filter((t) => now - t < this.opts.windowMs).length;
+    const room = settled < this.opts.maxFailures ? this.opts.maxFailures - settled : 1;
+    if (e.pending >= room) return { locked: true, retryAfterMs: BASE_LOCK_MS };
+    e.pending++;
+    return { locked: false };
+  }
+
+  /** Settle an attempt admitted by `reserve`. Unknown (evicted) keys are ignored. */
+  release(key: string): void {
+    const e = this.entries.get(key);
+    if (e === undefined) return;
+    e.pending = Math.max(0, e.pending - 1);
+    if (e.pending === 0 && e.failures.length === 0 && e.lockedUntil === 0) this.entries.delete(key);
+  }
+
+  /**
    * Record a failure. Once the window holds `maxFailures`, the key is locked for 30 s doubled for
    * each failure beyond that, never longer than the window itself.
    */
@@ -53,15 +85,29 @@ export class FailureLimiter {
     const lock =
       over >= 0 ? Math.min(this.opts.windowMs, BASE_LOCK_MS * 2 ** Math.min(over, 20)) : 0;
     this.entries.delete(key);
-    this.entries.set(key, { failures, lockedUntil: lock > 0 ? now + lock : 0 });
-    if (this.entries.size > this.maxKeys) {
-      const oldest = this.entries.keys().next().value;
-      if (oldest !== undefined) this.entries.delete(oldest);
+    this.entries.set(key, {
+      failures,
+      lockedUntil: lock > 0 ? now + lock : 0,
+      pending: prior?.pending ?? 0,
+    });
+    this.evictOldest();
+  }
+
+  /** A success forgets the key's failures; attempts still in flight keep their reservations. */
+  succeed(key: string): void {
+    const e = this.entries.get(key);
+    if (e === undefined) return;
+    if (e.pending > 0) {
+      e.failures = [];
+      e.lockedUntil = 0;
+    } else {
+      this.entries.delete(key);
     }
   }
 
-  /** A success forgets the key's history. */
-  succeed(key: string): void {
-    this.entries.delete(key);
+  private evictOldest(): void {
+    if (this.entries.size <= this.maxKeys) return;
+    const oldest = this.entries.keys().next().value;
+    if (oldest !== undefined) this.entries.delete(oldest);
   }
 }

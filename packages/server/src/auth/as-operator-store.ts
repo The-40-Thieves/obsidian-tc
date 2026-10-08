@@ -103,11 +103,6 @@ export function setOperatorPassword(db: Database, sub: string, passwordHash: str
   });
 }
 
-/** Store a better hash of the password the user just proved, without touching their sessions. */
-export function upgradePasswordHash(db: Database, sub: string, passwordHash: string): void {
-  db.prepare("UPDATE users SET password_hash = ? WHERE sub = ?").run(passwordHash, sub);
-}
-
 const SESSION_ID_RE = /^[A-Za-z0-9_-]{43}$/;
 export const isSessionId = (v: string | undefined): v is string =>
   v !== undefined && SESSION_ID_RE.test(v);
@@ -121,6 +116,44 @@ export function createSession(db: Database, sub: string, now: number): string {
   return id;
 }
 
+export interface LoginFinalization {
+  sub: string;
+  /** The exact stored hash the presented password was verified against. */
+  verifiedHash: string;
+  /** A stronger hash of that same password, stored in the same step when the old one is weak. */
+  upgradedHash?: string;
+  /** The session id the browser presented, retired in the same step. */
+  replaces?: string;
+  now: number;
+}
+
+/**
+ * Complete a login the instant it is still true: the user is enabled and still holds exactly the
+ * hash that was verified. A password reset or a disable that landed while the (slow) verification
+ * ran changes one of those, so the login yields nothing: no session, and the new password is not
+ * overwritten by a rehash of the old one. The check, the optional rehash, the retirement of the
+ * presented session and the new session are one `BEGIN IMMEDIATE` transaction. Returns the new
+ * session id, or undefined when the account moved on.
+ */
+export function finalizeLogin(db: Database, input: LoginFinalization): string | undefined {
+  return inWriteTransaction(db, "as_operator", () => {
+    const current = db
+      .prepare(
+        "SELECT 1 AS present FROM users WHERE sub = ? AND password_hash = ? AND disabled_at IS NULL",
+      )
+      .get(input.sub, input.verifiedHash);
+    if (current === undefined) return undefined;
+    if (input.upgradedHash !== undefined) {
+      db.prepare("UPDATE users SET password_hash = ? WHERE sub = ?").run(
+        input.upgradedHash,
+        input.sub,
+      );
+    }
+    if (input.replaces !== undefined) deleteSession(db, input.replaces);
+    return createSession(db, input.sub, input.now);
+  });
+}
+
 export interface SessionInfo {
   sub: string;
   username: string;
@@ -128,32 +161,30 @@ export interface SessionInfo {
 }
 
 /**
- * The live session behind a presented id, sliding its idle clock; or undefined. A session past its
- * idle or absolute limit, or whose user is gone or disabled, is deleted on the spot.
+ * The live session behind a presented id, sliding its idle clock; or undefined. Validation and the
+ * touch are ONE statement, so a session revoked (deleted, its user disabled or its password reset)
+ * by another connection can never be returned: either the row was live when the touch landed, or
+ * nothing is. A session past its idle or absolute limit, or whose user is gone or disabled, is
+ * deleted on the spot.
  */
 export function lookupSession(db: Database, id: string, now: number): SessionInfo | undefined {
   const idHash = sha256Hex(id);
+  // An id nobody holds is answered from a read, so a forged cookie never takes the write lock.
+  if (db.prepare("SELECT 1 AS present FROM sessions WHERE id_hash = ?").get(idHash) === undefined) {
+    return undefined;
+  }
   const row = db
     .prepare(
-      `SELECT s.sub AS sub, u.username AS username, u.disabled_at AS disabledAt,
-              s.last_seen_at AS lastSeen, s.expires_at AS expiresAt
-         FROM sessions s JOIN users u ON u.sub = s.sub WHERE s.id_hash = ?`,
+      `UPDATE sessions SET last_seen_at = ?
+        WHERE id_hash = ? AND expires_at > ? AND last_seen_at > ?
+          AND EXISTS (SELECT 1 FROM users u WHERE u.sub = sessions.sub AND u.disabled_at IS NULL)
+        RETURNING sub, (SELECT username FROM users u WHERE u.sub = sessions.sub) AS username`,
     )
-    .get(idHash) as
-    | {
-        sub: string;
-        username: string;
-        disabledAt: number | null;
-        lastSeen: number;
-        expiresAt: number;
-      }
-    | undefined;
-  if (row === undefined) return undefined;
-  if (row.disabledAt !== null || now >= row.expiresAt || now - row.lastSeen >= SESSION_IDLE_MS) {
+    .get(now, idHash, now, now - SESSION_IDLE_MS) as { sub: string; username: string } | undefined;
+  if (row === undefined) {
     db.prepare("DELETE FROM sessions WHERE id_hash = ?").run(idHash);
     return undefined;
   }
-  db.prepare("UPDATE sessions SET last_seen_at = ? WHERE id_hash = ?").run(now, idHash);
   return { sub: row.sub, username: row.username, idHash };
 }
 

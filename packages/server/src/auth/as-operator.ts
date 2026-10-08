@@ -21,16 +21,16 @@ import { FailureLimiter } from "./as-login-limiter";
 import { enabledAs } from "./as-metadata";
 import {
   claimOperator,
-  createSession,
   deleteSession,
+  finalizeLogin,
   findOperator,
   isSessionId,
   lookupSession,
   normalizeUsername,
   SESSION_ABSOLUTE_MS,
   type SessionInfo,
+  soleOperator,
   tokenBurned,
-  upgradePasswordHash,
 } from "./as-operator-store";
 import {
   AS_CSS,
@@ -151,6 +151,8 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
   });
   let inflight = 0;
   let dummyHash: Promise<string> | undefined;
+  const fallbackHash = (): Promise<string> =>
+    (dummyHash ??= passwords.hash(randomBytes(18).toString("base64url")));
 
   const claimed = (): boolean => {
     try {
@@ -329,63 +331,84 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
     const accountKey = `u:${rawName.slice(0, 128)}`;
     const ip = clientIp(c);
     const t = now();
-    for (const lock of [
-      accountLimiter.check(accountKey, t),
-      ip ? ipLimiter.check(ip, t) : undefined,
-    ]) {
-      if (lock?.locked) {
-        log(`operator login refused: locked${ip ? ` (${ip})` : ""}`);
-        return retryAfter(c, lock.retryAfterMs);
-      }
+    // Admit the attempt BEFORE any await: it counts against the budget while it verifies, so
+    // requests that arrive together cannot all pass a check that only sees settled failures.
+    const account = accountLimiter.reserve(accountKey, t);
+    const source = account.locked || !ip ? undefined : ipLimiter.reserve(ip, t);
+    const lock = account.locked ? account : source?.locked ? source : undefined;
+    if (lock?.locked) {
+      if (!account.locked) accountLimiter.release(accountKey);
+      log(`operator login refused: locked${ip ? ` (${ip})` : ""}`);
+      return retryAfter(c, lock.retryAfterMs);
     }
-    if (inflight >= maxHashes) {
-      c.header("retry-after", "1");
-      return html(c, 503, messagePage("Busy", "The server is busy. Try again in a moment."));
-    }
-
-    inflight++;
-    let user: ReturnType<typeof findOperator>;
-    let ok = false;
+    // Settled in the same tick as the outcome is recorded, never across an await.
+    const settle = (): void => {
+      accountLimiter.release(accountKey);
+      if (ip) ipLimiter.release(ip);
+    };
     try {
-      const name = normalizeUsername(rawName);
-      user = name === undefined ? undefined : findOperator(db, name);
-      // An unknown user still pays for one verification, against a hash made under the same
-      // parameters, so the response time does not say whether the account exists.
-      dummyHash ??= passwords.hash(randomBytes(18).toString("base64url"));
-      const verified = await passwords.verify(
-        password.slice(0, PASSWORD_MAX_LENGTH + 1),
-        user?.passwordHash ?? (await dummyHash),
-      );
-      ok = verified && user !== undefined;
-      if (ok && user !== undefined && needsRehash(user.passwordHash)) {
-        upgradePasswordHash(db, user.sub, await passwords.hash(password));
+      if (inflight >= maxHashes) {
+        c.header("retry-after", "1");
+        return html(c, 503, messagePage("Busy", "The server is busy. Try again in a moment."));
       }
+
+      const presented = getCookie(c, SESSION, prefix);
+      let sessionId: string | undefined;
+      inflight++;
+      try {
+        const name = normalizeUsername(rawName);
+        const user = name === undefined ? undefined : findOperator(db, name);
+        // The hash verified never depends on whether the name exists: an unknown name is checked
+        // against the sole operator's own hash (same parameters, same cost, from the first request
+        // on), and only a match on the name lets the result count. The dummy is the fallback for a
+        // server with no sole operator, which S4 cannot produce.
+        const target = user ?? soleOperator(db);
+        const targetHash = target?.passwordHash ?? (await fallbackHash());
+        const verified = await passwords.verify(
+          password.slice(0, PASSWORD_MAX_LENGTH + 1),
+          targetHash,
+        );
+        if (verified && user !== undefined) {
+          const upgradedHash = needsRehash(user.passwordHash)
+            ? await passwords.hash(password)
+            : undefined;
+          // Account state is re-checked in the same transaction that opens the session.
+          sessionId = finalizeLogin(db, {
+            sub: user.sub,
+            verifiedHash: user.passwordHash,
+            ...(upgradedHash !== undefined ? { upgradedHash } : {}),
+            ...(isSessionId(presented) ? { replaces: presented } : {}),
+            now: now(),
+          });
+        }
+      } finally {
+        inflight--;
+      }
+
+      if (sessionId === undefined) {
+        accountLimiter.fail(accountKey, now());
+        if (ip) ipLimiter.fail(ip, now());
+        log(`operator login failed${ip ? ` (${ip})` : ""}`);
+        return html(
+          c,
+          401,
+          loginPage({
+            csrf: formToken(c, "login"),
+            username: rawName.slice(0, 64),
+            error: "Sign-in failed. Check the username and password.",
+          }),
+        );
+      }
+
+      accountLimiter.succeed(accountKey);
+      // Rotation: the id is minted here, never adopted from the client, and the presented one is
+      // retired in the same transaction.
+      sessionCookie(c, sessionId);
+      log("operator login ok");
+      return c.redirect("/oauth/login", 303);
     } finally {
-      inflight--;
+      settle();
     }
-
-    if (!ok || user === undefined) {
-      accountLimiter.fail(accountKey, now());
-      if (ip) ipLimiter.fail(ip, now());
-      log(`operator login failed${ip ? ` (${ip})` : ""}`);
-      return html(
-        c,
-        401,
-        loginPage({
-          csrf: formToken(c, "login"),
-          username: rawName.slice(0, 64),
-          error: "Sign-in failed. Check the username and password.",
-        }),
-      );
-    }
-
-    accountLimiter.succeed(accountKey);
-    // Rotation: a session id is never adopted from the client, and the one presented is retired.
-    const presented = getCookie(c, SESSION, prefix);
-    if (isSessionId(presented)) deleteSession(db, presented);
-    sessionCookie(c, createSession(db, user.sub, now()));
-    log("operator login ok");
-    return c.redirect("/oauth/login", 303);
   });
 
   // ---- logout --------------------------------------------------------------------------------
