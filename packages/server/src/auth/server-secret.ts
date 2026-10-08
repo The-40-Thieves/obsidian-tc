@@ -149,21 +149,34 @@ const sleep = (ms: number): void => {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 };
 
-/** `rename`, riding out the brief sharing violation Windows raises while a waiting process has the
- *  corrupt file open for its validity poll. Bounded: a lock that never clears surfaces as the
- *  original error, not a hang. */
-function renameOverBusy(from: string, to: string): void {
+const busyCode = (e: unknown): boolean => {
+  const code = (e as NodeJS.ErrnoException).code;
+  return code === "EPERM" || code === "EBUSY" || code === "EACCES";
+};
+
+/** Run `op`, riding out the brief sharing violation Windows raises while another process has the
+ *  file or directory open (a waiting process polling the corrupt file, a lock being reaped).
+ *  Bounded: a handle that never clears surfaces as the original error, not a hang. */
+function overBusy(op: () => void): void {
   for (let attempt = 0; ; attempt++) {
     try {
-      renameSync(from, to);
+      op();
       return;
     } catch (e) {
-      const code = (e as NodeJS.ErrnoException).code;
-      if (attempt >= 100 || (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")) throw e;
+      if (attempt >= 100 || !busyCode(e)) throw e;
       sleep(10);
     }
   }
 }
+
+const renameOverBusy = (from: string, to: string): void => overBusy(() => renameSync(from, to));
+
+/** Windows answers a `mkdir`, or a link into a directory another process is deleting
+ *  (delete-pending), with EPERM/EACCES (EBUSY while a handle is held) instead of EEXIST/ENOENT.
+ *  That is a lost acquisition, not a failure: the caller backs off inside its deadline. Elsewhere
+ *  those codes are real permission errors and must surface. */
+const lostToWindowsContention = (e: unknown): boolean =>
+  process.platform === "win32" && busyCode(e);
 
 // The repair lock is a directory holding an `owner` file (mkdir is atomic). Whoever holds it is the
 // only process that publishes a key or moves one aside, so a reader that finds the file absent waits
@@ -280,11 +293,11 @@ const lockIsStale = (lock: string, staleMs: number): boolean => {
  *  caller then backs off instead of retrying hot. */
 function removeLock(lock: string): void {
   try {
-    unlinkSync(ownerFile(lock));
+    overBusy(() => unlinkSync(ownerFile(lock)));
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
   }
-  rmdirSync(lock);
+  overBusy(() => rmdirSync(lock));
 }
 
 /** Make the lock and publish our owner token into it. False when the acquisition was lost (someone
@@ -293,7 +306,7 @@ function tryAcquire(path: string, lock: string, token: string, opts: ServerSecre
   try {
     mkdirSync(lock, { mode: 0o700 });
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "EEXIST") return false;
+    if ((e as NodeJS.ErrnoException).code === "EEXIST" || lostToWindowsContention(e)) return false;
     throw e;
   }
   try {
@@ -307,6 +320,7 @@ function tryAcquire(path: string, lock: string, token: string, opts: ServerSecre
     } catch {
       // an ownerless lock is reaped once stale
     }
+    if (lostToWindowsContention(e)) return false;
     throw e;
   }
 }
