@@ -1,0 +1,179 @@
+{
+  "generatedFrom": "packages/embedder-local/src/model-info.ts",
+  "models": {
+    "all-MiniLM-L6-v2": {
+      "modelId": "Xenova/all-MiniLM-L6-v2",
+      "revision": "751bff37182d3f1213fa05d7196b954e230abad9",
+      "dimensions": 384,
+      "pooling": "mean",
+      "variants": {
+        "q8": {
+          "dtype": "q8",
+          "files": [
+            {
+              "path": "config.json",
+              "sha256": "7135149f7cffa1a573466c6e4d8423ed73b62fd2332c575bf738a0d033f70df7",
+              "sizeBytes": 650
+            },
+            {
+              "path": "tokenizer.json",
+              "sha256": "da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0",
+              "sizeBytes": 711661
+            },
+            {
+              "path": "tokenizer_config.json",
+              "sha256": "9261e7d79b44c8195c1cada2b453e55b00aeb81e907a6664974b4d7776172ab3",
+              "sizeBytes": 366
+            },
+            {
+              "path": "onnx/model_quantized.onnx",
+              "sha256": "afdb6f1a0e45b715d0bb9b11772f032c399babd23bfc31fed1c170afc848bdb1",
+              "sizeBytes": 22972370
+            }
+          ]
+        },
+        "fp32": {
+          "dtype": "fp32",
+          "files": [
+            {
+              "path": "config.json",
+              "sha256": "7135149f7cffa1a573466c6e4d8423ed73b62fd2332c575bf738a0d033f70df7",
+              "sizeBytes": 650
+            },
+            {
+              "path": "tokenizer.json",
+              "sha256": "da0e79933b9ed51798a3ae27893d3c5fa4a201126cef75586296df9b4d2c62a0",
+              "sizeBytes": 711661
+            },
+            {
+              "path": "tokenizer_config.json",
+              "sha256": "9261e7d79b44c8195c1cada2b453e55b00aeb81e907a6664974b4d7776172ab3",
+              "sizeBytes": 366
+            },
+            {
+              "path": "onnx/model.onnx",
+              "sha256": "759c3cd2b7fe7e93933ad23c4c9181b7396442a2ed746ec7c1d46192c469c46e",
+              "sizeBytes": 90387606
+            }
+          ]
+        }
+      }
+    },
+    "bge-small-en-v1.5": {
+      "modelId": "Xenova/bge-small-en-v1.5",
+      "revision": "ea104dacec62c0de699686887e3f920caeb4f3e3",
+      "dimensions": 384,
+      "pooling": "cls",
+      "variants": {
+        "q8": {
+          "dtype": "q8",
+          "files": [
+            {
+              "path": "config.json",
+              "sha256": "fa73f90bf92c8cace1fbcb709626306f2bdbc9ea3e5b5f94b440df9b6aa56350",
+              "sizeBytes": 683
+            },
+            {
+              "path": "tokenizer.json",
+              "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+              "sizeBytes": 711396
+            },
+            {
+              "path": "tokenizer_config.json",
+              "sha256": "9261e7d79b44c8195c1cada2b453e55b00aeb81e907a6664974b4d7776172ab3",
+              "sizeBytes": 366
+            },
+            {
+              "path": "onnx/model_quantized.onnx",
+              "sha256": "6c9c6101a956d62dfb5e7190c538226c0c5bb9cb27b651234b6df063ee7dbfe4",
+              "sizeBytes": 34014426
+            }
+          ]
+        },
+        "fp32": {
+          "dtype": "fp32",
+          "files": [
+            {
+              "path": "config.json",
+              "sha256": "fa73f90bf92c8cace1fbcb709626306f2bdbc9ea3e5b5f94b440df9b6aa56350",
+              "sizeBytes": 683
+            },
+            {
+              "path": "tokenizer.json",
+              "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+              "sizeBytes": 711396
+            },
+            {
+              "path": "tokenizer_config.json",
+              "sha256": "9261e7d79b44c8195c1cada2b453e55b00aeb81e907a6664974b4d7776172ab3",
+              "sizeBytes": 366
+            },
+            {
+              "path": "onnx/model.onnx",
+              "sha256": "828e1496d7fabb79cfa4dcd84fa38625c0d3d21da474a00f08db0f559940cf35",
+              "sizeBytes": 133093490
+            }
+          ]
+        }
+      }
+    },
+    "nomic-embed-text-v1.5": {
+      "modelId": "nomic-ai/nomic-embed-text-v1.5",
+      "revision": "e9b6763023c676ca8431644204f50c2b100d9aab",
+      "dimensions": 768,
+      "pooling": "mean",
+      "variants": {
+        "q8": {
+          "dtype": "q8",
+          "files": [
+            {
+              "path": "config.json",
+              "sha256": "9ab00bd92cee80a569f708140b7b6c1661a65891ff3765b1519e181ba2f2c92b",
+              "sizeBytes": 2538
+            },
+            {
+              "path": "tokenizer.json",
+              "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+              "sizeBytes": 711396
+            },
+            {
+              "path": "tokenizer_config.json",
+              "sha256": "d7e0000bcc80134debd2222220427e6bf5fa20a669f40a0d0d1409cc18e0a9bc",
+              "sizeBytes": 1191
+            },
+            {
+              "path": "onnx/model_quantized.onnx",
+              "sha256": "b4342336debaea79de872370664b0aaeb67dea4605513d00ee236ea871a81f27",
+              "sizeBytes": 137296292
+            }
+          ]
+        },
+        "fp32": {
+          "dtype": "fp32",
+          "files": [
+            {
+              "path": "config.json",
+              "sha256": "9ab00bd92cee80a569f708140b7b6c1661a65891ff3765b1519e181ba2f2c92b",
+              "sizeBytes": 2538
+            },
+            {
+              "path": "tokenizer.json",
+              "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+              "sizeBytes": 711396
+            },
+            {
+              "path": "tokenizer_config.json",
+              "sha256": "d7e0000bcc80134debd2222220427e6bf5fa20a669f40a0d0d1409cc18e0a9bc",
+              "sizeBytes": 1191
+            },
+            {
+              "path": "onnx/model.onnx",
+              "sha256": "147d5aa88c2101237358e17796cf3a227cead1ec304ec34b465bb08e9d952965",
+              "sizeBytes": 547310275
+            }
+          ]
+        }
+      }
+    }
+  }
+}

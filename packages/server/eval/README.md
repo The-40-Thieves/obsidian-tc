@@ -106,6 +106,27 @@ only**; `--corpus private` needs a paid project's key in `GEMINI_API_KEY_PAID` (
 harness refuses otherwise. An empty `GEMINI_API_KEY` exported in the shell shadows `bun --env-file`; start bun
 under `env -u GEMINI_API_KEY`. Chunks of paths matched by `egress.excludePaths` are never embedded.
 
+## GPU batch embedding for the local nomic provider (`modal_embed_nomic.py`, GH #1161)
+
+Re-embedding a vault with `embeddings.provider: "local"` / `nomic-embed-text-v1.5` / `quantized: false` runs at
+about 0.7 chunks/s on CPU and about 43/s on one Modal T4. Only the batch document side moves; query embedding
+stays local. The GPU script runs the same pinned ONNX graph, so its vectors are interchangeable with the CPU ones.
+
+```bash
+bun eval/export-chunk-texts.ts <config.json> <outdir>            # ids.json + texts.jsonl, whole vault
+modal run eval/modal_embed_nomic.py --texts <outdir>/texts.jsonl --out <outdir>/vecs.f32
+bun eval/load-gpu-vecs.ts <config.json> <outdir>/ids.json <outdir>/vecs.f32 [--insert]
+obsidian-tc index                                                # rebuilds vec_chunks from the loaded vectors
+```
+
+`ids.json` and `vecs.f32` are joined by position, so use the pair from one export. `--insert` is for a provider
+change (no rows under the new id yet); without it the loader only updates rows that exist and errors when it
+updates none. The model id, revision, width, pooling and checksums are read from `embedder-model-pins.json`, which
+`bun run check:model-pins` derives from `packages/embedder-local/src/model-info.ts` (regenerate with
+`node scripts/check-model-pins.mjs --write` after a pin bump). The Python is linted and unit-tested (no GPU) by CI's
+`python-eval` job; run it locally with `cd packages/server/eval && ruff check . && ruff format --check . && pytest pytests`.
+A Modal run costs money and is run by the owner; the image has not been exercised against onnxruntime-gpu 1.26.0 on a T4 in CI.
+
 ## The ship rule (THE-399)
 
 **Status 2026-08-02 (THE-674): the MDE is MEASURED on the engine that actually runs, and it is

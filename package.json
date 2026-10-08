@@ -38,6 +38,7 @@
     "check:mcp-name": "node scripts/check-mcp-name.mjs",
     "check:merge-driver": "node scripts/check-merge-driver.mjs",
     "check:model-fetch-parity": "node scripts/check-model-fetch-parity.mjs",
+    "check:model-pins": "node scripts/check-model-pins.mjs",
     "check:nul": "node scripts/check-nul-bytes.mjs",
     "check:table-readers": "node scripts/check-table-readers.mjs",
     "check:perf-timing-scope": "node scripts/check-perf-timing-scope.mjs",

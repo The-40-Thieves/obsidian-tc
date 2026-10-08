@@ -1,0 +1,12 @@
+# Lints and formats the Python under packages/server/eval (the Modal GPU scripts and their tests).
+# CI runs it in ci-server.yml's `python-eval` job with the same ruff the model services use
+# (ruff==0.16.10, see ci-model-service.yml); line length matches theirs.
+target-version = "py314"
+line-length = 100
+# The scripts import each other by bare module name (the tests import modal_embed_nomic).
+src = ["."]
+
+[lint]
+# E/F are ruff's defaults; I (imports), UP (modern syntax) and B (bugbear) are worth their noise on
+# new code.
+select = ["E", "F", "I", "UP", "B"]
