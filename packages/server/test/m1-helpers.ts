@@ -139,7 +139,6 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
   const acl = overrides.get(id) ?? rootAcl;
   const registry = new ToolRegistry({
     verifyElicit: elicitVerifier,
-    folderPins: vaultRegistry.folderPins,
     ...(overrides.size > 0 ? { aclResolver: (vid: string) => overrides.get(vid) ?? rootAcl } : {}),
     ...opts.registryOpts,
     ...(opts.centralAcl ? { rootResolver: () => root } : {}),

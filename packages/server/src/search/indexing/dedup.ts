@@ -87,16 +87,18 @@ export function copyDedupVectors(
   // caller counts this as an UNRESOLVED dedup skip, distinct from the reused-work counter.
   if (!src) return { resolved: false };
 
-  cachedPrepare(
-    db,
-    "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(chunk_id, model) DO UPDATE SET dimensions = excluded.dimensions, embedding = excluded.embedding, is_active = 1, generated_at = excluded.generated_at",
-  ).run(args.targetId, args.model, src.dimensions, src.embedding, args.ts);
+  // GH #1160: deactivate FIRST — idx_chunk_embeddings_active is UNIQUE per chunk, so activating the
+  // copy while a superseded-model row is still active would be refused.
   // THE-531: the copied vector is under the current model, so retire any superseded-model row for the
   // target chunk (same "active = current representation" rule as the direct-embed path).
   cachedPrepare(
     db,
     "UPDATE chunk_embeddings SET is_active = 0 WHERE chunk_id = ? AND model != ? AND is_active = 1",
   ).run(args.targetId, args.model);
+  cachedPrepare(
+    db,
+    "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, ?, ?, ?, 1, ?) ON CONFLICT(chunk_id, model) DO UPDATE SET dimensions = excluded.dimensions, embedding = excluded.embedding, is_active = 1, generated_at = excluded.generated_at",
+  ).run(args.targetId, args.model, src.dimensions, src.embedding, args.ts);
   if (args.hasVec)
     upsertVec(db, args.targetId, Array.from(blobToFloats(src.embedding)), {
       vaultId: args.vaultId,

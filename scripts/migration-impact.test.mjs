@@ -33,6 +33,18 @@ test("finds CREATE, ALTER, DROP and VIEW targets", () => {
   ]);
 });
 
+// GH #1160: an index-only migration (CREATE UNIQUE INDEX on an existing table) names its table
+// only after ON. Without this the script refused it ("names no CREATE/ALTER/DROP target"), so the
+// fourth step in CLAUDE.md could not be run for the migration that most needs a chain check.
+test("finds the table an INDEX is created on, UNIQUE and partial included", () => {
+  const sql = `
+    DROP INDEX idx_chunk_embeddings_active;
+    CREATE UNIQUE INDEX idx_chunk_embeddings_active ON chunk_embeddings(chunk_id) WHERE is_active = 1;
+    CREATE INDEX IF NOT EXISTS idx_other ON "other_table"(x);
+  `;
+  assert.deepEqual([...tablesTouched(sql)].sort(), ["chunk_embeddings", "other_table"]);
+});
+
 // THE load-bearing case. Modelled on a real header: 20260806_001 spends twenty comment lines
 // discussing note_quality and chunk_access_stats before its DDL touches chunk_retrievals.
 test("a table NAMED ONLY IN A COMMENT is not a touched table", () => {

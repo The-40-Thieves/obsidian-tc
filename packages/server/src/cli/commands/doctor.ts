@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
-import { makeIndexReadable } from "../../acl";
 import { discoverOidc, discoveryPolicyOf } from "../../auth/oidc-discovery";
 import { probeAuthRegistry } from "../../auth/registry-open";
 import {
@@ -22,7 +21,6 @@ import {
 import { authJwksViews } from "../../doctor/auth-jwks";
 import { deadPathGlobsView } from "../../doctor/dead-path-globs";
 import { HITL_DOCTOR_WINDOW_DAYS, probeHitlConfirmations } from "../../doctor/hitl-confirmations";
-import { probeIndexCoverage } from "../../doctor/index-coverage";
 import { probeNoteSummariesScale } from "../../doctor/note-summary-scale";
 import { plainHttpEndpoints } from "../../doctor/plain-http";
 import { hiddenNamesInAllowlist } from "../../doctor/tool-facade";
@@ -42,12 +40,11 @@ import {
 } from "../../providers/registry";
 import { buildAcls } from "../../runtime/acl-build";
 import type { NotesFtsIntegrity } from "../../search/fts";
-import { exclusionStatePath, loadVaultExclusion } from "../../search/index-exclusion";
 import { createQueryEncoder } from "../../search/query-encoder";
 import { redactEndpoint } from "../../telemetry/redact-endpoint";
-import { canonicalizeVaultRoot } from "../../vault/registry";
 import { type Cmd, resolveOrUsageExitWithProvenance } from "../shared";
 import { probeAuthAsView } from "./doctor-auth-as";
+import { probeEmbeddingIntegrityFor, probeIndexCoverageFor } from "./doctor-index-probes";
 import { probeMemoryEntities } from "./doctor-memory-probe";
 import {
   probeDbSpace,
@@ -373,25 +370,9 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         busyTimeoutMs,
       )
     : undefined;
-  const indexCoverage = cmd.probe
-    ? await (async () => {
-        const { acl, aclByVault } = buildAcls(config.acl, config.vaults);
-        const indexReadableFor = makeIndexReadable(acl, aclByVault);
-        return probeIndexCoverage(
-          config.cacheDir,
-          config.vaults.map((v) => ({
-            id: v.id,
-            root: canonicalizeVaultRoot(v.path),
-            isReadable: indexReadableFor(v.id),
-            exclusion: loadVaultExclusion(
-              canonicalizeVaultRoot(v.path),
-              v.index?.excludePaths,
-              exclusionStatePath(config.cacheDir, canonicalizeVaultRoot(v.path)),
-            ),
-          })),
-          busyTimeoutMs,
-        );
-      })()
+  const indexCoverage = cmd.probe ? await probeIndexCoverageFor(config, busyTimeoutMs) : undefined;
+  const embeddingIntegrity = cmd.probe
+    ? await probeEmbeddingIntegrityFor(config, busyTimeoutMs)
     : undefined;
   // THE-1039 (GH #930): cache.db reclaimable-space, ALWAYS (no --probe gate) — see
   // probeDbSpace's own comment for why this one is cheap enough to run by default.
@@ -562,6 +543,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       indexCoverage: {
         ...(indexCoverage !== undefined ? { probe: () => indexCoverage } : {}),
       },
+      embeddingIntegrity: cmd.probe ? { probe: () => embeddingIntegrity } : {},
       // Final-review blocker 2: validate the configured provider names against the registry —
       // an unregistered name parses cleanly now (embeddings.provider/reranker.provider are open
       // strings) and was previously invisible to doctor.

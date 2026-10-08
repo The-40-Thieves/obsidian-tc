@@ -58,6 +58,7 @@ import {
   readNoteTags,
 } from "./note-plan";
 import { applyNoteWrites, fireIndexHook } from "./persist-note-plan";
+import { createStaleSkipLog } from "./stale-skip";
 import { sweepUnindexedNotes } from "./sweep-notes";
 import type { DedupCache, IndexStats, IndexVaultArgs, NoteWritePlan } from "./types";
 import { commitFence, preloadFenceGenerations } from "./write-fence";
@@ -263,7 +264,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     const unresolvedPaths: string[] = [];
     // THE-925: paths this flush skipped because a concurrent write_note/watcher commit changed them
     // after their plan was computed — sampled into the stderr warning below.
-    const staleSkippedPaths: string[] = [];
+    const staleSkips = createStaleSkipLog(args.db, args.vaultId);
     // THE-925: only plans actually WRITTEN this flush feed changedChunkPaths/fireIndexHook below —
     // a plan the guard skips must not be reported as a committed change.
     const appliedPlans: NoteWritePlan[] = [];
@@ -301,7 +302,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
           // path correct, and the next index_vault re-plans it against current content either way.
           const current = readExistingChunkRows(args.db, args.vaultId, plan.path);
           if (!existingRowsMatch(plan.existing, current)) {
-            staleSkippedPaths.push(plan.path);
+            staleSkips.rowMismatch(plan.path, plan.existing, current);
             stats.notes_stale_skipped += 1;
             continue;
           }
@@ -323,7 +324,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
           // (existingRowsMatch alone cannot: the row shape can coincidentally match again after a
           // delete-then-identical-recreate). Same treatment as the existingRowsMatch skip above.
           if (r.staleSkipped) {
-            staleSkippedPaths.push(plan.path);
+            staleSkips.fenceDropped(plan.path);
             stats.notes_stale_skipped += 1;
             continue;
           }
@@ -346,15 +347,8 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
           `— those chunks are FTS-only until the owner re-embeds successfully.\n`,
       );
     }
-    if (staleSkippedPaths.length > 0) {
-      const sample = staleSkippedPaths.slice(0, 3).join(", ");
-      process.stderr.write(
-        `[index] vault "${args.vaultId}": ${staleSkippedPaths.length} note(s) skipped this pass — a ` +
-          `concurrent write_note/watcher commit changed the path's chunks after this plan was ` +
-          `computed (${sample}${staleSkippedPaths.length > 3 ? ", ..." : ""}); the next index_vault ` +
-          `reconciles them against current content.\n`,
-      );
-    }
+    const staleReport = staleSkips.report();
+    if (staleReport !== undefined) process.stderr.write(staleReport);
     if (epochStale) {
       process.stderr.write(
         `[index] vault "${args.vaultId}": dropped a whole batch of ${toApply.length} note(s) — a ` +

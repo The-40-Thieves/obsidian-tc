@@ -56,6 +56,8 @@ export function tablesTouched(sql) {
     /\bCREATE\s+VIEW\s+(?:IF\s+NOT\s+EXISTS\s+)?["`[]?(\w+)/gi,
     /\bDROP\s+VIEW\s+(?:IF\s+EXISTS\s+)?["`[]?(\w+)/gi,
     /\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?["`[]?(\w+)/gi,
+    // An index-only migration names its table only after ON (GH #1160's UNIQUE-index change).
+    /\bCREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?\S+\s+ON\s+["`[]?(\w+)/gi,
   ];
   // Strip -- comments first: these headers are long, prose-heavy, and routinely NAME other tables
   // while explaining a decision. Counting those would make almost every migration look as though

@@ -4,6 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { cachedPrepare, type Database } from "../db/types";
 import { type RepresentationManifest, representationFingerprint } from "./representation";
+import {
+  type BackfillShortfall,
+  backfillShortfall,
+  formatBackfillShortfall,
+} from "./vec-backfill-shortfall";
 import { EMBEDDED_VEC_BASE64 } from "./vec-embedded";
 
 const requireFromHere = createRequire(import.meta.url);
@@ -130,6 +135,9 @@ export interface VecRebuildEvent {
   /** Active vectors NOT backfilled because they were captured at a different representation than
    *  the one this rebuild is for — a re-embed regenerates them on the next reconcile. */
   skippedVectors: number;
+  /** GH #1160: present only when the backfill left the dense index empty or mostly empty, or found a
+   *  chunk with more than one active embedding — see search/vec-backfill-shortfall.ts. */
+  shortfall?: BackfillShortfall;
 }
 
 /**
@@ -219,6 +227,7 @@ export function ensureVecChunks(
       // skip so it lands in the migration checksum below (this module has no logger, and refusing
       // outright would brick a legitimate mid-swap rebuild).
       let skipped = 0;
+      let shortfall: BackfillShortfall | undefined;
       if (canBackfill) {
         const active = (
           db
@@ -245,6 +254,7 @@ export function ensureVecChunks(
         const inserted = (db.prepare("SELECT COUNT(*) AS n FROM vec_chunks").get() as { n: number })
           .n;
         skipped = active - inserted;
+        shortfall = backfillShortfall(db, active, inserted);
       }
       const rebuiltVersion = `20260712_004_vec_chunks_aux_${dims}`;
       const rec = db
@@ -258,7 +268,7 @@ export function ensureVecChunks(
           now(),
           "m2-runtime",
           0,
-          `vec0:partition+aux:${dims}${skipped > 0 ? `:skipped${skipped}` : ""}`,
+          `vec0:partition+aux:${dims}${skipped > 0 ? `:skipped${skipped}` : ""}${shortfall ? `:short${shortfall.inserted}of${shortfall.active}` : ""}`,
         );
       }
       // THE-612: a full re-embed of every vault sharing this table, previously silent. `legacy`
@@ -268,7 +278,14 @@ export function ensureVecChunks(
         `[vec] rebuilding vec_chunks (${reason}): every vault's dense index was dropped and is ` +
           `backfilling from chunk_embeddings${skipped > 0 ? `; ${skipped} vector(s) at a different representation are left for the next re-embed` : ""}.\n`,
       );
-      opts.onRebuild?.({ reason, skippedVectors: skipped });
+      // GH #1160: a rebuild that left the dense index empty/mostly empty is a WARNING of its own,
+      // not a normal rebuild line. Warn rather than throw: the rows are intact and vec_chunks is a
+      // derived index, and a legitimate mid-swap rebuild must still proceed (see the note above).
+      if (shortfall)
+        process.stderr.write(
+          formatBackfillShortfall(shortfall, dims, opts.activeModel ?? manifest.model),
+        );
+      opts.onRebuild?.({ reason, skippedVectors: skipped, ...(shortfall ? { shortfall } : {}) });
     }
   }
   const recorded = db

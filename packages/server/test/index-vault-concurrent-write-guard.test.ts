@@ -9,7 +9,7 @@
 // that must reject a plan computed against state a concurrent writer has since changed.
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import {
   deterministicVector,
@@ -109,8 +109,21 @@ describe("indexVault's batched apply guards against a concurrent index-on-write 
       // has fully committed.
       await indexNote(db, provider, VAULT, PATH, FRESH, false, () => NOW, undefined, false);
 
+      const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+      let stats: Awaited<typeof runPromise>;
+      let logged: string;
       gate.resolve();
-      const stats = await runPromise;
+      try {
+        stats = await runPromise;
+      } finally {
+        logged = stderr.mock.calls.map((c) => String(c[0])).join("");
+        stderr.mockRestore();
+      }
+      // GH #1160: the skip states the OBSERVED difference rather than only asserting a cause.
+      expect(logged).toMatch(
+        /note\(s\) skipped this pass.*note\.md: chunk \w+: content_hash changed/,
+      );
+      expect(logged).toContain("concurrent write_note/watcher commit is the usual cause");
 
       // The skip is COUNTED, not just logged — see IndexStats.notes_stale_skipped's doc comment.
       expect(stats.notes_stale_skipped).toBe(1);
