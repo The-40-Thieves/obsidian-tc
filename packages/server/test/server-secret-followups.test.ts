@@ -162,7 +162,7 @@ describe("concurrent repair of a corrupt server secret", () => {
       // The holder takes the repair lock and freezes there, alive, until `release` appears.
       const holder = racer(dir, goFile, { stallUntil: release });
       await holder.ready;
-      await until(() => existsSync(lockOf(dir)));
+      await until(() => existsSync(join(lockOf(dir), "owner")));
       // Time alone never lets a waiter into its lock: they fail closed and name it.
       const racersGo = join(scratch, "racers-go");
       const racers = Array.from({ length: 4 }, () =>
@@ -194,7 +194,7 @@ describe("concurrent repair of a corrupt server secret", () => {
       writeFileSync(goFile, "go");
       const holder = racer(dir, goFile, { stallUntil: join(scratch, "never") });
       await holder.ready;
-      await until(() => existsSync(lockOf(dir)));
+      await until(() => existsSync(join(lockOf(dir), "owner")));
       holder.kill();
       await holder.done;
       // The lock is fresh (staleMs is an hour): only the holder's death lets the others in.
@@ -241,7 +241,7 @@ describe("concurrent repair of a corrupt server secret", () => {
       // The holder owns the lock and has re-read the file as corrupt when it freezes, alive.
       const holder = racer(dir, goFile, { stallBeforeMove: releaseMove });
       await holder.ready;
-      await until(() => existsSync(lockOf(dir)));
+      await until(() => existsSync(join(lockOf(dir), "owner")));
       const racersGo = join(scratch, "racers-go");
       const racers = Array.from({ length: 4 }, () =>
         racer(dir, racersGo, { staleMs: 100, waitMs: 1_500 }),
