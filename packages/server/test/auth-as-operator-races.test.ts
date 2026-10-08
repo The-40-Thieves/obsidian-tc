@@ -28,7 +28,7 @@ const GOOD = { username: "operator", password: PASSWORD };
 const BAD = { username: "operator", password: "definitely the wrong password" };
 
 /** A verifier that finishes the real check, then waits at a gate the test opens. */
-function gatedVerifier() {
+function gatedVerifier(onlyWrong = false) {
   let release: () => void = () => {};
   const gate = new Promise<void>((r) => {
     release = r;
@@ -44,7 +44,7 @@ function gatedVerifier() {
     verify: async (password: string, phc: string): Promise<boolean> => {
       seen.push(phc);
       const ok = await verifyPassword(password, phc);
-      if (armed) await gate;
+      if (armed && (!onlyWrong || !ok)) await gate;
       return ok;
     },
   };
@@ -295,6 +295,32 @@ describe("concurrent attempts cannot cross the brute-force budget together", () 
       expect((await first).res.status).toBe(401);
       // One failure is on the books, nothing is in flight: the next real attempt is allowed.
       expect((await login(op, new Jar(), GOOD)).res.status).toBe(303);
+    },
+    ARGON_BUDGET_MS,
+  );
+
+  it(
+    "keeps the reservations of attempts still in flight when another one succeeds",
+    async () => {
+      const g = gatedVerifier(true);
+      const op = await makeOperator({
+        verify: g.verify,
+        as: { login: { maxFailuresPerWindow: 2, windowSeconds: 120 } },
+      });
+      await claimViaSetup(op);
+      const wrong1 = login(op, new Jar(), BAD);
+      await until(() => g.seen.length === 1);
+      // A correct login settles while wrong1 is still verifying, then a second wrong one starts.
+      expect((await login(op, new Jar(), GOOD)).res.status).toBe(303);
+      const wrong2 = login(op, new Jar(), BAD);
+      await until(() => g.seen.length === 3);
+      const jar = new Jar();
+      const correct = login(op, jar, GOOD);
+      await new Promise((r) => setTimeout(r, 150));
+      g.release();
+      const statuses = (await Promise.all([wrong1, wrong2, correct])).map((r) => r.res.status);
+      expect(statuses).toEqual([401, 401, 429]);
+      expect(sessionCookieName(jar)).toBeUndefined();
     },
     ARGON_BUDGET_MS,
   );
