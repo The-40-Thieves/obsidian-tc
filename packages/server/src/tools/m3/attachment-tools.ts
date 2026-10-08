@@ -38,7 +38,7 @@ import {
 } from "../../formats/attachments";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl, ImmutableRewriteSkips } from "../../vault/acl-path";
-import { readableRel } from "../../vault/acl-read-filter";
+import { readableEntry, readableRel } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
 import { commitPlanned, PreImageSnapshots, planFingerprint } from "../../vault/move-plan";
 import {
@@ -224,7 +224,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root, ctx.grantedScopes);
         const exts = (input.extensions ?? DEFAULT_ATTACHMENT_EXTS).map((x) => x.toLowerCase());
         const entries = walkVault(v.root, { sub, recursive: true, extensions: exts }).filter((e) =>
-          readableRel(ctx.acl, e.relPath, ctx.grantedScopes),
+          readableEntry(ctx.acl, e, ctx.grantedScopes),
         );
         const after = input.cursor;
         const visible = after ? entries.filter((e) => e.relPath > after) : entries;

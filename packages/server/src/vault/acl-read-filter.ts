@@ -6,7 +6,7 @@
 import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
 import { type FolderAcl, isDefaultDenied } from "../acl";
 import { pathScopesSatisfied } from "./acl-path";
-import { normalizeVaultPath } from "./paths";
+import { normalizeVaultPath, resolveVaultPathChecked, type WalkEntry } from "./paths";
 
 /** True when read enumeration is unrestricted FOR THIS CALLER: no ACL, or readPaths undefined and
  *  strictReadDefault off (M0 back-compat), and no path can declare a rule-scope the caller lacks.
@@ -61,6 +61,48 @@ export function readableRel(
   grantedScopes: Iterable<string>,
 ): boolean {
   return readableByFolder(acl, rel) && pathScopesSatisfied(acl, rel, grantedScopes);
+}
+
+/** A readability predicate a walk-driven scan is handed. The second argument is the entry's ACL
+ *  identity (`WalkEntry.aclRel`); a predicate that decides on the path judges THAT, and falls back to
+ *  `rel` when it is called with one argument (a stored row's path, where the two are the same). */
+export type WalkReadable = (rel: string, aclRel?: string) => boolean;
+
+/**
+ * The read predicate for an entry a vault WALK produced. It is judged on `aclRel`, the entry's
+ * symlink-resolved identity, never on `relPath` (the display name): `wiki -> private` lists
+ * `wiki/x.md`, a name no whitelist entry for `private/` covers and one `read_note` refuses, so a
+ * filter on the name would show a file the caller cannot read. For an entry of a walk that did not
+ * start through a symlink the two are equal. Every filter over `walkVault` / `walkVaultStream`
+ * output uses this (or hands `aclRel` to `readableRel` / `readableByFolder`).
+ */
+export function readableEntry(
+  acl: FolderAcl | undefined,
+  entry: Pick<WalkEntry, "aclRel">,
+  grantedScopes: Iterable<string>,
+): boolean {
+  return readableRel(acl, entry.aclRel, grantedScopes);
+}
+
+/**
+ * `readableRel` for a vault-relative path that was NOT produced by a walk (a path the caller named,
+ * or one a stored row or a config derives): resolved to its ACL identity first, exactly as
+ * `enforcePathAcl` does, so an alias is judged by its target. A path that cannot be resolved FAILS
+ * CLOSED (not readable).
+ */
+export function readableResolved(
+  acl: FolderAcl | undefined,
+  root: string,
+  rel: string,
+  grantedScopes: Iterable<string>,
+): boolean {
+  let aclRel: string;
+  try {
+    aclRel = resolveVaultPathChecked(root, rel).aclRel;
+  } catch {
+    return false;
+  }
+  return readableRel(acl, aclRel, grantedScopes);
 }
 
 /**

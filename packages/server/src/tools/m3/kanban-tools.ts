@@ -8,7 +8,7 @@ import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { readableRel } from "../../vault/acl-read-filter";
+import { readableEntry } from "../../vault/acl-read-filter";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -139,7 +139,7 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
         const boards: Array<{ path: string; columns: number; cards: number }> = [];
         const warnings = new ScanWarnings();
         for (const e of walkVault(v.root, { sub, extensions: [".md"] })) {
-          if (!readableRel(ctx.acl, e.relPath, ctx.grantedScopes)) continue;
+          if (!readableEntry(ctx.acl, e, ctx.grantedScopes)) continue;
           const parsed = warnings.parse(
             readNote(resolveVaultPath(v.root, e.relPath)).raw,
             e.relPath,

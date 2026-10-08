@@ -1,7 +1,7 @@
 // Tag usage counts over the notes the caller may read. One implementation for list_tags and
 // suggest_tags, so both see exactly the same ACL-filtered view of the vault's tag vocabulary.
 import type { CallerContext } from "../../mcp/registry";
-import { readableRel } from "../../vault/acl-read-filter";
+import { readableEntry, readableRel } from "../../vault/acl-read-filter";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { noteTags } from "../../vault/tags";
@@ -43,7 +43,7 @@ export function collectTagCounts(
     }
   } else {
     const entries = walkVault(vault.root, { sub, extensions: [".md"] }).filter((e) =>
-      readableRel(ctx.acl, e.relPath, ctx.grantedScopes),
+      readableEntry(ctx.acl, e, ctx.grantedScopes),
     );
     for (const e of entries) {
       if (scanned >= maxNotes) break;

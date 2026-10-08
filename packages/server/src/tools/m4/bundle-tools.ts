@@ -7,7 +7,7 @@ import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { readableRel } from "../../vault/acl-read-filter";
+import { readableEntry } from "../../vault/acl-read-filter";
 import { splitFrontmatterBody } from "../../vault/frontmatter";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -146,8 +146,8 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
         // code-point `>` comparison used below to filter past `cursor` — re-sort explicitly
         // so emission order is a deterministic, total order that the cursor can rely on.
         const all = walkVault(v.root, { sub, extensions: input.extensions })
+          .filter((e) => readableEntry(ctx.acl, e, ctx.grantedScopes))
           .map((e) => e.relPath)
-          .filter((rel) => readableRel(ctx.acl, rel, ctx.grantedScopes))
           .sort();
         const paged = input.cursor ? all.filter((rel) => rel > (input.cursor as string)) : all;
         const capped = paged.slice(0, input.max_files);

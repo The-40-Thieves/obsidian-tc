@@ -227,10 +227,24 @@ function statSafe(abs: string): { size: number; mtimeMs: number; ctimeMs: number
 }
 
 export interface WalkEntry {
+  /** The path as walked (display): `wiki/a.md` when `wiki` is a symlink to `pages`. */
   relPath: string;
+  /** The ACL identity (`pages/a.md`), as `resolveVaultPathChecked` computes it. Read-ACL decisions
+   *  on a walked entry use this, never `relPath`; they differ only below a symlinked start. */
+  aclRel: string;
   type: "file" | "folder";
   size: number;
   mtime: number;
+}
+
+/** Where a walk begins and its ACL identity (`""` = root), after the planted-root check (THE-1081).
+ *  Entries below it are real (a symlink entry is never descended): start identity plus their path. */
+function walkStart(absRoot: string, sub: string | undefined): { abs: string; aclPrefix: string } {
+  assertRootNotPlantedSymlink(absRoot, sub ?? "");
+  if (!sub) return { abs: absRoot, aclPrefix: "" };
+  const resolved = resolveVaultPathChecked(absRoot, sub);
+  recordPathUse(resolved.aclRel);
+  return { abs: resolved.abs, aclPrefix: resolved.aclRel };
 }
 
 /**
@@ -245,14 +259,10 @@ export function walkVault(
   const recursive = opts.recursive ?? true;
   const exts = opts.extensions?.map((e) => e.toLowerCase());
   const absRoot = resolve(root);
-  // THE-1081 review round (Residual): with no `sub`, `start` below is `absRoot` itself and
-  // `resolveVaultPath` (which carries this same check) is never called — see
-  // assertRootNotPlantedSymlink's own comment.
-  assertRootNotPlantedSymlink(absRoot, opts.sub ?? "");
-  const start = opts.sub ? resolveVaultPath(absRoot, opts.sub) : absRoot;
+  const start = walkStart(absRoot, opts.sub);
   const out: WalkEntry[] = [];
 
-  const walk = (dir: string, prefix: string): void => {
+  const walk = (dir: string, prefix: string, aclPrefix: string): void => {
     let entries: Dirent[];
     try {
       entries = readdirSync(dir, { withFileTypes: true });
@@ -263,21 +273,34 @@ export function walkVault(
       const name = e.name;
       if (name.startsWith(".")) continue;
       const rel = prefix ? `${prefix}/${name}` : name;
+      const aclRel = aclPrefix ? `${aclPrefix}/${name}` : name;
       const abs = join(dir, name);
       if (e.isDirectory()) {
         if (opts.includeFolders)
-          out.push({ relPath: rel, type: "folder", size: 0, mtime: statSafe(abs)?.mtimeMs ?? 0 });
-        if (recursive) walk(abs, rel);
+          out.push({
+            relPath: rel,
+            aclRel,
+            type: "folder",
+            size: 0,
+            mtime: statSafe(abs)?.mtimeMs ?? 0,
+          });
+        if (recursive) walk(abs, rel, aclRel);
       } else if (e.isFile()) {
         if (exts && !exts.some((x) => name.toLowerCase().endsWith(x))) continue;
         const st = statSafe(abs);
-        out.push({ relPath: rel, type: "file", size: st?.size ?? 0, mtime: st?.mtimeMs ?? 0 });
+        out.push({
+          relPath: rel,
+          aclRel,
+          type: "file",
+          size: st?.size ?? 0,
+          mtime: st?.mtimeMs ?? 0,
+        });
       }
     }
   };
 
   const startPrefix = opts.sub ? normalizeVaultPath(opts.sub) : "";
-  walk(start, startPrefix);
+  walk(start.abs, startPrefix, start.aclPrefix);
   out.sort((a, b) => a.relPath.localeCompare(b.relPath));
   return out;
 }
@@ -305,12 +328,9 @@ export async function* walkVaultStream(
   const recursive = opts.recursive ?? true;
   const exts = opts.extensions?.map((e) => e.toLowerCase());
   const absRoot = resolve(root);
-  // THE-1081 review round (Residual): same reasoning as walkVault's own call — see
-  // assertRootNotPlantedSymlink's comment.
-  assertRootNotPlantedSymlink(absRoot, opts.sub ?? "");
-  const start = opts.sub ? resolveVaultPath(absRoot, opts.sub) : absRoot;
+  const start = walkStart(absRoot, opts.sub);
 
-  async function* walk(dir: string, prefix: string): AsyncGenerator<WalkEntry> {
+  async function* walk(dir: string, prefix: string, aclPrefix: string): AsyncGenerator<WalkEntry> {
     let entries: Dirent[];
     try {
       entries = readdirSync(dir, { withFileTypes: true });
@@ -325,12 +345,19 @@ export async function* walkVaultStream(
       const name = e.name;
       if (name.startsWith(".")) continue;
       const rel = prefix ? `${prefix}/${name}` : name;
+      const aclRel = aclPrefix ? `${aclPrefix}/${name}` : name;
       const abs = join(dir, name);
       if (e.isDirectory()) {
         if (opts.includeFolders)
-          yield { relPath: rel, type: "folder", size: 0, mtime: statSafe(abs)?.mtimeMs ?? 0 };
+          yield {
+            relPath: rel,
+            aclRel,
+            type: "folder",
+            size: 0,
+            mtime: statSafe(abs)?.mtimeMs ?? 0,
+          };
         if (recursive) {
-          yield* walk(abs, rel);
+          yield* walk(abs, rel, aclRel);
           // Cooperative yield point: gives a caller's own pending async work (e.g. an embed-batch
           // flush interleaved with the walk in indexVault's streaming path) a chance to run
           // instead of this generator monopolizing the microtask queue across a huge subtree.
@@ -339,13 +366,19 @@ export async function* walkVaultStream(
       } else if (e.isFile()) {
         if (exts && !exts.some((x) => name.toLowerCase().endsWith(x))) continue;
         const st = statSafe(abs);
-        yield { relPath: rel, type: "file", size: st?.size ?? 0, mtime: st?.mtimeMs ?? 0 };
+        yield {
+          relPath: rel,
+          aclRel,
+          type: "file",
+          size: st?.size ?? 0,
+          mtime: st?.mtimeMs ?? 0,
+        };
       }
     }
   }
 
   const startPrefix = opts.sub ? normalizeVaultPath(opts.sub) : "";
-  yield* walk(start, startPrefix);
+  yield* walk(start.abs, startPrefix, start.aclPrefix);
 }
 
 export { statSafe };

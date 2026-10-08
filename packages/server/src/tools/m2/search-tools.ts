@@ -19,7 +19,7 @@ import { resolveSearchVaultMode } from "../../experiential/search-mode-preferenc
 import type { ToolDefinition } from "../../mcp/registry";
 import { autoNeedsSemanticLeg, fuseTextAndSemantic } from "../../search/auto-route";
 import { mtimesByPath, noteFreshness } from "../../search/freshness";
-import { vaultExclusionFor, withVaultExclusion } from "../../search/index-exclusion";
+import { vaultExclusionFor } from "../../search/index-exclusion";
 import { evaluatesTruthy } from "../../search/jsonlogic";
 import { createQueryEncoder } from "../../search/query-encoder";
 import { DEFAULT_RRF_K } from "../../search/retrieval-defaults";
@@ -27,6 +27,7 @@ import { type SemanticHit, semanticSearch } from "../../search/semantic";
 import { searchRegex, searchText, searchTextIndexed } from "../../search/text";
 import { paginate } from "../../util/paginate";
 import { enforcePathAcl } from "../../vault/acl-path";
+import type { WalkReadable } from "../../vault/acl-read-filter";
 import { readableRel, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -181,14 +182,14 @@ const SearchVaultOutput = z.object({
 function jsonlogicMatches(
   root: string,
   sub: string | undefined,
-  readable: (rel: string) => boolean,
+  readable: WalkReadable,
   logic: unknown,
   warnings: ScanWarnings,
 ): string[] {
   const out: string[] = [];
   for (const rel of walkVault(root, { sub, extensions: [".md"] })
-    .map((e) => e.relPath)
-    .filter(readable)) {
+    .filter((e) => readable(e.relPath, e.aclRel))
+    .map((e) => e.relPath)) {
     const { frontmatter, body } = warnings.parse(readNote(resolveVaultPath(root, rel)).raw, rel);
     const data = { ...(frontmatter ?? {}), path: rel, content: body };
     if (evaluatesTruthy(logic, data)) out.push(rel);
@@ -258,7 +259,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
     ctx: { acl?: FolderAcl; grantedScopes: Iterable<string> },
     vault: string,
     root?: string,
-  ): { id: string; rootPath: string; sub?: string; readable: (rel: string) => boolean } => {
+  ): { id: string; rootPath: string; sub?: string; readable: WalkReadable } => {
     const v = deps.vaultRegistry.resolve(vault);
     const sub = root ? normalizeVaultPath(root) : undefined;
     if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root, ctx.grantedScopes);
@@ -269,10 +270,12 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       id: v.id,
       rootPath: v.root,
       sub,
-      readable: withVaultExclusion(
-        (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes) && underRoot(rel, sub),
-        excluded,
-      ),
+      // A walked entry is judged on its ACL identity (2nd argument); a stored row's path is its own.
+      readable: (rel, aclRel = rel) =>
+        readableRel(ctx.acl, aclRel, ctx.grantedScopes) &&
+        underRoot(rel, sub) &&
+        !excluded.isExcluded(rel) &&
+        !excluded.isExcluded(aclRel),
     };
   };
 

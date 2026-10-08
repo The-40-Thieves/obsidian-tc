@@ -32,7 +32,7 @@ import {
 import type { ToolDefinition } from "../../mcp/registry";
 import { applyLogic, evaluatesTruthy } from "../../search/jsonlogic";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { readableRel } from "../../vault/acl-read-filter";
+import { readableEntry } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
 import {
   buildVaultIndex,
@@ -468,8 +468,8 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         };
 
         let candidates = walkVault(v.root, { extensions: [".md"] })
-          .map((e) => e.relPath)
-          .filter((p) => readableRel(ctx.acl, p, ctx.grantedScopes));
+          .filter((e) => readableEntry(ctx.acl, e, ctx.grantedScopes))
+          .map((e) => e.relPath);
         if (sType === "folder") {
           const f = normalizeVaultPath(String(sValue ?? ""));
           candidates = f === "" ? candidates : candidates.filter((p) => p.startsWith(`${f}/`));

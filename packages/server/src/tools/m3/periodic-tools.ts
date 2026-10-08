@@ -33,7 +33,7 @@ import {
 import type { ToolDefinition } from "../../mcp/registry";
 import type { MetricsRecorder } from "../../metrics/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { readableRel } from "../../vault/acl-read-filter";
+import { readableResolved } from "../../vault/acl-read-filter";
 import { parseNote } from "../../vault/frontmatter";
 import {
   hardDelete,
@@ -652,7 +652,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           }
           const name = formatMoment(d, config.format);
           const rel = `${folder ? `${folder}/` : ""}${name}.md`;
-          if (!readableRel(ctx.acl, rel, ctx.grantedScopes)) continue;
+          if (!readableResolved(ctx.acl, v.root, rel, ctx.grantedScopes)) continue;
           const st = statNote(resolveVaultPath(v.root, rel));
           if (st)
             found.push({ period: input.period, date: toISODate(d), path: rel, mtime: st.mtime });

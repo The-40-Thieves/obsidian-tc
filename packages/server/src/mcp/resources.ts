@@ -3,7 +3,7 @@ import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
 import { type ResponseFormat, resolveResponseFormat } from "../tools/response-format";
 import { enforcePathAcl } from "../vault/acl-path";
-import { readableRel } from "../vault/acl-read-filter";
+import { readableEntry } from "../vault/acl-read-filter";
 import { splitFrontmatterBody } from "../vault/frontmatter";
 import { noteExists, readNote, statNote } from "../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../vault/paths";
@@ -170,8 +170,8 @@ export function listResources(
   const v = vaultRegistry.resolve(ctx.vaultId);
   const acl = aclOfVault(ctx, v.id, aclFor);
   const rels = walkVault(v.root, { extensions: [".md"] })
-    .map((e) => e.relPath)
-    .filter((rel) => readableRel(acl, rel, ctx.grantedScopes));
+    .filter((e) => readableEntry(acl, e, ctx.grantedScopes))
+    .map((e) => e.relPath);
   // Offset cursor over the sorted walk (walkVault sorts by relPath, so paging is stable).
   const start = cursor ? Math.max(0, Number.parseInt(cursor, 10) || 0) : 0;
   const page = rels.slice(start, start + pageSize);

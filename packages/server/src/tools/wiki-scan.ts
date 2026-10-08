@@ -7,7 +7,7 @@
 
 import type { FolderAcl } from "../acl";
 import { globToRegExp } from "../acl";
-import { readableRel } from "../vault/acl-read-filter";
+import { readableEntry } from "../vault/acl-read-filter";
 import { buildVaultIndex, type ExtractedLink, resolveTarget } from "../vault/links";
 import { readNote } from "../vault/notes-io";
 import { resolveVaultPath, walkVault } from "../vault/paths";
@@ -36,8 +36,8 @@ export function readableNotes(
   sub?: string,
 ): string[] {
   return walkVault(root, { sub, extensions: [".md"] })
-    .map((e) => e.relPath)
-    .filter((rel) => readableRel(acl, rel, grantedScopes));
+    .filter((e) => readableEntry(acl, e, grantedScopes))
+    .map((e) => e.relPath);
 }
 
 /** A note's links for a scan: property links, then body links. Bad frontmatter YAML does not fail

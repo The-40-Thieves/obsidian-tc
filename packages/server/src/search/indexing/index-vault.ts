@@ -138,7 +138,11 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // streaming path (args.walk?.streaming) is deferred to the loop further down, where it walks
   // lazily via walkVaultStream instead, interleaved with per-note processing.
   const streamWalk = args.walk?.streaming === true;
-  const walkedSet = new Set<string>();
+  // Every walked path -> its ACL identity (`aclRel`; differs from the path when the walk went through a
+  // symlinked folder). `args.isReadable` decides on the identity, so an alias of a note the indexing
+  // caller cannot read is not indexed under a name the whitelist allows.
+  const walkedSet = new Map<string, string>();
+  const isReadableNote = (rel: string): boolean => args.isReadable(walkedSet.get(rel) ?? rel);
   let statByPath = new Map<string, { mtime: number; size: number }>();
   let notes: string[] = [];
   // Obsidian's Excluded files (search/index-exclusion.ts): walked, present, link targets — but
@@ -146,12 +150,12 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const excludedWalked: string[] = [];
   if (!streamWalk) {
     const walked = walkVault(args.root, { sub: args.sub, extensions: [".md"] });
-    for (const e of walked) walkedSet.add(e.relPath);
+    for (const e of walked) walkedSet.set(e.relPath, e.aclRel);
     statByPath = new Map(walked.map((e) => [e.relPath, { mtime: e.mtime, size: e.size }]));
     const indexable: string[] = [];
     for (const e of walked)
       (isIndexExcluded(e.relPath) ? excludedWalked : indexable).push(e.relPath);
-    notes = indexable.filter(args.isReadable);
+    notes = indexable.filter(isReadableNote);
   }
   // THE-501: one bulk load of the vault's chunk state (ids/hashes/active-model), so computeNotePlan
   // plans every note from memory instead of a per-note query. Safe because each note owns its path's
@@ -505,12 +509,12 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     // THE-490: walk lazily, processing (and thus starting to embed) each readable note as soon as
     // its directory has been read, instead of waiting for the entire tree to be walked first.
     for await (const e of walkVaultStream(args.root, { sub: args.sub, extensions: [".md"] })) {
-      walkedSet.add(e.relPath);
+      walkedSet.set(e.relPath, e.aclRel);
       if (isIndexExcluded(e.relPath)) {
         excludedWalked.push(e.relPath);
         continue;
       }
-      if (!args.isReadable(e.relPath)) continue;
+      if (!isReadableNote(e.relPath)) continue;
       notes.push(e.relPath);
       await processNote(e.relPath, { mtime: e.mtime, size: e.size });
     }
@@ -585,7 +589,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       // layer omits them, like Obsidian's Graph view: desiredEdges drops every edge touching one.
       desiredEdges(
         noteLinks,
-        [...notes, ...excludedWalked.filter(args.isReadable)],
+        [...notes, ...excludedWalked.filter(isReadableNote)],
         new Set(excludedWalked),
       ),
       now,

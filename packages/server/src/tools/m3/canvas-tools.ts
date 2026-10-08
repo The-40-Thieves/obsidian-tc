@@ -28,7 +28,7 @@ import {
 import { detectJsonIndent } from "../../formats/json-config";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { readableRel } from "../../vault/acl-read-filter";
+import { readableEntry, readableResolved } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -421,11 +421,12 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
               .map(normalizeVaultPath)
               .filter(
                 (p) =>
-                  p.toLowerCase().endsWith(".canvas") && readableRel(ctx.acl, p, ctx.grantedScopes),
+                  p.toLowerCase().endsWith(".canvas") &&
+                  readableResolved(ctx.acl, v.root, p, ctx.grantedScopes),
               )
           : walkVault(v.root, { sub, extensions: [".canvas"] })
-              .map((e) => e.relPath)
-              .filter((p) => readableRel(ctx.acl, p, ctx.grantedScopes));
+              .filter((e) => readableEntry(ctx.acl, e, ctx.grantedScopes))
+              .map((e) => e.relPath);
 
         const f = input.filter;
         const items: Array<{

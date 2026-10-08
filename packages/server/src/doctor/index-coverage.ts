@@ -235,7 +235,7 @@ export async function probeIndexCoverage(
         // Buffer.byteLength(raw)) — no stand-in string needed, the walked entry's own `size` IS
         // the real byte count this predicate wants.
         const readableOnDisk = walkVault(root, { extensions: [".md"] }).filter(
-          (e) => isReadable(e.relPath) && notesRowExpectedForSize(e.size),
+          (e) => isReadable(e.aclRel) && notesRowExpectedForSize(e.size),
         );
         const entries = readableOnDisk.filter((e) => !exclusion?.isExcluded(e.relPath));
         const onDisk = entries.map((e) => e.relPath);
