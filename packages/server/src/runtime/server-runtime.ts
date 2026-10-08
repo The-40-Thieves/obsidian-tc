@@ -535,6 +535,7 @@ export async function buildServerRuntime(
         wikiFolders: vaultRegistry.resolve(v.id).wikiFolders,
         rawFolders: vaultRegistry.resolve(v.id).rawFolders,
       })),
+      folderPins: vaultRegistry.folderPins,
       eventVaultId: firstVault.id,
       listVaultIds: () => vaultRegistry.list().map((v) => v.id),
       ...(transports.authRegistry ? { authRegistry: transports.authRegistry } : {}),

@@ -155,6 +155,9 @@ module.exports.safeWriteNoteAtomic = impl.safeWriteNoteAtomic;
 // predates them they are undefined and the server's vault layer keeps its link+unlink JS path.
 module.exports.safeWriteNoteExclusive = impl.safeWriteNoteExclusive;
 module.exports.safeRenameNoReplace = impl.safeRenameNoReplace;
+// Symlink-safe unlink (takes a PinnedDir too): undefined on an older .node and on the fallback, where
+// the server refuses a delete through a pinned folder rather than removing it by its live path.
+module.exports.safeUnlink = impl.safeUnlink;
 // True on a binary whose safeReadNote / safeRenameNoReplace check a PinnedDir; undefined on an older
 // .node (which would ignore the extra argument) and on the fallback.
 module.exports.SAFE_IO_PINNED_DIR = impl.SAFE_IO_PINNED_DIR;

@@ -18,6 +18,7 @@ import { NO_EXCLUSION } from "../src/search/index-exclusion";
 import { registerM1Tools } from "../src/tools/m1";
 import { isGeneratedWikiPath, rawPathFilter } from "../src/tools/m7/knowledge/wiki-folder";
 import { loadSendable } from "../src/tools/m7/knowledge/wiki-judge";
+import { nativeVaultIo } from "../src/vault/notes-io";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 import { makeWikiHarness, type WikiHarness } from "./wiki-test-helpers";
@@ -71,8 +72,10 @@ describe.skipIf(process.platform === "win32")(
 
     it("with read:provenance both spellings read; an unrelated log.md is untouched", async () => {
       symlinked();
-      expect((await read("wiki/log.md", WITH_PROVENANCE)).ok).toBe(true);
-      expect((await read("pages/log.md", WITH_PROVENANCE)).ok).toBe(true);
+      // Either spelling of a pinned folder is served through the pin, which only the native module
+      // can open.
+      expect((await read("wiki/log.md", WITH_PROVENANCE)).ok).toBe(nativeVaultIo);
+      expect((await read("pages/log.md", WITH_PROVENANCE)).ok).toBe(nativeVaultIo);
       expect((await read("notes/log.md", NOTES_ONLY)).ok).toBe(true);
     });
 
@@ -162,7 +165,7 @@ describe.skipIf(process.platform === "win32")(
         const denied = await read(path, ["read:notes"]);
         expect(denied.ok).toBe(false);
         expect(JSON.stringify(denied)).not.toContain("alice-the-principal");
-        expect((await read(path, ["read:notes", "read:provenance"])).ok).toBe(true);
+        expect((await read(path, ["read:notes", "read:provenance"])).ok).toBe(nativeVaultIo);
       }
     });
   },
@@ -267,16 +270,20 @@ describe.skipIf(process.platform === "win32")(
       expect("note" in loadSendable(scope, undefined, "wiki/Page.md")).toBe(true);
     });
 
-    it("find_orphans and audit_provenance leave the raw sources out, under either name", async () => {
-      symlinked();
-      const orphans = await h.data("find_orphans", {});
-      const audit = await h.data("audit_provenance", {});
-      // The control: a real page is still reported, so the scans ran.
-      expect(JSON.stringify(orphans.orphans)).toContain("wiki/Page.md");
-      expect(JSON.stringify(audit.missing)).toContain("wiki/Page.md");
-      expect(JSON.stringify(orphans.orphans)).not.toContain("sources/");
-      expect(JSON.stringify(audit.missing)).not.toContain("sources/");
-    });
+    // The scans read every note, including the pinned raw target, which the JS path refuses.
+    it.skipIf(!nativeVaultIo)(
+      "find_orphans and audit_provenance leave the raw sources out, under either name",
+      async () => {
+        symlinked();
+        const orphans = await h.data("find_orphans", {});
+        const audit = await h.data("audit_provenance", {});
+        // The control: a real page is still reported, so the scans ran.
+        expect(JSON.stringify(orphans.orphans)).toContain("wiki/Page.md");
+        expect(JSON.stringify(audit.missing)).toContain("wiki/Page.md");
+        expect(JSON.stringify(orphans.orphans)).not.toContain("sources/");
+        expect(JSON.stringify(audit.missing)).not.toContain("sources/");
+      },
+    );
 
     it("rawPathFilter treats every given raw folder as raw", () => {
       const isRaw = rawPathFilter(["raw", "sources"]);
@@ -337,19 +344,22 @@ describe.skipIf(process.platform === "win32")(
       expect("note" in loadSendable(scope, undefined, "pages/Ada.md")).toBe(true);
     });
 
-    it("find_existing_page never offers the generated log as a candidate, even to a provenance holder", async () => {
-      symlinked();
-      h.seed("pages/log.md", [1, 0, 0, 0]);
-      h.seed("pages/Ada.md", [0.9, 0.3, 0, 0]);
-      const d = await h.v.call(
-        "find_existing_page",
-        { vault: "test", topic: "Ada" },
-        WITH_PROVENANCE,
-      );
-      expect(d.ok).toBe(true);
-      // The control: the real page is a candidate, so the semantic search ran and returned hits.
-      expect(JSON.stringify(d)).toContain("pages/Ada.md");
-      expect(JSON.stringify(d)).not.toContain("log.md");
-    });
+    it.skipIf(!nativeVaultIo)(
+      "find_existing_page never offers the generated log as a candidate, even to a provenance holder",
+      async () => {
+        symlinked();
+        h.seed("pages/log.md", [1, 0, 0, 0]);
+        h.seed("pages/Ada.md", [0.9, 0.3, 0, 0]);
+        const d = await h.v.call(
+          "find_existing_page",
+          { vault: "test", topic: "Ada" },
+          WITH_PROVENANCE,
+        );
+        expect(d.ok).toBe(true);
+        // The control: the real page is a candidate, so the semantic search ran and returned hits.
+        expect(JSON.stringify(d)).toContain("pages/Ada.md");
+        expect(JSON.stringify(d)).not.toContain("log.md");
+      },
+    );
   },
 );

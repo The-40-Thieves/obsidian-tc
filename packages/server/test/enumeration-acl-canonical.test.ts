@@ -150,6 +150,11 @@ describe.skipIf(process.platform === "win32")("enumeration filters on the canoni
     });
     cleanups.push(v.cleanup);
     const tags = await v.call("list_tags", { vault: "test", folder: "wiki" });
+    if (!nativeVaultIo) {
+      // Without the native module a configured symlinked folder is refused outright.
+      expect(tags.ok).toBe(false);
+      return;
+    }
     expect(tags.ok && (tags.data as { tags: unknown[] }).tags).toEqual([
       { tag: "leaktag", count: 1 },
     ]);

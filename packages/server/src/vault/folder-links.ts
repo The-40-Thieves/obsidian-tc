@@ -15,6 +15,9 @@
 //  - the native sinks (notes-io) open the pinned directory by `pinnedOpenPath`, a pure function of
 //    the pins and the path, and the native walk checks the opened directory's identity against the
 //    pin, so a directory renamed into the pinned name after the ACL decision is refused.
+// A pin applies to a path under the configured alias (`wiki/x.md`) AND to one under the pinned
+// directory's own name (`open/x.md`, the canonical spelling): the second keeps its spelling and only
+// gains the pin, so naming the target directly is no way around it.
 import { AsyncLocalStorage } from "node:async_hooks";
 import { realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
@@ -93,9 +96,21 @@ export class FolderPins {
       .sort((a, b) => b.root.length - a.root.length || b.alias.length - a.alias.length);
   }
 
+  /** The slot `abs` runs through: by the configured alias, else (a placed pin only) by the pinned
+   *  directory's own name, so the canonical spelling `open/x.md` of `wiki -> open` is pinned too.
+   *  Without that second match a caller naming the target directly would reach the sinks with no
+   *  pin and follow whatever is at `open` now. */
   private slotFor(abs: string): Slot | undefined {
     // A deferred folder placed as `none` is skipped, so it never shadows an outer root's pin.
-    return this.slots.find((s) => s.state.kind !== "none" && under(abs, s.alias));
+    const byAlias = this.slots.find((s) => s.state.kind !== "none" && under(abs, s.alias));
+    if (byAlias !== undefined) return byAlias;
+    let best: Slot | undefined;
+    for (const s of this.slots) {
+      if (s.state.kind !== "pinned" || !under(abs, s.state.pin.dir)) continue;
+      if (best?.state.kind !== "pinned" || s.state.pin.dir.length > best.state.pin.dir.length)
+        best = s;
+    }
+    return best;
   }
 
   /** The ACL's view of `abs`. Places the deferred wiki pin `abs` runs through, once, from the folder
@@ -106,7 +121,7 @@ export class FolderPins {
     if (slot.state.kind === "deferred") placeDeferred(slot);
     const { state } = slot;
     if (state.kind === "refused") return state;
-    if (state.kind === "pinned") return { kind: "pinned", path: swap(abs, slot.alias, state.pin) };
+    if (state.kind === "pinned") return { kind: "pinned", path: reroute(abs, slot, state.pin) };
     if (state.kind === "unplaced-raw" && realpathOrNull(slot.root) === slot.root) {
       const real = realpathOrNull(slot.alias);
       if (real !== null && real !== slot.alias)
@@ -118,15 +133,23 @@ export class FolderPins {
     return { kind: "none" };
   }
 
-  /** The sink's view of `abs`: the pin it runs through, if one is placed. Reads no filesystem. */
-  forSink(abs: string): { alias: string; pin: PinnedDir } | undefined {
+  /** The sink's view of `abs`: the path to open and the pin it runs through, if one is placed.
+   *  Reads no filesystem. */
+  forSink(abs: string): { path: string; pin: PinnedDir } | undefined {
     const slot = this.slotFor(abs);
-    return slot?.state.kind === "pinned" ? { alias: slot.alias, pin: slot.state.pin } : undefined;
+    return slot?.state.kind === "pinned"
+      ? { path: reroute(abs, slot, slot.state.pin), pin: slot.state.pin }
+      : undefined;
   }
 }
 
 const swap = (abs: string, alias: string, pin: PinnedDir): string =>
   pin.dir + abs.slice(alias.length);
+
+/** `abs` with the configured alias swapped for the pinned directory; a path already beneath the
+ *  pinned directory keeps its spelling (it only gains the pin). */
+const reroute = (abs: string, slot: Slot, pin: PinnedDir): string =>
+  under(abs, slot.alias) ? swap(abs, slot.alias, pin) : abs;
 
 /** Resolve one vault's configured folders to slots, now. A folder that is not a symlink, is missing,
  *  is not a directory, or does not lead strictly inside the vault gets none, as does every folder
@@ -188,7 +211,5 @@ export function folderPinVerdict(abs: string): FolderPinVerdict {
  *  swapped for its pinned directory, with the pin to verify; `abs` itself under no placed pin. */
 export function pinnedOpenPath(abs: string): { path: string; pinned?: PinnedDir } {
   const hit = (frame.getStore() ?? NO_PINS).forSink(abs);
-  return hit === undefined
-    ? { path: abs }
-    : { path: swap(abs, hit.alias, hit.pin), pinned: hit.pin };
+  return hit === undefined ? { path: abs } : { path: hit.path, pinned: hit.pin };
 }

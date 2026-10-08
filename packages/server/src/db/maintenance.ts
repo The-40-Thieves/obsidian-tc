@@ -13,6 +13,9 @@ import { pruneProvenance } from "../provenance/retention";
 import type { SignerSource } from "../provenance/signer";
 import { provenanceVaults } from "../provenance/store";
 import type { Scheduler } from "../scheduler/scheduler";
+import { type FolderPins, pinnedOpenPath, withFolderPins } from "../vault/folder-links";
+import { pinnedUnlinkAvailable } from "../vault/native-io";
+import { hardDelete } from "../vault/notes-io";
 import { closeExpiredExplicitSessions, closeStaleImplicitSessions } from "../workspace/sessions";
 import { FTS_TABLE_NAMES, tableExists } from "./introspect";
 import type { WriteTxnHooks } from "./txn";
@@ -76,6 +79,10 @@ export interface SweepCounts {
 export interface TraceDir {
   vaultId: string;
   dir: string;
+  /** Set on a directory INSIDE a vault (absent on the cacheDir one): the pins of the registry it
+   *  belongs to, which the sweep runs under as a tool dispatch does, and `recheck`, the ACL's
+   *  verdict on the directory as it is NOW (it throws for a folder retargeted since boot). */
+  vault?: { pins: FolderPins; recheck: () => void };
 }
 
 /**
@@ -103,23 +110,69 @@ export function sweepTraceFiles(
 ): number {
   const cutoff = opts.now - opts.tracesDays * 86_400_000;
   let pruned = 0;
-  for (const { dir } of dirs) {
-    let entries: string[];
+  for (const t of dirs) {
+    const prune = (listDir: string, remove: (file: string) => void): number =>
+      pruneAged(t.dir, listDir, cutoff, opts.dryRun === true, remove);
+    const { vault } = t;
+    pruned +=
+      vault === undefined
+        ? prune(t.dir, (file) => rmSync(file, { force: true }))
+        : withFolderPins(vault.pins, () => {
+            // Inside a vault the delete obeys the same pin as a tool call does (hardDelete: no
+            // symlink followed, the pinned directory's identity checked), and the directory is
+            // enumerated by the name the pin resolves, never through a live alias.
+            const target = vaultTraceTarget(t, vault);
+            return target === null ? 0 : prune(target, hardDelete);
+          });
+  }
+  return pruned;
+}
+
+/** Where a vault-resident trace directory may be enumerated now, or null to skip it (and say why):
+ *  the ACL no longer agrees with the folder, or it is pinned and this process cannot delete through
+ *  a pin (no native module). */
+function vaultTraceTarget(t: TraceDir, vault: NonNullable<TraceDir["vault"]>): string | null {
+  const skip = (why: string): null => {
+    process.stderr.write(`[maintenance] trace sweep skipped ${t.vaultId}: ${t.dir}: ${why}\n`);
+    return null;
+  };
+  try {
+    vault.recheck();
+  } catch (e) {
+    return skip(e instanceof Error ? e.message : String(e));
+  }
+  const { path, pinned } = pinnedOpenPath(t.dir);
+  if (pinned !== undefined && !pinnedUnlinkAvailable())
+    return skip(
+      "it runs through a configured symlinked folder and the native module is not loaded",
+    );
+  return path;
+}
+
+/** Delete the `*.jsonl` older than `cutoff` that sit directly in `listDir` (the real spelling of
+ *  `dir`); each name is removed as `dir/name`, the spelling a pin resolves. */
+function pruneAged(
+  dir: string,
+  listDir: string,
+  cutoff: number,
+  dryRun: boolean,
+  remove: (file: string) => void,
+): number {
+  let entries: string[];
+  try {
+    entries = readdirSync(listDir);
+  } catch {
+    return 0; // no folder yet, or unreadable -> nothing to prune here
+  }
+  let pruned = 0;
+  for (const name of entries) {
+    if (!name.endsWith(".jsonl")) continue;
     try {
-      entries = readdirSync(dir);
+      if (statSync(join(listDir, name)).mtimeMs >= cutoff) continue;
+      if (!dryRun) remove(join(dir, name));
+      pruned += 1;
     } catch {
-      continue; // no folder yet, or unreadable -> nothing to prune here
-    }
-    for (const name of entries) {
-      if (!name.endsWith(".jsonl")) continue;
-      const file = join(dir, name);
-      try {
-        if (statSync(file).mtimeMs >= cutoff) continue;
-        if (!opts.dryRun) rmSync(file, { force: true });
-        pruned += 1;
-      } catch {
-        /* vanished or unreadable between readdir and unlink -> skip, keep sweeping */
-      }
+      /* vanished, unreadable or refused between readdir and unlink -> skip, keep sweeping */
     }
   }
   return pruned;

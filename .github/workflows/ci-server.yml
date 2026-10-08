@@ -715,7 +715,7 @@ jobs:
           '
       - name: native-touching server tests (native.ts-backed code paths; THE-905)
         working-directory: packages/server
-        run: node ./node_modules/vitest/vitest.mjs run test/native-contract.test.ts test/advisory-sweep.test.ts test/m8-experiential-tools.test.ts test/graph-*.test.ts test/citation*.test.ts test/wiki-*.test.ts test/commit-wiki-page-security.test.ts test/draft-wiki-page-ingest.test.ts test/folder-links.test.ts test/folder-pins.test.ts test/vault-root-symlink-registration.test.ts test/acl-symlink-canonical.test.ts test/enumeration-acl-canonical.test.ts test/acl-hardlink.test.ts test/native-safe-io.test.ts test/setup-write-toctou.test.ts test/write-mkdir-nofollow.test.ts
+        run: node ./node_modules/vitest/vitest.mjs run test/native-contract.test.ts test/advisory-sweep.test.ts test/m8-experiential-tools.test.ts test/graph-*.test.ts test/citation*.test.ts test/wiki-*.test.ts test/commit-wiki-page-security.test.ts test/draft-wiki-page-ingest.test.ts test/folder-links.test.ts test/folder-pins.test.ts test/vault-root-symlink-registration.test.ts test/acl-symlink-canonical.test.ts test/enumeration-acl-canonical.test.ts test/acl-hardlink.test.ts test/native-safe-io.test.ts test/setup-write-toctou.test.ts test/write-mkdir-nofollow.test.ts test/pinned-sinks.test.ts test/pinned-canonical-spelling.test.ts test/maintenance-pinned.test.ts
 
   perf:
     runs-on: ubuntu-latest

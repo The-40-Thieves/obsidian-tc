@@ -320,8 +320,26 @@ each pinned by a test (`wiki-generated.test.ts`):
   own and cannot change them. A raw folder whose vault root was missing at startup is not pinned later
   (its real directory never got the immutable rule), so while it is a symlink it is refused until the
   next restart, and a wiki folder placed later that leads into the raw folder is refused too. Two vault
-  ids on one root must configure the same wiki block; the JS fallback opens the pinned directory after
-  checking its identity, but still by path (a pre-existing residual). A wiki folder that cannot be placed inside
+  ids on one root must configure the same wiki block. The destructive and batch sinks use the pin too:
+  a permanent delete (`delete_note`, `delete_attachment`, the memory and periodic deletes) is an
+  `unlinkat` on the verified pinned directory, and a write batch's move-aside, drop and put-back steps
+  (`move_note`, `bulk_move_notes`, `move_attachment`, `commit_wiki_page`) are pinned moves, so a symlink
+  retargeted after the ACL decision cannot make them touch another folder (the immutable raw folder,
+  say). The pin follows the directory, not only the configured name: `open/x.md` (the canonical
+  spelling of `wiki -> open`) carries the same pin as `wiki/x.md`, so renaming `open` away and another
+  folder into its place cannot redirect a caller who named the target directly. The scheduled jobs that
+  write or delete inside a vault run under the registry's pins as a tool call does: the trace-retention
+  sweep enumerates the pinned name, skips (with a warning) a trace folder whose live target no longer
+  matches the pin, and deletes through the same pinned unlink, and the scheduled wiki-page
+  regeneration writes under them. **Configured symlinked folders require the native module.** Node has
+  no `openat`, so the
+  pure-JS path (Windows, `OBSIDIAN_TC_FORCE_JS_FALLBACK=1`, an addon-less install, or a `.node` that
+  predates the unlink primitive) cannot open a pinned directory without a window for the symlink to
+  move: there every read, write, move, delete and existence or stat probe of a path that runs through a
+  pinned folder, under either spelling, is refused
+  with `acl_denied`, and folders that are not symlinks are unaffected. (With the native module the
+  existence and stat probes still use Node's `stat`: they check the pinned directory's identity first
+  and then stat its own name, which leaves only a metadata-sized race.) A wiki folder that cannot be placed inside
   the vault once symlinks are resolved is refused at startup rather than left ungated. So every surface that honours rule-scopes
   (`read_note`, search, listing, backlinks, resources, `lint_wiki`) denies it the same way, with no per-tool
   check. The scope also gates writing and deleting that path; the server's own regeneration holds exactly
@@ -939,8 +957,9 @@ so operators can reason about them rather than discover them.
   that follows no symlink in any component and operates on the resulting fd, so the path is never
   re-resolved after the check. This is active on every published platform (the 8 native prebuilds).
   The pure-JS fallback — an unsupported platform, a `.mcpb` without the addon, or
-  `OBSIDIAN_TC_FORCE_JS_FALLBACK=1` — retains the narrow residual (Node exposes no `openat`); the
-  hard-link and final-component-symlink guards still apply there. Windows uses the JS path (symlink
+  `OBSIDIAN_TC_FORCE_JS_FALLBACK=1` — retains the narrow residual (Node exposes no `openat`) for
+  ordinary paths, and refuses any path through a configured symlinked wiki or raw folder outright (see
+  the wiki folder paragraph above); the hard-link and final-component-symlink guards still apply there. Windows uses the JS path (symlink
   creation is admin/developer-mode gated, and `number_of_links` is unstable on stable Rust).
 - **The pre-ingest poison scanner is layer 1 of a layered defense, not a complete filter (THE-238).**
   `experiential/poison.ts` is a deterministic pattern scanner over auto-captured agent episodes. It

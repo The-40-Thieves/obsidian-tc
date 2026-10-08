@@ -295,6 +295,17 @@ pub fn safe_rename_no_replace(
     )
 }
 
+/// Symlink-safe unlink of the leaf `abs`: the parent is opened following no symlink in any
+/// component (with `pinned`, the pinned directory must still be the directory it was pinned as),
+/// then the leaf is removed with `unlinkat` on that verified fd, so the live path is never
+/// resolved again. Returns false when the leaf was already absent; a directory is an error.
+/// Unix-only (see the module note above).
+#[cfg(unix)]
+#[napi]
+pub fn safe_unlink(abs: String, pinned: Option<PinnedDir>) -> napi::Result<bool> {
+    safe_io::unlink(&abs, pin_of(pinned)?.as_ref())
+}
+
 #[cfg(unix)]
 mod safe_io {
     use napi::Error;
@@ -485,6 +496,17 @@ mod safe_io {
             to_comps[to_comps.len() - 1],
         )
         .map_err(rename_error)
+    }
+
+    /// Remove the leaf with `unlinkat` on the verified parent fd. `Ok(false)`: nothing was there.
+    pub fn unlink(abs: &str, pin: Option<&Pin>) -> Result<bool, Error> {
+        let comps = components(abs)?;
+        let parent = open_parent(&comps, pin)?;
+        match unlinkat(&parent, comps[comps.len() - 1], AtFlags::empty()) {
+            Ok(()) => Ok(true),
+            Err(Errno::NOENT) => Ok(false),
+            Err(e) => Err(denied(format!("unlink: {e}"))),
+        }
     }
 
     pub fn write_atomic(abs: &str, data: &[u8]) -> Result<(), Error> {
@@ -993,6 +1015,68 @@ mod safe_io_tests {
             };
             assert!(e.reason.contains("not an ancestor"), "got {}", e.reason);
         }
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn unlink_removes_a_file_reports_a_missing_one_and_refuses_a_directory() {
+        let d = scratch();
+        fs::write(d.join("a.md"), b"a").unwrap();
+        fs::create_dir(d.join("sub")).unwrap();
+        assert!(safe_io::unlink(&s(&d.join("a.md")), None).unwrap());
+        assert!(!d.join("a.md").exists());
+        assert!(!safe_io::unlink(&s(&d.join("a.md")), None).unwrap());
+        assert!(safe_io::unlink(&s(&d.join("sub")), None).is_err());
+        assert!(d.join("sub").exists());
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn unlink_refuses_a_symlinked_ancestor_and_removes_a_symlinked_leaf_itself() {
+        use std::os::unix::fs::symlink;
+        let d = scratch();
+        let outside = scratch();
+        fs::write(outside.join("n.md"), b"outside").unwrap();
+        symlink(&outside, d.join("sub")).unwrap();
+        assert!(safe_io::unlink(&s(&d.join("sub/n.md")), None).is_err());
+        assert!(outside.join("n.md").exists());
+        symlink(outside.join("n.md"), d.join("leaf.md")).unwrap();
+        assert!(safe_io::unlink(&s(&d.join("leaf.md")), None).unwrap());
+        assert!(
+            outside.join("n.md").exists(),
+            "the link went, not its target"
+        );
+        fs::remove_dir_all(&d).unwrap();
+        fs::remove_dir_all(&outside).unwrap();
+    }
+
+    /// `open` pinned, then renamed away and `raw` renamed into its name: the unlink must refuse it
+    /// (and leave the raw file), while the identity intact it removes the pinned file.
+    #[test]
+    fn unlink_through_a_replaced_pinned_directory_is_refused() {
+        let d = scratch();
+        for (dir, body) in [("open", b"open note"), ("raw", b"RAW SRC!!")] {
+            fs::create_dir(d.join(dir)).unwrap();
+            fs::write(d.join(dir).join("x.md"), body).unwrap();
+        }
+        let open = pin(&d.join("open"));
+        let x = s(&d.join("open/x.md"));
+        fs::rename(d.join("open"), d.join("gone")).unwrap();
+        fs::rename(d.join("raw"), d.join("open")).unwrap();
+        let Err(e) = safe_io::unlink(&x, Some(&open)) else {
+            panic!("unlink through a replaced pinned folder");
+        };
+        assert!(
+            e.reason.contains("no longer the directory"),
+            "got {}",
+            e.reason
+        );
+        assert_eq!(fs::read(d.join("open/x.md")).unwrap(), b"RAW SRC!!");
+        let gone = pin(&d.join("gone"));
+        assert!(safe_io::unlink(&s(&d.join("gone/x.md")), Some(&gone)).unwrap());
+        assert!(!d.join("gone/x.md").exists());
+        let now = pin(&d.join("open"));
+        assert!(safe_io::unlink(&x, Some(&now)).unwrap());
         fs::remove_dir_all(&d).unwrap();
     }
 }
