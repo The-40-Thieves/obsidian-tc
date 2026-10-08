@@ -18,6 +18,7 @@ import {
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { issueElicitToken } from "../src/elicit";
+import { buildResourceUri, readResourceFor } from "../src/mcp/resources";
 import { pinnedOpenPath, withFolderPins } from "../src/vault/folder-links";
 import { moveNoReplace, nativeVaultIo, readNote } from "../src/vault/notes-io";
 import { resolveVaultPathChecked } from "../src/vault/paths";
@@ -355,7 +356,17 @@ describe.skipIf(process.platform === "win32")(
       expect(JSON.stringify(r)).toContain("page A");
     });
 
-    it("a second registry built mid-request cannot re-pin the folder the ACL already decided on", async () => {
+    it("a resource read runs against the registry's pins too", async () => {
+    const t = pagesAndScratch();
+    const ctx = t.ctx();
+    const uri = buildResourceUri(t.id, "wiki/a.md");
+    const r = await t.registry.dispatchResource("resources/read", ctx, ["read:notes"], { uri }, () =>
+      readResourceFor({ registry: t.registry }, t.vaultRegistry, ctx, uri),
+    );
+    expect(JSON.stringify(r.contents)).toContain("page A");
+  });
+
+  it("a second registry built mid-request cannot re-pin the folder the ACL already decided on", async () => {
       const t = pagesAndScratch();
       seam.beforeRead = () => {
         retarget(t.root, "scratch");

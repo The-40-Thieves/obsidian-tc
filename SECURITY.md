@@ -311,11 +311,17 @@ each pinned by a test (`wiki-generated.test.ts`):
   matches a rule, so when the wiki folder is a symlink (or sits under one) the same rule is also
   installed on the directory it really is (`wiki -> pages` gates `pages/log.md` too, from server start;
   a symlink made later is picked up on the next restart). The native safe-open uses the same placement:
-  a symlinked wiki or raw folder is pinned to its real directory when the vault registry is built, the
-  native open takes the pinned directory without reading the symlink again, and a path whose symlink
-  no longer leads there is refused, so a retarget between the check and the read cannot make them
-  name different files (two vault ids on one root must configure the same wiki block for the same
-  reason; the JS fallback still follows a link at open time, a pre-existing residual). A wiki folder that cannot be placed inside
+  a symlinked wiki or raw folder is pinned to its real directory, and that directory's identity, when
+  the vault registry is built. The native open takes the pinned directory without reading the symlink
+  again and refuses it when the directory it opens under that name is no longer the pinned one (a
+  folder renamed into its place), and a path whose symlink no longer leads there is refused, so neither
+  a retarget nor a rename between the check and the read can make them name different files. The pins
+  belong to that registry: a second one built in the same process (a `session_rerun` sandbox) has its
+  own and cannot change them. A raw folder whose vault root was missing at startup is not pinned later
+  (its real directory never got the immutable rule), so while it is a symlink it is refused until the
+  next restart, and a wiki folder placed later that leads into the raw folder is refused too. Two vault
+  ids on one root must configure the same wiki block; the JS fallback opens the pinned directory after
+  checking its identity, but still by path (a pre-existing residual). A wiki folder that cannot be placed inside
   the vault once symlinks are resolved is refused at startup rather than left ungated. So every surface that honours rule-scopes
   (`read_note`, search, listing, backlinks, resources, `lint_wiki`) denies it the same way, with no per-tool
   check. The scope also gates writing and deleting that path; the server's own regeneration holds exactly
