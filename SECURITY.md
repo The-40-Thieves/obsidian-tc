@@ -310,7 +310,12 @@ each pinned by a test (`wiki-generated.test.ts`):
   any scope an operator rule already requires on that path). Enforcement resolves symlinks before it
   matches a rule, so when the wiki folder is a symlink (or sits under one) the same rule is also
   installed on the directory it really is (`wiki -> pages` gates `pages/log.md` too, from server start;
-  a symlink made later is picked up on the next restart). A wiki folder that cannot be placed inside
+  a symlink made later is picked up on the next restart). The native safe-open uses the same placement:
+  a symlinked wiki or raw folder is pinned to its real directory when the vault registry is built, the
+  native open takes the pinned directory without reading the symlink again, and a path whose symlink
+  no longer leads there is refused, so a retarget between the check and the read cannot make them
+  name different files (two vault ids on one root must configure the same wiki block for the same
+  reason; the JS fallback still follows a link at open time, a pre-existing residual). A wiki folder that cannot be placed inside
   the vault once symlinks are resolved is refused at startup rather than left ungated. So every surface that honours rule-scopes
   (`read_note`, search, listing, backlinks, resources, `lint_wiki`) denies it the same way, with no per-tool
   check. The scope also gates writing and deleting that path; the server's own regeneration holds exactly
