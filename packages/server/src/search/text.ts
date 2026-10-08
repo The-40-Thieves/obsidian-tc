@@ -5,6 +5,7 @@
 // query terms using the native module (JS fallback when the binary is absent).
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
+import type { WalkReadable } from "../vault/acl-read-filter";
 import { readNote } from "../vault/notes-io";
 import { resolveVaultPath, walkVault } from "../vault/paths";
 import { ftsCandidates } from "./fts";
@@ -24,7 +25,7 @@ export interface TextOptions {
   caseSensitive?: boolean;
   wholeWord?: boolean;
   sub?: string;
-  isReadable?: (path: string) => boolean;
+  isReadable?: WalkReadable;
   limit: number;
 }
 
@@ -41,7 +42,7 @@ export interface RegexOptions {
   flags?: string;
   sub?: string;
   maxPerFile?: number;
-  isReadable?: (path: string) => boolean;
+  isReadable?: WalkReadable;
   /** THE-293: worker-time budget (ms) for the whole call — only regex execution in the worker
    *  counts (file I/O excluded). Default 2000. */
   timeoutMs?: number;
@@ -62,10 +63,10 @@ interface Doc {
   tokens: string[];
 }
 
-function loadDocs(root: string, sub: string | undefined, readable: (p: string) => boolean): Doc[] {
+function loadDocs(root: string, sub: string | undefined, readable: WalkReadable): Doc[] {
   return walkVault(root, { sub, extensions: [".md"] })
+    .filter((e) => readable(e.relPath, e.aclRel))
     .map((e) => e.relPath)
-    .filter(readable)
     .map((path) => {
       const raw = readNote(resolveVaultPath(root, path)).raw;
       return { path, lines: raw.split(/\r?\n/), tokens: tokenize(raw) };
@@ -262,8 +263,8 @@ export async function searchRegex(root: string, opts: RegexOptions): Promise<Reg
   const readable = opts.isReadable ?? (() => true);
   const maxPerFile = opts.maxPerFile ?? 10;
   const files = walkVault(root, { sub: opts.sub, extensions: [".md"] })
-    .map((e) => e.relPath)
-    .filter(readable);
+    .filter((e) => readable(e.relPath, e.aclRel))
+    .map((e) => e.relPath);
 
   // THE-293: true execution timeout. The scan runs in a worker thread and only worker
   // wall-time counts against the budget — file I/O and message overhead are excluded, so a

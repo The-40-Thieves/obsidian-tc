@@ -10,7 +10,7 @@ export interface SweepInput {
   hasVec: boolean;
   now: () => number;
   /** Every path the UNFILTERED walk saw (so an ACL-hidden file is not mistaken for a deleted one). */
-  walkedSet: ReadonlySet<string>;
+  walkedSet: { has(path: string): boolean };
   excludedWalked: readonly string[];
   /** Run the stale-path sweep: unscoped runs on a vault with a notes table only. A folder-scoped
    *  index_vault call must never deindex the rest of the vault. */

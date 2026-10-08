@@ -11,7 +11,8 @@ import { paginate } from "../../util/paginate";
 import { enforcePathAcl } from "../../vault/acl-path";
 import {
   filterBridgeItemsByAcl,
-  readableRel,
+  readableEntry,
+  readableResolved,
   readEnumerationUnrestricted,
 } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
@@ -116,13 +117,16 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
         const sub = input.root ? normalizeVaultPath(input.root) : undefined;
         if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root, ctx.grantedScopes);
         const rels = input.paths?.length
-          ? input.paths.map(normalizeVaultPath)
-          : walkVault(v.root, { sub, extensions: [".md"] }).map((e) => e.relPath);
+          ? input.paths
+              .map(normalizeVaultPath)
+              .filter((rel) => readableResolved(ctx.acl, v.root, rel, ctx.grantedScopes))
+          : walkVault(v.root, { sub, extensions: [".md"] })
+              .filter((e) => readableEntry(ctx.acl, e, ctx.grantedScopes))
+              .map((e) => e.relPath);
         const wantTags = input.tags?.map((t) => (t.startsWith("#") ? t : `#${t}`));
 
         const items: Record<string, unknown>[] = [];
         for (const rel of rels) {
-          if (!readableRel(ctx.acl, rel, ctx.grantedScopes)) continue;
           if (sub && !(rel === sub || rel.startsWith(`${sub}/`))) continue;
           let raw: string;
           try {

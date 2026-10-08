@@ -328,6 +328,11 @@ each pinned by a test (`wiki-generated.test.ts`):
   that scope for its write and reads the file directly, so it is unaffected. The self-reported fields are
   stripped to plain characters. The log is a convenience view, not a trust anchor: `verify_provenance` and
   `get_provenance` remain the record.
+- **Listings judge a symlinked folder by its target.** A vault walk that starts through a symlink
+  (`list_notes` with `folder: wiki` where `wiki -> private`) emits the display path `wiki/x.md` and
+  the resolved identity `private/x.md`; every read-ACL filter over walker output (`readableEntry`)
+  decides on the identity, so a name, size or mtime the direct read would refuse is not listed.
+  Search results served from the shared index are keyed by the path the index stored.
 - **Symlink aliases do not widen the list.** A provenance row stores the path the caller named, not its
   target. A path is listed only when the read check, applied to the symlink-resolved path with no
   rule-scopes, allows it, and Excluded files are tested on the resolved path as well: `wiki/link ->

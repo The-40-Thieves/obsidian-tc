@@ -14,7 +14,7 @@ import {
 import type { ToolDefinition } from "../../mcp/registry";
 import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { readableRel } from "../../vault/acl-read-filter";
+import { readableEntry, readableRel } from "../../vault/acl-read-filter";
 import { type Frontmatter, parseNote, serializeNote } from "../../vault/frontmatter";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -413,7 +413,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
           }
         } else {
           const entries = walkVault(v.root, { sub, extensions: [".md"] }).filter((e) =>
-            readableRel(ctx.acl, e.relPath, ctx.grantedScopes),
+            readableEntry(ctx.acl, e, ctx.grantedScopes),
           );
           for (const e of entries) {
             const raw = readNote(resolveVaultPath(v.root, e.relPath)).raw;

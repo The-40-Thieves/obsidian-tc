@@ -11,7 +11,7 @@ import { fingerprintTargets } from "../../elicit-drift";
 import { argsHash } from "../../hash";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { readableRel } from "../../vault/acl-read-filter";
+import { readableEntry } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
 import { noteExists } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -41,8 +41,8 @@ function ocrCandidates(
     return candidates;
   }
   return walkVault(root, { sub, extensions: input.extensions ?? DEFAULT_EXTS })
-    .map((e) => e.relPath)
-    .filter((rel) => readableRel(acl, rel, grantedScopes));
+    .filter((e) => readableEntry(acl, e, grantedScopes))
+    .map((e) => e.relPath);
 }
 
 export function buildOcrTools(deps: M4Deps): ToolDefinition[] {
