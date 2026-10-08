@@ -164,6 +164,26 @@ describe.skipIf(!posix)("key files are trusted only through the open descriptor"
     writeFileSync(path, "\n", { mode: 0o600 });
     expect(() => readKeyFile(path)).toThrow(KeyFileError);
   });
+
+  it("gives every refusal a structured reason, whatever text the path carries", () => {
+    const { keys } = fixture();
+    const odd = join(keys, "x is corrupt and is empty");
+    mkdirSync(odd, { recursive: true, mode: 0o700 });
+    const reasonOf = (path: string): unknown => {
+      try {
+        readKeyFile(path);
+      } catch (e) {
+        return e instanceof KeyFileError ? e.reason : "not a KeyFileError";
+      }
+      return "no error";
+    };
+    expect(reasonOf(join(odd, "absent.key"))).toBe("missing");
+    writeFileSync(join(odd, "empty.key"), "\n", { mode: 0o600 });
+    expect(reasonOf(join(odd, "empty.key"))).toBe("empty");
+    writeFileSync(join(odd, "open.key"), "k", { mode: 0o600 });
+    chmodSync(join(odd, "open.key"), 0o644);
+    expect(reasonOf(join(odd, "open.key"))).toBe("exposed");
+  });
 });
 
 describe("key-file trust on Windows is documented, not silently skipped", () => {

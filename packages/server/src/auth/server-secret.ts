@@ -9,15 +9,18 @@
 // existed stay valid and there is one secret to back up.
 import { randomBytes } from "node:crypto";
 import {
+  closeSync,
   linkSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readlinkSync,
   renameSync,
   rmdirSync,
   statSync,
   unlinkSync,
-  writeFileSync,
 } from "node:fs";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import {
   createKeyFile,
@@ -37,15 +40,18 @@ const REPAIR_LOCK_WAIT_MS = 15_000;
  *  lock timings and stall a repairer at a chosen point without waiting out the real ones.
  *  @internal */
 export interface ServerSecretOptions {
-  /** A repair lock untouched this long is treated as left by a dead holder. */
+  /** A repair lock with NO owner (its creator stalled or died before writing one) untouched this
+   *  long is removed. A lock with an owner is never taken over on time. */
   staleMs?: number;
   /** How long to wait on another repairer before giving up with an error. */
   waitMs?: number;
-  /** Runs right after the repairer has made the lock directory, before it writes its owner token (a test removes the lock here, as a stale-breaker would). */
+  /** Runs right after the repairer has made the lock directory, before it writes its owner token (a test removes or replaces the lock here). */
   afterLockMade?: () => void;
+  /** Runs after a waiter has judged the lock's holder dead, before it takes the lock over (a test swaps in a live lock here). */
+  beforeTakeOver?: () => void;
   /** Runs after the repairer has judged the file corrupt and just before it replaces it (a test stalls a holder here). */
   beforeRepair?: () => void;
-  /** Runs once the repairer has re-checked it still holds the lock, just before it moves the file aside. */
+  /** Runs once the repairer has re-read the file as still corrupt, just before it moves it aside. */
   beforeMoveAside?: () => void;
   /** Runs while the file is moved aside, before the repairer links a key back in. */
   inMoveGap?: () => void;
@@ -53,8 +59,11 @@ export interface ServerSecretOptions {
 
 const secretPath = (cacheDir: string): string => join(cacheDir, SECRET_DIR, SECRET_FILE);
 
+// Callers branch on the structured reason, never on the message: it embeds the configured path.
 const isCorrupt = (e: unknown): boolean =>
-  e instanceof KeyFileError && / is (?:empty|corrupt)/.test(e.message);
+  e instanceof KeyFileError && (e.reason === "empty" || e.reason === "corrupt");
+
+const isMissing = (e: unknown): boolean => e instanceof KeyFileError && e.reason === "missing";
 
 const readValidated = (path: string): string => {
   let secret: string;
@@ -63,18 +72,25 @@ const readValidated = (path: string): string => {
   } catch (e) {
     // A key others could read must be treated as disclosed: tightening the mode would adopt it
     // again, so the advice is to delete it (a new one is generated), not to chmod it.
-    if (e instanceof KeyFileError && / readable by group\/other; /.test(e.message)) {
+    if (e instanceof KeyFileError && e.reason === "exposed") {
       throw new KeyFileError(
         `${e.message}. Do not just chmod it: it was readable by others, so treat it as disclosed. ` +
-          "Delete the file to regenerate it on the next start (pending confirmations are refused " +
-          "once, and generated wiki pages read as edited, then regenerate)",
+          "Stop every obsidian-tc process sharing this cacheDir, delete the file once, then restart " +
+          "them (a new key is generated; pending confirmations are refused once, and generated wiki " +
+          "pages read as edited, then regenerate)",
         e,
+        "exposed",
       );
     }
     throw e;
   }
-  if (!KEY_FORMAT.test(secret))
-    throw new KeyFileError(`${path} is corrupt (expected one complete 32-byte base64url key)`);
+  if (!KEY_FORMAT.test(secret)) {
+    throw new KeyFileError(
+      `${path} is corrupt (expected one complete 32-byte base64url key)`,
+      undefined,
+      "corrupt",
+    );
+  }
   return secret;
 };
 
@@ -98,26 +114,26 @@ export function readServerSecret(cacheDir: string): string | undefined {
   return readIfPresent(path); // absent again if a repairer has it moved aside
 }
 
-/** Publish a fully written and fsynced temporary key with an atomic, no-replace hard link. */
-function publishNew(path: string, secret: string): void {
-  const tmp = tempPath(path);
+/** Publish a fully written and fsynced temporary file with an atomic, no-replace hard link.
+ *  Returns false when `to` already exists; any other failure (a missing directory) throws. */
+function publishExclusive(tmp: string, to: string, contents: string): boolean {
   try {
-    createKeyFile(tmp, secret);
+    createKeyFile(tmp, contents);
     try {
-      linkSync(tmp, path);
+      linkSync(tmp, to);
+      return true;
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      if ((e as NodeJS.ErrnoException).code === "EEXIST") return false;
+      throw e;
     }
   } finally {
     removeTemp(tmp);
   }
 }
 
-/** The read failed because there was no file: a repairer has the corrupt one moved aside and has
- *  not linked its key in yet. Decided from the failed open itself, not from a second look at the
- *  path, which can already show the repaired file. */
-const isMissing = (e: unknown): boolean =>
-  e instanceof KeyFileError && (e.cause as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
+function publishNew(path: string, secret: string): void {
+  publishExclusive(tempPath(path), path, secret);
+}
 
 /** Read the key; `undefined` when the file is absent (a repairer has the corrupt one aside). */
 function readIfPresent(path: string): string | undefined {
@@ -149,21 +165,108 @@ function renameOverBusy(from: string, to: string): void {
   }
 }
 
-// The repair lock is a directory holding an `owner` token (mkdir is atomic). Whoever holds it is
-// the only process that publishes a key or moves one aside, so a reader that finds the file absent
-// waits for the lock instead of minting a key of its own into a repairer's gap. A holder can still
-// stall past the stale threshold and have its lock taken over, so before it moves a file aside it
-// re-checks that it owns the lock and that the file is still the corrupt one, and it never replaces
-// a file (it links its key in with no-replace). Every caller returns what the file holds afterwards.
+// The repair lock is a directory holding an `owner` file (mkdir is atomic). Whoever holds it is the
+// only process that publishes a key or moves one aside, so a reader that finds the file absent waits
+// for the lock instead of minting a key of its own into a repairer's gap.
+//
+// A lock that has an owner is NEVER taken over because time passed: a live holder can stall at any
+// point (a stopped process, a starved runner) and then act on a view that others have since changed,
+// so two instances could end up on two keys. It is taken over only when its holder is provably dead:
+// same host and pid namespace, pid gone (or reused by a process with another start time). A holder
+// on another host, or one we cannot judge, makes the waiter fail closed after `waitMs` with an error
+// naming the lock to remove.
+//
+// The `owner` file is published complete and exclusively (written to a temp file, then linked), so
+// an owner is never overwritten or half written, and a lost race (directory gone, owner present) is
+// just a lost acquisition that retries without deleting anything. Removal never trusts the path
+// alone: `rmdir` removes only an EMPTY directory, and a dead holder's owner is removed only by the
+// one waiter holding a ticket named for that holder's unique token.
 const ownerFile = (lock: string): string => join(lock, "owner");
 
-const ownsLock = (lock: string, token: string): boolean => {
+interface Holder {
+  token: string;
+  pid: number;
+  /** host, boot and pid namespace: a pid means something only inside the same scope */
+  scope: string;
+  /** process start time where the platform exposes it (Linux), to see through pid reuse */
+  start?: string;
+}
+
+const TOKEN = /^[A-Za-z0-9._-]{1,80}$/;
+
+const readSmall = (path: string): string | undefined => {
   try {
-    return readFileSync(ownerFile(lock), "utf8") === token;
+    return readFileSync(path, "utf8");
   } catch {
-    return false;
+    return undefined;
   }
 };
+
+const readlinkOrUndefined = (path: string): string | undefined => {
+  try {
+    return readlinkSync(path);
+  } catch {
+    return undefined;
+  }
+};
+
+const processScope = (): string =>
+  [
+    hostname(),
+    readSmall("/proc/sys/kernel/random/boot_id")?.trim(),
+    readlinkOrUndefined("/proc/self/ns/pid"),
+  ]
+    .filter((p) => p !== undefined && p !== "")
+    .join("|");
+
+/** Field 22 of /proc/<pid>/stat (jiffies since boot); the comm field may hold spaces and parens. */
+const startTime = (pid: number): string | undefined => {
+  const stat = readSmall(`/proc/${pid}/stat`);
+  return stat?.slice(stat.lastIndexOf(")") + 2).split(" ")[19];
+};
+
+/** The owner record for `token`, naming this process. @internal */
+export const ownerRecord = (token: string): Holder => {
+  const start = startTime(process.pid);
+  return { token, pid: process.pid, scope: processScope(), ...(start ? { start } : {}) };
+};
+
+const parseHolder = (text: string | undefined): Holder | undefined => {
+  if (text === undefined) return undefined;
+  try {
+    const h = JSON.parse(text) as Partial<Holder> | null;
+    if (
+      h &&
+      typeof h.token === "string" &&
+      TOKEN.test(h.token) &&
+      Number.isInteger(h.pid) &&
+      (h.pid as number) > 0 &&
+      typeof h.scope === "string" &&
+      (h.start === undefined || typeof h.start === "string")
+    ) {
+      return h as Holder;
+    }
+  } catch {
+    // not a record this version wrote
+  }
+  return undefined;
+};
+
+/** True only when the holder is provably gone: our own scope, and the pid is free or now belongs to
+ *  a process that started at a different time. Anything uncertain is "alive". */
+const holderIsDead = (h: Holder): boolean => {
+  if (h.scope !== processScope()) return false;
+  try {
+    process.kill(h.pid, 0);
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "ESRCH";
+  }
+  const now = startTime(h.pid);
+  return h.start !== undefined && now !== undefined && now !== h.start;
+};
+
+const ownsLock = (lock: string, token: string): boolean =>
+  parseHolder(readSmall(ownerFile(lock)))?.token === token;
 
 const lockIsStale = (lock: string, staleMs: number): boolean => {
   try {
@@ -173,8 +276,8 @@ const lockIsStale = (lock: string, staleMs: number): boolean => {
   }
 };
 
-/** Remove a lock this process does not (or no longer) holds. Throws when it cannot (a non-empty
- *  directory, a symlink): the caller then backs off instead of retrying hot. */
+/** Remove a lock this process holds. Throws when it cannot (a non-empty directory, a symlink): the
+ *  caller then backs off instead of retrying hot. */
 function removeLock(lock: string): void {
   try {
     unlinkSync(ownerFile(lock));
@@ -184,61 +287,106 @@ function removeLock(lock: string): void {
   rmdirSync(lock);
 }
 
+/** Make the lock and publish our owner token into it. False when the acquisition was lost (someone
+ *  else's lock, or the directory removed under us): nothing of anyone else's is deleted. */
+function tryAcquire(path: string, lock: string, token: string, opts: ServerSecretOptions): boolean {
+  try {
+    mkdirSync(lock, { mode: 0o700 });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw e;
+  }
+  try {
+    opts.afterLockMade?.();
+    return publishExclusive(tempPath(path), ownerFile(lock), JSON.stringify(ownerRecord(token)));
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return false;
+    try {
+      rmdirSync(lock); // empty only: never someone else's lock
+    } catch {
+      // an ownerless lock is reaped once stale
+    }
+    throw e;
+  }
+}
+
+/** Take over the lock of a holder judged dead. Only the waiter that creates the ticket named for the
+ *  holder's unique token may remove its owner, so a lock re-made at the same path since we judged
+ *  cannot be removed by mistake: we re-read the owner under the ticket first. */
+function takeOver(lock: string, dead: Holder): boolean {
+  const ticket = `${lock}.takeover.${dead.token}`;
+  try {
+    closeSync(openSync(ticket, "wx", 0o600));
+  } catch {
+    return false; // another waiter is on it (or died on it: the deadline error names the ticket)
+  }
+  try {
+    if (parseHolder(readSmall(ownerFile(lock)))?.token !== dead.token) return false;
+    unlinkSync(ownerFile(lock));
+    rmdirSync(lock);
+    process.stderr.write(`[server-secret] removed the repair lock of dead process ${dead.pid}\n`);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    removeTemp(ticket);
+  }
+}
+
+/** Free the lock if nobody owns it (stale) or its holder is dead. True when it was removed. */
+function breakLock(lock: string, staleMs: number, opts: ServerSecretOptions): boolean {
+  const text = readSmall(ownerFile(lock));
+  if (text === undefined) {
+    if (!lockIsStale(lock, staleMs)) return false;
+    try {
+      rmdirSync(lock); // empty only: an owner that just appeared keeps it
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  const holder = parseHolder(text);
+  if (holder === undefined || !holderIsDead(holder)) return false;
+  opts.beforeTakeOver?.();
+  return takeOver(lock, holder);
+}
+
+function holderText(lock: string): string {
+  const text = readSmall(ownerFile(lock));
+  const h = parseHolder(text);
+  if (h) return `process ${h.pid} on host ${h.scope.split("|")[0]}`;
+  return text === undefined ? "no owner" : "an owner this version cannot read";
+}
+
 /** Take the repair lock and return its token, or the key a racing repairer finished while we
- *  waited. A lock left by a holder that died is broken once stale; one that cannot be broken, or a
- *  holder that never finishes, fails with a clear error once `waitMs` has passed. */
+ *  waited. Past `waitMs` it fails closed, naming the lock and its holder. */
 function acquireRepairLock(
   path: string,
   lock: string,
   opts: ServerSecretOptions,
 ): { token: string } | { key: string } {
   const staleMs = opts.staleMs ?? REPAIR_LOCK_STALE_MS;
-  const deadline = Date.now() + (opts.waitMs ?? REPAIR_LOCK_WAIT_MS);
+  const waitMs = opts.waitMs ?? REPAIR_LOCK_WAIT_MS;
+  const deadline = Date.now() + waitMs;
+  const token = `${process.pid}.${randomBytes(8).toString("hex")}`;
   for (;;) {
-    try {
-      mkdirSync(lock, { mode: 0o700 });
-      const token = `${process.pid}.${randomBytes(8).toString("hex")}`;
-      try {
-        opts.afterLockMade?.();
-        writeFileSync(ownerFile(lock), token, { mode: 0o600 });
-      } catch (e) {
-        // A slow start can leave the new lock ownerless long enough for a racer to judge it stale
-        // and remove it. The directory is then gone (and may already be someone else's, which must
-        // not be removed): take the lock again instead of failing the start.
-        if ((e as NodeJS.ErrnoException).code === "ENOENT") continue;
-        try {
-          removeLock(lock);
-        } catch {
-          // a lock with no owner goes stale and is broken by the next start
-        }
-        throw e;
-      }
-      return { token };
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-    }
+    if (tryAcquire(path, lock, token, opts)) return { token };
     try {
       return { key: readValidated(path) };
     } catch {
       // still corrupt (or briefly unreadable): keep waiting
     }
-    let broke = false;
-    if (lockIsStale(lock, staleMs)) {
-      try {
-        removeLock(lock);
-        broke = true;
-      } catch {
-        // fall through to the deadline and backoff below; never retry the removal hot
-      }
-    }
-    if (broke) continue;
+    const broke = breakLock(lock, staleMs, opts);
     if (Date.now() > deadline) {
       throw new KeyFileError(
-        `timed out waiting for the repair lock ${lock} while repairing ${path}. If no other ` +
-          `obsidian-tc process is running, delete ${lock} (a directory) and start again`,
+        `timed out after ${waitMs}ms waiting for the repair lock ${lock} while repairing ${path}; ` +
+          `it is held by ${holderText(lock)}, which this process cannot show to be dead (a live ` +
+          "holder is never taken over). Stop every obsidian-tc process that shares this cacheDir, " +
+          `then delete ${lock} (a directory) and any ${lock}.takeover.* files, and start again`,
       );
     }
-    sleep(10);
+    if (!broke) sleep(10);
   }
 }
 
@@ -269,15 +417,15 @@ function settleHeld(
   try {
     createKeyFile(tmp, newSecret());
     if (!ownsLock(lock, token)) return undefined;
-    opts.beforeMoveAside?.();
-    // Ownership is not atomic with the move below: a lock taken over while we were descheduled
-    // means the file may already be the new owner's valid key, which must stay where it is.
+    // Nobody can have taken the lock from a live holder, but re-read the file right before the
+    // move anyway: it must still be the corrupt one, never a valid key.
     try {
       return readValidated(path);
     } catch (e) {
       if (isMissing(e)) return undefined;
       if (!isCorrupt(e)) throw e;
     }
+    opts.beforeMoveAside?.();
     renameOverBusy(path, aside);
     opts.inMoveGap?.();
     let moved: string | undefined;
@@ -312,7 +460,7 @@ function settleUnderLock(path: string, opts: ServerSecretOptions): string {
         try {
           removeLock(lock);
         } catch {
-          // best effort: a leftover lock goes stale
+          // best effort: a leftover lock names a dead holder and is taken over
         }
       }
     }

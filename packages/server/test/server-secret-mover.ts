@@ -15,6 +15,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import { ownerRecord } from "../src/auth/server-secret";
 
 const path = process.argv[2] as string;
 const stopFile = process.argv[3];
@@ -28,7 +29,7 @@ while (!(stopFile && existsSync(stopFile))) {
     continue; // a reader holds the lock: wait for it
   }
   try {
-    writeFileSync(`${lock}/owner`, "mover", { mode: 0o600 });
+    writeFileSync(`${lock}/owner`, JSON.stringify(ownerRecord("mover")), { mode: 0o600 });
     renameSync(path, aside);
     linkSync(aside, path);
     unlinkSync(aside);
@@ -37,7 +38,7 @@ while (!(stopFile && existsSync(stopFile))) {
       unlinkSync(`${lock}/owner`);
       rmdirSync(lock);
     } catch {
-      // a reader broke the lock; nothing to release
+      // nothing to release
     }
   }
 }

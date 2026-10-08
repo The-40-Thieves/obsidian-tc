@@ -34,20 +34,37 @@ export const KEY_FILE_TRUST_ENFORCED = process.platform !== "win32";
 const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 const GROUP_OTHER = 0o077;
 
+/** Why a key FILE was refused. Callers branch on this, never on the message: the message carries the
+ *  configured path, which can say anything (a cacheDir named "x is corrupt" must not read as a corrupt key). */
+export type KeyFileReason =
+  | "missing"
+  | "unreadable"
+  | "not-regular"
+  | "exposed"
+  | "foreign-owner"
+  | "empty"
+  | "corrupt";
+
 export class KeyFileError extends Error {
-  constructor(message: string, cause?: unknown) {
+  readonly reason: KeyFileReason | undefined;
+  constructor(message: string, cause?: unknown, reason?: KeyFileReason) {
     super(message, { cause });
     this.name = "KeyFileError";
+    this.reason = reason;
   }
 }
 
 const myUid = (): number | undefined =>
   typeof process.getuid === "function" ? process.getuid() : undefined;
 
-function ownedByUs(st: { uid: number }, what: string): void {
+function ownedByUs(st: { uid: number }, what: string, reason?: KeyFileReason): void {
   const uid = myUid();
   if (uid !== undefined && st.uid !== uid) {
-    throw new KeyFileError(`${what} is owned by uid ${st.uid}, not the server's uid ${uid}`);
+    throw new KeyFileError(
+      `${what} is owned by uid ${st.uid}, not the server's uid ${uid}`,
+      undefined,
+      reason,
+    );
   }
 }
 
@@ -108,24 +125,29 @@ export function readKeyFile(path: string): string {
   try {
     fd = openSync(path, constants.O_RDONLY | NOFOLLOW);
   } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
     throw new KeyFileError(
-      `cannot open key file ${path} (${(e as NodeJS.ErrnoException).code ?? "error"})`,
+      `cannot open key file ${path} (${code ?? "error"})`,
       e,
+      code === "ENOENT" ? "missing" : "unreadable",
     );
   }
   try {
     const st = fstatSync(fd);
-    if (!st.isFile()) throw new KeyFileError(`${path} is not a regular file`);
+    if (!st.isFile())
+      throw new KeyFileError(`${path} is not a regular file`, undefined, "not-regular");
     if (KEY_FILE_TRUST_ENFORCED) {
       if ((st.mode & GROUP_OTHER) !== 0) {
         throw new KeyFileError(
           `${path} has mode ${modeStr(st.mode)}, readable by group/other; it must be 0600`,
+          undefined,
+          "exposed",
         );
       }
-      ownedByUs(st, path);
+      ownedByUs(st, path, "foreign-owner");
     }
     const secret = readFileSync(fd, "utf8").trim();
-    if (secret === "") throw new KeyFileError(`${path} is empty`);
+    if (secret === "") throw new KeyFileError(`${path} is empty`, undefined, "empty");
     return secret;
   } finally {
     closeSync(fd);

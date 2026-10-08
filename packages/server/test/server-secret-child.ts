@@ -12,6 +12,7 @@ import { serverSecret } from "../src/auth/server-secret";
 const [cacheDir, goFile, optsJson] = process.argv.slice(2);
 const cfg = JSON.parse(optsJson ?? "{}") as {
   staleMs?: number;
+  waitMs?: number;
   stallUntil?: string;
   stallBeforeMove?: string;
   stallInGap?: string;
@@ -29,6 +30,7 @@ const freezeUntil = (file: string) => () => {
 process.stdout.write(
   serverSecret(cacheDir as string, {
     ...(cfg.staleMs !== undefined ? { staleMs: cfg.staleMs } : {}),
+    ...(cfg.waitMs !== undefined ? { waitMs: cfg.waitMs } : {}),
     ...(stallUntil !== undefined ? { beforeRepair: freezeUntil(stallUntil) } : {}),
     ...(cfg.stallBeforeMove !== undefined
       ? { beforeMoveAside: freezeUntil(cfg.stallBeforeMove) }
