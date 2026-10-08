@@ -81,8 +81,7 @@ class Scorer:
                     "id": it["id"],
                     "hits": [{"index": i, "score": s} for i, s in enumerate(logits)],
                     "latency_ms": round(ms),
-                    "chars_sent": sum(len(p) for p in passages)
-                    + len(it["query"]) * len(passages),
+                    "chars_sent": sum(len(p) for p in passages) + len(it["query"]) * len(passages),
                     "outcome": "executed",
                 }
             )
@@ -110,6 +109,4 @@ def main(pools: str, out: str, k: int = 30, title_prefix: bool = False):
     with open(out, "w") as f:
         json.dump(result, f)
     lat = sorted(v["latency_ms"] for v in per_query.values())
-    print(
-        f"{ARM} k={k}: {len(per_query)}/{len(items)} executed, p50 {lat[len(lat) // 2]} ms"
-    )
+    print(f"{ARM} k={k}: {len(per_query)}/{len(items)} executed, p50 {lat[len(lat) // 2]} ms")

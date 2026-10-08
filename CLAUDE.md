@@ -55,8 +55,8 @@ signature in the vec/indexing path, the bun-smoke project is what catches those 
 `check:perf-timing-scope`, `check:ingest-telemetry-wiring`, `check:config-paths`,
 `check:comment-style`, `check:plugin-routes`, `check:public-text`, `check:readme-size`,
 `check:duplicate-exports`, `check:table-readers`, `check:embedding-transport`, `test:scripts`,
-`check:duplication`, `check:export-surface`, `check:facade-parity` and `check:model-fetch-parity`
-(18 steps; this list read *ten* until 2026-09-26, and the eleventh cost a CI round).
+`check:duplication`, `check:export-surface`, `check:facade-parity`, `check:model-fetch-parity` and
+`check:model-pins` (19 steps; the Python under `packages/server/eval` has its own `python-eval` job; this list read *ten* until 2026-09-26, and the eleventh cost a CI round).
 
 **`check:comment-style` is a RATCHET on the COUNT of files with >= 120 comment lines**
 (`scripts/comment-style-baseline.json`, `maxFiles`), not a per-file cap. A file sitting at 119 on
