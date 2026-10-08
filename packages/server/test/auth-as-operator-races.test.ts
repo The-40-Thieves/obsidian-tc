@@ -20,10 +20,11 @@ import {
   userRows,
 } from "./as-operator-harness";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 
 // Argon2 verification is real in these cases and slow on a loaded box: the budget is spelled out
 // rather than left to vitest's 5 s default, which the heaviest of them overran under load.
-const ARGON_BUDGET_MS = 30_000;
+const ARGON_BUDGET_MS = stallTimeout(30_000);
 
 const GOOD = { username: "operator", password: PASSWORD };
 const BAD = { username: "operator", password: "definitely the wrong password" };
