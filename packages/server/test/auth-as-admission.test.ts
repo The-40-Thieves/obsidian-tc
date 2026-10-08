@@ -28,8 +28,10 @@ import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const dirs: string[] = [];
+const conns: Array<{ close: () => void }> = [];
 afterEach(() => {
   cleanupFlows();
+  for (const c of conns.splice(0)) c.close();
   for (const d of dirs.splice(0)) rmTemp(d);
 });
 
@@ -182,8 +184,10 @@ describe("admission is one write transaction", () => {
     dirs.push(dir);
     const file = join(dir, "oauth.db");
     const a = new DatabaseSync(file);
+    conns.push(a);
     provisionOauthDb(a, { version: "t" });
     const b = new DatabaseSync(file);
+    conns.push(b);
     b.exec("PRAGMA busy_timeout = 2000");
     a.exec("PRAGMA busy_timeout = 2000");
     const limits: AdmissionLimits = { global: 8, reserved: 0, perClient: 100, perSource: 100 };
@@ -202,8 +206,10 @@ describe("admission is one write transaction", () => {
     dirs.push(dir);
     const file = join(dir, "oauth.db");
     const a = new DatabaseSync(file);
+    conns.push(a);
     provisionOauthDb(a, { version: "t" });
     const b = new DatabaseSync(file);
+    conns.push(b);
     b.exec("PRAGMA busy_timeout = 0");
     a.exec("BEGIN IMMEDIATE");
     expect(() => createPending(b, req(), 1000, "10.0.0.1", LIMITS)).toThrow(/locked|busy/i);
