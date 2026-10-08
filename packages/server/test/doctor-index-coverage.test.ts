@@ -317,9 +317,12 @@ describe("index.coverage stale-but-present (notes changed on disk after indexing
         isReadable: () => true,
         representation: buildRepresentationManifest(provider, {}),
       });
+      // Anchor on the stamp the index actually holds, never on the wall clock after indexing: on a
+      // slow runner that gap exceeds the slack and the "inside the slack" note reads as stale.
+      const stamped = db.prepare("SELECT MIN(indexed_at) AS at FROM notes").get() as { at: number };
       db.close?.();
 
-      const nowS = Date.now() / 1000;
+      const nowS = stamped.at / 1000;
       // Rewritten 60 s after indexing: the index holds the first version.
       writeFileSync(join(vaultRoot, "edited.md"), "---\nbad: [1, 2\n---\n# Edited\n\nsecond.");
       utimesSync(join(vaultRoot, "edited.md"), nowS + 60, nowS + 60);
