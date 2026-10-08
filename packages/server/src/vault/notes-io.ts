@@ -36,6 +36,7 @@ import { existsNoFollow } from "../auth/key-files";
 import { enforceMemoryDefenseOnNoteWrite } from "../experiential/memory-defense";
 import { redactSecrets } from "../experiential/redact";
 import type { MetricsRecorder } from "../metrics/registry";
+import { nativeSafePath } from "./folder-links";
 import { assertCreatableName, contentHash } from "./paths";
 
 // O_NOFOLLOW is POSIX-only (undefined on Windows Node): 0 is a no-op there, and the st_nlink inode
@@ -126,7 +127,7 @@ function assertRegularSingleLink(fd: number, abs: string): Stats {
 export function readNote(abs: string): { raw: string; hash: string } {
   if (nativeIo) {
     try {
-      const raw = nativeIo.safeReadNote(abs).toString("utf8");
+      const raw = nativeIo.safeReadNote(nativeSafePath(abs)).toString("utf8");
       return { raw, hash: contentHash(raw) };
     } catch (e) {
       mapNativeReadError(e, abs);
@@ -146,7 +147,7 @@ export function readNote(abs: string): { raw: string; hash: string } {
 export function readNoteBounded(abs: string, maxBytes: number): { raw: string | null } {
   if (nativeIo) {
     try {
-      const buf = nativeIo.safeReadNote(abs);
+      const buf = nativeIo.safeReadNote(nativeSafePath(abs));
       return { raw: buf.length > maxBytes ? null : buf.toString("utf8") };
     } catch (e) {
       mapNativeReadError(e, abs);
@@ -172,7 +173,7 @@ export function readNoteBounded(abs: string, maxBytes: number): { raw: string | 
 export function readFileChecked(abs: string): Buffer {
   if (nativeIo) {
     try {
-      return nativeIo.safeReadNote(abs);
+      return nativeIo.safeReadNote(nativeSafePath(abs));
     } catch (e) {
       mapNativeReadError(e, abs);
     }
@@ -412,7 +413,7 @@ export function stageNoteWrite(
 export function moveNoReplace(fromAbs: string, toAbs: string): void {
   if (nativeIo?.safeRenameNoReplace) {
     try {
-      nativeIo.safeRenameNoReplace(fromAbs, toAbs);
+      nativeIo.safeRenameNoReplace(nativeSafePath(fromAbs), nativeSafePath(toAbs));
       return;
     } catch (e) {
       if (isNativeExists(e)) throw noteExistsConcurrently();

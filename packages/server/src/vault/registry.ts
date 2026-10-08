@@ -4,6 +4,7 @@ import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { err, type VaultConfigInput, type VaultKind } from "@the-40-thieves/obsidian-tc-shared";
 import { rawFolderNames, wikiFolderNames } from "../tools/m7/knowledge/wiki-folder";
+import { registerConfiguredFolders } from "./folder-links";
 import { canonicalFolderOf, rawFolderOf } from "./raw-folder";
 
 /**
@@ -110,6 +111,10 @@ export class VaultRegistry {
       const rawFolder = wikiFolder
         ? rawFolderOf(v.id, { folder: wikiFolder, rawFolder: v.wiki?.rawFolder })
         : undefined;
+      registerConfiguredFolders(
+        root,
+        [wikiFolder, rawFolder].filter((f) => f !== undefined),
+      );
       this.byId.set(v.id, {
         id: v.id,
         name: v.name ?? v.id,
