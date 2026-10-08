@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { buildAcls } from "../src/runtime/acl-build";
 import { rawFolderPlacement } from "../src/tools/m7/knowledge/wiki-folder";
 import { evaluatePathAcl } from "../src/vault/acl-path";
+import { nativeVaultIo } from "../src/vault/notes-io";
 import { makeTempDir, rmTemp } from "./tmp";
 import { hashTree, makeWikiHarness, type WikiHarness } from "./wiki-test-helpers";
 
@@ -72,9 +73,9 @@ describe.skipIf(process.platform === "win32")(
       expect(code(await h.call("write_note", { path: "wiki/New.md", content: "x" }))).toBe("ok");
     });
 
-    it("the read side is untouched: sources/clip.md still reads", async () => {
+    it("the read side is untouched: sources/clip.md still reads (through the pin: native only)", async () => {
       symlinked();
-      expect((await h.call("read_note", { path: "sources/clip.md" })).ok).toBe(true);
+      expect((await h.call("read_note", { path: "sources/clip.md" })).ok).toBe(nativeVaultIo);
     });
 
     it("a configured rawFolder that is a symlink behaves the same", async () => {

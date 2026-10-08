@@ -24,6 +24,7 @@ import type { MorgianaEmitter } from "../morgiana/emitter";
 import { registerSpoolSweep, type SpoolSweepCounts } from "../morgiana/spool-sweep";
 import type { SignerSource } from "../provenance/signer";
 import type { Scheduler } from "../scheduler/scheduler";
+import type { FolderPins } from "../vault/folder-links";
 import { resolveCacheTraceDir, resolveTraceDirs } from "../workspace/sessions";
 
 export interface MaintenanceWiringDeps {
@@ -81,6 +82,10 @@ export interface MaintenanceWiringDeps {
    *  of a vault root that is itself a symlink (iCloud/Dropbox/NAS sync target). Field named
    *  `root`, not `path`, to match resolveTraceDirs's own parameter — see its doc comment. */
   vaults: readonly { id: string; root: string; workspace?: { traceFolder: string } }[];
+  /** The vault registry's folder pins. The trace sweep deletes files inside a vault outside any
+   *  dispatch, so it carries them itself and deletes through the pin (db/maintenance.ts). Absent ->
+   *  the legacy unpinned sweep (a unit test with no registry). */
+  folderPins?: FolderPins;
   defaultTraceFolder: string;
   /** The auth registry, when this process opened one: the sweep persists elapsed signing-key
    *  grace windows through it. Absent -> that arm is not armed (no registry, nothing to reap). */
@@ -164,7 +169,7 @@ export function configureMaintenance(scheduler: Scheduler, deps: MaintenanceWiri
     // the legacy per-vault dirs that still hold pre-migration traces.
     traceDirs: [
       resolveCacheTraceDir(deps.cacheDir),
-      ...resolveTraceDirs(deps.vaults, deps.defaultTraceFolder),
+      ...resolveTraceDirs(deps.vaults, deps.defaultTraceFolder, deps.folderPins),
     ],
     ...(deps.edb !== undefined
       ? {

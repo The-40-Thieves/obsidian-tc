@@ -24,6 +24,7 @@ import type { TelemetryWiring } from "../telemetry/wiring";
 import { DEFAULT_TRACE_FOLDER } from "../tools/m5";
 import { getOrCreateWikiSealKey, readWikiSealKey } from "../tools/m7/knowledge/wiki-generated-seal";
 import { schedulerPersistErrorSink } from "../util/errors";
+import type { FolderPins } from "../vault/folder-links";
 import type { ActiveSessionTracker } from "../workspace/sessions";
 import { registerAdvisorySweep } from "./advisory-sweep";
 import { registerGapSweep } from "./gap-sweep";
@@ -55,6 +56,10 @@ export interface SchedulerWiringDeps {
     wikiFolders?: readonly string[] | undefined;
     rawFolders?: readonly string[] | undefined;
   }[];
+  /** The vault registry's folder pins. Background jobs that write or delete inside a vault run
+   *  outside any dispatch, so they get the pins here (the trace sweep, the wiki-pages sweep) and
+   *  act under them exactly as a tool call does. */
+  folderPins?: FolderPins;
   /** run_serve's first vault id — the process-wide sweep event is attributed to it. */
   eventVaultId: string;
   /** The live vault registry's ids, read at each memory orphan sweep (add_vault can grow it after
@@ -129,6 +134,7 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
     experiential: config.experiential,
     sessions: config.sessions,
     vaults: deps.vaults,
+    ...(deps.folderPins !== undefined ? { folderPins: deps.folderPins } : {}),
     defaultTraceFolder: DEFAULT_TRACE_FOLDER,
     // THE-610 arm 2: only when the membrane is actually open.
     ...(deps.experientialOpen ? { edb: deps.experientialDb } : {}),
@@ -236,6 +242,7 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
     registerWikiPagesSweep(scheduler, {
       cacheDb: deps.db,
       vaults: deps.vaults,
+      ...(deps.folderPins !== undefined ? { folderPins: deps.folderPins } : {}),
       aclFor: deps.aclFor ?? (() => undefined),
       exclusionFor: deps.exclusionFor ?? (() => NO_EXCLUSION),
       memoryDefenseFor: deps.memoryDefenseFor,

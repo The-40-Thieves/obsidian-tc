@@ -12,6 +12,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
+import type { FolderPins } from "../vault/folder-links";
 import { resolveVaultPathChecked } from "../vault/paths";
 
 /** Stable session id, e.g. "sess_9f2c…". 12 random bytes = 24 hex chars. */
@@ -136,17 +137,35 @@ export function resolveCacheTraceDir(cacheDir: string): { vaultId: string; dir: 
   return { vaultId: "*", dir: resolveCacheTracePath(cacheDir, CACHE_TRACE_SUBDIR) };
 }
 
+/** One vault's legacy trace directory (db/maintenance.ts's `TraceDir` shape). */
+interface ResolvedTraceDir {
+  vaultId: string;
+  dir: string;
+  vault?: { pins: FolderPins; recheck: () => void };
+}
+
 export function resolveTraceDirs(
   vaults: readonly { id: string; root: string; workspace?: { traceFolder: string } }[],
   defaultFolder: string,
-): Array<{ vaultId: string; dir: string }> {
+  /** The vault registry's folder pins. Given, each directory carries them and a re-check, so the
+   *  sweep that deletes from it runs pinned (db/maintenance.ts) instead of through the lexical
+   *  `wiki/...` spelling this validates once, now. */
+  pins?: FolderPins,
+): ResolvedTraceDir[] {
   return vaults.map((v) => {
     const folder = v.workspace?.traceFolder ?? defaultFolder;
     // Normalize exactly as traceRelPath does before resolving. Without this a backslash in the
     // folder makes the write path store under `a/b` while the sweep looks for the literal `a\b`
     // on POSIX — a directory that never exists, so the sweep reports 0 forever while files pile up.
     const rel = folder.replace(/\\/g, "/").replace(/\/+$/, "");
-    return { vaultId: v.id, dir: resolveVaultPathChecked(v.root, rel).abs };
+    const dir = resolveVaultPathChecked(v.root, rel).abs;
+    return {
+      vaultId: v.id,
+      dir,
+      ...(pins !== undefined
+        ? { vault: { pins, recheck: () => void resolveVaultPathChecked(v.root, rel) } }
+        : {}),
+    };
   });
 }
 

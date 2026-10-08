@@ -325,11 +325,21 @@ each pinned by a test (`wiki-generated.test.ts`):
   `unlinkat` on the verified pinned directory, and a write batch's move-aside, drop and put-back steps
   (`move_note`, `bulk_move_notes`, `move_attachment`, `commit_wiki_page`) are pinned moves, so a symlink
   retargeted after the ACL decision cannot make them touch another folder (the immutable raw folder,
-  say). **Configured symlinked folders require the native module.** Node has no `openat`, so the
+  say). The pin follows the directory, not only the configured name: `open/x.md` (the canonical
+  spelling of `wiki -> open`) carries the same pin as `wiki/x.md`, so renaming `open` away and another
+  folder into its place cannot redirect a caller who named the target directly. The scheduled jobs that
+  write or delete inside a vault run under the registry's pins as a tool call does: the trace-retention
+  sweep enumerates the pinned name, skips (with a warning) a trace folder whose live target no longer
+  matches the pin, and deletes through the same pinned unlink, and the scheduled wiki-page
+  regeneration writes under them. **Configured symlinked folders require the native module.** Node has
+  no `openat`, so the
   pure-JS path (Windows, `OBSIDIAN_TC_FORCE_JS_FALLBACK=1`, an addon-less install, or a `.node` that
   predates the unlink primitive) cannot open a pinned directory without a window for the symlink to
-  move: there every read, write, move and delete of a path that runs through a pinned folder is refused
-  with `acl_denied`, and folders that are not symlinks are unaffected. A wiki folder that cannot be placed inside
+  move: there every read, write, move, delete and existence or stat probe of a path that runs through a
+  pinned folder, under either spelling, is refused
+  with `acl_denied`, and folders that are not symlinks are unaffected. (With the native module the
+  existence and stat probes still use Node's `stat`: they check the pinned directory's identity first
+  and then stat its own name, which leaves only a metadata-sized race.) A wiki folder that cannot be placed inside
   the vault once symlinks are resolved is refused at startup rather than left ungated. So every surface that honours rule-scopes
   (`read_note`, search, listing, backlinks, resources, `lint_wiki`) denies it the same way, with no per-tool
   check. The scope also gates writing and deleting that path; the server's own regeneration holds exactly

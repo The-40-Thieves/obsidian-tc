@@ -41,6 +41,7 @@ import {
   nativeIo,
   nativeOpen,
   nativeVaultIo,
+  probePath,
   refuseJsThroughPin,
 } from "./native-io";
 import { assertCreatableName, contentHash } from "./paths";
@@ -85,9 +86,10 @@ export interface NoteStat {
 }
 
 export function noteExists(abs: string): { exists: boolean; type?: "file" | "folder" } {
-  if (!existsSync(abs)) return { exists: false };
+  const probe = probePath(abs);
+  if (!existsSync(probe)) return { exists: false };
   try {
-    return { exists: true, type: statSync(abs).isDirectory() ? "folder" : "file" };
+    return { exists: true, type: statSync(probe).isDirectory() ? "folder" : "file" };
   } catch {
     return { exists: false };
   }
@@ -513,8 +515,9 @@ export function writeNoteAtomicGuarded(
 }
 
 export function statNote(abs: string): NoteStat | null {
+  const probe = probePath(abs);
   try {
-    const s = statSync(abs);
+    const s = statSync(probe);
     return {
       size: s.size,
       mtime: new Date(s.mtimeMs).toISOString(),

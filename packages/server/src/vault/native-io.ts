@@ -8,6 +8,7 @@
 // alias, and a retarget between the check and the open would hit another in-vault file. Those paths
 // therefore REFUSE a path that runs through a pinned folder (`refuseJsThroughPin`); folders that are
 // not symlinks are untouched.
+import { statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { type PinnedDir, pinnedOpenPath } from "./folder-links";
@@ -75,6 +76,11 @@ export function nativeOpen(abs: string): { path: string; pinned?: PinnedDir } {
   return nativeIo?.pinnedDirs ? pinnedOpenPath(abs) : { path: abs };
 }
 
+/** True when `hardDelete` can remove a file under a pinned folder: the addon verifies pins and has
+ *  `safeUnlink`. Otherwise it refuses such a path (see below). */
+export const pinnedUnlinkAvailable = (): boolean =>
+  nativeIo?.pinnedDirs === true && nativeIo.safeUnlink !== undefined;
+
 /** Called by every pure-JS path before it touches `abs`: a path through a pinned folder is refused,
  *  because only the native walk can open it without a window for the symlink to move. */
 export function refuseJsThroughPin(abs: string): void {
@@ -83,4 +89,29 @@ export function refuseJsThroughPin(abs: string): void {
     "configured symlinked folders require the native module: this path runs through one, and without it (Windows, OBSIDIAN_TC_FORCE_JS_FALLBACK, or an addon-less install) it cannot be opened safely",
     { path: abs },
   );
+}
+
+/** The path a metadata probe (`noteExists`, `statNote`) may stat. Node has no stat-at, so a probe
+ *  cannot be made race-free; it is made no wider than the pin: under a pinned folder with the native
+ *  module loaded it stats the pinned directory's own name after checking that name still holds the
+ *  pinned directory, so a persistent retarget or replacement is never reported on. Without native
+ *  I/O such a path is refused like every other pure-JS access. */
+export function probePath(abs: string): string {
+  if (!nativeIo?.pinnedDirs) {
+    refuseJsThroughPin(abs);
+    return abs;
+  }
+  const { path, pinned } = pinnedOpenPath(abs);
+  if (pinned === undefined) return abs;
+  let now: { dev: bigint; ino: bigint } | undefined;
+  try {
+    now = statSync(pinned.dir, { bigint: true });
+  } catch {
+    // gone: the refusal below covers it
+  }
+  if (now?.dev !== pinned.dev || now.ino !== pinned.ino)
+    throw err.aclDenied("a configured folder no longer holds the directory it was pinned to", {
+      path: abs,
+    });
+  return path;
 }

@@ -67,7 +67,8 @@ is implicated.
 One difference is deliberate: a `wiki.folder` or `wiki.rawFolder` that is a symlink inside the vault
 (`wiki -> pages`) can only be opened safely by the native module, so on the baseline path (this flag,
 Windows, or an install without the addon) every read, write, move and delete through such a folder is
-refused with `acl_denied`. Folders that are not symlinks, and every other path, work as before.
+refused with `acl_denied`, under its configured name (`wiki/x.md`) and under the directory's own name
+(`pages/x.md`) alike. Folders that are not symlinks, and every other path, work as before.
 
 Four further escape hatches share this shape but are **test-only** — unlike the flag above they are
 not a supported operating mode, because each deliberately weakens a safety property:

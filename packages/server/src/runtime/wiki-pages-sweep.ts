@@ -14,10 +14,13 @@ import type { Scheduler } from "../scheduler/scheduler";
 import type { VaultExclusion } from "../search/index-exclusion";
 import { regenerateWikiPages, type WikiGenerateResult } from "../tools/m7/knowledge/wiki-generated";
 import { stderrOnError } from "../util/errors";
+import { type FolderPins, withFolderPins } from "../vault/folder-links";
 
 export interface WikiPagesSweepDeps {
   cacheDb: Database;
   vaults: readonly { id: string; root: string; wikiFolder?: string | undefined }[];
+  /** The vault registry's folder pins the sweep runs under (absent: none, as outside a dispatch). */
+  folderPins?: FolderPins | undefined;
   aclFor: (vaultId: string) => FolderAcl | undefined;
   exclusionFor: (vaultId: string) => VaultExclusion;
   memoryDefenseFor?: ((vaultId: string) => VaultMemoryDefenseConfig | undefined) | undefined;
@@ -38,26 +41,29 @@ export function registerWikiPagesSweep(scheduler: Scheduler, deps: WikiPagesSwee
   scheduler.register({
     name: "wiki-pages",
     intervalMs: deps.intervalMs,
-    run: async (signal) => {
-      for (const v of deps.vaults) {
-        if (signal.aborted) return;
-        if (!v.wikiFolder) continue;
-        const result = regenerateWikiPages({
-          root: v.root,
-          vaultId: v.id,
-          wikiFolder: v.wikiFolder,
-          acl: deps.aclFor(v.id),
-          exclusion: deps.exclusionFor(v.id),
-          db: deps.cacheDb,
-          snapshots: deps.snapshots,
-          memoryDefense: deps.memoryDefenseFor?.(v.id),
-          sealKey: deps.sealKey(),
-        });
-        if (deps.onResult) deps.onResult(v.id, result);
-        else if (result.written.length > 0 || result.warnings.length > 0)
-          process.stderr.write(summarizeWikiPages(v.id, result));
-      }
-    },
+    // Under the registry's folder pins, as a tool dispatch runs: a page written to a pinned wiki
+    // folder obeys the pin (or is refused without the native module), never the live alias.
+    run: (signal) =>
+      withFolderPins(deps.folderPins, async () => {
+        for (const v of deps.vaults) {
+          if (signal.aborted) return;
+          if (!v.wikiFolder) continue;
+          const result = regenerateWikiPages({
+            root: v.root,
+            vaultId: v.id,
+            wikiFolder: v.wikiFolder,
+            acl: deps.aclFor(v.id),
+            exclusion: deps.exclusionFor(v.id),
+            db: deps.cacheDb,
+            snapshots: deps.snapshots,
+            memoryDefense: deps.memoryDefenseFor?.(v.id),
+            sealKey: deps.sealKey(),
+          });
+          if (deps.onResult) deps.onResult(v.id, result);
+          else if (result.written.length > 0 || result.warnings.length > 0)
+            process.stderr.write(summarizeWikiPages(v.id, result));
+        }
+      }),
     onError: stderrOnError("wiki-pages"),
   });
 }

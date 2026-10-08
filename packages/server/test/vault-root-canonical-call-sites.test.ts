@@ -111,6 +111,15 @@ describe("vault root canonicalization — every named consumer (THE-1081 review 
     expect(call).not.toMatch(/vaults:\s*config\.vaults\s*,/);
   });
 
+  it("server-runtime.ts hands the registry's folder pins to wireScheduler, which gives them to the trace and wiki-pages sweeps", () => {
+    const call = stripped("runtime/server-runtime.ts").match(/wireScheduler\(\{[\s\S]*?\}\);/)?.[0];
+    expect(call, "wireScheduler({...}) call not found").toBeDefined();
+    expect(call).toContain("folderPins: vaultRegistry.folderPins");
+    const wiring = stripped("runtime/scheduler-wiring.ts");
+    expect(wiring.match(/folderPins: deps\.folderPins/g)?.length).toBe(2);
+    expect(stripped("runtime/maintenance-wiring.ts")).toContain("deps.folderPins");
+  });
+
   it("workspace/sessions.ts's resolveTraceDirs takes `root`, not `path` — the field rename that makes the round-2 bug unrepresentable", () => {
     const src = stripped("workspace/sessions.ts");
     expect(src.length).toBeGreaterThan(2000);
