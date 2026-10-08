@@ -357,16 +357,20 @@ describe.skipIf(process.platform === "win32")(
     });
 
     it("a resource read runs against the registry's pins too", async () => {
-    const t = pagesAndScratch();
-    const ctx = t.ctx();
-    const uri = buildResourceUri(t.id, "wiki/a.md");
-    const r = await t.registry.dispatchResource("resources/read", ctx, ["read:notes"], { uri }, () =>
-      readResourceFor({ registry: t.registry }, t.vaultRegistry, ctx, uri),
-    );
-    expect(JSON.stringify(r.contents)).toContain("page A");
-  });
+      const t = pagesAndScratch();
+      const ctx = t.ctx();
+      const uri = buildResourceUri(t.id, "wiki/a.md");
+      const r = await t.registry.dispatchResource(
+        "resources/read",
+        ctx,
+        ["read:notes"],
+        { uri },
+        () => readResourceFor({ registry: t.registry }, t.vaultRegistry, ctx, uri),
+      );
+      expect(JSON.stringify(r.contents)).toContain("page A");
+    });
 
-  it("a second registry built mid-request cannot re-pin the folder the ACL already decided on", async () => {
+    it("a second registry built mid-request cannot re-pin the folder the ACL already decided on", async () => {
       const t = pagesAndScratch();
       seam.beforeRead = () => {
         retarget(t.root, "scratch");
