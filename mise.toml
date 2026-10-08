@@ -31,11 +31,18 @@ bun = "1.4.2"
 node = "26.10.0"
 
 # Both Python services declare `requires-python = ">=3.10"` (services/bge-m3-service,
-# services/docs-ingest), and ci-model-service.yml sets up `python-version: '3.11'`. 3.11 is what
-# the model service is actually built and tested against, so it is what a developer should get —
-# not whatever python3 the OS happens to ship (this machine defaults to 3.14, which no CI job
-# validates and which much of the ML wheel ecosystem still lags on).
+# services/docs-ingest) as their SUPPORTED range; 3.14 is what they are built and tested against
+# (ci-model-service.yml sets up `python-version: '3.14'`, and ci-security.yml's checkov job runs on
+# the same), so it is what a developer should get — not whatever python3 the OS happens to ship.
+#
+# This was 3.11 on the argument that much of the ML wheel ecosystem lagged 3.14. Checked and no
+# longer true: every dependency of both services, including the heavy stack (torch 2.14,
+# FlagEmbedding 1.4.2, sentence-transformers 6.1, transformers 5.19, docling 2.135, langextract
+# 1.7), installs binary-only (`--only-binary :all:`) on cp314 for linux x86_64 (CI) and aarch64,
+# and the hash-locked requirements*.txt resolve for 3.14 with their pins unchanged. Neither service
+# depends on onnxruntime. torch comes from the CPU index on aarch64: the PyPI aarch64 wheel pulls
+# the CUDA stack, which has no place on a GPU-less box.
 #
 # Pinned to the minor, matching CI's specificity exactly. A patch pin here would be MORE specific
 # than the thing it is meant to agree with, which just relocates the divergence.
-python = "3.11"
+python = "3.14"

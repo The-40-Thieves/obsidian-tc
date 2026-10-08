@@ -68,7 +68,9 @@ def sync_problems(declared: dict[str, str], pinned: dict[str, str]) -> list[str]
     problems: list[str] = []
     missing = sorted(set(declared) - set(pinned))
     extra = sorted(set(pinned) - set(declared))
-    mismatched = sorted(name for name in set(declared) & set(pinned) if declared[name] != pinned[name])
+    mismatched = sorted(
+        name for name in set(declared) & set(pinned) if declared[name] != pinned[name]
+    )
 
     if missing:
         problems.append(

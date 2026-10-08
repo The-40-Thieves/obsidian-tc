@@ -16,7 +16,7 @@
 # reproducible, hash-verified install. Change a range there, recompile here.
 #
 # Regenerate (note the platform — see the header of requirements.txt for why):
-#   uv pip compile requirements.in --generate-hashes --python-version 3.11 \
+#   uv pip compile requirements.in --generate-hashes --python-version 3.14 \
 #     --python-platform x86_64-unknown-linux-gnu -o requirements.txt
 fastapi>=0.139
 uvicorn[standard]>=0.51
@@ -24,5 +24,5 @@ pydantic>=2.13
 FlagEmbedding>=1.4
 torch>=2.3
 huggingface-hub>=1,<2
-sentence-transformers>=5,<6
+sentence-transformers>=5
 numpy>=2

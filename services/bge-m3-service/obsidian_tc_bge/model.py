@@ -53,7 +53,9 @@ class BgeM3Encoder:
     @staticmethod
     def _require_multi_vector_heads(snapshot_path: str) -> None:
         missing = [
-            name for name in _REQUIRED_MULTI_VECTOR_HEADS if not (Path(snapshot_path) / name).exists()
+            name
+            for name in _REQUIRED_MULTI_VECTOR_HEADS
+            if not (Path(snapshot_path) / name).exists()
         ]
         if missing:
             raise RuntimeError(

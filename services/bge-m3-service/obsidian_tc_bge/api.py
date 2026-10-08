@@ -114,7 +114,9 @@ async def encode(req: EncodeRequest) -> EncodeResponse:
     if not readiness.ready:
         raise HTTPException(status_code=503, detail=readiness.error or "model not ready")
     if len(req.input) > settings.max_request_items:
-        raise HTTPException(status_code=413, detail=f"too many items (max {settings.max_request_items})")
+        raise HTTPException(
+            status_code=413, detail=f"too many items (max {settings.max_request_items})"
+        )
     if any(len(t) > settings.max_text_chars for t in req.input):
         raise HTTPException(status_code=413, detail="input text too long")
     scheduler: Scheduler = _state["scheduler"]  # type: ignore[assignment]

@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import sys
 import types
+from typing import ClassVar
 
 import pytest
 
 
 class _FakeTorch(types.ModuleType):
-    class cuda:  # noqa: N801 - mirrors torch.cuda's attribute shape
+    class cuda:
         @staticmethod
         def is_available() -> bool:
             return False
@@ -23,7 +24,7 @@ class _FakeCrossEncoder:
     """Records EVERY construction, not just the last - see _FakeBGEM3FlagModel in test_model.py
     for why that matters."""
 
-    instances: list["_FakeCrossEncoder"] = []
+    instances: ClassVar[list[_FakeCrossEncoder]] = []
 
     def __init__(self, model_name_or_path, **kwargs):
         self.call = {"model_name_or_path": model_name_or_path, **kwargs}
@@ -43,7 +44,7 @@ def _install_fakes(monkeypatch, *, snapshot_download):
 
 
 def _reranker_module():
-    import obsidian_tc_bge.reranker as reranker
+    from obsidian_tc_bge import reranker
 
     return reranker
 
