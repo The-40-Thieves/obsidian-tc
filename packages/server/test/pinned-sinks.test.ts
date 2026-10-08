@@ -171,8 +171,8 @@ describe.skipIf(process.platform === "win32")(
         const input = { vault: "test", path: "wiki/pic.png", permanent: true };
         const r = await t.callConfirmed("delete_attachment", input);
         expect(text(t.root, "raw/pic.png")).toBe("RAW BYTES");
-        if (nativeVaultIo) expect(r.ok && existsSync(join(t.root, "open", "pic.png"))).toBe(false);
-        else expect(r.ok).toBe(false);
+        expect(r.ok).toBe(nativeVaultIo);
+        if (nativeVaultIo) expect(existsSync(join(t.root, "open", "pic.png"))).toBe(false);
       } finally {
         t.cleanup();
       }
