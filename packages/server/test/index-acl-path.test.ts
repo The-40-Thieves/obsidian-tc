@@ -7,7 +7,7 @@
 // mirror failure: with `shared -> pages` and only `pages/**` readable, the note is readable yet the
 // row (`shared/...`) was rejected. Each surface below has both a LEAK case and a FAIL-CLOSED-BUG case,
 // plus the migration that marks pre-existing rows unresolved until a pass resolves them.
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { type AclConfigT, FolderAcl } from "../src/acl";
@@ -16,6 +16,8 @@ import { CACHE_MIGRATIONS, provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import { MetricsRecorder } from "../src/metrics/registry";
+import { wireIndexCoordinator } from "../src/runtime/indexing-wiring";
 import { allChunkPaths, ensureAclPathSet } from "../src/search/acl_path_set";
 import { readGeneration } from "../src/search/generation";
 import { indexNote, indexVault } from "../src/search/indexer";
@@ -476,6 +478,166 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
       );
       const sem = await w.call("search_semantic", { query: "zebra", k: 20 }, ACL_ALIAS);
       expect(pathsOf(sem.data)).not.toContain("wiki/secret-project.md");
+    });
+  });
+
+  // read_note refuses a hard-linked file (st_nlink > 1: realpath cannot see through a hard link, so
+  // `allowed/hard.md` may be `private/secret.md`) and hard-denies canonical .obsidian/.git/.trash.
+  // A stored row must be no more readable than the file it came from, so indexing applies both.
+  describe("read_note parity: hard links and hard-denied control folders", () => {
+    /** Folder whitelist the index runs under: everything the vault's callers could ever read. */
+    const ACL_WIDE = cfg({
+      readPaths: ["private", "private/**", "allowed", "allowed/**", "pages", "pages/**"],
+    });
+    const ACL_ALLOWED = cfg({ readPaths: ["allowed", "allowed/**"] });
+    const hardLinkWorld = (): World => {
+      const w = makeWorld();
+      write(w.root, "allowed/plain.md", FILES[SECRET_PATH] as string);
+      linkSync(join(w.root, SECRET_PATH), join(w.root, "allowed/hard.md"));
+      return w;
+    };
+
+    it("premise: read_note refuses the hard link, and reads the plain copy", async () => {
+      const w = hardLinkWorld();
+      const hard = await w.call("read_note", { path: "allowed/hard.md" }, ACL_ALLOWED);
+      expect(hard.ok).toBe(false);
+      const plain = await w.call("read_note", { path: "allowed/plain.md" }, ACL_ALLOWED);
+      expect(plain.ok).toBe(true);
+    });
+
+    for (const streaming of [false, true]) {
+      for (const f of FAMILIES) {
+        it(`${f.name}${streaming ? " (streaming walk)" : ""}: a hard-linked note is not returned to the principal allowed its alias path`, async () => {
+          const w = hardLinkWorld();
+          await indexVault({
+            db: w.db,
+            provider,
+            representation,
+            vaultId: VAULT,
+            root: w.root,
+            isReadable: (rel) => readableByFolder(ACL_WIDE, rel),
+            ...(streaming ? { walk: { streaming: true } } : {}),
+          });
+          const r = await w.call(f.tool, f.input, ACL_ALLOWED);
+          expect(r.ok, dump(r)).toBe(true);
+          expect(pathsOf(r.data)).toContain("allowed/plain.md"); // positive control
+          expect(pathsOf(r.data)).not.toContain("allowed/hard.md");
+        });
+      }
+    }
+
+    it("a note that BECOMES hard-linked after it was indexed is closed by the next pass", async () => {
+      const w = makeWorld();
+      write(w.root, "allowed/hard.md", FILES[SECRET_PATH] as string);
+      const idx = () =>
+        indexVault({
+          db: w.db,
+          provider,
+          representation,
+          vaultId: VAULT,
+          root: w.root,
+          isReadable: (rel) => readableByFolder(ACL_WIDE, rel),
+        });
+      await idx();
+      const before = await w.call("search_semantic", { query: "zebra", k: 20 }, ACL_ALLOWED);
+      expect(pathsOf(before.data)).toContain("allowed/hard.md");
+      rmSync(join(w.root, "allowed/hard.md"));
+      linkSync(join(w.root, SECRET_PATH), join(w.root, "allowed/hard.md"));
+      await idx();
+      const after = await w.call("search_semantic", { query: "zebra", k: 20 }, ACL_ALLOWED);
+      expect(pathsOf(after.data)).not.toContain("allowed/hard.md");
+    });
+
+    it("indexNote for a hard-linked path stores no readable identity (the index-on-write shape)", async () => {
+      const w = hardLinkWorld();
+      await indexNote(
+        w.db,
+        provider,
+        VAULT,
+        "allowed/hard.md",
+        FILES[SECRET_PATH] as string,
+        false,
+        Date.now,
+        undefined,
+        false,
+        undefined,
+        undefined,
+        undefined, // the wiring resolves the identity; a hard link resolves to none
+      );
+      const sem = await w.call("search_semantic", { query: "zebra", k: 20 }, ACL_ALLOWED);
+      expect(pathsOf(sem.data)).not.toContain("allowed/hard.md");
+    });
+
+    it("index-on-write (wireIndexCoordinator): a hard-linked path and a path under alias -> .obsidian store no readable row", async () => {
+      const w = hardLinkWorld();
+      write(w.root, ".obsidian/plugins/p/notes.md", "zebra OBSIDIANMARK\n");
+      symlinkSync(join(w.root, ".obsidian"), join(w.root, "oalias"));
+      const wiring = wireIndexCoordinator({
+        db: w.db,
+        metrics: new MetricsRecorder(),
+        embeddingProvider: provider,
+        hasVec: false,
+        chunkContext: false,
+        indexing: { writeConcurrency: 2, writeConcurrencyPerVault: 2, queueMax: 100 },
+        vaults: [{ id: VAULT, path: w.root }],
+        watch: { enabled: false, debounceMs: 0 },
+        sqlHooksFor: () => ({}),
+        indexHealth: {
+          reconcile: "ok",
+          reconcileAt: 0,
+          reconcileErrors: [],
+          writeFailures: 0,
+          frontmatterFailures: new Map(),
+          notesReady: true,
+          auditWriteFailures: 0,
+          indexQueueBackpressures: 0,
+          lastChunksUpserted: null,
+          inFlight: null,
+        },
+        acl: ACL_WIDE,
+        aclByVault: new Map(),
+        makeOnIndexed: () => undefined,
+      });
+      wiring.reindexHook(VAULT, "allowed/plain.md", FILES[SECRET_PATH] as string);
+      wiring.reindexHook(VAULT, "allowed/hard.md", FILES[SECRET_PATH] as string);
+      wiring.reindexHook(VAULT, "oalias/plugins/p/notes.md", "zebra OBSIDIANMARK\n");
+      await wiring.indexCoordinator.idle();
+      const r = await w.call("search_semantic", { query: "zebra", k: 20 }, ACL_ALLOWED);
+      expect(pathsOf(r.data)).toContain("allowed/plain.md"); // positive control
+      expect(pathsOf(r.data)).not.toContain("allowed/hard.md");
+      expect(dump(r.data)).not.toContain("OBSIDIANMARK");
+      const open = await w.call("search_semantic", { query: "zebra", k: 20 }, cfg({}));
+      expect(dump(open.data)).not.toContain("OBSIDIANMARK");
+      expect(pathsOf(open.data)).not.toContain("allowed/hard.md");
+    });
+
+    it("alias -> .obsidian is not indexed under a default ACL, nor served", async () => {
+      const w = makeWorld();
+      write(w.root, ".obsidian/plugins/p/notes.md", "---\ntags: [obstag]\n---\nzebra OBSIDIANMARK\n");
+      symlinkSync(join(w.root, ".obsidian"), join(w.root, "oalias"));
+      const DEFAULT_ACL = cfg({});
+      // Control: the walk does reach the note; only the hard-deny on its identity stops it.
+      const open = freshDb();
+      await w.index("oalias", undefined as unknown as FolderAcl, open);
+      expect(
+        (open.prepare("SELECT path FROM chunks WHERE path LIKE 'oalias%'").all() as unknown[])
+          .length,
+      ).toBeGreaterThan(0);
+      await w.index("oalias", DEFAULT_ACL);
+      await w.index(undefined, DEFAULT_ACL);
+      expect(
+        (w.db.prepare("SELECT path FROM chunks WHERE path LIKE 'oalias%'").all() as unknown[])
+          .length,
+      ).toBe(0);
+      expect(
+        (w.db.prepare("SELECT path FROM notes WHERE path LIKE 'oalias%'").all() as unknown[])
+          .length,
+      ).toBe(0);
+      for (const f of FAMILIES) {
+        const r = await w.call(f.tool, f.input, DEFAULT_ACL);
+        expect(dump(r.data), f.name).not.toContain("OBSIDIANMARK");
+        expect(pathsOf(r.data).filter((p) => p.startsWith("oalias")), f.name).toEqual([]);
+      }
     });
   });
 

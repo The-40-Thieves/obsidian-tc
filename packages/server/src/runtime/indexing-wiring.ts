@@ -34,7 +34,7 @@ import {
 } from "../search/indexer";
 import { buildRepresentationManifest, type RepresentationManifest } from "../search/representation";
 import { ensureVecChunks, type VecRebuildEvent } from "../search/vec";
-import { resolveVaultPathChecked } from "../vault/paths";
+import { isHardLinkedFile, resolveVaultPathChecked } from "../vault/paths";
 import { ACL_PATH_UNRESOLVED } from "../vault/stored-acl-path";
 import { registerVaultWatch } from "../vault/watcher";
 import {
@@ -299,7 +299,9 @@ export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinat
     const root = deps.rootOf?.(vaultId) ?? deps.vaults.find((v) => v.id === vaultId)?.path;
     if (root === undefined) return null;
     try {
-      return resolveVaultPathChecked(root, path).aclRel;
+      const resolved = resolveVaultPathChecked(root, path);
+      // read_note refuses a hard-linked file, so it has no identity to authorize on: stored closed.
+      return isHardLinkedFile(resolved.abs) ? null : resolved.aclRel;
     } catch {
       return null;
     }
