@@ -1,6 +1,6 @@
 // Dynamic Client Registration behind the flag (design v2 sections 4.3, 4.7, 8 and 9; slice S8).
-// Acceptance: flag off is a 404 and absent from the metadata, `hardened` forces it off, the boot
-// notice, RFC 7591 validation and response, conformance for a native loopback client and a Cursor-shaped
+// Acceptance: DCR is on by default (owner decision 2026-10-09); an explicit false is a 404 and absent
+// from the metadata, `hardened` forces it off, the boot notice, RFC 7591 validation and response, conformance for a native loopback client and a Cursor-shaped
 // one (register -> authorize -> consent -> token -> refresh -> revoke), the flooding row (per-source
 // rate limit, row cap, GC, no unbounded growth), the never-approved consent warning, and that a
 // registration can never speak for a static client or a metadata-document client.
@@ -96,9 +96,21 @@ const ip = (addr: string) => ({ "x-test-ip": addr });
 
 // ---- the flag ---------------------------------------------------------------------------------------
 
-describe("DCR is off by default", () => {
-  it("flag off: /oauth/register is a 404 and the metadata has no registration_endpoint", async () => {
+describe("DCR is on by default", () => {
+  it("default: the metadata advertises registration_endpoint and /oauth/register serves", async () => {
     const flow = await makeFlow();
+    const meta = (await (await flow.app.request(flow.url(METADATA))).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(meta.registration_endpoint).toBe(`${flow.issuer}/oauth/register`);
+    const r = await register(flow, nativeMeta());
+    expect(r.res.status).toBe(201);
+    expect(clientRows(flow)).toHaveLength(1);
+  });
+
+  it("explicit false: /oauth/register is a 404 and the metadata has no registration_endpoint", async () => {
+    const flow = await makeFlow({ as: { dynamicRegistration: false } });
     const r = await register(flow, nativeMeta());
     expect(r.res.status).toBe(404);
     expect(clientRows(flow)).toHaveLength(0);
@@ -120,15 +132,19 @@ describe("DCR is off by default", () => {
     expect(meta.token_endpoint_auth_methods_supported).toContain("none");
   });
 
-  it("flag on: a boot notice names the flooding surface and the knobs", async () => {
-    const flow = await dcrFlow({ maxClients: 7, perIpPerHour: 3, unusedDays: 11 });
-    const notice = flow.logs.find((l) => /dynamic client registration/i.test(l)) ?? "";
-    expect(notice).toMatch(/warning/i);
+  it("default: ONE concise info-level boot line names the knobs and how to turn it off", async () => {
+    const flow = await makeFlow({
+      as: { dcr: { maxClients: 7, perIpPerHour: 3, unusedDays: 11 } },
+    });
+    const notices = flow.logs.filter((l) => /dynamic client registration/i.test(l));
+    expect(notices).toHaveLength(1);
+    const notice = notices[0] ?? "";
+    expect(notice).not.toMatch(/warning/i);
     expect(notice).toContain("/oauth/register");
     expect(notice).toContain("auth.as.dcr.perIpPerHour=3");
     expect(notice).toContain("auth.as.dcr.maxClients=7");
     expect(notice).toContain("auth.as.dcr.unusedDays=11");
-    expect(notice).toContain("auth.as.dynamicRegistration");
+    expect(notice).toContain("auth.as.dynamicRegistration: false");
   });
 
   it("an unclaimed server refuses registration", async () => {
@@ -151,6 +167,23 @@ describe("the hardened security profile forces DCR off", () => {
       as: { enabled: true, issuer: "https://vault.example.com", dynamicRegistration: true },
     },
   };
+
+  it("hardened with the flag unset (the new default) reads false and does not claim an override", () => {
+    const { dynamicRegistration: _unset, ...as } = base.auth.as;
+    const unset = { ...structuredClone(base), auth: { ...structuredClone(base.auth), as } };
+    const lines: string[] = [];
+    const write = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      lines.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      expect(finalizeConfig(unset, {}).auth.as?.dynamicRegistration).toBe(false);
+    } finally {
+      process.stderr.write = write;
+    }
+    expect(lines.join("")).not.toMatch(/dynamicRegistration/);
+  });
 
   it("applySecurityProfile turns an explicit dynamicRegistration: true off", () => {
     const raw = applySecurityProfile(structuredClone(base));
@@ -845,7 +878,7 @@ describe("consent for a registered client", () => {
 });
 
 describe("the schema keys the slice reads", () => {
-  it("defaults: off, 1000 clients, 10 per source per hour, 90 days", () => {
+  it("defaults: on, 1000 clients, 10 per source per hour, 90 days", () => {
     const cfg = ServerConfigSchema.parse({
       vaults: [{ id: "v1", path: "/tmp/v1" }],
       auth: {
@@ -855,7 +888,7 @@ describe("the schema keys the slice reads", () => {
         as: { enabled: true, issuer: "https://vault.example.com" },
       },
     });
-    expect(cfg.auth.as?.dynamicRegistration).toBe(false);
+    expect(cfg.auth.as?.dynamicRegistration).toBe(true);
     expect(cfg.auth.as?.dcr).toEqual({ maxClients: 1000, perIpPerHour: 10, unusedDays: 90 });
   });
 });
