@@ -7,7 +7,7 @@
 // tasks_filter, resolve_daily_note) goes through vault/acl-read-filter.ts, which now resolves first.
 //
 // Positive control: `shared -> pages` where only `pages/**` is whitelisted still returns its rows.
-import { symlinkSync } from "node:fs";
+import { linkSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FakeRoute } from "../src/bridge";
@@ -126,6 +126,93 @@ describe.skipIf(process.platform === "win32")(
         const r = await v.call("resolve_daily_note", { vault: "test" });
         expect(r.ok, dump(r)).toBe(true);
       });
+    });
+
+    // read_note refuses a hard-linked file (inode aliasing: realpath cannot dereference a hard
+    // link, so a pathname check alone admits `allowed/hard.md` for a file living in `private/`).
+    describe.each(FAMILIES)("$tool: hard link", (f) => {
+      it("a row naming a hard link to a denied file is dropped, as read_note refuses it", async () => {
+        const v = vault(f.installed, {
+          [f.route]: { body: { ok: true, result: f.result("pages/hard.md", MARK) } },
+        });
+        linkSync(join(v.root, "private", "secret.md"), join(v.root, "pages", "hard.md"));
+        const direct = await v.call("read_note", { vault: "test", path: "pages/hard.md" });
+        expect(direct.ok).toBe(false);
+        const r = await v.call(f.tool, { vault: "test", ...f.input });
+        expect(r.ok, dump(r)).toBe(true);
+        expect(dump(r)).not.toContain(MARK);
+        expect(dump(r)).not.toContain("pages/hard.md");
+      });
+    });
+
+    // Default ACL (readPaths omitted, strict off): enumeration is "unrestricted", yet read_note
+    // still hard-denies the canonical .obsidian / .git / .trash.
+    describe.each(FAMILIES)("$tool: default ACL, alias into a hard-denied folder", (f) => {
+      it.each([".obsidian", ".git", ".trash"])("alias -> %s is dropped", async (dir) => {
+        const v = makeM4Vault({
+          files: { [`${dir}/plugins/foo/data.md`]: `${MARK}\n`, "pages/open.md": "open text\n" },
+          acl: {},
+          installed: f.installed,
+          routes: {
+            [f.route]: {
+              body: {
+                ok: true,
+                result: f.result("alias/plugins/foo/data.md", "CONFIGSECRET"),
+              },
+            },
+          },
+        });
+        cleanups.push(v.cleanup);
+        symlinkSync(join(v.root, dir), join(v.root, "alias"));
+        const direct = await v.call("read_note", {
+          vault: "test",
+          path: "alias/plugins/foo/data.md",
+        });
+        expect(direct.ok).toBe(false);
+        const r = await v.call(f.tool, { vault: "test", ...f.input });
+        expect(r.ok, dump(r)).toBe(true);
+        expect(dump(r)).not.toContain("CONFIGSECRET");
+        expect(dump(r)).not.toContain("alias/plugins");
+      });
+
+      it("an ordinary row is still returned untouched", async () => {
+        const v = makeM4Vault({
+          files: { "pages/open.md": "open text\n" },
+          acl: {},
+          installed: f.installed,
+          routes: {
+            [f.route]: { body: { ok: true, result: f.result("pages/open.md", "open text") } },
+          },
+        });
+        cleanups.push(v.cleanup);
+        const r = await v.call(f.tool, { vault: "test", ...f.input });
+        expect(r.ok, dump(r)).toBe(true);
+        expect(dump(r)).toContain("pages/open.md");
+      });
+    });
+
+    it("filter decision == read_note decision (hard link, hard-denied alias, readable alias)", async () => {
+      const v = vault(["tasks"], {});
+      linkSync(join(v.root, "private", "secret.md"), join(v.root, "pages", "hard.md"));
+      const paths = ["pages/hard.md", "wiki/secret.md", "shared/open.md", "pages/open.md"];
+      for (const p of paths) {
+        const read = (await v.call("read_note", { vault: "test", path: p })).ok;
+        const kept = filterBridgeItemsByAcl(v.acl, v.root, ["*"], [{ path: p }], {
+          tool: "t",
+        });
+        expect(kept.length === 1, p).toBe(read);
+      }
+    });
+
+    it("assertBridgePathReadable refuses a hard-linked daily note", async () => {
+      const v = vault([], {
+        "POST /obsidian-tc/v1/daily-notes/resolve": {
+          body: { ok: true, result: { path: "pages/hard.md", exists: true } },
+        },
+      });
+      linkSync(join(v.root, "private", "secret.md"), join(v.root, "pages", "hard.md"));
+      const r = await v.call("resolve_daily_note", { vault: "test" });
+      expect(r.ok).toBe(false);
     });
 
     it("an unresolvable row (path escaping the vault through a link) fails closed", async () => {
