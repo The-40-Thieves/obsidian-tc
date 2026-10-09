@@ -222,6 +222,8 @@ export interface ConsentView {
   clientHost?: string;
   /** A metadata-document client the operator has never approved: anyone can publish one under any name. */
   unapproved?: boolean;
+  /** A dynamically registered client the operator has never approved: it named itself, nobody vouched for it. */
+  selfRegistered?: boolean;
   scopes: Array<{ scope: string; words: string }>;
   resource: string;
   /** Configured personas and their vaults; absent when none are configured. */
@@ -239,6 +241,9 @@ export function consentPage(o: ConsentView): string {
     o.unapproved && o.clientHost !== undefined
       ? `<p class="error" role="alert">This application identifies itself only by a web address (<code>${escapeHtml(o.clientHost)}</code>) and you have not approved it before. Anyone can publish a document under any name: approve it only if you recognise that address.</p>\n`
       : "";
+  const selfRegistered = o.selfRegistered
+    ? '<p class="error" role="alert">This application registered itself with this server and you have not approved it before. Anyone who can reach this server can register under any name: approve it only if you just started connecting it yourself.</p>\n'
+    : "";
   const hosted =
     o.clientHost === undefined
       ? ""
@@ -262,7 +267,7 @@ ${[...new Set(o.personas.flatMap((p) => p.vaults))].map((v) => option(v)).join("
 `;
   return layout(
     "Approve access",
-    `${warn}${unapproved}<p><strong>${escapeHtml(o.clientName)}</strong> (<code>${escapeHtml(o.clientId)}</code>) asks to use this server on your behalf. After you choose, your browser returns to <code>${escapeHtml(o.redirectHost)}</code>.</p>
+    `${warn}${unapproved}${selfRegistered}<p><strong>${escapeHtml(o.clientName)}</strong> (<code>${escapeHtml(o.clientId)}</code>) asks to use this server on your behalf. After you choose, your browser returns to <code>${escapeHtml(o.redirectHost)}</code>.</p>
 ${hosted}<p>It will be able to:</p>
 <ul>
 ${scopes}

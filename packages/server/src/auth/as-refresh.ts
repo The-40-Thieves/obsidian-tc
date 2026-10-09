@@ -40,7 +40,8 @@ const INSERT_TOKEN = `INSERT INTO refresh_tokens
 export interface NewFamily {
   codeHash: string;
   grantId: string;
-  token: string;
+  /** The first refresh token of the family; absent for a client that did not register for refresh tokens. */
+  token: string | undefined;
   scope: string;
   now: number;
   days: number;
@@ -50,7 +51,7 @@ export interface NewFamily {
 
 /**
  * Consume the code AND start its family, as one transaction: a code is spent only if its refresh
- * token exists, and no refresh token exists for a code that was not spent. False when the code was
+ * token exists (when it gets one), and no refresh token exists for a code that was not spent. False when the code was
  * already used or the grant was revoked meanwhile (the caller treats it as a replay).
  */
 export function consumeCodeAndStartFamily(db: Database, f: NewFamily): boolean {
@@ -60,6 +61,8 @@ export function consumeCodeAndStartFamily(db: Database, f: NewFamily): boolean {
       | undefined;
     if (grant === undefined || grant.revoked_at !== null) return false;
     if (!consumeCode(db, f.codeHash, f.now)) return false;
+    // No refresh token: the code is spent and the family is just its access tokens.
+    if (f.token === undefined) return true;
     db.prepare(INSERT_TOKEN).run(
       sha256Hex(f.token),
       f.codeHash,

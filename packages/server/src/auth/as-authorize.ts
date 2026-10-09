@@ -17,6 +17,7 @@ import {
   redirectUriAllowed,
   scopesCovered,
 } from "./as-clients";
+import { noteClientUsed } from "./as-dcr";
 import {
   approveRequest,
   createPending,
@@ -204,6 +205,7 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
     });
     if (approved === "session_ended") return c.redirect(loginFor(handle, false), 303);
     if (approved === undefined) return expired(c);
+    noteClientUsed(db, p.clientId, now());
     log(`consent approved client=${p.clientId}`);
     return toClient(c, p.redirectUri, { code: approved.code, state: p.state ?? undefined });
   };
@@ -265,6 +267,7 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
               unapproved: !everApproved(db, client.clientId),
             }
           : {}),
+        ...(client.dcr ? { selfRegistered: !everApproved(db, client.clientId) } : {}),
         scopes: shown.map((scope) => ({ scope, words: describeScope(scope) })),
         resource: pending.resource,
         ...(personas.length > 0 ? { personas } : {}),

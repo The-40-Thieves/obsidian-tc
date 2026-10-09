@@ -34,6 +34,7 @@ import {
   parseClientIdUrl,
 } from "./as-cimd-document";
 import { type AsClient, findStaticClient } from "./as-clients";
+import { loadRegistration } from "./as-dcr";
 import { fetchBoundedText } from "./oidc-discovery";
 
 type StaticClient = NonNullable<NonNullable<ServerConfig["auth"]["as"]>["clients"]>[number];
@@ -127,12 +128,15 @@ export interface ResolverDeps {
   allowedHosts: readonly string[];
   /** oauth.db. */
   db: Database;
+  /** `auth.as.dynamicRegistration`: registered clients resolve only while it is on. */
+  dynamicRegistration?: boolean | undefined;
   now: () => number;
   log: (line: string) => void;
   seams?: CimdSeams | undefined;
 }
 
 export const UNKNOWN_CLIENT = "unknown client";
+const UNNAMED_CLIENT = "Unnamed application";
 
 /** The cache lifetime a `Cache-Control` value asks for, clamped; anything unusable is the floor. */
 export function cimdTtlMs(cacheControl: string | null): number {
@@ -287,8 +291,24 @@ export function createClientResolver(d: ResolverDeps): ClientResolver {
   return async (clientId, opts) => {
     const fixed = findStaticClient(d.clients, clientId);
     if (fixed !== undefined) return { client: fixed };
-    // Anything that is not even shaped like a URL is simply not registered.
-    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(clientId)) return { failure: UNKNOWN_CLIENT };
+    // Anything that is not even shaped like a URL is a registered client or no client at all (an
+    // opaque id is never fetched, and a URL is never looked up as a registration).
+    if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(clientId)) {
+      const registered = d.dynamicRegistration
+        ? loadRegistration(d.db, clientId, d.now())
+        : undefined;
+      return registered === undefined
+        ? { failure: UNKNOWN_CLIENT }
+        : {
+            client: {
+              clientId,
+              name: registered.name || UNNAMED_CLIENT,
+              redirectUris: registered.redirectUris,
+              dcr: true,
+              grantTypes: registered.grantTypes,
+            },
+          };
+    }
     return viaMetadata(clientId, opts);
   };
 }

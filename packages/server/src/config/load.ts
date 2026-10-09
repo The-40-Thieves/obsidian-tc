@@ -9,7 +9,7 @@ import {
 } from "@the-40-thieves/obsidian-tc-shared";
 import { markEmbeddingsProviderExplicit } from "../embeddings/provider-explicit";
 import { configureProviderPlainHttp } from "../gateway/provider-fetch";
-import { applySecurityProfile } from "./security-profile";
+import { applySecurityProfile, requestsDynamicRegistration } from "./security-profile";
 
 /**
  * Apply environment-secret overlays (kept off disk) to a raw config object and
@@ -178,6 +178,11 @@ export function finalizeConfig(
   // THE-526: expand a named security profile into its field set BEFORE validation, so explicit fields
   // still override it and the result validates as a normal config.
   const config = ServerConfigSchema.parse(applySecurityProfile(raw));
+  if (requestsDynamicRegistration(raw)) {
+    process.stderr.write(
+      'auth: auth.as.dynamicRegistration is ignored under securityProfile "hardened": Dynamic Client Registration stays off\n',
+    );
+  }
   markEmbeddingsProviderExplicit(config.embeddings, embeddingsProviderWasExplicit);
   // THE-1122 review: `provider: "ollama"` with no explicit `model` restores the HISTORICAL pairing
   // (schema-level defaults are provider-agnostic now — see isEmbeddingsModelExplicit's own doc

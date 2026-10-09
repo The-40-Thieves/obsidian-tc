@@ -18,6 +18,7 @@ export function clientResolverFor(deps: AsRouteDeps, as: AsConfig): ClientResolv
     r = createClientResolver({
       clients: as.clients,
       allowedHosts: as.cimd.allowedHosts,
+      dynamicRegistration: as.dynamicRegistration,
       db: deps.db,
       now: deps.now ?? Date.now,
       log: deps.log ?? defaultLog,
