@@ -47,6 +47,7 @@ import {
   EMBED_MAX_BATCH_TOKENS,
   embedPlans,
 } from "./embed-batches";
+import { syncAclPaths } from "./acl-path-sync";
 import { readLeaderEpoch } from "./leader-epoch";
 import {
   computeNotePlan,
@@ -483,8 +484,12 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     stats.chunks_unchanged += unchanged;
     stats.secrets_skipped += secretsSkipped;
     stats.chunks_dedup_reused += dedupSkipped; // THE-499: aggregate, not per-chunk stderr
+    // Every row written for this note carries the identity the walk resolved for its name.
+    const aclPath = walkedSet.get(rel) ?? rel;
+    if (plan) plan.aclPath = aclPath;
     if (hasNotes && notesRowExpectedForSize(Buffer.byteLength(raw))) {
       const rec = buildNoteRecord(rel, raw, flagged, stat, now());
+      rec.aclPath = aclPath;
       if (noteRowHash(args.db, args.vaultId, rel) !== rec.contentHash) {
         // Fix round (cross-vendor review): the SAME preloaded fence baseline the chunk plan above
         // captured for this path — flushNotes re-checks it with commitFence inside its own write
@@ -518,7 +523,13 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       notes.push(e.relPath);
       await processNote(e.relPath, { mtime: e.mtime, size: e.size });
     }
+    // The streaming walk only knows every identity now (see below for the eager path).
+    syncAclPaths(args.db, args.vaultId, walkedSet, args.sql);
   } else {
+    // The walk is complete before any note is processed, so resolve the stored identities FIRST:
+    // rows that predate the column (marked unresolved, fail closed) become searchable again in
+    // seconds, not after the first embed of a long pass.
+    syncAclPaths(args.db, args.vaultId, walkedSet, args.sql);
     for (const rel of notes) {
       await processNote(rel, statByPath.get(rel) ?? null);
     }

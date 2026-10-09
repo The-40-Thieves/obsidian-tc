@@ -12,6 +12,7 @@ import { argsHash } from "../../hash";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import type { VaultAclResolver } from "../../mcp/resources";
 import { readableRel, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
+import { readableStoredRow } from "../../vault/stored-acl-path";
 import { makeVisibleVaultIds } from "../../vault/visible-vaults";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
@@ -55,7 +56,8 @@ function countReadableChunks(
       .prepare("SELECT path, COUNT(*) AS n FROM chunks WHERE vault_id = ? GROUP BY path")
       .all(vaultId) as Array<{ path: string; n: number }>;
     let total = 0;
-    for (const r of rows) if (readableRel(acl, r.path, grantedScopes)) total += r.n;
+    const readable = readableStoredRow(db, vaultId, (a) => readableRel(acl, a, grantedScopes));
+    for (const r of rows) if (readable(r.path)) total += r.n;
     return total;
   } catch {
     return 0;

@@ -15,6 +15,7 @@ import { cachedPrepare, type Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
 import { deleteChunkColbert, upsertChunkColbert } from "../chunk_colbert";
 import { deleteChunkFtsRow, upsertChunkFtsRow } from "../chunk_fts";
+import { hasAclPathColumn } from "../../vault/stored-acl-path";
 import { deleteNoteSummary } from "../note-summaries";
 import { deleteChunkSparse, upsertChunkSparse } from "../sparse";
 import { floatBlob, upsertVec } from "../vec";
@@ -224,6 +225,13 @@ export function applyNoteWrites(
     if (!d.skipEmbed && !d.excludedFromEmbed && hasChunkColbert && cb && cb.length > 0)
       upsertChunkColbert(db, d.id, vaultId, cb);
   });
+  // The ACL identity of every chunk of this path (new, re-embedded and untouched alike), in one
+  // statement after the upserts so no chunk of the note is ever left authorized on its name alone.
+  if (plan.aclPath !== undefined && hasAclPathColumn(db, "chunks"))
+    cachedPrepare(
+      db,
+      "UPDATE chunks SET acl_path = ? WHERE vault_id = ? AND path = ? AND (acl_path IS NULL OR acl_path <> ?)",
+    ).run(plan.aclPath, vaultId, plan.path, plan.aclPath);
   // THE-934 fix round 3 (D): a note transitioning TO excluded had its CHUNK vectors stripped above
   // (per-chunk delEmb/delVec/etc, guarded on d.excludedFromEmbed) but its `note_summaries` row and
   // embedding (search/indexing/summarize-notes.ts) survived untouched — summarize-notes.ts's own

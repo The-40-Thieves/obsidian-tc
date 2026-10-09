@@ -337,6 +337,14 @@ export async function buildServerRuntime(
         // config path reached through a symlinked ancestor (e.g. macOS $TMPDIR) made the native
         // addon refuse that open and deindex the note the watcher had just seen written.
         vaults: vaultRegistry.list().map((v) => ({ id: v.id, path: v.root })),
+        // Live, so a runtime add_vault's notes resolve their ACL identity too.
+        rootOf: (id) => {
+          try {
+            return vaultRegistry.resolve(id).root;
+          } catch {
+            return undefined;
+          }
+        },
         watch: config.watch,
         sqlHooksFor,
         indexHealth,

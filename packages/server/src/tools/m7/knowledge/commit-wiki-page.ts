@@ -30,6 +30,7 @@ import { vaultExclusionFor } from "../../../search/index-exclusion";
 import { errorMessage } from "../../../util/errors";
 import { enforcePathAcl } from "../../../vault/acl-path";
 import { readableRel } from "../../../vault/acl-read-filter";
+import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { parseNoteLenient, serializeNote } from "../../../vault/frontmatter";
 import { requireConfirmation } from "../../../vault/hitl";
 import {
@@ -512,8 +513,11 @@ export function createCommitWikiPageTool(
         });
 
       const touched = [...(pagePrev ? [pageRel] : []), ...patchRels];
-      const contradictions = openContradictionsForPaths(ctx.db, v.id, touched, (rel) =>
-        readableRel(ctx.acl, rel, ctx.grantedScopes),
+      const contradictions = openContradictionsForPaths(
+        ctx.db,
+        v.id,
+        touched,
+        readableStoredRow(ctx.db, v.id, (a) => readableRel(ctx.acl, a, ctx.grantedScopes)),
       );
 
       // The same rule write_note applies to an overwrite of a non-empty note, unchanged.

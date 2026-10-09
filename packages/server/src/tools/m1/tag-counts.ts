@@ -2,6 +2,7 @@
 // suggest_tags, so both see exactly the same ACL-filtered view of the vault's tag vocabulary.
 import type { CallerContext } from "../../mcp/registry";
 import { readableEntry, readableRel } from "../../vault/acl-read-filter";
+import { readableStoredRow } from "../../vault/stored-acl-path";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { noteTags } from "../../vault/tags";
@@ -34,9 +35,13 @@ export function collectTagCounts(
     const rows = ctx.db
       .prepare("SELECT path, tags FROM notes WHERE vault_id = ? ORDER BY path")
       .all(vault.id) as Array<{ path: string; tags: string }>;
+    // A stored row is judged on the identity the index recorded for its name (`acl_path`).
+    const readable = readableStoredRow(ctx.db, vault.id, (a) =>
+      readableRel(ctx.acl, a, ctx.grantedScopes),
+    );
     for (const r of rows) {
       if (sub !== undefined && r.path !== sub && !r.path.startsWith(`${sub}/`)) continue;
-      if (!readableRel(ctx.acl, r.path, ctx.grantedScopes)) continue;
+      if (!readable(r.path)) continue;
       if (scanned >= maxNotes) break;
       scanned++;
       for (const t of JSON.parse(r.tags) as string[]) counts.set(t, (counts.get(t) ?? 0) + 1);

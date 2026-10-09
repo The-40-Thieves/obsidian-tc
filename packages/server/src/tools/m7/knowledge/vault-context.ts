@@ -22,6 +22,7 @@ import {
 import { cachedGraphSearch } from "../../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../../search/router";
 import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
+import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { resolveVaultPath } from "../../../vault/paths";
 import { defineTool } from "../../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
@@ -78,7 +79,7 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
       const v = deps.vaultRegistry.resolve(input.vault);
       const exclusion = vaultExclusionFor(deps.vaultRegistry, v.id);
       const isReadable = withVaultExclusion(
-        (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
+        readableStoredRow(ctx.db, v.id, (a) => readableRel(ctx.acl, a, ctx.grantedScopes)),
         exclusion,
       );
       // GH #1027: shaping happens on the way OUT. The prewarm cache below always stores and serves

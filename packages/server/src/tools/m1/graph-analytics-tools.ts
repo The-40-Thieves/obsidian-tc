@@ -27,6 +27,7 @@ import {
 } from "../../graph/analytics";
 import type { ToolDefinition } from "../../mcp/registry";
 import { readableRel } from "../../vault/acl-read-filter";
+import { readableStoredRow } from "../../vault/stored-acl-path";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "./define";
 
@@ -97,13 +98,15 @@ interface EdgeRow {
   edge_type: string;
 }
 
-/** Read the ACL-visible edge set for a vault, plus the edge-type map for path rationales. */
+/** Read the ACL-visible edge set for a vault, plus the edge-type map for path rationales. An edge
+ *  endpoint is a stored note name, so `decide` judges the identity the index recorded for it. */
 function readEdges(
   db: Database,
   vaultId: string,
-  isReadable: (rel: string) => boolean,
+  decide: (aclRel: string) => boolean,
 ): { edges: GraphEdge[]; types: Map<string, string[]> } {
   if (!tableExists(db, "vault_edges")) return { edges: [], types: new Map() };
+  const isReadable = readableStoredRow(db, vaultId, decide);
   const rows = db
     .prepare("SELECT source_path, target_path, edge_type FROM vault_edges WHERE vault_id = ?")
     .all(vaultId) as EdgeRow[];

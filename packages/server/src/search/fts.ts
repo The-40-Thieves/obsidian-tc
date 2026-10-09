@@ -7,6 +7,7 @@
 import type { Database } from "../db/types";
 import { parseNote } from "../vault/frontmatter";
 import { contentHash } from "../vault/paths";
+import { hasAclPathColumn } from "../vault/stored-acl-path";
 import { noteTags } from "../vault/tags";
 
 const ftsCache = new WeakMap<Database, boolean>();
@@ -183,6 +184,9 @@ export interface NoteRecord {
    *  WITH a same-pass chunk plan is already fenced by applyNoteWrites — re-checking here too would
    *  collide with a generation it hasn't bumped yet (notes flush commits before the chunk batch). */
   fenceCheckRequired: boolean;
+  /** The note's ACL identity (symlink-resolved path), stored in `notes.acl_path` next to `path`.
+   *  Caller-set: buildNoteRecord does not know the walk entry. Absent leaves the column unwritten. */
+  aclPath?: string;
 }
 
 /**
@@ -266,6 +270,14 @@ export function upsertNoteRow(
     rec.size,
     ts,
   );
+  // A follow-up statement (not a column of the upsert above) so a store whose chain predates the
+  // column keeps working; the row's identity is what every reader authorizes on.
+  if (rec.aclPath !== undefined && hasAclPathColumn(db, "notes"))
+    db.prepare("UPDATE notes SET acl_path = ? WHERE vault_id = ? AND path = ?").run(
+      rec.aclPath,
+      vaultId,
+      rec.path,
+    );
   if (hasFts) {
     db.prepare("DELETE FROM notes_fts WHERE vault_id = ? AND path = ?").run(vaultId, rec.path);
     db.prepare("INSERT INTO notes_fts (vault_id, path, title, content) VALUES (?, ?, ?, ?)").run(
