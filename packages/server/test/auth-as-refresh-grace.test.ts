@@ -89,6 +89,24 @@ describe("grace: the token the family just left", () => {
     expect(alive(flow)).toBe(false);
   });
 
+  it("a clock that steps backward does not open a grace: grace 0 stays strict, a closed window stays closed", async () => {
+    const strict = await makeFlow({ as: { refreshReuseGraceSeconds: 0 } });
+    const a0 = await issue(strict);
+    const b0 = await next(strict, a0.refresh);
+    await next(strict, b0.refresh);
+    strict.clock.t -= 10 * SECOND;
+    expect((await refresh(strict, a0.refresh)).body.error).toBe("invalid_grant");
+    expect(alive(strict)).toBe(false);
+
+    const flow = await makeFlow({ as: { refreshReuseGraceSeconds: 5 } });
+    const a = await issue(flow);
+    const b = await next(flow, a.refresh);
+    await next(flow, b.refresh);
+    flow.clock.t -= 10 * SECOND;
+    expect((await refresh(flow, a.refresh)).body.error).toBe("invalid_grant");
+    expect(alive(flow)).toBe(false);
+  });
+
   it("a token two generations back is a reuse even inside the window", async () => {
     const flow = await makeFlow();
     const a = await issue(flow);

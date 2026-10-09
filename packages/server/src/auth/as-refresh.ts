@@ -156,10 +156,8 @@ export function standing(db: Database, cur: RefreshRecord, at: StandingInput): S
   // The grace: the family moved past `cur` (its successor was used) at most `graceMs` ago and by that
   // one step only, so a second window still holding the token the family just left is answered with
   // the successor again. A token older than that, or presented later, is a reuse.
-  const graced =
-    cur.successorFirstUsedAt !== null &&
-    child.childUsedAt === null &&
-    now - cur.successorFirstUsedAt < graceMs;
+  const age = cur.successorFirstUsedAt === null ? -1 : now - cur.successorFirstUsedAt;
+  const graced = graceMs > 0 && child.childUsedAt === null && age >= 0 && age < graceMs;
   if (cur.successorFirstUsedAt !== null && !graced) return "reuse";
   return child.token_hash === sha256Hex(successor) ? "retry" : "dead";
 }
