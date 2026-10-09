@@ -15,10 +15,10 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableEntry, readableRel } from "../../vault/acl-read-filter";
-import { readableStoredRow } from "../../vault/stored-acl-path";
 import { type Frontmatter, parseNote, serializeNote } from "../../vault/frontmatter";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
+import { readableStoredRow } from "../../vault/stored-acl-path";
 import {
   extractInlineTags,
   isValidTag,

@@ -30,7 +30,6 @@ import { vaultExclusionFor } from "../../../search/index-exclusion";
 import { errorMessage } from "../../../util/errors";
 import { enforcePathAcl } from "../../../vault/acl-path";
 import { readableRel } from "../../../vault/acl-read-filter";
-import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { parseNoteLenient, serializeNote } from "../../../vault/frontmatter";
 import { requireConfirmation } from "../../../vault/hitl";
 import {
@@ -47,6 +46,7 @@ import {
   resolveVaultPathChecked,
 } from "../../../vault/paths";
 import { captureSnapshot, discardSnapshots, pruneSnapshots } from "../../../vault/snapshots";
+import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { applyWriteBatch, type BatchWrite, isIncompleteRollback } from "../../../vault/write-batch";
 import {
   createModeConflictError,

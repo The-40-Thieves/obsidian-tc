@@ -338,13 +338,7 @@ export async function buildServerRuntime(
         // addon refuse that open and deindex the note the watcher had just seen written.
         vaults: vaultRegistry.list().map((v) => ({ id: v.id, path: v.root })),
         // Live, so a runtime add_vault's notes resolve their ACL identity too.
-        rootOf: (id) => {
-          try {
-            return vaultRegistry.resolve(id).root;
-          } catch {
-            return undefined;
-          }
-        },
+        rootOf: (id) => vaultRegistry.list().find((v) => v.id === id)?.root,
         watch: config.watch,
         sqlHooksFor,
         indexHealth,

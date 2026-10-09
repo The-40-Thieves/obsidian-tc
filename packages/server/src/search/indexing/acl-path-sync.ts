@@ -34,7 +34,9 @@ export function syncAclPaths(
         ? [...identities.keys()].flatMap(
             (p) =>
               db
-                .prepare(`SELECT DISTINCT path, acl_path FROM ${table} WHERE vault_id = ? AND path = ?`)
+                .prepare(
+                  `SELECT DISTINCT path, acl_path FROM ${table} WHERE vault_id = ? AND path = ?`,
+                )
                 .all(vaultId, p) as Array<{ path: string; acl_path: string | null }>,
           )
         : (db

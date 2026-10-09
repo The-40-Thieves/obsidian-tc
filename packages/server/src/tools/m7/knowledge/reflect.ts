@@ -16,8 +16,8 @@ import { cachedGraphSearch } from "../../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../../search/router";
 import { enforcePathAcl } from "../../../vault/acl-path";
 import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
-import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { persistGovernedNote } from "../../../vault/persist-note";
+import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
 import type { M7Deps } from "./deps";
 import {

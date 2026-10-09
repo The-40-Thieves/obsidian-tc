@@ -2,9 +2,9 @@
 // suggest_tags, so both see exactly the same ACL-filtered view of the vault's tag vocabulary.
 import type { CallerContext } from "../../mcp/registry";
 import { readableEntry, readableRel } from "../../vault/acl-read-filter";
-import { readableStoredRow } from "../../vault/stored-acl-path";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
+import { readableStoredRow } from "../../vault/stored-acl-path";
 import { noteTags } from "../../vault/tags";
 import { ScanWarnings } from "../scan-warnings";
 

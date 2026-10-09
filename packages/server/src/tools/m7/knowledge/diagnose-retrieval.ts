@@ -54,8 +54,8 @@ import type { ToolDefinition } from "../../../mcp/registry";
 import { graphSearch } from "../../../search/graph_search";
 import type { RetrievalTraceRecord } from "../../../search/graph_search_stages/instrumentation";
 import { readableRel } from "../../../vault/acl-read-filter";
-import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { normalizeVaultPath } from "../../../vault/paths";
+import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
 import { conciseDiagnoseRetrieval } from "./concise-reads";
@@ -188,7 +188,9 @@ export function createDiagnoseRetrievalTool(
         vaultId: v.id,
         finalTopK: input.final_top_k,
         reranker: deps.reranker,
-        isReadable: readableStoredRow(ctx.db, v.id, (a) => readableRel(ctx.acl, a, ctx.grantedScopes)),
+        isReadable: readableStoredRow(ctx.db, v.id, (a) =>
+          readableRel(ctx.acl, a, ctx.grantedScopes),
+        ),
         db: ctx.db,
         acl: ctx.acl,
         grantedScopes: ctx.grantedScopes,

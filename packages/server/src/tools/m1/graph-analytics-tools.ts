@@ -27,8 +27,8 @@ import {
 } from "../../graph/analytics";
 import type { ToolDefinition } from "../../mcp/registry";
 import { readableRel } from "../../vault/acl-read-filter";
-import { readableStoredRow } from "../../vault/stored-acl-path";
 import { normalizeVaultPath } from "../../vault/paths";
+import { readableStoredRow } from "../../vault/stored-acl-path";
 import { defineTool } from "./define";
 
 /**

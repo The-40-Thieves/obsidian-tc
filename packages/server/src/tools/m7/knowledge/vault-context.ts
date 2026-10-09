@@ -22,8 +22,8 @@ import {
 import { cachedGraphSearch } from "../../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../../search/router";
 import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
-import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { resolveVaultPath } from "../../../vault/paths";
+import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
 import { conciseVaultContext } from "./concise-reads";

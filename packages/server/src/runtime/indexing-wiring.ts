@@ -304,7 +304,7 @@ export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinat
       return null;
     }
   };
-  const deindexPath =(vaultId: string, path: string, excluded: boolean): void =>
+  const deindexPath = (vaultId: string, path: string, excluded: boolean): void =>
     deindexNote(
       deps.db,
       vaultId,
