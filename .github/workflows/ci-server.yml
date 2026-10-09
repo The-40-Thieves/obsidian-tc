@@ -197,6 +197,15 @@ jobs:
       - name: embedder pin artifact (model-info.ts vs the Modal embedder's pins)
         run: bun run check:model-pins
 
+      # A symlinked vault folder gives one file a display name and a canonical target; the ACL must
+      # judge the target. This follows a walked entry's relPath / a stored row's path through
+      # aliases, destructuring, wrappers and callbacks (oxc-parser AST) and fails if it reaches a
+      # lexical decider (readableRel / readableByFolder / ...). It replaces the count-and-grep scan
+      # in enumeration-acl-canonical.test.ts, which those shapes bypassed. Existence floors + a
+      # reviewed, counted allowlist live in the script.
+      - name: ACL canonical identity (display path never reaches a lexical ACL decision)
+        run: bun run check:acl-identity
+
       # The gates above have their own unit tests, and those were unwired too. A gate whose tests
       # never run is a gate whose non-vacuity nobody is checking — exactly how the hardcoded
       # `files.length === 3` assertion in check-facade-parity.test.mjs survived a fourth facade
