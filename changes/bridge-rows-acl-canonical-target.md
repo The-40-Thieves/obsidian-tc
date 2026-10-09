@@ -1,0 +1,4 @@
+---
+type: Security
+---
+- **Rows a companion plugin returns for a symlinked folder are authorized by what the path points at, not by its display name.** With `wiki -> private`, `wiki/**` allowed and `private/**` denied, `read_note wiki/secret.md` was refused while a plugin row naming `wiki/secret.md` passed the lexical whitelist, so `search_omnisearch`, `query_datacore`, `makemd_query` and `tasks_filter` returned the row (and its excerpt), and `resolve_daily_note` confirmed the path. The shared bridge filters (`filterBridgeItemsByAcl`, `filterBridgeResultItems`, `assertBridgePathReadable`) now take the vault root and decide with `readableResolved`, the canonical-target check `read_note` uses; a path that cannot be resolved (dangling link, outside the vault) fails closed. A row whose alias points at a readable target is still returned under its display path.

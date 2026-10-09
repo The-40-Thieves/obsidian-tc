@@ -331,7 +331,7 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
         // unattributable row when a read whitelist is configured (D2/B1). `groups`
         // (aggregate counts) pass through untouched.
         const rawItems = Array.isArray(result.items) ? (result.items as unknown[]) : [];
-        const items = filterBridgeItemsByAcl(ctx.acl, ctx.grantedScopes, rawItems, {
+        const items = filterBridgeItemsByAcl(ctx.acl, v.root, ctx.grantedScopes, rawItems, {
           tool: "tasks_filter",
         });
         // Under a read whitelist, drop `...result` — `groups` (and any other sibling) is computed

@@ -95,7 +95,7 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
         // Intersect make.md rows with the read ACL by note path; fail closed on an
         // unattributable row under a read whitelist (D2/B2).
         const rawItems = Array.isArray(result.items) ? (result.items as unknown[]) : [];
-        const items = filterBridgeItemsByAcl(ctx.acl, ctx.grantedScopes, rawItems, {
+        const items = filterBridgeItemsByAcl(ctx.acl, v.root, ctx.grantedScopes, rawItems, {
           tool: "makemd_query",
           keys: ["note_path", "path", "file", "filePath"],
         });

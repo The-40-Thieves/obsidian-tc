@@ -127,10 +127,14 @@ export function readableByFolder(acl: FolderAcl | undefined, rel: string): boole
  * Filter bridge-returned items by the read ACL. When read enumeration is unrestricted
  * the items are returned unchanged. Otherwise every item MUST be attributable to a
  * vault path; an unattributable item throws acl_denied (fail-closed), and an
- * attributable item is kept only when it passes the read whitelist.
+ * attributable item is kept only when its CANONICAL target passes the read whitelist
+ * (`readableResolved`): the plugin names the display path, so `wiki/x.md` under
+ * `wiki -> private` is judged as `private/x.md`, as read_note judges it. A path that cannot
+ * be resolved (dangling link, outside the vault) is dropped.
  */
 export function filterBridgeItemsByAcl(
   acl: FolderAcl | undefined,
+  root: string,
   grantedScopes: Iterable<string>,
   items: unknown[],
   opts: { tool: string; keys?: readonly string[] },
@@ -143,7 +147,7 @@ export function filterBridgeItemsByAcl(
       throw err.aclDenied("bridge result cannot be attributed to a vault path; failing closed", {
         tool: opts.tool,
       });
-    if (readableRel(acl, rel, grantedScopes)) out.push(it);
+    if (readableResolved(acl, root, rel, grantedScopes)) out.push(it);
   }
   return out;
 }
@@ -156,23 +160,25 @@ export function filterBridgeItemsByAcl(
  */
 export function filterBridgeResultItems(
   acl: FolderAcl | undefined,
+  root: string,
   grantedScopes: Iterable<string>,
   result: Record<string, unknown>,
   opts: { tool: string; keys?: readonly string[] },
 ): Record<string, unknown> {
   if (readEnumerationUnrestricted(acl, grantedScopes)) return result;
   const rows = Array.isArray(result.items) ? (result.items as unknown[]) : [];
-  const items = filterBridgeItemsByAcl(acl, grantedScopes, rows, opts);
+  const items = filterBridgeItemsByAcl(acl, root, grantedScopes, rows, opts);
   return { items, total: items.length };
 }
 
 /**
  * Gate a bridge result that names exactly one vault path (resolve_daily_note): the caller must be
- * able to read it, exactly as read_note would require. An unattributable path fails closed for a
- * restricted caller.
+ * able to read it, exactly as read_note would require (the canonical target, `readableResolved`).
+ * An unattributable or unresolvable path fails closed for a restricted caller.
  */
 export function assertBridgePathReadable(
   acl: FolderAcl | undefined,
+  root: string,
   grantedScopes: Iterable<string>,
   result: unknown,
   opts: { tool: string },
@@ -181,7 +187,7 @@ export function assertBridgePathReadable(
   const readable =
     rel === undefined
       ? readEnumerationUnrestricted(acl, grantedScopes)
-      : readableRel(acl, rel, grantedScopes);
+      : readableResolved(acl, root, rel, grantedScopes);
   if (!readable) throw err.aclDenied("path is not readable by this caller", { tool: opts.tool });
 }
 

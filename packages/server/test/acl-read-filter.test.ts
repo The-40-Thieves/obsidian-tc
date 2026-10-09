@@ -24,23 +24,27 @@ describe("acl-read-filter (D2)", () => {
   it("keeps in-whitelist items and drops the rest", () => {
     const a = acl({ readPaths: ["Notes/**"] });
     const items = [{ path: "Notes/a.md" }, { path: "Secret/s.md" }];
-    expect(filterBridgeItemsByAcl(a, [], items, { tool: "t" })).toEqual([{ path: "Notes/a.md" }]);
+    expect(filterBridgeItemsByAcl(a, tmpdir(), [], items, { tool: "t" })).toEqual([
+      { path: "Notes/a.md" },
+    ]);
   });
 
   it("fails closed on an unattributable item when readPaths is defined", () => {
     const a = acl({ readPaths: ["Notes/**"] });
-    expect(() => filterBridgeItemsByAcl(a, [], [{ line: 1 }], { tool: "t" })).toThrow();
+    expect(() => filterBridgeItemsByAcl(a, tmpdir(), [], [{ line: 1 }], { tool: "t" })).toThrow();
   });
 
   it("returns items unchanged when readPaths undefined and strict off", () => {
     const items = [{ path: "Secret/s.md" }];
-    expect(filterBridgeItemsByAcl(acl({}), [], items, { tool: "t" })).toEqual(items);
+    expect(filterBridgeItemsByAcl(acl({}), tmpdir(), [], items, { tool: "t" })).toEqual(items);
   });
 
   it("strictReadDefault fails reads closed (deny non-whitelisted, require attribution) with readPaths undefined", () => {
     const a = acl({ strictReadDefault: true });
-    expect(() => filterBridgeItemsByAcl(a, [], [{ line: 1 }], { tool: "t" })).toThrow();
-    expect(filterBridgeItemsByAcl(a, [], [{ path: "Any/x.md" }], { tool: "t" })).toEqual([]); // THE-268: strict now denies non-whitelisted reads too (fail-closed)
+    expect(() => filterBridgeItemsByAcl(a, tmpdir(), [], [{ line: 1 }], { tool: "t" })).toThrow();
+    expect(filterBridgeItemsByAcl(a, tmpdir(), [], [{ path: "Any/x.md" }], { tool: "t" })).toEqual(
+      [],
+    ); // THE-268: strict now denies non-whitelisted reads too (fail-closed)
   });
 
   it("bridgeItemPath extracts the first present key and rejects bad paths", () => {
@@ -156,8 +160,12 @@ describe("readableRel: rule-scopes and parity with enforcePathAcl", () => {
 
   it("filterBridgeItemsByAcl drops a rule-scoped item for a caller lacking the scope", () => {
     const items = [{ path: "pub/a.md" }, { path: "secret/b.md" }];
-    expect(() => filterBridgeItemsByAcl(ruled, [], items, { tool: "t" })).not.toThrow();
-    expect(filterBridgeItemsByAcl(ruled, [], items, { tool: "t" })).toEqual([{ path: "pub/a.md" }]);
-    expect(filterBridgeItemsByAcl(ruled, ["read:secret"], items, { tool: "t" })).toEqual(items);
+    expect(() => filterBridgeItemsByAcl(ruled, tmpdir(), [], items, { tool: "t" })).not.toThrow();
+    expect(filterBridgeItemsByAcl(ruled, tmpdir(), [], items, { tool: "t" })).toEqual([
+      { path: "pub/a.md" },
+    ]);
+    expect(filterBridgeItemsByAcl(ruled, tmpdir(), ["read:secret"], items, { tool: "t" })).toEqual(
+      items,
+    );
   });
 });
