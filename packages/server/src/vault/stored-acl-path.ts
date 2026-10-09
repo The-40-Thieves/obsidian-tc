@@ -8,14 +8,17 @@
 // the read ACL asks `storedAclPathOf` for the row's identity first, and judges THAT. The name is what
 // the result is shown under.
 //
-//   no exception listed   the row is its own identity (`acl_path IS NULL` or `= path`).
+//   no exception listed   the row is its own identity (`acl_path = path`).
 //   listed, a path        the row is an alias; the ACL judges the path it leads to.
-//   listed, null          UNRESOLVED (`acl_path = ''`, set by migration 20261009_001 on every row
-//                         that predates the column, or two rows of one name disagreeing): FAIL
-//                         CLOSED, the row is returned to nobody until the indexer resolves it.
+//   listed, null          UNRESOLVED (`acl_path IS NULL` or `''`: every row that predates migration
+//                         20261009_001, a writer that did not supply an identity, or two rows of one
+//                         name disagreeing): FAIL CLOSED, the row is returned to nobody until the
+//                         indexer resolves it. A missing identity is never read as "trusted".
 import type { Database } from "../db/types";
 
-/** `acl_path` of a row whose identity is not known yet. See migration 20261009_001. */
+/** What a writer stores for a row whose identity it could not resolve (NULL means the same, and is
+ *  what every row has before a pass resolves it). Both are UNRESOLVED: no reader returns the row.
+ *  See migration 20261009_001. */
 export const ACL_PATH_UNRESOLVED = "";
 
 /** The tables that carry `acl_path`. A reader of either must judge its rows through this module. */
@@ -56,11 +59,11 @@ export function loadAclPathExceptions(db: Database, vaultId: string): Map<string
     if (!hasAclPathColumn(db, table)) continue;
     const rows = db
       .prepare(
-        `SELECT DISTINCT path, acl_path FROM ${table} WHERE vault_id = ? AND acl_path IS NOT NULL AND acl_path <> path`,
+        `SELECT DISTINCT path, acl_path FROM ${table} WHERE vault_id = ? AND (acl_path IS NULL OR acl_path <> path)`,
       )
-      .all(vaultId) as Array<{ path: string; acl_path: string }>;
+      .all(vaultId) as Array<{ path: string; acl_path: string | null }>;
     for (const r of rows) {
-      const next = r.acl_path === ACL_PATH_UNRESOLVED ? null : r.acl_path;
+      const next = r.acl_path === null || r.acl_path === ACL_PATH_UNRESOLVED ? null : r.acl_path;
       // Two rows of one name that name different identities cannot both be right: closed.
       if (!out.has(r.path)) out.set(r.path, next);
       else if (out.get(r.path) !== next) out.set(r.path, null);
@@ -74,7 +77,10 @@ export function loadAclPathExceptions(db: Database, vaultId: string): Map<string
  * closed). The exceptions are loaded on first use, so a predicate that is built and never called
  * (an unrestricted caller's) costs nothing, and one tool call sees one consistent view.
  */
-export function storedAclPathOf(db: Database, vaultId: string): (storedPath: string) => string | null {
+export function storedAclPathOf(
+  db: Database,
+  vaultId: string,
+): (storedPath: string) => string | null {
   let exceptions: Map<string, string | null> | undefined;
   return (storedPath) => {
     exceptions ??= loadAclPathExceptions(db, vaultId);

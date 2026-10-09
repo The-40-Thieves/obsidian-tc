@@ -7,7 +7,7 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { vaultExclusionFor } from "../../search/index-exclusion";
 import { indexVault } from "../../search/indexer";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { readableByFolder, readableRel } from "../../vault/acl-read-filter";
+import { readableByFolder, readableResolved } from "../../vault/acl-read-filter";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
@@ -102,7 +102,7 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
           // a failure entry names a note by path (and its error text embeds the path), so a note
           // the caller cannot read is dropped and the failure count follows the filtered list.
           const frontmatterFailures = stats.frontmatter_failures.filter((f) =>
-            readableRel(ctx.acl, f.path, ctx.grantedScopes),
+            readableResolved(ctx.acl, v.root, f.path, ctx.grantedScopes),
           );
           const failures = {
             notes_frontmatter_failed: frontmatterFailures.length,

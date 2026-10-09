@@ -7,7 +7,7 @@
 import type { Database } from "../db/types";
 import { parseNote } from "../vault/frontmatter";
 import { contentHash } from "../vault/paths";
-import { hasAclPathColumn } from "../vault/stored-acl-path";
+import { ACL_PATH_UNRESOLVED, hasAclPathColumn } from "../vault/stored-acl-path";
 import { noteTags } from "../vault/tags";
 
 const ftsCache = new WeakMap<Database, boolean>();
@@ -185,7 +185,8 @@ export interface NoteRecord {
    *  collide with a generation it hasn't bumped yet (notes flush commits before the chunk batch). */
   fenceCheckRequired: boolean;
   /** The note's ACL identity (symlink-resolved path), stored in `notes.acl_path` next to `path`.
-   *  Caller-set: buildNoteRecord does not know the walk entry. Absent leaves the column unwritten. */
+   *  Caller-set: buildNoteRecord does not know the walk entry. Absent is stored as unresolved
+   *  (ACL_PATH_UNRESOLVED), which no reader returns: a writer that forgets it fails closed. */
   aclPath?: string;
 }
 
@@ -272,9 +273,9 @@ export function upsertNoteRow(
   );
   // A follow-up statement (not a column of the upsert above) so a store whose chain predates the
   // column keeps working; the row's identity is what every reader authorizes on.
-  if (rec.aclPath !== undefined && hasAclPathColumn(db, "notes"))
+  if (hasAclPathColumn(db, "notes"))
     db.prepare("UPDATE notes SET acl_path = ? WHERE vault_id = ? AND path = ?").run(
-      rec.aclPath,
+      rec.aclPath ?? ACL_PATH_UNRESOLVED,
       vaultId,
       rec.path,
     );

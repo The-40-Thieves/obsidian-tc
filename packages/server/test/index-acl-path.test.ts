@@ -24,8 +24,8 @@ import { registerM1Tools } from "../src/tools/m1";
 import { registerM2Tools } from "../src/tools/m2";
 import { registerM7Tools } from "../src/tools/m7";
 import { readableByFolder, readableRel } from "../src/vault/acl-read-filter";
-import { loadAclPathExceptions, readableStoredRow } from "../src/vault/stored-acl-path";
 import { VaultRegistry } from "../src/vault/registry";
+import { loadAclPathExceptions, readableStoredRow } from "../src/vault/stored-acl-path";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
@@ -303,11 +303,11 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
         .prepare("SELECT DISTINCT path, acl_path FROM chunks ORDER BY path")
         .all() as Array<{ path: string; acl_path: string | null }>;
       expect(chunkAcl.length).toBeGreaterThan(0);
-      for (const r of chunkAcl) expect(r.acl_path, r.path).toBe(""); // unresolved, not NULL
+      for (const r of chunkAcl) expect(r.acl_path, r.path).toBeNull(); // unresolved (NULL), never trusted
       expect(
-        (db.prepare("SELECT acl_path FROM notes").all() as Array<{ acl_path: string }>).every(
-          (n) => n.acl_path === "",
-        ),
+        (
+          db.prepare("SELECT acl_path FROM notes").all() as Array<{ acl_path: string | null }>
+        ).every((n) => n.acl_path === null),
       ).toBe(true);
 
       // Fail CLOSED: until resolved, nothing is returned to anybody, even the target's reader.
@@ -320,7 +320,13 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
 
       // One pass resolves every row against the vault, with no re-embedding.
       let embedCalls = 0;
-      const counting = { ...provider, embed: (t: string[]) => (embedCalls++, provider.embed(t)) };
+      const counting = {
+        ...provider,
+        embed: (t: string[]) => {
+          embedCalls++;
+          return provider.embed(t);
+        },
+      };
       await indexVault({
         db,
         provider: counting,
@@ -379,10 +385,10 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
       const before = readGeneration(w.db, VAULT);
       await w.index("wiki", ACL_TARGET);
       expect(
-        (w.db.prepare("SELECT DISTINCT acl_path FROM chunks").all() as Array<{ acl_path: string }>),
+        w.db.prepare("SELECT DISTINCT acl_path FROM chunks").all() as Array<{ acl_path: string }>,
       ).toEqual([{ acl_path: SECRET_PATH }]);
       expect(
-        (w.db.prepare("SELECT DISTINCT acl_path FROM notes").all() as Array<{ acl_path: string }>),
+        w.db.prepare("SELECT DISTINCT acl_path FROM notes").all() as Array<{ acl_path: string }>,
       ).toEqual([{ acl_path: SECRET_PATH }]);
       expect(readGeneration(w.db, VAULT)).toBeGreaterThan(before);
     });
@@ -399,9 +405,9 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
         isReadable: (rel) => readableByFolder(ACL_TARGET, rel),
         walk: { streaming: true },
       });
-      expect(
-        w.db.prepare("SELECT DISTINCT path, acl_path FROM chunks").all(),
-      ).toEqual([{ path: "wiki/secret-project.md", acl_path: SECRET_PATH }]);
+      expect(w.db.prepare("SELECT DISTINCT path, acl_path FROM chunks").all()).toEqual([
+        { path: "wiki/secret-project.md", acl_path: SECRET_PATH },
+      ]);
     });
 
     it("indexNote (index-on-write) records the identity the caller resolved", async () => {
@@ -429,6 +435,50 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
     });
   });
 
+  describe("FAIL OPEN BUG: a writer that does not supply an identity", () => {
+    it("indexNote WITHOUT aclPath stores the row unresolved and no principal reads it", async () => {
+      const w = makeWorld();
+      await indexNote(
+        w.db,
+        provider,
+        VAULT,
+        "wiki/secret-project.md",
+        FILES[SECRET_PATH] as string,
+        false,
+        Date.now,
+      );
+      for (const table of ["chunks", "notes"]) {
+        const rows = w.db.prepare(`SELECT DISTINCT acl_path FROM ${table}`).all() as Array<{
+          acl_path: string | null;
+        }>;
+        expect(rows.length, table).toBeGreaterThan(0);
+        for (const r of rows) expect(r.acl_path === null || r.acl_path === "", table).toBe(true);
+      }
+      for (const acl of [ACL_ALIAS, ACL_TARGET]) {
+        const sem = await w.call("search_semantic", { query: "zebra", k: 20 }, acl);
+        expect(pathsOf(sem.data)).not.toContain("wiki/secret-project.md");
+        const tag = await w.call("find_notes_by_tag", { tag: "leaktag" }, acl);
+        expect(pathsOf(tag.data)).not.toContain("wiki/secret-project.md");
+      }
+    });
+
+    it("an unchanged note re-indexed without an identity does not keep a stale one trusted", async () => {
+      const w = makeWorld();
+      await w.index("wiki", ACL_TARGET);
+      await indexNote(
+        w.db,
+        provider,
+        VAULT,
+        "wiki/secret-project.md",
+        FILES[SECRET_PATH] as string,
+        false,
+        Date.now,
+      );
+      const sem = await w.call("search_semantic", { query: "zebra", k: 20 }, ACL_ALIAS);
+      expect(pathsOf(sem.data)).not.toContain("wiki/secret-project.md");
+    });
+  });
+
   describe("the resolver", () => {
     it("lists only names whose identity differs; two rows of one name that disagree are closed", () => {
       const db = freshDb();
@@ -436,12 +486,13 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
         "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at, acl_path) VALUES (?, ?, ?, 0, '[]', 'c', ?, 1, 0, 0, ?)",
       );
       ins.run("1", VAULT, "a.md", "h1", "a.md"); // its own identity
-      ins.run("2", VAULT, "b.md", "h2", null); // no alias recorded
+      ins.run("2", VAULT, "b.md", "h2", null); // NULL = unresolved: closed
       ins.run("3", VAULT, "wiki/c.md", "h3", "private/c.md"); // alias
       ins.run("4", VAULT, "d.md", "h4", ""); // unresolved
       ins.run("5", VAULT, "e.md", "h5", "x/e.md"); // two identities for one name
       ins.run("6", VAULT, "e.md", "h6", "y/e.md");
       expect([...loadAclPathExceptions(db, VAULT)].sort()).toEqual([
+        ["b.md", null],
         ["d.md", null],
         ["e.md", null],
         ["wiki/c.md", "private/c.md"],

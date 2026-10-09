@@ -12,6 +12,7 @@ import { tableExists } from "../../db/introspect";
 import { inWriteTransaction, type WriteTxnHooks } from "../../db/txn";
 import { cachedPrepare, type Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
+import { ACL_PATH_UNRESOLVED } from "../../vault/stored-acl-path";
 import { deleteChunkColbert, ensureChunkColbert } from "../chunk_colbert";
 import { deleteChunkFtsRow, ensureChunkFts } from "../chunk_fts";
 import {
@@ -102,7 +103,7 @@ export async function indexNote(
   isExcluded?: (rel: string) => boolean,
   /** The note's ACL identity: `path` resolved through any symlinked folder
    *  (vault/paths.ts resolveVaultPathChecked), stored next to the display `path`. Index-on-write
-   *  callers know the vault root and resolve it; absent leaves the stored identity unwritten. */
+   *  callers know the vault root and resolve it; absent is stored as unresolved (closed). */
   aclPath?: string,
 ): Promise<{
   upserted: number;
@@ -136,10 +137,10 @@ export async function indexNote(
   const hasBodySha = hasBodyShaColumn(db);
   const note: NoteRecord | null =
     hasNotes && raw !== "" ? buildNoteRecord(path, raw, flagged, null, now()) : null;
-  if (aclPath !== undefined) {
-    if (note) note.aclPath = aclPath;
-    if (plan) plan.aclPath = aclPath;
-  }
+  // No identity supplied = unresolved (closed): the row is stored, and returned to nobody.
+  const identity = aclPath ?? ACL_PATH_UNRESOLVED;
+  if (note) note.aclPath = identity;
+  if (plan) plan.aclPath = identity;
   if (!plan) {
     // Chunks unchanged; refresh the notes row only when missing/stale (backfill path).
     if (note && noteRowHash(db, vaultId, path) !== note.contentHash) {
@@ -165,7 +166,7 @@ export async function indexNote(
     }
     // Nothing else changed, but the stored identity may be stale (a re-pointed symlink, a row that
     // predates the column): re-sync it without touching the chunks.
-    if (aclPath !== undefined) syncAclPaths(db, vaultId, new Map([[path, aclPath]]), sql);
+    syncAclPaths(db, vaultId, new Map([[path, identity]]), sql);
     return { upserted: 0, deleted: 0, unchanged, secretsSkipped, staleSkipped: false };
   }
   const result = inWriteTransaction(

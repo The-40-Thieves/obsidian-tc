@@ -20,6 +20,7 @@ import { loadNoteVectors, nearDuplicatePairs } from "../../../search/note-vector
 import { readableRel } from "../../../vault/acl-read-filter";
 import { noteExists, readNote } from "../../../vault/notes-io";
 import { resolveVaultPath } from "../../../vault/paths";
+import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { ScanWarnings } from "../../scan-warnings";
 import {
   readableNotes,
@@ -170,7 +171,13 @@ export function runWikiLint(env: LintEnv, input: LintInput): LintReport {
     !env.exclusion.isExcluded(p) &&
     !isGeneratedWikiPath(p, env.wikiFolders ?? env.wikiFolder) &&
     !isRaw(p);
+  // A LIVE filesystem path (the generated pages) is judged lexically, as the read tools do.
   const readable = (p: string): boolean => readableRel(env.acl, p, env.grantedScopes);
+  // A path that came out of the index (chunks, contradictions, note vectors, rollups keyed by an
+  // indexed name) may be a symlink alias: its ACL identity is the stored acl_path, never the name.
+  const readableIndexed = readableStoredRow(env.db, input.vaultId, (a) =>
+    readableRel(env.acl, a, env.grantedScopes),
+  );
   const proposals: Proposal[] = [];
   const skipped: LintReport["skipped"] = [];
   const checksRun: LintCheck[] = [];
@@ -285,7 +292,7 @@ export function runWikiLint(env: LintEnv, input: LintInput): LintReport {
     const paths = readableNotes(env.root, env.acl, env.grantedScopes, folder).filter(subjectOk);
     const rows = new Map<string, ReturnType<typeof openContradictionsForPaths>[number]>();
     for (const group of chunked(paths, 400))
-      for (const r of openContradictionsForPaths(env.db, input.vaultId, group, readable))
+      for (const r of openContradictionsForPaths(env.db, input.vaultId, group, readableIndexed))
         rows.set(r.id, r);
     const rejudged = new Map<string, boolean>();
     try {
@@ -325,7 +332,7 @@ export function runWikiLint(env: LintEnv, input: LintInput): LintReport {
   run("quality", () => {
     if (!env.edb) return "experiential store not open (no note_quality rollup)";
     const rows = readNoteQuality(env.edb, { vaultId: input.vaultId }).filter(
-      (r) => inFolder(r.path) && readable(r.path) && subjectOk(r.path),
+      (r) => inFolder(r.path) && readableIndexed(r.path) && subjectOk(r.path),
     );
     if (rows.length === 0)
       return "no note_quality rollup for this scope yet (run `obsidian-tc note-quality`)";
@@ -346,7 +353,7 @@ export function runWikiLint(env: LintEnv, input: LintInput): LintReport {
         });
       }
       if (flags.includes("duplicate")) {
-        const peers = exactChunkPeers(env.db, input.vaultId, r.path, (p) => readable(p));
+        const peers = exactChunkPeers(env.db, input.vaultId, r.path, readableIndexed);
         dup.push({
           kind: "duplicate_chunks",
           subject: r.path,
@@ -388,7 +395,7 @@ export function runWikiLint(env: LintEnv, input: LintInput): LintReport {
     const gaps: Proposal[] = [];
     for (const item of report.items) {
       if (!item.gap) continue;
-      const nearest = item.nearest.filter((n) => readable(n.path));
+      const nearest = item.nearest.filter((n) => readableIndexed(n.path));
       if (prefix !== "" && !nearest.some((n) => inFolder(n.path))) continue;
       gaps.push({
         kind: "coverage_gap",
@@ -408,7 +415,7 @@ export function runWikiLint(env: LintEnv, input: LintInput): LintReport {
   run("near_duplicates", () => {
     const nv = loadNoteVectors(env.db, input.vaultId, {
       model: env.embeddingModel,
-      include: (p) => readable(p) && subjectOk(p),
+      include: (p) => readableIndexed(p) && subjectOk(p),
       maxNotes: input.maxNotes,
     });
     if (nv.paths.length === 0) return "no embedded notes in scope (nothing to compare)";
