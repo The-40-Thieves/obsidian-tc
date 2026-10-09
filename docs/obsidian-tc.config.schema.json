@@ -859,6 +859,23 @@
               },
               "additionalProperties": false
             },
+            "consent": {
+              "description": "Consent page behaviour.",
+              "default": {},
+              "type": "object",
+              "properties": {
+                "loopback": {
+                  "default": "remember",
+                  "description": "How a sign-in whose redirect is on this machine (`127.0.0.0/8`, `::1` or `localhost`) is treated once the operator has approved the client. `remember` (the default): the approval is reused across ports, so Claude Code and Codex sign in without a click. `prompt`: every such sign-in shows the consent page, whichever port it uses, so a local process cannot start its own sign-in and obtain a token without the operator seeing it. A redirect that is not on this machine is always remembered.",
+                  "type": "string",
+                  "enum": [
+                    "remember",
+                    "prompt"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
             "setupTokenEnv": {
               "default": "OBSIDIAN_TC_AS_SETUP_TOKEN",
               "description": "Name of the environment variable whose value is the one-time setup token that claims the operator account on a host with no terminal (default `OBSIDIAN_TC_AS_SETUP_TOKEN`). The token is never read from the config file.",

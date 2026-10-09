@@ -1,9 +1,11 @@
 // Client authentication shared by the token and revocation endpoints (design v2 sections 4.3 and
 // 4.7): `none` for a public client, `client_secret_basic` for a confidential one. Both endpoints
 // authenticate exactly the same way, so a client that can use one can use the other and neither
-// can drift into accepting a credential the other refuses.
+// can drift into accepting a credential the other refuses. The client is looked up through the
+// resolver (static client or metadata document), the same one authorize uses.
 import type { Context } from "hono";
-import { type AsClient, findStaticClient, secretsEqual } from "./as-clients";
+import type { ClientResolver } from "./as-cimd";
+import { type AsClient, secretsEqual } from "./as-clients";
 
 /** `Authorization: Basic` as RFC 6749 section 2.3.1 defines it (form-urlencoded id and secret). */
 function parseBasic(header: string | undefined): { id: string; secret: string } | undefined {
@@ -35,26 +37,36 @@ export const formReader =
 export const isFormRequest = (c: Context): boolean =>
   /^application\/x-www-form-urlencoded(?:\s*;|$)/i.test(c.req.header("content-type") ?? "");
 
-export type ClientAuthResult = { client: AsClient } | { failure: string };
+/** `unavailable`: the client could not be looked up right now, which is not a verdict on it. */
+export type ClientAuthResult = { client: AsClient } | { failure: string; unavailable?: true };
 
 /** Who is calling, or why not (the description for an `invalid_client` answer). */
-export function authenticateClient(
-  clients: Parameters<typeof findStaticClient>[0],
+export async function authenticateClient(
+  resolve: ClientResolver,
   form: URLSearchParams,
   authorization: string | undefined,
-): ClientAuthResult {
+): Promise<ClientAuthResult> {
   const one = formReader(form);
   const basic = parseBasic(authorization);
   const bodyId = one("client_id");
-  if (bodyId === null || form.has("client_secret")) {
+  // A secret or an assertion in the body is a method this server does not offer anyone (private_key_jwt
+  // is never advertised), so it is malformed rather than ignored.
+  if (
+    bodyId === null ||
+    form.has("client_secret") ||
+    form.has("client_assertion") ||
+    form.has("client_assertion_type")
+  ) {
     return { failure: "client authentication is malformed" };
   }
   const clientId = basic?.id ?? bodyId;
   if (basic !== undefined && bodyId !== undefined && bodyId !== basic.id) {
     return { failure: "client authentication is malformed" };
   }
-  const client = clientId === undefined ? undefined : findStaticClient(clients, clientId);
-  if (client === undefined) return { failure: "unknown client" };
+  if (clientId === undefined) return { failure: "unknown client" };
+  const found = await resolve(clientId);
+  if (!("client" in found)) return found;
+  const { client } = found;
   if (client.secretEnv !== undefined) {
     const expected = process.env[client.secretEnv];
     if (basic === undefined || !expected || !secretsEqual(basic.secret, expected)) {
@@ -66,3 +78,12 @@ export function authenticateClient(
   }
   return { client };
 }
+
+/** The RFC 6749 answer for a failed client authentication: a refused client is `invalid_client` (401),
+ *  one that could not be looked up right now is `temporarily_unavailable` (503), so it retries. */
+export const clientFailureStatus = (
+  f: Extract<ClientAuthResult, { failure: string }>,
+): { status: 401 | 503; error: string } =>
+  f.unavailable
+    ? { status: 503, error: "temporarily_unavailable" }
+    : { status: 401, error: "invalid_client" };

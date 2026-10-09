@@ -360,9 +360,38 @@ This release adds the pieces that exist before any token is issued: the metadata
   challenge). Every URL in the document is built from `auth.as.issuer`; the `Host` and `X-Forwarded-*` headers are
   never consulted, so a forged `Host` cannot move the issuer. It carries `code_challenge_methods_supported:
   ["S256"]`, the RFC 9207 `iss` response parameter, `none` as a client-authentication method, the `refresh_token`
-  grant, `offline_access` among the scopes and `revocation_endpoint`; `client_id_metadata_document_supported` and
-  `registration_endpoint` (the latter also needs `auth.as.dynamicRegistration`) appear only when the slice that
-  implements each ships. `private_key_jwt` is never advertised.
+  grant, `offline_access` among the scopes, `revocation_endpoint` and `client_id_metadata_document_supported: true`;
+  `registration_endpoint` also needs `auth.as.dynamicRegistration` and appears only when the slice that implements
+  it ships. `private_key_jwt` is never advertised.
+- **Clients registered by a metadata document (CIMD).** A `client_id` that is an `https://` URL with a path is
+  fetched, and the document served there is the client's registration (Claude Code, Codex and ChatGPT register this
+  way). The fetch is the same bounded one OIDC discovery uses: https only, no redirects, every resolved address
+  public (loopback, private, link-local and cloud-metadata targets are refused, and there is no private-network
+  opt-in for a document), the connection pinned to the addresses just checked, 5 KiB and 5 s. The document's
+  `client_id` must equal the URL, `redirect_uris` must hold an https or loopback URI, and `logo_uri`, `jwks_uri` and
+  `client_uri` are never fetched. The list `token_endpoint_auth_methods_supported` decides the client-authentication
+  method; the singular `token_endpoint_auth_method` counts only when the list is absent, so ChatGPT's document
+  (singular `private_key_jwt`, list `["private_key_jwt", "none"]`) resolves to `none`, and a document that permits
+  only `private_key_jwt` is refused. The client is then bound to `none`: a secret, a Basic header or a client
+  assertion at the token or revocation endpoint is `invalid_client`. A document is cached for its `Cache-Control:
+  max-age` clamped to 5 minutes to 24 hours (errors are never cached, the table is capped, and only the validated
+  fields are kept). `auth.as.cimd.allowedHosts` limits which hosts may be client ids. The consent page names the host
+  the client is registered at, warns loudly when the redirect it was asked to use is on this machine (any `127.0.0.0/8`
+  address, `::1` or `localhost`, over http or https), and warns when the operator has never approved a
+  metadata-document client before, since anyone can publish a document under any name. A callback on this machine
+  is remembered like any other once you have approved the client: the grant is kept without the port, so Claude Code
+  and Codex sign in again without a click. The trade-off is plain: a callback's port is chosen at run time and nothing
+  proves which local process is behind it, so with the default a malicious process on the same machine can start
+  its own sign-in for an approved client and obtain a token without a prompt. Such a process could typically already
+  read the stored tokens of those CLIs. Set `auth.as.consent.loopback: prompt` to show the consent page on every
+  sign-in that returns to a loopback address (the warning above is on it), whichever port it uses, even for a client and
+  path you approved a minute ago. A lookup is bounded: one 5 s deadline covers the name lookup, the connection and the
+  body, one source may start five uncached lookups a minute and have two running at once (an IPv6 address counts as
+  its /64; a peer with no usable address, such as a reverse proxy or tunnel on the same host, is one shared source
+  that may start ten a minute, not an exemption, so behind a tunnel every client shares that allowance), a request that is already malformed never
+  starts one, and the sign-in page says only that the client cannot be used, whatever the reason (the log has it).
+  The approval re-reads the client, so a document that drops the redirect after the page was shown issues no code.
+  The client's name is shown with control, format and bidirectional characters removed.
 - **Refresh tokens and revocation.** Every code exchange returns a refresh token (opaque, 32 random bytes, stored
   only as a SHA-256). It rotates on every use and its family ends `auth.as.refreshTokenDays` after the exchange.
   A client that lost a refresh response may retry the previous token until its successor has been used, and is

@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
-import { mountAsRoutes } from "../src/auth/as-metadata";
+import { type AsRouteDeps, mountAsRoutes } from "../src/auth/as-metadata";
 import { mountAsOperator } from "../src/auth/as-operator";
 import { claimOperator } from "../src/auth/as-operator-store";
 import { hashPassword } from "../src/auth/as-password";
@@ -86,6 +86,8 @@ export async function makeFlow(
     /** Vault ids the server holds (default `["v1"]`); the first is also the HTTP default unless `defaultVault`. */
     vaults?: string[];
     defaultVault?: string;
+    /** Test seams for client-ID metadata document resolution (fetch, resolver, timeout, cache cap). */
+    cimd?: AsRouteDeps["cimd"];
   } = {},
 ): Promise<Flow> {
   process.env[SECRET_CLIENT_ENV] = SECRET_CLIENT_SECRET;
@@ -188,6 +190,7 @@ export async function makeFlow(
       now: () => clock.t,
       log,
       clientIp: (c) => c.req.header("x-test-ip"),
+      ...(opts.cimd ? { cimd: opts.cimd } : {}),
     });
     return handle;
   };

@@ -11,6 +11,7 @@
 import type { PersonasConfig, ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Context, Hono } from "hono";
 import type { Database } from "../db/types";
+import type { CimdSeams } from "./as-cimd";
 import type { AuthRegistry } from "./registry";
 
 type AuthConfig = ServerConfig["auth"];
@@ -43,6 +44,8 @@ export interface AsRouteDeps {
   log?: (line: string) => void;
   /** The caller's address for admission limits. Default: the TCP peer, never a forwarded header. */
   clientIp?: (c: Context) => string | undefined;
+  /** Test seams for client-ID metadata document resolution (transport, name resolver, timeout, cache cap). */
+  cimd?: CimdSeams | undefined;
 }
 type AsRouteMounter = (app: Hono, auth: AuthConfig, deps?: AsRouteDeps) => void;
 

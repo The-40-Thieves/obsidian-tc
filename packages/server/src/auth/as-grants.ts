@@ -181,6 +181,10 @@ export function liveGrants(db: Database, k: GrantKey): Grant[] {
   ).map(grantOf);
 }
 
+/** Has the operator ever approved this client (any redirect, any scope, any account)? A revoked grant counts. */
+export const everApproved = (db: Database, clientId: string): boolean =>
+  db.prepare("SELECT 1 FROM grants WHERE client_id = ? LIMIT 1").get(clientId) !== undefined;
+
 export interface Approval {
   handle: string;
   key: GrantKey;

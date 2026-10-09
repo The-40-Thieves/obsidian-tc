@@ -221,6 +221,17 @@ export const AsConfigSchema = z
       })
       .prefault({})
       .describe("Client ID Metadata Document registration, the default way clients register."),
+    consent: z
+      .strictObject({
+        loopback: z
+          .enum(["remember", "prompt"])
+          .default("remember")
+          .describe(
+            "How a sign-in whose redirect is on this machine (`127.0.0.0/8`, `::1` or `localhost`) is treated once the operator has approved the client. `remember` (the default): the approval is reused across ports, so Claude Code and Codex sign in without a click. `prompt`: every such sign-in shows the consent page, whichever port it uses, so a local process cannot start its own sign-in and obtain a token without the operator seeing it. A redirect that is not on this machine is always remembered.",
+          ),
+      })
+      .prefault({})
+      .describe("Consent page behaviour."),
     setupTokenEnv: z
       .string()
       .regex(ENV_NAME_RE, "must be an environment variable NAME (letters, digits, underscore)")
