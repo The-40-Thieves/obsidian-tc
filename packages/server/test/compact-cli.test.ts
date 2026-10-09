@@ -22,6 +22,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { CASE_INSENSITIVE_FS } from "../src/acl";
+import { jsonAliasError } from "../src/cli/commands/compact";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
 import { ensureNotesFts } from "../src/search/fts";
@@ -739,131 +740,74 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
       TEST_BUDGET_MS,
     );
 
-    it(
-      "--into <dir> --json <dir>/cache.db refuses before the copy is made",
-      async () => {
-        const { cacheDir, configPath } = setupConfig();
-        await seedInflatedCacheDb(cacheDir);
-        const dbPath = join(cacheDir, "cache.db");
-        const destDir = makeTempDir("obtc-compact-json-alias-");
-        dirs.push(destDir);
-        const hashBefore = sha256(dbPath);
+    // The rest of J1 is the alias RULE (which paths count as a managed database), not the process
+    // boundary: each case ran a cold `bun src/cli.ts` plus a 300-transaction fixture, and on a
+    // contended windows-latest runner one such spawn stalled past the 60 s kill budget (twice on
+    // main). They assert on `jsonAliasError` directly; the spawn above proves it is wired in and
+    // that a refusal leaves the database byte-for-byte untouched.
+    describe("jsonAliasError", () => {
+      const refusal = /--json .*would overwrite/;
 
-        const r = runCli([
-          "compact",
-          "--config",
-          configPath,
-          "--into",
-          destDir,
-          "--json",
-          join(destDir, "cache.db"),
-        ]);
+      it("refuses cache.db, experiential.db and each -wal/-shm sidecar, in cacheDir and under --into", () => {
+        const cacheDir = makeTempDir("obtc-compact-alias-cache-");
+        const destDir = makeTempDir("obtc-compact-alias-into-");
+        dirs.push(cacheDir, destDir);
+        for (const dir of [cacheDir, destDir]) {
+          for (const name of ["cache.db", "experiential.db"]) {
+            for (const suffix of ["", "-wal", "-shm"]) {
+              expect(jsonAliasError(cacheDir, destDir, join(dir, name + suffix))).toMatch(refusal);
+            }
+          }
+        }
+        // A destination is only a managed location when --into names it.
+        expect(jsonAliasError(cacheDir, undefined, join(destDir, "cache.db"))).toBeUndefined();
+      });
 
-        expect(r.code).toBe(1);
-        expect(r.stderr).toMatch(/--json .*would overwrite/);
-        expect(sha256(dbPath)).toBe(hashBefore);
-        // Refused BEFORE the copy: no half-made destination left behind either.
-        expect(existsSync(join(destDir, "cache.db"))).toBe(false);
-      },
-      TEST_BUDGET_MS,
-    );
+      it("allows a path that is not a managed database", () => {
+        const cacheDir = makeTempDir("obtc-compact-alias-ok-");
+        dirs.push(cacheDir);
+        expect(jsonAliasError(cacheDir, undefined, join(cacheDir, "report.json"))).toBeUndefined();
+        expect(jsonAliasError(cacheDir, undefined, join(cacheDir, "cache.db.bak"))).toBeUndefined();
+      });
 
-    // Re-review of J1, bypass (1): the guard compared `resolve()` STRINGS, so a symlinked cacheDir
-    // (or a --json path reaching the same file by another link) named the same inode and slipped
-    // through. Both sides are `realpathSync`-resolved now. Skipped on win32, where creating a
-    // symlink needs a privilege a CI runner may not have.
-    it.skipIf(process.platform === "win32")(
-      "a symlinked cacheDir does not let --json reach the database by its real path",
-      async () => {
-        const realDir = makeTempDir("obtc-compact-real-");
-        const linkParent = makeTempDir("obtc-compact-link-");
-        const confDir = makeTempDir("obtc-compact-symconf-");
-        dirs.push(realDir, linkParent, confDir);
-        const linkDir = join(linkParent, "cache-link");
-        symlinkSync(realDir, linkDir, "dir");
-        await seedInflatedCacheDb(realDir);
-        const configPath = join(confDir, "config.json");
-        // The config points at the SYMLINK; --json points at the REAL path. One file either way.
-        writeFileSync(
-          configPath,
-          JSON.stringify({ cacheDir: linkDir, vaults: [{ id: "main", path: confDir }] }),
-        );
-        const realDbPath = join(realDir, "cache.db");
-        const hashBefore = sha256(realDbPath);
+      // Bypass (1): the guard compared `resolve()` STRINGS, so a symlinked cacheDir (or a --json
+      // path reaching the same file by another link) named the same inode and slipped through.
+      // Skipped on win32, where creating a symlink needs a privilege a CI runner may not have.
+      it.skipIf(process.platform === "win32")(
+        "a symlinked cacheDir does not let --json reach the database by its real path",
+        () => {
+          const realDir = makeTempDir("obtc-compact-real-");
+          const linkParent = makeTempDir("obtc-compact-link-");
+          dirs.push(realDir, linkParent);
+          const linkDir = join(linkParent, "cache-link");
+          symlinkSync(realDir, linkDir, "dir");
+          // The config points at the SYMLINK; --json points at the REAL path. One file either way.
+          expect(jsonAliasError(linkDir, undefined, join(realDir, "cache.db"))).toMatch(refusal);
+          expect(jsonAliasError(realDir, undefined, join(linkDir, "cache.db"))).toMatch(refusal);
+        },
+      );
 
-        const r = runCli(["compact", "--config", configPath, "--dry-run", "--json", realDbPath]);
+      // Bypass (2): the comparison lower-cased on win32 only, while this repo already treats darwin as
+      // case-insensitive (acl.ts's CASE_INSENSITIVE_FS, THE-272). The CORRECT answer differs by
+      // filesystem, hence two tests.
+      it.skipIf(!CASE_INSENSITIVE_FS)(
+        "refuses a case-variant path on a case-insensitive filesystem",
+        () => {
+          const cacheDir = makeTempDir("obtc-compact-case-");
+          dirs.push(cacheDir);
+          expect(jsonAliasError(cacheDir, undefined, join(cacheDir, "CACHE.DB"))).toMatch(refusal);
+        },
+      );
 
-        expect(r.code).toBe(1);
-        expect(r.stderr).toMatch(/--json .*would overwrite/);
-        expect(sha256(realDbPath)).toBe(hashBefore);
-      },
-      TEST_BUDGET_MS,
-    );
-
-    // Bypass (2): the comparison lower-cased on win32 only, while this repo already treats darwin as
-    // case-insensitive (acl.ts's CASE_INSENSITIVE_FS, THE-272) — so `CACHE.DB` aliased `cache.db` on
-    // macOS and was written anyway. Two tests, because the CORRECT answer differs by filesystem.
-    it.skipIf(!CASE_INSENSITIVE_FS)(
-      "refuses a case-variant path on a case-insensitive filesystem",
-      async () => {
-        const { cacheDir, configPath } = setupConfig();
-        await seedInflatedCacheDb(cacheDir);
-        const dbPath = join(cacheDir, "cache.db");
-        const hashBefore = sha256(dbPath);
-
-        const r = runCli([
-          "compact",
-          "--config",
-          configPath,
-          "--dry-run",
-          "--json",
-          join(cacheDir, "CACHE.DB"),
-        ]);
-
-        expect(r.code).toBe(1);
-        expect(r.stderr).toMatch(/--json .*would overwrite/);
-        expect(sha256(dbPath)).toBe(hashBefore);
-      },
-      TEST_BUDGET_MS,
-    );
-
-    it.skipIf(CASE_INSENSITIVE_FS)(
-      "allows a case-variant path where the filesystem makes it a different file",
-      async () => {
-        const { cacheDir, configPath } = setupConfig();
-        await seedInflatedCacheDb(cacheDir);
-        const dbPath = join(cacheDir, "cache.db");
-        const hashBefore = sha256(dbPath);
-        const jsonPath = join(cacheDir, "CACHE.DB");
-
-        const r = runCli(["compact", "--config", configPath, "--dry-run", "--json", jsonPath]);
-
-        expect(r.code, `compact --dry-run exited ${r.code}, stderr: ${r.stderr}`).toBe(0);
-        expect(sha256(dbPath)).toBe(hashBefore);
-        // It really is a separate file here, and it really is the JSON report.
-        expect(JSON.parse(readFileSync(jsonPath, "utf8"))).toHaveLength(1);
-      },
-      TEST_BUDGET_MS,
-    );
-
-    it(
-      "a -wal sidecar of a managed database is refused too",
-      async () => {
-        const { cacheDir, configPath } = setupConfig();
-        await seedInflatedCacheDb(cacheDir);
-        const r = runCli([
-          "compact",
-          "--config",
-          configPath,
-          "--dry-run",
-          "--json",
-          join(cacheDir, "cache.db-wal"),
-        ]);
-        expect(r.code).toBe(1);
-        expect(r.stderr).toMatch(/--json .*would overwrite/);
-      },
-      TEST_BUDGET_MS,
-    );
+      it.skipIf(CASE_INSENSITIVE_FS)(
+        "allows a case-variant path where the filesystem makes it a different file",
+        () => {
+          const cacheDir = makeTempDir("obtc-compact-case-");
+          dirs.push(cacheDir);
+          expect(jsonAliasError(cacheDir, undefined, join(cacheDir, "CACHE.DB"))).toBeUndefined();
+        },
+      );
+    });
   });
 
   // J2 (pre-merge, P2) — only the BUSY branch carried the partial `ftsOptimized` out; any other

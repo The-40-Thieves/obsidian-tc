@@ -54,6 +54,13 @@ async function systeminformationEnrichment(): Promise<HardwareEnrichment> {
   return { cpuBrand, gpus };
 }
 
+/** An enricher that finds nothing and starts nothing: the envelope is then the node:os baseline
+ *  alone. For callers that never read `cpuBrand`/`gpus` (doctor, setup read only the baseline
+ *  `totalMemMb`): the default enricher runs `systeminformation`, which on Windows starts
+ *  powershell.exe — hardware.ts abandons it after ENRICH_TIMEOUT_MS but the process cannot exit
+ *  until that child does, so a command nobody asked for hardware detail from paid for it anyway. */
+export const baselineOnlyEnrichment = async (): Promise<HardwareEnrichment> => ({ gpus: [] });
+
 /**
  * Assemble the hardware envelope. `enrich` is injectable for tests; in production it defaults to the
  * systeminformation reader. An enricher that throws OR that exceeds `timeoutMs` degrades to the

@@ -538,7 +538,7 @@ function realPath(p: string): string {
 /** J1 — the paths `--json` must never be pointed at: the managed databases and their `-wal`/`-shm`
  *  sidecars, in `cacheDir` and under `--into`. `--json <cacheDir>/cache.db` TRUNCATED the database it
  *  had just inspected; `--json <into>/cache.db` overwrote the verified copy. */
-function jsonAliasError(
+export function jsonAliasError(
   cacheDir: string,
   into: string | undefined,
   json: string,

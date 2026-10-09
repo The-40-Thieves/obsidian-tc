@@ -9,7 +9,7 @@ import {
   createBridgeClient,
   type RestApiOnDisk,
 } from "../../bridge";
-import { resolveCapabilityProfile } from "../../capability";
+import { baselineOnlyEnrichment, resolveCapabilityProfile } from "../../capability";
 import { openDatabase } from "../../db/open";
 import {
   assembleDoctorReport,
@@ -265,6 +265,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
   // (headless/server boxes), which is exactly where doctor is most useful.
   const profile = await resolveCapabilityProfile({
     extraVaultPaths: config.vaults.map((v) => v.path),
+    enrich: baselineOnlyEnrichment,
   });
 
   // THE-523 bridge.state: probe each vault's companion live, then resolve state using the THE-522
