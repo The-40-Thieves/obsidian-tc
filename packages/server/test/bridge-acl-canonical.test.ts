@@ -13,8 +13,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { FakeRoute } from "../src/bridge";
 import { enforcePathAcl } from "../src/vault/acl-path";
 import { filterBridgeItemsByAcl } from "../src/vault/acl-read-filter";
-import { readNote } from "../src/vault/notes-io";
-import { resolveVaultPathChecked } from "../src/vault/paths";
 import { type M4Vault, makeM4Vault } from "./m4-helpers";
 
 const MARK = "TOPSECRET";
@@ -78,12 +76,12 @@ const vault = (installed: string[], routes: Record<string, FakeRoute>): M4Vault 
   return v;
 };
 
-/** read_note's own decision for `rel`: the path ACL (symlink-resolved) and then the fd-based reader,
- *  which refuses a hard-linked file. (The M4 test registry does not register read_note itself.) */
+/** read_note's path decision for `rel`: `enforcePathAcl("read")` (symlink-resolved target, hard-denied
+ *  roots, hard-link refusal; every vault here has an ACL). The M4 test registry does not register
+ *  read_note itself, and the fd reader behind it differs under the native addon. */
 const readRefused = (v: M4Vault, rel: string): boolean => {
   try {
     enforcePathAcl(v.acl, "read", rel, v.root, ["*"]);
-    readNote(resolveVaultPathChecked(v.root, rel).abs);
     return false;
   } catch {
     return true;
