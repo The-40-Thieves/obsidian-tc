@@ -11,7 +11,10 @@ import { linkSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FakeRoute } from "../src/bridge";
+import { enforcePathAcl } from "../src/vault/acl-path";
 import { filterBridgeItemsByAcl } from "../src/vault/acl-read-filter";
+import { readNote } from "../src/vault/notes-io";
+import { resolveVaultPathChecked } from "../src/vault/paths";
 import { type M4Vault, makeM4Vault } from "./m4-helpers";
 
 const MARK = "TOPSECRET";
@@ -75,6 +78,18 @@ const vault = (installed: string[], routes: Record<string, FakeRoute>): M4Vault 
   return v;
 };
 
+/** read_note's own decision for `rel`: the path ACL (symlink-resolved) and then the fd-based reader,
+ *  which refuses a hard-linked file. (The M4 test registry does not register read_note itself.) */
+const readRefused = (v: M4Vault, rel: string): boolean => {
+  try {
+    enforcePathAcl(v.acl, "read", rel, v.root, ["*"]);
+    readNote(resolveVaultPathChecked(v.root, rel).abs);
+    return false;
+  } catch {
+    return true;
+  }
+};
+
 const dump = (r: { ok: boolean; data?: unknown; error?: unknown }): string =>
   JSON.stringify(r.ok ? r.data : r.error);
 
@@ -87,9 +102,7 @@ describe.skipIf(process.platform === "win32")(
           [f.route]: { body: { ok: true, result: f.result("wiki/secret.md", MARK) } },
         });
         // the premise: the direct read of the same display path IS refused
-        expect((await v.call("read_note", { vault: "test", path: "wiki/secret.md" })).ok).toBe(
-          false,
-        );
+        expect(readRefused(v, "wiki/secret.md")).toBe(true);
         const r = await v.call(f.tool, { vault: "test", ...f.input });
         expect(r.ok, dump(r)).toBe(true);
         expect(dump(r)).not.toContain(MARK);
@@ -136,8 +149,7 @@ describe.skipIf(process.platform === "win32")(
           [f.route]: { body: { ok: true, result: f.result("pages/hard.md", MARK) } },
         });
         linkSync(join(v.root, "private", "secret.md"), join(v.root, "pages", "hard.md"));
-        const direct = await v.call("read_note", { vault: "test", path: "pages/hard.md" });
-        expect(direct.ok).toBe(false);
+        expect(readRefused(v, "pages/hard.md")).toBe(true);
         const r = await v.call(f.tool, { vault: "test", ...f.input });
         expect(r.ok, dump(r)).toBe(true);
         expect(dump(r)).not.toContain(MARK);
@@ -164,11 +176,7 @@ describe.skipIf(process.platform === "win32")(
         });
         cleanups.push(v.cleanup);
         symlinkSync(join(v.root, dir), join(v.root, "alias"));
-        const direct = await v.call("read_note", {
-          vault: "test",
-          path: "alias/plugins/foo/data.md",
-        });
-        expect(direct.ok).toBe(false);
+        expect(readRefused(v, "alias/plugins/foo/data.md")).toBe(true);
         const r = await v.call(f.tool, { vault: "test", ...f.input });
         expect(r.ok, dump(r)).toBe(true);
         expect(dump(r)).not.toContain("CONFIGSECRET");
@@ -196,7 +204,7 @@ describe.skipIf(process.platform === "win32")(
       linkSync(join(v.root, "private", "secret.md"), join(v.root, "pages", "hard.md"));
       const paths = ["pages/hard.md", "wiki/secret.md", "shared/open.md", "pages/open.md"];
       for (const p of paths) {
-        const read = (await v.call("read_note", { vault: "test", path: p })).ok;
+        const read = !readRefused(v, p);
         const kept = filterBridgeItemsByAcl(v.acl, v.root, ["*"], [{ path: p }], {
           tool: "t",
         });

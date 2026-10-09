@@ -5,12 +5,16 @@
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
-import { filterBridgeItemsByAcl, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
+import {
+  bridgeSiblingsSafe,
+  filterBridgeItemsByAcl,
+  readEnumerationUnrestricted,
+} from "../../vault/acl-read-filter";
 import { defineTool } from "../m1/define";
 import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
 // THE-417: makemd_list_spaces proxies the companion's own JSON verbatim (arbitrary, passthrough).
-// makemd_query ACL-filters the plugin's rows (readEnumerationUnrestricted gates whether the
+// makemd_query ACL-filters the plugin's rows (bridgeSiblingsSafe gates whether the
 // unfiltered `...result` siblings are also spread), but items/total are ALWAYS the ACL-filtered,
 // recomputed values overriding whatever raw items/total the plugin sent — both branches guarantee
 // vault/space_id/items/total; the passthrough covers the plugin's other, arbitrary sibling fields.
@@ -101,7 +105,7 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
         });
         // Under a read whitelist, drop `...result` siblings — they can carry path-attributable
         // content from the UNFILTERED make.md rows (THE-270).
-        if (!readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes))
+        if (!bridgeSiblingsSafe(ctx.acl, ctx.grantedScopes, rawItems.length, items.length))
           return { vault: v.id, space_id: input.space_id, items, total: items.length };
         return { vault: v.id, space_id: input.space_id, ...result, items, total: items.length };
       },

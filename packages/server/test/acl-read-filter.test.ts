@@ -34,9 +34,19 @@ describe("acl-read-filter (D2)", () => {
     expect(() => filterBridgeItemsByAcl(a, tmpdir(), [], [{ line: 1 }], { tool: "t" })).toThrow();
   });
 
-  it("returns items unchanged when readPaths undefined and strict off", () => {
-    const items = [{ path: "Secret/s.md" }];
+  it("keeps ordinary rows (and rows naming no path) when readPaths undefined and strict off", () => {
+    // Unrestricted enumeration is NOT a license to skip the per-row decision: each row is still
+    // judged as read_note would (hard-denied canonical targets, hard links; see
+    // bridge-acl-canonical.test.ts), but a plain readable row is returned as-is.
+    const items = [{ path: "Secret/s.md" }, { line: 1 }];
     expect(filterBridgeItemsByAcl(acl({}), tmpdir(), [], items, { tool: "t" })).toEqual(items);
+  });
+
+  it("drops a row naming a hard-denied folder even when enumeration is unrestricted", () => {
+    const items = [{ path: ".obsidian/plugins/p/data.json" }, { path: "Notes/a.md" }];
+    expect(filterBridgeItemsByAcl(acl({}), tmpdir(), [], items, { tool: "t" })).toEqual([
+      { path: "Notes/a.md" },
+    ]);
   });
 
   it("strictReadDefault fails reads closed (deny non-whitelisted, require attribution) with readPaths undefined", () => {
