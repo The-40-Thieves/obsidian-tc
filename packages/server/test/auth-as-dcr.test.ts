@@ -514,6 +514,8 @@ describe("DCR flooding", () => {
     expect((await register(flow, nativeMeta(), a)).res.status).toBe(429);
     // 15 minutes at 10 an hour earns 2 registrations, not a fresh 10: an idle sweep must not reset a bucket.
     flow.clock.t += 15 * 60_000;
+    // Another source's request is what runs the backend's idle sweep.
+    expect((await register(flow, nativeMeta(), ip("198.51.100.31"))).res.status).toBe(201);
     expect((await register(flow, nativeMeta(), a)).res.status).toBe(201);
     expect((await register(flow, nativeMeta(), a)).res.status).toBe(201);
     expect((await register(flow, nativeMeta(), a)).res.status).toBe(429);
