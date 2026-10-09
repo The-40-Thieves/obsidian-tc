@@ -479,9 +479,29 @@ passkeys report, is accepted). Each challenge is single-use and lives five minut
 **Lost the passkey and the password** (or the host changed)? On the host run
 `obsidian-tc auth as reset-credentials [--user <name>] [--stdin] [--revoke-grants]`. It sets a new password, deletes
 the operator's passkeys and ends every session, in one transaction. With `--revoke-grants` it also revokes every
-grant of the operator, with its refresh-token families and live access tokens. Shell access to the host and write
-access to `<cacheDir>` are the credential, exactly as for `set-password`. Then sign in with the new password and
-enrol a new passkey.
+grant of the operator, with its refresh-token families and live access tokens, **in that same transaction** (the
+access-token revocations are queued in the durable outbox and paid to the registry right after the commit). Shell
+access to the host and write access to `<cacheDir>` are the credential, exactly as for `set-password`. Then sign in
+with the new password and enrol a new passkey.
+
+**A reset ends what was already running, too.** The operator account carries a *credential generation* that the
+reset (and `set-password`) moves on in that transaction, and every session records the generation it was opened
+under. A passkey registration, an enrolment challenge or a consent that was already underway on an old session
+re-checks, inside its own write transaction, that the session still exists and still carries the account's
+generation: after a reset it writes nothing (a registration is refused, a consent is sent back to sign in), and a
+grant made just before the reset is revoked by it. This is the same check a password login makes before it opens a
+session.
+
+**What an anonymous caller can spend.** `POST /oauth/passkey/login/options` is open to anyone who loads the login
+page, so it is budgeted: a burst of 20 challenges per source, refilling at 20 a minute (answer `429` with
+`Retry-After`), and one shared, larger bucket for callers the server cannot tell apart (an unknown or loopback
+address, as behind a Cloudflare tunnel on the same host). Pending challenges are capped per purpose (400 login, 100
+enrolment), so a flood of login challenges cannot take the room enrolment needs. Failed passkey logins are counted
+per source **and per credential** (the same budget as one password account); a caller whose address is hidden is
+bound only by its credential keys and by the single-use challenge each attempt needs, so failures on credentials
+that are not the operator's cannot lock the operator out. Without a trusted-proxy setting the server cannot tell
+clients behind a loopback proxy apart: a determined flood there can still exhaust the shared bucket and delay
+passkey sign-in (the password form is unaffected) until it refills.
 
 ## Verifying an external OpenID Connect provider (`oidc` mode)
 

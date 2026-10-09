@@ -6,9 +6,10 @@
 //
 // It sets a new password, deletes the operator's passkeys and ends every session, in one transaction.
 // With --revoke-grants it also revokes every grant of the operator, and with each grant its
-// refresh-token families and live access tokens (the same revocation as `auth as grants revoke`).
+// refresh-token families and live access tokens (the same revocation as `auth as grants revoke`), in
+// that same transaction: a consent or registration already running on an old session cannot slip a
+// grant or a passkey in between the steps.
 import { mkdirSync } from "node:fs";
-import { listGrants, revokeGrant } from "../../auth/as-grants";
 import { enabledAs } from "../../auth/as-metadata";
 import { findOperator, normalizeUsername, soleOperator } from "../../auth/as-operator-store";
 import { resetOperatorCredentials } from "../../auth/as-passkey-store";
@@ -61,23 +62,20 @@ export async function runAuthAsResetCredentials(
         const health = revoking.registry.health();
         if (health.state === "lost") throw new CliError(health.detail);
       }
-      const reset = resetOperatorCredentials(store.db, operator.sub, passwordHash);
-      const revoked = { grants: 0, families: 0, accessTokens: 0 };
-      if (revoking !== undefined) {
-        const now = Date.now();
-        for (const g of listGrants(store.db, { now }).filter((g) => g.sub === operator.sub)) {
-          const r = revokeGrant(
-            store.db,
-            revoking.registry,
-            g.id,
-            "credentials reset by operator",
-            now,
-          );
-          if (r.status === "revoked") revoked.grants++;
-          revoked.families += r.families;
-          revoked.accessTokens += r.accessTokens;
-        }
-      }
+      // One transaction: password, sessions, passkeys, challenges and (with --revoke-grants) every
+      // grant of the operator. Nothing running on an old session can make a grant after it.
+      const reset = resetOperatorCredentials(store.db, operator.sub, passwordHash, {
+        ...(revoking !== undefined
+          ? {
+              revoke: {
+                registry: revoking.registry,
+                reason: "credentials reset by operator",
+                now: Date.now(),
+              },
+            }
+          : {}),
+      });
+      const revoked = reset.grants ?? { revoked: 0, families: 0, accessTokens: 0 };
       await auditAuthEvent(cfg, "auth_credentials_reset");
       const summary = {
         user: operator.username,
@@ -85,7 +83,7 @@ export async function runAuthAsResetCredentials(
         sessionsEnded: reset.sessions,
         ...(revoking !== undefined
           ? {
-              grantsRevoked: revoked.grants,
+              grantsRevoked: revoked.revoked,
               refreshFamilies: revoked.families,
               accessTokens: revoked.accessTokens,
             }
@@ -96,7 +94,7 @@ export async function runAuthAsResetCredentials(
           ? `${JSON.stringify(summary)}\n`
           : `credentials of operator ${operator.username} reset: new password set, ${reset.credentials} passkey${reset.credentials === 1 ? "" : "s"} removed, ${reset.sessions} session${reset.sessions === 1 ? "" : "s"} ended${
               revoking !== undefined
-                ? `; ${revoked.grants} grant${revoked.grants === 1 ? "" : "s"} revoked (${revoked.families} refresh families, ${revoked.accessTokens} access tokens)`
+                ? `; ${revoked.revoked} grant${revoked.revoked === 1 ? "" : "s"} revoked (${revoked.families} refresh families, ${revoked.accessTokens} access tokens)`
                 : ""
             }\n`,
       );

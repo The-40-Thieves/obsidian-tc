@@ -3,7 +3,12 @@
 // assertions. The RED cases are the spec's: a non-`none` attestation format, a cloned authenticator
 // (stored counter non-zero, new one not greater), and a credential registered for another rpID.
 import { beforeEach, describe, expect, it } from "vitest";
-import { claimOperator } from "../src/auth/as-operator-store";
+import {
+  claimOperator,
+  createSession,
+  lookupSession,
+  type SessionGuard,
+} from "../src/auth/as-operator-store";
 import {
   authenticationOptions,
   challengeOf,
@@ -19,6 +24,7 @@ import {
   addCredential,
   finalizePasskeyLogin,
   findCredential,
+  MAX_PENDING_LOGIN_CHALLENGES,
   type StoredCredential,
   storeChallenge,
   takeChallenge,
@@ -260,6 +266,7 @@ describe("challenge and credential store", () => {
   const db = openMemoryDb();
   provisionOauthDb(db, { version: "t" });
   let sub = "";
+  let session: SessionGuard;
   beforeEach(() => {
     db.exec(
       "DELETE FROM webauthn_challenges; DELETE FROM webauthn_credentials; DELETE FROM sessions; DELETE FROM users; DELETE FROM setup_state",
@@ -267,6 +274,9 @@ describe("challenge and credential store", () => {
     const claim = claimOperator(db, { username: "operator", passwordHash: "x", now: T0 });
     if (!claim.ok) throw new Error("claim");
     sub = claim.sub;
+    const live = lookupSession(db, createSession(db, sub, T0), T0);
+    if (live === undefined) throw new Error("session");
+    session = live;
   });
 
   it("a challenge answers once, for its own purpose, before it expires", () => {
@@ -298,6 +308,7 @@ describe("challenge and credential store", () => {
       deviceType: "singleDevice",
       backedUp: false,
       createdAt: T0,
+      session,
     });
     const counts = gcOauthDb(db, { now: T0 + 6 * 60_000, dcrUnusedDays: 90 });
     expect(counts.webauthnChallenges).toBe(1);
@@ -308,7 +319,7 @@ describe("challenge and credential store", () => {
   });
 
   it("is bounded: past the cap no further challenge is issued until some expire", () => {
-    for (let i = 0; i < 500; i++) {
+    for (let i = 0; i < MAX_PENDING_LOGIN_CHALLENGES; i++) {
       expect(storeChallenge(db, { challenge: `c${i}`, purpose: "login", sub: null, now: T0 })).toBe(
         true,
       );
@@ -330,6 +341,7 @@ describe("challenge and credential store", () => {
     deviceType: "singleDevice" as const,
     backedUp: false,
     createdAt: T0,
+    session,
   });
 
   it("refuses a duplicate credential id and an unknown account", () => {

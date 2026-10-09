@@ -173,6 +173,7 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
   ) => {
     const approved = approveRequest(db, {
       handle,
+      session,
       key: keyOf(p, session),
       scopes: grant.scopes,
       persona: grant.persona,
@@ -180,6 +181,7 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
       now: now(),
       ...(grant.reuse ? { reuse: grant.reuse } : {}),
     });
+    if (approved === "session_ended") return c.redirect(loginFor(handle, false), 303);
     if (approved === undefined) return expired(c);
     log(`consent approved client=${p.clientId}`);
     return toClient(c, p.redirectUri, { code: approved.code, state: p.state ?? undefined });

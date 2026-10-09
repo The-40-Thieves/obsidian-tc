@@ -15,6 +15,7 @@
 // A refused ceremony tells the browser only that it was refused; the reason goes to the log with no
 // credential, challenge or cookie in it.
 import type { Context, Hono } from "hono";
+import { MemoryBackend } from "../ratelimit/memory-backend";
 import { FRESH_LOGIN_MS } from "./as-grants";
 import { FailureLimiter } from "./as-login-limiter";
 import { AS_PASSKEY_JS_PATH, accountPage, messagePage } from "./as-pages";
@@ -44,6 +45,13 @@ import { type AsBrowser, requestHandleOf } from "./as-session";
 const CSRF_HEADER = "x-csrf-token";
 /** Failed passkey logins one source may cause, as a multiple of the per-account password budget. */
 const IP_BUDGET_FACTOR = 4;
+/**
+ * Login challenges one source may ask for: a burst, then a steady rate (a page load asks for one).
+ * A peer the server cannot tell apart (loopback proxy or tunnel, unknown address) shares ONE bucket
+ * with a larger allowance, so a flood from behind a proxy spends that bucket and nobody else's.
+ */
+const OPTIONS_PER_SOURCE = { capacity: 20, refillTokens: 20, intervalMs: 60_000 } as const;
+const OPTIONS_UNATTRIBUTED = { capacity: 60, refillTokens: 60, intervalMs: 60_000 } as const;
 
 export interface PasskeyDeps {
   browser: AsBrowser;
@@ -55,10 +63,18 @@ export function mountAsPasskeys(app: Hono, deps: PasskeyDeps): void {
   const { browser, log } = deps;
   const { as, issuer, db, now, claimed, notClaimed, html, forbidden } = browser;
   const rp = relyingPartyOf(as.issuer);
-  const limiter = new FailureLimiter({
+  const failureWindowMs = as.login.windowSeconds * 1000;
+  const sourceLimiter = new FailureLimiter({
     maxFailures: as.login.maxFailuresPerWindow * IP_BUDGET_FACTOR,
-    windowMs: as.login.windowSeconds * 1000,
+    windowMs: failureWindowMs,
   });
+  // Per credential, beside the source: behind a proxy that hides the source, an attacker's failures
+  // on other credentials land on no key of the operator's (the password login's per-name budget).
+  const credentialLimiter = new FailureLimiter({
+    maxFailures: as.login.maxFailuresPerWindow,
+    windowMs: failureWindowMs,
+  });
+  const optionsBuckets = new MemoryBackend();
 
   const refuse = (c: Context, status: 400 | 401 | 403 | 429 | 503, error: string) =>
     c.json({ error }, status);
@@ -98,6 +114,18 @@ export function mountAsPasskeys(app: Hono, deps: PasskeyDeps): void {
     if (!claimed()) return refuse(c, 503, "unavailable");
     const body = await readJson(c, "passkey-login");
     if (body instanceof Response) return body;
+    const ip = deps.clientIp(c);
+    const budget = await optionsBuckets.consume(
+      ip === undefined ? "options:-" : `options:ip:${ip}`,
+      ip === undefined ? OPTIONS_UNATTRIBUTED : OPTIONS_PER_SOURCE,
+      1,
+      now(),
+    );
+    if (!budget.ok) {
+      log(`passkey login options refused: rate limited${ip ? ` (${ip})` : ""}`);
+      c.header("retry-after", String(Math.max(1, Math.ceil(budget.retryAfterMs / 1000))));
+      return refuse(c, 429, "rate_limited");
+    }
     const options = await authenticationOptions(rp);
     if (
       !storeChallenge(db, { challenge: options.challenge, purpose: "login", sub: null, now: now() })
@@ -141,15 +169,38 @@ export function mountAsPasskeys(app: Hono, deps: PasskeyDeps): void {
     const body = await readJson(c, "passkey-login");
     if (body instanceof Response) return body;
     const ip = deps.clientIp(c);
-    const key = ip ?? "-";
-    const lock = limiter.reserve(key, now());
-    if (lock.locked) {
+    const response = parseAuthenticationBody(body.response);
+    // Failures are charged to the source (when it can be told apart) AND to the credential being
+    // asserted (when it is one we hold): never to a shared "unknown" bucket, which anyone behind the
+    // same proxy could spend to lock the operator out. Without either key the attempt is bounded by
+    // what it must hold first: a single-use challenge, which `login/options` budgets per source.
+    const stored = response === undefined ? undefined : findCredential(db, response.id);
+    const charged: Array<[FailureLimiter, string]> = [
+      ...(ip !== undefined ? [[sourceLimiter, ip] as [FailureLimiter, string]] : []),
+      ...(stored !== undefined
+        ? [[credentialLimiter, stored.credentialId] as [FailureLimiter, string]]
+        : []),
+    ];
+    const held: Array<[FailureLimiter, string]> = [];
+    let retryAfterMs = 0;
+    for (const [limiter, key] of charged) {
+      const lock = limiter.reserve(key, now());
+      if (lock.locked) {
+        retryAfterMs = lock.retryAfterMs;
+        break;
+      }
+      held.push([limiter, key]);
+    }
+    const release = () => {
+      for (const [limiter, key] of held) limiter.release(key);
+    };
+    if (held.length < charged.length) {
+      release();
       log(`passkey login refused: locked${ip ? ` (${ip})` : ""}`);
-      c.header("retry-after", String(Math.max(1, Math.ceil(lock.retryAfterMs / 1000))));
+      c.header("retry-after", String(Math.max(1, Math.ceil(retryAfterMs / 1000))));
       return refuse(c, 429, "rate_limited");
     }
     try {
-      const response = parseAuthenticationBody(body.response);
       const request = requestHandleOf(typeof body.request === "string" ? body.request : undefined);
       let session: string | undefined;
       let why = "malformed";
@@ -161,18 +212,18 @@ export function mountAsPasskeys(app: Hono, deps: PasskeyDeps): void {
         }
       }
       if (session === undefined) {
-        limiter.fail(key, now());
+        for (const [limiter, key] of held) limiter.fail(key, now());
         log(`passkey login failed: ${why}${ip ? ` (${ip})` : ""}`);
         return refuse(c, 401, "refused");
       }
-      limiter.succeed(key);
+      for (const [limiter, key] of held) limiter.succeed(key);
       browser.setSession(c, session);
       log("operator login ok (passkey)");
       return c.json({
         redirect: request !== undefined ? `/oauth/consent?request=${request}` : "/oauth/login",
       });
     } finally {
-      limiter.release(key);
+      release();
     }
   });
 
@@ -195,8 +246,11 @@ export function mountAsPasskeys(app: Hono, deps: PasskeyDeps): void {
         purpose: "register",
         sub: session.sub,
         now: now(),
+        session,
       })
     ) {
+      // Full, or the session ended between the lookup and the write (a reset from another process).
+      if (browser.sessionOf(c) === undefined) return refuse(c, 401, "signed_out");
       c.header("retry-after", "30");
       return refuse(c, 503, "busy");
     }
@@ -221,7 +275,12 @@ export function mountAsPasskeys(app: Hono, deps: PasskeyDeps): void {
     }
     try {
       const credential = await verifyRegistration(rp, response, challenge);
-      const added = addCredential(db, { ...credential, sub: session.sub, createdAt: now() });
+      const added = addCredential(db, {
+        ...credential,
+        sub: session.sub,
+        createdAt: now(),
+        session,
+      });
       if (!added.ok) throw new PasskeyRefused("not_verified", added.reason);
     } catch (e) {
       log(`passkey registration failed: ${e instanceof PasskeyRefused ? e.reason : "error"}`);
