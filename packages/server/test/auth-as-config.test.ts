@@ -41,10 +41,17 @@ describe("auth.as: shape and defaults", () => {
       dynamicRegistration: false,
       dcr: { maxClients: 1000, perIpPerHour: 10, unusedDays: 90 },
       cimd: { allowedHosts: [] },
+      consent: { loopback: "remember" },
       setupTokenEnv: "OBSIDIAN_TC_AS_SETUP_TOKEN",
       login: { maxFailuresPerWindow: 5, windowSeconds: 900 },
       clients: [],
     });
+  });
+
+  it("auth.as.consent.loopback is 'remember' or 'prompt' and nothing else", () => {
+    expect(issuesOf(jwtAuth({}, { consent: { loopback: "prompt" } }))).toEqual([]);
+    expect(issuesOf(jwtAuth({}, { consent: { loopback: "never" } })).length).toBeGreaterThan(0);
+    expect(issuesOf(jwtAuth({}, { consent: { loopbak: "prompt" } })).length).toBeGreaterThan(0);
   });
 
   it("DCR is off by default (owner decision 2)", () => {

@@ -13,12 +13,16 @@
 // stored row whose document names another client is ignored, errors are never cached, and the table
 // is capped. Concurrent lookups of one client share one fetch, and at most MAX_INFLIGHT fetches run at once.
 //
-// A lookup is reachable by anyone who can start a sign-in, so it is bounded three ways: one deadline
+// A lookup is reachable by anyone who can start a sign-in, so it is bounded four ways: one deadline
 // covers the name lookup, the connection and the body (fetchBoundedText), so a stalled lookup frees its
-// slot when the deadline fires; a source address (the TCP peer, as_authorize's admission rule; an
-// unknown or loopback peer is not blamed) may start CIMD_SOURCE_BURST uncached lookups a minute, from
-// the same token bucket the tool-call limiter uses; and a caller whose request is already malformed
-// asks for `cacheOnly`, which never starts a fetch.
+// slot when the deadline fires; a source (the TCP peer, as_authorize's admission rule, an IPv6 address
+// counted as its /64) may start CIMD_SOURCE_BURST uncached lookups a minute, from the same token bucket
+// the tool-call limiter uses, and have CIMD_MAX_INFLIGHT_PER_SOURCE running at once, so one source can
+// never hold every slot; a peer with no usable address (unknown, or loopback: a same-host proxy or
+// tunnel, behind which every client looks alike) is one source of its own with a smaller budget, never
+// an exemption; and a caller whose request is already malformed asks for `cacheOnly`, which never
+// starts a fetch. A forwarded header is not read: the config names no trusted proxy.
+import { isIP } from "node:net";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { inWriteTransaction } from "../db/txn";
 import type { Database } from "../db/types";
@@ -40,17 +44,67 @@ export const CIMD_CACHE_ROWS = 1000;
 const MAX_INFLIGHT = 8;
 /** Uncached lookups one source address may start: this many at once, refilling at this many a minute. */
 export const CIMD_SOURCE_BURST = 5;
+/** Lookups one source may have running at once; the global cap is MAX_INFLIGHT. */
+export const CIMD_MAX_INFLIGHT_PER_SOURCE = 2;
+/** The shared bucket for peers with no usable address: smaller than a real source's, as it stands for all of them. */
+export const CIMD_UNATTRIBUTED_BURST = 10;
 const SOURCE_BUDGET = {
   capacity: CIMD_SOURCE_BURST,
   refillTokens: CIMD_SOURCE_BURST,
   intervalMs: 60_000,
 };
+const UNATTRIBUTED_BUDGET = {
+  capacity: CIMD_UNATTRIBUTED_BURST,
+  refillTokens: CIMD_UNATTRIBUTED_BURST,
+  intervalMs: 60_000,
+};
+const UNATTRIBUTED = "unattributed";
+
+/** The eight 16-bit groups of an IPv6 address, or undefined when it is not one. */
+function ipv6Groups(addr: string): number[] | undefined {
+  const dotted = /(\d+\.\d+\.\d+\.\d+)$/.exec(addr);
+  let text = addr;
+  if (dotted?.[1] !== undefined && isIP(dotted[1]) === 4) {
+    const [a = 0, b = 0, c = 0, d = 0] = dotted[1].split(".").map(Number);
+    text = `${addr.slice(0, -dotted[1].length)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const halves = text.split("::");
+  if (halves.length > 2) return undefined;
+  const groups = (h: string) => (h === "" ? [] : h.split(":"));
+  const head = groups(halves[0] ?? "");
+  const tail = halves.length === 2 ? groups(halves[1] ?? "") : [];
+  const fill = halves.length === 2 ? 8 - head.length - tail.length : 0;
+  const all = [...head, ...Array<string>(Math.max(fill, 0)).fill("0"), ...tail];
+  if (all.length !== 8) return undefined;
+  const nums = all.map((g) => (/^[0-9a-f]{1,4}$/i.test(g) ? Number.parseInt(g, 16) : Number.NaN));
+  return nums.some(Number.isNaN) ? undefined : nums;
+}
+
+/**
+ * The budget bucket a peer address belongs to: an IPv4 address by itself, an IPv6 address by its /64
+ * (a host holds a whole /64 and can rotate within it for free), an IPv4-mapped IPv6 address as the IPv4
+ * address, and a missing or unreadable address as the one shared `unattributed` source.
+ */
+export function cimdSourceKey(source: string | undefined): string {
+  const bare = (source ?? "").replace(/%.*$/, "").trim();
+  if (isIP(bare) === 4) return `v4:${bare}`;
+  const g = isIP(bare) === 6 ? ipv6Groups(bare) : undefined;
+  if (g === undefined) return UNATTRIBUTED;
+  if (g.slice(0, 5).every((n) => n === 0) && g[5] === 0xffff) {
+    const [a = 0, b = 0] = [g[6] ?? 0, g[7] ?? 0];
+    return `v4:${a >> 8}.${a & 255}.${b >> 8}.${b & 255}`;
+  }
+  return `v6:${g
+    .slice(0, 4)
+    .map((n) => n.toString(16))
+    .join(":")}`;
+}
 
 /** The answer for a client_id: the client, or why not. `unavailable`: the document could not be got
  *  right now (a transient failure), as opposed to the client being refused. */
 export type ClientLookup = { client: AsClient } | { failure: string; unavailable?: true };
 export interface ClientLookupOptions {
-  /** The caller's address, for the per-source budget; unknown or loopback: only the global cap binds. */
+  /** The caller's address, for the per-source limits; unknown or loopback: the shared fallback source. */
   source?: string | undefined;
   /** Answer from config or the cache only: never start a fetch (the request is not worth one). */
   cacheOnly?: boolean | undefined;
@@ -146,6 +200,8 @@ export function createClientResolver(d: ResolverDeps): ClientResolver {
   const inflight = new Map<string, Promise<ClientLookup>>();
   const maxRows = d.seams?.maxCacheRows ?? CIMD_CACHE_ROWS;
   const budgets = new MemoryBackend();
+  /** Fetches running per source key (a fetch shared by several callers counts once, for its starter). */
+  const running = new Map<string, number>();
   const busy: ClientLookup = {
     failure: "too many client lookups are in progress",
     unavailable: true,
@@ -189,22 +245,41 @@ export function createClientResolver(d: ResolverDeps): ClientResolver {
     }
     const hit = cached(d.db, clientId, d.now());
     if (hit !== undefined) return { client: asClient(hit) };
-    const running = inflight.get(clientId);
-    if (running !== undefined) return running;
+    const shared = inflight.get(clientId);
+    if (shared !== undefined) return shared;
     if (opts?.cacheOnly) return { failure: "the client is not cached", unavailable: true };
     if (inflight.size >= MAX_INFLIGHT) return busy;
-    if (opts?.source !== undefined) {
-      const turn = await budgets.consume(`cimd:${opts.source}`, SOURCE_BUDGET, 1, d.now());
-      if (!turn.ok) {
-        d.log("client metadata lookups refused: a source exceeded its budget");
-        return { failure: "too many client lookups from this address", unavailable: true };
-      }
-      // The budget answer was awaited: what was true above may not be now.
-      const meanwhile = inflight.get(clientId);
-      if (meanwhile !== undefined) return meanwhile;
-      if (inflight.size >= MAX_INFLIGHT) return busy;
+    const source = cimdSourceKey(opts?.source);
+    const crowded = (): ClientLookup | undefined => {
+      if ((running.get(source) ?? 0) < CIMD_MAX_INFLIGHT_PER_SOURCE) return undefined;
+      d.log("client metadata lookups refused: a source has too many running");
+      return { failure: "too many client lookups from this address", unavailable: true };
+    };
+    const early = crowded();
+    if (early !== undefined) return early;
+    const turn = await budgets.consume(
+      `cimd:${source}`,
+      source === UNATTRIBUTED ? UNATTRIBUTED_BUDGET : SOURCE_BUDGET,
+      1,
+      d.now(),
+    );
+    if (!turn.ok) {
+      d.log("client metadata lookups refused: a source exceeded its budget");
+      return { failure: "too many client lookups from this address", unavailable: true };
     }
-    const p = fetchDocument(clientId).finally(() => inflight.delete(clientId));
+    // The budget answer was awaited: what was true above may not be now.
+    const meanwhile = inflight.get(clientId);
+    if (meanwhile !== undefined) return meanwhile;
+    if (inflight.size >= MAX_INFLIGHT) return busy;
+    const late = crowded();
+    if (late !== undefined) return late;
+    running.set(source, (running.get(source) ?? 0) + 1);
+    const p = fetchDocument(clientId).finally(() => {
+      inflight.delete(clientId);
+      const left = (running.get(source) ?? 1) - 1;
+      if (left > 0) running.set(source, left);
+      else running.delete(source);
+    });
     inflight.set(clientId, p);
     return p;
   }

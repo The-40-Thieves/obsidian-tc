@@ -6,7 +6,12 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
-import { CIMD_SOURCE_BURST } from "../src/auth/as-cimd";
+import {
+  CIMD_MAX_INFLIGHT_PER_SOURCE,
+  CIMD_SOURCE_BURST,
+  CIMD_UNATTRIBUTED_BURST,
+  cimdSourceKey,
+} from "../src/auth/as-cimd";
 import { parseClientDocument } from "../src/auth/as-cimd-document";
 import {
   authorize,
@@ -29,6 +34,7 @@ import {
   rows,
   tokenFields,
 } from "./as-flow-harness";
+import { get } from "./as-operator-harness";
 
 afterEach(cleanupFlows);
 
@@ -119,6 +125,8 @@ async function cimdFlow(
   pages: Record<string, Page | (() => Page)>,
   opts: {
     allowedHosts?: string[];
+    /** Extra `auth.as` config (e.g. `consent`). */
+    as?: Record<string, unknown>;
     addresses?: (host: string) => string[];
     timeoutMs?: number;
     maxCacheRows?: number;
@@ -126,7 +134,14 @@ async function cimdFlow(
 ) {
   const s = site(pages, opts.addresses);
   const flow = await makeFlow({
-    ...(opts.allowedHosts ? { as: { cimd: { allowedHosts: opts.allowedHosts } } } : {}),
+    ...(opts.allowedHosts || opts.as
+      ? {
+          as: {
+            ...(opts.allowedHosts ? { cimd: { allowedHosts: opts.allowedHosts } } : {}),
+            ...opts.as,
+          },
+        }
+      : {}),
     cimd: {
       ...s.seam,
       ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
@@ -801,15 +816,35 @@ describe("cache", () => {
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const ATTACKER = { "x-test-ip": "198.51.100.7" };
 
-describe("review round 1: remembered consent never auto-approves a loopback callback", () => {
-  it("approved on port A, a request from port B (same client_id and path) is shown the consent page and gets no code", async () => {
-    const { flow } = await cimdFlow({ [CLAUDE_CODE]: json(claudeCodeDoc) });
-    const jar = new Jar();
+describe("remembered consent for a loopback callback follows auth.as.consent.loopback", () => {
+  const approveOnA = async (flow: Flow, jar: Jar) => {
     const first = await obtainCode(flow, jar, challenge, {
       client_id: CLAUDE_CODE,
       redirect_uri: "http://127.0.0.1:53124/callback",
     });
     expect(first.code).not.toBe("");
+  };
+
+  it("default (remember): approved on port A, port B of the same client and path gets a code without a page", async () => {
+    const { flow } = await cimdFlow({ [CLAUDE_CODE]: json(claudeCodeDoc) });
+    const jar = new Jar();
+    await approveOnA(flow, jar);
+    const b = await authorizeAs(flow, CLAUDE_CODE, "http://127.0.0.1:53999/callback", jar);
+    const via = await get(flow, b.headers.get("location") ?? "", jar);
+    expect(via.res.status).toBe(303);
+    expect(via.res.headers.get("location")).toMatch(
+      /^http:\/\/127\.0\.0\.1:53999\/callback\?code=/,
+    );
+    expect(rows(flow, "SELECT 1 FROM auth_codes")).toHaveLength(2);
+  });
+
+  it("prompt: approved on port A, port B shows the consent page with the loopback warning and gets no code", async () => {
+    const { flow } = await cimdFlow(
+      { [CLAUDE_CODE]: json(claudeCodeDoc) },
+      { as: { consent: { loopback: "prompt" } } },
+    );
+    const jar = new Jar();
+    await approveOnA(flow, jar);
     const b = await authorizeAs(flow, CLAUDE_CODE, "http://127.0.0.1:53999/callback", jar);
     const page = await consentPage(flow, jar, handleOf(b.headers.get("location")));
     expect(page.seen.res.status).toBe(200);
@@ -818,8 +853,8 @@ describe("review round 1: remembered consent never auto-approves a loopback call
     expect(rows(flow, "SELECT 1 FROM auth_codes")).toHaveLength(1);
   });
 
-  it("the same port again asks too, for a static native client as well", async () => {
-    const { flow } = await cimdFlow({});
+  it("prompt: the same port again asks too, for a static native client as well", async () => {
+    const { flow } = await cimdFlow({}, { as: { consent: { loopback: "prompt" } } });
     const jar = new Jar();
     const over = { client_id: LOOPBACK_CLIENT, redirect_uri: "http://127.0.0.1:4000/callback" };
     expect((await obtainCode(flow, jar, challenge, over)).code).not.toBe("");
@@ -1052,4 +1087,127 @@ describe("review round 1: client_name cannot spoof with invisible or bidi charac
     expect(name("A\u2066B\u2067C\u2068D\u2069E")).toBe("ABCDE");
     expect(name("Z\u200BW\u200CJ\u200D\u2060\uFEFFok")).toBe("ZWJok");
   });
+});
+
+describe("review round 2: the per-source budget cannot be dodged", () => {
+  const goodDoc = (id: string) => ({
+    client_id: id,
+    client_name: "Lookup",
+    redirect_uris: ["https://lookup.example/cb"],
+  });
+  const REDIRECT = "https://lookup.example/cb";
+  const pagesFor = (prefix: string, n: number) => {
+    const pages: Record<string, Page> = {};
+    for (let i = 0; i < n; i++) {
+      const id = `https://${prefix}${i}.example/c.json`;
+      pages[id] = json(goodDoc(id));
+    }
+    return pages;
+  };
+  const hit = (flow: Flow, prefix: string, i: number, headers: Record<string, string>) =>
+    authorize(
+      flow,
+      new Jar(),
+      challenge,
+      { client_id: `https://${prefix}${i}.example/c.json`, redirect_uri: REDIRECT },
+      headers,
+    );
+
+  it("cimdSourceKey: one bucket per IPv6 /64, IPv4-mapped is IPv4, no address is one shared fallback", () => {
+    const a = cimdSourceKey("2001:db8:1:2:aaaa:bbbb:cccc:dddd");
+    expect(cimdSourceKey("2001:0db8:0001:0002::1")).toBe(a);
+    expect(cimdSourceKey("2001:DB8:1:2:ffff:ffff:ffff:ffff")).toBe(a);
+    expect(cimdSourceKey("2001:db8:1:3::1")).not.toBe(a);
+    expect(cimdSourceKey("2001:db8:1:2::1%eth0")).toBe(a);
+    expect(cimdSourceKey("::ffff:203.0.113.9")).toBe(cimdSourceKey("203.0.113.9"));
+    expect(cimdSourceKey("203.0.113.9")).not.toBe(cimdSourceKey("203.0.113.10"));
+    expect(cimdSourceKey(undefined)).toBe(cimdSourceKey(""));
+    expect(cimdSourceKey(undefined)).not.toBe(a);
+  });
+
+  it("rotating addresses inside one IPv6 /64 spend one budget; another /64 is unaffected", async () => {
+    const { flow, fetched } = await cimdFlow(pagesFor("v6-", CIMD_SOURCE_BURST + 2));
+    const ip = (i: number) => ({ "x-test-ip": `2001:db8:1:2:${i.toString(16)}::${i + 1}` });
+    for (let i = 0; i < CIMD_SOURCE_BURST; i++) {
+      expect((await hit(flow, "v6-", i, ip(i))).status).toBe(303);
+    }
+    const before = fetched.length;
+    expect((await hit(flow, "v6-", CIMD_SOURCE_BURST, ip(CIMD_SOURCE_BURST + 1))).status).toBe(400);
+    expect(fetched).toHaveLength(before);
+    const elsewhere = { "x-test-ip": "2001:db8:1:3::1" };
+    expect((await hit(flow, "v6-", CIMD_SOURCE_BURST, elsewhere)).status).toBe(303);
+  });
+
+  it("peers with no usable address (loopback, unknown) share one fallback bucket instead of skipping the budget", async () => {
+    const total = CIMD_UNATTRIBUTED_BURST + 2;
+    const { flow, fetched } = await cimdFlow(pagesFor("anon-", total));
+    for (let i = 0; i < CIMD_UNATTRIBUTED_BURST; i++) {
+      expect((await hit(flow, "anon-", i, {})).status, `lookup ${i}`).toBe(303);
+    }
+    const before = fetched.length;
+    const refused = await hit(flow, "anon-", CIMD_UNATTRIBUTED_BURST, {});
+    expect(refused.status).toBe(400);
+    expect(fetched).toHaveLength(before);
+    // A source with a real address has its own bucket and still resolves.
+    const real = await hit(flow, "anon-", CIMD_UNATTRIBUTED_BURST, {
+      "x-test-ip": "198.51.100.40",
+    });
+    expect(real.status).toBe(303);
+    // The fallback bucket refills.
+    flow.clock.t += MIN;
+    expect((await hit(flow, "anon-", CIMD_UNATTRIBUTED_BURST + 1, {})).status).toBe(303);
+  });
+
+  it.each([
+    ["one address", () => ({ "x-test-ip": "198.51.100.50" }) as Record<string, string>],
+    ["one IPv6 /64", (i: number) => ({ "x-test-ip": `2001:db8:9:9:${i + 1}::1` })],
+    ["no address", () => ({}) as Record<string, string>],
+  ])(
+    "%s cannot hold more than its share of the 8 lookup slots, and another source still resolves",
+    async (_n, headersFor) => {
+      const gate: { release: () => void } = { release: () => {} };
+      const held = new Promise<string[]>((resolve) => {
+        gate.release = () => resolve([PUBLIC_IP]);
+      });
+      const resolved: string[] = [];
+      const flow = await makeFlow({
+        cimd: {
+          resolveHost: (host) => {
+            resolved.push(host);
+            return host.startsWith("slow") ? held : Promise.resolve([PUBLIC_IP]);
+          },
+          fetch: (async (url: string | URL) =>
+            new Response(JSON.stringify(goodDoc(String(url))), { status: 200 })) as typeof fetch,
+        },
+      });
+      const slow = (i: number) =>
+        authorize(
+          flow,
+          new Jar(),
+          challenge,
+          { client_id: `https://slow${i}.example/c.json`, redirect_uri: REDIRECT },
+          headersFor(i),
+        );
+      const holders = Array.from({ length: CIMD_MAX_INFLIGHT_PER_SOURCE }, (_, i) => slow(i));
+      await sleep(50);
+      expect(resolved).toHaveLength(CIMD_MAX_INFLIGHT_PER_SOURCE);
+      // One more from the same source is refused at once, without a name lookup.
+      const extra = await slow(CIMD_MAX_INFLIGHT_PER_SOURCE);
+      expect(extra.status).toBe(400);
+      expect(resolved).toHaveLength(CIMD_MAX_INFLIGHT_PER_SOURCE);
+      // A different legitimate source is served while the first still holds its slots.
+      const other = await authorize(
+        flow,
+        new Jar(),
+        challenge,
+        { client_id: "https://legit.example/c.json", redirect_uri: REDIRECT },
+        { "x-test-ip": "203.0.113.77" },
+      );
+      expect(other.status).toBe(303);
+      gate.release();
+      for (const h of await Promise.all(holders)) expect(h.status).toBe(303);
+      // The slots are free again.
+      expect((await slow(CIMD_MAX_INFLIGHT_PER_SOURCE + 1)).status).toBe(303);
+    },
+  );
 });

@@ -378,11 +378,17 @@ This release adds the pieces that exist before any token is issued: the metadata
   fields are kept). `auth.as.cimd.allowedHosts` limits which hosts may be client ids. The consent page names the host
   the client is registered at, warns loudly when the redirect it was asked to use is on this machine (any `127.0.0.0/8`
   address, `::1` or `localhost`, over http or https), and warns when the operator has never approved a
-  metadata-document client before, since anyone can publish a document under any name. A callback on this machine is
-  never approved from memory: its port is chosen at run time and nothing proves which local process is behind it, so
-  every sign-in that returns to a loopback address shows the consent page again, even for a client and path you
-  approved a minute ago. A lookup is bounded: one 5 s deadline covers the name lookup, the connection and the
-  body, one source address may start five uncached lookups a minute, a request that is already malformed never
+  metadata-document client before, since anyone can publish a document under any name. A callback on this machine
+  is remembered like any other once you have approved the client: the grant is kept without the port, so Claude Code
+  and Codex sign in again without a click. The trade-off is plain: a callback's port is chosen at run time and nothing
+  proves which local process is behind it, so with the default a malicious process on the same machine can start
+  its own sign-in for an approved client and obtain a token without a prompt. Such a process could typically already
+  read the stored tokens of those CLIs. Set `auth.as.consent.loopback: prompt` to show the consent page on every
+  sign-in that returns to a loopback address (the warning above is on it), whichever port it uses, even for a client and
+  path you approved a minute ago. A lookup is bounded: one 5 s deadline covers the name lookup, the connection and the
+  body, one source may start five uncached lookups a minute and have two running at once (an IPv6 address counts as
+  its /64; a peer with no usable address, such as a reverse proxy or tunnel on the same host, is one shared source
+  that may start ten a minute, not an exemption, so behind a tunnel every client shares that allowance), a request that is already malformed never
   starts one, and the sign-in page says only that the client cannot be used, whatever the reason (the log has it).
   The approval re-reads the client, so a document that drops the redirect after the page was shown issues no code.
   The client's name is shown with control, format and bidirectional characters removed.

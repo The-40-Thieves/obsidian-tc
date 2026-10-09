@@ -161,11 +161,12 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
     | { kind: "ask"; first: boolean };
   const stepFor = (p: PendingRequest, session: SessionInfo): Step => {
     const grants = liveGrants(db, keyOf(p, session));
-    // A loopback callback is never remembered: its port is picked at run time and nothing proves WHICH
-    // local process is behind it, so the operator who approved one process cannot have approved
-    // another that claims the same client_id and path (design v2 section 4.3 gives no instance proof).
-    // Without a remembered grant, `first` still keys on whether the client has any grant at all.
-    const remembers = !isLoopbackRedirect(p.redirectUri);
+    // `auth.as.consent.loopback: prompt` stops a loopback callback being remembered: its port is
+    // picked at run time and nothing proves WHICH local process is behind it, so a grant made for one
+    // process would also approve another that claims the same client_id and path (design v2 section
+    // 4.3 gives no instance proof). The default, `remember`, accepts that so a native CLI signs in
+    // without a click. Without a remembered grant, `first` still keys on whether the client has any.
+    const remembers = as.consent.loopback === "remember" || !isLoopbackRedirect(p.redirectUri);
     // A remembered grant is reused only while the account's CURRENT bounds still allow all of it:
     // narrowing the account after the grant makes the operator decide again.
     const bounds = accountBounds(db, session.sub);
