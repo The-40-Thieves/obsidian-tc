@@ -125,9 +125,9 @@ describe("page and script wiring (conditional UI)", () => {
     expect(page.text).toContain('autocomplete="username webauthn"');
     expect(page.text).toContain('data-mode="login"');
     expect(page.text).toContain('id="passkey-button"');
-    const scripts = [...page.text.matchAll(/<script\b[^>]*>/g)].map((m) => m[0]);
+    const scripts = [...page.text.matchAll(/<script\b[^>]*>/gi)].map((m) => m[0]);
     expect(scripts).toEqual(['<script src="/oauth/assets/passkey.js" defer>']);
-    expect(page.text).not.toMatch(/<script[^>]*>[^<]+<\/script>/); // no inline script
+    expect(page.text).not.toMatch(/<script[^>]*>[^<]+<\/script>/i); // no inline script
     expect(page.text).not.toMatch(/https?:\/\/(?!vault\.example\.com)/);
     const csp = page.res.headers.get("content-security-policy") ?? "";
     expect(csp).toContain("script-src 'self'");

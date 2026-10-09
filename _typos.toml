@@ -46,6 +46,7 @@ meaned = "meaned"     # deliberate: "nDCG is meaned over the queries that declar
 formattings = "formattings"
 Sems = "Sems"         # vaultSems / globalSems — semaphores in the index coordinator
 recieve = "recieve"   # deliberate: the seeded typo the write-ergonomics fix-typo task asks the model to fix
+COSE = "COSE"         # CBOR Object Signing and Encryption: the WebAuthn public-key format
 # Truncated SQL keywords used ON PURPOSE by tests asserting on partial statements. These live here
 # rather than under extend-identifiers because they appear as words inside strings and comments,
 # which the identifier list does not reach.
