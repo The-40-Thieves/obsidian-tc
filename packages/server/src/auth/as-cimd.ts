@@ -133,7 +133,7 @@ export function createClientResolver(d: ResolverDeps): ClientResolver {
       text = await fetchBoundedText(clientId, {
         ...(d.seams?.fetch ? { fetch: d.seams.fetch } : {}),
         ...(d.seams?.timeoutMs !== undefined ? { timeoutMs: d.seams.timeoutMs } : {}),
-        // No `allowPrivateNetwork`: a document is never fetched from a non-public address.
+        // No private-network opt-in: a document is never fetched from a non-public address.
         network: d.seams?.resolveHost ? { resolveHost: d.seams.resolveHost } : {},
         maxBytes: CIMD_MAX_BYTES,
         what: "client metadata document",

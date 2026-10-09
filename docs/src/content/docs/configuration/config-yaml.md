@@ -130,7 +130,7 @@ exist the metadata, the Protected Resource Metadata default and the challenge po
 | `auth.as.refreshTokenDays` | int 1 to 90, `30` | Absolute lifetime of a refresh-token family. |
 | `auth.as.dynamicRegistration` | bool, `false` | RFC 7591 Dynamic Client Registration. Off by default: it is deprecated by the MCP authorization spec, opens an unauthenticated client-creation surface, and the clients that matter register by metadata document instead. `registration_endpoint` is advertised only when this is on. |
 | `auth.as.dcr.maxClients` / `perIpPerHour` / `unusedDays` | int, `1000` / `10` / `90` | Limits used when DCR is on; an unused dynamic client is deleted after `unusedDays`. |
-| `auth.as.cimd.allowedHosts` | hostname[], `[]` | Hosts a Client ID Metadata Document may be served from. Empty admits any public https host. |
+| `auth.as.cimd.allowedHosts` | hostname[], `[]` | Hosts a Client ID Metadata Document may be served from, matched exactly against the `client_id` URL's host. Empty admits any public https host; a document is never fetched from a non-public address either way. |
 | `auth.as.setupTokenEnv` | env name, `OBSIDIAN_TC_AS_SETUP_TOKEN` | Name of the variable holding the one-time token that claims the operator account on a host with no terminal. The token is never read from the config file. |
 | `auth.as.login.maxFailuresPerWindow` / `windowSeconds` | int, `5` / `900` | Wrong passwords tolerated per account per window. |
 | `auth.as.clients[]` | list, `[]` | Pre-registered clients (`clientId`, `name`, `redirectUris`, optional `secretEnv`). Only these can be confidential. |
