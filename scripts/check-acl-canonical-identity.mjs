@@ -282,7 +282,8 @@ function analyzeFile(file, source, reg, out) {
           }
           const k = !prop.computed && prop.key.type === "Identifier" ? prop.key.name : undefined;
           let l = EMPTY;
-          if (k === "relPath" || (k !== undefined && ROW_PATH_COLUMN.test(k) && labels.has(R))) l = new Set([D]);
+          if (k === "relPath" || (k !== undefined && ROW_PATH_COLUMN.test(k) && labels.has(R)))
+            l = new Set([D]);
           else if (labels.has(R)) l = EMPTY;
           bindPattern(prop.value, l, scope);
         }
