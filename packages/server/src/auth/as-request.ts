@@ -3,6 +3,7 @@
 // first and a failure of either is a LOCAL error: nothing has proven where the browser may be sent,
 // so nothing redirects. Only after both match does any other fault become an error redirect, which
 // the caller builds with `iss` and the client's `state`.
+import { type ClientResolver, UNKNOWN_CLIENT } from "./as-cimd";
 import type { AsClient } from "./as-clients";
 import { redirectUriAllowed, resolveScopes, sameResource, splitScope } from "./as-clients";
 import type { PendingRequest } from "./as-grants";
@@ -19,7 +20,8 @@ export type AuthorizeOutcome =
   | { kind: "ok"; client: AsClient; request: PendingRequest };
 
 export interface AuthorizeRules {
-  findClient: (clientId: string) => AsClient | undefined;
+  /** The one client lookup (static client or metadata document); see as-cimd.ts. */
+  resolveClient: ClientResolver;
   resource: string;
   scopesSupported: readonly string[] | undefined;
 }
@@ -27,7 +29,10 @@ export interface AuthorizeRules {
 const CHALLENGE_RE = /^[A-Za-z0-9_-]{43}$/;
 const STATE_MAX = 512;
 
-export function parseAuthorizeRequest(q: URLSearchParams, rules: AuthorizeRules): AuthorizeOutcome {
+export async function parseAuthorizeRequest(
+  q: URLSearchParams,
+  rules: AuthorizeRules,
+): Promise<AuthorizeOutcome> {
   const once = (name: string): string | undefined | null => {
     const all = q.getAll(name);
     return all.length > 1 ? null : all[0];
@@ -36,8 +41,17 @@ export function parseAuthorizeRequest(q: URLSearchParams, rules: AuthorizeRules)
   if (clientId === null || clientId === undefined || clientId === "") {
     return { kind: "local", message: "The request does not name a client." };
   }
-  const client = rules.findClient(clientId);
-  if (client === undefined) return { kind: "local", message: "This client is not registered." };
+  const found = await rules.resolveClient(clientId);
+  if (!("client" in found)) {
+    return {
+      kind: "local",
+      message:
+        found.failure === UNKNOWN_CLIENT
+          ? "This client is not registered."
+          : `This client cannot be used: ${found.failure}.`,
+    };
+  }
+  const { client } = found;
   const redirectUri = once("redirect_uri");
   if (redirectUri === null || redirectUri === undefined || redirectUri === "") {
     return { kind: "local", message: "The request does not name a redirect address." };

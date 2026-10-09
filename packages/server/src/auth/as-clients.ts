@@ -1,6 +1,7 @@
 // Who may ask the bundled authorization server for a token, and where its answer may be sent
-// (design v2 sections 4.3 and 4.7). Static clients only in this slice: they live in `auth.as.clients`,
-// so resolution is a lookup in config and nothing here fetches anything.
+// (design v2 sections 4.3 and 4.7). Static clients live in `auth.as.clients`,
+// so resolution is a lookup in config and nothing here fetches anything (a metadata-document client
+// is resolved in as-cimd.ts).
 //
 // The redirect check is the open-redirect defence: every authorization response goes to a URI that
 // matched, exactly, one the operator registered. The single concession is loopback, where a native
@@ -19,6 +20,8 @@ export interface AsClient {
   redirectUris: readonly string[];
   /** Name of the environment variable holding the secret; present only for a confidential client. */
   secretEnv?: string | undefined;
+  /** True for a client resolved from a Client ID Metadata Document (its `clientId` is the URL). */
+  cimd?: boolean | undefined;
 }
 
 export function findStaticClient(

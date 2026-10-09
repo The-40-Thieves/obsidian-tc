@@ -11,7 +11,13 @@
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Context, Hono } from "hono";
 import { decodeProtectedHeader, jwtVerify } from "jose";
-import { authenticateClient, formReader, isFormRequest } from "./as-client-auth";
+import {
+  authenticateClient,
+  clientFailureStatus,
+  formReader,
+  isFormRequest,
+} from "./as-client-auth";
+import { clientResolverFor } from "./as-client-resolver";
 import { revokeFamily } from "./as-grants";
 import { type AsRouteDeps, enabledAs } from "./as-metadata";
 import { loadRefresh, REFRESH_TOKEN_RE } from "./as-refresh";
@@ -27,11 +33,12 @@ export function mountRevokeRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps
   const as = enabledAs(auth);
   if (as === undefined || deps === undefined) return;
   const { db, registry } = deps;
+  const resolveClient = clientResolverFor(deps, as);
   const now = deps.now ?? Date.now;
   const log = deps.log ?? defaultLog;
   const resource = auth.resource as string;
 
-  const fail = (c: Context, status: 400 | 401 | 415, error: string, description: string) => {
+  const fail = (c: Context, status: 400 | 401 | 415 | 503, error: string, description: string) => {
     if (status === 401) c.header("www-authenticate", 'Basic realm="oauth"');
     return c.json({ error, error_description: description }, status);
   };
@@ -84,8 +91,11 @@ export function mountRevokeRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps
       return fail(c, 415, "invalid_request", "the body must be application/x-www-form-urlencoded");
     }
     const form = new URLSearchParams(await c.req.text());
-    const authed = authenticateClient(as.clients, form, c.req.header("authorization"));
-    if ("failure" in authed) return fail(c, 401, "invalid_client", authed.failure);
+    const authed = await authenticateClient(resolveClient, form, c.req.header("authorization"));
+    if ("failure" in authed) {
+      const { status, error } = clientFailureStatus(authed);
+      return fail(c, status, error, authed.failure);
+    }
     const token = formReader(form)("token");
     if (!token) return fail(c, 400, "invalid_request", "token is required");
 

@@ -15,7 +15,13 @@ import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Context, Hono } from "hono";
 import { type AccessContext, mintAccessToken } from "./as-access";
 import { accountBounds, applyBounds } from "./as-account";
-import { authenticateClient, formReader, isFormRequest } from "./as-client-auth";
+import {
+  authenticateClient,
+  clientFailureStatus,
+  formReader,
+  isFormRequest,
+} from "./as-client-auth";
+import { clientResolverFor } from "./as-client-resolver";
 import { sameResource, secretsEqual, splitScope } from "./as-clients";
 import { loadCode, revokeFamily } from "./as-grants";
 import { type AsRouteDeps, enabledAs } from "./as-metadata";
@@ -31,12 +37,13 @@ const defaultLog = (line: string): void => {
   process.stderr.write(`[as] ${line}\n`);
 };
 
-type ErrorStatus = 400 | 401 | 415 | 500;
+type ErrorStatus = 400 | 401 | 415 | 500 | 503;
 
 export function mountTokenRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps): void {
   const as = enabledAs(auth);
   if (as === undefined || deps === undefined) return;
   const { db, registry } = deps;
+  const resolveClient = clientResolverFor(deps, as);
   const now = deps.now ?? Date.now;
   const log = deps.log ?? defaultLog;
   const resource = auth.resource as string;
@@ -63,8 +70,11 @@ export function mountTokenRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps)
     const one = formReader(form);
 
     // ---- client authentication: `none` for a public client, client_secret_basic for a confidential one
-    const authed = authenticateClient(as.clients, form, c.req.header("authorization"));
-    if ("failure" in authed) return fail(c, 401, "invalid_client", authed.failure);
+    const authed = await authenticateClient(resolveClient, form, c.req.header("authorization"));
+    if ("failure" in authed) {
+      const { status, error } = clientFailureStatus(authed);
+      return fail(c, status, error, authed.failure);
+    }
     const { client } = authed;
 
     // ---- request

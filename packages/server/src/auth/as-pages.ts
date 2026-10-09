@@ -131,6 +131,10 @@ export interface ConsentView {
   redirectHost: string;
   /** Every redirect the client is registered with is on this machine: any local program can claim it. */
   loopbackOnly: boolean;
+  /** For a metadata-document client: the host its client_id (and so its registration) is served from. */
+  clientHost?: string;
+  /** A metadata-document client the operator has never approved: anyone can publish one under any name. */
+  unapproved?: boolean;
   scopes: Array<{ scope: string; words: string }>;
   resource: string;
   /** Configured personas and their vaults; absent when none are configured. */
@@ -144,6 +148,14 @@ export function consentPage(o: ConsentView): string {
   const warn = o.loopbackOnly
     ? '<p class="error" role="alert">This application returns to an address on the computer that is signing in. Any program running there could be pretending to be it. Approve only if you started this sign-in yourself.</p>\n'
     : "";
+  const unapproved =
+    o.unapproved && o.clientHost !== undefined
+      ? `<p class="error" role="alert">This application identifies itself only by a web address (<code>${escapeHtml(o.clientHost)}</code>) and you have not approved it before. Anyone can publish a document under any name: approve it only if you recognise that address.</p>\n`
+      : "";
+  const hosted =
+    o.clientHost === undefined
+      ? ""
+      : `<p class="note">Its registration is served from <code>${escapeHtml(o.clientHost)}</code>.</p>\n`;
   const option = (v: string, label = v): string =>
     `<option value="${escapeHtml(v)}">${escapeHtml(label)}</option>`;
   const picker =
@@ -163,8 +175,8 @@ ${[...new Set(o.personas.flatMap((p) => p.vaults))].map((v) => option(v)).join("
 `;
   return layout(
     "Approve access",
-    `${warn}<p><strong>${escapeHtml(o.clientName)}</strong> (<code>${escapeHtml(o.clientId)}</code>) asks to use this server on your behalf. After you choose, your browser returns to <code>${escapeHtml(o.redirectHost)}</code>.</p>
-<p>It will be able to:</p>
+    `${warn}${unapproved}<p><strong>${escapeHtml(o.clientName)}</strong> (<code>${escapeHtml(o.clientId)}</code>) asks to use this server on your behalf. After you choose, your browser returns to <code>${escapeHtml(o.redirectHost)}</code>.</p>
+${hosted}<p>It will be able to:</p>
 <ul>
 ${scopes}
 </ul>

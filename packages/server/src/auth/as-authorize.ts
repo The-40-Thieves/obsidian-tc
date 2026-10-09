@@ -7,18 +7,19 @@
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Context, Hono } from "hono";
 import { accountBounds, applyBounds, narrowScopes } from "./as-account";
+import { clientResolverFor } from "./as-client-resolver";
 import {
-  type AsClient,
   describeScope,
-  findStaticClient,
   isLoopbackUri,
   redirectKey,
+  redirectUriAllowed,
   scopesCovered,
 } from "./as-clients";
 import {
   approveRequest,
   createPending,
   discardPending,
+  everApproved,
   FRESH_LOGIN_MS,
   type Grant,
   type GrantKey,
@@ -78,7 +79,7 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
   const log = deps.log ?? defaultLog;
   const resource = auth.resource as string;
   const clientIp = deps.clientIp ?? socketClientIp;
-  const findClient = (id: string): AsClient | undefined => findStaticClient(as.clients, id);
+  const resolveClient = clientResolverFor(deps, as);
 
   const localError = (c: Context, message: string) =>
     html(c, 400, messagePage("Cannot continue", message));
@@ -115,9 +116,9 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
 
   // ---- authorize -----------------------------------------------------------------------------
 
-  app.get("/oauth/authorize", (c) => {
-    const outcome = parseAuthorizeRequest(new URL(c.req.url).searchParams, {
-      findClient,
+  app.get("/oauth/authorize", async (c) => {
+    const outcome = await parseAuthorizeRequest(new URL(c.req.url).searchParams, {
+      resolveClient,
       resource,
       scopesSupported: auth.scopesSupported,
     });
@@ -188,13 +189,21 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
   const loginFor = (handle: string, reauth: boolean) =>
     `/oauth/login?request=${handle}${reauth ? "&reauth=1" : ""}`;
 
-  app.get("/oauth/consent", (c) => {
+  app.get("/oauth/consent", async (c) => {
     if (!b.claimed()) return b.notClaimed(c);
     const handle = requestHandleOf(c.req.query("request"));
     const pending = handle === undefined ? undefined : loadPending(db, handle, now());
     if (handle === undefined || pending === undefined) return expired(c);
-    const client = findClient(pending.clientId);
-    if (client === undefined) return localError(c, "This client is no longer registered.");
+    // Resolved again, not trusted from authorize: a metadata document can have moved on since, and
+    // a redirect it no longer lists must not be approved.
+    const found = await resolveClient(pending.clientId);
+    if (
+      !("client" in found) ||
+      !redirectUriAllowed(found.client.redirectUris, pending.redirectUri)
+    ) {
+      return localError(c, "This client is no longer registered.");
+    }
+    const { client } = found;
     const session = b.sessionOf(c);
     if (session === undefined) return c.redirect(loginFor(handle, false), 303);
     const step = stepFor(pending, session);
@@ -234,6 +243,12 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
         clientId: client.clientId,
         redirectHost: redirectHost(pending.redirectUri),
         loopbackOnly: client.redirectUris.every(isLoopbackUri),
+        ...(client.cimd
+          ? {
+              clientHost: new URL(client.clientId).hostname,
+              unapproved: !everApproved(db, client.clientId),
+            }
+          : {}),
         scopes: shown.map((scope) => ({ scope, words: describeScope(scope) })),
         resource: pending.resource,
         ...(personas.length > 0 ? { personas } : {}),

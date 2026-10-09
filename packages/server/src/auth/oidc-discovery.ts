@@ -46,6 +46,9 @@ export interface FetchBoundedOpts {
    *  it is derived from the issuer, which every token carries. A key-set URL is NOT -- its path can
    *  be a credential (`/jwks/<token>`) -- so by default only its origin is ever shown. */
   pathIsPublic?: boolean;
+  /** Called with the response once it is a 200 within bounds, before the body is read: lets a caller
+   *  that needs a header (the CIMD cache lifetime) read it without a second request. */
+  onResponse?: (res: Response) => void;
 }
 
 function requireHttps(url: string, what: string, pathIsPublic = false, allowHttp = false): URL {
@@ -133,6 +136,7 @@ export async function fetchBoundedText(url: string, o: FetchBoundedOpts): Promis
       `${o.what}: ${shown} is too large (${declared} bytes declared, limit ${o.maxBytes})`,
     );
   }
+  o.onResponse?.(res);
   try {
     return await readBodyText(res, o.maxBytes);
   } catch (e) {
