@@ -9,7 +9,12 @@
 // `http://localhost` match with the port ignored and everything else (scheme, host, path, query) exact.
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
-import { grantsScope, isQualifiedScope, parseScope } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  grantsScope,
+  isLoopbackHost,
+  isQualifiedScope,
+  parseScope,
+} from "@the-40-thieves/obsidian-tc-shared";
 
 type AuthConfig = ServerConfig["auth"];
 type StaticClient = NonNullable<AuthConfig["as"]>["clients"][number];
@@ -47,6 +52,20 @@ function parseHttpLoopback(uri: string): URL | undefined {
 
 /** Is this an `http` URI to a loopback host (the one place a port may vary)? */
 export const isLoopbackUri = (uri: string): boolean => parseHttpLoopback(uri) !== undefined;
+
+/**
+ * Does this redirect return to the computer the browser runs on? Any http or https URI whose host is
+ * loopback (all of 127.0.0.0/8, `::1`, `localhost`): the question the consent page's warning and
+ * remembered consent ask, wider than the three hosts whose port may vary (`isLoopbackUri`).
+ */
+export function isLoopbackRedirect(uri: string): boolean {
+  try {
+    const u = new URL(uri);
+    return (u.protocol === "http:" || u.protocol === "https:") && isLoopbackHost(u.hostname);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Does `requested` match one of the client's registered redirect URIs? A loopback URI matches a

@@ -9,7 +9,9 @@ import type { Context, Hono } from "hono";
 import { accountBounds, applyBounds, narrowScopes } from "./as-account";
 import { clientResolverFor } from "./as-client-resolver";
 import {
+  type AsClient,
   describeScope,
+  isLoopbackRedirect,
   isLoopbackUri,
   redirectKey,
   redirectUriAllowed,
@@ -107,6 +109,16 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
       state: p.state ?? undefined,
     });
 
+  /** The pending request's client as it is NOW, or undefined when it is gone or no longer lists the
+   *  redirect: a metadata document can move on between the page and the approval (so POST asks too). */
+  const clientNow = async (c: Context, p: PendingRequest): Promise<AsClient | undefined> => {
+    const found = await resolveClient(p.clientId, { source: clientIp(c) });
+    return "client" in found && redirectUriAllowed(found.client.redirectUris, p.redirectUri)
+      ? found.client
+      : undefined;
+  };
+  const NO_LONGER_REGISTERED = "This client is no longer registered.";
+
   const keyOf = (p: PendingRequest, session: SessionInfo): GrantKey => ({
     sub: session.sub,
     clientId: p.clientId,
@@ -121,6 +133,7 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
       resolveClient,
       resource,
       scopesSupported: auth.scopesSupported,
+      source: clientIp(c),
     });
     if (outcome.kind === "local") return localError(c, outcome.message);
     if (outcome.kind === "redirect") {
@@ -148,11 +161,17 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
     | { kind: "ask"; first: boolean };
   const stepFor = (p: PendingRequest, session: SessionInfo): Step => {
     const grants = liveGrants(db, keyOf(p, session));
+    // A loopback callback is never remembered: its port is picked at run time and nothing proves WHICH
+    // local process is behind it, so the operator who approved one process cannot have approved
+    // another that claims the same client_id and path (design v2 section 4.3 gives no instance proof).
+    // Without a remembered grant, `first` still keys on whether the client has any grant at all.
+    const remembers = !isLoopbackRedirect(p.redirectUri);
     // A remembered grant is reused only while the account's CURRENT bounds still allow all of it:
     // narrowing the account after the grant makes the operator decide again.
     const bounds = accountBounds(db, session.sub);
     const grant = grants.find(
       (g) =>
+        remembers &&
         scopesCovered(g.scopes, p.scopes) &&
         bounds !== undefined &&
         withinBounds(applyBounds(bounds, { scopes: p.scopes, vault: g.vault }), p.scopes),
@@ -196,14 +215,8 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
     if (handle === undefined || pending === undefined) return expired(c);
     // Resolved again, not trusted from authorize: a metadata document can have moved on since, and
     // a redirect it no longer lists must not be approved.
-    const found = await resolveClient(pending.clientId);
-    if (
-      !("client" in found) ||
-      !redirectUriAllowed(found.client.redirectUris, pending.redirectUri)
-    ) {
-      return localError(c, "This client is no longer registered.");
-    }
-    const { client } = found;
+    const client = await clientNow(c, pending);
+    if (client === undefined) return localError(c, NO_LONGER_REGISTERED);
     const session = b.sessionOf(c);
     if (session === undefined) return c.redirect(loginFor(handle, false), 303);
     const step = stepFor(pending, session);
@@ -242,7 +255,7 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
         clientName: client.name,
         clientId: client.clientId,
         redirectHost: redirectHost(pending.redirectUri),
-        loopbackOnly: client.redirectUris.every(isLoopbackUri),
+        loopbackOnly: isLoopbackRedirect(pending.redirectUri),
         ...(client.cimd
           ? {
               clientHost: new URL(client.clientId).hostname,
@@ -270,6 +283,8 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
     }
     const pending = loadPending(db, handle, now());
     if (pending === undefined) return expired(c);
+    // The same check as the page: a document that dropped the redirect since must not get a code.
+    if ((await clientNow(c, pending)) === undefined) return localError(c, NO_LONGER_REGISTERED);
     if (stepFor(pending, session).kind === "reauth") {
       return c.redirect(loginFor(handle, true), 303);
     }

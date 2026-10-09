@@ -73,20 +73,39 @@ function requireHttps(url: string, what: string, pathIsPublic = false, allowHttp
   return u;
 }
 
+/** `p`, or `timedOut()` once `deadline` fires first. The loser is left running but its failure is
+ *  swallowed, so an abandoned name lookup that later rejects is not an unhandled rejection. */
+function raceDeadline<T>(p: Promise<T>, deadline: AbortSignal, timedOut: () => Error): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(timedOut());
+    p.then(resolve, reject).finally(() => deadline.removeEventListener("abort", onAbort));
+    if (deadline.aborted) onAbort();
+    else deadline.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 /** GET a URL as text: https only, no redirects, timeout, and a hard cap on the body size. */
 export async function fetchBoundedText(url: string, o: FetchBoundedOpts): Promise<string> {
   const u = requireHttps(url, o.what, o.pathIsPublic, o.target !== undefined);
-  const validated =
+  const shown = (o.pathIsPublic === true ? redactEndpointWithPath : redactEndpoint)(u.href);
+  // ONE deadline covers the name lookup, the connection and the body: it starts before the lookup,
+  // which has no timeout of its own, so a name server that never answers cannot hold the caller.
+  const timeoutMs = o.timeoutMs ?? IDP_FETCH_TIMEOUT_MS;
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const signal = o.signal === undefined ? timeout : AbortSignal.any([o.signal, timeout]);
+  const deadlineError = () =>
+    new OidcFetchError(`${o.what}: ${shown} timed out after ${timeoutMs} ms`);
+  const validating =
     o.target !== undefined
-      ? await o.target(u)
-      : await assertPublicHost(
+      ? o.target(u)
+      : assertPublicHost(
           u.hostname,
           o.network ?? {},
           (message, cause) =>
             new OidcFetchError(message, cause === undefined ? undefined : { cause }),
           o.what,
         );
-  const shown = (o.pathIsPublic === true ? redactEndpointWithPath : redactEndpoint)(u.href);
+  const validated = await raceDeadline(validating, timeout, deadlineError);
   // A transport error can embed the request URL verbatim; strip it (and, for a URL whose path is
   // not public, the path too) before it reaches a message.
   const scrub = (e: unknown): string => {
@@ -100,9 +119,6 @@ export async function fetchBoundedText(url: string, o: FetchBoundedOpts): Promis
   // the name again); with the private-network opt-in nothing was validated, so the ordinary fetch.
   const doFetch =
     o.fetch ?? (validated === undefined ? globalThis.fetch : createPinnedFetch(validated));
-  const timeoutMs = o.timeoutMs ?? IDP_FETCH_TIMEOUT_MS;
-  const timeout = AbortSignal.timeout(timeoutMs);
-  const signal = o.signal === undefined ? timeout : AbortSignal.any([o.signal, timeout]);
   let res: Response;
   try {
     res = await doFetch(u.href, {

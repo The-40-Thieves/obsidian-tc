@@ -6,6 +6,7 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
+import { CIMD_SOURCE_BURST } from "../src/auth/as-cimd";
 import { parseClientDocument } from "../src/auth/as-cimd-document";
 import {
   authorize,
@@ -18,6 +19,7 @@ import {
   handleOf,
   issue,
   Jar,
+  LOOPBACK_CLIENT,
   loginFor,
   makeFlow,
   obtainCode,
@@ -296,10 +298,10 @@ describe("client-auth method: the list is authoritative", () => {
       token_endpoint_auth_methods_supported: ["private_key_jwt"],
     };
     const { flow } = await cimdFlow({ [id]: json(doc) });
-    await expectRefusedLocally(
-      await authorizeAs(flow, id, "https://jwt.example/cb"),
-      "private_key_jwt",
-    );
+    // The page says only that the client cannot be used; the reason is for the log.
+    const page = await authorizeAs(flow, id, "https://jwt.example/cb");
+    await expectRefusedLocally(page);
+    expect(flow.logs.join("\n")).toContain("private_key_jwt");
     const { res, body } = await exchange(flow, tokenFields("c", "v".repeat(43), { client_id: id }));
     expect(res.status).toBe(401);
     expect(body.error).toBe("invalid_client");
@@ -791,5 +793,263 @@ describe("cache", () => {
       refreshFields(issued.refresh, { client_id: id, resource: undefined }),
     );
     expect(back.res.status).toBe(200);
+  });
+});
+
+// ---- review round 1 ----------------------------------------------------------------------------------
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const ATTACKER = { "x-test-ip": "198.51.100.7" };
+
+describe("review round 1: remembered consent never auto-approves a loopback callback", () => {
+  it("approved on port A, a request from port B (same client_id and path) is shown the consent page and gets no code", async () => {
+    const { flow } = await cimdFlow({ [CLAUDE_CODE]: json(claudeCodeDoc) });
+    const jar = new Jar();
+    const first = await obtainCode(flow, jar, challenge, {
+      client_id: CLAUDE_CODE,
+      redirect_uri: "http://127.0.0.1:53124/callback",
+    });
+    expect(first.code).not.toBe("");
+    const b = await authorizeAs(flow, CLAUDE_CODE, "http://127.0.0.1:53999/callback", jar);
+    const page = await consentPage(flow, jar, handleOf(b.headers.get("location")));
+    expect(page.seen.res.status).toBe(200);
+    expect(page.seen.res.headers.get("location")).toBeNull();
+    expect(page.seen.text).toContain("returns to an address on the computer");
+    expect(rows(flow, "SELECT 1 FROM auth_codes")).toHaveLength(1);
+  });
+
+  it("the same port again asks too, for a static native client as well", async () => {
+    const { flow } = await cimdFlow({});
+    const jar = new Jar();
+    const over = { client_id: LOOPBACK_CLIENT, redirect_uri: "http://127.0.0.1:4000/callback" };
+    expect((await obtainCode(flow, jar, challenge, over)).code).not.toBe("");
+    const again = await authorize(flow, jar, challenge, over);
+    const page = await consentPage(flow, jar, handleOf(again.headers.get("location")));
+    expect(page.seen.res.status).toBe(200);
+    expect(rows(flow, "SELECT 1 FROM auth_codes")).toHaveLength(1);
+  });
+});
+
+describe("review round 1: the localhost warning follows the SELECTED redirect, for any loopback host", () => {
+  const LOOP = "returns to an address on the computer";
+  const consentFor = async (doc: Record<string, unknown>, id: string, redirect: string) => {
+    const { flow } = await cimdFlow({ [id]: json({ client_id: id, ...doc }) });
+    const jar = new Jar();
+    const a = await authorizeAs(flow, id, redirect, jar);
+    const next = a.headers.get("location") ?? "";
+    expect(next).toContain("/oauth/login");
+    await loginFor(flow, jar, next);
+    return (await consentPage(flow, jar, handleOf(next))).seen.text;
+  };
+
+  it.each([
+    [
+      "mixed document, loopback selected",
+      ["https://evil.example/cb", "http://127.0.0.1/callback"],
+      "http://127.0.0.1:5000/callback",
+    ],
+    ["http [::1]", ["https://o.example/cb", "http://[::1]/cb"], "http://[::1]:8080/cb"],
+    ["https 127.0.0.2", ["https://127.0.0.2/cb"], "https://127.0.0.2/cb"],
+    ["https [::1]", ["https://[::1]/cb"], "https://[::1]/cb"],
+    ["https 127.0.0.1", ["https://127.0.0.1/cb"], "https://127.0.0.1/cb"],
+  ])("warns: %s", async (name, uris, selected) => {
+    const id = `https://warn-${name.replace(/\W+/g, "-")}.example/client.json`;
+    expect(await consentFor({ redirect_uris: uris }, id, selected)).toContain(LOOP);
+  });
+
+  it("does not warn when the selected redirect is the hosted one of a mixed document", async () => {
+    const id = "https://mixed-hosted.example/client.json";
+    const text = await consentFor(
+      { redirect_uris: ["https://mixed-hosted.example/cb", "http://127.0.0.1/callback"] },
+      id,
+      "https://mixed-hosted.example/cb",
+    );
+    expect(text).not.toContain(LOOP);
+  });
+
+  it("the never-approved warning is spec-literal: it ends at the first approval and does not return after a revoke", async () => {
+    const { flow } = await cimdFlow({ [CHATGPT]: json(chatgptDoc) });
+    const jar = new Jar();
+    expect(
+      (
+        await obtainCode(flow, jar, challenge, {
+          client_id: CHATGPT,
+          redirect_uri: CHATGPT_REDIRECT,
+        })
+      ).code,
+    ).not.toBe("");
+    flow.db.prepare("UPDATE grants SET revoked_at = ?").run(Date.now());
+    const a = await authorizeAs(flow, CHATGPT, CHATGPT_REDIRECT, jar);
+    const page = await consentPage(flow, jar, handleOf(a.headers.get("location")));
+    expect(page.seen.res.status).toBe(200);
+    expect(page.seen.text).not.toContain("you have not approved it before");
+  });
+});
+
+describe("review round 1: unauthenticated lookups are bounded", () => {
+  const goodDoc = (id: string) => ({
+    client_id: id,
+    client_name: "Lookup",
+    redirect_uris: ["https://lookup.example/cb"],
+  });
+
+  it("8 stalled name lookups release their slots at the deadline; a 9th client still resolves", async () => {
+    const flow = await makeFlow({
+      cimd: {
+        timeoutMs: 150,
+        resolveHost: (host) =>
+          host.startsWith("stall") ? new Promise<string[]>(() => {}) : Promise.resolve([PUBLIC_IP]),
+        fetch: (async (url: string | URL) =>
+          new Response(JSON.stringify(goodDoc(String(url))), { status: 200 })) as typeof fetch,
+      },
+    });
+    const stalled = Promise.all(
+      Array.from({ length: 8 }, (_, i) =>
+        authorize(
+          flow,
+          new Jar(),
+          challenge,
+          {
+            client_id: `https://stall${i}.example/c.json`,
+            redirect_uri: "https://lookup.example/cb",
+          },
+          { "x-test-ip": `198.51.100.${10 + i}` },
+        ),
+      ),
+    );
+    const settled = await Promise.race([stalled, sleep(2000).then(() => "hung" as const)]);
+    expect(settled).not.toBe("hung");
+    const ninth = await authorize(
+      flow,
+      new Jar(),
+      challenge,
+      { client_id: "https://ok.example/c.json", redirect_uri: "https://lookup.example/cb" },
+      { "x-test-ip": "198.51.100.99" },
+    );
+    expect(ninth.status).toBe(303);
+  });
+
+  it("a source past its budget of uncached lookups is refused without a fetch; another source and the cache are unaffected", async () => {
+    const pages: Record<string, Page> = {};
+    for (let i = 0; i <= CIMD_SOURCE_BURST; i++) {
+      const id = `https://budget${i}.example/c.json`;
+      pages[id] = json(goodDoc(id));
+    }
+    const { flow, fetched } = await cimdFlow(pages);
+    const hit = (i: number, headers: Record<string, string>) =>
+      authorize(
+        flow,
+        new Jar(),
+        challenge,
+        {
+          client_id: `https://budget${i}.example/c.json`,
+          redirect_uri: "https://lookup.example/cb",
+        },
+        headers,
+      );
+    for (let i = 0; i < CIMD_SOURCE_BURST; i++) expect((await hit(i, ATTACKER)).status).toBe(303);
+    const before = fetched.length;
+    const refused = await hit(CIMD_SOURCE_BURST, ATTACKER);
+    expect(refused.status).toBe(400);
+    expect(fetched).toHaveLength(before);
+    // A cached client costs the attacker nothing and still works; another address is not blamed.
+    expect((await hit(0, ATTACKER)).status).toBe(303);
+    expect((await hit(CIMD_SOURCE_BURST, { "x-test-ip": "198.51.100.8" })).status).toBe(303);
+    // The budget refills.
+    flow.clock.t += MIN;
+    expect((await hit(CIMD_SOURCE_BURST, ATTACKER)).status).toBe(303);
+  });
+
+  it("a request that is already malformed costs no outbound lookup (it is a local error)", async () => {
+    const id = "https://cheap.example/c.json";
+    const { flow, fetched, resolved } = await cimdFlow({ [id]: json(goodDoc(id)) });
+    const redirect_uri = "https://lookup.example/cb";
+    for (const over of [
+      { response_type: "token" },
+      { code_challenge: undefined },
+      { code_challenge_method: "plain" },
+      { redirect_uri: "not a url" },
+      { redirect_uri: "https://lookup.example/cb#frag" },
+    ]) {
+      const res = await authorizeAs(flow, id, redirect_uri, new Jar(), over);
+      expect(res.status, JSON.stringify(over)).toBe(400);
+      expect(res.headers.get("location")).toBeNull();
+    }
+    expect(fetched).toEqual([]);
+    expect(resolved).toEqual([]);
+    // Once the client is known, the same faults are error redirects again.
+    expect((await authorizeAs(flow, id, redirect_uri)).status).toBe(303);
+    const bad = await authorizeAs(flow, id, redirect_uri, new Jar(), { response_type: "token" });
+    expect(bad.status).toBe(303);
+    expect(bad.headers.get("location")).toContain("error=unsupported_response_type");
+  });
+
+  it("a failed fetch, a bad document and a refused host read the same on the authorize page", async () => {
+    const down = "https://down.example/c.json";
+    const junk = "https://junk.example/c.json";
+    const other = "https://other.example/c.json";
+    const { flow } = await cimdFlow({
+      [down]: { status: 503, body: "down" },
+      [junk]: { body: "not json" },
+      [other]: json({
+        client_id: "https://elsewhere.example/c.json",
+        redirect_uris: ["https://lookup.example/cb"],
+      }),
+    });
+    const texts: string[] = [];
+    for (const id of [down, junk, other]) {
+      const res = await authorizeAs(flow, id, "https://lookup.example/cb");
+      expect(res.status).toBe(400);
+      texts.push(await res.text());
+    }
+    expect(new Set(texts).size).toBe(1);
+    expect(texts[0]).not.toMatch(/fetched|JSON|client_id/);
+  });
+});
+
+describe("review round 1: consent POST re-checks the redirect", () => {
+  it("a document that drops the redirect between the page and the approval issues no code", async () => {
+    const id = "https://drop.example/client.json";
+    const redirect = "https://drop.example/cb";
+    const doc = { client_id: id, client_name: "Drop", redirect_uris: [redirect] };
+    let current: unknown = doc;
+    const { flow } = await cimdFlow({ [id]: () => json(current) });
+    const jar = new Jar();
+    const a = await authorizeAs(flow, id, redirect, jar);
+    const next = a.headers.get("location") ?? "";
+    await loginFor(flow, jar, next);
+    const page = await consentPage(flow, jar, handleOf(next));
+    expect(page.seen.res.status).toBe(200);
+    current = { ...doc, redirect_uris: ["https://drop.example/elsewhere"] };
+    flow.db.prepare("DELETE FROM cimd_cache").run();
+    const done = await consentPost(flow, jar, {
+      csrf: page.csrf,
+      request: page.request,
+      decision: "approve",
+    });
+    expect(done.res.status).toBe(400);
+    expect(done.res.headers.get("location")).toBeNull();
+    expect(rows(flow, "SELECT 1 FROM auth_codes")).toEqual([]);
+  });
+});
+
+describe("review round 1: client_name cannot spoof with invisible or bidi characters", () => {
+  const name = (client_name: string) => {
+    const r = parseClientDocument(
+      "https://n.example/c.json",
+      JSON.stringify({
+        client_id: "https://n.example/c.json",
+        client_name,
+        redirect_uris: ["https://n.example/cb"],
+      }),
+    );
+    if (!r.ok) throw new Error(r.message);
+    return r.doc.name;
+  };
+
+  it("removes bidi overrides and isolates and zero-width marks", () => {
+    expect(name("Safe\u202Eevil.example\u202C App")).toBe("Safeevil.example App");
+    expect(name("A\u2066B\u2067C\u2068D\u2069E")).toBe("ABCDE");
+    expect(name("Z\u200BW\u200CJ\u200D\u2060\uFEFFok")).toBe("ZWJok");
   });
 });

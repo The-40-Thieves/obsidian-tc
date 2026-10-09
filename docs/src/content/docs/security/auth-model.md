@@ -376,8 +376,16 @@ This release adds the pieces that exist before any token is issued: the metadata
   assertion at the token or revocation endpoint is `invalid_client`. A document is cached for its `Cache-Control:
   max-age` clamped to 5 minutes to 24 hours (errors are never cached, the table is capped, and only the validated
   fields are kept). `auth.as.cimd.allowedHosts` limits which hosts may be client ids. The consent page names the host
-  the client is registered at, warns loudly when every redirect is on this machine, and warns when the operator has
-  never approved a metadata-document client before, since anyone can publish a document under any name.
+  the client is registered at, warns loudly when the redirect it was asked to use is on this machine (any `127.0.0.0/8`
+  address, `::1` or `localhost`, over http or https), and warns when the operator has never approved a
+  metadata-document client before, since anyone can publish a document under any name. A callback on this machine is
+  never approved from memory: its port is chosen at run time and nothing proves which local process is behind it, so
+  every sign-in that returns to a loopback address shows the consent page again, even for a client and path you
+  approved a minute ago. A lookup is bounded: one 5 s deadline covers the name lookup, the connection and the
+  body, one source address may start five uncached lookups a minute, a request that is already malformed never
+  starts one, and the sign-in page says only that the client cannot be used, whatever the reason (the log has it).
+  The approval re-reads the client, so a document that drops the redirect after the page was shown issues no code.
+  The client's name is shown with control, format and bidirectional characters removed.
 - **Refresh tokens and revocation.** Every code exchange returns a refresh token (opaque, 32 random bytes, stored
   only as a SHA-256). It rotates on every use and its family ends `auth.as.refreshTokenDays` after the exchange.
   A client that lost a refresh response may retry the previous token until its successor has been used, and is

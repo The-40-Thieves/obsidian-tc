@@ -11,6 +11,7 @@
 // The client is accepted iff the permitted set contains a method this server offers a CIMD client,
 // which is `none` alone: a CIMD client has no secret to share and `private_key_jwt` is never advertised.
 import { isLoopbackHost } from "@the-40-thieves/obsidian-tc-shared";
+import { sanitizeDisplayText } from "../mcp/elicit-form";
 import { isLoopbackUri } from "./as-clients";
 
 /** What the flow keeps of a document. */
@@ -83,15 +84,10 @@ function usableRedirect(raw: string): string | undefined | "refuse" {
   return undefined;
 }
 
-/** The name for the consent page: control and line-separator characters become spaces, then it is bounded. */
-function cleanName(raw: string): string {
-  let out = "";
-  for (const ch of raw) {
-    const c = ch.codePointAt(0) ?? 0;
-    out += c < 0x20 || (c >= 0x7f && c <= 0x9f) || c === 0x2028 || c === 0x2029 ? " " : ch;
-  }
-  return out.trim().slice(0, NAME_MAX);
-}
+/** The name for the consent page: the display-text stripping the elicitation forms use (control, format
+ *  and line-separator characters, so no bidi override or zero-width mark can reorder or hide it), then bounded. */
+const cleanName = (raw: string): string =>
+  sanitizeDisplayText(raw, Number.POSITIVE_INFINITY).trim().slice(0, NAME_MAX);
 
 /**
  * Validate the body fetched from `clientId`. The document's own `client_id` must equal the URL it was

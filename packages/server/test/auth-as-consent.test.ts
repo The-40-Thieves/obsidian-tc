@@ -213,7 +213,7 @@ describe("consent phishing: a first grant needs a fresh login", () => {
     expect(page.res.status).toBe(200);
   });
 
-  it("a loopback client's grant is remembered across ports", async () => {
+  it("a loopback client's grant is keyed without the port, but never auto-approves another port (no instance proof)", async () => {
     const flow = await makeFlow();
     const jar = new Jar();
     const first = await obtainCode(flow, jar, challenge, {
@@ -226,8 +226,9 @@ describe("consent phishing: a first grant needs a fresh login", () => {
       redirect_uri: "http://localhost:6002/cb",
     });
     const via = await get(flow, a.headers.get("location") ?? "", jar);
-    expect(via.res.status).toBe(303);
-    expect(via.res.headers.get("location")).toMatch(/^http:\/\/localhost:6002\/cb\?/);
+    expect(via.res.status).toBe(200);
+    expect(via.res.headers.get("location")).toBeNull();
+    expect(rows(flow, "SELECT 1 FROM auth_codes")).toHaveLength(1);
     expect(rows(flow, "SELECT redirect_uri FROM grants")).toEqual([
       { redirect_uri: "http://localhost/cb" },
     ]);

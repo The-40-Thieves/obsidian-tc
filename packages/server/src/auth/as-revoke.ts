@@ -20,6 +20,7 @@ import {
 import { clientResolverFor } from "./as-client-resolver";
 import { revokeFamily } from "./as-grants";
 import { type AsRouteDeps, enabledAs } from "./as-metadata";
+import { socketClientIp } from "./as-operator";
 import { loadRefresh, REFRESH_TOKEN_RE } from "./as-refresh";
 import { importVerificationKey } from "./signing-keys";
 
@@ -34,6 +35,7 @@ export function mountRevokeRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps
   if (as === undefined || deps === undefined) return;
   const { db, registry } = deps;
   const resolveClient = clientResolverFor(deps, as);
+  const clientIp = deps.clientIp ?? socketClientIp;
   const now = deps.now ?? Date.now;
   const log = deps.log ?? defaultLog;
   const resource = auth.resource as string;
@@ -91,7 +93,11 @@ export function mountRevokeRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps
       return fail(c, 415, "invalid_request", "the body must be application/x-www-form-urlencoded");
     }
     const form = new URLSearchParams(await c.req.text());
-    const authed = await authenticateClient(resolveClient, form, c.req.header("authorization"));
+    const authed = await authenticateClient(
+      (id) => resolveClient(id, { source: clientIp(c) }),
+      form,
+      c.req.header("authorization"),
+    );
     if ("failure" in authed) {
       const { status, error } = clientFailureStatus(authed);
       return fail(c, status, error, authed.failure);
