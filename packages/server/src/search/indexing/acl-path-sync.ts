@@ -9,8 +9,17 @@
 // these identities.
 import { inWriteTransaction, type WriteTxnHooks } from "../../db/txn";
 import type { Database } from "../../db/types";
-import { ACL_PATH_TABLES, hasAclPathColumn } from "../../vault/stored-acl-path";
+import {
+  ACL_PATH_TABLES,
+  ACL_PATH_UNRESOLVED,
+  hasAclPathColumn,
+} from "../../vault/stored-acl-path";
 import { bumpGeneration } from "../generation";
+
+/** The ACL identity a walk entry is stored under: its symlink-resolved path, or none (UNRESOLVED) for
+ *  a hard-linked file, which read_note refuses (st_nlink > 1, see WalkEntry.hardLinked). */
+export const walkIdentity = (e: { aclRel: string; hardLinked?: true }): string =>
+  e.hardLinked ? ACL_PATH_UNRESOLVED : e.aclRel;
 
 /** At or below this many names, read each by seek instead of scanning the vault's rows. */
 const SEEK_LIMIT = 8;

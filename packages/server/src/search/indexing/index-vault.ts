@@ -10,12 +10,7 @@ import { errorMessage } from "../../util/errors";
 import { isFrontmatterYamlError, parseNote, splitFrontmatterBody } from "../../vault/frontmatter";
 import { type ExtractedLink, extractLinks, extractNoteLinks } from "../../vault/links";
 import { readNote } from "../../vault/notes-io";
-import {
-  resolveVaultPath,
-  type WalkEntry,
-  walkVault,
-  walkVaultStream,
-} from "../../vault/paths";
+import { resolveVaultPath, walkVault, walkVaultStream } from "../../vault/paths";
 import { ACL_PATH_UNRESOLVED } from "../../vault/stored-acl-path";
 import { noteTags } from "../../vault/tags";
 import { ensureChunkColbert } from "../chunk_colbert";
@@ -47,7 +42,7 @@ import { deleteNoteSummary } from "../note-summaries";
 import { resolveRetrievalDefaults } from "../retrieval-defaults";
 import { ensureChunkSparse } from "../sparse";
 import { ensureVecChunks } from "../vec";
-import { syncAclPaths } from "./acl-path-sync";
+import { syncAclPaths, walkIdentity } from "./acl-path-sync";
 import {
   EMBED_BATCH,
   EMBED_CONCURRENCY,
@@ -145,17 +140,11 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // streaming path (args.walk?.streaming) is deferred to the loop further down, where it walks
   // lazily via walkVaultStream instead, interleaved with per-note processing.
   const streamWalk = args.walk?.streaming === true;
-  // Every walked path -> its ACL identity (`aclRel`; differs from the path when the walk went through a
-  // symlinked folder). `args.isReadable` decides on the identity, so an alias of a note the indexing
-  // caller cannot read is not indexed under a name the whitelist allows.
-  // A hard-linked file (read_note refuses it) has NO identity: ACL_PATH_UNRESOLVED, so it is never
-  // indexed, and rows an earlier pass stored under that name are closed by syncAclPaths.
+  // Every walked path -> its ACL identity (walkIdentity: the symlink-resolved path, none for a hard
+  // link). `args.isReadable` decides on the identity, never on the alias name the walk showed.
   const walkedSet = new Map<string, string>();
-  const identityOf = (e: WalkEntry): string => (e.hardLinked ? ACL_PATH_UNRESOLVED : e.aclRel);
-  const isReadableNote = (rel: string): boolean => {
-    const identity = walkedSet.get(rel);
-    return identity === ACL_PATH_UNRESOLVED ? false : args.isReadable(identity ?? rel);
-  };
+  const isReadableNote = (rel: string): boolean =>
+    walkedSet.get(rel) !== ACL_PATH_UNRESOLVED && args.isReadable(walkedSet.get(rel) ?? rel);
   let statByPath = new Map<string, { mtime: number; size: number }>();
   let notes: string[] = [];
   // Obsidian's Excluded files (search/index-exclusion.ts): walked, present, link targets — but
@@ -163,7 +152,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const excludedWalked: string[] = [];
   if (!streamWalk) {
     const walked = walkVault(args.root, { sub: args.sub, extensions: [".md"] });
-    for (const e of walked) walkedSet.set(e.relPath, identityOf(e));
+    for (const e of walked) walkedSet.set(e.relPath, walkIdentity(e));
     statByPath = new Map(walked.map((e) => [e.relPath, { mtime: e.mtime, size: e.size }]));
     const indexable: string[] = [];
     for (const e of walked)
@@ -524,7 +513,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     // THE-490: walk lazily, processing (and thus starting to embed) each readable note as soon as
     // its directory has been read, instead of waiting for the entire tree to be walked first.
     for await (const e of walkVaultStream(args.root, { sub: args.sub, extensions: [".md"] })) {
-      walkedSet.set(e.relPath, identityOf(e));
+      walkedSet.set(e.relPath, walkIdentity(e));
       if (isIndexExcluded(e.relPath)) {
         excludedWalked.push(e.relPath);
         continue;

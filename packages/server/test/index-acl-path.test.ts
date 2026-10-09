@@ -613,7 +613,11 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
 
     it("alias -> .obsidian is not indexed under a default ACL, nor served", async () => {
       const w = makeWorld();
-      write(w.root, ".obsidian/plugins/p/notes.md", "---\ntags: [obstag]\n---\nzebra OBSIDIANMARK\n");
+      write(
+        w.root,
+        ".obsidian/plugins/p/notes.md",
+        "---\ntags: [obstag]\n---\nzebra OBSIDIANMARK\n",
+      );
       symlinkSync(join(w.root, ".obsidian"), join(w.root, "oalias"));
       const DEFAULT_ACL = cfg({});
       // Control: the walk does reach the note; only the hard-deny on its identity stops it.
@@ -636,7 +640,10 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
       for (const f of FAMILIES) {
         const r = await w.call(f.tool, f.input, DEFAULT_ACL);
         expect(dump(r.data), f.name).not.toContain("OBSIDIANMARK");
-        expect(pathsOf(r.data).filter((p) => p.startsWith("oalias")), f.name).toEqual([]);
+        expect(
+          pathsOf(r.data).filter((p) => p.startsWith("oalias")),
+          f.name,
+        ).toEqual([]);
       }
     });
   });
