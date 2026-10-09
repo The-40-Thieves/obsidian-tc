@@ -68,6 +68,8 @@ describe("oauth.db migration chain", () => {
         "sessions",
         "setup_state",
         "users",
+        "webauthn_challenges",
+        "webauthn_credentials",
       ].sort(),
     );
   });
