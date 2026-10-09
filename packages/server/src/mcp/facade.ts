@@ -13,6 +13,7 @@ import { bm25Score, tokenize } from "../search/native";
 import { profileHiddenTools } from "./capability-hidden";
 import { TOOL_DOMAINS, type ToolDefinition, type ToolDomain, type ToolRegistry } from "./registry";
 import { relaxVaultInJson } from "./registry/vault-default";
+import { lowerSchema } from "./schema-lowering";
 import { isAdvertisedDestructive, isMutatingDefinition } from "./tool-tags";
 import type { VisibilityCaller } from "./visibility";
 
@@ -31,12 +32,17 @@ export const JSON_SCHEMA_OPTS = {
   unrepresentable: "any",
 } as const;
 // THE-294 / THE-1041 (GH #934): each JSON-Schema conversion is memoized by schema identity, one
-// WeakMap per io mode — toJson is io:"output", toInputJson is io:"input".
+// WeakMap per io mode — toJson is io:"output", toInputJson is io:"input". Both return the PORTABLE
+// SUBSET (mcp/schema-lowering.ts) because this is the one place a schema leaves the process:
+// tools/list in every facade mode and describe_capability. Dispatch validates with the zod original.
 const jsonSchemaMemo = new WeakMap<z.ZodType, Tool["inputSchema"]>();
 export function toJson(schema: z.ZodType): Tool["inputSchema"] {
   let cached = jsonSchemaMemo.get(schema);
   if (cached === undefined) {
-    cached = z.toJSONSchema(schema, JSON_SCHEMA_OPTS) as unknown as Tool["inputSchema"];
+    cached = lowerSchema(
+      z.toJSONSchema(schema, JSON_SCHEMA_OPTS) as unknown as Tool["inputSchema"],
+      "output",
+    );
     jsonSchemaMemo.set(schema, cached);
   }
   return cached;
@@ -47,12 +53,15 @@ export function toInputJson(schema: z.ZodType): Tool["inputSchema"] {
   let cached = inputJsonSchemaMemo.get(schema);
   if (cached === undefined) {
     // `vault` is optional on the wire wherever dispatch can default it (registry/vault-default.ts).
-    cached = relaxVaultInJson(
-      z.toJSONSchema(schema, {
-        ...JSON_SCHEMA_OPTS,
-        io: "input",
-      }) as unknown as Tool["inputSchema"],
-      schema,
+    cached = lowerSchema(
+      relaxVaultInJson(
+        z.toJSONSchema(schema, {
+          ...JSON_SCHEMA_OPTS,
+          io: "input",
+        }) as unknown as Tool["inputSchema"],
+        schema,
+      ),
+      "input",
     );
     inputJsonSchemaMemo.set(schema, cached);
   }

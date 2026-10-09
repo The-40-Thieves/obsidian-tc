@@ -12,6 +12,7 @@ import { buildFullRegistry } from "../scripts/docgen/build-registry";
 import { describeCapability, JSON_SCHEMA_OPTS } from "../src/mcp/facade";
 import type { CallerContext, ToolDefinition } from "../src/mcp/registry";
 import { relaxVaultInJson } from "../src/mcp/registry/vault-default";
+import { lowerSchema } from "../src/mcp/schema-lowering";
 import { createMcpServer } from "../src/mcp/server";
 
 function findOrThrow(defs: ToolDefinition[], name: string): ToolDefinition {
@@ -31,9 +32,13 @@ describe('THE-1041: input schemas emit in zod io:"input" mode', () => {
       const advertised = describeCapability(def).input_schema;
       // The one deliberate post-conversion edit: `vault` is advertised optional wherever dispatch
       // can default it (default-vault-argument.test.ts pins that rule).
-      const inputMode = relaxVaultInJson(
-        z.toJSONSchema(def.inputSchema, { ...JSON_SCHEMA_OPTS, io: "input" }),
-        def.inputSchema,
+      // ...and the portable-subset lowering (mcp/schema-lowering.ts) every advertised schema gets.
+      const inputMode = lowerSchema(
+        relaxVaultInJson(
+          z.toJSONSchema(def.inputSchema, { ...JSON_SCHEMA_OPTS, io: "input" }),
+          def.inputSchema,
+        ),
+        "input",
       );
       if (JSON.stringify(advertised) !== JSON.stringify(inputMode)) diverging.push(def.name);
     }
@@ -51,7 +56,10 @@ describe('THE-1041: input schemas emit in zod io:"input" mode', () => {
 
     for (const def of defs) {
       const advertised = describeCapability(def).output_schema;
-      const outputMode = z.toJSONSchema(def.outputSchema as z.ZodType, JSON_SCHEMA_OPTS);
+      const outputMode = lowerSchema(
+        z.toJSONSchema(def.outputSchema as z.ZodType, JSON_SCHEMA_OPTS),
+        "output",
+      );
       expect(advertised).toEqual(outputMode);
     }
   });
