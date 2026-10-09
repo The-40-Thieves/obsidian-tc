@@ -16,6 +16,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import * as readline from "node:readline/promises";
 import { ObsidianTcError, type ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { baselineOnlyEnrichment } from "../../capability/hardware";
 import { resolveCapabilityProfile } from "../../capability/profile";
 import { ConfigRootTypeError, finalizeConfig, readConfigFile } from "../../config/load";
 import { DEFAULT_BUSY_TIMEOUT_MS } from "../../db/pragmas";
@@ -255,6 +256,7 @@ export async function detect(cmd: Cmd<"setup">): Promise<
 
   const profile = await resolveCapabilityProfile({
     extraVaultPaths: cmd.vaultPath ? [resolve(cmd.vaultPath)] : [],
+    enrich: baselineOnlyEnrichment,
   });
   // Finding 7: a registry entry whose vault was since deleted/moved must not be reported as
   // detected — skip it with a printed warning rather than let it flow into a schema-valid config
