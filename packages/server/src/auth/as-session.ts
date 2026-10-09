@@ -83,12 +83,17 @@ export function createAsBrowser(deps: AsBrowserDeps) {
   const token = (purpose: string, bind: string): string =>
     createHmac("sha256", csrfKey).update(`${purpose}\0${bind}`).digest("base64url");
 
+  /** Nonces minted for a request that carried none: one request, one nonce, however many tokens it renders. */
+  const minted = new WeakMap<Context, string>();
   /** The browser's pre-sign-in nonce, set as a cookie on first use. */
   const nonceFor = (c: Context, create: boolean): string | undefined => {
     const have = getCookie(c, NONCE, prefix);
     if (have !== undefined && NONCE_RE.test(have)) return have;
     if (!create) return undefined;
+    const already = minted.get(c);
+    if (already !== undefined) return already;
     const fresh = randomBytes(16).toString("base64url");
+    minted.set(c, fresh);
     setCookie(c, NONCE, fresh, {
       prefix,
       httpOnly: true,

@@ -22,7 +22,8 @@ import {
 } from "./as-operator-harness";
 
 const HOUR = 3_600_000;
-const CSP = "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'";
+const CSP =
+  "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'";
 const GOOD = { username: "operator", password: PASSWORD };
 const BAD = { username: "operator", password: "definitely the wrong password" };
 
@@ -114,9 +115,8 @@ describe("login brute force (per account, per IP, no enumeration)", () => {
     const verifiesBefore = op.calls.verify;
     const unknown = await login(op, new Jar(), { username: "nobody", password: BAD.password });
     expect(unknown.res.status).toBe(known.res.status);
-    expect(unknown.text.replace(/value="[^"]*"/g, "")).toBe(
-      known.text.replace(/value="[^"]*"/g, ""),
-    );
+    const bare = (html: string): string => html.replace(/(?:value|data-csrf)="[^"]*"/g, "");
+    expect(bare(unknown.text)).toBe(bare(known.text));
     expect(op.calls.verify - verifiesBefore).toBe(1);
   });
 
@@ -530,7 +530,10 @@ describe("every AS response is frame-proof (clickjacking row) and never cached",
       (await get(await makeOperator(), "/oauth/setup")).text,
     ];
     for (const html of pages) {
-      expect(html).not.toMatch(/<script/i);
+      // the only script is the server's own passkey script, by `src`; never an inline one
+      expect(
+        html.replace(/<script src="\/oauth\/assets\/passkey\.js" defer><\/script>/g, ""),
+      ).not.toMatch(/<script/i);
       expect(html).not.toMatch(/\sstyle=/i);
       expect(html).not.toMatch(/\son[a-z]+=/i);
       expect(html).toMatch(/<link rel="stylesheet" href="\/oauth\/as\.css">/);

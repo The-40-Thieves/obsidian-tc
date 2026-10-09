@@ -70,11 +70,13 @@ export async function makeOperator(
     env?: Record<string, string | undefined>;
     verify?: (pw: string, phc: string) => Promise<boolean>;
     maxConcurrentHashes?: number;
+    /** An already provisioned oauth.db (for a suite that shares the file with a CLI); default: in memory. */
+    db?: ReturnType<typeof openMemoryDb>;
   } = {},
 ): Promise<OperatorFixture> {
   const { mountAsOperator } = await import("../src/auth/as-operator");
   const pw = await import("../src/auth/as-password");
-  const db = openMemoryDb();
+  const db = opts.db ?? openMemoryDb();
   provisionOauthDb(db, { version: "t" });
   const clock = { t: T0 };
   const logs: string[] = [];

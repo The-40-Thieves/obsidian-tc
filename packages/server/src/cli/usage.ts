@@ -346,6 +346,15 @@ Usage:
                                           At least 12 characters, stored as an Argon2id hash in
                                           <cacheDir>/oauth.db. --user names the account (default
                                           operator). Needs Node 24.7 or later (or Bun).
+  obsidian-tc auth as reset-credentials [path] [--user <name>] [--stdin] [--revoke-grants] [--json]
+                                          Recover a lost passkey and password, or a hostname change that
+                                          orphaned every passkey (their rpID is the issuer's host). Sets a
+                                          new password (asked twice, or the first line of standard input
+                                          with --stdin), deletes the operator's passkeys and ends every
+                                          session. --user names the account (default: the only operator).
+                                          --revoke-grants also revokes every grant of the operator, with
+                                          its refresh tokens and live access tokens. Needs Node 24.7 or
+                                          later (or Bun).
   obsidian-tc auth as grants list [path] [--all] [--json]
                                           List the grants the bundled authorization server holds:
                                           client, scope, persona, vault and how many refresh-token
