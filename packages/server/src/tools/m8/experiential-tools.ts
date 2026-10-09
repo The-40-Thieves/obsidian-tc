@@ -406,11 +406,15 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
       tags: ["experiential", "knowledge"],
       handler: (input, ctx) => {
         if (!deps.edb) return UNAVAILABLE;
+        const readableIndexed = readableStoredRow(ctx.db, input.vault, (a) =>
+          readableRel(ctx.acl, a, ctx.grantedScopes),
+        );
         const rows = readNoteQuality(deps.edb, {
           vaultId: input.vault,
           ...(input.flags ? { flags: input.flags } : {}),
-          limit: input.limit,
-        });
+        })
+          .filter((r) => readableIndexed(r.path))
+          .slice(0, input.limit);
         // THE-643 item 3: one batched lookup for the whole page, not one per note.
         const maxActivation = deps.activationFor
           ? maxActivationByPath(

@@ -9,6 +9,7 @@ import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { contentHash } from "../src/vault/paths";
+import { seedNotes } from "./helpers";
 import { provenanceFixture, rowsFor } from "./provenance-helpers";
 import { hashTree, makeWikiHarness, type WikiHarness } from "./wiki-test-helpers";
 
@@ -580,6 +581,7 @@ describe("commit_wiki_page: reported, not blocking", () => {
 
   it("an already-flagged contradiction on a touched note is reported and does not block", async () => {
     const hh = harness();
+    seedNotes(hh.v.db, "test", ["wiki/Mentions.md", "wiki/Related.md"]);
     hh.v.db
       .prepare(
         `INSERT INTO contradictions (id, vault_id, source_chunk_id, source_path, conflict_chunk_id, conflict_path,

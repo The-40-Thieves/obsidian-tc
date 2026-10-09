@@ -14,6 +14,8 @@
 //                         20261009_001, a writer that did not supply an identity, or two rows of one
 //                         name disagreeing): FAIL CLOSED, the row is returned to nobody until the
 //                         indexer resolves it. A missing identity is never read as "trusted".
+//   no row at all         (readableStoredRow) a derived record whose chunks/notes rows are gone is
+//                         UNRESOLVED too, as are chunks and notes disagreeing about one name.
 import type { Database } from "../db/types";
 
 /** What a writer stores for a row whose identity it could not resolve (NULL means the same, and is
@@ -98,9 +100,38 @@ export function readableStoredRow(
   vaultId: string,
   decide: (aclRel: string) => boolean,
 ): (storedPath: string) => boolean {
-  const aclOf = storedAclPathOf(db, vaultId);
+  const identityOf = currentIdentityOf(db, vaultId);
   return (storedPath) => {
-    const aclRel = aclOf(storedPath);
+    const aclRel = identityOf(storedPath);
     return aclRel !== null && decide(aclRel);
+  };
+}
+
+/**
+ * The identity of a stored path judged against the CURRENT chunks/notes rows, or null (fail closed)
+ * when there is none to judge: a name with no row (a derived record that outlived its alias), an
+ * unresolved row, or chunks and notes naming different identities. Only a connection with no
+ * `acl_path` column at all keeps the old rule that a name is its own identity.
+ */
+function currentIdentityOf(db: Database, vaultId: string): (storedPath: string) => string | null {
+  let tables: AclPathTable[] | undefined;
+  const cache = new Map<string, string | null>();
+  return (storedPath) => {
+    tables ??= ACL_PATH_TABLES.filter((t) => hasAclPathColumn(db, t));
+    if (tables.length === 0) return storedPath;
+    if (cache.has(storedPath)) return cache.get(storedPath) ?? null;
+    const identities = new Set<string | null>();
+    for (const table of tables) {
+      const rows = db
+        .prepare(`SELECT DISTINCT acl_path FROM ${table} WHERE vault_id = ? AND path = ?`)
+        .all(vaultId, storedPath) as Array<{ acl_path: string | null }>;
+      for (const r of rows)
+        identities.add(
+          r.acl_path === null || r.acl_path === ACL_PATH_UNRESOLVED ? null : r.acl_path,
+        );
+    }
+    const only = identities.size === 1 ? [...identities][0] : null;
+    cache.set(storedPath, only ?? null);
+    return only ?? null;
   };
 }

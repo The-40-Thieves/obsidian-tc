@@ -4,6 +4,7 @@
 
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
+import { seedNotes } from "./helpers";
 import { makeTestVault } from "./m1-helpers";
 
 const NOW = 1_700_000_000_000;
@@ -38,6 +39,7 @@ function seedEdges(
       : ([["a1.md", "secret/hidden.md", "links_to"]] as Array<[string, string, string]>)),
   ];
   for (const [s, t, type] of edges) ins.run(vaultId, s, t, type, NOW, NOW);
+  seedNotes(db, vaultId, [...new Set(edges.flatMap(([s, t]) => [s, t]))]);
 }
 
 const data = <T>(r: ToolResult): T => (r as { data: T }).data;

@@ -22,7 +22,7 @@ import {
 import { cachedGraphSearch } from "../../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../../search/router";
 import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
-import { resolveVaultPath } from "../../../vault/paths";
+import { resolveVaultPath, resolveVaultPathChecked } from "../../../vault/paths";
 import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
@@ -97,7 +97,11 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
       if (query === undefined) {
         const rel = `${deps.memoryFolder?.(v.id) ?? "memory"}/${NEXT_SESSION_NOTE}`;
         const abs = resolveVaultPath(v.root, rel);
-        if (!isReadable(rel) || !existsSync(abs)) {
+        const signalReadable = withVaultExclusion(
+          (p) => readableRel(ctx.acl, resolveVaultPathChecked(v.root, p).aclRel, ctx.grantedScopes),
+          exclusion,
+        );
+        if (!signalReadable(rel) || !existsSync(abs)) {
           throw err.invalidInput("query omitted and no readable next-session signal note", {
             signal: rel,
           });
