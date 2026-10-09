@@ -403,7 +403,7 @@ describe("mix-up and the ChatGPT requirements this slice owns (section 9.1)", ()
     expect(new URL(ISSUER).pathname).toBe("/");
   });
 
-  it("advertises exactly what is mounted: S256 only, `none`, RFC 9207, refresh, revocation and CIMD, no DCR or private_key_jwt", async () => {
+  it("advertises exactly what is mounted: S256 only, `none`, RFC 9207, refresh, revocation, CIMD and (default-on) DCR, no private_key_jwt", async () => {
     const s = await boot();
     const meta = (await (
       await fetch(`${s.base}/.well-known/oauth-authorization-server`)
@@ -419,7 +419,7 @@ describe("mix-up and the ChatGPT requirements this slice owns (section 9.1)", ()
       authorization_response_iss_parameter_supported: true,
       client_id_metadata_document_supported: true,
     });
-    expect(meta).not.toHaveProperty("registration_endpoint");
+    expect(meta.registration_endpoint).toBe(`${ISSUER}/oauth/register`);
     expect(meta.scopes_supported).toContain("offline_access");
     expect(JSON.stringify(meta)).not.toContain("private_key_jwt");
   });
