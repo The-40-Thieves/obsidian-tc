@@ -117,9 +117,9 @@ server never binds a routable address.
 
 Opt-in. Everything under `auth.as` is off while `auth.as.enabled` is false (the default), and the bearer paths
 do not change. When enabled it needs `auth.mode: jwt`, `auth.resource` and `auth.as.issuer` (it is refused under
-`none` and `oidc`). This release ships the configuration, the signing key and the discovery document; the
-authorize, token and revoke routes arrive in later releases, so no client can sign in yet, and until they
-exist the metadata, the Protected Resource Metadata default and the challenge pointer are not served either.
+`none` and `oidc`). It serves the discovery document, the authorize, consent, token and revoke routes, client
+registration by metadata document (and, behind `dynamicRegistration`, by RFC 7591) and the operator login; see
+[the authorization server](/security/auth-model/#the-bundled-authorization-server-authas).
 
 | Field | Type / default | What it does |
 | --- | --- | --- |
@@ -128,7 +128,7 @@ exist the metadata, the Protected Resource Metadata default and the challenge po
 | `auth.as.signingAlg` | `ES256 \| EdDSA`, `ES256` | Algorithm of the generated `as` key. When `auth.algorithms` is set it must include it. |
 | `auth.as.accessTokenSeconds` | int 300 to 3600, `1800` | Access-token lifetime. `auth.tokenTtlSeconds` must be at least this. |
 | `auth.as.refreshTokenDays` | int 1 to 90, `30` | Absolute lifetime of a refresh-token family. |
-| `auth.as.dynamicRegistration` | bool, `false` | RFC 7591 Dynamic Client Registration. Off by default: it is deprecated by the MCP authorization spec, opens an unauthenticated client-creation surface, and the clients that matter register by metadata document instead. `registration_endpoint` is advertised only when this is on. Logs a warning at boot, and `securityProfile: "hardened"` forces it off even when set. |
+| `auth.as.dynamicRegistration` | bool, `false` | RFC 7591 Dynamic Client Registration. Off by default: it is deprecated by the MCP authorization spec, opens an unauthenticated client-creation surface, and the clients that matter (Claude, ChatGPT, Codex) prefer a metadata document, which this server advertises, and use DCR only when it is not offered. Turn it on only for a client that supports neither a metadata document nor a pre-registered `clients` entry. A client that registers `grant_types` without `refresh_token` (or none, the RFC 7591 default) is issued no refresh token. `registration_endpoint` is advertised only when this is on. Logs a warning at boot, and `securityProfile: "hardened"` forces it off even when set. |
 | `auth.as.dcr.maxClients` / `perIpPerHour` / `unusedDays` | int, `1000` / `10` / `90` | Limits used when DCR is on; an unused dynamic client is deleted after `unusedDays`. |
 | `auth.as.cimd.allowedHosts` | hostname[], `[]` | Hosts a Client ID Metadata Document may be served from, matched exactly against the `client_id` URL's host. Empty admits any public https host; a document is never fetched from a non-public address either way. |
 | `auth.as.consent.loopback` | `remember \| prompt`, `remember` | Whether a sign-in that returns to this machine (`127.0.0.0/8`, `::1`, `localhost`) is remembered once you approved the client. `remember`: reused across ports, so native CLIs (Claude Code, Codex) sign in without a click, but a malicious local process could then start its own sign-in without a prompt. `prompt`: every such sign-in shows the consent page. Redirects elsewhere are always remembered. |

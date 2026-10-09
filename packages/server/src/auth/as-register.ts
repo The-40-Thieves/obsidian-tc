@@ -38,7 +38,7 @@ export function mountRegisterRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDe
   log(
     "warning: dynamic client registration (RFC 7591) is ON: POST /oauth/register lets anyone who can " +
       "reach this server create OAuth clients. DCR is deprecated by the MCP authorization spec; " +
-      "claude.ai, Claude Code, ChatGPT and Codex use Client ID Metadata Documents and do not need it. " +
+      "Claude, ChatGPT and Codex prefer Client ID Metadata Documents, which this server advertises, and do not need it. " +
       `Limits: auth.as.dcr.perIpPerHour=${perIpPerHour} per source, auth.as.dcr.maxClients=${maxClients}, ` +
       `auth.as.dcr.unusedDays=${unusedDays}. Turn auth.as.dynamicRegistration off unless a client needs it.`,
   );

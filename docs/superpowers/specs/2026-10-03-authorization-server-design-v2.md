@@ -75,6 +75,11 @@ supported AS to adopt.
 - CIMD is used only if AS metadata has `client_id_metadata_document_supported: true` **and** `none`
   in `token_endpoint_auth_methods_supported`. Otherwise Claude falls back to DCR, which registers a
   new client on every fresh connection.
+- Re-verified 2026-10-09 (claude.com/docs/connectors/building/authentication): `oauth_dcr` and
+  `oauth_cimd` are both "supported by default"; the page ranks CIMD first and says to prefer it over
+  DCR for busy servers. ChatGPT (developers.openai.com/apps-sdk/build/auth, same day): CIMD, DCR or a
+  predefined client; "ChatGPT prioritizes CIMD when it is available", DCR "is still supported" as the
+  fallback. So both support both, and a server that advertises CIMD is never asked to register.
 - Only the FIRST `authorization_servers` entry is used.
 - PRM `resource` must equal the URL the user typed.
 - PKCE is always S256.

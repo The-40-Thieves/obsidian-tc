@@ -351,7 +351,8 @@ revoking a token does not stop a task it already enqueued.
 ## The bundled authorization server (`auth.as`)
 
 Opt-in (`auth.as.enabled`, default off; see [config](/configuration/config-yaml/#bundled-authorization-server-authas)).
-This release adds the pieces that exist before any token is issued: the metadata, the signing key and the store.
+It issues tokens itself: the metadata, the signing key, the store, the authorize, consent, token and revoke routes,
+and the client registrations below.
 
 - **Metadata, once the server can issue.** `GET /.well-known/oauth-authorization-server` (and
   `/.well-known/openid-configuration`) returns the RFC 8414 document, and Protected Resource Metadata names the
@@ -375,7 +376,13 @@ This release adds the pieces that exist before any token is issued: the metadata
   registrations never used within a day, then answers `503`), and registrations unused for `auth.as.dcr.unusedDays`
   are deleted. A registered client's consent page warns that it registered itself and has never been approved. The
   server logs a warning at boot while DCR is on, and `securityProfile: "hardened"` forces it off even when the flag
-  is set.
+  is set. Claude (claude.ai, Claude Code) and ChatGPT support both registration methods and prefer a metadata
+  document when the server advertises one, which this server does, so they do not need DCR; it is for clients
+  with no metadata-document support. The registered `grant_types` are honored: a client that lists `refresh_token`
+  gets a refresh token, one that lists only `authorization_code` (or nothing: the RFC 7591 default) gets none, and
+  the `201` echoes exactly what will be served. A registration counts as used only when a sign-in succeeded (a code
+  issued or a refresh token rotated), never because someone looked its `client_id` up, so a full table can always
+  reclaim registrations that were only ever probed.
 - **Clients registered by a metadata document (CIMD).** A `client_id` that is an `https://` URL with a path is
   fetched, and the document served there is the client's registration (Claude Code, Codex and ChatGPT register this
   way). The fetch is the same bounded one OIDC discovery uses: https only, no redirects, every resolved address
@@ -406,7 +413,7 @@ This release adds the pieces that exist before any token is issued: the metadata
   The approval re-reads the client, so a document that drops the redirect after the page was shown issues no code.
   The client's name is shown with control, format and bidirectional characters removed.
 - **Refresh tokens and revocation.** Every code exchange returns a refresh token (opaque, 32 random bytes, stored
-  only as a SHA-256). It rotates on every use and its family ends `auth.as.refreshTokenDays` after the exchange.
+  only as a SHA-256), except to a dynamically registered client that did not register the `refresh_token` grant. It rotates on every use and its family ends `auth.as.refreshTokenDays` after the exchange.
   A client that lost a refresh response may retry the previous token until its successor has been used, and is
   handed the same response again (the same access token and refresh token, nothing new minted; once that access
   token has expired the retry is refused and the client signs in again); any
@@ -619,9 +626,8 @@ For clients that expect OAuth-style discovery, obsidian-tc can act as an OAuth 2
 document at `/.well-known/oauth-protected-resource` (and the path-inserted `…/mcp`)
 and returns `WWW-Authenticate: Bearer resource_metadata="…"` on a `401`, so a
 spec-compliant client can discover the authorization server. This is opt-in and off
-by default; there is no in-repo authorization server (token issuance, Dynamic Client
-Registration, OIDC discovery) — point `authorizationServers` at your external AS, or use `oidc` mode
-above, which advertises the issuer for you.
+by default. Point `authorizationServers` at an external AS, use `oidc` mode above (which advertises
+the issuer for you), or enable [the bundled authorization server](#the-bundled-authorization-server-authas).
 
 See also [Scopes & Folder ACLs](/security/acls/) and
 [HITL Elicitation](/security/hitl-elicit/).
