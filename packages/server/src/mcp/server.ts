@@ -56,7 +56,6 @@ import {
 import { createFacadeModeResolver } from "./facade-mode-resolver";
 import { getPrompt, listPrompts } from "./prompts";
 import type { CallerContext, ToolRegistry } from "./registry";
-import { takeSerialized } from "./registry";
 import { requestCallerMeta } from "./request-meta";
 import {
   CATALOG_RESOURCE_URI,
@@ -75,7 +74,8 @@ import {
   toCreateTaskResult,
 } from "./tasks";
 import { oversizedToolInput } from "./tool-input-cap";
-import { toMcpTool } from "./tool-projection";
+import { toMcpTool, toMcpToolNoOutputSchema } from "./tool-projection";
+import { toolDataResult } from "./tool-result";
 import type { VisibilityCaller } from "./visibility";
 
 /**
@@ -159,6 +159,9 @@ export interface McpServerOptions {
   autoClients?: Readonly<Record<string, FacadeMode>>;
   /** `toolFacade.explainAutoMode`: record + log why "auto" chose what it chose (observability only). */
   explainAutoMode?: boolean;
+  /** `toolFacade.outputSchema`: "omit" drops `outputSchema` from every tool tools/list advertises
+   *  (flat/domain surfaces). Results are unaffected. Defaults to "full". */
+  outputSchema?: "full" | "omit";
   /**
    * THE-583: the protocol era this instance is being constructed to serve, as classified by the
    * SDK (`createMcpHandler`'s `McpRequestContext.era`).
@@ -233,12 +236,6 @@ function asResourceProtocolError(e: unknown, uri: string): Error {
   }
   // Anything else is rethrown untouched, so a genuine internal failure keeps reporting as one.
   return e instanceof Error ? e : new Error(String(e));
-}
-
-function asStructured(data: unknown): Record<string, unknown> | undefined {
-  return data !== null && typeof data === "object" && !Array.isArray(data)
-    ? (data as Record<string, unknown>)
-    : undefined;
 }
 
 // THE-1106 fix round 2: toolAnnotations/toMcpTool moved to ./tool-projection to fit biome's
@@ -420,7 +417,8 @@ export function createMcpServer(opts: McpServerOptions): Server {
     const page = visible.slice(start, start + pageSize);
     // THE-463: reuse the memoized per-tool projection (outputSchema + icons stay opt-in inside
     // toMcpTool, so a tool that declares neither still serializes byte-identically to before).
-    const tools: Tool[] = page.map(toMcpTool);
+    const project = opts.outputSchema === "omit" ? toMcpToolNoOutputSchema : toMcpTool;
+    const tools: Tool[] = page.map(project);
     const nextStart = start + page.length;
     return withCacheHint(
       nextStart < visible.length ? { tools, nextCursor: String(nextStart) } : { tools },
@@ -428,14 +426,6 @@ export function createMcpServer(opts: McpServerOptions): Server {
     );
   });
 
-  const formatData = (data: unknown): CallToolResult => {
-    const structuredContent = asStructured(data);
-    return {
-      // THE-294: dispatch already serialized this exact object for the byte governor.
-      content: [{ type: "text", text: takeSerialized(data) ?? JSON.stringify(data ?? null) }],
-      ...(structuredContent ? { structuredContent } : {}),
-    };
-  };
   server.onConfirmLegFailure = (error) => errorToResult(withRoundOutcome(error, "cancelled"));
   // THE-583: tell the client when the byte governor TRUNCATED its answer. This was previously
   // visible only in `meta` (and in server-side metrics), so a caller could act on a silently
@@ -455,7 +445,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
         },
       });
     }
-    return formatData(result.data);
+    return toolDataResult(result.data);
   };
 
   const dispatchToResult = async (
@@ -621,7 +611,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
           return errorToResult(
             err.validation("input validation failed", { issues: parsed.error.issues }).toJSON(),
           );
-        return formatData(
+        return toolDataResult(
           findCapabilityResponse(
             opts.registry,
             visibilityCallerOf(ctx),
@@ -655,7 +645,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
             isError: true,
           };
         }
-        return formatData(describeCapability(target));
+        return toolDataResult(describeCapability(target));
       }
       // THE-1131: same pre-check as describe_capability above.
       if (typeof args.name === "string") {

@@ -5,6 +5,10 @@
 // hook for that, but `Server._wrapHandler` is a protected extension point that sees the final
 // result of every `tools/call`, so this subclass uses it to notice the case and substitute our
 // own refusal. It only ever turns a result into a refusal; it cannot produce an approval.
+//
+// The same seam is where every `tools/call` result gets its text-block guarantee
+// (`ensureTextContent`): it is the one point that sees ALL of them: handler results, facade legs,
+// guard refusals and the SDK shim's own results.
 import {
   type CallToolResult,
   isInputRequiredResult,
@@ -15,6 +19,7 @@ import {
 } from "@modelcontextprotocol/server";
 import type { ErrorJSON } from "@the-40-thieves/obsidian-tc-shared";
 import { offeredElicitError } from "./elicit-form";
+import { ensureTextContent } from "./tool-result";
 
 export class ShimGuardedServer extends Server {
   /** Builds the refusal for an offered confirmation whose leg failed. Unset: SDK result as-is. */
@@ -37,9 +42,9 @@ export class ShimGuardedServer extends Server {
       const result = await wrapped(request, ctx);
       const offered = offeredElicitError(last);
       if (offered === undefined || isInputRequiredResult(result) || !this.onConfirmLegFailure) {
-        return result;
+        return isInputRequiredResult(result) ? result : ensureTextContent(result as CallToolResult);
       }
-      return this.onConfirmLegFailure(offered);
+      return ensureTextContent(this.onConfirmLegFailure(offered));
     };
   }
 }

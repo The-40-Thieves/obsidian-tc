@@ -335,5 +335,8 @@ Omit the `Authorization` header to observe the refusal path.
   because tool-selection quality collapses well before a catalogue this size (the measured per-client advice is [above](#choosing-a-facade-mode-per-client)).
 - **`outputSchema`** — whether the client requests and honours structured output. The server emits
   `structuredContent` whenever a tool declares an output schema, including on the **error** path so
-  a model can self-correct from the validation issues.
+  a model can self-correct from the validation issues. Every result also carries a text block that
+  answers the call on its own, for clients that read only `content`. If a client mishandles the
+  advertised schema itself, set `toolFacade.outputSchema: omit` (see
+  [MCP compatibility](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/MCP-COMPATIBILITY.md)).
 - **Auth** — which transports demand a bearer under `auth.mode: "jwt"`.

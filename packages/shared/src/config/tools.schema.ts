@@ -102,6 +102,17 @@ export const ToolFacadeConfigSchema = z.object({
     .describe(
       'Only meaningful when mode is "auto". Explain the auto-mode decision without changing it: one structured `toolFacade.explain` log line per resolution (client name, matched rule, chosen mode) and `server_health`\'s `toolFacade.explanation` for the calling client. Default false.',
     ),
+  // Whether tools/list advertises each tool's `outputSchema`. Results carry `structuredContent` and
+  // a text block either way; this only changes the ADVERTISEMENT. "full" (default) is today's
+  // behaviour. "omit" is the opt-out for clients that mishandle the field: Cursor blanks a server
+  // whose outputSchema root is not an object, Claude Desktop rejects some drafts, and claude.ai
+  // is reported to fail tools that declare one.
+  outputSchema: z
+    .enum(["full", "omit"])
+    .default("full")
+    .describe(
+      'Whether tools/list advertises each tool\'s `outputSchema`. "full" (the default) is unchanged. "omit" drops it from every advertised tool for clients that mishandle the field (reported for claude.ai; Claude Desktop with older schema drafts; Cursor); tool results still carry `structuredContent` and a text block.',
+    ),
   // Deployment-level and orthogonal to `mode` above: `mode` picks what a given SESSION is
   // advertised, `profile` picks which tools are VISIBLE and CALLABLE at all, resolved once
   // when the registry is built. Registration itself is profile-invariant — every tool is always
