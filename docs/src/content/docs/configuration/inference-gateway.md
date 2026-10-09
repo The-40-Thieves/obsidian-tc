@@ -102,7 +102,7 @@ obsidian-tc never changes:
   judges: the evaluator's judge can only lower eligibility verdicts, and a parse
   failure disables that layer rather than corrupting anything.
 - **Hybrid**: point `synthesize` at a hosted model
-  (`model: "anthropic/claude-sonnet-5"` + the API key in the **container's** env)
+  (`model: "anthropic/claude-sonnet-5-5"` + the API key in the **container's** env)
   and keep `judge`/`extract` local. Best quality where it shows most — but
   retrieved vault content leaves the machine on synthesis calls. That is a privacy
   boundary; cross it deliberately.
