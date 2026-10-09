@@ -808,6 +808,13 @@
               "minimum": 1,
               "maximum": 90
             },
+            "refreshReuseGraceSeconds": {
+              "default": 30,
+              "description": "Seconds (0 to 60, default 30) after a refresh token's successor is first used during which presenting the token again, from the same client, is answered with the same successor and access token instead of revoking the family. It absorbs clients that refresh from several windows or processes sharing one token. Only the one token the family just left qualifies; an older token or a presentation after the window is a reuse (the family is revoked), and another client's presentation is refused without revoking. 0 disables the grace: a token is accepted again only until its successor is used.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 60
+            },
             "dynamicRegistration": {
               "default": true,
               "description": "Default true. Serves RFC 7591 Dynamic Client Registration at `/oauth/register` and advertises `registration_endpoint`, because many MCP surfaces (Cursor, Windsurf, Antigravity, grok.com, Le Chat, n8n and others) can only register this way. The unauthenticated client-creation surface is bounded by `dcr` (a per-source budget, a client cap, deletion of unused registrations). Set false to turn it off: `/oauth/register` is then a 404 and `registration_endpoint` is not advertised. One info line is logged at startup while it is on, and `securityProfile: \"hardened\"` forces it off even when this is set to true.",

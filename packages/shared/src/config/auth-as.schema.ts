@@ -175,6 +175,15 @@ export const AsConfigSchema = z
       .describe(
         "Absolute lifetime of a refresh-token family in days (1 to 90, default 30), counted from the code exchange that started the family; rotation never extends it. Refresh tokens rotate on every use.",
       ),
+    refreshReuseGraceSeconds: z
+      .number()
+      .int()
+      .min(0)
+      .max(60)
+      .default(30)
+      .describe(
+        "Seconds (0 to 60, default 30) after a refresh token's successor is first used during which presenting the token again, from the same client, is answered with the same successor and access token instead of revoking the family. It absorbs clients that refresh from several windows or processes sharing one token. Only the one token the family just left qualifies; an older token or a presentation after the window is a reuse (the family is revoked), and another client's presentation is refused without revoking. 0 disables the grace: a token is accepted again only until its successor is used.",
+      ),
     dynamicRegistration: z
       .boolean()
       .default(true)

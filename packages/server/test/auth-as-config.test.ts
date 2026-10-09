@@ -38,6 +38,7 @@ describe("auth.as: shape and defaults", () => {
       signingAlg: "ES256",
       accessTokenSeconds: 1800,
       refreshTokenDays: 30,
+      refreshReuseGraceSeconds: 30,
       dynamicRegistration: true,
       dcr: { maxClients: 1000, perIpPerHour: 10, unusedDays: 90 },
       cimd: { allowedHosts: [] },
@@ -46,6 +47,15 @@ describe("auth.as: shape and defaults", () => {
       login: { maxFailuresPerWindow: 5, windowSeconds: 900 },
       clients: [],
     });
+  });
+
+  it("auth.as.refreshReuseGraceSeconds is an integer from 0 (off) to 60", () => {
+    for (const ok of [0, 1, 30, 60]) {
+      expect(issuesOf(jwtAuth({}, { refreshReuseGraceSeconds: ok }))).toEqual([]);
+    }
+    for (const bad of [-1, 61, 1.5, "30"]) {
+      expect(issuesOf(jwtAuth({}, { refreshReuseGraceSeconds: bad })).length).toBeGreaterThan(0);
+    }
   });
 
   it("auth.as.consent.loopback is 'remember' or 'prompt' and nothing else", () => {

@@ -4,7 +4,10 @@
 //
 // The reuse policy is the design's: the immediately previous token is accepted again only until its
 // successor is first used (a client that lost a refresh response retries), and any older token, or
-// the previous one after its successor was used, is a reuse that revokes the whole family.
+// the previous one after its successor was used, is a reuse that revokes the whole family. The one
+// exception is the reuse grace (`auth.as.refreshReuseGraceSeconds`): clients that refresh from several
+// windows share one token, so a token the family left by exactly one used step is still answered with
+// its successor for that many seconds after the step (the Auth0 reuse interval / Okta grace period).
 //
 // A retry has to return the successor the first request created, and only the hash is stored, so the
 // successor of a token is DERIVED from it and the per-server secret (HMAC): the same parent always
@@ -136,17 +139,26 @@ export interface StandingInput {
   successor: string;
   secretGen: string;
   now: number;
+  /** `auth.as.refreshReuseGraceSeconds` in ms; 0 is no grace (see `standing`). */
+  graceMs: number;
 }
 
 export function standing(db: Database, cur: RefreshRecord, at: StandingInput): Standing {
-  const { successor, secretGen, now } = at;
+  const { successor, secretGen, now, graceMs } = at;
   if (cur.revokedAt !== null || cur.grantRevoked || cur.familyExpiresAt <= now) return "dead";
   if (cur.secretGen !== secretGen) return "foreign";
   const child = db
-    .prepare("SELECT token_hash FROM refresh_tokens WHERE parent_hash = ? LIMIT 1")
-    .get(cur.tokenHash) as { token_hash: string } | undefined;
+    .prepare(
+      "SELECT token_hash, successor_first_used_at AS childUsedAt FROM refresh_tokens WHERE parent_hash = ? LIMIT 1",
+    )
+    .get(cur.tokenHash) as { token_hash: string; childUsedAt: number | null } | undefined;
   if (child === undefined) return "rotate";
-  if (cur.successorFirstUsedAt !== null) return "reuse";
+  // The grace: the family moved past `cur` (its successor was used) at most `graceMs` ago and by that
+  // one step only, so a second window still holding the token the family just left is answered with
+  // the successor again. A token older than that, or presented later, is a reuse.
+  const age = cur.successorFirstUsedAt === null ? -1 : now - cur.successorFirstUsedAt;
+  const graced = graceMs > 0 && child.childUsedAt === null && age >= 0 && age < graceMs;
+  if (cur.successorFirstUsedAt !== null && !graced) return "reuse";
   return child.token_hash === sha256Hex(successor) ? "retry" : "dead";
 }
 
@@ -159,7 +171,14 @@ export function standing(db: Database, cur: RefreshRecord, at: StandingInput): S
  */
 export function useRefresh(
   db: Database,
-  a: { token: string; successor: string; secretGen: string; replay: string; now: number },
+  a: {
+    token: string;
+    successor: string;
+    secretGen: string;
+    replay: string;
+    now: number;
+    graceMs: number;
+  },
 ): Standing {
   return inWriteTransaction(db, "as_grants", () => {
     const cur = loadRefresh(db, a.token);
@@ -177,7 +196,13 @@ export function useRefresh(
       a.secretGen,
       a.replay,
     );
-    db.prepare("UPDATE refresh_tokens SET replay = NULL WHERE token_hash = ?").run(cur.tokenHash);
+    // The stored response of `cur` answers a retry of its parent. Without a grace it goes now (the
+    // parent's window closes with this use); with one it stays, still sealed, until `cur`'s own
+    // successor is used, and it is the PARENT's stored response that is no longer reachable.
+    const spent = a.graceMs > 0 ? cur.parentHash : cur.tokenHash;
+    if (spent !== null) {
+      db.prepare("UPDATE refresh_tokens SET replay = NULL WHERE token_hash = ?").run(spent);
+    }
     if (cur.parentHash !== null) {
       db.prepare(
         "UPDATE refresh_tokens SET successor_first_used_at = COALESCE(successor_first_used_at, ?) WHERE token_hash = ?",
