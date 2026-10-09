@@ -32,9 +32,9 @@ import {
   indexNote,
   indexVault,
 } from "../search/indexer";
+import { indexAclIdentity } from "../search/indexing/acl-path-sync";
 import { buildRepresentationManifest, type RepresentationManifest } from "../search/representation";
 import { ensureVecChunks, type VecRebuildEvent } from "../search/vec";
-import { isHardLinkedFile, resolveVaultPathChecked } from "../vault/paths";
 import { ACL_PATH_UNRESOLVED } from "../vault/stored-acl-path";
 import { registerVaultWatch } from "../vault/watcher";
 import {
@@ -234,8 +234,6 @@ export interface IndexCoordinatorDeps {
   /** The CANONICAL vault roots (vaultRegistry.list(), not raw config.vaults), narrowed to what
    *  registerVaultWatch needs. */
   vaults: readonly { id: string; path: string }[];
-  /** A vault's live canonical root (a runtime add_vault is seen); falls back to `vaults`. The
-   *  ACL identity of an index-on-write note is resolved against it. */
   rootOf?: (vaultId: string) => string | undefined;
   /** config.watch */
   watch: { enabled: boolean; debounceMs: number };
@@ -291,21 +289,11 @@ export interface IndexCoordinatorWiring {
  * identically to a write_note.
  */
 export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinatorWiring {
-  // The ACL identity of a written path (vault/paths.ts resolveVaultPathChecked), which differs from
-  // the path through a symlinked folder: the gate and the stored row both judge THAT, never the
-  // name. null = cannot be resolved (unknown root, escape): the row is stored unresolved, which no
-  // reader sees until a pass resolves it.
-  const aclRelFor = (vaultId: string, path: string): string | null => {
-    const root = deps.rootOf?.(vaultId) ?? deps.vaults.find((v) => v.id === vaultId)?.path;
-    if (root === undefined) return null;
-    try {
-      const resolved = resolveVaultPathChecked(root, path);
-      // read_note refuses a hard-linked file, so it has no identity to authorize on: stored closed.
-      return isHardLinkedFile(resolved.abs) ? null : resolved.aclRel;
-    } catch {
-      return null;
-    }
-  };
+  const aclRelFor = (vaultId: string, path: string): string | null =>
+    indexAclIdentity(
+      deps.rootOf?.(vaultId) ?? deps.vaults.find((v) => v.id === vaultId)?.path,
+      path,
+    );
   const deindexPath = (vaultId: string, path: string, excluded: boolean): void =>
     deindexNote(
       deps.db,
@@ -366,9 +354,6 @@ export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinat
     },
   );
   const indexReadableFor = makeIndexReadable(deps.acl, deps.aclByVault);
-  // The index-on-write gate decides on the written path's ACL identity, as index_vault does for a
-  // walked note (aclRel): a write through `wiki -> private` is judged as `private/...`. A path that
-  // cannot be resolved keeps the lexical answer (the row is stored unresolved either way).
   const indexReadableByIdentity =
     (vaultId: string): ((rel: string) => boolean) =>
     (rel) =>

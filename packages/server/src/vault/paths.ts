@@ -237,21 +237,7 @@ export interface WalkEntry {
   type: "file" | "folder";
   size: number;
   mtime: number;
-  /** A regular file with more than one directory entry (st_nlink > 1). read_note refuses it (realpath
-   *  cannot see through a hard link: `allowed/x.md` may be `private/y.md`), so an index must not
-   *  serve it either. Absent = a single link. */
   hardLinked?: true;
-}
-
-/** Is `abs` a regular file with a second directory entry (the inode-aliasing read_note refuses)?
- *  A path that cannot be statted is not (the caller's own open fails first). */
-export function isHardLinkedFile(abs: string): boolean {
-  try {
-    const st = statSync(abs);
-    return st.isFile() && st.nlink > 1;
-  } catch {
-    return false;
-  }
 }
 
 /** Where a walk begins and its ACL identity (`""` = root), after the planted-root check (THE-1081).

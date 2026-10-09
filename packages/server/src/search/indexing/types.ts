@@ -120,8 +120,6 @@ export interface NoteWritePlan {
   colbert?: ColbertMatrix[];
   ts: number;
   fenceGeneration: number;
-  /** The note's ACL identity (symlink-resolved path) stored next to `path` on its chunk rows. Set by
-   *  the orchestrator, which knows the walk entry; absent is stored as unresolved (closed). */
   aclPath?: string;
 }
 
