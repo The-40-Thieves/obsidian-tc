@@ -22,6 +22,7 @@ import { type AccessContext, mintAccessToken } from "./as-access";
 import { accountBounds, applyBounds } from "./as-account";
 import type { FormReader } from "./as-client-auth";
 import { type AsClient, sameResource, scopesCovered, splitScope } from "./as-clients";
+import { noteClientUsed } from "./as-dcr";
 import { drainRevocations, revokeFamily } from "./as-grants";
 import {
   loadRefresh,
@@ -182,5 +183,6 @@ export async function refreshGrant(
     registry.revoke(minted.jti, "refresh_superseded");
     return replayed(bounded.vault, scope) ?? bad("the stored response cannot be repeated");
   }
+  noteClientUsed(db, client.clientId, now());
   return answer({ token: minted.token, scope, expiresIn: x.access.accessTokenSeconds });
 }

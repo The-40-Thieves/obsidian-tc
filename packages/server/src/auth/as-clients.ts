@@ -29,6 +29,8 @@ export interface AsClient {
   cimd?: boolean | undefined;
   /** True for a client that registered itself through Dynamic Client Registration (its `clientId` is opaque). */
   dcr?: boolean | undefined;
+  /** The grant types a registered client asked for; absent for clients that have no such list (all are served). */
+  grantTypes?: string[] | undefined;
 }
 
 export function findStaticClient(

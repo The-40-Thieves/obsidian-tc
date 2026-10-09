@@ -305,6 +305,7 @@ export function createClientResolver(d: ResolverDeps): ClientResolver {
               name: registered.name || UNNAMED_CLIENT,
               redirectUris: registered.redirectUris,
               dcr: true,
+              grantTypes: registered.grantTypes,
             },
           };
     }

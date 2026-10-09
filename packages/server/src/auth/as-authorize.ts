@@ -17,6 +17,7 @@ import {
   redirectUriAllowed,
   scopesCovered,
 } from "./as-clients";
+import { noteClientUsed } from "./as-dcr";
 import {
   approveRequest,
   createPending,
@@ -202,6 +203,7 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
       ...(grant.reuse ? { reuse: grant.reuse } : {}),
     });
     if (approved === undefined) return expired(c);
+    noteClientUsed(db, p.clientId, now());
     log(`consent approved client=${p.clientId}`);
     return toClient(c, p.redirectUri, { code: approved.code, state: p.state ?? undefined });
   };

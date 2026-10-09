@@ -178,7 +178,11 @@ export function mountTokenRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps)
 
     // The refresh token is born with the code's death, in one transaction. Its scope is the granted
     // scope as bounded now; later refreshes may narrow it, never widen it.
-    const refreshToken = newRefreshToken();
+    // Only a client that registered the grant gets one (RFC 7591 section 2: an unlisted type is not served).
+    const refreshToken =
+      client.grantTypes === undefined || client.grantTypes.includes("refresh_token")
+        ? newRefreshToken()
+        : undefined;
     let started = false;
     try {
       started = consumeCodeAndStartFamily(db, {
@@ -206,7 +210,7 @@ export function mountTokenRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps)
       access_token: token,
       token_type: "Bearer",
       expires_in: as.accessTokenSeconds,
-      refresh_token: refreshToken,
+      ...(refreshToken === undefined ? {} : { refresh_token: refreshToken }),
       scope,
     });
   });

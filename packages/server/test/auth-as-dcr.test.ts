@@ -451,16 +451,141 @@ describe("conformance: register -> authorize -> consent -> token -> refresh -> r
     expect(res.headers.get("location")).toBeNull();
   });
 
-  it("use stamps last_used_at on the registration", async () => {
+  it("a completed sign-in stamps last_used_at (throttled), and no lookup does", async () => {
     const flow = await dcrFlow();
     const reg = await register(flow, nativeMeta());
+    const clientId = reg.body.client_id as string;
     expect(clientRows(flow)[0]?.last_used_at).toBeNull();
     flow.clock.t += 2 * HOUR;
+    // Looked up, never used: a redirect that is not the client's.
     await authorize(flow, new Jar(), pkce().challenge, {
-      client_id: reg.body.client_id as string,
+      client_id: clientId,
+      redirect_uri: "https://elsewhere.example/cb",
+    });
+    expect(clientRows(flow)[0]?.last_used_at).toBeNull();
+    // Used: a code was issued.
+    const { verifier, challenge } = pkce();
+    const { code } = await obtainCode(flow, new Jar(), challenge, {
+      client_id: clientId,
       redirect_uri: NATIVE,
     });
+    expect(code).not.toBe("");
+    const issuedAt = flow.clock.t;
+    expect(clientRows(flow)[0]?.last_used_at).toBe(issuedAt);
+    // The exchange inside the hour writes nothing more; a refresh two hours on is a use again.
+    const issued = await exchange(
+      flow,
+      tokenFields(code, verifier, { client_id: clientId, redirect_uri: NATIVE }),
+    );
+    expect(issued.res.status).toBe(200);
+    expect(clientRows(flow)[0]?.last_used_at).toBe(issuedAt);
+    flow.clock.t += 2 * HOUR;
+    const refreshed = await exchange(
+      flow,
+      refreshFields(issued.body.refresh_token as string, {
+        client_id: clientId,
+        resource: undefined,
+      }),
+    );
+    expect(refreshed.res.status).toBe(200);
     expect(clientRows(flow)[0]?.last_used_at).toBe(flow.clock.t);
+  });
+});
+
+describe("a failed lookup is not a use (it cannot defeat reclamation)", () => {
+  const noUse = async (flow: Flow, clientId: string) => {
+    flow.clock.t += 2 * HOUR;
+    // authorize: a redirect the client never registered
+    await authorize(flow, new Jar(), pkce().challenge, {
+      client_id: clientId,
+      redirect_uri: "junk",
+    });
+    await authorize(flow, new Jar(), pkce().challenge, {
+      client_id: clientId,
+      redirect_uri: "https://elsewhere.example/cb",
+    });
+    // token: a code nobody issued, and a refresh token nobody issued
+    const fake = await exchange(
+      flow,
+      tokenFields("not-a-code", pkce().verifier, { client_id: clientId, redirect_uri: NATIVE }),
+    );
+    expect(fake.body.error).toBe("invalid_grant");
+    const stale = await exchange(
+      flow,
+      refreshFields("not-a-refresh-token", { client_id: clientId, resource: undefined }),
+    );
+    expect(stale.body.error).toBe("invalid_grant");
+    // revoke: a token nobody issued
+    expect((await revokeCall(flow, { token: "junk", client_id: clientId })).res.status).toBe(200);
+  };
+
+  it("failed authorize, failed token and failed revoke leave last_used_at unset", async () => {
+    const flow = await dcrFlow();
+    const reg = await register(flow, nativeMeta());
+    await noUse(flow, reg.body.client_id as string);
+    expect(clientRows(flow)[0]?.last_used_at).toBeNull();
+  });
+
+  it("a full table still reclaims rows that were only ever looked up", async () => {
+    const flow = await dcrFlow({ maxClients: 2 });
+    const a = await register(flow, nativeMeta(), ip("198.51.100.70"));
+    const b = await register(flow, nativeMeta(), ip("198.51.100.71"));
+    await noUse(flow, a.body.client_id as string);
+    await noUse(flow, b.body.client_id as string);
+    flow.clock.t += 25 * HOUR;
+    const fresh = await register(flow, nativeMeta(), ip("198.51.100.72"));
+    expect(fresh.res.status).toBe(201);
+    expect(clientRows(flow).map((r) => r.client_id)).toEqual([fresh.body.client_id]);
+  });
+});
+
+describe("grant_types is honored", () => {
+  async function signIn(flow: Flow, meta: unknown) {
+    const reg = await register(flow, meta);
+    expect(reg.res.status).toBe(201);
+    const clientId = reg.body.client_id as string;
+    const { verifier, challenge } = pkce();
+    const { code } = await obtainCode(flow, new Jar(), challenge, {
+      client_id: clientId,
+      redirect_uri: NATIVE,
+    });
+    const issued = await exchange(
+      flow,
+      tokenFields(code, verifier, { client_id: clientId, redirect_uri: NATIVE }),
+    );
+    expect(issued.res.status).toBe(200);
+    return { reg, issued };
+  }
+
+  it("an authorization_code-only client gets no refresh token, and the 201 says so", async () => {
+    const flow = await dcrFlow();
+    const { reg, issued } = await signIn(flow, nativeMeta({ grant_types: ["authorization_code"] }));
+    expect(reg.body.grant_types).toEqual(["authorization_code"]);
+    expect(issued.body.access_token).toBeTruthy();
+    expect(issued.body).not.toHaveProperty("refresh_token");
+    expect(rows(flow, "SELECT 1 FROM refresh_tokens")).toHaveLength(0);
+  });
+
+  it("a client that omits grant_types gets the RFC 7591 default: no refresh token", async () => {
+    const flow = await dcrFlow();
+    const { reg, issued } = await signIn(flow, { redirect_uris: [NATIVE] });
+    expect(reg.body.grant_types).toEqual(["authorization_code"]);
+    expect(issued.body).not.toHaveProperty("refresh_token");
+  });
+
+  it("a client that registers both gets a refresh token", async () => {
+    const flow = await dcrFlow();
+    const { reg, issued } = await signIn(flow, nativeMeta());
+    expect(reg.body.grant_types).toEqual(["authorization_code", "refresh_token"]);
+    expect(typeof issued.body.refresh_token).toBe("string");
+  });
+
+  it("a static client keeps its refresh token", async () => {
+    const flow = await dcrFlow();
+    const { verifier, challenge } = pkce();
+    const { code } = await obtainCode(flow, new Jar(), challenge);
+    const issued = await exchange(flow, tokenFields(code, verifier));
+    expect(typeof issued.body.refresh_token).toBe("string");
   });
 });
 
@@ -540,7 +665,7 @@ describe("DCR flooding", () => {
     const used = await register(flow, nativeMeta(), ip("198.51.100.50"));
     const stale = await register(flow, nativeMeta(), ip("198.51.100.51"));
     flow.clock.t += 2 * HOUR;
-    await authorize(flow, new Jar(), pkce().challenge, {
+    await obtainCode(flow, new Jar(), pkce().challenge, {
       client_id: used.body.client_id as string,
       redirect_uri: NATIVE,
     });
@@ -560,7 +685,7 @@ describe("DCR flooding", () => {
     const kept = await register(flow, nativeMeta(), ip("198.51.100.60"));
     const idle = await register(flow, nativeMeta(), ip("198.51.100.61"));
     flow.clock.t += 60 * DAY;
-    await authorize(flow, new Jar(), pkce().challenge, {
+    await obtainCode(flow, new Jar(), pkce().challenge, {
       client_id: kept.body.client_id as string,
       redirect_uri: NATIVE,
     });

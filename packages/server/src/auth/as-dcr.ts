@@ -18,6 +18,8 @@ const GRANTS = new Set(["authorization_code", "refresh_token"]);
 export const DCR_RECLAIM_MS = 24 * 60 * 60_000;
 /** `last_used_at` is refreshed at most this often per client: a sign-in is not a write per request. */
 const TOUCH_EVERY_MS = 60 * 60_000;
+/** RFC 7591 section 2: a registration that names no grant types registers `authorization_code` alone. */
+const DEFAULT_GRANTS = ["authorization_code"];
 
 /** What a registration keeps. */
 export interface DcrMetadata {
@@ -98,7 +100,7 @@ export function parseRegistration(body: unknown): DcrParse {
     );
   }
 
-  let grantTypes = ["authorization_code"];
+  let grantTypes = DEFAULT_GRANTS;
   if (d.grant_types !== undefined) {
     const g = d.grant_types;
     if (!isStringArray(g) || !g.every((x) => GRANTS.has(x)) || !g.includes("authorization_code")) {
@@ -152,7 +154,11 @@ export function insertRegistration(
       "INSERT INTO oauth_clients (client_id, kind, metadata_json, created_at, last_used_at, expires_at, created_ip) VALUES (?, 'dcr', ?, ?, NULL, NULL, ?)",
     ).run(
       row.clientId,
-      JSON.stringify({ name: row.meta.name, redirectUris: row.meta.redirectUris }),
+      JSON.stringify({
+        name: row.meta.name,
+        redirectUris: row.meta.redirectUris,
+        grantTypes: row.meta.grantTypes,
+      }),
       row.now,
       row.source,
     );
@@ -160,12 +166,16 @@ export function insertRegistration(
   });
 }
 
-/** A live registration by its exact client_id: its name and redirect URIs, and the use is noted. */
+/**
+ * A live registration by its exact client_id: its name, redirect URIs and grant types. A lookup is NOT
+ * a use: anyone can look any id up (a bad redirect at authorize, a made-up code at the token endpoint),
+ * so only `noteClientUsed`, called where a sign-in actually succeeded, writes `last_used_at`.
+ */
 export function loadRegistration(
   db: Database,
   clientId: string,
   now: number,
-): { name: string; redirectUris: string[] } | undefined {
+): { name: string; redirectUris: string[]; grantTypes: string[] } | undefined {
   const row = db
     .prepare(
       "SELECT metadata_json FROM oauth_clients WHERE client_id = ? AND kind = 'dcr' AND (expires_at IS NULL OR expires_at > ?)",
@@ -173,7 +183,11 @@ export function loadRegistration(
     .get(clientId, now) as { metadata_json: string } | undefined;
   if (row === undefined) return undefined;
   try {
-    const m = JSON.parse(row.metadata_json) as { name?: unknown; redirectUris?: unknown };
+    const m = JSON.parse(row.metadata_json) as {
+      name?: unknown;
+      redirectUris?: unknown;
+      grantTypes?: unknown;
+    };
     if (
       typeof m.name !== "string" ||
       !isStringArray(m.redirectUris) ||
@@ -181,11 +195,23 @@ export function loadRegistration(
     ) {
       return undefined;
     }
-    db.prepare(
-      "UPDATE oauth_clients SET last_used_at = ? WHERE client_id = ? AND (last_used_at IS NULL OR last_used_at < ?)",
-    ).run(now, clientId, now - TOUCH_EVERY_MS);
-    return { name: m.name, redirectUris: m.redirectUris };
+    // A row without the member is one stored before it existed: the RFC default, no refresh token.
+    const grantTypes =
+      isStringArray(m.grantTypes) && m.grantTypes.length > 0 ? m.grantTypes : DEFAULT_GRANTS;
+    return { name: m.name, redirectUris: m.redirectUris, grantTypes };
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Record a SUCCESSFUL use of a registered client: an authorization code issued to it, a code exchanged,
+ * a refresh token rotated. This is what keeps a registration out of reclamation, so nothing an
+ * unauthenticated caller can do reaches it. A no-op for any other kind of client (static, metadata
+ * document) and at most one write per client per `TOUCH_EVERY_MS`.
+ */
+export function noteClientUsed(db: Database, clientId: string, now: number): void {
+  db.prepare(
+    "UPDATE oauth_clients SET last_used_at = ? WHERE client_id = ? AND kind = 'dcr' AND (last_used_at IS NULL OR last_used_at < ?)",
+  ).run(now, clientId, now - TOUCH_EVERY_MS);
 }
