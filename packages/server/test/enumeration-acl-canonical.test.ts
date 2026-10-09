@@ -8,8 +8,8 @@
 //
 // Positive control: `shared -> pages` where only `pages/**` is whitelisted still lists, under its
 // display path `shared/...`, because the target is readable.
-import { readdirSync, readFileSync, statSync, symlinkSync } from "node:fs";
-import { join, relative } from "node:path";
+import { statSync, symlinkSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Database } from "../src/db/types";
 import { listResources } from "../src/mcp/resources";
@@ -287,29 +287,8 @@ describe.skipIf(process.platform === "win32")(
   },
 );
 
-// Source scan: a walked entry is never judged on its display name. The floors keep the scan from
-// passing on an empty file set (it found the walkers' consumers when it was written).
-describe("no consumer filters walker output on the display path", () => {
-  const SRC = join(__dirname, "..", "src");
-  const files = (dir: string): string[] =>
-    readdirSync(dir, { withFileTypes: true }).flatMap((d) =>
-      d.isDirectory()
-        ? files(join(dir, d.name))
-        : d.name.endsWith(".ts")
-          ? [join(dir, d.name)]
-          : [],
-    );
-  const all = files(SRC).map((f) => [relative(SRC, f), readFileSync(f, "utf8")] as const);
-
-  it("has files to scan, and the shared filter is used by the walker consumers", () => {
-    expect(all.filter(([, t]) => /\bwalkVault(Stream)?\(/.test(t)).length).toBeGreaterThanOrEqual(
-      15,
-    );
-    expect(all.filter(([, t]) => t.includes("readableEntry(")).length).toBeGreaterThanOrEqual(12);
-  });
-
-  it("readableRel / readableByFolder are never called on `<entry>.relPath`", () => {
-    const bad = all.filter(([, t]) => /\breadable(?:Rel|ByFolder)\([^)]*\.relPath\b/.test(t));
-    expect(bad.map(([f]) => f)).toEqual([]);
-  });
-});
+// The source-scan guard that lived here (a count of files with walker calls, and a grep for
+// `readableRel(...relPath`) is retired: it passed every shape where the display path reached the
+// predicate by another road (an alias, a destructure, a wrapper, a callback, a DB row). The CI lint
+// job runs `bun run check:acl-identity` (scripts/check-acl-canonical-identity.mjs), an AST data-flow
+// scan with existence floors, in its place.

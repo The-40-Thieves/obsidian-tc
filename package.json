@@ -22,6 +22,7 @@
   "scripts": {
     "build": "bun run --filter='*' build",
     "bundle": "bun scripts/bundle-mcpb.ts",
+    "check:acl-identity": "node scripts/check-acl-canonical-identity.mjs",
     "check:actions-shellcheck": "node scripts/check-actions-shellcheck.mjs",
     "check:changes": "node scripts/check-changes.mjs",
     "check:boundaries": "node scripts/check-boundaries.mjs",
@@ -78,6 +79,7 @@
     "dependency-cruiser": "18.5.0",
     "jscpd": "^5.4.0",
     "knip": "6.40.0",
+    "oxc-parser": "0.150.0",
     "recheck": "4.5.0",
     "typescript": "^7.0.2"
   },
