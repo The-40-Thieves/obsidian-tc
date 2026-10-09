@@ -26,6 +26,7 @@ import { requireConfirmation } from "../../vault/hitl";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { captureSnapshot } from "../../vault/snapshots";
+import { readableStoredRow } from "../../vault/stored-acl-path";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import { defineTool } from "./define";
@@ -483,9 +484,13 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           const rows = ctx.db
             .prepare("SELECT path, frontmatter FROM notes WHERE vault_id = ? ORDER BY path")
             .all(v.id) as Array<{ path: string; frontmatter: string | null }>;
+          // A stored row is judged on the identity the index recorded for its name (`acl_path`).
+          const readable = readableStoredRow(ctx.db, v.id, (a) =>
+            readableRel(ctx.acl, a, ctx.grantedScopes),
+          );
           for (const r of rows) {
             if (sub !== undefined && r.path !== sub && !r.path.startsWith(`${sub}/`)) continue;
-            if (!readableRel(ctx.acl, r.path, ctx.grantedScopes)) continue;
+            if (!readable(r.path)) continue;
             if (scanned >= input.max_notes) break;
             scanned++;
             tally(r.frontmatter ? (JSON.parse(r.frontmatter) as Record<string, unknown>) : null);
@@ -544,9 +549,12 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           const rows = ctx.db
             .prepare("SELECT path, frontmatter FROM notes WHERE vault_id = ? ORDER BY path")
             .all(v.id) as Array<{ path: string; frontmatter: string | null }>;
+          const readable = readableStoredRow(ctx.db, v.id, (a) =>
+            readableRel(ctx.acl, a, ctx.grantedScopes),
+          );
           for (const r of rows) {
             if (sub !== undefined && r.path !== sub && !r.path.startsWith(`${sub}/`)) continue;
-            if (!readableRel(ctx.acl, r.path, ctx.grantedScopes)) continue;
+            if (!readable(r.path)) continue;
             const fm = r.frontmatter
               ? (JSON.parse(r.frontmatter) as Record<string, unknown>)
               : null;

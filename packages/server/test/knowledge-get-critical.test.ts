@@ -8,7 +8,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
-import { openMemoryDb } from "./helpers";
+import { openMemoryDb, stampAclPath } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const NOW = 1_700_000_000_000;
@@ -47,6 +47,7 @@ function docsDb() {
     NOW,
     NOW,
   );
+  stampAclPath(db);
   return db;
 }
 

@@ -19,7 +19,7 @@ import { floatBlob } from "../src/search/vec";
 import { registerM7Tools } from "../src/tools/m7";
 import { noteTagsByPath, openContradictionsForPaths } from "../src/tools/m7/knowledge-tools";
 import { VaultRegistry } from "../src/vault/registry";
-import { openMemoryDb } from "./helpers";
+import { openMemoryDb, stampAclPath } from "./helpers";
 
 function dbWithNotesAndContradictions(): any {
   const db = openMemoryDb();
@@ -97,6 +97,7 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
     db.prepare(
       "INSERT INTO notes (vault_id, path, title, tags, content_hash, mtime, size, indexed_at) VALUES (?, ?, '', ?, 'h', 0, 0, 0)",
     ).run(VAULT, path, JSON.stringify(["decision"]));
+    stampAclPath(db);
   }
 
   /** Captures the full composed request (system + user) the challenge core sends to the gateway
@@ -235,6 +236,7 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
       db.prepare(
         "INSERT INTO notes (vault_id, path, title, tags, content_hash, mtime, size, indexed_at) VALUES (?, ?, '', ?, 'h', 0, 0, 0)",
       ).run(VAULT, path, JSON.stringify(["decision"]));
+      stampAclPath(db);
     };
     insertChunk("pub1", "Public/decision.md", "public decision body");
     insertChunk("priv1", "Private/decision.md", "SECRET_MARKER private decision body");

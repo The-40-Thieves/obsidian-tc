@@ -17,6 +17,7 @@ import { lexicalRouteResults, routeQuery } from "../../../search/router";
 import { enforcePathAcl } from "../../../vault/acl-path";
 import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
 import { persistGovernedNote } from "../../../vault/persist-note";
+import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
 import type { M7Deps } from "./deps";
 import {
@@ -75,7 +76,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
       const v = deps.vaultRegistry.resolve(input.vault);
       const exclusion = vaultExclusionFor(deps.vaultRegistry, v.id);
       const isReadable = withVaultExclusion(
-        (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
+        readableStoredRow(ctx.db, v.id, (a) => readableRel(ctx.acl, a, ctx.grantedScopes)),
         exclusion,
       );
       // Same front door as every knowledge surface: the class router when enabled, the

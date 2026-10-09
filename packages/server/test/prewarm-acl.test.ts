@@ -47,7 +47,7 @@ import {
 import { floatBlob } from "../src/search/vec";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
-import { openMemoryDb } from "./helpers";
+import { openMemoryDb, stampAclPath } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const NOW = 1_700_000_000_000;
@@ -91,6 +91,7 @@ function cacheDb(): Database {
     "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, 'stub', ?, ?, 1, 0)",
   );
   for (const id of ["pub1", "sec1"]) emb.run(id, UNIT_VEC.length, floatBlob(UNIT_VEC));
+  stampAclPath(db);
   ensureChunkFts(db, { now: () => NOW, enrich: false });
   return db;
 }
@@ -289,6 +290,7 @@ describe("prewarm cache ACL leak (THE-543)", () => {
       NOW,
       NOW,
     );
+    stampAclPath(db);
     ensureChunkFts(db, { now: () => NOW, enrich: false });
 
     const dir = makeTempDir("obtc-pwacl-premig-");
@@ -351,6 +353,7 @@ describe("prewarm cache ACL leak (THE-543)", () => {
       NOW,
       NOW,
     );
+    stampAclPath(fileDb);
     ensureChunkFts(fileDb, { now: () => Date.now(), enrich: false });
     fileDb.close?.();
 

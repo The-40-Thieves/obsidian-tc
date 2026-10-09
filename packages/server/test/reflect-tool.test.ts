@@ -13,7 +13,7 @@ import type { GatewayRoles } from "../src/plane/gateway";
 import { ensureChunkFts } from "../src/search/chunk_fts";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
-import { openMemoryDb } from "./helpers";
+import { openMemoryDb, stampAclPath } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const NOW = 1_700_000_000_000;
@@ -33,6 +33,7 @@ function cacheDb0() {
     NOW,
     NOW,
   );
+  stampAclPath(db);
   ensureChunkFts(db, { now: () => NOW, enrich: false });
   return db;
 }
@@ -193,6 +194,7 @@ describe("reflect tool — egress exclusion skip-and-report (THE-934 fix round 2
       NOW,
       NOW,
     );
+    stampAclPath(db);
     ensureChunkFts(db, { now: () => NOW, enrich: false });
 
     const registry = new ToolRegistry({});

@@ -31,6 +31,7 @@ import type { WalkReadable } from "../../vault/acl-read-filter";
 import { readableRel, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
+import { storedAclPathOf } from "../../vault/stored-acl-path";
 import { defineTool } from "../m1/define";
 import {
   type ResponseFormat,
@@ -39,6 +40,7 @@ import {
   resolveResponseFormat,
 } from "../response-format";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
+import { runDql } from "./dql";
 import type { M2Deps } from "./shared";
 
 interface UnifiedHit {
@@ -197,37 +199,6 @@ function jsonlogicMatches(
   return out;
 }
 
-interface DqlResult {
-  headers?: string[];
-  rows: unknown[][];
-  note_paths: string[];
-}
-
-// Execute a DQL query via the shared Dataview bridge (wired by cli.ts). Absent
-// bridge => plugin_missing (honest "not configured"); a live but degraded bridge
-// surfaces plugin_missing / plugin_unreachable / dql_error from openBridge + the
-// transport. Read-only by contract; the companion rejects non-read DQL.
-async function runDql(
-  deps: M2Deps,
-  vaultId: string,
-  dql: string,
-  format: string,
-): Promise<DqlResult> {
-  if (!deps.dataviewBridge)
-    throw err.pluginMissing(
-      "DQL requires the Dataview companion-plugin bridge, which is not configured",
-      { plugin: "dataview" },
-    );
-  const { client, timeoutMs } = deps.dataviewBridge(vaultId);
-  return client.request<DqlResult>({
-    method: "POST",
-    path: "/dataview/dql",
-    body: { dql, format },
-    plugin: "dataview",
-    timeoutMs,
-  });
-}
-
 const Cursor = {
   limit: z.number().int().positive().max(1000).optional(),
   cursor: z.string().optional(),
@@ -256,7 +227,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
   // Resolve vault + (optional) read-gated root folder, plus a readable predicate
   // that also confines results to that root.
   const scope = (
-    ctx: { acl?: FolderAcl; grantedScopes: Iterable<string> },
+    ctx: { acl?: FolderAcl; grantedScopes: Iterable<string>; db: Database },
     vault: string,
     root?: string,
   ): { id: string; rootPath: string; sub?: string; readable: WalkReadable } => {
@@ -266,16 +237,24 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
     // Obsidian's Excluded files are left out of search whichever leg answers (the index never holds
     // them; the filesystem-walking legs and any stale row are cut here). ACL is unchanged.
     const excluded = vaultExclusionFor(deps.vaultRegistry, v.id);
+    const storedAclOf = storedAclPathOf(ctx.db, v.id);
     return {
       id: v.id,
       rootPath: v.root,
       sub,
-      // A walked entry is judged on its ACL identity (2nd argument); a stored row's path is its own.
-      readable: (rel, aclRel = rel) =>
-        readableRel(ctx.acl, aclRel, ctx.grantedScopes) &&
-        underRoot(rel, sub) &&
-        !excluded.isExcluded(rel) &&
-        !excluded.isExcluded(aclRel),
+      // A walked entry is judged on its ACL identity (2nd argument). A stored row (no 2nd argument)
+      // on the identity the index recorded for its name (`acl_path`), never on the name itself: an
+      // unresolved row is not readable.
+      readable: (rel, aclRel) => {
+        const identity = aclRel ?? storedAclOf(rel);
+        return (
+          identity !== null &&
+          readableRel(ctx.acl, identity, ctx.grantedScopes) &&
+          underRoot(rel, sub) &&
+          !excluded.isExcluded(rel) &&
+          !excluded.isExcluded(identity)
+        );
+      },
     };
   };
 

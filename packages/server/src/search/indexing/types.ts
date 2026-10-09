@@ -120,6 +120,7 @@ export interface NoteWritePlan {
   colbert?: ColbertMatrix[];
   ts: number;
   fenceGeneration: number;
+  aclPath?: string;
 }
 
 export interface PlanResult {

@@ -31,6 +31,7 @@ import { readNoteQuality } from "../../experiential/note-quality";
 import { UNSTAMPED_DEBT_CLAUSES } from "../../experiential/verdict";
 import type { ToolDefinition } from "../../mcp/registry";
 import { readableRel, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
+import { readableStoredRow } from "../../vault/stored-acl-path";
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { activationConflict, maxActivationByPath } from "./activation-conflict";
@@ -405,11 +406,15 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
       tags: ["experiential", "knowledge"],
       handler: (input, ctx) => {
         if (!deps.edb) return UNAVAILABLE;
+        const readableIndexed = readableStoredRow(ctx.db, input.vault, (a) =>
+          readableRel(ctx.acl, a, ctx.grantedScopes),
+        );
         const rows = readNoteQuality(deps.edb, {
           vaultId: input.vault,
           ...(input.flags ? { flags: input.flags } : {}),
-          limit: input.limit,
-        });
+        })
+          .filter((r) => readableIndexed(r.path))
+          .slice(0, input.limit);
         // THE-643 item 3: one batched lookup for the whole page, not one per note.
         const maxActivation = deps.activationFor
           ? maxActivationByPath(
@@ -520,8 +525,12 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
         // hidden hits included — a restricted caller gets them recomputed from the hits it can see.
         // (`nearest` holds only the pass's top-N hits, so `results` is then a floor, not a count.)
         const restricted = !readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes);
+        // `nearest` paths are index keys, possibly symlink aliases: judged on the stored identity.
+        const readableIndexed = readableStoredRow(ctx.db, input.vault, (a) =>
+          readableRel(ctx.acl, a, ctx.grantedScopes),
+        );
         const allItems = (existing?.items ?? []).map((i) => {
-          const nearest = i.nearest.filter((n) => readableRel(ctx.acl, n.path, ctx.grantedScopes));
+          const nearest = i.nearest.filter((n) => readableIndexed(n.path));
           if (!restricted) return { ...i, nearest };
           const top = nearest[0];
           return {

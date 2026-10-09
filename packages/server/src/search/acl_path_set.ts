@@ -73,7 +73,7 @@ export function ensureAclPathSet(db: Database, opts: EnsureAclPathSetOpts): numb
   if (!hasAclPathSets(db)) return null;
   try {
     const fingerprint = createHash("sha256")
-      .update("acl-path-set-v2\0")
+      .update("acl-path-set-v3\0")
       .update(opts.aclFingerprint)
       .update("\0")
       .update(opts.exclusionDigest)

@@ -10,7 +10,7 @@ import type { Database } from "../src/db/types";
 import { persistGapReport } from "../src/experiential/gaps";
 import { recomputeNoteQuality, STALE_EDIT_DAYS } from "../src/experiential/note-quality";
 import { LINT_CHECKS } from "../src/tools/m7/knowledge/wiki-lint";
-import { openMemoryDb } from "./helpers";
+import { openMemoryDb, stampAclPath } from "./helpers";
 import { dbCounts, hashTree, makeWikiHarness, type WikiHarness } from "./wiki-test-helpers";
 
 const NOW = Date.now();
@@ -95,6 +95,7 @@ function fixture(opts: { acl?: object; withEdb?: boolean } = {}): WikiHarness {
       `h:${p}`,
       p === "wiki/Stale page.md" ? NOW - (STALE_EDIT_DAYS + 400) * DAY : NOW,
     );
+  stampAclPath(h.v.db);
   recomputeNoteQuality(h.v.db, edb, { vaultId: "test", nowMs: NOW });
   // a persisted gap pass
   persistGapReport(

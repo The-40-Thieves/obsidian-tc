@@ -12,6 +12,7 @@ import { tableExists } from "../../db/introspect";
 import { inWriteTransaction, type WriteTxnHooks } from "../../db/txn";
 import { cachedPrepare, type Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
+import { ACL_PATH_UNRESOLVED } from "../../vault/stored-acl-path";
 import { deleteChunkColbert, ensureChunkColbert } from "../chunk_colbert";
 import { deleteChunkFtsRow, ensureChunkFts } from "../chunk_fts";
 import {
@@ -26,6 +27,7 @@ import {
 import { bumpGeneration } from "../generation";
 import { deleteNoteSummary } from "../note-summaries";
 import { deleteChunkSparse, ensureChunkSparse } from "../sparse";
+import { syncAclPaths } from "./acl-path-sync";
 import { EMBED_BATCH, EMBED_CONCURRENCY, embedPlans } from "./embed-batches";
 import { computeNotePlan, hasBodyShaColumn } from "./note-plan";
 import { applyNoteWrites, DELETE_CONTRADICTIONS_SQL, fireIndexHook } from "./persist-note-plan";
@@ -99,6 +101,10 @@ export async function indexNote(
   /** THE-934 fix round 1 (Blocking-1): egress.excludePaths, as a per-path predicate. Threaded
    *  through to planNoteWrites/computeNotePlan — see that function's doc comment. */
   isExcluded?: (rel: string) => boolean,
+  /** The note's ACL identity: `path` resolved through any symlinked folder
+   *  (vault/paths.ts resolveVaultPathChecked), stored next to the display `path`. Index-on-write
+   *  callers know the vault root and resolve it; absent is stored as unresolved (closed). */
+  aclPath?: string,
 ): Promise<{
   upserted: number;
   deleted: number;
@@ -131,6 +137,10 @@ export async function indexNote(
   const hasBodySha = hasBodyShaColumn(db);
   const note: NoteRecord | null =
     hasNotes && raw !== "" ? buildNoteRecord(path, raw, flagged, null, now()) : null;
+  // No identity supplied = unresolved (closed): the row is stored, and returned to nobody.
+  const identity = aclPath ?? ACL_PATH_UNRESOLVED;
+  if (note) note.aclPath = identity;
+  if (plan) plan.aclPath = identity;
   if (!plan) {
     // Chunks unchanged; refresh the notes row only when missing/stale (backfill path).
     if (note && noteRowHash(db, vaultId, path) !== note.contentHash) {
@@ -154,6 +164,9 @@ export async function indexNote(
       if (!landed)
         return { upserted: 0, deleted: 0, unchanged, secretsSkipped, staleSkipped: true };
     }
+    // Nothing else changed, but the stored identity may be stale (a re-pointed symlink, a row that
+    // predates the column): re-sync it without touching the chunks.
+    syncAclPaths(db, vaultId, new Map([[path, identity]]), sql);
     return { upserted: 0, deleted: 0, unchanged, secretsSkipped, staleSkipped: false };
   }
   const result = inWriteTransaction(

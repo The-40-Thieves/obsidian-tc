@@ -11,6 +11,7 @@ import { buildEvidence } from "../../../search/evidence";
 import { vaultExclusionFor, withVaultExclusion } from "../../../search/index-exclusion";
 import { semanticSearch } from "../../../search/semantic";
 import { readableRel } from "../../../vault/acl-read-filter";
+import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
 import type { M7Deps } from "./deps";
 import {
@@ -50,7 +51,7 @@ export function createKnowledgeChallengeTool(
         };
       }
       const isReadable = withVaultExclusion(
-        (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
+        readableStoredRow(ctx.db, v.id, (a) => readableRel(ctx.acl, a, ctx.grantedScopes)),
         vaultExclusionFor(deps.vaultRegistry, v.id),
       );
       const queryVec = await retrieval.embedQuery(input.proposal);

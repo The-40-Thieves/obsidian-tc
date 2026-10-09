@@ -9,7 +9,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
 import { registerM7Tools } from "../src/tools/m7";
 import { VaultRegistry } from "../src/vault/registry";
-import { openMemoryDb } from "./helpers";
+import { openMemoryDb, seedNotes } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const VAULT = "v1";
@@ -25,6 +25,7 @@ function dbWithContradictions(): any {
   ins.run("c1", VAULT, "notes/a.md", "notes/z.md", "s1", "x1", "contradiction", "open"); // source side
   ins.run("c2", VAULT, "notes/y.md", "notes/b.md", "s2", "x2", "tension", "open"); // conflict side
   ins.run("c3", VAULT, "notes/a.md", "notes/w.md", "s3", "x3", "contradiction", "resolved"); // excluded
+  seedNotes(db, VAULT, ["notes/a.md", "notes/z.md", "notes/y.md", "notes/b.md", "notes/w.md"]);
   return db;
 }
 

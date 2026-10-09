@@ -19,7 +19,7 @@ import {
   renderWikilinkCitations,
 } from "../src/tools/m7/knowledge/retrieval-runtime";
 import { VaultRegistry } from "../src/vault/registry";
-import { openMemoryDb } from "./helpers";
+import { openMemoryDb, stampAclPath } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const NOW = 1_700_000_000_000;
@@ -39,6 +39,7 @@ function cacheDb0() {
   );
   ins.run("c1", "notes/topic.md", "the quorble pattern part one", "h1", NOW, NOW);
   ins.run("c2", "notes/other.md", "the quorble pattern part two", "h2", NOW, NOW);
+  stampAclPath(db);
   ensureChunkFts(db, { now: () => NOW, enrich: false });
   return db;
 }

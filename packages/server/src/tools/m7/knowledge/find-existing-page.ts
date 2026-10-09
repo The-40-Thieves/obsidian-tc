@@ -24,6 +24,7 @@ import { semanticSearch } from "../../../search/semantic";
 import { readableRel } from "../../../vault/acl-read-filter";
 import { normalizeVaultPath } from "../../../vault/paths";
 import type { ResolvedVault } from "../../../vault/registry";
+import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
 import { scanWarningsShape } from "../../scan-warnings";
@@ -305,6 +306,10 @@ export async function findExistingPage(
   const min = args.minSimilarity ?? TOPIC_MATCH_MIN;
   const semantic: { checked: boolean; min: number; reason?: string } = { checked: false, min };
   const prefix = folder ? `${folder.replace(/\/+$/, "")}/` : "";
+  // The index key may be a symlink alias: the read ACL judges the row's stored identity.
+  const readableIndexed = readableStoredRow(ctx.db, v.id, (a) =>
+    readableRel(ctx.acl, a, ctx.grantedScopes),
+  );
   try {
     const queryVec = await retrieval.embedQuery(args.topic);
     const hits = semanticSearch(ctx.db, v.id, queryVec, {
@@ -313,7 +318,7 @@ export async function findExistingPage(
       // Similarity evidence is search-derived: only notes that are readable, inside the folder
       // and actually in the index (not hidden by Excluded files) may be candidates.
       isReadable: (rel) =>
-        readableRel(ctx.acl, rel, ctx.grantedScopes) &&
+        readableIndexed(rel) &&
         (prefix === "" || rel.startsWith(prefix)) &&
         !isRaw(rel) &&
         !exclusion.isExcluded(rel) &&

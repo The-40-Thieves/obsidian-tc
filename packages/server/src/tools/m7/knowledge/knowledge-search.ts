@@ -9,6 +9,7 @@ import { vaultExclusionFor, withVaultExclusion } from "../../../search/index-exc
 import { cachedGraphSearch } from "../../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../../search/router";
 import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
+import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
 import { conciseGraphResults } from "./concise-search";
@@ -76,7 +77,7 @@ export function createKnowledgeSearchTool(
         });
       const exclusion = vaultExclusionFor(deps.vaultRegistry, v.id);
       const isReadable = withVaultExclusion(
-        (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
+        readableStoredRow(ctx.db, v.id, (a) => readableRel(ctx.acl, a, ctx.grantedScopes)),
         exclusion,
       );
       const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";

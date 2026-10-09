@@ -8,6 +8,7 @@ import type { ToolDefinition } from "../../../mcp/registry";
 import { enforcePathAcl } from "../../../vault/acl-path";
 import { readableRel } from "../../../vault/acl-read-filter";
 import { normalizeVaultPath } from "../../../vault/paths";
+import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
 import type { M7Deps } from "./deps";
 import { openContradictionsForPaths } from "./retrieval-runtime";
@@ -42,8 +43,11 @@ export function createContradictionsTool(deps: M7Deps): ToolDefinition {
           contradictions: [],
         };
       }
-      const contradictions = openContradictionsForPaths(ctx.db, v.id, paths, (rel) =>
-        readableRel(ctx.acl, rel, ctx.grantedScopes),
+      const contradictions = openContradictionsForPaths(
+        ctx.db,
+        v.id,
+        paths,
+        readableStoredRow(ctx.db, v.id, (a) => readableRel(ctx.acl, a, ctx.grantedScopes)),
       );
       return {
         vault: v.id,

@@ -37,6 +37,7 @@ import {
 import type { ToolDefinition } from "../../../mcp/registry";
 import { chunkPathResolver } from "../../../search/chunk-vault";
 import { readableRel } from "../../../vault/acl-read-filter";
+import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
 import { conciseExplainAnswer } from "./concise-reads";
@@ -126,12 +127,16 @@ export function createExplainAnswerTool(deps: M7Deps): ToolDefinition {
       // (the note was edited or deleted and re-chunked), which the lineage reports rather than
       // drops — 7 of 81 distinct retrieved chunk_ids on the live store.
       const pathOf = chunkPathResolver(ctx.db, v.id);
+      // The chunk's path is its display name; a symlink alias is judged on its stored identity.
+      const readableIndexed = readableStoredRow(ctx.db, v.id, (a) =>
+        readableRel(ctx.acl, a, ctx.grantedScopes),
+      );
       const retrievals: LineageRetrievalRow[] = [];
       for (const r of rows) {
         const path = pathOf(r.chunk_id);
         // Layer 2: readability. An unreadable path is dropped entirely — never relabelled, never
         // counted. `null` here means "no longer exists", which is a different claim.
-        if (path !== null && !readableRel(ctx.acl, path, ctx.grantedScopes)) continue;
+        if (path !== null && !readableIndexed(path)) continue;
         retrievals.push({ ...r, path });
       }
 

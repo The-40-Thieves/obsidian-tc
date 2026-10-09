@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { vaultExclusionFor, withVaultExclusion } from "../../../search/index-exclusion";
 import { readableRel } from "../../../vault/acl-read-filter";
+import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
 import { conciseKnowledgeCritical } from "./concise-reads";
@@ -39,7 +40,7 @@ export function createKnowledgeCriticalTool(deps: M7Deps): ToolDefinition {
           kind: v.kind,
         });
       const isReadable = withVaultExclusion(
-        (rel) => readableRel(ctx.acl, rel, ctx.grantedScopes),
+        readableStoredRow(ctx.db, v.id, (a) => readableRel(ctx.acl, a, ctx.grantedScopes)),
         vaultExclusionFor(deps.vaultRegistry, v.id),
       );
       const rows = ctx.db

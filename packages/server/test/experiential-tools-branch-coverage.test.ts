@@ -120,8 +120,8 @@ function chunksCacheDb(): Database {
 
 function chunkRow(db: Database, id: string, vaultId: string, path: string) {
   db.prepare(
-    "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, ?, ?, 0, '[]', 'x', ?, 1, 0, 0)",
-  ).run(id, vaultId, path, `h-${id}`);
+    "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at, acl_path) VALUES (?, ?, ?, 0, '[]', 'x', ?, 1, 0, 0, ?)",
+  ).run(id, vaultId, path, `h-${id}`, path);
 }
 
 function noteQualityRow(

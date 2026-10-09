@@ -217,10 +217,12 @@ export function resolveVaultPath(vaultRoot: string, relPath: string): string {
   return resolved.abs;
 }
 
-function statSafe(abs: string): { size: number; mtimeMs: number; ctimeMs: number } | null {
+function statSafe(
+  abs: string,
+): { size: number; mtimeMs: number; ctimeMs: number; nlink: number } | null {
   try {
     const s = statSync(abs);
-    return { size: s.size, mtimeMs: s.mtimeMs, ctimeMs: s.ctimeMs };
+    return { size: s.size, mtimeMs: s.mtimeMs, ctimeMs: s.ctimeMs, nlink: s.nlink };
   } catch {
     return null;
   }
@@ -235,6 +237,7 @@ export interface WalkEntry {
   type: "file" | "folder";
   size: number;
   mtime: number;
+  hardLinked?: true;
 }
 
 /** Where a walk begins and its ACL identity (`""` = root), after the planted-root check (THE-1081).
@@ -294,6 +297,7 @@ export function walkVault(
           type: "file",
           size: st?.size ?? 0,
           mtime: st?.mtimeMs ?? 0,
+          ...((st?.nlink ?? 1) > 1 ? { hardLinked: true as const } : {}),
         });
       }
     }
@@ -372,6 +376,7 @@ export async function* walkVaultStream(
           type: "file",
           size: st?.size ?? 0,
           mtime: st?.mtimeMs ?? 0,
+          ...((st?.nlink ?? 1) > 1 ? { hardLinked: true as const } : {}),
         };
       }
     }

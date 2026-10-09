@@ -92,6 +92,9 @@ describe("index.embeddings check", () => {
   });
 });
 
+// The migration that makes one-active-embedding-per-chunk unique, found by version (later ones land after it).
+const REPAIR_INDEX = CACHE_MIGRATIONS.findIndex((m) => m.version === "20261008_001");
+
 describe("probeEmbeddingIntegrity against a real cache.db", () => {
   const seedStore = async (dir: string, upTo: number) => {
     const db = await openDatabase(join(dir, "cache.db"));
@@ -145,7 +148,7 @@ describe("probeEmbeddingIntegrity against a real cache.db", () => {
   it("finds a double-active chunk left by an older build and names its models", async () => {
     const dir = makeTempDir("obtc-1160-doc-");
     try {
-      const db = await seedStore(dir, CACHE_MIGRATIONS.length - 1); // before the unique index
+      const db = await seedStore(dir, REPAIR_INDEX); // before the unique index
       const emb = seed(db);
       emb.run("c1", "m:other", 8, Buffer.alloc(8 * 4));
       db.close?.();

@@ -46,6 +46,7 @@ import {
   resolveVaultPathChecked,
 } from "../../../vault/paths";
 import { captureSnapshot, discardSnapshots, pruneSnapshots } from "../../../vault/snapshots";
+import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { applyWriteBatch, type BatchWrite, isIncompleteRollback } from "../../../vault/write-batch";
 import {
   createModeConflictError,
@@ -512,8 +513,11 @@ export function createCommitWikiPageTool(
         });
 
       const touched = [...(pagePrev ? [pageRel] : []), ...patchRels];
-      const contradictions = openContradictionsForPaths(ctx.db, v.id, touched, (rel) =>
-        readableRel(ctx.acl, rel, ctx.grantedScopes),
+      const contradictions = openContradictionsForPaths(
+        ctx.db,
+        v.id,
+        touched,
+        readableStoredRow(ctx.db, v.id, (a) => readableRel(ctx.acl, a, ctx.grantedScopes)),
       );
 
       // The same rule write_note applies to an overwrite of a non-empty note, unchanged.

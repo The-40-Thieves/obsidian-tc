@@ -32,8 +32,10 @@ import {
   indexNote,
   indexVault,
 } from "../search/indexer";
+import { indexAclIdentity } from "../search/indexing/acl-path-sync";
 import { buildRepresentationManifest, type RepresentationManifest } from "../search/representation";
 import { ensureVecChunks, type VecRebuildEvent } from "../search/vec";
+import { ACL_PATH_UNRESOLVED } from "../vault/stored-acl-path";
 import { registerVaultWatch } from "../vault/watcher";
 import {
   applyIndexWriteError,
@@ -232,6 +234,7 @@ export interface IndexCoordinatorDeps {
   /** The CANONICAL vault roots (vaultRegistry.list(), not raw config.vaults), narrowed to what
    *  registerVaultWatch needs. */
   vaults: readonly { id: string; path: string }[];
+  rootOf?: (vaultId: string) => string | undefined;
   /** config.watch */
   watch: { enabled: boolean; debounceMs: number };
   sqlHooksFor: (vault: string) => WriteTxnHooks;
@@ -286,6 +289,11 @@ export interface IndexCoordinatorWiring {
  * identically to a write_note.
  */
 export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinatorWiring {
+  const aclRelFor = (vaultId: string, path: string): string | null =>
+    indexAclIdentity(
+      deps.rootOf?.(vaultId) ?? deps.vaults.find((v) => v.id === vaultId)?.path,
+      path,
+    );
   const deindexPath = (vaultId: string, path: string, excluded: boolean): void =>
     deindexNote(
       deps.db,
@@ -318,6 +326,7 @@ export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinat
           deps.chunkContext,
           deps.sqlHooksFor(vaultId),
           deps.isEgressExcluded,
+          aclRelFor(vaultId, path) ?? ACL_PATH_UNRESOLVED,
         );
       },
       delete: (vaultId, path) => deindexPath(vaultId, path, isExcludedPath(vaultId, path)),
@@ -345,10 +354,14 @@ export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinat
     },
   );
   const indexReadableFor = makeIndexReadable(deps.acl, deps.aclByVault);
+  const indexReadableByIdentity =
+    (vaultId: string): ((rel: string) => boolean) =>
+    (rel) =>
+      indexReadableFor(vaultId)(aclRelFor(vaultId, rel) ?? rel);
   // THE-453 (runtime): a write-allowed but read-denied path (writePaths ⊃ readPaths) must not be
   // embedded — makeReindexGate routes it to submitDelete instead of submitWrite. Deletes are always
   // safe, so deindex stays a direct submitDelete.
-  const reindexHook = makeReindexGate(indexReadableFor, {
+  const reindexHook = makeReindexGate(indexReadableByIdentity, {
     write: (vaultId, path, content) => indexCoordinator.submitWrite(vaultId, path, content),
     delete: (vaultId, path) => indexCoordinator.submitDelete(vaultId, path),
   });
@@ -356,7 +369,7 @@ export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinat
     indexCoordinator.submitDelete(vaultId, path);
   // F1 (fix round 2): a SEPARATE ACL-gated hook pair tagged "watcher" so a demote can cancel only
   // these pending ops (cancelOrigin), leaving an explicit tool write on the same key untouched.
-  const watcherReindexHook = makeReindexGate(indexReadableFor, {
+  const watcherReindexHook = makeReindexGate(indexReadableByIdentity, {
     write: (vaultId, path, content) =>
       indexCoordinator.submitWrite(vaultId, path, content, "watcher"),
     delete: (vaultId, path) => indexCoordinator.submitDelete(vaultId, path, "watcher"),

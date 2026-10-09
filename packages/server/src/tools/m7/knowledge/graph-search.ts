@@ -25,6 +25,7 @@ import { multiQueryGraphSearch } from "../../../search/multi_query";
 import { cachedGraphSearch, type QueryCacheContext } from "../../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../../search/router";
 import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
+import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
 import { conciseGraphResults } from "./concise-search";
@@ -91,7 +92,7 @@ export async function searchOneVault(
 ): Promise<VaultLegResult> {
   const exclusion = vaultExclusionFor(deps.vaultRegistry, vaultId);
   const isReadable = withVaultExclusion(
-    (rel) => readableRel(acl, rel, ctx.grantedScopes),
+    readableStoredRow(ctx.db, vaultId, (a) => readableRel(acl, a, ctx.grantedScopes)),
     exclusion,
   );
   let route = deps.classRouter

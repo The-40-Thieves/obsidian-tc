@@ -18,6 +18,7 @@ import { readableEntry, readableRel } from "../../vault/acl-read-filter";
 import { type Frontmatter, parseNote, serializeNote } from "../../vault/frontmatter";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
+import { readableStoredRow } from "../../vault/stored-acl-path";
 import {
   extractInlineTags,
   isValidTag,
@@ -400,9 +401,13 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
           const rows = ctx.db
             .prepare("SELECT path, tags FROM notes WHERE vault_id = ? ORDER BY path")
             .all(v.id) as Array<{ path: string; tags: string }>;
+          // A stored row is judged on the identity the index recorded for its name (`acl_path`).
+          const readable = readableStoredRow(ctx.db, v.id, (a) =>
+            readableRel(ctx.acl, a, ctx.grantedScopes),
+          );
           for (const r of rows) {
             if (sub !== undefined && r.path !== sub && !r.path.startsWith(`${sub}/`)) continue;
-            if (!readableRel(ctx.acl, r.path, ctx.grantedScopes)) continue;
+            if (!readable(r.path)) continue;
             const hit = (JSON.parse(r.tags) as string[]).filter((t) => tagMatches(input.tag, t));
             if (hit.length === 0) continue;
             if (matches.length >= input.limit) {

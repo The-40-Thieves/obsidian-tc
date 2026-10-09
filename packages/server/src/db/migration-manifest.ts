@@ -116,6 +116,10 @@ export const CACHE_MIGRATION_FILES = [
   // ties; the rest are deactivated, not deleted) and makes idx_chunk_embeddings_active UNIQUE so a
   // second active row is a constraint error instead of a silently misread store. See the header.
   "20261008_001_chunk_embeddings_single_active.sql",
+  // `acl_path` on chunks and notes: the symlink-resolved identity every stored-row read authorizes
+  // on, next to `path`, the display name. Existing rows are marked unresolved (fail closed) until
+  // the next index pass resolves them. See the migration header.
+  "20261009_001_index_acl_path.sql",
 ] as const;
 
 /**
