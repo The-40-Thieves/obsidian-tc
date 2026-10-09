@@ -8,6 +8,7 @@ import { inWriteTransaction } from "../db/txn";
 import type { Database } from "../db/types";
 import { sha256Hex } from "../provenance/store";
 import { splitScope } from "./as-clients";
+import { type SessionGuard, sessionIsCurrent } from "./as-operator-store";
 import type { AuthRegistry } from "./registry";
 
 export const PENDING_TTL_MS = 10 * 60_000;
@@ -187,6 +188,8 @@ export const everApproved = (db: Database, clientId: string): boolean =>
 
 export interface Approval {
   handle: string;
+  /** The session the operator approved under; it must still be current when the grant is written. */
+  session: SessionGuard;
   key: GrantKey;
   scopes: string[];
   persona: string | null;
@@ -206,10 +209,15 @@ export interface Approved {
  * Turn a pending request into an authorization code, atomically: take the request (so a handle
  * approves once), create the grant or extend the one with the same persona and vault, and store a
  * 60 s code bound to the request's redirect URI, resource and challenge. Undefined when the request
- * is gone or expired.
+ * is gone or expired; `"session_ended"` (and nothing is written, the request stays pending) when the
+ * session the approval was made under is gone: a credential reset or password change that landed
+ * after the handler looked the session up. The check is the first statement of the transaction, the
+ * way `finalizeLogin` re-checks the password hash, so a reset in another process is either before it
+ * (refused) or waits for this commit (and then revokes the grant this made).
  */
-export function approveRequest(db: Database, a: Approval): Approved | undefined {
+export function approveRequest(db: Database, a: Approval): Approved | "session_ended" | undefined {
   return inWriteTransaction(db, "as_grants", () => {
+    if (!sessionIsCurrent(db, a.session, a.now)) return "session_ended";
     const taken = discardPending(db, a.handle, a.now);
     if (taken === undefined) return undefined;
     let grantId = a.reuse?.id;
@@ -423,31 +431,46 @@ export function revokeGrant(
   reason: string,
   now: number,
 ): GrantRevocation {
-  const out = inWriteTransaction(db, "as_grants", (): GrantRevocation => {
-    const row = db.prepare("SELECT revoked_at FROM grants WHERE id = ?").get(grantId) as
-      | { revoked_at: number | null }
-      | undefined;
-    if (row === undefined) return { status: "not_found", families: 0, accessTokens: 0 };
-    db.prepare("UPDATE grants SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?").run(
-      now,
-      grantId,
-    );
-    const families = db
-      .prepare(
-        `SELECT family_id FROM refresh_tokens WHERE grant_id = ?
-         UNION SELECT family_id FROM issued_access WHERE grant_id = ?`,
-      )
-      .all(grantId, grantId) as Array<{ family_id: string }>;
-    let accessTokens = 0;
-    for (const { family_id } of families) {
-      accessTokens += queueFamilyRevocation(db, family_id, reason, now);
-    }
-    return {
-      status: row.revoked_at === null ? "revoked" : "already_revoked",
-      families: families.length,
-      accessTokens,
-    };
-  });
+  const out = inWriteTransaction(db, "as_grants", () =>
+    queueGrantRevocation(db, grantId, reason, now),
+  );
   drainRevocations(db, registry);
   return out;
+}
+
+/**
+ * Inside the caller's write transaction: mark the grant revoked, revoke every family issued under it
+ * and queue the access-token jtis in the outbox. The caller drains the outbox after it commits.
+ * `revokeGrant` is this in a transaction of its own; the credential reset runs it inside the
+ * transaction that also ends the sessions, so no grant can be made in between.
+ */
+export function queueGrantRevocation(
+  db: Database,
+  grantId: string,
+  reason: string,
+  now: number,
+): GrantRevocation {
+  const row = db.prepare("SELECT revoked_at FROM grants WHERE id = ?").get(grantId) as
+    | { revoked_at: number | null }
+    | undefined;
+  if (row === undefined) return { status: "not_found", families: 0, accessTokens: 0 };
+  db.prepare("UPDATE grants SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?").run(
+    now,
+    grantId,
+  );
+  const families = db
+    .prepare(
+      `SELECT family_id FROM refresh_tokens WHERE grant_id = ?
+       UNION SELECT family_id FROM issued_access WHERE grant_id = ?`,
+    )
+    .all(grantId, grantId) as Array<{ family_id: string }>;
+  let accessTokens = 0;
+  for (const { family_id } of families) {
+    accessTokens += queueFamilyRevocation(db, family_id, reason, now);
+  }
+  return {
+    status: row.revoked_at === null ? "revoked" : "already_revoked",
+    families: families.length,
+    accessTokens,
+  };
 }

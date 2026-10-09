@@ -76,6 +76,7 @@ export interface OauthGcCounts {
   authCodes: number;
   refreshTokens: number;
   issuedAccess: number;
+  webauthnChallenges: number;
   total: number;
 }
 
@@ -85,7 +86,8 @@ export interface OauthGcCounts {
  * sessions and metadata-document cache rows; dynamically registered
  * clients unused for `dcrUnusedDays` (a client never used counts from its creation); refresh-token
  * rows past their family's absolute cap; and access-token jtis once `ISSUED_ACCESS_GC_GRACE_MS` has
- * passed their expiry (nothing can accept the token, or need the jti to revoke it, after that). Deliberately NOT deleted: users, setup state and grants, since a grant is
+ * passed their expiry (nothing can accept the token, or need the jti to revoke it, after that); and
+ * unanswered passkey challenges past their expiry. Deliberately NOT deleted: users, passkeys, setup state and grants, since a grant is
  * the operator's remembered consent. Statements are independent and idempotent, so a crash between
  * two of them only leaves the rest for the next pass.
  */
@@ -115,6 +117,7 @@ export function gcOauthDb(
       "DELETE FROM issued_access WHERE expires_at <= ?",
       now - ISSUED_ACCESS_GC_GRACE_MS,
     ),
+    webauthnChallenges: del("DELETE FROM webauthn_challenges WHERE expires_at <= ?", now),
   };
   return { ...counts, total: Object.values(counts).reduce((a, b) => a + b, 0) };
 }

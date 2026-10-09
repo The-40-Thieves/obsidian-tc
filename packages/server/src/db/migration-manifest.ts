@@ -166,6 +166,12 @@ export const OAUTH_MIGRATION_FILES = [
   // 20261008_952 adds refresh_tokens.secret_gen and .replay and the revocation_outbox table (refresh
   // hardening after review). See the header.
   "20261008_952_refresh_hardening.sql",
+  // 20261009_953 adds the operator's passkeys (webauthn_credentials) and the pending WebAuthn
+  // challenges (webauthn_challenges). See the migration header.
+  "20261009_953_webauthn.sql",
+  // 20261009_954 adds users.credential_gen and sessions.credential_gen: a reset or password change
+  // bumps the first, and a session-derived write checks the second. See the header.
+  "20261009_954_credential_generation.sql",
 ] as const;
 
 /**

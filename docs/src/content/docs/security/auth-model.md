@@ -475,14 +475,62 @@ names; the address is the TCP peer, never `X-Forwarded-For`, and a loopback peer
 same host) is not counted, so behind one the per-name limit is the one that applies. At most four verifications
 run at once; beyond that login answers `503`. Counters are in memory and reset at restart.
 
-**The pages** carry `Content-Security-Policy: default-src 'none'; style-src 'self'; form-action 'self';
-frame-ancestors 'none'`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` and
+**The pages** carry `Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self';
+connect-src 'self'; form-action 'self'; frame-ancestors 'none'` (the one script is the server's own passkey script,
+below; no inline script or style, no CDN), `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` and
 `X-Content-Type-Options: nosniff`, on every response including errors and redirects. Every form is protected
 against cross-site requests three ways: a token bound to the form and to the browser (before sign-in a per-browser
 cookie, after it the session), an `Origin` header equal to the issuer's origin (a request without one is refused),
 and the urlencoded content type; bodies are capped at 16 KiB. A successful POST answers `303`, never a status
 a browser would repeat the POST for. The server logs only that something happened (claimed, login failed,
 locked, signed out) with the peer address: never a name, password, token, cookie or query string.
+
+### Passkeys and recovering a lost one
+
+The operator can add **passkeys** (WebAuthn) beside the password; they never replace it, so the password stays a
+way back in. Sign in with the password, open `/oauth/account` (linked from the signed-in page) and choose **Add a
+passkey**. The account page lists each passkey with when it was added and last used, and removes any of them.
+Adding or removing one needs a sign-in within the last 5 minutes. At `/oauth/login` the username field offers the
+passkey in the browser's autofill (conditional UI), so no username or password is typed; a **Sign in with a
+passkey** button covers browsers without it, and a browser without WebAuthn JSON support simply shows the password
+form. A passkey login opens the same session a password login does.
+
+The server asks for a discoverable credential with user verification required and accepts **attestation `none`
+only**: a `packed`, `tpm`, `android-*`, `apple` or `fido-u2f` statement is refused before any of it is parsed as a
+certificate. The relying-party id is the issuer's host and the only accepted origin is the issuer's origin, so a
+credential registered for another host fails, and **a change of issuer host orphans every passkey** (sign in with the
+password and enrol again, or use the reset below). The authenticator's signature counter is stored: a login whose
+counter is not greater than a stored non-zero value is refused as a possible clone (a constant `0`, as synced
+passkeys report, is accepted). Each challenge is single-use and lives five minutes. Passkeys are verified with
+`@simplewebauthn/server` (pure JavaScript); the browser half is a small script served by the server itself at
+`/oauth/assets/passkey.js`, using the browser's own WebAuthn JSON API.
+
+**Lost the passkey and the password** (or the host changed)? On the host run
+`obsidian-tc auth as reset-credentials [--user <name>] [--stdin] [--revoke-grants]`. It sets a new password, deletes
+the operator's passkeys and ends every session, in one transaction. With `--revoke-grants` it also revokes every
+grant of the operator, with its refresh-token families and live access tokens, **in that same transaction** (the
+access-token revocations are queued in the durable outbox and paid to the registry right after the commit). Shell
+access to the host and write access to `<cacheDir>` are the credential, exactly as for `set-password`. Then sign in
+with the new password and enrol a new passkey.
+
+**A reset ends what was already running, too.** The operator account carries a *credential generation* that the
+reset (and `set-password`) moves on in that transaction, and every session records the generation it was opened
+under. A passkey registration, an enrolment challenge or a consent that was already underway on an old session
+re-checks, inside its own write transaction, that the session still exists and still carries the account's
+generation: after a reset it writes nothing (a registration is refused, a consent is sent back to sign in), and a
+grant made just before the reset is revoked by it. This is the same check a password login makes before it opens a
+session.
+
+**What an anonymous caller can spend.** `POST /oauth/passkey/login/options` is open to anyone who loads the login
+page, so it is budgeted: a burst of 20 challenges per source, refilling at 20 a minute (answer `429` with
+`Retry-After`), and one shared, larger bucket for callers the server cannot tell apart (an unknown or loopback
+address, as behind a Cloudflare tunnel on the same host). Pending challenges are capped per purpose (400 login, 100
+enrolment), so a flood of login challenges cannot take the room enrolment needs. Failed passkey logins are counted
+per source **and per credential** (the same budget as one password account); a caller whose address is hidden is
+bound only by its credential keys and by the single-use challenge each attempt needs, so failures on credentials
+that are not the operator's cannot lock the operator out. Without a trusted-proxy setting the server cannot tell
+clients behind a loopback proxy apart: a determined flood there can still exhaust the shared bucket and delay
+passkey sign-in (the password form is unaffected) until it refills.
 
 ## Verifying an external OpenID Connect provider (`oidc` mode)
 

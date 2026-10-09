@@ -1,13 +1,17 @@
 // HTML for the bundled authorization server's own pages (design v2 section 4.3), and the headers
 // every one of its responses carries. The Content-Security-Policy leaves nothing for injected markup
-// to do: no script, no inline style, no framing, forms only to this origin. Hence the pages carry
-// no inline `style=` or script and take their look from the one stylesheet served at `/oauth/as.css`.
+// to do: no inline script or style, no framing, forms only to this origin, and the one script it
+// allows is this server's own passkey script (`script-src 'self'`; its fetches go to 'self' too).
+// Hence the pages carry no inline `style=` or script and take their look from the one stylesheet
+// served at `/oauth/as.css`.
 
 export const AS_CSS_PATH = "/oauth/as.css";
+/** The one script the pages load (passkeys, section 4.11): served by the server itself, never a CDN. */
+export const AS_PASSKEY_JS_PATH = "/oauth/assets/passkey.js";
 
 export const AS_RESPONSE_HEADERS: Readonly<Record<string, string>> = {
   "content-security-policy":
-    "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'",
+    "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'",
   "x-frame-options": "DENY",
   "referrer-policy": "no-referrer",
   "cache-control": "no-store",
@@ -22,6 +26,10 @@ input{box-sizing:border-box;width:100%;padding:.5rem;font:inherit}
 button{margin-top:1.25rem;padding:.5rem 1rem;font:inherit}
 .error{color:#a40000;margin:.5rem 0}
 .note{color:#555;font-size:.9rem}
+ul.keys{padding:0;list-style:none}
+ul.keys li{margin:.5rem 0;padding:.5rem;border:1px solid #ddd;border-radius:.25rem}
+ul.keys form{display:inline}
+ul.keys button{margin:0 0 0 .5rem}
 `;
 
 const ESCAPES: Record<string, string> = {
@@ -62,6 +70,14 @@ const hidden = (csrf: string): string =>
 export const messagePage = (title: string, message: string): string =>
   layout(title, `<p>${escapeHtml(message)}</p>`);
 
+/** The element the passkey script reads its mode and form token from (no inline script or style). */
+const passkeyMount = (mode: "login" | "enroll", csrf: string, request?: string): string =>
+  `<div id="passkey" data-mode="${mode}" data-csrf="${escapeHtml(csrf)}"${
+    request === undefined ? "" : ` data-request="${escapeHtml(request)}"`
+  } hidden></div>`;
+
+const passkeyScript = `<script src="${AS_PASSKEY_JS_PATH}" defer></script>`;
+
 export function loginPage(o: {
   csrf: string;
   username?: string;
@@ -70,6 +86,8 @@ export function loginPage(o: {
   request?: string | undefined;
   /** A fresh sign-in is required before the client may be approved. */
   reauth?: boolean | undefined;
+  /** The form token of the passkey ceremony; absent leaves the page password-only. */
+  passkeyCsrf?: string | undefined;
 }): string {
   const carry =
     o.request === undefined
@@ -78,16 +96,23 @@ export function loginPage(o: {
   const why = o.reauth
     ? '<p class="note">Sign in again to approve a new application: this is the first time it asks for access.</p>\n'
     : "";
+  const passkey =
+    o.passkeyCsrf === undefined
+      ? ""
+      : `\n${passkeyMount("login", o.passkeyCsrf, o.request)}
+<button type="button" id="passkey-button" hidden>Sign in with a passkey</button>
+<p id="passkey-status" class="note" role="status"></p>
+${passkeyScript}`;
   return layout(
     "Sign in",
     `${error(o.error)}${why}<form method="post" action="/oauth/login">
 ${hidden(o.csrf)}
 ${carry}<label for="username">Username</label>
-<input id="username" name="username" value="${escapeHtml(o.username ?? "")}" autocomplete="username" maxlength="64" required>
+<input id="username" name="username" value="${escapeHtml(o.username ?? "")}" autocomplete="username webauthn" maxlength="64" required>
 <label for="password">Password</label>
 <input id="password" type="password" name="password" autocomplete="current-password" maxlength="1024" required>
 <button type="submit">Sign in</button>
-</form>`,
+</form>${passkey}`,
   );
 }
 
@@ -114,10 +139,72 @@ export function signedInPage(o: { username: string; csrf: string }): string {
   return layout(
     "Signed in",
     `<p>Signed in as <strong>${escapeHtml(o.username)}</strong>.</p>
+<p><a href="/oauth/account">Passkeys</a></p>
 <form method="post" action="/oauth/logout">
 ${hidden(o.csrf)}
 <button type="submit">Sign out</button>
 </form>`,
+  );
+}
+
+export interface AccountView {
+  username: string;
+  /** Form tokens, one per purpose: enrolling (read by the script) and removing a passkey. */
+  registerCsrf: string;
+  removeCsrf: string;
+  logoutCsrf: string;
+  /** The session is recent enough to add or remove a passkey. */
+  fresh: boolean;
+  credentials: Array<{
+    id: string;
+    deviceType: string;
+    backedUp: boolean;
+    createdAt: number;
+    lastUsedAt: number | null;
+  }>;
+  error?: string;
+}
+
+const iso = (ms: number): string => new Date(ms).toISOString();
+
+export function accountPage(o: AccountView): string {
+  const rows = o.credentials
+    .map(
+      (c) => `<li><code>${escapeHtml(c.id.slice(0, 12))}</code> ${
+        c.deviceType === "multiDevice"
+          ? c.backedUp
+            ? "synced passkey"
+            : "multi-device passkey"
+          : "device-bound passkey"
+      }, added ${escapeHtml(iso(c.createdAt))}, ${
+        c.lastUsedAt === null ? "never used" : `last used ${escapeHtml(iso(c.lastUsedAt))}`
+      }
+<form method="post" action="/oauth/account/passkeys/remove">
+${hidden(o.removeCsrf)}
+<input type="hidden" name="credential" value="${escapeHtml(c.id)}">
+<button type="submit">Remove</button>
+</form></li>`,
+    )
+    .join("\n");
+  const list =
+    o.credentials.length === 0
+      ? '<p class="note">No passkeys yet. The password still signs you in.</p>'
+      : `<ul class="keys">\n${rows}\n</ul>`;
+  const add = o.fresh
+    ? `${passkeyMount("enroll", o.registerCsrf)}
+<button type="button" id="passkey-button" hidden>Add a passkey</button>`
+    : '<p class="note">To add or remove a passkey, sign out and sign in again first.</p>';
+  return layout(
+    "Passkeys",
+    `${error(o.error)}<p>Signed in as <strong>${escapeHtml(o.username)}</strong>.</p>
+${list}
+${add}
+<p id="passkey-status" class="note" role="status"></p>
+<form method="post" action="/oauth/logout">
+${hidden(o.logoutCsrf)}
+<button type="submit">Sign out</button>
+</form>
+${passkeyScript}`,
   );
 }
 

@@ -95,10 +95,16 @@ export function soleOperator(db: Database): Operator | undefined {
   return rows.length === 1 ? rows[0] : undefined;
 }
 
-/** Replace a user's password hash and end every session they hold, in one transaction. */
+/**
+ * Replace a user's password hash and end every session they hold, in one transaction. The user's
+ * credential generation moves on with it, so a request that looked at one of those sessions before
+ * and writes after (`sessionIsCurrent`) finds it gone.
+ */
 export function setOperatorPassword(db: Database, sub: string, passwordHash: string): void {
   inWriteTransaction(db, "as_operator", () => {
-    db.prepare("UPDATE users SET password_hash = ? WHERE sub = ?").run(passwordHash, sub);
+    db.prepare(
+      "UPDATE users SET password_hash = ?, credential_gen = credential_gen + 1 WHERE sub = ?",
+    ).run(passwordHash, sub);
     db.prepare("DELETE FROM sessions WHERE sub = ?").run(sub);
   });
 }
@@ -107,12 +113,17 @@ const SESSION_ID_RE = /^[A-Za-z0-9_-]{43}$/;
 export const isSessionId = (v: string | undefined): v is string =>
   v !== undefined && SESSION_ID_RE.test(v);
 
-/** Open a session for `sub` and return its id, the only time the id exists outside the browser. */
+/**
+ * Open a session for `sub` and return its id, the only time the id exists outside the browser. The
+ * session records the user's credential generation as it is in this very statement, so callers run
+ * it inside the write transaction that has just checked the login is still true.
+ */
 export function createSession(db: Database, sub: string, now: number): string {
   const id = randomBytes(32).toString("base64url");
   db.prepare(
-    "INSERT INTO sessions (id_hash, sub, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, ?)",
-  ).run(sha256Hex(id), sub, now, now, now + SESSION_ABSOLUTE_MS);
+    `INSERT INTO sessions (id_hash, sub, created_at, last_seen_at, expires_at, credential_gen)
+     VALUES (?, ?, ?, ?, ?, COALESCE((SELECT credential_gen FROM users WHERE sub = ?), 0))`,
+  ).run(sha256Hex(id), sub, now, now, now + SESSION_ABSOLUTE_MS, sub);
   return id;
 }
 
@@ -160,14 +171,38 @@ export interface SessionInfo {
   idHash: string;
   /** When this session was opened, i.e. when the operator last typed the password. */
   createdAt: number;
+  /** The user's credential generation when the session was opened (see `sessionIsCurrent`). */
+  credentialGen: number;
+}
+
+/** What a write made on a session's authority re-checks inside its own transaction. */
+export type SessionGuard = Pick<SessionInfo, "idHash" | "sub" | "credentialGen">;
+
+/**
+ * Is this session still the authority it was when the request looked it up? The row exists, has not
+ * expired, belongs to `sub`, and its generation is still the (enabled) user's: a password change or
+ * credential reset ends the row AND moves the generation, so either alone is enough to refuse. Call
+ * it INSIDE the write transaction of the write it guards (`BEGIN IMMEDIATE` serialises it against a
+ * reset in another process), the way `finalizeLogin` re-checks the password hash.
+ */
+export function sessionIsCurrent(db: Database, session: SessionGuard, now: number): boolean {
+  return (
+    db
+      .prepare(
+        `SELECT 1 AS present FROM sessions s JOIN users u ON u.sub = s.sub
+          WHERE s.id_hash = ? AND s.sub = ? AND s.credential_gen = ? AND s.expires_at > ?
+            AND u.credential_gen = s.credential_gen AND u.disabled_at IS NULL`,
+      )
+      .get(session.idHash, session.sub, session.credentialGen, now) !== undefined
+  );
 }
 
 /**
  * The live session behind a presented id, sliding its idle clock; or undefined. Validation and the
  * touch are ONE statement, so a session revoked (deleted, its user disabled or its password reset)
  * by another connection can never be returned: either the row was live when the touch landed, or
- * nothing is. A session past its idle or absolute limit, or whose user is gone or disabled, is
- * deleted on the spot.
+ * nothing is. A session past its idle or absolute limit, or whose user is gone, disabled or past the
+ * credential generation it was opened under, is deleted on the spot.
  */
 export function lookupSession(db: Database, id: string, now: number): SessionInfo | undefined {
   const idHash = sha256Hex(id);
@@ -179,17 +214,26 @@ export function lookupSession(db: Database, id: string, now: number): SessionInf
     .prepare(
       `UPDATE sessions SET last_seen_at = ?
         WHERE id_hash = ? AND expires_at > ? AND last_seen_at > ?
-          AND EXISTS (SELECT 1 FROM users u WHERE u.sub = sessions.sub AND u.disabled_at IS NULL)
-        RETURNING sub, created_at AS createdAt, (SELECT username FROM users u WHERE u.sub = sessions.sub) AS username`,
+          AND EXISTS (
+            SELECT 1 FROM users u
+             WHERE u.sub = sessions.sub AND u.disabled_at IS NULL AND u.credential_gen = sessions.credential_gen)
+        RETURNING sub, created_at AS createdAt, credential_gen AS credentialGen,
+                  (SELECT username FROM users u WHERE u.sub = sessions.sub) AS username`,
     )
     .get(now, idHash, now, now - SESSION_IDLE_MS) as
-    | { sub: string; username: string; createdAt: number }
+    | { sub: string; username: string; createdAt: number; credentialGen: number }
     | undefined;
   if (row === undefined) {
     db.prepare("DELETE FROM sessions WHERE id_hash = ?").run(idHash);
     return undefined;
   }
-  return { sub: row.sub, username: row.username, idHash, createdAt: row.createdAt };
+  return {
+    sub: row.sub,
+    username: row.username,
+    idHash,
+    createdAt: row.createdAt,
+    credentialGen: row.credentialGen,
+  };
 }
 
 export function deleteSession(db: Database, id: string): void {

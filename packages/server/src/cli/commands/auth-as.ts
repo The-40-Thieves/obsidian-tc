@@ -89,7 +89,7 @@ export function promptHidden(
   });
 }
 
-async function obtainPassword(stdin: boolean, io: AuthAsIo): Promise<string> {
+export async function obtainPassword(stdin: boolean, io: AuthAsIo): Promise<string> {
   if (stdin) return (await (io.readStdin ?? readAllStdin)()).replace(/\r?\n$/, "");
   if (!(io.isTTY ?? process.stdin.isTTY)) {
     throw new CliError(

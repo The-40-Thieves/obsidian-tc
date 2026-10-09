@@ -68,6 +68,8 @@ describe("oauth.db migration chain", () => {
         "sessions",
         "setup_state",
         "users",
+        "webauthn_challenges",
+        "webauthn_credentials",
       ].sort(),
     );
   });
@@ -84,6 +86,7 @@ describe("oauth.db migration chain", () => {
       "vaults_allowed",
       "created_at",
       "disabled_at",
+      "credential_gen",
     ]);
     expect(columnsOf(db, "auth_codes")).toEqual([
       "code_hash",
@@ -155,8 +158,14 @@ describe("gcOauthDb: housekeeping deletes only what is past its time", () => {
     const run = (sql: string, ...p: unknown[]) => db.prepare(sql).run(...p);
     run("INSERT INTO users (sub, username, password_hash, created_at) VALUES ('u1','op','h',1)");
     // sessions: one expired, one live
-    run("INSERT INTO sessions VALUES ('s-old','u1',1,1,?)", NOW - 1);
-    run("INSERT INTO sessions VALUES ('s-live','u1',1,1,?)", NOW + 1000);
+    run(
+      "INSERT INTO sessions (id_hash, sub, created_at, last_seen_at, expires_at) VALUES ('s-old','u1',1,1,?)",
+      NOW - 1,
+    );
+    run(
+      "INSERT INTO sessions (id_hash, sub, created_at, last_seen_at, expires_at) VALUES ('s-live','u1',1,1,?)",
+      NOW + 1000,
+    );
     // pending authorization requests
     for (const [h, exp] of [
       ["r-old", NOW - 1],

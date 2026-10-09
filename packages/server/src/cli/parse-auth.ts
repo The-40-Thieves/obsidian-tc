@@ -1,4 +1,4 @@
-// `obsidian-tc auth rotate-key|list|revoke` and `auth as set-password` argv parsing. Split out of args.ts for the same reason
+// `obsidian-tc auth rotate-key|list|revoke` and `auth as set-password|reset-credentials|grants` argv parsing. Split out of args.ts for the same reason
 // parse-telemetry.ts documents: args.ts sits at biome's file-length floor. No dependency on
 // args.ts, so importing it from there creates no cycle.
 import {
@@ -13,7 +13,14 @@ import { flagValue, positional } from "./flag-value";
 
 export interface AuthCommand {
   kind: "auth";
-  sub: "rotate-key" | "list" | "revoke" | "as-set-password" | "as-grants-list" | "as-grants-revoke";
+  sub:
+    | "rotate-key"
+    | "list"
+    | "revoke"
+    | "as-set-password"
+    | "as-reset-credentials"
+    | "as-grants-list"
+    | "as-grants-revoke";
   configPath?: string;
   json?: boolean;
   /** `revoke`: the token id to revoke. */
@@ -34,10 +41,13 @@ export interface AuthCommand {
   grantId?: string;
   /** `list`: show signing keys instead of tokens. */
   keys?: boolean;
-  /** `as set-password`: the operator account name (default `operator`). */
+  /** `as set-password`, `as reset-credentials`: the operator account name (default `operator`; for a
+   *  reset, the only operator). */
   user?: string;
-  /** `as set-password`: read the password from standard input instead of prompting. */
+  /** `as set-password`, `as reset-credentials`: read the password from standard input instead of prompting. */
   stdin?: boolean;
+  /** `as reset-credentials`: also revoke every grant and refresh-token family of the operator. */
+  revokeGrants?: boolean;
 }
 
 const SUBS = ["rotate-key", "list", "revoke"] as const;
@@ -73,13 +83,20 @@ function parseAuthAsGrants(args: string[]): AuthCommand | { kind: "error"; messa
   };
 }
 
-/** `auth as <sub>`: `set-password` and `grants`. */
+/** `auth as <sub>`: `set-password`, `reset-credentials` and `grants`. */
 function parseAuthAs(rest: string[]): AuthCommand | { kind: "error"; message: string } {
   if (rest[0] === "grants") return parseAuthAsGrants(rest.slice(1));
-  if (rest[0] !== "set-password") {
+  const reset = rest[0] === "reset-credentials";
+  if (rest[0] !== "set-password" && !reset) {
     return { kind: "error", message: `unknown auth as subcommand: ${rest[0] ?? "(none)"}` };
   }
   const args = rest.slice(1);
+  if (!reset && args.includes("--revoke-grants")) {
+    return {
+      kind: "error",
+      message: "--revoke-grants applies only to `auth as reset-credentials`",
+    };
+  }
   const user = flagValue(args, "--user");
   const scan = args.filter((a, i) => {
     if (a.startsWith("-")) return false;
@@ -89,11 +106,12 @@ function parseAuthAs(rest: string[]): AuthCommand | { kind: "error"; message: st
   const configPath = flagValue(args, "--config") ?? positional(scan);
   return {
     kind: "auth",
-    sub: "as-set-password",
+    sub: reset ? "as-reset-credentials" : "as-set-password",
     ...(configPath !== undefined ? { configPath } : {}),
     json: args.includes("--json"),
     stdin: args.includes("--stdin"),
     ...(user !== undefined ? { user } : {}),
+    ...(reset ? { revokeGrants: args.includes("--revoke-grants") } : {}),
   };
 }
 
@@ -112,7 +130,9 @@ export function parseAuth(rest: string[]): AuthCommand | { kind: "error"; messag
     return !(prev !== undefined && VALUE_FLAGS.includes(prev));
   });
   if (args.includes("--stdin") || flagValue(args, "--user") !== undefined) {
-    throw new CliError("--stdin and --user apply only to `auth as set-password`");
+    throw new CliError(
+      "--stdin and --user apply only to `auth as set-password` and `auth as reset-credentials`",
+    );
   }
   const configFlag = flagValue(args, "--config");
   let jti: string | undefined;

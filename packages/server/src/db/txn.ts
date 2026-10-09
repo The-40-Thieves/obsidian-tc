@@ -194,6 +194,9 @@ export type WriteTxnLabel =
   // The same file's authorization state: a consent that creates the grant and its code, and a code
   // exchange, each of which must be all-or-nothing and single-use across processes.
   | "as_grants"
+  // The same file's passkeys: a challenge handed out or answered, a registration, a passkey login
+  // (counter, session) and the credential reset, each all-or-nothing and single-use across processes.
+  | "as_passkey"
   | "memory_observation"
   // THE-1124 review round 2: rename_entity/unlink_entities/delete_entity each mutate more than
   // one row (an entity row, its relations, an ACL-checked filesystem write) — wrapped so a

@@ -36,6 +36,7 @@ import {
   setupPage,
   signedInPage,
 } from "./as-pages";
+import { mountAsPasskeys } from "./as-passkey-routes";
 import {
   constantTimeEqual,
   hashPassword,
@@ -230,7 +231,16 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
         signedInPage({ username: session.username, csrf: formToken(c, "logout", session) }),
       );
     }
-    return html(c, 200, loginPage({ csrf: formToken(c, "login"), request, reauth }));
+    return html(
+      c,
+      200,
+      loginPage({
+        csrf: formToken(c, "login"),
+        passkeyCsrf: formToken(c, "passkey-login"),
+        request,
+        reauth,
+      }),
+    );
   });
 
   app.post("/oauth/login", async (c) => {
@@ -308,6 +318,7 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
           401,
           loginPage({
             csrf: formToken(c, "login"),
+            passkeyCsrf: formToken(c, "passkey-login"),
             username: rawName.slice(0, 64),
             request,
             error: "Sign-in failed. Check the username and password.",
@@ -441,4 +452,7 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
     log("operator claimed through the setup page");
     return c.redirect("/oauth/login", 303);
   });
+
+  // ---- passkeys (design v2 section 4.11), beside the password ---------------------------------
+  mountAsPasskeys(app, { browser, log, clientIp });
 }
