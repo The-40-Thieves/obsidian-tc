@@ -416,7 +416,19 @@ and the client registrations below.
   only as a SHA-256), except to a dynamically registered client that did not register the `refresh_token` grant. It rotates on every use and its family ends `auth.as.refreshTokenDays` after the exchange.
   A client that lost a refresh response may retry the previous token until its successor has been used, and is
   handed the same response again (the same access token and refresh token, nothing new minted; once that access
-  token has expired the retry is refused and the client signs in again); any
+  token has expired the retry is refused and the client signs in again). Clients that refresh from several
+  windows or processes sharing one token (Zed, Claude Code, Gemini CLI) hit the same race one step later, when
+  the first window has already used the successor. So for `auth.as.refreshReuseGraceSeconds` (default 30) after
+  the family first used a token's successor, presenting that token again is answered with the same successor and
+  access token, once more minting nothing and forking nothing, and it revokes nothing; the family then carries on
+  from its newest token. The grace covers one used step only: an older token, a presentation after the window,
+  or one made after the successor's own successor was used **revokes the family** like any other reuse, and it
+  never applies to another client's request. **Residual risk:** inside that window rotation's theft detection does
+  not fire for the previous token, so a thief who holds a stolen token and its `client_id` and replays it within
+  seconds of the legitimate client's next refresh gets the same pair that client already holds (no new branch,
+  nothing the owner lacks) and is not detected by that request. The next use of either copy of the family's newest
+  token is detected as usual. Set `refreshReuseGraceSeconds: 0` for strict rotation: the previous token is then
+  accepted only until its successor is used. Any
   older token, or the previous one after that, **revokes the family**: the refresh token and every access token
   issued from it stop working. Only the owning client's request can do that, and every refresh failure is the
   same `invalid_grant`. A refresh token belongs to the server secret that minted it: replacing the secret retires

@@ -100,6 +100,7 @@ export function mountTokenRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps)
           secret: deps.secret,
           access,
           now,
+          reuseGraceMs: as.refreshReuseGraceSeconds * 1000,
           log,
           fail: (status, error, description) => fail(c, status, error, description),
         },

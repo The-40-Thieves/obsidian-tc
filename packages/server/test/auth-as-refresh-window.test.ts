@@ -81,6 +81,7 @@ describe("idempotent window: the retry of a parent is answered with the first re
     const b = await next(flow, a.refresh);
     const retry = await next(flow, a.refresh);
     const c = await next(flow, b.refresh);
+    flow.clock.t += 31_000; // past the default reuse grace
     expect((await refresh(flow, a.refresh)).body.error).toBe("invalid_grant");
     for (const t of [a.access, retry.access, c.access]) expect(await mcpPing(flow, t)).toBe(401);
     expect(liveFamilyRows(flow)).toBe(0);
@@ -98,9 +99,17 @@ describe("idempotent window: the retry of a parent is answered with the first re
     expect(typeof sealOf(flow, b.refresh)).toBe("string");
     expect(dump).not.toContain(b.access);
     expect(dump).not.toContain(b.access.split(".")[2] as string);
-    // Using the successor closes the window: the sealed copy is gone.
-    await next(flow, b.refresh);
+    // Using the successor leaves b's copy for the reuse grace of a; using b's own successor ends it.
+    const c = await next(flow, b.refresh);
+    expect(typeof sealOf(flow, b.refresh)).toBe("string");
+    await next(flow, c.refresh);
     expect(sealOf(flow, b.refresh)).toBeNull();
+    // With no grace, using the successor closes the window at once.
+    const strict = await makeFlow({ as: { refreshReuseGraceSeconds: 0 } });
+    const s0 = await issue(strict);
+    const s1 = await next(strict, s0.refresh);
+    await next(strict, s1.refresh);
+    expect(sealOf(strict, s1.refresh)).toBeNull();
   });
 
   it("a stored response that was tampered with, or lifted from another row, is refused and mints nothing", async () => {

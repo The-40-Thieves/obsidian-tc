@@ -1,0 +1,5 @@
+---
+type: Fixed
+config-schema-change: auth.as.refreshReuseGraceSeconds
+---
+- **A user is no longer signed out everywhere when two windows refresh with one shared refresh token.** The bundled authorization server revokes a refresh-token family when an old token is presented again, but clients that refresh from several windows or processes (Zed, Claude Code, Gemini CLI) legitimately present the token the family has just left. New `auth.as.refreshReuseGraceSeconds` (0 to 60, default 30, as Okta's grace period; `0` restores strict rotation) answers that one token, from its own client, with the same successor and access token for that many seconds after the family first used its successor: nothing new is minted, no branch is created and the family is not revoked. Older tokens, presentations after the window, another client's request and a token whose successor's successor was already used still revoke the family. Trade-off: inside the window the previous token's reuse is not detected as theft. A refresh without `scope` returns the originally granted scope, now covered by a test.
