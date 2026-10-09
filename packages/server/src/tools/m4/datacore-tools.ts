@@ -46,7 +46,7 @@ export function buildDatacoreTools(deps: M4Deps): ToolDefinition[] {
         // included), refuse an unattributable row under a restricted read.
         return {
           vault: v.id,
-          ...filterBridgeResultItems(ctx.acl, ctx.grantedScopes, result, {
+          ...filterBridgeResultItems(ctx.acl, v.root, ctx.grantedScopes, result, {
             tool: "query_datacore",
           }),
         };

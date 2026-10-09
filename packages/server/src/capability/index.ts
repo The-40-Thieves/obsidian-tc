@@ -14,7 +14,7 @@ export {
   resolveConfigDir,
 } from "./discovery";
 export type { Gpu, HardwareEnrichment, HardwareEnvelope } from "./hardware";
-export { hardwareEnvelope } from "./hardware";
+export { baselineOnlyEnrichment, hardwareEnvelope } from "./hardware";
 export { locateRegistry, registryCandidates } from "./locate";
 export type { ManifestResult, PluginManifest } from "./manifest";
 export { parseManifest } from "./manifest";

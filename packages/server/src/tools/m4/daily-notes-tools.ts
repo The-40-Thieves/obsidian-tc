@@ -33,7 +33,7 @@ export function buildDailyNotesTools(deps: M4Deps): ToolDefinition[] {
         });
         // The resolved path (and whether it exists) is what read_note would refuse for a path the
         // caller cannot read: an existence oracle for a rule-scoped daily-notes folder.
-        assertBridgePathReadable(ctx.acl, ctx.grantedScopes, result, {
+        assertBridgePathReadable(ctx.acl, v.root, ctx.grantedScopes, result, {
           tool: "resolve_daily_note",
         });
         return { vault: v.id, ...result };
