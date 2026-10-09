@@ -1,10 +1,15 @@
-// Round trip: lowering only RELAXES. For every registered tool, an instance that is valid for the
-// ORIGINAL schema (zod's own JSON Schema AND the zod parse) must still validate against the schema
-// the server advertises, for inputs and outputs, with the SDK's own validator (what a client runs).
+// Round trip. The invariants the lowering pass keeps, for every registered tool, checked with the
+// SDK's own validator (what a client runs):
+//   OUTPUTS: everything the server emits validates against the advertised schema (an instance valid
+//     for the ORIGINAL zod schema validates against the lowered one). An output whose root cannot
+//     honestly be `type: object` (z.unknown()) is not advertised at all, so it is not round-tripped.
+//   INPUTS: the advertised schema may be NARROWER in exactly one way - an explicit `null` for a
+//     nullable optional field is not advertised (the server's zod still accepts it) - and may be WIDER
+//     where a constraint was dropped (restated in the description; zod still enforces it). The test
+//     "the explicit null on an optional field is the ONLY input narrowing" pins the first half.
 // The instances come from a small generator over the original JSON Schema: a minimal one (required
 // keys only, first branch) and a maximal one (every key, last branch, so a nullable output field
-// carries its `null`). Dispatch itself keeps validating with the zod original, so this is the proof
-// that the advertised copy never rejects a call or a result the server would have accepted.
+// carries its `null`). Dispatch itself keeps validating with the zod original.
 
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 import { describe, expect, it } from "vitest";
@@ -37,15 +42,19 @@ function sampleNumber(s: Json): number {
 }
 
 // The one deliberate narrowing: an INPUT no longer advertises a `null` branch (a nullable optional
-// field is advertised as just optional), so input witnesses never pick `null`. The server still
-// accepts it - see the explicit test below.
-function sample(s: unknown, maximal: boolean, role: "input" | "output"): unknown {
+// field is advertised as just optional), so the "input" witnesses never pick `null`. The
+// "input-nulls" mode picks it everywhere it is allowed; the named narrowing test below accounts for
+// every witness that mode makes the lowered schema reject.
+type Mode = "input" | "output" | "input-nulls";
+function sample(s: unknown, maximal: boolean, role: Mode): unknown {
   if (!isObj(s)) return {};
   if ("const" in s) return s.const;
   if (Array.isArray(s.enum)) return s.enum[maximal ? s.enum.length - 1 : 0];
   const union = (s.anyOf ?? s.oneOf) as unknown[] | undefined;
   if (Array.isArray(union)) {
-    const nonNull = union.filter((b) => !(isObj(b) && b.type === "null"));
+    const isNull = (b: unknown) => isObj(b) && b.type === "null";
+    const nonNull = union.filter((b) => !isNull(b));
+    if (role === "input-nulls" && nonNull.length !== union.length) return null;
     const branches =
       maximal && role === "output"
         ? [...union].reverse()
@@ -79,7 +88,7 @@ function sample(s: unknown, maximal: boolean, role: "input" | "output"): unknown
 }
 
 /** Root `anyOf` yields one instance per branch, so every arm of a union output is exercised. */
-function instances(root: Json, role: "input" | "output"): unknown[] {
+function instances(root: Json, role: Mode): unknown[] {
   const branches = Array.isArray(root.anyOf) ? (root.anyOf as unknown[]) : [root];
   return branches.flatMap((b) => [sample(b, false, role), sample(b, true, role)]);
 }
@@ -97,7 +106,7 @@ function roundTrip(
   original: Json,
   lowered: unknown,
   zodSchema: z.ZodType,
-  role: "input" | "output",
+  role: Mode,
   tally: Tally,
   failures: string[],
 ): void {
@@ -116,7 +125,7 @@ function roundTrip(
   if (usable === 0) tally.skipped.push(name);
 }
 
-describe("lowering only relaxes: a valid original instance validates against the advertised schema", () => {
+describe("lowering round trip: outputs always validate, inputs narrow only on an explicit null", () => {
   const defs = buildFullRegistry().list();
 
   it("inputs, every registered tool", () => {
@@ -147,7 +156,7 @@ describe("lowering only relaxes: a valid original instance validates against the
   }, 60_000);
 
   it("outputs, every registered tool that declares one (union arms included)", () => {
-    const withOutput = defs.filter((d) => d.outputSchema);
+    const withOutput = defs.filter((d) => d.outputSchema && toJson(d.outputSchema) !== undefined);
     expect(withOutput.length).toBeGreaterThan(150);
     const tally: Tally = { checked: 0, skipped: [] };
     const failures: string[] = [];
@@ -172,6 +181,44 @@ describe("lowering only relaxes: a valid original instance validates against the
     expect(advertised).not.toContain('"null"');
   });
 
+  it("the explicit null on an optional field is the ONLY input narrowing", () => {
+    // Witnesses that pick `null` wherever the original schema allows it. Every one the lowered
+    // schema rejects must (a) be rejected only because of null-valued OBJECT KEYS and (b) stay valid
+    // for the original once those keys are removed - i.e. the null sat on an optional field.
+    const stripNullKeys = (v: unknown): unknown =>
+      Array.isArray(v)
+        ? v.map(stripNullKeys)
+        : isObj(v)
+          ? Object.fromEntries(
+              Object.entries(v)
+                .filter(([, x]) => x !== null)
+                .map(([k, x]) => [k, stripNullKeys(x)]),
+            )
+          : v;
+    const narrowed = new Set<string>();
+    const unexplained: string[] = [];
+    for (const def of defs) {
+      const original = z.toJSONSchema(def.inputSchema, {
+        ...JSON_SCHEMA_OPTS,
+        io: "input",
+      }) as Json;
+      const originalOk = validatorFor(original);
+      const loweredOk = validatorFor(toInputJson(def.inputSchema));
+      for (const inst of instances(original, "input-nulls")) {
+        if (!originalOk(inst).valid || !def.inputSchema.safeParse(inst).success) continue;
+        if (loweredOk(inst).valid) continue;
+        const stripped = stripNullKeys(inst);
+        const explained = loweredOk(stripped).valid && def.inputSchema.safeParse(stripped).success;
+        if (explained) narrowed.add(def.name);
+        else unexplained.push(`${def.name}: ${JSON.stringify(inst).slice(0, 160)}`);
+      }
+    }
+    expect(unexplained, unexplained.join("\n")).toEqual([]);
+    // Existence floor: the known narrowing is witnessed, so this cannot pass by generating no nulls.
+    expect([...narrowed]).toContain("vault_graph_search");
+    expect(narrowed.size).toBeGreaterThan(0);
+  }, 60_000);
+
   it("the advertised input still constrains: {} is rejected wherever a key is still required", () => {
     let constrained = 0;
     for (const def of defs) {
@@ -190,7 +237,7 @@ describe("lowering only relaxes: a valid original instance validates against the
       expect(lowerSchema(once, "input"), def.name).toEqual(once);
       if (def.outputSchema) {
         const out = toJson(def.outputSchema);
-        expect(lowerSchema(out, "output"), def.name).toEqual(out);
+        if (out !== undefined) expect(lowerSchema(out, "output"), def.name).toEqual(out);
       }
     }
   }, 60_000);

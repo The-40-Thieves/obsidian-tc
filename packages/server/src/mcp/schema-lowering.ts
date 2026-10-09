@@ -7,11 +7,17 @@
 // rejects root combinators and regex lookaround, and Claude Desktop rejects a draft-07 `$schema`.
 //
 // Only the ADVERTISED copy changes. Dispatch still validates with the original zod schema, so every
-// constraint dropped here is still enforced server-side. Every rewrite is a RELAXATION (anything the
-// original accepts, the lowered schema accepts), which test/schema-lowering-roundtrip.test.ts proves
-// for every registered tool. Where a dropped constraint would have told a model something, an INPUT
-// description gets a short sentence appended; a description is never touched otherwise, because
-// claude.ai keys "Always allow" on a hash of the descriptions. Output descriptions are never edited.
+// constraint dropped here is still enforced server-side. The invariants, proven for every registered
+// tool by test/schema-lowering-roundtrip.test.ts:
+//   OUTPUTS: everything the server emits validates against the advertised schema. An output whose
+//     root cannot honestly be `type: object` (z.unknown(), a union admitting an array) is not
+//     advertised at all (lowerOutputSchema returns undefined) instead of being coerced.
+//   INPUTS: the advertised schema is NARROWER in exactly one way - an explicit `null` for a nullable
+//     optional field is not advertised, though the server's zod still accepts it - and WIDER where a
+//     constraint was dropped (restated in the description; zod still enforces it).
+// Where a dropped constraint would have told a model something, an INPUT description gets a short
+// sentence appended; a description is never touched otherwise, because claude.ai keys "Always allow"
+// on a hash of the descriptions. Output descriptions are never edited.
 
 export type SchemaRole = "input" | "output";
 /** How many times each rewrite fired; the schema-portability gate asserts it is non-empty. */
@@ -20,6 +26,8 @@ export type LoweringReport = Record<string, number>;
 type Json = Record<string, unknown>;
 const isObj = (v: unknown): v is Json => v !== null && typeof v === "object" && !Array.isArray(v);
 
+// Counted whenever a root that admits a non-object value is forced to `type: object`.
+const ROOT_COERCED = "root-coerced";
 const SCHEMA_2020_12 = "https://json-schema.org/draft/2020-12/schema";
 // OpenAI structured-outputs `format` list; any other format is dropped.
 const PORTABLE_FORMATS = new Set([
@@ -170,7 +178,7 @@ function stripAdditionalProperties(node: unknown, ctx: Ctx): unknown {
   return out;
 }
 
-/** Normalises lowered `anyOf` branches: flatten, dedupe, drop input nulls. Returns the node. */
+/** Normalises lowered `anyOf` branches: flatten, dedupe, drop input nulls (the one input narrowing). */
 function finishAnyOf(rest: Json, branches: Json[], ctx: Ctx): Json {
   let flat = branches.flatMap((b) =>
     Array.isArray(b.anyOf) && Object.keys(b).length === 1 ? (b.anyOf as Json[]) : [b],
@@ -206,7 +214,10 @@ function finishAnyOf(rest: Json, branches: Json[], ctx: Ctx): Json {
 /** A union of objects folds into one object: union of properties, intersection of required. */
 function mergeObjectUnion(rest: Json, branches: Json[], ctx: Ctx, isRoot: boolean): Json {
   count(ctx, isRoot ? "root-union-merged" : "object-union-merged");
-  if (!branches.every((b) => b.type === "object")) return { ...rest, type: "object" };
+  if (!branches.every((b) => b.type === "object")) {
+    if (isRoot) count(ctx, ROOT_COERCED);
+    return { ...rest, type: "object" };
+  }
   const keys = [
     ...new Set(branches.flatMap((b) => Object.keys(isObj(b.properties) ? b.properties : {}))),
   ];
@@ -420,6 +431,7 @@ export function lowerSchema<T extends object>(
   let out = lowerNode(root, ctx, root, true);
   if (out.type !== "object") {
     count(ctx, "root-type-set");
+    count(ctx, ROOT_COERCED);
     const { type: _t, ...rest } = out;
     out = { ...rest, type: "object" };
   }
@@ -428,4 +440,21 @@ export function lowerSchema<T extends object>(
     out = { $schema: SCHEMA_2020_12, ...rest };
   }
   return out as T;
+}
+
+/**
+ * The advertisable copy of an OUTPUT schema, or `undefined` when its root cannot honestly be
+ * `type: object` (typeless / z.unknown(), or a union admitting an array or a primitive). Forcing
+ * `type: object` onto such a root would advertise a contract the tool breaks (a conformant client
+ * rejects the array its handler legitimately returned), so the tool is listed without an
+ * outputSchema instead. The one guard every output projection goes through (see facade.ts toJson).
+ */
+export function lowerOutputSchema<T extends object>(
+  schema: T,
+  report: LoweringReport = {},
+): T | undefined {
+  const local: LoweringReport = {};
+  const out = lowerSchema(schema, "output", local);
+  for (const [k, v] of Object.entries(local)) report[k] = (report[k] ?? 0) + v;
+  return local[ROOT_COERCED] === undefined ? out : undefined;
 }

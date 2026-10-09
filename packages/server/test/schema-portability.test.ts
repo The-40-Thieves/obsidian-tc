@@ -22,6 +22,14 @@ import {
   portabilityViolations,
 } from "./schema-portability-rules";
 
+// Tools whose outputSchema is z.unknown() (the external plur backend may return any JSON value): a
+// root that is not honestly `type: object` is not advertised, so these list without an outputSchema.
+const UNADVERTISED_OUTPUTS = [
+  "plur_get",
+  "plur_recall",
+  "plur_recall_hybrid",
+  "plur_similarity_search",
+];
 const OBJ = { type: "object" } as const;
 const wrap = (properties: Record<string, unknown>) => ({ ...OBJ, properties });
 
@@ -217,6 +225,25 @@ describe("every advertised schema is portable", () => {
         if (mode === "triad") expect(inputs).toBe(3);
         if (mode === "domain") expect(inputs).toBeGreaterThanOrEqual(profile === "core" ? 6 : 10);
 
+        if (mode === "flat") {
+          // Every advertised outputSchema root is a plain object (never coerced from something wider),
+          // and the tools listed WITHOUT one are exactly the unconstrained z.unknown() proxies.
+          const roots = rows.filter((r) => r.role === "output");
+          expect(roots.filter((r) => (r.schema as { type?: unknown }).type !== "object")).toEqual(
+            [],
+          );
+          const withOutput = registry.list().filter((d) => d.outputSchema);
+          const advertisedOutputs = new Set(roots.map((r) => r.tool));
+          const omitted = withOutput
+            .filter((d) => !advertisedOutputs.has(d.name))
+            .map((d) => d.name)
+            .sort();
+          const visible = new Set(rows.map((r) => r.tool));
+          expect(omitted.filter((n) => visible.has(n))).toEqual(
+            UNADVERTISED_OUTPUTS.filter((n) => visible.has(n)),
+          );
+        }
+
         const bad = rows.flatMap((r) =>
           portabilityViolations(r.schema, r.role).map(
             (v) => `${r.surface}/${r.tool}/${r.role} ${v}`,
@@ -237,6 +264,8 @@ describe("every advertised schema is portable", () => {
       const d = describeCapability(def);
       for (const v of portabilityViolations(d.input_schema, "input"))
         bad.push(`${def.name}/input ${v}`);
+      if (d.output_schema === undefined && def.outputSchema)
+        expect(UNADVERTISED_OUTPUTS, def.name).toContain(def.name);
       if (d.output_schema)
         for (const v of portabilityViolations(d.output_schema, "output"))
           bad.push(`${def.name}/output ${v}`);

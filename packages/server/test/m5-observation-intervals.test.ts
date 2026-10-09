@@ -374,6 +374,7 @@ describe("get_entity / query_entity_graph: ajv-validated output payload", () => 
       const tool = v.registry.list().find((t) => t.name === "get_entity");
       if (!tool?.outputSchema) throw new Error("get_entity not registered / no outputSchema");
       const schema = toJson(tool.outputSchema);
+      if (!schema) throw new Error("get_entity output schema is not advertised");
       const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
       const result = validate(JSON.parse(JSON.stringify(get.data)));
       expect(result.valid).toBe(true);

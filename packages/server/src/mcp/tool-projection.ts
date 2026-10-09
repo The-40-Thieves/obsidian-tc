@@ -1,5 +1,5 @@
 import type { Tool } from "@modelcontextprotocol/server";
-import { titleize, toInputJson, toJson } from "./facade";
+import { outputSchemaField, titleize, toInputJson } from "./facade";
 import type { ToolDefinition } from "./registry";
 import { isAdvertisedDestructive, isMutatingDefinition } from "./tool-tags";
 
@@ -42,7 +42,7 @@ export function toMcpTool(def: ToolDefinition): Tool {
     title: titleize(def.name),
     description: def.description,
     inputSchema: toInputJson(def.inputSchema),
-    ...(def.outputSchema ? { outputSchema: toJson(def.outputSchema) } : {}),
+    ...outputSchemaField("outputSchema", def.outputSchema),
     annotations: toolAnnotations(def),
     ...(def.icons ? { icons: def.icons } : {}),
   };

@@ -3,7 +3,7 @@
 // description says so while an OUTPUT description and an untouched description stay byte-identical.
 
 import { describe, expect, it } from "vitest";
-import { type LoweringReport, lowerSchema } from "../src/mcp/schema-lowering";
+import { type LoweringReport, lowerOutputSchema, lowerSchema } from "../src/mcp/schema-lowering";
 import { portabilityViolations } from "./schema-portability-rules";
 
 const S2020 = "https://json-schema.org/draft/2020-12/schema";
@@ -320,8 +320,32 @@ describe("lowerSchema", () => {
       expect(portabilityViolations(out, "output")).toEqual([]);
     });
 
-    it("gives a typeless root (z.unknown()) type: object", () => {
+    it("gives a typeless root (z.unknown()) type: object when lowered as a plain schema", () => {
       expect(lowerSchema({ $schema: S2020 }, "output")).toEqual({ $schema: S2020, type: "object" });
+    });
+
+    it("lowerOutputSchema withholds a root that cannot honestly be an object", () => {
+      const report: LoweringReport = {};
+      expect(lowerOutputSchema({ $schema: S2020 }, report)).toBeUndefined();
+      expect(report["root-coerced"]).toBe(1);
+      const arrayArm = {
+        $schema: S2020,
+        anyOf: [{ type: "array", items: {} }, { type: "object" }],
+      };
+      expect(lowerOutputSchema(arrayArm)).toBeUndefined();
+      const nullable = { $schema: S2020, type: ["object", "null"], properties: {} };
+      expect(lowerOutputSchema(nullable)).toBeUndefined();
+      expect(lowerOutputSchema({ $schema: S2020, type: "string" })).toBeUndefined();
+    });
+
+    it("lowerOutputSchema keeps an honest object root and an all-object union", () => {
+      const plain = obj({ a: { type: "string" } });
+      expect(lowerOutputSchema(plain)).toEqual(lowerSchema(plain, "output"));
+      const union = {
+        $schema: S2020,
+        anyOf: [obj({ a: { type: "string" } }), obj({ b: { type: "number" } })],
+      };
+      expect((lowerOutputSchema(union) as any).type).toBe("object");
     });
 
     it("stamps JSON Schema 2020-12 over a draft-07 $schema and adds none when absent", () => {

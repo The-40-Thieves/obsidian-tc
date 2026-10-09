@@ -12,8 +12,14 @@ and `icons`. Advertised schemas are **JSON Schema 2020-12** (the MCP `2025-11-25
 default dialect), matching the negotiated protocol version, and lowered to the
 subset every client accepts (no `$ref`, `const`, `oneOf`, `allOf` or type arrays;
 a plain object root; `anyOf` only on its own). Calls are still validated against
-the full schema server-side; a constraint the lowering has to drop from an input is
-repeated in that parameter's description.
+the full schema server-side. Everything a tool returns validates against its
+advertised `outputSchema`; an output whose root cannot be a plain object (the
+`plur_*` proxies, whose backend may return any JSON value) is listed without an
+`outputSchema`. An advertised input schema can be wider than what the server
+accepts, because a constraint the lowering has to drop is repeated in that
+parameter's description and still enforced; it is narrower in one case only: an
+explicit `null` for a nullable optional parameter is accepted by the server but not
+advertised.
 
 For how to connect and call these over MCP — stdio or HTTP, auth, and the discover → describe → call flow — see the [API Reference](/tools/api-reference/).
 

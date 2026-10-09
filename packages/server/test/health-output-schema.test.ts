@@ -99,7 +99,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     // @modelcontextprotocol/sdk's Client.callTool runs client-side, and the one that actually
     // rejected fix round 1's leaked `kind` field with "must NOT have additional properties".
     // biome-ignore lint/style/noNonNullAssertion: asserted defined above.
-    const schema = toJson(tool.outputSchema!);
+    const schema = toJson(tool.outputSchema!)!;
     const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
     const result = validate(JSON.parse(JSON.stringify(out)));
     expect(result.valid).toBe(true);
@@ -134,7 +134,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     });
     const out = tool.handler({}, { ...ctxBase, authenticated: true } as CallerContext);
     // biome-ignore lint/style/noNonNullAssertion: asserted defined by createHealthTool.
-    const schema = toJson(tool.outputSchema!);
+    const schema = toJson(tool.outputSchema!)!;
     const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
     expect(validate(JSON.parse(JSON.stringify(out))).valid).toBe(true);
     const index = (out as { index: { write_failures: number; frontmatter_failures: number } })
@@ -177,7 +177,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     // biome-ignore lint/style/noNonNullAssertion: asserted defined immediately above.
     expect(tool.outputSchema!.safeParse(out).success).toBe(true);
     // biome-ignore lint/style/noNonNullAssertion: asserted defined above.
-    const schema = toJson(tool.outputSchema!);
+    const schema = toJson(tool.outputSchema!)!;
     const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
     const result = validate(JSON.parse(JSON.stringify(out)));
     expect(result.valid).toBe(true);
@@ -213,7 +213,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
       expect.stringMatching(/wikiJudge\.allowPlainHttp is deprecated/),
     ]);
     // biome-ignore lint/style/noNonNullAssertion: outputSchema is defined for this tool.
-    const schema = toJson(tool.outputSchema!);
+    const schema = toJson(tool.outputSchema!)!;
     const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
     expect(validate(JSON.parse(JSON.stringify(out))).valid).toBe(true);
   });
@@ -259,7 +259,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
       authenticated: false,
     } as CallerContext) as HealthInfo;
     // biome-ignore lint/style/noNonNullAssertion: outputSchema is defined for this tool.
-    const schema = toJson(tool.outputSchema!);
+    const schema = toJson(tool.outputSchema!)!;
     const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
     expect(validate(JSON.parse(JSON.stringify(out))).valid).toBe(true);
   });
@@ -286,7 +286,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     } as CallerContext) as HealthInfo;
     expect(out.toolFacade?.explanation).toEqual(explanation);
     // biome-ignore lint/style/noNonNullAssertion: outputSchema is defined for this tool.
-    const schema = toJson(tool.outputSchema!);
+    const schema = toJson(tool.outputSchema!)!;
     // biome-ignore lint/style/noNonNullAssertion: outputSchema is defined for this tool.
     expect(tool.outputSchema!.safeParse(out).success).toBe(true);
     const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
@@ -356,7 +356,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
 
     expect(tool.outputSchema).toBeDefined();
     // biome-ignore lint/style/noNonNullAssertion: asserted defined immediately above.
-    const schema = toJson(tool.outputSchema!);
+    const schema = toJson(tool.outputSchema!)!;
     const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
     const result = validate(JSON.parse(JSON.stringify(out)));
     expect(result.valid).toBe(true);
@@ -432,7 +432,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
 
       expect(tool.outputSchema).toBeDefined();
       // biome-ignore lint/style/noNonNullAssertion: asserted defined immediately above.
-      const schema = toJson(tool.outputSchema!);
+      const schema = toJson(tool.outputSchema!)!;
       const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
       const result = validate(JSON.parse(JSON.stringify(out)));
       expect(result.valid).toBe(true);
@@ -461,7 +461,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
 
     expect(tool.outputSchema).toBeDefined();
     // biome-ignore lint/style/noNonNullAssertion: asserted defined immediately above.
-    const schema = toJson(tool.outputSchema!);
+    const schema = toJson(tool.outputSchema!)!;
     const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
     const result = validate(JSON.parse(JSON.stringify(out)));
     expect(result.valid).toBe(true);

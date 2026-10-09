@@ -12,7 +12,7 @@ import { buildFullRegistry } from "../scripts/docgen/build-registry";
 import { describeCapability, JSON_SCHEMA_OPTS } from "../src/mcp/facade";
 import type { CallerContext, ToolDefinition } from "../src/mcp/registry";
 import { relaxVaultInJson } from "../src/mcp/registry/vault-default";
-import { lowerSchema } from "../src/mcp/schema-lowering";
+import { lowerOutputSchema, lowerSchema } from "../src/mcp/schema-lowering";
 import { createMcpServer } from "../src/mcp/server";
 
 function findOrThrow(defs: ToolDefinition[], name: string): ToolDefinition {
@@ -56,9 +56,9 @@ describe('THE-1041: input schemas emit in zod io:"input" mode', () => {
 
     for (const def of defs) {
       const advertised = describeCapability(def).output_schema;
-      const outputMode = lowerSchema(
+      // undefined (key absent) for an unconstrained root such as plur_*'s z.unknown().
+      const outputMode = lowerOutputSchema(
         z.toJSONSchema(def.outputSchema as z.ZodType, JSON_SCHEMA_OPTS),
-        "output",
       );
       expect(advertised).toEqual(outputMode);
     }
