@@ -67,12 +67,13 @@ export function applySecurityProfile(raw: Record<string, unknown>): Record<strin
 /**
  * Dynamic Client Registration is the one `hardened` setting an explicit value does NOT override: it
  * opens an unauthenticated client-creation surface (design v2 section 5), so the restrained posture
- * never serves it, and a config that sets both reads `false`. `requestsDynamicRegistration` is how
- * the loader tells the operator.
+ * never serves it, and a config that sets both reads `false`. The schema default is on (owner
+ * decision 2026-10-09), so an UNSET flag is forced off too. `requestsDynamicRegistration` is how
+ * the loader tells the operator about an explicit `true`.
  */
 function forceDynamicRegistrationOff(cfg: Record<string, unknown>): Record<string, unknown> {
   const auth = cfg.auth;
-  if (!isPlainObject(auth) || !isPlainObject(auth.as) || auth.as.dynamicRegistration !== true) {
+  if (!isPlainObject(auth) || !isPlainObject(auth.as) || auth.as.dynamicRegistration === false) {
     return cfg;
   }
   return { ...cfg, auth: { ...auth, as: { ...auth.as, dynamicRegistration: false } } };

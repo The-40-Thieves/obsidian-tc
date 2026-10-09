@@ -177,9 +177,9 @@ export const AsConfigSchema = z
       ),
     dynamicRegistration: z
       .boolean()
-      .default(false)
+      .default(true)
       .describe(
-        'Default false. Serves RFC 7591 Dynamic Client Registration at `/oauth/register` and advertises `registration_endpoint`. DCR is deprecated by the MCP authorization spec and opens an unauthenticated client-creation surface (rate-limited and row-capped by `dcr`); Claude, ChatGPT and Codex prefer Client ID Metadata Documents, which the server advertises, and do not need it. A boot notice is logged whenever it is on, and `securityProfile: "hardened"` forces it off even when this is set.',
+        'Default true. Serves RFC 7591 Dynamic Client Registration at `/oauth/register` and advertises `registration_endpoint`, because many MCP surfaces (Cursor, Windsurf, Antigravity, grok.com, Le Chat, n8n and others) can only register this way. The unauthenticated client-creation surface is bounded by `dcr` (a per-source budget, a client cap, deletion of unused registrations). Set false to turn it off: `/oauth/register` is then a 404 and `registration_endpoint` is not advertised. One info line is logged at startup while it is on, and `securityProfile: "hardened"` forces it off even when this is set to true.',
       ),
     dcr: z
       .strictObject({
@@ -205,7 +205,7 @@ export const AsConfigSchema = z
           ),
       })
       .prefault({})
-      .describe("Limits applied when `dynamicRegistration` is on. Ignored while it is off."),
+      .describe("Limits applied while `dynamicRegistration` is on. Ignored while it is off."),
     cimd: z
       .strictObject({
         allowedHosts: z

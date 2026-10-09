@@ -362,10 +362,13 @@ and the client registrations below.
   never consulted, so a forged `Host` cannot move the issuer. It carries `code_challenge_methods_supported:
   ["S256"]`, the RFC 9207 `iss` response parameter, `none` as a client-authentication method, the `refresh_token`
   grant, `offline_access` among the scopes, `revocation_endpoint` and `client_id_metadata_document_supported: true`;
-  `registration_endpoint` appears only while `auth.as.dynamicRegistration` is on. `private_key_jwt` is never
+  `registration_endpoint` appears unless `auth.as.dynamicRegistration` is turned off. `private_key_jwt` is never
   advertised.
-- **Clients registered by Dynamic Client Registration (off by default).** With `auth.as.dynamicRegistration: true`,
-  `POST /oauth/register` (RFC 7591, JSON) creates a public client: `token_endpoint_auth_method` must be `none` (or
+- **Clients registered by Dynamic Client Registration (on by default).** DCR is on unless you set
+  `auth.as.dynamicRegistration: false` (owner decision, 2026-10-09): many MCP surfaces (Cursor, Windsurf,
+  Antigravity, grok.com, Grok Build, Le Chat, n8n, the Gemini app) only support DCR, so a default-off server did
+  not work with them out of the box. To disable it, set the flag to `false`; `/oauth/register` is then a 404 and
+  `registration_endpoint` is not advertised. `POST /oauth/register` (RFC 7591, JSON) creates a public client: `token_endpoint_auth_method` must be `none` (or
   absent), no secret is ever issued, and the server picks the `client_id` (a `client_id` in the request is ignored,
   so a registration cannot take a static client's id or a metadata-document URL). `redirect_uris` must hold an
   https or loopback URI; a private-use scheme such as Cursor's `cursor://...` is dropped from the registration,
@@ -374,9 +377,10 @@ and the client registrations below.
   registrations per source (the TCP peer, an IPv6 address as its /64; behind a same-host proxy or tunnel every client
   shares one bucket, as for metadata documents), `auth.as.dcr.maxClients` rows (a full table first drops
   registrations never used within a day, then answers `503`), and registrations unused for `auth.as.dcr.unusedDays`
-  are deleted. A registered client's consent page warns that it registered itself and has never been approved. The
-  server logs a warning at boot while DCR is on, and `securityProfile: "hardened"` forces it off even when the flag
-  is set. Claude (claude.ai, Claude Code) and ChatGPT support both registration methods and prefer a metadata
+  are deleted (until a trusted-proxy setting exists, that shared bucket means one noisy client can use up the
+  hourly budget for every other client behind the same proxy). A registered client's consent page warns that it registered itself and has never been approved. The
+  server logs one info line at boot naming these limits while DCR is on, and `securityProfile: "hardened"` forces
+  it off even when the flag is set to `true` (the loader says so). Claude (claude.ai, Claude Code) and ChatGPT support both registration methods and prefer a metadata
   document when the server advertises one, which this server does, so they do not need DCR; it is for clients
   with no metadata-document support. The registered `grant_types` are honored: a client that lists `refresh_token`
   gets a refresh token, one that lists only `authorization_code` (or nothing: the RFC 7591 default) gets none, and
