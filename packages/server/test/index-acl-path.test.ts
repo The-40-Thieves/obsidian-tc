@@ -26,11 +26,15 @@ import { registerM1Tools } from "../src/tools/m1";
 import { registerM2Tools } from "../src/tools/m2";
 import { registerM7Tools } from "../src/tools/m7";
 import { readableByFolder, readableRel } from "../src/vault/acl-read-filter";
+import { nativeVaultIo } from "../src/vault/notes-io";
 import { VaultRegistry } from "../src/vault/registry";
 import { loadAclPathExceptions, readableStoredRow } from "../src/vault/stored-acl-path";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
+// With the native addon a safe open refuses any path through a symlinked folder, so a pass cannot
+// read (and so cannot index) a note under an alias: the cases that index through one run on the JS
+// fallback only. Every other case here, hard links included, runs on both.
 const VAULT = "v";
 const SECRET_PATH = "private/secret-project.md";
 const OPEN_PATH = "pages/open-note.md";
@@ -183,81 +187,88 @@ const FAMILIES: Array<{ name: string; tool: string; input: Record<string, unknow
 ];
 
 describe.skipIf(process.platform === "win32")("a stored row is authorized on its acl_path", () => {
-  describe("LEAK: wiki -> private; the row was indexed under the alias", () => {
-    for (const f of FAMILIES) {
-      it(`${f.name}: a caller who reads only the alias NAME gets no row`, async () => {
-        const w = makeWorld();
-        await w.index("wiki", ACL_TARGET);
-        // The premise: the alias name is not a way to read the note.
-        const direct = await w.call("read_note", { path: "wiki/secret-project.md" }, ACL_ALIAS);
-        expect(direct.ok).toBe(false);
-        const r = await w.call(f.tool, f.input, ACL_ALIAS);
-        expect(r.ok, dump(r)).toBe(true);
-        expect(pathsOf(r.data)).toEqual([]);
-        expect(dump(r.data)).not.toContain(MARK);
-      });
-
-      it(`${f.name}: the caller who can read the target still gets it, under its display path`, async () => {
-        const w = makeWorld();
-        await w.index("wiki", ACL_TARGET);
-        const r = await w.call(f.tool, f.input, ACL_TARGET);
-        expect(r.ok, dump(r)).toBe(true);
-        expect(pathsOf(r.data)).toContain("wiki/secret-project.md");
-      });
-    }
-
-    it("tag and property aggregates (list_tags, list_properties) do not count the aliased note", async () => {
-      const w = makeWorld();
-      await w.index("wiki", ACL_TARGET);
-      const tags = await w.call("list_tags", {}, ACL_ALIAS);
-      const props = await w.call("list_properties", {}, ACL_ALIAS);
-      expect(dump(tags.data)).not.toContain("leaktag");
-      expect(dump(props.data)).not.toContain("secret");
-    });
-
-    it("the GraphRAG permitted-path set omits the alias row", async () => {
-      const w = makeWorld();
-      await w.index("wiki", ACL_TARGET);
-      await w.index("pages", ACL_PAGES);
-      const r = await w.call("vault_graph_search", { query: "zebra", final_top_k: 20 }, ACL_ALIAS);
-      expect(r.ok, dump(r)).toBe(true);
-      const members = (
-        w.db.prepare("SELECT path FROM acl_path_members").all() as Array<{ path: string }>
-      ).map((m) => m.path);
-      expect(members).toContain(OPEN_PATH); // positive control: a set WAS built for this caller
-      expect(members).not.toContain("wiki/secret-project.md");
-      expect(pathsOf(r.data)).not.toContain("wiki/secret-project.md");
-    });
-
-    it("the permitted-path set a caller builds is keyed on acl_path, not on the name", async () => {
-      const w = makeWorld();
-      await w.index("wiki", ACL_TARGET);
-      await w.index("pages", ACL_PAGES);
-      const decide = (acl: FolderAcl) =>
-        readableStoredRow(w.db, VAULT, (rel) => readableRel(acl, rel, SCOPES));
-      const setFor = (acl: FolderAcl, fingerprint: string): string[] => {
-        const id = ensureAclPathSet(w.db, {
-          vaultId: VAULT,
-          aclFingerprint: fingerprint,
-          exclusionDigest: "x",
-          generation: readGeneration(w.db, VAULT),
-          allPaths: () => allChunkPaths(w.db, VAULT),
-          isReadable: decide(acl),
-          nowMs: 0,
+  describe.skipIf(nativeVaultIo)(
+    "LEAK: wiki -> private; the row was indexed under the alias",
+    () => {
+      for (const f of FAMILIES) {
+        it(`${f.name}: a caller who reads only the alias NAME gets no row`, async () => {
+          const w = makeWorld();
+          await w.index("wiki", ACL_TARGET);
+          // The premise: the alias name is not a way to read the note.
+          const direct = await w.call("read_note", { path: "wiki/secret-project.md" }, ACL_ALIAS);
+          expect(direct.ok).toBe(false);
+          const r = await w.call(f.tool, f.input, ACL_ALIAS);
+          expect(r.ok, dump(r)).toBe(true);
+          expect(pathsOf(r.data)).toEqual([]);
+          expect(dump(r.data)).not.toContain(MARK);
         });
-        expect(id).not.toBeNull();
-        return (
-          w.db.prepare("SELECT path FROM acl_path_members WHERE set_id = ?").all(id) as Array<{
-            path: string;
-          }>
-        ).map((m) => m.path);
-      };
-      expect(setFor(ACL_ALIAS, "alias")).toEqual([OPEN_PATH]);
-      expect(setFor(ACL_TARGET, "target")).toEqual(["wiki/secret-project.md"]);
-    });
-  });
 
-  describe("FAIL-CLOSED BUG: shared -> pages, only pages/** readable", () => {
+        it(`${f.name}: the caller who can read the target still gets it, under its display path`, async () => {
+          const w = makeWorld();
+          await w.index("wiki", ACL_TARGET);
+          const r = await w.call(f.tool, f.input, ACL_TARGET);
+          expect(r.ok, dump(r)).toBe(true);
+          expect(pathsOf(r.data)).toContain("wiki/secret-project.md");
+        });
+      }
+
+      it("tag and property aggregates (list_tags, list_properties) do not count the aliased note", async () => {
+        const w = makeWorld();
+        await w.index("wiki", ACL_TARGET);
+        const tags = await w.call("list_tags", {}, ACL_ALIAS);
+        const props = await w.call("list_properties", {}, ACL_ALIAS);
+        expect(dump(tags.data)).not.toContain("leaktag");
+        expect(dump(props.data)).not.toContain("secret");
+      });
+
+      it("the GraphRAG permitted-path set omits the alias row", async () => {
+        const w = makeWorld();
+        await w.index("wiki", ACL_TARGET);
+        await w.index("pages", ACL_PAGES);
+        const r = await w.call(
+          "vault_graph_search",
+          { query: "zebra", final_top_k: 20 },
+          ACL_ALIAS,
+        );
+        expect(r.ok, dump(r)).toBe(true);
+        const members = (
+          w.db.prepare("SELECT path FROM acl_path_members").all() as Array<{ path: string }>
+        ).map((m) => m.path);
+        expect(members).toContain(OPEN_PATH); // positive control: a set WAS built for this caller
+        expect(members).not.toContain("wiki/secret-project.md");
+        expect(pathsOf(r.data)).not.toContain("wiki/secret-project.md");
+      });
+
+      it("the permitted-path set a caller builds is keyed on acl_path, not on the name", async () => {
+        const w = makeWorld();
+        await w.index("wiki", ACL_TARGET);
+        await w.index("pages", ACL_PAGES);
+        const decide = (acl: FolderAcl) =>
+          readableStoredRow(w.db, VAULT, (rel) => readableRel(acl, rel, SCOPES));
+        const setFor = (acl: FolderAcl, fingerprint: string): string[] => {
+          const id = ensureAclPathSet(w.db, {
+            vaultId: VAULT,
+            aclFingerprint: fingerprint,
+            exclusionDigest: "x",
+            generation: readGeneration(w.db, VAULT),
+            allPaths: () => allChunkPaths(w.db, VAULT),
+            isReadable: decide(acl),
+            nowMs: 0,
+          });
+          expect(id).not.toBeNull();
+          return (
+            w.db.prepare("SELECT path FROM acl_path_members WHERE set_id = ?").all(id) as Array<{
+              path: string;
+            }>
+          ).map((m) => m.path);
+        };
+        expect(setFor(ACL_ALIAS, "alias")).toEqual([OPEN_PATH]);
+        expect(setFor(ACL_TARGET, "target")).toEqual(["wiki/secret-project.md"]);
+      });
+    },
+  );
+
+  describe.skipIf(nativeVaultIo)("FAIL-CLOSED BUG: shared -> pages, only pages/** readable", () => {
     for (const f of FAMILIES.filter((x) => x.name !== "find_notes_by_tag (notes table)")) {
       it(`${f.name}: the readable note is returned under its display path`, async () => {
         const w = makeWorld();
@@ -278,124 +289,133 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
     });
   });
 
-  describe("legacy rows: the migration marks them unresolved, a pass resolves them", () => {
-    const preMigration = (): Database => {
-      const db = openMemoryDb();
-      runMigrations(
-        db,
-        CACHE_MIGRATIONS.filter((m) => m.version !== "20261009_001"),
-      );
-      return db;
-    };
-
-    it("a pre-migration index (alias-keyed rows) is closed after the migration, open after one pass", async () => {
-      const db = preMigration();
-      const w = makeWorld(db);
-      // Legacy writers: no acl_path column exists yet. The pass must not need it.
-      await w.index("wiki", ACL_TARGET);
-      await w.index("pages", ACL_PAGES);
-      expect(
-        (db.prepare("PRAGMA table_info(chunks)").all() as Array<{ name: string }>).some(
-          (c) => c.name === "acl_path",
-        ),
-      ).toBe(false);
-
-      provisionCacheDb(db); // the upgrade
-      const chunkAcl = db
-        .prepare("SELECT DISTINCT path, acl_path FROM chunks ORDER BY path")
-        .all() as Array<{ path: string; acl_path: string | null }>;
-      expect(chunkAcl.length).toBeGreaterThan(0);
-      for (const r of chunkAcl) expect(r.acl_path, r.path).toBeNull(); // unresolved (NULL), never trusted
-      expect(
-        (
-          db.prepare("SELECT acl_path FROM notes").all() as Array<{ acl_path: string | null }>
-        ).every((n) => n.acl_path === null),
-      ).toBe(true);
-
-      // Fail CLOSED: until resolved, nothing is returned to anybody, even the target's reader.
-      for (const acl of [ACL_TARGET, ACL_ALIAS, ACL_PAGES]) {
-        const sem = await w.call("search_semantic", { query: "zebra", k: 20 }, acl);
-        expect(pathsOf(sem.data), "semantic").toEqual([]);
-        const tag = await w.call("find_notes_by_tag", { tag: "leaktag" }, acl);
-        expect(pathsOf(tag.data), "tag").toEqual([]);
-      }
-
-      // One pass resolves every row against the vault, with no re-embedding.
-      let embedCalls = 0;
-      const counting = {
-        ...provider,
-        embed: (t: string[]) => {
-          embedCalls++;
-          return provider.embed(t);
-        },
+  describe.skipIf(nativeVaultIo)(
+    "legacy rows: the migration marks them unresolved, a pass resolves them",
+    () => {
+      const preMigration = (): Database => {
+        const db = openMemoryDb();
+        runMigrations(
+          db,
+          CACHE_MIGRATIONS.filter((m) => m.version !== "20261009_001"),
+        );
+        return db;
       };
-      await indexVault({
-        db,
-        provider: counting,
-        representation: buildRepresentationManifest(counting, {}),
-        vaultId: VAULT,
-        root: w.root,
-        sub: "wiki",
-        isReadable: (rel) => readableByFolder(ACL_TARGET, rel),
-      });
-      expect(embedCalls).toBe(0);
-      const after = db
-        .prepare("SELECT DISTINCT path, acl_path FROM chunks WHERE path LIKE 'wiki/%'")
-        .all() as Array<{ path: string; acl_path: string }>;
-      expect(after).toEqual([{ path: "wiki/secret-project.md", acl_path: SECRET_PATH }]);
-      const sem = await w.call("search_semantic", { query: "zebra", k: 20 }, ACL_TARGET);
-      expect(pathsOf(sem.data)).toContain("wiki/secret-project.md");
-      const blocked = await w.call("search_semantic", { query: "zebra", k: 20 }, ACL_ALIAS);
-      expect(pathsOf(blocked.data)).not.toContain("wiki/secret-project.md");
-    });
 
-    it("an unresolvable legacy row stays closed after a pass that does not see its file", async () => {
-      const db = preMigration();
-      const w = makeWorld(db);
-      await w.index("wiki", ACL_TARGET);
-      provisionCacheDb(db);
-      // The alias is gone from disk: the file cannot be resolved, so the pass cannot set its identity.
-      rmSync(join(w.root, "wiki"));
-      await w.index("pages", ACL_PAGES); // a pass over something else
-      const ex = loadAclPathExceptions(db, VAULT);
-      expect(ex.get("wiki/secret-project.md")).toBeNull();
-      const sem = await w.call("search_semantic", { query: "zebra", k: 20 }, ACL_ALIAS);
-      expect(pathsOf(sem.data)).not.toContain("wiki/secret-project.md");
-    });
-  });
+      it("a pre-migration index (alias-keyed rows) is closed after the migration, open after one pass", async () => {
+        const db = preMigration();
+        const w = makeWorld(db);
+        // Legacy writers: no acl_path column exists yet. The pass must not need it.
+        await w.index("wiki", ACL_TARGET);
+        await w.index("pages", ACL_PAGES);
+        expect(
+          (db.prepare("PRAGMA table_info(chunks)").all() as Array<{ name: string }>).some(
+            (c) => c.name === "acl_path",
+          ),
+        ).toBe(false);
+
+        provisionCacheDb(db); // the upgrade
+        const chunkAcl = db
+          .prepare("SELECT DISTINCT path, acl_path FROM chunks ORDER BY path")
+          .all() as Array<{ path: string; acl_path: string | null }>;
+        expect(chunkAcl.length).toBeGreaterThan(0);
+        for (const r of chunkAcl) expect(r.acl_path, r.path).toBeNull(); // unresolved (NULL), never trusted
+        expect(
+          (
+            db.prepare("SELECT acl_path FROM notes").all() as Array<{ acl_path: string | null }>
+          ).every((n) => n.acl_path === null),
+        ).toBe(true);
+
+        // Fail CLOSED: until resolved, nothing is returned to anybody, even the target's reader.
+        for (const acl of [ACL_TARGET, ACL_ALIAS, ACL_PAGES]) {
+          const sem = await w.call("search_semantic", { query: "zebra", k: 20 }, acl);
+          expect(pathsOf(sem.data), "semantic").toEqual([]);
+          const tag = await w.call("find_notes_by_tag", { tag: "leaktag" }, acl);
+          expect(pathsOf(tag.data), "tag").toEqual([]);
+        }
+
+        // One pass resolves every row against the vault, with no re-embedding.
+        let embedCalls = 0;
+        const counting = {
+          ...provider,
+          embed: (t: string[]) => {
+            embedCalls++;
+            return provider.embed(t);
+          },
+        };
+        await indexVault({
+          db,
+          provider: counting,
+          representation: buildRepresentationManifest(counting, {}),
+          vaultId: VAULT,
+          root: w.root,
+          sub: "wiki",
+          isReadable: (rel) => readableByFolder(ACL_TARGET, rel),
+        });
+        expect(embedCalls).toBe(0);
+        const after = db
+          .prepare("SELECT DISTINCT path, acl_path FROM chunks WHERE path LIKE 'wiki/%'")
+          .all() as Array<{ path: string; acl_path: string }>;
+        expect(after).toEqual([{ path: "wiki/secret-project.md", acl_path: SECRET_PATH }]);
+        const sem = await w.call("search_semantic", { query: "zebra", k: 20 }, ACL_TARGET);
+        expect(pathsOf(sem.data)).toContain("wiki/secret-project.md");
+        const blocked = await w.call("search_semantic", { query: "zebra", k: 20 }, ACL_ALIAS);
+        expect(pathsOf(blocked.data)).not.toContain("wiki/secret-project.md");
+      });
+
+      it("an unresolvable legacy row stays closed after a pass that does not see its file", async () => {
+        const db = preMigration();
+        const w = makeWorld(db);
+        await w.index("wiki", ACL_TARGET);
+        provisionCacheDb(db);
+        // The alias is gone from disk: the file cannot be resolved, so the pass cannot set its identity.
+        rmSync(join(w.root, "wiki"));
+        await w.index("pages", ACL_PAGES); // a pass over something else
+        const ex = loadAclPathExceptions(db, VAULT);
+        expect(ex.get("wiki/secret-project.md")).toBeNull();
+        const sem = await w.call("search_semantic", { query: "zebra", k: 20 }, ACL_ALIAS);
+        expect(pathsOf(sem.data)).not.toContain("wiki/secret-project.md");
+      });
+    },
+  );
 
   describe("the indexer records the identity", () => {
-    it("a pass stores display path and acl_path on chunks and notes; plain notes are their own identity", async () => {
-      const w = makeWorld();
-      await w.index("wiki", ACL_TARGET);
-      await w.index("pages", ACL_PAGES);
-      const rows = (table: string): Array<{ path: string; acl_path: string | null }> =>
-        w.db.prepare(`SELECT DISTINCT path, acl_path FROM ${table} ORDER BY path`).all() as never;
-      for (const t of ["chunks", "notes"]) {
-        expect(rows(t), t).toEqual([
-          { path: OPEN_PATH, acl_path: OPEN_PATH },
-          { path: "wiki/secret-project.md", acl_path: SECRET_PATH },
-        ]);
-      }
-    });
+    it.skipIf(nativeVaultIo)(
+      "a pass stores display path and acl_path on chunks and notes; plain notes are their own identity",
+      async () => {
+        const w = makeWorld();
+        await w.index("wiki", ACL_TARGET);
+        await w.index("pages", ACL_PAGES);
+        const rows = (table: string): Array<{ path: string; acl_path: string | null }> =>
+          w.db.prepare(`SELECT DISTINCT path, acl_path FROM ${table} ORDER BY path`).all() as never;
+        for (const t of ["chunks", "notes"]) {
+          expect(rows(t), t).toEqual([
+            { path: OPEN_PATH, acl_path: OPEN_PATH },
+            { path: "wiki/secret-project.md", acl_path: SECRET_PATH },
+          ]);
+        }
+      },
+    );
 
-    it("an unchanged note whose stored identity is stale is re-synced with no re-embed, and the generation moves", async () => {
-      const w = makeWorld();
-      await w.index("wiki", ACL_TARGET);
-      w.db.prepare("UPDATE chunks SET acl_path = 'elsewhere/x.md'").run();
-      w.db.prepare("UPDATE notes SET acl_path = NULL").run();
-      const before = readGeneration(w.db, VAULT);
-      await w.index("wiki", ACL_TARGET);
-      expect(
-        w.db.prepare("SELECT DISTINCT acl_path FROM chunks").all() as Array<{ acl_path: string }>,
-      ).toEqual([{ acl_path: SECRET_PATH }]);
-      expect(
-        w.db.prepare("SELECT DISTINCT acl_path FROM notes").all() as Array<{ acl_path: string }>,
-      ).toEqual([{ acl_path: SECRET_PATH }]);
-      expect(readGeneration(w.db, VAULT)).toBeGreaterThan(before);
-    });
+    it.skipIf(nativeVaultIo)(
+      "an unchanged note whose stored identity is stale is re-synced with no re-embed, and the generation moves",
+      async () => {
+        const w = makeWorld();
+        await w.index("wiki", ACL_TARGET);
+        w.db.prepare("UPDATE chunks SET acl_path = 'elsewhere/x.md'").run();
+        w.db.prepare("UPDATE notes SET acl_path = NULL").run();
+        const before = readGeneration(w.db, VAULT);
+        await w.index("wiki", ACL_TARGET);
+        expect(
+          w.db.prepare("SELECT DISTINCT acl_path FROM chunks").all() as Array<{ acl_path: string }>,
+        ).toEqual([{ acl_path: SECRET_PATH }]);
+        expect(
+          w.db.prepare("SELECT DISTINCT acl_path FROM notes").all() as Array<{ acl_path: string }>,
+        ).toEqual([{ acl_path: SECRET_PATH }]);
+        expect(readGeneration(w.db, VAULT)).toBeGreaterThan(before);
+      },
+    );
 
-    it("the streaming walk records it too", async () => {
+    it.skipIf(nativeVaultIo)("the streaming walk records it too", async () => {
       const w = makeWorld();
       await indexVault({
         db: w.db,
@@ -464,21 +484,24 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
       }
     });
 
-    it("an unchanged note re-indexed without an identity does not keep a stale one trusted", async () => {
-      const w = makeWorld();
-      await w.index("wiki", ACL_TARGET);
-      await indexNote(
-        w.db,
-        provider,
-        VAULT,
-        "wiki/secret-project.md",
-        FILES[SECRET_PATH] as string,
-        false,
-        Date.now,
-      );
-      const sem = await w.call("search_semantic", { query: "zebra", k: 20 }, ACL_ALIAS);
-      expect(pathsOf(sem.data)).not.toContain("wiki/secret-project.md");
-    });
+    it.skipIf(nativeVaultIo)(
+      "an unchanged note re-indexed without an identity does not keep a stale one trusted",
+      async () => {
+        const w = makeWorld();
+        await w.index("wiki", ACL_TARGET);
+        await indexNote(
+          w.db,
+          provider,
+          VAULT,
+          "wiki/secret-project.md",
+          FILES[SECRET_PATH] as string,
+          false,
+          Date.now,
+        );
+        const sem = await w.call("search_semantic", { query: "zebra", k: 20 }, ACL_ALIAS);
+        expect(pathsOf(sem.data)).not.toContain("wiki/secret-project.md");
+      },
+    );
   });
 
   // read_note refuses a hard-linked file (st_nlink > 1: realpath cannot see through a hard link, so
@@ -614,12 +637,14 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
       symlinkSync(join(w.root, ".obsidian"), join(w.root, "oalias"));
       const DEFAULT_ACL = cfg({});
       // Control: the walk does reach the note; only the hard-deny on its identity stops it.
-      const open = freshDb();
-      await w.index("oalias", undefined as unknown as FolderAcl, open);
-      expect(
-        (open.prepare("SELECT path FROM chunks WHERE path LIKE 'oalias%'").all() as unknown[])
-          .length,
-      ).toBeGreaterThan(0);
+      if (!nativeVaultIo) {
+        const open = freshDb();
+        await w.index("oalias", undefined as unknown as FolderAcl, open);
+        expect(
+          (open.prepare("SELECT path FROM chunks WHERE path LIKE 'oalias%'").all() as unknown[])
+            .length,
+        ).toBeGreaterThan(0);
+      }
       await w.index("oalias", DEFAULT_ACL);
       await w.index(undefined, DEFAULT_ACL);
       expect(
