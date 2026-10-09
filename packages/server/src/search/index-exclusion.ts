@@ -109,8 +109,13 @@ const appConfigCache = new Map<
   { sig: string; read: AppConfigRead; lastGood: readonly string[] | undefined }
 >();
 
+/** Format 2: every persisted value was read through the opened-descriptor link guard. Format 1
+ * (obsidian-tc 1.32.0) could hold values read through a hard-linked app.json, so it is discarded
+ * on read, never returned. */
+const PERSISTED_VERSION = 2;
+
 interface PersistedLastGood {
-  version: 1;
+  version: typeof PERSISTED_VERSION;
   root: string;
   entries: string[];
 }
@@ -128,7 +133,11 @@ function readPersistedLastGood(path: string | undefined, root: string): string[]
     const st = lstatSync(path);
     if (!st.isFile() || st.size > MAX_APP_CONFIG_BYTES) return undefined;
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<PersistedLastGood>;
-    if (parsed.version !== 1 || parsed.root !== root || !Array.isArray(parsed.entries))
+    if (
+      parsed.version !== PERSISTED_VERSION ||
+      parsed.root !== root ||
+      !Array.isArray(parsed.entries)
+    )
       return undefined;
     return clean(parsed.entries);
   } catch {
@@ -141,7 +150,7 @@ function persistLastGood(path: string | undefined, root: string, entries: readon
   const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   try {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-    const value: PersistedLastGood = { version: 1, root, entries: [...entries] };
+    const value: PersistedLastGood = { version: PERSISTED_VERSION, root, entries: [...entries] };
     writeFileSync(temp, `${JSON.stringify(value)}\n`, { flag: "wx", mode: 0o600 });
     renameSync(temp, path);
   } catch (e) {
