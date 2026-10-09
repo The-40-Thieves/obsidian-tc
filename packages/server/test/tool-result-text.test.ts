@@ -20,7 +20,7 @@ import { errorToCallToolResult } from "../src/mcp/error-rendering";
 import { toJson } from "../src/mcp/facade";
 import { type CallerContext, type ToolDefinition, ToolRegistry } from "../src/mcp/registry";
 import { createMcpServer } from "../src/mcp/server";
-import { ensureTextContent, toolDataResult } from "../src/mcp/tool-result";
+import { ensureTextContent, NO_OUTPUT_TEXT, toolDataResult } from "../src/mcp/tool-result";
 import { sampleFromJsonSchema } from "./json-schema-sample";
 import { dataOf, makeWorld, runScenario, SCENARIOS, type World } from "./response-format-fixture";
 
@@ -206,6 +206,26 @@ describe("end to end through the server", () => {
     expect(JSON.stringify(res).length).toBeLessThan(8_000);
     await client.close();
     await server.close();
+  });
+
+  it("the cap governs the sentence a payload-less success sends, not the literal 'null'", async () => {
+    // Codex review of #1191: with maxResponseBytes 4, "null" fit and the 44-byte sentence went out.
+    const tight = new ToolRegistry({ maxResponseBytes: 4 });
+    tight.register(def("silent", () => null));
+    const a = await connect(tight);
+    const over = await a.client.callTool({ name: "silent", arguments: {} });
+    expect(over.isError).toBe(true);
+    await a.client.close();
+    await a.server.close();
+
+    const exact = new ToolRegistry({ maxResponseBytes: Buffer.byteLength(NO_OUTPUT_TEXT) });
+    exact.register(def("silent", () => undefined));
+    const b = await connect(exact);
+    const ok = await b.client.callTool({ name: "silent", arguments: {} });
+    expect(ok.isError).toBeFalsy();
+    expect((ok.content as { text: string }[])[0]?.text).toBe(NO_OUTPUT_TEXT);
+    await b.client.close();
+    await b.server.close();
   });
 
   it("a payload just under the cap is carried once as text and once as structuredContent", async () => {

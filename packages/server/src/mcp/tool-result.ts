@@ -1,13 +1,14 @@
 import type { CallToolResult } from "@modelcontextprotocol/server";
+import { NO_OUTPUT_TEXT } from "./no-output-text";
 import { takeSerialized } from "./registry";
+
+export { NO_OUTPUT_TEXT };
 
 // The one place a tools/call result is shaped for the wire. Several clients read ONLY the text
 // block (Codex drops `content` whenever `structuredContent` is present; others render the text and
 // never the structured half), so every result, success or error, must carry a text block that
 // answers the call on its own, whichever handler, facade leg or guard produced it.
 
-/** What a successful call with nothing to return says, in place of the literal `null`. */
-export const NO_OUTPUT_TEXT = "OK: the tool completed and returned no data.";
 /** What a failed call with no detail at all says. */
 export const NO_DETAIL_ERROR_TEXT = "Error: the tool call failed and returned no detail.";
 
