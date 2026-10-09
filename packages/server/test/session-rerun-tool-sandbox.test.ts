@@ -265,14 +265,14 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
     assertNoNewRerunTmp(before, after);
   });
 
-  it("disposal on error: a directory-shaped trace path (EISDIR after staging) still disposes, never leaks", {
+  it("disposal on error: a directory-shaped trace path (refused after staging) still disposes, never leaks", {
     timeout: stallTimeout(30_000),
   }, async () => {
     const { cacheDir, db, runtime } = await boot();
     const id = seedSession(db, cacheDir, []);
     // Replace the trace FILE with a directory. `stageSandbox` copies whatever is there
     // (workspace/rerun.ts's `cpSync(tracesSrc, ...)`), so the staged copy inherits the same shape,
-    // and `readTrace`'s `readFileSync` throws EISDIR on it — see workspace/sessions.ts.
+    // and `readTrace` (readNote, the hard-link-safe reader) refuses it — see workspace/sessions.ts.
     const tracePath = join(cacheDir, cacheTraceRelPath(id));
     rmSync(tracePath, { force: true });
     mkdirSync(tracePath, { recursive: true });
@@ -290,9 +290,9 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
     await awaitPendingSandboxCleanup();
     const after = rerunTmpEntries();
 
-    // EISDIR is a raw fs error, not an ObsidianTcError — dispatch's catch-all reports it as
-    // "internal" (same code the unwired-dependency case gets in session-rerun-tool-unit.test.ts).
-    expect(errCode(res as never)).toBe("internal");
+    // readNote refuses a non-regular file as path_invalid (the JS fallback) or acl_denied (the native
+    // safe-open), a typed error either way; the point is that the sandbox is disposed.
+    expect(["path_invalid", "acl_denied"]).toContain(errCode(res as never));
     assertNoNewRerunTmp(before, after);
   });
 
