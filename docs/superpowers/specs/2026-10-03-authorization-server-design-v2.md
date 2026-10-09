@@ -717,7 +717,7 @@ RED tests (S10):
 ```
 
 Every key gets a `.describe()` and a `doctor` line. `securityProfile: "hardened"` forces
-`dynamicRegistration: false` unless set explicitly, and `requireJti` is already forced there.
+`dynamicRegistration: false`, an explicit `true` included (it is the one hardened setting an explicit value does not override; the loader says so), and `requireJti` is already forced there.
 
 ## 6. Data flow (authorization code, CIMD client)
 

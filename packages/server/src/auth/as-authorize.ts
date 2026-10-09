@@ -263,6 +263,7 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
               unapproved: !everApproved(db, client.clientId),
             }
           : {}),
+        ...(client.dcr ? { selfRegistered: !everApproved(db, client.clientId) } : {}),
         scopes: shown.map((scope) => ({ scope, words: describeScope(scope) })),
         resource: pending.resource,
         ...(personas.length > 0 ? { personas } : {}),

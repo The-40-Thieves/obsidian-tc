@@ -70,7 +70,7 @@ function permittedMethods(d: Record<string, unknown>): string[] | undefined | nu
 }
 
 /** A redirect URI the flow can use: https, or http to a loopback host. Undefined: a private-use scheme, dropped. */
-function usableRedirect(raw: string): string | undefined | "refuse" {
+export function usableRedirect(raw: string): string | undefined | "refuse" {
   if (raw === "" || raw.length > CLIENT_ID_MAX) return "refuse";
   let u: URL;
   try {
@@ -86,7 +86,7 @@ function usableRedirect(raw: string): string | undefined | "refuse" {
 
 /** The name for the consent page: the display-text stripping the elicitation forms use (control, format
  *  and line-separator characters, so no bidi override or zero-width mark can reorder or hide it), then bounded. */
-const cleanName = (raw: string): string =>
+export const cleanName = (raw: string): string =>
   sanitizeDisplayText(raw, Number.POSITIVE_INFINITY).trim().slice(0, NAME_MAX);
 
 /**

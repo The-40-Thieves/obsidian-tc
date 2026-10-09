@@ -27,6 +27,8 @@ export interface AsClient {
   secretEnv?: string | undefined;
   /** True for a client resolved from a Client ID Metadata Document (its `clientId` is the URL). */
   cimd?: boolean | undefined;
+  /** True for a client that registered itself through Dynamic Client Registration (its `clientId` is opaque). */
+  dcr?: boolean | undefined;
 }
 
 export function findStaticClient(

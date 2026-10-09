@@ -179,7 +179,7 @@ export const AsConfigSchema = z
       .boolean()
       .default(false)
       .describe(
-        "Default false. Serves RFC 7591 Dynamic Client Registration at `/oauth/register` and advertises `registration_endpoint`. DCR is deprecated by the MCP authorization spec and opens an unauthenticated client-creation surface (rate-limited and row-capped by `dcr`); claude.ai, Claude Code, ChatGPT and Codex use Client ID Metadata Documents and do not need it. A boot notice is logged whenever it is on.",
+        'Default false. Serves RFC 7591 Dynamic Client Registration at `/oauth/register` and advertises `registration_endpoint`. DCR is deprecated by the MCP authorization spec and opens an unauthenticated client-creation surface (rate-limited and row-capped by `dcr`); claude.ai, Claude Code, ChatGPT and Codex use Client ID Metadata Documents and do not need it. A boot notice is logged whenever it is on, and `securityProfile: "hardened"` forces it off even when this is set.',
       ),
     dcr: z
       .strictObject({

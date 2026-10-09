@@ -361,8 +361,21 @@ This release adds the pieces that exist before any token is issued: the metadata
   never consulted, so a forged `Host` cannot move the issuer. It carries `code_challenge_methods_supported:
   ["S256"]`, the RFC 9207 `iss` response parameter, `none` as a client-authentication method, the `refresh_token`
   grant, `offline_access` among the scopes, `revocation_endpoint` and `client_id_metadata_document_supported: true`;
-  `registration_endpoint` also needs `auth.as.dynamicRegistration` and appears only when the slice that implements
-  it ships. `private_key_jwt` is never advertised.
+  `registration_endpoint` appears only while `auth.as.dynamicRegistration` is on. `private_key_jwt` is never
+  advertised.
+- **Clients registered by Dynamic Client Registration (off by default).** With `auth.as.dynamicRegistration: true`,
+  `POST /oauth/register` (RFC 7591, JSON) creates a public client: `token_endpoint_auth_method` must be `none` (or
+  absent), no secret is ever issued, and the server picks the `client_id` (a `client_id` in the request is ignored,
+  so a registration cannot take a static client's id or a metadata-document URL). `redirect_uris` must hold an
+  https or loopback URI; a private-use scheme such as Cursor's `cursor://...` is dropped from the registration,
+  not refused, while one usable URI remains. DCR is deprecated by the MCP authorization spec and lets anyone who can
+  reach the server create rows and put a name in front of you, so it is bounded: `auth.as.dcr.perIpPerHour`
+  registrations per source (the TCP peer, an IPv6 address as its /64; behind a same-host proxy or tunnel every client
+  shares one bucket, as for metadata documents), `auth.as.dcr.maxClients` rows (a full table first drops
+  registrations never used within a day, then answers `503`), and registrations unused for `auth.as.dcr.unusedDays`
+  are deleted. A registered client's consent page warns that it registered itself and has never been approved. The
+  server logs a warning at boot while DCR is on, and `securityProfile: "hardened"` forces it off even when the flag
+  is set.
 - **Clients registered by a metadata document (CIMD).** A `client_id` that is an `https://` URL with a path is
   fetched, and the document served there is the client's registration (Claude Code, Codex and ChatGPT register this
   way). The fetch is the same bounded one OIDC discovery uses: https only, no redirects, every resolved address
@@ -434,8 +447,7 @@ This release adds the pieces that exist before any token is issued: the metadata
 
 The bundled server has one operator account, stored in `<cacheDir>/oauth.db` (the `users` table is multi-row, but
 adding users is a later change). Until it exists the server is **unclaimed**: `/oauth/login` answers `503`
-"not claimed", and so do `/oauth/authorize`, `/oauth/token` and `/oauth/register` (this release serves no
-authorize or token route; the refusal is already in place for when they arrive). The server logs a notice at boot
+"not claimed", and so do `/oauth/authorize`, `/oauth/token` and `/oauth/register`. The server logs a notice at boot
 while it is unclaimed. Claim it one of two ways.
 
 - **From the host.** `obsidian-tc auth as set-password [--user <name>] [--stdin]` asks for a password twice

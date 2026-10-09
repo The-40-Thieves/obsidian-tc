@@ -61,5 +61,30 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 export function applySecurityProfile(raw: Record<string, unknown>): Record<string, unknown> {
   if (raw.securityProfile !== "hardened") return raw;
   // Profile is the BASE; the operator's raw config overrides it.
-  return mergeProfile(HARDENED_BASE, raw);
+  return forceDynamicRegistrationOff(mergeProfile(HARDENED_BASE, raw));
+}
+
+/**
+ * Dynamic Client Registration is the one `hardened` setting an explicit value does NOT override: it
+ * opens an unauthenticated client-creation surface (design v2 section 5), so the restrained posture
+ * never serves it, and a config that sets both reads `false`. `requestsDynamicRegistration` is how
+ * the loader tells the operator.
+ */
+function forceDynamicRegistrationOff(cfg: Record<string, unknown>): Record<string, unknown> {
+  const auth = cfg.auth;
+  if (!isPlainObject(auth) || !isPlainObject(auth.as) || auth.as.dynamicRegistration !== true) {
+    return cfg;
+  }
+  return { ...cfg, auth: { ...auth, as: { ...auth.as, dynamicRegistration: false } } };
+}
+
+/** Did this raw config ask for DCR under the hardened profile (which then ignores it)? */
+export function requestsDynamicRegistration(raw: Record<string, unknown>): boolean {
+  const auth = raw.auth;
+  return (
+    raw.securityProfile === "hardened" &&
+    isPlainObject(auth) &&
+    isPlainObject(auth.as) &&
+    auth.as.dynamicRegistration === true
+  );
 }
