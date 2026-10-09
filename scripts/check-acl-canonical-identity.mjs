@@ -117,6 +117,9 @@ export const CANONICAL_ENTRYPOINTS = new Set([
   "storedAclPathOf",
 ]);
 
+/** A database column that holds a vault path: `path`, `source_path`, `targetPath`, ... */
+const ROW_PATH_COLUMN = /(^|_)path$|[a-z]Path$/;
+
 const D = "D";
 const R = "R";
 const S = "S";
@@ -279,7 +282,7 @@ function analyzeFile(file, source, reg, out) {
           }
           const k = !prop.computed && prop.key.type === "Identifier" ? prop.key.name : undefined;
           let l = EMPTY;
-          if (k === "relPath" || (k === "path" && labels.has(R))) l = new Set([D]);
+          if (k === "relPath" || (k !== undefined && ROW_PATH_COLUMN.test(k) && labels.has(R))) l = new Set([D]);
           else if (labels.has(R)) l = EMPTY;
           bindPattern(prop.value, l, scope);
         }
@@ -526,7 +529,7 @@ function analyzeFile(file, source, reg, out) {
         }
         const nm = propName(n);
         if (nm === "relPath") return new Set([D]);
-        if (nm === "path" && obj.has(R)) return new Set([D]);
+        if (nm !== undefined && ROW_PATH_COLUMN.test(nm) && obj.has(R)) return new Set([D]);
         if (n.computed && typeof n.property.value === "number") return keep(obj, D, R);
         return EMPTY;
       }
