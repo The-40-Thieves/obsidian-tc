@@ -3,7 +3,7 @@
 // buildKnowledgeTools rather than building its own embedder, cache, or policy state — see
 // RetrievalRuntime's doc comment in retrieval-runtime.ts.
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { tableExists } from "../../../db/introspect";
@@ -22,6 +22,7 @@ import {
 import { cachedGraphSearch } from "../../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../../search/router";
 import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
+import { readNote } from "../../../vault/notes-io";
 import { resolveVaultPath, resolveVaultPathChecked } from "../../../vault/paths";
 import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
@@ -106,8 +107,8 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
             signal: rel,
           });
         }
-        const text = readFileSync(abs, "utf8")
-          .replace(/^---[\s\S]*?---/, "")
+        const text = readNote(abs)
+          .raw.replace(/^---[\s\S]*?---/, "")
           .replace(/\s+/g, " ")
           .trim()
           .slice(0, 600);

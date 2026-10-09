@@ -40,7 +40,9 @@ export async function digestUnder(
   try {
     fh = await open(abs, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     const st = await fh.stat();
-    if (!st.isFile() || st.size > MAX_HASH_BYTES) return DIGEST_UNHASHABLE;
+    // A hard link (nlink > 1) can alias a file outside the folder ACL; readNote refuses it, so a digest
+    // must not read it either.
+    if (!st.isFile() || st.nlink > 1 || st.size > MAX_HASH_BYTES) return DIGEST_UNHASHABLE;
     const named = await stat(resolveVaultPathChecked(root, path).abs);
     if (named.dev !== st.dev || named.ino !== st.ino) return DIGEST_UNHASHABLE;
     const h = createHash("sha256");

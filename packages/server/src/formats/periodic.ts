@@ -9,10 +9,11 @@
 //   3. Built-in Obsidian defaults (below).
 // Weekly numbering is ISO-8601 (Monday-start) and month/day names are English; both
 // are documented choices so resolution is deterministic without a live Obsidian.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { isoWeek } from "../util/iso-week";
+import { readNote } from "../vault/notes-io";
 import { normalizeVaultPath } from "../vault/paths";
 
 export { isoWeek };
@@ -142,12 +143,12 @@ export interface PeriodicConfig {
 function readJsonSafe(abs: string): Record<string, unknown> | null {
   if (!existsSync(abs)) return null;
   try {
-    const parsed = JSON.parse(readFileSync(abs, "utf8")) as unknown;
+    const parsed = JSON.parse(readNote(abs).raw) as unknown;
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
       ? (parsed as Record<string, unknown>)
       : null;
   } catch {
-    return null; // a malformed plugin config falls through to defaults rather than failing resolution
+    return null; // malformed, or a hard link (readNote refuses it): defaults, not a failed resolution
   }
 }
 

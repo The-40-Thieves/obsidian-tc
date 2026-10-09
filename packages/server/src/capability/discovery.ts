@@ -3,9 +3,10 @@
 // Everything here parses de-facto structure written by the desktop app or third parties, so every
 // reader degrades rather than throws: an absent registry is the supported "no Obsidian" state, a
 // junk manifest is bucketed as unreadable, a missing config dir yields null.
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { z } from "zod";
+import { readNote } from "../vault/notes-io";
 import { type PluginManifest, parseManifest } from "./manifest";
 
 /** A vault as the desktop app records it. `name` is derived (the registry has no name field). */
@@ -122,7 +123,7 @@ export interface PluginDiscovery {
 
 function readEnabledSet(configDirPath: string): Set<string> {
   try {
-    const raw = readFileSync(join(configDirPath, "community-plugins.json"), "utf8");
+    const { raw } = readNote(join(configDirPath, "community-plugins.json"));
     const arr = JSON.parse(raw);
     if (Array.isArray(arr)) return new Set(arr.filter((x): x is string => typeof x === "string"));
   } catch {
@@ -160,7 +161,7 @@ export function discoverPlugins(vaultPath: string, override?: string): PluginDis
     let raw: string;
     try {
       if (!statSync(join(pluginsRoot, folder)).isDirectory()) continue;
-      raw = readFileSync(manifestPath, "utf8");
+      raw = readNote(manifestPath).raw;
     } catch {
       continue; // no manifest in this folder — not a plugin dir, skip silently
     }

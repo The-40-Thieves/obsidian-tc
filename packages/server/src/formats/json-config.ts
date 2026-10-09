@@ -4,9 +4,9 @@
 // raw object (preserving on-disk key order), mutate only the modeled keys in place,
 // then re-serialize with the file's original indentation. A missing file yields a
 // caller-supplied empty default; a malformed file throws invalid_input.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
-import { writeNoteAtomic } from "../vault/notes-io";
+import { readNote, writeNoteAtomic } from "../vault/notes-io";
 import { contentHash } from "../vault/paths";
 
 export interface JsonFile<T = Record<string, unknown>> {
@@ -33,7 +33,7 @@ export function detectJsonIndent(raw: string): string | number {
 export function readJsonFile<T = Record<string, unknown>>(abs: string, empty: T): JsonFile<T> {
   if (!existsSync(abs))
     return { exists: false, data: empty, indent: "\t", trailingNewline: true, hash: null };
-  const raw = readFileSync(abs, "utf8");
+  const { raw } = readNote(abs);
   let data: unknown;
   try {
     data = JSON.parse(raw);
