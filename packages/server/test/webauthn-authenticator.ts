@@ -69,7 +69,7 @@ export class VirtualAuthenticator {
   /** The counter value the next assertion reports; `"constant-zero"` models a synced passkey. */
   counter: number | "constant-zero" = 0;
   private readonly privateKey: KeyObject;
-  private readonly cose: Buffer;
+  private readonly publicKeyCbor: Buffer;
   private userHandle: Buffer = Buffer.alloc(0);
 
   constructor(
@@ -79,7 +79,7 @@ export class VirtualAuthenticator {
     const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
     this.privateKey = privateKey;
     const jwk = publicKey.export({ format: "jwk" });
-    this.cose = cbor(
+    this.publicKeyCbor = cbor(
       new Map<Cbor, Cbor>([
         [1, 2],
         [3, -7],
@@ -88,7 +88,7 @@ export class VirtualAuthenticator {
         [-3, Buffer.from(jwk.y as string, "base64url")],
       ]),
     );
-    this.credentialId = Buffer.from(sha256(this.cose)).subarray(0, 16);
+    this.credentialId = Buffer.from(sha256(this.publicKeyCbor)).subarray(0, 16);
   }
 
   get id(): string {
@@ -102,7 +102,7 @@ export class VirtualAuthenticator {
     if (!attested) return Buffer.concat(base);
     const len = Buffer.alloc(2);
     len.writeUInt16BE(this.credentialId.length);
-    return Buffer.concat([...base, Buffer.alloc(16), len, this.credentialId, this.cose]);
+    return Buffer.concat([...base, Buffer.alloc(16), len, this.credentialId, this.publicKeyCbor]);
   }
 
   private sign(data: Buffer): Buffer {
