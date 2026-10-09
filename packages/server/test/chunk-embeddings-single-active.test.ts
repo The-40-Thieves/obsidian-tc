@@ -18,6 +18,14 @@ import { buildRepresentationManifest } from "../src/search/representation";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
+// The repair migration is picked by version, not by position: later migrations land after it.
+const REPAIR_VERSION = "20261008_001";
+const beforeRepair = () =>
+  CACHE_MIGRATIONS.slice(
+    0,
+    CACHE_MIGRATIONS.findIndex((m) => m.version === REPAIR_VERSION),
+  );
+
 const blob = (n: number): Buffer => Buffer.alloc(n * 4);
 
 function seedChunk(db: any, id: string, path = `${id}.md`): void {
@@ -73,7 +81,7 @@ describe("chunk_embeddings allows at most one active row per chunk (GH #1160)", 
   it("repairs pre-existing violations deterministically: newest generated_at wins, model breaks ties", () => {
     const db = openMemoryDb();
     // Everything BEFORE the repair migration: the old non-unique index permits the violation.
-    runMigrations(db, CACHE_MIGRATIONS.slice(0, -1));
+    runMigrations(db, beforeRepair());
     for (const id of ["newest", "tie", "single", "stale-inactive", "triple"]) seedChunk(db, id);
     seedEmb(db, "newest", "m:old", 384, 1, 10);
     seedEmb(db, "newest", "m:new", 768, 1, 20);
@@ -233,7 +241,7 @@ describe("the stale-plan skip reports what it observed (GH #1160)", () => {
 
   it("detects and names a chunk carrying more than one active embedding", () => {
     const db = openMemoryDb();
-    runMigrations(db, CACHE_MIGRATIONS.slice(0, -1)); // a pre-migration store can hold the violation
+    runMigrations(db, beforeRepair()); // a pre-migration store can hold the violation
     seedChunk(db, "dup", "dup.md");
     seedEmb(db, "dup", "m:one", 16, 1, 1);
     seedEmb(db, "dup", "m:two", 8, 1, 2);

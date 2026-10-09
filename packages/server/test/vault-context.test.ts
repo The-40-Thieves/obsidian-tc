@@ -18,7 +18,7 @@ import { callerAclFingerprint, prewarmPathFor, writePrewarm } from "../src/searc
 import { registerM7Tools } from "../src/tools/m7";
 import { packBudget } from "../src/tools/m7/knowledge-tools";
 import { VaultRegistry } from "../src/vault/registry";
-import { openMemoryDb } from "./helpers";
+import { openMemoryDb, stampAclPath } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const expSql = readFileSync(
@@ -90,6 +90,7 @@ function cacheDb0(): Database {
     NOW,
     NOW,
   );
+  stampAclPath(db);
   ensureChunkFts(db, { now: () => NOW, enrich: false });
   // The plane tables (contradictions, syntheses) come from the migration chain now. This fixture used
   // to CREATE its own, looser versions — missing five NOT NULL columns and using a judge_verdict value

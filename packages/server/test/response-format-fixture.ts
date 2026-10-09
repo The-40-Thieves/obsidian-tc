@@ -18,7 +18,7 @@ import type { ResponseFormat } from "../src/tools/response-format";
 import { VaultRegistry } from "../src/vault/registry";
 import { captureSnapshot } from "../src/vault/snapshots";
 import { appendTrace, resolveTraceAbs } from "../src/workspace/sessions";
-import { openMemoryDb } from "./helpers";
+import { openMemoryDb, stampAclPath } from "./helpers";
 import { makeTestVault, type TestVault } from "./m1-helpers";
 import { type M2Vault, makeM2Vault } from "./m2-helpers";
 import { makeM3Vault } from "./m3-helpers";
@@ -261,6 +261,7 @@ export async function makeWorld(responseFormat?: ResponseFormat): Promise<World>
           NOTE_QUALITY_AT,
           NOTE_QUALITY_AT,
         );
+        stampAclPath(db);
         ensureChunkFts(db, { now: () => NOTE_QUALITY_AT, enrich: false });
         const reg = new ToolRegistry({});
         registerM7Tools(reg, {

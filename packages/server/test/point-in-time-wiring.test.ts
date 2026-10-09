@@ -42,8 +42,8 @@ function addChunk(
   updatedAt: number,
 ): void {
   db.prepare(
-    "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(id, VAULT, path, "0", "[]", `body ${id}`, `hash-${id}`, 1, createdAt, updatedAt);
+    "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at, acl_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(id, VAULT, path, "0", "[]", `body ${id}`, `hash-${id}`, 1, createdAt, updatedAt, path);
   db.prepare(
     "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, ?, ?, ?, 1, 0)",
   ).run(id, "test:fixed", QUERY_VEC.length, floatBlob(QUERY_VEC));

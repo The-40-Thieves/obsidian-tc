@@ -16,7 +16,7 @@ import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { buildTagsTools } from "../src/tools/m1/tags-tools";
 import { contentHash } from "../src/vault/paths";
 import { VaultRegistry } from "../src/vault/registry";
-import { openMemoryDb } from "./helpers";
+import { openMemoryDb, stampAclPath } from "./helpers";
 import { makeTestVault } from "./m1-helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
@@ -53,6 +53,7 @@ function makeIndexedTagsVault(opts: { rows: IndexedRow[]; acl?: Partial<AclConfi
   for (const row of opts.rows) {
     insert.run(row.path, row.path, JSON.stringify(row.tags), `h-${row.path}`);
   }
+  stampAclPath(db);
   const aclCfg: AclConfigT = { readOnly: false, defaultScopes: [], rules: [], ...opts.acl };
   const acl = new FolderAcl(aclCfg);
   const vaultRegistry = new VaultRegistry([{ id: "test", path: root }]);

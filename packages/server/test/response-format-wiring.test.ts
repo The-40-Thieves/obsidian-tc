@@ -193,7 +193,7 @@ const DOMAIN_CASES: Array<{
     classRouter: true,
     seed: (db) => {
       db.prepare(
-        "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES ('c1', 'main', 'n.md', 0, '[]', 'the quorble gotcha', 'h1', 5, 1, 1)",
+        "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at, acl_path) VALUES ('c1', 'main', 'n.md', 0, '[]', 'the quorble gotcha', 'h1', 5, 1, 1, 'n.md')",
       ).run();
       ensureChunkFts(db, { now: () => 1, enrich: false });
     },

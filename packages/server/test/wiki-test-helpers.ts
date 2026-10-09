@@ -20,7 +20,11 @@ export const WIKI_TEST_SEAL_KEY = "wiki-generated-test-key-at-least-thirty-two-b
 export interface WikiHarness {
   v: TestVault;
   /** Seed one chunk with a 4-d vector for `path` (a note's vector is the mean of its chunks). */
-  seed(path: string, vec: number[], extra?: { id?: string; bodySha?: string }): void;
+  seed(
+    path: string,
+    vec: number[],
+    extra?: { id?: string; bodySha?: string; aclPath?: string },
+  ): void;
   call(name: string, input: Record<string, unknown>): Promise<ToolResult>;
   data(name: string, input: Record<string, unknown>): Promise<Record<string, any>>;
 }
@@ -105,10 +109,18 @@ export function makeWikiHarness(
     const id = extra?.id ?? `c${++n}`;
     v.db
       .prepare(
-        `INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at, body_sha)
-         VALUES (?, 'test', ?, '0', '[]', ?, ?, 1, 0, 0, ?)`,
+        `INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at, body_sha, acl_path)
+         VALUES (?, 'test', ?, '0', '[]', ?, ?, 1, 0, 0, ?, ?)`,
       )
-      .run(id, path, `body of ${path}`, `h-${id}`, extra?.bodySha ?? `sha-${id}`);
+      // acl_path: the row's ACL identity. A seeded row is its own identity unless a test says it is an alias.
+      .run(
+        id,
+        path,
+        `body of ${path}`,
+        `h-${id}`,
+        extra?.bodySha ?? `sha-${id}`,
+        extra?.aclPath ?? path,
+      );
     v.db
       .prepare(
         `INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at)
