@@ -18,6 +18,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { isRegexExclusionEntry } from "@the-40-thieves/obsidian-tc-shared";
+import { readNoteBounded } from "../vault/notes-io";
 import { OBSIDIAN_APP_CONFIG } from "../vault/watcher";
 
 /** An app.json larger than this is not read (a real one is a few KB). */
@@ -180,12 +181,13 @@ function readAppConfig(root: string, statePath?: string): AppConfigRead {
   let sig: string;
   try {
     const st = lstatSync(file);
-    // A symlink or non-file is not read (same stance as the vault's own file reads).
-    if (!st.isFile() || st.size > MAX_APP_CONFIG_BYTES) {
+    // A symlink, a non-file or a hard link is not read (same stance as the vault's own file reads:
+    // a second directory entry for an inode could alias an ACL-denied file into this path).
+    if (!st.isFile() || st.nlink > 1 || st.size > MAX_APP_CONFIG_BYTES) {
       return failedRead(
         root,
-        `invalid:${st.mode}:${st.size}:${st.mtimeMs}`,
-        "app.json is not a regular file of readable size",
+        `invalid:${st.mode}:${st.size}:${st.mtimeMs}:${st.nlink}`,
+        "app.json is not a single-link regular file of readable size",
         appConfigCache.get(root),
         statePath,
       );
@@ -211,7 +213,11 @@ function readAppConfig(root: string, statePath?: string): AppConfigRead {
   const cached = appConfigCache.get(root);
   if (cached?.sig === sig) return cached.read;
   try {
-    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+    // Through the opened-fd guard (nlink and file type checked on the same descriptor that is read),
+    // not a path read after the lstat above: the file may have been swapped since.
+    const { raw: text } = readNoteBounded(file, MAX_APP_CONFIG_BYTES);
+    if (text === null) throw new Error("app.json is larger than the readable size");
+    const parsed: unknown = JSON.parse(text);
     const raw =
       typeof parsed === "object" && parsed !== null
         ? (parsed as { userIgnoreFilters?: unknown }).userIgnoreFilters

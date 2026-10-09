@@ -23,6 +23,22 @@ rejected under a folder ACL: a hard link aliases an inode that path canonicaliza
 dereference, so it could otherwise serve a file outside the allowed folder. Reads run on the
 opened file descriptor (fstat + read on the same object).
 
+This refusal covers every read of a vault file, not only note reads: the `.obsidian` config
+readers, the `.obsidian/app.json` Excluded-files list the indexer loads, the git metadata
+`git_commit` binds its confirmation to, the session traces and the staged copy a sandboxed
+`session_rerun` replays against. A file with a second directory entry is refused at all of them, and
+a symlink is never followed into a sandbox copy.
+
+**Compatibility.** If you deliberately hard-link (or symlink) a file under `.obsidian`, it now fails
+closed instead of being read. `bookmarks.json` and `workspaces.json` make their tools fail with
+`acl_denied`, naming the file, until the link is replaced by an ordinary single-link file. Periodic
+note settings (`daily-notes.json`, `periodic-notes.json`) and the attachment folder setting fall back
+to their defaults, a plugin whose `manifest.json` is linked is not listed, a linked `app.json` keeps
+the last good Excluded-files list (the doctor reports it), and a linked file under `.git` makes
+`git_commit` refuse rather than fingerprint it. To keep one file shared between vaults, copy it
+instead of linking it. A sandboxed `session_rerun` leaves a hard-linked or symlinked file out of its
+copy, so the replay of a call that read it fails there as it does live.
+
 ### Memory entities follow the read ACL
 
 `get_entity` and `query_entity_graph` hold `read:memory`, and the folder read ACL applies to them

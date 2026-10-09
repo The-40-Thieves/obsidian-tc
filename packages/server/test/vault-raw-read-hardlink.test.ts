@@ -44,7 +44,21 @@ describe("formats/json-config readJsonFile (bookmarks.json, workspaces.json)", (
   it("refuses a config file that is a hard link", () => {
     const root = vault();
     const abs = plantHardLink(root, '{"items":[{"title":"SECRET-BOOKMARK"}]}', ".obsidian/bm.json");
-    expect(() => readJsonFile(abs, { items: [] })).toThrow(/hard-link|inode|safe open refused/i);
+    expect(() => readJsonFile(abs, { items: [] })).toThrow(/hard[- ]link|inode|safe open refused/i);
+  });
+  it("fails with a typed acl_denied that names the file and the way out, not a bare read error", () => {
+    const root = vault();
+    const abs = plantHardLink(root, '{"items":[]}', ".obsidian/bookmarks.json");
+    let thrown: unknown;
+    try {
+      readJsonFile(abs, { items: [] });
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toMatchObject({ name: "ObsidianTcError", code: "acl_denied" });
+    expect((thrown as Error).message).toMatch(/bookmarks\.json/);
+    expect((thrown as Error).message).toMatch(/hard link or symlink/);
+    expect((thrown as Error).message).toMatch(/ordinary single-link file/);
   });
   it("still reads a normal config file and a missing one", () => {
     const root = vault();
@@ -129,7 +143,7 @@ describe("workspace/sessions readTrace (session trace JSONL)", () => {
   it("refuses a trace file that is a hard link", () => {
     const root = vault();
     const abs = plantHardLink(root, '{"secret":"SECRET-TRACE"}\n', "memory/t.jsonl");
-    expect(() => readTrace(abs)).toThrow(/hard-link|inode|safe open refused/i);
+    expect(() => readTrace(abs)).toThrow(/hard[- ]link|inode|safe open refused/i);
   });
   it("still replays a normal trace and treats a missing one as empty", () => {
     const root = vault();

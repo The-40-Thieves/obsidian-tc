@@ -1,34 +1,50 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { fingerprintTargets } from "../elicit-drift";
 import { argsHash } from "../hash";
+import { readFileChecked } from "./notes-io";
+
+/** Read one git metadata file through the opened-fd guard every vault file read uses (a hard link or
+ *  a non-regular file is refused), and refuse a symlink outright. `state_fp` goes back to the caller,
+ *  so a `.git` file that aliased a note the caller may not read would otherwise make it a function of
+ *  that note's content. Refusing is the contract: a state that cannot be read is never fingerprinted
+ *  from something else. */
+function readGitBytes(path: string): Buffer {
+  if (lstatSync(path).isSymbolicLink())
+    throw err.aclDenied("refusing to read symlinked git metadata", { path });
+  return readFileChecked(path);
+}
+
+const readGit = (path: string): string => readGitBytes(path).toString("utf8");
 
 /** Resolve a vault's git dir: `.git` directory, or the `gitdir:` pointer file of a worktree. */
 function gitDirOf(root: string): string | null {
   const dot = join(root, ".git");
   try {
     if (statSync(dot).isDirectory()) return dot;
-    const m = /^gitdir:\s*(.+)$/m.exec(readFileSync(dot, "utf8"));
-    return m?.[1] ? resolve(root, m[1].trim()) : null;
   } catch {
     return null;
   }
+  // Outside the try: a pointer file that is refused (hard link, symlink) must surface, not read as "no repo".
+  const m = /^gitdir:\s*(.+)$/m.exec(readGit(dot));
+  return m?.[1] ? resolve(root, m[1].trim()) : null;
 }
 
 /** The commit HEAD points at, `unborn` before the first commit. Reads refs directly rather than
  *  spawning git: a vault's `.git/config` is not trusted to run programs (core.fsmonitor). */
 function headOf(gitDir: string): string {
-  const head = readFileSync(join(gitDir, "HEAD"), "utf8").trim();
+  const head = readGit(join(gitDir, "HEAD")).trim();
   const ref = head.startsWith("ref:") ? head.slice(4).trim() : "";
   if (!ref) return head;
   const common = existsSync(join(gitDir, "commondir"))
-    ? resolve(gitDir, readFileSync(join(gitDir, "commondir"), "utf8").trim())
+    ? resolve(gitDir, readGit(join(gitDir, "commondir")).trim())
     : gitDir;
   for (const dir of [gitDir, common]) {
-    if (existsSync(join(dir, ref))) return readFileSync(join(dir, ref), "utf8").trim();
+    if (existsSync(join(dir, ref))) return readGit(join(dir, ref)).trim();
   }
   const packed = existsSync(join(common, "packed-refs"))
-    ? readFileSync(join(common, "packed-refs"), "utf8")
+    ? readGit(join(common, "packed-refs"))
     : "";
   return (
     packed
@@ -76,7 +92,7 @@ export function gitCommitState(root: string): string {
   if (!gitDir) return argsHash("git", { repo: "absent" });
   const indexPath = join(gitDir, "index");
   if (!existsSync(indexPath)) return argsHash("git", { head: headOf(gitDir), index: "none" });
-  const staged = stagedEntries(readFileSync(indexPath));
+  const staged = stagedEntries(readGitBytes(indexPath));
   return argsHash("git", {
     head: headOf(gitDir),
     // An index this parser does not read (v4) falls back to the file itself: stricter, never looser.
