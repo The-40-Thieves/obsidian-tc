@@ -5,8 +5,8 @@
 // that cannot be attributed FAILS CLOSED (acl_denied) rather than leaking.
 import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
 import { type FolderAcl, isDefaultDenied } from "../acl";
-import { pathScopesSatisfied } from "./acl-path";
-import { normalizeVaultPath, resolveVaultPathChecked, type WalkEntry } from "./paths";
+import { callerCanReadVaultPath, pathScopesSatisfied } from "./acl-path";
+import { normalizeVaultPath, type WalkEntry } from "./paths";
 
 /** True when read enumeration is unrestricted FOR THIS CALLER: no ACL, or readPaths undefined and
  *  strictReadDefault off (M0 back-compat), and no path can declare a rule-scope the caller lacks.
@@ -85,10 +85,12 @@ export function readableEntry(
 }
 
 /**
- * `readableRel` for a vault-relative path that was NOT produced by a walk (a path the caller named,
- * or one a stored row or a config derives): resolved to its ACL identity first, exactly as
- * `enforcePathAcl` does, so an alias is judged by its target. A path that cannot be resolved FAILS
- * CLOSED (not readable).
+ * The read predicate for a vault-relative path that was NOT produced by a walk (a path the caller
+ * named, or one a stored row or a config derives). It IS read_note's decision (`callerCanReadVaultPath`:
+ * `enforcePathAcl("read")` on the bound root), not a mirror of it: an alias is judged by its
+ * symlink-resolved target (so a link into the hard-denied `.obsidian` / `.git` / `.trash` is
+ * refused even under an otherwise unrestricted ACL), a hard-linked file is refused (realpath cannot
+ * dereference a hard link), and a path that cannot be resolved FAILS CLOSED (not readable).
  */
 export function readableResolved(
   acl: FolderAcl | undefined,
@@ -96,13 +98,7 @@ export function readableResolved(
   rel: string,
   grantedScopes: Iterable<string>,
 ): boolean {
-  let aclRel: string;
-  try {
-    aclRel = resolveVaultPathChecked(root, rel).aclRel;
-  } catch {
-    return false;
-  }
-  return readableRel(acl, aclRel, grantedScopes);
+  return callerCanReadVaultPath(acl, grantedScopes, root, rel);
 }
 
 /**
@@ -124,55 +120,80 @@ export function readableByFolder(acl: FolderAcl | undefined, rel: string): boole
 }
 
 /**
- * Filter bridge-returned items by the read ACL. When read enumeration is unrestricted
- * the items are returned unchanged. Otherwise every item MUST be attributable to a
- * vault path; an unattributable item throws acl_denied (fail-closed), and an
- * attributable item is kept only when it passes the read whitelist.
+ * Filter bridge-returned items by the read ACL. Every attributable item is kept only when
+ * read_note could read it (`readableResolved`): the plugin names the display path, so `wiki/x.md`
+ * under `wiki -> private` is judged as `private/x.md`, and a hard link or an alias into a
+ * hard-denied folder is refused, even for a caller whose read enumeration is "unrestricted"
+ * (there is no fast path: that flag says nothing about the canonical target). When enumeration is
+ * restricted, every item MUST be attributable to a vault path and an unattributable item throws
+ * acl_denied (fail-closed); an unrestricted caller keeps a row that names no path (there is nothing
+ * to judge). A path that cannot be resolved (dangling link, outside the vault) is dropped.
  */
 export function filterBridgeItemsByAcl(
   acl: FolderAcl | undefined,
+  root: string,
   grantedScopes: Iterable<string>,
   items: unknown[],
   opts: { tool: string; keys?: readonly string[] },
 ): unknown[] {
-  if (readEnumerationUnrestricted(acl, grantedScopes)) return items;
+  const unrestricted = readEnumerationUnrestricted(acl, grantedScopes);
   const out: unknown[] = [];
   for (const it of items) {
     const rel = bridgeItemPath(it, opts.keys);
-    if (rel === undefined)
+    if (rel === undefined) {
+      if (unrestricted) {
+        out.push(it);
+        continue;
+      }
       throw err.aclDenied("bridge result cannot be attributed to a vault path; failing closed", {
         tool: opts.tool,
       });
-    if (readableRel(acl, rel, grantedScopes)) out.push(it);
+    }
+    if (readableResolved(acl, root, rel, grantedScopes)) out.push(it);
   }
   return out;
 }
 
 /**
- * Filter a bridge result shaped `{ items: [...], total, ... }` (Datacore, Omnisearch). Unrestricted
- * callers get the result untouched. Otherwise the rows are filtered by note path (fail closed on an
- * unattributable row), `total` is recounted, and every sibling field is DROPPED: they are computed
- * over the unfiltered set by the plugin and can carry a hidden note's path or text (THE-270).
+ * Filter a bridge result shaped `{ items: [...], total, ... }` (Datacore, Omnisearch). The rows are
+ * filtered by note path (fail closed on an unattributable row for a restricted caller) and `total`
+ * is recounted. Every sibling field is DROPPED unless the caller is unrestricted AND no row was
+ * removed: siblings are computed over the unfiltered set by the plugin and can carry a hidden
+ * note's path or text (THE-270).
  */
 export function filterBridgeResultItems(
   acl: FolderAcl | undefined,
+  root: string,
   grantedScopes: Iterable<string>,
   result: Record<string, unknown>,
   opts: { tool: string; keys?: readonly string[] },
 ): Record<string, unknown> {
-  if (readEnumerationUnrestricted(acl, grantedScopes)) return result;
   const rows = Array.isArray(result.items) ? (result.items as unknown[]) : [];
-  const items = filterBridgeItemsByAcl(acl, grantedScopes, rows, opts);
+  const items = filterBridgeItemsByAcl(acl, root, grantedScopes, rows, opts);
+  if (bridgeSiblingsSafe(acl, grantedScopes, rows.length, items.length)) return result;
   return { items, total: items.length };
+}
+
+/** May the sibling fields of a bridge result (`groups`, `total`, ...) be passed through? Only when
+ *  the caller is unrestricted AND the filter removed no row: otherwise they were computed over rows
+ *  the caller cannot read (THE-270). */
+export function bridgeSiblingsSafe(
+  acl: FolderAcl | undefined,
+  grantedScopes: Iterable<string>,
+  rawCount: number,
+  keptCount: number,
+): boolean {
+  return readEnumerationUnrestricted(acl, grantedScopes) && rawCount === keptCount;
 }
 
 /**
  * Gate a bridge result that names exactly one vault path (resolve_daily_note): the caller must be
- * able to read it, exactly as read_note would require. An unattributable path fails closed for a
- * restricted caller.
+ * able to read it, exactly as read_note would require (the canonical target, `readableResolved`).
+ * An unattributable or unresolvable path fails closed for a restricted caller.
  */
 export function assertBridgePathReadable(
   acl: FolderAcl | undefined,
+  root: string,
   grantedScopes: Iterable<string>,
   result: unknown,
   opts: { tool: string },
@@ -181,7 +202,7 @@ export function assertBridgePathReadable(
   const readable =
     rel === undefined
       ? readEnumerationUnrestricted(acl, grantedScopes)
-      : readableRel(acl, rel, grantedScopes);
+      : readableResolved(acl, root, rel, grantedScopes);
   if (!readable) throw err.aclDenied("path is not readable by this caller", { tool: opts.tool });
 }
 

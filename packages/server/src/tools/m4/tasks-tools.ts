@@ -10,10 +10,10 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { paginate } from "../../util/paginate";
 import { enforcePathAcl } from "../../vault/acl-path";
 import {
+  bridgeSiblingsSafe,
   filterBridgeItemsByAcl,
   readableEntry,
   readableResolved,
-  readEnumerationUnrestricted,
 } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
 import { readNote, writeNoteAtomicGuarded } from "../../vault/notes-io";
@@ -331,12 +331,12 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
         // unattributable row when a read whitelist is configured (D2/B1). `groups`
         // (aggregate counts) pass through untouched.
         const rawItems = Array.isArray(result.items) ? (result.items as unknown[]) : [];
-        const items = filterBridgeItemsByAcl(ctx.acl, ctx.grantedScopes, rawItems, {
+        const items = filterBridgeItemsByAcl(ctx.acl, v.root, ctx.grantedScopes, rawItems, {
           tool: "tasks_filter",
         });
         // Under a read whitelist, drop `...result` — `groups` (and any other sibling) is computed
         // over the UNFILTERED task set and leaks counts of notes outside the whitelist (THE-270).
-        if (!readEnumerationUnrestricted(ctx.acl, ctx.grantedScopes))
+        if (!bridgeSiblingsSafe(ctx.acl, ctx.grantedScopes, rawItems.length, items.length))
           return { vault: v.id, items, total: items.length };
         return { vault: v.id, ...result, items, total: items.length };
       },
