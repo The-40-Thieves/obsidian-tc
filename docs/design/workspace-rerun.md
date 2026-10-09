@@ -183,3 +183,11 @@ THE-737: a session minted today writes `trace_store='cache'` — its JSONL lives
 constructs `trace_store='vault'` any more; see `sessions.ts`'s own comment on the column), which
 defeats the command as thoroughly as staging into the real vault would — just as a silent false
 negative instead of an unsafe write.
+
+The vault and the traces are copied by `copyTreeKeepingIdentity`, not `cpSync(..., { dereference:
+true })`. The live read refuses a hard link (`nlink > 1` on the open fd) and the folder ACL judges a
+symlink by its target; a dereferencing copy follows a symlink (out-of-vault targets included) and
+re-creates every file as a fresh single-link inode, so a call the live vault refuses would be
+accepted from the staged copy and its text sent to the embedding provider. The copy therefore never
+follows or recreates a symlink and leaves out a regular file whose link count is not 1, so the
+sandboxed read of it fails as the live one does (the vault walker skips symlinks the same way).

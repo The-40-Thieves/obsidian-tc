@@ -8,11 +8,12 @@
 // resolveVaultPath + enforcePathAcl before these helpers ever touch disk; the helpers
 // take an already-resolved absolute path.
 import { randomBytes } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
 import type { FolderPins } from "../vault/folder-links";
+import { readNote } from "../vault/notes-io";
 import { resolveVaultPathChecked } from "../vault/paths";
 
 /** Stable session id, e.g. "sess_9f2c…". 12 random bytes = 24 hex chars. */
@@ -669,7 +670,7 @@ export function appendTrace(abs: string, record: TraceRecord): void {
 export function readTrace(abs: string): TraceRecord[] {
   if (!existsSync(abs)) return [];
   const out: TraceRecord[] = [];
-  for (const line of readFileSync(abs, "utf8").split(/\r?\n/)) {
+  for (const line of readNote(abs).raw.split(/\r?\n/)) {
     const t = line.trim();
     if (t.length === 0) continue;
     try {

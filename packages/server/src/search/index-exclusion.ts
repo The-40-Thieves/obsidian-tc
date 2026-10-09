@@ -18,6 +18,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { isRegexExclusionEntry } from "@the-40-thieves/obsidian-tc-shared";
+import { readNoteBounded } from "../vault/notes-io";
 import { OBSIDIAN_APP_CONFIG } from "../vault/watcher";
 
 /** An app.json larger than this is not read (a real one is a few KB). */
@@ -108,8 +109,13 @@ const appConfigCache = new Map<
   { sig: string; read: AppConfigRead; lastGood: readonly string[] | undefined }
 >();
 
+/** Format 2: every persisted value was read through the opened-descriptor link guard. Format 1
+ * (obsidian-tc 1.32.0) could hold values read through a hard-linked app.json, so it is discarded
+ * on read, never returned. */
+const PERSISTED_VERSION = 2;
+
 interface PersistedLastGood {
-  version: 1;
+  version: typeof PERSISTED_VERSION;
   root: string;
   entries: string[];
 }
@@ -127,7 +133,11 @@ function readPersistedLastGood(path: string | undefined, root: string): string[]
     const st = lstatSync(path);
     if (!st.isFile() || st.size > MAX_APP_CONFIG_BYTES) return undefined;
     const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<PersistedLastGood>;
-    if (parsed.version !== 1 || parsed.root !== root || !Array.isArray(parsed.entries))
+    if (
+      parsed.version !== PERSISTED_VERSION ||
+      parsed.root !== root ||
+      !Array.isArray(parsed.entries)
+    )
       return undefined;
     return clean(parsed.entries);
   } catch {
@@ -140,7 +150,7 @@ function persistLastGood(path: string | undefined, root: string, entries: readon
   const temp = `${path}.${process.pid}.${randomUUID()}.tmp`;
   try {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-    const value: PersistedLastGood = { version: 1, root, entries: [...entries] };
+    const value: PersistedLastGood = { version: PERSISTED_VERSION, root, entries: [...entries] };
     writeFileSync(temp, `${JSON.stringify(value)}\n`, { flag: "wx", mode: 0o600 });
     renameSync(temp, path);
   } catch (e) {
@@ -180,12 +190,13 @@ function readAppConfig(root: string, statePath?: string): AppConfigRead {
   let sig: string;
   try {
     const st = lstatSync(file);
-    // A symlink or non-file is not read (same stance as the vault's own file reads).
-    if (!st.isFile() || st.size > MAX_APP_CONFIG_BYTES) {
+    // A symlink, a non-file or a hard link is not read (same stance as the vault's own file reads:
+    // a second directory entry for an inode could alias an ACL-denied file into this path).
+    if (!st.isFile() || st.nlink > 1 || st.size > MAX_APP_CONFIG_BYTES) {
       return failedRead(
         root,
-        `invalid:${st.mode}:${st.size}:${st.mtimeMs}`,
-        "app.json is not a regular file of readable size",
+        `invalid:${st.mode}:${st.size}:${st.mtimeMs}:${st.nlink}`,
+        "app.json is not a single-link regular file of readable size",
         appConfigCache.get(root),
         statePath,
       );
@@ -211,7 +222,11 @@ function readAppConfig(root: string, statePath?: string): AppConfigRead {
   const cached = appConfigCache.get(root);
   if (cached?.sig === sig) return cached.read;
   try {
-    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+    // Through the opened-fd guard (nlink and file type checked on the same descriptor that is read),
+    // not a path read after the lstat above: the file may have been swapped since.
+    const { raw: text } = readNoteBounded(file, MAX_APP_CONFIG_BYTES);
+    if (text === null) throw new Error("app.json is larger than the readable size");
+    const parsed: unknown = JSON.parse(text);
     const raw =
       typeof parsed === "object" && parsed !== null
         ? (parsed as { userIgnoreFilters?: unknown }).userIgnoreFilters

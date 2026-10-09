@@ -16,6 +16,7 @@ import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
+import { readNote } from "../vault/notes-io";
 
 export interface ForgetLogEntry {
   ts: number;
@@ -272,12 +273,12 @@ export function forgetNote(
       for (const f of readdirSync(dir)) {
         if (!f.endsWith(".md")) continue;
         try {
-          const text = readFileSync(join(dir, f), "utf8");
+          const text = readNote(join(dir, f)).raw;
           if (text.includes(opts.relPath) || chunkIds.some((id) => text.includes(id))) {
             outdatedReflections.push(f);
           }
         } catch {
-          /* unreadable reflection -> skip */
+          /* unreadable (or hard-linked: readNote refuses it) reflection -> skip */
         }
       }
     }

@@ -8,7 +8,16 @@
 // the scope (see RERUN_SCOPES). See docs/design/workspace-rerun.md for the file-header history,
 // including the measured deviation from the original brief and its consequence for the mutation
 // test.
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  copyFileSync,
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { grantsScope, type ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
@@ -452,6 +461,40 @@ function safeDispose(base: string): void {
 }
 
 /**
+ * Copy a directory tree for a staged sandbox WITHOUT laundering file identity.
+ *
+ * The live read path refuses a file that has another directory entry (a hard link: `readNote`
+ * fstats the OPEN fd and refuses `nlink > 1`) and the folder ACL judges a symlink by where it leads.
+ * `cpSync(..., { dereference: true })` undoes both: it follows a symlink (an out-of-vault target
+ * included) and re-creates a hard link as a fresh single-link inode, so a recorded call that the live
+ * vault refuses would read the same content from the staged copy and feed it to a provider. This
+ * copy carries the refusal over instead: a symlink is never followed or recreated (the vault walker
+ * skips them the same way), and a regular file with `nlink > 1` is left out, so the sandboxed read
+ * of it fails rather than succeeds. Everything else (folders, ordinary files, dot-folders such as
+ * `.obsidian`) is copied as before.
+ */
+function copyTreeKeepingIdentity(src: string, dest: string): void {
+  mkdirSync(dest, { recursive: true });
+  for (const e of readdirSync(src, { withFileTypes: true })) {
+    const from = join(src, e.name);
+    const to = join(dest, e.name);
+    if (e.isDirectory()) {
+      copyTreeKeepingIdentity(from, to);
+    } else if (e.isFile()) {
+      // lstat, not the dirent alone: the link count is not in a dirent.
+      let nlink = 0;
+      try {
+        const st = lstatSync(from);
+        if (st.isFile()) nlink = st.nlink;
+      } catch {
+        continue; // vanished between readdir and lstat
+      }
+      if (nlink === 1) copyFileSync(from, to);
+    }
+  }
+}
+
+/**
  * Stage a disposable copy of a vault and its databases.
  *
  * COPY, never symlink — a symlinked database is the live one, and the whole guarantee of sandbox
@@ -485,7 +528,7 @@ export async function stageSandbox(
     const root = join(base, "vault");
     const cache = join(base, "cache");
     touchSandboxHeartbeat(base);
-    cpSync(vaultRoot, root, { recursive: true, dereference: true });
+    copyTreeKeepingIdentity(vaultRoot, root);
     touchSandboxHeartbeat(base);
     for (const name of SANDBOX_DBS) {
       const src = join(cacheDir, name);
@@ -501,7 +544,7 @@ export async function stageSandbox(
     const tracesSrc = join(cacheDir, CACHE_TRACE_SUBDIR);
     if (existsSync(tracesSrc)) {
       touchSandboxHeartbeat(base);
-      cpSync(tracesSrc, join(cache, CACHE_TRACE_SUBDIR), { recursive: true, dereference: true });
+      copyTreeKeepingIdentity(tracesSrc, join(cache, CACHE_TRACE_SUBDIR));
       touchSandboxHeartbeat(base);
     }
     return {

@@ -8,14 +8,14 @@
 // the read ACL asks `storedAclPathOf` for the row's identity first, and judges THAT. The name is what
 // the result is shown under.
 //
-//   no exception listed   the row is its own identity (`acl_path = path`).
-//   listed, a path        the row is an alias; the ACL judges the path it leads to.
-//   listed, null          UNRESOLVED (`acl_path IS NULL` or `''`: every row that predates migration
-//                         20261009_001, a writer that did not supply an identity, or two rows of one
-//                         name disagreeing): FAIL CLOSED, the row is returned to nobody until the
-//                         indexer resolves it. A missing identity is never read as "trusted".
-//   no row at all         (readableStoredRow) a derived record whose chunks/notes rows are gone is
-//                         UNRESOLVED too, as are chunks and notes disagreeing about one name.
+//   a path        the row is its own identity (`acl_path = path`) or an alias; the ACL judges the path
+//                 it leads to. chunks and notes must name the SAME one.
+//   null          UNRESOLVED (`acl_path IS NULL` or `''`: every row that predates migration
+//                 20261009_001, or a writer that did not supply an identity), two rows of one name
+//                 disagreeing (chunks against notes included, a self-identity row too), or no row at
+//                 all (a derived record whose chunks/notes rows are gone): FAIL CLOSED, the name is
+//                 returned to nobody until the indexer resolves it. A missing identity is never read
+//                 as "trusted".
 import type { Database } from "../db/types";
 
 /** What a writer stores for a row whose identity it could not resolve (NULL means the same, and is
@@ -51,44 +51,15 @@ export function hasAclPathColumn(db: Database, table: AclPathTable): boolean {
 }
 
 /**
- * Every stored name of this vault whose identity is NOT itself: alias rows map to their target,
- * unresolved or self-contradicting ones to null. Small by construction (aliases only; the partial
- * indexes of migration 20261009_001 serve exactly this predicate), so it is loaded whole.
- */
-export function loadAclPathExceptions(db: Database, vaultId: string): Map<string, string | null> {
-  const out = new Map<string, string | null>();
-  for (const table of ACL_PATH_TABLES) {
-    if (!hasAclPathColumn(db, table)) continue;
-    const rows = db
-      .prepare(
-        `SELECT DISTINCT path, acl_path FROM ${table} WHERE vault_id = ? AND (acl_path IS NULL OR acl_path <> path)`,
-      )
-      .all(vaultId) as Array<{ path: string; acl_path: string | null }>;
-    for (const r of rows) {
-      const next = r.acl_path === null || r.acl_path === ACL_PATH_UNRESOLVED ? null : r.acl_path;
-      // Two rows of one name that name different identities cannot both be right: closed.
-      if (!out.has(r.path)) out.set(r.path, next);
-      else if (out.get(r.path) !== next) out.set(r.path, null);
-    }
-  }
-  return out;
-}
-
-/**
  * The identity a reader must authorize for a STORED path, or null when it is unresolved (fail
- * closed). The exceptions are loaded on first use, so a predicate that is built and never called
- * (an unrestricted caller's) costs nothing, and one tool call sees one consistent view.
+ * closed). One rule for every reader (`currentIdentityOf`, below): a name with no row, an unresolved
+ * row, or chunks and notes naming different identities (a self-identity row included) is null.
  */
 export function storedAclPathOf(
   db: Database,
   vaultId: string,
 ): (storedPath: string) => string | null {
-  let exceptions: Map<string, string | null> | undefined;
-  return (storedPath) => {
-    exceptions ??= loadAclPathExceptions(db, vaultId);
-    const hit = exceptions.get(storedPath);
-    return hit === undefined ? storedPath : hit;
-  };
+  return currentIdentityOf(db, vaultId);
 }
 
 /**

@@ -4,7 +4,7 @@
 // only under erase — the audit default KEEPS it), invalidates a prewarm bundle that mentions
 // the target, and reports (never mutates) syntheses/contradictions/reflections.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
@@ -233,6 +233,28 @@ describe("forgetNote", () => {
     expect(existsSync(join(prewarmDir, `prewarm-main-${fp("2")}.json`))).toBe(false);
     expect(existsSync(untouched)).toBe(true);
     expect(res.outdated_reflections).toEqual(["2026-07-12-thing.md"]);
+  });
+
+  it("does not read a reflection that is a hard link to a private note", () => {
+    const { edb, cache } = rig();
+    const vaultRoot = join(dir, "vault-hl");
+    mkdirSync(join(vaultRoot, "memory", "reflections"), { recursive: true });
+    mkdirSync(join(vaultRoot, "private"), { recursive: true });
+    // The private note mentions the target path; a raw read would report the alias as an outdated
+    // reflection (an existence/content oracle on a note the caller cannot read).
+    writeFileSync(join(vaultRoot, "private", "secret.md"), "mentions notes/target.md");
+    linkSync(
+      join(vaultRoot, "private", "secret.md"),
+      join(vaultRoot, "memory", "reflections", "alias.md"),
+    );
+    writeFileSync(join(vaultRoot, "memory", "reflections", "real.md"), "mentions notes/target.md");
+    const res = forgetNote(edb, cache, {
+      vaultId: "main",
+      relPath: "notes/target.md",
+      nowMs: NOW,
+      vaultRoot,
+    });
+    expect(res.outdated_reflections).toEqual(["real.md"]);
   });
 
   it("scopes synthMentions/contraMentions to the target vault (I1 completeness gap)", () => {

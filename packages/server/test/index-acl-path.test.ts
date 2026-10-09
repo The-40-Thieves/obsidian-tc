@@ -28,7 +28,7 @@ import { registerM7Tools } from "../src/tools/m7";
 import { readableByFolder, readableRel } from "../src/vault/acl-read-filter";
 import { nativeVaultIo } from "../src/vault/notes-io";
 import { VaultRegistry } from "../src/vault/registry";
-import { loadAclPathExceptions, readableStoredRow } from "../src/vault/stored-acl-path";
+import { readableStoredRow, storedAclPathOf } from "../src/vault/stored-acl-path";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
@@ -370,8 +370,7 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
         // The alias is gone from disk: the file cannot be resolved, so the pass cannot set its identity.
         rmSync(join(w.root, "wiki"));
         await w.index("pages", ACL_PAGES); // a pass over something else
-        const ex = loadAclPathExceptions(db, VAULT);
-        expect(ex.get("wiki/secret-project.md")).toBeNull();
+        expect(storedAclPathOf(db, VAULT)("wiki/secret-project.md")).toBeNull();
         const sem = await w.call("search_semantic", { query: "zebra", k: 20 }, ACL_ALIAS);
         expect(pathsOf(sem.data)).not.toContain("wiki/secret-project.md");
       });
@@ -667,7 +666,7 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
   });
 
   describe("the resolver", () => {
-    it("lists only names whose identity differs; two rows of one name that disagree are closed", () => {
+    it("an identity is the row's own acl_path; a name whose rows disagree, or that is unresolved, is closed", () => {
       const db = freshDb();
       const ins = db.prepare(
         "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at, acl_path) VALUES (?, ?, ?, 0, '[]', 'c', ?, 1, 0, 0, ?)",
@@ -678,11 +677,14 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
       ins.run("4", VAULT, "d.md", "h4", ""); // unresolved
       ins.run("5", VAULT, "e.md", "h5", "x/e.md"); // two identities for one name
       ins.run("6", VAULT, "e.md", "h6", "y/e.md");
-      expect([...loadAclPathExceptions(db, VAULT)].sort()).toEqual([
-        ["b.md", null],
-        ["d.md", null],
-        ["e.md", null],
-        ["wiki/c.md", "private/c.md"],
+      const identityOf = storedAclPathOf(db, VAULT);
+      expect(["a.md", "b.md", "wiki/c.md", "d.md", "e.md", "gone.md"].map(identityOf)).toEqual([
+        "a.md",
+        null,
+        "private/c.md",
+        null,
+        null,
+        null, // no row at all: nothing to authorize
       ]);
     });
 
@@ -692,7 +694,7 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
         db,
         CACHE_MIGRATIONS.filter((m) => m.version !== "20261009_001"),
       );
-      expect(loadAclPathExceptions(db, VAULT).size).toBe(0);
+      expect(storedAclPathOf(db, VAULT)("any/name.md")).toBe("any/name.md");
     });
   });
 });

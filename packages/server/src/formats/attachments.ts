@@ -5,7 +5,6 @@
 // plugin. Reference detection reuses the M1 link extractor + rewriter and matches a
 // link to an attachment by exact vault-relative path or by basename (Obsidian's
 // shortest-path attachment resolution).
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { MetricsRecorder } from "../metrics/registry";
@@ -84,7 +83,7 @@ export function mimeOf(rel: string): string {
 /** Resolve the configured attachment folder (Obsidian app.json), or "" (vault root). */
 export function resolveAttachmentFolder(root: string): string {
   try {
-    const app = JSON.parse(readFileSync(join(root, ".obsidian", "app.json"), "utf8")) as Record<
+    const app = JSON.parse(readNote(join(root, ".obsidian", "app.json")).raw) as Record<
       string,
       unknown
     >;
