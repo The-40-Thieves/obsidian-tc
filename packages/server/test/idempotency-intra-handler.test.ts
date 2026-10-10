@@ -78,7 +78,7 @@ function ctx(db: Database, over: Partial<CallerContext> = {}): CallerContext {
 }
 function idemState(db: Database, key: string): string | undefined {
   return (
-    db.prepare("SELECT state FROM idempotency_keys WHERE vault_id='v1' AND key=?").get(key) as
+    db.prepare("SELECT state FROM idempotency_keys WHERE vault_id='v1' AND idem_key=?").get(key) as
       | { state: string }
       | undefined
   )?.state;
@@ -233,7 +233,7 @@ describe("add_observation is atomic across its SQLite append + note write (THE-5
       expect(observations(v, id)).toEqual(["first"]);
       // ...which makes this a pre-effect failure: the claim is released for a real retry.
       expect(
-        v.db.prepare("SELECT state FROM idempotency_keys WHERE key='K'").get(),
+        v.db.prepare("SELECT state FROM idempotency_keys WHERE idem_key='K'").get(),
       ).toBeUndefined();
 
       rmSync(notePath, { recursive: true }); // clear the fault
@@ -276,7 +276,7 @@ describe("add_observation is atomic across its SQLite append + note write (THE-5
       expect(observations(v, id)).toEqual(["first"]); // rolled back
       // The marker was set INSIDE that transaction, so it rolled back too — no false indeterminate.
       expect(
-        v.db.prepare("SELECT state FROM idempotency_keys WHERE key='K'").get(),
+        v.db.prepare("SELECT state FROM idempotency_keys WHERE idem_key='K'").get(),
       ).toBeUndefined();
 
       const b = await v.call(
@@ -317,7 +317,7 @@ describe("start_session is atomic across its row insert + trace write (THE-572)"
       };
       expect(after.n).toBe(0);
       expect(
-        v.db.prepare("SELECT state FROM idempotency_keys WHERE key='K'").get(),
+        v.db.prepare("SELECT state FROM idempotency_keys WHERE idem_key='K'").get(),
       ).toBeUndefined();
 
       rmSync(join(v.cacheDir, "traces")); // clear the fault
@@ -457,7 +457,7 @@ describe("enqueue_capture is atomic across its INSERT + read-back (THE-572)", ()
         (v.db.prepare("SELECT COUNT(*) AS n FROM capture_queue").get() as { n: number }).n,
       ).toBe(0);
       expect(
-        v.db.prepare("SELECT state FROM idempotency_keys WHERE key='K'").get(),
+        v.db.prepare("SELECT state FROM idempotency_keys WHERE idem_key='K'").get(),
       ).toBeUndefined();
 
       const b = await v.call("enqueue_capture", args, { now: () => 200 });
@@ -732,7 +732,7 @@ describe("THE-573 #2: add_observation's read + render + append now share ONE wri
       expect(observations(v, id)).toEqual(["first"]);
       // ...which makes this a pre-effect failure: the claim is released for a real retry.
       expect(
-        v.db.prepare("SELECT state FROM idempotency_keys WHERE key='K'").get(),
+        v.db.prepare("SELECT state FROM idempotency_keys WHERE idem_key='K'").get(),
       ).toBeUndefined();
 
       (v.db as { exec: (s: string) => void }).exec = realExec; // clear the fault

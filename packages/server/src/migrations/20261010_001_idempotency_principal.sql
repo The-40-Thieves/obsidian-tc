@@ -8,8 +8,21 @@
 -- `principal` joins the primary key, so each caller has its own namespace: Bob's claim on a key
 -- Alice holds simply does not collide with it and runs fresh. The value is the server-OBSERVED
 -- caller (`ctx.caller`), never anything the caller declares. Dispatch refuses a keyed call from a
--- caller with no identity (a token without `sub`), so '' is never a live principal: it exists only
--- as the column default and for the rows this migration leaves behind (it leaves none, below).
+-- caller with no identity (a token without `sub`), so '' is never a live principal, and the column
+-- says so: NOT NULL, no default, CHECK (principal <> '').
+--
+-- MIXED VERSIONS. Processes sharing one cache DB are not upgraded atomically, and the server does
+-- not refuse to start against a newer schema (the runner applies the migrations it knows and
+-- ignores applied ones it does not), so a pre-upgrade process keeps running its old statements
+-- against this table. Those key on (vault_id, key) alone: an INSERT would park an owner-less row,
+-- and a finalize, mark or delete would match EVERY principal's row for that key and overwrite or
+-- delete it (reproduced against a table whose `principal` defaulted to ''). The shape therefore
+-- fails them closed: the key column is renamed `idem_key`, so every old statement (INSERT, SELECT,
+-- UPDATE, DELETE) errors with "no such column: key" instead of executing, and a default-less
+-- `principal` would refuse the INSERT even if a statement named the old column. An old process's
+-- keyed calls then fail until it is restarted on the new version; calls without a key, and
+-- everything else it does with the cache DB, are unaffected. Upgrade every process that shares a
+-- cache DB together.
 --
 -- MIGRATION DISPOSITION: PURGE, NOT COPY -- the precedent 20260820_001 / 20260803_001 / 20260724_001
 -- set for a table whose rows carry no recoverable attribution. A row written before this migration
@@ -27,8 +40,8 @@ DROP TABLE idempotency_keys;
 
 CREATE TABLE idempotency_keys (
   vault_id      TEXT NOT NULL,
-  principal     TEXT NOT NULL DEFAULT '',   -- ctx.caller; '' is never a live principal (see above)
-  key           TEXT NOT NULL,
+  principal     TEXT NOT NULL CHECK (principal <> ''),   -- ctx.caller; no default (see above)
+  idem_key      TEXT NOT NULL,              -- the caller's idempotency_key (was `key`; see MIXED VERSIONS)
   tool_name     TEXT NOT NULL,
   args_hash     TEXT NOT NULL,
   started_at    INTEGER NOT NULL,
@@ -37,7 +50,7 @@ CREATE TABLE idempotency_keys (
   result_size   INTEGER,
   expires_at    INTEGER NOT NULL,
   state         TEXT NOT NULL DEFAULT 'in_flight',
-  PRIMARY KEY (vault_id, principal, key)
+  PRIMARY KEY (vault_id, principal, idem_key)
 );
 
 CREATE INDEX idx_idempotency_expires   ON idempotency_keys(expires_at);

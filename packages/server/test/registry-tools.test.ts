@@ -89,7 +89,7 @@ describe("Domain 1: multi-vault registry", () => {
     try {
       v.db
         .prepare(
-          "INSERT INTO idempotency_keys (vault_id, key, tool_name, args_hash, started_at, expires_at) VALUES (?,?,?,?,?,?)",
+          "INSERT INTO idempotency_keys (vault_id, principal, idem_key, tool_name, args_hash, started_at, expires_at) VALUES (?,'t',?,?,?,?,?)",
         )
         .run("test", "k1", "write_note", "h", 1, 9999999999999);
 

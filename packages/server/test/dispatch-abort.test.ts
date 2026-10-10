@@ -36,7 +36,7 @@ function ctx(db: Database, over: Partial<CallerContext> = {}): CallerContext {
 }
 
 function idemRow(db: Database, key: string) {
-  return db.prepare("SELECT * FROM idempotency_keys WHERE vault_id='v1' AND key=?").get(key) as
+  return db.prepare("SELECT * FROM idempotency_keys WHERE vault_id='v1' AND idem_key=?").get(key) as
     | { state: string }
     | undefined;
 }

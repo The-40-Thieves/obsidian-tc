@@ -361,7 +361,7 @@ describe("configureMaintenance", () => {
       // is non-zero. A test that only proved "an event fired with count 0" would pass against a
       // sweep that deleted nothing.
       db.prepare(
-        "INSERT INTO idempotency_keys (vault_id, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO idempotency_keys (vault_id, principal, idem_key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?,'t',?,?,?,?,?,?,?,?)",
       ).run("v1", "old", "t", "h", NOW - 100_000, NOW - 90_000, "{}", 2, NOW - 1);
       const { m, emitted } = fakeMorgiana();
       const sched = new Scheduler();

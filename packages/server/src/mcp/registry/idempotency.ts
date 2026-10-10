@@ -72,7 +72,7 @@ export function tryClaimIdempotency(
   try {
     cachedPrepare(
       db,
-      "INSERT INTO idempotency_keys (vault_id, principal, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)",
+      "INSERT INTO idempotency_keys (vault_id, principal, idem_key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)",
     ).run(o.vaultId, o.principal, key, tool, argsHashValue, nowMs, nowMs + ttlMs);
     return "claimed";
   } catch (e) {
@@ -88,7 +88,7 @@ export function readIdempotency(
 ): IdempotencyRow | undefined {
   return cachedPrepare(
     db,
-    "SELECT tool_name, args_hash, started_at, completed_at, result, result_size, expires_at, state FROM idempotency_keys WHERE vault_id = ? AND principal = ? AND key = ?",
+    "SELECT tool_name, args_hash, started_at, completed_at, result, result_size, expires_at, state FROM idempotency_keys WHERE vault_id = ? AND principal = ? AND idem_key = ?",
   ).get(o.vaultId, o.principal, key) as IdempotencyRow | undefined;
 }
 
@@ -102,7 +102,7 @@ export function finalizeIdempotency(
 ): void {
   cachedPrepare(
     db,
-    "UPDATE idempotency_keys SET completed_at = ?, result = ?, result_size = ?, state = 'completed' WHERE vault_id = ? AND principal = ? AND key = ?",
+    "UPDATE idempotency_keys SET completed_at = ?, result = ?, result_size = ?, state = 'completed' WHERE vault_id = ? AND principal = ? AND idem_key = ?",
   ).run(nowMs, json, size, o.vaultId, o.principal, key);
 }
 
@@ -116,7 +116,7 @@ export function markEffectCommitted(
 ): void {
   cachedPrepare(
     db,
-    "UPDATE idempotency_keys SET state = 'effect_committed' WHERE vault_id = ? AND principal = ? AND key = ? AND completed_at IS NULL",
+    "UPDATE idempotency_keys SET state = 'effect_committed' WHERE vault_id = ? AND principal = ? AND idem_key = ? AND completed_at IS NULL",
   ).run(o.vaultId, o.principal, key);
 }
 
@@ -131,14 +131,14 @@ export function finalizeIndeterminate(
 ): void {
   cachedPrepare(
     db,
-    "UPDATE idempotency_keys SET completed_at = ?, result = 'null', result_size = NULL, state = 'indeterminate' WHERE vault_id = ? AND principal = ? AND key = ?",
+    "UPDATE idempotency_keys SET completed_at = ?, result = 'null', result_size = NULL, state = 'indeterminate' WHERE vault_id = ? AND principal = ? AND idem_key = ?",
   ).run(nowMs, o.vaultId, o.principal, key);
 }
 
 export function deleteIdempotency(db: Database, o: IdempotencyOwner, key: string): void {
   cachedPrepare(
     db,
-    "DELETE FROM idempotency_keys WHERE vault_id = ? AND principal = ? AND key = ?",
+    "DELETE FROM idempotency_keys WHERE vault_id = ? AND principal = ? AND idem_key = ?",
   ).run(o.vaultId, o.principal, key);
 }
 

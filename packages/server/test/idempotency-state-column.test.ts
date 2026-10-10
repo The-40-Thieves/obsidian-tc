@@ -16,9 +16,9 @@ describe("idempotency_keys.state column (THE-562 #13)", () => {
     expect(state?.notnull).toBe(1);
     // A row inserted without state gets the default.
     db.prepare(
-      "INSERT INTO idempotency_keys (vault_id, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES ('v','k','t','h',1,NULL,NULL,NULL,999)",
+      "INSERT INTO idempotency_keys (vault_id, principal, idem_key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES ('v','t','k','t','h',1,NULL,NULL,NULL,999)",
     ).run();
-    const row = db.prepare("SELECT state FROM idempotency_keys WHERE key='k'").get() as {
+    const row = db.prepare("SELECT state FROM idempotency_keys WHERE idem_key='k'").get() as {
       state: string;
     };
     expect(row.state).toBe("in_flight");

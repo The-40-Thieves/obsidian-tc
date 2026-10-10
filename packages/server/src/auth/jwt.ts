@@ -7,6 +7,7 @@ import {
   type RemoteJWKSetOptions,
 } from "jose";
 import { OidcFetchError } from "./oidc-discovery";
+import { isReservedPrincipal } from "./reserved-principals";
 
 /**
  * THE-520: why a token was refused. Every value is OPERATOR-facing — it belongs in logs and the
@@ -33,6 +34,7 @@ export type AuthRejectionReason =
   | "client_mismatch" // oidc: auth.oidc.clientId is set and the token's client_id/azp differs or is absent
   | "claim_not_allowed" // oidc: a mapped persona/vault claim is not a string or is outside its allowlist
   | "idp_unavailable" // oidc, or jwt mode's remote `jwksUri`: the key set could not be fetched or was refused, so nothing can be verified
+  | "reserved_principal"
   | "persona_denied"; // THE-647 item 2: `persona` claim named an unconfigured persona, or a
 // vault outside that persona's `vaults` — resolved one layer up in auth/persona.ts, not by
 // jwtVerify itself, but the SAME external "invalid or expired token" message applies: an
@@ -303,6 +305,7 @@ export function identityFrom(
   if (mapping !== undefined) {
     const principal =
       mapping.principal === undefined ? undefined : asString(claimAt(payload, mapping.principal));
+    refuseReserved(principal ?? caller);
     return {
       caller: principal ?? caller,
       scopes: scopesFromClaim(claimAt(payload, mapping.scopes), mapping),
@@ -311,6 +314,7 @@ export function identityFrom(
       persona: allowlistedClaim(payload, mapping.persona, mapping.allowedPersonas, caller),
     };
   }
+  refuseReserved(caller);
   return {
     caller,
     scopes: extractScopes(payload),
@@ -318,6 +322,11 @@ export function identityFrom(
     vault: typeof payload.vault === "string" ? payload.vault : undefined,
     persona: typeof payload.persona === "string" ? payload.persona : undefined,
   };
+}
+
+function refuseReserved(principal: string | null): void {
+  if (isReservedPrincipal(principal))
+    throw new AuthRejection("reserved_principal", { caller: principal });
 }
 
 /** A persona/vault claim is a bearer capability: absent -> undefined; present but not a string or

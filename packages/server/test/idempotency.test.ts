@@ -57,12 +57,12 @@ type IdemRow = {
 
 function idemRow(db: Database, key: string): IdemRow | undefined {
   return db
-    .prepare("SELECT * FROM idempotency_keys WHERE vault_id = ? AND key = ?")
+    .prepare("SELECT * FROM idempotency_keys WHERE vault_id = ? AND idem_key = ?")
     .get("v1", key) as IdemRow | undefined;
 }
 
 const INSERT =
-  "INSERT INTO idempotency_keys (vault_id, principal, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?,'t',?,?,?,?,?,?,?,?)";
+  "INSERT INTO idempotency_keys (vault_id, principal, idem_key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?,'t',?,?,?,?,?,?,?,?)";
 
 describe("dispatch idempotency gate (D3)", () => {
   it("first keyed call executes and stores a completed row", async () => {

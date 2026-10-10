@@ -54,6 +54,27 @@ at a claim the provider does set (`email`, `client_id`). stdio is the fixed call
 Idempotency keys are namespaced by the calling principal, so the same key from two callers is two
 independent claims and one caller never replays another's result.
 
+### Reserved principals
+
+State is keyed on the caller string, and the server has callers of its own: `stdio`, `http-local`
+(`auth.mode: none`), `cli-operator`, `prefetch-worker`, `memory-import-cli`, and the namespaces
+`rerun:` (replayed sessions) and `internal:`. A verified token that spelled one of them would share
+that caller's idempotency keys, work memory and sessions, so the verifier **rejects** it
+(`reserved_principal` in the log; the client sees the same undifferentiated "invalid token" as any
+other refusal) and `token mint` refuses it as `--sub`. The check is on the **resolved** principal, so
+under `oidc` it applies to whichever claim `claimMapping.subject` / `principal` names. Matching is
+exact and case-sensitive. The bundled authorization server always issues `sub` as `usr_<random>`, so
+it is never affected. The stored identities are not renamed, which would orphan existing state: only
+a token whose subject collides is turned away, and the fix is a different subject.
+
+### Search without an identity
+
+`search_vault` and `search_and_read` stay usable for a token with no `sub`, but for it they use no
+per-caller state: `search_vault` ignores the learned `preferred.search_mode` (the default mode
+applies, as it does when `retrieval.useSearchModePreference` is off), and a `search_and_read` cursor
+re-runs the search instead of resuming from a continuation held in memory. Give the token a `sub` to
+get the learned preference back.
+
 ## Asymmetric JWT verification (RS256 / ES256 / EdDSA)
 
 Beyond the shared-secret HS256 path above, `auth.mode: jwt` can verify tokens signed

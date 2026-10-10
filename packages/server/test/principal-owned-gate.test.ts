@@ -229,13 +229,14 @@ describe("3. idempotency: the key is namespaced by principal", () => {
     }
   });
 
-  it("a legacy row with no recorded owner is never readable by an identified caller", async () => {
+  it("a row recorded for another owner is never readable by an identified caller", async () => {
     const v = makeM5Vault();
     try {
       const first = await v.call("start_session", input, { caller: "alice" });
       if (!first.ok) throw new Error("setup");
-      // What migration 20261010_001 does to a pre-existing row: it has no owner to attribute.
-      v.db.prepare("UPDATE idempotency_keys SET principal = ''").run();
+      // The migration purges pre-existing rows (none recorded an owner) and the schema refuses an
+      // owner-less one (idempotency-legacy-writers.test.ts), so the stand-in is a foreign owner.
+      v.db.prepare("UPDATE idempotency_keys SET principal = 'someone-else'").run();
       const again = await v.call("start_session", input, { caller: "alice" });
       expect(again.ok).toBe(true);
       if (!again.ok) return;

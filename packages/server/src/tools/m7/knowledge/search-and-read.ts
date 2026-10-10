@@ -32,6 +32,7 @@ import { argsHash } from "../../../hash";
 import { paginateByBytes, pagingOf } from "../../../mcp/byte-page";
 import type { ToolDefinition } from "../../../mcp/registry";
 import type { VaultAclResolver } from "../../../mcp/resources";
+import { isIdentifiedCaller } from "../../../mcp/tasks";
 import type { GraphSearchResult } from "../../../search/graph_search";
 import { normalizeVaultPath } from "../../../vault/paths";
 import { defineTool } from "../../m1/define";
@@ -255,6 +256,11 @@ export function createSearchAndReadTool(
       const acl = aclFor(v.id) ?? ctx.acl;
       const paging = pagingOf(deps.paging);
 
+      // The continuation is held in process memory under the caller. A caller with no identity (a
+      // token without `sub`) has no key of its own: every such credential would read and overwrite
+      // one entry. It keeps none: a cursor re-runs the search (same budget and ACL as the first
+      // page), so paging still works and nothing is shared.
+      const keepsContinuation = isIdentifiedCaller(ctx.caller);
       const selectionKey = argsHash("search_and_read.selection", {
         principal: ctx.caller ?? null,
         vault: v.id,
@@ -262,7 +268,10 @@ export function createSearchAndReadTool(
         k: input.k,
         mode: input.mode,
       });
-      let items = input.cursor !== undefined ? selections.get(selectionKey)?.items : undefined;
+      let items =
+        keepsContinuation && input.cursor !== undefined
+          ? selections.get(selectionKey)?.items
+          : undefined;
       if (items === undefined) {
         const leg = await searchOneVault(
           deps,
@@ -277,7 +286,7 @@ export function createSearchAndReadTool(
           "search_and_read",
         );
         items = select(leg.results, input.mode, input.k, ctx.db, v.id);
-        remember(selectionKey, items);
+        if (keepsContinuation) remember(selectionKey, items);
       }
 
       const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";

@@ -32,10 +32,13 @@
 // SCOPE. `preferred.search_mode` is declared "caller"-scoped (PREFERENCE_KEYS): it encodes the
 // OBSERVING AGENT's own workload and must not steer another principal's retrieval. `preferenceProfile`
 // returns the shared '' partition UNION the caller's own, which is right for a human-scoped key but
-// would hand a named caller the stdio/unauthenticated principal's row here; so entries are filtered
-// to the key's declared scope. A null caller (the single trusted local principal) reads the ''
-// partition. The vault is the resolved search target, so one vault's profile never steers another.
+// would hand a named caller another principal's row here; so entries are filtered to the key's
+// declared scope. A caller with NO identity (a token without `sub`: `caller: null`) reads nothing: every
+// such credential is the same '' partition, so a stored mode would steer, or leak to, all of them. It
+// gets the default. stdio and `auth.mode: none` are named callers, so they keep their own row. The
+// vault is the resolved search target, so one vault's profile never steers another.
 import type { Database } from "../db/types";
+import { isIdentifiedCaller } from "../mcp/tasks";
 import { PREFERENCE_KEYS, preferenceProfile } from "./reflect";
 
 const KEY = "preferred.search_mode";
@@ -71,8 +74,9 @@ export function resolveSearchVaultMode(input: ResolveSearchModeInput): {
   if (input.explicit !== undefined) return { mode: input.explicit, source: "explicit" };
   const fallback = { mode: "auto" as const, source: "default" as const };
   if (!input.stringQuery) return fallback;
+  const scope = PREFERENCE_KEYS.get(KEY)?.scope ?? "caller";
+  if (scope === "caller" && !isIdentifiedCaller(input.caller)) return fallback;
   try {
-    const scope = PREFERENCE_KEYS.get(KEY)?.scope ?? "caller";
     const want = scope === "human" ? "" : (input.caller ?? "");
     const row = preferenceProfile(input.edb, input.vaultId, input.caller).entries.find(
       (e) => e.key === KEY && e.scope_caller === want,
