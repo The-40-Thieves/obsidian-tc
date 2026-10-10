@@ -15,7 +15,7 @@
 // committed snapshot from the same function the test compares against.
 import type { Tool } from "@modelcontextprotocol/server";
 import { domainTools, triadDirectTools, triadTools } from "../../src/mcp/facade";
-import type { ToolRegistry } from "../../src/mcp/registry";
+import type { ToolDefinition, ToolRegistry } from "../../src/mcp/registry";
 import { isAdvertisedIn } from "../../src/mcp/tool-profiles";
 import { toMcpTool } from "../../src/mcp/tool-projection";
 
@@ -35,7 +35,9 @@ export const SNAPSHOT_SURFACES = ["flat", "triad", "triad-no-vault", "domain"] a
 
 export function advertisedSurfaces(registry: ToolRegistry): AdvertisedSurfaces {
   const defs = registry.list();
-  const flat = defs.map(toMcpTool);
+  // Never `.map(toMcpTool)`: its optional 2nd parameter (the response budget) would get the index.
+  const project = (d: ToolDefinition): Tool => toMcpTool(d);
+  const flat = defs.map(project);
   const direct = (hasResources: boolean): Tool[] => [
     ...triadTools(hasResources),
     ...triadDirectTools(defs, toMcpTool),
@@ -45,8 +47,8 @@ export function advertisedSurfaces(registry: ToolRegistry): AdvertisedSurfaces {
     triad: direct(true),
     "triad-no-vault": direct(false),
     domain: domainTools(defs),
-    essentials: defs.filter((d) => isAdvertisedIn("essentials", d.name)).map(toMcpTool),
-    core: defs.filter((d) => isAdvertisedIn("core", d.name)).map(toMcpTool),
+    essentials: defs.filter((d) => isAdvertisedIn("essentials", d.name)).map(project),
+    core: defs.filter((d) => isAdvertisedIn("core", d.name)).map(project),
   };
 }
 
