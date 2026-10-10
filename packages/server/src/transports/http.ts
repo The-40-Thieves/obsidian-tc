@@ -1,10 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { join } from "node:path";
-import {
-  createMcpHandler,
-  type ServerNotifier,
-  validateOriginHeader,
-} from "@modelcontextprotocol/server";
+import { createMcpHandler, type ServerNotifier } from "@modelcontextprotocol/server";
 import type {
   PersonasConfig,
   ResponseFormat,
@@ -51,7 +47,7 @@ import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
 import { activeSessionFor, DEFAULT_TRACE_FOLDER, openImplicitSession } from "../workspace/sessions";
 import { anonymousGate, carriesNoCredentials, mixedModeScopes } from "./anonymous-discovery";
-import { bothForms, hostnameOf, isHostAllowed } from "./host-guard";
+import { isHostAllowed, isOriginAllowed } from "./host-guard";
 import { type ServerHandle, serveHono } from "./serve";
 
 type AuthConfig = ServerConfig["auth"];
@@ -607,20 +603,11 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
         );
 
       const origin = c.req.header("origin");
-      if (origin) {
-        // Same-origin stays allowed: the request's own Host is the origin a browser would send.
-        const allowedOriginHosts = [
-          hostnameOf(rawHost),
-          ...bothForms(opts.allowedOrigins ?? []).map((o) =>
-            hostnameOf(o.replace(/^\w+:\/\//, "")),
-          ),
-        ];
-        if (!validateOriginHeader(origin, allowedOriginHosts).ok)
-          return c.json(
-            { jsonrpc: "2.0", error: { code: -32000, message: "origin not allowed" }, id: null },
-            403,
-          );
-      }
+      if (origin && !isOriginAllowed(origin, rawHost, opts.allowedOrigins))
+        return c.json(
+          { jsonrpc: "2.0", error: { code: -32000, message: "origin not allowed" }, id: null },
+          403,
+        );
     }
     let authz = await resolveAuth(
       c.req.header("authorization"),

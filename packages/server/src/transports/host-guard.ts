@@ -1,4 +1,8 @@
-import { localhostAllowedHostnames, validateHostHeader } from "@modelcontextprotocol/server";
+import {
+  localhostAllowedHostnames,
+  validateHostHeader,
+  validateOriginHeader,
+} from "@modelcontextprotocol/server";
 
 /** The SDK matches on the HOSTNAME, while our config schema documents `allowedHosts` as "Host header
  *  VALUES" (which may include a port). Strip the port and IPv6 brackets so both forms work. */
@@ -13,4 +17,18 @@ export const bothForms = (vs: readonly string[]): string[] => vs.flatMap((v) => 
 export function isHostAllowed(rawHost: string, allowedHosts: readonly string[] = []): boolean {
   return validateHostHeader(rawHost, [...localhostAllowedHostnames(), ...bothForms(allowedHosts)])
     .ok;
+}
+
+/** Origin half of the same check: same-origin stays allowed (the request's own Host is the origin a
+ *  browser would send), plus the operator's `allowedOrigins`. */
+export function isOriginAllowed(
+  origin: string,
+  rawHost: string,
+  allowedOrigins: readonly string[] = [],
+): boolean {
+  const hosts = [
+    hostnameOf(rawHost),
+    ...bothForms(allowedOrigins).map((o) => hostnameOf(o.replace(/^\w+:\/\//, ""))),
+  ];
+  return validateOriginHeader(origin, hosts).ok;
 }

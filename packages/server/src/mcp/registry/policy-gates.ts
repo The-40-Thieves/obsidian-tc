@@ -23,11 +23,8 @@ import type { CallerContext, RegistryOptions, ToolDefinition, VerifyElicit } fro
 // function throws the identical ObsidianTcError the inline block it replaces did; the audit/meter/
 // episode reaction to a thrown error stays in dispatch.ts's single catch-all.
 
-/** Authentication gate: an unauthenticated context dispatches NO tool, scope-free ones included
- *  (`server_health`, `get_index_status`, `generate_uri` declare none). Only the HTTP anonymous
- *  discovery caller is ever `authenticated: false`; stdio, `auth.mode none` and the internal
- *  runners all build `authenticated: true`. Independent of which scopes are granted (checked next by
- *  assertScopesGranted). */
+/** Authentication gate: an unauthenticated context (only the HTTP anonymous caller; stdio, mode
+ *  `none` and the internal runners are all authenticated) dispatches NO tool, scope-free ones included. */
 export function requireAuthenticated(ctx: Pick<CallerContext, "authenticated">): void {
   if (!ctx.authenticated)
     throw new ObsidianTcError("unauthorized", "authentication required for this tool");
