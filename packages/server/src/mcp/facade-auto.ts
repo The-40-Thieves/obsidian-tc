@@ -58,12 +58,19 @@ export function toolFacadeHealthView(cfg: {
   mode: FacadeMode | "auto";
   autoClients?: Readonly<Record<string, FacadeMode>>;
   profile: "full" | "core";
+  advertise?: AdvertiseSubset;
 }): {
   configured: FacadeMode | "auto";
   autoClients?: Readonly<Record<string, FacadeMode>>;
   profile: "full" | "core";
+  advertise?: AdvertiseSubset;
 } {
-  return { configured: cfg.mode, autoClients: cfg.autoClients, profile: cfg.profile };
+  return {
+    configured: cfg.mode,
+    autoClients: cfg.autoClients,
+    profile: cfg.profile,
+    advertise: cfg.advertise,
+  };
 }
 
 /** THE-1123 review fix (LOW #8), extended THE-1125, extended THE-1108: bundles `config`-derived
@@ -81,6 +88,7 @@ export function healthToolsWiringFields<V extends readonly { id: string }[]>(
       mode: FacadeMode | "auto";
       autoClients?: Readonly<Record<string, FacadeMode>>;
       profile: "full" | "core";
+      advertise?: AdvertiseSubset;
     };
     sessions?: { windowSeconds: number };
   },

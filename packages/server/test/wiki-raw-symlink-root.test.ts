@@ -235,18 +235,20 @@ describe.skipIf(process.platform === "win32")("a read-denied symlink is not an o
 });
 
 describe("evaluatePathAcl sees the canonical glob", () => {
-  it("is plain data on the built ACL: both prefixes are immutable", () => {
-    if (process.platform === "win32") return;
-    const root = makeTempDir("obtc-eval-");
-    temps.push(root);
-    mkdirSync(join(root, "sources"));
-    link(root, join(root, "sources"), "raw");
-    const acl = buildAcls(CFG, [{ id: "v", path: root, wiki: { folder: "wiki" } }]).aclByVault.get(
-      "v",
-    );
-    for (const p of ["raw", "raw/a.md", "sources", "sources/a.md", "sources/deep/a.md"])
-      expect(evaluatePathAcl(acl, "write", p).allowed).toBe(false);
-    expect(evaluatePathAcl(acl, "write", "sourcesish/a.md").allowed).toBe(true);
-    expect(evaluatePathAcl(acl, "read", "sources/a.md").allowed).toBe(true);
-  });
+  it.skipIf(process.platform === "win32")(
+    "is plain data on the built ACL: both prefixes are immutable",
+    () => {
+      const root = makeTempDir("obtc-eval-");
+      temps.push(root);
+      mkdirSync(join(root, "sources"));
+      link(root, join(root, "sources"), "raw");
+      const acl = buildAcls(CFG, [
+        { id: "v", path: root, wiki: { folder: "wiki" } },
+      ]).aclByVault.get("v");
+      for (const p of ["raw", "raw/a.md", "sources", "sources/a.md", "sources/deep/a.md"])
+        expect(evaluatePathAcl(acl, "write", p).allowed).toBe(false);
+      expect(evaluatePathAcl(acl, "write", "sourcesish/a.md").allowed).toBe(true);
+      expect(evaluatePathAcl(acl, "read", "sources/a.md").allowed).toBe(true);
+    },
+  );
 });

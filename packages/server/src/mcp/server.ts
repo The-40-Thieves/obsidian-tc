@@ -523,7 +523,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
     ctx = { ...ctx, ...(clientInfo !== undefined ? { clientInfo } : {}), ...claimed };
     // THE-1123: stamped onto ctx so server_health reads THIS decision, never re-derives its own.
     const facadeMode = resolveFacadeMode(clientInfo?.name);
-    ctx = { ...ctx, effectiveFacadeMode: facadeMode, ...ctxExplanation() };
+    ctx = {
+      ...ctx,
+      effectiveFacadeMode: facadeMode,
+      effectiveAdvertise: opts.advertise ?? "all",
+      ...ctxExplanation(),
+    };
     // THE-1131: shared disclosable-hidden check (describe/call_capability + direct dispatch).
     const checkHidden = (name: string): CallToolResult | null =>
       capabilityHiddenCheck(

@@ -4,7 +4,7 @@ import type { FacadeMode } from "../../mcp/facade";
 import { AUTO_FACADE_DEPRECATION, FALLBACK_FACADE_MODE } from "../../mcp/facade-auto";
 import type { AutoFacadeExplanation } from "../../mcp/facade-mode";
 import type { ToolDefinition } from "../../mcp/registry";
-import { NON_CORE_TOOL_NAMES } from "../../mcp/tool-profiles";
+import { type AdvertiseSubset, NON_CORE_TOOL_NAMES } from "../../mcp/tool-profiles";
 import { readUnrestrictedOnEveryVault } from "../../vault/acl-read-filter";
 
 export interface IndexHealthSnapshot {
@@ -96,6 +96,8 @@ export interface HealthInfo {
     /** THE-1131: NON_CORE_TOOL_NAMES.length — how many registered tools `profile: "core"` hides
      *  and dispatch-rejects. 0 under "full" (the default; nothing is hidden). */
     nonCoreToolCount: number;
+    advertise: AdvertiseSubset;
+    effectiveAdvertise: AdvertiseSubset;
     deprecation?: string;
     explanation?: AutoFacadeExplanation;
   };
@@ -221,6 +223,8 @@ const ToolFacadeHealthOutput = z.object({
   clientName: z.string().optional(),
   profile: z.enum(["full", "core"]),
   nonCoreToolCount: z.number(),
+  advertise: z.enum(["all", "core", "essentials"]),
+  effectiveAdvertise: z.enum(["all", "core", "essentials"]),
   deprecation: z.string().optional(),
   explanation: z
     .object({
@@ -362,6 +366,7 @@ export function createHealthTool(opts: {
     autoClients?: Readonly<Record<string, FacadeMode>>;
     /** THE-1131: config.toolFacade.profile. */
     profile: "full" | "core";
+    advertise?: AdvertiseSubset;
   };
   /** THE-1125: read live at call time (like getJobQueueStats above) — never cached, since
    *  lastSendAt/lastError change on the scheduler's own cadence, independent of this call. */
@@ -459,6 +464,8 @@ export function createHealthTool(opts: {
                 ...(ctx.clientInfo?.name !== undefined ? { clientName: ctx.clientInfo.name } : {}),
                 profile: opts.toolFacade.profile,
                 nonCoreToolCount: NON_CORE_TOOL_NAMES.length,
+                advertise: opts.toolFacade.advertise ?? "all",
+                effectiveAdvertise: ctx.effectiveAdvertise ?? opts.toolFacade.advertise ?? "all",
                 ...(opts.toolFacade.configured === "auto"
                   ? { deprecation: AUTO_FACADE_DEPRECATION }
                   : {}),
