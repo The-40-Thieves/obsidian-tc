@@ -41,15 +41,25 @@ export interface WorkerRuntime {
   progress?: CallerContext["progress"];
 }
 
+/**
+ * `dropped` is only for a key dispatch NEVER reads (it sets it, or a tool handler reads it).
+ * test/task-offload-policy.test.ts fails a key the dispatch pipeline reads that is `dropped`,
+ * whatever its explanation: a read key is `carried`, `rebuilt` (the worker supplies its own), or
+ * `guarded` (read only behind a gate an offloaded call can never pass).
+ */
 type Disposition =
   | { how: "carried" }
   | { how: "rebuilt"; by: string }
+  | { how: "guarded"; by: string }
   | { how: "dropped"; why: string };
 
 const carried: Disposition = { how: "carried" };
 const rebuilt = (by: string): Disposition => ({ how: "rebuilt", by });
+const guarded = (by: string): Disposition => ({ how: "guarded", by });
 const dropped = (why: string): Disposition => ({ how: "dropped", why });
 
+const HITL_NEVER_REACHED =
+  "read only inside the HITL gate; registration refuses a taskAugmentable HITL tool, and a worker call that met the gate anyway is refused elicit_required (fails closed), both pinned by test";
 const HITL =
   "HITL-gated tools cannot be taskAugmentable (registration refuses them), so no confirmation round exists to carry";
 const BY_DISPATCH = "set by dispatch itself during the worker's own call";
@@ -80,12 +90,12 @@ export const CALLER_CONTEXT_DISPOSITION: Record<keyof CallerContext, Disposition
   progress: rebuilt(
     "the queue's progress fan-out, only when the originating request had a progressToken",
   ),
-  callerVaultId: dropped(BY_DISPATCH),
+  callerVaultId: rebuilt("set by dispatch's withEffectiveVault during the worker's own call"),
   markEffectCommitted: dropped(BY_DISPATCH),
   recordPendingWrite: dropped(BY_DISPATCH),
-  elicitToken: dropped(HITL),
-  elicitState: dropped(HITL),
-  relayElicitConsumed: dropped(HITL),
+  elicitToken: guarded(HITL_NEVER_REACHED),
+  elicitState: guarded(HITL_NEVER_REACHED),
+  relayElicitConsumed: guarded(HITL_NEVER_REACHED),
   hitlRoute: dropped(HITL),
   hitlAnswer: dropped(HITL),
   roots: dropped(
@@ -94,12 +104,12 @@ export const CALLER_CONTEXT_DISPOSITION: Record<keyof CallerContext, Disposition
   sample: dropped(
     "a live channel to the client; the request that owned it has ended by the time a task runs",
   ),
-  now: dropped("a test clock injection; the worker uses the real clock"),
-  traceCarrier: dropped(
-    "parents the caller's trace span; the task's own span is a new root, not a policy input",
+  now: rebuilt("none: dispatch reads it for a test clock injection and defaults to Date.now"),
+  traceCarrier: rebuilt(
+    "none: dispatch parents its span to it when present, so the task's span is a new root (telemetry, not a policy input)",
   ),
-  effectiveFacadeMode: dropped(
-    "observability of how tools/list was shaped for the originating connection",
+  effectiveFacadeMode: rebuilt(
+    "none: dispatch only labels metrics with it when present (telemetry, not a policy input)",
   ),
   facadeExplanation: dropped(
     "observability of how tools/list was shaped for the originating connection",

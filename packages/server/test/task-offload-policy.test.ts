@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { ToolVisibilityConfig } from "@the-40-thieves/obsidian-tc-shared";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
@@ -35,6 +35,12 @@ import {
 } from "../src/mcp/tasks";
 import { JobQueue } from "../src/scheduler/job-queue";
 import { makeStartTask, runTaskCall } from "../src/scheduler/task-call-runner";
+import {
+  droppedButRead,
+  openProject,
+  scanCallerContextReads,
+  UNNAMED_READS,
+} from "./caller-context-reads";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
@@ -426,25 +432,77 @@ function callerContextKeys(): string[] {
   return [...body.matchAll(/^ {2}(\w+)\??:/gm)].map((m) => m[1] as string);
 }
 
-/** Every `ctx.<key>` the dispatch pipeline and its visibility/HITL gates read. */
-function keysReadByDispatch(): Set<string> {
-  const files = [
+const PKG = join(__dirname, "..");
+const posix = (p: string): string => p.replaceAll("\\", "/");
+
+/** The files whose reads of a CallerContext are dispatch's: the registry, visibility, HITL. */
+function dispatchRoots(): string[] {
+  return [
     ...readdirSync(join(SRC, "mcp", "registry"))
       .filter((f) => f.endsWith(".ts"))
       .map((f) => join(SRC, "mcp", "registry", f)),
+    join(SRC, "mcp", "registry.ts"),
     join(SRC, "mcp", "visibility.ts"),
     join(SRC, "vault", "hitl.ts"),
-  ];
-  const keys = new Set<string>();
-  for (const f of files) {
-    for (const m of readFileSync(f, "utf8").matchAll(/\b(?:ctx|callerCtx)\.(\w+)/g)) {
-      keys.add(m[1] as string);
-    }
-  }
-  return keys;
+  ].map(posix);
 }
 
+describe("the CallerContext read scan", () => {
+  let handle: ReturnType<typeof openProject>;
+  beforeAll(() => {
+    handle = openProject(PKG);
+  }, 60_000);
+  afterAll(() => handle?.close());
+
+  it("sees every shape of read, in the file and through a helper module (the checker, not a regex)", () => {
+    const fixtures = join(__dirname, "fixtures");
+    const found = scanCallerContextReads(
+      handle.project,
+      [posix(join(fixtures, "caller-context-read-fixture.ts"))],
+      posix(fixtures),
+    );
+    const byKey = new Map(found.reads.map((r) => [r.key, r.form]));
+    expect(Object.fromEntries(byKey)).toEqual({
+      roots: "destructure", // Codex's case: const { roots } = ctx; if (!roots) deny();
+      now: "destructure", // renamed
+      sample: "element",
+      traceCarrier: "property", // through Pick<CallerContext, ...>
+      facadeExplanation: "assignment-destructure",
+      hitlRoute: "property", // in another module, reached only through a call
+    });
+    expect(found.files.some((f) => f.endsWith("caller-context-read-helper.ts"))).toBe(true);
+  }, 60_000);
+
+  it("fails a key that is read but classified dropped (Codex's `const { roots } = ctx`)", () => {
+    const fixtures = join(__dirname, "fixtures");
+    const found = scanCallerContextReads(
+      handle.project,
+      [posix(join(fixtures, "caller-context-read-fixture.ts"))],
+      posix(fixtures),
+    );
+    // Every key the fixture reads is accounted for except `roots`, which this table drops.
+    const accounted = Object.fromEntries(found.reads.map((r) => [r.key, { how: "carried" }]));
+    expect(droppedButRead(found.reads, accounted)).toEqual([]);
+    expect(droppedButRead(found.reads, { ...accounted, roots: { how: "dropped" } })).toEqual([
+      "roots",
+    ]);
+  }, 60_000);
+
+  it("finds no unnamed read of dispatch's context (a dynamic key or a rest pattern hides which keys)", () => {
+    const found = scanCallerContextReads(handle.project, dispatchRoots(), posix(SRC));
+    expect(found.reads.filter((r) => (UNNAMED_READS as readonly string[]).includes(r.key))).toEqual(
+      [],
+    );
+  }, 60_000);
+});
+
 describe("every CallerContext key is accounted for by the offload path", () => {
+  let handle: ReturnType<typeof openProject>;
+  beforeAll(() => {
+    handle = openProject(PKG);
+  }, 60_000);
+  afterAll(() => handle?.close());
+
   const table = CALLER_CONTEXT_DISPOSITION as Record<
     string,
     { how: string; why?: string; by?: string }
@@ -458,19 +516,25 @@ describe("every CallerContext key is accounted for by the offload path", () => {
     expect(Object.keys(table).sort()).toEqual([...keys].sort());
   });
 
-  it("every key dispatch reads is in the table, and a dropped one says why", () => {
-    const read = keysReadByDispatch();
+  it("every key dispatch reads is accounted for, and none of them is dropped", () => {
+    const { files, reads } = scanCallerContextReads(handle.project, dispatchRoots(), posix(SRC));
+    const read = new Set(reads.map((r) => r.key));
+    // Floors: a scan that stopped matching would make everything below vacuous.
+    expect(files.length).toBeGreaterThanOrEqual(dispatchRoots().length);
     expect(read.size).toBeGreaterThan(10);
     expect([...read]).toEqual(expect.arrayContaining(["toolVisibility", "grantedScopes"]));
     for (const key of read) {
-      const entry = table[key];
       expect(
-        entry,
+        table[key],
         `dispatch reads ctx.${key}, which the offload path does not account for`,
       ).toBeDefined();
-      if (entry?.how === "dropped") expect(entry.why?.length ?? 0, key).toBeGreaterThan(20);
     }
-  });
+    // Whatever the explanation, a key dispatch reads is not "dropped": the worker's dispatch reads it too.
+    expect(droppedButRead(reads, table)).toEqual([]);
+    for (const [key, entry] of Object.entries(table)) {
+      if (entry.how === "dropped") expect(entry.why?.length ?? 0, key).toBeGreaterThan(20);
+    }
+  }, 60_000);
 
   it("the policy-bearing keys are CARRIED, not merely explained", () => {
     for (const key of [
@@ -562,6 +626,48 @@ describe("a HITL-gated tool cannot opt into offload", () => {
         confirmationTargets: "none",
       } as unknown as ToolDefinition),
     ).toThrow(/taskAugmentable/);
+  });
+
+  it("a worker call that meets the HITL gate anyway is refused elicit_required and never runs", async () => {
+    // The `guarded` keys (elicitToken, elicitState, relayElicitConsumed) are read only inside that
+    // gate. The worker carries none of them, so the gate cannot be passed: it fails closed.
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    const queue = new JobQueue(db);
+    const calls = { n: 0 };
+    const registry = new ToolRegistry();
+    registry.register({
+      name: "destroy",
+      description: "x",
+      inputSchema: z.object({}),
+      requiredScopes: ["write:notes"],
+      destructive: true,
+      confirmationTargets: "none",
+      handler: () => {
+        calls.n++;
+        return {};
+      },
+    } as unknown as ToolDefinition);
+    const payload = {
+      v: TASK_CALL_PAYLOAD_VERSION,
+      tool: "destroy",
+      args: {},
+      caller: "alice",
+      authenticated: true,
+      scopes: ["write:notes"],
+      vaultId: "v1",
+      vaultBound: false,
+    };
+    const job = queue.enqueue(TASK_CALL_JOB_TYPE, {
+      owner: { vaultId: "v1", caller: "alice" },
+      maxAttempts: 1,
+      payload,
+    });
+    queue.claimById(job.id, "w");
+    await expect(
+      runTaskCall(job.id, payload, { registry, db, acl, queue }, undefined, "w"),
+    ).rejects.toThrow(/elicit_required/);
+    expect(calls.n).toBe(0);
   });
 
   it("still admits an ungated one", () => {
