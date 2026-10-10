@@ -41,3 +41,8 @@ Run over HTTP with `auth.mode: jwt`, bind to loopback (or a trusted interface
 behind a reverse proxy), and mint scoped tokens per client. See
 [Authentication](/security/auth-model/) and
 [Configuration](/configuration/config-yaml/).
+
+To serve claude.ai, ChatGPT, Gemini Enterprise, grok.com, Le Chat, Copilot Studio or an API
+connector, which call the server from the vendor's cloud, follow
+[Hosted clients](/deployment/hosted-clients/) (public HTTPS, an IPv4 A record, no redirects,
+unbuffered streaming) and check it with `obsidian-tc doctor --probe`.

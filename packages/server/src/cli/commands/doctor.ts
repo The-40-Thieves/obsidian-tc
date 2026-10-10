@@ -23,6 +23,7 @@ import { deadPathGlobsView } from "../../doctor/dead-path-globs";
 import { HITL_DOCTOR_WINDOW_DAYS, probeHitlConfirmations } from "../../doctor/hitl-confirmations";
 import { probeNoteSummariesScale } from "../../doctor/note-summary-scale";
 import { plainHttpEndpoints } from "../../doctor/plain-http";
+import { publicUrlViewOf } from "../../doctor/public-url-http";
 import { hiddenNamesInAllowlist } from "../../doctor/tool-facade";
 import { createEmbeddingProvider } from "../../embeddings";
 import { resolveApiKey } from "../../embeddings/provider";
@@ -645,6 +646,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         rotationGraceSeconds: config.auth.rotationGraceSeconds,
       },
       ...(authAs !== undefined ? { authAs } : {}),
+      publicUrl: publicUrlViewOf(config.auth.resource, cmd.probe === true),
       ...authJwksViews(config.auth, config.network.plainHttpHosts, defaultResolveHost),
       ...(config.auth.mode === "oidc" && config.auth.oidc !== undefined
         ? {
