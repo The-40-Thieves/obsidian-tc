@@ -160,6 +160,12 @@ describe("parseIpCidr / ipInCidr", () => {
       "10.0.0.0/0",
       "0.0.0.0/0",
       "::/0",
+      // an IPv6-form block that spans the whole IPv4-mapped range is the /0 in disguise
+      "::ffff:10.0.0.0/8",
+      "::ffff:0.0.0.0/96",
+      "::ffff:0:0/96",
+      "::/1",
+      "::/8",
       "example.com",
       "localhost",
       "10.0.0",

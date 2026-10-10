@@ -105,8 +105,9 @@ export interface IpCidr {
 
 /**
  * `ip` (a single host) or `ip/prefix`. An IPv4 prefix counts in IPv4 bits (`10.0.0.0/8`); an IPv6
- * one in IPv6 bits. A prefix of 0 is refused: it would name every address, and a trusted-proxy list
- * that trusts everyone is the spoofable setup this exists to prevent.
+ * one in IPv6 bits. A prefix of 0 is refused, and so is any IPv6-form block wide enough to
+ * cover all IPv4 addresses: a trusted-proxy list that trusts everyone is the spoofable setup this
+ * exists to prevent.
  */
 export function parseIpCidr(text: string): IpCidr | undefined {
   const slash = text.indexOf("/");
@@ -120,6 +121,10 @@ export function parseIpCidr(text: string): IpCidr | undefined {
   const prefix = Number(prefixText);
   if (prefix < 1 || prefix > (isV4Text ? 32 : 128)) return undefined;
   const bits = isV4Text ? prefix + 96 : prefix;
+  // IPv4 ranges are written as IPv4 CIDRs. An IPv6-form block this wide that reaches the IPv4-mapped
+  // range (`::ffff:10.0.0.0/8`, `::/1`) would not mean what its IPv4 spelling suggests: it covers
+  // every IPv4 address, which is the /0 this refuses.
+  if (bits <= 96 && ipInCidr(MAPPED_PREFIX, { base: addr, bits })) return undefined;
   return { base: addr, bits };
 }
 

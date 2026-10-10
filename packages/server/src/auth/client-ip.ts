@@ -31,6 +31,18 @@ const LOOPBACK_V6 = parseIpAddress("::1");
 
 const isLoopback = (addr: bigint): boolean => ipInCidr(addr, LOOPBACK_V4) || addr === LOOPBACK_V6;
 
+const LOW_64_BITS = (1n << 64n) - 1n;
+
+/**
+ * The address a per-source limit keys on. An IPv4 client is itself. An IPv6 client is its /64 (the
+ * network address, lower 64 bits zeroed): a host holds a whole /64 and can rotate within it for free,
+ * so every limiter counts the /64 as one source, as the metadata-document and registration limits
+ * already did. Logs show that network address.
+ */
+function sourceAddress(addr: bigint): string {
+  return formatIpAddress(addr >> 32n === 0xffffn ? addr : addr & ~LOW_64_BITS);
+}
+
 /** The TCP peer of the request, or undefined when the runtime does not say. */
 function peerOf(c: Context): bigint | undefined {
   const env = c.env as
@@ -91,7 +103,7 @@ export function createClientIpResolver(
     const peer = peerOf(c);
     if (peer === undefined) return undefined;
     const client = (trusted.length > 0 && isTrusted(peer) ? forwarded(c) : undefined) ?? peer;
-    return isLoopback(client) ? undefined : formatIpAddress(client);
+    return isLoopback(client) ? undefined : sourceAddress(client);
   };
 }
 

@@ -130,14 +130,15 @@ bucket. You tell the server which peers to believe:
 
 | Field | Default | What it does |
 | --- | --- | --- |
-| `transports.http.trustedProxies` | `[]` | IP addresses and CIDR blocks of the TCP peers that are your proxies (`127.0.0.1`, `::1`, `172.18.0.0/16`). A `/0` prefix, names and wildcards are refused at load. IPv4-mapped IPv6 peers (`::ffff:10.0.0.5`) match the IPv4 entry. |
+| `transports.http.trustedProxies` | `[]` | IP addresses and CIDR blocks of the TCP peers that are your proxies (`127.0.0.1`, `::1`, `172.18.0.0/16`). A `/0` prefix, an IPv6-form block that covers all IPv4 addresses (`::ffff:10.0.0.0/8`), names and wildcards are refused at load; write IPv4 ranges as IPv4 CIDRs. IPv4-mapped IPv6 peers (`::ffff:10.0.0.5`) match the IPv4 entry. |
 | `transports.http.forwardedHeader` | `x-forwarded-for` | Where a trusted proxy puts the client: `x-forwarded-for` (the right-most address that is not itself a trusted proxy) or `cf-connecting-ip` (Cloudflare). Ignored while `trustedProxies` is empty. |
 
 The header is read only when the connecting peer is in `trustedProxies`; from any other peer it is
 ignored, so a direct caller who sends `X-Forwarded-For: 1.2.3.4` is still counted as itself. A
 header that cannot be read (garbage, `unknown`, an empty hop) is ignored and the request is counted
 as the proxy's own address, never as a guess. A client address that is itself loopback counts as
-unattributed, as a loopback peer does.
+unattributed, as a loopback peer does. Every per-source limit counts an IPv6 client as its /64
+(a host owns a whole prefix and can rotate inside it), and the log shows that network address.
 
 **Cave and other cloudflared setups.** cloudflared runs on the same host and connects to the server
 over loopback, and Cloudflare sets `CF-Connecting-IP` to the visitor's address (a client cannot

@@ -124,6 +124,16 @@ describe("trusted peer: X-Forwarded-For", () => {
     expect(resolve(LOOPBACK_PROXY, "127.0.0.1", xff("::ffff:198.51.100.1"))).toBe("198.51.100.1");
   });
 
+  it("an IPv6 client is keyed by its /64, so rotating inside a prefix buys no new bucket", () => {
+    const a = resolve(LOOPBACK_PROXY, "127.0.0.1", xff("2001:db8:1:2:aaaa::1"));
+    const b = resolve(LOOPBACK_PROXY, "127.0.0.1", xff("2001:db8:1:2:bbbb:cccc:dddd:1"));
+    const other = resolve(LOOPBACK_PROXY, "127.0.0.1", xff("2001:db8:1:3::1"));
+    expect(a).toBe(b);
+    expect(a).not.toBe(other);
+    // a direct IPv6 peer is held to the same rule
+    expect(resolve(undefined, "2001:db8:1:2:aaaa::1")).toBe(a);
+  });
+
   it("a loopback client address is as unattributed as a loopback peer", () => {
     const policy = { trustedProxies: ["172.18.0.0/16"] };
     expect(resolve(policy, "172.18.0.2", xff("127.0.0.1"))).toBeUndefined();
