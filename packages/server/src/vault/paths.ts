@@ -263,8 +263,6 @@ export function walkVault(
   return drainSteps(walkVaultSteps(root, opts));
 }
 
-/** walkVault as a step generator: one step per directory read, so a whole-vault scan can drain it
- *  with `drainYielding` and keep the event loop free through the walk (util/scan-steps.ts). */
 export function* walkVaultSteps(
   root: string,
   opts: { sub?: string; extensions?: string[]; recursive?: boolean; includeFolders?: boolean } = {},
