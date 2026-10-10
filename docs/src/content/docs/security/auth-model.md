@@ -739,13 +739,17 @@ default is the one that works for almost every client.
   (`/mcp` or `/mcp/<profile>`, each with its own `resource_metadata`), plus `error="insufficient_scope"` and an
   `error_description`. Every listed tool declares `securitySchemes` (and the `_meta` mirror OpenAI documents):
   `[{ "type": "oauth2", "scopes": [...] }]` with the tool's own required scopes. It is never `noauth`: an
-  anonymous call cannot succeed, so declaring it would promise ChatGPT something this server refuses.
+  anonymous call cannot succeed, so declaring it would promise ChatGPT something this server refuses. On
+  the `triad` and `domain` profile URLs the meta-tools front tools of every scope, so they declare the default scopes.
 - **What the anonymous list shows.** Exactly what a caller who signed in without naming a scope would see:
   tools filtered by the authorization server's default scope (`auth.scopesSupported`, else `read:*`). A
-  write or admin tool is not listed anonymously. Tool names and descriptions are public in this open-source
+  write or admin tool is not listed anonymously unless you advertise that scope in `auth.scopesSupported`, because
+  a sign-in that names no scope is granted the whole advertised set (under `oidc` the IdP decides, and this is
+  the same approximation). Tool names and descriptions are public in this open-source
   repository; the filter is there so the anonymous list is never wider than the smallest signed-in one.
-- **What `list` does not loosen.** A request with a bad or expired token is still a `401` (a client must refresh,
-  not be downgraded to anonymous). Resources, prompts, tasks, subscriptions, a JSON-RPC batch, and every
+- **What `list` does not loosen.** A request with any credential (a bad or expired token, or another scheme such
+  as `Basic`) is still a `401`: a client must refresh, not be downgraded to anonymous. Only an absent, blank or
+  bare `Bearer` Authorization header is anonymous, and its body is read only up to 64 KiB. Resources, prompts, tasks, subscriptions, a JSON-RPC batch, and every
   `tools/call` stay behind the token; the anonymous caller is not authenticated, so dispatch refuses any
   scope-gated tool even if a call reached it.
 - `list` needs `auth.mode` `jwt` or `oidc`, `auth.resource`, and a complete Protected Resource Metadata

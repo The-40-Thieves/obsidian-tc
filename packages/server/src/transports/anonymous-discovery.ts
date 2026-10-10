@@ -29,8 +29,14 @@ const ANONYMOUS_METHODS: ReadonlySet<string> = new Set([
 
 /** The mode is effective only with a complete Protected Resource Metadata: without it the challenge
  *  carries no `resource_metadata` and ChatGPT has nothing to link from, so fall back to the 401. */
-export function anonymousDiscoveryEnabled(auth: AuthConfig): boolean {
+function anonymousDiscoveryEnabled(auth: AuthConfig): boolean {
   return auth.anonymousDiscovery === "list" && auth.mode !== "none" && isPrmConfigured(auth);
+}
+
+/** The default scopes when mixed mode is in effect, else undefined (mode off). One value feeds both
+ *  the edge gate and the `securitySchemes` of facade tools, which front tools of every scope. */
+export function mixedModeScopes(auth: AuthConfig): string[] | undefined {
+  return anonymousDiscoveryEnabled(auth) ? anonymousScopes(auth) : undefined;
 }
 
 /**
@@ -40,6 +46,13 @@ export function anonymousDiscoveryEnabled(auth: AuthConfig): boolean {
  */
 export function anonymousScopes(auth: AuthConfig): string[] {
   return resolveScopes([], auth.scopesSupported).scopes;
+}
+
+/** Anonymous means NO credentials: an absent, blank or bare-`Bearer` Authorization header. Any other
+ *  value (a token, a wrong scheme) is a credential that failed, and keeps its 401. */
+export function carriesNoCredentials(header: string | undefined): boolean {
+  const value = header?.trim();
+  return !value || value.toLowerCase() === "bearer";
 }
 
 export type AnonymousVerdict =
@@ -81,6 +94,35 @@ export function anonymousToolError(
   };
 }
 
+/** A discovery or sign-in-trigger request is a few hundred bytes; an unauthenticated body is never
+ *  buffered beyond this (the SDK's own size guard runs only after the edge has parsed it). */
+const MAX_ANONYMOUS_BODY_BYTES = 64 * 1024;
+
+async function readSmallJson(req: Request): Promise<unknown> {
+  const declared = Number(req.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_ANONYMOUS_BODY_BYTES) return undefined;
+  const reader = req.clone().body?.getReader();
+  if (!reader) return undefined;
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_ANONYMOUS_BODY_BYTES) {
+      // Not awaited: on a cloned (tee) body the cancel settles only once the other branch is cancelled too.
+      void reader.cancel().catch(() => undefined);
+      return undefined;
+    }
+    chunks.push(value);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * The gate for a request that carried no bearer token (mixed mode only). Returns the scopes to admit
  * it with (discovery), a ready Response (an anonymous `tools/call`), or undefined to let the 401
@@ -91,12 +133,7 @@ export async function anonymousGate(
   auth: AuthConfig,
   surface: string | undefined,
 ): Promise<Response | { scopes: Set<string> } | undefined> {
-  let body: unknown;
-  try {
-    body = await req.clone().json();
-  } catch {
-    return undefined;
-  }
+  const body = await readSmallJson(req);
   const verdict = classifyAnonymous(body);
   if (verdict.kind === "admit") return { scopes: new Set(anonymousScopes(auth)) };
   if (verdict.kind === "tool-error") {

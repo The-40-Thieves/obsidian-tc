@@ -49,7 +49,7 @@ import type { MetricsRecorder } from "../metrics/registry";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
 import { activeSessionFor, DEFAULT_TRACE_FOLDER, openImplicitSession } from "../workspace/sessions";
-import { anonymousDiscoveryEnabled, anonymousGate } from "./anonymous-discovery";
+import { anonymousGate, carriesNoCredentials, mixedModeScopes } from "./anonymous-discovery";
 import { bothForms, hostnameOf, isHostAllowed } from "./host-guard";
 import { type ServerHandle, serveHono } from "./serve";
 
@@ -451,7 +451,7 @@ export interface HttpApp {
 export function createHttpApp(opts: HttpAppOptions): HttpApp {
   const app = new Hono();
   /** `auth.anonymousDiscovery: "list"` and a complete PRM: see transports/anonymous-discovery.ts. */
-  const mixedAuth = anonymousDiscoveryEnabled(opts.auth);
+  const mixedAuth = mixedModeScopes(opts.auth);
   /**
    * THE-583: the MCP handler, created ONCE for the app rather than per request.
    *
@@ -619,7 +619,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
     // `auth.anonymousDiscovery: "list"`: ONLY a request that carried no bearer token at all can be
     // admitted for discovery (a bad token keeps its 401, so an expired one still triggers a refresh),
     // and only for the methods `classifyAnonymous` names. Anything else falls through to the 401.
-    if (!authz.ok && mixedAuth && bearer(c.req.header("authorization")) === null) {
+    if (!authz.ok && mixedAuth && carriesNoCredentials(c.req.header("authorization"))) {
       const gate = await anonymousGate(c.req.raw, opts.auth, surfaceName);
       if (gate instanceof Response) return gate;
       if (gate)

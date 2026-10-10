@@ -170,8 +170,9 @@ export interface McpServerOptions {
    *  "all" makes tools/list a flat list of that subset, whatever `facadeMode` says. Advertisement
    *  only; every tool stays callable by name. Defaults to "all". See tool-profiles.ts. */
   advertise?: AdvertiseSubset;
-  /** `auth.anonymousDiscovery: "list"`: every tool tools/list returns declares `securitySchemes`. */
-  securitySchemes?: boolean;
+  /** `auth.anonymousDiscovery: "list"`: every tool tools/list returns declares `securitySchemes`; the
+   *  value is the scopes a facade tool (which fronts tools of every scope) declares. */
+  securitySchemes?: readonly string[];
   /**
    * THE-583: the protocol era this instance is being constructed to serve, as classified by the
    * SDK (`createMcpHandler`'s `McpRequestContext.era`).

@@ -280,6 +280,55 @@ describe("anonymousDiscovery: list (ChatGPT mixed auth)", () => {
     }
   });
 
+  it.each(PATHS)("%s: an oversized anonymous body is refused unparsed", async (path) => {
+    const flow = await makeFlow({ anonymousDiscovery: "list" });
+    const big = { ...legacy("tools/list"), padding: "x".repeat(200 * 1024) };
+    const r = await rpc(flow, path, big);
+    expect(r.status).toBe(401);
+    expect(r.www).toBe(challengeFor(path));
+  });
+
+  it("a facade surface declares the default scopes on its meta-tools", async () => {
+    const flow = await makeFlow({ anonymousDiscovery: "list", tools: TOOLS });
+    const m = modern("tools/list");
+    const r = await rpc(flow, "/mcp/triad", m.body, undefined, m.headers);
+    expect(r.status).toBe(200);
+    const tools = r.json.result.tools as any[];
+    expect(tools.length).toBeGreaterThan(0);
+    for (const t of tools) {
+      expect(t.securitySchemes, t.name).toEqual([{ type: "oauth2", scopes: ["read:*"] }]);
+    }
+  });
+
+  it("with scopesSupported the anonymous list is still exactly the default-scope list", async () => {
+    const scopesSupported = ["read:vault", "write:notes"];
+    const flow = await makeFlow({ anonymousDiscovery: "list", scopesSupported, tools: TOOLS });
+    const names = async (token?: string) => {
+      const c = clientFor(flow, "/mcp", token);
+      await c.client.connect(c.transport);
+      const out = (await c.client.listTools()).tools.map((t) => t.name).sort();
+      await c.client.close();
+      return out;
+    };
+    const { access } = await issue(flow, { scope: undefined });
+    expect(await names()).toEqual(await names(access));
+    // admin:vault is outside the advertised vocabulary, so the anonymous list never shows it.
+    expect(await names()).not.toContain("admin_probe");
+  });
+
+  it.each(PATHS)("%s: a credential of another scheme is not anonymous either", async (path) => {
+    const flow = await makeFlow({ anonymousDiscovery: "list" });
+    for (const authorization of ["Basic dXNlcjpwYXNz", "Token abc", "Bearerx"]) {
+      const r = await rpc(flow, path, legacy("tools/list"), undefined, { authorization });
+      expect(r.status, authorization).toBe(401);
+    }
+    // A bare `Bearer` carries no credential: anonymous, like no header at all.
+    const bare = await rpc(flow, path, legacy("tools/list"), undefined, {
+      authorization: "Bearer",
+    });
+    expect(bare.status).toBe(200);
+  });
+
   it.each(PATHS)("%s: a signed-in caller keeps working, with the same schemes", async (path) => {
     const flow = await makeFlow({ anonymousDiscovery: "list" });
     const { access } = await issue(flow, { scope: "read:vault" });

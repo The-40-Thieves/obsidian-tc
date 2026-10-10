@@ -11,20 +11,21 @@ import type { ToolRegistry } from "./registry";
  * Every tool here is `oauth2`, never `noauth`: an anonymous `tools/call` is refused at the HTTP edge
  * (transports/http.ts), so declaring `noauth` would promise ChatGPT a call that cannot succeed. The
  * scopes are the tool's own `requiredScopes`; a facade tool that fronts many tools (triad/domain
- * mode) names none, because its scope is decided per dispatched tool.
+ * mode) declares the default scopes, which is what a sign-in that names none is granted.
  */
 export type SecurityScheme = { type: "oauth2"; scopes: string[] };
 
 /** `list` with every tool carrying its `securitySchemes`, or `list` untouched when the mode is off. */
 export function advertiseSchemes<L extends { tools: Tool[] }>(
-  opts: { securitySchemes?: boolean; registry: ToolRegistry },
+  opts: { securitySchemes?: readonly string[]; registry: ToolRegistry },
   list: L,
 ): L {
-  if (!opts.securitySchemes) return list;
+  const fallback = opts.securitySchemes;
+  if (!fallback) return list;
   const scopesOf = new Map(opts.registry.list().map((d) => [d.name, d.requiredScopes] as const));
   const tools = list.tools.map((tool) => {
     const securitySchemes: SecurityScheme[] = [
-      { type: "oauth2", scopes: [...(scopesOf.get(tool.name) ?? [])] },
+      { type: "oauth2", scopes: [...(scopesOf.get(tool.name) ?? fallback)] },
     ];
     return { ...tool, securitySchemes, _meta: { ...tool._meta, securitySchemes } } as Tool;
   });
