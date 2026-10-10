@@ -15,6 +15,7 @@ import { type ErrorJSON, err } from "@the-40-thieves/obsidian-tc-shared";
 import type { Job, JobProgress, JobQueue } from "../scheduler/job-queue";
 import { errorToCallToolResult } from "./error-rendering";
 import type { CallerContext } from "./registry";
+import { snapshotCaller } from "./task-caller-context";
 import {
   isIdentifiedCaller,
   TASK_CALL_JOB_TYPE,
@@ -135,8 +136,8 @@ export interface TaskOffload {
  * be offloaded (no identified caller, or no way to start the task for a client that cannot poll):
  * the caller then dispatches synchronously, exactly as before.
  *
- * The caller's scopes are snapshotted INTO the job; the runner gets those and nothing else, so a
- * task never does more than the caller could have done synchronously.
+ * The caller's context is snapshotted INTO the job (snapshotCaller); the runner gets that and
+ * nothing else, so a task never does more than the caller could have done synchronously.
  */
 export async function offloadToTask(
   off: TaskOffload,
@@ -153,10 +154,9 @@ export async function offloadToTask(
     payload: {
       tool: call.tool,
       args: call.args,
+      // Which context keys cross is decided in ONE place (task-caller-context.ts), never here.
+      ...snapshotCaller(ctx),
       caller,
-      scopes: [...ctx.grantedScopes],
-      vaultId: ctx.vaultId,
-      vaultBound: ctx.vaultBound === true,
       progress: ctx.progress !== undefined,
     } satisfies TaskCallPayload,
   });

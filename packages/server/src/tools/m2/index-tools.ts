@@ -104,6 +104,10 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
             // Obsidian's Excluded files + index.excludePaths: never indexed, still link targets.
             isIndexExcluded: vaultExclusionFor(deps.vaultRegistry, v.id).isExcluded,
             now: ctx.now,
+            // The call's own signal (the caller's cancel, or the task's: cancel, lease loss,
+            // shutdown). Without it a cancelled run kept going until the lease lapsed and a second
+            // attempt started alongside it.
+            ...(ctx.signal ? { signal: ctx.signal } : {}),
             // THE-490/THE-591: indexing.streamingWalk. Off/absent -> byte-identical to before.
             walk: { streaming: deps.streamingWalk },
             // THE-645: in-flight progress, fired once per completed flush() batch.
@@ -120,6 +124,10 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
               });
             },
           });
+          // indexVault returns quietly when its signal fires, with whatever it had indexed so far.
+          // That is not a result: say so, so a cancelled task ends as one and no partial stats are
+          // recorded as the last complete run.
+          if (ctx.signal?.aborted) throw err.aborted();
           // THE-491: surfaced verbatim by get_index_status (last index_vault call this process).
           deps.onIndexVaultComplete?.(v.id, stats);
           // The run itself is caller-independent (shared index), but its RESPONSE is this caller's:

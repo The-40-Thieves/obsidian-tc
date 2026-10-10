@@ -118,16 +118,26 @@ const payload = (over: Partial<TaskCallPayload> = {}): TaskCallPayload => ({
   tool: "needs_write",
   args: { vault: "main" },
   caller: "agent-1",
+  authenticated: true,
   scopes: ["write:notes"],
   vaultId: "main",
   vaultBound: true,
   ...over,
 });
 
+/** Run a payload as the attempt that holds the lease on a fresh job (recordOutcome is lease-guarded). */
+function attempt(deps: ReturnType<typeof harness>["deps"], p: unknown): Promise<void> {
+  const job = deps.queue.enqueue("mcp_tool_call", {
+    owner: { vaultId: "main", caller: "agent-1" },
+  });
+  deps.queue.claimById(job.id, "w");
+  return runTaskCall(job.id, p, deps, undefined, "w");
+}
+
 describe("runTaskCall — a task carries exactly its caller's authority", () => {
   it("runs the tool when the snapshotted scopes allow it", async () => {
     const { deps, seen } = harness();
-    await expect(runTaskCall("j1", payload(), deps)).resolves.toBeUndefined();
+    await expect(attempt(deps, payload())).resolves.toBeUndefined();
     expect(seen).toHaveLength(1);
   });
 
@@ -135,19 +145,19 @@ describe("runTaskCall — a task carries exactly its caller's authority", () => 
     // The escalation case. A runner that built its context from server config instead would sail
     // through this, the task would read `completed`, and nobody would be told.
     const { deps, seen } = harness();
-    await expect(runTaskCall("j1", payload({ scopes: ["read:notes"] }), deps)).rejects.toThrow();
+    await expect(attempt(deps, payload({ scopes: ["read:notes"] }))).rejects.toThrow();
     expect(seen).toHaveLength(0);
   });
 
   it("refuses with NO scopes at all", async () => {
     const { deps, seen } = harness();
-    await expect(runTaskCall("j1", payload({ scopes: [] }), deps)).rejects.toThrow();
+    await expect(attempt(deps, payload({ scopes: [] }))).rejects.toThrow();
     expect(seen).toHaveLength(0);
   });
 
   it("hands the tool exactly the snapshotted scope set, not a superset", async () => {
     const { deps, seen } = harness();
-    await runTaskCall("j1", payload({ scopes: ["write:notes"] }), deps);
+    await attempt(deps, payload({ scopes: ["write:notes"] }));
     expect([...(seen[0]?.grantedScopes ?? [])]).toEqual(["write:notes"]);
   });
 
@@ -155,14 +165,14 @@ describe("runTaskCall — a task carries exactly its caller's authority", () => 
     // THE-267: a vault-bound caller must not reach another vault. Dropping this in the runner
     // would silently unbind every deferred call.
     const { deps, seen } = harness();
-    await runTaskCall("j1", payload({ vaultBound: true }), deps);
+    await attempt(deps, payload({ vaultBound: true }));
     expect(seen[0]?.vaultBound).toBe(true);
     expect(seen[0]?.vaultId).toBe("main");
   });
 
   it("preserves the caller identity for audit", async () => {
     const { deps, seen } = harness();
-    await runTaskCall("j1", payload({ caller: "agent-7" }), deps);
+    await attempt(deps, payload({ caller: "agent-7" }));
     expect(seen[0]?.caller).toBe("agent-7");
   });
 
@@ -170,13 +180,13 @@ describe("runTaskCall — a task carries exactly its caller's authority", () => 
     // Defaulting here is how a job with no scopes would become a job with the server's.
     const { deps } = harness();
     for (const bad of [null, {}, { tool: "x" }, { tool: "x", vaultId: "main", scopes: "nope" }]) {
-      await expect(runTaskCall("j1", bad, deps)).rejects.toThrow(/malformed/);
+      await expect(attempt(deps, bad)).rejects.toThrow(/malformed/);
     }
   });
 
   it("surfaces the tool's own error text, since the caller no longer holds the response", async () => {
     const { deps } = harness();
-    await expect(runTaskCall("j1", payload({ tool: "no_such_tool" }), deps)).rejects.toThrow(
+    await expect(attempt(deps, payload({ tool: "no_such_tool" }))).rejects.toThrow(
       /no_such_tool|not_found|unknown/i,
     );
   });
@@ -213,7 +223,8 @@ describe("deferred result retrieval — the point of the extension", () => {
     // the moment someone tries to use the answer.
     const { deps, queue } = harness();
     const job = queue.enqueue("mcp_tool_call", { owner: { vaultId: "main", caller: "agent-1" } });
-    await runTaskCall(job.id, payload(), deps);
+    queue.claimById(job.id, "w");
+    await runTaskCall(job.id, payload(), deps, undefined, "w");
 
     const stored = queue.get(job.id);
     expect(stored?.outcome).toEqual({ ok: true, result: { ran: true } });
@@ -227,7 +238,10 @@ describe("deferred result retrieval — the point of the extension", () => {
     const job = queue.enqueue("mcp_tool_call", { owner: { vaultId: "main", caller: "agent-1" } });
     // Recorded BEFORE the throw — after it, this code does not run, and `runJob` turns the throw
     // into the terminal `failed` state a client will poll.
-    await expect(runTaskCall(job.id, payload({ scopes: [] }), deps)).rejects.toThrow();
+    queue.claimById(job.id, "w");
+    await expect(
+      runTaskCall(job.id, payload({ scopes: [] }), deps, undefined, "w"),
+    ).rejects.toThrow();
 
     const stored = queue.get(job.id);
     expect(stored?.outcome?.ok).toBe(false);
@@ -241,7 +255,8 @@ describe("deferred result retrieval — the point of the extension", () => {
     // under the right name.
     const { deps, queue } = harness();
     const job = queue.enqueue("mcp_tool_call", { owner: { vaultId: "main", caller: "agent-1" } });
-    await runTaskCall(job.id, payload(), deps);
+    queue.claimById(job.id, "w");
+    await runTaskCall(job.id, payload(), deps, undefined, "w");
     const stored = queue.get(job.id);
     const mismatched = toMcpTask({ ...(stored as Job), state: "failed" });
     expect(mismatched.error).toBeUndefined();

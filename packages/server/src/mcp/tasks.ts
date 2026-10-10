@@ -15,6 +15,7 @@
 // row, and every existing enqueue call site) is invisible by construction rather than by a filter
 // someone has to remember to write.
 import type { Job, JobQueue } from "../scheduler/job-queue";
+import type { CallerSnapshot } from "./task-caller-context";
 
 /**
  * The extension's status vocabulary.
@@ -59,9 +60,12 @@ const POLL_INTERVAL_MS = 2_000;
  *     outcome to poll on — it is the queue doing its job — and exposing it would leak the retry
  *     policy into a client contract we would then have to keep.
  *   * CANCELLED is not a queue state. The queue records cancellation as a REQUEST flag that the
- *     runner honours at its next checkpoint, so a cancelled task is one that reached a terminal
- *     state with the flag set. Reporting `cancelled` while the job is still running would tell the
- *     client the work has stopped when it has not.
+ *     runner honours at its next checkpoint, so a cancelled task is one whose run ENDED IN FAILURE
+ *     with the flag set (the abort the cancel caused). Reporting `cancelled` while the job is still
+ *     running would tell the client the work has stopped when it has not, and reporting it for a
+ *     job that COMPLETED would hide a real result behind a request that arrived too late to matter:
+ *     cancellation is cooperative and eventually consistent, so it may lose the race, and a terminal
+ *     status never changes afterwards.
  *   * `input_required` is unreachable today: nothing in the queue can ask its caller a question
  *     mid-run. It is in the type because it is in the spec, and a projection that silently mapped
  *     it onto something else would be worse than one that cannot produce it.
@@ -69,10 +73,10 @@ const POLL_INTERVAL_MS = 2_000;
 export function toMcpTask(job: Job): McpTask {
   const terminal = job.state === "complete" || job.state === "failed";
   const status: McpTaskStatus = terminal
-    ? job.cancelRequested
-      ? "cancelled"
-      : job.state === "complete"
-        ? "completed"
+    ? job.state === "complete"
+      ? "completed"
+      : job.cancelRequested
+        ? "cancelled"
         : "failed"
     : "working";
   return {
@@ -234,14 +238,11 @@ export async function serveTaskExtension(
  * (threading the jti through CallerContext, the payload and the runner is a wider change than the
  * finding warranted); auth-model.md documents it.
  */
-export interface TaskCallPayload {
+export interface TaskCallPayload extends CallerSnapshot {
   tool: string;
   args: Record<string, unknown>;
-  caller: string | null;
-  /** Exactly the scopes the caller held at enqueue. Serialized because the runner has no request. */
-  scopes: string[];
-  vaultId: string;
-  vaultBound: boolean;
+  /** The caller half (scopes, vault binding, persona mask, ...) is `CallerSnapshot`: which
+   *  CallerContext keys cross the enqueue is decided in mcp/task-caller-context.ts, not here. */
   /** The originating request carried a `progressToken`: the runner then gives the tool a
    *  `ctx.progress` hook. Absent/false means nobody is listening, so there is no hook at all. */
   progress?: boolean;

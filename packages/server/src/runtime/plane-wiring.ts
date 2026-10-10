@@ -31,7 +31,7 @@ import { wrapPlaneJob } from "../plane/plane";
 import { JobQueue } from "../scheduler/job-queue";
 import { type JobHandler, makeJobRunner } from "../scheduler/job-runner";
 import type { Scheduler } from "../scheduler/scheduler";
-import { makeStartTask, makeTaskCallHandler } from "../scheduler/task-call-runner";
+import { makeStartTask, makeTaskCallHandler, type StartTask } from "../scheduler/task-call-runner";
 import { vaultExclusionFor } from "../search/index-exclusion";
 import type { IndexHook, IndexStats, IndexVaultArgs } from "../search/indexer";
 import { type IdleGate, serializeAdmission, waitForIdle } from "../search/indexing/embed-pace";
@@ -174,7 +174,7 @@ export interface JobHandlersWiring {
   /** What `createMcpServer` / `startHttp` need to run a long tool as a budgeted task: the queue
    *  and `startTask`, which runs one queued call NOW (the runner's tick is 15 s and serial) with the
    *  same handler and lease owner as the runner. */
-  taskCalls: { jobQueue: JobQueue; startTask: (jobId: string) => void };
+  taskCalls: { jobQueue: JobQueue; startTask: StartTask };
 }
 
 /** Build the durable job-type handler map (task-call always; contradiction/synthesis/audit only

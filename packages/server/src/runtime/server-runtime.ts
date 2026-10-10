@@ -244,6 +244,7 @@ export async function buildServerRuntime(
         indexCoordinator: IndexCoordinator;
         stopVaultWatch: () => void;
         jobRunner: Awaited<ReturnType<typeof wireJobHandlers>>["jobRunner"];
+        taskRuns: { drain(signal: AbortSignal): Promise<void> };
       }
     | undefined;
   // THE-825: gateway resolved (roles !== null)? Read by start()'s plane opt-in boot notice.
@@ -561,6 +562,7 @@ export async function buildServerRuntime(
       indexCoordinator,
       stopVaultWatch,
       jobRunner,
+      taskRuns: taskCalls.startTask,
     };
   } catch (err) {
     await unwindReversed(postCoreLayers, onCleanup);
@@ -574,6 +576,7 @@ export async function buildServerRuntime(
     indexCoordinator,
     stopVaultWatch,
     jobRunner,
+    taskRuns,
   } = requireBoot(postCore, "postCore");
 
   let closed = false;
@@ -675,7 +678,13 @@ export async function buildServerRuntime(
     // F3: JOIN the reconcile BEFORE draining below (was the other way round) — see shutdown-phase.ts.
     await joinReconcileOrExit(runReconcile.currentRun(), SHUTDOWN_DRAIN_MS);
     // THE-462/THE-457/GH #995/F3: scheduler/index/job drain race one deadline, same exit-then-throw.
-    const drainOpts = { scheduler, indexCoordinator, jobRunner, drainMs: SHUTDOWN_DRAIN_MS };
+    const drainOpts = {
+      scheduler,
+      indexCoordinator,
+      jobRunner,
+      taskRuns,
+      drainMs: SHUTDOWN_DRAIN_MS,
+    };
     await raceShutdownPhaseOrExit(drainOpts);
     await leaderElection.close(); // F3: release the lock LAST, once every writer above has stopped
     morgiana.emit(firstVault.id, "tc.server.shutdown");

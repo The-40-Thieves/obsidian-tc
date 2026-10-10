@@ -494,7 +494,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // not inferred, since a handle costs the caller a poll to learn what one call would have said.
     if (opts.jobQueue && roundOutcome !== "declined") {
       const def = opts.registry.list().find((d) => d.name === name);
-      if (def?.taskAugmentable) {
+      // Only a call dispatch would admit is offloaded. A refusal (persona mask, scope, vault
+      // binding, ACL) is dispatch's to give, synchronously and audited, below.
+      const taskArgs = def?.taskAugmentable
+        ? opts.registry.withDefaultVaultArgs(name, args, ctx)
+        : undefined;
+      if (taskArgs && opts.registry.passesPolicyGates(name, taskArgs, ctx)) {
         const offloaded = await offloadToTask(
           {
             queue: opts.jobQueue,
@@ -504,7 +509,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
               opts.servesTaskMethods !== false &&
               clientSupportsTasks(server.getClientCapabilities()),
           },
-          { tool: name, args: opts.registry.withDefaultVaultArgs(name, args, ctx), ctx },
+          { tool: name, args: taskArgs, ctx },
         );
         if (offloaded !== undefined) return offloaded;
       }
