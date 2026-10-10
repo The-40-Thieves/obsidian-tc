@@ -113,6 +113,20 @@ export const ToolFacadeConfigSchema = z.object({
     .describe(
       'Whether tools/list advertises each tool\'s `outputSchema`. "full" (the default) is unchanged. "omit" drops it from every advertised tool for clients that mishandle the field (reported for claude.ai; Claude Desktop with older schema drafts; Cursor); tool results still carry `structuredContent` and a text block.',
     ),
+  // Tool-budget profile: which subset of the tools a FLAT tools/list advertises, for clients that cap
+  // the tools they accept (100 total: Antigravity, Windsurf, Gemini Enterprise; 128 per request:
+  // VS Code, Copilot Studio, Vertex). "all" (default) narrows nothing. A value other than "all"
+  // advertises that subset flat whatever `mode` says (a flat list is the point of the budget), and
+  // the HTTP transport lets a client pick one per URL instead (`/mcp/essentials`, `/mcp/core`,
+  // `/mcp/full`, `/mcp/triad`, `/mcp/domain`; a URL wins over this key). Advertisement only: a tool
+  // outside the subset stays registered, authorized and callable by name. Distinct from `profile`,
+  // which decides what is callable at all.
+  advertise: z
+    .enum(["all", "core", "essentials"])
+    .default("all")
+    .describe(
+      'Tool-budget profile for clients that cap the tools they accept. "all" (the default) narrows nothing. "essentials" advertises a flat list of about 35 curated tools (about one per domain; fits 100-tool caps), "core" the flat core curation (101 tools; fits 128-tool caps). Anything other than "all" overrides `mode` with a flat list. On HTTP, a URL such as `/mcp/essentials` selects a profile per client and wins over this key. Advertisement only: tools outside the subset stay callable by name, subject to the same authorization.',
+    ),
   // Deployment-level and orthogonal to `mode` above: `mode` picks what a given SESSION is
   // advertised, `profile` picks which tools are VISIBLE and CALLABLE at all, resolved once
   // when the registry is built. Registration itself is profile-invariant — every tool is always

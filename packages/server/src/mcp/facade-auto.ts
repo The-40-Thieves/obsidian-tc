@@ -26,6 +26,7 @@ import type { AutoFacadeExplanation } from "./facade-mode";
 // existing `import { BUILTIN_AUTO_FACADE_CLIENTS } from "./facade-auto"` call site (doctor/
 // tool-facade.ts, this file's own tests) keeps compiling unchanged.
 import { BUILTIN_AUTO_FACADE_CLIENTS } from "./known-clients";
+import type { AdvertiseSubset } from "./tool-profiles";
 
 export type { AutoFacadeExplanation } from "./facade-mode";
 export { BUILTIN_AUTO_FACADE_CLIENTS };
@@ -113,17 +114,20 @@ export function mcpServerFacadeOptions(cfg: {
   autoClients?: Readonly<Record<string, FacadeMode>>;
   explainAutoMode?: boolean;
   outputSchema?: "full" | "omit";
+  advertise?: AdvertiseSubset;
 }): {
   facadeMode: FacadeMode | "auto";
   autoClients?: Readonly<Record<string, FacadeMode>>;
   explainAutoMode?: boolean;
   outputSchema?: "full" | "omit";
+  advertise?: AdvertiseSubset;
 } {
   return {
     facadeMode: cfg.mode,
     autoClients: cfg.autoClients,
     explainAutoMode: cfg.explainAutoMode,
     outputSchema: cfg.outputSchema,
+    advertise: cfg.advertise,
   };
 }
 

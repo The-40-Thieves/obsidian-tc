@@ -11,6 +11,7 @@ import { type ErrorJSON, err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { bm25Score, tokenize } from "../search/native";
 import { profileHiddenTools } from "./capability-hidden";
+import { type InstructionsSurface, routingGuidance } from "./instructions-routing";
 import { TOOL_DOMAINS, type ToolDefinition, type ToolDomain, type ToolRegistry } from "./registry";
 import { relaxVaultInJson } from "./registry/vault-default";
 import { lowerOutputSchema, lowerSchema } from "./schema-lowering";
@@ -152,6 +153,9 @@ export async function callCapability(
 // resource that might not exist; keyed on the boolean so both variants stay memoized.
 const triadCache = new Map<boolean, Tool[]>();
 
+// Claude Code defers MCP tools unless `_meta` asks for upfront load; only the triad (the entry point) asks.
+const ALWAYS_LOAD_META = Object.freeze({ "anthropic/alwaysLoad": true });
+
 export function triadTools(hasResources = true): Tool[] {
   let cached = triadCache.get(hasResources);
   if (cached === undefined) {
@@ -173,6 +177,7 @@ function buildTriadTools(hasResources: boolean): Tool[] {
           : ""),
       inputSchema: toInputJson(FIND_CAPABILITY_SCHEMA),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: ALWAYS_LOAD_META,
     },
     {
       name: "describe_capability",
@@ -181,6 +186,7 @@ function buildTriadTools(hasResources: boolean): Tool[] {
         "Return the full input schema, required scopes, and safety hints (read-only / destructive) for a single capability by name.",
       inputSchema: toInputJson(DESCRIBE_CAPABILITY_SCHEMA),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: ALWAYS_LOAD_META,
     },
     {
       name: "call_capability",
@@ -190,6 +196,7 @@ function buildTriadTools(hasResources: boolean): Tool[] {
       inputSchema: toInputJson(CALL_CAPABILITY_SCHEMA),
       // Advisory only; the real read-only/destructive verdict is the TARGET tool's, enforced in dispatch.
       annotations: { openWorldHint: false },
+      _meta: ALWAYS_LOAD_META,
     },
   ];
 }
@@ -542,6 +549,7 @@ export function buildInstructions(
   caller: VisibilityCaller | undefined,
   hasResources = true,
   experientialLogRetrievals = true,
+  surface: InstructionsSurface = "generic",
 ): string {
   const tools = registry.listVisible(caller);
   const canRecordFeedback =
@@ -560,7 +568,7 @@ export function buildInstructions(
       ? ` toolFacade.profile: "core" is active — ${hiddenCount} additional tool(s) exist but are hidden; find_capability/describe_capability/call_capability disclose them by name.`
       : "";
   const preamble =
-    `${name} ${version} — an MCP server over Obsidian vaults. ` +
+    `${name} ${version} — an MCP server over Obsidian vaults. ${routingGuidance(surface, hasResources)} ` +
     `Tools are authorized per call (scopes + folder ACL); resources are vault notes.${feedbackClause}${profileClause}`;
   // The pointer only makes sense when resources are wired — see triadTools()'s same gate.
   const catalogPointer = hasResources

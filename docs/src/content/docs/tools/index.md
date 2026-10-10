@@ -112,6 +112,34 @@ never a silent dispatch; `inspect_visibility` reports `disabled_by_profile`.
 `toolFacade.profile` is the default (`"full"`) unless you set it — no migration
 needed.
 
+## Tool-budget profiles
+
+Some clients cap how many tools they accept: Antigravity and Windsurf 100, Gemini
+Enterprise 100 actions, VS Code, Copilot Studio and Vertex 128 per request, and Codex
+defers everything past 100. A client can pick an **advertised subset** per URL on the
+HTTP transport, or you can set one for the whole server with `toolFacade.advertise`
+(default `"all"`, which narrows nothing). A subset is advertised flat, whatever
+`toolFacade.mode` says, and it is advertisement only: a tool outside it stays
+registered, authorized as always, and callable by name. This is different from
+`toolFacade.profile`, which decides what is callable at all.
+
+| URL | Advertises | Notes |
+| :-- | :-- | :-- |
+| `/mcp` | what `toolFacade.mode` / `advertise` say (the triad by default) | unchanged |
+| `/mcp/triad`, `/mcp/domain` | the triad, or the domain meta-tools | for a server whose default is something else |
+| `/mcp/essentials` | about 35 curated tools, flat | one or two per domain, none needing a companion plugin; fits 100-tool caps. `search` and `fetch` join it when the server registers them |
+| `/mcp/core` | the `core` curation above, flat (101 tools) | fits 128-tool caps, not 100 |
+| `/mcp/full` | every registered tool, flat | for clients with no cap, or that defer-load |
+
+An unknown name under `/mcp/` answers 404. The URL wins over `toolFacade.advertise`.
+Stdio has no URL, so it selects a subset by config only. OAuth-protected deployments keep
+one resource (`auth.resource`): every `/mcp/<name>` path is a sub-path of it.
+
+The server `instructions` open with one routing sentence for the surface the client was
+given, complete inside the first 512 characters (Codex truncates there) and well inside
+Claude Code's 2,048. The triad's three tools carry `_meta` `"anthropic/alwaysLoad": true`
+so Claude Code loads them upfront instead of behind its tool search.
+
 ## Tool tags
 
 Every tool carries a set of tags, and `toolVisibility.hiddenTags` / `disabledTags` act on them.

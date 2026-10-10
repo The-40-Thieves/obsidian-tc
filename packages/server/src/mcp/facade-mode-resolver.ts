@@ -24,6 +24,7 @@ import { clientInfoFromFields, extractClientInfo } from "./client-info";
 import { sanitizeDisplayText } from "./elicit-form";
 import { explainAutoFacadeMode, resolveAutoFacadeMode } from "./facade-auto";
 import type { AutoFacadeExplanation, FacadeMode } from "./facade-mode";
+import type { AdvertiseSubset } from "./tool-profiles";
 
 /**
  * De-duplicates a process-wide stderr log across every `createFacadeModeResolver` call in this
@@ -112,13 +113,17 @@ export function createFacadeModeResolver(
     facadeMode?: FacadeMode | "auto";
     autoClients?: Readonly<Record<string, FacadeMode>>;
     explainAutoMode?: boolean;
+    /** A tool-budget subset other than "all" IS a flat advertisement (tool-profiles.ts), so it
+     *  settles the mode before "auto" or any configured mode is consulted. */
+    advertise?: AdvertiseSubset;
   },
 ): FacadeModeResolver {
-  const { facadeMode: configuredMode, autoClients, explainAutoMode } = opts;
+  const { facadeMode: configuredMode, autoClients, explainAutoMode, advertise } = opts;
   let autoFacadeResolution: FacadeMode | undefined;
   let lastExplanation: AutoFacadeExplanation | undefined;
   return {
     resolveFacadeMode(clientName) {
+      if (advertise !== undefined && advertise !== "all") return "flat";
       if (configuredMode !== "auto") return configuredMode ?? "flat";
       if (autoFacadeResolution !== undefined) return autoFacadeResolution;
       let mode: FacadeMode;

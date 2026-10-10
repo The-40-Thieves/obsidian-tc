@@ -1,0 +1,4 @@
+---
+type: Added
+---
+- **Tool-budget profiles, selectable per URL.** A client that caps the tools it accepts can now connect to `/mcp/essentials` (about 35 curated tools, advertised flat, no meta-tools), `/mcp/core` (the existing `core` curation, flat), `/mcp/full` (every tool, flat), or `/mcp/triad` / `/mcp/domain`; `/mcp` is unchanged. The new `toolFacade.advertise` (`all`, `core`, `essentials`; default `all`) picks one for the whole server, and stdio uses it as its only selector. Profiles only change what `tools/list` advertises: every tool stays callable by name under the same authorization. The server `instructions` now open with a routing sentence for the surface the client was given, complete within the first 512 characters, and the triad tools carry `_meta` `"anthropic/alwaysLoad": true` so Claude Code loads them upfront.

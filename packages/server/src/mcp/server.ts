@@ -54,6 +54,7 @@ import {
   triadTools,
 } from "./facade";
 import { createFacadeModeResolver } from "./facade-mode-resolver";
+import { instructionsSurfaceOf } from "./instructions-routing";
 import { getPrompt, listPrompts } from "./prompts";
 import type { CallerContext, ToolRegistry } from "./registry";
 import { requestCallerMeta } from "./request-meta";
@@ -74,6 +75,7 @@ import {
   toCreateTaskResult,
 } from "./tasks";
 import { oversizedToolInput } from "./tool-input-cap";
+import { type AdvertiseSubset, isAdvertisedIn } from "./tool-profiles";
 import { toMcpTool, toMcpToolNoOutputSchema } from "./tool-projection";
 import { toolDataResult } from "./tool-result";
 import type { VisibilityCaller } from "./visibility";
@@ -162,6 +164,10 @@ export interface McpServerOptions {
   /** `toolFacade.outputSchema`: "omit" drops `outputSchema` from every tool tools/list advertises
    *  (flat/domain surfaces). Results are unaffected. Defaults to "full". */
   outputSchema?: "full" | "omit";
+  /** Tool-budget subset (`toolFacade.advertise`, or the `/mcp/<surface>` URL on HTTP): anything but
+   *  "all" makes tools/list a flat list of that subset, whatever `facadeMode` says. Advertisement
+   *  only; every tool stays callable by name. Defaults to "all". See tool-profiles.ts. */
+  advertise?: AdvertiseSubset;
   /**
    * THE-583: the protocol era this instance is being constructed to serve, as classified by the
    * SDK (`createMcpHandler`'s `McpRequestContext.era`).
@@ -261,6 +267,7 @@ function visibilityCallerOf(ctx: CallerContext): VisibilityCaller {
 
 export function createMcpServer(opts: McpServerOptions): Server {
   // THE-937 round 3: `instructions` builds ONCE from `opts.visibility` — see its doc comment.
+  const surface = instructionsSurfaceOf(opts.facadeMode, opts.advertise);
   const staticInstructions = buildInstructions(
     opts.name,
     opts.version,
@@ -268,6 +275,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     opts.visibility,
     Boolean(opts.vaultRegistry),
     opts.experientialLogRetrievals,
+    surface,
   );
   const server = new ShimGuardedServer(
     { name: opts.name, version: opts.version },
@@ -376,6 +384,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
           visibilityCallerOf(dctx),
           Boolean(opts.vaultRegistry),
           opts.experientialLogRetrievals,
+          surface,
         ),
       },
       CACHE_PRIVATE,
@@ -412,16 +421,22 @@ export function createMcpServer(opts: McpServerOptions): Server {
       // chokepoint. Undefined for every non-persona caller — unchanged behaviour.
       toolVisibility: ctx.toolVisibility,
     });
+    // Tool-budget subset: narrow the caller's visible list BEFORE paging, so the cursor and the
+    // count a client sees are the subset's. The caller's scope filtering above has already run, so
+    // a subset can only ever show less than the caller is granted.
+    const subset = opts.advertise ?? "all";
+    const advertised =
+      subset === "all" ? visible : visible.filter((d) => isAdvertisedIn(subset, d.name));
     const pageSize = opts.toolsPageSize ?? TOOLS_PAGE_SIZE;
     const start = req.params?.cursor ? Math.max(0, Number.parseInt(req.params.cursor, 10) || 0) : 0;
-    const page = visible.slice(start, start + pageSize);
+    const page = advertised.slice(start, start + pageSize);
     // THE-463: reuse the memoized per-tool projection (outputSchema + icons stay opt-in inside
     // toMcpTool, so a tool that declares neither still serializes byte-identically to before).
     const project = opts.outputSchema === "omit" ? toMcpToolNoOutputSchema : toMcpTool;
     const tools: Tool[] = page.map(project);
     const nextStart = start + page.length;
     return withCacheHint(
-      nextStart < visible.length ? { tools, nextCursor: String(nextStart) } : { tools },
+      nextStart < advertised.length ? { tools, nextCursor: String(nextStart) } : { tools },
       CACHE_PRIVATE,
     );
   });

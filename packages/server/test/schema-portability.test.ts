@@ -14,7 +14,7 @@ import { describeCapability } from "../src/mcp/facade";
 import type { CallerContext, ToolRegistry } from "../src/mcp/registry";
 import type { SchemaRole } from "../src/mcp/schema-lowering";
 import { createMcpServer } from "../src/mcp/server";
-import { NON_CORE_TOOL_NAMES } from "../src/mcp/tool-profiles";
+import { type AdvertiseSubset, NON_CORE_TOOL_NAMES } from "../src/mcp/tool-profiles";
 import { ALLOW_ALL } from "../src/mcp/visibility";
 import {
   JSON_SCHEMA_2020_12,
@@ -158,6 +158,7 @@ interface Advertised {
 async function advertise(
   registry: ToolRegistry,
   facadeMode: "triad" | "domain" | "flat",
+  subset: AdvertiseSubset = "all",
 ): Promise<Advertised[]> {
   const server = createMcpServer({
     name: "x",
@@ -166,6 +167,7 @@ async function advertise(
     context,
     visibility: { grantedScopes: new Set(["*"]) },
     facadeMode,
+    advertise: subset,
   });
   const [ct, st] = InMemoryTransport.createLinkedPair();
   await server.connect(st);
@@ -247,6 +249,24 @@ describe("every advertised schema is portable", () => {
         expect(rows.filter((r) => r.annotations === null)).toEqual([]);
       });
     }
+  }
+
+  // The tool-budget subsets are flat lists the strictest clients (the ones with tool caps) read, so
+  // they are exactly the surfaces this gate exists for. Floors: a subset that advertised nothing
+  // would pass the violation check vacuously.
+  for (const [subset, floor] of [
+    ["essentials", 25],
+    ["core", 100],
+  ] as const) {
+    it(`tools/list: advertise=${subset} (flat)`, async () => {
+      const rows = await advertise(buildFullRegistry(), "flat", subset);
+      expect(rows.filter((r) => r.role === "input").length).toBeGreaterThanOrEqual(floor);
+      const bad = rows.flatMap((r) =>
+        portabilityViolations(r.schema, r.role).map((v) => `${r.surface}/${r.tool}/${r.role} ${v}`),
+      );
+      expect(bad, `${bad.length} violations:\n${bad.slice(0, 40).join("\n")}`).toEqual([]);
+      expect(rows.filter((r) => r.annotations === null)).toEqual([]);
+    });
   }
 
   it("describe_capability's input_schema/output_schema are portable for every registered tool", () => {

@@ -41,6 +41,7 @@ import {
   serveTaskSubscription,
   subscribesToTasks,
 } from "../mcp/tasks";
+import { type AdvertiseSubset, type UrlSurface, urlSurfaceFor } from "../mcp/tool-profiles";
 import type { VisibilityCaller } from "../mcp/visibility";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { JobQueue } from "../scheduler/job-queue";
@@ -174,6 +175,8 @@ export interface HttpAppOptions {
   explainAutoMode?: boolean;
   /** `toolFacade.outputSchema`, threaded to createMcpServer. */
   outputSchema?: "full" | "omit";
+  /** `toolFacade.advertise`: the default tool-budget subset for `/mcp`; a `/mcp/<surface>` URL wins. */
+  advertise?: AdvertiseSubset;
   /** GH #1027: `tools.defaults.responseFormat`, threaded to createMcpServer (resources/read). */
   responseFormat?: ResponseFormat;
   /** DNS-rebinding / cross-origin guard (THE-271). Defaults on when undefined. */
@@ -297,6 +300,22 @@ async function resolveAuth(
  * by createMcpHandler, which classifies the protocol era per request and serves both.
  */
 type HttpAuthInfo = { scopes?: string[]; extra?: Record<string, unknown> } | undefined;
+
+/** The `facadeMode` / `advertise` pair a request's createMcpServer gets: the `/mcp/<surface>` URL's
+ *  when the request came in on one, else the configured defaults. Looked up by the segment's name
+ *  (carried as `authInfo.extra.surface`), so only a name this module's own route set can ever
+ *  select a surface. */
+function surfaceOptions(
+  opts: HttpAppOptions,
+  authInfo: HttpAuthInfo,
+): { facadeMode?: FacadeMode | "auto"; advertise?: AdvertiseSubset } {
+  const name = authInfo?.extra?.surface;
+  const surface: UrlSurface | undefined =
+    typeof name === "string" ? urlSurfaceFor(name) : undefined;
+  return surface
+    ? { facadeMode: surface.mode, advertise: surface.advertise }
+    : { facadeMode: opts.facadeMode, advertise: opts.advertise };
+}
 
 /**
  * THE-937 round 3: PURE — reads `authInfo` and `opts.acl` only, no DB, no session. Returns
@@ -446,7 +465,9 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
         // doc comment for why this must not be `contextFromAuthInfo`'s own resolver.
         visibility: visibilityFromAuthInfo(opts, mcpCtx.authInfo),
         vaultRegistry: opts.vaultRegistry,
-        facadeMode: opts.facadeMode,
+        // A `/mcp/<surface>` URL picks the surface for this request and beats the config default.
+        // Re-resolved from the segment's NAME, never from an object carried on the request.
+        ...surfaceOptions(opts, mcpCtx.authInfo),
         autoClients: opts.autoClients,
         explainAutoMode: opts.explainAutoMode,
         outputSchema: opts.outputSchema,
@@ -527,7 +548,15 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
     });
   }
 
-  app.post("/mcp", async (c) => {
+  // `/mcp` is the configured surface; `/mcp/<surface>` (tool-profiles.ts URL_SURFACES) picks one per
+  // client URL. The same handler serves both, so the guard, auth and dispatch below are shared.
+  const mcpPost = async (c: Context) => {
+    const surfaceName = c.req.param("surface" as never) as string | undefined;
+    if (surfaceName !== undefined && urlSurfaceFor(surfaceName) === undefined)
+      return c.json(
+        { jsonrpc: "2.0", error: { code: -32000, message: "unknown tool surface" }, id: null },
+        404,
+      );
     // DNS-rebinding / cross-origin guard (THE-271). A malicious web page POSTing to a loopback MCP
     // server is the canonical local-server attack: the config fail-closes a non-loopback bind under
     // auth 'none', but nothing stopped a browser drive-by against the loopback bind. Reject a Host
@@ -652,13 +681,16 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
           persona: authz.persona,
           toolVisibility: authz.toolVisibility,
           verified: authz.verified,
+          surface: surfaceName,
         },
       },
     });
-  });
+  };
+  app.post("/mcp", mcpPost);
+  app.post("/mcp/:surface", mcpPost);
 
   // Stateless mode has no standalone SSE stream or server-side session to delete.
-  app.on(["GET", "DELETE"], "/mcp", (c) =>
+  app.on(["GET", "DELETE"], ["/mcp", "/mcp/:surface"], (c) =>
     c.json(
       {
         jsonrpc: "2.0",

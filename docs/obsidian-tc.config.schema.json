@@ -2104,6 +2104,16 @@
             "omit"
           ]
         },
+        "advertise": {
+          "default": "all",
+          "description": "Tool-budget profile for clients that cap the tools they accept. \"all\" (the default) narrows nothing. \"essentials\" advertises a flat list of about 35 curated tools (about one per domain; fits 100-tool caps), \"core\" the flat core curation (101 tools; fits 128-tool caps). Anything other than \"all\" overrides `mode` with a flat list. On HTTP, a URL such as `/mcp/essentials` selects a profile per client and wins over this key. Advertisement only: tools outside the subset stay callable by name, subject to the same authorization.",
+          "type": "string",
+          "enum": [
+            "all",
+            "core",
+            "essentials"
+          ]
+        },
         "profile": {
           "default": "full",
           "description": "Which tools are visible/callable for this process — registration itself is unaffected (every tool is always registered). \"full\" (the default) leaves every tool visible/callable, unchanged from today. \"core\" is an opt-in, smaller curated surface. Orthogonal to `mode`: `mode` picks what a session is ADVERTISED, `profile` picks what is CALLABLE. A tool `core` hides answers describe_capability/call_capability with a `capability_hidden` error rather than a silent failure.",
