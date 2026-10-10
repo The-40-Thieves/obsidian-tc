@@ -789,5 +789,81 @@ may be given R or R plus any of those names:
 - An `auth.resource` that is itself a profile URL (`https://host/mcp/essentials`) is one profile's
   URL: its metadata is served at that path and nothing is derived from it. Prefer R = the bare `/mcp` URL.
 
+### What a request with no token gets (`auth.anonymousDiscovery`)
+
+Two hosted clients want opposite things from an OAuth-protected server, so this is a switch, and the
+default is the one that works for almost every client.
+
+| `auth.anonymousDiscovery` | Behaviour for a request with **no** bearer token | For |
+| --- | --- | --- |
+| `none` (default) | `401` with `WWW-Authenticate: Bearer resource_metadata="…"` on **every** request: `initialize`, `ping` and `tools/list` included. | grok.com, Claude and every other client that signs in on a `401` |
+| `list` | `initialize`, `ping`, `server/discover` and `tools/list` are answered; `tools/call` returns a tool error carrying the challenge; everything else is `401`. | ChatGPT "OAuth or no authentication" (mixed) mode |
+
+- **Why `none` is the default.** grok.com starts its sign-in only when `tools/list` answers `401`. If
+  listing works anonymously, the `401` comes at the first `tools/call`, the sign-in never opens, and every call
+  fails with "Auth required". Claude likewise needs the `401` with `resource_metadata` and ignores a challenge
+  on a `200`. A `401` on `initialize` too is what the MCP authorization spec describes (the token goes on
+  every request) and costs those clients nothing, so no method is carved out of the default: one gate.
+- **`list` is for ChatGPT's mixed mode.** ChatGPT lists tools without a token, then shows its account-linking
+  UI only when a tool error carries `_meta["mcp/www_authenticate"]` with `error` and `error_description`.
+  With `list`, an anonymous `tools/call` answers `200` with an `isError` tool result whose
+  `_meta["mcp/www_authenticate"]` is the same challenge the `401` would carry for the URL the client used
+  (`/mcp` or `/mcp/<profile>`, each with its own `resource_metadata`), plus `error="insufficient_scope"` and an
+  `error_description`. Every listed tool declares `securitySchemes` (and the `_meta` mirror OpenAI documents):
+  `[{ "type": "oauth2", "scopes": [...] }]` with the tool's own required scopes. It is never `noauth`: an
+  anonymous call cannot succeed, so declaring it would promise ChatGPT something this server refuses. On
+  the `triad` and `domain` profile URLs the meta-tools front tools of every scope, so they declare the default scopes.
+- **What the anonymous list shows.** Exactly what a caller who signed in without naming a scope would see:
+  tools filtered by the authorization server's default scope (`auth.scopesSupported`, else `read:*`). A
+  write or admin tool is not listed anonymously unless you advertise that scope in `auth.scopesSupported`, because
+  a sign-in that names no scope is granted the whole advertised set (under `oidc` the IdP decides, and this is
+  the same approximation). Tool names and descriptions are public in this open-source
+  repository; the filter is there so the anonymous list is never wider than the smallest signed-in one.
+- **What `list` does not loosen.** A request with any credential (a bad or expired token, or another scheme such
+  as `Basic`) is still a `401`: a client must refresh, not be downgraded to anonymous. Only an absent, blank or
+  bare `Bearer` Authorization header is anonymous, and its body is read only up to 64 KiB. Resources, prompts, tasks, subscriptions, a JSON-RPC batch, and every
+  `tools/call` stay behind the token. An admitted method that asks for a push stream (any `params.notifications`
+  key) is a `401` too, and the anonymous caller is not authenticated, so dispatch refuses every tool, scope-free
+  ones included, even if a call reached it.
+- `list` needs `auth.mode` `jwt` or `oidc`, `auth.resource`, and a complete Protected Resource Metadata
+  (an authorization server). Without one the challenge has nothing to link from and the server stays on `none`.
+- **Do not use `list` if grok.com also connects**: it would see a working anonymous `tools/list` and never start its sign-in.
+
+### Static bearer tokens (API clients with no OAuth flow)
+
+Many programmatic clients cannot run an OAuth flow: they send a bearer you give them. That is a first-class
+path here, with `auth.mode: jwt`. Mint a token and put it where the client sends its `Authorization` header:
+
+```bash
+obsidian-tc token mint ./obsidian-tc.config.json \
+  --sub claude-api --vault main --scopes read:notes --ttl 2592000
+# prints the bare token on stdout (details on stderr); add --json for the claims
+```
+
+The client then sends `Authorization: Bearer <token>`. `token mint` binds `aud` to `auth.audience` (or
+`auth.resource`) the way the server will verify it, caps `--ttl` at `auth.tokenTtlSeconds`, records the token's
+`jti` so it can be revoked (see [Revoking tokens](#revoking-tokens-and-rotating-the-signing-key)), and refuses under
+`auth.mode: oidc` (mint a token at your IdP instead). Give each client its own `--sub`, scopes and `--vault`.
+A static bearer is never tied to a profile: use the client's URL (`/mcp` or `/mcp/<profile>`) as usual.
+
+| Client | Where the token goes |
+| --- | --- |
+| Claude API MCP connector | `authorization_token` on the `mcp_servers` entry (sent as the bearer) |
+| OpenAI Responses API (`type: "mcp"`) | `authorization` on the tool; resend it on every request |
+| xAI API remote MCP | `authorization` (the header value), or `headers` |
+| GitHub Copilot coding agent | a static header in the repository's MCP JSON (it does not support OAuth servers), the token from a Copilot secret |
+| Copilot Studio | the API-key authentication option (header) |
+| Gemini Interactions API (remote `mcp_server`) | `headers` with `Authorization: Bearer …` |
+| Perplexity Agent API | `authorization`, or `headers` |
+| LM Studio | `headers` in `mcp.json` |
+| Docker MCP gateway | a static `Authorization` header for the remote server (the toolkit has no custom OAuth provider) |
+| Amazon Bedrock AgentCore gateway | an API-key outbound credential carrying the token |
+| n8n | the MCP client node's Bearer / header authentication |
+| Antigravity | `headers` in `mcp_config.json` |
+| Codex | `bearer_token_env_var` in `~/.codex/config.toml` (the name of the environment variable that holds the token) |
+
+ChatGPT has no header option: it signs in with OAuth ([the bundled authorization server](#the-bundled-authorization-server-authas),
+or `list` above). grok.com's connector UI is OAuth with Dynamic Client Registration only.
+
 See also [Scopes & Folder ACLs](/security/acls/) and
 [HITL Elicitation](/security/hitl-elicit/).

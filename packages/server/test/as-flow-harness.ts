@@ -88,6 +88,10 @@ export async function makeFlow(
     defaultVault?: string;
     /** Test seams for client-ID metadata document resolution (fetch, resolver, timeout, cache cap). */
     cimd?: AsRouteDeps["cimd"];
+    /** `auth.anonymousDiscovery` (default `none`). */
+    anonymousDiscovery?: "none" | "list";
+    /** Extra test tools registered beside `list_vaults` and `noop`. */
+    tools?: { name: string; requiredScopes: string[] }[];
   } = {},
 ): Promise<Flow> {
   process.env[SECRET_CLIENT_ENV] = SECRET_CLIENT_SECRET;
@@ -105,6 +109,7 @@ export async function makeFlow(
       mode: "jwt",
       resource: RESOURCE,
       ...(opts.scopesSupported ? { scopesSupported: opts.scopesSupported } : {}),
+      ...(opts.anonymousDiscovery ? { anonymousDiscovery: opts.anonymousDiscovery } : {}),
       as: { enabled: true, issuer: ISSUER, clients: CLIENTS, ...opts.as },
     },
     ...(opts.personas ? { personas: opts.personas } : {}),
@@ -153,6 +158,15 @@ export async function makeFlow(
     requiredScopes: [],
     handler: () => ({}),
   } as never);
+  for (const t of opts.tools ?? []) {
+    tools.register({
+      name: t.name,
+      description: `test-only: ${t.name}`,
+      inputSchema: z.object({}),
+      requiredScopes: t.requiredScopes,
+      handler: () => ({}),
+    } as never);
+  }
 
   const clock = { t: Date.now() };
   const logs: string[] = [];
