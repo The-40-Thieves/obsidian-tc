@@ -104,7 +104,7 @@ for (const rel of [SCHEMA, EMBEDDED]) {
     const dir = makeRepo();
     const r = edit(dir, rel);
     assert.equal(r.code, 2);
-    assert.match(r.err, new RegExp(`BLOCKED: ${rel.replace(/\./g, "\\.")}`));
+    assert.ok(r.err.includes(`BLOCKED: ${rel}`), r.err);
     assert.match(r.err, rel === SCHEMA ? /bun run config:schema\b/ : /bun run migrations:embed\b/);
   });
 }
@@ -145,7 +145,7 @@ test("backstop: fires for a python heredoc write to the schema, naming the rever
   const r = bash(dir, cmd, sid);
   assert.equal(r.code, 0);
   const ctx = context(r);
-  assert.match(ctx, new RegExp(`${SCHEMA.replace(/\./g, "\\.")} changed outside its generator`));
+  assert.ok(ctx.includes(`${SCHEMA} changed outside its generator`), ctx);
   assert.match(ctx, /git checkout -- docs\/obsidian-tc\.config\.schema\.json/);
   assert.match(ctx, /bun run config:schema/);
   assert.equal(JSON.parse(r.out).hookSpecificOutput.hookEventName, "PostToolUse");
