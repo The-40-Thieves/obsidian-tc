@@ -67,7 +67,7 @@ function boot(authOver: Record<string, unknown>) {
     enableDnsRebindingProtection: false,
     jobQueue: queue,
   } as Parameters<typeof createHttpApp>[0]);
-  return { app, listen, probe };
+  return { app, listen, probe, queue };
 }
 
 const MIXED = {
@@ -220,6 +220,35 @@ describe("the Tasks stream refuses a caller with no usable identity", () => {
       new AbortController().signal,
     );
     expect(res.status).toBe(403);
+  });
+});
+
+describe("tasks/get, tasks/cancel and tasks/update refuse a caller with no usable identity", () => {
+  it.each(["tasks/get", "tasks/cancel", "tasks/update"])(
+    "%s by a sub-less JWT cannot reach a job owned by the null caller",
+    async (method) => {
+      const { app, queue } = boot(MIXED);
+      const job = queue.enqueue("caller_work", { owner: { vaultId: "v", caller: null } });
+      const jwt = await token({});
+      const res = await post(
+        app,
+        rpc(method, { taskId: job.id, inputResponses: {}, _meta: META }),
+        { jwt },
+      );
+      const json = (await res.json()) as { error?: { code: number }; result?: unknown };
+      expect(json.error?.code).toBe(-32001);
+      expect(json.result).toBeUndefined();
+      expect(queue.get(job.id)?.cancelRequested).toBe(false);
+    },
+  );
+
+  it("a named caller still polls its own task", async () => {
+    const { app, queue } = boot(MIXED);
+    const job = queue.enqueue("caller_work", { owner: { vaultId: "v", caller: "agent-1" } });
+    const jwt = await token({ sub: "agent-1" });
+    const res = await post(app, rpc("tasks/get", { taskId: job.id, _meta: META }), { jwt });
+    const json = (await res.json()) as { result?: { taskId?: string } };
+    expect(json.result?.taskId).toBe(job.id);
   });
 });
 

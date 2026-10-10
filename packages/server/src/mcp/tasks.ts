@@ -98,6 +98,14 @@ export function toMcpTask(job: Job): McpTask {
   };
 }
 
+/**
+ * `null` (or empty) is the absence of an identity, not an identity: `===` cannot tell two absences
+ * apart, so a verified token with no `sub` would share one task bucket with every other. Only HTTP
+ * produces it (stdio is `stdio`, mode `none` is `http-local`); the task surfaces refuse it.
+ */
+export const isIdentifiedCaller = (caller: string | null): caller is string =>
+  typeof caller === "string" && caller.length > 0;
+
 /** The caller a task must belong to before it is visible or cancellable. */
 export interface McpTaskOwner {
   vaultId: string;
@@ -128,6 +136,7 @@ export const MODERN_PROTOCOL_VERSION = "2026-07-28";
 /** JSON-RPC error codes this surface uses, matching the codes the SDK emits for the same shapes. */
 const METHOD_NOT_FOUND = -32601;
 const INVALID_PARAMS = -32602;
+const UNIDENTIFIED_CALLER = -32001;
 
 /**
  * Answer a Tasks-extension request, or return `undefined` if the body is not one.
@@ -165,6 +174,12 @@ export async function serveTaskExtension(
 
   // `tasks/list` was REMOVED in this revision; anything else under tasks/ is simply not a method we
   // implement, and saying so is better than a generic parse failure.
+  if (!isIdentifiedCaller(owner.caller)) {
+    return fail(
+      UNIDENTIFIED_CALLER,
+      "tasks require an identified caller (this token has no `sub`)",
+    );
+  }
   const taskId = (req.params as { taskId?: unknown } | undefined)?.taskId;
   if (typeof taskId !== "string" || taskId.length === 0) {
     return fail(INVALID_PARAMS, "taskId is required");
@@ -304,10 +319,8 @@ export function serveTaskSubscription(
   signal: AbortSignal,
 ): Response {
   const id = (body as { id?: string | number | null } | null)?.id ?? null;
-  // `null` is the absence of an identity, not an identity: two callers with none (a verified token
-  // with no `sub`, or an anonymous one) would share a bucket and read each other's task results.
-  // Refused at subscribe time, as the advisory stream does. Only HTTP produces a null caller.
-  if (typeof owner.caller !== "string" || owner.caller.length === 0) {
+  // Refused at subscribe time, as the advisory stream does (see isIdentifiedCaller).
+  if (!isIdentifiedCaller(owner.caller)) {
     return new Response(
       JSON.stringify({
         jsonrpc: "2.0",

@@ -70,6 +70,7 @@ import {
 import { advertiseSchemes } from "./security-schemes";
 import {
   clientSupportsTasks,
+  isIdentifiedCaller,
   MODERN_PROTOCOL_VERSION,
   TASK_CALL_JOB_TYPE,
   TASKS_EXTENSION,
@@ -561,7 +562,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
     //
     // The caller's scopes are snapshotted INTO the job. The runner gets exactly these and nothing
     // else, so a task can never do more than the caller could have done synchronously.
-    if (opts.jobQueue && clientSupportsTasks(server.getClientCapabilities())) {
+    // An unidentified caller (no `sub`) is answered synchronously: it could never poll the handle.
+    if (
+      opts.jobQueue &&
+      isIdentifiedCaller(ctx.caller) &&
+      clientSupportsTasks(server.getClientCapabilities())
+    ) {
       const def = opts.registry.list().find((d) => d.name === req.params.name);
       // A decline never enqueues: dispatchToResult is where it stops.
       if (def?.taskAugmentable && roundOutcome !== "declined") {
