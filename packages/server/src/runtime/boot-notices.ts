@@ -6,6 +6,7 @@
 // or WHAT these print changes, only where the code that decides it lives. All three were already
 // independent blocks with no shared state beyond `config`, so folding them into one function is a
 // pure move, not a refactor of behavior.
+import { fstatSync } from "node:fs";
 import {
   isFeedbackExemptFromReadOnly,
   type ServerConfig,
@@ -183,4 +184,26 @@ export function emitBootNotices(deps: {
     maintenanceEnabled: config.maintenance.enabled,
   });
   if (staleNotice !== undefined) process.stderr.write(staleNotice);
+}
+
+/**
+ * A headless deploy with HTTP also enabled (docker/systemd, stdin backed by /dev/null) hits stdio
+ * EOF the instant it starts. This fires BEFORE that happens, so it reads as an explanation rather
+ * than a post-mortem. Best-effort: an fd-0 stat failing (already closed, or a platform that
+ * refuses it) just means no notice, never a startup error.
+ */
+export function emitHeadlessStdioNotice(): void {
+  try {
+    const stat = fstatSync(0);
+    if (!stat.isFIFO() && !process.stdin.isTTY) {
+      process.stderr.write(
+        "obsidian-tc: transports.stdio and transports.http are both enabled, and stdin is " +
+          "neither a TTY nor a pipe (looks like /dev/null) — an immediate stdin EOF is " +
+          "expected here; the HTTP transport keeps serving through it. Set " +
+          "transports.stdio: false for a headless deploy to silence this.\n",
+      );
+    }
+  } catch {
+    // Best-effort notice only — see the comment above.
+  }
 }
