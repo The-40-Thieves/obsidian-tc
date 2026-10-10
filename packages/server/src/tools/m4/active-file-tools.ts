@@ -171,6 +171,7 @@ export function buildActiveFileTools(deps: M4Deps, lookup: DelegateLookup): Tool
   return [
     defineTool({
       name: "get_active_file",
+      wholeNotes: true,
       domain: "workspace",
       vaultArg: "vault",
       description:

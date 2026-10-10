@@ -581,14 +581,14 @@ export const SCENARIOS: Scenario[] = [
     tool: "find_notes_by_property",
     domain: "m1",
     args: { vault: "test", key: "title" },
-    conciseKeys: ["vault", "key", "total", "truncated", "matches"],
+    conciseKeys: ["vault", "key", "total", "truncated", "next_cursor", "matches"],
   },
   {
     name: "find_unresolved_links",
     tool: "find_unresolved_links",
     domain: "m1",
     args: { vault: "test" },
-    conciseKeys: ["vault", "total", "truncated", "unresolved"],
+    conciseKeys: ["vault", "total", "truncated", "next_cursor", "unresolved"],
   },
   {
     name: "read_frontmatter",
@@ -616,7 +616,7 @@ export const SCENARIOS: Scenario[] = [
     tool: "get_backlinks",
     domain: "m1",
     args: { vault: "test", path: "b.md" },
-    conciseKeys: ["vault", "path", "total", "truncated", "backlinks"],
+    conciseKeys: ["vault", "path", "total", "truncated", "next_cursor", "backlinks"],
   },
   {
     name: "list_notes",
@@ -925,7 +925,7 @@ export const SCENARIOS: Scenario[] = [
     tool: "find_notes_by_tag",
     domain: "m1",
     args: { vault: "test", tag: "x" },
-    conciseKeys: ["vault", "tag", "truncated", "matches"],
+    conciseKeys: ["vault", "tag", "truncated", "next_cursor", "matches"],
   },
   {
     name: "get_note_tags",

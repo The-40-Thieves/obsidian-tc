@@ -354,7 +354,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
         });
         filtered.sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
 
-        const limit = input.limit ?? 100;
+        const limit = input.limit ?? 50;
         const start = input.cursor ? Number.parseInt(input.cursor, 10) || 0 : 0;
         const page = filtered.slice(start, start + limit);
         const next = start + limit < filtered.length ? String(start + limit) : null;

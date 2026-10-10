@@ -254,7 +254,7 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
       requiredScopes: ["read:capture"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const limit = input.limit ?? 100;
+        const limit = input.limit ?? 50;
         // A capture whose committed or target note the caller cannot read is left out BEFORE the
         // page is cut (denied == missing), so next_cursor and total_returned count only what shows.
         const { page, nextCursor } = listReadableCaptures(
