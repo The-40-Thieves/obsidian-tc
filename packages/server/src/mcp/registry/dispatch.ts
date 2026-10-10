@@ -7,8 +7,9 @@ import { type OtelDetail, openDispatchSpans } from "../../otel/dispatch-spans";
 import { callerHash, type RateLimiter } from "../../throttle";
 import { isCrossNoteAuditExempt, runAudited } from "../../vault/acl-audit";
 import { NO_OUTPUT_TEXT } from "../no-output-text";
-import { type EffectiveToolVisibilityConfig, isDisabled } from "../visibility";
+import type { EffectiveToolVisibilityConfig } from "../visibility";
 import { checkAborted } from "./abort";
+import { isToolDisabledFor, runAuthorizationGates } from "./authorization-gates";
 import {
   callStatusForError,
   type DispatchObservability,
@@ -26,18 +27,12 @@ import {
 } from "./idempotency";
 import { idempotentErrorReplay } from "./idempotent-replay";
 import { requireIdentifiedCaller } from "./identified-caller";
-import { applyVaultAcl, enforceVaultBinding, parseInput, vaultFailureHint } from "./input-binding";
+import { parseInput, vaultFailureHint } from "./input-binding";
 import {
-  assertScopesGranted,
   checkHitl,
   confirmationStateProbe,
   enforceCentralPathAcl,
-  enforceReadOnlyGate,
-  enforceVaultKindGate,
   hitlRequired,
-  isMutatingCall,
-  requireAuthenticated,
-  resolveOperationPolicy,
   runPrecheck,
   throttleRefusal,
 } from "./policy-gates";
@@ -52,7 +47,7 @@ import {
 import type { ToolStore } from "./tool-store";
 import type { CallerContext, EpisodeKind, RegistryOptions, Status, VerifyElicit } from "./types";
 import { VERDICT_TOOL_TAG } from "./types";
-import { withDefaultVault, withEffectiveVault } from "./vault-default";
+import { withDefaultVault } from "./vault-default";
 
 // The dispatch orchestrator: the full try/catch/finally pipeline body, calling each gate
 // (input-binding.ts, policy-gates.ts, result-governance.ts, idempotency.ts) in a fixed order.
@@ -187,13 +182,7 @@ export async function runDispatch(
     // THE-647 item 2: `ctx.toolVisibility` (a persona's own mask) rides along here too, so a
     // persona-disabled tool is rejected at dispatch, not just delisted — every caller without a
     // persona carries no `toolVisibility` and this check is unchanged for them.
-    if (
-      isDisabled(def, deps.toolVisibility, {
-        grantedScopes: ctx.grantedScopes,
-        readOnly: ctx.acl?.readOnly,
-        toolVisibility: ctx.toolVisibility,
-      })
-    )
+    if (isToolDisabledFor(deps, def, ctx))
       throw new ObsidianTcError("not_found", `unknown tool: ${name}`);
     // THE-727: static scope class, set before parseInput ON PURPOSE — feeds the throttle decision
     // and error-path metrics even when parseInput itself fails, so a parse failure still gets a
@@ -214,36 +203,28 @@ export async function runDispatch(
     let inputData = parseInput(def, effectiveInput);
 
     // THE-727: authorization is a property of the CALL, not only of the tool. Without
-    // `def.resolvePolicy` this is the static declaration verbatim, so existing tools are untouched.
-    // It sits between the parse and every gate that consumes it, which needed no reordering — the
-    // pipeline already parsed before it authorized. THAT ORDERING IS LOAD-BEARING NOW and is pinned
-    // by test: move `parseInput` back above this and a consolidated tool authorizes against the
-    // wrong action's scopes.
-    const policy = resolveOperationPolicy(def, inputData);
-    scopeClass = policy.scopeClass;
+    // `def.resolvePolicy` the policy is the static declaration verbatim. The gates run on the
+    // PARSED input, and THAT ORDERING IS LOAD-BEARING (pinned by test): authorize before the parse
+    // and a consolidated tool authorizes against the wrong action's scopes. They are the same
+    // function the offload pre-flight runs (authorization-gates.ts), so the two cannot disagree.
+    // `observe` carries what only dispatch needs: the trace stages, the scope class for error
+    // telemetry (set before the first gate that can refuse), and the effect vault.
+    const authorized = runAuthorizationGates(deps, name, def, inputData, ctx, (stage, state) => {
+      if (stage === "auth_check") {
+        scopeClass = state.policy.scopeClass;
+        spans?.stage("auth_check");
+      } else if (stage === "policy_eval") spans?.stage("policy_eval");
+      else if (stage === "read_only") {
+        ctx = state.ctx;
+        if (effect) effect.vaultId = ctx.vaultId;
+      }
+    });
+    const { policy, mutating } = authorized;
 
-    spans?.stage("auth_check");
-    requireAuthenticated(ctx);
-    if (def.principalOwned) requireIdentifiedCaller(ctx, name);
-
-    assertScopesGranted(ctx, policy.requiredScopes, "missing required scope(s)");
-
-    spans?.stage("policy_eval");
-    enforceVaultBinding(ctx, def, inputData);
-
-    applyVaultAcl(ctx, def, inputData, deps.aclResolver);
-    // From here on `ctx.vaultId` is the effect vault (binding, the one reader of the caller's own
-    // vaultId, has run): the HITL error/mint/redeem, idempotency, audit and metrics all follow it.
-    ctx = withEffectiveVault(ctx, def, inputData);
-    if (effect) effect.vaultId = ctx.vaultId;
-
-    const mutating = isMutatingCall(policy);
     const throttleGate = () =>
       throttleRefusal(deps.rateLimiter, ctx.caller, scopeClass, ctx.vaultId, now(), () =>
         deps.observability.meter((m) => m.incRateLimitHit(ctx.vaultId, scopeClass)),
       );
-    enforceReadOnlyGate(ctx, mutating, name, deps.toolVisibility);
-    enforceVaultKindGate(ctx, def, inputData, mutating, name, deps.vaultKindResolver);
 
     // resolveTarget: after every gate that can refuse the caller, before precheck/idempotency/HITL.
     // The rate limit is taken first for such a tool (see the throttle gate below).

@@ -29,7 +29,7 @@ export type JobState = "queued" | "running" | "retrying" | "complete" | "failed"
  */
 export type JobOutcome =
   | { ok: true; result: Record<string, unknown> }
-  | { ok: false; error: { code: number; message: string } };
+  | { ok: false; error: { code: number; message: string; data?: Record<string, unknown> } };
 
 /**
  * Read an outcome envelope back off the row.
@@ -49,6 +49,13 @@ function parseOutcome(raw: string | null | undefined): JobOutcome | null {
     /* fall through */
   }
   return null;
+}
+
+/** One progress report: the shape of an MCP `notifications/progress` payload, minus the token. */
+export interface JobProgress {
+  progress: number;
+  total?: number;
+  message?: string;
 }
 
 export interface Job {
@@ -193,6 +200,9 @@ const CLAIM_SCAN_LIMIT = 50;
 export class JobQueue {
   /** THE-583: `notifications/tasks` subscribers. Empty in every deployment that never opens one. */
   private readonly taskListeners = new Set<(job: Job) => void>();
+  /** Latest in-process progress per RUNNING job (see reportProgress). Dropped at a terminal state. */
+  private readonly progressByJob = new Map<string, JobProgress>();
+  private readonly progressListeners = new Map<string, Set<(p: JobProgress) => void>>();
 
   private readonly db: Database;
   private readonly now: () => number;
@@ -319,16 +329,19 @@ export class JobQueue {
   claim(opts: ClaimOptions): Job | null {
     const t = this.now();
     const leaseMs = opts.leaseMs ?? this.leaseMsValue;
+    const cancelled: string[] = [];
     // THE-585 (#5): already a BEGIN IMMEDIATE — routing it through inWriteTransaction changes no
     // SQL, only who gets told how long the lock took. This is the cross-process contention site,
     // so its samples are the cleanest evidence in the whole catalog.
-    return inWriteTransaction(
+    const claimed = inWriteTransaction(
       this.db,
       "job_claim",
       (): Job | null => {
         const typeFilter = opts.types?.length
           ? `AND type IN (${opts.types.map(() => "?").join(",")})`
           : "";
+        // A job whose cancel was requested before anyone claimed it is finished, not claimable.
+        cancelled.push(...this.finalizeCancelled(t, typeFilter, opts.types ?? []));
         const candidates = this.db
           .prepare(
             `SELECT * FROM jobs
@@ -365,6 +378,105 @@ export class JobQueue {
       },
       this.sql,
     );
+    for (const id of cancelled) this.announce(id);
+    return claimed;
+  }
+
+  /**
+   * Finish every claimable job whose cancel was already requested: nothing ran, so there is
+   * nothing to abort, and handing it to a worker would run the handler once before the first
+   * heartbeat noticed. It lands in the same terminal state a cancelled run does (`failed` with
+   * the flag set, which `toMcpTask` projects as `cancelled`). Returns the ids, for announcing
+   * AFTER the write transaction (a listener must not run inside it).
+   */
+  private finalizeCancelled(t: number, extraWhere = "", params: readonly string[] = []): string[] {
+    const ids = (
+      this.db
+        .prepare(
+          `SELECT id FROM jobs WHERE cancel_requested = 1 AND (
+             state IN ('queued', 'retrying') OR (state = 'running' AND lease_expires_at <= ?)
+           ) ${extraWhere}`,
+        )
+        .all(t, ...params) as { id: string }[]
+    ).map((r) => r.id);
+    for (const id of ids) {
+      this.db
+        .prepare(
+          `UPDATE jobs SET state = 'failed', lease_owner = NULL, lease_expires_at = NULL,
+           next_attempt_at = NULL, last_error = 'cancelled before it started', updated_at = ?
+           WHERE id = ?`,
+        )
+        .run(t, id);
+      this.progressByJob.delete(id);
+    }
+    return ids;
+  }
+
+  /**
+   * Claim ONE specific job, now, instead of waiting for the runner's next tick.
+   *
+   * The tick (15 s) is the right cadence for maintenance work and the wrong one for a tool call a
+   * client is waiting on: the budget a non-task client allows (~60 s) would be a quarter spent
+   * before the work even started, and the runner drains serially, so one long index run would hold
+   * every other caller's task behind it. Only a `queued` job is claimable this way: a retrying or
+   * lease-expired one belongs to the runner's reclaim path, and a running one to its owner.
+   */
+  claimById(id: string, leaseOwner: string, leaseMs?: number): Job | null {
+    const t = this.now();
+    const lease = leaseMs ?? this.leaseMsValue;
+    const cancelled: string[] = [];
+    const claimed = inWriteTransaction(
+      this.db,
+      "job_claim",
+      (): Job | null => {
+        cancelled.push(...this.finalizeCancelled(t, "AND id = ?", [id]));
+        const updated = this.db
+          .prepare(
+            `UPDATE jobs SET state = 'running', attempt = attempt + 1, lease_owner = ?,
+             lease_expires_at = ?, updated_at = ? WHERE id = ? AND state = 'queued'`,
+          )
+          .run(leaseOwner, t + lease, t, id);
+        return updated.changes === 1 ? this.get(id) : null;
+      },
+      this.sql,
+    );
+    for (const cid of cancelled) this.announce(cid);
+    return claimed;
+  }
+
+  /**
+   * In-process progress for a RUNNING job. Deliberately not a column: it is only meaningful while
+   * the worker that reports it is alive (a crashed worker's "42 of 100" would be a lie on the next
+   * boot), and the queue's durable rows stay free of per-batch writes. The latest report is kept
+   * for `get_task_status`; listeners are how a request waiting on the job forwards it as
+   * `notifications/progress`.
+   */
+  reportProgress(id: string, progress: JobProgress): void {
+    this.progressByJob.set(id, progress);
+    for (const listener of [...(this.progressListeners.get(id) ?? [])]) {
+      try {
+        listener(progress);
+      } catch {
+        /* a listener must never break the worker that reports */
+      }
+    }
+  }
+
+  progressOf(id: string): JobProgress | undefined {
+    return this.progressByJob.get(id);
+  }
+
+  onProgress(id: string, listener: (p: JobProgress) => void): () => void {
+    let set = this.progressListeners.get(id);
+    if (!set) {
+      set = new Set();
+      this.progressListeners.set(id, set);
+    }
+    set.add(listener);
+    return () => {
+      set.delete(listener);
+      if (set.size === 0) this.progressListeners.delete(id);
+    };
   }
 
   /** Extend the lease. Fails (returns false) if the caller no longer owns it — an already-reaped
@@ -397,9 +509,10 @@ export class JobQueue {
    * must find the result there — completing first opens a window where the task reports success and
    * the answer it is reporting success for does not exist yet.
    *
-   * Not lease-guarded, unlike complete()/fail(): this is the runner recording what it just produced,
-   * and a lease lost between here and `complete()` means the write simply does not become visible
-   * (the job is not `complete`, so the projection never surfaces the outcome).
+   * Guarded on the lease, like complete()/fail(): an attempt that was superseded (its lease lapsed
+   * and the row was reclaimed under a NEW lease token) must not write over the live attempt's
+   * outcome, nor record one for a job the live attempt has not finished. Returns false when it did
+   * not land; the caller then no longer owns the job and must not report success.
    */
   /**
    * THE-583: observe state changes on CALLER-OWNED jobs, for `notifications/tasks`.
@@ -433,11 +546,14 @@ export class JobQueue {
     }
   }
 
-  recordOutcome(id: string, outcome: JobOutcome): void {
-    this.db
-      .prepare("UPDATE jobs SET outcome = ?, updated_at = ? WHERE id = ?")
-      .run(JSON.stringify(outcome), this.now(), id);
-    this.announce(id);
+  recordOutcome(id: string, outcome: JobOutcome, leaseOwner: string): boolean {
+    const updated = this.db
+      .prepare(
+        "UPDATE jobs SET outcome = ?, updated_at = ? WHERE id = ? AND lease_owner = ? AND state = 'running'",
+      )
+      .run(JSON.stringify(outcome), this.now(), id, leaseOwner);
+    if (updated.changes === 1) this.announce(id);
+    return updated.changes === 1;
   }
 
   complete(id: string, leaseOwner: string): boolean {
@@ -447,7 +563,10 @@ export class JobQueue {
         "UPDATE jobs SET state = 'complete', lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ? AND lease_owner = ? AND state = 'running'",
       )
       .run(t, id, leaseOwner);
-    if (updated.changes === 1) this.announce(id);
+    if (updated.changes === 1) {
+      this.progressByJob.delete(id);
+      this.announce(id);
+    }
     return updated.changes === 1;
   }
 
@@ -473,6 +592,7 @@ export class JobQueue {
           ? [message, t, id, leaseOwner]
           : [t + this.backoff(row.attempt), message, t, id, leaseOwner]),
       );
+    if (deadLetter) this.progressByJob.delete(id);
     this.announce(id);
     return updated.changes === 1;
   }
@@ -526,9 +646,25 @@ export class JobQueue {
 export interface RunJobContext {
   signal: AbortSignal;
   checkpoint: (data: unknown) => void;
+  /** The lease token THIS attempt holds. Anything the handler writes about the job must present it. */
+  leaseOwner: string;
+}
+
+/**
+ * A lease token for ONE claim: the process's stable name plus a fresh suffix. The queue guards every
+ * write on `lease_owner`, so a token shared by successive attempts (`serve:<pid>` for all of them)
+ * cannot tell a superseded attempt from the live one. Mint one per claim, and hand the SAME string
+ * to `runJob`.
+ */
+export function newLeaseToken(owner: string): string {
+  return `${owner}#${randomUUID()}`;
 }
 
 export interface RunJobOptions {
+  /** The PROCESS is going away (shutdown), not the caller cancelling: abort the handler, then leave
+   *  the row exactly as it is. No terminal state is written, so the lease expires and the job is
+   *  recovered by the next runner, which is what happens to any job a crash interrupts. */
+  signal?: AbortSignal;
   /** How often to renew the lease / poll cancel_requested while the handler runs. Default
    *  leaseMs/3 so at least two heartbeats land inside one lease window before it could expire. */
   heartbeatMs?: number;
@@ -562,8 +698,25 @@ export async function runJob(
   leaseOwner: string,
   handler: (job: Job, ctx: RunJobContext) => Promise<void>,
   opts: RunJobOptions = {},
-): Promise<{ outcome: "complete" | "retrying" | "failed" | "lease-lost"; error?: unknown }> {
+): Promise<{
+  outcome: "complete" | "retrying" | "failed" | "lease-lost" | "interrupted";
+  error?: unknown;
+}> {
+  // Cancelled between the claim and now: nothing has run, so end it here rather than invoke the
+  // handler and leave the abort to the first heartbeat (which may be a whole lease-third away).
+  if (queue.isCancelRequested(job.id)) {
+    const recorded = queue.fail(job.id, leaseOwner, new Error("cancelled before it started"), {
+      terminal: true,
+    });
+    return {
+      outcome: recorded ? "failed" : "lease-lost",
+      error: new DOMException("job cancelled", "AbortError"),
+    };
+  }
   const controller = new AbortController();
+  const stopForShutdown = (): void => controller.abort(new DOMException("shutdown", "AbortError"));
+  if (opts.signal?.aborted) stopForShutdown();
+  else opts.signal?.addEventListener("abort", stopForShutdown, { once: true });
   // THE-517: derive the default from THIS queue's own leaseMs (via the leaseMs getter) rather
   // than a hardcoded constant. A caller configuring a short lease (e.g. `leaseMs: 3_000`) must
   // not get a 5s heartbeat that would fire AFTER the lease already expired — that silently
@@ -593,6 +746,7 @@ export async function runJob(
     await handler(job, {
       signal: controller.signal,
       checkpoint: (data) => queue.checkpoint(job.id, leaseOwner, data),
+      leaseOwner,
     });
     // The handler resolved, but that alone does not mean the completion was PERSISTED —
     // complete() returns false if the lease moved between the last heartbeat and this write.
@@ -605,6 +759,10 @@ export async function runJob(
       // whose own lease_owner/state guard would just no-op (changes === 0). Whatever worker
       // reclaimed the row owns its fate now; ours is honestly reported as lease-lost.
       return { outcome: "lease-lost", error: e };
+    }
+    // Shutdown, not cancellation: leave the row to lease recovery (see RunJobOptions.signal).
+    if (opts.signal?.aborted && !queue.isCancelRequested(job.id)) {
+      return { outcome: "interrupted", error: e };
     }
     const cancelled = controller.signal.aborted;
     const failRecorded = queue.fail(job.id, leaseOwner, e, { terminal: cancelled });
@@ -619,5 +777,6 @@ export async function runJob(
     };
   } finally {
     clearInterval(beat);
+    opts.signal?.removeEventListener("abort", stopForShutdown);
   }
 }

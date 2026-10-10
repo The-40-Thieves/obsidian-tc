@@ -24,9 +24,12 @@ export async function raceShutdownPhase(opts: {
   scheduler: { stop(): Promise<void> };
   indexCoordinator: { idle(): Promise<void> };
   jobRunner: { drainOnce(signal: AbortSignal): Promise<void> };
+  /** Task calls `startTask` launched outside the runner's tick (plane-wiring's `taskCalls.startTask`).
+   *  The runner's drain cannot see them, so without this the stores close under a running tool. */
+  taskRuns?: { drain(signal: AbortSignal): Promise<void> };
   drainMs: number;
 }): Promise<"done" | "timeout"> {
-  const { scheduler, indexCoordinator, jobRunner, drainMs } = opts;
+  const { scheduler, indexCoordinator, jobRunner, taskRuns, drainMs } = opts;
   const phaseAbort = new AbortController();
   const phaseTimer = setTimeout(() => phaseAbort.abort(), drainMs).unref();
   const outcome = await Promise.race([
@@ -37,6 +40,10 @@ export async function raceShutdownPhase(opts: {
       // picks them up); this bounded best-effort pass just gives a live worker a chance to clear
       // the queue before exit instead of always waiting out the lease.
       await jobRunner.drainOnce(phaseAbort.signal).catch(() => {});
+      // Same budget as the drain above: stop the immediate task runs and wait for them to settle.
+      // One that does not settle in time makes the race below time out, and the caller exits
+      // rather than closing the stores under it; its lease then lapses and it is recovered.
+      await taskRuns?.drain(phaseAbort.signal).catch(() => {});
       return "done";
     })(),
     new Promise<"timeout">((resolve) => {
