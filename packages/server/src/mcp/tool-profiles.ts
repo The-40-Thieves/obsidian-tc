@@ -236,7 +236,7 @@ const ESSENTIALS_BY_DOMAIN = {
     "record_retrieval_feedback",
   ],
   docs: ["knowledge_search", "knowledge_get_critical"],
-  admin: ["server_health", "get_index_status"],
+  admin: ["server_health", "get_index_status", "get_task_status"],
 } as const;
 
 /** The curated essentials profile (see above). `ESSENTIALS_RESERVED_SLOTS` is added on top when

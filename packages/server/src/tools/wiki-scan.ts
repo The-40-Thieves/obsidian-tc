@@ -4,13 +4,18 @@
 // orphan, a dangling link or a missing-sources note is.
 //
 // Every scan here is READ-ONLY and walks only notes the caller's read ACL admits (denied == missing).
+//
+// Each scan is a step generator (`*Steps`, one `yield` per note) so a tool handler can run it
+// cooperatively with `drainYielding` and not hold the event loop for the whole vault (scan-steps.ts).
+// The plain `scanX` wrapper drains the same generator synchronously, for lint_wiki.
 
 import type { FolderAcl } from "../acl";
 import { globToRegExp } from "../acl";
+import { drainSteps, type ScanSteps } from "../util/scan-steps";
 import { readableEntry } from "../vault/acl-read-filter";
 import { buildVaultIndex, type ExtractedLink, resolveTarget } from "../vault/links";
 import { readNote } from "../vault/notes-io";
-import { resolveVaultPath, walkVault } from "../vault/paths";
+import { resolveVaultPath, walkVaultSteps } from "../vault/paths";
 import { isGeneratedWikiPath, rawPathFilter } from "./m7/knowledge/wiki-folder";
 import { isGeneratedPage } from "./m7/knowledge/wiki-generated-seal";
 import type { ScanWarnings } from "./scan-warnings";
@@ -28,16 +33,25 @@ export interface ScanScope {
   rawFolders?: readonly string[] | undefined;
 }
 
-/** Read-ACL-visible `.md` note paths (optionally under a folder). */
+/** Read-ACL-visible `.md` note paths (optionally under a folder): one step per directory walked. */
+export function* readableNotesSteps(
+  root: string,
+  acl: FolderAcl | undefined,
+  grantedScopes: Iterable<string>,
+  sub?: string,
+): ScanSteps<string[]> {
+  return (yield* walkVaultSteps(root, { sub, extensions: [".md"] }))
+    .filter((e) => readableEntry(acl, e, grantedScopes))
+    .map((e) => e.relPath);
+}
+
 export function readableNotes(
   root: string,
   acl: FolderAcl | undefined,
   grantedScopes: Iterable<string>,
   sub?: string,
 ): string[] {
-  return walkVault(root, { sub, extensions: [".md"] })
-    .filter((e) => readableEntry(acl, e, grantedScopes))
-    .map((e) => e.relPath);
+  return drainSteps(readableNotesSteps(root, acl, grantedScopes, sub));
 }
 
 /** A note's links for a scan: property links, then body links. Bad frontmatter YAML does not fail
@@ -76,17 +90,17 @@ export function fmHas(fm: Record<string, unknown> | null, key: string): boolean 
 
 /** Notes (in `folder`, or the whole vault) that nothing else links to. A link in a property counts.
  *  Resolution runs over EVERY readable note, so a link from outside the folder still rescues one. */
-export function scanOrphans(
+export function* scanOrphansSteps(
   scope: ScanScope,
   warnings: ScanWarnings,
   opts: { folder?: string | undefined; requireNoOutgoing?: boolean },
-): string[] {
+): ScanSteps<string[]> {
   const { root, acl, grantedScopes } = scope;
   const isRaw = rawPathFilter(scope.rawFolders);
-  const candidates = readableNotes(root, acl, grantedScopes, opts.folder).filter(
+  const candidates = (yield* readableNotesSteps(root, acl, grantedScopes, opts.folder)).filter(
     (p) => !isGeneratedWikiPath(p, scope.wikiFolders ?? scope.wikiFolder) && !isRaw(p),
   );
-  const all = readableNotes(root, acl, grantedScopes);
+  const all = yield* readableNotesSteps(root, acl, grantedScopes);
   const index = buildVaultIndex(all);
   const linkedTo = new Set<string>();
   const hasOutgoing = new Set<string>();
@@ -99,22 +113,31 @@ export function scanOrphans(
         hasOutgoing.add(p);
       }
     }
+    yield;
   }
   return candidates.filter(
     (p) => !linkedTo.has(p) && (!opts.requireNoOutgoing || !hasOutgoing.has(p)),
   );
 }
 
+export function scanOrphans(
+  scope: ScanScope,
+  warnings: ScanWarnings,
+  opts: { folder?: string | undefined; requireNoOutgoing?: boolean },
+): string[] {
+  return drainSteps(scanOrphansSteps(scope, warnings, opts));
+}
+
 /** Internal links that resolve to no note. Each record carries `source: "property"` + `property`
  *  when the link was written in a property. */
-export function scanUnresolved(
+export function* scanUnresolvedSteps(
   scope: ScanScope,
   warnings: ScanWarnings,
   opts: { folder?: string | undefined; limit: number },
-): { unresolved: Array<Record<string, unknown>>; truncated: boolean } {
+): ScanSteps<{ unresolved: Array<Record<string, unknown>>; truncated: boolean }> {
   const { root, acl, grantedScopes } = scope;
-  const scan = readableNotes(root, acl, grantedScopes, opts.folder);
-  const index = buildVaultIndex(readableNotes(root, acl, grantedScopes));
+  const scan = yield* readableNotesSteps(root, acl, grantedScopes, opts.folder);
+  const index = buildVaultIndex(yield* readableNotesSteps(root, acl, grantedScopes));
   const unresolved: Array<Record<string, unknown>> = [];
   let truncated = false;
   for (const p of scan) {
@@ -137,8 +160,57 @@ export function scanUnresolved(
       });
     }
     if (truncated) break;
+    yield;
   }
   return { unresolved, truncated };
+}
+
+export function scanUnresolved(
+  scope: ScanScope,
+  warnings: ScanWarnings,
+  opts: { folder?: string | undefined; limit: number },
+): { unresolved: Array<Record<string, unknown>>; truncated: boolean } {
+  return drainSteps(scanUnresolvedSteps(scope, warnings, opts));
+}
+
+/** Every link to `opts.target`, in note order then link order: `skip` links are passed over first
+ *  (the cursor), then up to `limit` are kept; `truncated` says more existed. A link in a code block
+ *  never counts. */
+export function* scanBacklinksSteps(
+  scope: ScanScope,
+  warnings: ScanWarnings,
+  opts: { target: string; skip: number; limit: number },
+): ScanSteps<{ backlinks: Array<Record<string, unknown>>; truncated: boolean }> {
+  const { root, acl, grantedScopes } = scope;
+  const paths = yield* readableNotesSteps(root, acl, grantedScopes);
+  const index = buildVaultIndex(paths);
+  const backlinks: Array<Record<string, unknown>> = [];
+  let truncated = false;
+  let seen = 0;
+  for (const p of paths) {
+    for (const l of linksOf(root, p, warnings)) {
+      if (l.inCodeblock) continue;
+      const r = resolveTarget(index, l.target);
+      if (!r.resolved || r.target_path !== opts.target) continue;
+      if (seen++ < opts.skip) continue;
+      if (backlinks.length >= opts.limit) {
+        truncated = true;
+        break;
+      }
+      backlinks.push({
+        source_path: p,
+        line: l.line,
+        col: l.col,
+        raw: l.raw,
+        kind: l.kind,
+        display: l.display,
+        ...originOf(l),
+      });
+    }
+    if (truncated) break;
+    yield;
+  }
+  return { backlinks, truncated };
 }
 
 /** Notes audit_provenance leaves out unless asked: dailies, templates, index files, drawings. */
@@ -149,6 +221,13 @@ export const PROVENANCE_DEFAULT_EXCLUDE = [
   "**/_*-Index.md",
   "**/*.excalidraw.md",
 ];
+
+interface ProvenanceScanOpts {
+  field: string;
+  include?: string[] | undefined;
+  exclude?: string[] | undefined;
+  folder?: string | undefined;
+}
 
 export interface ProvenanceScan {
   scanned: number;
@@ -163,16 +242,11 @@ export interface ProvenanceScan {
  *  sources/confidence/verified over the readable set. The include/exclude globs are compiled ONCE
  *  for the whole scan (THE-618): an over-long glob fails up front as `glob too long`, and not
  *  only on whichever note happened to be scanned first. */
-export function scanProvenance(
+export function* scanProvenanceSteps(
   scope: ScanScope,
   warnings: ScanWarnings,
-  opts: {
-    field: string;
-    include?: string[] | undefined;
-    exclude?: string[] | undefined;
-    folder?: string | undefined;
-  },
-): ProvenanceScan {
+  opts: ProvenanceScanOpts,
+): ScanSteps<ProvenanceScan> {
   const exclude = [...PROVENANCE_DEFAULT_EXCLUDE, ...(opts.exclude ?? [])];
   const includeRes = (opts.include ?? []).map((g) => globToRegExp(g.normalize("NFC")));
   const excludeRes = exclude.map((g) => globToRegExp(g.normalize("NFC")));
@@ -182,7 +256,12 @@ export function scanProvenance(
     return !excludeRes.some((re) => re.test(p));
   };
   const isRaw = rawPathFilter(scope.rawFolders);
-  const notes = readableNotes(scope.root, scope.acl, scope.grantedScopes, opts.folder).filter(
+  const notes = (yield* readableNotesSteps(
+    scope.root,
+    scope.acl,
+    scope.grantedScopes,
+    opts.folder,
+  )).filter(
     (p) =>
       inScope(p) && !isGeneratedWikiPath(p, scope.wikiFolders ?? scope.wikiFolder) && !isRaw(p),
   );
@@ -204,6 +283,15 @@ export function scanProvenance(
     if (fmHas(fm, "confidence")) withConfidence++;
     if (fm != null && "verified" in fm) withVerified++;
     byFolder.set(top, folder);
+    yield;
   }
   return { scanned: notes.length, withField, withConfidence, withVerified, missing, byFolder };
+}
+
+export function scanProvenance(
+  scope: ScanScope,
+  warnings: ScanWarnings,
+  opts: ProvenanceScanOpts,
+): ProvenanceScan {
+  return drainSteps(scanProvenanceSteps(scope, warnings, opts));
 }
