@@ -57,12 +57,6 @@ const NOTES = {
   "Daily/2026 10 09.md": "# Daily log\n\nA quokka appeared near the zebra crossing.\n",
   "private/secret.md": "# Secret\n\nThe zebra vault combination is hidden here.\n",
 };
-const READS_PUBLIC = new FolderAcl({
-  readOnly: false,
-  defaultScopes: [],
-  rules: [],
-  readPaths: ["projects", "projects/**", "Daily", "Daily/**"],
-});
 
 /** M1 (read_note, the reference refusal) + M2 (the tools under test) on one real temp vault, with
  *  dispatch's central folder-ACL stage wired as production wires it. */
@@ -391,15 +385,17 @@ describe("wire shape and surfaces", () => {
     const tools = (await client.listTools()).tools;
     const search = tools.find((t) => t.name === "search");
     const fetchTool = tools.find((t) => t.name === "fetch");
-    expect(search?.outputSchema?.type).toBe("object");
-    expect(fetchTool?.outputSchema?.type).toBe("object");
+    expect(search).toBeDefined();
+    expect(fetchTool).toBeDefined();
+    const s = search?.outputSchema as any;
+    const f = fetchTool?.outputSchema as any;
+    expect(s.type).toBe("object");
+    expect(f.type).toBe("object");
     expect(search?.inputSchema.required).toContain("query");
     expect(fetchTool?.inputSchema.required).toEqual(["id"]);
-    const item = (search?.outputSchema as any).properties.results.items;
+    const item = s.properties.results.items;
     expect(item.required).toEqual(expect.arrayContaining(["id", "title", "url"]));
-    expect((fetchTool?.outputSchema as any).required).toEqual(
-      expect.arrayContaining(["id", "title", "text", "url"]),
-    );
+    expect(f.required).toEqual(expect.arrayContaining(["id", "title", "text", "url"]));
     expect(search?.annotations?.readOnlyHint).toBe(true);
     expect(fetchTool?.annotations?.readOnlyHint).toBe(true);
   });

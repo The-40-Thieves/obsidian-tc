@@ -13,7 +13,10 @@
 //   - tools: the three triad facade tools (find_capability, describe_capability,
 //     call_capability), via facade.ts's own `triadTools()` builder — the same function
 //     mcp/server.ts calls for tools/list, so the card can never advertise a schema the live
-//     server does not.
+//     server does not — plus the two standard tools the triad surface advertises beside them
+//     (`search`, `fetch`: facade.ts's TRIAD_DIRECT_TOOLS), projected from their real definitions
+//     by the same `toMcpTool` mcp/server.ts uses. Only the schemas and metadata are read, so the
+//     handler dependencies are stubs that are never invoked.
 //   - prompts: the built-in prompt catalog, via prompts.ts's own `listPrompts()`.
 //   - resources: the `obsidian-tc://catalog` resource entry, via resources.ts's own
 //     `catalogResourceEntry()`.
@@ -34,9 +37,13 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { triadTools } from "../src/mcp/facade";
+import { triadDirectDefs, triadTools } from "../src/mcp/facade";
 import { listPrompts } from "../src/mcp/prompts";
+import type { ToolDefinition } from "../src/mcp/registry";
 import { catalogResourceEntry } from "../src/mcp/resources";
+import { toMcpTool } from "../src/mcp/tool-projection";
+import { buildSearchFetchTools } from "../src/tools/m2/search-fetch-tools";
+import type { M2Deps } from "../src/tools/m2/shared";
 
 export interface ServerCardInputs {
   /** packages/server/package.json's own `name` + `version`. */
@@ -57,7 +64,11 @@ export function buildServerCard({ serverPkg, mcpServerJson }: ServerCardInputs) 
   // configured yet). Matching the live default keeps the card's tool descriptions identical to
   // what a real caller sees, including the catalog-resource pointer in find_capability's
   // description.
-  const tools = triadTools(true).map((t) => ({
+  // Schema-only: the handlers close over deps/searchVault but the card never calls them.
+  const direct = triadDirectDefs(buildSearchFetchTools({} as M2Deps, {} as ToolDefinition)).map(
+    toMcpTool,
+  );
+  const tools = [...triadTools(true), ...direct].map((t) => ({
     name: t.name,
     ...(t.title ? { title: t.title } : {}),
     ...(t.description ? { description: t.description } : {}),

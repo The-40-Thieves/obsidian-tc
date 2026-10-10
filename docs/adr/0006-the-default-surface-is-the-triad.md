@@ -65,3 +65,17 @@ shipped in 1.3.0 under the number of the ticket whose *strategy* had just been c
 CHANGELOG and several source comments credited a cancelled ticket with a shipped feature. The
 feature is real; the attribution was misleading. The comments now say which part shipped and which
 part did not.
+
+## Addendum, 2026-10-09: the default surface also advertises `search` and `fetch`
+
+The default triad surface now advertises five tools: `find_capability`, `describe_capability` and
+`call_capability`, plus the two standard tools `search` and `fetch`. ChatGPT deep research and
+company knowledge recognise a connector only by those exact names, so a client that sees only the
+three meta-tools cannot use the server there at all. Usability-first: the two tools ride alongside
+the triad by default instead of behind a profile. They are the only promoted tools, they go through
+the same auth, scope and folder-ACL pipeline as every other call, and nothing else in this decision
+changes: the default is still the triad, and anything that would move it still needs the evidence
+above.
+
+To advertise only the three meta-tools, hide them: `toolVisibility.hidden: [search, fetch]`. They
+stay callable by name.
