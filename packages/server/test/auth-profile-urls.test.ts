@@ -178,8 +178,8 @@ describe("the derived resource set (one definition)", () => {
       `${urlOf("essentials")}X`,
       `${RESOURCE}/../x`,
       `${RESOURCE}%2Fessentials`,
-      `${urlOf("essentials")}/`,
-      `${RESOURCE}/`,
+      `${urlOf("essentials")}//`,
+      `${RESOURCE}//`,
       "https://evil.example/mcp/essentials",
       `${urlOf("essentials")}?x=1`,
       "",
@@ -319,7 +319,7 @@ describe("the authorization server's resource indicator", () => {
       `${urlOf("essentials")}X`,
       `${RESOURCE}/../x`,
       `${RESOURCE}%2Fessentials`,
-      `${RESOURCE}/essentials/`,
+      `${RESOURCE}/essentials//`,
     ]) {
       const res = await authorize(flow, new Jar(), challenge, { resource });
       const loc = res.headers.get("location") ?? "";

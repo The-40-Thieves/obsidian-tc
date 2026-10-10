@@ -97,6 +97,23 @@ export function enabledAs(
     : undefined;
 }
 
+/** What the bundled authorization server advertises when `auth.scopesSupported` is unset: the everyday
+ *  vocabulary, so a client that requests every advertised scope (claude.ai does, absent a challenge
+ *  scope) asks for something real instead of `offline_access` alone. Advisory only: it is never fed to
+ *  `resolveScopes`, so a client naming no scope still gets `read:*`, and any other fully-qualified scope
+ *  (`delete:notes`, `admin:vault`) can still be asked for by name. */
+export const DEFAULT_ADVERTISED_SCOPES: readonly string[] = ["read:*", "write:*"];
+
+/** The scope vocabulary discovery states (AS metadata, PRM, the 401 challenge): the operator's
+ *  `auth.scopesSupported`, else the default above while the bundled AS is on, else nothing (an external
+ *  authorization server's vocabulary is not ours to invent). */
+export function advertisedScopes(
+  auth: Pick<AuthConfig, "as" | "scopesSupported">,
+): string[] | undefined {
+  if (auth.scopesSupported !== undefined) return auth.scopesSupported;
+  return enabledAs(auth) === undefined ? undefined : [...DEFAULT_ADVERTISED_SCOPES];
+}
+
 /**
  * Build the metadata document. Fails closed on a config that is not an enabled authorization server
  * with an issuer: the schema already refuses that at load, so reaching here with one is a bug in the
@@ -108,9 +125,11 @@ export function buildAsMetadata(auth: AuthConfig): AsMetadata {
     throw new Error("auth.as is not enabled with an issuer: no authorization-server metadata");
   }
   const { issuer } = as;
-  const confidential = as.clients.some((c) => c.secretEnv !== undefined);
+  const confidential =
+    as.clients.some((c) => c.secretEnv !== undefined) ||
+    (as.dynamicRegistration && AS_ROUTES.has("register"));
   const refresh = AS_FEATURES.has("refresh");
-  const scopes = [...(auth.scopesSupported ?? [])];
+  const scopes = [...(advertisedScopes(auth) ?? [])];
   if (refresh && !scopes.includes("offline_access")) scopes.push("offline_access");
   return {
     issuer,
@@ -131,8 +150,8 @@ export function buildAsMetadata(auth: AuthConfig): AsMetadata {
       ? ["authorization_code", "refresh_token"]
       : ["authorization_code"],
     code_challenge_methods_supported: ["S256"],
-    // `none` (public client + PKCE) is all CIMD clients need; `client_secret_basic` only for a
-    // configured confidential client. `private_key_jwt` is deliberately never advertised.
+    // `none` (public client + PKCE) is all CIMD clients need; `client_secret_basic` for a configured
+    // confidential client or when registration can issue one. `private_key_jwt` is deliberately never advertised.
     token_endpoint_auth_methods_supported: confidential
       ? ["none", "client_secret_basic"]
       : ["none"],

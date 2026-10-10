@@ -9,7 +9,7 @@
 import { getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/server";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { URL_SURFACE_NAMES } from "../mcp/tool-profiles";
-import { asIssuing, enabledAs } from "./as-metadata";
+import { advertisedScopes, asIssuing, enabledAs } from "./as-metadata";
 import { allowedResources, surfaceResource } from "./resource-set";
 
 type AuthConfig = ServerConfig["auth"];
@@ -156,6 +156,7 @@ export function buildProtectedResourceMetadata(
   auth: AuthConfig,
   surface?: string,
 ): ProtectedResourceMetadata {
+  const scopes = advertisedScopes(auth);
   return {
     resource: profileResource(auth, surface),
     authorization_servers: authorizationServersOf(auth),
@@ -163,7 +164,7 @@ export function buildProtectedResourceMetadata(
     // Authorization header -- never a request body or query string -- so `["header"]` is a fixed
     // fact about this deployment, not something an operator configures per instance.
     bearer_methods_supported: ["header"],
-    ...(auth.scopesSupported ? { scopes_supported: auth.scopesSupported } : {}),
+    ...(scopes ? { scopes_supported: scopes } : {}),
     ...(auth.resourceName ? { resource_name: auth.resourceName } : {}),
   };
 }
@@ -207,7 +208,7 @@ export function profileMetadataPaths(auth: AuthConfig): { surface: string; path:
  * clients toward asking for more than they need.
  */
 export function wwwAuthenticateChallenge(auth: AuthConfig, surface?: string): string {
-  const scopes = auth.scopesSupported;
+  const scopes = auth.scopesSupported; // the operator's list only: a challenge never invents scopes
   const scope =
     scopes && scopes.length > 0 ? `, scope="${scopes.join(" ").replace(/"/g, "")}"` : "";
   return `Bearer realm="obsidian-tc", resource_metadata="${resourceMetadataUrl(auth, surface)}"${scope}`;

@@ -423,15 +423,23 @@ and the client registrations below.
   challenge). Every URL in the document is built from `auth.as.issuer`; the `Host` and `X-Forwarded-*` headers are
   never consulted, so a forged `Host` cannot move the issuer. It carries `code_challenge_methods_supported:
   ["S256"]`, the RFC 9207 `iss` response parameter, `none` as a client-authentication method, the `refresh_token`
-  grant, `offline_access` among the scopes, `revocation_endpoint` and `client_id_metadata_document_supported: true`;
+  grant, `offline_access` and the scope vocabulary (`auth.scopesSupported`, default `read:*` and `write:*`, also the
+  protected-resource metadata's `scopes_supported`; the 401 challenge carries `scope` only when you set it; the default is advisory, a client naming no scope still gets
+  `read:*` and any other fully-qualified scope can be asked for by name), `revocation_endpoint` and `client_id_metadata_document_supported: true`;
   `registration_endpoint` appears unless `auth.as.dynamicRegistration` is turned off. `private_key_jwt` is never
   advertised.
 - **Clients registered by Dynamic Client Registration (on by default).** DCR is on unless you set
   `auth.as.dynamicRegistration: false` (owner decision, 2026-10-09): many MCP surfaces (Cursor, Windsurf,
   Antigravity, grok.com, Grok Build, Le Chat, n8n, the Gemini app) only support DCR, so a default-off server did
   not work with them out of the box. To disable it, set the flag to `false`; `/oauth/register` is then a 404 and
-  `registration_endpoint` is not advertised. `POST /oauth/register` (RFC 7591, JSON) creates a public client: `token_endpoint_auth_method` must be `none` (or
-  absent), no secret is ever issued, and the server picks the `client_id` (a `client_id` in the request is ignored,
+  `registration_endpoint` is not advertised. `POST /oauth/register` (RFC 7591, JSON) creates a public client by default: `token_endpoint_auth_method` is `none` (or
+  absent) and no secret is issued. A client that asks for `client_secret_basic` is issued a random secret once, in the `201`
+  (`client_secret`, `client_secret_expires_at: 0`); only its SHA-256 is stored, and the token and revocation endpoints
+  check it in constant time, so a client such as Muse Code that registers that way works. `client_secret_post`,
+  `private_key_jwt` and any other method are refused with `invalid_client_metadata`. Every other metadata member
+  (`client_uri`, `logo_uri`, `tos_uri`, `policy_uri`, `contacts`, `software_id`, `software_version`, `jwks`,
+  `jwks_uri`, `scope`, extensions) is accepted and ignored, never stored, fetched or shown, and the `201` echoes only
+  what was registered. The server picks the `client_id` (a `client_id` in the request is ignored,
   so a registration cannot take a static client's id or a metadata-document URL). `redirect_uris` must hold an
   https or loopback URI; a private-use scheme such as Cursor's `cursor://...` is dropped from the registration,
   not refused, while one usable URI remains. DCR is deprecated by the MCP authorization spec and lets anyone who can

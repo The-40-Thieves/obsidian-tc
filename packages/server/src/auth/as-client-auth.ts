@@ -6,6 +6,7 @@
 import type { Context } from "hono";
 import type { ClientResolver } from "./as-cimd";
 import { type AsClient, secretsEqual } from "./as-clients";
+import { hashClientSecret } from "./as-dcr";
 
 /** `Authorization: Basic` as RFC 6749 section 2.3.1 defines it (form-urlencoded id and secret). */
 function parseBasic(header: string | undefined): { id: string; secret: string } | undefined {
@@ -70,6 +71,11 @@ export async function authenticateClient(
   if (client.secretEnv !== undefined) {
     const expected = process.env[client.secretEnv];
     if (basic === undefined || !expected || !secretsEqual(basic.secret, expected)) {
+      return { failure: "client authentication failed" };
+    }
+  } else if (client.secretHash !== undefined) {
+    // A client that registered itself with a secret: only its hash is stored.
+    if (basic === undefined || !secretsEqual(hashClientSecret(basic.secret), client.secretHash)) {
       return { failure: "client authentication failed" };
     }
   } else if (authorization !== undefined) {
