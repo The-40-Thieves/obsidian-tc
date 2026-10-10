@@ -170,6 +170,8 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
       clientName: "claude-code-cli",
       profile: "core",
       nonCoreToolCount: NON_CORE_TOOL_NAMES.length,
+      advertise: "all",
+      effectiveAdvertise: "all",
       deprecation: AUTO_FACADE_DEPRECATION,
     });
 
@@ -315,6 +317,35 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     expect(out.toolFacade?.effective).toBe("flat");
   });
 
+  it("the advertise fields validate under ajv and echo the configured + per-connection subsets", () => {
+    const tool = createHealthTool({
+      version: "test",
+      vaults: ["v1"],
+      startedAt: 0,
+      nativeLoaded: false,
+      vecEnabled: false,
+      toolFacade: { configured: "triad", profile: "full", advertise: "core" },
+    });
+    const out = tool.handler({}, {
+      ...ctxBase,
+      authenticated: false,
+      effectiveFacadeMode: "flat",
+      effectiveAdvertise: "essentials", // the /mcp/essentials URL, not the configured "core"
+    } as CallerContext) as HealthInfo;
+    expect(out.toolFacade?.advertise).toBe("core");
+    expect(out.toolFacade?.effectiveAdvertise).toBe("essentials");
+    // biome-ignore lint/style/noNonNullAssertion: createHealthTool always declares an outputSchema.
+    const schema = toJson(tool.outputSchema!)!;
+    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
+    const result = validate(out);
+    expect(result.valid, JSON.stringify(result)).toBe(true);
+    const bad = validate({
+      ...out,
+      toolFacade: { ...out.toolFacade, effectiveAdvertise: "nope" },
+    });
+    expect(bad.valid).toBe(false);
+  });
+
   it("an explicit mode reports no deprecation; only auto does", () => {
     for (const configured of ["triad", "domain", "flat"] as const) {
       const tool = createHealthTool({
@@ -351,6 +382,8 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
       effective: "triad",
       profile: "core",
       nonCoreToolCount: NON_CORE_TOOL_NAMES.length,
+      advertise: "all",
+      effectiveAdvertise: "all",
     });
     expect(out.toolFacade).not.toHaveProperty("clientName");
 

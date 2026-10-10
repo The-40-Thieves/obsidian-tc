@@ -68,6 +68,8 @@ function healthPayload(res: unknown): {
     clientName?: string;
     profile: string;
     nonCoreToolCount: number;
+    advertise: string;
+    effectiveAdvertise: string;
   };
 } {
   const content = (res as { content: [{ text: string }] }).content;
@@ -92,6 +94,8 @@ describe("tools/list and server_health agree on the auto-resolved facade mode (T
       clientName: "claude-code",
       profile: "core",
       nonCoreToolCount: NON_CORE_TOOL_NAMES.length,
+      advertise: "all",
+      effectiveAdvertise: "all",
       deprecation: AUTO_FACADE_DEPRECATION,
     });
 
@@ -116,5 +120,81 @@ describe("tools/list and server_health agree on the auto-resolved facade mode (T
 
     await client.close();
     await server.close();
+  });
+});
+
+// `/mcp/essentials` is a flat advertisement of a curated subset, whatever `toolFacade.mode` says.
+// server_health used to report only `configured: "triad", effective: "flat"` there, which reads as
+// a contradiction; the block now also names the configured `toolFacade.advertise` and the subset
+// THIS connection's URL selected. Driven through createMcpServer the way http.ts's surfaceOptions
+// builds it for a `/mcp/<surface>` request: the surface's facadeMode + advertise pair.
+describe("server_health names the advertise subset a /mcp/<surface> URL selected", () => {
+  async function callHealthOn(
+    surface: { facadeMode: "triad" | "flat"; advertise?: "all" | "core" | "essentials" },
+    configuredAdvertise?: "all" | "core" | "essentials",
+  ) {
+    const r = new ToolRegistry();
+    r.register(
+      createHealthTool({
+        version: "test",
+        vaults: ["v1"],
+        startedAt: 0,
+        nativeLoaded: false,
+        vecEnabled: false,
+        toolFacade: {
+          configured: "triad",
+          profile: "full",
+          ...(configuredAdvertise ? { advertise: configuredAdvertise } : {}),
+        },
+      }),
+    );
+    const server = createMcpServer({
+      name: "x",
+      version: "0",
+      registry: r,
+      context: (): CallerContext => ({
+        caller: "stdio",
+        authenticated: true,
+        grantedScopes: new Set(["*"]),
+        vaultId: "v1",
+        db: {} as never,
+      }),
+      visibility: { grantedScopes: new Set(["*"]) },
+      ...surface,
+    });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await server.connect(st);
+    const client = new Client({ name: "some-client", version: "1.0" });
+    await client.connect(ct);
+    const payload = healthPayload(await client.callTool({ name: "server_health", arguments: {} }));
+    await client.close();
+    await server.close();
+    return payload.toolFacade;
+  }
+
+  it("/mcp/essentials: configured triad + advertise all, but THIS call is flat/essentials", async () => {
+    const tf = await callHealthOn({ facadeMode: "flat", advertise: "essentials" }, "all");
+    expect(tf?.configured).toBe("triad");
+    expect(tf?.effective).toBe("flat");
+    expect(tf?.advertise).toBe("all");
+    expect(tf?.effectiveAdvertise).toBe("essentials");
+  });
+
+  it("/mcp/core: effectiveAdvertise is core", async () => {
+    const tf = await callHealthOn({ facadeMode: "flat", advertise: "core" }, "all");
+    expect(tf?.effectiveAdvertise).toBe("core");
+  });
+
+  it("plain /mcp with toolFacade.advertise: essentials configured: both report essentials", async () => {
+    const tf = await callHealthOn({ facadeMode: "triad", advertise: "essentials" }, "essentials");
+    expect(tf?.advertise).toBe("essentials");
+    expect(tf?.effectiveAdvertise).toBe("essentials");
+    expect(tf?.effective).toBe("flat");
+  });
+
+  it("a server given no advertise at all reports all", async () => {
+    const tf = await callHealthOn({ facadeMode: "triad" });
+    expect(tf?.advertise).toBe("all");
+    expect(tf?.effectiveAdvertise).toBe("all");
   });
 });
