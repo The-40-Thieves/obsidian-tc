@@ -212,3 +212,12 @@ export function wwwAuthenticateChallenge(auth: AuthConfig, surface?: string): st
     scopes && scopes.length > 0 ? `, scope="${scopes.join(" ").replace(/"/g, "")}"` : "";
   return `Bearer realm="obsidian-tc", resource_metadata="${resourceMetadataUrl(auth, surface)}"${scope}`;
 }
+
+/**
+ * The challenge in a tool error's `_meta["mcp/www_authenticate"]` (`auth.anonymousDiscovery: "list"`):
+ * the 401's own challenge, so the same per-profile `resource_metadata`, plus the `error` and
+ * `error_description` OpenAI requires for its account-linking UI (apps-sdk/build/auth, 2026-10-10).
+ */
+export function wwwAuthenticateToolChallenge(auth: AuthConfig, surface?: string): string {
+  return `${wwwAuthenticateChallenge(auth, surface)}, error="insufficient_scope", error_description="Sign in to use this tool"`;
+}

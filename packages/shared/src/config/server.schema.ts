@@ -302,6 +302,26 @@ export const ServerConfigSchema = ServerConfigObject.superRefine((cfg, ctx) => {
   // The bundled authorization server (`auth.as`): refused where it would protect nothing (`none`) or
   // double an issuer (`oidc`), and where its tokens could not verify (see refineAuthAs).
   refineAuthAs(cfg.auth, ctx);
+  // `anonymousDiscovery: "list"` opens initialize / tools/list to a caller with no token. Under `none`
+  // every caller is already anonymous (nothing to discover), and without `resource` the challenge a
+  // tool error carries has no `resource_metadata` for ChatGPT to link from: refuse both.
+  if (cfg.auth.anonymousDiscovery === "list") {
+    if (cfg.auth.mode === "none") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["auth", "anonymousDiscovery"],
+        message:
+          'auth.anonymousDiscovery "list" needs OAuth: auth.mode is "none", where every caller is already anonymous. Set auth.mode to "jwt" or "oidc", or remove auth.anonymousDiscovery.',
+      });
+    } else if (cfg.auth.resource === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["auth", "resource"],
+        message:
+          'auth.anonymousDiscovery "list" needs auth.resource (and an authorization server): the tool error it returns carries a WWW-Authenticate challenge whose resource_metadata ChatGPT follows to sign the user in.',
+      });
+    }
+  }
   // THE-456 (audit #3): a remote or JWKS-verified deployment MUST bind the token audience — warn-only
   // was insufficient. Without an audience, a token an issuer minted for a DIFFERENT service is accepted
   // here (confused deputy). The verifier treats the PRM `resource` as the audience when set, so an

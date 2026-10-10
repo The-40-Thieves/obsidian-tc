@@ -777,6 +777,14 @@
             "type": "string"
           }
         },
+        "anonymousDiscovery": {
+          "description": "What an anonymous caller may do when OAuth is on. `none` (the default when unset) answers 401 with the WWW-Authenticate challenge to every request that carries no valid token, `initialize` and `tools/list` included: this is what makes grok.com and Claude start their OAuth flow. `list` is the ChatGPT mixed-auth mode: an anonymous `initialize`, `ping`, `server/discover` and `tools/list` are answered (the list is what a caller holding the default OAuth scopes sees, each tool carrying `securitySchemes`), and an anonymous `tools/call` returns a tool error whose `_meta[\"mcp/www_authenticate\"]` holds the challenge that triggers ChatGPT's account-linking UI. Every other method, and any request with an invalid or expired token, still gets the 401. Do NOT use `list` for grok.com: it never starts OAuth when `tools/list` succeeds anonymously. Needs `auth.mode` `jwt` or `oidc` and `auth.resource`.",
+          "type": "string",
+          "enum": [
+            "none",
+            "list"
+          ]
+        },
         "as": {
           "description": "The bundled authorization server (opt-in; see `auth.as.enabled`). Absent means disabled. Needs `mode: jwt`; with it enabled, `authorizationServers` defaults to the issuer, and when set must list the issuer first.",
           "type": "object",

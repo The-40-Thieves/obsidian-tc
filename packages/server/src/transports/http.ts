@@ -1,10 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { join } from "node:path";
-import {
-  createMcpHandler,
-  type ServerNotifier,
-  validateOriginHeader,
-} from "@modelcontextprotocol/server";
+import { createMcpHandler, type ServerNotifier } from "@modelcontextprotocol/server";
 import type {
   PersonasConfig,
   ResponseFormat,
@@ -50,7 +46,8 @@ import type { MetricsRecorder } from "../metrics/registry";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
 import { activeSessionFor, DEFAULT_TRACE_FOLDER, openImplicitSession } from "../workspace/sessions";
-import { bothForms, hostnameOf, isHostAllowed } from "./host-guard";
+import { anonymousGate, carriesNoCredentials, mixedModeScopes } from "./anonymous-discovery";
+import { isHostAllowed, isOriginAllowed } from "./host-guard";
 import { type ServerHandle, serveHono } from "./serve";
 
 type AuthConfig = ServerConfig["auth"];
@@ -216,6 +213,9 @@ type AuthOutcome =
       /** True iff `caller` came from a bearer token the verifier accepted (`jwt`/`oidc`); false in
        *  `auth.mode: none`, where `caller` is the fixed loopback label. Feeds write provenance. */
       verified: boolean;
+      /** `auth.anonymousDiscovery: "list"`: a caller with NO token, admitted for discovery only.
+       *  `scopes` are the default OAuth scopes (what the anonymous tools/list is filtered by). */
+      anonymous?: true;
     }
   | {
       ok: false;
@@ -369,7 +369,10 @@ function contextFromAuthInfo(
     return {
       caller: extra?.caller ?? null,
       transport: "http",
-      authenticated: true,
+      // An anonymous (discovery-only) caller holds the default scopes for the tools/list filter but is
+      // NOT authenticated: dispatch refuses any scope-gated tool, so even a call that slipped past
+      // the edge's method list could not run one.
+      authenticated: authInfo.extra?.anonymous !== true,
       ...(extra?.verified === true ? { authVerified: true } : {}),
       // VisibilityCaller.grantedScopes is typed Iterable<string> (visibility.ts's own
       // grantsAll/grantsScope contract); CallerContext wants the concrete Set. Cheap: it's a
@@ -449,6 +452,8 @@ export interface HttpApp {
 
 export function createHttpApp(opts: HttpAppOptions): HttpApp {
   const app = new Hono();
+  /** `auth.anonymousDiscovery: "list"` and a complete PRM: see transports/anonymous-discovery.ts. */
+  const mixedAuth = mixedModeScopes(opts.auth);
   /**
    * THE-583: the MCP handler, created ONCE for the app rather than per request.
    *
@@ -478,6 +483,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
         ...surfaceOptions(opts, mcpCtx.authInfo),
         autoClients: opts.autoClients,
         explainAutoMode: opts.explainAutoMode,
+        securitySchemes: mixedAuth,
         outputSchema: opts.outputSchema,
         responseFormat: opts.responseFormat,
         // The SDK's own classification, not a header we re-interpret.
@@ -597,27 +603,27 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
         );
 
       const origin = c.req.header("origin");
-      if (origin) {
-        // Same-origin stays allowed: the request's own Host is the origin a browser would send.
-        const allowedOriginHosts = [
-          hostnameOf(rawHost),
-          ...bothForms(opts.allowedOrigins ?? []).map((o) =>
-            hostnameOf(o.replace(/^\w+:\/\//, "")),
-          ),
-        ];
-        if (!validateOriginHeader(origin, allowedOriginHosts).ok)
-          return c.json(
-            { jsonrpc: "2.0", error: { code: -32000, message: "origin not allowed" }, id: null },
-            403,
-          );
-      }
+      if (origin && !isOriginAllowed(origin, rawHost, opts.allowedOrigins))
+        return c.json(
+          { jsonrpc: "2.0", error: { code: -32000, message: "origin not allowed" }, id: null },
+          403,
+        );
     }
-    const authz = await resolveAuth(
+    let authz = await resolveAuth(
       c.req.header("authorization"),
       opts.auth,
       verifier,
       opts.personas,
     );
+    // `auth.anonymousDiscovery: "list"`: ONLY a request that carried no bearer token at all can be
+    // admitted for discovery (a bad token keeps its 401, so an expired one still triggers a refresh),
+    // and only for the methods `classifyAnonymous` names. Anything else falls through to the 401.
+    if (!authz.ok && mixedAuth && carriesNoCredentials(c.req.header("authorization"))) {
+      const gate = await anonymousGate(c.req.raw, opts.auth, surfaceName);
+      if (gate instanceof Response) return gate;
+      if (gate)
+        authz = { ok: true, caller: null, scopes: gate.scopes, verified: false, anonymous: true };
+    }
     if (!authz.ok) {
       if (authz.diagnosis) reportAuthRejection(authz.diagnosis, opts);
       // RFC 9728 §5.1 challenge: on a 401, point a spec-compliant client at the PRM document so it
@@ -706,6 +712,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
           toolVisibility: authz.toolVisibility,
           verified: authz.verified,
           surface: surfaceName,
+          ...(authz.anonymous ? { anonymous: true } : {}),
         },
       },
     });
