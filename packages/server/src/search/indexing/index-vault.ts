@@ -50,6 +50,7 @@ import {
   embedPlans,
 } from "./embed-batches";
 import { readLeaderEpoch } from "./leader-epoch";
+import { createLoopYielder } from "./loop-yield";
 import {
   computeNotePlan,
   existingRowsMatch,
@@ -415,15 +416,14 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     stats.notes_upserted += upserted;
     stats.notes_stale_skipped += rows.length - upserted;
   };
-  // THE-490: the per-note processing body, shared by both the eager (default) and streaming
-  // (opt-in) walk paths — extracted so it exists ONCE rather than drifting between two copies.
-  // `stat` is the note's own {mtime,size} from whichever WalkEntry produced `rel` (looked up from
-  // statByPath in the default path; carried directly off the streamed entry in the streaming path
-  // — either way the SAME values buildNoteRecord/batchBytes used before this ticket).
+  // THE-490: the per-note body, shared by the eager (default) and streaming (opt-in) walks so it
+  // exists ONCE. `stat` is the note's {mtime,size} from whichever WalkEntry produced `rel`.
+  const yieldToLoop = createLoopYielder(args.signal); // boot reconcile only: lets SIGTERM/tools/call in
   const processNote = async (
     rel: string,
     stat: { mtime: number; size: number } | null,
   ): Promise<void> => {
+    await yieldToLoop();
     const raw = readNote(resolveVaultPath(args.root, rel)).raw;
     // THE-1073: probe-parse ONCE, here, before anything else touches this note's frontmatter
     // (buildNoteRecord/noteTags below both call parseNote themselves and would throw on the SAME
