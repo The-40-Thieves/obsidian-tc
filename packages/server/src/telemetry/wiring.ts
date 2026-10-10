@@ -54,6 +54,8 @@ const TELEMETRY_JOB_NAME = "telemetry-send";
 export function defaultConfiguredFacadeMode(
   config: Pick<ServerConfig, "toolFacade">,
 ): "triad" | "domain" | "flat" {
+  // A tool-budget subset IS a flat advertisement (mcp/facade-mode-resolver.ts), whatever `mode` says.
+  if (config.toolFacade.advertise !== "all") return "flat";
   return config.toolFacade.mode === "auto" ? "triad" : config.toolFacade.mode;
 }
 

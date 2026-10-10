@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { enabledAs } from "./as-metadata";
 import {
-  effectiveAudience,
   jwksWithoutAudience,
   jwksWithoutAudienceMessage,
+  verifierAudience,
 } from "./protected-resource";
 import type { AuthRegistry } from "./registry";
 import { createTokenVerifier, type TokenVerifier } from "./verifier";
@@ -43,7 +43,7 @@ export function buildJwtVerifier(
   // behavior for local self-issued HS256. A JWKS (shared external issuer, `jwksUri` included) with
   // no effective audience is the confused-deputy hole: it still works this release, as a
   // deprecation (also in `doctor` and server_health) unless the operator opted out.
-  const audience = effectiveAudience(auth);
+  const audience = verifierAudience(auth);
   warnJwksWithoutAudience(auth);
   // A remote key set (`jwksUri`) is a key source on its own: leaving it out returned no verifier for
   // a config whose only key source is the URL, which the edge then reported as "no verifier".

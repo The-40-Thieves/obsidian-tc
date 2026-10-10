@@ -8,7 +8,9 @@
 // stays pre-registration-only (THE-661; see isPrmConfigured for the dated decision).
 import { getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/server";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { URL_SURFACE_NAMES } from "../mcp/tool-profiles";
 import { asIssuing, enabledAs } from "./as-metadata";
+import { allowedResources, surfaceResource } from "./resource-set";
 
 type AuthConfig = ServerConfig["auth"];
 /** The fields the audience and PRM decisions read, so server_health and `doctor` can ask with the
@@ -97,6 +99,21 @@ export function effectiveAudience(
 }
 
 /**
+ * The audience the bearer verifier is built with. `effectiveAudience`, except that an audience which
+ * is only the PRM `resource` (no explicit `auth.audience`, not `oidc`) also takes the resource's
+ * profile URLs (`allowedResources`): a client that signed in at R/essentials holds a token an external
+ * authorization server issued for that URL, and profiles are advertisement-only, so it is accepted
+ * wherever R is. An explicit `auth.audience`, and the oidc audience, are exactly what the operator
+ * wrote; to serve per-profile audiences there, list them (`auth.audience` takes an array).
+ */
+export function verifierAudience(auth: AudienceFields | AuthConfig): string | string[] | undefined {
+  const audience = effectiveAudience(auth);
+  if (auth.mode === "oidc" || auth.audience !== undefined || audience === undefined)
+    return audience;
+  return allowedResources(auth.resource as string);
+}
+
+/**
  * True when `auth.mode: jwt` verifies tokens against a JWKS (inline, file or URI) but binds NO
  * audience, and the operator has not opted out with `auth.allowMissingAudience`: a token the same
  * issuer minted for another service is then accepted here (confused deputy). The schema requires
@@ -135,9 +152,12 @@ export function jwksWithoutAudienceMessage(auth: Pick<AuthConfig, "resource">): 
  * network dependency on the startup path, and properly part of choosing an AS (THE-658 step 3)
  * rather than a like-for-like swap. The URL derivation below IS the SDK's.
  */
-export function buildProtectedResourceMetadata(auth: AuthConfig): ProtectedResourceMetadata {
+export function buildProtectedResourceMetadata(
+  auth: AuthConfig,
+  surface?: string,
+): ProtectedResourceMetadata {
   return {
-    resource: auth.resource as string,
+    resource: profileResource(auth, surface),
     authorization_servers: authorizationServersOf(auth),
     // RFC 9728 §5.2, OPTIONAL. The token verifier (transports/http.ts `bearer()`) reads ONLY the
     // Authorization header -- never a request body or query string -- so `["header"]` is a fixed
@@ -148,15 +168,33 @@ export function buildProtectedResourceMetadata(auth: AuthConfig): ProtectedResou
   };
 }
 
+/** The `resource` a PRM names: R, or R/<surface> for a profile URL (so it equals the URL the client
+ *  entered). An R with no path to hang a profile on (a root URL) keeps R. */
+function profileResource(auth: AuthConfig, surface?: string): string {
+  const resource = auth.resource as string;
+  return (surface === undefined ? undefined : surfaceResource(resource, surface)) ?? resource;
+}
+
 /**
  * Absolute URL where this server serves its PRM, derived from the configured resource ORIGIN — never
  * from a request Host header, so an attacker cannot make the server advertise a resource_metadata
  * URL it controls. Precondition: isPrmConfigured(auth).
  */
-export function resourceMetadataUrl(auth: AuthConfig): string {
+export function resourceMetadataUrl(auth: AuthConfig, surface?: string): string {
   // THE-583: the SDK's own derivation, so the well-known path is not a string we maintain a second
   // copy of (SEP-2351 adjusts this suffix, and a stale copy would advertise a URL nothing serves).
-  return getOAuthProtectedResourceMetadataUrl(new URL(auth.resource as string));
+  return getOAuthProtectedResourceMetadataUrl(new URL(profileResource(auth, surface)));
+}
+
+/**
+ * The path-aware PRM paths served for the profile URLs: one per known surface, each the path of
+ * `resourceMetadataUrl(auth, surface)`. Unknown surfaces get none, so they stay 404.
+ */
+export function profileMetadataPaths(auth: AuthConfig): { surface: string; path: string }[] {
+  return URL_SURFACE_NAMES.flatMap((surface) => {
+    if (surfaceResource(auth.resource as string, surface) === undefined) return [];
+    return [{ surface, path: new URL(resourceMetadataUrl(auth, surface)).pathname }];
+  });
 }
 
 /**
@@ -168,9 +206,9 @@ export function resourceMetadataUrl(auth: AuthConfig): string {
  * EVERY scope in `scopes_supported`, so omitting the parameter does not fail closed; it pushes
  * clients toward asking for more than they need.
  */
-export function wwwAuthenticateChallenge(auth: AuthConfig): string {
+export function wwwAuthenticateChallenge(auth: AuthConfig, surface?: string): string {
   const scopes = auth.scopesSupported;
   const scope =
     scopes && scopes.length > 0 ? `, scope="${scopes.join(" ").replace(/"/g, "")}"` : "";
-  return `Bearer realm="obsidian-tc", resource_metadata="${resourceMetadataUrl(auth)}"${scope}`;
+  return `Bearer realm="obsidian-tc", resource_metadata="${resourceMetadataUrl(auth, surface)}"${scope}`;
 }

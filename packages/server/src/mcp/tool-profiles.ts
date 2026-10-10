@@ -1,3 +1,5 @@
+import type { FacadeMode } from "./facade-mode";
+
 // THE-1131: the single source of truth for `toolFacade.profile`. Every gate that needs to know
 // "which tools does the core profile hide" (server-runtime wiring, docgen stats, the tool-count
 // tests, doctor/health reporting, check-version-coherence.mjs) imports NON_CORE_TOOL_NAMES from
@@ -187,4 +189,106 @@ export function isNonCoreTool(name: string): boolean {
  *  ternary, so it stays a one-line call as more profiles (if any) are ever added. */
 export function disabledByProfileFor(profile: "full" | "core"): readonly string[] {
   return profile === "core" ? NON_CORE_TOOL_NAMES : [];
+}
+
+// Tool-budget profiles. `toolFacade.profile` above decides what is VISIBLE and CALLABLE at all
+// (and rejects the rest at dispatch). The subsets below only decide what a FLAT tools/list
+// ADVERTISES: an advertisement budget for clients that cap the tools they accept (Antigravity and
+// Windsurf 100, Gemini Enterprise 100 actions, VS Code / Copilot Studio / Vertex 128 per request,
+// Codex defers everything past 100). Nothing here is an authorization boundary: a tool outside the
+// advertised subset stays registered, scope-checked and callable by name, exactly like
+// `toolVisibility.hidden`.
+
+/** Which subset of the caller-visible tools a flat tools/list advertises. `"all"` is no narrowing. */
+export type AdvertiseSubset = "all" | "core" | "essentials";
+
+// A curated, flat middle profile: about one real, named, schema-resolved tool per domain, no
+// meta-tools and no generic executors (ChatGPT's directory rejects those, and some models do worse
+// with a facade). Chosen on the same structural criterion as the core curation above: filesystem
+// and index tools that work with no companion plugin. `git` has no entry on purpose (every git
+// tool needs the live Obsidian Git bridge). Order is grouping only; tools/list order is the
+// registry's, so it is stable by construction.
+const ESSENTIALS_BY_DOMAIN = {
+  notes: [
+    "list_notes",
+    "read_note",
+    "read_notes",
+    "write_note",
+    "append_note",
+    "patch_note",
+    "move_note",
+    "delete_note",
+  ],
+  metadata: ["read_frontmatter", "update_frontmatter", "find_notes_by_property"],
+  links: ["get_backlinks", "get_outgoing_links", "find_unresolved_links"],
+  search: ["search_text", "search_semantic", "search_vault", "search_and_read"],
+  vault: ["list_vaults", "index_vault"],
+  attachments: ["get_attachment"],
+  structured: ["read_canvas"],
+  workspace: ["get_periodic_note", "append_to_periodic_note"],
+  automation: ["bundle_files"],
+  knowledge: [
+    "vault_context",
+    "create_entity",
+    "add_observation",
+    "query_entity_graph",
+    "plur_recall",
+    "record_retrieval_feedback",
+  ],
+  docs: ["knowledge_search", "knowledge_get_critical"],
+  admin: ["server_health", "get_index_status"],
+} as const;
+
+/** The curated essentials profile (see above). `ESSENTIALS_RESERVED_SLOTS` is added on top when
+ *  those tools are registered. */
+export const ESSENTIALS_TOOL_NAMES: readonly string[] = Object.freeze(
+  Object.values(ESSENTIALS_BY_DOMAIN).flat(),
+);
+
+/** `search` and `fetch`: the two generic retrieval tools clients such as ChatGPT expect by name.
+ *  They are advertised in essentials the moment they are registered, with no edit to this file;
+ *  while neither exists the slot is empty (test/tool-budget-profiles.test.ts holds the assertion). */
+export const ESSENTIALS_RESERVED_SLOTS: readonly string[] = Object.freeze(["search", "fetch"]);
+
+const ESSENTIALS_SET: ReadonlySet<string> = new Set([
+  ...ESSENTIALS_TOOL_NAMES,
+  ...ESSENTIALS_RESERVED_SLOTS,
+]);
+
+/** True when a flat tools/list under `subset` advertises `name`. */
+export function isAdvertisedIn(subset: AdvertiseSubset, name: string): boolean {
+  if (subset === "essentials") return ESSENTIALS_SET.has(name);
+  if (subset === "core") return !NON_CORE_SET.has(name);
+  return true;
+}
+
+/** What `/mcp/<segment>` selects: a facade mode and an advertised subset. */
+export interface UrlSurface {
+  mode: FacadeMode;
+  advertise: AdvertiseSubset;
+}
+
+// `/mcp` itself is not here: it is "whatever the config says" (the triad unless an operator chose
+// otherwise). "core" is the EXISTING core curation (101 tools), advertised flat; it is not the
+// middle profile, which is "essentials".
+const URL_SURFACES: Readonly<Record<string, UrlSurface>> = Object.freeze({
+  triad: { mode: "triad", advertise: "all" },
+  domain: { mode: "domain", advertise: "all" },
+  full: { mode: "flat", advertise: "all" },
+  core: { mode: "flat", advertise: "core" },
+  essentials: { mode: "flat", advertise: "essentials" },
+});
+
+// Claude Code defers MCP tools unless `_meta` asks for upfront load; only the triad (the entry point) asks.
+export const ALWAYS_LOAD_META = Object.freeze({ "anthropic/alwaysLoad": true });
+
+/** The `/mcp/<segment>` names that resolve to a surface. The authorization layer derives the resource
+ *  URLs it accepts from this list (auth/resource-set.ts), so a surface added above is signed in to
+ *  without touching a second list. */
+export const URL_SURFACE_NAMES: readonly string[] = Object.freeze(Object.keys(URL_SURFACES));
+
+/** The surface for a `/mcp/<segment>` path segment, or undefined for an unknown name. Own keys
+ *  only: `constructor`, `__proto__` and friends must not resolve to an inherited object. */
+export function urlSurfaceFor(segment: string): UrlSurface | undefined {
+  return Object.hasOwn(URL_SURFACES, segment) ? URL_SURFACES[segment] : undefined;
 }

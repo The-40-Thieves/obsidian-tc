@@ -27,6 +27,8 @@ export interface AccessSubject {
   /** The refresh-token family (the code's hash for the first token) its jti is recorded under. */
   familyId: string;
   grantId: string;
+  /** The `aud`: one of `allowedResources(ctx.resource)`. Defaults to `ctx.resource`. */
+  resource?: string;
 }
 
 export async function mintAccessToken(
@@ -60,7 +62,7 @@ export async function mintAccessToken(
     .setProtectedHeader({ alg, typ: "at+jwt", kid })
     .setIssuer(ctx.issuer)
     .setSubject(s.sub)
-    .setAudience(ctx.resource)
+    .setAudience(s.resource ?? ctx.resource)
     .setIssuedAt(iat)
     .setExpirationTime(exp)
     .setJti(jti)

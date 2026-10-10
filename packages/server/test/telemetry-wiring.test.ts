@@ -26,6 +26,7 @@ describe("defaultConfiguredFacadeMode", () => {
         toolFacade: {
           mode: "domain",
           profile: "full",
+          advertise: "all",
           explainAutoMode: false,
           outputSchema: "full",
         },
@@ -35,7 +36,13 @@ describe("defaultConfiguredFacadeMode", () => {
   it("collapses 'auto' to the same 'triad' fallback the resolver itself uses", () => {
     expect(
       defaultConfiguredFacadeMode({
-        toolFacade: { mode: "auto", profile: "full", explainAutoMode: false, outputSchema: "full" },
+        toolFacade: {
+          mode: "auto",
+          profile: "full",
+          advertise: "all",
+          explainAutoMode: false,
+          outputSchema: "full",
+        },
       }),
     ).toBe("triad");
   });

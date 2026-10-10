@@ -11,9 +11,11 @@ import { type ErrorJSON, err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { bm25Score, tokenize } from "../search/native";
 import { profileHiddenTools } from "./capability-hidden";
+import { type InstructionsSurface, routingGuidance } from "./instructions-routing";
 import { TOOL_DOMAINS, type ToolDefinition, type ToolDomain, type ToolRegistry } from "./registry";
 import { relaxVaultInJson } from "./registry/vault-default";
 import { lowerOutputSchema, lowerSchema } from "./schema-lowering";
+import { ALWAYS_LOAD_META } from "./tool-profiles";
 import { isAdvertisedDestructive, isMutatingDefinition } from "./tool-tags";
 import type { VisibilityCaller } from "./visibility";
 
@@ -29,6 +31,16 @@ export const TRIAD_DIRECT_TOOLS = ["search", "fetch"] as const;
 
 export function triadDirectDefs(visible: readonly ToolDefinition[]): ToolDefinition[] {
   return TRIAD_DIRECT_TOOLS.flatMap((name) => visible.filter((d) => d.name === name));
+}
+
+export function triadDirectTools(
+  visible: readonly ToolDefinition[],
+  project: (d: ToolDefinition) => Tool,
+): Tool[] {
+  return triadDirectDefs(visible).map((d) => {
+    const tool = project(d);
+    return { ...tool, _meta: { ...tool._meta, ...ALWAYS_LOAD_META } };
+  });
 }
 
 // Emit JSON Schema 2020-12 — the default dialect of MCP 2025-11-25 (THE-278). draft-7 stays valid
@@ -180,6 +192,7 @@ function buildTriadTools(hasResources: boolean): Tool[] {
           : ""),
       inputSchema: toInputJson(FIND_CAPABILITY_SCHEMA),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: ALWAYS_LOAD_META,
     },
     {
       name: "describe_capability",
@@ -188,6 +201,7 @@ function buildTriadTools(hasResources: boolean): Tool[] {
         "Return the full input schema, required scopes, and safety hints (read-only / destructive) for a single capability by name.",
       inputSchema: toInputJson(DESCRIBE_CAPABILITY_SCHEMA),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: ALWAYS_LOAD_META,
     },
     {
       name: "call_capability",
@@ -197,6 +211,7 @@ function buildTriadTools(hasResources: boolean): Tool[] {
       inputSchema: toInputJson(CALL_CAPABILITY_SCHEMA),
       // Advisory only; the real read-only/destructive verdict is the TARGET tool's, enforced in dispatch.
       annotations: { openWorldHint: false },
+      _meta: ALWAYS_LOAD_META,
     },
   ];
 }
@@ -549,6 +564,7 @@ export function buildInstructions(
   caller: VisibilityCaller | undefined,
   hasResources = true,
   experientialLogRetrievals = true,
+  surface: InstructionsSurface = "generic",
 ): string {
   const tools = registry.listVisible(caller);
   const canRecordFeedback =
@@ -567,7 +583,7 @@ export function buildInstructions(
       ? ` toolFacade.profile: "core" is active — ${hiddenCount} additional tool(s) exist but are hidden; find_capability/describe_capability/call_capability disclose them by name.`
       : "";
   const preamble =
-    `${name} ${version} — an MCP server over Obsidian vaults. ` +
+    `${name} ${version} — an MCP server over Obsidian vaults. ${routingGuidance(surface, hasResources)} ` +
     `Tools are authorized per call (scopes + folder ACL); resources are vault notes.${feedbackClause}${profileClause}`;
   // The pointer only makes sense when resources are wired — see triadTools()'s same gate.
   const catalogPointer = hasResources

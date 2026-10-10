@@ -393,6 +393,7 @@ export async function issue(
   const bound: Record<string, string> = {};
   if (over.client_id !== undefined) bound.client_id = over.client_id;
   if (over.redirect_uri !== undefined) bound.redirect_uri = over.redirect_uri;
+  if (over.resource !== undefined) bound.resource = over.resource;
   const { res, body } = await exchange(flow, tokenFields(code, verifier, bound));
   if (res.status !== 200) throw new Error(`token exchange failed: ${JSON.stringify(body)}`);
   return { access: body.access_token as string, refresh: body.refresh_token as string, body };

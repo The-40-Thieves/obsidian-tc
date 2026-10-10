@@ -22,6 +22,7 @@ import { revokeFamily } from "./as-grants";
 import { type AsRouteDeps, enabledAs } from "./as-metadata";
 import { socketClientIp } from "./as-operator";
 import { loadRefresh, REFRESH_TOKEN_RE } from "./as-refresh";
+import { allowedResources } from "./resource-set";
 import { importVerificationKey } from "./signing-keys";
 
 type AuthConfig = ServerConfig["auth"];
@@ -55,7 +56,7 @@ export function mountRevokeRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps
     return true;
   };
 
-  /** The jti of `token` if it is a valid access token of `clientId`'s: signed by an `as` key, for this resource. */
+  /** The jti of `token` if it is a valid access token of `clientId`'s: signed by an `as` key, for this resource or one of its profile URLs. */
   const accessJti = async (token: string, clientId: string): Promise<string | undefined> => {
     try {
       const { kid } = decodeProtectedHeader(token);
@@ -67,7 +68,7 @@ export function mountRevokeRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps
         algorithms: [m.alg],
         typ: "at+jwt",
         issuer: as.issuer,
-        audience: resource,
+        audience: allowedResources(resource),
         currentDate: new Date(now()),
       });
       return payload.client_id === clientId && typeof payload.jti === "string"
