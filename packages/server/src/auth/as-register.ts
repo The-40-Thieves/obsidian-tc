@@ -1,10 +1,11 @@
 // `POST /oauth/register` of the bundled authorization server (RFC 7591; design v2 sections 4.3, 4.7, 8):
-// Dynamic Client Registration, OFF unless `auth.as.dynamicRegistration` is set (the route does not
-// exist otherwise, and `hardened` forces the flag off). The MCP authorization spec deprecates DCR, and
-// it hands anyone who can reach the server a way to create rows and to put a name in front of the
-// operator, so it is bounded: a per-source rate limit (the CIMD source rule: the TCP peer, an IPv6
-// address as its /64, peers with no usable address sharing one bucket; no forwarded header is read),
-// a cap on registered clients, housekeeping for unused ones, public clients only and a boot notice.
+// Dynamic Client Registration, ON unless `auth.as.dynamicRegistration` is false (owner decision
+// 2026-10-09: many MCP surfaces can only register this way; the route does not exist when off, and
+// `hardened` forces the flag off). The MCP authorization spec deprecates DCR, and it hands anyone who
+// can reach the server a way to create rows and to put a name in front of the operator, so it is
+// bounded: a per-source rate limit (the CIMD source rule: the TCP peer, an IPv6 address as its /64,
+// peers with no usable address sharing one bucket; no forwarded header is read), a cap on registered
+// clients, housekeeping for unused ones, public clients only and one startup info line.
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Hono } from "hono";
 import { MemoryBackend } from "../ratelimit/memory-backend";
@@ -36,11 +37,9 @@ export function mountRegisterRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDe
   const budget = { capacity: perIpPerHour, refillTokens: perIpPerHour, intervalMs: HOUR_MS };
 
   log(
-    "warning: dynamic client registration (RFC 7591) is ON: POST /oauth/register lets anyone who can " +
-      "reach this server create OAuth clients. DCR is deprecated by the MCP authorization spec; " +
-      "Claude, ChatGPT and Codex prefer Client ID Metadata Documents, which this server advertises, and do not need it. " +
+    "dynamic client registration (RFC 7591) is enabled: POST /oauth/register. " +
       `Limits: auth.as.dcr.perIpPerHour=${perIpPerHour} per source, auth.as.dcr.maxClients=${maxClients}, ` +
-      `auth.as.dcr.unusedDays=${unusedDays}. Turn auth.as.dynamicRegistration off unless a client needs it.`,
+      `auth.as.dcr.unusedDays=${unusedDays}. Turn it off with auth.as.dynamicRegistration: false.`,
   );
 
   app.post("/oauth/register", async (c) => {

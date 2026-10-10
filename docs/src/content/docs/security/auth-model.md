@@ -362,10 +362,13 @@ and the client registrations below.
   never consulted, so a forged `Host` cannot move the issuer. It carries `code_challenge_methods_supported:
   ["S256"]`, the RFC 9207 `iss` response parameter, `none` as a client-authentication method, the `refresh_token`
   grant, `offline_access` among the scopes, `revocation_endpoint` and `client_id_metadata_document_supported: true`;
-  `registration_endpoint` appears only while `auth.as.dynamicRegistration` is on. `private_key_jwt` is never
+  `registration_endpoint` appears unless `auth.as.dynamicRegistration` is turned off. `private_key_jwt` is never
   advertised.
-- **Clients registered by Dynamic Client Registration (off by default).** With `auth.as.dynamicRegistration: true`,
-  `POST /oauth/register` (RFC 7591, JSON) creates a public client: `token_endpoint_auth_method` must be `none` (or
+- **Clients registered by Dynamic Client Registration (on by default).** DCR is on unless you set
+  `auth.as.dynamicRegistration: false` (owner decision, 2026-10-09): many MCP surfaces (Cursor, Windsurf,
+  Antigravity, grok.com, Grok Build, Le Chat, n8n, the Gemini app) only support DCR, so a default-off server did
+  not work with them out of the box. To disable it, set the flag to `false`; `/oauth/register` is then a 404 and
+  `registration_endpoint` is not advertised. `POST /oauth/register` (RFC 7591, JSON) creates a public client: `token_endpoint_auth_method` must be `none` (or
   absent), no secret is ever issued, and the server picks the `client_id` (a `client_id` in the request is ignored,
   so a registration cannot take a static client's id or a metadata-document URL). `redirect_uris` must hold an
   https or loopback URI; a private-use scheme such as Cursor's `cursor://...` is dropped from the registration,
@@ -374,9 +377,10 @@ and the client registrations below.
   registrations per source (the TCP peer, an IPv6 address as its /64; behind a same-host proxy or tunnel every client
   shares one bucket, as for metadata documents), `auth.as.dcr.maxClients` rows (a full table first drops
   registrations never used within a day, then answers `503`), and registrations unused for `auth.as.dcr.unusedDays`
-  are deleted. A registered client's consent page warns that it registered itself and has never been approved. The
-  server logs a warning at boot while DCR is on, and `securityProfile: "hardened"` forces it off even when the flag
-  is set. Claude (claude.ai, Claude Code) and ChatGPT support both registration methods and prefer a metadata
+  are deleted (until a trusted-proxy setting exists, that shared bucket means one noisy client can use up the
+  hourly budget for every other client behind the same proxy). A registered client's consent page warns that it registered itself and has never been approved. The
+  server logs one info line at boot naming these limits while DCR is on, and `securityProfile: "hardened"` forces
+  it off even when the flag is set to `true` (the loader says so). Claude (claude.ai, Claude Code) and ChatGPT support both registration methods and prefer a metadata
   document when the server advertises one, which this server does, so they do not need DCR; it is for clients
   with no metadata-document support. The registered `grant_types` are honored: a client that lists `refresh_token`
   gets a refresh token, one that lists only `authorization_code` (or nothing: the RFC 7591 default) gets none, and
@@ -416,7 +420,19 @@ and the client registrations below.
   only as a SHA-256), except to a dynamically registered client that did not register the `refresh_token` grant. It rotates on every use and its family ends `auth.as.refreshTokenDays` after the exchange.
   A client that lost a refresh response may retry the previous token until its successor has been used, and is
   handed the same response again (the same access token and refresh token, nothing new minted; once that access
-  token has expired the retry is refused and the client signs in again); any
+  token has expired the retry is refused and the client signs in again). Clients that refresh from several
+  windows or processes sharing one token (Zed, Claude Code, Gemini CLI) hit the same race one step later, when
+  the first window has already used the successor. So for `auth.as.refreshReuseGraceSeconds` (default 30) after
+  the family first used a token's successor, presenting that token again is answered with the same successor and
+  access token, once more minting nothing and forking nothing, and it revokes nothing; the family then carries on
+  from its newest token. The grace covers one used step only: an older token, a presentation after the window,
+  or one made after the successor's own successor was used **revokes the family** like any other reuse, and it
+  never applies to another client's request. **Residual risk:** inside that window rotation's theft detection does
+  not fire for the previous token, so a thief who holds a stolen token and its `client_id` and replays it within
+  seconds of the legitimate client's next refresh gets the same pair that client already holds (no new branch,
+  nothing the owner lacks) and is not detected by that request. The next use of either copy of the family's newest
+  token is detected as usual. Set `refreshReuseGraceSeconds: 0` for strict rotation: the previous token is then
+  accepted only until its successor is used. Any
   older token, or the previous one after that, **revokes the family**: the refresh token and every access token
   issued from it stop working. Only the owning client's request can do that, and every refresh failure is the
   same `invalid_grant`. A refresh token belongs to the server secret that minted it: replacing the secret retires

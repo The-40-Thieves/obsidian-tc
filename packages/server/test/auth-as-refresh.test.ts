@@ -31,6 +31,8 @@ afterEach(() => {
 });
 
 const DAY = 86_400_000;
+/** Past the default `auth.as.refreshReuseGraceSeconds` (30), so a stale token is a reuse again. */
+const PAST_GRACE = 31_000;
 const sha = (s: string): string => createHash("sha256").update(s).digest("hex");
 const WIDE = { scope: "read:notes write:notes" };
 const PERSONAS = {
@@ -227,6 +229,7 @@ describe("refresh-token theft: reuse beyond the window revokes the family [S6 ro
     const c = await next(flow, b.refresh);
     expect(await mcpPing(flow, c.access)).toBe(200);
 
+    flow.clock.t += PAST_GRACE;
     const replay = await refresh(flow, a.refresh);
     expect(replay.res.status).toBe(400);
     expect(replay.body.error).toBe("invalid_grant");
@@ -243,6 +246,7 @@ describe("refresh-token theft: reuse beyond the window revokes the family [S6 ro
     const b = await next(flow, a.refresh);
     const c = await next(flow, b.refresh);
     const d = await next(flow, c.refresh);
+    await next(flow, d.refresh); // the family moved two used steps past b: a reuse inside the grace too
     expect((await refresh(flow, b.refresh)).body.error).toBe("invalid_grant");
     expect(await mcpPing(flow, d.access)).toBe(401);
     expect((await refresh(flow, d.refresh)).body.error).toBe("invalid_grant");
@@ -254,6 +258,7 @@ describe("refresh-token theft: reuse beyond the window revokes the family [S6 ro
     const other = await issue(flow); // remembered consent: same grant, a second family
     const b = await next(flow, a.refresh);
     await next(flow, b.refresh);
+    flow.clock.t += PAST_GRACE;
     expect((await refresh(flow, a.refresh)).body.error).toBe("invalid_grant");
     expect(await mcpPing(flow, other.access)).toBe(200);
     expect((await refresh(flow, other.refresh)).res.status).toBe(200);
@@ -264,6 +269,7 @@ describe("refresh-token theft: reuse beyond the window revokes the family [S6 ro
     const a = await issue(flow);
     const b = await next(flow, a.refresh);
     await next(flow, b.refresh);
+    flow.clock.t += PAST_GRACE;
     await refresh(flow, a.refresh);
     const rowsBefore = JSON.stringify(familyRows(flow));
     expect((await refresh(flow, a.refresh)).body.error).toBe("invalid_grant");
@@ -292,6 +298,7 @@ describe("the one-step window", () => {
     const a = await issue(flow);
     const b = await next(flow, a.refresh);
     const c = await next(flow, b.refresh);
+    flow.clock.t += PAST_GRACE;
     const late = await refresh(flow, a.refresh);
     expect(late.body.error).toBe("invalid_grant");
     expect(await mcpPing(flow, c.access)).toBe(401);
@@ -358,6 +365,7 @@ describe("two simultaneous refreshes of the same token", () => {
     const a = await issue(flow);
     const b = await next(flow, a.refresh);
     await next(flow, b.refresh);
+    flow.clock.t += PAST_GRACE;
     const [theft, mine] = await Promise.all([
       refresh(flow, a.refresh),
       refresh(flow, b.refresh), // a retry racing the replay of a

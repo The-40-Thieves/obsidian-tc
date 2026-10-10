@@ -44,6 +44,8 @@ export interface RefreshContext {
   secret: string;
   access: AccessContext;
   now: () => number;
+  /** `auth.as.refreshReuseGraceSeconds` in ms (see `standing`). */
+  reuseGraceMs: number;
   log: (line: string) => void;
   fail: (status: 400 | 500, error: string, description: string) => Response;
 }
@@ -119,7 +121,8 @@ export async function refreshGrant(
     }
     return answer({ token: stored.token, scope: stored.scope, expiresIn: Math.ceil(left / 1000) });
   };
-  const state = standing(db, rec, { successor, secretGen, now: now() });
+  const graceMs = x.reuseGraceMs;
+  const state = standing(db, rec, { successor, secretGen, now: now(), graceMs });
   if (state === "reuse" || state === "foreign") return retire(state);
   if (state === "dead") return bad("revoked, expired or no longer usable");
 
@@ -167,7 +170,7 @@ export async function refreshGrant(
       scope,
       vault: bounded.vault,
     });
-    outcome = useRefresh(db, { token, successor, secretGen, replay, now: now() });
+    outcome = useRefresh(db, { token, successor, secretGen, replay, now: now(), graceMs });
   } catch (e) {
     registry.revoke(minted.jti, "refresh_not_committed");
     log(`token not refreshed: ${e instanceof Error ? e.message : "rotation failed"}`);

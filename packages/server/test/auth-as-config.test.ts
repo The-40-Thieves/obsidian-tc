@@ -38,7 +38,8 @@ describe("auth.as: shape and defaults", () => {
       signingAlg: "ES256",
       accessTokenSeconds: 1800,
       refreshTokenDays: 30,
-      dynamicRegistration: false,
+      refreshReuseGraceSeconds: 30,
+      dynamicRegistration: true,
       dcr: { maxClients: 1000, perIpPerHour: 10, unusedDays: 90 },
       cimd: { allowedHosts: [] },
       consent: { loopback: "remember" },
@@ -48,15 +49,26 @@ describe("auth.as: shape and defaults", () => {
     });
   });
 
+  it("auth.as.refreshReuseGraceSeconds is an integer from 0 (off) to 60", () => {
+    for (const ok of [0, 1, 30, 60]) {
+      expect(issuesOf(jwtAuth({}, { refreshReuseGraceSeconds: ok }))).toEqual([]);
+    }
+    for (const bad of [-1, 61, 1.5, "30"]) {
+      expect(issuesOf(jwtAuth({}, { refreshReuseGraceSeconds: bad })).length).toBeGreaterThan(0);
+    }
+  });
+
   it("auth.as.consent.loopback is 'remember' or 'prompt' and nothing else", () => {
     expect(issuesOf(jwtAuth({}, { consent: { loopback: "prompt" } }))).toEqual([]);
     expect(issuesOf(jwtAuth({}, { consent: { loopback: "never" } })).length).toBeGreaterThan(0);
     expect(issuesOf(jwtAuth({}, { consent: { loopbak: "prompt" } })).length).toBeGreaterThan(0);
   });
 
-  it("DCR is off by default (owner decision 2)", () => {
+  it("DCR is on by default (owner decision 2026-10-09) and an explicit false turns it off", () => {
     const r = ServerConfigSchema.parse(config(jwtAuth()));
-    expect(r.auth.as?.dynamicRegistration).toBe(false);
+    expect(r.auth.as?.dynamicRegistration).toBe(true);
+    const off = ServerConfigSchema.parse(config(jwtAuth({}, { dynamicRegistration: false })));
+    expect(off.auth.as?.dynamicRegistration).toBe(false);
   });
 
   it("an absent block means no AS: nothing changes for existing configs", () => {

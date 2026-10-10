@@ -7,7 +7,7 @@ import type { CallerContext, RegistryOptions, ToolDefinition } from "./types";
 // here rather than splitting it across an earlier slice; it moves as one unit, in this commit.
 
 // THE-294 — single-serialization contract. runDispatch stringifies a successful result once for
-// the byte governor; the transport formatter (mcp/server.ts formatData) consumes that string via
+// the byte governor; the transport formatter (mcp/tool-result.ts toolDataResult) consumes that string via
 // this memo instead of re-stringifying the same object. Entries are take-and-delete (consumed by
 // exactly the request that produced them), and only non-null objects are memoized — primitives
 // fall through to the formatter's own cheap stringify. If two concurrent dispatches ever return

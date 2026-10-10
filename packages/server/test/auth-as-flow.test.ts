@@ -403,7 +403,7 @@ describe("mix-up and the ChatGPT requirements this slice owns (section 9.1)", ()
     expect(new URL(ISSUER).pathname).toBe("/");
   });
 
-  it("advertises exactly what is mounted: S256 only, `none`, RFC 9207, refresh, revocation and CIMD, no DCR or private_key_jwt", async () => {
+  it("advertises exactly what is mounted: S256 only, `none`, RFC 9207, refresh, revocation, CIMD and (default-on) DCR, no private_key_jwt", async () => {
     const s = await boot();
     const meta = (await (
       await fetch(`${s.base}/.well-known/oauth-authorization-server`)
@@ -419,7 +419,7 @@ describe("mix-up and the ChatGPT requirements this slice owns (section 9.1)", ()
       authorization_response_iss_parameter_supported: true,
       client_id_metadata_document_supported: true,
     });
-    expect(meta).not.toHaveProperty("registration_endpoint");
+    expect(meta.registration_endpoint).toBe(`${ISSUER}/oauth/register`);
     expect(meta.scopes_supported).toContain("offline_access");
     expect(JSON.stringify(meta)).not.toContain("private_key_jwt");
   });
@@ -531,15 +531,19 @@ describe("refresh tokens over a real socket", () => {
     const r3 = (await (
       await tokenPost(s, refreshBody(r2.refresh_token as string))
     ).json()) as Record<string, string>;
+    // The reuse grace forgives a token the family left by one used step; the first is two behind.
+    const r4 = (await (
+      await tokenPost(s, refreshBody(r3.refresh_token as string))
+    ).json()) as Record<string, string>;
     const ping = (t: string) => mcp(s, t, { jsonrpc: "2.0", id: 1, method: "ping" });
-    expect((await ping(r3.access_token as string)).res.status).not.toBe(401);
+    expect((await ping(r4.access_token as string)).res.status).not.toBe(401);
     const replay = await tokenPost(s, refreshBody(w.refresh));
     expect(replay.status).toBe(400);
     expect(((await replay.json()) as { error: string }).error).toBe("invalid_grant");
-    for (const t of [w.token, r2.access_token, r3.access_token]) {
+    for (const t of [w.token, r2.access_token, r3.access_token, r4.access_token]) {
       expect((await ping(t as string)).res.status).toBe(401);
     }
-    expect((await tokenPost(s, refreshBody(r3.refresh_token as string))).status).toBe(400);
+    expect((await tokenPost(s, refreshBody(r4.refresh_token as string))).status).toBe(400);
   });
 
   it("the oauth.db file (and its WAL) holds no plaintext refresh token, only the hashes", async () => {

@@ -175,11 +175,20 @@ export const AsConfigSchema = z
       .describe(
         "Absolute lifetime of a refresh-token family in days (1 to 90, default 30), counted from the code exchange that started the family; rotation never extends it. Refresh tokens rotate on every use.",
       ),
+    refreshReuseGraceSeconds: z
+      .number()
+      .int()
+      .min(0)
+      .max(60)
+      .default(30)
+      .describe(
+        "Seconds (0 to 60, default 30) after a refresh token's successor is first used during which presenting the token again, from the same client, is answered with the same successor and access token instead of revoking the family. It absorbs clients that refresh from several windows or processes sharing one token. Only the one token the family just left qualifies; an older token or a presentation after the window is a reuse (the family is revoked), and another client's presentation is refused without revoking. 0 disables the grace: a token is accepted again only until its successor is used.",
+      ),
     dynamicRegistration: z
       .boolean()
-      .default(false)
+      .default(true)
       .describe(
-        'Default false. Serves RFC 7591 Dynamic Client Registration at `/oauth/register` and advertises `registration_endpoint`. DCR is deprecated by the MCP authorization spec and opens an unauthenticated client-creation surface (rate-limited and row-capped by `dcr`); Claude, ChatGPT and Codex prefer Client ID Metadata Documents, which the server advertises, and do not need it. A boot notice is logged whenever it is on, and `securityProfile: "hardened"` forces it off even when this is set.',
+        'Default true. Serves RFC 7591 Dynamic Client Registration at `/oauth/register` and advertises `registration_endpoint`, because many MCP surfaces (Cursor, Windsurf, Antigravity, grok.com, Le Chat, n8n and others) can only register this way. The unauthenticated client-creation surface is bounded by `dcr` (a per-source budget, a client cap, deletion of unused registrations). Set false to turn it off: `/oauth/register` is then a 404 and `registration_endpoint` is not advertised. One info line is logged at startup while it is on, and `securityProfile: "hardened"` forces it off even when this is set to true.',
       ),
     dcr: z
       .strictObject({
@@ -205,7 +214,7 @@ export const AsConfigSchema = z
           ),
       })
       .prefault({})
-      .describe("Limits applied when `dynamicRegistration` is on. Ignored while it is off."),
+      .describe("Limits applied while `dynamicRegistration` is on. Ignored while it is off."),
     cimd: z
       .strictObject({
         allowedHosts: z

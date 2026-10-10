@@ -6,6 +6,7 @@ import { argsHash } from "../../hash";
 import { type OtelDetail, openDispatchSpans } from "../../otel/dispatch-spans";
 import { callerHash, type RateLimiter } from "../../throttle";
 import { isCrossNoteAuditExempt, runAudited } from "../../vault/acl-audit";
+import { NO_OUTPUT_TEXT } from "../no-output-text";
 import { type EffectiveToolVisibilityConfig, isDisabled } from "../visibility";
 import { checkAborted } from "./abort";
 import {
@@ -504,7 +505,8 @@ export async function runDispatch(
       deps.onOutputSchemaDrift,
     );
     const json = JSON.stringify(out ?? null);
-    const resultSize = Buffer.byteLength(json, "utf8");
+    // A payload-less success goes out as NO_OUTPUT_TEXT, not "null": govern the bytes actually sent.
+    const resultSize = Buffer.byteLength(out == null ? NO_OUTPUT_TEXT : json, "utf8");
     const duration = Math.max(0, now() - start);
 
     if (isOverflow(resultSize, deps.maxResponseBytes)) {

@@ -152,15 +152,15 @@ describe("GET /.well-known/oauth-authorization-server", () => {
     ]);
   });
 
-  it("has NO registration_endpoint while DCR is off (the default)", async () => {
-    const { base } = await boot(authOf());
+  it("has NO registration_endpoint while DCR is explicitly off", async () => {
+    const { base } = await boot(authOf({}, { dynamicRegistration: false }));
     const m = await metadataOf(base);
     expect("registration_endpoint" in m).toBe(false);
   });
 
-  it("advertises registration_endpoint only when DCR is enabled", async () => {
+  it("advertises registration_endpoint by default (DCR is on unless turned off)", async () => {
     serve(["register"]);
-    const { base } = await boot(authOf({}, { dynamicRegistration: true }));
+    const { base } = await boot(authOf());
     expect((await metadataOf(base)).registration_endpoint).toBe(`${ISSUER}/oauth/register`);
   });
 

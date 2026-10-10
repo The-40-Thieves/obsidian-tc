@@ -50,3 +50,16 @@ export function toMcpTool(def: ToolDefinition): Tool {
   mcpToolMemo.set(def, tool);
   return tool;
 }
+
+const mcpToolNoOutputSchemaMemo = new WeakMap<ToolDefinition, Tool>();
+
+/** `toolFacade.outputSchema: "omit"`: the same projection minus `outputSchema`, memoized apart from
+ *  `toMcpTool` so the default path's frozen objects are untouched. */
+export function toMcpToolNoOutputSchema(def: ToolDefinition): Tool {
+  const cached = mcpToolNoOutputSchemaMemo.get(def);
+  if (cached !== undefined) return cached;
+  const { outputSchema: _omitted, ...rest } = toMcpTool(def);
+  const tool: Tool = Object.freeze(rest);
+  mcpToolNoOutputSchemaMemo.set(def, tool);
+  return tool;
+}
