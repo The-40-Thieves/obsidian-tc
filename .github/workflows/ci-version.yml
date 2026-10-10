@@ -25,6 +25,10 @@ jobs:
       # not at PR time.
       - name: assert mcpName agrees with server.json and description is in cap
         run: node scripts/check-mcp-name.mjs
+      # The README and install page show deep links generated from server.json's launch config;
+      # a hand edit or a changed launch config fails here instead of shipping a stale link.
+      - name: assert the install deep links are in sync with the launch config
+        run: node scripts/gen-install-links.mjs --check
       # THE-947: mise.toml's bun pin, package.json's packageManager, setup-repo's default and
       # every literal bun-version: under .github/workflows and .github/actions must all agree —
       # THE-946 bumped the first three to 1.4.0 and left seven direct setup-bun steps on 1.3.14.

@@ -3,13 +3,14 @@
 // only claims due jobs and dispatches each to its type's handler, bounded per tick. Registered on
 // the shared Scheduler (THE-462) as one single-flight job, so its lifecycle, backoff, and bounded
 // shutdown come for free.
-import { type Job, type JobQueue, type RunJobContext, runJob } from "./job-queue";
+import { type Job, type JobQueue, newLeaseToken, type RunJobContext, runJob } from "./job-queue";
 
 export type JobHandler = (job: Job, ctx: RunJobContext) => Promise<void>;
 
 export interface JobRunnerDeps {
   queue: JobQueue;
-  /** Stable per process (e.g. `serve:${pid}`) — the lease owner recorded on every claim. */
+  /** Stable per process (e.g. `serve:${pid}`). The prefix of the lease token minted per claim
+   *  (`newLeaseToken`), so a superseded attempt of the same job cannot write as the live one. */
   leaseOwner: string;
   handlers: Map<string, JobHandler>;
   /** Max jobs processed per drainOnce (default 32). Bounds a single tick's work. */
@@ -17,7 +18,10 @@ export interface JobRunnerDeps {
   leaseMs?: number;
   /** Per-class RUNNING cap across ticks (JobQueue.claim classLimits). */
   classLimits?: Record<string, number>;
-  onOutcome?: (type: string, outcome: "complete" | "retrying" | "failed" | "lease-lost") => void;
+  onOutcome?: (
+    type: string,
+    outcome: "complete" | "retrying" | "failed" | "lease-lost" | "interrupted",
+  ) => void;
 }
 
 export function makeJobRunner(deps: JobRunnerDeps): {
@@ -35,8 +39,10 @@ export function makeJobRunner(deps: JobRunnerDeps): {
       if (types.length === 0) return;
       for (let i = 0; i < maxPerTick; i++) {
         if (signal.aborted) return;
+        // A fresh token per claim: see newLeaseToken. `deps.leaseOwner` is only the prefix.
+        const lease = newLeaseToken(deps.leaseOwner);
         const job = deps.queue.claim({
-          leaseOwner: deps.leaseOwner,
+          leaseOwner: lease,
           types,
           ...(deps.leaseMs !== undefined ? { leaseMs: deps.leaseMs } : {}),
           ...(deps.classLimits ? { classLimits: deps.classLimits } : {}),
@@ -46,18 +52,13 @@ export function makeJobRunner(deps: JobRunnerDeps): {
         if (!handler) {
           // A queued type with no registered handler: fail it terminally rather than spin. This
           // only happens if a producer enqueues a type the runner was not configured for.
-          deps.queue.fail(
-            job.id,
-            deps.leaseOwner,
-            new Error(`no handler for job type ${job.type}`),
-            {
-              terminal: true,
-            },
-          );
+          deps.queue.fail(job.id, lease, new Error(`no handler for job type ${job.type}`), {
+            terminal: true,
+          });
           deps.onOutcome?.(job.type, "failed");
           continue;
         }
-        const { outcome } = await runJob(deps.queue, job, deps.leaseOwner, handler);
+        const { outcome } = await runJob(deps.queue, job, lease, handler);
         deps.onOutcome?.(job.type, outcome);
       }
     },

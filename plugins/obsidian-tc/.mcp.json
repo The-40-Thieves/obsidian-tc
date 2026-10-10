@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "obsidian-tc": {
+      "command": "npx",
+      "args": ["-y", "obsidian-tc@1.32.0"],
+      "env": {
+        "OBSIDIAN_TC_CONFIG": "${user_config.config_path}"
+      }
+    }
+  }
+}

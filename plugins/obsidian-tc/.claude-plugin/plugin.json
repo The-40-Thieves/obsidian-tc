@@ -1,0 +1,22 @@
+{
+  "name": "obsidian-tc",
+  "displayName": "Obsidian Turbocharged",
+  "version": "1.32.0",
+  "description": "Governed Obsidian vault access over MCP: hybrid retrieval, Markdown-native memory, folder ACLs and HITL confirmations. Launches the published obsidian-tc npm package over stdio.",
+  "author": {
+    "name": "The 40 Thieves",
+    "url": "https://github.com/The-40-Thieves"
+  },
+  "homepage": "https://obsidian-tc.the40thieves.io",
+  "repository": "https://github.com/The-40-Thieves/obsidian-tc",
+  "license": "AGPL-3.0-only",
+  "keywords": ["obsidian", "mcp", "notes", "knowledge-base", "memory", "vault"],
+  "userConfig": {
+    "config_path": {
+      "type": "file",
+      "title": "obsidian-tc config file",
+      "description": "Absolute path to your obsidian-tc JSON config (vaults, ACL, transports). See https://obsidian-tc.the40thieves.io/getting-started/first-run/",
+      "required": true
+    }
+  }
+}
