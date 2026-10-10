@@ -165,7 +165,7 @@ describe("socketClientIp", () => {
     }) as unknown as Context;
 
   it("reads the Node socket address and ignores X-Forwarded-For", async () => {
-    const { socketClientIp } = await import("../src/auth/as-operator");
+    const { socketClientIp } = await import("../src/auth/client-ip");
     const c = ctx(
       { incoming: { socket: { remoteAddress: "203.0.113.5" } } },
       {
@@ -176,13 +176,13 @@ describe("socketClientIp", () => {
   });
 
   it("reads the Bun server's requestIP", async () => {
-    const { socketClientIp } = await import("../src/auth/as-operator");
+    const { socketClientIp } = await import("../src/auth/client-ip");
     const c = ctx({ requestIP: () => ({ address: "203.0.113.6", family: "IPv4", port: 1 }) });
     expect(socketClientIp(c)).toBe("203.0.113.6");
   });
 
   it("returns nothing for a loopback peer (a same-host proxy), an unknown peer or an absent env", async () => {
-    const { socketClientIp } = await import("../src/auth/as-operator");
+    const { socketClientIp } = await import("../src/auth/client-ip");
     for (const address of ["127.0.0.1", "::1", "::ffff:127.0.0.1"]) {
       expect(
         socketClientIp(ctx({ incoming: { socket: { remoteAddress: address } } })),

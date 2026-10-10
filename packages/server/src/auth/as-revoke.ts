@@ -20,8 +20,8 @@ import {
 import { clientResolverFor } from "./as-client-resolver";
 import { revokeFamily } from "./as-grants";
 import { type AsRouteDeps, enabledAs } from "./as-metadata";
-import { socketClientIp } from "./as-operator";
 import { loadRefresh, REFRESH_TOKEN_RE } from "./as-refresh";
+import { socketClientIp } from "./client-ip";
 import { allowedResources } from "./resource-set";
 import { importVerificationKey } from "./signing-keys";
 

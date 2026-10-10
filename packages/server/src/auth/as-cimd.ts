@@ -21,7 +21,8 @@
 // never hold every slot; a peer with no usable address (unknown, or loopback: a same-host proxy or
 // tunnel, behind which every client looks alike) is one source of its own with a smaller budget, never
 // an exemption; and a caller whose request is already malformed asks for `cacheOnly`, which never
-// starts a fetch. A forwarded header is not read: the config names no trusted proxy.
+// starts a fetch. A forwarded header is read only from a peer in transports.http.trustedProxies
+// (client-ip.ts).
 import { isIP } from "node:net";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { inWriteTransaction } from "../db/txn";

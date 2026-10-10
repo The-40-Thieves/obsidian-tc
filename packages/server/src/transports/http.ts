@@ -16,6 +16,7 @@ import type { FolderAcl } from "../acl";
 import "../auth/as-issuing";
 import { type AsRouteDeps, mountAsMetadata, mountAsRoutes } from "../auth/as-metadata";
 import { mountAsOperator } from "../auth/as-operator";
+import { createClientIpResolver, type ForwardedHeader } from "../auth/client-ip";
 import { AuthRejection, type AuthRejectionReason } from "../auth/jwt";
 import { buildJwtVerifier } from "../auth/jwt-boot";
 import { narrowToTokenScopes, resolvePersona } from "../auth/persona";
@@ -188,6 +189,11 @@ export interface HttpAppOptions {
   allowedHosts?: string[];
   /** Extra Origin header values accepted beyond the request's same origin. */
   allowedOrigins?: string[];
+  /** `transports.http.trustedProxies`: proxies whose forwarded client address the per-source limits
+   *  believe (auth/client-ip.ts). Absent or empty: the TCP peer is the client, no header is read. */
+  trustedProxies?: string[];
+  /** `transports.http.forwardedHeader`: the header a trusted proxy carries the client address in. */
+  forwardedHeader?: ForwardedHeader;
   /** THE-647 item 2: named persona bundles a JWT `persona` claim resolves to (auth/persona.ts).
    *  Absent (the default) means no persona claim can ever resolve — a token carrying one is
    *  refused. */
@@ -537,19 +543,25 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
   // RFC 8414 metadata of the bundled authorization server (`auth.as`): public, built from config
   // alone (never the request's Host), and absent while the AS is off or has no issuing routes yet.
   mountAsMetadata(app, opts.auth);
+  // One client-address rule for every per-source limit the AS mounts below.
+  const clientIp = createClientIpResolver({
+    trustedProxies: opts.trustedProxies,
+    forwardedHeader: opts.forwardedHeader,
+  });
   // Operator identity first, so its unclaimed-server refusal guards the routes mounted after it.
   let asRouteDeps: AsRouteDeps | undefined;
   if (opts.oauthDb !== undefined) {
     const secret = opts.cacheDir
       ? serverSecret(opts.cacheDir)
       : randomBytes(32).toString("base64url");
-    mountAsOperator(app, { auth: opts.auth, db: opts.oauthDb, secret });
+    mountAsOperator(app, { auth: opts.auth, db: opts.oauthDb, secret, clientIp });
     if (opts.authRegistry !== undefined) {
       asRouteDeps = {
         db: opts.oauthDb,
         registry: opts.authRegistry,
         secret,
         personas: opts.personas,
+        clientIp,
       };
     }
   }
