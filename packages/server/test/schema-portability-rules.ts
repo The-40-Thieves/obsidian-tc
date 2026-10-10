@@ -26,6 +26,14 @@
 import type { SchemaRole } from "../src/mcp/schema-lowering";
 
 export const MAX_SCHEMA_BYTES = 16 * 1024;
+// Tools whose outputSchema is z.unknown() (the external plur backend may return any JSON value): a
+// root that is not honestly `type: object` is not advertised, so these list without an outputSchema.
+export const UNADVERTISED_OUTPUTS: readonly string[] = [
+  "plur_get",
+  "plur_recall",
+  "plur_recall_hybrid",
+  "plur_similarity_search",
+];
 export const JSON_SCHEMA_2020_12 = "https://json-schema.org/draft/2020-12/schema";
 // OpenAI structured-outputs `format` list.
 export const PORTABLE_FORMATS: ReadonlySet<string> = new Set([

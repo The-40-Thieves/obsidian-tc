@@ -18,6 +18,7 @@ import { buildFullRegistry } from "../scripts/docgen/build-registry";
 import { mcpServerFacadeOptions } from "../src/mcp/facade-auto";
 import { type CallerContext, type ToolDefinition, ToolRegistry } from "../src/mcp/registry";
 import { createMcpServer } from "../src/mcp/server";
+import { UNADVERTISED_OUTPUTS } from "./schema-portability-rules";
 
 const context = (): CallerContext => ({
   caller: "stdio",
@@ -72,7 +73,9 @@ describe("full registry, flat surface", () => {
     const tools = (await client.listTools()).tools;
     expect(tools.length).toBeGreaterThan(100); // existence floor: the loop below is not vacuous
     const withSchema = tools.filter((t) => t.outputSchema !== undefined);
-    expect(withSchema.length).toBe(tools.length);
+    // Only the pinned unconstrained-output tools go without one (schema lowering, THE-1393).
+    const without = tools.filter((t) => t.outputSchema === undefined).map((t) => t.name);
+    expect(without.sort()).toEqual([...UNADVERTISED_OUTPUTS].sort());
     for (const t of withSchema) {
       const s = t.outputSchema as { type?: unknown; $schema?: unknown };
       expect(s.type, t.name).toBe("object");

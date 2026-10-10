@@ -23,6 +23,7 @@ import { createMcpServer } from "../src/mcp/server";
 import { ensureTextContent, NO_OUTPUT_TEXT, toolDataResult } from "../src/mcp/tool-result";
 import { sampleFromJsonSchema } from "./json-schema-sample";
 import { dataOf, makeWorld, runScenario, SCENARIOS, type World } from "./response-format-fixture";
+import { UNADVERTISED_OUTPUTS } from "./schema-portability-rules";
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -76,6 +77,14 @@ describe("every registered tool", () => {
         continue;
       }
       const schema = toJson(def.outputSchema);
+      if (schema === undefined) {
+        // Unconstrained output, not advertised (THE-1393): any JSON value, e.g. an array, still
+        // reaches the client as its own JSON text.
+        if (!UNADVERTISED_OUTPUTS.includes(def.name)) failures.push(`${def.name}: not advertised`);
+        const text = textOf(ensureTextContent(toolDataResult([{ id: 1 }])));
+        if (text !== '[{"id":1}]') failures.push(`${def.name}: array text was ${text}`);
+        continue;
+      }
       const sample = sampleFromJsonSchema(schema) as Record<string, unknown>;
       const check = validator.getValidator(schema as never)(sample);
       if (!check.valid) {

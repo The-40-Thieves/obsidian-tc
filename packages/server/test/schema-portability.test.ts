@@ -20,16 +20,9 @@ import {
   JSON_SCHEMA_2020_12,
   MAX_SCHEMA_BYTES,
   portabilityViolations,
+  UNADVERTISED_OUTPUTS,
 } from "./schema-portability-rules";
 
-// Tools whose outputSchema is z.unknown() (the external plur backend may return any JSON value): a
-// root that is not honestly `type: object` is not advertised, so these list without an outputSchema.
-const UNADVERTISED_OUTPUTS = [
-  "plur_get",
-  "plur_recall",
-  "plur_recall_hybrid",
-  "plur_similarity_search",
-];
 const OBJ = { type: "object" } as const;
 const wrap = (properties: Record<string, unknown>) => ({ ...OBJ, properties });
 
