@@ -169,7 +169,7 @@ describe("audience confusion: resource must be this server's resource", () => {
     });
     expect(ok.status).toBe(303);
     expect(ok.headers.get("location")).toMatch(/^\/oauth\/login/);
-    const wrongPath = await authorize(flow, new Jar(), challenge, { resource: `${RESOURCE}/` });
+    const wrongPath = await authorize(flow, new Jar(), challenge, { resource: `${RESOURCE}//` });
     expect(errorOf(wrongPath).error).toBe("invalid_target");
     // The stored resource is the configured one, whatever spelling the client used.
     expect(

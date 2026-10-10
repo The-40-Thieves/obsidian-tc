@@ -307,6 +307,7 @@ export function createClientResolver(d: ResolverDeps): ClientResolver {
               redirectUris: registered.redirectUris,
               dcr: true,
               grantTypes: registered.grantTypes,
+              ...(registered.secretHash === undefined ? {} : { secretHash: registered.secretHash }),
             },
           };
     }

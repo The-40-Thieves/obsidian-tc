@@ -5,14 +5,21 @@
 // can reach the server a way to create rows and to put a name in front of the operator, so it is
 // bounded: a per-source rate limit (the CIMD source rule: the TCP peer, an IPv6 address as its /64,
 // peers with no usable address sharing one bucket; a forwarded header only from a trusted proxy,
-// client-ip.ts), a cap on registered clients, housekeeping for unused ones, public clients only and
-// one startup info line.
+// client-ip.ts), a cap on registered clients, housekeeping for unused ones, public clients or
+// `client_secret_basic` (a secret shown once, stored hashed) and one startup info line.
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Hono } from "hono";
 import { MemoryBackend } from "../ratelimit/memory-backend";
 import { cimdSourceKey } from "./as-cimd";
 import { findStaticClient } from "./as-clients";
-import { DCR_AUTH_METHOD, insertRegistration, newClientId, parseRegistration } from "./as-dcr";
+import {
+  DCR_SECRET_METHOD,
+  hashClientSecret,
+  insertRegistration,
+  newClientId,
+  newClientSecret,
+  parseRegistration,
+} from "./as-dcr";
 import { type AsRouteDeps, enabledAs } from "./as-metadata";
 import { socketClientIp } from "./client-ip";
 
@@ -87,8 +94,10 @@ export function mountRegisterRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDe
     let clientId = newClientId();
     while (findStaticClient(as.clients, clientId) !== undefined) clientId = newClientId();
     const issuedAt = now();
+    const secret = parsed.meta.authMethod === DCR_SECRET_METHOD ? newClientSecret() : undefined;
     const stored = insertRegistration(db, {
       clientId,
+      secretHash: secret === undefined ? undefined : hashClientSecret(secret),
       meta: parsed.meta,
       source,
       now: issuedAt,
@@ -111,7 +120,9 @@ export function mountRegisterRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDe
         client_id: clientId,
         client_id_issued_at: Math.floor(issuedAt / 1000),
         redirect_uris: parsed.meta.redirectUris,
-        token_endpoint_auth_method: DCR_AUTH_METHOD,
+        token_endpoint_auth_method: parsed.meta.authMethod,
+        // RFC 7591 section 3.2.1: a secret comes with its expiry, 0 for none.
+        ...(secret === undefined ? {} : { client_secret: secret, client_secret_expires_at: 0 }),
         grant_types: parsed.meta.grantTypes,
         response_types: ["code"],
         ...(parsed.meta.name === "" ? {} : { client_name: parsed.meta.name }),

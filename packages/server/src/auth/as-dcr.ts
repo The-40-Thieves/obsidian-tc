@@ -2,16 +2,22 @@
 // request may say, and the `oauth_clients` rows it becomes. Everything in the request is untrusted
 // input from a stranger, so only the few fields the flow needs are kept, the server picks the
 // client_id (a request that names one, a static client's or a metadata-document URL, gets a fresh
-// id of its own), and no secret is ever issued: a registered client is public, bound to PKCE.
+// id of its own). A registered client is public (`none`, bound to PKCE) unless it asks for
+// `client_secret_basic`, the one method with a secret this server serves: it is then issued a random
+// secret once, in the 201, and only the SHA-256 of it is stored (the secret has 256 bits of entropy, so
+// a fast hash is a sound verifier and a database read yields nothing usable).
 // The route that serves it is as-register.ts; the lookup that turns a row back into a client is the
 // one resolver in as-cimd.ts.
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { inWriteTransaction } from "../db/txn";
 import type { Database } from "../db/types";
 import { cleanName, usableRedirect } from "./as-cimd-document";
 
-/** The one client-authentication method this server gives a registered client. */
+/** The client-authentication method of a registered client that asks for none, or for nothing. */
 export const DCR_AUTH_METHOD = "none";
+/** The one method with a secret that a registered client may ask for (RFC 6749 section 2.3.1). */
+export const DCR_SECRET_METHOD = "client_secret_basic";
+export type DcrAuthMethod = typeof DCR_AUTH_METHOD | typeof DCR_SECRET_METHOD;
 const REDIRECTS_MAX = 20;
 const GRANTS = new Set(["authorization_code", "refresh_token"]);
 /** A registration nobody used for this long is the first thing a full table gives up. */
@@ -26,6 +32,7 @@ export interface DcrMetadata {
   name: string;
   redirectUris: string[];
   grantTypes: string[];
+  authMethod: DcrAuthMethod;
 }
 
 /** RFC 7591 section 3.2.2 error codes. */
@@ -93,10 +100,10 @@ export function parseRegistration(body: unknown): DcrParse {
   }
 
   const method = d.token_endpoint_auth_method;
-  if (method !== undefined && method !== DCR_AUTH_METHOD) {
+  if (method !== undefined && method !== DCR_AUTH_METHOD && method !== DCR_SECRET_METHOD) {
     return bad(
       "invalid_client_metadata",
-      `token_endpoint_auth_method must be "${DCR_AUTH_METHOD}": this server registers public clients only and issues no client secret`,
+      `token_endpoint_auth_method must be "${DCR_AUTH_METHOD}" or "${DCR_SECRET_METHOD}": no other client authentication method is served`,
     );
   }
 
@@ -121,8 +128,19 @@ export function parseRegistration(body: unknown): DcrParse {
     return bad("invalid_client_metadata", "client_name must be a string");
   }
   const name = typeof d.client_name === "string" ? cleanName(d.client_name) : "";
-  return { ok: true, meta: { name, redirectUris, grantTypes } };
+  return {
+    ok: true,
+    meta: { name, redirectUris, grantTypes, authMethod: method ?? DCR_AUTH_METHOD },
+  };
 }
+
+/** A fresh client secret: 256 random bits, shown once. */
+export const newClientSecret = (): string => randomBytes(32).toString("base64url");
+
+/** What is stored of a client secret. */
+export const hashClientSecret = (secret: string): string =>
+  createHash("sha256").update(secret).digest("hex");
+const SECRET_HASH_RE = /^[0-9a-f]{64}$/;
 
 /** A fresh client_id: opaque, not shaped like a URL (so the resolver never mistakes it for a metadata document). */
 export const newClientId = (): string => `dcr_${randomBytes(18).toString("base64url")}`;
@@ -135,7 +153,15 @@ export const newClientId = (): string => `dcr_${randomBytes(18).toString("base64
  */
 export function insertRegistration(
   db: Database,
-  row: { clientId: string; meta: DcrMetadata; source: string; now: number; maxClients: number },
+  row: {
+    clientId: string;
+    meta: DcrMetadata;
+    source: string;
+    now: number;
+    maxClients: number;
+    /** `hashClientSecret` of the secret issued to a `client_secret_basic` registration. */
+    secretHash?: string | undefined;
+  },
 ): "ok" | "full" {
   return inWriteTransaction(db, "as_grants", () => {
     const count = (): number =>
@@ -158,6 +184,8 @@ export function insertRegistration(
         name: row.meta.name,
         redirectUris: row.meta.redirectUris,
         grantTypes: row.meta.grantTypes,
+        authMethod: row.meta.authMethod,
+        ...(row.secretHash === undefined ? {} : { secretSha256: row.secretHash }),
       }),
       row.now,
       row.source,
@@ -175,7 +203,7 @@ export function loadRegistration(
   db: Database,
   clientId: string,
   now: number,
-): { name: string; redirectUris: string[]; grantTypes: string[] } | undefined {
+): { name: string; redirectUris: string[]; grantTypes: string[]; secretHash?: string } | undefined {
   const row = db
     .prepare(
       "SELECT metadata_json FROM oauth_clients WHERE client_id = ? AND kind = 'dcr' AND (expires_at IS NULL OR expires_at > ?)",
@@ -187,6 +215,8 @@ export function loadRegistration(
       name?: unknown;
       redirectUris?: unknown;
       grantTypes?: unknown;
+      secretSha256?: unknown;
+      authMethod?: unknown;
     };
     if (
       typeof m.name !== "string" ||
@@ -198,7 +228,16 @@ export function loadRegistration(
     // A row without the member is one stored before it existed: the RFC default, no refresh token.
     const grantTypes =
       isStringArray(m.grantTypes) && m.grantTypes.length > 0 ? m.grantTypes : DEFAULT_GRANTS;
-    return { name: m.name, redirectUris: m.redirectUris, grantTypes };
+    // The method is stored with the row (an absent member is a row from before confidential clients: public).
+    // A row is a client only when method and hash agree: a `client_secret_basic` row without a well-formed
+    // hash must not fall back to public, and a public row has no hash.
+    const method = m.authMethod ?? DCR_AUTH_METHOD;
+    const base = { name: m.name, redirectUris: m.redirectUris, grantTypes };
+    if (method === DCR_AUTH_METHOD) return m.secretSha256 === undefined ? base : undefined;
+    if (method !== DCR_SECRET_METHOD) return undefined;
+    if (typeof m.secretSha256 !== "string" || !SECRET_HASH_RE.test(m.secretSha256))
+      return undefined;
+    return { ...base, secretHash: m.secretSha256 };
   } catch {
     return undefined;
   }

@@ -335,12 +335,6 @@ describe("registration refuses what it cannot serve safely", () => {
       "invalid_redirect_uri",
     ],
     [
-      "token_endpoint_auth_method client_secret_basic (the threat-model row)",
-      nativeMeta({ token_endpoint_auth_method: "client_secret_basic" }),
-      400,
-      "invalid_client_metadata",
-    ],
-    [
       "token_endpoint_auth_method client_secret_post",
       nativeMeta({ token_endpoint_auth_method: "client_secret_post" }),
       400,
