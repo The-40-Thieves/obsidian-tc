@@ -43,7 +43,9 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
    ```
 
    This sets the version across every `package.json` + distribution file (server, native, shared,
-   `reranker-local`, `server.json`, the MCPB manifest at `mcpb/manifest.json`, and the companion
+   `reranker-local`, `server.json`, the MCPB manifest at `mcpb/manifest.json`, the Claude Code and
+   Muse Code plugin manifests under `plugins/obsidian-tc` (with the exact `obsidian-tc@<version>`
+   their launchers pin, `scripts/lib/plugin-manifest-versions.mjs`), and the companion
    plugin's `manifest.json` / `package.json` / `versions.json` in lockstep — including mirroring
    the bumped plugin `manifest.json` onto the repo-root `manifest.json`, THE-950), folds
    every `changes/*.md` fragment (and any text already in `CHANGELOG.md`'s `[Unreleased]` section)
