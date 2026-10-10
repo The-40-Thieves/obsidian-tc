@@ -16,6 +16,7 @@ import {
 } from "../../experiential/memory-defense";
 import { argsHash } from "../../hash";
 import type { ToolDefinition } from "../../mcp/registry";
+import { DEFAULT_SCAN_LIMIT, nextOffsetCursor, offsetOf } from "../../util/paginate";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { requireConfirmation } from "../../vault/hitl";
 import { buildVaultIndex, resolveTarget } from "../../vault/links";
@@ -99,6 +100,7 @@ const GetBacklinksOutput = z.object({
   path: z.string(),
   total: z.number().int(),
   truncated: z.boolean(),
+  next_cursor: z.string().nullable(),
   backlinks: z.array(
     z.object({
       source_path: z.string(),
@@ -117,6 +119,7 @@ const FindOrphansOutput = z.object({
   vault: z.string(),
   total: z.number().int(),
   truncated: z.boolean(),
+  next_cursor: z.string().nullable(),
   orphans: z.array(z.string()),
 });
 
@@ -125,6 +128,7 @@ const FindUnresolvedLinksOutput = z.object({
   vault: z.string(),
   total: z.number().int(),
   truncated: z.boolean(),
+  next_cursor: z.string().nullable(),
   unresolved: z.array(
     z.object({
       source_path: z.string(),
@@ -178,7 +182,8 @@ const ScanInput = z
   .object({
     vault: VaultId,
     folder: VaultPath.optional(),
-    limit: z.number().int().positive().max(5000).default(500),
+    limit: z.number().int().positive().max(5000).default(DEFAULT_SCAN_LIMIT),
+    cursor: z.string().optional(),
     ...ResponseFormatInput,
   })
   .strict();
@@ -338,7 +343,8 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         .object({
           vault: VaultId,
           path: VaultPath,
-          limit: z.number().int().positive().max(5000).default(500),
+          limit: z.number().int().positive().max(5000).default(DEFAULT_SCAN_LIMIT),
+          cursor: z.string().optional(),
           ...ResponseFormatInput,
         })
         .strict(),
@@ -358,11 +364,14 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const backlinks: Array<Record<string, unknown>> = [];
         const warnings = new ScanWarnings();
         let truncated = false;
+        const skip = offsetOf(input.cursor);
+        let seen = 0;
         for (const p of paths) {
           for (const l of linksOf(v.root, p, warnings)) {
             if (l.inCodeblock) continue;
             const r = resolveTarget(index, l.target);
             if (!r.resolved || r.target_path !== rel) continue;
+            if (seen++ < skip) continue;
             if (backlinks.length >= input.limit) {
               truncated = true;
               break;
@@ -386,6 +395,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           path: rel,
           total: backlinks.length,
           truncated,
+          next_cursor: nextOffsetCursor(skip, backlinks.length, truncated),
           backlinks: concise
             ? backlinks.map((b) => ({
                 source_path: b.source_path,
@@ -406,7 +416,8 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         .object({
           vault: VaultId,
           folder: VaultPath.optional(),
-          limit: z.number().int().positive().max(5000).default(500),
+          limit: z.number().int().positive().max(5000).default(DEFAULT_SCAN_LIMIT),
+          cursor: z.string().optional(),
           require_no_outgoing: z.boolean().default(false),
         })
         .strict(),
@@ -428,12 +439,16 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           warnings,
           { folder: sub, requireNoOutgoing: input.require_no_outgoing },
         );
+        const skip = offsetOf(input.cursor);
+        const page = orphans.slice(skip, skip + input.limit);
+        const truncated = orphans.length > skip + input.limit;
         return {
           ...warnings.out(),
           vault: v.id,
           total: orphans.length,
-          truncated: orphans.length > input.limit,
-          orphans: orphans.slice(0, input.limit),
+          truncated,
+          next_cursor: nextOffsetCursor(skip, page.length, truncated),
+          orphans: page,
         };
       },
     }),
@@ -450,17 +465,21 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
         const warnings = new ScanWarnings();
-        const { unresolved, truncated } = scanUnresolved(
+        const skip = offsetOf(input.cursor);
+        const scanned = scanUnresolved(
           { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes },
           warnings,
-          { folder: sub, limit: input.limit },
+          { folder: sub, limit: skip + input.limit },
         );
+        const unresolved = scanned.unresolved.slice(skip);
+        const truncated = scanned.truncated;
         const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         return {
           ...warnings.out(),
           vault: v.id,
           total: unresolved.length,
           truncated,
+          next_cursor: nextOffsetCursor(skip, unresolved.length, truncated),
           unresolved: concise
             ? unresolved.map(({ source_path, target, line, source, property }) => ({
                 source_path,

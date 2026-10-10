@@ -23,7 +23,7 @@ export function createKnowledgeCriticalTool(deps: M7Deps): ToolDefinition {
       .object({
         vault: VaultId,
         source: z.string().min(1).optional(),
-        limit: z.number().int().positive().max(200).default(100),
+        limit: z.number().int().positive().max(200).default(50),
         ...ResponseFormatInput,
       })
       .strict(),

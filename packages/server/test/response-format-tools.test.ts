@@ -192,7 +192,7 @@ describe("parity: detailed output keeps exactly the pre-#1027 field set", () => 
       "target_path",
     ]);
     const back = await call(scenario("get_backlinks"), {});
-    expect(keys(back)).toEqual(["backlinks", "path", "total", "truncated", "vault"]);
+    expect(keys(back)).toEqual(["backlinks", "next_cursor", "path", "total", "truncated", "vault"]);
     expect(keys(items(back, "backlinks")[0])).toEqual([
       "col",
       "display",
@@ -1084,7 +1084,7 @@ describe("part 4b concise shapes", () => {
     w.m1.write("second.md", "---\ntags: [x/sub]\n---\n# Second\n");
     const full = dataOf(await runScenario(w, s, {}));
     const d = dataOf(await runScenario(w, s, { response_format: "concise" }));
-    expect(keys(d)).toEqual(["matches", "tag", "truncated", "vault"]);
+    expect(keys(d)).toEqual(["matches", "next_cursor", "tag", "truncated", "vault"]);
     expect(rows(d, "matches").map(keys)).toEqual([["path"], ["path"]]);
     expect(rows(d, "matches").map((m) => m.path)).toEqual(rows(full, "matches").map((m) => m.path));
     expect(keys(full)).toEqual(expect.arrayContaining(["total"]));

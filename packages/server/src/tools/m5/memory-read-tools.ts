@@ -246,7 +246,7 @@ export function buildMemoryReadTools(deps: M5Deps): ToolDefinition[] {
         // — e.g. a deprecated tool [[link]]ing to its replacement — and excluding it mid-BFS would
         // silently sever that path. Only which nodes are RETURNED is affected here.
         const nodes = allNodes.filter((n) => isVisible(n.entity, input.include_retired));
-        const limit = input.limit ?? 100;
+        const limit = input.limit ?? 50;
         const start = input.cursor ? Number.parseInt(input.cursor, 10) || 0 : 0;
         const page = nodes.slice(start, start + limit);
         const next = start + limit < nodes.length ? String(start + limit) : null;

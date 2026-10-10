@@ -242,6 +242,10 @@ export interface ToolDefinition<I = unknown, O = unknown> {
   tags?: string[];
   /** Optional MCP 2025-11-25 icons metadata (THE-278). Boundary-only; never read by dispatch. */
   icons?: ToolIcon[];
+  /** This tool exists to return whole notes, so its result is legitimately large. tools/list then
+   *  advertises `_meta["anthropic/maxResultSizeChars"]` for it (mcp/result-size.ts) and no other
+   *  tool gets the key. Boundary-only; never read by dispatch. */
+  wholeNotes?: boolean;
   destructive?: boolean;
   /** THE-824: this tool calls `requireConfirmation` conditionally (folder-boundary crossing,
    *  overwrite, bulk-cost floor, ...), decided at runtime by the handler — so `destructive` above

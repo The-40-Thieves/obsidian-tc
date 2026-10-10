@@ -20,7 +20,23 @@ export interface Page<T> {
 
 /** Default page size when a caller supplies no limit. Deliberately small: an unbounded default is
  *  a token and latency cost paid by every caller who did not ask for it. */
-export const DEFAULT_PAGE_SIZE = 50;
+export const DEFAULT_PAGE_SIZE = 25;
+
+/** Default item limit for a scan whose items are a path plus a line or two (find_notes_by_tag,
+ *  get_backlinks, find_unresolved_links, list_notes, ...): ~100-200 bytes each, so a default page
+ *  stays well under mcp/result-size.ts's DEFAULT_PAGE_BYTES. */
+export const DEFAULT_SCAN_LIMIT = 100;
+
+/** The offset an offset cursor names; a malformed or negative one clamps to 0 (see `paginate`). */
+export function offsetOf(cursor?: string): number {
+  return cursor ? Math.max(0, Number.parseInt(cursor, 10) || 0) : 0;
+}
+
+/** The `next_cursor` of a scan that delivered `delivered` items after `offset` and stopped because
+ *  more were left; null on the last page. */
+export function nextOffsetCursor(offset: number, delivered: number, more: boolean): string | null {
+  return more ? String(offset + delivered) : null;
+}
 
 /**
  * Slice `items` into a page. `cursor` is the offset returned by a previous call; a malformed or
@@ -29,7 +45,7 @@ export const DEFAULT_PAGE_SIZE = 50;
  */
 export function paginate<T>(items: T[], limit?: number, cursor?: string): Page<T> {
   const size = limit ?? DEFAULT_PAGE_SIZE;
-  const start = cursor ? Math.max(0, Number.parseInt(cursor, 10) || 0) : 0;
+  const start = offsetOf(cursor);
   const slice = items.slice(start, start + size);
   const nextStart = start + slice.length;
   const next = nextStart < items.length ? String(nextStart) : undefined;

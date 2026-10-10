@@ -156,7 +156,7 @@ export function createDiagnoseRetrievalTool(
         query: z.string().min(1),
         /** The note you expected to see. Vault-relative, same shape as every other path arg. */
         path: VaultPath,
-        final_top_k: z.number().int().positive().max(100).default(30),
+        final_top_k: z.number().int().positive().max(100).default(10),
         ...ResponseFormatInput,
       })
       .strict(),

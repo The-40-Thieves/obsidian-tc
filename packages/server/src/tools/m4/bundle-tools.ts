@@ -91,6 +91,7 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "bundle_folder",
+      wholeNotes: true,
       domain: "automation",
       description:
         "Aggregate all notes under a folder into a single markdown/XML bundle (Smart Context). ACL-filtered; file-count and byte budgeted with an explicit truncated flag. When truncated, resume with the returned cursor; max_files and max_bytes apply per page, so loop until cursor is absent. response_format=concise drops the per-file list, total_bytes and the root echo.",
@@ -171,6 +172,7 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
 
     defineTool({
       name: "bundle_files",
+      wholeNotes: true,
       domain: "automation",
       description:
         "Aggregate an explicit list of notes into a single markdown/XML bundle. ACL-filtered; byte budgeted; reports missing_paths for files that do not exist. response_format=concise drops the per-file list and total_bytes.",

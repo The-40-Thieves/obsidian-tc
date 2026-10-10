@@ -598,7 +598,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         }
         if (viewLimit !== undefined && rows.length > viewLimit) rows.length = viewLimit;
 
-        const limit = input.limit ?? 100;
+        const limit = input.limit ?? 50;
         const start = input.cursor ? Math.max(0, Number.parseInt(input.cursor, 10) || 0) : 0;
         const page = rows.slice(start, start + limit);
         const nextStart = start + page.length;

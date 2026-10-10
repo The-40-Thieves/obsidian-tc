@@ -656,6 +656,37 @@ server can replace the file; it is never accepted as authenticated input. The ne
 whole page with the HMAC. For `log.md`, it discards the legacy preamble and `last_seq` and projects from
 the provenance database again. An edited or invalid legacy file is left untouched and reported.
 
+## Result size and paging
+
+Clients cap how much of a tool result they show the model: Grok Build inlines about 20 KB and
+drops `resource_link` blocks, claude.ai keeps about 150,000 characters, and Claude Code saves a
+text result over 50,000 characters to a file. So a **list or search tool's default page stays
+under 20 KB** on a large vault. It does that by lowering the default item count, never by cutting
+a result mid-item, and every one of them says how to get the rest. `governor.maxResponseBytes`
+is unchanged: it is the hard ceiling that refuses an oversized response, not a page size.
+
+| Tool | Default page | Next page |
+| --- | --- | --- |
+| `list_notes`, `list_attachments` | 100 | `next_cursor` |
+| `find_notes_by_tag`, `find_notes_by_property`, `get_backlinks`, `find_orphans`, `find_unresolved_links` | 100 | `next_cursor` (an offset; pass it as `cursor` with the same arguments) |
+| `search_text`, `search_regex`, `search_jsonlogic`, `search_vault`, `list_tasks` | 25 | `next_cursor` |
+| `find_link_cycles` | 10 cycles of at most `max_length` (10) links; `skipped_longer` counts the rest | raise `limit` or `max_length` |
+| `vault_graph_search`, `knowledge_search`, `diagnose_retrieval` | `final_top_k` 10 | raise `final_top_k` |
+| `list_commands`, `makemd_query`, `query_datacore`, `search_omnisearch`, `knowledge_get_critical`, `list_capture_queue`, `get_session_traces`, `query_base` | 50 to 100 | `cursor` where the tool has one, else a larger `limit` |
+
+Pass `limit` to ask for a bigger or smaller page. The whole-note readers (`read_note`,
+`read_notes`, `read_resources`, `read_snapshot`, `fetch`, `search_and_read`, `bundle_files`,
+`bundle_folder`, `get_active_file`, `session_bootstrap`) exist to return whole notes, so they are
+paged by the byte budget instead, and they advertise
+`_meta["anthropic/maxResultSizeChars"]` in `tools/list` so Claude Code keeps their result inline
+rather than saving it to a file. The value is `governor.maxResponseBytes`, capped at Claude Code's
+own 500,000-character ceiling, and no other tool carries it.
+
+No tool returns a `resource_link` or an embedded resource, and every result carries a text block.
+`get_attachment` returns a `description` (type, pixel size for common images, file size, and a
+pointer to `ocr_attachment`) beside the base64 `content`; pass `include_content: false` for the
+description alone.
+
 ## Response format
 
 Tools that return more than an acknowledgement take an optional `response_format`:

@@ -5,6 +5,7 @@
 import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
+import { DEFAULT_SCAN_LIMIT } from "../../../util/paginate";
 import { enforcePathAcl } from "../../../vault/acl-path";
 import { readableEntry } from "../../../vault/acl-read-filter";
 import { noteExists } from "../../../vault/notes-io";
@@ -33,7 +34,7 @@ export function createListNotesTool(deps: M1Deps): ToolDefinition {
       }).filter((e) => readableEntry(ctx.acl, e, ctx.grantedScopes));
       const after = input.cursor;
       const visible = after ? entries.filter((e) => e.relPath > after) : entries;
-      const limit = input.limit ?? 200;
+      const limit = input.limit ?? DEFAULT_SCAN_LIMIT;
       const page = visible.slice(0, limit);
       const next = visible.length > limit ? (page[page.length - 1]?.relPath ?? null) : null;
       if (resolveResponseFormat(input, deps.responseFormat) === "concise")

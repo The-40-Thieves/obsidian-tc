@@ -150,6 +150,7 @@ export function buildSearchFetchTools(deps: M2Deps, searchVault: ToolDefinition)
 
     defineTool({
       name: "fetch",
+      wholeNotes: true,
       domain: "notes",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:

@@ -13,6 +13,7 @@ import {
 } from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import { frontmatterFallbackSink } from "../../util/errors";
+import { DEFAULT_SCAN_LIMIT, nextOffsetCursor, offsetOf } from "../../util/paginate";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableEntry, readableRel } from "../../vault/acl-read-filter";
 import { type Frontmatter, parseNote, serializeNote } from "../../vault/frontmatter";
@@ -112,6 +113,7 @@ const FindNotesByTagOutput = z.object({
   tag: z.string(),
   total: z.number().int().optional(),
   truncated: z.boolean(),
+  next_cursor: z.string().nullable(),
   matches: z.array(z.object({ path: z.string(), tags: z.array(z.string()).optional() })),
 });
 
@@ -150,7 +152,8 @@ const FindInput = z
     vault: VaultId,
     tag: z.string().min(1),
     folder: VaultPath.optional(),
-    limit: z.number().int().positive().max(1000).default(200),
+    limit: z.number().int().positive().max(1000).default(DEFAULT_SCAN_LIMIT),
+    cursor: z.string().optional(),
     ...ResponseFormatInput,
   })
   .strict();
@@ -395,6 +398,8 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         const matches: Array<{ path: string; tags: string[] }> = [];
         const warnings = new ScanWarnings();
         let truncated = false;
+        const skip = offsetOf(input.cursor);
+        let seen = 0;
         // THE-291 (3B): tags come from the notes table when ready; tagMatches semantics reused
         // verbatim (JS-side — SQL '='/LIKE would change case/unicode matching).
         if (deps.metadataIndex?.ready()) {
@@ -410,6 +415,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
             if (!readable(r.path)) continue;
             const hit = (JSON.parse(r.tags) as string[]).filter((t) => tagMatches(input.tag, t));
             if (hit.length === 0) continue;
+            if (seen++ < skip) continue;
             if (matches.length >= input.limit) {
               truncated = true;
               break;
@@ -425,6 +431,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
             const all = noteTags(raw, e.relPath, (r, p) => warnings.parse(r, p as string)).all;
             const hit = all.filter((t) => tagMatches(input.tag, t));
             if (hit.length === 0) continue;
+            if (seen++ < skip) continue;
             if (matches.length >= input.limit) {
               truncated = true;
               break;
@@ -438,6 +445,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
             vault: v.id,
             tag: normalizeTag(input.tag),
             truncated,
+            next_cursor: nextOffsetCursor(skip, matches.length, truncated),
             matches: matches.map((m) => ({ path: m.path })),
           };
         return {
@@ -446,6 +454,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
           tag: normalizeTag(input.tag),
           total: matches.length,
           truncated,
+          next_cursor: nextOffsetCursor(skip, matches.length, truncated),
           matches,
         };
       },
