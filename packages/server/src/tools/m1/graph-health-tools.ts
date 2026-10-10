@@ -65,22 +65,37 @@ function* buildLinkGraphSteps(
 
 /** Directed-cycle enumeration (DFS back-edges). Bounded by `limit` cycles reported; a cycle of more
  *  than `maxLength` links is not reported (a dense vault's DFS closes cycles hundreds of notes long,
- *  which is a page-sized answer to a question nobody asked) and is counted in `skippedLonger`. */
-function findCycles(
+ *  which is a page-sized answer to a question nobody asked) and is counted in `skippedLonger`.
+ *  Iterative (an explicit stack of neighbour iterators) with a step per node, so a drain can hand the
+ *  event loop back during the walk, and a 20 000-deep chain cannot overflow the call stack. */
+function* findCyclesSteps(
   out: Map<string, Set<string>>,
   limit: number,
   maxLength: number,
-): { cycles: string[][]; skippedLonger: number } {
+): ScanSteps<{ cycles: string[][]; skippedLonger: number }> {
   let skippedLonger = 0;
   const state = new Map<string, number>(); // 0 unseen, 1 on-stack, 2 done
   const stack: string[] = [];
+  const nexts: Iterator<string>[] = [];
   const cycles: string[][] = [];
-  const visit = (u: string): void => {
-    if (cycles.length >= limit) return;
+  const enter = (u: string): void => {
     state.set(u, 1);
     stack.push(u);
-    for (const w of out.get(u) ?? []) {
-      if (cycles.length >= limit) break;
+    nexts.push((out.get(u) ?? new Set<string>()).values());
+  };
+  for (const n of out.keys()) {
+    if (cycles.length >= limit) break;
+    if ((state.get(n) ?? 0) !== 0) continue;
+    enter(n);
+    while (stack.length > 0 && cycles.length < limit) {
+      const nx = (nexts[nexts.length - 1] as Iterator<string>).next();
+      if (nx.done) {
+        nexts.pop();
+        state.set(stack.pop() as string, 2);
+        yield;
+        continue;
+      }
+      const w = nx.value;
       const s = state.get(w) ?? 0;
       if (s === 1) {
         const i = stack.lastIndexOf(w);
@@ -89,15 +104,10 @@ function findCycles(
           else cycles.push([...stack.slice(i), w]);
         }
       } else if (s === 0) {
-        visit(w);
+        enter(w);
+        yield;
       }
     }
-    stack.pop();
-    state.set(u, 2);
-  };
-  for (const n of out.keys()) {
-    if (cycles.length >= limit) break;
-    if ((state.get(n) ?? 0) === 0) visit(n);
   }
   return { cycles, skippedLonger };
 }
@@ -259,7 +269,9 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         const total = g.notes.length;
         const orphans = g.notes.filter((p) => (g.inn.get(p)?.size ?? 0) === 0).length;
         const hubs = g.notes.filter((p) => (g.inn.get(p)?.size ?? 0) >= input.hub_threshold).length;
-        const cycles = findCycles(g.out, 100, Number.POSITIVE_INFINITY).cycles.length;
+        const cycles = (
+          await drainYielding(findCyclesSteps(g.out, 100, Number.POSITIVE_INFINITY), ctx.signal)
+        ).cycles.length;
         const orphanRatio = total ? orphans / total : 0;
         const unresolvedRatio = g.links ? g.unresolved / g.links : 0;
         const hubRatio = total ? hubs / total : 0;
@@ -318,7 +330,10 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
           buildLinkGraphSteps(v.root, ctx.acl, ctx.grantedScopes),
           ctx.signal,
         );
-        const { cycles, skippedLonger } = findCycles(g.out, input.limit, input.max_length);
+        const { cycles, skippedLonger } = await drainYielding(
+          findCyclesSteps(g.out, input.limit, input.max_length),
+          ctx.signal,
+        );
         return {
           ...g.warnings.out(),
           vault: v.id,
