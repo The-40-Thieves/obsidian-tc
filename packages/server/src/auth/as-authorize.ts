@@ -31,11 +31,11 @@ import {
   type PendingRequest,
 } from "./as-grants";
 import { type AsRouteDeps, enabledAs } from "./as-metadata";
-import { socketClientIp } from "./as-operator";
 import type { SessionInfo } from "./as-operator-store";
 import { consentPage, messagePage } from "./as-pages";
 import { parseAuthorizeRequest } from "./as-request";
 import { createAsBrowser, requestHandleOf } from "./as-session";
+import { socketClientIp } from "./client-ip";
 import { resolvePersona } from "./persona";
 
 type AuthConfig = ServerConfig["auth"];

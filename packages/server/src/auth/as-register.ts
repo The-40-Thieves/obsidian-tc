@@ -4,8 +4,9 @@
 // `hardened` forces the flag off). The MCP authorization spec deprecates DCR, and it hands anyone who
 // can reach the server a way to create rows and to put a name in front of the operator, so it is
 // bounded: a per-source rate limit (the CIMD source rule: the TCP peer, an IPv6 address as its /64,
-// peers with no usable address sharing one bucket; no forwarded header is read), a cap on registered
-// clients, housekeeping for unused ones, public clients only and one startup info line.
+// peers with no usable address sharing one bucket; a forwarded header only from a trusted proxy,
+// client-ip.ts), a cap on registered clients, housekeeping for unused ones, public clients only and
+// one startup info line.
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Hono } from "hono";
 import { MemoryBackend } from "../ratelimit/memory-backend";
@@ -13,7 +14,7 @@ import { cimdSourceKey } from "./as-cimd";
 import { findStaticClient } from "./as-clients";
 import { DCR_AUTH_METHOD, insertRegistration, newClientId, parseRegistration } from "./as-dcr";
 import { type AsRouteDeps, enabledAs } from "./as-metadata";
-import { socketClientIp } from "./as-operator";
+import { socketClientIp } from "./client-ip";
 
 type AuthConfig = ServerConfig["auth"];
 

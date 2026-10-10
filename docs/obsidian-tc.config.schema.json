@@ -777,6 +777,14 @@
             "type": "string"
           }
         },
+        "anonymousDiscovery": {
+          "description": "What an anonymous caller may do when OAuth is on. `none` (the default when unset) answers 401 with the WWW-Authenticate challenge to every request that carries no valid token, `initialize` and `tools/list` included: this is what makes grok.com and Claude start their OAuth flow. `list` is the ChatGPT mixed-auth mode: an anonymous `initialize`, `ping`, `server/discover` and `tools/list` are answered (the list is what a caller holding the default OAuth scopes sees, each tool carrying `securitySchemes`), and an anonymous `tools/call` returns a tool error whose `_meta[\"mcp/www_authenticate\"]` holds the challenge that triggers ChatGPT's account-linking UI. Every other method, and any request with an invalid or expired token, still gets the 401. Do NOT use `list` for grok.com: it never starts OAuth when `tools/list` succeeds anonymously. Needs `auth.mode` `jwt` or `oidc` and `auth.resource`.",
+          "type": "string",
+          "enum": [
+            "none",
+            "list"
+          ]
+        },
         "as": {
           "description": "The bundled authorization server (opt-in; see `auth.as.enabled`). Absent means disabled. Needs `mode: jwt`; with it enabled, `authorizationServers` defaults to the issuer, and when set must list the issuer first.",
           "type": "object",
@@ -1968,6 +1976,23 @@
               "items": {
                 "type": "string"
               }
+            },
+            "trustedProxies": {
+              "default": [],
+              "description": "Reverse proxies or tunnels whose forwarded client address is believed: IP addresses and CIDR blocks of the TCP peer, for example `[\"127.0.0.1\", \"::1\"]` for cloudflared or nginx on the same host, or a docker bridge subnet. Empty (the default): no header is read, and every client behind a proxy or tunnel is counted as one unattributed source by the per-source limits (client-metadata lookups, passkey sign-in, authorize admission, password-login failures). When a request's TCP peer is listed, the client address is taken from the header named by `forwardedHeader`; from any other peer the header is ignored, so a client cannot choose its own address. List ONLY proxies you control and that overwrite or append to the header: a listed address that forwards a client-supplied header unchanged lets that client pick its own source.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "forwardedHeader": {
+              "default": "x-forwarded-for",
+              "description": "Which header carries the client address when the TCP peer is in `trustedProxies`. `x-forwarded-for` (default): the right-most address that is not itself a trusted proxy (a proxy appends the address it saw, so entries to the left of that are whatever the client wrote). `cf-connecting-ip`: Cloudflare's single-value header, set by Cloudflare at its edge and passed through cloudflared; use it behind a Cloudflare Tunnel. Ignored while `trustedProxies` is empty.",
+              "type": "string",
+              "enum": [
+                "x-forwarded-for",
+                "cf-connecting-ip"
+              ]
             }
           }
         }
