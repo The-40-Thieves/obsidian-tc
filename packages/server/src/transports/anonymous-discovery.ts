@@ -60,11 +60,21 @@ export type AnonymousVerdict =
   | { kind: "tool-error"; id: string | number }
   | { kind: "deny" };
 
+/**
+ * Does the request ask for a push stream? The HTTP edge opens the Tasks and advisory streams from
+ * `params.notifications` whatever the method is, so an admitted method carrying that key (with any
+ * value) would hold a connection open for a caller nobody identified. No discovery request needs it.
+ */
+function asksForStream(params: unknown): boolean {
+  return typeof params === "object" && params !== null && "notifications" in params;
+}
+
 /** A single JSON-RPC message only: a batch could smuggle a `tools/call` behind an allowed method. */
 export function classifyAnonymous(body: unknown): AnonymousVerdict {
   if (typeof body !== "object" || body === null || Array.isArray(body)) return { kind: "deny" };
-  const { method, id } = body as { method?: unknown; id?: unknown };
+  const { method, id, params } = body as { method?: unknown; id?: unknown; params?: unknown };
   if (typeof method !== "string") return { kind: "deny" };
+  if (asksForStream(params)) return { kind: "deny" };
   if (ANONYMOUS_METHODS.has(method)) return { kind: "admit" };
   if (method === "tools/call" && (typeof id === "string" || typeof id === "number"))
     return { kind: "tool-error", id };

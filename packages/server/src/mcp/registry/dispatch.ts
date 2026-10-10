@@ -220,7 +220,7 @@ export async function runDispatch(
     scopeClass = policy.scopeClass;
 
     spans?.stage("auth_check");
-    requireAuthenticated(ctx, def);
+    requireAuthenticated(ctx);
 
     assertScopesGranted(ctx, policy.requiredScopes, "missing required scope(s)");
 

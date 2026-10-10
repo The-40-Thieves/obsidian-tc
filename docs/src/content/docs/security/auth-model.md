@@ -750,8 +750,9 @@ default is the one that works for almost every client.
 - **What `list` does not loosen.** A request with any credential (a bad or expired token, or another scheme such
   as `Basic`) is still a `401`: a client must refresh, not be downgraded to anonymous. Only an absent, blank or
   bare `Bearer` Authorization header is anonymous, and its body is read only up to 64 KiB. Resources, prompts, tasks, subscriptions, a JSON-RPC batch, and every
-  `tools/call` stay behind the token; the anonymous caller is not authenticated, so dispatch refuses any
-  scope-gated tool even if a call reached it.
+  `tools/call` stay behind the token. An admitted method that asks for a push stream (any `params.notifications`
+  key) is a `401` too, and the anonymous caller is not authenticated, so dispatch refuses every tool, scope-free
+  ones included, even if a call reached it.
 - `list` needs `auth.mode` `jwt` or `oidc`, `auth.resource`, and a complete Protected Resource Metadata
   (an authorization server). Without one the challenge has nothing to link from and the server stays on `none`.
 - **Do not use `list` if grok.com also connects**: it would see a working anonymous `tools/list` and never start its sign-in.

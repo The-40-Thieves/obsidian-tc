@@ -304,6 +304,23 @@ export function serveTaskSubscription(
   signal: AbortSignal,
 ): Response {
   const id = (body as { id?: string | number | null } | null)?.id ?? null;
+  // `null` is the absence of an identity, not an identity: two callers with none (a verified token
+  // with no `sub`, or an anonymous one) would share a bucket and read each other's task results.
+  // Refused at subscribe time, as the advisory stream does. Only HTTP produces a null caller.
+  if (typeof owner.caller !== "string" || owner.caller.length === 0) {
+    return new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        error: {
+          code: -32001,
+          message:
+            "task subscription requires an identified caller — this token authenticated without a usable identity (e.g. no `sub` claim), and two such callers cannot be told apart on this stream",
+        },
+        id,
+      }),
+      { status: 403, headers: { "content-type": "application/json" } },
+    );
+  }
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {

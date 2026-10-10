@@ -1,0 +1,4 @@
+---
+type: Security
+---
+- **The Tasks `subscriptions/listen` stream now refuses a caller with no identity, and an unauthenticated request can no longer reach any stream or tool.** A verified token with no `sub` claim used to open the Tasks stream and receive the task results of every other `sub`-less token (they all shared one `null` owner); it now gets `403`, as the advisory stream already did. With `auth.anonymousDiscovery: "list"`, an anonymous request whose `params.notifications` asked for any push stream (Tasks, advisory, or any other key) was admitted on the method name alone and held an event stream open with no credential; the anonymous gate now inspects the params and answers `401` with the challenge. As a backstop, dispatch refuses every tool for an unauthenticated context, including the scope-free ones (`server_health`, `get_index_status`, `generate_uri`); stdio and `auth.mode none` callers are authenticated contexts and unaffected.
