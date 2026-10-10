@@ -184,6 +184,7 @@ export function insertRegistration(
         name: row.meta.name,
         redirectUris: row.meta.redirectUris,
         grantTypes: row.meta.grantTypes,
+        authMethod: row.meta.authMethod,
         ...(row.secretHash === undefined ? {} : { secretSha256: row.secretHash }),
       }),
       row.now,
@@ -215,6 +216,7 @@ export function loadRegistration(
       redirectUris?: unknown;
       grantTypes?: unknown;
       secretSha256?: unknown;
+      authMethod?: unknown;
     };
     if (
       typeof m.name !== "string" ||
@@ -226,17 +228,16 @@ export function loadRegistration(
     // A row without the member is one stored before it existed: the RFC default, no refresh token.
     const grantTypes =
       isStringArray(m.grantTypes) && m.grantTypes.length > 0 ? m.grantTypes : DEFAULT_GRANTS;
-    // A row that carries a secret hash must carry a well-formed one: a damaged row is no client.
-    if (m.secretSha256 === undefined)
-      return { name: m.name, redirectUris: m.redirectUris, grantTypes };
+    // The method is stored with the row (an absent member is a row from before confidential clients: public).
+    // A row is a client only when method and hash agree: a `client_secret_basic` row without a well-formed
+    // hash must not fall back to public, and a public row has no hash.
+    const method = m.authMethod ?? DCR_AUTH_METHOD;
+    const base = { name: m.name, redirectUris: m.redirectUris, grantTypes };
+    if (method === DCR_AUTH_METHOD) return m.secretSha256 === undefined ? base : undefined;
+    if (method !== DCR_SECRET_METHOD) return undefined;
     if (typeof m.secretSha256 !== "string" || !SECRET_HASH_RE.test(m.secretSha256))
       return undefined;
-    return {
-      name: m.name,
-      redirectUris: m.redirectUris,
-      grantTypes,
-      secretHash: m.secretSha256,
-    };
+    return { ...base, secretHash: m.secretSha256 };
   } catch {
     return undefined;
   }

@@ -62,5 +62,14 @@ export function matchResource(requested: string, resource: string): string | und
     return undefined;
   }
   const bare = requested.slice(0, -1);
-  return members.find((r) => sameResource(bare, r));
+  return members.find((r) => spelledAs(bare, r) && sameResource(bare, r));
 }
+
+/** `scheme://authority` lower-cased, the rest untouched: the only part of a URL that is case-blind. */
+const folded = (url: string): string =>
+  url.replace(/^([a-z][a-z0-9+.-]*:\/\/[^/?#]*)/i, (head) => head.toLowerCase());
+
+/** Same text as the member, bar the case of scheme and host. The trailing-slash concession compares this
+ *  way (not through the URL parser) so a dot segment, an encoded dot or an explicit default port cannot
+ *  ride along with the slash. */
+const spelledAs = (bare: string, member: string): boolean => folded(bare) === folded(member);

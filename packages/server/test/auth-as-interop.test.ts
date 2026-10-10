@@ -120,6 +120,12 @@ describe("2. one trailing slash on `resource` is the same resource, canonicalise
       `${RESOURCE}%2F`,
       `${RESOURCE}x/`,
       "https://vault.example.com//mcp/",
+      // the slash concession is textual: no dot segment, default port or encoded dot rides along with it
+      "https://vault.example.com/a/../mcp/",
+      "https://vault.example.com/mcp/../mcp/",
+      "https://vault.example.com/%2e/mcp/",
+      "https://vault.example.com/mcp/%2e%2e/mcp/",
+      "https://vault.example.com:443/mcp/",
       "",
       "/",
     ]) {
@@ -381,6 +387,23 @@ describe("7. a confidential client registered through DCR (client_secret_basic)"
     const next = refreshed.body.refresh_token as string;
     expect((await revokeCall(flow, { token: next })).res.status).toBe(401);
     expect((await revokeCall(flow, { token: next }, basic(id, secret))).res.status).toBe(200);
+  });
+
+  it("a confidential row that lost its secret hash is no client at all (it never downgrades to public)", async () => {
+    const flow = await dcrFlow();
+    const reg = await register(flow, meta);
+    const id = reg.body.client_id as string;
+    flow.db
+      .prepare(
+        "UPDATE oauth_clients SET metadata_json = json_remove(metadata_json, '$.secretSha256') WHERE client_id = ?",
+      )
+      .run(id);
+    const { verifier, challenge } = pkce();
+    const a = await authorize(flow, new Jar(), challenge, { client_id: id, redirect_uri: NATIVE });
+    expect(a.headers.get("location")).toBeNull();
+    const r = await exchange(flow, refreshFields("z".repeat(43), { client_id: id }));
+    expect([r.res.status, r.body.error]).toEqual([401, "invalid_client"]);
+    expect(verifier).not.toBe("");
   });
 
   it("a public registration still refuses credentials", async () => {
