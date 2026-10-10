@@ -57,6 +57,27 @@ describe("toolFacade.doctor", () => {
     ]);
   });
 
+  it("reports toolFacade.advertise and the per-URL profile table", async () => {
+    const r = await run({ configured: "triad", profile: "full", advertise: "essentials" });
+    expect(r.status).toBe("ok");
+    expect(r.details?.advertise).toBe("essentials");
+    expect(r.summary).toContain('toolFacade.advertise is "essentials"');
+    // Every /mcp/<segment> the HTTP transport routes, with the mode + subset it selects.
+    expect(r.details?.urlProfiles).toEqual([
+      "/mcp/triad -> triad (advertise all)",
+      "/mcp/domain -> domain (advertise all)",
+      "/mcp/full -> flat (advertise all)",
+      "/mcp/core -> flat (advertise core)",
+      "/mcp/essentials -> flat (advertise essentials)",
+    ]);
+  });
+
+  it("defaults advertise to all when the view omits it", async () => {
+    const r = await run({ configured: "triad", profile: "full" });
+    expect(r.details?.advertise).toBe("all");
+    expect(r.summary).toContain('toolFacade.advertise is "all"');
+  });
+
   it("never returns fail — a facade mode is a policy choice, not a health defect", async () => {
     const r = await run({ configured: "flat", profile: "core" });
     expect(r.status).not.toBe("fail");

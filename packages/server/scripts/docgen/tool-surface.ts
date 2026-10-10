@@ -35,7 +35,7 @@ export const SNAPSHOT_SURFACES = ["flat", "triad", "triad-no-vault", "domain"] a
 
 export function advertisedSurfaces(registry: ToolRegistry): AdvertisedSurfaces {
   const defs = registry.list();
-  // Never `.map(toMcpTool)`: its optional 2nd parameter (the response budget) would get the index.
+  // Not `.map(toMcpTool)`: that passes the index where the options object goes (a type error).
   const project = (d: ToolDefinition): Tool => toMcpTool(d);
   const flat = defs.map(project);
   const direct = (hasResources: boolean): Tool[] => [

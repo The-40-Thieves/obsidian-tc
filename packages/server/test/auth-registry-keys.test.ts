@@ -154,17 +154,19 @@ describe("secret hygiene", () => {
     }
   });
 
-  it("refuses a key file readable by group or other", async () => {
-    if (process.platform === "win32") return;
-    const { db, dir, registry } = fixture();
-    registry.rotateKey();
-    const fresh = await signAndRecord(registry, claims());
-    const file = readdirSync(authKeysDir(dir)).find((f) => f.endsWith(".key"));
-    chmodSync(join(authKeysDir(dir), file as string), 0o644);
-    // A registry built after the mode change has no cached secret, so it must read the file, and
-    // must refuse to.
-    const cold = createAuthRegistry(db, { configSecret: SECRET, keysDir: authKeysDir(dir) });
-    const verifier = createTokenVerifier({ secret: SECRET, registry: cold });
-    expect(await reasonOf(verifier.verify(fresh))).toBe("misconfigured");
-  });
+  it.skipIf(process.platform === "win32")(
+    "refuses a key file readable by group or other",
+    async () => {
+      const { db, dir, registry } = fixture();
+      registry.rotateKey();
+      const fresh = await signAndRecord(registry, claims());
+      const file = readdirSync(authKeysDir(dir)).find((f) => f.endsWith(".key"));
+      chmodSync(join(authKeysDir(dir), file as string), 0o644);
+      // A registry built after the mode change has no cached secret, so it must read the file, and
+      // must refuse to.
+      const cold = createAuthRegistry(db, { configSecret: SECRET, keysDir: authKeysDir(dir) });
+      const verifier = createTokenVerifier({ secret: SECRET, registry: cold });
+      expect(await reasonOf(verifier.verify(fresh))).toBe("misconfigured");
+    },
+  );
 });
