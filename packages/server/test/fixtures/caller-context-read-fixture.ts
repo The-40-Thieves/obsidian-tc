@@ -15,6 +15,7 @@ export function renamed(ctx: CallerContext): unknown {
 }
 
 export function literalElement(ctx: CallerContext | undefined): unknown {
+  // biome-ignore lint/complexity/useLiteralKeys: the element-access form is what this fixture exercises
   return ctx?.["sample"];
 }
 
@@ -24,6 +25,7 @@ export function viaPick(c: Pick<CallerContext, "traceCarrier">): unknown {
 }
 
 export function assigned(ctx: CallerContext): unknown {
+  // biome-ignore lint/style/useConst: assignment destructuring is the form under test
   let facadeExplanation: unknown;
   ({ facadeExplanation } = ctx);
   return facadeExplanation;

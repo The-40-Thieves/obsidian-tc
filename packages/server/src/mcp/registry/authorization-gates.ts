@@ -10,8 +10,7 @@
 // Everything here is free of side effects beyond `applyVaultAcl`'s swap of `ctx.acl` (a caller
 // that must not be touched passes a copy). The rate limiter, idempotency, HITL and the handler are
 // stateful and stay in dispatch, which applies them between these gates and the path ACL.
-import { isDisabled } from "../visibility";
-import type { DispatchDeps } from "./dispatch";
+import { type EffectiveToolVisibilityConfig, isDisabled } from "../visibility";
 import { applyVaultAcl, enforceVaultBinding } from "./input-binding";
 import {
   assertScopesGranted,
@@ -23,12 +22,23 @@ import {
   requireAuthenticated,
   resolveOperationPolicy,
 } from "./policy-gates";
-import type { CallerContext, ToolDefinition } from "./types";
+import type { CallerContext, RegistryOptions, ToolDefinition } from "./types";
 import { withEffectiveVault } from "./vault-default";
+
+/**
+ * What the gates read of the registry's construction-time config. A subset of `DispatchDeps`
+ * (which satisfies it), declared here so this module does not import dispatch.ts back.
+ */
+export interface AuthorizationDeps {
+  toolVisibility: EffectiveToolVisibilityConfig;
+  aclResolver?: RegistryOptions["aclResolver"];
+  rootResolver?: RegistryOptions["rootResolver"];
+  vaultKindResolver?: RegistryOptions["vaultKindResolver"];
+}
 
 /** Is `def` removed from this caller's surface (config, scopes, read-only ACL, persona mask)? */
 export function isToolDisabledFor(
-  deps: Pick<DispatchDeps, "toolVisibility">,
+  deps: Pick<AuthorizationDeps, "toolVisibility">,
   def: ToolDefinition,
   ctx: CallerContext,
 ): boolean {
@@ -56,7 +66,7 @@ export interface AuthorizedCall {
  * it for its trace spans and error telemetry), and must not throw.
  */
 export function runAuthorizationGates(
-  deps: DispatchDeps,
+  deps: AuthorizationDeps,
   name: string,
   def: ToolDefinition,
   input: unknown,
@@ -95,7 +105,7 @@ export function runAuthorizationGates(
  * its ACL cannot be evaluated here and the answer is no (it then takes the synchronous path).
  */
 export function passesAuthorization(
-  deps: DispatchDeps,
+  deps: AuthorizationDeps,
   name: string,
   def: ToolDefinition,
   input: unknown,

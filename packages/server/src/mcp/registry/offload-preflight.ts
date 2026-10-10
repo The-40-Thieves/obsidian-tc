@@ -1,7 +1,11 @@
-import { isToolDisabledFor, passesAuthorization } from "./authorization-gates";
-import type { DispatchDeps } from "./dispatch";
+import {
+  type AuthorizationDeps,
+  isToolDisabledFor,
+  passesAuthorization,
+} from "./authorization-gates";
 import { parseInput } from "./input-binding";
-import type { CallerContext } from "./types";
+import type { ToolStore } from "./tool-store";
+import type { CallerContext, RegistryOptions } from "./types";
 import { withDefaultVault } from "./vault-default";
 
 /**
@@ -17,7 +21,10 @@ import { withDefaultVault } from "./vault-default";
  * A `false` is never an error to report: the caller dispatches synchronously and dispatch says why.
  */
 export function passesPolicyGates(
-  deps: DispatchDeps,
+  deps: AuthorizationDeps & {
+    toolStore: ToolStore;
+    visibleVaultIds?: RegistryOptions["visibleVaultIds"];
+  },
   name: string,
   rawInput: unknown,
   callerCtx: CallerContext,

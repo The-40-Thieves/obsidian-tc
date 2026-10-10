@@ -27,7 +27,7 @@ import {
   type SourceFile,
   SyntaxKind,
 } from "typescript/unstable/ast";
-import { API, type NodeHandle, type Project } from "typescript/unstable/sync";
+import { API, type NodeHandle, type Project, type Type } from "typescript/unstable/sync";
 
 export interface Read {
   key: string;
@@ -70,7 +70,7 @@ export function scanCallerContextReads(
   within: string,
 ): CallerContextScan {
   const checker = project.checker;
-  type T = ReturnType<typeof checker.getTypeAtLocation>;
+  type T = Type | undefined;
   const declaredInCallerContext = (sym: { declarations: readonly NodeHandle[] } | undefined) =>
     (sym?.declarations ?? []).some((d) => {
       const owner = d.resolve(project)?.parent;
@@ -78,11 +78,11 @@ export function scanCallerContextReads(
     });
   const nonNullable = (type: T): T => (type ? (checker.getNonNullableType(type) ?? type) : type);
   const isCallerContextKey = (type: T, key: string): boolean =>
-    !!type && declaredInCallerContext(checker.getPropertyOfType(nonNullable(type) as never, key));
+    !!type && declaredInCallerContext(checker.getPropertyOfType(nonNullable(type) as Type, key));
   /** Is this value a CallerContext (or a slice of one)? For reads whose key is not a literal. */
   const isCallerContextValue = (type: T): boolean =>
     !!type &&
-    checker.getPropertiesOfType(nonNullable(type) as never).some((p) => declaredInCallerContext(p));
+    checker.getPropertiesOfType(nonNullable(type) as Type).some((p) => declaredInCallerContext(p));
   const literalKey = (n: Node): string | undefined =>
     isStringLiteral(n) || isNoSubstitutionTemplateLiteral(n) ? n.text : undefined;
   const nameText = (n: Node | undefined): string | undefined =>
