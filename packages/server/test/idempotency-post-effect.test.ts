@@ -104,7 +104,7 @@ describe("idempotency post-effect fault (THE-562 #13)", () => {
 });
 
 const INSERT_STATE =
-  "INSERT INTO idempotency_keys (vault_id, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at, state) VALUES (?,?,?,?,?,?,?,?,?,?)";
+  "INSERT INTO idempotency_keys (vault_id, principal, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at, state) VALUES (?,'t',?,?,?,?,?,?,?,?,?)";
 
 describe("idempotency crash-after-effect (THE-562 #13)", () => {
   it("an orphaned effect_committed row (crash before finalize) replays indeterminate, never re-runs", async () => {

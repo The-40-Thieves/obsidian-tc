@@ -222,6 +222,13 @@ export interface ToolDefinition<I = unknown, O = unknown> {
    *  `items[].idempotency_key`). Cross-checked against the schema both directions by
    *  `idempotency-declaration-coverage.test.ts`. See docs/design/mcp-registry-context-types.md. */
   acceptsIdempotencyKey?: boolean;
+  /** This tool reads or writes state partitioned by the calling principal (an `agent_episodes` /
+   *  `chunk_retrievals` `caller`, a `workspace_sessions.principal`). Dispatch refuses it for a
+   *  caller with no identity (`requireIdentifiedCaller`): a valid token with no `sub` is
+   *  `caller: null`, and every such credential would otherwise share one partition. Declared, not
+   *  re-checked in the handler; `principal-owned-coverage.test.ts` derives the required set from
+   *  the schema's owner columns and fails on a tool that touches one without declaring it. */
+  principalOwned?: boolean;
   /** THE-743: the MCP spec's `ToolAnnotations.idempotentHint` — "calling the tool repeatedly with
    *  the same arguments will have no additional effect on its environment", default false,
    *  meaningful ONLY when `readOnlyHint == false`. Advisory metadata; dispatch authorizes on

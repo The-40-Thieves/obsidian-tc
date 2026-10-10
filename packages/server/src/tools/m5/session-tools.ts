@@ -11,7 +11,7 @@
 // mutations take write:workspace (write family — readOnly kill-switch applies, no
 // execute HITL floor; spec hitl:never). The append contract (appendTrace) is what the
 // ambient capture worker (THE-175) targets to add tool-invocation records over time.
-import { err, Pagination, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, grantsAll, Pagination, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { inTransaction } from "../../db/txn";
 import { enforceMemoryDefense } from "../../experiential/memory-defense";
@@ -109,10 +109,14 @@ const GetSessionTracesOutput = z.object({
   total_returned: z.number().optional(),
 });
 
+/** The scope that acts across principals; the same one work_episodes `any_caller` requires. */
+const CROSS_PRINCIPAL_SCOPE = "admin:workspace";
+
 export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "start_session",
+      principalOwned: true,
       domain: "knowledge",
       vaultArg: "vault",
       acceptsIdempotencyKey: true,
@@ -206,6 +210,7 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
 
     defineTool({
       name: "end_session",
+      principalOwned: true,
       domain: "knowledge",
       vaultArg: "vault",
       description:
@@ -236,16 +241,21 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
         // below writes their unconstrained `end_metadata` into the target's JSONL trace, which is
         // an input to inferCitations and to replay.
         //
-        // A NULL principal means UNOWNED, and anyone may close it. That is a decision, not a
-        // fall-out of the comparison: `principal` is `ctx.caller` (`string | null`), so an
-        // unauthenticated transport writes NULL rather than fabricating a value. Strict equality
-        // would leave such a row unclosable by any authenticated caller AND unsweepable —
-        // `closeStaleImplicitSessions` requires `principal IS NOT NULL` — so it would leak open
-        // forever. There is no principal to protect, so there is nothing to refuse.
+        // A NULL principal is an UNOWNED row, not a row anyone may close (it used to be: "no
+        // principal to protect"). start_session is `principalOwned`, so none is created any more;
+        // the ones that remain were written by a sub-less credential before dispatch refused it,
+        // or predate the column. Every sub-less credential counted as their owner, so any one
+        // could end another's and append `end_metadata` to its trace. They are closed
+        // deliberately, by the holder of the cross-principal scope. (`closeStaleImplicitSessions`
+        // requires `principal IS NOT NULL`, so the sweep leaves them for that holder.)
         //
         // Ordered BEFORE the already-ended check on purpose: reporting "already ended" first would
         // let a foreign caller distinguish a closed session from a nonexistent one.
-        if (s.principal !== null && s.principal !== ctx.caller)
+        if (
+          s.principal === null
+            ? !grantsAll(ctx.grantedScopes, [CROSS_PRINCIPAL_SCOPE])
+            : s.principal !== ctx.caller
+        )
           throw err.forbidden("session belongs to another principal", {
             session_id: input.session_id,
           });

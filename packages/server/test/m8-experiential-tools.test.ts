@@ -622,7 +622,10 @@ describe("M8 experiential tools (THE-229)", () => {
     if (!denied.ok) expect(denied.error.code).toBe("forbidden");
   });
 
-  it("THE-718: admin:workspace still reaches unowned NULL-caller rows", async () => {
+  // The holder of admin:workspace must itself be identified now: `record_retrieval_feedback` is
+  // `principalOwned`, so a sub-less admin token is refused centrally (principal-owned-gate.test.ts)
+  // before this handler's own identity check, which stays as defence in depth.
+  it("THE-718: an identified admin:workspace caller still reaches unowned NULL-caller rows", async () => {
     const db = edb0();
     db.prepare(
       "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, caller) VALUES ('legacy', 'c1', ?, NULL, NULL)",
@@ -632,7 +635,7 @@ describe("M8 experiential tools (THE-229)", () => {
       await registry.dispatch(
         "record_retrieval_feedback",
         { chunk_id: "c1", feedback: 1 },
-        ctx({ caller: null, grantedScopes: new Set(["write:workspace", "admin:workspace"]) }),
+        ctx({ caller: "ops", grantedScopes: new Set(["write:workspace", "admin:workspace"]) }),
       ),
     );
     expect(admin.updated).toBe(1);

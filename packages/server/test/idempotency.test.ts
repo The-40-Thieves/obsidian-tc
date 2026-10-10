@@ -62,7 +62,7 @@ function idemRow(db: Database, key: string): IdemRow | undefined {
 }
 
 const INSERT =
-  "INSERT INTO idempotency_keys (vault_id, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?,?,?,?,?,?,?,?,?)";
+  "INSERT INTO idempotency_keys (vault_id, principal, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?,'t',?,?,?,?,?,?,?,?)";
 
 describe("dispatch idempotency gate (D3)", () => {
   it("first keyed call executes and stores a completed row", async () => {

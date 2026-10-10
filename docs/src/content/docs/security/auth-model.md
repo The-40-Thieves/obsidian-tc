@@ -23,6 +23,37 @@ on paths), not encoded in the scope string. The signing key lives outside the va
 and is never logged. Tokens are verified with a pinned algorithm — `alg: none` and
 unsigned tokens are rejected — and checked for signature and expiry on every request.
 
+### Tokens with no `sub`: no identity, no per-caller state
+
+The token's `sub` is the caller's identity. A token that verifies but has no `sub` (and, under `oidc`, no
+claim mapped by `claimMapping.principal` or `claimMapping.subject`) authenticates as a caller with **no
+identity**. `null` is not a shared identity: two such tokens cannot be told apart, so any state keyed on
+"the caller" would be one partition for all of them. Dispatch therefore refuses, with `forbidden` and the
+reason `no_identity`:
+
+- every tool that keeps state **per caller**: work memory (`work_episodes`, `work_episode_chain`,
+  `work_search`, `work_forget`, `work_result`), `record_retrieval_feedback`, `explain_answer`, and the
+  workspace sessions `start_session` / `end_session`; `vault_context` refuses only its `include_work` leg;
+- any call carrying an **`idempotency_key`**, because the key's namespace is the caller.
+
+Everything else keeps working for such a token (reading and writing notes, search, discovery).
+
+**Why a refusal and not an identity derived from the token (`jti`, a hash).** A derived identity is
+unstable: it changes whenever the token is re-issued, so the holder would silently lose their episodes and
+open sessions at every renewal, and a second token for the same person would be a stranger to the first.
+A refusal is loud and is fixed on the issuing side in one step.
+
+**What to do.** `token mint` requires `--sub`, and the bundled authorization server always sets `sub`, so
+only a token minted elsewhere with the shared secret, or from an identity provider that omits `sub`, is
+affected. Add a `sub` to the token; under `oidc`, point `auth.oidc.claimMapping.subject` (or `principal`)
+at a claim the provider does set (`email`, `client_id`). stdio is the fixed caller `stdio` and
+`auth.mode: none` is `http-local`; neither is affected. Rows an earlier release wrote for a sub-less token
+(`caller` / `principal` NULL) are unowned: `work_episodes` / `work_search` reach them with `any_caller` and
+`end_session` closes them only for a holder of `admin:workspace`.
+
+Idempotency keys are namespaced by the calling principal, so the same key from two callers is two
+independent claims and one caller never replays another's result.
+
 ## Asymmetric JWT verification (RS256 / ES256 / EdDSA)
 
 Beyond the shared-secret HS256 path above, `auth.mode: jwt` can verify tokens signed
