@@ -58,7 +58,7 @@ is exactly what the reproduction steps below describe.
 ## Choosing a facade mode per client
 
 `toolFacade.mode` picks what `tools/list` advertises (see the
-[tool-surface facade](/tools/#tool-surface-facade)): `triad` (three meta-tools, the default),
+[tool-surface facade](/tools/#tool-surface-facade)): `triad` (three meta-tools plus the standard `search`/`fetch` pair, the default),
 `domain` (about a dozen `{ action, args }` domain tools) or `flat` (every tool, around 300 KB of
 `tools/list` against about 2 KB for `triad`). Set it explicitly per client (`auto`, which guessed from the
 client's name, is deprecated, now resolves to `triad` for every client, and will be removed in the next major version). Several clients now do their own progressive disclosure of MCP tools,
@@ -246,8 +246,8 @@ obsidian-tc 1.19.0 ready on stdio (vault agents; native=on vec=on)
                     "logging":   {} } }
 ```
 
-`tools/list` returns exactly three tools — `find_capability`, `describe_capability`,
-`call_capability` — each carrying `name`, `title`, `description`, `inputSchema`, `annotations`.
+`tools/list` returns exactly five tools — `find_capability`, `describe_capability`,
+`call_capability`, plus the standard `search` and `fetch` — each carrying `name`, `title`, `description`, `inputSchema`, `annotations`.
 
 **On the negotiated version.** A client that sends a 2025-era `initialize` gets `2025-11-25` back,
 *even if it names a later version in the request*. That is correct rather than a downgrade: the

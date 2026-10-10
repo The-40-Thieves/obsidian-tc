@@ -167,8 +167,9 @@ async function main(): Promise<void> {
 
   const listed = await client.listTools();
   const names = new Set(listed.tools.map((t) => t.name));
-  const triad = ["find_capability", "describe_capability", "call_capability"];
-  if (names.size !== 3 || !triad.every((n) => names.has(n))) {
+  // The three meta-tools plus the standard search/fetch pair (mcp/facade.ts TRIAD_DIRECT_TOOLS).
+  const triad = ["find_capability", "describe_capability", "call_capability", "search", "fetch"];
+  if (names.size !== triad.length || !triad.every((n) => names.has(n))) {
     fail(`tools/list did not return the triad — got ${[...names].join(", ")}`);
   }
   process.stderr.write("ok: tools/list returned the triad\n");

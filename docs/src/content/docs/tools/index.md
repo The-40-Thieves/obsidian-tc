@@ -29,7 +29,11 @@ What `tools/list` advertises is controlled by `toolFacade.mode`:
 
 - **`triad`** (default) — three meta-tools: `find_capability` (BM25 search over the
   catalog), `describe_capability` (a tool's schema + scopes), and `call_capability`
-  (invoke by name). Discover, inspect, then call.
+  (invoke by name). Discover, inspect, then call. Two standard knowledge-connector tools
+  ride alongside them: `search` and `fetch` (see below), so ChatGPT deep research and
+  company knowledge, which only recognise tools by those names, find them without a
+  discovery round trip. They are the only tools promoted; hide them with
+  `toolVisibility.hidden: [search, fetch]`.
 - **`domain`** — ~a dozen domain meta-tools (`notes`, `search`, `vault`, …), each
   taking `{ action, args }`.
 - **`flat`** — the full underlying surface.
@@ -748,6 +752,7 @@ Each of these was reviewed and takes no parameter, because there is nothing a ca
 | Tool | Why |
 | --- | --- |
 | `list_tags`, `list_properties` | One `{ name, count }`-style row per entry: already minimal. |
+| `search`, `fetch` | The shape is fixed by the connector contract that ChatGPT deep research and company knowledge read: `{ results: [{ id, title, url, text }] }` and `{ id, title, text, url, metadata }`. The full note text is the payload. |
 | `list_vaults`, `list_kanban_boards` | One minimal row per entry. |
 | `list_workspaces` | Workspace names only. |
 | `list_bookmarks` | The item tree and the compare-and-swap `content_hash` are the payload. |

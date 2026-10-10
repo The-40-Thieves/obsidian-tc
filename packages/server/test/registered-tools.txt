@@ -34,6 +34,7 @@ eval_dataview_field
 execute_command
 execute_template
 explain_answer
+fetch
 find_existing_page
 find_link_cycles
 find_notes_by_property
@@ -139,6 +140,7 @@ resolve_daily_note
 restore_note
 rewrite_link
 save_workspace
+search
 search_and_read
 search_dql
 search_jsonlogic

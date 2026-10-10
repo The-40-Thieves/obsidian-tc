@@ -24,6 +24,18 @@ export function isFacadeTool(name: string): boolean {
   return (FACADE_TOOL_NAMES as readonly string[]).includes(name);
 }
 
+// The standard knowledge-connector pair (ChatGPT deep research / company knowledge only recognise
+// tools NAMED `search` and `fetch`). Triad mode advertises them directly beside the three meta-tools
+// so such a client finds them without a find_capability round trip. Nothing else is promoted: the
+// triad stays five tools, and every other capability is still reached through call_capability.
+export const TRIAD_DIRECT_TOOLS = ["search", "fetch"] as const;
+
+/** The triad's directly-advertised tools among `visible` (the caller's visible catalog), in
+ *  TRIAD_DIRECT_TOOLS order. A tool the caller cannot see, or that is not registered, is omitted. */
+export function triadDirectDefs(visible: readonly ToolDefinition[]): ToolDefinition[] {
+  return TRIAD_DIRECT_TOOLS.flatMap((name) => visible.filter((d) => d.name === name));
+}
+
 // Emit JSON Schema 2020-12 — the default dialect of MCP 2025-11-25 (THE-278). draft-7 stays valid
 // per spec, but 2020-12 aligns the advertised tool/capability schemas with the negotiated version.
 export const JSON_SCHEMA_OPTS = {

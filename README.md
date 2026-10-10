@@ -145,7 +145,7 @@ scope and generated from the tool registry, is the
 
 By default the server advertises just **three meta-tools** instead of a wall of 164:
 `find_capability`, `describe_capability`, `call_capability` (invoke by name, same pipeline as a
-direct call). `toolFacade.mode` selects `triad` (default), `domain` or `flat` (a superseded `auto` also exists)
+direct call), plus the standard `search` and `fetch` tools ChatGPT deep research needs. `toolFacade.mode` selects `triad` (default), `domain` or `flat` (a superseded `auto` also exists)
 — boundary-only, no gate bypassed. Per-client advice: [MCP clients](https://obsidian-tc.the40thieves.io/getting-started/mcp-clients/#choosing-a-facade-mode-per-client).
 
 ### Install in Cursor / VS Code
