@@ -14,7 +14,12 @@ import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { type ToolDefinition, ToolRegistry } from "../src/mcp/registry";
-import { TASK_CALL_JOB_TYPE, type TaskCallPayload, toMcpTask } from "../src/mcp/tasks";
+import {
+  TASK_CALL_JOB_TYPE,
+  TASK_CALL_PAYLOAD_VERSION,
+  type TaskCallPayload,
+  toMcpTask,
+} from "../src/mcp/tasks";
 import { JobQueue, runJob } from "../src/scheduler/job-queue";
 import { makeJobRunner } from "../src/scheduler/job-runner";
 import { makeStartTask, makeTaskCallHandler } from "../src/scheduler/task-call-runner";
@@ -30,6 +35,7 @@ const until = async (cond: () => boolean): Promise<void> => {
 
 function payload(tool: string): TaskCallPayload {
   return {
+    v: TASK_CALL_PAYLOAD_VERSION,
     tool,
     args: {},
     caller: "alice",
@@ -274,5 +280,105 @@ describe("immediate task runs are tracked and drained at shutdown", () => {
     outer.abort();
     expect((await run).outcome).toBe("interrupted");
     expect(queue.get(job.id)?.state).toBe("running");
+  });
+});
+
+describe("a job cancelled before it started never runs", () => {
+  function rig() {
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    const queue = new JobQueue(db);
+    const handlerRuns = { n: 0 };
+    const handler = async (): Promise<void> => {
+      handlerRuns.n++;
+    };
+    const enqueue = () =>
+      queue.enqueue(TASK_CALL_JOB_TYPE, {
+        owner: { vaultId: "v1", caller: "alice" },
+        maxAttempts: 1,
+        payload: payload("t"),
+      });
+    return { db, queue, handlerRuns, handler, enqueue };
+  }
+  const ranIfClaimed = async (
+    r: ReturnType<typeof rig>,
+    claim: () => ReturnType<JobQueue["claim"]>,
+  ) => {
+    const claimed = claim();
+    if (claimed) await runJob(r.queue, claimed, "w", r.handler);
+  };
+
+  it("enqueue -> requestCancel -> claim -> runJob: handler_runs=0, projected cancelled", async () => {
+    const r = rig();
+    const job = r.enqueue();
+    r.queue.requestCancel(job.id);
+    await ranIfClaimed(r, () => r.queue.claim({ leaseOwner: "w" }));
+    expect(r.handlerRuns.n).toBe(0);
+    const after = r.queue.get(job.id);
+    if (!after) throw new Error("job vanished");
+    expect(toMcpTask(after).status).toBe("cancelled");
+  });
+
+  it("claimById (the immediate-start path) refuses it the same way", async () => {
+    const r = rig();
+    const job = r.enqueue();
+    r.queue.requestCancel(job.id);
+    await ranIfClaimed(r, () => r.queue.claimById(job.id, "w"));
+    expect(r.handlerRuns.n).toBe(0);
+    const after = r.queue.get(job.id);
+    if (!after) throw new Error("job vanished");
+    expect(toMcpTask(after).status).toBe("cancelled");
+  });
+
+  it("a cancel that lands between the claim and runJob is honoured before the handler is invoked", async () => {
+    const r = rig();
+    const job = r.enqueue();
+    const claimed = r.queue.claim({ leaseOwner: "w" });
+    if (!claimed) throw new Error("no claim");
+    r.queue.requestCancel(job.id);
+    const out = await runJob(r.queue, claimed, "w", r.handler);
+    expect(r.handlerRuns.n).toBe(0);
+    expect(out.outcome).toBe("failed");
+    const after = r.queue.get(job.id);
+    if (!after) throw new Error("job vanished");
+    expect(toMcpTask(after).status).toBe("cancelled");
+  });
+
+  it("the runner's tick (claim) skips a cancelled job and still claims the next one", () => {
+    const r = rig();
+    const cancelled = r.enqueue();
+    const live = r.enqueue();
+    r.queue.requestCancel(cancelled.id);
+    expect(r.queue.claim({ leaseOwner: "w" })?.id).toBe(live.id);
+    expect(r.queue.get(cancelled.id)?.state).toBe("failed");
+  });
+
+  it("makeStartTask does not run a task cancelled before it started", async () => {
+    const r = rig();
+    const registry = new ToolRegistry();
+    let ran = 0;
+    registry.register({
+      name: "t",
+      description: "x",
+      inputSchema: z.object({}),
+      requiredScopes: [],
+      handler: () => {
+        ran++;
+        return {};
+      },
+    } as unknown as ToolDefinition);
+    const job = r.enqueue();
+    r.queue.requestCancel(job.id);
+    const start = makeStartTask({ registry, db: r.db, acl, queue: r.queue }, "serve:1");
+    start(job.id);
+    // Let the run settle on its own: a drain would abort it and hide whether it was ever refused.
+    await until(
+      () => r.queue.get(job.id)?.state !== "queued" && r.queue.get(job.id)?.state !== "running",
+    );
+    await start.drain();
+    expect(ran).toBe(0);
+    const after = r.queue.get(job.id);
+    if (!after) throw new Error("job vanished");
+    expect(toMcpTask(after).status).toBe("cancelled");
   });
 });

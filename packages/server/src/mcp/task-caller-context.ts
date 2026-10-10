@@ -126,14 +126,13 @@ export function snapshotCaller(ctx: CallerContext): CallerSnapshot {
 
 /**
  * The worker's CallerContext: the carried keys from the payload, the rebuilt ones from `runtime`,
- * nothing else. `authenticated` is read as "not explicitly false" only so that a payload queued
- * before this field existed (all of which were enqueued for an authenticated caller) still runs;
- * the offload itself always writes the real value.
+ * nothing else. No policy field is defaulted: `authenticated` is true only when the payload says
+ * so. A payload that predates the snapshot never reaches here (the runner refuses it by version).
  */
 export function restoreCaller(s: CallerSnapshot, runtime: WorkerRuntime): CallerContext {
   return {
     caller: s.caller,
-    authenticated: s.authenticated !== false,
+    authenticated: s.authenticated === true,
     // EXACTLY the enqueue-time grant. Not the server's, not a superset, not re-read.
     grantedScopes: new Set(s.scopes),
     vaultId: s.vaultId,

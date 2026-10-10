@@ -19,6 +19,7 @@ import { snapshotCaller } from "./task-caller-context";
 import {
   isIdentifiedCaller,
   TASK_CALL_JOB_TYPE,
+  TASK_CALL_PAYLOAD_VERSION,
   type TaskCallPayload,
   toCreateTaskResult,
 } from "./tasks";
@@ -152,6 +153,7 @@ export async function offloadToTask(
     // One attempt: re-running a failed multi-minute call is the client's decision, not a silent retry.
     maxAttempts: 1,
     payload: {
+      v: TASK_CALL_PAYLOAD_VERSION,
       tool: call.tool,
       args: call.args,
       // Which context keys cross is decided in ONE place (task-caller-context.ts), never here.

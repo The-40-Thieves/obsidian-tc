@@ -329,16 +329,19 @@ export class JobQueue {
   claim(opts: ClaimOptions): Job | null {
     const t = this.now();
     const leaseMs = opts.leaseMs ?? this.leaseMsValue;
+    const cancelled: string[] = [];
     // THE-585 (#5): already a BEGIN IMMEDIATE — routing it through inWriteTransaction changes no
     // SQL, only who gets told how long the lock took. This is the cross-process contention site,
     // so its samples are the cleanest evidence in the whole catalog.
-    return inWriteTransaction(
+    const claimed = inWriteTransaction(
       this.db,
       "job_claim",
       (): Job | null => {
         const typeFilter = opts.types?.length
           ? `AND type IN (${opts.types.map(() => "?").join(",")})`
           : "";
+        // A job whose cancel was requested before anyone claimed it is finished, not claimable.
+        cancelled.push(...this.finalizeCancelled(t, typeFilter, opts.types ?? []));
         const candidates = this.db
           .prepare(
             `SELECT * FROM jobs
@@ -375,6 +378,38 @@ export class JobQueue {
       },
       this.sql,
     );
+    for (const id of cancelled) this.announce(id);
+    return claimed;
+  }
+
+  /**
+   * Finish every claimable job whose cancel was already requested: nothing ran, so there is
+   * nothing to abort, and handing it to a worker would run the handler once before the first
+   * heartbeat noticed. It lands in the same terminal state a cancelled run does (`failed` with
+   * the flag set, which `toMcpTask` projects as `cancelled`). Returns the ids, for announcing
+   * AFTER the write transaction (a listener must not run inside it).
+   */
+  private finalizeCancelled(t: number, extraWhere = "", params: readonly string[] = []): string[] {
+    const ids = (
+      this.db
+        .prepare(
+          `SELECT id FROM jobs WHERE cancel_requested = 1 AND (
+             state IN ('queued', 'retrying') OR (state = 'running' AND lease_expires_at <= ?)
+           ) ${extraWhere}`,
+        )
+        .all(t, ...params) as { id: string }[]
+    ).map((r) => r.id);
+    for (const id of ids) {
+      this.db
+        .prepare(
+          `UPDATE jobs SET state = 'failed', lease_owner = NULL, lease_expires_at = NULL,
+           next_attempt_at = NULL, last_error = 'cancelled before it started', updated_at = ?
+           WHERE id = ?`,
+        )
+        .run(t, id);
+      this.progressByJob.delete(id);
+    }
+    return ids;
   }
 
   /**
@@ -389,10 +424,12 @@ export class JobQueue {
   claimById(id: string, leaseOwner: string, leaseMs?: number): Job | null {
     const t = this.now();
     const lease = leaseMs ?? this.leaseMsValue;
-    return inWriteTransaction(
+    const cancelled: string[] = [];
+    const claimed = inWriteTransaction(
       this.db,
       "job_claim",
       (): Job | null => {
+        cancelled.push(...this.finalizeCancelled(t, "AND id = ?", [id]));
         const updated = this.db
           .prepare(
             `UPDATE jobs SET state = 'running', attempt = attempt + 1, lease_owner = ?,
@@ -403,6 +440,8 @@ export class JobQueue {
       },
       this.sql,
     );
+    for (const cid of cancelled) this.announce(cid);
+    return claimed;
   }
 
   /**
@@ -663,6 +702,17 @@ export async function runJob(
   outcome: "complete" | "retrying" | "failed" | "lease-lost" | "interrupted";
   error?: unknown;
 }> {
+  // Cancelled between the claim and now: nothing has run, so end it here rather than invoke the
+  // handler and leave the abort to the first heartbeat (which may be a whole lease-third away).
+  if (queue.isCancelRequested(job.id)) {
+    const recorded = queue.fail(job.id, leaseOwner, new Error("cancelled before it started"), {
+      terminal: true,
+    });
+    return {
+      outcome: recorded ? "failed" : "lease-lost",
+      error: new DOMException("job cancelled", "AbortError"),
+    };
+  }
   const controller = new AbortController();
   const stopForShutdown = (): void => controller.abort(new DOMException("shutdown", "AbortError"));
   if (opts.signal?.aborted) stopForShutdown();

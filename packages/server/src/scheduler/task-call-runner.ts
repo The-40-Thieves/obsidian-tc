@@ -18,7 +18,7 @@ import type { FolderAcl } from "../acl";
 import type { Database } from "../db/types";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
 import { restoreCaller } from "../mcp/task-caller-context";
-import type { TaskCallPayload } from "../mcp/tasks";
+import { TASK_CALL_PAYLOAD_VERSION, type TaskCallPayload } from "../mcp/tasks";
 import { type JobProgress, type JobQueue, newLeaseToken, runJob } from "./job-queue";
 
 export interface TaskCallDeps {
@@ -37,6 +37,9 @@ function isTaskCallPayload(v: unknown): v is TaskCallPayload {
   if (v === null || typeof v !== "object") return false;
   const p = v as Record<string, unknown>;
   return (
+    // No policy field is defaulted: a payload that does not state who the caller was is not run.
+    typeof p.authenticated === "boolean" &&
+    typeof p.vaultBound === "boolean" &&
     typeof p.tool === "string" &&
     typeof p.vaultId === "string" &&
     Array.isArray(p.scopes) &&
@@ -61,6 +64,21 @@ export async function runTaskCall(
   /** The lease token of THIS attempt: every write about the job presents it (see recordOutcome). */
   leaseOwner: string,
 ): Promise<void> {
+  // FAIL CLOSED on a payload from before the policy snapshot: without it the persona's tool mask
+  // and the caller's authentication are unknown, and "unknown" must not read as "unrestricted".
+  // Recorded on the job (not only thrown) so the client polling it is told what to do.
+  const version = (payload as { v?: unknown } | null)?.v;
+  if (version !== TASK_CALL_PAYLOAD_VERSION) {
+    const message = `stale task-call payload (version ${String(version ?? "missing")}, need ${TASK_CALL_PAYLOAD_VERSION}): it was queued before the caller's policy was captured; re-run the call`;
+    recorded(
+      deps.queue.recordOutcome(
+        jobId,
+        { ok: false, error: { code: INTERNAL_ERROR, message } },
+        leaseOwner,
+      ),
+    );
+    throw new Error(message);
+  }
   if (!isTaskCallPayload(payload)) {
     // Terminal by nature: a payload this runner cannot read will not become readable on a retry.
     throw new Error("malformed task-call payload");

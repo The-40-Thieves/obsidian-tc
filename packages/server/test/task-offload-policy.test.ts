@@ -28,7 +28,11 @@ import {
   restoreCaller,
   snapshotCaller,
 } from "../src/mcp/task-caller-context";
-import type { TaskCallPayload } from "../src/mcp/tasks";
+import {
+  TASK_CALL_JOB_TYPE,
+  TASK_CALL_PAYLOAD_VERSION,
+  type TaskCallPayload,
+} from "../src/mcp/tasks";
 import { JobQueue } from "../src/scheduler/job-queue";
 import { makeStartTask, runTaskCall } from "../src/scheduler/task-call-runner";
 import { openMemoryDb } from "./helpers";
@@ -156,6 +160,93 @@ describe("a persona's tool mask holds for a task-backed tool", () => {
   });
 });
 
+describe("a payload queued before the policy snapshot existed fails closed", () => {
+  // Codex's probe, verbatim in shape: what a job queued by an older server holds. It has no
+  // `authenticated`, `persona` or `toolVisibility`, so a runner that defaulted the missing policy
+  // fields would run `net_index` for a persona whose mask forbids it.
+  const legacy = {
+    tool: "net_index",
+    args: {},
+    caller: "alice",
+    scopes: ["admin:vault"],
+    vaultId: "v1",
+    vaultBound: false,
+  };
+
+  function rig() {
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    const queue = new JobQueue(db);
+    const calls = { n: 0 };
+    const registry = makeRegistry(calls);
+    const deps = { registry, db, acl, queue };
+    const run = (payload: unknown) => {
+      const job = queue.enqueue(TASK_CALL_JOB_TYPE, {
+        owner: { vaultId: "v1", caller: "alice" },
+        maxAttempts: 1,
+        payload,
+      });
+      queue.claimById(job.id, "w");
+      return { job, done: runTaskCall(job.id, payload, deps, undefined, "w") };
+    };
+    return { calls, queue, run };
+  }
+
+  it("the old-format payload does not run the handler", async () => {
+    const { calls, run } = rig();
+    await expect(run(legacy).done).rejects.toThrow(/re-run/i);
+    expect(calls.n).toBe(0);
+  });
+
+  it("the refusal is recorded on the job so tasks/get can explain it", async () => {
+    const { queue, run } = rig();
+    const { job, done } = run(legacy);
+    await done.catch(() => undefined);
+    const outcome = queue.get(job.id)?.outcome;
+    expect(outcome?.ok).toBe(false);
+    expect(JSON.stringify(outcome)).toMatch(/re-run/i);
+  });
+
+  it("a payload with the whole snapshot but no version is refused, and so is an older version", async () => {
+    const { calls, run } = rig();
+    const snapshot = { ...legacy, authenticated: true };
+    await expect(run(snapshot).done).rejects.toThrow(/re-run/i);
+    await expect(run({ ...snapshot, v: TASK_CALL_PAYLOAD_VERSION - 1 }).done).rejects.toThrow(
+      /re-run/i,
+    );
+    expect(calls.n).toBe(0);
+  });
+
+  it("a current-version payload that omits `authenticated` is malformed, not authenticated", async () => {
+    const { calls, run } = rig();
+    await expect(run({ ...legacy, v: TASK_CALL_PAYLOAD_VERSION }).done).rejects.toThrow(
+      /malformed/,
+    );
+    expect(calls.n).toBe(0);
+  });
+
+  it("restoreCaller does not default a missing `authenticated` to true", () => {
+    const db = openMemoryDb();
+    const back = restoreCaller({ ...legacy } as never, { db, acl });
+    expect(back.authenticated).not.toBe(true);
+  });
+
+  it("the offload stamps the current version on every payload it writes", async () => {
+    const { queue } = rig();
+    const ctx = {
+      caller: "alice",
+      authenticated: true,
+      grantedScopes: new Set(["*"]),
+      vaultId: "v1",
+      db: openMemoryDb(),
+      acl,
+    };
+    await offloadToTask({ queue, clientPollsTasks: true }, { tool: "net_index", args: {}, ctx });
+    const queued = queue.listByState("queued")[0];
+    expect((queued?.payload as TaskCallPayload | undefined)?.v).toBe(TASK_CALL_PAYLOAD_VERSION);
+  });
+});
+
 /** The keys of `interface CallerContext`, read off the source so a new field cannot hide. */
 function callerContextKeys(): string[] {
   const text = readFileSync(join(SRC, "mcp", "registry", "types.ts"), "utf8");
@@ -255,6 +346,7 @@ describe("every CallerContext key is accounted for by the offload path", () => {
 
   it("the snapshot is what the payload type says it is", () => {
     const payload = {
+      v: TASK_CALL_PAYLOAD_VERSION,
       tool: "t",
       args: {},
       ...snapshotCaller({

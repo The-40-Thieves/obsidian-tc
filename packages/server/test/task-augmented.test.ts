@@ -18,6 +18,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import {
   clientSupportsTasks,
+  TASK_CALL_PAYLOAD_VERSION,
   TASKS_EXTENSION,
   type TaskCallPayload,
   toCreateTaskResult,
@@ -115,6 +116,7 @@ function harness() {
 }
 
 const payload = (over: Partial<TaskCallPayload> = {}): TaskCallPayload => ({
+  v: TASK_CALL_PAYLOAD_VERSION,
   tool: "needs_write",
   args: { vault: "main" },
   caller: "agent-1",
@@ -179,9 +181,17 @@ describe("runTaskCall — a task carries exactly its caller's authority", () => 
   it("rejects a malformed payload rather than defaulting any field", async () => {
     // Defaulting here is how a job with no scopes would become a job with the server's.
     const { deps } = harness();
-    for (const bad of [null, {}, { tool: "x" }, { tool: "x", vaultId: "main", scopes: "nope" }]) {
+    const v = TASK_CALL_PAYLOAD_VERSION;
+    for (const bad of [
+      { v },
+      { v, tool: "x" },
+      { v, tool: "x", vaultId: "main", scopes: "nope" },
+      { ...payload(), authenticated: undefined },
+    ]) {
       await expect(attempt(deps, bad)).rejects.toThrow(/malformed/);
     }
+    // No version at all is the stale-payload refusal, tested in task-offload-policy.test.ts.
+    for (const bad of [null, {}]) await expect(attempt(deps, bad)).rejects.toThrow(/stale/);
   });
 
   it("surfaces the tool's own error text, since the caller no longer holds the response", async () => {

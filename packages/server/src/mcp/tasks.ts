@@ -239,6 +239,8 @@ export async function serveTaskExtension(
  * finding warranted); auth-model.md documents it.
  */
 export interface TaskCallPayload extends CallerSnapshot {
+  /** Payload schema version (`TASK_CALL_PAYLOAD_VERSION`). The runner refuses any other. */
+  v: number;
   tool: string;
   args: Record<string, unknown>;
   /** The caller half (scopes, vault binding, persona mask, ...) is `CallerSnapshot`: which
@@ -247,6 +249,17 @@ export interface TaskCallPayload extends CallerSnapshot {
    *  `ctx.progress` hook. Absent/false means nobody is listening, so there is no hook at all. */
   progress?: boolean;
 }
+
+/**
+ * The shape version of a task-call payload, stamped on every payload the offload writes.
+ *
+ * Version 2 is the first that carries the caller's whole policy snapshot (`authenticated`, the
+ * persona's `toolVisibility`, ...). A payload with no version, or an older one, was queued by a
+ * server that did not snapshot it, and the runner REFUSES it rather than guess: defaulting a
+ * missing policy field is how a persona-masked call ran unrestricted after an upgrade. Bump this
+ * when a field joins the snapshot that a worker must not run without.
+ */
+export const TASK_CALL_PAYLOAD_VERSION = 2;
 
 /** The job type a task-augmented tool call is enqueued as. */
 export const TASK_CALL_JOB_TYPE = "mcp_tool_call";
