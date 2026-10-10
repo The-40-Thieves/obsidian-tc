@@ -11,7 +11,7 @@
 // resolveAutoFacadeMode uses) an operator can read to answer "what would client X get" by eye.
 import type { FacadeMode } from "../mcp/facade";
 import { AUTO_FACADE_DEPRECATION, BUILTIN_AUTO_FACADE_CLIENTS } from "../mcp/facade-auto";
-import { NON_CORE_TOOL_NAMES } from "../mcp/tool-profiles";
+import { type AdvertiseSubset, listUrlSurfaces, NON_CORE_TOOL_NAMES } from "../mcp/tool-profiles";
 import type { Check, CheckStatus } from "./types";
 
 /** THE-1131 review round 2: one allowlist (the static config's own, or a named persona's) that
@@ -32,6 +32,9 @@ export interface ToolFacadeView {
    *  `configured` above, this needs no live client to report; it is exactly what the running
    *  process resolved. */
   profile: "full" | "core";
+  /** mirrors config.toolFacade.advertise (absent = "all"). The default tool-budget subset for plain
+   *  `/mcp`; a `/mcp/<segment>` URL picks its own (see `details.urlProfiles`). */
+  advertise?: AdvertiseSubset;
   /** mirrors config.toolFacade.explainAutoMode (absent = off). Offline doctor can only report the
    *  flag; the live per-client explanation is server_health's `toolFacade.explanation`. */
   explainAutoMode?: boolean;
@@ -83,9 +86,14 @@ export function toolFacadeCheck(view: ToolFacadeView): Check {
       // total minus it. server_health (which runs against the live registry) reports both
       // absolute counts; see mcp/tool-wiring.ts's toolFacade health block.
       const nonCoreToolCount = NON_CORE_TOOL_NAMES.length;
+      const advertise = view.advertise ?? "all";
       const details: Record<string, string | string[]> = {
         configured: view.configured,
         profile: view.profile,
+        advertise,
+        urlProfiles: listUrlSurfaces().map(
+          (s) => `/mcp/${s.segment} -> ${s.mode} (advertise ${s.advertise})`,
+        ),
         nonCoreToolCount: String(nonCoreToolCount),
         explainAutoMode: view.explainAutoMode ? "on" : "off",
       };
@@ -130,10 +138,15 @@ export function toolFacadeCheck(view: ToolFacadeView): Check {
         view.configured === "auto"
           ? `toolFacade.mode is "auto" — resolved per connecting client (see details.autoClients)${view.explainAutoMode ? "; explainAutoMode is on (live per-client explanation: server_health toolFacade.explanation)" : ""}`
           : `toolFacade.mode is "${view.configured}"`;
-      const profileSummary =
+      const advertiseSummary =
+        advertise === "all"
+          ? `toolFacade.advertise is "all"`
+          : `toolFacade.advertise is "${advertise}" (a flat list that overrides toolFacade.mode on plain /mcp)`;
+      const profileSummary = `${
         view.profile === "core"
           ? `toolFacade.profile is "core" (${nonCoreToolCount} tool(s) hidden and dispatch-rejected; registration itself is unaffected)`
-          : `toolFacade.profile is "full" (every tool visible/callable, unchanged from today)`;
+          : `toolFacade.profile is "full" (every tool visible/callable, unchanged from today)`
+      }; ${advertiseSummary}`;
       if (hiddenEntries.length > 0) {
         return {
           status: "warning" as CheckStatus,

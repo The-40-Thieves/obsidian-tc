@@ -34,11 +34,19 @@ function toolAnnotations(def: ToolDefinition): NonNullable<Tool["annotations"]> 
 // defs live on the persistent registry. toJson/toInputJson are already memoized per schema.
 const mcpToolMemo = new WeakMap<ToolDefinition, { tool: Tool; budget: number | undefined }>();
 
+/** Projection options. An object, not a bare positional number: `defs.map(toMcpTool)` hands
+ *  Array.prototype.map's index to the second parameter, which as a number was a silently wrong
+ *  budget and as this object is a type error. */
+export interface ProjectionOptions {
+  /** The registry's governor ceiling: a whole-note reader advertises it (capped at Claude Code's
+   *  own ceiling) as `_meta["anthropic/maxResultSizeChars"]`. Omitted -> no key. */
+  maxResponseBytes?: number;
+}
+
 /** @internal exported for the THE-463 memoization test (re-exported from mcp/server.ts).
- *  `maxResponseBytes` is the registry's governor ceiling: a whole-note reader advertises it (capped
- *  at Claude Code's own ceiling) as `_meta["anthropic/maxResultSizeChars"]`. Omitted -> no key. A
- *  registry's ceiling never changes, so the memo only rebuilds when asked with another one. */
-export function toMcpTool(def: ToolDefinition, maxResponseBytes?: number): Tool {
+ *  A registry's ceiling never changes, so the memo only rebuilds when asked with another one. */
+export function toMcpTool(def: ToolDefinition, options: ProjectionOptions = {}): Tool {
+  const { maxResponseBytes } = options;
   const cached = mcpToolMemo.get(def);
   if (cached !== undefined && cached.budget === maxResponseBytes) return cached.tool;
   const tool: Tool = {
@@ -65,10 +73,14 @@ const mcpToolNoOutputSchemaMemo = new WeakMap<
 
 /** `toolFacade.outputSchema: "omit"`: the same projection minus `outputSchema`, memoized apart from
  *  `toMcpTool` so the default path's frozen objects are untouched. */
-export function toMcpToolNoOutputSchema(def: ToolDefinition, maxResponseBytes?: number): Tool {
+export function toMcpToolNoOutputSchema(
+  def: ToolDefinition,
+  options: ProjectionOptions = {},
+): Tool {
+  const { maxResponseBytes } = options;
   const cached = mcpToolNoOutputSchemaMemo.get(def);
   if (cached !== undefined && cached.budget === maxResponseBytes) return cached.tool;
-  const { outputSchema: _omitted, ...rest } = toMcpTool(def, maxResponseBytes);
+  const { outputSchema: _omitted, ...rest } = toMcpTool(def, { maxResponseBytes });
   const tool: Tool = Object.freeze(rest);
   mcpToolNoOutputSchemaMemo.set(def, { tool, budget: maxResponseBytes });
   return tool;
@@ -80,5 +92,5 @@ export const projectTool =
   (outputSchema: "full" | "omit" | undefined, maxResponseBytes: number) =>
   (def: ToolDefinition): Tool =>
     outputSchema === "omit"
-      ? toMcpToolNoOutputSchema(def, maxResponseBytes)
-      : toMcpTool(def, maxResponseBytes);
+      ? toMcpToolNoOutputSchema(def, { maxResponseBytes })
+      : toMcpTool(def, { maxResponseBytes });
