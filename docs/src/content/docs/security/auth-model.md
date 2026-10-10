@@ -424,7 +424,7 @@ and the client registrations below.
   never consulted, so a forged `Host` cannot move the issuer. It carries `code_challenge_methods_supported:
   ["S256"]`, the RFC 9207 `iss` response parameter, `none` as a client-authentication method, the `refresh_token`
   grant, `offline_access` and the scope vocabulary (`auth.scopesSupported`, default `read:*` and `write:*`, also the
-  protected-resource metadata's and the 401 challenge's `scope`; the default is advisory, a client naming no scope still gets
+  protected-resource metadata's `scopes_supported`; the 401 challenge carries `scope` only when you set it; the default is advisory, a client naming no scope still gets
   `read:*` and any other fully-qualified scope can be asked for by name), `revocation_endpoint` and `client_id_metadata_document_supported: true`;
   `registration_endpoint` appears unless `auth.as.dynamicRegistration` is turned off. `private_key_jwt` is never
   advertised.

@@ -208,7 +208,9 @@ export function profileMetadataPaths(auth: AuthConfig): { surface: string; path:
  * clients toward asking for more than they need.
  */
 export function wwwAuthenticateChallenge(auth: AuthConfig, surface?: string): string {
-  const scopes = advertisedScopes(auth);
+  // The operator's own list only: the default vocabulary is advertised in the metadata documents, but a
+  // challenge is a request to ask for exactly these scopes, so it is never invented.
+  const scopes = auth.scopesSupported;
   const scope =
     scopes && scopes.length > 0 ? `, scope="${scopes.join(" ").replace(/"/g, "")}"` : "";
   return `Bearer realm="obsidian-tc", resource_metadata="${resourceMetadataUrl(auth, surface)}"${scope}`;

@@ -263,18 +263,20 @@ describe("5. scopes_supported lists the scope vocabulary, not offline_access alo
       scopes_supported: string[];
     };
 
-  it("with auth.scopesSupported unset, AS metadata, PRM and the challenge carry read:* and write:*", async () => {
+  it("with auth.scopesSupported unset, AS metadata and PRM carry read:* and write:*; the challenge invents no scope", async () => {
     const flow = await makeFlow();
     expect((await asOf(flow)).scopes_supported).toEqual(["read:*", "write:*", "offline_access"]);
     expect((await prmOf(flow)).scopes_supported).toEqual(["read:*", "write:*"]);
     const challenge = await flow.app.request(`${ISSUER}/mcp`, { method: "POST" });
-    expect(challenge.headers.get("www-authenticate")).toContain('scope="read:* write:*"');
+    expect(challenge.headers.get("www-authenticate")).not.toContain("scope=");
   });
 
   it("an operator's auth.scopesSupported replaces the default everywhere", async () => {
     const flow = await makeFlow({ scopesSupported: ["read:notes"] });
     expect((await asOf(flow)).scopes_supported).toEqual(["read:notes", "offline_access"]);
     expect((await prmOf(flow)).scopes_supported).toEqual(["read:notes"]);
+    const challenge = await flow.app.request(`${ISSUER}/mcp`, { method: "POST" });
+    expect(challenge.headers.get("www-authenticate")).toContain('scope="read:notes"');
   });
 
   it("the advertised default is not the grant default: a client that names no scope still gets read only", async () => {
