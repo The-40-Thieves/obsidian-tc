@@ -60,8 +60,15 @@ function buildLinkGraph(
   return { notes, out, inn, unresolved, links, warnings };
 }
 
-/** Directed-cycle enumeration (DFS back-edges). Bounded by `limit` cycles found. */
-function findCycles(out: Map<string, Set<string>>, limit: number): string[][] {
+/** Directed-cycle enumeration (DFS back-edges). Bounded by `limit` cycles reported; a cycle of more
+ *  than `maxLength` links is not reported (a dense vault's DFS closes cycles hundreds of notes long,
+ *  which is a page-sized answer to a question nobody asked) and is counted in `skippedLonger`. */
+function findCycles(
+  out: Map<string, Set<string>>,
+  limit: number,
+  maxLength: number,
+): { cycles: string[][]; skippedLonger: number } {
+  let skippedLonger = 0;
   const state = new Map<string, number>(); // 0 unseen, 1 on-stack, 2 done
   const stack: string[] = [];
   const cycles: string[][] = [];
@@ -74,7 +81,10 @@ function findCycles(out: Map<string, Set<string>>, limit: number): string[][] {
       const s = state.get(w) ?? 0;
       if (s === 1) {
         const i = stack.lastIndexOf(w);
-        if (i >= 0) cycles.push([...stack.slice(i), w]);
+        if (i >= 0) {
+          if (stack.length - i > maxLength) skippedLonger++;
+          else cycles.push([...stack.slice(i), w]);
+        }
       } else if (s === 0) {
         visit(w);
       }
@@ -86,7 +96,7 @@ function findCycles(out: Map<string, Set<string>>, limit: number): string[][] {
     if (cycles.length >= limit) break;
     if ((state.get(n) ?? 0) === 0) visit(n);
   }
-  return cycles;
+  return { cycles, skippedLonger };
 }
 
 function intersectSize(a: Set<string> | undefined, b: Set<string> | undefined): number {
@@ -134,6 +144,8 @@ const FindLinkCyclesOutput = z.object({
   vault: z.string(),
   total: z.number(),
   cycles: z.array(z.array(z.string())),
+  /** Cycles found but not reported because they run longer than `max_length` links. */
+  skipped_longer: z.number().int(),
 });
 
 const GetLinkStrengthOutput = z.object({
@@ -241,7 +253,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         const total = g.notes.length;
         const orphans = g.notes.filter((p) => (g.inn.get(p)?.size ?? 0) === 0).length;
         const hubs = g.notes.filter((p) => (g.inn.get(p)?.size ?? 0) >= input.hub_threshold).length;
-        const cycles = findCycles(g.out, 100).length;
+        const cycles = findCycles(g.out, 100, Number.POSITIVE_INFINITY).cycles.length;
         const orphanRatio = total ? orphans / total : 0;
         const unresolvedRatio = g.links ? g.unresolved / g.links : 0;
         const hubRatio = total ? hubs / total : 0;
@@ -286,15 +298,25 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
       description:
         "Detect circular internal-link chains (a -> b -> ... -> a) in the readable note graph. Returns up to `limit` cycles as ordered path lists.",
       inputSchema: z
-        .object({ vault: VaultId, limit: z.number().int().positive().max(1000).default(50) })
+        .object({
+          vault: VaultId,
+          limit: z.number().int().positive().max(1000).default(10),
+          max_length: z.number().int().min(2).max(1000).default(10),
+        })
         .strict(),
       outputSchema: FindLinkCyclesOutput,
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const g = buildLinkGraph(v.root, ctx.acl, ctx.grantedScopes);
-        const cycles = findCycles(g.out, input.limit);
-        return { ...g.warnings.out(), vault: v.id, total: cycles.length, cycles };
+        const { cycles, skippedLonger } = findCycles(g.out, input.limit, input.max_length);
+        return {
+          ...g.warnings.out(),
+          vault: v.id,
+          total: cycles.length,
+          cycles,
+          skipped_longer: skippedLonger,
+        };
       },
     }),
 

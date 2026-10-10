@@ -13,6 +13,7 @@ import {
 } from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import { frontmatterFallbackSink } from "../../util/errors";
+import { DEFAULT_SCAN_LIMIT, nextOffsetCursor, offsetOf } from "../../util/paginate";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableEntry, readableRel } from "../../vault/acl-read-filter";
 import type { Frontmatter } from "../../vault/frontmatter";
@@ -156,6 +157,7 @@ const FindNotesByPropertyOutput = z.object({
   key: z.string(),
   total: z.number().int(),
   truncated: z.boolean(),
+  next_cursor: z.string().nullable(),
   // response_format="concise" (legacy verbosity="terse") maps matches to `{ path }` only, dropping
   // `value` entirely rather
   // than nulling it — a conditional omission, so `value` is .optional(), not .nullable().
@@ -194,7 +196,8 @@ const FindInput = z
     key: z.string().min(1),
     value: z.unknown().optional(),
     folder: VaultPath.optional(),
-    limit: z.number().int().positive().max(1000).default(200),
+    limit: z.number().int().positive().max(1000).default(DEFAULT_SCAN_LIMIT),
+    cursor: z.string().optional(),
     // THE-251 / GH #1027: concise (legacy verbosity=terse) drops the matched value, returning path only.
     ...ResponseFormatInput,
     // THE-198: match a dotted key path instead of a top-level key.
@@ -529,6 +532,8 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         const matches: Array<{ path: string; value: unknown }> = [];
         const warnings = new ScanWarnings();
         let truncated = false;
+        const skip = offsetOf(input.cursor);
+        let seen = 0;
         const consider = (path: string, fm: Record<string, unknown> | null): boolean => {
           if (!fm) return true;
           const g = input.nested
@@ -537,6 +542,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           if (!g.found) return true;
           const stored = g.value;
           if (input.value !== undefined && !valueMatches(stored, input.value)) return true;
+          if (seen++ < skip) return true;
           if (matches.length >= input.limit) {
             truncated = true;
             return false;
@@ -578,6 +584,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           key: input.key,
           total: matches.length,
           truncated,
+          next_cursor: nextOffsetCursor(skip, matches.length, truncated),
           matches:
             resolveResponseFormat(input, deps.responseFormat) === "concise"
               ? matches.map((m) => ({ path: m.path }))

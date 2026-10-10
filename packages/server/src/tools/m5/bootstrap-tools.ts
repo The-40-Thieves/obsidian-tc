@@ -45,6 +45,7 @@ export function buildBootstrapTools(deps: M5Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "session_bootstrap",
+      wholeNotes: true,
       domain: "knowledge",
       description:
         "Triage an opening session message (auto -> lightweight | standard | deep) and preload the matching vault context notes, so any MCP client gets session bootstrap, not only skill-enabled ones. Deep loads the configured deepPaths; standard loads the paths of every domain whose signals appear in the message; lightweight loads nothing. The routing table comes from server config (bootstrap.*); with none configured the tool degrades to lightweight. Read-only. response_format=concise drops each loaded note's parsed frontmatter (it is still inside content).",

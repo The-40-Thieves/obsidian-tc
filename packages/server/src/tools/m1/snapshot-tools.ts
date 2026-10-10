@@ -136,6 +136,7 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
 
     defineTool({
       name: "read_snapshot",
+      wholeNotes: true,
       domain: "notes",
       description: "Read the full stored content of a single snapshot by id.",
       inputSchema: z.object({ vault: VaultId, snapshot_id: z.number().int().positive() }).strict(),

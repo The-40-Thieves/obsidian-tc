@@ -30,6 +30,7 @@ type ReadResourcesItem = z.infer<typeof ReadResourcesOutput>["results"][number];
 export function createReadResourcesTool(deps: M1Deps, aclFor: VaultAclResolver): ToolDefinition {
   return defineTool({
     name: "read_resources",
+    wholeNotes: true,
     domain: "notes",
     description:
       "Batch resources/read: read many obsidian-tc://<vault>/<path> note resource URIs in one call. Returns one result per URI in request order: {ok: true, uri, mimeType, text} (identical to a single resources/read) or {ok: false, uri, error} for a malformed or unsupported URI, another vault's URI, a denied or missing note. The response is held under the server's byte budget: when the batch does not fit, the results that fit are returned with next_cursor; call again with the same arguments plus cursor to continue exactly where the page stopped (request order, no duplicates, no gaps) until next_cursor is null. A single resource too large to ever fit is reported as a too_large error (with its size and the budget) and skipped, so the walk always makes progress. A cursor is bound to the caller, the tool and these exact arguments, and expires. response_format=concise returns each item as {ok: true, uri, text} with the note body only (no frontmatter block, no mimeType); error items are unchanged.",

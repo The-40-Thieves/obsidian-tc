@@ -218,6 +218,7 @@ export function createSearchAndReadTool(
 
   return defineTool({
     name: "search_and_read",
+    wholeNotes: true,
     domain: "search",
     description:
       "Search a vault and return the top-k full notes in one call, instead of a search followed by read_notes. Ranking is vault_graph_search's, limited to notes you can read. mode=note (default) returns each note's frontmatter and body; mode=section returns the heading section each hit matched. k is at most 20. The result is held under the server's byte budget, shared equally across the notes: a note over its share is cut and marked truncated: true with size_bytes (its full size); fetch it whole with read_note. Anything that still does not fit comes back with next_cursor: repeat the same call plus cursor until it is null. An item that cannot be returned is a per-item error with its rank (a missing note and an unreadable one look the same). A cursor is bound to the caller, the tool and these exact arguments, and expires. response_format=concise returns {path, rank, score, body, content_hash} per note without frontmatter (note mode) or chunk_id (section mode); size_bytes and truncated appear only on a truncated item, and section_resolved only when false.",
