@@ -79,7 +79,7 @@ let port = 0;
 let routes: Routes = {};
 const server = http.createServer((req, res) => {
   const host = (req.headers.host ?? "").split(":")[0] ?? "";
-  const h = routes[host];
+  const h = new Map(Object.entries(routes)).get(host);
   if (h === undefined) return json(res, 502, { error: `no fixture for ${host}` });
   h(req, res);
 });

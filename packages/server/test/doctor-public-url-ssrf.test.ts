@@ -119,7 +119,7 @@ describe("public-url probe refuses to fetch internal addresses", () => {
       { "auth.example.test": [PUBLIC, "10.0.0.5"] },
     );
     const out = await r.run();
-    expect(r.requested.some((q) => q.url.startsWith("https://auth.example.test"))).toBe(false);
+    expect(r.requested.some((q) => new URL(q.url).hostname === "auth.example.test")).toBe(false);
     expect(out["public-url.as-metadata"]?.status).toBe("fail");
   });
 
