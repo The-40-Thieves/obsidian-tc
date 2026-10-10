@@ -1,0 +1,15 @@
+{
+  "name": "the-40-thieves",
+  "description": "Plugins from The 40 Thieves",
+  "owner": {
+    "name": "The 40 Thieves",
+    "url": "https://github.com/The-40-Thieves"
+  },
+  "plugins": [
+    {
+      "name": "obsidian-tc",
+      "source": "./plugins/obsidian-tc",
+      "description": "Governed Obsidian vault access over MCP: hybrid retrieval, Markdown-native memory, folder ACLs and HITL confirmations."
+    }
+  ]
+}
