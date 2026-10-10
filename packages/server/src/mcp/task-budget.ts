@@ -35,6 +35,8 @@ export const DEFAULT_TASK_BUDGET_MS = 40_000;
 
 /** The tool a client polls with. Registered in runtime/tool-wiring.ts (`wireHealthTools`). */
 export const TASK_STATUS_TOOL = "get_task_status";
+/** The tool a client cancels with: named in the handle text for clients without `tasks/cancel`. */
+const TASK_CANCEL_TOOL = "cancel_task";
 
 const isTerminal = (job: Job): boolean => job.state === "complete" || job.state === "failed";
 
@@ -107,7 +109,7 @@ export function finishedTaskResult(job: Job): CallToolResult {
  * several other clients read nothing else.
  */
 export function pendingTaskResult(tool: string, job: Job): CallToolResult {
-  const message = `${tool} is still running in the background (task ${job.id}). Call ${TASK_STATUS_TOOL} with {"task_id":"${job.id}"} to check on it; when its status is "completed" it carries the result.`;
+  const message = `${tool} is still running in the background (task ${job.id}). Call ${TASK_STATUS_TOOL} with {"task_id":"${job.id}"} to check on it; when its status is "completed" it carries the result. To stop it, call ${TASK_CANCEL_TOOL} with the same task_id.`;
   const structuredContent = {
     status: "working",
     task_id: job.id,

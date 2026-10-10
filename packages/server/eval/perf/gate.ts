@@ -25,12 +25,13 @@ export interface Expectation {
 export type Expectations = Record<string, Expectation>;
 
 /**
- * The three tools that register inline in cli.ts from live runtime state rather than from a module
+ * The four tools that register inline in cli.ts from live runtime state rather than from a module
  * registrar, so `boot-probe.ts` (which only runs the registrars) never sees them: `health` is the
- * tool named `server_health`, `index_status` is `get_index_status`, and `get_task_status` reads the
- * job queue the runtime builds.
+ * tool named `server_health`, `index_status` is `get_index_status`, and `get_task_status` and
+ * `cancel_task` read the job queue the runtime builds.
  */
 export const INLINE_REGISTERED_TOOLS = [
+  "cancel_task",
   "get_index_status",
   "get_task_status",
   "server_health",

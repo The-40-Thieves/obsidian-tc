@@ -116,12 +116,17 @@ const BRIDGE_SCOPE_RESOURCES: ReadonlySet<string> = new Set([
   "templater",
 ]);
 
-/** A tool that mutates the vault, by the same predicate the read-only gate and the MCP
- *  `readOnlyHint` use. */
+/** A tool that mutates the vault, by the same predicate the read-only gate uses, plus the
+ *  advertisement-only `mutatesState` (see ToolDefinition) that the gate deliberately ignores. The
+ *  MCP `readOnlyHint`, the `writes` tag and describe_capability all read this one function. */
 export function isMutatingDefinition(
-  def: Pick<ToolDefinition, "destructive" | "requiredScopes">,
+  def: Pick<ToolDefinition, "destructive" | "requiredScopes" | "mutatesState">,
 ): boolean {
-  return def.destructive === true || def.requiredScopes.some(isMutatingScope);
+  return (
+    def.destructive === true ||
+    def.mutatesState === true ||
+    def.requiredScopes.some(isMutatingScope)
+  );
 }
 
 // What the WIRE `destructive` annotation says, as distinct from `def.destructive` (which also
@@ -143,6 +148,7 @@ type TaggableDefinition = Pick<
   | "requiredScopes"
   | "destructive"
   | "conditionallyDestructive"
+  | "mutatesState"
   | "inputSchema"
   | "tags"
 >;

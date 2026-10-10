@@ -678,7 +678,12 @@ today `index_vault` on a large vault, therefore never holds the request open pas
   `index_vault` reports notes processed out of notes seen. Most clients reset their own timeout on each
   one.
 
-Only the caller that started a task can read it with `get_task_status`; a missing, foreign or internal
+To stop a task, call `cancel_task` with the same `task_id` (clients that declared the Tasks extension
+use `tasks/cancel` instead). Cancellation is cooperative: the call returns the task's status right
+after the request, which may still be `working`, and `get_task_status` then shows it end as
+`cancelled`. A task that already finished is returned unchanged, with its result.
+
+Only the caller that started a task can read or cancel it; a missing, foreign or internal
 id all answer `not_found`. The same budget applies when the tool is reached through `call_capability`
 or a domain tool.
 

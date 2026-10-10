@@ -11,6 +11,7 @@ import { JobQueue } from "../src/scheduler/job-queue";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { RateLimiter } from "../src/throttle";
 import { createHealthTool, createIndexStatusTool } from "../src/tools/admin/health";
+import { createTaskCancelTool } from "../src/tools/admin/task-cancel";
 import { createTaskStatusTool } from "../src/tools/admin/task-status";
 import { registerM1Tools } from "../src/tools/m1";
 import { registerM2Tools } from "../src/tools/m2";
@@ -78,8 +79,9 @@ describe("THE-306 registered tool count", () => {
         getLastChunksUpserted: () => null,
       }),
     );
-    // get_task_status is registered inline beside them (runtime/tool-wiring.ts wireHealthTools).
+    // get_task_status and cancel_task are registered inline beside them (runtime/tool-wiring.ts wireHealthTools).
     registry.register(createTaskStatusTool({ queue: new JobQueue(db) }));
+    registry.register(createTaskCancelTool({ queue: new JobQueue(db) }));
     registerM1Tools(registry, {
       vaultRegistry,
       version: "test",

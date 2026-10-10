@@ -12,6 +12,7 @@ bulk_move_notes
 bulk_set_property
 bundle_files
 bundle_folder
+cancel_task
 close_goal
 commit_capture
 commit_wiki_page

@@ -34,6 +34,7 @@ import { wireLeaderEpoch } from "../search/indexing/leader-epoch";
 import { nativeBindingActive } from "../search/native";
 import { createRetrievalCaches } from "../search/query_cache";
 import { wireTelemetry } from "../telemetry/wiring";
+import { createTaskCancelTool } from "../tools/admin/task-cancel";
 import { createTaskStatusTool } from "../tools/admin/task-status";
 import { connectStdio } from "../transports/stdio";
 import {
@@ -307,6 +308,7 @@ export async function buildServerRuntime(
 
     // The poll half of the handle a long tool returns past its time budget (mcp/task-budget.ts).
     registry.register(createTaskStatusTool({ queue: jobQueue }));
+    registry.register(createTaskCancelTool({ queue: jobQueue }));
     const { jobRunner, taskCalls } = wireJobHandlers({
       registry,
       db,

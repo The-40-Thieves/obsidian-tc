@@ -10,9 +10,9 @@ import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { findOwnedJob, isIdentifiedCaller, toMcpTask } from "../../mcp/tasks";
-import type { JobQueue } from "../../scheduler/job-queue";
+import type { Job, JobQueue } from "../../scheduler/job-queue";
 
-const TaskStatusOutput = z.object({
+export const TaskStatusOutput = z.object({
   task_id: z.string(),
   status: z.enum(["working", "input_required", "completed", "failed", "cancelled"]),
   created_at: z.string(),
@@ -35,6 +35,26 @@ const TaskStatusOutput = z.object({
   status_message: z.string().optional(),
 });
 
+/** A job projected onto the tool output: the ONE shape get_task_status and cancel_task both answer
+ *  with, so the two cannot disagree about what a task is. */
+export function projectTaskStatus(queue: JobQueue, job: Job): z.infer<typeof TaskStatusOutput> {
+  const task = toMcpTask(job);
+  const p = task.status === "working" ? queue.progressOf(job.id) : undefined;
+  return {
+    task_id: task.taskId,
+    status: task.status,
+    created_at: task.createdAt,
+    last_updated_at: task.lastUpdatedAt,
+    ...(p ? { progress: { done: p.progress, total: p.total, message: p.message } } : {}),
+    ...(task.pollIntervalMs !== undefined
+      ? { retry_after_seconds: Math.ceil(task.pollIntervalMs / 1000) }
+      : {}),
+    ...(task.result !== undefined ? { result: task.result } : {}),
+    ...(task.error !== undefined ? { error: task.error } : {}),
+    ...(task.statusMessage !== undefined ? { status_message: task.statusMessage } : {}),
+  };
+}
+
 export function createTaskStatusTool(opts: {
   queue: JobQueue;
 }): ToolDefinition<{ task_id: string }, z.infer<typeof TaskStatusOutput>> {
@@ -56,21 +76,7 @@ export function createTaskStatusTool(opts: {
       });
       // The same answer for "missing", "not yours" and "internal job": see the header.
       if (job === null) throw err.notFound("unknown task");
-      const task = toMcpTask(job);
-      const p = task.status === "working" ? opts.queue.progressOf(job.id) : undefined;
-      return {
-        task_id: task.taskId,
-        status: task.status,
-        created_at: task.createdAt,
-        last_updated_at: task.lastUpdatedAt,
-        ...(p ? { progress: { done: p.progress, total: p.total, message: p.message } } : {}),
-        ...(task.pollIntervalMs !== undefined
-          ? { retry_after_seconds: Math.ceil(task.pollIntervalMs / 1000) }
-          : {}),
-        ...(task.result !== undefined ? { result: task.result } : {}),
-        ...(task.error !== undefined ? { error: task.error } : {}),
-        ...(task.statusMessage !== undefined ? { status_message: task.statusMessage } : {}),
-      };
+      return projectTaskStatus(opts.queue, job);
     },
   };
 }

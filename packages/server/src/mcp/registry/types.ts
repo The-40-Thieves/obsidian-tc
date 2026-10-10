@@ -265,6 +265,12 @@ export interface ToolDefinition<I = unknown, O = unknown> {
    *  authorization/HITL/read-only gate reads ONLY the real `destructive` field. See
    *  docs/design/mcp-registry-context-types.md. */
   conditionallyDestructive?: boolean;
+  /** The tool changes server state that is not a vault write (cancel_task stops a background
+   *  run), so the wire must say `readOnlyHint: false` and the tags `writes`. Advertisement only,
+   *  like `conditionallyDestructive`: the read-only kill-switch (policy-gates `isMutatingCall`)
+   *  does not read it, because stopping your own running task has to keep working on a vault that
+   *  has since gone read-only. */
+  mutatesState?: boolean;
   /** Tool-specific precondition gate. Runs AFTER scope+ACL and BEFORE the HITL/elicit
    *  stage, so a rejection never consumes the single-use elicit token (D5). Throw an
    *  ObsidianTcError to reject. */
