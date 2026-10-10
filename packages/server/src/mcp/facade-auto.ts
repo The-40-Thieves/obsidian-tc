@@ -112,15 +112,18 @@ export function mcpServerFacadeOptions(cfg: {
   mode: FacadeMode | "auto";
   autoClients?: Readonly<Record<string, FacadeMode>>;
   explainAutoMode?: boolean;
+  outputSchema?: "full" | "omit";
 }): {
   facadeMode: FacadeMode | "auto";
   autoClients?: Readonly<Record<string, FacadeMode>>;
   explainAutoMode?: boolean;
+  outputSchema?: "full" | "omit";
 } {
   return {
     facadeMode: cfg.mode,
     autoClients: cfg.autoClients,
     explainAutoMode: cfg.explainAutoMode,
+    outputSchema: cfg.outputSchema,
   };
 }
 

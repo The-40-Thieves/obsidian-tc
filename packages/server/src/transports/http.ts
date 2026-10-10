@@ -172,6 +172,8 @@ export interface HttpAppOptions {
   autoClients?: Readonly<Record<string, FacadeMode>>;
   /** `toolFacade.explainAutoMode`, threaded to createMcpServer. */
   explainAutoMode?: boolean;
+  /** `toolFacade.outputSchema`, threaded to createMcpServer. */
+  outputSchema?: "full" | "omit";
   /** GH #1027: `tools.defaults.responseFormat`, threaded to createMcpServer (resources/read). */
   responseFormat?: ResponseFormat;
   /** DNS-rebinding / cross-origin guard (THE-271). Defaults on when undefined. */
@@ -447,6 +449,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
         facadeMode: opts.facadeMode,
         autoClients: opts.autoClients,
         explainAutoMode: opts.explainAutoMode,
+        outputSchema: opts.outputSchema,
         responseFormat: opts.responseFormat,
         // The SDK's own classification, not a header we re-interpret.
         era: mcpCtx.era,

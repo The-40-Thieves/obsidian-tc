@@ -167,6 +167,35 @@ own `node_modules`, and by reading the upstream PR. **Not** verified against a l
 **not** confirmed either way for the 2.x SDK line — that checkout has a different layout and the
 check was inconclusive, which is reported rather than guessed.
 
+## Text content and the `outputSchema` opt-out
+
+**Every `tools/call` result carries a text block that answers the call on its own.** Some clients
+read only `content` (others drop `content` whenever `structuredContent` is present, and render the
+structured half or nothing), so no result relies on the client choosing the right half. A tool
+result's text block is the payload as compact JSON, an error's is `Error [code]: message` plus the
+offending-field detail, and a result that somehow has neither gets a plain sentence. This is
+enforced at the one place every result leaves the server (`ensureTextContent`, applied by
+`ShimGuardedServer._wrapHandler`), not per tool; a result that already has a text block is returned
+unchanged. Asserted by `tool-result-text.test.ts`.
+
+**Every advertised `outputSchema` has `type: "object"` at its root and the draft 2020-12 dialect**,
+and no advertised tool carries `annotations: null`; asserted by `output-schema-advertisement.test.ts`.
+
+**`toolFacade.outputSchema: "omit"`** drops `outputSchema` from every tool `tools/list` advertises
+(default `"full"`, today's behaviour). Results are unchanged: they still carry `structuredContent`
+and the text block, and the dispatch-side validation against the tool's schema still runs. Reach for
+it when a client misbehaves on the field:
+
+| client | symptom | evidence | `omit` helps |
+| --- | --- | --- | --- |
+| claude.ai | tools that declare an `outputSchema` fail | user reports, **not reproduced here** | yes, if the report holds |
+| Claude Desktop | rejects a draft-07 `outputSchema` | vendor reports; this server emits 2020-12, so it should not apply | only on an older client that wants draft-07 |
+| Cursor | an `outputSchema` whose root is not `type: object` blanks the whole server | vendor reports; every schema this server advertises is an object root | not needed today |
+| any validating SDK client | replaces an error's `structuredContent` with `-32602` (see the hazard above) | the section above | yes: nothing to validate against |
+
+`triad` (the default surface) and `domain` advertise no `outputSchema` at all, so the setting only
+changes the `flat` surface.
+
 ## What this page does not claim
 
 - **No live client was probed for this page.** A live obsidian-tc instance is reachable on an
