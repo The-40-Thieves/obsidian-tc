@@ -209,8 +209,8 @@ function buildTriadTools(hasResources: boolean): Tool[] {
       description:
         "Invoke a capability by name with its arguments. Routes into the same authorization, ACL, HITL, idempotency, and rate-limit pipeline as a direct tool call, so every safety gate applies and the target's own schema validates the arguments.",
       inputSchema: toInputJson(CALL_CAPABILITY_SCHEMA),
-      // Advisory only; the real read-only/destructive verdict is the TARGET tool's, enforced in dispatch.
-      annotations: { openWorldHint: false },
+      // Advisory, worst case, all three stated (directories reject absent hints); dispatch decides.
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
       _meta: ALWAYS_LOAD_META,
     },
   ];

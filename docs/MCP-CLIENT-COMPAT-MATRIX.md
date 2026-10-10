@@ -34,7 +34,7 @@ unasserted rather than guessed at.
 
 Building the matrix meant watching each cell's test FAIL first against an initial (spec-derived)
 expectation, then reading why. Two of those failures turned out not to be test bugs — they are gaps
-between what this repo's own code comments claim and what `@modelcontextprotocol/server@2.0.0`
+between what this repo's own code comments claim and what `@modelcontextprotocol/server@2.0.0` <!-- facts-check:ignore -->
 (the pinned SDK) actually does on the wire.
 
 ### 1. Client identity (THE-627) never reached a real request, in EITHER era — fixed by THE-861

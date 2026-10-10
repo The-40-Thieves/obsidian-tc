@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "name": "obsidian-tc",
+  "displayName": "Obsidian Turbocharged",
+  "version": "1.32.0",
+  "description": "Governed Obsidian vault access over MCP: hybrid retrieval, Markdown-native memory, folder ACLs and HITL confirmations. Launches the published obsidian-tc npm package over stdio.",
+  "author": {
+    "name": "The 40 Thieves"
+  },
+  "compat": {
+    "source": "native",
+    "manifestDir": ".muse-plugin"
+  },
+  "capabilities": {
+    "skills": [],
+    "commands": [],
+    "hooks": [],
+    "reminders": [],
+    "mcpServers": [
+      {
+        "id": "obsidian-tc",
+        "transport": "stdio",
+        "command": ["npx", "-y", "obsidian-tc@1.32.0"]
+      }
+    ]
+  }
+}

@@ -5,7 +5,13 @@
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { factRules, type ScanStats, scanFacts } from "../scripts/docgen/facts-check";
+import {
+  factRules,
+  lockedSdkVersions,
+  type ScanStats,
+  scanFacts,
+  scanSdkVersions,
+} from "../scripts/docgen/facts-check";
 
 // The REAL production patterns, bound to test values — so these cases validate the shipped regexes.
 // The tool count is FORBIDDEN in prose (value null): a correct "167 tools" is stale by the next
@@ -239,5 +245,42 @@ describe("facts-check CLI floor (THE-601)", () => {
     expect(out).toMatch(/read 0 narrative files/);
     // The message must blame the GATE, not the docs — otherwise the next person edits a doc.
     expect(out).toMatch(/This is the GATE being broken, not the docs/);
+  });
+});
+
+describe("SDK versions in prose are pinned to bun.lock", () => {
+  const LOCK = [
+    '    "@modelcontextprotocol/sdk": ["@modelcontextprotocol/sdk@1.32.1", "", { "dependencies": {} }, "sha512-x"],',
+    '    "@modelcontextprotocol/server": ["@modelcontextprotocol/server@2.3.1", "", {}, "sha512-y"],',
+  ].join("\n");
+  const locked = lockedSdkVersions(LOCK);
+
+  it("reads each resolved version from the lockfile", () => {
+    expect(locked).toEqual({ sdk: "1.32.1", server: "2.3.1" });
+  });
+
+  it("refuses a lockfile that resolves neither package (a scan of nothing must not pass)", () => {
+    expect(() => lockedSdkVersions("{}")).toThrow(/bun\.lock/);
+  });
+
+  it("flags the two stale phrasings that drifted in docs/MCP-COMPATIBILITY.md", () => {
+    const text = [
+      "The TypeScript SDK this server depends on - `@modelcontextprotocol/sdk` **1.29.0**, the version",
+      '**`@modelcontextprotocol/server`**, pinned to its non-beta `"2.0.0"` release',
+    ].join("\n");
+    const v = scanSdkVersions(text, locked);
+    expect(v.map((x) => [x.line, x.found, x.expected])).toEqual([
+      [1, "1.29.0", "1.32.1"],
+      [2, "2.0.0", "2.3.1"],
+    ]);
+  });
+
+  it("passes the current versions, and skips lines marked facts-check:ignore", () => {
+    const text = [
+      "`@modelcontextprotocol/sdk` **1.32.1** and `@modelcontextprotocol/server` 2.3.1",
+      "`@modelcontextprotocol/server@2.0.0` was the pin then <!-- facts-check:ignore -->",
+      "no package named here, just 1.29.0",
+    ].join("\n");
+    expect(scanSdkVersions(text, locked)).toEqual([]);
   });
 });
