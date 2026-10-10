@@ -17,6 +17,7 @@ import {
 import { argsHash } from "../../hash";
 import type { ToolDefinition } from "../../mcp/registry";
 import { DEFAULT_SCAN_LIMIT, nextOffsetCursor, offsetOf } from "../../util/paginate";
+import { drainYielding } from "../../util/scan-steps";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { requireConfirmation } from "../../vault/hitl";
 import { buildVaultIndex, resolveTarget } from "../../vault/links";
@@ -34,11 +35,11 @@ import {
 } from "../scan-warnings";
 import {
   isExternal,
-  linksOf,
   originOf,
   readableNotes,
-  scanOrphans,
-  scanUnresolved,
+  scanBacklinksSteps,
+  scanOrphansSteps,
+  scanUnresolvedSteps,
 } from "../wiki-scan";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
@@ -350,7 +351,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         .strict(),
       outputSchema: GetBacklinksOutput,
       requiredScopes: ["read:notes"],
-      handler: (input, ctx) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
@@ -359,35 +360,16 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
 
-        const paths = readableNotes(v.root, ctx.acl, ctx.grantedScopes);
-        const index = buildVaultIndex(paths);
-        const backlinks: Array<Record<string, unknown>> = [];
         const warnings = new ScanWarnings();
-        let truncated = false;
         const skip = offsetOf(input.cursor);
-        let seen = 0;
-        for (const p of paths) {
-          for (const l of linksOf(v.root, p, warnings)) {
-            if (l.inCodeblock) continue;
-            const r = resolveTarget(index, l.target);
-            if (!r.resolved || r.target_path !== rel) continue;
-            if (seen++ < skip) continue;
-            if (backlinks.length >= input.limit) {
-              truncated = true;
-              break;
-            }
-            backlinks.push({
-              source_path: p,
-              line: l.line,
-              col: l.col,
-              raw: l.raw,
-              kind: l.kind,
-              display: l.display,
-              ...originOf(l),
-            });
-          }
-          if (truncated) break;
-        }
+        const { backlinks, truncated } = await drainYielding(
+          scanBacklinksSteps(
+            { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes },
+            warnings,
+            { target: rel, skip, limit: input.limit },
+          ),
+          ctx.signal,
+        );
         const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         return {
           ...warnings.out(),
@@ -423,21 +405,24 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         .strict(),
       outputSchema: FindOrphansOutput,
       requiredScopes: ["read:notes"],
-      handler: (input, ctx) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
         const warnings = new ScanWarnings();
-        const orphans = scanOrphans(
-          {
-            root: v.root,
-            acl: ctx.acl,
-            grantedScopes: ctx.grantedScopes,
-            wikiFolder: v.wikiFolder,
-            wikiFolders: v.wikiFolders,
-            rawFolders: v.rawFolders,
-          },
-          warnings,
-          { folder: sub, requireNoOutgoing: input.require_no_outgoing },
+        const orphans = await drainYielding(
+          scanOrphansSteps(
+            {
+              root: v.root,
+              acl: ctx.acl,
+              grantedScopes: ctx.grantedScopes,
+              wikiFolder: v.wikiFolder,
+              wikiFolders: v.wikiFolders,
+              rawFolders: v.rawFolders,
+            },
+            warnings,
+            { folder: sub, requireNoOutgoing: input.require_no_outgoing },
+          ),
+          ctx.signal,
         );
         const skip = offsetOf(input.cursor);
         const page = orphans.slice(skip, skip + input.limit);
@@ -461,15 +446,18 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
       inputSchema: ScanInput,
       outputSchema: FindUnresolvedLinksOutput,
       requiredScopes: ["read:notes"],
-      handler: (input, ctx) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
         const warnings = new ScanWarnings();
         const skip = offsetOf(input.cursor);
-        const scanned = scanUnresolved(
-          { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes },
-          warnings,
-          { folder: sub, limit: skip + input.limit },
+        const scanned = await drainYielding(
+          scanUnresolvedSteps(
+            { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes },
+            warnings,
+            { folder: sub, limit: skip + input.limit },
+          ),
+          ctx.signal,
         );
         const unresolved = scanned.unresolved.slice(skip);
         const truncated = scanned.truncated;
