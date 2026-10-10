@@ -287,6 +287,6 @@ describe("the boot path wires it", () => {
   it("start() schedules the warmup behind the same initialize promise, and close() cancels it", () => {
     expect(src).toMatch(/embedderWarmup\.schedule\(\{\s*initialized/);
     expect(src).toMatch(/embedderWarmup\.cancel\(\)/);
-    expect(src).toMatch(/getEmbedderWarmup: \(\) => embedderWarmup\.status\(\)/);
+    expect(src).toMatch(/getEmbedderWarmup: \(\) => indexResources\.embedderWarmup\.status\(\)/);
   });
 });
