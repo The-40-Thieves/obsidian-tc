@@ -255,7 +255,7 @@ The complete list is in the [configuration reference](/configuration/config-yaml
 
 By default `tools/list` advertises the **triad** facade: three meta-tools
 (`find_capability`, `describe_capability`, `call_capability`) for progressive
-discovery, with every underlying tool still callable by name. Set
+discovery, plus the standard `search` and `fetch` tools, with every underlying tool still callable by name. Set
 `toolFacade.mode: "flat"` to advertise the full surface, or `"domain"` for
 ~a dozen domain meta-tools; the measured per-client advice is in
 [Choosing a facade mode per client](/getting-started/mcp-clients/#choosing-a-facade-mode-per-client).

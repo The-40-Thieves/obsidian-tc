@@ -28,12 +28,23 @@ describe("buildServerCard (THE-966)", () => {
     });
   });
 
-  it("advertises exactly the three triad facade tools", () => {
+  it("advertises the three triad facade tools plus the standard search and fetch pair", () => {
     expect(card.tools.map((t) => t.name).sort()).toEqual([
       "call_capability",
       "describe_capability",
+      "fetch",
       "find_capability",
+      "search",
     ]);
+  });
+
+  it("search and fetch carry their real input schemas and read-only annotations", () => {
+    const search = card.tools.find((t) => t.name === "search");
+    const fetchTool = card.tools.find((t) => t.name === "fetch");
+    expect(search?.inputSchema.required).toContain("query");
+    expect(fetchTool?.inputSchema.required).toEqual(["id"]);
+    expect(search?.annotations?.readOnlyHint).toBe(true);
+    expect(fetchTool?.annotations?.readOnlyHint).toBe(true);
   });
 
   it("every tool carries a JSON-Schema object inputSchema (the registry API's own requirement)", () => {

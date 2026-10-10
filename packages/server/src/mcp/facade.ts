@@ -24,6 +24,13 @@ export function isFacadeTool(name: string): boolean {
   return (FACADE_TOOL_NAMES as readonly string[]).includes(name);
 }
 
+// Standard connector pair (ChatGPT deep research needs these exact names), advertised beside the triad.
+export const TRIAD_DIRECT_TOOLS = ["search", "fetch"] as const;
+
+export function triadDirectDefs(visible: readonly ToolDefinition[]): ToolDefinition[] {
+  return TRIAD_DIRECT_TOOLS.flatMap((name) => visible.filter((d) => d.name === name));
+}
+
 // Emit JSON Schema 2020-12 — the default dialect of MCP 2025-11-25 (THE-278). draft-7 stays valid
 // per spec, but 2020-12 aligns the advertised tool/capability schemas with the negotiated version.
 export const JSON_SCHEMA_OPTS = {

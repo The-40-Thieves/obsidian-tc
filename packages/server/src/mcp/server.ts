@@ -51,6 +51,7 @@ import {
   findCapabilityResponse,
   isDomainTool,
   isFacadeTool,
+  triadDirectDefs,
   triadTools,
 } from "./facade";
 import { createFacadeModeResolver } from "./facade-mode-resolver";
@@ -389,8 +390,16 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // THE-219 facade: in triad/domain mode advertise the three meta-tools instead of the full
     // surface. Every registered tool stays callable by name via call_capability, so nothing is
     // hidden; flat mode is the back-compat full-surface behavior.
-    if (facadeMode === "triad")
-      return withCacheHint({ tools: triadTools(Boolean(opts.vaultRegistry)) }, CACHE_PRIVATE);
+    if (facadeMode === "triad") {
+      // `opts.visibility` is the pure per-request caller (see its doc comment), not `opts.context`,
+      // which can open a workspace session on HTTP: a bare triad tools/list must not.
+      const project = opts.outputSchema === "omit" ? toMcpToolNoOutputSchema : toMcpTool;
+      const direct = triadDirectDefs(opts.registry.listVisible(opts.visibility)).map(project);
+      return withCacheHint(
+        { tools: [...triadTools(Boolean(opts.vaultRegistry)), ...direct] },
+        CACHE_PRIVATE,
+      );
+    }
     if (facadeMode === "domain") {
       const dctx = opts.context(extra.mcpReq.signal);
       const dvisible = opts.registry.listVisible({
@@ -582,7 +591,13 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // THE-275 domain-verb facade: a domain meta-tool ("notes", "search", ...) carries {action, args};
     // route the named action straight through registry.dispatch so every gate + the target's own
     // schema validation fire unchanged (identical to call_capability, just grouped by domain).
-    if (facadeMode === "domain" && isDomainTool(req.params.name)) {
+    // The domain tool `search` shares its name with the standard `search` tool: a call carrying no
+    // `action` is the latter (its strict schema has no such key), so it falls through to direct dispatch.
+    if (
+      facadeMode === "domain" &&
+      isDomainTool(req.params.name) &&
+      !(typeof args.action !== "string" && opts.registry.has(req.params.name))
+    ) {
       const action = typeof args.action === "string" ? args.action : "";
       const rawActionArgs = (args.args ?? {}) as Record<string, unknown>;
       const { args: actionArgs, ctx: actionCtx } = splitElicitToken(rawActionArgs, ctx, "domain");

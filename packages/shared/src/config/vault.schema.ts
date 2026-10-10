@@ -217,6 +217,26 @@ export const VaultWikiConfigSchema = z
       });
   });
 
+/** `publicUrl` is an https base url we append encoded path segments to. Rejects a scheme other than
+ *  https, userinfo (`https://host@evil`), and a query or fragment (a path appended after `?x` would
+ *  land inside the query, and after `#x` inside the fragment). */
+function isPlainHttpsBase(value: string): boolean {
+  try {
+    const u = new URL(value);
+    return (
+      u.protocol === "https:" &&
+      u.username === "" &&
+      u.password === "" &&
+      u.search === "" &&
+      u.hash === "" &&
+      !value.includes("?") &&
+      !value.includes("#")
+    );
+  } catch {
+    return false;
+  }
+}
+
 export const VaultConfigSchema = z.object({
   id: z
     .string()
@@ -228,6 +248,19 @@ export const VaultConfigSchema = z.object({
     .optional()
     .describe("Human-readable display name. Defaults to the id when absent."),
   path: z.string().min(1).describe("Absolute path to the vault directory on disk."),
+  // Opt-in citation base for the standard `search` / `fetch` tools. Absent, their citation url is
+  // the obsidian://open deep link. Present, it is `<publicUrl>/<note path>` with each path segment
+  // percent-encoded and the `.md` extension dropped (the shape Obsidian Publish and Quartz serve).
+  // https only, and no credentials, query or fragment: the url is composed by appending path
+  // segments to this base, so any of those would let a note name change what the url means.
+  publicUrl: z
+    .string()
+    .url()
+    .refine(isPlainHttpsBase, "must be a plain https base url (no credentials, query or fragment)")
+    .optional()
+    .describe(
+      "Opt-in https base url where this vault's notes are published (for example an Obsidian Publish or Quartz site). When set, the standard `search` and `fetch` tools cite `<publicUrl>/<note path>` (path segments percent-encoded, `.md` dropped) instead of an obsidian://open link, so ChatGPT deep research and company knowledge can render clickable citations. Absent means the obsidian:// deep link is used.",
+    ),
   // P1.5 (audit THE-562): a code-enforced isolation property. WHAT IS ENFORCED (one-directional):
   // the read:docs tools (knowledge_search / knowledge_get_critical) refuse any vault whose kind is
   // not `docs`, so a misprovisioned read:docs token can never read the private vault even if it

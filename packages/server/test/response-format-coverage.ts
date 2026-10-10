@@ -163,6 +163,10 @@ export const EXEMPT_FROM_RESPONSE_FORMAT: Readonly<Record<string, string>> = {
     "every field is an index-health signal (reconcile state, write failures, vec/fts)",
   get_metrics: "the metric rows are the payload",
   inspect_acl: "one allow/deny verdict with its rule: every field is part of the decision",
+  search:
+    "the shape is fixed by the connector contract ({results: [{id, title, url, text}]}), one short row per note",
+  fetch:
+    "the shape is fixed by the connector contract ({id, title, text, url, metadata}): the full note text is the payload",
   server_health:
     "every field is a health signal (index, job queue, leader role, facade, telemetry); the always-present ones are non-identifying scalars",
 };
