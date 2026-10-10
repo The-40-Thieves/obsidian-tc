@@ -285,6 +285,7 @@ export async function buildServerRuntime(
       indexHealth,
       getIndexCoordinatorStats: () => requireBoot(indexCoordinatorRef, "indexCoordinator").stats(),
       getJobQueueStats: () => jobQueue.stats(),
+      getEmbedderWarmup: () => indexResources.embedderWarmup.status(),
       getLeaderRole: () => (leaderElection.isLeader() ? "leader" : "follower"), // GH #995
       getLeaderRoleDetail: () => leaderElection.getLastFollowerError(),
     });
@@ -602,6 +603,7 @@ export async function buildServerRuntime(
     const initialized = new Promise<void>((resolve) => {
       server.oninitialized = resolve;
     });
+    indexResources.embedderWarmup.schedule({ initialized, maxWaitMs: BOOT_WARMUP_MAX_WAIT_MS });
     cancelBootWarmup = deferBootWork(() => void runReconcile(bootReconcileAbort.signal), {
       initialized,
       maxWaitMs: BOOT_WARMUP_MAX_WAIT_MS,
@@ -674,6 +676,7 @@ export async function buildServerRuntime(
     if (closed) return;
     closed = true;
     cancelBootWarmup(); // a shutdown during boot must not launch the reconcile afterwards
+    indexResources.embedderWarmup.cancel();
     process.stderr.write(`obsidian-tc: shutting down (${reason})\n`);
     await transports.close().catch(() => {}); // F3: no more requests FIRST (was LAST, after release)
     // GH #995: abort the boot reconcile — left running it embeds with no deadline; both
