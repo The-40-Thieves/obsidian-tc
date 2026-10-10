@@ -11,6 +11,7 @@
 // with cfg.auth) is NOT here — it is cross-domain and stays in config.schema.ts even though
 // HttpConfigSchema/TransportsConfigSchema move.
 import { z } from "zod";
+import { parseIpCidr } from "../net-ip";
 
 export const HttpConfigSchema = z.object({
   enabled: z.boolean().default(false).describe("Serve the MCP HTTP transport."),
@@ -44,6 +45,23 @@ export const HttpConfigSchema = z.object({
     .array(z.string())
     .default([])
     .describe("Additional Origin header values accepted by the rebinding guard."),
+  trustedProxies: z
+    .array(
+      z.string().refine((entry) => parseIpCidr(entry) !== undefined, {
+        message:
+          "must be an IPv4 or IPv6 address or CIDR block (`127.0.0.1`, `::1`, `172.18.0.0/16`); names, wildcards, and a /0 prefix are refused",
+      }),
+    )
+    .default([])
+    .describe(
+      'Reverse proxies or tunnels whose forwarded client address is believed: IP addresses and CIDR blocks of the TCP peer, for example `["127.0.0.1", "::1"]` for cloudflared or nginx on the same host, or a docker bridge subnet. Empty (the default): no header is read, and every client behind a proxy or tunnel is counted as one unattributed source by the per-source limits (client-metadata lookups, passkey sign-in, authorize admission, password-login failures). When a request\'s TCP peer is listed, the client address is taken from the header named by `forwardedHeader`; from any other peer the header is ignored, so a client cannot choose its own address. List ONLY proxies you control and that overwrite or append to the header: a listed address that forwards a client-supplied header unchanged lets that client pick its own source.',
+    ),
+  forwardedHeader: z
+    .enum(["x-forwarded-for", "cf-connecting-ip"])
+    .default("x-forwarded-for")
+    .describe(
+      "Which header carries the client address when the TCP peer is in `trustedProxies`. `x-forwarded-for` (default): the right-most address that is not itself a trusted proxy (a proxy appends the address it saw, so entries to the left of that are whatever the client wrote). `cf-connecting-ip`: Cloudflare's single-value header, set by Cloudflare at its edge and passed through cloudflared; use it behind a Cloudflare Tunnel. Ignored while `trustedProxies` is empty.",
+    ),
 });
 
 export const TransportsConfigSchema = z.object({

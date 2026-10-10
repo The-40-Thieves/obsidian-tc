@@ -42,7 +42,7 @@ export interface AsRouteDeps {
   personas?: PersonasConfig | undefined;
   now?: () => number;
   log?: (line: string) => void;
-  /** The caller's address for admission limits. Default: the TCP peer, never a forwarded header. */
+  /** The caller's address for admission limits. Default: the TCP peer; http.ts passes the trusted-proxy resolver (client-ip.ts). */
   clientIp?: (c: Context) => string | undefined;
   /** Test seams for client-ID metadata document resolution (transport, name resolver, timeout, cache cap). */
   cimd?: CimdSeams | undefined;

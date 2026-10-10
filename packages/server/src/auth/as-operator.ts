@@ -46,6 +46,7 @@ import {
   verifyPassword,
 } from "./as-password";
 import { type AsBrowser, createAsBrowser, requestHandleOf } from "./as-session";
+import { socketClientIp } from "./client-ip";
 
 type AuthConfig = ServerConfig["auth"];
 
@@ -74,7 +75,7 @@ export interface AsOperatorDeps {
   now?: () => number;
   /** Where the setup token variable is read from, per request. Default: the process environment. */
   env?: Record<string, string | undefined>;
-  /** The client's address. Default: the peer address of the socket, never a forwarded header. */
+  /** The client's address. Default: the TCP peer; http.ts passes the trusted-proxy resolver (client-ip.ts). */
   clientIp?: (c: Context) => string | undefined;
   log?: (line: string) => void;
   passwords?: PasswordHasher;
@@ -82,30 +83,6 @@ export interface AsOperatorDeps {
   maxConcurrentHashes?: number;
   /** The shared browser plumbing (as-session.ts). Default: built from `auth`, `db` and `secret`. */
   browser?: AsBrowser;
-}
-
-const LOOPBACK_RE = /^(127\.|::1$|0:0:0:0:0:0:0:1$)/;
-
-/**
- * The address of the TCP peer, or undefined when it is not informative: unknown, or loopback (a
- * reverse proxy or tunnel on the same host, where every client looks like one address). Never reads
- * `X-Forwarded-For`: nothing in the config says which proxies to trust, so a forwarded header is
- * whatever the client wrote.
- */
-export function socketClientIp(c: Context): string | undefined {
-  const env = c.env as
-    | {
-        incoming?: { socket?: { remoteAddress?: string } };
-        requestIP?: (req: Request) => { address?: string } | null;
-      }
-    | undefined;
-  let addr = env?.incoming?.socket?.remoteAddress;
-  if (addr === undefined && typeof env?.requestIP === "function") {
-    addr = env.requestIP(c.req.raw)?.address;
-  }
-  if (!addr) return undefined;
-  const bare = addr.replace(/^::ffff:/i, "");
-  return LOOPBACK_RE.test(bare) ? undefined : bare;
 }
 
 const defaultLog = (line: string): void => {
