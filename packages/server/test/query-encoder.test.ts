@@ -183,8 +183,21 @@ describe("the encoder is the only single-query dense encode in the tree", () => 
     expect(hits.length).toBeGreaterThanOrEqual(1);
   });
 
+  // Sites that encode one query but DISCARD the vector, so ranking drift cannot reach them. The
+  // embedder warmup only forces the model load; routing it through the encoder would make
+  // embeddings/ import search/. Anything added here must never return or store the vector.
+  const DISCARDS_VECTOR = new Set(["embeddings/warmup.ts"]);
+
   it("finds the encode in query-encoder.ts and nowhere else", () => {
-    expect(hits).toEqual(["search/query-encoder.ts"]);
+    expect(hits.filter((f) => !DISCARDS_VECTOR.has(f))).toEqual(["search/query-encoder.ts"]);
+  });
+
+  it("each vector-discarding exemption still exists and still discards the vector", () => {
+    for (const f of DISCARDS_VECTOR) {
+      const src = stripped(readFileSync(SRC_ROOT + f, "utf8"));
+      expect(src).toMatch(SINGLE_QUERY_ENCODE); // stale exemptions fail here
+      expect(src).toMatch(/\bawait\s+provider\.embed\(\s*\[/); // result not bound to anything
+    }
   });
 
   it("has both former copy-sites importing the shared encoder", () => {
