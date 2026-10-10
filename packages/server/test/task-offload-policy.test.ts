@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { ToolVisibilityConfig } from "@the-40-thieves/obsidian-tc-shared";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
@@ -36,6 +36,7 @@ import {
 import { JobQueue } from "../src/scheduler/job-queue";
 import { makeStartTask, runTaskCall } from "../src/scheduler/task-call-runner";
 import { openMemoryDb } from "./helpers";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const SRC = join(__dirname, "..", "src");
 const acl = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
@@ -244,6 +245,176 @@ describe("a payload queued before the policy snapshot existed fails closed", () 
     await offloadToTask({ queue, clientPollsTasks: true }, { tool: "net_index", args: {}, ctx });
     const queued = queue.listByState("queued")[0];
     expect((queued?.payload as TaskCallPayload | undefined)?.v).toBe(TASK_CALL_PAYLOAD_VERSION);
+  });
+});
+
+describe("the offload pre-flight applies every authorization gate dispatch applies", () => {
+  // Codex's repro: a task-augmentable READ tool aimed at `.obsidian/secret.md`. The pre-flight
+  // stopped at the vault-kind gate, so it said "admit" while dispatch's central path ACL (which
+  // runs later, after the rate limiter) said acl_denied: the call was queued as a job and its
+  // denial surfaced later, unaudited, instead of synchronously.
+  const root = makeTempDir("obtc-offload-preflight-");
+  afterAll(() => rmTemp(root));
+
+  function aclRig() {
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    const calls = { n: 0 };
+    const registry = new ToolRegistry({ rootResolver: () => root });
+    const base = {
+      description: "task-augmentable and path-ACL'd",
+      inputSchema: z.object({ vault: z.string().optional(), path: z.string() }),
+      taskAugmentable: true,
+      handler: () => {
+        calls.n++;
+        return { read: true };
+      },
+    };
+    registry.register({
+      ...base,
+      name: "read_task",
+      requiredScopes: ["read:notes"],
+      pathAcl: (i: { path: string }) => [{ op: "read", path: i.path }],
+    } as unknown as ToolDefinition);
+    registry.register({
+      ...base,
+      name: "write_task",
+      requiredScopes: ["write:notes"],
+      pathAcl: (i: { path: string }) => [{ op: "write", path: i.path }],
+    } as unknown as ToolDefinition);
+    const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({
+      caller: "alice",
+      authenticated: true,
+      grantedScopes: new Set(["read:notes", "write:notes"]),
+      vaultId: "v1",
+      db,
+      acl,
+      ...over,
+    });
+    return { registry, ctx, db, calls };
+  }
+
+  it("a read of .obsidian/secret.md is refused by the pre-flight AND by dispatch", async () => {
+    const { registry, ctx, calls } = aclRig();
+    const args = { path: ".obsidian/secret.md" };
+    const dispatched = await registry.dispatch("read_task", args, ctx());
+    expect(dispatched.ok).toBe(false);
+    if (!dispatched.ok) expect(dispatched.error.code).toBe("acl_denied");
+    expect(registry.passesPolicyGates("read_task", args, ctx())).toBe(false);
+    expect(calls.n).toBe(0);
+  });
+
+  it("the pre-flight admits the same tool aimed at an ordinary note", () => {
+    const { registry, ctx } = aclRig();
+    expect(registry.passesPolicyGates("read_task", { path: "notes/a.md" }, ctx())).toBe(true);
+  });
+
+  it("the pre-flight has no side effect: it does not touch ctx.acl or run the handler", () => {
+    const { registry, ctx, calls } = aclRig();
+    const c = ctx();
+    registry.passesPolicyGates("read_task", { path: "notes/a.md" }, c);
+    expect(c.acl).toBe(acl);
+    expect(calls.n).toBe(0);
+  });
+
+  it("a denied call takes the synchronous path: refused with acl_denied, no job, no handler", async () => {
+    const { registry, ctx, db, calls } = aclRig();
+    const queue = new JobQueue(db);
+    const server = createMcpServer({
+      name: "x",
+      version: "0",
+      registry,
+      context: () => ctx(),
+      visibility: { grantedScopes: new Set(["read:notes"]) },
+      facadeMode: "flat",
+      jobQueue: queue,
+      startTask: makeStartTask({ registry, db, acl, queue }, "test-runner"),
+      taskBudgetMs: 200,
+    });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await server.connect(st);
+    const client = new Client({ name: "c", version: "0" }, {});
+    await client.connect(ct);
+    open.push(async () => {
+      await client.close();
+      await server.close();
+    });
+    const res = await client.callTool({
+      name: "read_task",
+      arguments: { path: ".obsidian/secret.md" },
+    });
+    expect(res.isError).toBe(true);
+    expect(JSON.stringify(res)).toMatch(/acl_denied/);
+    expect(calls.n).toBe(0);
+    expect(total(queue)).toBe(0);
+  });
+
+  it("a resolveTarget tool is never pre-flighted as admitted: its target is unknown until dispatch", () => {
+    const { registry, ctx } = aclRig();
+    registry.register({
+      name: "live_target",
+      description: "target chosen by live state",
+      inputSchema: z.object({ vault: z.string().optional() }),
+      requiredScopes: ["read:notes"],
+      taskAugmentable: true,
+      resolveTarget: () => ({ path: ".obsidian/secret.md" }),
+      pathAcl: (i: { path: string }) => [{ op: "read", path: i.path }],
+      handler: () => ({}),
+    } as unknown as ToolDefinition);
+    expect(registry.passesPolicyGates("live_target", {}, ctx())).toBe(false);
+  });
+
+  // The two orders cannot diverge again: every case below is decided by dispatch, and the
+  // pre-flight must agree with it. A new gate that only one of them applies fails here.
+  const cases: Array<{
+    name: string;
+    tool: string;
+    args: Record<string, unknown>;
+    over?: (c: CallerContext) => Partial<CallerContext>;
+  }> = [
+    { name: "admitted", tool: "read_task", args: { path: "notes/a.md" } },
+    { name: "path ACL (default-denied root)", tool: "read_task", args: { path: ".obsidian/x.md" } },
+    { name: "path ACL on a write", tool: "write_task", args: { path: ".git/config" } },
+    {
+      name: "missing scope",
+      tool: "read_task",
+      args: { path: "a.md" },
+      over: () => ({ grantedScopes: new Set(["write:notes"]) }),
+    },
+    {
+      name: "unauthenticated",
+      tool: "read_task",
+      args: { path: "a.md" },
+      over: () => ({ authenticated: false }),
+    },
+    {
+      name: "persona-disabled tool",
+      tool: "read_task",
+      args: { path: "a.md" },
+      over: () => ({ toolVisibility: { ...PERSONA_MASK, disabled: ["read_task"] } }),
+    },
+    {
+      name: "vault-bound to another vault",
+      tool: "read_task",
+      args: { path: "a.md", vault: "other" },
+      over: () => ({ vaultBound: true }),
+    },
+    {
+      name: "write under a read-only ACL",
+      tool: "write_task",
+      args: { path: "a.md" },
+      over: () => ({ acl: new FolderAcl({ readOnly: true, defaultScopes: [], rules: [] }) }),
+    },
+    { name: "unknown tool", tool: "nope", args: {} },
+    { name: "invalid input", tool: "read_task", args: { path: 7 } },
+  ];
+
+  it.each(cases)("pre-flight agrees with dispatch: $name", async ({ tool, args, over }) => {
+    const { registry, ctx } = aclRig();
+    const base = ctx();
+    const c = over ? { ...base, ...over(base) } : base;
+    const dispatched = await registry.dispatch(tool, args, { ...c });
+    expect(registry.passesPolicyGates(tool, args, { ...c })).toBe(dispatched.ok);
   });
 });
 
