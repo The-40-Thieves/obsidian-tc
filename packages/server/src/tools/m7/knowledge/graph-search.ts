@@ -230,7 +230,7 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
         // all equal to `vault`) is an exact no-op (AC1), byte-identical to this tool before
         // THE-630. See this file's header for the security invariants this field's presence gates.
         vaults: z.array(VaultId).max(8).optional(),
-        final_top_k: z.number().int().positive().max(100).default(30),
+        final_top_k: z.number().int().positive().max(100).default(10),
         // THE-635: point-in-time filter — see search/point_in_time.ts's module doc for the "why"
         // and the honest-history contract (a chunk existing at D but edited since is INCLUDED and
         // flagged `changed_since_d: true`, never silently presented as the D-state). Absent

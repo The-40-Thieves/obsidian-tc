@@ -77,7 +77,7 @@ import {
 } from "./tasks";
 import { oversizedToolInput } from "./tool-input-cap";
 import { type AdvertiseSubset, isAdvertisedIn } from "./tool-profiles";
-import { toMcpTool, toMcpToolNoOutputSchema } from "./tool-projection";
+import { projectTool } from "./tool-projection";
 import { toolDataResult } from "./tool-result";
 import type { VisibilityCaller } from "./visibility";
 
@@ -402,7 +402,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     if (facadeMode === "triad") {
       // `opts.visibility` is the pure per-request caller (see its doc comment), not `opts.context`,
       // which can open a workspace session on HTTP: a bare triad tools/list must not.
-      const project = opts.outputSchema === "omit" ? toMcpToolNoOutputSchema : toMcpTool;
+      const project = projectTool(opts.outputSchema, opts.registry.maxResponseBytes);
       const direct = triadDirectTools(opts.registry.listVisible(opts.visibility), project);
       return withCacheHint(
         { tools: [...triadTools(Boolean(opts.vaultRegistry)), ...direct] },
@@ -441,7 +441,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     const page = advertised.slice(start, start + pageSize);
     // THE-463: reuse the memoized per-tool projection (outputSchema + icons stay opt-in inside
     // toMcpTool, so a tool that declares neither still serializes byte-identically to before).
-    const project = opts.outputSchema === "omit" ? toMcpToolNoOutputSchema : toMcpTool;
+    const project = projectTool(opts.outputSchema, opts.registry.maxResponseBytes);
     const tools: Tool[] = page.map(project);
     const nextStart = start + page.length;
     return withCacheHint(

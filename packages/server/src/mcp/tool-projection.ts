@@ -1,6 +1,7 @@
 import type { Tool } from "@modelcontextprotocol/server";
 import { outputSchemaField, titleize, toInputJson } from "./facade";
 import type { ToolDefinition } from "./registry";
+import { MAX_RESULT_SIZE_META_KEY, maxResultSizeChars } from "./result-size";
 import { isAdvertisedDestructive, isMutatingDefinition } from "./tool-tags";
 
 /**
@@ -31,12 +32,15 @@ function toolAnnotations(def: ToolDefinition): NonNullable<Tool["annotations"]> 
 // after registration; flat-mode tools/list rebuilt an identical object per request. Memoized by def
 // identity — the frozen Tool instance survives per-request server churn (transports/http.ts) since
 // defs live on the persistent registry. toJson/toInputJson are already memoized per schema.
-const mcpToolMemo = new WeakMap<ToolDefinition, Tool>();
+const mcpToolMemo = new WeakMap<ToolDefinition, { tool: Tool; budget: number | undefined }>();
 
-/** @internal exported for the THE-463 memoization test (re-exported from mcp/server.ts). */
-export function toMcpTool(def: ToolDefinition): Tool {
+/** @internal exported for the THE-463 memoization test (re-exported from mcp/server.ts).
+ *  `maxResponseBytes` is the registry's governor ceiling: a whole-note reader advertises it (capped
+ *  at Claude Code's own ceiling) as `_meta["anthropic/maxResultSizeChars"]`. Omitted -> no key. A
+ *  registry's ceiling never changes, so the memo only rebuilds when asked with another one. */
+export function toMcpTool(def: ToolDefinition, maxResponseBytes?: number): Tool {
   const cached = mcpToolMemo.get(def);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined && cached.budget === maxResponseBytes) return cached.tool;
   const tool: Tool = {
     name: def.name,
     title: titleize(def.name),
@@ -45,21 +49,36 @@ export function toMcpTool(def: ToolDefinition): Tool {
     ...outputSchemaField("outputSchema", def.outputSchema),
     annotations: toolAnnotations(def),
     ...(def.icons ? { icons: def.icons } : {}),
+    ...(def.wholeNotes && maxResponseBytes !== undefined
+      ? { _meta: { [MAX_RESULT_SIZE_META_KEY]: maxResultSizeChars(maxResponseBytes) } }
+      : {}),
   };
   Object.freeze(tool);
-  mcpToolMemo.set(def, tool);
+  mcpToolMemo.set(def, { tool, budget: maxResponseBytes });
   return tool;
 }
 
-const mcpToolNoOutputSchemaMemo = new WeakMap<ToolDefinition, Tool>();
+const mcpToolNoOutputSchemaMemo = new WeakMap<
+  ToolDefinition,
+  { tool: Tool; budget: number | undefined }
+>();
 
 /** `toolFacade.outputSchema: "omit"`: the same projection minus `outputSchema`, memoized apart from
  *  `toMcpTool` so the default path's frozen objects are untouched. */
-export function toMcpToolNoOutputSchema(def: ToolDefinition): Tool {
+export function toMcpToolNoOutputSchema(def: ToolDefinition, maxResponseBytes?: number): Tool {
   const cached = mcpToolNoOutputSchemaMemo.get(def);
-  if (cached !== undefined) return cached;
-  const { outputSchema: _omitted, ...rest } = toMcpTool(def);
+  if (cached !== undefined && cached.budget === maxResponseBytes) return cached.tool;
+  const { outputSchema: _omitted, ...rest } = toMcpTool(def, maxResponseBytes);
   const tool: Tool = Object.freeze(rest);
-  mcpToolNoOutputSchemaMemo.set(def, tool);
+  mcpToolNoOutputSchemaMemo.set(def, { tool, budget: maxResponseBytes });
   return tool;
 }
+
+/** The tools/list projection for a server: `outputSchema` per config, and the registry's byte
+ *  ceiling threaded in so a whole-note reader advertises `anthropic/maxResultSizeChars`. */
+export const projectTool =
+  (outputSchema: "full" | "omit" | undefined, maxResponseBytes: number) =>
+  (def: ToolDefinition): Tool =>
+    outputSchema === "omit"
+      ? toMcpToolNoOutputSchema(def, maxResponseBytes)
+      : toMcpTool(def, maxResponseBytes);

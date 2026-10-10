@@ -25,7 +25,7 @@ import { createQueryEncoder } from "../../search/query-encoder";
 import { DEFAULT_RRF_K } from "../../search/retrieval-defaults";
 import { type SemanticHit, semanticSearch } from "../../search/semantic";
 import { searchRegex, searchText, searchTextIndexed } from "../../search/text";
-import { paginate } from "../../util/paginate";
+import { DEFAULT_PAGE_SIZE, paginate } from "../../util/paginate";
 import { enforcePathAcl } from "../../vault/acl-path";
 import type { WalkReadable } from "../../vault/acl-read-filter";
 import { readableRel, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
@@ -563,7 +563,15 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
         };
         const semanticHits = async (): Promise<UnifiedHit[]> =>
           (
-            await semantic(ctx, s, asString(), input.limit ?? 50, undefined, false, "search_vault")
+            await semantic(
+              ctx,
+              s,
+              asString(),
+              input.limit ?? DEFAULT_PAGE_SIZE,
+              undefined,
+              false,
+              "search_vault",
+            )
           ).map((h) => ({
             path: h.path,
             score: h.score,

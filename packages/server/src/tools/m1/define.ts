@@ -38,6 +38,8 @@ export interface ToolSpec<S extends z.ZodTypeAny, O, B extends object = Record<n
   tags?: string[];
   /** Optional MCP 2025-11-25 icons metadata (THE-278). */
   icons?: ToolIcon[];
+  /** See ToolDefinition.wholeNotes. */
+  wholeNotes?: boolean;
   destructive?: boolean;
   /** THE-824: see ToolDefinition.conditionallyDestructive — display-only, never read by dispatch. */
   conditionallyDestructive?: boolean;

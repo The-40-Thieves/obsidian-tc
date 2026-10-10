@@ -60,6 +60,7 @@ function frontmatterLineOffset(rawFrontmatter: string | null): number {
 export function createReadNoteTool(deps: M1Deps): ToolDefinition {
   return defineTool({
     name: "read_note",
+    wholeNotes: true,
     domain: "notes",
     pathAcl: (input) => [{ op: "read", path: input.path }],
     description:
@@ -165,6 +166,7 @@ type ReadNotesEntryOrError =
 export function createReadNotesTool(deps: M1Deps): ToolDefinition {
   return defineTool({
     name: "read_notes",
+    wholeNotes: true,
     domain: "notes",
     pathAcl: (input) => input.paths.map((p) => ({ op: "read" as const, path: p })),
     description:

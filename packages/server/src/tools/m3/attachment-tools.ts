@@ -24,6 +24,7 @@ import {
   MEMORY_DEFENSE_OFF,
 } from "../../experiential/memory-defense";
 import { redactSecrets } from "../../experiential/redact";
+import { describeAttachment } from "../../formats/attachment-description";
 import {
   checkBase64Payload,
   DEFAULT_ATTACHMENT_EXTS,
@@ -37,6 +38,7 @@ import {
   resolveAttachmentWritePath,
 } from "../../formats/attachments";
 import type { ToolDefinition } from "../../mcp/registry";
+import { DEFAULT_SCAN_LIMIT } from "../../util/paginate";
 import { enforcePathAcl, ImmutableRewriteSkips } from "../../vault/acl-path";
 import { readableEntry, readableRel } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
@@ -84,6 +86,9 @@ const GetInput = z
     path: VaultPath,
     encoding: z.enum(["base64"]).default("base64"),
     max_bytes: z.number().int().positive().max(50_000_000).default(10_000_000),
+    // false: just `description` (and `references`), no base64 payload. For a client that cannot use
+    // the bytes (text-only, or an image placeholder) and would pay for them in context.
+    include_content: z.boolean().default(true),
     include_references: z.boolean().default(false),
   })
   .strict();
@@ -171,7 +176,10 @@ const GetAttachmentOutput = z.object({
   mime: z.string(),
   size: z.number(),
   encoding: z.literal("base64"),
-  content: z.string(),
+  /** A sentence a text-only client can use instead of the bytes: type, pixel size, file size. */
+  description: z.string(),
+  /** Omitted when the call passed include_content=false. */
+  content: z.string().optional(),
   references: z.array(z.string()).optional(),
 });
 
@@ -228,7 +236,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         );
         const after = input.cursor;
         const visible = after ? entries.filter((e) => e.relPath > after) : entries;
-        const limit = input.limit ?? 200;
+        const limit = input.limit ?? DEFAULT_SCAN_LIMIT;
         const page = visible.slice(0, limit);
         const next = visible.length > limit ? (page[page.length - 1]?.relPath ?? null) : null;
         const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
@@ -288,14 +296,16 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
             size,
             max_bytes: input.max_bytes,
           });
-        const content = readFileChecked(abs).toString("base64");
+        const bytes = readFileChecked(abs);
+        const mime = mimeOf(rel);
         return {
           vault: v.id,
           path: rel,
-          mime: mimeOf(rel),
+          mime,
           size,
           encoding: "base64",
-          content,
+          description: describeAttachment({ path: rel, mime, size, bytes }),
+          ...(input.include_content ? { content: bytes.toString("base64") } : {}),
           // N-2: only reveal referencing notes the caller may read (findAttachmentReferences walks
           // the whole vault ACL-free), so this cannot enumerate out-of-ACL note paths.
           ...(input.include_references
