@@ -408,7 +408,8 @@ function main(): void {
     // cannot then be opened is the same failure wearing a different hat.
     filesRead += 1;
     for (const v of scanFacts(text, rules, stats)) all.push({ file: rel, v });
-    if (locked)
+    // The gitignored decisions index mirrors CHANGELOG.md's dated bumps, which are history.
+    if (locked && !rel.endsWith("contributing/decisions-index.md"))
       for (const v of scanSdkVersions(text, locked, sdkStats)) sdkViolations.push({ file: rel, v });
   }
 
