@@ -125,7 +125,10 @@ async function oneRun(
       child.once("error", reject);
       child.once("close", (code) => reject(new Error(`server exited (${code}) before initialize`)));
       const afterSettle = (go: () => void): void => {
-        if (settleMs <= 0) return go();
+        if (settleMs <= 0) {
+          go();
+          return;
+        }
         const wait = (): void => {
           if (readyAt === null) {
             setTimeout(wait, 10);
