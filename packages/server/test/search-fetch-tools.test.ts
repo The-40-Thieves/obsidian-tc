@@ -251,17 +251,28 @@ describe("citation url", () => {
       expect(VaultConfigSchema.safeParse({ ...base, publicUrl: bad }).success, bad).toBe(false);
   });
 
-  it("encodes characters that would otherwise change the url's meaning", async () => {
-    const v = vault();
-    v.vaultRegistry.register({ id: "pub", path: v.root, publicUrl: "https://notes.example.com" });
-    v.write("a b/c#d?e%f&g.md", "# Odd\n\nunusualtoken\n");
-    const data = await ok(v.call("search", { vault: "pub", query: "unusualtoken" }));
-    expect(data.results[0].url).toBe("https://notes.example.com/a%20b/c%23d%3Fe%25f%26g");
-    const plain = await ok(v.call("search", { vault: "test", query: "unusualtoken" }));
-    expect(plain.results[0].url).toBe(
-      "obsidian://open?vault=test&file=a%20b%2Fc%23d%3Fe%25f%26g.md",
-    );
-  });
+  // `?` is not a legal filename character on Windows, so the `?` case is POSIX-only.
+  it.each([
+    ["a b/c#d%e&g.md", "a%20b/c%23d%25e%26g", "a%20b%2Fc%23d%25e%26g.md", true],
+    [
+      "a b/c#d?e%f&g.md",
+      "a%20b/c%23d%3Fe%25f%26g",
+      "a%20b%2Fc%23d%3Fe%25f%26g.md",
+      process.platform !== "win32",
+    ],
+  ])(
+    "encodes characters that would otherwise change the url's meaning: %s",
+    async (file, pub, obs, runnable) => {
+      if (!runnable) return;
+      const v = vault();
+      v.vaultRegistry.register({ id: "pub", path: v.root, publicUrl: "https://notes.example.com" });
+      v.write(file, "# Odd\n\nunusualtoken\n");
+      const data = await ok(v.call("search", { vault: "pub", query: "unusualtoken" }));
+      expect(data.results[0].url).toBe(`https://notes.example.com/${pub}`);
+      const plain = await ok(v.call("search", { vault: "test", query: "unusualtoken" }));
+      expect(plain.results[0].url).toBe(`obsidian://open?vault=test&file=${obs}`);
+    },
+  );
 });
 
 describe("stored ACL identity (acl_path), fail closed", () => {
