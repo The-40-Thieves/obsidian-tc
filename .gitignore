@@ -83,6 +83,7 @@ coverage/
 .omc/
 .claude/*
 !.claude/settings.json
+!.claude/generated-paths.txt
 !.claude/agents/
 !.claude/hooks/
 !.claude/skills/

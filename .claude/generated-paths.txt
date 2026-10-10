@@ -1,0 +1,14 @@
+# Wholly generated artifacts: never hand-edit, never write from a shell.
+#
+# ONE source of truth, read by every guard:
+#   .claude/hooks/block-generated-edits.sh     PreToolUse Edit|Write (exact repo-relative match)
+#   .claude/hooks/generated-drift-backstop.sh  PostToolUse Bash (catches shell writes after the fact)
+#   ~/.claude/hooks/guard-bash-writes.py       the global Bash pre-guard (not in this repo)
+# `permissions.deny` in settings.json must carry an Edit(/<path>) rule for each path below
+# (scripts/claude-hooks.test.mjs checks that).
+#
+# Format, one entry per line: <repo-relative path> TAB <regenerate command>. `#` comments and
+# blank lines are ignored. The separator is a real TAB. Do not change the format: the global hook
+# parses it too.
+docs/obsidian-tc.config.schema.json	bun run config:schema
+packages/server/src/db/migrations-embedded.ts	bun run migrations:embed

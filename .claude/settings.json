@@ -1,5 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Edit(/docs/obsidian-tc.config.schema.json)",
+      "Edit(/packages/server/src/db/migrations-embedded.ts)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -21,6 +27,16 @@
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/remind-regenerate.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/generated-drift-backstop.sh",
             "timeout": 5
           }
         ]
