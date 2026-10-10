@@ -21,7 +21,7 @@ import type { Database } from "../db/types";
 import { type AccessContext, mintAccessToken } from "./as-access";
 import { accountBounds, applyBounds } from "./as-account";
 import type { FormReader } from "./as-client-auth";
-import { type AsClient, sameResource, scopesCovered, splitScope } from "./as-clients";
+import { type AsClient, scopesCovered, splitScope } from "./as-clients";
 import { noteClientUsed } from "./as-dcr";
 import { drainRevocations, revokeFamily } from "./as-grants";
 import {
@@ -34,6 +34,7 @@ import {
 } from "./as-refresh";
 import { openResponse, sealResponse, secretGeneration } from "./as-refresh-replay";
 import type { AuthRegistry } from "./registry";
+import { matchResource } from "./resource-set";
 
 export interface RefreshContext {
   c: Context;
@@ -59,10 +60,9 @@ export async function refreshGrant(
   if (!token) return x.fail(400, "invalid_request", "refresh_token is required");
   const asked = one("scope");
   if (asked === null) return x.fail(400, "invalid_request", "scope may be sent once");
-  if (
-    askedResource === null ||
-    (askedResource !== undefined && !sameResource(askedResource, x.access.resource))
-  ) {
+  const askedMember =
+    typeof askedResource === "string" ? matchResource(askedResource, x.access.resource) : undefined;
+  if (askedResource === null || (askedResource !== undefined && askedMember === undefined)) {
     return x.fail(400, "invalid_target", "resource must be this server's resource URL");
   }
   const bad = (why: string) => {
@@ -84,6 +84,12 @@ export async function refreshGrant(
   if (rec === undefined) return bad("unknown refresh token");
   // Bound to the client it was issued to: anyone else learns nothing and changes nothing.
   if (rec.clientId !== client.clientId) return bad("refresh token issued to another client");
+  // The family keeps the resource its grant was consented for; naming another one here is refused.
+  const resource = matchResource(rec.resource, x.access.resource);
+  if (resource === undefined) return bad("the grant's resource is no longer served");
+  if (askedMember !== undefined && askedMember !== resource) {
+    return x.fail(400, "invalid_target", "resource differs from the one the token was issued for");
+  }
   const successor = successorToken(x.secret, token);
   const secretGen = secretGeneration(x.secret);
   /** The token's own client presented a reuse, or a token of a retired secret: the family goes. */
@@ -156,6 +162,7 @@ export async function refreshGrant(
       vault: bounded.vault,
       familyId: rec.familyId,
       grantId: rec.grantId,
+      resource,
     });
   } catch (e) {
     log(`token not refreshed: ${e instanceof Error ? e.message : "signing failed"}`);

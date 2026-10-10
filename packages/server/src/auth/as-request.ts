@@ -5,8 +5,9 @@
 // the caller builds with `iss` and the client's `state`.
 import { type ClientResolver, UNKNOWN_CLIENT } from "./as-cimd";
 import type { AsClient } from "./as-clients";
-import { redirectUriAllowed, resolveScopes, sameResource, splitScope } from "./as-clients";
+import { redirectUriAllowed, resolveScopes, splitScope } from "./as-clients";
 import type { PendingRequest } from "./as-grants";
+import { matchResource } from "./resource-set";
 
 export type AuthorizeOutcome =
   | { kind: "local"; message: string }
@@ -22,6 +23,7 @@ export type AuthorizeOutcome =
 export interface AuthorizeRules {
   /** The one client lookup (static client or metadata document); see as-cimd.ts. */
   resolveClient: ClientResolver;
+  /** `auth.resource`: the request may name it or any `allowedResources` member. */
   resource: string;
   scopesSupported: readonly string[] | undefined;
   /** The caller's address, for the per-source budget on metadata-document lookups. */
@@ -81,8 +83,11 @@ function queryFault(
       fault: { error: "invalid_request", description: "code_challenge_method must be S256" },
     };
   }
-  const resource = once("resource");
-  if (typeof resource !== "string" || !sameResource(resource, rules.resource)) {
+  const asked = once("resource");
+  // The audience is the member of the derived set the client named (auth/resource-set.ts), so a token
+  // for /mcp/essentials carries exactly that URL.
+  const resource = typeof asked === "string" ? matchResource(asked, rules.resource) : undefined;
+  if (resource === undefined) {
     return {
       fault: {
         error: "invalid_target",
@@ -102,7 +107,7 @@ function queryFault(
       },
     };
   }
-  return { challenge, resource: rules.resource, scopes: outcome.scopes };
+  return { challenge, resource, scopes: outcome.scopes };
 }
 
 /** A redirect address that could be a client's: an absolute URL without a fragment. Nothing else is

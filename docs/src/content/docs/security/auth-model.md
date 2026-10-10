@@ -243,8 +243,9 @@ obsidian-tc auth rotate-key --purpose as [--alg ES256|EdDSA] [--grace <seconds>]
 
 A token whose `kid` names an `as` key is checked by the **key's** purpose, never by what the token
 says about itself. It must carry `iss` equal to the authorization server's issuer, the JOSE header
-`typ: at+jwt`, a non-empty `client_id`, `aud` equal to `auth.resource` (a single string; an
-`auth.audience` override does not apply), and a `jti` (required even with `auth.requireJti` off).
+`typ: at+jwt`, a non-empty `client_id`, `aud` equal to `auth.resource` or to one of its
+[profile URLs](#profile-urls-and-oauth) (a single string; an `auth.audience` override does
+not apply), and a `jti` (required even with `auth.requireJti` off).
 Its scopes come from the `scope` claim only. The legacy `auth.issuer` never applies to an `as`
 token, and still binds only `mint` tokens. A token signed by an `as` key but shaped like a
 hand-minted one (no `typ`, no `client_id`, the legacy issuer) is refused. The verifier refuses every
@@ -692,6 +693,29 @@ and returns `WWW-Authenticate: Bearer resource_metadata="…"` on a `401`, so a
 spec-compliant client can discover the authorization server. This is opt-in and off
 by default. Point `authorizationServers` at an external AS, use `oidc` mode above (which advertises
 the issuer for you), or enable [the bundled authorization server](#the-bundled-authorization-server-authas).
+
+### Profile URLs and OAuth
+
+The [tool-budget profile URLs](/tools/#tool-budget-profiles) (`/mcp/essentials`, `core`, `full`,
+`triad`, `domain`) sign in like `/mcp`. With `auth.resource` set to the `/mcp` URL (R), a client
+may be given R or R plus any of those names:
+
+- The `401` on `R/<name>` points `resource_metadata` at a document that is served at the
+  path-inserted URL (`/.well-known/oauth-protected-resource/mcp/<name>`) and whose `resource`
+  is the URL the client was given, which is what clients compare. R keeps today's behaviour. An unknown
+  name stays `404` everywhere and is never a resource.
+- The bundled authorization server accepts a `resource` indicator equal to R or to `R/<name>`
+  (an exact match against that set, never a prefix), issues `aud` equal to the one requested, and a
+  refresh keeps it. The resource server accepts a token whose `aud` is any member of the set **on
+  every surface**: a profile changes only what is advertised, so the audience is one set of names for
+  one resource, not a per-path binding, and scopes and folder ACLs apply identically everywhere.
+- With an external authorization server (`auth.mode: jwt` and `auth.resource` with
+  `auth.authorizationServers`, no `auth.audience`), the audience bound is that same set, so
+  an RFC 8707 server that issues `aud` for the URL the client was given is accepted. An explicit
+  `auth.audience` (and the `oidc` audience) is taken exactly as written: if your server issues per-URL
+  audiences there, list them (`auth.audience` takes an array).
+- An `auth.resource` that is itself a profile URL (`https://host/mcp/essentials`) is one profile's
+  URL: its metadata is served at that path and nothing is derived from it. Prefer R = the bare `/mcp` URL.
 
 See also [Scopes & Folder ACLs](/security/acls/) and
 [HITL Elicitation](/security/hitl-elicit/).

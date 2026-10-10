@@ -95,6 +95,8 @@ export interface RefreshRecord {
   sub: string;
   persona: string | null;
   vault: string | null;
+  /** The resource the grant was consented for: every access token of the family carries it as `aud`. */
+  resource: string;
   grantRevoked: boolean;
 }
 
@@ -105,7 +107,7 @@ export function loadRefresh(db: Database, token: string): RefreshRecord | undefi
               r.parent_hash AS parentHash, r.scope, r.family_expires_at AS familyExpiresAt,
               r.successor_first_used_at AS successorFirstUsedAt, r.revoked_at AS revokedAt,
               r.secret_gen AS secretGen,
-              g.client_id AS clientId, g.sub, g.persona, g.vault,
+              g.client_id AS clientId, g.sub, g.persona, g.vault, g.resource,
               g.revoked_at IS NOT NULL AS grantRevoked
          FROM refresh_tokens r JOIN grants g ON g.id = r.grant_id WHERE r.token_hash = ?`,
     )

@@ -22,6 +22,8 @@ import { narrowToTokenScopes, resolvePersona } from "../auth/persona";
 import {
   buildProtectedResourceMetadata,
   isPrmConfigured,
+  profileMetadataPaths,
+  resourceMetadataUrl,
   wwwAuthenticateChallenge,
 } from "../auth/protected-resource";
 import type { AuthRegistry } from "../auth/registry";
@@ -510,6 +512,16 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
     const prm = buildProtectedResourceMetadata(opts.auth);
     app.get("/.well-known/oauth-protected-resource", (c) => c.json(prm));
     app.get("/.well-known/oauth-protected-resource/mcp", (c) => c.json(prm));
+    // R's own path-aware document, wherever R points (an `auth.resource` of https://host/mcp/essentials
+    // is challenged with the PRM URL of that path, and the challenge must lead somewhere).
+    const own = new URL(resourceMetadataUrl(opts.auth)).pathname;
+    if (own !== "/.well-known/oauth-protected-resource/mcp") app.get(own, (c) => c.json(prm));
+    // One path-aware document per profile URL (`/mcp/<surface>`): the 401 there points at it and its
+    // `resource` is the URL the client typed, which clients compare. Unknown surfaces have none.
+    for (const { surface, path } of profileMetadataPaths(opts.auth)) {
+      const doc = buildProtectedResourceMetadata(opts.auth, surface);
+      app.get(path, (c) => c.json(doc));
+    }
   }
 
   // RFC 8414 metadata of the bundled authorization server (`auth.as`): public, built from config
@@ -599,7 +611,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
       // RFC 9728 §5.1 challenge: on a 401, point a spec-compliant client at the PRM document so it
       // can discover the authorization server (THE-278). Only when PRM is configured.
       if (authz.status === 401 && isPrmConfigured(opts.auth))
-        c.header("WWW-Authenticate", wwwAuthenticateChallenge(opts.auth));
+        c.header("WWW-Authenticate", wwwAuthenticateChallenge(opts.auth, surfaceName));
       return c.json(
         { jsonrpc: "2.0", error: { code: -32001, message: authz.reason }, id: null },
         authz.status,
@@ -690,16 +702,23 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
   app.post("/mcp/:surface", mcpPost);
 
   // Stateless mode has no standalone SSE stream or server-side session to delete.
-  app.on(["GET", "DELETE"], ["/mcp", "/mcp/:surface"], (c) =>
-    c.json(
+  // An unknown surface is 404 on every method, a known one 405.
+  app.on(["GET", "DELETE"], ["/mcp", "/mcp/:surface"], (c) => {
+    const surfaceName = c.req.param("surface" as never) as string | undefined;
+    if (surfaceName !== undefined && urlSurfaceFor(surfaceName) === undefined)
+      return c.json(
+        { jsonrpc: "2.0", error: { code: -32000, message: "unknown tool surface" }, id: null },
+        404,
+      );
+    return c.json(
       {
         jsonrpc: "2.0",
         error: { code: -32000, message: "method not allowed (stateless)" },
         id: null,
       },
       405,
-    ),
-  );
+    );
+  });
 
   // The handler is the APP's now. Closing it is a shutdown concern, and `notify` is how a change
   // detected outside any request (the vault watcher) reaches an open subscription stream.

@@ -133,7 +133,11 @@ registered, authorized as always, and callable by name. This is different from
 
 An unknown name under `/mcp/` answers 404. The URL wins over `toolFacade.advertise`.
 Stdio has no URL, so it selects a subset by config only. OAuth-protected deployments keep
-one resource (`auth.resource`): every `/mcp/<name>` path is a sub-path of it.
+one resource (`auth.resource`, the `/mcp` URL): every `/mcp/<name>` URL is also a name for it. A
+client given `/mcp/essentials` is challenged with, and signs in against, metadata whose `resource` is
+that URL, and a token for any of these URLs works on every surface, as profiles change what is
+advertised and never what is authorized. See
+[Profile URLs and OAuth](/security/auth-model/#profile-urls-and-oauth).
 
 The server `instructions` open with one routing sentence for the surface the client was
 given, complete inside the first 512 characters (Codex truncates there) and well inside

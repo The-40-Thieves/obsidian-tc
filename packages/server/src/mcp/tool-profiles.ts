@@ -279,6 +279,11 @@ const URL_SURFACES: Readonly<Record<string, UrlSurface>> = Object.freeze({
   essentials: { mode: "flat", advertise: "essentials" },
 });
 
+/** The `/mcp/<segment>` names that resolve to a surface. The authorization layer derives the resource
+ *  URLs it accepts from this list (auth/resource-set.ts), so a surface added above is signed in to
+ *  without touching a second list. */
+export const URL_SURFACE_NAMES: readonly string[] = Object.freeze(Object.keys(URL_SURFACES));
+
 /** The surface for a `/mcp/<segment>` path segment, or undefined for an unknown name. Own keys
  *  only: `constructor`, `__proto__` and friends must not resolve to an inherited object. */
 export function urlSurfaceFor(segment: string): UrlSurface | undefined {

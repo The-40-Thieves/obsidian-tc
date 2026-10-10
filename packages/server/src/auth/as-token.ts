@@ -4,7 +4,7 @@
 //
 // Stricter than the hand-minted path on purpose: the issuer is the AS's own, never the global
 // `auth.issuer` (that one belongs to `mint` keys), the JOSE `typ` is `at+jwt`, and `client_id`,
-// `aud` (exactly the protected resource), `iss` and `jti` are all required, so an `as` key can
+// `aud` (exactly the protected resource, or one of its profile URLs: auth/resource-set.ts), `iss` and `jti` are all required, so an `as` key can
 // never be made to vouch for a token that is not an access token for THIS resource.
 //
 // Cross-slice contract: the issuing path (slice S5) must sign every access token with header
@@ -20,11 +20,12 @@ import {
   type JwtIdentity,
   type RevocationOpts,
 } from "./jwt";
+import { allowedResources } from "./resource-set";
 
 export interface AsTokenRules {
   /** `auth.as.issuer`: the one issuer an `as` key's tokens may carry. */
   issuer: string;
-  /** `auth.resource`: the one audience an `as` key's tokens may carry. */
+  /** `auth.resource`: an `as` key's tokens carry it or one of its profile URLs (`allowedResources`). */
   resource: string;
   maxAgeSeconds?: number;
 }
@@ -52,16 +53,19 @@ export async function verifyAsToken(
   rules: AsTokenRules,
   revocation: RevocationOpts,
 ): Promise<JwtIdentity> {
+  const allowed = allowedResources(rules.resource);
   try {
     const { payload } = await jwtVerify(token, key, {
       algorithms: [alg],
       typ: "at+jwt",
       issuer: rules.issuer,
-      audience: rules.resource,
+      audience: allowed,
       requiredClaims: REQUIRED_CLAIMS,
     });
     // jose accepts an audience LIST that merely contains the resource; the AS issues the string.
-    if (payload.aud !== rules.resource) throw new AuthRejection("audience_mismatch");
+    if (typeof payload.aud !== "string" || !allowed.includes(payload.aud)) {
+      throw new AuthRejection("audience_mismatch");
+    }
     // jose's requiredClaims proves PRESENCE only. The identity claims must also be the right type:
     // a numeric `jti` would be read as "no jti" downstream (never revocable), and the AS issues all
     // of these as non-empty strings (and `iat` as a number), so anything else did not come from it.

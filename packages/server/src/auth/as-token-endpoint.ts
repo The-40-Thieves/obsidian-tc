@@ -22,13 +22,14 @@ import {
   isFormRequest,
 } from "./as-client-auth";
 import { clientResolverFor } from "./as-client-resolver";
-import { sameResource, secretsEqual, splitScope } from "./as-clients";
+import { secretsEqual, splitScope } from "./as-clients";
 import { loadCode, revokeFamily } from "./as-grants";
 import { type AsRouteDeps, enabledAs } from "./as-metadata";
 import { socketClientIp } from "./as-operator";
 import { consumeCodeAndStartFamily, newRefreshToken } from "./as-refresh";
 import { refreshGrant } from "./as-refresh-grant";
 import { secretGeneration } from "./as-refresh-replay";
+import { matchResource } from "./resource-set";
 
 type AuthConfig = ServerConfig["auth"];
 
@@ -120,7 +121,10 @@ export function mountTokenRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps)
     if (!code || !redirectUri) {
       return fail(c, 400, "invalid_request", "code and redirect_uri are required");
     }
-    if (asked === null || (asked !== undefined && !sameResource(asked, resource))) {
+    // The audience is the code's own resource; one named here must be a member of the derived set
+    // (auth/resource-set.ts) and, below, the code's own.
+    const askedMember = typeof asked === "string" ? matchResource(asked, resource) : undefined;
+    if (asked === null || (asked !== undefined && askedMember === undefined)) {
       return fail(c, 400, "invalid_target", "resource must be this server's resource URL");
     }
 
@@ -135,7 +139,16 @@ export function mountTokenRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps)
     // known to someone else (callback history, a loopback observer) must not let them revoke what it issued.
     if (rec.clientId !== client.clientId) return bad("code issued to another client");
     if (rec.redirectUri !== redirectUri) return bad("redirect_uri differs from the request");
-    if (!sameResource(rec.resource, resource)) return bad("resource differs from the request");
+    const granted = matchResource(rec.resource, resource);
+    if (granted === undefined) return bad("the code's resource is no longer served");
+    if (askedMember !== undefined && askedMember !== granted) {
+      return fail(
+        c,
+        400,
+        "invalid_target",
+        "resource differs from the one the code was issued for",
+      );
+    }
     const verifier = one("code_verifier");
     if (typeof verifier !== "string" || !VERIFIER_RE.test(verifier))
       return bad("no usable verifier");
@@ -171,6 +184,7 @@ export function mountTokenRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps)
         vault: bounded.vault,
         familyId: rec.codeHash,
         grantId: rec.grantId,
+        resource: granted,
       }));
     } catch (e) {
       log(`token not issued: ${e instanceof Error ? e.message : "signing failed"}`);
