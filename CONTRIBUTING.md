@@ -255,7 +255,9 @@ type: Changed
 verbatim CHANGELOG markdown; do not write the PR number. The release derives it from the merge history and
 appends `(#N)` to the first bullet, because its coverage gate looks for that number; a fragment that
 already cites `(#N)` is left as written. A change to the type, default or constraint of an existing config key also
-adds `config-schema-change: path.to.key` to the front matter. `bun run check:changes` validates
+adds `config-schema-change: path.to.key` to the front matter, and rewording an advertised tool description
+adds `tool-description-change: tool_name` (after `bun run tool-descriptions:update` in `packages/server`;
+clients such as claude.ai re-prompt for approval when a description changes). `bun run check:changes` validates
 fragments; `scripts/release.mjs` folds them into the release section and deletes them. See
 `changes/README.md`.
 

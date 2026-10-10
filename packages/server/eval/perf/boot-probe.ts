@@ -96,7 +96,7 @@ export async function runBootProbe(): Promise<BootProbeResult> {
   const { toMcpTool } = await import("../../src/mcp/server");
   const t2 = performance.now();
   const visible = registry.listVisible({ grantedScopes: new Set(["*"]), readOnly: false });
-  const projected = visible.map(toMcpTool);
+  const projected = visible.map((d) => toMcpTool(d)); // not point-free: arg 2 is the size budget
   const toolsListMs = performance.now() - t2;
 
   return {

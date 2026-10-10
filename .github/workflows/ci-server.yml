@@ -106,6 +106,15 @@ jobs:
       - name: fetch parity baseline
         run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
 
+      # claude.ai keys "Always allow" to a hash of the tool description, so rewording an advertised
+      # description makes every user re-approve that tool. The committed snapshot
+      # (packages/server/test/tool-descriptions.snapshot.json) is proved equal to the live text by
+      # the server suite; this step compares it with the copy on origin/main and demands that every
+      # changed entry be named by `tool-description-change:` in a changes/ fragment. Needs the
+      # fetch above, and fails closed on an unresolvable ref.
+      - name: tool-description changes are acknowledged
+        run: bun run check:tool-description-acks
+
       # #850/#851/#852: CONTRIBUTING.md's "Inline commentary" section bans dated ticket-thread
       # banners (CORRECTED 2026-08-04:, VERIFIED 2026-...) and first-person narrative ("I found",
       # "we measured") in packages/*/src comments, and the sweep in #851/#852 already relocated

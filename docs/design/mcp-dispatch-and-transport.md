@@ -108,6 +108,27 @@ side — it simply waits forever for events that were never actually subscribed.
 development: without these capability declarations, every `notify` publish reached zero listeners
 and nothing errored anywhere in the pipeline.
 
+### list_changed is declared, never emitted (audit)
+
+Nothing in `packages/server/src` sends `notifications/{tools,prompts,resources}/list_changed`
+(`test/list-changed-stability.test.ts` scans the source and watches the wire in all three facade
+modes). That is the right number, not an omission: the tool surface is fixed for a process
+lifetime, and a caller's visible subset is fixed by its auth, so there is no "real change of the
+caller's visible set" within a session to announce. It matters because Visual Studio resets every
+tool approval on `list_changed`, and claude.ai re-prompts when a tool's description hash moves
+(`test/tool-descriptions.snapshot.json` guards the second). `notify` publishes only task and
+advisory events. A future emitter must fire on an actual change of the caller's visible set and
+extend that test.
+
+Core flows that lean on `listChanged`, `resources` or `prompts` (AgentCore, Le Chat, Zed and Hermes
+ignore all three): none depends on `listChanged`; every tool is reachable from a plain `tools/list`.
+Notes as resources have a tool equivalent (`read_resources`, `read_notes`). Two soft dependencies
+remain, both optional hints and neither blocking: `find_capability`'s description and the
+instructions point at the `obsidian-tc://catalog` resource to enumerate the whole caller-visible
+catalog, whereas a resource-blind client in triad mode can only search it with `find_capability` (a
+query is required; there is no tool that lists everything), and the built-in prompts have no tool
+equivalent (they are templates, not capabilities).
+
 ## server.ts — dual protocol-era support (THE-583)
 
 Serving both the 2025-11-25 and 2026-07-28 (`MODERN_PROTOCOL_VERSION`) wire codecs from one server

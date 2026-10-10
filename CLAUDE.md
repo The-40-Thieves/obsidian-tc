@@ -56,7 +56,7 @@ signature in the vec/indexing path, the bun-smoke project is what catches those 
 `check:comment-style`, `check:plugin-routes`, `check:public-text`, `check:readme-size`,
 `check:duplicate-exports`, `check:table-readers`, `check:embedding-transport`, `test:scripts`,
 `check:duplication`, `check:export-surface`, `check:facade-parity`, `check:model-fetch-parity`,
-`check:model-pins` and `check:acl-identity` (20 steps; the Python under `packages/server/eval` has its own `python-eval` job; this list read *ten* until 2026-09-26, and the eleventh cost a CI round).
+`check:model-pins`, `check:acl-identity` and `check:tool-description-acks` (21 steps; the Python under `packages/server/eval` has its own `python-eval` job; this list read *ten* until 2026-09-26, and the eleventh cost a CI round).
 
 **`check:comment-style` is a RATCHET on the COUNT of files with >= 120 comment lines**
 (`scripts/comment-style-baseline.json`, `maxFiles`), not a per-file cap. A file sitting at 119 on
@@ -128,6 +128,21 @@ one generated file two PRs can still both change; `.gitattributes` gives it the 
 `bun run check:merge-driver`). GitHub's own conflict check ignores merge drivers, so merge or rebase
 `main` locally to resolve such a conflict. A change to an existing config key's type, default or
 constraint needs `config-schema-change: <key>` in its `changes/` fragment.
+
+**Advertised tool names and descriptions are gated, because clients key approvals to them.**
+claude.ai keys "Always allow" to a hash of the description and Visual Studio resets approvals on
+`list_changed`, so rewording a description makes every user re-approve that tool. A description
+change therefore needs three things: `bun run tool-descriptions:update` in `packages/server`
+(rewrites `test/tool-descriptions.snapshot.json`: full text, sorted, one `<surface>/<tool>` entry
+per line; `test/tool-description-snapshot.test.ts` fails on a stale one), the changed tool named in
+`tool-description-change: <tool>[, <tool>]` in the `changes/` fragment (`check:tool-description-acks`,
+a lint-job step, diffs the snapshot against `origin/main`; a new or removed tool needs nothing), and
+the domain-mode entry follows from its members (the member's name acknowledges its line). Names:
+`test/tool-name-hygiene.test.ts` holds every advertised name on every surface to at most 40 chars,
+`^[a-z][a-z0-9_]*$`, no generic name (`read`, `run`, `get`, ...) unless allowlisted with a reason
+in `scripts/docgen/check-tool-names.ts` (`search`/`fetch` are the standard OpenAI names: never
+rename), and one meaning per name across surfaces. The server emits no `list_changed` at all;
+`test/list-changed-stability.test.ts` keeps it that way.
 
 Which docs carry marker regions is **`GENERATED_DOC_FILES`** in
 `packages/server/scripts/docgen/targets.ts`; `render.ts` asserts its own targets against it. Do not

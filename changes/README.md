@@ -22,4 +22,9 @@ type: Added
 - A change that alters the type, default or constraint of an EXISTING config key adds
   `config-schema-change: path.to.key, other.key` to the front matter; `config:schema:check`
   refuses that kind of change without it.
+- A change that rewords an advertised tool description adds
+  `tool-description-change: tool_name, other_tool` to the front matter (claude.ai re-prompts for
+  approval when a description changes). Run `bun run tool-descriptions:update` in `packages/server`
+  to refresh the snapshot first; `check:tool-description-acks` refuses a changed entry that no
+  fragment names. A new or removed tool needs nothing.
 - `bun run check:changes` validates the fragments.
