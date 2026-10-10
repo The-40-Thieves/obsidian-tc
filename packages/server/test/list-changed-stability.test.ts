@@ -140,7 +140,7 @@ describe("no source path emits list_changed", () => {
     const files = sourceFiles(fileURLToPath(new URL("../src", import.meta.url)));
     // Existence floor: an empty walk would pass vacuously.
     expect(files.length).toBeGreaterThan(200);
-    expect(files.some((f) => f.endsWith("/mcp/server.ts"))).toBe(true);
+    expect(files.some((f) => f.replaceAll("\\", "/").endsWith("/mcp/server.ts"))).toBe(true);
     const hits = files.flatMap((f) =>
       readFileSync(f, "utf8")
         .split("\n")
