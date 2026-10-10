@@ -279,6 +279,9 @@ const URL_SURFACES: Readonly<Record<string, UrlSurface>> = Object.freeze({
   essentials: { mode: "flat", advertise: "essentials" },
 });
 
+// Claude Code defers MCP tools unless `_meta` asks for upfront load; only the triad (the entry point) asks.
+export const ALWAYS_LOAD_META = Object.freeze({ "anthropic/alwaysLoad": true });
+
 /** The `/mcp/<segment>` names that resolve to a surface. The authorization layer derives the resource
  *  URLs it accepts from this list (auth/resource-set.ts), so a surface added above is signed in to
  *  without touching a second list. */

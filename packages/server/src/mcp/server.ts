@@ -51,7 +51,7 @@ import {
   findCapabilityResponse,
   isDomainTool,
   isFacadeTool,
-  triadDirectDefs,
+  triadDirectTools,
   triadTools,
 } from "./facade";
 import { createFacadeModeResolver } from "./facade-mode-resolver";
@@ -403,7 +403,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
       // `opts.visibility` is the pure per-request caller (see its doc comment), not `opts.context`,
       // which can open a workspace session on HTTP: a bare triad tools/list must not.
       const project = opts.outputSchema === "omit" ? toMcpToolNoOutputSchema : toMcpTool;
-      const direct = triadDirectDefs(opts.registry.listVisible(opts.visibility)).map(project);
+      const direct = triadDirectTools(opts.registry.listVisible(opts.visibility), project);
       return withCacheHint(
         { tools: [...triadTools(Boolean(opts.vaultRegistry)), ...direct] },
         CACHE_PRIVATE,

@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 import { buildFullRegistry } from "../scripts/docgen/build-registry";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
-import { buildInstructions, triadTools } from "../src/mcp/facade";
+import { buildInstructions, TRIAD_DIRECT_TOOLS, triadTools } from "../src/mcp/facade";
 import type { CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { createMcpServer } from "../src/mcp/server";
 import {
@@ -147,7 +147,8 @@ describe("tools/list per profile", () => {
       core: (await listNames(registry, { advertise: "core" })).length,
       full: (await listNames(registry, { facadeMode: "flat" })).length,
     };
-    expect(sizes.triad).toBe(3);
+    // The three meta-tools plus the standard `search` and `fetch` advertised beside them.
+    expect(sizes.triad).toBe(3 + TRIAD_DIRECT_TOOLS.length);
     expect(sizes.essentials).toBeLessThanOrEqual(40);
     // core: 101 on purpose (update_observation stays core; see docgen-stats.test.ts). It fits the
     // 128-per-request clients (VS Code, Copilot Studio, Vertex) but NOT the 100-total ones, which
@@ -239,7 +240,12 @@ describe("URL routing on the HTTP transport", () => {
     const a = app();
     const r = await listAt(a, "/mcp");
     expect(r.status).toBe(200);
-    expect(r.names).toEqual(["find_capability", "describe_capability", "call_capability"]);
+    expect(r.names).toEqual([
+      "find_capability",
+      "describe_capability",
+      "call_capability",
+      ...TRIAD_DIRECT_TOOLS,
+    ]);
     await a.close();
   });
 
@@ -257,7 +263,7 @@ describe("URL routing on the HTTP transport", () => {
     expect((await listAt(a, "/mcp/core")).names.length).toBe(
       REGISTERED_TOOL_COUNT - NON_CORE_TOOL_NAMES.length,
     );
-    expect((await listAt(a, "/mcp/triad")).names.length).toBe(3);
+    expect((await listAt(a, "/mcp/triad")).names.length).toBe(3 + TRIAD_DIRECT_TOOLS.length);
     await a.close();
   });
 
@@ -364,6 +370,28 @@ describe("Claude Code alwaysLoad", () => {
   it('marks every triad tool with _meta "anthropic/alwaysLoad": true', () => {
     for (const t of triadTools(true)) expect(t._meta?.["anthropic/alwaysLoad"], t.name).toBe(true);
     for (const t of triadTools(false)) expect(t._meta?.["anthropic/alwaysLoad"], t.name).toBe(true);
+  });
+
+  it("marks the triad's direct tools too: they are part of the default surface", async () => {
+    const server = createMcpServer({
+      name: "x",
+      version: "0",
+      registry: buildFullRegistry(),
+      context,
+      visibility: FULL,
+      facadeMode: "triad",
+    });
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    await server.connect(st);
+    const client = new Client({ name: "t", version: "0" });
+    await client.connect(ct);
+    const tools = (await client.listTools()).tools;
+    await client.close();
+    expect(tools.map((t) => t.name)).toEqual([
+      ...triadTools(true).map((t) => t.name),
+      ...TRIAD_DIRECT_TOOLS,
+    ]);
+    for (const t of tools) expect(t._meta?.["anthropic/alwaysLoad"], t.name).toBe(true);
   });
 
   it("does not mark flat tools (they are the deferred ones)", async () => {

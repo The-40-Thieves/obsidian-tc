@@ -15,6 +15,7 @@ import { type InstructionsSurface, routingGuidance } from "./instructions-routin
 import { TOOL_DOMAINS, type ToolDefinition, type ToolDomain, type ToolRegistry } from "./registry";
 import { relaxVaultInJson } from "./registry/vault-default";
 import { lowerOutputSchema, lowerSchema } from "./schema-lowering";
+import { ALWAYS_LOAD_META } from "./tool-profiles";
 import { isAdvertisedDestructive, isMutatingDefinition } from "./tool-tags";
 import type { VisibilityCaller } from "./visibility";
 
@@ -30,6 +31,16 @@ export const TRIAD_DIRECT_TOOLS = ["search", "fetch"] as const;
 
 export function triadDirectDefs(visible: readonly ToolDefinition[]): ToolDefinition[] {
   return TRIAD_DIRECT_TOOLS.flatMap((name) => visible.filter((d) => d.name === name));
+}
+
+export function triadDirectTools(
+  visible: readonly ToolDefinition[],
+  project: (d: ToolDefinition) => Tool,
+): Tool[] {
+  return triadDirectDefs(visible).map((d) => {
+    const tool = project(d);
+    return { ...tool, _meta: { ...tool._meta, ...ALWAYS_LOAD_META } };
+  });
 }
 
 // Emit JSON Schema 2020-12 — the default dialect of MCP 2025-11-25 (THE-278). draft-7 stays valid
@@ -159,9 +170,6 @@ export async function callCapability(
 // THE-937: `hasResources` (a vaultRegistry present) selects whether find_capability names a
 // resource that might not exist; keyed on the boolean so both variants stay memoized.
 const triadCache = new Map<boolean, Tool[]>();
-
-// Claude Code defers MCP tools unless `_meta` asks for upfront load; only the triad (the entry point) asks.
-const ALWAYS_LOAD_META = Object.freeze({ "anthropic/alwaysLoad": true });
 
 export function triadTools(hasResources = true): Tool[] {
   let cached = triadCache.get(hasResources);

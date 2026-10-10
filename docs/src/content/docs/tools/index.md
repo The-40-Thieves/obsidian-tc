@@ -145,7 +145,7 @@ advertised and never what is authorized. See
 
 The server `instructions` open with one routing sentence for the surface the client was
 given, complete inside the first 512 characters (Codex truncates there) and well inside
-Claude Code's 2,048. The triad's three tools carry `_meta` `"anthropic/alwaysLoad": true`
+Claude Code's 2,048. The triad's three tools, and the `search` and `fetch` advertised beside them, carry `_meta` `"anthropic/alwaysLoad": true`
 so Claude Code loads them upfront instead of behind its tool search.
 
 ## Tool tags
