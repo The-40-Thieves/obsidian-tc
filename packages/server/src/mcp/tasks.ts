@@ -44,7 +44,7 @@ export interface McpTask {
   /** `CompletedTask.result` — the CallToolResult the synchronous call would have returned. */
   result?: Record<string, unknown>;
   /** `FailedTask.error` — the JSON-RPC error that ended the task. */
-  error?: { code: number; message: string };
+  error?: { code: number; message: string; data?: Record<string, unknown> };
 }
 
 /** How often a client should poll a still-working task. Matches the queue's own lease cadence. */
@@ -242,6 +242,9 @@ export interface TaskCallPayload {
   scopes: string[];
   vaultId: string;
   vaultBound: boolean;
+  /** The originating request carried a `progressToken`: the runner then gives the tool a
+   *  `ctx.progress` hook. Absent/false means nobody is listening, so there is no hook at all. */
+  progress?: boolean;
 }
 
 /** The job type a task-augmented tool call is enqueued as. */

@@ -93,6 +93,8 @@ describe("deriveWindowVerdict: the read-family list (THE-726)", () => {
     "get_provenance",
     "get_server_config",
     "get_session_traces",
+    // Polls a background tool call's status: no note was looked at.
+    "get_task_status",
     "get_vault",
     "read_base",
     "read_canvas",

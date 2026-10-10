@@ -162,6 +162,9 @@ export interface HttpAppOptions {
    *  Only caller-OWNED jobs are ever visible through it — everything this process enqueues for
    *  itself has a NULL owner and stays invisible (see mcp/tasks.ts). */
   jobQueue?: JobQueue;
+  /** Starts a queued task call now. With `jobQueue`, a long tool called by a client that did not
+   *  declare Tasks waits for its task up to the time budget, then gets a `get_task_status` handle. */
+  startTask?: (jobId: string) => void;
   /** THE-634: publish side of the advisory push extension; when absent, advisory subscriptions are
    *  not served (the caller falls through to the SDK handler, which acks with an empty filter and
    *  delivers nothing — see mcp/advisories.ts). Absent whenever `experiential.proactive.enabled`
@@ -490,6 +493,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
         era: mcpCtx.era,
         elicitCodec,
         jobQueue: opts.jobQueue,
+        startTask: opts.startTask,
         experientialLogRetrievals: opts.experientialLogRetrievals,
       }),
     { legacy: "stateless" },

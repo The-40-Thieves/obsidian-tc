@@ -656,6 +656,32 @@ server can replace the file; it is never accepted as authenticated input. The ne
 whole page with the HMAC. For `log.md`, it discards the legacy preamble and `last_seq` and projects from
 the provenance database again. An edited or invalid legacy file is left untouched and reported.
 
+## Long-running tools
+
+Some clients give up on a call after about a minute (Codex and ChatGPT around 60 s, the Cloudflare
+Agents SDK 60 s), and Claude Code after five minutes without progress. A tool that can outlast that,
+today `index_vault` on a large vault, therefore never holds the request open past a time budget of
+**40 seconds**:
+
+- **It finishes inside the budget.** The call returns the tool's own result, exactly as if it had run
+  inline. This is the common case, so small calls stay synchronous.
+- **It does not.** The call returns a normal (non-error) result carrying a handle,
+  `{ "status": "working", "task_id": "…", "poll_tool": "get_task_status", "tool": "index_vault", "message": "…" }`.
+  The work keeps running on the server. Call `get_task_status` with that `task_id`: while it is
+  `working` it reports `progress` (units done, total when known) and a `retry_after_seconds` hint, and
+  once `completed` it carries the tool's result under `result` (a failure carries `error`). The text
+  block says the same in a sentence, because some clients read nothing else.
+- **A client that declared the Tasks extension** gets the handle at once and polls `tasks/get` (HTTP).
+  stdio has no `tasks/get` route, so it neither advertises the extension nor hands a task handle to a
+  client that declares it: it gets the budgeted wait and `get_task_status` like any other client.
+- **A caller that sends a `progressToken`** receives `notifications/progress` while the call runs;
+  `index_vault` reports notes processed out of notes seen. Most clients reset their own timeout on each
+  one.
+
+Only the caller that started a task can read it with `get_task_status`; a missing, foreign or internal
+id all answer `not_found`. The same budget applies when the tool is reached through `call_capability`
+or a domain tool.
+
 ## Result size and paging
 
 Clients cap how much of a tool result they show the model: Grok Build inlines about 20 KB and
@@ -858,7 +884,7 @@ Each of these was reviewed and takes no parameter, because there is nothing a ca
 | `generate_uri` | One URI. |
 | `add_vault`, `reload_vault`, `reset_vault_cache`, `refresh_plugin_capabilities` | Acknowledgements: the vault id and times, the rows dropped (the blast radius) or the capability diff, which is the payload. |
 | `get_vault` | One vault's configuration; `read_only` and the ACL path lists are safety signals and the rest is two short blocks. |
-| `get_index_status`, `server_health` | Every field is a health signal (reconcile state, write failures, vec and fts, the job queue, leader role, facade and telemetry). |
+| `get_index_status`, `get_task_status`, `server_health` | Every field is a health signal (reconcile state, write failures, vec and fts, the job queue, leader role, facade and telemetry; for `get_task_status`, the state, progress and retry hint of one task, with the finished tool's own result under `result`). |
 | `get_metrics`, `inspect_acl` | The metric rows, or the one allow or deny verdict with its rule, are the payload. |
 
 Every registered tool is in exactly one of the two groups, the tools that take `response_format`

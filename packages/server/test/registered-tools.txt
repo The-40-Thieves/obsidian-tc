@@ -58,6 +58,7 @@ get_periodic_note
 get_provenance
 get_server_config
 get_session_traces
+get_task_status
 get_vault
 git_commit
 git_diff

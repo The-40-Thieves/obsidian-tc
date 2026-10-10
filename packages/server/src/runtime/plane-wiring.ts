@@ -31,7 +31,7 @@ import { wrapPlaneJob } from "../plane/plane";
 import { JobQueue } from "../scheduler/job-queue";
 import { type JobHandler, makeJobRunner } from "../scheduler/job-runner";
 import type { Scheduler } from "../scheduler/scheduler";
-import { makeTaskCallHandler } from "../scheduler/task-call-runner";
+import { makeStartTask, makeTaskCallHandler } from "../scheduler/task-call-runner";
 import { vaultExclusionFor } from "../search/index-exclusion";
 import type { IndexHook, IndexStats, IndexVaultArgs } from "../search/indexer";
 import { type IdleGate, serializeAdmission, waitForIdle } from "../search/indexing/embed-pace";
@@ -171,6 +171,10 @@ export interface JobHandlersDeps {
 export interface JobHandlersWiring {
   jobHandlers: Map<string, JobHandler>;
   jobRunner: ReturnType<typeof makeJobRunner>;
+  /** What `createMcpServer` / `startHttp` need to run a long tool as a budgeted task: the queue
+   *  and `startTask`, which runs one queued call NOW (the runner's tick is 15 s and serial) with the
+   *  same handler and lease owner as the runner. */
+  taskCalls: { jobQueue: JobQueue; startTask: (jobId: string) => void };
 }
 
 /** Build the durable job-type handler map (task-call always; contradiction/synthesis/audit only
@@ -335,14 +339,19 @@ export function wireJobHandlers(deps: JobHandlersDeps): JobHandlersWiring {
     );
     jobHandlers.set("citation", citationJob);
   }
+  const leaseOwner = `serve:${process.pid}`;
   const jobRunner = makeJobRunner({
     queue: deps.jobQueue,
-    leaseOwner: `serve:${process.pid}`,
+    leaseOwner,
     handlers: jobHandlers,
     classLimits: { contradiction: 4, plane: 1 },
     // outcomes are surfaced via server_health stats, not per-job logging; onOutcome left unset
   });
-  return { jobHandlers, jobRunner };
+  const startTask = makeStartTask(
+    { registry: deps.registry, db: deps.db, acl: deps.acl, queue: deps.jobQueue },
+    leaseOwner,
+  );
+  return { jobHandlers, jobRunner, taskCalls: { jobQueue: deps.jobQueue, startTask } };
 }
 
 export interface ReconcileRunnerDeps {
