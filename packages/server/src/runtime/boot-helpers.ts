@@ -22,12 +22,12 @@ export function nativeReadyToken(active: boolean): "on" | "js-fallback" {
 }
 
 /**
- * How long deferBootWork waits for a first `initialize` before starting the warmup anyway. A
- * stdio-only server has exactly one client and it handshakes within seconds, so the cap only bounds
- * a client that never does; with HTTP enabled the stdio `oninitialized` may never fire (stdin is
- * /dev/null) and HTTP sessions are not observable from here, so the wait is short.
+ * How long deferBootWork waits for a first `initialize` before starting the warmup anyway. A stdio
+ * client sends `initialize` the moment it spawns the process, so the cap only bounds a client that
+ * never does (a probe, a test harness) and HTTP, whose sessions are not observable from here; a
+ * longer wait buys nothing and starves the index of a reconcile when no handshake ever comes.
  */
-export const BOOT_WARMUP_MAX_WAIT_MS = { stdioOnly: 30_000, httpEnabled: 2_000 } as const;
+export const BOOT_WARMUP_MAX_WAIT_MS = 2_000;
 
 /** `name` is a plain `string`, not a closed union — `wireRuntimeCore` and `buildServerRuntime` each
  *  push their own fixed set of layer names onto the same `OwnedLayer`/`unwindReversed` machinery. */

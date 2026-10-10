@@ -604,9 +604,7 @@ export async function buildServerRuntime(
     });
     cancelBootWarmup = deferBootWork(() => void runReconcile(bootReconcileAbort.signal), {
       initialized,
-      maxWaitMs: config.transports.http.enabled
-        ? BOOT_WARMUP_MAX_WAIT_MS.httpEnabled
-        : BOOT_WARMUP_MAX_WAIT_MS.stdioOnly,
+      maxWaitMs: BOOT_WARMUP_MAX_WAIT_MS,
     });
 
     morgiana.emit(firstVault.id, "tc.server.start");
