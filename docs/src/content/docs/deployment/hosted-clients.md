@@ -54,7 +54,7 @@ Gemini Enterprise controls egress for custom MCP servers with organization-polic
 by source IP: its page lists none. When VPC Service Controls or project enforcement is on, add the
 **domain names** (not full URLs) of the MCP server URL, the authorization URL and the token URL to
 `allowedEgressFqdns`, and the custom MCP data source type to `allowedDataSources`. For a server on
-`vault.example.com` with the bundled authorization server, that is the one host; with an external
+one hostname with the bundled authorization server, that is the one host; with an external
 IdP it is the server host plus the IdP's authorization and token hosts. `doctor --probe` prints the
 list it derived from your authorization-server metadata (`allowlistDomains`).
 
