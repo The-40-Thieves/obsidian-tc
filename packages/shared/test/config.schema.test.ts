@@ -42,6 +42,51 @@ describe("ServerConfigSchema", () => {
     expect(c.transports.http.host).toBe("127.0.0.1");
   });
 
+  it("trusts no proxy by default (forwardedHeader defaults to X-Forwarded-For)", () => {
+    const c = ServerConfigSchema.parse(base);
+    expect(c.transports.http.trustedProxies).toEqual([]);
+    expect(c.transports.http.forwardedHeader).toBe("x-forwarded-for");
+  });
+
+  it("accepts addresses and CIDR blocks as trusted proxies and the Cloudflare header", () => {
+    const c = ServerConfigSchema.parse({
+      ...base,
+      transports: {
+        http: {
+          trustedProxies: ["127.0.0.1", "::1", "172.18.0.0/16", "fd00::/8"],
+          forwardedHeader: "cf-connecting-ip",
+        },
+      },
+    });
+    expect(c.transports.http.trustedProxies).toHaveLength(4);
+    expect(c.transports.http.forwardedHeader).toBe("cf-connecting-ip");
+  });
+
+  it.each([
+    "localhost",
+    "proxy.example.com",
+    "*",
+    "10.0.0.0/33",
+    "0.0.0.0/0",
+    "::/0",
+    "10.0.0",
+    "127.0.0.1:8080",
+  ])("rejects %s as a trusted proxy", (entry) => {
+    const r = ServerConfigSchema.safeParse({
+      ...base,
+      transports: { http: { trustedProxies: [entry] } },
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects an unknown forwardedHeader", () => {
+    const r = ServerConfigSchema.safeParse({
+      ...base,
+      transports: { http: { forwardedHeader: "x-real-ip" } },
+    });
+    expect(r.success).toBe(false);
+  });
+
   // THE-935 (GH #878): db.busyTimeoutMs is the first config surface over db/pragmas.ts's
   // DEFAULT_BUSY_TIMEOUT_MS, which stays 5000 and stays the schema default.
   it("defaults db.busyTimeoutMs to 5000 (THE-935)", () => {
