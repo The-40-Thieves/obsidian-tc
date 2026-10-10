@@ -112,7 +112,8 @@ matches, you are wired up.
 
 ## 3. The core skill: discover, don't guess
 
-By default the server advertises **three meta-tools**, not a wall of every tool. This
+By default the server advertises **three meta-tools** (plus the standard `search` and `fetch`
+tools that ChatGPT deep research requires), not a wall of every tool. This
 keeps agent context lean. Learn this loop before anything else:
 
 1. **`find_capability`**, BM25 search over the capabilities *this caller can see*.
@@ -125,7 +126,7 @@ keeps agent context lean. Learn this loop before anything else:
    as a direct call; the target's own schema validates the args.
 
 Every capability also remains **directly callable by name**. `toolFacade.mode`
-selects what `tools/list` shows: `triad` (default, 3 tools), `domain` (~a dozen
+selects what `tools/list` shows: `triad` (default, 3 meta-tools plus `search` and `fetch`), `domain` (~a dozen
 domain meta-tools like `notes`, `search`, `vault`), `flat` (the whole surface), or
 `auto` (per connecting client, provisional table). The facade is boundary-only:
 no gate is bypassed in any mode.

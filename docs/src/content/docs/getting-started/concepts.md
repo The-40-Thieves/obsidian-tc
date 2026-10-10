@@ -21,7 +21,7 @@ and a structured result. See the [Tool Reference](/tools/).
 
 `toolFacade.mode` controls what `tools/list` advertises: **`triad`** (default)
 exposes three meta-tools (`find_capability`, `describe_capability`,
-`call_capability`) for progressive discovery; **`domain`** exposes ~a dozen domain
+`call_capability`) for progressive discovery, plus the standard `search` and `fetch`; **`domain`** exposes ~a dozen domain
 meta-tools taking `{ action, args }`; **`flat`** advertises every tool; **`auto`**
 picks one of the three per connecting client from its `clientInfo.name`
 (provisional and superseded: set the mode explicitly per client instead — see

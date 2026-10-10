@@ -50,6 +50,11 @@
             "minLength": 1,
             "description": "Absolute path to the vault directory on disk."
           },
+          "publicUrl": {
+            "description": "Opt-in https base url where this vault's notes are published (for example an Obsidian Publish or Quartz site). When set, the standard `search` and `fetch` tools cite `<publicUrl>/<note path>` (path segments percent-encoded, `.md` dropped) instead of an obsidian://open link, so ChatGPT deep research and company knowledge can render clickable citations. Absent means the obsidian:// deep link is used.",
+            "type": "string",
+            "format": "uri"
+          },
           "kind": {
             "default": "private",
             "description": "Isolation kind, enforced one-directionally: the read:docs tools (knowledge_search/knowledge_get_critical) refuse any vault whose kind is not `docs`. `private` (default) = personal vault; `docs` = external docs corpus the read:docs surface is bound to; `system` = reserved internal vault. Not yet enforced: the private read:notes tools are NOT fenced out of a docs/system vault (a follow-up).",
@@ -2065,7 +2070,7 @@
       "properties": {
         "mode": {
           "default": "triad",
-          "description": "Which surface tools/list advertises: `triad` exposes three meta-tools (find/describe/call_capability), `domain` about a dozen domain meta-tools, `flat` the full tool surface, `auto` is deprecated: it resolves to `triad` for every client (unless `autoClients` overrides) and will be removed in the next major version, so set an explicit mode (recommended: `triad`). Every registered tool stays callable by name in every mode.",
+          "description": "Which surface tools/list advertises: `triad` exposes three meta-tools (find/describe/call_capability) plus the standard `search` and `fetch` tools, `domain` about a dozen domain meta-tools, `flat` the full tool surface, `auto` is deprecated: it resolves to `triad` for every client (unless `autoClients` overrides) and will be removed in the next major version, so set an explicit mode (recommended: `triad`). Every registered tool stays callable by name in every mode.",
           "type": "string",
           "enum": [
             "triad",

@@ -217,7 +217,7 @@ describe("every advertised schema is portable", () => {
           expect(inputs).toBeGreaterThan(profile === "core" ? 100 : 150);
           expect(outputs).toBeGreaterThan(profile === "core" ? 80 : 120);
         }
-        if (mode === "triad") expect(inputs).toBe(3);
+        if (mode === "triad") expect(inputs).toBe(5); // find, describe, call + search, fetch
         if (mode === "domain") expect(inputs).toBeGreaterThanOrEqual(profile === "core" ? 6 : 10);
 
         if (mode === "flat") {

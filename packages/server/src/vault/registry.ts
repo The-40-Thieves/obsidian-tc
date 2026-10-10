@@ -67,6 +67,9 @@ export interface ResolvedVault {
   kind: VaultKind;
   restApiUrl?: string;
   restApiKey?: string;
+  /** `publicUrl` from this vault's config: the https base the standard `search`/`fetch` tools cite
+   *  notes under (tools/m2/citation-url.ts). Absent: they cite an obsidian:// link. */
+  publicUrl?: string;
   /** `index.excludePaths` from this vault's config, merged with Obsidian's own Excluded files list
    *  (search/index-exclusion.ts). Absent for a vault added at runtime. */
   indexExcludePaths?: readonly string[];
@@ -141,6 +144,7 @@ export class VaultRegistry {
         kind: v.kind ?? "private",
         restApiUrl: v.restApiUrl,
         restApiKey: v.restApiKey,
+        ...(v.publicUrl ? { publicUrl: v.publicUrl } : {}),
         ...(v.index?.excludePaths?.length ? { indexExcludePaths: v.index.excludePaths } : {}),
         ...(exclusionCacheDir ? { exclusionCacheDir } : {}),
         ...(wikiFolder ? { wikiFolder, wikiFolders: wikiFolderNames(root, wikiFolder) } : {}),
@@ -169,6 +173,7 @@ export class VaultRegistry {
     kind?: VaultKind;
     restApiUrl?: string;
     restApiKey?: string;
+    publicUrl?: string;
   }): ResolvedVault {
     if (this.byId.has(v.id))
       throw err.invalidInput(`vault already registered: ${v.id}`, { vault: v.id });
@@ -186,6 +191,7 @@ export class VaultRegistry {
       kind: v.kind ?? "private",
       restApiUrl: v.restApiUrl,
       restApiKey: v.restApiKey,
+      ...(v.publicUrl ? { publicUrl: v.publicUrl } : {}),
       ...(this.exclusionCacheDir ? { exclusionCacheDir: this.exclusionCacheDir } : {}),
     };
     this.byId.set(v.id, resolved);

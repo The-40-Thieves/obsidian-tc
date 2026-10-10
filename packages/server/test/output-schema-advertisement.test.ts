@@ -118,10 +118,13 @@ describe("full registry, flat surface", () => {
   it("the default triad never carries null annotations either", async () => {
     const { client, server } = await connect(registry, { facadeMode: "triad" });
     const tools = (await client.listTools()).tools;
+    // the three meta-tools plus the standard search/fetch pair
     expect(tools.map((t) => t.name).sort()).toEqual([
       "call_capability",
       "describe_capability",
+      "fetch",
       "find_capability",
+      "search",
     ]);
     expect(noNullAnnotations(tools)).toEqual([]);
     await client.close();

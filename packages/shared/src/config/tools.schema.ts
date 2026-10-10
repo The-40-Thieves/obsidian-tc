@@ -78,7 +78,7 @@ export const ToolFacadeConfigSchema = z.object({
     .enum(["triad", "domain", "flat", "auto"])
     .default("triad")
     .describe(
-      "Which surface tools/list advertises: `triad` exposes three meta-tools (find/describe/call_capability), `domain` about a dozen domain meta-tools, `flat` the full tool surface, `auto` is deprecated: it resolves to `triad` for every client (unless `autoClients` overrides) and will be removed in the next major version, so set an explicit mode (recommended: `triad`). Every registered tool stays callable by name in every mode.",
+      "Which surface tools/list advertises: `triad` exposes three meta-tools (find/describe/call_capability) plus the standard `search` and `fetch` tools, `domain` about a dozen domain meta-tools, `flat` the full tool surface, `auto` is deprecated: it resolves to `triad` for every client (unless `autoClients` overrides) and will be removed in the next major version, so set an explicit mode (recommended: `triad`). Every registered tool stays callable by name in every mode.",
     ),
   // THE-1123 (part a): only consulted when `mode` is "auto". A client's observed `clientInfo.name`
   // is matched against these keys as a case-insensitive SUBSTRING, in this map's own key order,

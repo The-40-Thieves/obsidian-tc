@@ -18,9 +18,10 @@ describe("extractStats + renderStats (homepage)", () => {
   it("coreTools = tools minus the extended-only count", () => {
     const s = extractStats();
     expect(s.coreTools).toBe(s.tools - NON_CORE_TOOL_NAMES.length);
-    // 101: update_observation stays core (a core caller who can create_entity/add_observation must
+    // 103: the standard search + fetch (ChatGPT deep research) are core, and update_observation stays
+    // core (a core caller who can create_entity/add_observation must
     // be able to correct a wrong fact); the old cap of 100 was held by curating tools OUT instead.
-    expect(s.coreTools).toBeLessThanOrEqual(101);
+    expect(s.coreTools).toBeLessThanOrEqual(103);
   });
 
   it("carries the curated facts from docs/project-facts.json", () => {

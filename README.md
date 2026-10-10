@@ -16,7 +16,7 @@ ACLs, a read-only kill switch, HITL confirmation on destructive ops, and an audi
 adds fused retrieval (full-text, vector, graph) and a memory tier — episodes, decay, forgetting —
 living *inside* your vault under that same ACL.
 **A full tool surface across every domain** (all visible by default; a smaller set with opt-in
-`profile: "core"`), via a 3-tool facade, listed in the
+`profile: "core"`), via a 3-tool discovery facade plus the standard `search`/`fetch` pair, listed in the
 [tool catalog](https://obsidian-tc.the40thieves.io/tools/tool-catalog/). Pitch: [docs/WHY.md](./docs/WHY.md).
 
 ## 60-second start
@@ -83,7 +83,7 @@ win"](https://obsidian-tc.the40thieves.io/getting-started/compare/).
 [TC Bridge](#tc-bridge-the-companion-obsidian-plugin) ·
 [Status](#status) ·
 [Architecture](#architecture) ·
-[The interface](#the-interface-3-tools-every-governed-capability) ·
+[The interface](#the-interface-five-tools-every-governed-capability) ·
 [Cursor / VS Code](#install-in-cursor--vs-code) ·
 [Docs](#docs) ·
 [Trademark](#trademark) ·
@@ -141,11 +141,11 @@ and **admin** (`add_vault`, `reload_vault`). The complete, always-current list, 
 scope and generated from the tool registry, is the
 [tool catalog](https://obsidian-tc.the40thieves.io/tools/tool-catalog/).
 
-### The interface: 3 tools, every governed capability
+### The interface: five tools, every governed capability
 
-By default the server advertises just **three meta-tools** instead of a wall of 164:
+By default the server advertises just **five tools** instead of a wall of 164: three meta-tools,
 `find_capability`, `describe_capability`, `call_capability` (invoke by name, same pipeline as a
-direct call). `toolFacade.mode` selects `triad` (default), `domain` or `flat` (a superseded `auto` also exists)
+direct call), plus the standard `search` and `fetch` tools ChatGPT deep research needs. `toolFacade.mode` selects `triad` (default), `domain` or `flat` (a superseded `auto` also exists)
 — boundary-only, no gate bypassed. Per-client advice: [MCP clients](https://obsidian-tc.the40thieves.io/getting-started/mcp-clients/#choosing-a-facade-mode-per-client).
 
 ### Install in Cursor / VS Code

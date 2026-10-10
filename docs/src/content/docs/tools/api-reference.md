@@ -33,7 +33,7 @@ Enable `transports.http` to serve MCP over HTTP for a remote client. A non-loopb
 
 ## The tool API: discover, describe, call
 
-By default `tools/list` advertises **three meta-tools** — the `triad` facade, set by `toolFacade.mode`. You search for a capability, inspect its schema, then invoke it. Every underlying tool also stays callable directly by name; the facade just shapes what `tools/list` advertises.
+By default `tools/list` advertises **three meta-tools** — the `triad` facade, set by `toolFacade.mode` — plus the standard `search` and `fetch` tools that ChatGPT deep research and company knowledge require. You search for a capability, inspect its schema, then invoke it. Every underlying tool also stays callable directly by name; the facade just shapes what `tools/list` advertises.
 
 ### 1. `find_capability` — search the catalog
 

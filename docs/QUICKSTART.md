@@ -68,7 +68,8 @@ claude mcp add obsidian-tc --env OBSIDIAN_TC_CONFIG=/ABSOLUTE/PATH/TO/obsidian-t
 ```
 
 Restart the client. By default the server advertises three meta-tools
-(`find_capability` / `describe_capability` / `call_capability`) that front 150 governed
+(`find_capability` / `describe_capability` / `call_capability`, plus the standard `search` and
+`fetch` tools) that front 150 governed
 capabilities — ask your agent to `find_capability` for anything ("append to a note",
 "list tags") and it will discover the rest itself.
 

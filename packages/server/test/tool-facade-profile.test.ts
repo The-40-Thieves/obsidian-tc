@@ -19,6 +19,15 @@ import { REGISTERED_TOOL_COUNT } from "./registered-tool-count";
 
 const CORE_TOOL_COUNT = REGISTERED_TOOL_COUNT - NON_CORE_TOOL_NAMES.length;
 
+// The triad advertises its three meta-tools plus the standard knowledge-connector pair (sorted).
+const TRIAD_SURFACE = [
+  "call_capability",
+  "describe_capability",
+  "fetch",
+  "find_capability",
+  "search",
+];
+
 // A minimal caller with a full grant — the same shape connect()'s context() below uses — so
 // listVisible reports the STATIC layer's verdict alone.
 const FULL_GRANT = { grantedScopes: new Set(["*"]) };
@@ -68,7 +77,7 @@ describe("THE-1131 tool-profiles.ts — the single source of truth", () => {
   // fail THIS assertion too, not just check-version-coherence.mjs's headline gate.
   it(`core is exactly ${REGISTERED_TOOL_COUNT - NON_CORE_TOOL_NAMES.length} tools`, () => {
     expect(CORE_TOOL_COUNT).toBe(REGISTERED_TOOL_COUNT - NON_CORE_TOOL_NAMES.length);
-    expect(CORE_TOOL_COUNT).toBe(101);
+    expect(CORE_TOOL_COUNT).toBe(103);
   });
 
   it("every non-core name is actually registered (no stale/typo'd entry)", () => {
@@ -251,10 +260,10 @@ describe("THE-1131 real stdio matrix: profile x facade mode", () => {
     });
   }
 
-  it("core + triad: tools/list still advertises exactly the triad, core-hidden tools unreachable by name", async () => {
+  it("core + triad: tools/list advertises exactly the triad surface, core-hidden tools unreachable by name", async () => {
     const { client, server } = await connect(registryFor("core"), "triad");
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
-    expect(names).toEqual(["call_capability", "describe_capability", "find_capability"]);
+    expect(names).toEqual(TRIAD_SURFACE);
     const res = await client.callTool({
       name: "call_capability",
       arguments: { name: "create_excalidraw", args: {} },
@@ -264,10 +273,10 @@ describe("THE-1131 real stdio matrix: profile x facade mode", () => {
     await server.close();
   });
 
-  it("full + triad: tools/list still advertises exactly the triad, every tool reachable by name", async () => {
+  it("full + triad: tools/list advertises exactly the triad surface, every tool reachable by name", async () => {
     const { client, server } = await connect(registryFor("full"), "triad");
     const names = (await client.listTools()).tools.map((t) => t.name).sort();
-    expect(names).toEqual(["call_capability", "describe_capability", "find_capability"]);
+    expect(names).toEqual(TRIAD_SURFACE);
     const res = await client.callTool({
       name: "describe_capability",
       arguments: { name: "create_excalidraw" },
