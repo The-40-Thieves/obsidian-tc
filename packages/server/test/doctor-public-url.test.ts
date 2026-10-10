@@ -380,7 +380,11 @@ describe("doctor: public-url never throws", () => {
       resolve6: () => Promise.reject("boom"),
     });
     expect(r["public-url.dns"]?.status).toBe("fail");
-    expect(r["public-url.prm"]?.status).toBe("fail");
+    // With no address to connect to, nothing is fetched and the rest is not claimed to pass.
+    expect(r["public-url.tls"]?.status).toBe("fail");
+    expect(r["public-url.prm"]?.status).toBe("warning");
+    const r1 = await run();
+    expect(r1["public-url.prm"]?.status).toBe("fail");
     const r2 = await run({ request: () => Promise.reject(42) });
     expect(r2["public-url.tls"]?.status).toBe("fail");
   });
@@ -438,7 +442,9 @@ describe("publicUrlRequest (default transport)", () => {
 
   it("surfaces a TLS verification failure as a coded PublicUrlRequestError", async () => {
     fakeHttps("selfsigned");
-    await expect(publicUrlRequest({ url: RESOURCE, method: "POST" })).rejects.toMatchObject({
+    await expect(
+      publicUrlRequest({ url: RESOURCE, method: "POST", address: "203.0.113.10" }),
+    ).rejects.toMatchObject({
       name: "PublicUrlRequestError",
       code: "DEPTH_ZERO_SELF_SIGNED_CERT",
     });
@@ -446,7 +452,7 @@ describe("publicUrlRequest (default transport)", () => {
 
   it("verifies the certificate and does not follow a redirect", async () => {
     const calls = fakeHttps({ status: 301, location: "https://other.example.test/" });
-    const res = await publicUrlRequest({ url: RESOURCE, method: "GET" });
+    const res = await publicUrlRequest({ url: RESOURCE, method: "GET", address: "203.0.113.10" });
     expect(res.status).toBe(301);
     expect(res.headers.location).toBe("https://other.example.test/");
     expect(res.certValidTo).toBeGreaterThan(Date.now());

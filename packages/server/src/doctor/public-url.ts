@@ -7,8 +7,13 @@
 // short deadlines, and nothing here throws. The fix for each verdict is a section of the deploy recipe
 // (docs/src/content/docs/deployment/hosted-clients.md).
 import { isIP } from "node:net";
-import { isLoopbackHost, isPrivateNetworkAddress } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  isLoopbackHost,
+  isPrivateNetworkAddress,
+  normalizeHostForBind,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { sameResource } from "../auth/as-clients";
+import { isBlockedAddress } from "../auth/oidc-network";
 import {
   PUBLIC_URL_TIMEOUT_MS,
   type PublicUrlDeps,
@@ -76,8 +81,16 @@ function nonPublicHost(host: string): boolean {
   return isLoopbackHost(bare) || (isIP(bare) !== 0 && isPrivateNetworkAddress(bare));
 }
 
-async function probeDns(host: string, d: PublicUrlDeps, ms: number): Promise<Finding> {
-  const lookup = async (fn: (h: string) => Promise<string[]>): Promise<string[]> => {
+/** A and AAAA answers for `host` (an IP literal answers for itself); a failed or slow lookup is []. */
+async function lookupBoth(
+  host: string,
+  d: PublicUrlDeps,
+  ms: number,
+): Promise<[string[], string[]]> {
+  const kind = isIP(host);
+  if (kind === 4) return [[host], []];
+  if (kind === 6) return [[], [host]];
+  const one = async (fn: (h: string) => Promise<string[]>): Promise<string[]> => {
     try {
       return await withDeadline(
         Promise.resolve().then(() => fn(host)),
@@ -88,13 +101,48 @@ async function probeDns(host: string, d: PublicUrlDeps, ms: number): Promise<Fin
       return [];
     }
   };
-  const kind = isIP(host);
-  const [a, aaaa] =
-    kind === 4
-      ? [[host], []]
-      : kind === 6
-        ? [[], [host]]
-        : await Promise.all([lookup(d.resolve4), lookup(d.resolve6)]);
+  return Promise.all([one(d.resolve4), one(d.resolve6)]);
+}
+
+/**
+ * The one address to connect to for `url`, or a refusal. Every URL the probe fetches goes through
+ * here, including the ones read from remote documents (the PRM pointer, the authorization servers):
+ * https only, no credentials in the URL, and the host must resolve, with EVERY answer a public
+ * address (loopback, private, link-local / cloud metadata, CGNAT, ULA and mapped forms are refused).
+ * The request then connects to the returned address, so the name is not resolved a second time.
+ */
+async function publicAddress(url: string, d: PublicUrlDeps, ms: number): Promise<string> {
+  const u = new URL(url);
+  if (u.protocol !== "https:") {
+    throw new PublicUrlRequestError("ENOTHTTPS", `${u.origin} is not an https URL, not fetched`);
+  }
+  if (u.username !== "" || u.password !== "") {
+    throw new PublicUrlRequestError("ECREDENTIALS", `${u.origin} carries credentials, not fetched`);
+  }
+  const host = normalizeHostForBind(u.hostname);
+  if (isLoopbackHost(host)) {
+    throw new PublicUrlRequestError(
+      "ESSRF",
+      `${host} is a loopback name, a non-public host; not fetched`,
+    );
+  }
+  const [a, aaaa] = await lookupBoth(host, d, ms);
+  const addresses = [...a, ...aaaa];
+  if (addresses.length === 0) {
+    throw new PublicUrlRequestError("ENOTFOUND", `${host} did not resolve to any address`);
+  }
+  const bad = addresses.find(isBlockedAddress);
+  if (bad !== undefined) {
+    throw new PublicUrlRequestError(
+      "ESSRF",
+      `${host} resolves to ${bad}, a non-public address; refusing to connect`,
+    );
+  }
+  return a[0] ?? (addresses[0] as string);
+}
+
+async function probeDns(host: string, d: PublicUrlDeps, ms: number): Promise<Finding> {
+  const [a, aaaa] = await lookupBoth(host, d, ms);
   const details = { a, aaaa };
   if (a.length > 0) return { level: "pass", summary: `${host} -> ${a.join(", ")} (IPv4)`, details };
   return {
@@ -113,6 +161,16 @@ async function probeDns(host: string, d: PublicUrlDeps, ms: number): Promise<Fin
 
 function tlsFinding(host: string, e: unknown): Finding {
   const code = codeOf(e);
+  if (code === "ESSRF") {
+    return {
+      level: "fail",
+      summary: `${host} does not resolve to a public address from this machine (${msg(e)})`,
+      fix: {
+        anchor: "public-ipv4-address",
+        text: "Check the public DNS record; a split-horizon or /etc/hosts override that points the name at a private address hides what hosted clients see.",
+      },
+    };
+  }
   return isCertError(code)
     ? {
         level: "fail",
@@ -178,8 +236,14 @@ async function probe(resource: string, d: PublicUrlDeps): Promise<Findings> {
   ): Promise<PublicUrlResponse> => {
     requests += 1;
     const res = await withDeadline(
-      Promise.resolve().then(() =>
-        d.request({ url, method, headers, ...(body === undefined ? {} : { body }) }),
+      Promise.resolve().then(async () =>
+        d.request({
+          url,
+          method,
+          headers,
+          address: await publicAddress(url, d, ms),
+          ...(body === undefined ? {} : { body }),
+        }),
       ),
       ms,
       url,
@@ -346,7 +410,13 @@ async function probe(resource: string, d: PublicUrlDeps): Promise<Findings> {
     const tried: string[] = [];
     let meta: Record<string, unknown> | undefined;
     let failure = "";
-    for (const url of asMetadataUrls(asUrl)) {
+    let urls: string[] = [];
+    try {
+      urls = asMetadataUrls(asUrl);
+    } catch {
+      failure = `${asUrl} is not a valid URL`;
+    }
+    for (const url of urls) {
       try {
         const res = await get(url, "GET", { accept: "application/json" });
         tried.push(`${url} -> ${res.status}`);
@@ -365,7 +435,7 @@ async function probe(resource: string, d: PublicUrlDeps): Promise<Findings> {
     if (meta === undefined) {
       out["as-metadata"] = {
         level: "fail",
-        summary: `no authorization-server metadata for ${asUrl}`,
+        summary: `no authorization-server metadata for ${asUrl}${failure === "" ? "" : ` (${failure})`}`,
         fix: {
           anchor: "challenge-and-discovery-documents",
           text: "Serve /.well-known/oauth-authorization-server (or openid-configuration) on the authorization server's public host.",

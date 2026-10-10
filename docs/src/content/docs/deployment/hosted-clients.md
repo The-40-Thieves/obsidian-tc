@@ -254,6 +254,9 @@ On the server host, `obsidian-tc doctor --probe` runs the same checks from insid
 
 Without `--probe`, or when `auth.resource` is unset or names a loopback or private host, doctor
 reports one skipped `public-url` check and makes no request. Each failing check names this page's
-section that fixes it. The probe runs from your server's network, so it cannot see a firewall that
+section that fixes it. The probe only makes requests when you run `doctor --probe` (no tool call
+can start it), never follows a redirect, and refuses to fetch any host, including the ones it
+reads from the PRM and the challenge, that is not https or resolves to a loopback, private,
+link-local, CGNAT or otherwise non-public address; it connects to the address it validated. The probe runs from your server's network, so it cannot see a firewall that
 only blocks the vendor's addresses, and it does not yet test SSE buffering (that needs a token and a
 streaming tool).

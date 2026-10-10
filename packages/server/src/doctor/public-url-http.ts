@@ -5,6 +5,8 @@
 // followed (the checks read the 3xx itself).
 import dns from "node:dns/promises";
 import https from "node:https";
+import { isIP } from "node:net";
+import { normalizeHostForBind } from "@the-40-thieves/obsidian-tc-shared";
 
 export const PUBLIC_URL_TIMEOUT_MS = 5000;
 /** A discovery document or challenge body is small; anything past this is not read. */
@@ -24,6 +26,9 @@ export class PublicUrlRequestError extends Error {
 
 export interface PublicUrlRequestInit {
   url: string;
+  /** The validated public address to connect to; the URL's name is used only for SNI, the
+   *  certificate check and the Host header, never resolved again. */
+  address: string;
   method: "GET" | "POST";
   headers?: Record<string, string>;
   body?: string;
@@ -66,7 +71,8 @@ const flatten = (h: Record<string, string | string[] | undefined>): Record<strin
   return out;
 };
 
-/** HTTPS only, certificate verified, no redirect followed, a deadline and a body cap. */
+/** HTTPS only, certificate verified against the URL's name, connected to the pinned address, no
+ *  redirect followed, a deadline and a body cap. */
 export const publicUrlRequest: PublicUrlRequest = (init) =>
   new Promise<PublicUrlResponse>((resolve, reject) => {
     const u = new URL(init.url);
@@ -83,11 +89,12 @@ export const publicUrlRequest: PublicUrlRequest = (init) =>
     };
     const req = https.request({
       protocol: "https:",
-      hostname: u.hostname,
+      hostname: init.address,
+      ...(isIP(normalizeHostForBind(u.hostname)) === 0 ? { servername: u.hostname } : {}),
       port: u.port === "" ? 443 : Number(u.port),
       path: `${u.pathname}${u.search}`,
       method: init.method,
-      headers: init.headers ?? {},
+      headers: { ...(init.headers ?? {}), host: u.host },
       rejectUnauthorized: true,
     });
     const timer = setTimeout(() => {
