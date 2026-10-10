@@ -25,6 +25,8 @@ export interface AsClient {
   redirectUris: readonly string[];
   /** Name of the environment variable holding the secret; present only for a confidential client. */
   secretEnv?: string | undefined;
+  /** SHA-256 (hex) of the secret of a DCR client that registered `client_secret_basic`. */
+  secretHash?: string | undefined;
   /** True for a client resolved from a Client ID Metadata Document (its `clientId` is the URL). */
   cimd?: boolean | undefined;
   /** True for a client that registered itself through Dynamic Client Registration (its `clientId` is opaque). */

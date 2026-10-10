@@ -48,7 +48,19 @@ export function allowedResources(resource: string): string[] {
 
 /** The member of `allowedResources(resource)` that `requested` names (RFC 8707 comparison: scheme and
  *  host case-insensitive, everything else exact), or undefined. Exact against the derived set, never a
- *  prefix test; the member is returned so callers use the canonical string, not the client's spelling. */
+ *  prefix test; the member is returned so callers use the canonical string, not the client's spelling.
+ *
+ *  ONE concession, made here and nowhere else: a requested URL that is a member plus exactly one trailing
+ *  slash names that member (Perplexity sends `https://host/mcp/` for `https://host/mcp`). Two slashes, a
+ *  backslash, a query or fragment after the slash, or any other suffix still name nothing, and the answer
+ *  is the member, so `aud` stays the canonical string. */
 export function matchResource(requested: string, resource: string): string | undefined {
-  return allowedResources(resource).find((r) => sameResource(requested, r));
+  const members = allowedResources(resource);
+  const exact = members.find((r) => sameResource(requested, r));
+  if (exact !== undefined) return exact;
+  if (!requested.endsWith("/") || requested.endsWith("//") || requested.includes("\\")) {
+    return undefined;
+  }
+  const bare = requested.slice(0, -1);
+  return members.find((r) => sameResource(bare, r));
 }
