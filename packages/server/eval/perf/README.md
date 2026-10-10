@@ -190,8 +190,8 @@ bun eval/perf/initialize-probe.ts --vault <dir> [--transport stdio|http] [--runs
   [--embed-url http://127.0.0.1:47811] [--settle-ms N]
 ```
 
-The boot reconcile now starts through `deferBootWork` (after the first `initialize`, or a 2 s cap
-for HTTP), so the numbers should not grow with vault size; a 20 000-note vault used to cost an extra
+The boot reconcile now starts through `deferBootWork` (after the first `initialize`, or a 2 s cap),
+so the numbers should not grow with vault size; a 20 000-note vault used to cost an extra
 ~0.3 s ahead of the first request. Run it on an idle box: a load average above the core count moved
 a 1-note HTTP median from ~800 ms to ~1600 ms.
 
