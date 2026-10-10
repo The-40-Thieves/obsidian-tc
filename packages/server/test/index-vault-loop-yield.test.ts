@@ -10,18 +10,23 @@ import { makeM2Vault } from "./m2-helpers";
 
 describe("createLoopYielder", () => {
   it("takes a macrotask turn every N calls, and only when a signal is present", async () => {
+    // Count check-phase turns with a self-rearming setImmediate, not a 0 ms interval: Windows timers
+    // tick every ~15 ms, so 50 forced turns can all finish before an interval is ever due.
     let turns = 0;
-    const tick = setInterval(() => turns++, 0);
+    let handle = setImmediate(function tick() {
+      turns++;
+      handle = setImmediate(tick);
+    });
     try {
       const unsignaled = createLoopYielder(undefined, 2);
       for (let i = 0; i < 100; i++) await unsignaled();
-      expect(turns).toBe(0); // microtasks only: no timer ever ran
+      expect(turns).toBe(0); // microtasks only: the loop never reached a check phase
 
       const signaled = createLoopYielder(new AbortController().signal, 2);
       for (let i = 0; i < 100; i++) await signaled();
       expect(turns).toBeGreaterThan(0);
     } finally {
-      clearInterval(tick);
+      clearImmediate(handle);
     }
   });
 });
