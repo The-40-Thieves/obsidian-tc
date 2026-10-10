@@ -10,6 +10,7 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
@@ -136,7 +137,7 @@ describe("no source path emits list_changed", () => {
   }
 
   it("scans the real source tree and finds no emitter in code (comments excluded)", () => {
-    const files = sourceFiles(new URL("../src", import.meta.url).pathname);
+    const files = sourceFiles(fileURLToPath(new URL("../src", import.meta.url)));
     // Existence floor: an empty walk would pass vacuously.
     expect(files.length).toBeGreaterThan(200);
     expect(files.some((f) => f.endsWith("/mcp/server.ts"))).toBe(true);
