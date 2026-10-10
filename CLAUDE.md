@@ -110,6 +110,14 @@ A `PreToolUse` hook blocks these; the message names the regeneration command.
 | `docs/obsidian-tc.config.schema.json` | `bun run config:schema` |
 | `packages/server/src/db/migrations-embedded.ts` | `bun run migrations:embed` |
 
+**The list lives in `.claude/generated-paths.txt`** (`<path>`, a TAB, `<regenerate command>`), the one
+source of truth. `.claude/hooks/block-generated-edits.sh` blocks Edit/Write on exactly those paths
+(a path named only in the script is not blocked). `.claude/hooks/generated-drift-backstop.sh`
+(PostToolUse, Bash) catches the shell-write routes no pre-parser sees and says to
+`git checkout -- <path>` and rerun the generator. `permissions.deny` in `.claude/settings.json` needs
+an `Edit(/<path>)` rule per entry (`scripts/claude-hooks.test.mjs` checks it). To protect a new
+generated file, add one line to the txt and the deny rule.
+
 **Most generated content is no longer committed at all**, because anything that moves whenever an
 unrelated file moves makes every pair of PRs conflict on it. Nothing to hand-edit, nothing to
 regenerate before a commit:
