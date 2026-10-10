@@ -20,6 +20,7 @@ import type { FolderPins } from "../../vault/folder-links";
 import type { TraceRecord } from "../../workspace/sessions";
 import type { ClientInfo } from "../client-info";
 import type { AutoFacadeExplanation, FacadeMode } from "../facade-mode";
+import type { AdvertiseSubset } from "../tool-profiles";
 import type { EffectiveToolVisibilityConfig } from "../visibility";
 
 // WP4.1: this file holds registry.ts's public types and pure declarations — no behaviour, no
@@ -145,6 +146,10 @@ export interface CallerContext {
    *  same connection. Read by server_health's `toolFacade.effective`; absent only for a caller that
    *  never went through that handler (e.g. a bare unit test of a tool's own handler). */
   effectiveFacadeMode?: FacadeMode;
+  /** The tool-budget subset THIS connection advertises: the `/mcp/<surface>` URL's, else
+   *  `toolFacade.advertise`. Set beside `effectiveFacadeMode`; read by server_health's
+   *  `toolFacade.effectiveAdvertise`. Absent only for a caller that bypassed that handler. */
+  effectiveAdvertise?: AdvertiseSubset;
   /** `toolFacade.explainAutoMode`: why `effectiveFacadeMode` was chosen for this connection. Set by
    *  the same `tools/call` handler, and ONLY when the flag is on and the mode is "auto"; read by
    *  server_health's `toolFacade.explanation`. Pure observability, never an input to dispatch. */

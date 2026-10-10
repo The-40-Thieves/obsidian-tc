@@ -66,7 +66,7 @@ export function buildServerCard({ serverPkg, mcpServerJson }: ServerCardInputs) 
   // description.
   // Schema-only: the handlers close over deps/searchVault but the card never calls them.
   const direct = triadDirectDefs(buildSearchFetchTools({} as M2Deps, {} as ToolDefinition)).map(
-    toMcpTool,
+    (d) => toMcpTool(d),
   );
   const tools = [...triadTools(true), ...direct].map((t) => ({
     name: t.name,

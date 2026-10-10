@@ -114,6 +114,9 @@ export const CALLER_CONTEXT_DISPOSITION: Record<keyof CallerContext, Disposition
   facadeExplanation: dropped(
     "observability of how tools/list was shaped for the originating connection",
   ),
+  effectiveAdvertise: dropped(
+    "server_health reports which /mcp/<surface> subset the connection advertised; dispatch never reads it",
+  ),
 };
 
 /** The payload half of a task call: everything about the caller that the worker is allowed to know. */

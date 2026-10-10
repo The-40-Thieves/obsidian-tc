@@ -486,12 +486,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // while the prompt was open. Every route (direct, facade, domain) funnels through this function.
     const declined = declinedConfirmationError({ roundOutcome, answer: ctx.hitlAnswer });
     if (declined !== undefined) return errorToResult(declined);
-    // A `taskAugmentable` tool runs as a background TASK (mcp/task-budget.ts: the handle at
-    // once for a client that polls Tasks, a budgeted wait then a handle for any other). Decided
-    // HERE, by the name that is actually dispatched, because this is the one place direct, facade
-    // (`call_capability`) and domain calls meet; deciding on the outer tools/call name never saw the
-    // target of a facade call. A tool that returns in milliseconds never opts in: augmentation is
-    // not inferred, since a handle costs the caller a poll to learn what one call would have said.
+    // A `taskAugmentable` tool runs as a background TASK (mcp/task-budget.ts). Decided HERE, by the
+    // dispatched name, because direct, facade (`call_capability`) and domain calls all meet here; the
+    // outer tools/call name never saw a facade call's target. Augmentation is opt-in, never inferred.
     if (opts.jobQueue && roundOutcome !== "declined") {
       const def = opts.registry.list().find((d) => d.name === name);
       // Only a call dispatch would admit is offloaded. A refusal (persona mask, scope, vault
@@ -564,7 +561,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
     ctx = { ...ctx, ...(clientInfo !== undefined ? { clientInfo } : {}), ...claimed };
     // THE-1123: stamped onto ctx so server_health reads THIS decision, never re-derives its own.
     const facadeMode = resolveFacadeMode(clientInfo?.name);
-    ctx = { ...ctx, effectiveFacadeMode: facadeMode, ...ctxExplanation() };
+    ctx = {
+      ...ctx,
+      effectiveFacadeMode: facadeMode,
+      effectiveAdvertise: opts.advertise ?? "all",
+      ...ctxExplanation(),
+    };
     // THE-1131: shared disclosable-hidden check (describe/call_capability + direct dispatch).
     const checkHidden = (name: string): CallToolResult | null =>
       capabilityHiddenCheck(

@@ -8,7 +8,6 @@
 // textually between `stores` and `governance` — reordering that is forbidden, and accepting an
 // arbitrary deps callback would reintroduce the service-locator this file avoids (docs/design/server-runtime.md).
 
-import { fstatSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   isFeedbackExemptFromReadOnly,
@@ -37,8 +36,15 @@ import { createRetrievalCaches } from "../search/query_cache";
 import { wireTelemetry } from "../telemetry/wiring";
 import { createTaskStatusTool } from "../tools/admin/task-status";
 import { connectStdio } from "../transports/stdio";
-import { nativeReadyToken, type OwnedLayer, requireBoot, unwindReversed } from "./boot-helpers";
-import { emitBootNotices } from "./boot-notices";
+import {
+  BOOT_WARMUP_MAX_WAIT_MS,
+  deferBootWork,
+  nativeReadyToken,
+  type OwnedLayer,
+  requireBoot,
+  unwindReversed,
+} from "./boot-helpers";
+import { emitBootNotices, emitHeadlessStdioNotice } from "./boot-notices";
 import { wireBridges } from "./bridge-wiring";
 import { createExclusionReloader } from "./exclusion-reload";
 import { wireIndexCoordinator } from "./indexing-wiring";
@@ -580,8 +586,18 @@ export async function buildServerRuntime(
   } = requireBoot(postCore, "postCore");
 
   let closed = false;
+  let cancelBootWarmup = (): void => {};
   const start = async (): Promise<void> => {
-    void runReconcile(bootReconcileAbort.signal); // Boot pass, backgrounded; leader-gated (GH #995)
+    // Boot pass, backgrounded; leader-gated (GH #995). Its synchronous first segment (the vault
+    // walk) must not run ahead of the first request, so it starts once the stdio client has
+    // finished `initialize`, or after the cap when no handshake reaches this server.
+    const initialized = new Promise<void>((resolve) => {
+      server.oninitialized = resolve;
+    });
+    cancelBootWarmup = deferBootWork(() => void runReconcile(bootReconcileAbort.signal), {
+      initialized,
+      maxWaitMs: BOOT_WARMUP_MAX_WAIT_MS,
+    });
 
     morgiana.emit(firstVault.id, "tc.server.start");
 
@@ -601,25 +617,7 @@ export async function buildServerRuntime(
     // false the server serves HTTP-only (the listening socket keeps the process alive), and if
     // neither transport is enabled there is nothing to serve, so exit with a clear message.
     if (config.transports.stdio) {
-      // A headless deploy with HTTP also enabled (docker/systemd, stdin backed by /dev/null) hits
-      // stdio EOF the instant it starts — the notice below fires BEFORE that happens, so it reads
-      // as an explanation rather than a post-mortem. Best-effort: an fd-0 stat failing (already
-      // closed, or a platform that refuses it) just means no notice, never a startup error.
-      if (config.transports.http.enabled) {
-        try {
-          const stat = fstatSync(0);
-          if (!stat.isFIFO() && !process.stdin.isTTY) {
-            process.stderr.write(
-              "obsidian-tc: transports.stdio and transports.http are both enabled, and stdin is " +
-                "neither a TTY nor a pipe (looks like /dev/null) — an immediate stdin EOF is " +
-                "expected here; the HTTP transport keeps serving through it. Set " +
-                "transports.stdio: false for a headless deploy to silence this.\n",
-            );
-          }
-        } catch {
-          // Best-effort notice only — see the comment above.
-        }
-      }
+      if (config.transports.http.enabled) emitHeadlessStdioNotice(); // see boot-notices.ts
       await connectStdio(server);
       // GH #995: a stdio client disconnecting closes stdin — the MCP SDK already forwards that
       // to `server.onclose`, but nothing here was listening. Route it through the SAME bounded
@@ -667,6 +665,7 @@ export async function buildServerRuntime(
     // down, must not re-run (and re-race) the drain below.
     if (closed) return;
     closed = true;
+    cancelBootWarmup(); // a shutdown during boot must not launch the reconcile afterwards
     process.stderr.write(`obsidian-tc: shutting down (${reason})\n`);
     await transports.close().catch(() => {}); // F3: no more requests FIRST (was LAST, after release)
     // GH #995: abort the boot reconcile — left running it embeds with no deadline; both

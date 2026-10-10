@@ -177,6 +177,24 @@ db open + migrations                 10.5 ms
 
 The collector **throws** if the probe registered no tools or returned a non-positive duration — a probe that measured nothing would otherwise report excellent timings, the same measures-nothing-while-green failure family 15 refuses.
 
+### Cold `initialize` latency (`initialize-probe.ts`, not part of the gate)
+
+Spawns the real server (`cli.ts serve`) with a fresh cacheDir and times process spawn to the
+`initialize` response, per transport. Clients bound that whole path (Open WebUI: 10 s `initialize`,
+Codex: 10 s startup), which `boot-probe.ts` cannot see because it stubs the transport. Anything the
+boot sequence runs on the event loop ahead of the first request (the boot reconcile's synchronous
+vault walk, an embedder probing its model) shows up here and nowhere else.
+
+```bash
+bun eval/perf/initialize-probe.ts --vault <dir> [--transport stdio|http] [--runs 3] \
+  [--embed-url http://127.0.0.1:47811] [--settle-ms N]
+```
+
+The boot reconcile now starts through `deferBootWork` (after the first `initialize`, or a 2 s cap),
+so the numbers should not grow with vault size; a 20 000-note vault used to cost an extra
+~0.3 s ahead of the first request. Run it on an idle box: a load average above the core count moved
+a 1-note HTTP median from ~800 ms to ~1600 ms.
+
 ## Gate Model: Hard vs. Warn
 
 Metrics are classified into two enforcement levels:

@@ -279,6 +279,12 @@ const URL_SURFACES: Readonly<Record<string, UrlSurface>> = Object.freeze({
   essentials: { mode: "flat", advertise: "essentials" },
 });
 
+/** Every `/mcp/<segment>` profile URL with the mode and advertised subset it selects, in route
+ *  order. Read-only view for doctor; the router itself uses `urlSurfaceFor`. */
+export function listUrlSurfaces(): Array<UrlSurface & { segment: string }> {
+  return Object.entries(URL_SURFACES).map(([segment, s]) => ({ segment, ...s }));
+}
+
 // Claude Code defers MCP tools unless `_meta` asks for upfront load; only the triad (the entry point) asks.
 export const ALWAYS_LOAD_META = Object.freeze({ "anthropic/alwaysLoad": true });
 
