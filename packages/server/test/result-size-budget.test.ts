@@ -15,7 +15,7 @@ import { buildFullRegistry } from "../scripts/docgen/build-registry";
 import {
   CLAUDE_CODE_MAX_RESULT_SIZE_CEILING,
   DEFAULT_PAGE_BYTES,
-  MAX_RESULT_SIZE_META_KEY,
+  MAX_RESULT_SIZE_META_FIELD,
 } from "../src/mcp/result-size";
 import { toMcpTool } from "../src/mcp/tool-projection";
 import { ensureTextContent } from "../src/mcp/tool-result";
@@ -215,7 +215,7 @@ describe("maxResultSizeChars is advertised on the whole-note readers only", () =
 
   it("tools/list projection carries the key on those tools and on no other", () => {
     const withKey = defs
-      .filter((d) => toMcpTool(d, 1_000_000)._meta?.[MAX_RESULT_SIZE_META_KEY] !== undefined)
+      .filter((d) => toMcpTool(d, 1_000_000)._meta?.[MAX_RESULT_SIZE_META_FIELD] !== undefined)
       .map((d) => d.name)
       .sort();
     expect(withKey).toEqual(WHOLE_NOTE_READERS);
@@ -224,11 +224,11 @@ describe("maxResultSizeChars is advertised on the whole-note readers only", () =
   it("the key is the governor ceiling, capped at Claude Code's own 500,000", () => {
     const read = defs.find((d) => d.name === "read_note");
     if (!read) throw new Error("read_note missing");
-    expect(MAX_RESULT_SIZE_META_KEY).toBe("anthropic/maxResultSizeChars");
-    expect(toMcpTool(read, 1_000_000)._meta?.[MAX_RESULT_SIZE_META_KEY]).toBe(
+    expect(MAX_RESULT_SIZE_META_FIELD).toBe("anthropic/maxResultSizeChars");
+    expect(toMcpTool(read, 1_000_000)._meta?.[MAX_RESULT_SIZE_META_FIELD]).toBe(
       CLAUDE_CODE_MAX_RESULT_SIZE_CEILING,
     );
-    expect(toMcpTool(read, 200_000)._meta?.[MAX_RESULT_SIZE_META_KEY]).toBe(200_000);
+    expect(toMcpTool(read, 200_000)._meta?.[MAX_RESULT_SIZE_META_FIELD]).toBe(200_000);
     // No budget given (a bare projection): no claim at all.
     expect(toMcpTool(read)._meta).toBeUndefined();
   });

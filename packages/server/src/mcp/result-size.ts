@@ -17,7 +17,7 @@
 export const DEFAULT_PAGE_BYTES = 20_000;
 
 /** The `_meta` key Claude Code reads from a tool's `tools/list` entry. */
-export const MAX_RESULT_SIZE_META_KEY = "anthropic/maxResultSizeChars";
+export const MAX_RESULT_SIZE_META_FIELD = "anthropic/maxResultSizeChars";
 
 /** Claude Code's hard ceiling for the annotation; a larger value is clamped there, not honoured. */
 export const CLAUDE_CODE_MAX_RESULT_SIZE_CEILING = 500_000;

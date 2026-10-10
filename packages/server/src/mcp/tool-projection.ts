@@ -1,7 +1,7 @@
 import type { Tool } from "@modelcontextprotocol/server";
 import { outputSchemaField, titleize, toInputJson } from "./facade";
 import type { ToolDefinition } from "./registry";
-import { MAX_RESULT_SIZE_META_KEY, maxResultSizeChars } from "./result-size";
+import { MAX_RESULT_SIZE_META_FIELD, maxResultSizeChars } from "./result-size";
 import { isAdvertisedDestructive, isMutatingDefinition } from "./tool-tags";
 
 /**
@@ -50,7 +50,7 @@ export function toMcpTool(def: ToolDefinition, maxResponseBytes?: number): Tool 
     annotations: toolAnnotations(def),
     ...(def.icons ? { icons: def.icons } : {}),
     ...(def.wholeNotes && maxResponseBytes !== undefined
-      ? { _meta: { [MAX_RESULT_SIZE_META_KEY]: maxResultSizeChars(maxResponseBytes) } }
+      ? { _meta: { [MAX_RESULT_SIZE_META_FIELD]: maxResultSizeChars(maxResponseBytes) } }
       : {}),
   };
   Object.freeze(tool);
