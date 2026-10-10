@@ -184,12 +184,14 @@ describe("default pages stay under the inline limit", { timeout: 60_000 }, () =>
   it("search_text: paging reaches every hit and each page says how to continue", async () => {
     const first = await call("search_text", { query: "decision" });
     expect(typeof first.next_cursor).toBe("string");
-    const { items, pages } = await walk("search_text", { query: "decision" }, (d) =>
+    // Each page rescans the vault, so walk with bigger pages: the default page is checked above,
+    // and 600 notes at the default page size timed out on a Windows runner.
+    const { items, pages } = await walk("search_text", { query: "decision", limit: 200 }, (d) =>
       (d.items as Array<Record<string, unknown>>).map((x) => String(x.path)),
     );
     expect(pages).toBeGreaterThan(1);
     expect(new Set(items).size).toBe(NOTE_COUNT);
-  });
+  }, 180_000);
 
   it("find_link_cycles: bounded cycle length, and it reports what it skipped", async () => {
     const data = await call("find_link_cycles", {});
