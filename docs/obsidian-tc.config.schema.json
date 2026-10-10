@@ -1968,6 +1968,23 @@
               "items": {
                 "type": "string"
               }
+            },
+            "trustedProxies": {
+              "default": [],
+              "description": "Reverse proxies or tunnels whose forwarded client address is believed: IP addresses and CIDR blocks of the TCP peer, for example `[\"127.0.0.1\", \"::1\"]` for cloudflared or nginx on the same host, or a docker bridge subnet. Empty (the default): no header is read, and every client behind a proxy or tunnel is counted as one unattributed source by the per-source limits (client-metadata lookups, passkey sign-in, authorize admission, password-login failures). When a request's TCP peer is listed, the client address is taken from the header named by `forwardedHeader`; from any other peer the header is ignored, so a client cannot choose its own address. List ONLY proxies you control and that overwrite or append to the header: a listed address that forwards a client-supplied header unchanged lets that client pick its own source.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "forwardedHeader": {
+              "default": "x-forwarded-for",
+              "description": "Which header carries the client address when the TCP peer is in `trustedProxies`. `x-forwarded-for` (default): the right-most address that is not itself a trusted proxy (a proxy appends the address it saw, so entries to the left of that are whatever the client wrote). `cf-connecting-ip`: Cloudflare's single-value header, set by Cloudflare at its edge and passed through cloudflared; use it behind a Cloudflare Tunnel. Ignored while `trustedProxies` is empty.",
+              "type": "string",
+              "enum": [
+                "x-forwarded-for",
+                "cf-connecting-ip"
+              ]
             }
           }
         }

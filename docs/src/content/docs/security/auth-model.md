@@ -119,6 +119,67 @@ remote callers look local, so the bind address is not an authentication signal (
 The HTTP edge validates the `Host` and `Origin` headers (rejecting DNS-rebinding / cross-origin
 browser requests with `403`); a loopback `/metrics` listener applies the same `Host` guard.
 
+## Running behind a proxy or tunnel
+
+A reverse proxy or tunnel in front of the HTTP transport makes every client reach the server from
+the proxy's address. The per-source limits (metadata-document lookups, passkey sign-in, dynamic
+registration, `/oauth/authorize` admission, failed-login counting) would then see one source, so one
+caller could use up the allowance for everybody. By default nothing is read from `X-Forwarded-For`:
+any client can write that header, so believing it from just anyone would let a client choose its own
+bucket. You tell the server which peers to believe:
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| `transports.http.trustedProxies` | `[]` | IP addresses and CIDR blocks of the TCP peers that are your proxies (`127.0.0.1`, `::1`, `172.18.0.0/16`). A `/0` prefix, an IPv6-form block that covers all IPv4 addresses (`::ffff:10.0.0.0/8`), names and wildcards are refused at load; write IPv4 ranges as IPv4 CIDRs. IPv4-mapped IPv6 peers (`::ffff:10.0.0.5`) match the IPv4 entry. |
+| `transports.http.forwardedHeader` | `x-forwarded-for` | Where a trusted proxy puts the client: `x-forwarded-for` (the right-most address that is not itself a trusted proxy) or `cf-connecting-ip` (Cloudflare). Ignored while `trustedProxies` is empty. |
+
+The header is read only when the connecting peer is in `trustedProxies`; from any other peer it is
+ignored, so a direct caller who sends `X-Forwarded-For: 1.2.3.4` is still counted as itself. A
+header that cannot be read (garbage, `unknown`, an empty hop) is ignored and the request is counted
+as the proxy's own address, never as a guess. A client address that is itself loopback counts as
+unattributed, as a loopback peer does. Every per-source limit counts an IPv6 client as its /64
+(a host owns a whole prefix and can rotate inside it), and the log shows that network address.
+
+**Cave and other cloudflared setups.** cloudflared runs on the same host and connects to the server
+over loopback, and Cloudflare sets `CF-Connecting-IP` to the visitor's address (a client cannot
+override it through the tunnel). So:
+
+```yaml
+transports:
+  http:
+    enabled: true
+    host: 127.0.0.1
+    allowedHosts: [vault.example.com]
+    trustedProxies: ["127.0.0.1", "::1"]
+    forwardedHeader: cf-connecting-ip
+```
+
+Use `cf-connecting-ip` rather than `x-forwarded-for` behind Cloudflare: its `X-Forwarded-For` ends
+with Cloudflare's own edge addresses, which are not in your list, so the right-most-untrusted rule
+would pick an edge address shared by many visitors. If cloudflared runs in a container, list the
+docker bridge subnet the server sees it on (`docker network inspect <net>`), for example
+`172.18.0.0/16`, instead of loopback.
+
+**nginx, Caddy, or another reverse proxy.** Keep `forwardedHeader: x-forwarded-for` and list the
+proxy's address. The proxy must set the header from the connection it accepted, not pass a
+client-supplied value through:
+
+```nginx
+# overwrite the header; $proxy_add_x_forwarded_for would keep what an untrusted client wrote
+proxy_set_header X-Forwarded-For $remote_addr;
+```
+
+Caddy's `reverse_proxy` already replaces `X-Forwarded-For` from a client it does not trust
+(`trusted_proxies` unset). With a chain of proxies, list each one: the server walks the header from
+the right and stops at the first address that is not in your list.
+
+**Never list a proxy you do not control.** A listed address can say who the client is, so a proxy
+that forwards a client-supplied header unchanged, or an address range that other tenants or
+containers can reach the server from, lets those callers choose any source they like and spend or
+dodge any per-source budget. Keep the list to the narrowest addresses that are your proxies, and keep
+the server's port unreachable except through them. The address only picks a rate-limit bucket; it is
+not an authentication signal.
+
 ## Revoking tokens and rotating the signing key
 
 `obsidian-tc token mint` gives every token a `jti` claim and a `kid` header and records
@@ -383,11 +444,11 @@ and the client registrations below.
   https or loopback URI; a private-use scheme such as Cursor's `cursor://...` is dropped from the registration,
   not refused, while one usable URI remains. DCR is deprecated by the MCP authorization spec and lets anyone who can
   reach the server create rows and put a name in front of you, so it is bounded: `auth.as.dcr.perIpPerHour`
-  registrations per source (the TCP peer, an IPv6 address as its /64; behind a same-host proxy or tunnel every client
-  shares one bucket, as for metadata documents), `auth.as.dcr.maxClients` rows (a full table first drops
+  registrations per source (the client address, an IPv6 address as its /64; behind a same-host proxy or tunnel that is not
+  listed in `transports.http.trustedProxies` every client shares one bucket, as for metadata documents), `auth.as.dcr.maxClients` rows (a full table first drops
   registrations never used within a day, then answers `503`), and registrations unused for `auth.as.dcr.unusedDays`
-  are deleted (until a trusted-proxy setting exists, that shared bucket means one noisy client can use up the
-  hourly budget for every other client behind the same proxy). A registered client's consent page warns that it registered itself and has never been approved. The
+  are deleted (without `trustedProxies`, that shared bucket means one noisy client can use up the
+  hourly budget for every other client behind the same proxy; see [Running behind a proxy or tunnel](#running-behind-a-proxy-or-tunnel)). A registered client's consent page warns that it registered itself and has never been approved. The
   server logs one info line at boot naming these limits while DCR is on, and `securityProfile: "hardened"` forces
   it off even when the flag is set to `true` (the loader says so). Claude (claude.ai, Claude Code) and ChatGPT support both registration methods and prefer a metadata
   document when the server advertises one, which this server does, so they do not need DCR; it is for clients
@@ -420,8 +481,9 @@ and the client registrations below.
   sign-in that returns to a loopback address (the warning above is on it), whichever port it uses, even for a client and
   path you approved a minute ago. A lookup is bounded: one 5 s deadline covers the name lookup, the connection and the
   body, one source may start five uncached lookups a minute and have two running at once (an IPv6 address counts as
-  its /64; a peer with no usable address, such as a reverse proxy or tunnel on the same host, is one shared source
-  that may start ten a minute, not an exemption, so behind a tunnel every client shares that allowance), a request that is already malformed never
+  its /64; a peer with no usable address, such as a reverse proxy or tunnel on the same host that is not listed in
+  `transports.http.trustedProxies`, is one shared source that may start ten a minute, not an exemption, so behind an
+  unlisted tunnel every client shares that allowance), a request that is already malformed never
   starts one, and the sign-in page says only that the client cannot be used, whatever the reason (the log has it).
   The approval re-reads the client, so a document that drops the redirect after the page was shown issues no code.
   The client's name is shown with control, format and bidirectional characters removed.
@@ -515,8 +577,9 @@ and even the right password is refused until it passes (`429` with `Retry-After`
 do not extend it. The counter is keyed on the submitted name whether or not the account exists, an unknown name
 gets the same answer as a wrong password and still costs one password verification, so neither the response nor
 the lock shows which names are real. One peer address is also limited, to four times that budget across all
-names; the address is the TCP peer, never `X-Forwarded-For`, and a loopback peer (a reverse proxy or tunnel on the
-same host) is not counted, so behind one the per-name limit is the one that applies. At most four verifications
+names; the address is the TCP peer, and a forwarded header only when that peer is listed in
+`transports.http.trustedProxies` (never otherwise), and a loopback peer (a reverse proxy or tunnel on the
+same host that is not listed) is not counted, so behind one the per-name limit is the one that applies. At most four verifications
 run at once; beyond that login answers `503`. Counters are in memory and reset at restart.
 
 **The pages** carry `Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self';
@@ -568,13 +631,14 @@ session.
 **What an anonymous caller can spend.** `POST /oauth/passkey/login/options` is open to anyone who loads the login
 page, so it is budgeted: a burst of 20 challenges per source, refilling at 20 a minute (answer `429` with
 `Retry-After`), and one shared, larger bucket for callers the server cannot tell apart (an unknown or loopback
-address, as behind a Cloudflare tunnel on the same host). Pending challenges are capped per purpose (400 login, 100
+address, as behind a Cloudflare tunnel on the same host that is not listed in `trustedProxies`). Pending challenges are capped per purpose (400 login, 100
 enrolment), so a flood of login challenges cannot take the room enrolment needs. Failed passkey logins are counted
 per source **and per credential** (the same budget as one password account); a caller whose address is hidden is
 bound only by its credential keys and by the single-use challenge each attempt needs, so failures on credentials
-that are not the operator's cannot lock the operator out. Without a trusted-proxy setting the server cannot tell
-clients behind a loopback proxy apart: a determined flood there can still exhaust the shared bucket and delay
-passkey sign-in (the password form is unaffected) until it refills.
+that are not the operator's cannot lock the operator out. Without `transports.http.trustedProxies` the server cannot
+tell clients behind a loopback proxy apart: a determined flood there can exhaust the shared bucket and delay
+passkey sign-in (the password form is unaffected) until it refills. Set it, as in
+[Running behind a proxy or tunnel](#running-behind-a-proxy-or-tunnel), and each client has its own bucket.
 
 ## Verifying an external OpenID Connect provider (`oidc` mode)
 

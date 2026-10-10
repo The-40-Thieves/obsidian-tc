@@ -25,10 +25,10 @@ import { clientResolverFor } from "./as-client-resolver";
 import { secretsEqual, splitScope } from "./as-clients";
 import { loadCode, revokeFamily } from "./as-grants";
 import { type AsRouteDeps, enabledAs } from "./as-metadata";
-import { socketClientIp } from "./as-operator";
 import { consumeCodeAndStartFamily, newRefreshToken } from "./as-refresh";
 import { refreshGrant } from "./as-refresh-grant";
 import { secretGeneration } from "./as-refresh-replay";
+import { socketClientIp } from "./client-ip";
 import { matchResource } from "./resource-set";
 
 type AuthConfig = ServerConfig["auth"];
