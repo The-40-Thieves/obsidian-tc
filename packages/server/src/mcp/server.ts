@@ -6,7 +6,6 @@ import {
   type ListResourceTemplatesResult,
   type ListToolsResult,
   type ReadResourceResult,
-  ResourceNotFoundError,
   type Server,
   SUPPORTED_PROTOCOL_VERSIONS,
   type Tool,
@@ -59,6 +58,7 @@ import { instructionsSurfaceOf } from "./instructions-routing";
 import { getPrompt, listPrompts } from "./prompts";
 import type { CallerContext, ToolRegistry } from "./registry";
 import { requestCallerMeta } from "./request-meta";
+import { asResourceProtocolError } from "./resource-errors";
 import {
   CATALOG_RESOURCE_URI,
   canReadNotes,
@@ -67,6 +67,7 @@ import {
   readCatalogResource,
   readResourceFor,
 } from "./resources";
+import { advertiseSchemes } from "./security-schemes";
 import {
   clientSupportsTasks,
   MODERN_PROTOCOL_VERSION,
@@ -169,6 +170,8 @@ export interface McpServerOptions {
    *  "all" makes tools/list a flat list of that subset, whatever `facadeMode` says. Advertisement
    *  only; every tool stays callable by name. Defaults to "all". See tool-profiles.ts. */
   advertise?: AdvertiseSubset;
+  /** `auth.anonymousDiscovery: "list"`: every tool tools/list returns declares `securitySchemes`. */
+  securitySchemes?: boolean;
   /**
    * THE-583: the protocol era this instance is being constructed to serve, as classified by the
    * SDK (`createMcpHandler`'s `McpRequestContext.era`).
@@ -211,38 +214,6 @@ export interface McpServerOptions {
   /** THE-1098 (GH #964): `experiential.logRetrievals`, forwarded to `buildInstructions`. Absent
    *  defaults to `true` (the schema's own default), matching pre-THE-1098 behavior. */
   experientialLogRetrievals?: boolean;
-}
-
-/**
- * Map a domain error out of `resources/read` onto the code the spec requires.
- *
- * A `resources/read` miss MUST answer `-32602` (Invalid Params) — the 2026-07-28 revision moved it
- * off the old `-32002`, and the SDK never emits `-32002` at all. Our resource path throws the shared
- * domain errors (`note_not_found`, `invalid_input`, `path_invalid`), which the SDK cannot recognise
- * and therefore reports as `-32603` Internal Error: a CLIENT mistake, reported as a server fault,
- * on the one method the spec calls out by name.
- *
- * Only the caller-fault codes are remapped. An ACL denial or a genuine internal failure is not an
- * invalid parameter, and flattening those into `-32602` would tell a client its request was
- * malformed when the request was fine and the answer was "no".
- */
-const RESOURCE_CALLER_FAULTS = new Set([
-  "note_not_found",
-  "invalid_input",
-  "path_invalid",
-  "path_ambiguous",
-]);
-
-function asResourceProtocolError(e: unknown, uri: string): Error {
-  const code = (e as { code?: unknown } | null)?.code;
-  if (typeof code === "string" && RESOURCE_CALLER_FAULTS.has(code)) {
-    return new ResourceNotFoundError(
-      uri,
-      (e as { message?: string }).message ?? `not found: ${uri}`,
-    );
-  }
-  // Anything else is rethrown untouched, so a genuine internal failure keeps reporting as one.
-  return e instanceof Error ? e : new Error(String(e));
 }
 
 // THE-1106 fix round 2: toolAnnotations/toMcpTool moved to ./tool-projection to fit biome's
@@ -404,9 +375,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
       // which can open a workspace session on HTTP: a bare triad tools/list must not.
       const project = opts.outputSchema === "omit" ? toMcpToolNoOutputSchema : toMcpTool;
       const direct = triadDirectTools(opts.registry.listVisible(opts.visibility), project);
-      return withCacheHint(
-        { tools: [...triadTools(Boolean(opts.vaultRegistry)), ...direct] },
-        CACHE_PRIVATE,
+      return advertiseSchemes(
+        opts,
+        withCacheHint(
+          { tools: [...triadTools(Boolean(opts.vaultRegistry)), ...direct] },
+          CACHE_PRIVATE,
+        ),
       );
     }
     if (facadeMode === "domain") {
@@ -416,7 +390,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
         readOnly: dctx.acl?.readOnly,
         toolVisibility: dctx.toolVisibility,
       });
-      return { tools: domainTools(dvisible) };
+      return advertiseSchemes(opts, { tools: domainTools(dvisible) });
     }
     // Per-caller filtering (THE-250): the caller's resolved scopes + ACL read-only shape the
     // advertised surface, so a caller never sees a tool it could not dispatch. A full grant
@@ -444,9 +418,12 @@ export function createMcpServer(opts: McpServerOptions): Server {
     const project = opts.outputSchema === "omit" ? toMcpToolNoOutputSchema : toMcpTool;
     const tools: Tool[] = page.map(project);
     const nextStart = start + page.length;
-    return withCacheHint(
-      nextStart < advertised.length ? { tools, nextCursor: String(nextStart) } : { tools },
-      CACHE_PRIVATE,
+    return advertiseSchemes(
+      opts,
+      withCacheHint(
+        nextStart < advertised.length ? { tools, nextCursor: String(nextStart) } : { tools },
+        CACHE_PRIVATE,
+      ),
     );
   });
 

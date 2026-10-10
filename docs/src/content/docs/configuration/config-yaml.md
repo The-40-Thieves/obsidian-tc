@@ -107,6 +107,7 @@ entry.
 | `algorithms` | string[] *(optional)* | Asymmetric-algorithm allowlist. |
 | `allowMissingAudience` | bool *(optional)* | Opt-out for the deprecation on a JWKS key source that binds no audience (`audience` unset and no complete Protected Resource Metadata). That is a startup error from the next minor release; `true` stops the warning. It does not waive the load-time rule that a JWKS needs `audience` or `resource`. |
 | `resource`, `authorizationServers`, `resourceName`, `scopesSupported` | *(optional)* | RFC 9728 Protected Resource Metadata: when `resource` + one `authorizationServers` entry are set, the HTTP transport advertises a PRM document + `WWW-Authenticate` challenge (OAuth 2.1 resource-server role). |
+| `anonymousDiscovery` | `none \| list`, `none` | What a request with no token gets. `none`: `401` + challenge on every request, `tools/list` included (what grok.com and Claude need to start a sign-in). `list`: ChatGPT's mixed mode, an anonymous `initialize` / `tools/list` is answered (tools carry `securitySchemes`) and an anonymous `tools/call` returns a tool error with `_meta["mcp/www_authenticate"]`. Needs `jwt` or `oidc` and `resource`; see [what a request with no token gets](/security/auth-model/#what-a-request-with-no-token-gets-authanonymousdiscovery). |
 
 `mode: "jwt"` requires `jwtSecret` **or** a JWKS — the config refuses to load otherwise.
 
