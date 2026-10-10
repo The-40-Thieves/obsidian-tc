@@ -305,9 +305,12 @@ export function walkVault(
 
   const startPrefix = opts.sub ? normalizeVaultPath(opts.sub) : "";
   walk(start.abs, startPrefix, start.aclPrefix);
-  out.sort((a, b) => a.relPath.localeCompare(b.relPath));
+  out.sort(compareWalkEntries);
   return out;
 }
+
+export const compareWalkEntries = (a: WalkEntry, b: WalkEntry): number =>
+  a.relPath.localeCompare(b.relPath);
 
 /**
  * THE-490: streaming counterpart to walkVault. Yields one WalkEntry at a time via an async
