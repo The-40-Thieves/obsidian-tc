@@ -23,6 +23,10 @@ import { join } from "node:path";
 /** Keep-a-Changelog section names, in the order they render when a section is created. */
 export const CHANGE_TYPES = ["Added", "Changed", "Deprecated", "Removed", "Fixed", "Security"];
 export const FRAGMENT_DIR = "changes";
+/** `config-schema-change:` acknowledges an existing config key moving (config:schema:check);
+ *  `tool-description-change:` acknowledges an advertised tool description moving
+ *  (check:tool-description-acks). Both are comma-separated lists. */
+const FRONT_MATTER_KEYS = ["type", "config-schema-change", "tool-description-change"];
 const UNRELEASED = "## [Unreleased]";
 
 /**
@@ -41,9 +45,9 @@ export function parseFragment(text, file) {
     fields.set(kv[1], kv[2].trim());
   }
   for (const key of fields.keys()) {
-    if (key !== "type" && key !== "config-schema-change") {
+    if (!FRONT_MATTER_KEYS.includes(key)) {
       throw new Error(
-        `${file}: unknown front matter key "${key}" (allowed: type, config-schema-change)`,
+        `${file}: unknown front matter key "${key}" (allowed: ${FRONT_MATTER_KEYS.join(", ")})`,
       );
     }
   }
@@ -56,11 +60,18 @@ export function parseFragment(text, file) {
   const body = m[2].trim();
   if (body === "") throw new Error(`${file}: empty body`);
   if (!/^- /.test(body)) throw new Error(`${file}: body must start with a "- " bullet`);
-  const schemaChange = (fields.get("config-schema-change") ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return { file, type, body, schemaChange };
+  const list = (key) =>
+    (fields.get(key) ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  return {
+    file,
+    type,
+    body,
+    schemaChange: list("config-schema-change"),
+    toolDescriptionChange: list("tool-description-change"),
+  };
 }
 
 /** Every fragment under `dir`, sorted by file name so assembly is deterministic. README is docs. */
