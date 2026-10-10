@@ -55,6 +55,7 @@ import {
 } from "./facade";
 import { createFacadeModeResolver } from "./facade-mode-resolver";
 import { instructionsSurfaceOf } from "./instructions-routing";
+import { progressReporter } from "./progress-notify";
 import { getPrompt, listPrompts } from "./prompts";
 import type { CallerContext, ToolRegistry } from "./registry";
 import { requestCallerMeta } from "./request-meta";
@@ -68,15 +69,8 @@ import {
   readResourceFor,
 } from "./resources";
 import { advertiseSchemes } from "./security-schemes";
-import {
-  clientSupportsTasks,
-  isIdentifiedCaller,
-  MODERN_PROTOCOL_VERSION,
-  TASK_CALL_JOB_TYPE,
-  TASKS_EXTENSION,
-  type TaskCallPayload,
-  toCreateTaskResult,
-} from "./tasks";
+import { offloadToTask } from "./task-budget";
+import { clientSupportsTasks, MODERN_PROTOCOL_VERSION, TASKS_EXTENSION } from "./tasks";
 import { oversizedToolInput } from "./tool-input-cap";
 import { type AdvertiseSubset, isAdvertisedIn } from "./tool-profiles";
 import { projectTool } from "./tool-projection";
@@ -213,6 +207,23 @@ export interface McpServerOptions {
    * rides `tools/call`, which IS a core method, so it belongs here.
    */
   jobQueue?: JobQueue;
+  /**
+   * Starts one queued task call now, in this process (`makeStartTask`, scheduler/task-call-runner.ts).
+   * With it (and `jobQueue`), a `taskAugmentable` tool called by a client that does NOT poll Tasks
+   * runs as a task anyway: the call waits up to `taskBudgetMs` for the result and past that answers
+   * with a handle for `get_task_status`. Absent, such a call runs synchronously as before.
+   */
+  startTask?: (jobId: string) => void;
+  /** How long a call waits for its task before answering with a handle. Defaults to
+   *  `DEFAULT_TASK_BUDGET_MS` (mcp/task-budget.ts). */
+  taskBudgetMs?: number;
+  /**
+   * Whether this server answers `tasks/get` and friends, so a client that declared the Tasks
+   * extension can be handed a handle and told the extension exists. Defaults to true: HTTP serves
+   * the methods in front of the SDK handler. stdio sets false, because it has no such route, and a
+   * handle its client could never poll would lose the work.
+   */
+  servesTaskMethods?: boolean;
   /** THE-1098 (GH #964): `experiential.logRetrievals`, forwarded to `buildInstructions`. Absent
    *  defaults to `true` (the schema's own default), matching pre-THE-1098 behavior. */
   experientialLogRetrievals?: boolean;
@@ -276,7 +287,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
         // THE-583: advertise the Tasks extension, but only when there is a queue to back it. The
         // client checks this before it is willing to receive a handle, so advertising it without a
         // substrate would invite a task we cannot create. `extensions` is the SEP-2575 field.
-        ...(opts.jobQueue ? { extensions: { [TASKS_EXTENSION]: {} } } : {}),
+        ...(opts.jobQueue && opts.servesTaskMethods !== false
+          ? { extensions: { [TASKS_EXTENSION]: {} } }
+          : {}),
       },
       // THE-583: serve BOTH protocol eras from one server. The SDK ships a frozen 2025-11-25 wire
       // codec alongside the 2026-07-28 one and picks per connection, but the shipped
@@ -473,6 +486,29 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // while the prompt was open. Every route (direct, facade, domain) funnels through this function.
     const declined = declinedConfirmationError({ roundOutcome, answer: ctx.hitlAnswer });
     if (declined !== undefined) return errorToResult(declined);
+    // A `taskAugmentable` tool runs as a background TASK (mcp/task-budget.ts: the handle at
+    // once for a client that polls Tasks, a budgeted wait then a handle for any other). Decided
+    // HERE, by the name that is actually dispatched, because this is the one place direct, facade
+    // (`call_capability`) and domain calls meet; deciding on the outer tools/call name never saw the
+    // target of a facade call. A tool that returns in milliseconds never opts in: augmentation is
+    // not inferred, since a handle costs the caller a poll to learn what one call would have said.
+    if (opts.jobQueue && roundOutcome !== "declined") {
+      const def = opts.registry.list().find((d) => d.name === name);
+      if (def?.taskAugmentable) {
+        const offloaded = await offloadToTask(
+          {
+            queue: opts.jobQueue,
+            startTask: opts.startTask,
+            budgetMs: opts.taskBudgetMs,
+            clientPollsTasks:
+              opts.servesTaskMethods !== false &&
+              clientSupportsTasks(server.getClientCapabilities()),
+          },
+          { tool: name, args: opts.registry.withDefaultVaultArgs(name, args, ctx), ctx },
+        );
+        if (offloaded !== undefined) return offloaded;
+      }
+    }
     const result = await opts.registry.dispatch(name, args, ctx);
     if (!result.ok) {
       // THE-583 + THE-1106: offered only when the SDK will ACTUALLY deliver it — offerInputRequired.
@@ -538,6 +574,13 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // SEP-2575: this request's log sink. The SDK suppresses the notification when the request
     // carried no `io.modelcontextprotocol/logLevel`, which is the MUST NOT we would otherwise break.
     const log = (extra.mcpReq as { log?: RequestLog }).log;
+    // A caller that sent a `progressToken` gets `ctx.progress` (progress-notify.ts); the others get
+    // no hook at all. Task-backed calls forward the hook through the queue (task-budget.ts).
+    const progress = progressReporter(
+      req.params._meta?.progressToken ?? extra.mcpReq._meta?.progressToken,
+      extra.mcpReq.notify,
+    );
+    if (progress) ctx = { ...ctx, progress };
     // SEP-2577: bind the deprecated-but-live client features onto the context, so every tool can
     // reach them. Gated on the client having advertised each one — calling either against a client
     // that did not is a protocol error, not a soft failure.
@@ -554,39 +597,6 @@ export function createMcpServer(opts: McpServerOptions): Server {
     // THE-1106 fix round 2: elicitStateContextPatch's doc comment (./elicit-form.ts) covers why.
     ctx = elicitConfirmationContext(ctx, opts.registry, confirmation, server, isModern);
     ({ args, ctx } = splitElicitToken(rawArgs, ctx));
-    // THE-583: run as a background TASK when the client asked and the tool opted in.
-    //
-    // Both conditions matter. A client asks with `params.task`; a tool declares `taskAugmentable`.
-    // Silently deferring a tool that returns in milliseconds would cost the caller a poll round
-    // trip to learn what one call would have told it, so augmentation is never inferred.
-    //
-    // The caller's scopes are snapshotted INTO the job. The runner gets exactly these and nothing
-    // else, so a task can never do more than the caller could have done synchronously.
-    // An unidentified caller (no `sub`) is answered synchronously: it could never poll the handle.
-    if (
-      opts.jobQueue &&
-      isIdentifiedCaller(ctx.caller) &&
-      clientSupportsTasks(server.getClientCapabilities())
-    ) {
-      const def = opts.registry.list().find((d) => d.name === req.params.name);
-      // A decline never enqueues: dispatchToResult is where it stops.
-      if (def?.taskAugmentable && roundOutcome !== "declined") {
-        const job = opts.jobQueue.enqueue(TASK_CALL_JOB_TYPE, {
-          owner: { vaultId: ctx.vaultId, caller: ctx.caller },
-          payload: {
-            tool: req.params.name,
-            args: opts.registry.withDefaultVaultArgs(req.params.name, args, ctx),
-            caller: ctx.caller,
-            scopes: [...ctx.grantedScopes],
-            vaultId: ctx.vaultId,
-            vaultBound: ctx.vaultBound === true,
-          } satisfies TaskCallPayload,
-        });
-        // The handle IS the result: `resultType: "task"` is the discriminator the client switches on
-        // to tell it apart from an answer, and it polls `tasks/get` from here.
-        return toCreateTaskResult(job) as unknown as CallToolResult;
-      }
-    }
     // THE-275 domain-verb facade: a domain meta-tool ("notes", "search", ...) carries {action, args};
     // route the named action straight through registry.dispatch so every gate + the target's own
     // schema validation fire unchanged (identical to call_capability, just grouped by domain).

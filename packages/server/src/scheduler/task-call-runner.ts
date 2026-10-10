@@ -17,7 +17,7 @@ import type { FolderAcl } from "../acl";
 import type { Database } from "../db/types";
 import type { CallerContext, ToolRegistry } from "../mcp/registry";
 import type { TaskCallPayload } from "../mcp/tasks";
-import type { JobQueue } from "./job-queue";
+import { type JobProgress, type JobQueue, runJob } from "./job-queue";
 
 export interface TaskCallDeps {
   registry: ToolRegistry;
@@ -72,6 +72,11 @@ export async function runTaskCall(
     db: deps.db,
     acl: deps.acl,
     ...(signal ? { signal } : {}),
+    // Only for a call whose client asked for progress. The queue keeps the latest report and fans
+    // it out to whoever is waiting on the job (the budgeted wait in mcp/task-budget.ts).
+    ...(payload.progress === true
+      ? { progress: (p: JobProgress) => deps.queue.reportProgress(jobId, p) }
+      : {}),
   };
 
   const result = await deps.registry.dispatch(payload.tool, payload.args, ctx);
@@ -81,7 +86,13 @@ export async function runTaskCall(
     // option, because after the throw this function no longer runs.
     deps.queue.recordOutcome(jobId, {
       ok: false,
-      error: { code: INTERNAL_ERROR, message: `${result.error.code}: ${result.error.message}` },
+      error: {
+        code: INTERNAL_ERROR,
+        message: `${result.error.code}: ${result.error.message}`,
+        // The tool's own structured error, so a caller that waits on the job (mcp/task-budget.ts)
+        // renders the same text it would have got from a synchronous call.
+        data: { ...result.error },
+      },
     });
     // The throw still matters: it is what drives the queue's retry/terminal policy. Returning
     // normally here would mark a failed call `completed`.
@@ -110,4 +121,23 @@ export function makeTaskCallHandler(deps: TaskCallDeps) {
     job: { id: string; payload: unknown },
     runCtx: { signal: AbortSignal },
   ): Promise<void> => runTaskCall(job.id, job.payload, deps, runCtx.signal);
+}
+
+/**
+ * Start ONE queued task call immediately, in this process, concurrently with everything else.
+ *
+ * What a tools/call that cannot wait for the runner's 15 s tick needs: claim the job it just
+ * enqueued and run it through the same handler and the same `runJob` lease/heartbeat/cancel
+ * machinery the tick uses, so a task started here is indistinguishable from one the tick ran. It
+ * returns at once; the outcome is read off the job row. A job someone else already claimed (the
+ * tick won the race) is left to them.
+ */
+export function makeStartTask(deps: TaskCallDeps, leaseOwner: string): (jobId: string) => void {
+  const handler = makeTaskCallHandler(deps);
+  return (jobId) => {
+    const job = deps.queue.claimById(jobId, leaseOwner);
+    if (job === null) return;
+    // runJob records every outcome on the row; there is nothing to do with its result here.
+    void runJob(deps.queue, job, leaseOwner, handler).catch(() => undefined);
+  };
 }

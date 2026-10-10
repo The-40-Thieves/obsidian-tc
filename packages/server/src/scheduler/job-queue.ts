@@ -29,7 +29,7 @@ export type JobState = "queued" | "running" | "retrying" | "complete" | "failed"
  */
 export type JobOutcome =
   | { ok: true; result: Record<string, unknown> }
-  | { ok: false; error: { code: number; message: string } };
+  | { ok: false; error: { code: number; message: string; data?: Record<string, unknown> } };
 
 /**
  * Read an outcome envelope back off the row.
@@ -49,6 +49,13 @@ function parseOutcome(raw: string | null | undefined): JobOutcome | null {
     /* fall through */
   }
   return null;
+}
+
+/** One progress report: the shape of an MCP `notifications/progress` payload, minus the token. */
+export interface JobProgress {
+  progress: number;
+  total?: number;
+  message?: string;
 }
 
 export interface Job {
@@ -193,6 +200,9 @@ const CLAIM_SCAN_LIMIT = 50;
 export class JobQueue {
   /** THE-583: `notifications/tasks` subscribers. Empty in every deployment that never opens one. */
   private readonly taskListeners = new Set<(job: Job) => void>();
+  /** Latest in-process progress per RUNNING job (see reportProgress). Dropped at a terminal state. */
+  private readonly progressByJob = new Map<string, JobProgress>();
+  private readonly progressListeners = new Map<string, Set<(p: JobProgress) => void>>();
 
   private readonly db: Database;
   private readonly now: () => number;
@@ -367,6 +377,69 @@ export class JobQueue {
     );
   }
 
+  /**
+   * Claim ONE specific job, now, instead of waiting for the runner's next tick.
+   *
+   * The tick (15 s) is the right cadence for maintenance work and the wrong one for a tool call a
+   * client is waiting on: the budget a non-task client allows (~60 s) would be a quarter spent
+   * before the work even started, and the runner drains serially, so one long index run would hold
+   * every other caller's task behind it. Only a `queued` job is claimable this way: a retrying or
+   * lease-expired one belongs to the runner's reclaim path, and a running one to its owner.
+   */
+  claimById(id: string, leaseOwner: string, leaseMs?: number): Job | null {
+    const t = this.now();
+    const lease = leaseMs ?? this.leaseMsValue;
+    return inWriteTransaction(
+      this.db,
+      "job_claim",
+      (): Job | null => {
+        const updated = this.db
+          .prepare(
+            `UPDATE jobs SET state = 'running', attempt = attempt + 1, lease_owner = ?,
+             lease_expires_at = ?, updated_at = ? WHERE id = ? AND state = 'queued'`,
+          )
+          .run(leaseOwner, t + lease, t, id);
+        return updated.changes === 1 ? this.get(id) : null;
+      },
+      this.sql,
+    );
+  }
+
+  /**
+   * In-process progress for a RUNNING job. Deliberately not a column: it is only meaningful while
+   * the worker that reports it is alive (a crashed worker's "42 of 100" would be a lie on the next
+   * boot), and the queue's durable rows stay free of per-batch writes. The latest report is kept
+   * for `get_task_status`; listeners are how a request waiting on the job forwards it as
+   * `notifications/progress`.
+   */
+  reportProgress(id: string, progress: JobProgress): void {
+    this.progressByJob.set(id, progress);
+    for (const listener of [...(this.progressListeners.get(id) ?? [])]) {
+      try {
+        listener(progress);
+      } catch {
+        /* a listener must never break the worker that reports */
+      }
+    }
+  }
+
+  progressOf(id: string): JobProgress | undefined {
+    return this.progressByJob.get(id);
+  }
+
+  onProgress(id: string, listener: (p: JobProgress) => void): () => void {
+    let set = this.progressListeners.get(id);
+    if (!set) {
+      set = new Set();
+      this.progressListeners.set(id, set);
+    }
+    set.add(listener);
+    return () => {
+      set.delete(listener);
+      if (set.size === 0) this.progressListeners.delete(id);
+    };
+  }
+
   /** Extend the lease. Fails (returns false) if the caller no longer owns it — an already-reaped
    *  job must not have its old owner clawing the lease back out from under the new one. */
   heartbeat(id: string, leaseOwner: string, leaseMs?: number): boolean {
@@ -447,7 +520,10 @@ export class JobQueue {
         "UPDATE jobs SET state = 'complete', lease_owner = NULL, lease_expires_at = NULL, updated_at = ? WHERE id = ? AND lease_owner = ? AND state = 'running'",
       )
       .run(t, id, leaseOwner);
-    if (updated.changes === 1) this.announce(id);
+    if (updated.changes === 1) {
+      this.progressByJob.delete(id);
+      this.announce(id);
+    }
     return updated.changes === 1;
   }
 
@@ -473,6 +549,7 @@ export class JobQueue {
           ? [message, t, id, leaseOwner]
           : [t + this.backoff(row.attempt), message, t, id, leaseOwner]),
       );
+    if (deadLetter) this.progressByJob.delete(id);
     this.announce(id);
     return updated.changes === 1;
   }

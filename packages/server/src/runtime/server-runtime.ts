@@ -21,7 +21,7 @@ import { createStdioElicitCodec } from "../elicit";
 import { buildMemoryDefenseLookup } from "../experiential/memory-defense";
 import { providerResolveHost } from "../gateway/provider-fetch";
 import { healthToolsWiringFields, mcpServerFacadeOptions } from "../mcp/facade-auto";
-import type { CallerContext, ToolRegistry } from "../mcp/registry";
+import type { ToolRegistry } from "../mcp/registry";
 import { createMcpServer } from "../mcp/server";
 import { disabledByProfileFor } from "../mcp/tool-profiles";
 import { ALLOW_ALL } from "../mcp/visibility";
@@ -35,6 +35,7 @@ import { wireLeaderEpoch } from "../search/indexing/leader-epoch";
 import { nativeBindingActive } from "../search/native";
 import { createRetrievalCaches } from "../search/query_cache";
 import { wireTelemetry } from "../telemetry/wiring";
+import { createTaskStatusTool } from "../tools/admin/task-status";
 import { connectStdio } from "../transports/stdio";
 import { nativeReadyToken, type OwnedLayer, requireBoot, unwindReversed } from "./boot-helpers";
 import { emitBootNotices } from "./boot-notices";
@@ -52,6 +53,7 @@ import { wireRuntimeCore } from "./runtime-core-wiring";
 import { wireScheduler } from "./scheduler-wiring";
 import { makeSandboxRerun } from "./session-rerun-sandbox";
 import { joinReconcileOrExit, logShutdownError, raceShutdownPhaseOrExit } from "./shutdown-phase";
+import { stdioContext } from "./stdio-context";
 import { wireStoresBehindBootstrapBarrier } from "./stores";
 import { wireDomainTools, wireGatewaySeams, wireHealthTools, wireM1Tools } from "./tool-wiring";
 import { wireTransports } from "./transport-wiring";
@@ -296,7 +298,9 @@ export async function buildServerRuntime(
     // W-INGEST onIndexed hook -> contradiction enqueue; THE-822: plane.enabled also gates this.
     const makeOnIndexed = createOnIndexedHook({ jobQueue, roles, plane: config.plane });
 
-    const { jobRunner } = wireJobHandlers({
+    // The poll half of the handle a long tool returns past its time budget (mcp/task-budget.ts).
+    registry.register(createTaskStatusTool({ queue: jobQueue }));
+    const { jobRunner, taskCalls } = wireJobHandlers({
       registry,
       db,
       acl,
@@ -441,24 +445,7 @@ export async function buildServerRuntime(
       provenanceStamp: governance.provenanceStamp,
     });
 
-    /** stdio is the trusted local transport: the operator runs the binary against their own vault,
-     *  so calls are authenticated with full local scope. THE-514: signal is the SDK's per-request
-     *  extra.signal, threaded through so a caller that cancels a stdio call stops runDispatch at
-     *  the next stage boundary. */
-    const context = (signal?: AbortSignal): CallerContext => {
-      const active = activeSessions.validate(db, "stdio", config.sessions);
-      return {
-        caller: "stdio",
-        transport: "stdio",
-        authenticated: true,
-        grantedScopes: new Set(["*"]),
-        vaultId: firstVault.id,
-        db,
-        acl,
-        signal,
-        ...(active && active.vaultId === firstVault.id ? { sessionId: active.sessionId } : {}),
-      };
-    };
+    const context = stdioContext({ activeSessions, db, acl, config, firstVault });
 
     const server = createMcpServer({
       name: "obsidian-tc",
@@ -477,6 +464,8 @@ export async function buildServerRuntime(
       experientialLogRetrievals: config.experiential.logRetrievals,
       elicitCodec: createStdioElicitCodec(), // THE-1106: see its doc comment (elicit.ts)
       legacyElicitationShim: true,
+      ...taskCalls,
+      servesTaskMethods: false, // stdio has no tasks/get route
     });
 
     const transports = await wireTransports({
@@ -487,7 +476,7 @@ export async function buildServerRuntime(
       db,
       firstVaultId: firstVault.id,
       acl,
-      jobQueue,
+      ...taskCalls,
       metrics,
       provenance: governance.provenance,
     });

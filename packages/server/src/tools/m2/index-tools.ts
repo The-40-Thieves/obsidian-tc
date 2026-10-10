@@ -17,7 +17,7 @@ import type { M2Deps } from "./shared";
 // response_format=concise drops the bookkeeping counters (unchanged chunks, edge and upsert/delete
 // totals, reused dedup chunks, model, dimensions), so those are optional; every failure and
 // degradation signal stays required.
-const IndexVaultOutput = z.object({
+const IndexVaultResult = z.object({
   vault: z.string(),
   notes_seen: z.number(),
   notes_indexed: z.number(),
@@ -44,6 +44,19 @@ const IndexVaultOutput = z.object({
   model: z.string().optional(),
   dimensions: z.number().optional(),
 });
+
+// The handle the server answers with INSTEAD of the result when the run outlasts the call's time
+// budget (mcp/task-budget.ts `pendingTaskResult`); the run continues and `get_task_status` reads it.
+// Declared here because a client validates every structuredContent against this tool's schema.
+const IndexVaultHandle = z.object({
+  status: z.literal("working"),
+  task_id: z.string(),
+  poll_tool: z.string(),
+  tool: z.string(),
+  message: z.string(),
+});
+
+export const IndexVaultOutput = z.union([IndexVaultResult, IndexVaultHandle]);
 
 export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
   return [
@@ -94,7 +107,18 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
             // THE-490/THE-591: indexing.streamingWalk. Off/absent -> byte-identical to before.
             walk: { streaming: deps.streamingWalk },
             // THE-645: in-flight progress, fired once per completed flush() batch.
-            onProgress: (p) => deps.onProgress?.(v.id, p),
+            onProgress: (p) => {
+              deps.onProgress?.(v.id, p);
+              // notifications/progress for a caller that sent a progressToken. Notes are the unit
+              // (chunksUpserted stays 0 through an incremental pass that changes nothing, which
+              // would send no progress at all). The streaming walk reports -1 for notesSeen (total
+              // unknown), which must not go out as a total.
+              ctx.progress?.({
+                progress: p.notesProcessed,
+                ...(p.notesSeen > 0 ? { total: p.notesSeen } : {}),
+                message: `${p.notesSeen > 0 ? `${p.notesProcessed}/${p.notesSeen}` : p.notesProcessed} notes, ${p.chunksUpserted} chunks upserted`,
+              });
+            },
           });
           // THE-491: surfaced verbatim by get_index_status (last index_vault call this process).
           deps.onIndexVaultComplete?.(v.id, stats);

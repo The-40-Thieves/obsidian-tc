@@ -1,6 +1,6 @@
-// run_serve's M1-M8 tool-dependency composition + registration, plus `health` and `index_status`,
+// run_serve's M1-M8 tool-dependency composition + registration, plus `health` and `index_status` (`get_task_status` registers beside the job runner, plane-wiring.ts),
 // which register inline from live runtime state rather than from a module registrar (that's why
-// `boot.tools_registered` in eval/perf/collectors/boot.ts is pinned 2 lower than
+// `boot.tools_registered` in eval/perf/collectors/boot.ts is pinned 3 lower than
 // REGISTERED_TOOL_COUNT — that collector imports tools/m1..m8's registrars directly).
 //
 // Composition order is load-bearing: `wireM1Tools` runs BEFORE bridge-wiring.ts (M1 has no bridge

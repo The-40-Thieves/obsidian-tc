@@ -78,6 +78,11 @@ export interface CallerContext {
     source: "form" | "request_state";
   };
   acl?: FolderAcl;
+  /** Report progress of a long call. Present ONLY when the caller sent a `progressToken` (or the
+   *  call is a task whose originating request did), so a tool never builds a payload for nobody.
+   *  Synchronous and fire-and-forget by design: it is called from inside a batch loop and must not
+   *  make that loop wait on a client. `progress` must increase between calls (MCP progress rule). */
+  progress?: (update: { progress: number; total?: number; message?: string }) => void;
   /** SEP-2577 client features (roots/sampling), deprecated but functional through the revision's
    *  migration window — see docs/design/mcp-registry-context-types.md. `undefined` when the client
    *  did not advertise the capability (the normal case, not an error). `roots` is ADVISORY: vaults

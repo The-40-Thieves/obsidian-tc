@@ -6,8 +6,8 @@ Extracted from inline commentary, 2026-08-21. The code carries the invariants; t
 
 `tool-wiring.ts` is `run_serve`'s M1-M8 tool-dependency composition and registration, extracted
 verbatim out of `cli.ts`, plus the two tools its trap list calls out by name: `health` and
-`index_status` register inline from live runtime state (not from a module registrar). That is why
-`boot.tools_registered` (`eval/perf/collectors/boot.ts`) is pinned 2 lower than
+`index_status` (and `get_task_status`, which reads the live job queue) register inline from live runtime state (not from a module registrar). That is why
+`boot.tools_registered` (`eval/perf/collectors/boot.ts`) is pinned 3 lower than
 `REGISTERED_TOOL_COUNT` — that collector's probe imports the `tools/m1..m8` registrars directly and
 never touches this file or `cli.ts`, so moving these call sites changes nothing it measures.
 

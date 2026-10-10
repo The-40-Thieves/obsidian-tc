@@ -192,11 +192,11 @@ on an eighth nobody had written down.
 2. **The facade domain map** — `test/tool-facade-domain-coverage.test.ts`. Reusing an existing
    `domain` only trips its count assertion (its count is derived from `registered-tools.txt`); a **new** domain is
    what makes the map itself load-bearing.
-3. **`boot.tools_registered`** — `eval/perf/baseline.small.json`, hard/exact. Pinned **2 lower**
-   than the number of names in `registered-tools.txt`, since `health` and `index_status` register inline in `cli.ts`.
+3. **`boot.tools_registered`** — `eval/perf/baseline.small.json`, hard/exact. Pinned **3 lower**
+   than the number of names in `registered-tools.txt`, since `health`, `index_status` and `get_task_status` register inline in `cli.ts`.
 
    **Nothing to do when adding a tool.** The perf gate takes the expected value for this key from
-   `registered-tools.txt` (names minus the two inline tools, exact equality — `manifestExpectations`
+   `registered-tools.txt` (names minus the three inline tools, exact equality — `manifestExpectations`
    in `eval/perf/gate.ts`) and ignores the number recorded in the baseline, so a stale recorded value
    no longer fails the post-merge `perf` job. **Do NOT hand-edit the baseline copy.** Re-record it
    (`perf-baseline.yml`, commit all three files) only when the timing keys need re-recording anyway;

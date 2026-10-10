@@ -43,6 +43,8 @@ export interface TransportWiringDeps {
   firstVaultId: string;
   acl: FolderAcl;
   jobQueue: JobQueue;
+  /** Starts a queued task call now; see `McpServerOptions.startTask`. */
+  startTask: (jobId: string) => void;
   metrics: MetricsRecorder;
   /** Signed write provenance recorder (absent when disabled). It gets its signing key here, from
    *  the auth registry opened below; with no registry or no EdDSA key it keeps writing unsigned. */
@@ -265,6 +267,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
         // there are no retrieval rows for feedback to update.
         experientialLogRetrievals: config.experiential.logRetrievals,
         jobQueue: deps.jobQueue,
+        startTask: deps.startTask,
         ...(advisoryBus ? { advisoryBus } : {}),
         enableDnsRebindingProtection: config.transports.http.enableDnsRebindingProtection,
         allowedHosts: config.transports.http.allowedHosts,
