@@ -527,7 +527,7 @@ export const TOP_TOOLS_BY_DOMAIN: Record<ToolDomain, readonly string[]> = {
   git: ["git_status", "git_diff", "git_log", "git_commit"],
   knowledge: ["create_entity", "link_entities", "add_observation", "query_entity_graph"],
   docs: ["knowledge_search", "knowledge_get_critical"],
-  admin: ["server_health", "get_index_status", "inspect_acl", "get_metrics"],
+  admin: ["server_health", "get_index_status", "get_task_status", "inspect_acl", "get_metrics"],
 };
 
 /**

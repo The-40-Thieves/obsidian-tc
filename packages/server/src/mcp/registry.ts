@@ -21,6 +21,7 @@ import {
   callStatusForError,
   DispatchObservability,
 } from "./registry/dispatch-observability";
+import { passesPolicyGates as passesPolicyGatesFor } from "./registry/offload-preflight";
 import { assertScopesGranted } from "./registry/policy-gates";
 import {
   memoizeSerialized,
@@ -246,6 +247,13 @@ export class ToolRegistry {
   ): Record<string, unknown> {
     const def = this.toolStore.get(name);
     return def ? (withDefaultVault(def, args, ctx, this.visibleVaultIds) as typeof args) : args;
+  }
+  /** Whether a dispatch of `name` would pass every policy gate that has no side effect (visibility
+   *  and persona mask, authentication, scopes, vault binding, ACL, read-only, vault kind). For a
+   *  caller that wants to queue the call as a task: it asks first, and a `false` means dispatch
+   *  synchronously so the refusal is dispatch's own. See registry/offload-preflight.ts. */
+  passesPolicyGates(name: string, args: unknown, ctx: CallerContext): boolean {
+    return passesPolicyGatesFor(this.dispatchDeps, name, args, ctx);
   }
   /** Tools advertised by tools/list: the registered set minus those the visibility config
    *  hides/disables (THE-219) and those the caller cannot dispatch (THE-250). `list()` stays

@@ -66,8 +66,10 @@ describe("toTask — projecting a queue job onto the extension vocabulary", () =
     // Reporting `cancelled` while it is still running would tell the client the work has stopped
     // when it has not — the client would move on while the job kept mutating the vault.
     expect(toMcpTask({ ...base, state: "running", cancelRequested: true }).status).toBe("working");
+    // A run that FINISHED keeps its terminal status: the cancel arrived too late to matter, and
+    // `cancelled` would hide the result it holds (see task-lease-cancel.test.ts).
     expect(toMcpTask({ ...base, state: "complete", cancelRequested: true }).status).toBe(
-      "cancelled",
+      "completed",
     );
     expect(toMcpTask({ ...base, state: "failed", cancelRequested: true }).status).toBe("cancelled");
   });

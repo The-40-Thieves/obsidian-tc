@@ -133,7 +133,8 @@ describe("notifications/tasks (THE-583)", () => {
       try {
         const job = queue.enqueue("mcp_tool_call", { owner: { vaultId: "v1", caller: "agent-1" } });
         const frames = await collect(handle.port, jwt, () => {
-          queue.recordOutcome(job.id, { ok: true, result: { ran: true } });
+          queue.claimById(job.id, "w");
+          queue.recordOutcome(job.id, { ok: true, result: { ran: true } }, "w");
         });
         const ack = frames.find((f) => f.method === "notifications/subscriptions/acknowledged");
         expect(ack?.params?.notifications?.[TASKS]).toBe(true);
@@ -162,7 +163,8 @@ describe("notifications/tasks (THE-583)", () => {
           owner: { vaultId: "v1", caller: "agent-2" },
         });
         const frames = await collect(handle.port, jwt, () => {
-          queue.recordOutcome(theirs.id, { ok: true, result: {} });
+          queue.claimById(theirs.id, "w");
+          queue.recordOutcome(theirs.id, { ok: true, result: {} }, "w");
         });
         expect(frames.some((f) => f.method === "notifications/tasks")).toBe(false);
       } finally {
@@ -181,7 +183,8 @@ describe("notifications/tasks (THE-583)", () => {
       try {
         const internal = queue.enqueue("reconcile");
         const frames = await collect(handle.port, jwt, () => {
-          queue.recordOutcome(internal.id, { ok: true, result: {} });
+          queue.claimById(internal.id, "w");
+          queue.recordOutcome(internal.id, { ok: true, result: {} }, "w");
         });
         expect(frames.some((f) => f.method === "notifications/tasks")).toBe(false);
         expect(JSON.stringify(frames)).not.toContain("reconcile");

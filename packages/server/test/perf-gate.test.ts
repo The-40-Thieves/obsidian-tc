@@ -463,13 +463,13 @@ describe("boot.tools_registered is judged against the names manifest, not the re
     );
   });
 
-  it("derives the expectation as manifest names minus the two inline-registered tools", () => {
+  it("derives the expectation as manifest names minus the three inline-registered tools", () => {
     const exp = manifestExpectations(manifestOf(172))["boot.tools_registered"];
     expect(exp?.value).toBe(172);
     expect(exp?.source).toContain("registered-tools.txt");
   });
 
-  it("throws when the manifest no longer lists an inline tool (the -2 assumption is stale)", () => {
+  it("throws when the manifest no longer lists an inline tool (the -3 assumption is stale)", () => {
     expect(() => manifestExpectations(["read_note", "server_health"])).toThrow(/get_index_status/);
   });
 
