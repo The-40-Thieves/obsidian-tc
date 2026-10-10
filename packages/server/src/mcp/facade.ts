@@ -13,6 +13,7 @@ import { bm25Score, tokenize } from "../search/native";
 import { profileHiddenTools } from "./capability-hidden";
 import { TOOL_DOMAINS, type ToolDefinition, type ToolDomain, type ToolRegistry } from "./registry";
 import { relaxVaultInJson } from "./registry/vault-default";
+import { lowerOutputSchema, lowerSchema } from "./schema-lowering";
 import { isAdvertisedDestructive, isMutatingDefinition } from "./tool-tags";
 import type { VisibilityCaller } from "./visibility";
 
@@ -31,15 +32,31 @@ export const JSON_SCHEMA_OPTS = {
   unrepresentable: "any",
 } as const;
 // THE-294 / THE-1041 (GH #934): each JSON-Schema conversion is memoized by schema identity, one
-// WeakMap per io mode — toJson is io:"output", toInputJson is io:"input".
-const jsonSchemaMemo = new WeakMap<z.ZodType, Tool["inputSchema"]>();
-export function toJson(schema: z.ZodType): Tool["inputSchema"] {
+// WeakMap per io mode — toJson is io:"output", toInputJson is io:"input". Both return the PORTABLE
+// SUBSET (mcp/schema-lowering.ts) because this is the one place a schema leaves the process:
+// tools/list in every facade mode and describe_capability. Dispatch validates with the zod original.
+// An output whose root admits a non-object value (z.unknown(), a union with an array arm) has no
+// honest `type: object` advertisement, so toJson returns undefined and the projections omit the key.
+const jsonSchemaMemo = new WeakMap<z.ZodType, Tool["inputSchema"] | null>();
+export function toJson(schema: z.ZodType): Tool["inputSchema"] | undefined {
   let cached = jsonSchemaMemo.get(schema);
   if (cached === undefined) {
-    cached = z.toJSONSchema(schema, JSON_SCHEMA_OPTS) as unknown as Tool["inputSchema"];
+    cached =
+      lowerOutputSchema(
+        z.toJSONSchema(schema, JSON_SCHEMA_OPTS) as unknown as Tool["inputSchema"],
+      ) ?? null;
     jsonSchemaMemo.set(schema, cached);
   }
-  return cached;
+  return cached ?? undefined;
+}
+
+/** `{ <key>: schema }` when the output is advertisable, else `{}`: the one shared spread. */
+export function outputSchemaField<K extends string>(
+  key: K,
+  schema: z.ZodType | undefined,
+): { [P in K]?: Tool["inputSchema"] } {
+  const json = schema === undefined ? undefined : toJson(schema);
+  return (json === undefined ? {} : { [key]: json }) as { [P in K]?: Tool["inputSchema"] };
 }
 
 const inputJsonSchemaMemo = new WeakMap<z.ZodType, Tool["inputSchema"]>();
@@ -47,12 +64,15 @@ export function toInputJson(schema: z.ZodType): Tool["inputSchema"] {
   let cached = inputJsonSchemaMemo.get(schema);
   if (cached === undefined) {
     // `vault` is optional on the wire wherever dispatch can default it (registry/vault-default.ts).
-    cached = relaxVaultInJson(
-      z.toJSONSchema(schema, {
-        ...JSON_SCHEMA_OPTS,
-        io: "input",
-      }) as unknown as Tool["inputSchema"],
-      schema,
+    cached = lowerSchema(
+      relaxVaultInJson(
+        z.toJSONSchema(schema, {
+          ...JSON_SCHEMA_OPTS,
+          io: "input",
+        }) as unknown as Tool["inputSchema"],
+        schema,
+      ),
+      "input",
     );
     inputJsonSchemaMemo.set(schema, cached);
   }
@@ -280,7 +300,7 @@ export function describeCapability(def: ToolDefinition): Record<string, unknown>
     title: titleize(def.name),
     description: def.description,
     input_schema: toInputJson(def.inputSchema),
-    ...(def.outputSchema ? { output_schema: toJson(def.outputSchema) } : {}),
+    ...outputSchemaField("output_schema", def.outputSchema),
     required_scopes: def.requiredScopes,
     tags: def.tags ?? [],
     annotations: { read_only: !mutating, destructive: isAdvertisedDestructive(def) },
