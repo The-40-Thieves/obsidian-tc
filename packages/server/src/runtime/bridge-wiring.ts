@@ -47,6 +47,8 @@ export interface BridgeWiring {
    *  result captured below. */
   modeByVault: Map<string, VaultMode>;
   memoryFolderByVault: Map<string, string>;
+  /** memory.supersededInNote, present only for a vault that configured a `memory` block. */
+  supersededInNoteByVault: Map<string, boolean>;
   traceFolderByVault: Map<string, string>;
   /** GH #994: per-vault memoryDefense config, present only for a vault that configured one. */
   memoryDefenseByVault: Map<string, VaultMemoryDefenseConfig>;
@@ -67,6 +69,7 @@ export async function wireBridges(deps: BridgeWiringDeps): Promise<BridgeWiring>
   const timeoutsByVault = new Map<string, BridgeTimeouts>();
   const commandsByVault = new Map<string, { enabled: boolean; allowlist: string[] }>();
   const memoryFolderByVault = new Map<string, string>();
+  const supersededInNoteByVault = new Map<string, boolean>();
   const traceFolderByVault = new Map<string, string>();
   const memoryDefenseByVault = new Map<string, VaultMemoryDefenseConfig>();
   const reflectDefaultsByVault = new Map<string, VaultReflectConfig>();
@@ -77,6 +80,7 @@ export async function wireBridges(deps: BridgeWiringDeps): Promise<BridgeWiring>
       allowlist: v.commands?.allowlist ?? [],
     });
     if (v.memory) memoryFolderByVault.set(v.id, v.memory.folder);
+    if (v.memory) supersededInNoteByVault.set(v.id, v.memory.supersededInNote);
     if (v.workspace) traceFolderByVault.set(v.id, v.workspace.traceFolder);
     if (v.memoryDefense) memoryDefenseByVault.set(v.id, v.memoryDefense);
     if (v.reflect) reflectDefaultsByVault.set(v.id, v.reflect);
@@ -155,6 +159,7 @@ export async function wireBridges(deps: BridgeWiringDeps): Promise<BridgeWiring>
     capabilities,
     modeByVault,
     memoryFolderByVault,
+    supersededInNoteByVault,
     traceFolderByVault,
     memoryDefenseByVault,
     reflectDefaultsByVault,

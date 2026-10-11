@@ -106,6 +106,12 @@ export const VaultMemoryConfigSchema = z.object({
     .describe(
       "Vault folder where create_entity(materialize) writes the regenerable .md projection. A normal folder so the [[link]] graph resolves in Obsidian; SQLite remains the source of truth.",
     ),
+  supersededInNote: z
+    .boolean()
+    .default(true)
+    .describe(
+      "Whether a materialized entity note keeps its superseded and retired observations under a Superseded heading. true (default) keeps them, so the indexer chunks and FTS-indexes the old text. false omits the section: the note then holds current facts only, and closed history stays in SQLite, still returned by get_entity with as_of.",
+    ),
 });
 
 // Per-vault workspace-session trace config (M5 / THE-181, G2.1 Domain 23). Session
