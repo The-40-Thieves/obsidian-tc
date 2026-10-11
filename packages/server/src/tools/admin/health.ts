@@ -6,6 +6,7 @@ import { AUTO_FACADE_DEPRECATION, FALLBACK_FACADE_MODE } from "../../mcp/facade-
 import type { AutoFacadeExplanation } from "../../mcp/facade-mode";
 import type { ToolDefinition } from "../../mcp/registry";
 import { type AdvertiseSubset, NON_CORE_TOOL_NAMES } from "../../mcp/tool-profiles";
+import type { FtsStatus } from "../../search/fts-status";
 import { readUnrestrictedOnEveryVault } from "../../vault/acl-read-filter";
 
 export interface IndexHealthSnapshot {
@@ -137,6 +138,43 @@ export interface HealthInfo {
   };
   deprecations?: string[];
   embedder_warmup?: EmbedderWarmupStatus;
+  fts?: FtsHealthView;
+}
+
+export interface FtsHealthView {
+  state: FtsStatus["state"];
+  reason?: string;
+  attempts?: number;
+  max_attempts?: number;
+  next_retry_at?: number;
+  last_error?: string;
+}
+
+const FtsHealthOutput = z
+  .object({
+    state: z.enum(["available", "recovering", "unavailable"]),
+    reason: z
+      .enum([
+        "lock_contention",
+        "disabled",
+        "no_notes_table",
+        "provision_failed",
+        "integrity_failed",
+        "not_probed",
+      ])
+      .optional(),
+    attempts: z.number().optional(),
+    max_attempts: z.number().optional(),
+    next_retry_at: z.number().optional(),
+    last_error: z.string().optional(),
+  })
+  .describe(
+    "Full-text (notes_fts) state. available; recovering (a transient database lock at startup, retried in the background with attempts, max_attempts and next_retry_at, and searches use slower exhaustive disk scans meanwhile); or unavailable with a reason (lock_contention once retries are spent, disabled by OBSIDIAN_TC_DISABLE_FTS, no_notes_table, provision_failed, integrity_failed). last_error is withheld from callers that may not read every vault.",
+  );
+
+function ftsView(s: FtsStatus, detail: boolean): FtsHealthView {
+  const { last_error, ...rest } = s as FtsHealthView;
+  return detail && last_error !== undefined ? { ...rest, last_error } : rest;
 }
 
 /** THE-491: the `server_health` index block, thinned to a named, agent-discoverable reader —
@@ -165,6 +203,7 @@ export interface IndexStatusInfo {
   notes_ready: boolean;
   vec_enabled: boolean;
   fts_enabled: boolean;
+  fts?: FtsHealthView;
   /** chunks_upserted from the last index_vault tool call this process, or null if none yet. */
   chunks_upserted: number | null;
   /** THE-645: progress of an index_vault call currently in flight for this process, or absent
@@ -192,6 +231,7 @@ const IndexStatusOutput = z.object({
   notes_ready: z.boolean(),
   vec_enabled: z.boolean(),
   fts_enabled: z.boolean(),
+  fts: FtsHealthOutput.optional(),
   chunks_upserted: z.number().nullable(),
   in_flight: IndexInFlightOutput.optional(),
 });
@@ -257,6 +297,7 @@ const HealthInfoOutput = z.object({
   native_loaded: z.boolean(),
   vec_enabled: z.boolean(),
   fts_enabled: z.boolean(),
+  fts: FtsHealthOutput.optional(),
   vault_count: z.number(),
   // authenticated-callers-only (F3): vault ids are deployment-internal.
   vaults: z.array(z.string()).optional(),
@@ -310,7 +351,8 @@ const HealthInfoOutput = z.object({
 
 export function createIndexStatusTool(opts: {
   vecEnabled: boolean;
-  ftsEnabled: boolean;
+  ftsEnabled?: boolean;
+  getFtsStatus?: () => FtsStatus;
   getIndexHealth: () => Omit<IndexHealthSnapshot, "detail">;
   getLastChunksUpserted: () => number | null;
   /** THE-645: progress of an index_vault call in flight right now, or null/absent when none is
@@ -331,6 +373,7 @@ export function createIndexStatusTool(opts: {
       const snap = opts.getIndexHealth();
       const fullRead = readUnrestrictedOnEveryVault(ctx, opts.vaultIds?.() ?? [], opts.aclFor);
       const inFlight = fullRead ? (opts.getInFlightProgress?.() ?? null) : null;
+      const fts = opts.getFtsStatus?.();
       return {
         reconcile: snap.reconcile,
         reconcile_at: snap.reconcile_at,
@@ -340,7 +383,8 @@ export function createIndexStatusTool(opts: {
           : {}),
         notes_ready: snap.notes_ready ?? false,
         vec_enabled: opts.vecEnabled,
-        fts_enabled: opts.ftsEnabled,
+        fts_enabled: fts ? fts.state === "available" : (opts.ftsEnabled ?? false),
+        ...(fts ? { fts: ftsView(fts, fullRead) } : {}),
         chunks_upserted: fullRead ? opts.getLastChunksUpserted() : null,
         ...(inFlight ? { in_flight: inFlight } : {}),
       };
@@ -356,6 +400,7 @@ export function createHealthTool(opts: {
   vecEnabled: boolean;
   /** Optional so existing harnesses stay source-compatible; absent -> false. */
   ftsEnabled?: boolean;
+  getFtsStatus?: () => FtsStatus;
   /** THE-288: returns a live index-health snapshot at call time, shaped by caller auth. The
    *  boolean passed in is `authedUnbound` (THE-924), not raw `ctx.authenticated` — see the
    *  handler below. */
@@ -429,13 +474,15 @@ export function createHealthTool(opts: {
       const authedUnbound = ctx.authenticated && ctx.vaultBound !== true;
       const indexDetail =
         authedUnbound && readUnrestrictedOnEveryVault(ctx, opts.vaults, opts.aclFor);
+      const fts = opts.getFtsStatus?.();
       return {
         status: "ok",
         name: "obsidian-tc",
         version: opts.version,
         native_loaded: opts.nativeLoaded,
         vec_enabled: opts.vecEnabled,
-        fts_enabled: opts.ftsEnabled ?? false,
+        fts_enabled: fts ? fts.state === "available" : (opts.ftsEnabled ?? false),
+        ...(fts ? { fts: ftsView(fts, indexDetail) } : {}),
         vault_count: opts.vaults.length,
         ...(authedUnbound ? { vaults: opts.vaults } : {}),
         uptime_ms: Date.now() - opts.startedAt,

@@ -7,10 +7,14 @@
 // per-write sync-detector is needed. Runtime-provisioned like notes_fts/vec_chunks: a cache.db
 // written under an FTS5-less adapter stays openable under one with FTS5.
 import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { busyReason } from "../db/txn";
 import type { Database } from "../db/types";
 import { enrichChunkText } from "./chunk";
+import { ftsBackoffMs } from "./fts-status";
 
 const chunkFtsCache = new WeakMap<Database, boolean>();
+/** SQLITE_BUSY is transient (GH #1209 class): not memoized, retried after a backoff window. */
+const chunkFtsBusy = new WeakMap<Database, { attempts: number; nextRetryAt: number }>();
 
 function chunksTableExists(db: Database): boolean {
   return (
@@ -39,6 +43,9 @@ export function ensureChunkFts(
 ): boolean {
   const cached = chunkFtsCache.get(db);
   if (cached !== undefined) return cached;
+  const now = opts.now ?? Date.now;
+  const busy = chunkFtsBusy.get(db);
+  if (busy && now() < busy.nextRetryAt) return false;
   if (process.env.OBSIDIAN_TC_DISABLE_FTS === "1") {
     chunkFtsCache.set(db, false);
     return false;
@@ -67,7 +74,6 @@ export function ensureChunkFts(
     db.exec(
       "CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(content, content='', contentless_delete=1, tokenize='porter unicode61')",
     );
-    const now = opts.now ?? Date.now;
     const version = "20260710_001_chunk_fts";
     const recorded = db
       .prepare("SELECT version FROM schema_migrations WHERE version = ?")
@@ -109,9 +115,15 @@ export function ensureChunkFts(
         db.exec("INSERT INTO chunk_fts (rowid, content) SELECT rowid, content FROM chunks");
       }
     }
+    chunkFtsBusy.delete(db);
     chunkFtsCache.set(db, true);
     return true;
-  } catch {
+  } catch (e) {
+    if (busyReason(e)) {
+      const attempts = (busy?.attempts ?? 0) + 1;
+      chunkFtsBusy.set(db, { attempts, nextRetryAt: now() + ftsBackoffMs(attempts) });
+      return false;
+    }
     chunkFtsCache.set(db, false);
     return false;
   }

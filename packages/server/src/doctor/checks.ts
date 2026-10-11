@@ -10,6 +10,8 @@ import {
   rerankerBuildBlocker,
 } from "../providers/reranker-preflight";
 import type { NotesFtsIntegrity } from "../search/fts";
+import type { FtsStatus } from "../search/fts-status";
+import { ftsStatusFinding } from "./fts-status-check";
 import type { Check, CheckResult, CheckStatus } from "./types";
 
 /** #Final-review blocker 2: `embeddings.provider` and `reranker.provider` are open strings resolved
@@ -534,6 +536,9 @@ export function rerankerBuildableCheck(view: RerankerBuildableView): Check {
 export interface NotesFtsView {
   /** FTS5 available on the connection (OBSIDIAN_TC_DISABLE_FTS unset, adapter built with FTS5). */
   ftsEnabled: boolean;
+  /** What a live look at the connection found (under `--probe`, or a running server's own state):
+   *  distinguishes a transient lock and a real failure from a deliberate "off". */
+  status?: FtsStatus;
   /** THE-696: OPT-IN integrity probe, supplied only under `doctor --probe`. Absent by default —
    *  integrity-check costs ~0.6s on a 1,146-note trigram index, and diagnosing must not acquire a
    *  cost (or a side effect) just because someone ran it. */
@@ -558,6 +563,8 @@ export function notesFtsIntegrityCheck(view: NotesFtsView): Check {
     id: "search.notes_fts",
     category: "retrieval",
     run: async () => {
+      const finding = ftsStatusFinding(view.status);
+      if (finding) return finding;
       // Not a fault: OBSIDIAN_TC_DISABLE_FTS=1 and an adapter without FTS5 are both supported, and
       // the query layer falls back to disk scans. Reporting that as unsound would be a false alarm
       // for a deliberate configuration.

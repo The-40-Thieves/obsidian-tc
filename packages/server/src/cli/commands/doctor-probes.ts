@@ -30,6 +30,7 @@ import {
   type StickyEmbeddingsResolution,
 } from "../../embeddings/sticky-provider";
 import { ensureNotesFts, type NotesFtsIntegrity, verifyNotesFtsIntegrity } from "../../search/fts";
+import { type FtsStatus, ftsStatus } from "../../search/fts-status";
 import { readTelemetryState } from "../../telemetry/state";
 import { staleExplicitSessionSummary } from "../../workspace/sessions";
 
@@ -43,13 +44,14 @@ import { staleExplicitSessionSummary } from "../../workspace/sessions";
 export async function probeNotesFts(
   cacheDir: string,
   busyTimeoutMs: number, // THE-935: required — see openConfiguredDatabase in db/open.ts
-): Promise<{ ftsEnabled: boolean; integrity?: NotesFtsIntegrity }> {
+): Promise<{ ftsEnabled: boolean; integrity?: NotesFtsIntegrity; status?: FtsStatus }> {
   let db: Awaited<ReturnType<typeof openDatabase>> | undefined;
   try {
     db = await openDatabase(join(cacheDir, "cache.db"), busyTimeoutMs);
     const ftsEnabled = ensureNotesFts(db);
-    if (!ftsEnabled) return { ftsEnabled: false };
-    return { ftsEnabled: true, integrity: verifyNotesFtsIntegrity(db) };
+    const status = ftsStatus(db);
+    if (!ftsEnabled) return { ftsEnabled: false, status };
+    return { ftsEnabled: true, status, integrity: verifyNotesFtsIntegrity(db) };
   } catch {
     // No cache.db yet (fresh install), or it cannot be opened. Either way there is no index to
     // pronounce on — fall back to the unprobed wording rather than inventing a verdict.

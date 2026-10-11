@@ -22,6 +22,7 @@ import { recordIngestStats } from "../metrics/ingest-stats";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { EgressFilter } from "../plane/egress-filter";
 import { ensureNotesFts } from "../search/fts";
+import { createFtsMonitor, type FtsMonitor } from "../search/fts-recovery";
 import { IndexCoordinator } from "../search/index-coordinator";
 import { EXCLUDED_DISMISS_REASON, type VaultExclusion } from "../search/index-exclusion";
 import {
@@ -127,7 +128,7 @@ export interface IndexResources {
   /** The embed-batch knobs, threaded into every reconcile so local runners are tunable. */
   embedConfig: { batchSize: number; concurrency: number; maxBatchTokens: number };
   hasVec: boolean;
-  hasFts: boolean;
+  fts: FtsMonitor;
   indexHealth: IndexHealthState;
   /** Routes a real IndexStats pass to the Prometheus counters — importable and testable directly. */
   recordIngestStatsFor: (vaultId: string, s: IndexStats) => IndexStats;
@@ -188,7 +189,8 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
     // Fix A: the backfill must match what chunk_embeddings.model actually stores.
     activeModel: embeddingProvider.id,
   });
-  const hasFts = ensureNotesFts(deps.db, { now: Date.now });
+  ensureNotesFts(deps.db, { now: Date.now });
+  const fts = createFtsMonitor(deps.db);
   const indexHealth: IndexHealthState = {
     reconcile: "pending",
     reconcileAt: null,
@@ -214,7 +216,7 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
     representation,
     embedConfig,
     hasVec,
-    hasFts,
+    fts,
     indexHealth,
     recordIngestStatsFor,
     indexVaultRecorded,

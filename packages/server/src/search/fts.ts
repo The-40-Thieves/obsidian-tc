@@ -4,17 +4,17 @@
 // search_text promises — unicode61 would silently lose recall). All FTS writes are app-managed
 // behind the ensureNotesFts capability probe, mirroring ensureVecChunks/sqlite-vec: a cache.db
 // written under an FTS5-capable adapter stays openable under one without it.
+import { busyReason } from "../db/txn";
 import type { Database } from "../db/types";
 import { parseNote } from "../vault/frontmatter";
 import { contentHash } from "../vault/paths";
 import { ACL_PATH_UNRESOLVED, hasAclPathColumn } from "../vault/stored-acl-path";
 import { noteTags } from "../vault/tags";
+import { ftsBackoffMs, ftsRecord, setFtsRecord } from "./fts-status";
 
-const ftsCache = new WeakMap<Database, boolean>();
 const notesCache = new WeakMap<Database, boolean>();
 
-/** tableExists, cached per connection (indexNote runs per write). */
-export function hasNotesTable(db: Database): boolean {
+function probeNotesTable(db: Database): boolean | "busy" {
   const cached = notesCache.get(db);
   if (cached !== undefined) return cached;
   let ok = false;
@@ -22,11 +22,17 @@ export function hasNotesTable(db: Database): boolean {
     ok =
       db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'notes'").get() !==
       undefined;
-  } catch {
+  } catch (e) {
+    if (busyReason(e)) return "busy";
     ok = false;
   }
   notesCache.set(db, ok);
   return ok;
+}
+
+/** tableExists, cached per connection (indexNote runs per write). */
+export function hasNotesTable(db: Database): boolean {
+  return probeNotesTable(db) === true;
 }
 
 /**
@@ -37,22 +43,29 @@ export function hasNotesTable(db: Database): boolean {
  * FTS-capable open the row counts diverge, so notes rows lacking an fts row are dropped here —
  * the boot reconcile's backfill (content_hash mismatch/missing row) then rebuilds both.
  */
-export function ensureNotesFts(db: Database, opts: { now?: () => number } = {}): boolean {
-  const cached = ftsCache.get(db);
-  if (cached !== undefined) return cached;
+export function ensureNotesFts(
+  db: Database,
+  opts: { now?: () => number; force?: boolean } = {},
+): boolean {
+  const now = opts.now ?? Date.now;
+  const known = ftsRecord(db);
+  if (known?.kind === "available") return true;
+  if (known?.kind === "terminal") return false;
+  if (known?.kind === "transient" && opts.force !== true && now() < known.nextRetryAt) return false;
   if (process.env.OBSIDIAN_TC_DISABLE_FTS === "1") {
-    ftsCache.set(db, false);
+    setFtsRecord(db, { kind: "terminal", reason: "disabled" });
     return false;
   }
-  if (!hasNotesTable(db)) {
-    ftsCache.set(db, false);
+  const table = probeNotesTable(db);
+  if (table === "busy") return recordBusy(db, new Error("database is locked"), now);
+  if (!table) {
+    setFtsRecord(db, { kind: "terminal", reason: "no_notes_table" });
     return false;
   }
   try {
     db.exec(
       "CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(vault_id UNINDEXED, path, title, content, tokenize='trigram')",
     );
-    const now = opts.now ?? Date.now;
     const version = "20260702_002_notes_fts";
     const recorded = db
       .prepare("SELECT version FROM schema_migrations WHERE version = ?")
@@ -68,8 +81,8 @@ export function ensureNotesFts(db: Database, opts: { now?: () => number } = {}):
     // same mistake that produced four data-loss bugs in vault_edges.
     //
     // The divergence is REACHABLE without any corruption: notes_fts is not created by a migration, and
-    // upsertNoteRow writes it only when hasFts. One run under OBSIDIAN_TC_DISABLE_FTS=1 (or a single
-    // swallowed error below, which caches hasFts=false for the whole connection) leaves `notes`
+    // upsertNoteRow writes it only when hasFts. One run under OBSIDIAN_TC_DISABLE_FTS=1 (or a lock that
+    // outlasts busy_timeout, which holds hasFts=false until the retry in fts-recovery.ts succeeds) leaves `notes`
     // populated and `notes_fts` empty or absent. The old code then read nFts=0, concluded every note was
     // an orphan, and deleted the lot. On indexNote() — the SINGLE-note path — only the one changed note
     // was re-added, so the rest of the vault's metadata stayed gone until a full re-index, silently
@@ -106,17 +119,39 @@ export function ensureNotesFts(db: Database, opts: { now?: () => number } = {}):
     // its disk-scan fallback — slower, and correct — instead of serving a corrupt index, which is
     // the failure mode that made this invisible for as long as it was.
     if (process.env.OBSIDIAN_TC_VERIFY_FTS === "1" && !verifyNotesFtsIntegrity(db).ok) {
-      if (!repairNotesFts(db).ok) {
-        ftsCache.set(db, false);
+      const repaired = repairNotesFts(db);
+      if (!repaired.ok) {
+        setFtsRecord(db, {
+          kind: "terminal",
+          reason: "integrity_failed",
+          lastError: repaired.reason,
+        });
         return false;
       }
     }
-    ftsCache.set(db, true);
+    setFtsRecord(db, { kind: "available" });
     return true;
-  } catch {
-    ftsCache.set(db, false);
+  } catch (e) {
+    if (busyReason(e)) return recordBusy(db, e, now);
+    setFtsRecord(db, {
+      kind: "terminal",
+      reason: "provision_failed",
+      lastError: (e as Error)?.message ?? String(e),
+    });
     return false;
   }
+}
+
+function recordBusy(db: Database, e: unknown, now: () => number): false {
+  const prev = ftsRecord(db);
+  const attempts = (prev?.kind === "transient" ? prev.attempts : 0) + 1;
+  setFtsRecord(db, {
+    kind: "transient",
+    attempts,
+    lastError: (e as Error)?.message ?? String(e),
+    nextRetryAt: now() + ftsBackoffMs(attempts),
+  });
+  return false;
 }
 
 /** Outcome of an FTS5 integrity probe. `reason` carries SQLite's own message — it is the only

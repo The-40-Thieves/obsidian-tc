@@ -538,6 +538,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       // THE-696: notes_fts availability always; the integrity verdict only when --probe looked.
       notesFts: {
         ftsEnabled: notesFts.ftsEnabled,
+        ...(notesFts.status !== undefined ? { status: notesFts.status } : {}),
         ...(notesFts.integrity !== undefined
           ? { probe: () => notesFts.integrity as NotesFtsIntegrity }
           : {}),

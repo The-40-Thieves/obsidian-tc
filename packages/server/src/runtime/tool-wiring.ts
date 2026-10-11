@@ -60,7 +60,7 @@ import type { VaultRegistry } from "../vault/registry";
 import { type ActiveSessionTracker, staleExplicitSessionSummary } from "../workspace/sessions";
 import { buildAcls } from "./acl-build";
 import { resolveDeclaredReranker } from "./declared-reranker";
-import type { IndexHealthState } from "./indexing-wiring";
+import type { IndexHealthState, IndexResources } from "./indexing-wiring";
 import { buildM6Deps } from "./m6-wiring";
 
 export interface HealthToolsDeps {
@@ -70,7 +70,7 @@ export interface HealthToolsDeps {
   vaults: readonly { id: string }[];
   startedAt: number;
   hasVec: boolean;
-  hasFts: boolean;
+  fts: IndexResources["fts"];
   indexHealth: IndexHealthState;
   /** requireBoot(indexCoordinatorRef, ...).stats() — called separately for `.queued` and
    *  `.active`, matching the two call sites this replaces exactly (see cli.ts's original
@@ -137,7 +137,7 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
       // `nativeResolved` stays true even on packages/native's own internal JS fallback (#857).
       nativeLoaded: nativeBindingActive,
       vecEnabled: deps.hasVec,
-      ftsEnabled: deps.hasFts,
+      getFtsStatus: () => deps.fts.status(),
       aclFor: (id) => deps.registry.aclFor(id),
       getIndexHealth: (authenticated) => ({
         ...indexSnapshot(),
@@ -182,7 +182,7 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
   deps.registry.register(
     createIndexStatusTool({
       vecEnabled: deps.hasVec,
-      ftsEnabled: deps.hasFts,
+      getFtsStatus: () => deps.fts.status(),
       getIndexHealth: indexSnapshot,
       getLastChunksUpserted: () => deps.indexHealth.lastChunksUpserted,
       getInFlightProgress: () => deps.indexHealth.inFlight,
@@ -382,7 +382,7 @@ export interface M1WiringDeps {
   /** THE-683: the boot-built representation identity, passed to indexVault rather than re-derived. */
   representation: RepresentationManifest;
   embedConfig: { batchSize: number; concurrency: number; maxBatchTokens: number };
-  hasFts: boolean;
+  fts: IndexResources["fts"];
   indexHealth: IndexHealthState;
   onSnapshotSkipped: (vaultId: string, path: string, op: string) => void;
   reindex: (vaultId: string, path: string, content: string) => void;
@@ -424,7 +424,7 @@ export function wireM1Tools(deps: M1WiringDeps): void {
     // THE-603: legibility signal when the above no-ops for a destructive write.
     onSnapshotSkipped: deps.onSnapshotSkipped,
     // THE-291 (3B): metadata tools read the notes table once the boot notes pass commits.
-    metadataIndex: { hasFts: deps.hasFts, ready: () => deps.indexHealth.notesReady },
+    metadataIndex: deps.fts.metadataIndex(() => deps.indexHealth.notesReady),
     requireCas: config.writes.requireCas,
     // GH #1027: tools.defaults.responseFormat, for every M1 tool that supports response_format.
     responseFormat: config.tools?.defaults?.responseFormat,
@@ -486,7 +486,7 @@ export interface DomainToolsDeps {
   representation: RepresentationManifest;
   retrievalLog?: RetrievalLogger;
   m4Deps: M4Deps;
-  hasFts: boolean;
+  fts: IndexResources["fts"];
   indexHealth: IndexHealthState;
   recordIngestStatsFor: (vaultId: string, s: IndexStats) => IndexStats;
   reindex: (vaultId: string, path: string, content: string) => void;
@@ -582,7 +582,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
       : {}),
     autoRoute: config.retrieval.searchAutoRoute,
     // THE-291 (3B): FTS-accelerated search_text once the boot reconcile's notes pass commits.
-    metadataIndex: { hasFts: deps.hasFts, ready: () => deps.indexHealth.notesReady },
+    metadataIndex: deps.fts.metadataIndex(() => deps.indexHealth.notesReady),
     // THE-491: get_index_status reports chunks_upserted from the last index_vault call.
     onIndexVaultComplete: (vaultId, stats) => {
       deps.indexHealth.lastChunksUpserted = stats.chunks_upserted;
