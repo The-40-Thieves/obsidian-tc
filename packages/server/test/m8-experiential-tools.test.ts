@@ -609,6 +609,24 @@ describe("M8 experiential tools (THE-229)", () => {
     expect(empty.ok).toBe(false);
   });
 
+  it("batch of exactly 50 verdicts is accepted, the cap boundary", async () => {
+    const db = edb0();
+    const ids = Array.from({ length: 50 }, (_, i) => `c${i}`);
+    ids.forEach((chunk, i) => {
+      retrievalRow(db, `r${i}`, chunk, "s1", "tester");
+    });
+    const { registry, ctx } = harness(db);
+    const res = un<{ results: Array<{ chunk_id: string; updated: number }> }>(
+      await registry.dispatch(
+        "record_retrieval_feedback",
+        { verdicts: ids.map((chunk_id) => ({ chunk_id, feedback: 1 })) },
+        ctx({ sessionId: "s1" }),
+      ),
+    );
+    expect(res.results).toHaveLength(50);
+    expect(res.results.every((r) => r.updated === 1)).toBe(true);
+  });
+
   // THE-718. Measured on the live store 2026-08-03, and the two NULLs have DIFFERENT causes —
   // conflating them misreads the fix:
   //   * session_id is NULL on 97 of 97 retrieval events, because no client has ever opened a

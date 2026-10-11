@@ -64,7 +64,7 @@ Tools that return more than an acknowledgement accept `response_format: "concise
 
 - **Facade meta-tools** — `find_capability`, `describe_capability`, `call_capability` (+ domain-mode meta-tools). Boundary-only.
 - **Knowledge domain (M7)** — `vault_graph_search` (GraphRAG: vector seeds + wikilink expansion fused with RRF), `knowledge_challenge` (red-team over decision history), `vault_context` (composite budgeted context with lesson surfacing + prewarm bootstrap), `reflect` (grounded synthesis / challenge / typed-delta preference profile).
-- **Work-memory domain (M8)** — `work_search`, `work_episodes`, `work_forget`, `record_retrieval_feedback` — the experiential reader contract (eligible-only, tombstones, trust floor 0.3, caller partition).
+- **Work-memory domain (M8)** — `work_search`, `work_episodes`, `work_forget`, `record_retrieval_feedback` — the experiential reader contract (eligible-only, tombstones, trust floor 0.3, caller partition). `record_retrieval_feedback` also takes `verdicts` (1 to 50 `{chunk_id, feedback}` items, applied in one transaction) and returns a per-item `results` array.
 - **Domain 30: Obsidian Git bridge** — `git_status`, `git_diff`, `git_log`, `git_stage`, `git_commit` (execute-family HITL floor — commits always require human confirmation).
 - **Domain 31: Remotely Save bridge** — `remotely_save_status`, `remotely_save_trigger` (independent backup verification).
 - **Additions to existing domains** — snapshots/restore, vault health, `add_vault`, markdown tables, kanban, filesystem Excalidraw read.
