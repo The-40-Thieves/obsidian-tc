@@ -158,7 +158,7 @@ jobs:
           - host: macos-latest
             target: x86_64-apple-darwin
             triple: darwin-x64
-          - host: macos-14
+          - host: macos-15
             target: aarch64-apple-darwin
             triple: darwin-arm64
           - host: windows-latest
@@ -844,7 +844,7 @@ jobs:
             target: bun-linux-arm64
           - host: macos-latest
             target: bun-darwin-x64
-          - host: macos-14
+          - host: macos-15
             target: bun-darwin-arm64
             smoke: true
           - host: windows-latest

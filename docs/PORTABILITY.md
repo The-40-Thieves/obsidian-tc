@@ -21,7 +21,7 @@ and the `hostTriple()` loader (`packages/native/index.js`) are kept in 8-way syn
 | `x86_64-unknown-linux-musl`   | `linux-x64-musl`  | `ubuntu-latest`  | ✅ cross (napi -x / zig)| ⚙️ build-verified only |
 | `aarch64-unknown-linux-musl`  | `linux-arm64-musl`| `ubuntu-latest`  | ✅ cross (napi -x / zig)| ⚙️ build-verified only |
 | `x86_64-apple-darwin`         | `darwin-x64`      | `macos-latest`   | ✅ clang cross          | ⚙️ build-verified only |
-| `aarch64-apple-darwin`        | `darwin-arm64`    | `macos-14`       | ✅ native               | ✅ `macos-latest`     |
+| `aarch64-apple-darwin`        | `darwin-arm64`    | `macos-15`       | ✅ native               | ✅ `macos-latest`     |
 | `x86_64-pc-windows-msvc`      | `win32-x64-msvc`  | `windows-latest` | ✅ native               | ✅ `windows-latest`   |
 | `aarch64-pc-windows-msvc`     | `win32-arm64-msvc`| `windows-latest` | ✅ cross (MSVC ARM64)   | ⚙️ build-verified only |
 
