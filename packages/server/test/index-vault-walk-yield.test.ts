@@ -5,9 +5,9 @@
 import { describe, expect, it } from "vitest";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexVault, preloadChunkState } from "../src/search/indexer";
-import { createLoopYielder } from "../src/search/indexing/loop-yield";
 import { preloadChunkStateCooperative } from "../src/search/indexing/note-plan";
 import { buildRepresentationManifest } from "../src/search/representation";
+import { createSliceYielder } from "../src/util/scan-steps";
 import { walkVault } from "../src/vault/paths";
 import { makeM2Vault } from "./m2-helpers";
 
@@ -141,7 +141,7 @@ describe("cooperative walk and preload equal their synchronous forms", { timeout
         const coop = await preloadChunkStateCooperative(
           v.db,
           v.id,
-          createLoopYielder(new AbortController().signal, 1),
+          createSliceYielder(new AbortController().signal, 0), // 0 ms slice: a turn every page
           7,
         );
         expect(turns.count()).toBeGreaterThan(1);

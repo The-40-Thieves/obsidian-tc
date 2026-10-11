@@ -140,7 +140,7 @@ export function createLintWikiTool(deps: M7Deps): ToolDefinition {
           `[wiki-lint] ${v.id}: generated-page seal check skipped: ${e instanceof Error ? e.message : String(e)}\n`,
         );
       }
-      const report = runWikiLint(
+      const report = await runWikiLint(
         {
           root: v.root,
           db: ctx.db,
@@ -162,6 +162,7 @@ export function createLintWikiTool(deps: M7Deps): ToolDefinition {
           minSimilarity: input.min_similarity,
           maxNotes: input.max_notes,
         },
+        ctx.signal,
       );
       // The near-duplicate judge. Only the near_duplicates check produces pairs to rule on.
       const settings = deps.wikiJudge ?? DEFAULT_WIKI_JUDGE_SETTINGS;

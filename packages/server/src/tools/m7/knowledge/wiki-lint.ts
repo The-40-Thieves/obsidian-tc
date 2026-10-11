@@ -5,7 +5,8 @@
 // ACL semantics apply (a note the caller cannot read is absent from every section).
 //
 // Strictly read-only and never blocking: nothing here writes a note, a row or a file, a failing
-// check is reported as `skipped` rather than thrown, and every proposal names the tool a caller
+// check is reported as `skipped` rather than thrown (an abort of the caller is the one exception:
+// it ends the run), the whole-vault scans hand the event loop back between notes, and every proposal names the tool a caller
 // could use to act on it (the caller decides). Notes Obsidian's Excluded files hides from the index
 // are never the SUBJECT of a proposal, but they still count as link sources and targets.
 
@@ -14,20 +15,22 @@ import { tableExists } from "../../../db/introspect";
 import type { Database } from "../../../db/types";
 import { readLatestGapReport } from "../../../experiential/gaps";
 import { readNoteQuality } from "../../../experiential/note-quality";
+import { checkAborted } from "../../../mcp/registry/abort";
 import { NOTE_DUPLICATE_MIN, NOTE_IDENTICAL_MIN } from "../../../search/dedupe-band";
 import type { VaultExclusion } from "../../../search/index-exclusion";
 import { loadNoteVectors, nearDuplicatePairs } from "../../../search/note-vectors";
+import { drainYielding } from "../../../util/scan-steps";
 import { readableRel } from "../../../vault/acl-read-filter";
 import { noteExists, readNote } from "../../../vault/notes-io";
 import { resolveVaultPath } from "../../../vault/paths";
 import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { ScanWarnings } from "../../scan-warnings";
 import {
-  readableNotes,
+  readableNotesSteps,
   type ScanScope,
-  scanOrphans,
-  scanProvenance,
-  scanUnresolved,
+  scanOrphansSteps,
+  scanProvenanceSteps,
+  scanUnresolvedSteps,
 } from "../../wiki-scan";
 import { openContradictionsForPaths } from "./retrieval-runtime";
 import { isGeneratedWikiPath, rawPathFilter, WIKI_INDEX_FILE, WIKI_LOG_FILE } from "./wiki-folder";
@@ -153,7 +156,13 @@ function exactChunkPeers(
   return rows.map((r) => r.path).filter(ok);
 }
 
-export function runWikiLint(env: LintEnv, input: LintInput): LintReport {
+/** `signal` is the caller's abort (the request's, or the scheduler's at shutdown): the scans check it
+ *  between time slices and the run then rejects with the modelled `aborted` error. */
+export async function runWikiLint(
+  env: LintEnv,
+  input: LintInput,
+  signal?: AbortSignal,
+): Promise<LintReport> {
   const warnings = new ScanWarnings();
   const scope: ScanScope = {
     root: env.root,
@@ -187,20 +196,21 @@ export function runWikiLint(env: LintEnv, input: LintInput): LintReport {
     if (items.length > input.limitPerCheck) truncated.add(kind);
     proposals.push(...items.slice(0, input.limitPerCheck));
   };
-  const run = (check: LintCheck, fn: () => string | undefined): void => {
+  const run = async (check: LintCheck, fn: () => Promise<string | undefined>): Promise<void> => {
     if (!input.checks.includes(check)) return;
     try {
-      const skip = fn();
+      const skip = await fn();
       if (skip) skipped.push({ check, reason: skip });
       else checksRun.push(check);
     } catch (e) {
+      checkAborted(signal); // a cancelled run is not a check that failed
       skipped.push({ check, reason: e instanceof Error ? e.message : String(e) });
     }
   };
 
   // The generated pages are the one thing here that can be WRONG rather than merely improvable: a
   // hand-edited (or foreign) index.md / log.md is left alone by the generator, and this says so.
-  run("generated_pages", () => {
+  await run("generated_pages", async () => {
     const wiki = env.wikiFolder;
     if (!wiki) return undefined;
     if (env.sealKey === undefined) return "generated-page HMAC key unavailable";
@@ -239,8 +249,10 @@ export function runWikiLint(env: LintEnv, input: LintInput): LintReport {
     return undefined;
   });
 
-  run("orphans", () => {
-    const orphans = scanOrphans(scope, warnings, { folder }).filter(subjectOk);
+  await run("orphans", async () => {
+    const orphans = (
+      await drainYielding(scanOrphansSteps(scope, warnings, { folder }), signal)
+    ).filter(subjectOk);
     push(
       "orphan",
       orphans.map((p) => ({
@@ -256,8 +268,11 @@ export function runWikiLint(env: LintEnv, input: LintInput): LintReport {
     return undefined;
   });
 
-  run("unresolved_links", () => {
-    const { unresolved } = scanUnresolved(scope, warnings, { folder, limit: 5000 });
+  await run("unresolved_links", async () => {
+    const { unresolved } = await drainYielding(
+      scanUnresolvedSteps(scope, warnings, { folder, limit: 5000 }),
+      signal,
+    );
     const byTarget = new Map<string, { target: string; sources: Set<string>; property?: string }>();
     for (const u of unresolved) {
       const src = u.source_path as string;
@@ -287,9 +302,11 @@ export function runWikiLint(env: LintEnv, input: LintInput): LintReport {
     return undefined;
   });
 
-  run("contradictions", () => {
+  await run("contradictions", async () => {
     if (!tableExists(env.db, "contradictions")) return "contradictions table not present";
-    const paths = readableNotes(env.root, env.acl, env.grantedScopes, folder).filter(subjectOk);
+    const paths = (
+      await drainYielding(readableNotesSteps(env.root, env.acl, env.grantedScopes, folder), signal)
+    ).filter(subjectOk);
     const rows = new Map<string, ReturnType<typeof openContradictionsForPaths>[number]>();
     for (const group of chunked(paths, 400))
       for (const r of openContradictionsForPaths(env.db, input.vaultId, group, readableIndexed))
@@ -329,7 +346,7 @@ export function runWikiLint(env: LintEnv, input: LintInput): LintReport {
     return undefined;
   });
 
-  run("quality", () => {
+  await run("quality", async () => {
     if (!env.edb) return "experiential store not open (no note_quality rollup)";
     const rows = readNoteQuality(env.edb, { vaultId: input.vaultId }).filter(
       (r) => inFolder(r.path) && readableIndexed(r.path) && subjectOk(r.path),
@@ -372,8 +389,11 @@ export function runWikiLint(env: LintEnv, input: LintInput): LintReport {
     return undefined;
   });
 
-  run("missing_sources", () => {
-    const scan = scanProvenance(scope, warnings, { field: "sources", folder });
+  await run("missing_sources", async () => {
+    const scan = await drainYielding(
+      scanProvenanceSteps(scope, warnings, { field: "sources", folder }),
+      signal,
+    );
     push(
       "missing_sources",
       scan.missing.filter(subjectOk).map((p) => ({
@@ -388,7 +408,7 @@ export function runWikiLint(env: LintEnv, input: LintInput): LintReport {
     return undefined;
   });
 
-  run("coverage_gaps", () => {
+  await run("coverage_gaps", async () => {
     if (!env.edb) return "experiential store not open (no gap report)";
     const report = readLatestGapReport(env.edb, input.vaultId);
     if (!report) return "no gap pass has been persisted for this vault (run `obsidian-tc gaps`)";
@@ -412,7 +432,7 @@ export function runWikiLint(env: LintEnv, input: LintInput): LintReport {
     return undefined;
   });
 
-  run("near_duplicates", () => {
+  await run("near_duplicates", async () => {
     const nv = loadNoteVectors(env.db, input.vaultId, {
       model: env.embeddingModel,
       include: (p) => readableIndexed(p) && subjectOk(p),

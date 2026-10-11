@@ -5,9 +5,10 @@
 //
 // Every scan here is READ-ONLY and walks only notes the caller's read ACL admits (denied == missing).
 //
-// Each scan is a step generator (`*Steps`, one `yield` per note) so a tool handler can run it
-// cooperatively with `drainYielding` and not hold the event loop for the whole vault (scan-steps.ts).
-// The plain `scanX` wrapper drains the same generator synchronously, for lint_wiki.
+// Each scan is a step generator (`*Steps`, one `yield` per note) so a caller can run it
+// cooperatively with `drainYielding` and not hold the event loop for the whole vault (scan-steps.ts):
+// the standalone tools and lint_wiki do. `readableNotes` is the one synchronous drain left, for the
+// callers that have not been made cooperative.
 
 import type { FolderAcl } from "../acl";
 import { globToRegExp } from "../acl";
@@ -120,14 +121,6 @@ export function* scanOrphansSteps(
   );
 }
 
-export function scanOrphans(
-  scope: ScanScope,
-  warnings: ScanWarnings,
-  opts: { folder?: string | undefined; requireNoOutgoing?: boolean },
-): string[] {
-  return drainSteps(scanOrphansSteps(scope, warnings, opts));
-}
-
 /** Internal links that resolve to no note. Each record carries `source: "property"` + `property`
  *  when the link was written in a property. */
 export function* scanUnresolvedSteps(
@@ -163,14 +156,6 @@ export function* scanUnresolvedSteps(
     yield;
   }
   return { unresolved, truncated };
-}
-
-export function scanUnresolved(
-  scope: ScanScope,
-  warnings: ScanWarnings,
-  opts: { folder?: string | undefined; limit: number },
-): { unresolved: Array<Record<string, unknown>>; truncated: boolean } {
-  return drainSteps(scanUnresolvedSteps(scope, warnings, opts));
 }
 
 /** Every link to `opts.target`, in note order then link order: `skip` links are passed over first
@@ -286,12 +271,4 @@ export function* scanProvenanceSteps(
     yield;
   }
   return { scanned: notes.length, withField, withConfidence, withVerified, missing, byFolder };
-}
-
-export function scanProvenance(
-  scope: ScanScope,
-  warnings: ScanWarnings,
-  opts: ProvenanceScanOpts,
-): ProvenanceScan {
-  return drainSteps(scanProvenanceSteps(scope, warnings, opts));
 }

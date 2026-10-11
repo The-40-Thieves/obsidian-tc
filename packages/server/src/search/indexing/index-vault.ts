@@ -7,7 +7,7 @@
 import { tableExists } from "../../db/introspect";
 import { inWriteTransaction } from "../../db/txn";
 import { errorMessage } from "../../util/errors";
-import { drainYielding } from "../../util/scan-steps";
+import { createSliceYielder, drainYielding } from "../../util/scan-steps";
 import { isFrontmatterYamlError, parseNote, splitFrontmatterBody } from "../../vault/frontmatter";
 import { type ExtractedLink, extractLinks, extractNoteLinks } from "../../vault/links";
 import { readNote } from "../../vault/notes-io";
@@ -51,7 +51,6 @@ import {
   embedPlans,
 } from "./embed-batches";
 import { readLeaderEpoch } from "./leader-epoch";
-import { createLoopYielder } from "./loop-yield";
 import {
   computeNotePlan,
   existingRowsMatch,
@@ -138,7 +137,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       if (!dedupRegistry.has(row.contentHash)) dedupRegistry.set(row.contentHash, row.path);
     }
   }
-  const yieldToLoop = createLoopYielder(args.signal); // boot reconcile only: lets SIGTERM/tools/call in
+  const yieldToLoop = createSliceYielder(args.signal); // boot reconcile only: lets SIGTERM/tools/call in
   const streamWalk = args.walk?.streaming === true;
   // Every walked path -> its ACL identity (walkIdentity: the symlink-resolved path, none for a hard
   // link). `args.isReadable` decides on the identity, never on the alias name the walk showed.
@@ -165,7 +164,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // THE-501: one bulk load of the vault's chunk state, so computeNotePlan plans every note from
   // memory, not a per-note query. Safe: each note owns its path's chunks exclusively in this pass.
   const preloadedExisting = args.signal
-    ? await preloadChunkStateCooperative(args.db, args.vaultId, createLoopYielder(args.signal, 1))
+    ? await preloadChunkStateCooperative(args.db, args.vaultId, createSliceYielder(args.signal))
     : preloadChunkState(args.db, args.vaultId);
   // GH #995 follow-up: the same bulk load for note_write_fence state (every note's fence baseline).
   const preloadedFenceGenerations = preloadFenceGenerations(args.db, args.vaultId);
