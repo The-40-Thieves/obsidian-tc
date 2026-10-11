@@ -7,15 +7,22 @@
 // on the event loop before it reads the first request. A reconcile that walks the vault
 // synchronously, or an embedding provider that probes its model, shows up here and nowhere else.
 //
-//   bun eval/perf/initialize-probe.ts --vault <dir> [--transport stdio|http] [--runs 3] [--embed-url http://127.0.0.1:PORT/v1]
+//   bun eval/perf/initialize-probe.ts --vault <dir> [--transport stdio|http] [--runs 3] [--concurrent N] [--embed-url http://127.0.0.1:PORT/v1]
 //
 // --settle-ms N: send initialize N ms AFTER the ready notice, i.e. while the boot reconcile runs,
 // and time only that request (a client reconnecting after a restart; needs --embed-url to be busy).
 //
+// --concurrent N (stdio only): spawn N servers at once on ONE shared cacheDir, each given `initialize`
+// at t=0 (Claude Desktop launching several instances on one cache.db, GH #1209). Each run is then an
+// N-instance group; `groups` holds one array per run, ordered by ready time, and `runs` the flat list.
+// --warm-cache DIR: copy an already-ingested cacheDir into each run's cache first (warm boot).
+// Per instance: ready_ms (the "ready on stdio" line), initialize_ms (the reply), boot_log_ms (the last
+// `[ingest]`/`[index]` stderr line, so "reply waits on the ingest" shows as reply ~ boot_log).
+//
 // Prints one JSON line: { transport, vault_files, runs: [{initialize_ms, ready_ms}], median_ms }.
 // The vault is only READ by the server; the cacheDir lives in a temp dir that is removed.
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,6 +47,10 @@ interface Run {
   initialize_ms: number;
   /** Spawn -> the "ready" notice on stderr (null if it had not printed by the response). */
   ready_ms: number | null;
+  /** Spawn -> the last `[ingest]`/`[index]` stderr line seen by the reply (null if none). */
+  boot_log_ms: number | null;
+  /** Set when the server exited before replying (a concurrent group keeps the others' numbers). */
+  exit_code?: number | null;
 }
 
 function countFiles(dir: string): number {
@@ -61,15 +72,21 @@ function freePort(): Promise<number> {
   });
 }
 
-/** One cold run. */
-async function oneRun(
-  vault: string,
-  transport: Transport,
-  embedUrl?: string,
-  settleMs = 0,
-): Promise<Run> {
+interface Case {
+  dir: string;
+  config: string;
+  port: number;
+}
+
+/** A fresh cacheDir + config; every instance of one run shares it. */
+async function makeCase(vault: string, transport: Transport, embedUrl?: string): Promise<Case> {
   const dir = mkdtempSync(join(tmpdir(), "obtc-init-probe-"));
   mkdirSync(join(dir, "cache"));
+  // A previously ingested cacheDir, copied in: every instance then boots WARM (the reporter's shape,
+  // an existing index) instead of cold against an empty one.
+  if (process.argv.includes("--warm-cache")) {
+    cpSync(arg("warm-cache"), join(dir, "cache"), { recursive: true });
+  }
   const port = transport === "http" ? await freePort() : 0;
   const config = join(dir, "config.json");
   writeFileSync(
@@ -97,8 +114,20 @@ async function oneRun(
           : { stdio: false, http: { enabled: true, host: "127.0.0.1", port } },
     }),
   );
+  return { dir, config, port };
+}
+
+/** One server instance against `c`. The caller removes `c.dir`. */
+async function runInstance(
+  c: Case,
+  transport: Transport,
+  settleMs = 0,
+  tolerateExit = false,
+): Promise<Run> {
+  const { config, port } = c;
   const t0 = performance.now();
   let readyAt: number | null = null;
+  let bootLogAt: number | null = null;
   const child: ChildProcess = spawn("bun", [CLI, "serve", "--config", config], {
     env: { ...process.env, NO_COLOR: "1" },
     stdio: ["pipe", "pipe", "pipe"],
@@ -107,6 +136,7 @@ async function oneRun(
   // notice is used, to separate "boot finished" from "initialize answered".
   child.stderr?.on("data", (d: Buffer) => {
     if (readyAt === null && d.includes(" ready")) readyAt = performance.now() - t0;
+    if (d.includes("[ingest]") || d.includes("[index]")) bootLogAt = performance.now() - t0;
   });
   const done = new Promise<void>((resolve) => child.once("close", () => resolve()));
   try {
@@ -120,10 +150,23 @@ async function oneRun(
         resolve({
           initialize_ms: Math.round(performance.now() - sentAt),
           ready_ms: readyAt === null ? null : Math.round(readyAt),
+          boot_log_ms: bootLogAt === null ? null : Math.round(bootLogAt),
         });
       };
       child.once("error", reject);
-      child.once("close", (code) => reject(new Error(`server exited (${code}) before initialize`)));
+      child.once("close", (code) => {
+        if (!tolerateExit) {
+          reject(new Error(`server exited (${code}) before initialize`));
+          return;
+        }
+        clearTimeout(timer);
+        resolve({
+          initialize_ms: Math.round(performance.now() - t0),
+          ready_ms: readyAt === null ? null : Math.round(readyAt),
+          boot_log_ms: bootLogAt === null ? null : Math.round(bootLogAt),
+          exit_code: code,
+        });
+      });
       const afterSettle = (go: () => void): void => {
         if (settleMs <= 0) {
           go();
@@ -177,7 +220,27 @@ async function oneRun(
     const hardKill = setTimeout(() => child.kill("SIGKILL"), 5_000);
     await done;
     clearTimeout(hardKill);
-    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** One cold run: `n` instances started together on one shared cacheDir (n = 1 is the plain probe). */
+async function oneRun(
+  vault: string,
+  transport: Transport,
+  embedUrl: string | undefined,
+  settleMs: number,
+  n: number,
+): Promise<Run[]> {
+  const c = await makeCase(vault, transport, embedUrl);
+  try {
+    const runs = await Promise.all(
+      Array.from({ length: n }, () => runInstance(c, transport, settleMs, n > 1)),
+    );
+    return runs.sort(
+      (a, b) => (a.ready_ms ?? Number.POSITIVE_INFINITY) - (b.ready_ms ?? Number.POSITIVE_INFINITY),
+    );
+  } finally {
+    rmSync(c.dir, { recursive: true, force: true });
   }
 }
 
@@ -194,13 +257,26 @@ async function main(): Promise<void> {
   if (transport !== "stdio" && transport !== "http") throw new Error("--transport: stdio | http");
   const n = Number(arg("runs", "3"));
   const embedUrl = process.argv.includes("--embed-url") ? arg("embed-url") : undefined;
-  const runs: Run[] = [];
   const settleMs = Number(arg("settle-ms", "0"));
-  for (let i = 0; i < n; i++) runs.push(await oneRun(vault, transport, embedUrl, settleMs));
+  const concurrent = Number(arg("concurrent", "1"));
+  if (!Number.isInteger(concurrent) || concurrent < 1)
+    throw new Error("--concurrent: integer >= 1");
+  if (concurrent > 1 && transport !== "stdio")
+    throw new Error("--concurrent needs --transport stdio");
+  const groups: Run[][] = [];
+  for (let i = 0; i < n; i++)
+    groups.push(await oneRun(vault, transport, embedUrl, settleMs, concurrent));
+  const runs = groups.flat();
   const sorted = runs.map((r) => r.initialize_ms).sort((a, b) => a - b);
   const median = sorted[Math.floor(sorted.length / 2)];
   process.stdout.write(
-    `${JSON.stringify({ transport, vault_files: countFiles(vault), runs, median_ms: median })}\n`,
+    `${JSON.stringify({
+      transport,
+      vault_files: countFiles(vault),
+      ...(concurrent > 1 ? { concurrent, groups } : {}),
+      runs,
+      median_ms: median,
+    })}\n`,
   );
 }
 
