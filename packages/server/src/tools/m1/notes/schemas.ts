@@ -348,7 +348,7 @@ export const PatchInputShape = {
   operation: z
     .enum(["append", "prepend", "replace", "replace_text"])
     .describe(
-      "Which edit to make. append, prepend and replace take content; replace_text takes old_string and new_string. Each field's description says which operations require or refuse it.",
+      "Which edit to make. append, prepend and replace take content and need an anchor or target_heading; replace_text takes old_string and new_string and needs neither. Each field's description says which operations require or refuse it.",
     ),
   // Legacy shorthand, equivalent to anchor:{type:"heading",heading}. Retained for back-compat.
   target_heading: z
@@ -356,10 +356,10 @@ export const PatchInputShape = {
     .min(1)
     .optional()
     .describe(
-      'Legacy shorthand for anchor:{type:"heading",heading}. Every operation needs anchor or target_heading; one of the two is required.',
+      'Legacy shorthand for anchor:{type:"heading",heading}. append, prepend and replace need anchor or target_heading; replace_text needs neither (with neither it is note-wide).',
     ),
   anchor: PatchAnchor.optional().describe(
-    'Where to act: {type:"heading",heading:"Notes"[,occurrence:2]}, {type:"block",block_id:"abc"} or {type:"frontmatter"} (the preamble above the first heading). Every operation needs anchor or target_heading.',
+    'Where to act: {type:"heading",heading:"Notes"[,occurrence:2]}, {type:"block",block_id:"abc"} or {type:"frontmatter"} (the preamble above the first heading). append, prepend and replace need anchor or target_heading; replace_text needs neither: with neither it matches over the whole note body (frontmatter excluded, heading lines included).',
   ),
   // Required for append/prepend/replace, refused for replace_text (see refinePatchInput).
   content: z
@@ -373,7 +373,7 @@ export const PatchInputShape = {
     .min(1)
     .optional()
     .describe(
-      "Required for replace_text, refused for append, prepend and replace: the exact text to find inside the anchor's section; it must occur exactly once. To move or reorder sections, anchor on an enclosing heading and put the whole span here.",
+      "Required for replace_text, refused for append, prepend and replace: the exact text to find inside the anchor's section, or inside the whole note body when there is no anchor; it must occur exactly once. To move or reorder sections, anchor on an enclosing heading and put the whole span here.",
     ),
   new_string: z
     .string()
@@ -401,7 +401,8 @@ export function refinePatchInput(
   >,
   ctx: z.RefinementCtx,
 ): void {
-  if (i.anchor === undefined && i.target_heading === undefined)
+  // replace_text is note-wide without an anchor (write.ts); every other operation needs one.
+  if (i.operation !== "replace_text" && i.anchor === undefined && i.target_heading === undefined)
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: `operation "${i.operation}" requires anchor or target_heading, e.g. anchor:{type:"heading",heading:"Notes"}, anchor:{type:"block",block_id:"abc"}, anchor:{type:"frontmatter"} (the preamble above the first heading) or target_heading:"Notes". To add content at the end of the note use append_note, which needs no anchor`,

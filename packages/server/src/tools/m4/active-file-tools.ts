@@ -264,7 +264,7 @@ export function buildActiveFileTools(deps: M4Deps, lookup: DelegateLookup): Tool
       domain: "workspace",
       vaultArg: "vault",
       description:
-        "Patch a section of the note currently open in the live Obsidian session (patch_note, aimed at the active note): append, prepend, replace or replace_text under a heading, block reference or the frontmatter preamble. Required fields per operation (anchor or target_heading on every one): append, prepend, replace: content; replace_text: old_string + new_string. Refused: old_string/new_string on append, prepend, replace; content on replace_text. Same anchors, prev_hash compare-and-swap, confirm_replace guard, snapshot and memoryDefense rules as patch_note; response_format=concise is patch_note's acknowledgement. Refuses a non-markdown active file.",
+        "Patch a section of the note currently open in the live Obsidian session (patch_note, aimed at the active note): append, prepend, replace or replace_text under a heading, block reference or the frontmatter preamble. Required fields per operation (anchor or target_heading on append, prepend and replace only): append, prepend, replace: content; replace_text: old_string + new_string. Refused: old_string/new_string on append, prepend, replace; content on replace_text. With neither anchor nor target_heading, replace_text is note-wide (the whole note body, frontmatter excluded). Same anchors, prev_hash compare-and-swap, confirm_replace guard, snapshot and memoryDefense rules as patch_note; response_format=concise is patch_note's acknowledgement. Refuses a non-markdown active file.",
       inputSchema: PatchActiveInput,
       outputSchema: PatchNoteOutput,
       requiredScopes: ["write:notes"],

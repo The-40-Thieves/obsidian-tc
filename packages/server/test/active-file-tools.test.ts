@@ -425,6 +425,22 @@ describe("append_active_file / patch_active_file", () => {
     expect(errOf(r).code).toBe("validation_error");
     expect(h.requests).toHaveLength(0);
   });
+
+  it("replace_text with no anchor edits the whole active note body (frontmatter kept)", async () => {
+    const note = "---\ntitle: Plan\n---\n# Plannig\n- one\n";
+    const h = harness({ files: { "Notes/a.md": note } });
+    h.focus("Notes/a.md");
+    const d = okData(
+      await h.call("patch_active_file", {
+        vault: "test",
+        operation: "replace_text",
+        old_string: "Plannig",
+        new_string: "Planning",
+      }),
+    );
+    expect(d).toMatchObject({ path: "Notes/a.md", operation: "replace_text" });
+    expect(h.read("Notes/a.md")).toBe("---\ntitle: Plan\n---\n# Planning\n- one\n");
+  });
 });
 
 describe("response_format (GH #1027): the active-file tools hand it to their delegates", () => {
