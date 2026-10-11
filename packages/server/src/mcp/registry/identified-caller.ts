@@ -1,6 +1,14 @@
 import { err } from "@the-40-thieves/obsidian-tc-shared";
-import { isIdentifiedCaller } from "../tasks";
 import type { CallerContext } from "./types";
+
+/**
+ * `null` (or empty) is the absence of an identity, not an identity: `===` cannot tell two absences
+ * apart, so a verified token with no `sub` would share one task bucket with every other. Only HTTP
+ * produces it (stdio is `stdio`, mode `none` is `http-local`); the task surfaces refuse it. Lives in
+ * this leaf module so the registry's gates can use it without importing mcp/tasks (a cycle).
+ */
+export const isIdentifiedCaller = (caller: string | null): caller is string =>
+  typeof caller === "string" && caller.length > 0;
 
 /** What a refusal for a missing identity tells the operator: the token is valid, it just names no
  *  one, and the fix is on the issuing side. */

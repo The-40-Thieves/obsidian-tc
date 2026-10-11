@@ -15,9 +15,9 @@ import { type ErrorJSON, err } from "@the-40-thieves/obsidian-tc-shared";
 import type { Job, JobProgress, JobQueue } from "../scheduler/job-queue";
 import { errorToCallToolResult } from "./error-rendering";
 import type { CallerContext } from "./registry";
+import { isIdentifiedCaller } from "./registry/identified-caller";
 import { snapshotCaller } from "./task-caller-context";
 import {
-  isIdentifiedCaller,
   TASK_CALL_JOB_TYPE,
   TASK_CALL_PAYLOAD_VERSION,
   type TaskCallPayload,

@@ -38,7 +38,7 @@
 // gets the default. stdio and `auth.mode: none` are named callers, so they keep their own row. The
 // vault is the resolved search target, so one vault's profile never steers another.
 import type { Database } from "../db/types";
-import { isIdentifiedCaller } from "../mcp/tasks";
+import { isIdentifiedCaller } from "../mcp/registry/identified-caller";
 import { PREFERENCE_KEYS, preferenceProfile } from "./reflect";
 
 const KEY = "preferred.search_mode";
