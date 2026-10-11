@@ -94,8 +94,14 @@ Call the `server_health` tool — it round-trips the full transport → auth →
 git clone https://github.com/the-40-thieves/obsidian-tc.git
 cd obsidian-tc
 bun install        # native falls back to pure-JS if Rust is absent
-bun run build
+bun run build      # warns if the two local packages below are unbuilt
+# The default `local` embeddings provider and local reranker are separate optional packages
+# (~230 MB of ONNX runtime), so the root install and build skip them. Build them too:
+(cd packages/embedder-local && bun install && bun run build)
+(cd packages/reranker-local && bun install && bun run build)
 bun run test
 ```
+
+Without those two builds, a source checkout has no dense search or local reranking; `obsidian-tc doctor` reports the embedder as a warning until `obsidian-tc doctor --probe` has run it.
 
 Full dev setup is in **[[Contributing]]**.

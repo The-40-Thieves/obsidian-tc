@@ -96,7 +96,7 @@ reranker has no such packaging, so it stays unreachable there. Practically, toda
 
 | Install method | `local` embedder |
 | --- | --- |
-| A source checkout of this monorepo (`git clone` + `bun install`) | Works — resolves via the source-checkout route once `packages/embedder-local` is built (`bun run build` there; CI does this automatically). |
+| A source checkout of this monorepo (`git clone` + `bun install`) | Works — resolves via the source-checkout route once `packages/embedder-local` is built. A root `bun install` + `bun run build` does not build it, so run `(cd packages/embedder-local && bun install && bun run build)`; the root build warns with these commands when it is missing. CI does this automatically. |
 | Docker (GHCR) | **Works** — the image builds `packages/embedder-local` from source in the same stage as the server and copies its built package (dist + `node_modules`) into the same relative path the source-checkout resolution route walks for, so the identical route resolves inside the container. |
 | npm (`npm install -g obsidian-tc`) | **Works.** `packages/server`'s `package.json` declares `@the-40-thieves/obsidian-tc-embedder-local` as an `optionalDependencies` entry, so a fresh `npm install` pulls it. The first-run matrix (`ci-first-run-smoke`) runs a real semantic search on the published package on Linux, macOS and Windows. |
 | Standalone binary (`bun --compile`) | **Works** on Linux x64 and arm64, macOS arm64 and Windows x64: compiled in, about 14 MB larger. **Unavailable on macOS x64**, which `onnxruntime-node` publishes no build for: set `embeddings.provider` to a hosted/self-hosted backend there. |
@@ -108,7 +108,7 @@ search stays fully functional). `obsidian-tc doctor`'s check (a doctor check id,
 from a source checkout where the package simply hasn't been built yet (a one-command fix) or when
 the platform genuinely has no `onnxruntime-node` prebuild AND another provider is already
 configured, and **FAIL** — with remediation naming the exact fix — when the platform IS supported
-but the package still cannot resolve (for example an npm install that skipped optional dependencies).
+but the package still cannot resolve (for example an npm install that skipped optional dependencies). A `local` embedder that resolves is still a WARN in a plain run: resolving it never loads the model. `obsidian-tc doctor --probe` embeds one probe string through the configured provider and reports whether it answered.
 
 ### Known gaps
 

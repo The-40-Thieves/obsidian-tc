@@ -31,6 +31,9 @@ export interface EmbeddingsBuildableView {
    *  probing "local" by default — "no known build blocker" would otherwise be a lie for the
    *  provider this whole ticket makes the default). */
   probeLocalEmbedder?: () => Promise<LocalEmbedderProbeResult>;
+  /** #1231: true under `doctor --probe`, which runs the dense execution probe (retrieval.heads).
+   *  Without it a resolved "local" has only been resolved, never run, so it is not a pass. */
+  probeRequested?: boolean;
   platformOverride?: Parameters<typeof onnxNativePrebuildStatus>[0];
 }
 
@@ -59,11 +62,17 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
       const probe = await view.probeLocalEmbedder();
       const platform = onnxNativePrebuildStatus(view.platformOverride);
       if (probe.ok) {
+        // #1231: resolving the package is not running it. A plain run never loads the model (the
+        // default run stays offline), so on a supported platform a resolved "local" is not a pass
+        // until `doctor --probe` has run the dense probe.
+        const notProbed = platform.supported && view.probeRequested !== true;
         return {
-          status: (platform.supported ? "ok" : "warning") as CheckStatus,
-          summary: platform.supported
-            ? `embeddings: "local" resolved via ${probe.route ?? "an unknown route"}`
-            : `embeddings: "local" resolved via ${probe.route ?? "an unknown route"} but cannot run on this platform — ${platform.note}`,
+          status: (platform.supported && !notProbed ? "ok" : "warning") as CheckStatus,
+          summary: notProbed
+            ? `embeddings: "local" resolved via ${probe.route ?? "an unknown route"}; dense search not probed; run \`doctor --probe\``
+            : platform.supported
+              ? `embeddings: "local" resolved via ${probe.route ?? "an unknown route"}`
+              : `embeddings: "local" resolved via ${probe.route ?? "an unknown route"} but cannot run on this platform — ${platform.note}`,
           details: {
             provider: "local",
             route: probe.route ?? "unknown",
@@ -74,6 +83,12 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
             ...(view.modelsCachePath ? { modelsCachePath: view.modelsCachePath } : {}),
             ...platformDetails(view),
           },
+          ...(notProbed
+            ? {
+                remediation:
+                  'Run "obsidian-tc doctor --probe" to embed one probe string through the configured dense provider. Until then a resolved "local" embedder is unverified.',
+              }
+            : {}),
         };
       }
       // THE-1122 review round 3: three-way status, not two.
