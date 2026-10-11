@@ -221,7 +221,7 @@ export async function buildServerRuntime(
     embeddingProvider,
     embedConfig,
     hasVec,
-    hasFts,
+    fts,
     indexHealth,
     recordIngestStatsFor,
     indexVaultRecorded,
@@ -284,7 +284,7 @@ export async function buildServerRuntime(
       ),
       startedAt,
       hasVec,
-      hasFts,
+      fts,
       indexHealth,
       getIndexCoordinatorStats: () => requireBoot(indexCoordinatorRef, "indexCoordinator").stats(),
       getJobQueueStats: () => jobQueue.stats(),
@@ -382,7 +382,7 @@ export async function buildServerRuntime(
       db,
       embeddingProvider,
       embedConfig,
-      hasFts,
+      fts,
       indexHealth,
       onSnapshotSkipped,
       reindex: reindexHook,
@@ -424,7 +424,7 @@ export async function buildServerRuntime(
       representation: indexResources.representation,
       ...(retrievalLog ? { retrievalLog } : {}),
       m4Deps: bridges.m4Deps,
-      hasFts,
+      fts,
       indexHealth,
       recordIngestStatsFor,
       reindex: reindexHook,
@@ -600,6 +600,9 @@ export async function buildServerRuntime(
       initialized,
       maxWaitMs: BOOT_WARMUP_MAX_WAIT_MS,
     });
+    // A lock at boot leaves notes_fts `recovering`: retry behind the same handshake, then reconcile
+    // so the rows written while it was off are backfilled.
+    fts.schedule({ initialized, onRecovered: () => void runReconcile(bootReconcileAbort.signal) });
 
     morgiana.emit(firstVault.id, "tc.server.start");
 
@@ -607,13 +610,7 @@ export async function buildServerRuntime(
 
     // Security posture, THE-825 plane opt-in, THE-891 capture, THE-1108 stale-session notices —
     // folded into one call; see boot-notices.ts's header for why they moved out of here.
-    emitBootNotices({
-      config,
-      gatewayConfigured,
-      planeEnabledExplicit,
-      db,
-      embeddingsSticky,
-    });
+    emitBootNotices({ config, gatewayConfigured, planeEnabledExplicit, db, embeddingsSticky });
 
     // THE-288: honor transports.stdio. Default (true) connects the stdio MCP transport; when
     // false the server serves HTTP-only (the listening socket keeps the process alive), and if
@@ -669,6 +666,7 @@ export async function buildServerRuntime(
     closed = true;
     cancelBootWarmup(); // a shutdown during boot must not launch the reconcile afterwards
     indexResources.embedderWarmup.cancel();
+    fts.cancel();
     process.stderr.write(`obsidian-tc: shutting down (${reason})\n`);
     await transports.close().catch(() => {}); // F3: no more requests FIRST (was LAST, after release)
     // GH #995: abort the boot reconcile — left running it embeds with no deadline; both
