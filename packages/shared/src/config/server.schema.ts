@@ -84,6 +84,19 @@ export const ServerConfigObject = z.object({
     .describe(
       "SQLite connection tuning, applied on every cache.db, experiential.db and ratelimit.db open.",
     ),
+  // Note resources (resources/list, resources/read, read_resources). A vault-bound caller (an HTTP
+  // token) is confined to its own vault whatever this says; the flag governs trusted (unbound) callers.
+  resources: z
+    .object({
+      boundVaultOnly: z
+        .boolean()
+        .default(false)
+        .describe(
+          "When true, a trusted (stdio) caller's note resources stay confined to the server's default vault, as before: resources/read refuses any other vault and resources/list lists only the default vault's notes. When false (the default), resources/read and resources/list serve every registered vault the caller may read, each under that vault's own folder ACL, and a refusal in another vault answers as a missing note. A vault-bound caller (an HTTP token) is confined to its own vault either way.",
+        ),
+    })
+    .prefault({})
+    .describe("Note resources: which vaults the obsidian-tc:// resource surfaces serve."),
   vaults: z
     .array(VaultConfigSchema)
     .min(1)

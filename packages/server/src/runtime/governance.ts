@@ -43,6 +43,8 @@ export interface GovernanceDeps {
   acl: ConstructorParameters<typeof FolderAcl>[0];
   /** OBSIDIAN_TC_DEFAULT_VAULT */
   defaultVaultId: string | undefined;
+  /** config.resources.boundVaultOnly: see VaultRegistry. Absent = false. */
+  boundVaultOnly?: boolean | undefined;
   /** config.elicitTtlSeconds */
   elicitTtlSeconds: number;
   /** config.throttle */
@@ -110,7 +112,9 @@ export function wireGovernance(deps: GovernanceDeps): Governance {
   // Root + per-vault ACLs come from the shared buildAcls — the ONE construction site, shared with
   // wireDomainTools (THE-630); see acl-build.ts for why the construction must never fork again.
   const { acl, aclByVault } = buildAcls(deps.acl, deps.vaults);
-  const vaultRegistry = new VaultRegistry(deps.vaults, deps.defaultVaultId, deps.cacheDir);
+  const vaultRegistry = new VaultRegistry(deps.vaults, deps.defaultVaultId, deps.cacheDir, {
+    boundVaultOnly: deps.boundVaultOnly === true,
+  });
   const activeSessions = new ActiveSessionTracker();
   // THE-302: the configured elicit-token TTL governs every HITL token mint (issueElicitToken falls
   // back to this default when a caller passes no explicit ttlSeconds). Set once at startup.

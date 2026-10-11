@@ -44,6 +44,8 @@ export interface RuntimeCoreDeps {
   acl: ConstructorParameters<typeof FolderAcl>[0];
   /** OBSIDIAN_TC_DEFAULT_VAULT */
   defaultVaultId: string | undefined;
+  /** config.resources.boundVaultOnly (see VaultRegistry). */
+  boundVaultOnly?: boolean | undefined;
   elicitTtlSeconds: number;
   throttle: {
     enabled: boolean;

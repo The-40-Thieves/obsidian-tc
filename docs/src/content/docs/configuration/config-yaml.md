@@ -325,6 +325,15 @@ Derived edges added to the `vault_edges` graph beyond authored wikilinks, so a m
 | `idempotencyReclaimSeconds` | 60 | Window before a crashed in-flight idempotency row may be reclaimed — raise for slow bulk tools. |
 | `elicitTtlSeconds` | 300 | HITL elicit-token lifetime (single-use, args-hash-bound). |
 
+## `resources` (note resources)
+
+The `obsidian-tc://<vault>/<path>` note resources (`resources/read`, `resources/list` and the
+`read_resources` tool) read notes in the vault their URI names.
+
+| Key | Default | What it does |
+|---|---|---|
+| `resources.boundVaultOnly` | `false` | `true` confines a trusted (stdio) caller's note resources to the server's default vault, as before: a URI naming another vault is refused, and `resources/list` lists only the default vault. `false` serves every registered vault the caller may read, each under that vault's own folder ACL. A refusal in another vault (an unknown vault, a denied folder, a link that escapes the vault or a hard link) is answered exactly as a missing note, so the URI cannot be used to learn which vaults or notes exist. A vault-bound caller, an HTTP token, is confined to its own vault either way. |
+
 ## `bootstrap` (session-bootstrap routing)
 
 Powers `session_bootstrap`: triages a session's opening message to

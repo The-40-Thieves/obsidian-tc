@@ -281,27 +281,17 @@ function unrecognizedKeyHints(
  * already enforces the same invariant. Fires only when a `vault` arg is present, so the execute
  * family (no vault arg) and vault-omitting calls are unaffected; trusted stdio is unbound.
  *
- * THE-514 item 2 — AUTHORITATIVE NOTE on the one place this guard's condition differs from
- * resources.ts's readResource (its `if (vaultId !== ctx.vaultId)` check, which points back
- * here): this check is CONDITIONAL on `ctx.vaultBound === true`, so a trusted stdio caller
- * (vaultBound left unset) may still name any configured vault. readResource's equivalent
- * check is UNCONDITIONAL — it refuses `vaultId !== ctx.vaultId` regardless of vaultBound, so
- * even a trusted stdio caller reading a resource is pinned to its own vault.
+ * THE-514 item 2 — the one place this guard's condition differs from resources.ts's readResource.
+ * This check is CONDITIONAL on `ctx.vaultBound === true`: a trusted stdio caller (vaultBound left
+ * unset) may name any configured vault. readResource is conditional on the same bit, and also on
+ * `resources.boundVaultOnly`, which confines an unbound caller to its own vault for resources too.
  *
- * Same concern (don't let a caller reach a vault it isn't bound to), two behaviours, and this
- * is a DELIBERATE, EVALUATED divergence, not an oversight:
- *   - Tools stay conditional because trusted stdio operators routinely address every
- *     configured vault by name through the `vault` argument (prefetch, admin tools, multi-vault
- *     workflows) — that is the documented meaning of "trusted": no HTTP token, no vaultBound.
- *   - resources/read stays unconditional because listResources only ever emits URIs for
- *     ctx.vaultId (mcp/resources.ts's listResources) — there is no legitimate reason for ANY caller,
- *     trusted or not, to construct a foreign-vault resource URI by hand, so the narrower rule
- *     costs a trusted caller nothing while closing off a hand-crafted URI as an attack surface.
- * The divergence is currently in the SAFE direction (resources is the stricter of the two). If
- * this is ever revisited, that is a security-semantics decision — evaluate it explicitly rather
- * than "fixing" one side to match the other; see the parity gate in
- * dispatch-parity.test.ts ("vault-binding: documented divergence, asserted as such"), which
- * asserts this documented state rather than sameness.
+ * Tools and resources share one rule: a bound caller (an HTTP token) is pinned to its own vault by
+ * both; an unbound caller reaches any configured vault for tools, and for resources unless
+ * `resources.boundVaultOnly` is set. The one remaining difference is the shape of a refusal in
+ * another vault: a resource answers it as a missing note, so the URI cannot be used to learn which
+ * vaults exist (resources.ts's answeringAsMissing). Tools keep their own refusal shapes.
+ * See the parity gate in dispatch-parity.test.ts ("vault-binding: documented divergence").
  */
 export function enforceVaultBinding(ctx: CallerContext, def: ToolDefinition, data: unknown): void {
   if (ctx.vaultBound !== true) return;
