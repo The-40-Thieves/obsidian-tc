@@ -431,6 +431,7 @@ export async function buildServerRuntime(
       deindex: deindexHook,
       activeSessions,
       memoryFolderByVault: bridges.memoryFolderByVault,
+      supersededInNoteByVault: bridges.supersededInNoteByVault,
       traceFolderByVault: bridges.traceFolderByVault,
       memoryDefenseByVault: bridges.memoryDefenseByVault,
       reflectDefaultsByVault: bridges.reflectDefaultsByVault,
