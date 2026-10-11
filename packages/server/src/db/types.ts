@@ -74,7 +74,8 @@ export interface OpenOptions {
   readonly?: boolean;
   /** Owner-only (0600) database and WAL/SHM sidecars, for a file that holds credentials or
    *  revocations (`auth.db`, `oauth.db`). Honoured by `openConfiguredDatabase`; ignored when
-   *  `readonly`, which never changes a file. */
+   *  `readonly`, which never changes a file. POSIX only: Windows has no owner-only mode, so nothing is
+   *  chmodded there. */
   ownerOnly?: boolean;
 }
 

@@ -1,4 +1,4 @@
-import { chmodSync, closeSync, existsSync, openSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, openSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database, OpenOptions } from "./types";
@@ -62,13 +62,25 @@ export async function openConfiguredDatabase(
   const path = join(cfg.cacheDir, filename);
   if (!opts.ownerOnly || opts.readonly) return openDatabase(path, cfg.db.busyTimeoutMs, opts);
   // SQLite gives a new -wal/-shm the mode of the main file, so creating that one 0600 first covers
-  // every sidecar born later; chmod below covers files a previous version left at the umask's mode.
+  // every sidecar born later. Files a previous version left looser are tightened before any open.
   if (!existsSync(path)) closeSync(openSync(path, "a", 0o600));
-  const db = await openDatabase(path, cfg.db.busyTimeoutMs, opts);
-  for (const suffix of ["", "-wal", "-shm"]) {
-    if (existsSync(path + suffix)) chmodSync(path + suffix, 0o600);
+  const tightened = ["", "-wal", "-shm"]
+    .map((suffix) => path + suffix)
+    .filter(isLooserThanOwnerOnly);
+  for (const file of tightened) chmodSync(file, 0o600);
+  if (tightened.length > 0) {
+    process.stderr.write(
+      `[db] tightened ${tightened.join(", ")} to 0600 (owner-only): they were readable by group or other\n`,
+    );
   }
-  return db;
+  return openDatabase(path, cfg.db.busyTimeoutMs, opts);
+}
+
+/** Does group or other have a bit on an existing file? Windows has no such mode bits, so it never
+ *  does there: a chmod would only toggle the read-only flag. Predicate only: the caller chmods. */
+function isLooserThanOwnerOnly(path: string): boolean {
+  if (process.platform === "win32" || !existsSync(path)) return false;
+  return (statSync(path).mode & 0o077) !== 0;
 }
 
 function isBetterSqlite3Unavailable(err: unknown): boolean {
