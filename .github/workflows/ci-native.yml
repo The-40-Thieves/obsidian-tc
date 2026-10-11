@@ -35,7 +35,7 @@ jobs:
           # macOS CI builds arm64 only — the macOS hosted-runner pool is capped at 5
           # concurrent jobs account-wide (GitHub Free), so the x64 darwin build is left
           # to the G2.5 release prebuild matrix to keep PR queues from stalling.
-          - host: macos-14
+          - host: macos-15
             target: aarch64-apple-darwin
             triple: darwin-arm64
           - host: windows-latest
@@ -200,7 +200,7 @@ jobs:
   # `/private/var` (a symlinked ancestor), and `open_parent` (src/lib.rs) walks every path
   # component with O_NOFOLLOW from `/`, so a stock Mac with the addon built failed 641 of 4,882
   # server tests — ci-server.yml's macOS `build-test` leg installs `--ignore-scripts` (no .node)
-  # and never saw it. This job builds the addon for real on macos-14 and runs it against the five
+  # and never saw it. This job builds the addon for real on macos-15 and runs it against the five
   # files #946 named as the biggest victims, plus the new regression test for the fix itself
   # (vault-root-symlink-registration.test.ts) — not the full suite: the macOS hosted-runner pool
   # is capped at 5 concurrent jobs account-wide (GitHub Free, see the `build` job above), and this
@@ -208,7 +208,7 @@ jobs:
   # would show up in any of these six files just as reliably as in the other 111 files #946 named
   # failing, at a fraction of the runner time a full 4,882-test macOS run would cost.
   macos-native-server-tests:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
