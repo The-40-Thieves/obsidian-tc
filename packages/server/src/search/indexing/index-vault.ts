@@ -7,6 +7,7 @@
 import { tableExists } from "../../db/introspect";
 import { inWriteTransaction } from "../../db/txn";
 import { errorMessage } from "../../util/errors";
+import { createSliceYielder } from "../../util/scan-steps";
 import { isFrontmatterYamlError, parseNote, splitFrontmatterBody } from "../../vault/frontmatter";
 import { type ExtractedLink, extractLinks, extractNoteLinks } from "../../vault/links";
 import { readNote } from "../../vault/notes-io";
@@ -50,7 +51,6 @@ import {
   embedPlans,
 } from "./embed-batches";
 import { readLeaderEpoch } from "./leader-epoch";
-import { createLoopYielder } from "./loop-yield";
 import {
   computeNotePlan,
   existingRowsMatch,
@@ -418,7 +418,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   };
   // THE-490: the per-note body, shared by the eager (default) and streaming (opt-in) walks so it
   // exists ONCE. `stat` is the note's {mtime,size} from whichever WalkEntry produced `rel`.
-  const yieldToLoop = createLoopYielder(args.signal); // boot reconcile only: lets SIGTERM/tools/call in
+  const yieldToLoop = createSliceYielder(args.signal); // boot reconcile only: lets SIGTERM/tools/call in
   const processNote = async (
     rel: string,
     stat: { mtime: number; size: number } | null,

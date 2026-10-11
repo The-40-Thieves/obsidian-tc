@@ -4,12 +4,12 @@
 import { describe, expect, it } from "vitest";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexVault } from "../src/search/indexer";
-import { createLoopYielder } from "../src/search/indexing/loop-yield";
 import { buildRepresentationManifest } from "../src/search/representation";
+import { createSliceYielder } from "../src/util/scan-steps";
 import { makeM2Vault } from "./m2-helpers";
 
-describe("createLoopYielder", () => {
-  it("takes a macrotask turn every N calls, and only when a signal is present", async () => {
+describe("createSliceYielder", () => {
+  it("takes a macrotask turn once a time slice is used up, and only when a signal is present", async () => {
     // Count check-phase turns with a self-rearming setImmediate, not a 0 ms interval: Windows timers
     // tick every ~15 ms, so 50 forced turns can all finish before an interval is ever due.
     let turns = 0;
@@ -18,13 +18,19 @@ describe("createLoopYielder", () => {
       handle = setImmediate(tick);
     });
     try {
-      const unsignaled = createLoopYielder(undefined, 2);
+      const unsignaled = createSliceYielder(undefined, 0);
       for (let i = 0; i < 100; i++) await unsignaled();
       expect(turns).toBe(0); // microtasks only: the loop never reached a check phase
 
-      const signaled = createLoopYielder(new AbortController().signal, 2);
+      const signaled = createSliceYielder(new AbortController().signal, 0);
       for (let i = 0; i < 100; i++) await signaled();
       expect(turns).toBeGreaterThan(0);
+
+      // The trigger is elapsed time, not a call count: a slice that is never used up never yields.
+      turns = 0;
+      const roomy = createSliceYielder(new AbortController().signal, 60_000);
+      for (let i = 0; i < 100; i++) await roomy();
+      expect(turns).toBe(0);
     } finally {
       clearImmediate(handle);
     }
@@ -51,13 +57,17 @@ describe("indexVault with an abort signal (boot reconcile)", () => {
         ...(signal ? { signal } : {}),
       };
       await indexVault(args);
+      // Count check-phase turns with a self-rearming setImmediate (see above).
       let turns = 0;
-      const tick = setInterval(() => turns++, 0);
+      let handle = setImmediate(function tick() {
+        turns++;
+        handle = setImmediate(tick);
+      });
       try {
         const stats = await indexVault(args);
         expect(stats.notes_seen).toBe(200);
       } finally {
-        clearInterval(tick);
+        clearImmediate(handle);
       }
       return turns;
     } finally {

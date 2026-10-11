@@ -117,28 +117,36 @@ export function registerWikiLintSweep(scheduler: Scheduler, deps: WikiLintSweepD
             `[wiki-lint] ${v.id}: generated-page seal check skipped: ${e instanceof Error ? e.message : String(e)}\n`,
           );
         }
-        const report = runWikiLint(
-          {
-            root: v.root,
-            db: deps.cacheDb,
-            edb: deps.experientialDb,
-            acl: undefined,
-            grantedScopes: ["read:notes"],
-            exclusion: deps.exclusionFor(v.id),
-            embeddingModel: deps.embeddingModel,
-            wikiFolder: v.wikiFolder,
-            wikiFolders: v.wikiFolders,
-            rawFolders: v.rawFolders,
-            sealKey,
-          },
-          {
-            vaultId: v.id,
-            folder: deps.folder,
-            checks: LINT_CHECKS,
-            limitPerCheck: 20,
-            maxNotes: deps.maxNotes,
-          },
-        );
+        let report: LintReport;
+        try {
+          report = await runWikiLint(
+            {
+              root: v.root,
+              db: deps.cacheDb,
+              edb: deps.experientialDb,
+              acl: undefined,
+              grantedScopes: ["read:notes"],
+              exclusion: deps.exclusionFor(v.id),
+              embeddingModel: deps.embeddingModel,
+              wikiFolder: v.wikiFolder,
+              wikiFolders: v.wikiFolders,
+              rawFolders: v.rawFolders,
+              sealKey,
+            },
+            {
+              vaultId: v.id,
+              folder: deps.folder,
+              checks: LINT_CHECKS,
+              limitPerCheck: 20,
+              maxNotes: deps.maxNotes,
+            },
+            signal,
+          );
+        } catch (e) {
+          // Shutdown mid-lint: the run stops within a time slice and reports nothing.
+          if (signal.aborted) return;
+          throw e;
+        }
         let judge: PairJudgeReport | undefined;
         if (deps.judge) {
           // Operator-level read access, like the lint itself: there is no caller to scope to.
