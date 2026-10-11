@@ -8,7 +8,7 @@
 // ships has a signing step feeding the assets the release attaches.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
@@ -649,9 +649,18 @@ function keypair(dir, name) {
   return { priv, pub: readFileSync(`${priv}.pub`, "utf8").trim() };
 }
 
-/** origin's main lists `mainLists` ("maintainer", "attacker", or "none" for no file). */
-function releaseFixture(mainLists) {
+/** Runs `check` on a fresh release fixture and removes the fixture's directory whatever happens. */
+function withRelease(mainLists, check) {
   const root = mkdtempSync(join(tmpdir(), "publish-signing-"));
+  try {
+    return check(releaseFixture(root, mainLists));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+/** origin's main lists `mainLists` ("maintainer", "attacker", or "none" for no file). */
+function releaseFixture(root, mainLists) {
   const keys = { maintainer: keypair(root, "maintainer"), attacker: keypair(root, "attacker") };
   const seed = join(root, "seed");
   const origin = join(root, "origin.git");
@@ -725,19 +734,19 @@ test("publish verify-tag: the signers come from origin/main, never from the tag 
 });
 
 test("publish verify-tag: a doctored tag is refused when only its own tree lists the signer", () => {
-  const r = publishVerify(releaseFixture("maintainer"));
+  const r = withRelease("maintainer", publishVerify);
   assert.notEqual(r.status, 0, r.stdout + r.stderr);
   assert.doesNotMatch(r.stdout, /carries a valid signature/);
 });
 
 test("publish verify-tag: the same tag verifies when origin/main lists its signer (control)", () => {
-  const r = publishVerify(releaseFixture("attacker"));
+  const r = withRelease("attacker", publishVerify);
   assert.equal(r.status, 0, r.stdout + r.stderr);
   assert.match(r.stdout, /carries a valid signature/);
 });
 
 test("publish verify-tag: fails closed when origin/main has no allowed_signers", () => {
-  const r = publishVerify(releaseFixture("none"));
+  const r = withRelease("none", publishVerify);
   assert.notEqual(r.status, 0, r.stdout + r.stderr);
   assert.doesNotMatch(r.stdout, /carries a valid signature/);
 });
@@ -747,17 +756,17 @@ test("release-image verify step: the signers come from origin/main, never from t
 });
 
 test("release-image verify step: a doctored tag is refused when only its own tree lists the signer", () => {
-  const r = releaseVerify(releaseFixture("maintainer"));
+  const r = withRelease("maintainer", releaseVerify);
   assert.notEqual(r.status, 0, r.stdout + r.stderr);
 });
 
 test("release-image verify step: the same tag verifies when origin/main lists its signer (control)", () => {
-  const r = releaseVerify(releaseFixture("attacker"));
+  const r = withRelease("attacker", releaseVerify);
   assert.equal(r.status, 0, r.stdout + r.stderr);
 });
 
 test("release-image verify step: fails closed when origin/main has no allowed_signers", () => {
-  const r = releaseVerify(releaseFixture("none"));
+  const r = withRelease("none", releaseVerify);
   assert.notEqual(r.status, 0, r.stdout + r.stderr);
 });
 
