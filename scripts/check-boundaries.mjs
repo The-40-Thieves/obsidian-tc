@@ -74,6 +74,14 @@ const UNREACHABLE_ALLOWLIST = new Map([
   // candidate_assembly.ts) behind knowledge_search's/vault_graph_search's new `as_of` argument. It
   // is reachable now — this comment is the historical note the gate's own header asks for; the
   // entry itself is gone. Same acl_path_set.ts precedent.
+  //
+  // db/sync-config.ts (storage.sync -> libsql OpenOptions.sync) lands ahead of its consumer: the
+  // multi-device index sync spike adds the adapter, the config shape and this resolver, and the
+  // follow-up wires it into the cache.db open. Remove this entry in that PR.
+  [
+    "packages/server/src/db/sync-config.ts",
+    "libsql sync spike: resolver lands ahead of the cache.db open that will call it",
+  ],
 ]);
 
 function run(cmd, args) {

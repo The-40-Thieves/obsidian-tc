@@ -22,11 +22,11 @@ export function sqldRequired(): boolean {
   return process.env.OBSIDIAN_TC_REQUIRE_SQLD === "1";
 }
 
-async function freePort(): Promise<number> {
+async function freePort(host: string): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = createServer();
     srv.once("error", reject);
-    srv.listen(0, "127.0.0.1", () => {
+    srv.listen(0, host, () => {
       const port = (srv.address() as { port: number }).port;
       srv.close(() => resolve(port));
     });
@@ -38,16 +38,17 @@ export interface Sqld {
   stop(): Promise<void>;
 }
 
-/** Start sqld bound to 127.0.0.1 only. With `withVec`, sqld loads sqlite-vec on every connection
+/** Start sqld bound to ONE address (`opts.host`, default 127.0.0.1). With `withVec`, sqld loads sqlite-vec on every connection
  *  (`--extensions-path` + a `trusted.lst` of sha256 + file name), which a vec0 virtual table needs
  *  on the SERVER: writes to it are forwarded and executed there. */
 export async function startSqld(
   bin: string,
   dir: string,
-  opts: { withVec?: boolean } = {},
+  opts: { withVec?: boolean; host?: string; extraArgs?: string[] } = {},
 ): Promise<Sqld> {
-  const port = await freePort();
-  const args = ["--db-path", join(dir, "data.sqld"), "--http-listen-addr", `127.0.0.1:${port}`];
+  const host = opts.host ?? "127.0.0.1";
+  const port = await freePort(host);
+  const args = ["--db-path", join(dir, "data.sqld"), "--http-listen-addr", `${host}:${port}`];
   if (opts.withVec) {
     const extDir = join(dir, "ext");
     mkdirSync(extDir);
@@ -61,9 +62,10 @@ export async function startSqld(
     writeFileSync(join(extDir, "trusted.lst"), `${sum}  ${basename(dest)}\n`);
     args.push("--extensions-path", extDir);
   }
+  args.push(...(opts.extraArgs ?? []));
   const child: ChildProcess = spawn(bin, args, { stdio: "ignore" });
   const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
-  const url = `http://127.0.0.1:${port}`;
+  const url = `http://${host}:${port}`;
   const deadline = Date.now() + 15_000;
   for (;;) {
     try {

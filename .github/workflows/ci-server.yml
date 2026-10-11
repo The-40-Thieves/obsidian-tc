@@ -359,6 +359,44 @@ jobs:
         run: bun scripts/ratelimit-shared-smoke.ts --cli dist/cli.js --backend redis
         working-directory: packages/server
 
+  # Experimental libSQL embedded-replica path (multi-device index sync spike; off by default). Needs a
+  # real sqld, which is not an npm package, so it is downloaded from the libsql release and checked
+  # against a digest PINNED here as well as the one the release publishes: the published .sha256
+  # lives next to the tarball, so alone it would only prove the download was not truncated.
+  # OBSIDIAN_TC_REQUIRE_SQLD=1 turns a missing sqld into a failure instead of a skip.
+  libsql-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-repo
+        with:
+          node-required: 'true'
+      - name: install sqld v0.24.32 (sha256-verified)
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=https://github.com/tursodatabase/libsql/releases/download/libsql-server-v0.24.32
+          asset=libsql-server-x86_64-unknown-linux-gnu.tar.xz
+          want=71720fc8648c19efef416efebd47145ef59b62e198770533530a858e1336879f
+          dir="$RUNNER_TEMP/sqld"
+          mkdir -p "$dir"
+          curl -fsSL --retry 3 -o "$dir/$asset" "$base/$asset"
+          curl -fsSL --retry 3 -o "$dir/$asset.sha256" "$base/$asset.sha256"
+          published=$(cut -d' ' -f1 "$dir/$asset.sha256")
+          [ "$published" = "$want" ] || { echo "::error::release publishes $published, pinned $want"; exit 1; }
+          echo "$want  $dir/$asset" | sha256sum -c -
+          tar -xJf "$dir/$asset" -C "$dir"
+          bin=$(find "$dir" -name sqld -type f -print -quit)
+          [ -n "$bin" ] && [ -x "$bin" ] || { echo "::error::no executable sqld in the tarball"; exit 1; }
+          "$bin" --version
+          echo "OBSIDIAN_TC_SQLD_BIN=$bin" >> "$GITHUB_ENV"
+          echo "OBSIDIAN_TC_REQUIRE_SQLD=1" >> "$GITHUB_ENV"
+      - name: libsql adapter + replica sync suites against a real sqld
+        run: node ./node_modules/vitest/vitest.mjs run test/libsql-adapter.test.ts test/libsql-sync.test.ts test/sync-config.test.ts test/param-binding.test.ts
+        working-directory: packages/server
+      - name: libsql addon survives bun build --compile
+        run: bash packages/server/scripts/libsql-compile-smoke.sh
+
   # The release-only codegen, exercised on EVERY PR. These scripts run nowhere else: build-binaries
   # lives in publish.yml, which only fires on a tag, so a bug in them is undiscoverable until the
   # release is already half-published. That is not hypothetical — v1.14.1's tag build died on

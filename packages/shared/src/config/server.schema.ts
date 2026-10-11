@@ -27,7 +27,6 @@ import {
 } from "./observability.schema";
 import { PersonasConfigSchema } from "./personas.schema";
 import { ProvenanceConfigSchema } from "./provenance.schema";
-import { StorageConfigSchema, syncUrlProblem } from "./storage.schema";
 import { RerankerConfigSchema } from "./reranker.schema";
 import {
   ExperientialConfigSchema,
@@ -41,6 +40,7 @@ import {
   TransportsConfigSchema,
   WritesConfigSchema,
 } from "./runtime.schema";
+import { StorageConfigSchema, syncUrlProblem } from "./storage.schema";
 import {
   BootstrapConfigSchema,
   ToolFacadeConfigSchema,
