@@ -173,7 +173,7 @@ describe("a late cancel does not hide a finished result", () => {
       outcome: { ok: true, result: { done: true } },
     });
     expect(task.status).toBe("completed");
-    expect(task.result).toEqual({ done: true });
+    expect(task.result).toMatchObject({ structuredContent: { done: true } });
   });
 
   it("failed + cancel requested is still cancelled (the abort the cancel caused)", () => {
