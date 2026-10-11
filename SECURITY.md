@@ -183,12 +183,16 @@ repository's `publish.yml` workflow, running on the tag `v<x.y.z>` you downloade
 in their real case, the workflow path case-sensitive), and the issuer pins it to GitHub Actions. A
 signature made on a fork, a branch, or a different tag does not match. To accept any release of this
 repository instead of one exact tag, use a strict, anchored, case-sensitive regexp; there is no case
-folding, and the tag must be a full semantic version:
+folding, and the tag must be a full semantic version. The pattern below accepts both release workflows and
+nothing else: `publish.yml` (a normal release, which signs every artifact and the image) and `release-image.yml`
+(an image-only recovery rebuild, signed by digest under the identity of the ref it was dispatched from:
+`@refs/tags/v<x.y.z>` for a dispatch with `--ref v<x.y.z>`; a dispatch from `main` signs as `@refs/heads/main`,
+which this pattern does not accept):
 
 ```sh
 cosign verify-blob \
   --bundle obsidian-tc-bun-linux-x64.sigstore.json \
-  --certificate-identity-regexp '^https://github\.com/The-40-Thieves/obsidian-tc/\.github/workflows/publish\.yml@refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$' \
+  --certificate-identity-regexp '^https://github\.com/The-40-Thieves/obsidian-tc/\.github/workflows/(publish|release-image)\.yml@refs/tags/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   obsidian-tc-bun-linux-x64
 ```
@@ -217,8 +221,9 @@ cosign verify ghcr.io/the-40-thieves/obsidian-tc@sha256:<digest> \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-An image pushed by hand through the `release-image` workflow
-(a re-push of an existing version) is not signed.
+A recovery image pushed through the `release-image` workflow (a re-push of an existing version) is signed by
+digest in the same shared action, under that run's identity. Verify it with the pattern above, not with the
+`publish.yml` identity.
 
 Publication is ordered so that a signing failure ships nothing: no npm package, image, or GitHub Release
 is published until the `sign-artifacts` job has signed and verified every artifact. The GitHub Release is
@@ -228,7 +233,7 @@ family), and only then published.
 How this relates to the other release records, none of which it replaces:
 
 - **SSH-signed release tags** (`docs/RELEASE-SIGNING.md`) authenticate *who started* a release: `verify-tag`
-  refuses any `v*` tag not signed by a key in `.github/allowed_signers`, and nothing else runs until it
+  refuses any `v*` tag not signed by a key listed in `.github/allowed_signers` on `main` (never the copy the tag carries), and nothing else runs until it
   passes. The cosign bundle authenticates *what the build produced*: the file's digest was signed by the
   workflow that tag triggered.
 - **GitHub build-provenance attestations** exist for the three loose plugin files

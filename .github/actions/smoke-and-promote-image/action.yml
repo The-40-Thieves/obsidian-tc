@@ -19,8 +19,9 @@ description: >-
 # (arm64 boots under emulation on an amd64 runner), buildx and cosign (sigstore/cosign-installer) before
 # this step, and the job must hold `id-token: write` for the keyless signature.
 #
-# Runs from the checkout it is given: scripts/docker-boot-smoke.mjs must exist there (a release
-# whose tag predates the script cannot be promoted, which is the intended fail-closed outcome).
+# The smoke script runs from the repository checkout that holds this action (its own scripts/, found
+# from GITHUB_ACTION_PATH), never from the caller's working tree. In release-image.yml that checkout is
+# trusted/, the workflow's own commit, so nothing from the release tag's source runs here.
 
 inputs:
   image:
@@ -38,6 +39,7 @@ runs:
   steps:
     - name: boot-smoke linux/amd64 and linux/arm64 of the staged digest
       shell: bash
+      working-directory: ${{ github.action_path }}/../../..
       env:
         IMAGE: ${{ inputs.image }}
         DIGEST: ${{ inputs.digest }}

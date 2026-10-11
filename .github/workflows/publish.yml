@@ -98,13 +98,14 @@ jobs:
             echo "::error title=Real publish from a non-tag ref::A real publish requires a signed release tag; dispatch from the tag."
             exit 1
           fi
-          if [ ! -f .github/allowed_signers ]; then
-            echo "::warning title=Release tag not verified::No .github/allowed_signers committed, so the signature on '$TAG' cannot be checked. See docs/RELEASE-SIGNING.md."
-            if [ "$REQUIRE_SIGNED_TAG" = "true" ]; then
-              echo "REQUIRE_SIGNED_TAG=true but no allowed_signers file exists — refusing to release."
-              exit 1
-            fi
-            exit 0
+          # The signers come from main, never from the tag: a tag's own .github/allowed_signers is whatever
+          # its author wrote, so checking the tag against it proves nothing. Fail closed: a main that cannot
+          # be fetched, or has no non-empty list, refuses the release. There is no fallback to the checkout.
+          git fetch --no-tags origin main || { echo "::error::cannot fetch origin/main to load the allowed signers"; exit 1; }
+          git show origin/main:.github/allowed_signers > "$RUNNER_TEMP/allowed_signers"
+          if [ ! -s "$RUNNER_TEMP/allowed_signers" ]; then
+            echo "::error title=No trusted allowed_signers::origin/main has no non-empty .github/allowed_signers, so '$TAG' cannot be verified. Refusing to release. See docs/RELEASE-SIGNING.md."
+            exit 1
           fi
           # A lightweight tag is a bare commit ref with no object to carry a signature.
           if [ "$(git cat-file -t "$TAG")" != "tag" ]; then
@@ -112,10 +113,10 @@ jobs:
             [ "$REQUIRE_SIGNED_TAG" = "true" ] && exit 1
             exit 0
           fi
-          if git -c gpg.ssh.allowedSignersFile=.github/allowed_signers verify-tag "$TAG"; then
+          if git -c gpg.ssh.allowedSignersFile="$RUNNER_TEMP/allowed_signers" verify-tag "$TAG"; then
             echo "Tag '$TAG' carries a valid signature from an allowed signer."
           else
-            echo "::warning title=Unsigned or unverifiable tag::'$TAG' did not verify against .github/allowed_signers."
+            echo "::warning title=Unsigned or unverifiable tag::'$TAG' did not verify against origin/main's .github/allowed_signers."
             [ "$REQUIRE_SIGNED_TAG" = "true" ] && exit 1
           fi
           exit 0

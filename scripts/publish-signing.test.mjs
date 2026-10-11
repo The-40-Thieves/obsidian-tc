@@ -8,8 +8,9 @@
 // ships has a signing step feeding the assets the release attaches.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { devNull, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { test } from "node:test";
 
 const WORKFLOW = readFileSync(
@@ -404,7 +405,7 @@ for (const [name, text] of [
   test(`${name}: the public tags are given by the smoke-and-promote action, from the pushed digest, after the push`, () => {
     assert.match(text, /uses: docker\/build-push-action@[0-9a-f]{40}[^\n]*\n\s+id: push\n/);
     const step = text.match(
-      /uses: \.\/\.github\/actions\/smoke-and-promote-image\n([\s\S]*?)(?=\n {6}- |\n {2}[a-z]|(?![\s\S]))/,
+      /uses: \.\/(?:trusted\/)?\.github\/actions\/smoke-and-promote-image\n([\s\S]*?)(?=\n {6}- |\n {2}[a-z]|(?![\s\S]))/,
     );
     assert.ok(step, "smoke-and-promote-image step not found");
     assert.match(step[1], /digest: \$\{\{ steps\.push\.outputs\.digest \}\}/);
@@ -574,8 +575,269 @@ test("release-image.yml verifies the release tag signature before anything is bu
   const verify = run.indexOf('verify-tag "refs/tags/v${VERSION}"');
   assert.ok(verify > 0, "no signed-tag check in release-image.yml");
   assert.match(RELEASE_IMAGE, /ref: refs\/tags\/v\$\{\{ inputs\.version \}\}\n\s+fetch-depth: 0/);
-  assert.match(run, /git -c gpg\.ssh\.allowedSignersFile=\.github\/allowed_signers verify-tag/);
+  assert.match(run, /git -c gpg\.ssh\.allowedSignersFile="\$RUNNER_TEMP\/allowed_signers" verify-tag/);
   assert.ok(verify > run.indexOf("actions/checkout@"), "the tag is fetched before it is verified");
   assert.ok(verify < run.indexOf("npm pack"), "verified before the prebuilds are fetched");
   assert.ok(verify < run.indexOf("docker/build-push-action"), "verified before the image is pushed");
+});
+
+// ---- trust root: a tag is verified against main's allowed_signers, never against its own copy ----
+//
+// A tag carries its own .github/allowed_signers, so whoever can push a tag can add their key to that
+// file, sign the tag with it and pass verification. The fixture below reproduces exactly that: origin's
+// main lists the maintainer (or nothing at all), the candidate tag's tree lists the attacker, and the
+// attacker signs the annotated tag. The runner clone sits at the tag, as actions/checkout leaves it.
+
+const TAG = "v9.9.9-test";
+const PUBLISH_VERIFY = "verify the release tag is signed";
+const RELEASE_VERIFY = "verify the release tag is signed by an allowed signer";
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** The whole `- name:` step block, cut at the next sibling step. */
+function stepBlock(text, name) {
+  const m = text.match(
+    new RegExp(`^( *)- name: ${escapeRe(name)}\\n[\\s\\S]*?(?=^\\1- |(?![\\s\\S]))`, "m"),
+  );
+  assert.ok(m, `step "${name}" not found`);
+  return m[0];
+}
+
+/** The `run: |` script of a named step, de-indented. */
+function stepScript(text, name) {
+  const m = stepBlock(text, name).match(/^( +)run: \|\n([\s\S]*)$/m);
+  assert.ok(m, `step "${name}" has no run: | block`);
+  const pad = m[1].length + 2;
+  const lines = [];
+  for (const line of m[2].split("\n")) {
+    if (line.trim() !== "" && line.search(/\S/) < pad) break;
+    lines.push(line.slice(pad));
+  }
+  return lines.join("\n");
+}
+
+function runStep(text, name, { cwd, env, subs = {} }) {
+  let script = stepScript(text, name);
+  for (const [expr, value] of Object.entries(subs)) script = script.replaceAll(expr, value);
+  return spawnSync("bash", ["-c", script], { cwd, encoding: "utf8", env: { ...process.env, ...env } });
+}
+
+function git(cwd, args) {
+  const r = spawnSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: devNull,
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_AUTHOR_NAME: "fixture",
+      GIT_AUTHOR_EMAIL: "fixture@example.invalid",
+      GIT_COMMITTER_NAME: "fixture",
+      GIT_COMMITTER_EMAIL: "fixture@example.invalid",
+    },
+  });
+  assert.equal(r.status, 0, `git ${args.join(" ")}: ${r.stderr}`);
+  return r.stdout;
+}
+
+function keypair(dir, name) {
+  const priv = join(dir, name);
+  const r = spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-C", name, "-f", priv], {
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, `ssh-keygen: ${r.stderr}`);
+  return { priv, pub: readFileSync(`${priv}.pub`, "utf8").trim() };
+}
+
+/** origin's main lists `mainLists` ("maintainer", "attacker", or "none" for no file). */
+function releaseFixture(mainLists) {
+  const root = mkdtempSync(join(tmpdir(), "publish-signing-"));
+  const keys = { maintainer: keypair(root, "maintainer"), attacker: keypair(root, "attacker") };
+  const seed = join(root, "seed");
+  const origin = join(root, "origin.git");
+  const clone = join(root, "clone");
+  const runnerTemp = join(root, "runner-temp");
+  mkdirSync(runnerTemp);
+  git(root, ["init", "-q", "-b", "main", seed]);
+  mkdirSync(join(seed, ".github"));
+  if (mainLists !== "none") {
+    writeFileSync(join(seed, ".github/allowed_signers"), `${mainLists} ${keys[mainLists].pub}\n`);
+  }
+  writeFileSync(join(seed, "README.md"), "fixture\n");
+  git(seed, ["add", "-A"]);
+  git(seed, ["commit", "-q", "-m", "main"]);
+  git(root, ["init", "-q", "--bare", "-b", "main", origin]);
+  git(seed, ["push", "-q", origin, "main"]);
+  // The candidate: its own tree lists the attacker, and the attacker signs the tag.
+  git(seed, ["checkout", "-q", "-b", "candidate"]);
+  writeFileSync(join(seed, ".github/allowed_signers"), `# candidate\nattacker ${keys.attacker.pub}\n`);
+  git(seed, ["add", "-A"]);
+  git(seed, ["commit", "-q", "-m", "candidate"]);
+  git(seed, [
+    "-c",
+    "gpg.format=ssh",
+    "-c",
+    `user.signingkey=${keys.attacker.priv}`,
+    "tag",
+    "-s",
+    "-m",
+    "release",
+    TAG,
+  ]);
+  git(seed, ["push", "-q", origin, TAG]);
+  git(root, ["clone", "-q", origin, clone]);
+  git(clone, ["checkout", "-q", "--detach", TAG]);
+  return { clone, runnerTemp };
+}
+
+function publishVerify(fx) {
+  return runStep(WORKFLOW, PUBLISH_VERIFY, {
+    cwd: fx.clone,
+    env: { TAG, RUNNER_TEMP: fx.runnerTemp, REQUIRE_SIGNED_TAG: "true" },
+    subs: {
+      "${{ github.ref_type }}": "tag",
+      "${{ github.event_name }}": "push",
+      "${{ inputs.dry_run }}": "false",
+    },
+  });
+}
+
+function releaseVerify(fx) {
+  return runStep(RELEASE_IMAGE, RELEASE_VERIFY, {
+    cwd: fx.clone,
+    env: { VERSION: TAG.slice(1), RUNNER_TEMP: fx.runnerTemp },
+  });
+}
+
+function assertSignersFromMain(script) {
+  assert.match(script, /git fetch --no-tags origin main/);
+  assert.match(
+    script,
+    /git show origin\/main:\.github\/allowed_signers > "\$RUNNER_TEMP\/allowed_signers"/,
+  );
+  assert.match(script, /-s "\$RUNNER_TEMP\/allowed_signers"/, "an empty or missing list must fail closed");
+  assert.match(script, /gpg\.ssh\.allowedSignersFile="\$RUNNER_TEMP\/allowed_signers"/);
+  assert.doesNotMatch(script, /allowedSignersFile=\.github\/allowed_signers|-f \.github\/allowed_signers/);
+}
+
+test("publish verify-tag: the signers come from origin/main, never from the tag (structural)", () => {
+  assertSignersFromMain(stepScript(WORKFLOW, PUBLISH_VERIFY));
+});
+
+test("publish verify-tag: a doctored tag is refused when only its own tree lists the signer", () => {
+  const r = publishVerify(releaseFixture("maintainer"));
+  assert.notEqual(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /carries a valid signature/);
+});
+
+test("publish verify-tag: the same tag verifies when origin/main lists its signer (control)", () => {
+  const r = publishVerify(releaseFixture("attacker"));
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /carries a valid signature/);
+});
+
+test("publish verify-tag: fails closed when origin/main has no allowed_signers", () => {
+  const r = publishVerify(releaseFixture("none"));
+  assert.notEqual(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /carries a valid signature/);
+});
+
+test("release-image verify step: the signers come from origin/main, never from the tag (structural)", () => {
+  assertSignersFromMain(stepScript(RELEASE_IMAGE, RELEASE_VERIFY));
+});
+
+test("release-image verify step: a doctored tag is refused when only its own tree lists the signer", () => {
+  const r = releaseVerify(releaseFixture("maintainer"));
+  assert.notEqual(r.status, 0, r.stdout + r.stderr);
+});
+
+test("release-image verify step: the same tag verifies when origin/main lists its signer (control)", () => {
+  const r = releaseVerify(releaseFixture("attacker"));
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
+test("release-image verify step: fails closed when origin/main has no allowed_signers", () => {
+  const r = releaseVerify(releaseFixture("none"));
+  assert.notEqual(r.status, 0, r.stdout + r.stderr);
+});
+
+// ---- release-image runs no repo-local code from the tag ----
+
+test("release-image.yml invokes the action from trusted/, never from the tag checkout", () => {
+  const run = stripComments(RELEASE_IMAGE);
+  assert.match(run, /uses: \.\/trusted\/\.github\/actions\/smoke-and-promote-image\n/);
+  assert.doesNotMatch(run, /uses: \.\/\.github\//);
+  assert.doesNotMatch(run, /uses: \.\/src\//);
+});
+
+test("release-image.yml checks out the calling workflow commit into trusted/ and the release tag into src/", () => {
+  assert.match(RELEASE_IMAGE, /ref: \$\{\{ github\.workflow_sha \}\}\n\s+path: trusted\n/);
+  assert.match(
+    RELEASE_IMAGE,
+    /ref: refs\/tags\/v\$\{\{ inputs\.version \}\}\n\s+fetch-depth: 0\n\s+path: src\n/,
+  );
+});
+
+test("release-image.yml runs every step that reads the tag's tree in src/, and builds the image from src/", () => {
+  for (const step of [
+    RELEASE_VERIFY,
+    "assert the checked-out source is the requested release",
+    "fetch the published native prebuilds (linux x64 + arm64, glibc) and verify their signatures",
+  ]) {
+    assert.match(stepBlock(RELEASE_IMAGE, step), /^ {8}working-directory: src$/m, step);
+  }
+  assert.match(
+    RELEASE_IMAGE,
+    /uses: docker\/build-push-action@[^\n]*\n\s+id: push\n\s+with:\n\s+context: src\n\s+file: src\/Dockerfile\n/,
+  );
+});
+
+test("the smoke-and-promote action runs its smoke script from its own checkout, not the caller's tree", () => {
+  const block = stepBlock(SMOKE_ACTION, "boot-smoke linux/amd64 and linux/arm64 of the staged digest");
+  assert.match(block, /^ {6}working-directory: \$\{\{ github\.action_path \}\}\/\.\.\/\.\.\/\.\.$/m);
+  assert.match(block, /node scripts\/docker-boot-smoke\.mjs "\$ref" --platform "\$platform"/);
+});
+
+test("every publish.yml job other than verify-tag transitively needs verify-tag, so no job runs tag code before the signature gate", () => {
+  for (const job of ALL_JOBS) {
+    if (job === "verify-tag") continue;
+    assert.ok(closure(job).has("verify-tag"), `${job} can run before the signature gate`);
+  }
+});
+
+// ---- docs: one identity pattern, accepting both release workflows and nothing else ----
+
+test("SECURITY.md accepts both release identities and nothing else", () => {
+  const sec = readFileSync(resolve(import.meta.dirname, "../SECURITY.md"), "utf8");
+  assert.match(sec, /release-image\.yml/, "SECURITY.md names the recovery workflow");
+  const patterns = [...sec.matchAll(/--certificate-identity-regexp '([^']+)'/g)].map((m) => m[1]);
+  assert.ok(patterns.length > 0, "SECURITY.md has an identity regexp");
+  assert.equal(new Set(patterns).size, 1, "every regexp in SECURITY.md is the same pattern");
+  const re = new RegExp(patterns[0]);
+  const base = "https://github.com/The-40-Thieves/obsidian-tc/.github/workflows/";
+  for (const id of [
+    "publish.yml@refs/tags/v1.2.3",
+    "release-image.yml@refs/tags/v1.2.3",
+    "publish.yml@refs/tags/v1.28.0-rc.1",
+  ]) {
+    assert.match(base + id, re, `accepts ${id}`);
+  }
+  for (const id of [
+    "publish.yml@refs/heads/main",
+    "release-image.yml@refs/heads/main",
+    "ci-server.yml@refs/tags/v1.2.3",
+    "release.yml@refs/tags/v1.2.3",
+    "publish.yml@refs/tags/v01.2.3",
+    "publish.yml@refs/tags/v1.2",
+    "publish.yml@refs/tags/v1.2.3-",
+    "publish.yml@refs/tags/v1.2.3 ",
+    "publish.yml@refs/tags/v1.2.3/../x",
+  ]) {
+    assert.doesNotMatch(base + id, re, `rejects ${id}`);
+  }
+  assert.doesNotMatch(
+    "https://github.com/the-40-thieves/obsidian-tc/.github/workflows/publish.yml@refs/tags/v1.2.3",
+    re,
+    "owner and repo are matched in their real case",
+  );
 });
