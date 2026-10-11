@@ -17,6 +17,7 @@ import {
   applyStickyEmbeddings,
   type StickyEmbeddingsResolution,
 } from "../embeddings/sticky-provider";
+import { createEmbedderWarmup, type EmbedderWarmup } from "../embeddings/warmup";
 import { recordIngestStats } from "../metrics/ingest-stats";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { EgressFilter } from "../plane/egress-filter";
@@ -119,6 +120,7 @@ export interface IndexHealthState {
 
 export interface IndexResources {
   embeddingProvider: EmbeddingProvider;
+  embedderWarmup: EmbedderWarmup;
   /** The representation identity this boot computed, published so every downstream indexVault
    *  caller passes the SAME one instead of re-deriving it from loose config fields. */
   representation: RepresentationManifest;
@@ -208,6 +210,7 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
 
   return {
     embeddingProvider,
+    embedderWarmup: createEmbedderWarmup(embeddingProvider),
     representation,
     embedConfig,
     hasVec,

@@ -15,6 +15,7 @@ import { existsNoFollow } from "../auth/key-files";
 // must redact separately. Same scanner every other raw-value echo in this codebase already shares
 // (episode log, trace capture, ambient import, acl-path.ts's aclDenied).
 import { redactSecrets } from "../experiential/redact";
+import { drainSteps, type ScanSteps } from "../util/scan-steps";
 import { recordPathUse } from "./acl-audit";
 import { folderPinVerdict } from "./folder-links";
 
@@ -259,13 +260,20 @@ export function walkVault(
   root: string,
   opts: { sub?: string; extensions?: string[]; recursive?: boolean; includeFolders?: boolean } = {},
 ): WalkEntry[] {
+  return drainSteps(walkVaultSteps(root, opts));
+}
+
+export function* walkVaultSteps(
+  root: string,
+  opts: { sub?: string; extensions?: string[]; recursive?: boolean; includeFolders?: boolean } = {},
+): ScanSteps<WalkEntry[]> {
   const recursive = opts.recursive ?? true;
   const exts = opts.extensions?.map((e) => e.toLowerCase());
   const absRoot = resolve(root);
   const start = walkStart(absRoot, opts.sub);
   const out: WalkEntry[] = [];
 
-  const walk = (dir: string, prefix: string, aclPrefix: string): void => {
+  function* walk(dir: string, prefix: string, aclPrefix: string): ScanSteps<void> {
     let entries: Dirent[];
     try {
       entries = readdirSync(dir, { withFileTypes: true });
@@ -287,7 +295,7 @@ export function walkVault(
             size: 0,
             mtime: statSafe(abs)?.mtimeMs ?? 0,
           });
-        if (recursive) walk(abs, rel, aclRel);
+        if (recursive) yield* walk(abs, rel, aclRel);
       } else if (e.isFile()) {
         if (exts && !exts.some((x) => name.toLowerCase().endsWith(x))) continue;
         const st = statSafe(abs);
@@ -301,10 +309,11 @@ export function walkVault(
         });
       }
     }
-  };
+    yield;
+  }
 
   const startPrefix = opts.sub ? normalizeVaultPath(opts.sub) : "";
-  walk(start.abs, startPrefix, start.aclPrefix);
+  yield* walk(start.abs, startPrefix, start.aclPrefix);
   out.sort((a, b) => a.relPath.localeCompare(b.relPath));
   return out;
 }

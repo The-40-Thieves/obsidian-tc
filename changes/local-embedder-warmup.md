@@ -1,0 +1,4 @@
+---
+type: Added
+---
+- **The local embedding model now loads in the background after the first `initialize`.** With `embeddings.provider: "local"` the first `embed()` downloads and loads the model, so the first `search_semantic` (or the boot reconcile) paid that inside a tool call. One tiny query-role embed now runs behind the same deferral as the boot reconcile (after `initialize`, or the 2 s cap), cancelled on shutdown. It never blocks `initialize`, a failure is logged once and the next real search retries the load, and the warmup and a concurrent search or reconcile share one in-flight load. Every other provider is a paid or remote call and is never contacted for a warmup. `server_health` reports `embedder_warmup` (`not-applicable`, `pending`, `loading`, `ready` or `failed`; the error text only to a caller that may read every vault) and `doctor`'s `embeddings.buildable` check shows the state a server on that config will report.

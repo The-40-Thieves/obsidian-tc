@@ -53,6 +53,7 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
         return {
           status: "ok" as CheckStatus,
           summary: `embeddings: provider "${view.denseProvider}" is not "local" — nothing to resolve here (see retrieval.heads for its config/probe status)`,
+          details: { warmup: "not-applicable" },
         };
       }
       const probe = await view.probeLocalEmbedder();
@@ -67,6 +68,9 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
             provider: "local",
             route: probe.route ?? "unknown",
             attempts: probe.attempts,
+            // What a server on this config will report once running: the model loads in the
+            // background after the first initialize (server_health.embedder_warmup is the live state).
+            warmup: "pending",
             ...(view.modelsCachePath ? { modelsCachePath: view.modelsCachePath } : {}),
             ...platformDetails(view),
           },
@@ -101,6 +105,8 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
         details: {
           provider: "local",
           attempts: probe.attempts,
+          warmup: "failed",
+          warmupError: "the optional local embedder package does not resolve",
           ...(view.modelsCachePath ? { modelsCachePath: view.modelsCachePath } : {}),
           ...platformDetails(view),
         },
