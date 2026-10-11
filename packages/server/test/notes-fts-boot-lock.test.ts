@@ -83,6 +83,39 @@ describe("ensureNotesFts on a consistent index (GH #1209)", () => {
     db.close?.();
   });
 
+  it("differential: resets and prunes exactly the rows the pre-change statements did", async () => {
+    // Same divergence in two copies: every 3rd note loses its FTS row, three FTS rows have no note.
+    const diverge = async (): Promise<ReturnType<typeof openDatabase>> => {
+      const db = await openDatabase(await seedConsistentCache(60));
+      for (let i = 0; i < 60; i += 3)
+        db.prepare("DELETE FROM notes_fts WHERE path = ?").run(`n${i}.md`);
+      for (const g of ["g1.md", "g2.md", "g3.md"]) {
+        db.prepare(
+          "INSERT INTO notes_fts (vault_id, path, title, content) VALUES ('main', ?, 't', 'c')",
+        ).run(g);
+      }
+      return db;
+    };
+    const oldWay = await diverge();
+    oldWay.exec(
+      "DELETE FROM notes_fts WHERE NOT EXISTS (SELECT 1 FROM notes n WHERE n.vault_id = notes_fts.vault_id AND n.path = notes_fts.path)",
+    );
+    oldWay.exec(
+      "UPDATE notes SET content_hash = '' WHERE NOT EXISTS (SELECT 1 FROM notes_fts f WHERE f.vault_id = notes.vault_id AND f.path = notes.path)",
+    );
+    const newWay = await diverge();
+    expect(ensureNotesFts(newWay)).toBe(true);
+    const paths = (db: Awaited<ReturnType<typeof diverge>>, sql: string): string[] =>
+      (db.prepare(sql).all() as { path: string }[]).map((r) => r.path).sort();
+    const stale = "SELECT path FROM notes WHERE content_hash = ''";
+    const fts = "SELECT path FROM notes_fts";
+    expect(paths(newWay, stale)).toHaveLength(20); // existence floor: the reset really happened
+    expect(paths(newWay, stale)).toEqual(paths(oldWay, stale));
+    expect(paths(newWay, fts)).toEqual(paths(oldWay, fts));
+    oldWay.close?.();
+    newWay.close?.();
+  });
+
   it("scales with the corpus, not its square (loose bound: 10000 notes well under 5 s)", async () => {
     const path = await seedConsistentCache(10_000);
     const db = await openDatabase(path);
