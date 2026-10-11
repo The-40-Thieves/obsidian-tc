@@ -31,6 +31,11 @@ function fixtureFiles(n: number): Record<string, string> {
     "dup1.md": "same body text for dedup",
     "dup2.md": "same body text for dedup",
     "fm.md": "---\ntags: [x, y]\n---\n# fm\n\n[[a-b]] link",
+    // Several chunks under one path, so a small page size splits a path across two pages.
+    "long.md": Array.from(
+      { length: 12 },
+      (_, i) => `## part ${i}\n\n${"word ".repeat(300)}${i}`,
+    ).join("\n\n"),
     ".hidden/x.md": "# hidden",
   };
   for (let i = 0; i < n; i++) files[`d${i % 9}/s${i % 4}/n${i}.md`] = `# note ${i}\n\nbody ${i}`;
@@ -127,6 +132,8 @@ describe("cooperative walk and preload equal their synchronous forms", { timeout
         expect(turns.count()).toBeGreaterThan(1);
         expect(coop.size).toBe(sync.size);
         expect(sync.size).toBeGreaterThan(100);
+        expect(Math.max(...[...sync.values()].map((r) => r.length))).toBeGreaterThan(1);
+        expect([...coop.keys()]).toEqual([...sync.keys()]);
         for (const [path, rows] of sync) expect(coop.get(path)).toEqual(rows);
       } finally {
         turns.stop();

@@ -90,7 +90,7 @@ function addChunkStateRow(byPath: Map<string, ExistingRow[]>, r: ChunkStateRow):
 
 export const CHUNK_STATE_PAGE = 4096;
 
-// preloadChunkState in rowid pages, yielding between them; a mid-way write is caught by existingRowsMatch.
+// preloadChunkState in keyset pages (idx_chunks_vault_path order, no sort), yielding between them.
 export async function preloadChunkStateCooperative(
   db: Database,
   vaultId: string,
@@ -98,14 +98,15 @@ export async function preloadChunkStateCooperative(
   pageSize: number = CHUNK_STATE_PAGE,
 ): Promise<Map<string, ExistingRow[]>> {
   const page = db.prepare(
-    `${chunkStateSelect(db)} WHERE c.vault_id = ? AND c.rowid > ? ORDER BY c.rowid LIMIT ?`,
+    `${chunkStateSelect(db)} WHERE c.vault_id = ? AND (c.path, c.rowid) > (?, ?) ORDER BY c.path, c.rowid LIMIT ?`,
   );
   const byPath = new Map<string, ExistingRow[]>();
-  for (let after = 0; ; ) {
-    const rows = page.all(vaultId, after, pageSize) as ChunkStateRow[];
+  for (let after = { path: "", rowid: -1 }; ; ) {
+    const rows = page.all(vaultId, after.path, after.rowid, pageSize) as ChunkStateRow[];
     for (const r of rows) addChunkStateRow(byPath, r);
-    if (rows.length < pageSize) return byPath;
-    after = rows[rows.length - 1]?.rowid ?? after;
+    const lastRow = rows[rows.length - 1];
+    if (!lastRow || rows.length < pageSize) return byPath;
+    after = lastRow;
     await yieldToLoop();
   }
 }
