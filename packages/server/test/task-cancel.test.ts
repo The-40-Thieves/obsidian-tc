@@ -183,7 +183,11 @@ describe("cancel_task", () => {
     startTask(id);
     await until(() => queue.get(id)?.state === "complete");
     const before = await status(client, id);
-    expect(before).toMatchObject({ status: "completed", result: { finished: true } });
+    // A completed result is a CallToolResult (text plus structuredContent), as tasks/get returns it.
+    expect(before).toMatchObject({
+      status: "completed",
+      result: { structuredContent: { finished: true } },
+    });
 
     const res = await cancel(client, id);
     expect(res.isError).not.toBe(true);
