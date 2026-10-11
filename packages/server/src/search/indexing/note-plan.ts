@@ -54,33 +54,61 @@ export function estimateEmbedTokens(text: string): number {
   return Math.ceil(len / divisor);
 }
 
-// THE-501: preload the whole vault's lightweight chunk state (ids + hashes + active model) in ONE
-// query, grouped by path, so a full reconcile plans every note without a per-note chunk query. Never
-// loads content or vectors — memory stays bounded to identifiers and hashes.
+// THE-501: preload the whole vault's chunk state (ids + hashes + active model, never content or
+// vectors) in ONE query, grouped by path, so a full reconcile plans without a per-note query.
 export function preloadChunkState(db: Database, vaultId: string): Map<string, ExistingRow[]> {
+  const rows = db
+    .prepare(`${chunkStateSelect(db)} WHERE c.vault_id = ? ORDER BY c.path`)
+    .all(vaultId) as ChunkStateRow[];
+  const byPath = new Map<string, ExistingRow[]>();
+  for (const r of rows) addChunkStateRow(byPath, r);
+  return byPath;
+}
+
+type ChunkStateRow = ExistingRow & { path: string };
+
+function chunkStateSelect(db: Database): string {
   // THE-934: read back only when the column exists (hasEmbeddingExcludedColumn); pre-migration -> 0.
   const excludedCol = hasEmbeddingExcludedColumn(db)
     ? ", c.embedding_excluded AS embedding_excluded"
     : "";
-  const rows = db
-    .prepare(
-      `SELECT c.path AS path, c.rowid AS rowid, c.id AS id, c.content_hash AS content_hash, e.model AS active_model${excludedCol} FROM chunks c LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1 WHERE c.vault_id = ? ORDER BY c.path`,
-    )
-    .all(vaultId) as Array<ExistingRow & { path: string }>;
+  return `SELECT c.path AS path, c.rowid AS rowid, c.id AS id, c.content_hash AS content_hash, e.model AS active_model${excludedCol} FROM chunks c LEFT JOIN chunk_embeddings e ON e.chunk_id = c.id AND e.is_active = 1`;
+}
+
+function addChunkStateRow(byPath: Map<string, ExistingRow[]>, r: ChunkStateRow): void {
+  const list = byPath.get(r.path);
+  const row: ExistingRow = {
+    rowid: r.rowid,
+    id: r.id,
+    content_hash: r.content_hash,
+    active_model: r.active_model,
+    embedding_excluded: r.embedding_excluded,
+  };
+  if (list) list.push(row);
+  else byPath.set(r.path, [row]);
+}
+
+export const CHUNK_STATE_PAGE = 1024;
+
+// preloadChunkState in keyset pages (idx_chunks_vault_path order, no sort), yielding between them.
+export async function preloadChunkStateCooperative(
+  db: Database,
+  vaultId: string,
+  yieldToLoop: () => Promise<void>,
+  pageSize: number = CHUNK_STATE_PAGE,
+): Promise<Map<string, ExistingRow[]>> {
+  const page = db.prepare(
+    `${chunkStateSelect(db)} WHERE c.vault_id = ? AND (c.path, c.rowid) > (?, ?) ORDER BY c.path, c.rowid LIMIT ?`,
+  );
   const byPath = new Map<string, ExistingRow[]>();
-  for (const r of rows) {
-    const list = byPath.get(r.path);
-    const row: ExistingRow = {
-      rowid: r.rowid,
-      id: r.id,
-      content_hash: r.content_hash,
-      active_model: r.active_model,
-      embedding_excluded: r.embedding_excluded,
-    };
-    if (list) list.push(row);
-    else byPath.set(r.path, [row]);
+  for (let after = { path: "", rowid: -1 }; ; ) {
+    const rows = page.all(vaultId, after.path, after.rowid, pageSize) as ChunkStateRow[];
+    for (const r of rows) addChunkStateRow(byPath, r);
+    const lastRow = rows[rows.length - 1];
+    if (!lastRow || rows.length < pageSize) return byPath;
+    after = lastRow;
+    await yieldToLoop();
   }
-  return byPath;
 }
 
 // The chunk-row query a single path's plan is computed against — factored out so THE-925's

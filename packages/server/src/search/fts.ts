@@ -80,14 +80,18 @@ export function ensureNotesFts(db: Database, opts: { now?: () => number } = {}):
     // That marks the note stale, so the next index pass re-reads it from disk and repopulates BOTH
     // tables via the existing backfill path — and the metadata survives in the meantime.
     //
-    // Runs unconditionally rather than behind a count check: equal counts do not imply equal SETS, and
-    // ensureNotesFts is memoized per connection, so this executes once.
-    db.exec(
-      "DELETE FROM notes_fts WHERE NOT EXISTS (SELECT 1 FROM notes n WHERE n.vault_id = notes_fts.vault_id AND n.path = notes_fts.path)",
-    );
-    db.exec(
-      "UPDATE notes SET content_hash = '' WHERE NOT EXISTS (SELECT 1 FROM notes_fts f WHERE f.vault_id = notes.vault_id AND f.path = notes.path)",
-    );
+    // GH #1209: read-only linear checks first, writes only on a divergence (a DELETE/UPDATE takes the
+    // write lock even at 0 rows, and a per-note `NOT EXISTS` over notes_fts was O(n^2) under it).
+    const orphanFts =
+      "NOT EXISTS (SELECT 1 FROM notes n WHERE n.vault_id = notes_fts.vault_id AND n.path = notes_fts.path)";
+    const staleNote =
+      "(vault_id, path) NOT IN (SELECT vault_id, path FROM notes_fts WHERE vault_id IS NOT NULL AND path IS NOT NULL)";
+    if (db.prepare(`SELECT 1 FROM notes_fts WHERE ${orphanFts} LIMIT 1`).get()) {
+      db.exec(`DELETE FROM notes_fts WHERE ${orphanFts}`);
+    }
+    if (db.prepare(`SELECT 1 FROM notes WHERE ${staleNote} LIMIT 1`).get()) {
+      db.exec(`UPDATE notes SET content_hash = '' WHERE ${staleNote}`);
+    }
     // THE-696 INTEGRITY GATE. Everything above establishes that notes_fts EXISTS and that its row
     // set agrees with `notes`. Neither says the inverted index is readable — the live store held a
     // malformed one that passed both and answered queries anyway.

@@ -7,11 +7,11 @@
 import { tableExists } from "../../db/introspect";
 import { inWriteTransaction } from "../../db/txn";
 import { errorMessage } from "../../util/errors";
-import { createSliceYielder } from "../../util/scan-steps";
+import { createSliceYielder, drainYielding } from "../../util/scan-steps";
 import { isFrontmatterYamlError, parseNote, splitFrontmatterBody } from "../../vault/frontmatter";
 import { type ExtractedLink, extractLinks, extractNoteLinks } from "../../vault/links";
 import { readNote } from "../../vault/notes-io";
-import { resolveVaultPath, walkVault, walkVaultStream } from "../../vault/paths";
+import { resolveVaultPath, walkVault, walkVaultSteps, walkVaultStream } from "../../vault/paths";
 import { ACL_PATH_UNRESOLVED } from "../../vault/stored-acl-path";
 import { noteTags } from "../../vault/tags";
 import { ensureChunkColbert } from "../chunk_colbert";
@@ -57,6 +57,7 @@ import {
   hasBodyShaColumn,
   hasDerivedEdgeColumns,
   preloadChunkState,
+  preloadChunkStateCooperative,
   readExistingChunkRows,
   readNoteTags,
 } from "./note-plan";
@@ -136,10 +137,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       if (!dedupRegistry.has(row.contentHash)) dedupRegistry.set(row.contentHash, row.path);
     }
   }
-  // THE-490: the default (non-streaming) path below is UNCHANGED from before this ticket — walked,
-  // walkedSet, statByPath and notes are all computed eagerly, exactly as before. The opt-in
-  // streaming path (args.walk?.streaming) is deferred to the loop further down, where it walks
-  // lazily via walkVaultStream instead, interleaved with per-note processing.
+  const yieldToLoop = createSliceYielder(args.signal); // boot reconcile only: lets SIGTERM/tools/call in
   const streamWalk = args.walk?.streaming === true;
   // Every walked path -> its ACL identity (walkIdentity: the symlink-resolved path, none for a hard
   // link). `args.isReadable` decides on the identity, never on the alias name the walk showed.
@@ -152,7 +150,10 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // never indexed. They stay in walkedSet (the file exists) and out of `notes`.
   const excludedWalked: string[] = [];
   if (!streamWalk) {
-    const walked = walkVault(args.root, { sub: args.sub, extensions: [".md"] });
+    const walkOpts = { sub: args.sub, extensions: [".md"] };
+    const walked = args.signal // signaled (boot reconcile): the same walk, across loop turns
+      ? await drainYielding(walkVaultSteps(args.root, walkOpts), undefined)
+      : walkVault(args.root, walkOpts);
     for (const e of walked) walkedSet.set(e.relPath, walkIdentity(e));
     statByPath = new Map(walked.map((e) => [e.relPath, { mtime: e.mtime, size: e.size }]));
     const indexable: string[] = [];
@@ -160,13 +161,12 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       (isIndexExcluded(e.relPath) ? excludedWalked : indexable).push(e.relPath);
     notes = indexable.filter(isReadableNote);
   }
-  // THE-501: one bulk load of the vault's chunk state (ids/hashes/active-model), so computeNotePlan
-  // plans every note from memory instead of a per-note query. Safe because each note owns its path's
-  // chunks exclusively, so a note's slice is unaffected by earlier notes' writes in this pass.
-  const preloadedExisting = preloadChunkState(args.db, args.vaultId);
-  // GH #995 follow-up: one bulk load of the vault's note_write_fence state (mirrors
-  // preloadedExisting exactly) so a full reconcile plans every note's fence baseline from memory
-  // instead of a per-note query.
+  // THE-501: one bulk load of the vault's chunk state, so computeNotePlan plans every note from
+  // memory, not a per-note query. Safe: each note owns its path's chunks exclusively in this pass.
+  const preloadedExisting = args.signal
+    ? await preloadChunkStateCooperative(args.db, args.vaultId, createSliceYielder(args.signal))
+    : preloadChunkState(args.db, args.vaultId);
+  // GH #995 follow-up: the same bulk load for note_write_fence state (every note's fence baseline).
   const preloadedFenceGenerations = preloadFenceGenerations(args.db, args.vaultId);
   const stats: IndexStats = {
     notes_seen: notes.length,
@@ -418,7 +418,6 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   };
   // THE-490: the per-note body, shared by the eager (default) and streaming (opt-in) walks so it
   // exists ONCE. `stat` is the note's {mtime,size} from whichever WalkEntry produced `rel`.
-  const yieldToLoop = createSliceYielder(args.signal); // boot reconcile only: lets SIGTERM/tools/call in
   const processNote = async (
     rel: string,
     stat: { mtime: number; size: number } | null,
