@@ -14,6 +14,8 @@
 // code as a side effect of diagnosing, which is exactly why `module` returns null here rather than
 // being probed. An unbuildable module is caught at boot by the loader's own five refusals.
 
+import { localEmbedderAbsentFromBinary } from "../embeddings/embedded-embedder";
+
 /** The subset of the embeddings config this preflight reads. */
 export interface RerankerPreflightEmbeddings {
   modelTier?: { full?: unknown };
@@ -71,7 +73,9 @@ export function rerankerBuildBlocker(
  *  @the-40-thieves/obsidian-tc-reranker-local package, via @huggingface/transformers) ships a
  *  native prebuilt binary for THIS process's platform/arch/libc — confirmed against onnxruntime-node
  *  4.x's published npm platform packages: linux x64 + arm64 (glibc only), darwin arm64, win32 x64 +
- *  arm64. musl libc (Alpine and similar) and darwin x64 (Intel Mac) ship NONE.
+ *  arm64. musl libc (Alpine and similar) ships NONE. darwin x64 (Intel Mac) ships NONE too, but the
+ *  Node route runs on onnxruntime-web's WASM backend there (see onnxNativePrebuildStatus), so it is
+ *  supported; a standalone binary built for that target carries no local embedder and is not.
  *
  *  Deliberately independent of whether `resolveLocalRerankerModule` actually resolved the JS
  *  package: that resolution only proves reranker-local's own small dist/index.js is importable — it
@@ -92,17 +96,30 @@ export function rerankerBuildBlocker(
  *  every contributor's machine is glibc, so a test asserting the musl/darwin-x64 CASE cannot rely on
  *  ambient `process.platform` and must be able to fake it. Production callers never pass these. */
 export function onnxNativePrebuildStatus(
-  opts: { platform?: NodeJS.Platform; arch?: string; isMuslRuntime?: () => boolean } = {},
-): { supported: boolean; note?: string } {
+  opts: {
+    platform?: NodeJS.Platform;
+    arch?: string;
+    isMuslRuntime?: () => boolean;
+    /** Whether this process is a standalone binary built without the local embedder. Production
+     *  callers never pass it: it reads the build-time flag in embeddings/embedded-embedder.ts. */
+    binary?: boolean;
+  } = {},
+): { supported: boolean; route?: string; note?: string } {
   const platform = opts.platform ?? process.platform;
   const arch = opts.arch ?? process.arch;
   if (platform === "darwin" && arch === "x64") {
+    if (opts.binary ?? localEmbedderAbsentFromBinary) {
+      return {
+        supported: false,
+        note: "no local embedder in this binary: this darwin-x64 (Intel Mac) build has no onnxruntime-node prebuilt binary, and the standalone binary cannot load one; use the npm install (its Node route runs on onnxruntime-web) or a hosted provider.",
+      };
+    }
     return {
-      supported: false,
+      supported: true,
+      route: "wasm fallback",
       note:
-        "this platform (darwin-x64 / Intel Mac) has NO onnxruntime-node prebuilt binary — the " +
-        '"local" reranker cannot run here regardless of whether the package resolves; it is not a ' +
-        "configuration gap.",
+        "darwin-x64 (Intel Mac) has no onnxruntime-node prebuilt binary, so the Node route runs the " +
+        "local models on onnxruntime-web (WASM backend, the wasm fallback).",
     };
   }
   const isMuslRuntime =

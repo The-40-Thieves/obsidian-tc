@@ -39,7 +39,7 @@ export interface EmbeddingsBuildableView {
 
 function platformDetails(view: EmbeddingsBuildableView): Record<string, string> {
   const platform = onnxNativePrebuildStatus(view.platformOverride);
-  return platform.supported
+  return platform.supported && !platform.route
     ? {}
     : {
         platform:

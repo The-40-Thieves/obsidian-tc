@@ -31,13 +31,14 @@ fits your environment.
 
 Measured, not assumed: CI installs each path on a clean Ubuntu, macOS and Windows machine,
 points it at a vault with no config file, and runs a real semantic search
-(`ci-first-run-smoke`). Every cell passes on Ubuntu, on Apple Silicon macOS and on Windows. The Intel
-macOS cells (`macos-15-intel`, `macos-26-intel`) do not pass yet: ONNX Runtime ships no darwin-x64
-build, so the bundled embedder cannot load there.
+(`ci-first-run-smoke`). Every cell passes on Ubuntu, on Apple Silicon macOS and on Windows. On Intel
+macOS (`macos-15-intel`, `macos-26-intel`) ONNX Runtime publishes no native build, so the npm install
+runs the local embedder and reranker on ONNX Runtime's WASM backend instead, with the same models. The mcpb bundle does not yet carry a darwin-x64 ONNX runtime, and the
+standalone binary has no local embedder on that platform; the first-run matrix asserts that state.
 
 | Method | Default semantic search (no config) | Dense index (`sqlite-vec`) | Native addon | Size |
 | --- | --- | --- | --- | --- |
-| **npm** | Yes. The embedder installs with the server as an optional dependency. | Yes | Yes (prebuilds); pure-JS fallback elsewhere | Large install: the embedder's runtime is ~0.6 GB of `node_modules` |
+| **npm** | Yes. The embedder installs with the server as an optional dependency. On Intel macOS it runs on the WASM backend. | Yes | Yes (prebuilds); pure-JS fallback elsewhere | Large install: the embedder's runtime is ~0.6 GB of `node_modules` |
 | **Standalone binary** | Yes on Linux x64 and arm64, macOS arm64 and Windows x64: the embedder and its ONNX runtime are inside the one file. **No on macOS x64** (the runtime has no build for it; configure a hosted provider). | Yes (embedded) | Pure-JS fallback | About 14 MB larger than a binary without the embedder |
 | **One-click `.mcpb`** | Yes on Linux x64 and arm64, macOS arm64 and Windows x64 | Yes | Pure-JS fallback (one universal bundle) | About 52 MB, up from about 2 MB; it carries the ONNX runtime for Linux x64 and arm64, macOS arm64 and Windows x64 |
 | **Docker** | Not part of the matrix; see [Docker](#docker) below. | | | |

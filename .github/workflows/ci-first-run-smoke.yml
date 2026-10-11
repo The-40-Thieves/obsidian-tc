@@ -198,6 +198,12 @@ jobs:
             mcpb) args+=(--artifact "$RUNNER_TEMP/mcpb/obsidian-tc.mcpb") ;;
             binary) args+=(--artifact "packages/server/dist/obsidian-tc-$FR_TARGET") ;;
           esac
+          # Documented state, asserted rather than skipped: the darwin-x64 standalone binary has no
+          # local embedder (no onnxruntime-node build for the target), so search_semantic must not
+          # answer dense. The npm and mcpb Intel cells run the Node route and keep full expectations.
+          if [ "$FR_PATH" = binary ] && [ "$FR_TARGET" = bun-darwin-x64 ]; then
+            args+=(--expect-no-local-embedder)
+          fi
           node "$RUNNER_TEMP/first-run-smoke.mjs" "${args[@]}" \
             --reconcile-timeout-ms 600000 \
             --model-cache "$RUNNER_TEMP/obtc-smoke-models" \

@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertVerified, fetchAndVerifyModel, modelDirFor } from "./model-fetch.js";
 import { MODEL_DTYPE, PINNED_FILES } from "./model-info.js";
+import { ensureOnnxBackend } from "./onnx-wasm-fallback.js";
 import { availableParallelism, ortSessionOptions } from "./ort-session-options.js";
 
 export interface RerankHit {
@@ -143,6 +144,9 @@ async function loadSession(localModelPath: string): Promise<Session> {
       // import even happens, rather than silently loaded. Cheap (a handful of small files plus one
       // ~23 MB sha256, no network) — see model-fetch.ts's assertVerified for the full contract.
       await assertVerified(modelDir);
+      // Intel macOS has no onnxruntime-node binding, so transformers' own import would throw: prime
+      // the WASM backend first (see onnx-wasm-fallback.ts). A no-op on every other platform.
+      await ensureOnnxBackend();
       // The dynamic import target is a VARIABLE, not a string literal — TypeScript only attempts to
       // resolve a literal specifier's module/type declarations for a dynamic import, so this line
       // typechecks whether or not @huggingface/transformers is installed. That is deliberate: this

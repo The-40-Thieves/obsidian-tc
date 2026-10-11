@@ -151,7 +151,7 @@ describe("reranker auto-select 'local' (THE-944)", () => {
         route: "source-checkout",
         attempts: [],
       }),
-      platformOverride: { platform: "darwin", arch: "x64" },
+      platformOverride: { platform: "darwin", arch: "x64", binary: true },
     }).run(ctx);
     expect(r.status).toBe("warning");
     expect(r.summary).toMatch(/resolved via source-checkout but auto-select is skipped/);
@@ -195,7 +195,7 @@ describe("reranker 'local' platform reporting (THE-944)", () => {
     const r = await rerankerBuildableCheck({
       rerankerProvider: "local",
       probeLocalReranker: async () => ({ ok: true, route: "localModulePath", attempts: [] }),
-      platformOverride: { platform: "darwin", arch: "x64" },
+      platformOverride: { platform: "darwin", arch: "x64", binary: true },
     }).run(ctx);
     expect(r.status).toBe("warning");
     expect(r.summary).toMatch(/resolved via localModulePath but cannot run on this platform/);
@@ -210,7 +210,7 @@ describe("reranker 'local' platform reporting (THE-944)", () => {
         ok: false,
         attempts: ["source-checkout: ... — not built"],
       }),
-      platformOverride: { platform: "darwin", arch: "x64" },
+      platformOverride: { platform: "darwin", arch: "x64", binary: true },
     }).run(ctx);
     expect(r.status).toBe("fail");
     expect(r.summary).toMatch(/unreachable on this platform/);
@@ -242,11 +242,54 @@ describe("reranker 'local' platform reporting (THE-944)", () => {
   it("darwin-x64 auto-select: the warning names the platform reason instead of the generic 'did not resolve' text", async () => {
     const r = await rerankerBuildableCheck({
       probeAutoSelectLocalReranker: async () => ({ ok: false, attempts: [] }),
-      platformOverride: { platform: "darwin", arch: "x64" },
+      platformOverride: { platform: "darwin", arch: "x64", binary: true },
     }).run(ctx);
     expect(r.status).toBe("warning");
     expect(r.summary).toMatch(/is moot on this platform/);
     expect(r.details?.platform).toMatch(/darwin-x64/);
+  });
+});
+
+// The Node route on Intel macOS: onnxruntime-node has no darwin-x64 binary, but the WASM fallback
+// (embedder-local/reranker-local onnx-wasm-fallback.ts) runs the models, so darwin-x64 is supported
+// and only a standalone binary (no local embedder, `binary: true`) reports the platform as unreachable.
+describe("reranker darwin-x64 Node route: the wasm fallback is a supported route", () => {
+  const darwin = { platform: "darwin", arch: "x64" } as const;
+
+  it("auto-select resolves with no platform caveat beyond naming the wasm fallback", async () => {
+    const r = await rerankerBuildableCheck({
+      probeAutoSelectLocalReranker: async () => ({
+        ok: true,
+        route: "source-checkout",
+        attempts: [],
+      }),
+      platformOverride: darwin,
+    }).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.summary).toMatch(/auto-selected "local" via source-checkout/);
+    expect(r.details?.platform).toMatch(/wasm fallback/);
+  });
+
+  it("a declared local block resolves ok, naming the wasm fallback", async () => {
+    const r = await rerankerBuildableCheck({
+      rerankerProvider: "local",
+      probeLocalReranker: async () => ({ ok: true, route: "localModulePath", attempts: [] }),
+      platformOverride: darwin,
+    }).run(ctx);
+    expect(r.status).toBe("ok");
+    expect(r.summary).toBe('reranker: "local" resolved via localModulePath');
+    expect(r.details?.platform).toMatch(/wasm fallback/);
+  });
+
+  it("unresolved is the ordinary fail with the generic remedy, not the platform-unreachable text", async () => {
+    const r = await rerankerBuildableCheck({
+      rerankerProvider: "local",
+      probeLocalReranker: async () => ({ ok: false, attempts: [] }),
+      platformOverride: darwin,
+    }).run(ctx);
+    expect(r.status).toBe("fail");
+    expect(r.summary).toMatch(/could not be resolved/);
+    expect(r.summary).not.toMatch(/unreachable/);
   });
 });
 

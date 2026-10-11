@@ -84,6 +84,21 @@ export const embeddedEmbedder = {
     ];
   } else {
     external.push(EMBEDDER_PACKAGE);
+    // The placeholder module records that this binary has no local embedder, so the server reports
+    // that state instead of a route that would only fail at first use (embedded-embedder.ts).
+    const absentPlaceholder = join(server, "src", "embeddings", "embedded-embedder.ts");
+    plugins = [
+      embedderBundlePlugin((build: Bun.PluginBuilder) => {
+        build.onLoad({ filter: /embeddings[\\/]embedded-embedder\.ts$/ }, ({ path }) => {
+          if (resolve(path) !== absentPlaceholder) return undefined;
+          return {
+            contents:
+              "export const embeddedEmbedder = undefined;\nexport const localEmbedderAbsentFromBinary = true;\n",
+            loader: "js",
+          };
+        });
+      }),
+    ];
     console.warn(
       `build-binary: onnxruntime-node ships no build for ${target}; the binary has no local embedder`,
     );

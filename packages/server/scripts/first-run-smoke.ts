@@ -74,6 +74,9 @@ const MCPB_CLI = "@anthropic-ai/mcpb@2.1.2";
 const pathKind = arg("--path");
 const artifact = arg("--artifact");
 const npmSpec = arg("--npm-spec") ?? "obsidian-tc@latest";
+// A binary built for a target with no onnxruntime-node build (darwin-x64) carries no local embedder.
+// That is the documented state, so the run asserts it: search_semantic must NOT answer dense.
+const expectNoLocalEmbedder = process.argv.includes("--expect-no-local-embedder");
 const reportFile = arg("--report");
 const modelCache = arg("--model-cache");
 const reconcileTimeoutMs = Number(arg("--reconcile-timeout-ms") ?? "300000");
@@ -405,7 +408,17 @@ async function exercise(launch: Launch): Promise<void> {
       "search_semantic",
     );
     const c = classifySemantic(res, SEMANTIC_TARGET);
-    rec("search_semantic", c.kind === "semantic" ? "pass" : "fail", `${c.kind}: ${c.detail}`);
+    if (expectNoLocalEmbedder) {
+      rec(
+        "search_semantic",
+        c.kind === "semantic" ? "fail" : "pass",
+        c.kind === "semantic"
+          ? "unexpected: dense retrieval answered in a binary built without a local embedder"
+          : `expected: no local embedder in this binary (${c.kind}: ${c.detail})`,
+      );
+    } else {
+      rec("search_semantic", c.kind === "semantic" ? "pass" : "fail", `${c.kind}: ${c.detail}`);
+    }
   } catch (e) {
     rec("search_semantic", "fail", `error: ${errText(e)}`);
   }

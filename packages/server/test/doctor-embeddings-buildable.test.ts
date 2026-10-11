@@ -46,7 +46,7 @@ describe("embeddings.buildable (THE-1122 review round 3: three-way status)", () 
     const r = await embeddingsBuildableCheck({
       denseProvider: "local",
       probeLocalEmbedder: unresolvedProbe(false),
-      platformOverride: { platform: "darwin", arch: "x64" },
+      platformOverride: { platform: "darwin", arch: "x64", binary: true },
     }).run(ctx);
     expect(r.status).toBe("warning");
     expect(r.summary).toMatch(/cannot run it anyway/);
@@ -56,10 +56,20 @@ describe("embeddings.buildable (THE-1122 review round 3: three-way status)", () 
     const r = await embeddingsBuildableCheck({
       denseProvider: "local",
       probeLocalEmbedder: unresolvedProbe(true),
-      platformOverride: { platform: "darwin", arch: "x64" },
+      platformOverride: { platform: "darwin", arch: "x64", binary: true },
     }).run(ctx);
     expect(r.status).toBe("warning");
     expect(r.summary).toMatch(/cannot run it anyway/);
+  });
+
+  it("on darwin-x64's Node route an unresolved local embedder is the ordinary fail, not a platform warning", async () => {
+    const r = await embeddingsBuildableCheck({
+      denseProvider: "local",
+      probeLocalEmbedder: unresolvedProbe(false),
+      platformOverride: { platform: "darwin", arch: "x64" },
+    }).run(ctx);
+    expect(r.status).toBe("fail");
+    expect(r.summary).not.toMatch(/cannot run it anyway/);
   });
 
   it("resolved successfully on a supported platform under --probe: ok (#1231: a plain run warns, see the -probe test file)", async () => {

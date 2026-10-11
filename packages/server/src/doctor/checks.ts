@@ -379,7 +379,9 @@ export interface RerankerBuildableView {
  *  on either verdict. */
 function platformDetails(view: RerankerBuildableView): Record<string, string> {
   const platform = onnxNativePrebuildStatus(view.platformOverride);
-  return platform.supported ? {} : { platform: platform.note ?? "unsupported platform" };
+  return platform.supported && !platform.route
+    ? {}
+    : { platform: platform.note ?? "unsupported platform" };
 }
 
 /**

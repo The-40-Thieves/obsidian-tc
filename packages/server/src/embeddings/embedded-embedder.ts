@@ -22,3 +22,8 @@ export interface EmbeddedEmbedderSpec {
 }
 
 export const embeddedEmbedder: EmbeddedEmbedderSpec | undefined = undefined;
+
+/** True only in a standalone binary built for a target with no onnxruntime-node build (darwin-x64):
+ *  scripts/build-binary.ts replaces this module with `true` for that target. Everywhere else it is
+ *  false, so the Node route (npm, mcpb) still reports the platform's WASM fallback as supported. */
+export const localEmbedderAbsentFromBinary: boolean = false;

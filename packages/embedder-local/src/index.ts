@@ -22,6 +22,7 @@ import {
   type EmbeddingModelInfo,
   modelInfoByName,
 } from "./model-info.js";
+import { ensureOnnxBackend } from "./onnx-wasm-fallback.js";
 import { availableParallelism, ortSessionOptions } from "./ort-session-options.js";
 
 export interface EmbedOptions {
@@ -153,6 +154,9 @@ async function loadSession(
       await assertVerified(modelDir, spec);
       // A LITERAL specifier, so a bundler can follow it: scripts/lib/embedder-bundle.mjs bundles this
       // package for the .mcpb and the standalone binaries, neither of which has a node_modules.
+      // Intel macOS has no onnxruntime-node binding, so transformers' own import would throw: prime
+      // the WASM backend first (see onnx-wasm-fallback.ts). A no-op on every other platform.
+      await ensureOnnxBackend();
       const { pipeline, env } = (await import("@huggingface/transformers")) as TransformersModule;
       env.allowRemoteModels = false;
       // `modelDir` is passed as `path_or_repo_id` directly, NOT env.localModelPath + a bare model

@@ -313,7 +313,28 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
 // real on-disk state entirely — the platform check must short-circuit BEFORE resolution is ever
 // attempted, so a stub that WOULD succeed proves the skip is real, not incidental.
 describe("wireGatewaySeams — THE-944 review round 2 (G3): boot skips auto-select on an unsupported platform", () => {
-  it("darwin-x64: reranker stays null and resolution is NEVER attempted, even though it would succeed", async () => {
+  it("darwin-x64 standalone binary: reranker stays null and resolution is NEVER attempted, even though it would succeed", async () => {
+    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    const resolveLocalReranker = vi.fn(async () => ({
+      ok: true as const,
+      mod: { createReranker: () => async () => [] },
+      attempts: [{ route: "bare-specifier" as const, target: "x", ok: true }],
+    }));
+    const { reranker } = await wireGatewaySeams(
+      ollamaEmbeddings(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      resolveLocalReranker,
+      { platform: "darwin", arch: "x64", binary: true },
+    );
+    expect(reranker).toBeNull();
+    expect(resolveLocalReranker).not.toHaveBeenCalled();
+  });
+
+  it("darwin-x64 Node route is supported: auto-select runs and wires the local reranker via the wasm fallback", async () => {
     delete process.env.OBSIDIAN_TC_GATEWAY_URL;
     const resolveLocalReranker = vi.fn(async () => ({
       ok: true as const,
@@ -330,8 +351,8 @@ describe("wireGatewaySeams — THE-944 review round 2 (G3): boot skips auto-sele
       resolveLocalReranker,
       { platform: "darwin", arch: "x64" },
     );
-    expect(reranker).toBeNull();
-    expect(resolveLocalReranker).not.toHaveBeenCalled();
+    expect(reranker).not.toBeNull();
+    expect(resolveLocalReranker).toHaveBeenCalledTimes(1);
   });
 
   it("musl linux: same skip, same never-attempted proof", async () => {
@@ -367,7 +388,7 @@ describe("wireGatewaySeams — THE-944 review round 2 (G3): boot skips auto-sele
         undefined,
         undefined,
         undefined,
-        { platform: "darwin", arch: "x64" },
+        { platform: "darwin", arch: "x64", binary: true },
       );
       expect(consoleSpy).toHaveBeenCalledTimes(1);
       const logged = String(consoleSpy.mock.calls[0]?.[0]);
