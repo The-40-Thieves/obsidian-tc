@@ -15,6 +15,7 @@
 // row, and every existing enqueue call site) is invisible by construction rather than by a filter
 // someone has to remember to write.
 import type { Job, JobQueue } from "../scheduler/job-queue";
+import type { CallerSnapshot } from "./task-caller-context";
 
 /**
  * The extension's status vocabulary.
@@ -44,7 +45,7 @@ export interface McpTask {
   /** `CompletedTask.result` — the CallToolResult the synchronous call would have returned. */
   result?: Record<string, unknown>;
   /** `FailedTask.error` — the JSON-RPC error that ended the task. */
-  error?: { code: number; message: string };
+  error?: { code: number; message: string; data?: Record<string, unknown> };
 }
 
 /** How often a client should poll a still-working task. Matches the queue's own lease cadence. */
@@ -59,9 +60,12 @@ const POLL_INTERVAL_MS = 2_000;
  *     outcome to poll on — it is the queue doing its job — and exposing it would leak the retry
  *     policy into a client contract we would then have to keep.
  *   * CANCELLED is not a queue state. The queue records cancellation as a REQUEST flag that the
- *     runner honours at its next checkpoint, so a cancelled task is one that reached a terminal
- *     state with the flag set. Reporting `cancelled` while the job is still running would tell the
- *     client the work has stopped when it has not.
+ *     runner honours at its next checkpoint, so a cancelled task is one whose run ENDED IN FAILURE
+ *     with the flag set (the abort the cancel caused). Reporting `cancelled` while the job is still
+ *     running would tell the client the work has stopped when it has not, and reporting it for a
+ *     job that COMPLETED would hide a real result behind a request that arrived too late to matter:
+ *     cancellation is cooperative and eventually consistent, so it may lose the race, and a terminal
+ *     status never changes afterwards.
  *   * `input_required` is unreachable today: nothing in the queue can ask its caller a question
  *     mid-run. It is in the type because it is in the spec, and a projection that silently mapped
  *     it onto something else would be worse than one that cannot produce it.
@@ -69,10 +73,10 @@ const POLL_INTERVAL_MS = 2_000;
 export function toMcpTask(job: Job): McpTask {
   const terminal = job.state === "complete" || job.state === "failed";
   const status: McpTaskStatus = terminal
-    ? job.cancelRequested
-      ? "cancelled"
-      : job.state === "complete"
-        ? "completed"
+    ? job.state === "complete"
+      ? "completed"
+      : job.cancelRequested
+        ? "cancelled"
         : "failed"
     : "working";
   return {
@@ -234,15 +238,28 @@ export async function serveTaskExtension(
  * (threading the jti through CallerContext, the payload and the runner is a wider change than the
  * finding warranted); auth-model.md documents it.
  */
-export interface TaskCallPayload {
+export interface TaskCallPayload extends CallerSnapshot {
+  /** Payload schema version (`TASK_CALL_PAYLOAD_VERSION`). The runner refuses any other. */
+  v: number;
   tool: string;
   args: Record<string, unknown>;
-  caller: string | null;
-  /** Exactly the scopes the caller held at enqueue. Serialized because the runner has no request. */
-  scopes: string[];
-  vaultId: string;
-  vaultBound: boolean;
+  /** The caller half (scopes, vault binding, persona mask, ...) is `CallerSnapshot`: which
+   *  CallerContext keys cross the enqueue is decided in mcp/task-caller-context.ts, not here. */
+  /** The originating request carried a `progressToken`: the runner then gives the tool a
+   *  `ctx.progress` hook. Absent/false means nobody is listening, so there is no hook at all. */
+  progress?: boolean;
 }
+
+/**
+ * The shape version of a task-call payload, stamped on every payload the offload writes.
+ *
+ * Version 2 is the first that carries the caller's whole policy snapshot (`authenticated`, the
+ * persona's `toolVisibility`, ...). A payload with no version, or an older one, was queued by a
+ * server that did not snapshot it, and the runner REFUSES it rather than guess: defaulting a
+ * missing policy field is how a persona-masked call ran unrestricted after an upgrade. Bump this
+ * when a field joins the snapshot that a worker must not run without.
+ */
+export const TASK_CALL_PAYLOAD_VERSION = 2;
 
 /** The job type a task-augmented tool call is enqueued as. */
 export const TASK_CALL_JOB_TYPE = "mcp_tool_call";

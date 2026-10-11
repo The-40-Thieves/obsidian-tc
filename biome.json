@@ -19,6 +19,7 @@
       "!**/eval/perf/.node-parity.mjs*",
       "!**/packages/server/perf-node-parity.json",
       "!**/.dependency-cruiser-known-violations.json",
+      "!**/test/fixtures/mcp-registry-server.schema.json",
       "!**/packages/server/src/db/migrations-embedded.ts"
     ]
   },

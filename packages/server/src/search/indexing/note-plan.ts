@@ -88,7 +88,7 @@ function addChunkStateRow(byPath: Map<string, ExistingRow[]>, r: ChunkStateRow):
   else byPath.set(r.path, [row]);
 }
 
-export const CHUNK_STATE_PAGE = 4096;
+export const CHUNK_STATE_PAGE = 1024;
 
 // preloadChunkState in keyset pages (idx_chunks_vault_path order, no sort), yielding between them.
 export async function preloadChunkStateCooperative(

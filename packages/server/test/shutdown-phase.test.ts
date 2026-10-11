@@ -148,3 +148,40 @@ describe("raceShutdownPhase / raceShutdownPhaseOrExit — F3", () => {
     expect(exitCode).toBe(1);
   });
 });
+
+describe("raceShutdownPhase waits for immediate task runs", () => {
+  it("does not return 'done' until the task runs have drained, and hands them the deadline signal", async () => {
+    const events: string[] = [];
+    let seen: AbortSignal | undefined;
+    const outcome = raceShutdownPhase({
+      scheduler: { stop: async () => {} },
+      indexCoordinator: { idle: async () => {} },
+      jobRunner: { drainOnce: async () => {} },
+      taskRuns: {
+        drain: async (signal) => {
+          seen = signal;
+          await new Promise((r) => setTimeout(r, 40));
+          events.push("tasks drained");
+        },
+      },
+      drainMs: 1000,
+    } as Parameters<typeof raceShutdownPhase>[0]).then((o) => {
+      events.push(`race ${o}`);
+      return o;
+    });
+    expect(await outcome).toBe("done");
+    expect(events).toEqual(["tasks drained", "race done"]);
+    expect(seen).toBeInstanceOf(AbortSignal);
+  });
+
+  it("times out, and does not release anything, when a task run outlives the deadline", async () => {
+    const outcome = await raceShutdownPhase({
+      scheduler: { stop: async () => {} },
+      indexCoordinator: { idle: async () => {} },
+      jobRunner: { drainOnce: async () => {} },
+      taskRuns: { drain: () => new Promise<void>(() => {}) },
+      drainMs: 20,
+    } as Parameters<typeof raceShutdownPhase>[0]);
+    expect(outcome).toBe("timeout");
+  });
+});

@@ -47,53 +47,68 @@ describe("indexVault walk phase with an abort signal", { timeout: 60_000 }, () =
     n: number,
     signal: AbortSignal | undefined,
     warm: boolean,
-  ): Promise<{ ticksAtWalkEnd: number; stats: unknown; chunkState: unknown }> => {
+  ): Promise<{ stats: unknown; chunkState: unknown }> => {
     const v = makeM2Vault({ files: fixtureFiles(n) });
     try {
       const provider = fakeEmbeddingProvider({ dimensions: 8 });
-      let ticksAtWalkEnd = -1;
-      const turns = countTurns();
-      try {
-        const base = {
-          db: v.db,
-          provider,
-          vaultId: v.id,
-          root: v.root,
-          representation: buildRepresentationManifest(provider, {}),
-        };
-        if (warm) await indexVault({ ...base, isReadable: () => true });
-        const before = turns.count();
-        const stats = await indexVault({
-          ...base,
-          // The first readability check happens right after the walk, before anything is read.
-          isReadable: () => {
-            if (ticksAtWalkEnd < 0) ticksAtWalkEnd = turns.count() - before;
-            return true;
-          },
-          ...(signal ? { signal } : {}),
-        });
-        const { run_ms: _drop, ...rest } = stats as unknown as Record<string, unknown>;
-        return {
-          ticksAtWalkEnd,
-          stats: rest,
-          chunkState: [...preloadChunkState(v.db, v.id)].sort(([a], [b]) => a.localeCompare(b)),
-        };
-      } finally {
-        turns.stop();
-      }
+      const base = {
+        db: v.db,
+        provider,
+        vaultId: v.id,
+        root: v.root,
+        isReadable: () => true,
+        representation: buildRepresentationManifest(provider, {}),
+      };
+      if (warm) await indexVault(base);
+      const stats = await indexVault({ ...base, ...(signal ? { signal } : {}) });
+      const { run_ms: _drop, ...rest } = stats as unknown as Record<string, unknown>;
+      return {
+        stats: rest,
+        chunkState: [...preloadChunkState(v.db, v.id)].sort(([a], [b]) => a.localeCompare(b)),
+      };
     } finally {
       v.cleanup();
     }
   };
 
+  // Loop turns taken between the start of indexVault and its first readability check (= the end of
+  // the walk). Throwing there ends the pass, so a big fixture costs only the walk. The walk hands
+  // the loop back per 5 ms of work, so the fixture must take longer than that to walk.
+  const ticksDuringWalk = async (n: number, signal: AbortSignal | undefined): Promise<number> => {
+    const v = makeM2Vault({ files: fixtureFiles(n) });
+    const turns = countTurns();
+    try {
+      const provider = fakeEmbeddingProvider({ dimensions: 8 });
+      let ticks = -1;
+      const stop = new Error("walk finished");
+      await indexVault({
+        db: v.db,
+        provider,
+        vaultId: v.id,
+        root: v.root,
+        representation: buildRepresentationManifest(provider, {}),
+        isReadable: () => {
+          ticks = turns.count();
+          throw stop;
+        },
+        ...(signal ? { signal } : {}),
+      }).then(
+        () => expect.unreachable("the pass should have stopped at the first readability check"),
+        (e: unknown) => expect(e).toBe(stop),
+      );
+      return ticks;
+    } finally {
+      turns.stop();
+      v.cleanup();
+    }
+  };
+
   it("runs event-loop turns while the vault is being walked", async () => {
-    const r = await run(300, new AbortController().signal, false);
-    expect(r.ticksAtWalkEnd).toBeGreaterThan(0);
+    expect(await ticksDuringWalk(4000, new AbortController().signal)).toBeGreaterThan(0);
   });
 
   it("keeps the walk synchronous without a signal", async () => {
-    const r = await run(300, undefined, false);
-    expect(r.ticksAtWalkEnd).toBe(0);
+    expect(await ticksDuringWalk(4000, undefined)).toBe(0);
   });
 
   it("sees the same notes, chunks and stats with and without a signal", async () => {

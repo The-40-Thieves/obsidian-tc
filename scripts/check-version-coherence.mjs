@@ -9,6 +9,7 @@ import {
   bunLockWorkspaceVersionProblems,
   WORKSPACE_PACKAGE_JSON,
 } from "./lib/bun-lock-workspace-versions.mjs";
+import { pluginManifestVersionSources } from "./lib/plugin-manifest-versions.mjs";
 
 // Every path below is a hardcoded repo-relative metadata file; this guard keeps
 // the reads provably contained to the repo root (defense in depth for tooling).
@@ -68,6 +69,10 @@ if (Array.isArray(server.packages)) {
   });
 }
 add("mcpb/manifest.json", readJson("mcpb/manifest.json").version);
+// The Claude Code and Muse Code plugin manifests ride the same lockstep as the MCPB manifest. The
+// marketplace entry carries no version (a second copy would drift; the plugin manifest wins anyway),
+// which scripts/plugin-manifests.test.mjs asserts.
+for (const s of pluginManifestVersionSources(readJson)) add(s.label, s.version);
 
 const width = Math.max(...sources.map((s) => s.label.length));
 for (const s of sources) console.log(`${s.label.padEnd(width)}  ${s.version ?? "(missing)"}`);

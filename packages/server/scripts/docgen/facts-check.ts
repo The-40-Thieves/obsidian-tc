@@ -129,6 +129,71 @@ export function scanFacts(text: string, rules: FactRule[], stats?: ScanStats): F
   return violations;
 }
 
+/** The two SDK packages' resolved versions, as locked in bun.lock. */
+export interface SdkVersions {
+  sdk: string;
+  server: string;
+}
+
+/**
+ * Read the resolved `@modelcontextprotocol/sdk` and `/server` versions out of bun.lock text. The
+ * lockfile, not package.json, is the authority: package.json holds a range for the dev SDK
+ * ("^1.32.1"), and what a doc should cite is what the repo actually resolves. Throws when either
+ * is absent, because a pin that reads nothing would let every doc through.
+ */
+export function lockedSdkVersions(lockText: string): SdkVersions {
+  const pick = (pkg: "sdk" | "server"): string => {
+    const m = new RegExp(`"@modelcontextprotocol/${pkg}@(\\d+\\.\\d+\\.\\d+[^"]*)"`).exec(lockText);
+    if (!m?.[1]) throw new Error(`bun.lock resolves no @modelcontextprotocol/${pkg}@<version>`);
+    return m[1];
+  };
+  return { sdk: pick("sdk"), server: pick("server") };
+}
+
+export interface SdkVersionViolation {
+  line: number;
+  pkg: "sdk" | "server";
+  found: string;
+  expected: string;
+  snippet: string;
+}
+
+/** A package mention followed, on the same line, by the first x.y.z within a short gap. `server-`,
+ *  `server/` and `sdk-` (other packages) are excluded by the lookahead. */
+const SDK_MENTION = /@modelcontextprotocol\/(sdk|server)(?![\w/-])[^\n]{0,60}?(\d+\.\d+\.\d+)/g;
+
+/**
+ * Pure scan: every prose mention of an SDK package with a version that is not the locked one.
+ * `stats.patternMatches` counts mentions, right or wrong, for the same existence floor the other
+ * rules use. A line marked `facts-check:ignore` (a dated, historical citation) is skipped.
+ */
+export function scanSdkVersions(
+  text: string,
+  locked: SdkVersions,
+  stats?: ScanStats,
+): SdkVersionViolation[] {
+  if (text.includes(IGNORE_FILE)) return [];
+  const out: SdkVersionViolation[] = [];
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    if (line.includes(IGNORE_LINE)) continue;
+    for (const m of line.matchAll(SDK_MENTION)) {
+      const pkg = m[1] as "sdk" | "server";
+      if (stats) stats.patternMatches += 1;
+      if (m[2] === locked[pkg]) continue;
+      out.push({
+        line: i + 1,
+        pkg,
+        found: m[2] ?? "",
+        expected: locked[pkg],
+        snippet: (m[0] ?? "").trim(),
+      });
+    }
+  }
+  return out;
+}
+
 // A number embedded in a token (THE-135, G2.1, r2, V1, M4, a hyphenated range) is NOT a fact —
 // this negative lookbehind requires the captured number to be a standalone word, which kills the
 // whole class of false positive the dry run surfaced ("G2.1 tool surface" → "1", "THE-135 query"
@@ -289,7 +354,7 @@ export function narrativeFiles(repoRoot: string): string[] {
  * while still catching a broken walk or an unreadable tree. The CANARIES above are what prove the
  * forbidden rule itself still fires.
  */
-const FLOOR = { files: 20, lines: 500, patternMatches: 3 } as const;
+const FLOOR = { files: 20, lines: 500, patternMatches: 3, sdkMentions: 2 } as const;
 
 /**
  * Canary for the forbidden tool-count rule. In a clean tree that rule matches NOTHING (that is the
@@ -321,6 +386,15 @@ function main(): void {
   const rules = currentFactRules();
   const all: Array<{ file: string; v: FactViolation }> = [];
   const stats: ScanStats = { linesScanned: 0, patternMatches: 0 };
+  const sdkStats: ScanStats = { linesScanned: 0, patternMatches: 0 };
+  const sdkViolations: Array<{ file: string; v: SdkVersionViolation }> = [];
+  let locked: SdkVersions | undefined;
+  let lockProblem: string | undefined;
+  try {
+    locked = lockedSdkVersions(readFileSync(`${repoRoot}/bun.lock`, "utf8"));
+  } catch (e) {
+    lockProblem = e instanceof Error ? e.message : String(e);
+  }
   let filesRead = 0;
 
   for (const rel of narrativeFiles(repoRoot)) {
@@ -334,6 +408,9 @@ function main(): void {
     // cannot then be opened is the same failure wearing a different hat.
     filesRead += 1;
     for (const v of scanFacts(text, rules, stats)) all.push({ file: rel, v });
+    // The gitignored decisions index mirrors CHANGELOG.md's dated bumps, which are history.
+    if (locked && !rel.endsWith("contributing/decisions-index.md"))
+      for (const v of scanSdkVersions(text, locked, sdkStats)) sdkViolations.push({ file: rel, v });
   }
 
   const counts = rules.map((r) => `${r.name}=${r.value ?? "forbidden"}`).join(", ");
@@ -341,7 +418,18 @@ function main(): void {
   const toolRule = rules.find((r) => r.name === "toolCount");
   const deadCanaries = CANARIES.filter((c) => !toolRule || scanFacts(c, [toolRule]).length === 0);
 
+  // Same existence floor for the SDK-version pin: a lockfile that read, a pattern that still
+  // matches real prose, and a planted stale citation that must be flagged.
+  const sdkCanaryDead =
+    locked !== undefined &&
+    scanSdkVersions("`@modelcontextprotocol/sdk` **0.0.0**", locked).length !== 1;
+
   const shortfalls = [
+    lockProblem !== undefined && `SDK pin unreadable: ${lockProblem}`,
+    sdkCanaryDead && "the SDK-version rule no longer flags a planted stale citation",
+    locked !== undefined &&
+      sdkStats.patternMatches < FLOOR.sdkMentions &&
+      `matched ${sdkStats.patternMatches} SDK version mentions (floor ${FLOOR.sdkMentions})`,
     deadCanaries.length > 0 &&
       `the tool-count rule no longer flags ${deadCanaries.length} canary phrase(s): ${deadCanaries.join(" | ")}`,
     filesRead < FLOOR.files && `read ${filesRead} narrative files (floor ${FLOOR.files})`,
@@ -362,14 +450,20 @@ function main(): void {
     process.exit(1);
   }
 
-  if (all.length === 0) {
+  if (all.length === 0 && sdkViolations.length === 0) {
     process.stderr.write(
-      `docgen:facts-check OK — no narrative drift (${counts}); ` +
+      `docgen:facts-check OK — no narrative drift (${counts}, sdk=${locked?.sdk}, server=${locked?.server}); ` +
         `${filesRead} files, ${stats.linesScanned} lines, ${stats.patternMatches} pattern matches\n`,
     );
     return;
   }
   process.stderr.write(`\nFAIL: narrative fact drift (THE-566), current facts: ${counts}\n`);
+  for (const { file, v } of sdkViolations) {
+    process.stderr.write(
+      `  ${file}:${v.line}  sdk-version — found ${v.found} in "${v.snippet}", bun.lock resolves @modelcontextprotocol/${v.pkg}@${v.expected} ` +
+        `(update the prose, or mark a dated historical citation <!-- ${IGNORE_LINE} -->)\n`,
+    );
+  }
   for (const { file, v } of all) {
     process.stderr.write(
       `  ${file}:${v.line}  ${v.fact} — found ${v.found} in "${v.snippet}", ` +

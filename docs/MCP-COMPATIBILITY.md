@@ -35,8 +35,8 @@ outage." Losing the modern era is separately guarded because the opt-in that ser
 regress silently (moving it to the wrong object leaves every *existing* test green).
 
 The SDK that makes the modern-era assertions below possible is
-**`@modelcontextprotocol/server`**, pinned to its non-beta `"2.0.0"` release
-(`packages/server/package.json`). It is the only one of the v2 packages this repo imports — 13
+**`@modelcontextprotocol/server`**, pinned to **2.3.1** (`packages/server/package.json`; the
+`docgen:facts-check` gate compares this number with `bun.lock`, so it cannot drift). It is the only one of the v2 packages this repo imports — 13
 import sites across 12 files.
 
 This paragraph used to name `@modelcontextprotocol/node` alongside it as jointly load-bearing. That
@@ -127,8 +127,9 @@ This server attaches the structured error object as `structuredContent` alongsid
 (the SEP-1303 row above). That is deliberate, documented, and asserted by
 `tool-surface-2025.test.ts`. **A strict client may nonetheless replace our error with its own.**
 
-The TypeScript SDK this server depends on — `@modelcontextprotocol/sdk` **1.29.0**, the version
-resolved in this repo — implements the `isError` exemption on only one of the two paths in
+The TypeScript SDK client this repo's tests use — `@modelcontextprotocol/sdk` **1.32.1**, the
+version `bun.lock` resolves (a dev dependency; `docgen:facts-check` pins this number) — is
+believed to implement the `isError` exemption on only one of the two paths in
 `dist/esm/client/index.js`:
 
 ```js
@@ -162,8 +163,9 @@ Trading a real capability for a workaround to someone else's half-applied exempt
 of the two. Recorded here so that a downstream caller who sees `-32602` where they expected a
 typed error can identify it in one read.
 
-Scope, in this page's usual terms: verified by reading the 1.29.0 files vendored into this repo's
-own `node_modules`, and by reading the upstream PR. **Not** verified against a live client, and
+Scope, in this page's usual terms: verified on 2026-08-14 by reading the files of the SDK version
+`bun.lock` resolved then (1.29.0; the excerpt above is from it), and by reading the upstream PR.
+**Not re-read** against the currently locked version, so "believed to" above is deliberate. **Not** verified against a live client, and
 **not** confirmed either way for the 2.x SDK line — that checkout has a different layout and the
 check was inconclusive, which is reported rather than guessed.
 

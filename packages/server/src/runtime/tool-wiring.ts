@@ -1,6 +1,6 @@
-// run_serve's M1-M8 tool-dependency composition + registration, plus `health` and `index_status`,
+// run_serve's M1-M8 tool-dependency composition + registration, plus `health` and `index_status` (`get_task_status` registers beside the job runner, plane-wiring.ts),
 // which register inline from live runtime state rather than from a module registrar (that's why
-// `boot.tools_registered` in eval/perf/collectors/boot.ts is pinned 2 lower than
+// `boot.tools_registered` in eval/perf/collectors/boot.ts is pinned 3 lower than
 // REGISTERED_TOOL_COUNT — that collector imports tools/m1..m8's registrars directly).
 //
 // Composition order is load-bearing: `wireM1Tools` runs BEFORE bridge-wiring.ts (M1 has no bridge
@@ -17,6 +17,7 @@ import type { CapabilityCache } from "../bridge";
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
+import type { EmbedderWarmupStatus } from "../embeddings/warmup";
 import type { RetrievalLogger } from "../experiential/log";
 import { MEMORY_DEFENSE_OFF } from "../experiential/memory-defense";
 import { createGatewayClient, type GatewayClient } from "../gateway";
@@ -104,6 +105,7 @@ export interface HealthToolsDeps {
   /** GH #995: read live at call time — role can flip mid-process-lifetime on promotion. Absent ->
    *  server_health omits `leader_role` entirely (single-process harnesses/tests). */
   getLeaderRole?: () => "leader" | "follower";
+  getEmbedderWarmup?: () => EmbedderWarmupStatus;
   /** F4 (fix round 2): election.getLastFollowerError() — see health.ts's own doc. */
   getLeaderRoleDetail?: () =>
     | { message: string; code?: string; count: number; lastAt: string }
@@ -118,6 +120,13 @@ export interface HealthToolsDeps {
  * reader over the same index-health state (THE-491).
  */
 export function wireHealthTools(deps: HealthToolsDeps): void {
+  const indexSnapshot = () => ({
+    reconcile: deps.indexHealth.reconcile,
+    reconcile_at: deps.indexHealth.reconcileAt,
+    write_failures: deps.indexHealth.writeFailures,
+    frontmatter_failures: deps.indexHealth.frontmatterFailures.size,
+    notes_ready: deps.indexHealth.notesReady,
+  });
   deps.registry.register(
     createHealthTool({
       version: deps.version,
@@ -131,11 +140,7 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
       ftsEnabled: deps.hasFts,
       aclFor: (id) => deps.registry.aclFor(id),
       getIndexHealth: (authenticated) => ({
-        reconcile: deps.indexHealth.reconcile,
-        reconcile_at: deps.indexHealth.reconcileAt,
-        write_failures: deps.indexHealth.writeFailures,
-        frontmatter_failures: deps.indexHealth.frontmatterFailures.size,
-        notes_ready: deps.indexHealth.notesReady,
+        ...indexSnapshot(),
         ...(authenticated
           ? {
               detail: {
@@ -169,6 +174,7 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
           }
         : {}),
       ...(deps.deprecations ? { deprecations: deps.deprecations } : {}),
+      ...(deps.getEmbedderWarmup ? { getEmbedderWarmup: deps.getEmbedderWarmup } : {}),
       ...(deps.getLeaderRole ? { getLeaderRole: deps.getLeaderRole } : {}),
       ...(deps.getLeaderRoleDetail ? { getLeaderRoleDetail: deps.getLeaderRoleDetail } : {}),
     }),
@@ -177,13 +183,7 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
     createIndexStatusTool({
       vecEnabled: deps.hasVec,
       ftsEnabled: deps.hasFts,
-      getIndexHealth: () => ({
-        reconcile: deps.indexHealth.reconcile,
-        reconcile_at: deps.indexHealth.reconcileAt,
-        write_failures: deps.indexHealth.writeFailures,
-        frontmatter_failures: deps.indexHealth.frontmatterFailures.size,
-        notes_ready: deps.indexHealth.notesReady,
-      }),
+      getIndexHealth: indexSnapshot,
       getLastChunksUpserted: () => deps.indexHealth.lastChunksUpserted,
       getInFlightProgress: () => deps.indexHealth.inFlight,
       // Per-vault read ACLs decide who may see the shared index's folder-walk counters.

@@ -7,10 +7,11 @@
 import { tableExists } from "../../db/introspect";
 import { inWriteTransaction } from "../../db/txn";
 import { errorMessage } from "../../util/errors";
+import { drainYielding } from "../../util/scan-steps";
 import { isFrontmatterYamlError, parseNote, splitFrontmatterBody } from "../../vault/frontmatter";
 import { type ExtractedLink, extractLinks, extractNoteLinks } from "../../vault/links";
 import { readNote } from "../../vault/notes-io";
-import { resolveVaultPath, walkVault, walkVaultStream } from "../../vault/paths";
+import { resolveVaultPath, walkVault, walkVaultSteps, walkVaultStream } from "../../vault/paths";
 import { ACL_PATH_UNRESOLVED } from "../../vault/stored-acl-path";
 import { noteTags } from "../../vault/tags";
 import { ensureChunkColbert } from "../chunk_colbert";
@@ -50,7 +51,7 @@ import {
   embedPlans,
 } from "./embed-batches";
 import { readLeaderEpoch } from "./leader-epoch";
-import { createLoopYielder, walkVaultCooperative } from "./loop-yield";
+import { createLoopYielder } from "./loop-yield";
 import {
   computeNotePlan,
   existingRowsMatch,
@@ -151,8 +152,8 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const excludedWalked: string[] = [];
   if (!streamWalk) {
     const walkOpts = { sub: args.sub, extensions: [".md"] };
-    const walked = args.signal // signaled (boot reconcile): walk across loop turns, same entries
-      ? await walkVaultCooperative(args.root, walkOpts, yieldToLoop)
+    const walked = args.signal // signaled (boot reconcile): the same walk, across loop turns
+      ? await drainYielding(walkVaultSteps(args.root, walkOpts), undefined)
       : walkVault(args.root, walkOpts);
     for (const e of walked) walkedSet.set(e.relPath, walkIdentity(e));
     statByPath = new Map(walked.map((e) => [e.relPath, { mtime: e.mtime, size: e.size }]));
