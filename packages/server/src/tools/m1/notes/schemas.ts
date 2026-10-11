@@ -345,14 +345,27 @@ export const PatchAnchor = z.discriminatedUnion("type", [
 export const PatchInputShape = {
   vault: VaultId,
   path: VaultPath,
-  operation: z.enum(["append", "prepend", "replace", "replace_text"]),
+  operation: z
+    .enum(["append", "prepend", "replace", "replace_text"])
+    .describe(
+      "Which edit to make. append, prepend and replace take content; replace_text takes old_string and new_string. Each field's description says which operations require or refuse it.",
+    ),
   // Legacy shorthand, equivalent to anchor:{type:"heading",heading}. Retained for back-compat.
-  target_heading: z.string().min(1).optional(),
+  target_heading: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      'Legacy shorthand for anchor:{type:"heading",heading}. Every operation needs anchor or target_heading; one of the two is required.',
+    ),
   anchor: PatchAnchor.optional().describe(
-    'Where to act: {type:"heading",heading:"Notes"[,occurrence:2]}, {type:"block",block_id:"abc"} or {type:"frontmatter"} (the preamble above the first heading). Required unless target_heading is given.',
+    'Where to act: {type:"heading",heading:"Notes"[,occurrence:2]}, {type:"block",block_id:"abc"} or {type:"frontmatter"} (the preamble above the first heading). Every operation needs anchor or target_heading.',
   ),
-  // Required unless operation is replace_text (see the superRefine below).
-  content: z.string().optional(),
+  // Required for append/prepend/replace, refused for replace_text (see refinePatchInput).
+  content: z
+    .string()
+    .optional()
+    .describe("Required for append, prepend and replace; refused for replace_text."),
   // THE-1038 / GH #928: replace_text's exact-string substitution, scoped to the resolved
   // anchor's section. Required (both fields) iff operation is replace_text.
   old_string: z
@@ -360,12 +373,14 @@ export const PatchInputShape = {
     .min(1)
     .optional()
     .describe(
-      "replace_text only: the exact text to find inside the anchor's section; it must occur exactly once. To move or reorder sections, anchor on an enclosing heading and put the whole span here.",
+      "Required for replace_text, refused for append, prepend and replace: the exact text to find inside the anchor's section; it must occur exactly once. To move or reorder sections, anchor on an enclosing heading and put the whole span here.",
     ),
   new_string: z
     .string()
     .optional()
-    .describe("replace_text only: the text that takes its place (may be empty to delete)."),
+    .describe(
+      "Required for replace_text, refused for append, prepend and replace: the text that takes old_string's place (may be empty to delete).",
+    ),
   prev_hash: z.string().optional(),
   // THE-603: required (set true) only when operation:"replace" on a heading anchor would discard
   // more than 20 lines AND over half of the note's body — e.g. replacing a note's only H1, which
@@ -389,21 +404,20 @@ export function refinePatchInput(
   if (i.anchor === undefined && i.target_heading === undefined)
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      message:
-        'either anchor or target_heading is required, e.g. anchor:{type:"heading",heading:"Notes"}, anchor:{type:"block",block_id:"abc"}, anchor:{type:"frontmatter"} (the preamble above the first heading) or target_heading:"Notes". To add content at the end of the note use append_note, which needs no anchor',
+      message: `operation "${i.operation}" requires anchor or target_heading, e.g. anchor:{type:"heading",heading:"Notes"}, anchor:{type:"block",block_id:"abc"}, anchor:{type:"frontmatter"} (the preamble above the first heading) or target_heading:"Notes". To add content at the end of the note use append_note, which needs no anchor`,
     });
   if (i.operation === "replace_text") {
     if (i.old_string === undefined)
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["old_string"],
-        message: "old_string is required when operation is replace_text",
+        message: 'operation "replace_text" requires old_string',
       });
     if (i.new_string === undefined)
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["new_string"],
-        message: "new_string is required when operation is replace_text",
+        message: 'operation "replace_text" requires new_string',
       });
     // Review round 1 M6: enforce the REVERSE direction of "iff" too — content belongs to
     // append/prepend/replace only.
@@ -411,27 +425,26 @@ export function refinePatchInput(
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["content"],
-        message:
-          "content must not be set when operation is replace_text; use old_string/new_string",
+        message: 'operation "replace_text" forbids content; use old_string/new_string',
       });
   } else {
     if (i.content === undefined)
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["content"],
-        message: "content is required unless operation is replace_text",
+        message: `operation "${i.operation}" requires content`,
       });
     if (i.old_string !== undefined)
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["old_string"],
-        message: "old_string is only valid when operation is replace_text",
+        message: `operation "${i.operation}" forbids old_string; it is only valid for replace_text`,
       });
     if (i.new_string !== undefined)
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["new_string"],
-        message: "new_string is only valid when operation is replace_text",
+        message: `operation "${i.operation}" forbids new_string; it is only valid for replace_text`,
       });
   }
 }

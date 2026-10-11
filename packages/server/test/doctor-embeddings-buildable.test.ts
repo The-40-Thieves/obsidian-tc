@@ -62,7 +62,7 @@ describe("embeddings.buildable (THE-1122 review round 3: three-way status)", () 
     expect(r.summary).toMatch(/cannot run it anyway/);
   });
 
-  it("resolved successfully on a supported platform: ok", async () => {
+  it("resolved successfully on a supported platform under --probe: ok (#1231: a plain run warns, see the -probe test file)", async () => {
     const r = await embeddingsBuildableCheck({
       denseProvider: "local",
       probeLocalEmbedder: () =>
@@ -73,6 +73,7 @@ describe("embeddings.buildable (THE-1122 review round 3: three-way status)", () 
           inSourceCheckout: false,
         }),
       platformOverride: { platform: "linux", arch: "x64", isMuslRuntime: () => false },
+      probeRequested: true,
     }).run(ctx);
     expect(r.status).toBe("ok");
   });

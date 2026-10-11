@@ -21,6 +21,13 @@ parameter's description and still enforced; it is narrower in one case only: an
 explicit `null` for a nullable optional parameter is accepted by the server but not
 advertised.
 
+Some rules relate two parameters: `patch_note` needs `content` for `append`, `prepend` and
+`replace` and `old_string` with `new_string` for `replace_text`. A portable schema cannot express
+that (it has no `if`/`then`, and `oneOf`/`allOf` at the root break several clients), so the server
+does not advertise it as schema keywords. The rule is written into the tool's description and into
+each parameter's description instead, and a call that breaks it is refused with a message naming
+the operation and the field.
+
 For how to connect and call these over MCP — stdio or HTTP, auth, and the discover → describe → call flow — see the [API Reference](/tools/api-reference/).
 
 ## Tool-surface facade
@@ -878,7 +885,7 @@ Each of these was reviewed and takes no parameter, because there is nothing a ca
 | `remotely_save_status`, `remotely_save_trigger` | Opaque Remotely Save companion passthrough or acknowledgement. |
 | `create_entity`, `add_observation`, `update_observation`, `link_entities`, `unlink_entities`, `rename_entity`, `delete_entity` | Write acknowledgements: entity and observation ids, status, the edge identity, counts (observations, relations removed, neighbours re-materialized), timestamps and the `redactions` signal. |
 | `start_session`, `end_session`, `enqueue_capture`, `commit_capture` | Write acknowledgements: ids, paths, event count and duration, the compare-and-swap hash and the `redactions` signal. |
-| `set_goal`, `close_goal`, `record_retrieval_feedback`, `work_result`, `work_forget` | Write acknowledgements: ids, the new state and how many retrievals were stamped, demoted or forgotten (`updated: 0` carries a `reason`). |
+| `set_goal`, `close_goal`, `record_retrieval_feedback`, `work_result`, `work_forget` | Write acknowledgements: ids, the new state and how many retrievals were stamped, demoted or forgotten (`updated: 0` carries a `reason`). The batch form of `record_retrieval_feedback` (`verdicts`, 1 to 50 items, one transaction) returns `results`: one `{chunk_id, updated, reason?}` per item. |
 | `session_rerun` | The per-record verdicts and divergences are the report; the summary counts qualify them. |
 | `add_tag`, `remove_tag` | Write acknowledgements: the removed count and the compare-and-swap hashes the next write needs. |
 | `copy_note`, `move_note`, `delete_note`, `delete_active_file`, `restore_note`, `snapshot_note` | Write acknowledgements: the destination or snapshot id, the content hashes, where a deleted or overwritten file was trashed, `backlinks_updated` (a blast-radius count) and the `redactions` signal. |

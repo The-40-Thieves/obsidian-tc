@@ -39,7 +39,7 @@ function seedEdges(
       : ([["a1.md", "secret/hidden.md", "links_to"]] as Array<[string, string, string]>)),
   ];
   for (const [s, t, type] of edges) ins.run(vaultId, s, t, type, NOW, NOW);
-  seedNotes(db, vaultId, [...new Set(edges.flatMap(([s, t]) => [s, t]))]);
+  seedNotes(db, vaultId, [...new Set(edges.flatMap((edge) => edge.slice(0, 2)))]);
 }
 
 const data = <T>(r: ToolResult): T => (r as { data: T }).data;

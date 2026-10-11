@@ -7,8 +7,10 @@ export const SearchAndReadNote = z.object({
   path: z.string(),
   rank: z.number().int().positive(),
   score: z.number(),
-  /** Section mode: the matched chunk, its heading (null = before the first heading) and whether
-   *  that heading resolved to a unique section in the current note (false = `body` is the chunk). */
+  /** The chunk the item was ranked by, in both modes: note mode's is the note's top-ranked chunk.
+   *  Feed it to record_retrieval_feedback. Section mode also gives the heading (null = before the
+   *  first heading) and whether that heading resolved to a unique section in the current note
+   *  (false = `body` is the chunk). */
   chunk_id: z.string().optional(),
   heading: z.string().nullable().optional(),
   section_resolved: z.boolean().optional(),

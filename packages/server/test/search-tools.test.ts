@@ -177,20 +177,60 @@ describe("THE-251 terse search projection", () => {
     v.cleanup();
   });
 
-  it("search_semantic terse drops chunk_id/content, keeps path/score", async () => {
+  it("search_semantic terse drops content, keeps path/score/chunk_id (GH #1219)", async () => {
     const v = await seeded();
+    const full = payload(
+      await v.call("search_semantic", { vault: "test", query: "lazy dog", k: 2 }),
+    );
     const terse = payload(
       await v.call("search_semantic", {
         vault: "test",
         query: "lazy dog",
         k: 2,
-        verbosity: "terse",
+        response_format: "concise",
       }),
     );
     expect(terse.items[0]).toHaveProperty("path");
     expect(terse.items[0]).toHaveProperty("score");
-    expect(terse.items[0]).not.toHaveProperty("chunk_id");
+    expect(terse.items[0].chunk_id).toBe(full.items[0].chunk_id);
+    expect(terse.items[0].chunk_id).toEqual(expect.any(String));
     expect(terse.items[0]).not.toHaveProperty("content");
+    v.cleanup();
+  });
+
+  it("search_text concise has no chunk_id key: its hits never carry one (GH #1219)", async () => {
+    const v = await seeded();
+    const terse = payload(
+      await v.call("search_text", { vault: "test", query: "fox", response_format: "concise" }),
+    );
+    expect(terse.items.length).toBeGreaterThan(0);
+    for (const hit of terse.items) expect(Object.keys(hit)).not.toContain("chunk_id");
+    v.cleanup();
+  });
+
+  it("search_vault concise keeps chunk_id on semantic hits and omits the key on text hits (GH #1219)", async () => {
+    const v = await seeded();
+    const semantic = payload(
+      await v.call("search_vault", {
+        vault: "test",
+        query: "lazy dog",
+        mode: "semantic",
+        response_format: "concise",
+      }),
+    );
+    expect(semantic.items.length).toBeGreaterThan(0);
+    for (const hit of semantic.items) expect(hit.chunk_id).toEqual(expect.any(String));
+
+    const text = payload(
+      await v.call("search_vault", {
+        vault: "test",
+        query: "fox",
+        mode: "text",
+        response_format: "concise",
+      }),
+    );
+    expect(text.items.length).toBeGreaterThan(0);
+    for (const hit of text.items) expect(Object.keys(hit)).not.toContain("chunk_id");
     v.cleanup();
   });
 });

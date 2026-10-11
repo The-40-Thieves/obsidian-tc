@@ -4,6 +4,9 @@
 // these refusals finds the accepted shape instead of guessing a parameter name.
 import { describe, expect, it } from "vitest";
 import { SEED } from "../eval/write-ergonomics/fixtures";
+import { buildFullRegistry } from "../scripts/docgen/build-registry";
+import { describeCapability } from "../src/mcp/facade";
+import { PatchInput, PatchInputShape } from "../src/tools/m1/notes/schemas";
 import { makeTestVault } from "./m1-helpers";
 
 const PLAN = "Projects/Alpha/Plan.md";
@@ -329,11 +332,151 @@ describe("error text names the real parameters", () => {
         expect(r.error.code).toBe("validation_error");
         const issues = (r.error.details as { issues: { message: string }[] }).issues;
         const m = issues.map((i) => i.message).join("\n");
-        expect(m).toContain("either anchor or target_heading is required");
+        expect(m).toContain('operation "append" requires anchor or target_heading');
         expect(m).toContain('anchor:{type:"heading",heading:"Notes"}');
         expect(m).toContain("block_id");
         expect(m).toContain('type:"frontmatter"');
         expect(m).toContain("append_note");
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+// Cross-field rules. A portable JSON Schema cannot say "operation X requires field Y" (no if/then,
+// oneOf or allOf), so the rules are written into the descriptions, which clients read, and every
+// refusal names the operation. OPERATION_RULES is the whole per-operation rule set.
+const OPERATION_RULES =
+  "Required fields per operation (anchor or target_heading on every one): append, prepend, replace: content; replace_text: old_string + new_string. Refused: old_string/new_string on append, prepend, replace; content on replace_text.";
+
+describe("published rules: the advertised descriptions", () => {
+  for (const name of ["patch_note", "patch_active_file"]) {
+    it(`${name}'s description states each operation's required and forbidden fields`, () => {
+      const def = buildFullRegistry()
+        .list()
+        .find((d) => d.name === name);
+      if (!def) throw new Error(`${name} is not registered`);
+      expect(describeCapability(def).description).toContain(OPERATION_RULES);
+    });
+  }
+});
+
+describe("field description: names the operations that require or forbid the field", () => {
+  const text = (k: keyof typeof PatchInputShape) => PatchInputShape[k].description ?? "";
+
+  it("content, old_string and new_string", () => {
+    expect(text("content")).toContain("Required for append, prepend and replace");
+    expect(text("content")).toContain("refused for replace_text");
+    for (const k of ["old_string", "new_string"] as const) {
+      expect(text(k)).toContain("Required for replace_text");
+      expect(text(k)).toContain("refused for append, prepend and replace");
+    }
+  });
+
+  it("anchor and target_heading", () => {
+    for (const k of ["anchor", "target_heading"] as const)
+      expect(text(k)).toContain("Every operation needs anchor or target_heading");
+  });
+});
+
+describe("refusals: each names the operation and the field it requires or forbids", () => {
+  const H = { type: "heading", heading: "Notes" };
+  // [label, input, field the issue points at (none for the anchor rule), message it must contain]
+  const cases: [string, Record<string, unknown>, string | undefined, string][] = [
+    [
+      "append with no anchor",
+      { operation: "append", content: "x" },
+      undefined,
+      'operation "append" requires anchor or target_heading',
+    ],
+    [
+      "replace_text with no anchor",
+      { operation: "replace_text", old_string: "a", new_string: "b" },
+      undefined,
+      'operation "replace_text" requires anchor or target_heading',
+    ],
+    [
+      "replace_text without old_string",
+      { operation: "replace_text", anchor: H, new_string: "b" },
+      "old_string",
+      'operation "replace_text" requires old_string',
+    ],
+    [
+      "replace_text without new_string",
+      { operation: "replace_text", anchor: H, old_string: "a" },
+      "new_string",
+      'operation "replace_text" requires new_string',
+    ],
+    [
+      "replace_text with content",
+      { operation: "replace_text", anchor: H, old_string: "a", new_string: "b", content: "x" },
+      "content",
+      'operation "replace_text" forbids content',
+    ],
+    [
+      "append without content",
+      { operation: "append", anchor: H },
+      "content",
+      'operation "append" requires content',
+    ],
+    [
+      "prepend without content",
+      { operation: "prepend", anchor: H },
+      "content",
+      'operation "prepend" requires content',
+    ],
+    [
+      "replace without content",
+      { operation: "replace", anchor: H },
+      "content",
+      'operation "replace" requires content',
+    ],
+    [
+      "append with old_string",
+      { operation: "append", anchor: H, content: "x", old_string: "a" },
+      "old_string",
+      'operation "append" forbids old_string',
+    ],
+    [
+      "replace with new_string",
+      { operation: "replace", anchor: H, content: "x", new_string: "b" },
+      "new_string",
+      'operation "replace" forbids new_string',
+    ],
+  ];
+
+  for (const [label, input, field, message] of cases) {
+    it(label, () => {
+      const r = PatchInput.safeParse({ vault: "test", path: "Notes/a.md", ...input });
+      expect(r.success).toBe(false);
+      const issues = r.success ? [] : r.error.issues;
+      expect(issues).toContainEqual(
+        expect.objectContaining({
+          path: field === undefined ? [] : [field],
+          message: expect.stringContaining(message),
+        }),
+      );
+    });
+  }
+
+  it("the refusal a client receives over MCP names the operation", async () => {
+    const v = makeTestVault({ files: { [PLAN]: plan } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: PLAN,
+        operation: "replace_text",
+        old_string: "a",
+        new_string: "b",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error.code).toBe("validation_error");
+        const issues = (r.error.details as { issues: { message: string }[] }).issues;
+        expect(issues.map((i) => i.message).join("\n")).toContain(
+          'operation "replace_text" requires anchor or target_heading',
+        );
       }
     } finally {
       v.cleanup();

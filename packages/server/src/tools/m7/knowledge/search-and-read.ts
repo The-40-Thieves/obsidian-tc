@@ -222,7 +222,7 @@ export function createSearchAndReadTool(
     wholeNotes: true,
     domain: "search",
     description:
-      "Search a vault and return the top-k full notes in one call, instead of a search followed by read_notes. Ranking is vault_graph_search's, limited to notes you can read. mode=note (default) returns each note's frontmatter and body; mode=section returns the heading section each hit matched. k is at most 20. The result is held under the server's byte budget, shared equally across the notes: a note over its share is cut and marked truncated: true with size_bytes (its full size); fetch it whole with read_note. Anything that still does not fit comes back with next_cursor: repeat the same call plus cursor until it is null. An item that cannot be returned is a per-item error with its rank (a missing note and an unreadable one look the same). A cursor is bound to the caller, the tool and these exact arguments, and expires. response_format=concise returns {path, rank, score, body, content_hash} per note without frontmatter (note mode) or chunk_id (section mode); size_bytes and truncated appear only on a truncated item, and section_resolved only when false.",
+      "Search a vault and return the top-k full notes in one call, instead of a search followed by read_notes. Ranking is vault_graph_search's, limited to notes you can read. mode=note (default) returns each note's frontmatter and body; mode=section returns the heading section each hit matched. Every item carries chunk_id, the chunk it was ranked by (pass it to record_retrieval_feedback). k is at most 20. The result is held under the server's byte budget, shared equally across the notes: a note over its share is cut and marked truncated: true with size_bytes (its full size); fetch it whole with read_note. Anything that still does not fit comes back with next_cursor: repeat the same call plus cursor until it is null. An item that cannot be returned is a per-item error with its rank (a missing note and an unreadable one look the same). A cursor is bound to the caller, the tool and these exact arguments, and expires. response_format=concise returns {path, rank, score, body, content_hash, chunk_id} per note, without frontmatter in note mode; size_bytes and truncated appear only on a truncated item, and section_resolved only when false.",
     inputSchema: z
       .object({
         vault: VaultId,
@@ -312,7 +312,13 @@ export function createSearchAndReadTool(
           try {
             const rel = normalizeVaultPath(item.path);
             const { hash, parsed } = readVaultNote(v.root, rel, acl, ctx.grantedScopes);
-            const base = { path: rel, rank: item.rank, score: item.score, content_hash: hash };
+            const base = {
+              path: rel,
+              rank: item.rank,
+              score: item.score,
+              chunk_id: item.chunkId,
+              content_hash: hash,
+            };
             let note: Note;
             if (input.mode === "note") {
               note = {
@@ -330,7 +336,6 @@ export function createSearchAndReadTool(
               const body = sec ?? item.content ?? parsed.body;
               note = {
                 ...base,
-                ...(concise ? {} : { chunk_id: item.chunkId }),
                 heading: item.heading ?? null,
                 section_resolved: sec !== null,
                 body,

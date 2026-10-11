@@ -14,12 +14,53 @@
 // for that query"), `work_result` judges the TASK ("did the work go well").
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { inTransaction } from "../../db/txn";
 import { stampOpenWindow } from "../../experiential/verdict";
 import type { ToolDefinition } from "../../mcp/registry";
 import { activeSessionFor } from "../../workspace/sessions";
 import { defineTool } from "../m1/define";
 import { stampRetrievalFeedback } from "./feedback-scope";
 import { availableWith, type M8Deps, UNAVAILABLE } from "./shared";
+
+// #1229: one call may stamp a batch. No shared batch-size constant exists in the repo (the other
+// list caps are inline literals), so this tool owns its cap. It bounds one transaction's write set.
+const MAX_VERDICTS = 50;
+
+const Verdict = z
+  .object({
+    chunk_id: z.string().min(1),
+    feedback: z.number().int().min(-1).max(1),
+  })
+  .strict();
+
+const NoopReason = z.enum(["session_scope", "no_owned_retrievals"]);
+
+// #1229: the two forms are each optional in the published schema, because a root oneOf/anyOf is
+// banned (test/schema-portability-rules.ts). Exactly one of them is enforced here instead.
+function refineVerdictForm(
+  i: { chunk_id?: string; feedback?: number; verdicts?: unknown[] },
+  ctx: z.RefinementCtx,
+): void {
+  const single = i.chunk_id !== undefined || i.feedback !== undefined;
+  const batch = i.verdicts !== undefined;
+  if (single && batch)
+    ctx.addIssue({
+      code: "custom",
+      message:
+        "send either chunk_id + feedback (one chunk) or verdicts (a batch of chunks), not both",
+    });
+  else if (!single && !batch)
+    ctx.addIssue({
+      code: "custom",
+      message: `send chunk_id + feedback to stamp one chunk, or verdicts: [{chunk_id, feedback}, ...] (1-${MAX_VERDICTS} items) to stamp a batch`,
+    });
+  else if (single && (i.chunk_id === undefined || i.feedback === undefined))
+    ctx.addIssue({
+      code: "custom",
+      message:
+        "the single form needs both chunk_id and feedback (chunk_id + feedback); for several chunks send verdicts instead",
+    });
+}
 
 export function buildVerdictTools(deps: M8Deps): ToolDefinition[] {
   return [
@@ -35,32 +76,105 @@ export function buildVerdictTools(deps: M8Deps): ToolDefinition[] {
       // it sat at 0 stamps across 97 retrieval events — so the trigger comes first and the ACL
       // detail is compressed to the part a caller can actually respond to.
       description:
-        "Report which retrieved chunks actually helped. CALL THIS after you act on a search result: feedback (-1|0|+1) = was this the right chunk to return for that query. Stamp the chunks you genuinely used, not every hit, and stamp -1 when a confidently-returned chunk was wrong — a negative is worth more than silence. This is the only signal separating a chunk that gets RETRIEVED from one that gets USED: it feeds the ACT-R activation recompute, so stamping is what makes later retrieval better, and not stamping leaves ranking blind. Judge the RETRIEVAL, not your task: whether the task went well is a different question this tool deliberately no longer accepts. Targets your most recent retrieval event(s) for that chunk (last_n, default 1). Returns `updated`; when that is 0 it also returns `reason` — `session_scope` (you own retrievals for this chunk, none in the current scope) or `no_owned_retrievals` (nothing of yours matches), so a no-op is never silent. You may only stamp retrievals your own caller produced; an unidentified caller cannot stamp, and admin:workspace crosses both that and the session scope.",
+        "Report which retrieved chunks actually helped. CALL THIS after you act on a search result: feedback (-1|0|+1) = was this the right chunk to return for that query. Stamp the chunks you genuinely used, not every hit, and stamp -1 when a confidently-returned chunk was wrong — a negative is worth more than silence. This is the only signal separating a chunk that gets RETRIEVED from one that gets USED: it feeds the ACT-R activation recompute, so stamping is what makes later retrieval better, and not stamping leaves ranking blind. Judge the RETRIEVAL, not your task: whether the task went well is a different question this tool deliberately no longer accepts. Several chunks at once: send verdicts: [{chunk_id, feedback}, ...] (1-50 items), applied in one transaction. Otherwise send chunk_id + feedback for one chunk. Send one form or the other, never both. Each target is your most recent retrieval event(s) for that chunk (last_n, default 1, applies to every item). Returns `updated`; when that is 0 it also returns `reason` — `session_scope` (you own retrievals for this chunk, none in the current scope) or `no_owned_retrievals` (nothing of yours matches), so a no-op is never silent. A batch returns `results`, one {chunk_id, updated, reason?} per verdict. You may only stamp retrievals your own caller produced; an unidentified caller cannot stamp, and admin:workspace crosses both that and the session scope.",
       // THE-718: `outcome` is gone, not deprecated. It asked a TASK-level question ("did acting on
       // this lead somewhere good") of a RESPONSE-level row, so one task's verdict was attributed to
-      // every chunk the search happened to return — an estimand with no denominator. `feedback` is
-      // now required rather than one-of-two, which is what the old `.refine` was working around.
-      // Under `.strict()` a caller still passing `outcome` gets a hard rejection instead of a
-      // silent drop; that is deliberate, and safe — the column recorded 0 stamps in its lifetime.
+      // every chunk the search happened to return — an estimand with no denominator. Under `.strict()`
+      // a caller still passing `outcome` gets a hard rejection instead of a silent drop; that is
+      // deliberate, and safe — the column recorded 0 stamps in its lifetime.
+      // #1229: the single form stays `chunk_id` + `feedback`; `verdicts` is the batch form. Both are
+      // optional at the schema level and refineVerdictForm makes exactly one of them required.
       inputSchema: z
         .object({
-          chunk_id: z.string().min(1),
-          feedback: z.number().int().min(-1).max(1),
-          session_id: z.string().optional(),
-          last_n: z.number().int().positive().max(50).default(1),
+          chunk_id: z
+            .string()
+            .min(1)
+            .optional()
+            .describe(
+              "Single form: the chunk to stamp. Send chunk_id + feedback together, or verdicts, never both.",
+            ),
+          feedback: z
+            .number()
+            .int()
+            .min(-1)
+            .max(1)
+            .optional()
+            .describe("Single form: -1, 0 or +1 for chunk_id. Send it with chunk_id."),
+          verdicts: z
+            .array(Verdict)
+            .min(1)
+            .max(MAX_VERDICTS)
+            .optional()
+            .describe(
+              `Batch form (1-${MAX_VERDICTS} items): one {chunk_id, feedback} per chunk, all applied in one transaction. Send verdicts OR chunk_id + feedback, never both.`,
+            ),
+          session_id: z
+            .string()
+            .optional()
+            .describe("Session scope for the stamp. Applies to every verdict in a batch."),
+          last_n: z
+            .number()
+            .int()
+            .positive()
+            .max(50)
+            .default(1)
+            .describe(
+              "How many of each chunk's most recent retrievals to stamp (default 1). Applies to every verdict in a batch.",
+            ),
         })
-        .strict(),
+        .strict()
+        .superRefine(refineVerdictForm),
       outputSchema: availableWith({
-        chunk_id: z.string(),
-        updated: z.number().int(),
+        // Single form: chunk_id + updated (+ reason when nothing was written). Batch form: results.
         // THE-718: `updated: 0` is otherwise indistinguishable from a successful stamp, and in
         // production it was 100% of calls. Present only when nothing was written.
-        reason: z.enum(["session_scope", "no_owned_retrievals"]).optional(),
+        chunk_id: z.string().optional(),
+        updated: z.number().int().optional(),
+        reason: NoopReason.optional(),
+        results: z
+          .array(
+            z.object({
+              chunk_id: z.string(),
+              updated: z.number().int(),
+              reason: NoopReason.optional(),
+            }),
+          )
+          .optional(),
       }),
       requiredScopes: ["write:workspace"],
       tags: ["experiential"],
-      handler: (input, ctx) =>
-        deps.edb ? stampRetrievalFeedback(deps.edb, input, ctx) : UNAVAILABLE,
+      handler: (input, ctx) => {
+        if (!deps.edb) return UNAVAILABLE;
+        const edb = deps.edb;
+        const scope = { session_id: input.session_id, last_n: input.last_n };
+        const { verdicts } = input;
+        if (verdicts !== undefined) {
+          // #1229: every item runs through the single form's own stampRetrievalFeedback, so the
+          // ownership and session checks are the same code, not a copy. One transaction makes the
+          // batch all-or-nothing: a caller-level refusal thrown by any item rolls back the rest.
+          const results = inTransaction(edb, () =>
+            verdicts.map((v) => {
+              const r = stampRetrievalFeedback(
+                edb,
+                { chunk_id: v.chunk_id, feedback: v.feedback, ...scope },
+                ctx,
+              );
+              return {
+                chunk_id: r.chunk_id,
+                updated: r.updated,
+                ...(r.reason ? { reason: r.reason } : {}),
+              };
+            }),
+          );
+          return { available: true as const, results };
+        }
+        const { chunk_id, feedback } = input;
+        // refineVerdictForm guarantees both on this branch. The throw keeps the type honest for a
+        // caller that reaches the handler without going through schema validation.
+        if (chunk_id === undefined || feedback === undefined)
+          throw err.invalidInput("send chunk_id + feedback, or verdicts for a batch");
+        return stampRetrievalFeedback(edb, { chunk_id, feedback, ...scope }, ctx);
+      },
     }),
 
     defineTool({
