@@ -441,6 +441,22 @@ describe("append_active_file / patch_active_file", () => {
     expect(d).toMatchObject({ path: "Notes/a.md", operation: "replace_text" });
     expect(h.read("Notes/a.md")).toBe("---\ntitle: Plan\n---\n# Planning\n- one\n");
   });
+
+  it("a replace_text miss passes patch_note's error detail through (#1226)", async () => {
+    const h = harness({ files: { "Notes/a.md": NOTE_A } });
+    h.focus("Notes/a.md");
+    const e = errOf(
+      await h.call("patch_active_file", {
+        vault: "test",
+        operation: "replace_text",
+        anchor: { type: "heading", heading: "Todo" },
+        old_string: "alpha",
+        new_string: "beta",
+      }),
+    );
+    expect(e.message).toBe("old_string not found in section");
+    expect(e.details).toMatchObject({ found_elsewhere: { count: 1, headings: ["A"] } });
+  });
 });
 
 describe("response_format (GH #1027): the active-file tools hand it to their delegates", () => {

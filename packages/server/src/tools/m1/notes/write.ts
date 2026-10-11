@@ -42,6 +42,7 @@ import {
   patchByHeading,
   patchByPreamble,
   replaceInSection,
+  replaceMissDetail,
   resolveSection,
   resolveSectionOrThrow,
 } from "./anchors";
@@ -383,7 +384,18 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
           excludeTrailing,
         );
         if (count === 0)
-          throw err.invalidInput("old_string not found in section", { path: rel, anchor });
+          throw err.invalidInput("old_string not found in section", {
+            path: rel,
+            anchor,
+            // GH #1226: where the string is instead, so a caller need not re-read and guess.
+            ...replaceMissDetail(
+              parsed.body,
+              resolved,
+              matchWindow,
+              oldString,
+              anchor !== undefined,
+            ),
+          });
         if (count > 1)
           throw err.invalidInput(
             `old_string matches ${count} times in the section; must occur exactly once`,
