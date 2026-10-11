@@ -101,6 +101,28 @@ Use the **`verify-ticket-premise`** skill. Tickets here go stale fast: in one se
 premises that no longer held — one was entirely already done, another quoted a duplication rate
 660× the real one. The check costs minutes; acting on a stale premise has cost days.
 
+## Every change: the working rules
+
+These hold for every PR, so a task brief does not repeat them.
+
+- **Public repo.** No private tracker ids or links in commits, PR text, code, comments or `changes/`
+  fragments; `check:public-text` enforces it. A GitHub issue number (`Refs #123`) is fine.
+- **One PR per task**, branched from `origin/main` in its own worktree. Commit with DCO sign-off
+  (`git commit -s`). Add a `changes/<slug>.md` fragment (format in `changes/README.md`, no PR number).
+- **Install** with `bun install --frozen-lockfile --ignore-scripts`; a plain install fails on the
+  better-sqlite3 build script and is not needed for any gate.
+- **Tests first.** Write the new or changed test, show it failing for the right reason, then fix.
+  Put that failing output in the PR body.
+- **Gates** come from the `gates` skill (the CI lint job runs ~21 steps; `bun run lint` is only
+  biome). Mind the `check:comment-style` ratchet and biome's 700-line ceiling.
+- **Before pushing:** merge `origin/main` by hand (resolve conflicts yourself, never by script),
+  re-run the affected suites, then run `ledger replay` as its own command and push separately.
+  Whole-suite runs go through `bun run test:local`, which serialises them on a shared host.
+- **Never** `git stash` (the stash is shared across worktrees; use a temporary commit), never
+  `pkill`/`killall` by pattern (it hits other runs), never force-push.
+- **Report back** with the PR number, head SHA, a table of what was done and how it was proven,
+  test counts, the failing-first evidence, and anything you did differently from the brief.
+
 ## Generated artifacts — never hand-edit
 
 A `PreToolUse` hook blocks these; the message names the regeneration command.
