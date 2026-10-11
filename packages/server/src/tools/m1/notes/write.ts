@@ -33,7 +33,7 @@ import {
 import { resolveResponseFormat } from "../../response-format";
 import { defineTool } from "../define";
 import type { M1Deps } from "../shared";
-import type { PatchResult } from "./anchors";
+import type { PatchResult, ResolvedAnchor } from "./anchors";
 import {
   dropDuplicateLeadingHeading,
   escapeRegExp,
@@ -291,7 +291,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
     vaultArg: "vault",
     pathAcl: (input) => [{ op: "write", path: input.path }],
     description:
-      'Edit part of an existing note in place. Name an anchor: a heading section (anchor:{type:"heading",heading:"Notes"}), a block reference (anchor:{type:"block",block_id}), or the preamble above the first heading (anchor:{type:"frontmatter"}); then an operation: append/prepend/replace content, or replace_text (old_string/new_string). Required fields per operation (anchor or target_heading on every one): append, prepend, replace: content; replace_text: old_string + new_string. Refused: old_string/new_string on append, prepend, replace; content on replace_text. Frontmatter is preserved. Examples: add a line to the end of a section = operation append + heading anchor + content. Move, reorder or duplicate sections = ONE replace_text anchored on an enclosing heading (the note\'s top-level H1 spans every section below it): old_string is those sections as they are now, new_string the same text rearranged; the anchor heading line itself is never touched. To add at the very end of a note use append_note, which needs no anchor. A heading that appears more than once needs anchor.occurrence (1-based, document order) or a path (heading:"Parent > Child"); without either the call is refused with every matching line number, never silently bound to the first match (same for a block id on more than one line). On a heading anchor, replace preserves the anchor heading line itself; if content\'s first non-blank line repeats it (same level and text), that line is dropped so the two calling conventions do not double the heading. replace_text takes old_string/new_string instead of content and substitutes an exact match scoped to the resolved anchor\'s section — 0 or 2+ matches is refused (with the count for 2+); confirm_replace is ignored for it. A replace on a heading anchor that would discard more than 20 lines AND over half of the note\'s body (e.g. the note\'s only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note\'s undo) are captured only when the server\'s snapshots.enabled config is on; the default "trusted-local" posture leaves it on, so such a write is rollback-able via restore_note unless snapshots have been explicitly disabled. response_format=concise acknowledges with {vault, path, content_hash} only (plus quality_warning, redactions, and lines_removed/bytes_removed when non-zero).',
+      'Edit part of an existing note in place. Name an anchor: a heading section (anchor:{type:"heading",heading:"Notes"}), a block reference (anchor:{type:"block",block_id}), or the preamble above the first heading (anchor:{type:"frontmatter"}); then an operation: append/prepend/replace content, or replace_text (old_string/new_string). Required fields per operation (anchor or target_heading on append, prepend and replace only): append, prepend, replace: content; replace_text: old_string + new_string. Refused: old_string/new_string on append, prepend, replace; content on replace_text. Frontmatter is preserved. Examples: add a line to the end of a section = operation append + heading anchor + content. Move, reorder or duplicate sections = ONE replace_text anchored on an enclosing heading (the note\'s top-level H1 spans every section below it): old_string is those sections as they are now, new_string the same text rearranged; the anchor heading line itself is never touched. To add at the very end of a note use append_note, which needs no anchor. A heading that appears more than once needs anchor.occurrence (1-based, document order) or a path (heading:"Parent > Child"); without either the call is refused with every matching line number, never silently bound to the first match (same for a block id on more than one line). On a heading anchor, replace preserves the anchor heading line itself; if content\'s first non-blank line repeats it (same level and text), that line is dropped so the two calling conventions do not double the heading. replace_text takes old_string/new_string instead of content and substitutes an exact match scoped to the resolved anchor\'s section; with neither anchor nor target_heading it is note-wide (the whole note body, frontmatter excluded, heading lines included), so a heading typo can be fixed in one call. 0 or 2+ matches is refused (with the count for 2+); confirm_replace is ignored for it. A replace on a heading anchor that would discard more than 20 lines AND over half of the note\'s body (e.g. the note\'s only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note\'s undo) are captured only when the server\'s snapshots.enabled config is on; the default "trusted-local" posture leaves it on, so such a write is rollback-able via restore_note unless snapshots have been explicitly disabled. response_format=concise acknowledges with {vault, path, content_hash} only (plus quality_warning, redactions, and lines_removed/bytes_removed when non-zero).',
     inputSchema: PatchInput,
     outputSchema: PatchNoteOutput,
     requiredScopes: ["write:notes"],
@@ -313,10 +313,14 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
         });
       const eol = raw.includes("\r\n") ? "\r\n" : "\n";
       const parsed = parseNote(raw, rel);
-      const anchor = input.anchor ?? {
-        type: "heading" as const,
-        heading: input.target_heading as string,
-      };
+      // replace_text may name neither (refinePatchInput): its scope is then the whole note body,
+      // which is `parsed.body` (frontmatter already split off, so it is preserved). Every other
+      // operation has an anchor, so `anchor` is undefined only on that replace_text path.
+      const anchor: ResolvedAnchor | undefined =
+        input.anchor ??
+        (input.target_heading === undefined
+          ? undefined
+          : { type: "heading" as const, heading: input.target_heading });
       let patched: PatchResult;
       if (input.operation === "replace_text") {
         // GH #928: an exact-string substitution scoped to the resolved anchor's section — reuses
@@ -325,13 +329,16 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
         // guards against.
         const oldString = input.old_string as string;
         const newString = input.new_string as string;
-        const resolved = resolveSectionOrThrow(parsed.body, anchor, rel);
+        const resolved =
+          anchor === undefined
+            ? { startIndex: 0, endIndex: parsed.body.split(/\r?\n/).length }
+            : resolveSectionOrThrow(parsed.body, anchor, rel);
         // Review round 1 I4: the tool description promises replace_text "preserves the anchor
         // heading line" the same way `replace` does — exclude line 0 of a heading anchor's
         // section (the heading itself) from the match window, so old_string can never rewrite or
         // delete it. Block/frontmatter anchors have no such marker line to protect.
         const matchWindow =
-          anchor.type === "heading"
+          anchor?.type === "heading"
             ? { ...resolved, startIndex: resolved.startIndex + 1 }
             : resolved;
         // Review round 2 B2: a block anchor's own I4-analogue — the trailing `^id` token on the
@@ -347,7 +354,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
         // needed there, only for the standalone-line case where the separator is a PRECEDING
         // newline, outside the marker line itself.
         let excludeTrailing = "";
-        if (anchor.type === "block") {
+        if (anchor?.type === "block") {
           const bodyLines = parsed.body.split(/\r?\n/);
           const markerLineIndex = resolved.endIndex - 1;
           const markerLine = bodyLines[markerLineIndex] ?? "";
@@ -389,6 +396,14 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
           bodyLineCount: parsed.body.split(/\r?\n/).length,
         };
       } else {
+        // refinePatchInput requires an anchor (or target_heading) for every other operation.
+        if (anchor === undefined)
+          throw err.invalidInput(
+            `operation "${input.operation}" requires anchor or target_heading`,
+            {
+              path: rel,
+            },
+          );
         // GH #922 shape 2: `replace` content that repeats the anchor's own heading duplicates it
         // — drop that line rather than refuse. Only heading anchors have an anchor-line
         // convention to dedupe against; only checked when resolution is unambiguous (an
@@ -441,7 +456,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
       // notes never trip this, AND a proportional floor so a normal section replace (which
       // rarely removes half a note) is unaffected — only the cliff case, not the common one.
       if (
-        anchor.type === "heading" &&
+        anchor?.type === "heading" &&
         input.operation === "replace" &&
         patched.removedLines > 20 &&
         patched.removedLines > patched.bodyLineCount * 0.5 &&
@@ -487,8 +502,8 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
           vault: v.id,
           path: rel,
           operation: input.operation,
-          anchor,
-          ...(anchor.type === "heading" ? { target_heading: anchor.heading } : {}),
+          ...(anchor === undefined ? {} : { anchor }),
+          ...(anchor?.type === "heading" ? { target_heading: anchor.heading } : {}),
           content_hash: contentHash(next),
           ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
           prev_hash: hash,

@@ -24,7 +24,7 @@ import {
 } from "../../memory/materialize";
 import { callerCanReadVaultPath, enforcePathAcl } from "../../vault/acl-path";
 import type { ResolvedVault } from "../../vault/registry";
-import { type M5Deps, memoryFolderFor } from "./shared";
+import { type M5Deps, memoryFolderFor, supersededInNoteFor } from "./shared";
 
 /** Outgoing relations of an entity as [[link]] targets, for materialization. */
 export function outgoingLinks(ctx: CallerContext, id: string): RelationLink[] {
@@ -53,6 +53,7 @@ export function materializeProjection(
     root: v.root,
     acl: ctx.acl,
     folder: memoryFolderFor(deps, v.id),
+    supersededInNote: supersededInNoteFor(deps, v.id),
     id: e.id,
     entityType: e.entity_type,
     name: e.name,

@@ -137,6 +137,8 @@ export interface RenderEntityInput {
   observations: readonly RenderableObservation[];
   relations: readonly RelationLink[];
   preserved?: Frontmatter | null;
+  /** memory.supersededInNote: false omits the Superseded section (open facts only). Default true. */
+  supersededInNote?: boolean;
 }
 
 function stripOwned(fm: Frontmatter | null | undefined): Frontmatter {
@@ -150,7 +152,8 @@ function stripOwned(fm: Frontmatter | null | undefined): Frontmatter {
  *
  *  THE-1130: `observations` splits on `validTo` — open (validTo === null) renders under
  *  Observations, closed (supersession OR a stand-alone retirement, both just set validTo) under
- *  Superseded — never on `key`, since an unkeyed observation can still carry an explicit valid_to.
+ *  Superseded (omitted when supersededInNote is false) — never on `key`, since an unkeyed
+ *  observation can still carry an explicit valid_to.
  *  Order within each section is the SAME order the caller passed (insertion order); this never
  *  re-sorts, unlike the Related section below, because observation order is itself meaningful
  *  (it's the append/history order a reader would expect). */
@@ -169,7 +172,7 @@ export function renderEntityNote(input: RenderEntityInput): string {
     for (const o of open) lines.push(`- ${formatObservationBullet(o)}`);
     lines.push("");
   }
-  if (closed.length > 0) {
+  if (closed.length > 0 && input.supersededInNote !== false) {
     lines.push(`## ${SUPERSEDED_HEADING}`, "");
     for (const o of closed) lines.push(`- ${formatObservationBullet(o)}`);
     lines.push("");
@@ -198,6 +201,8 @@ export interface MaterializeInput {
   status: string;
   observations: readonly RenderableObservation[];
   relations: readonly RelationLink[];
+  /** memory.supersededInNote: see RenderEntityInput. Absent -> true. */
+  supersededInNote?: boolean;
   // THE-567: the memory-note path is server-computed (folder + type + name), so it cannot be
   // declared via a central pathAcl extractor (which only sees raw input). Threading the caller's
   // granted scopes through to this handler-side enforcePathAcl call closes that P1.4 gap here
