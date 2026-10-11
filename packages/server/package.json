@@ -69,7 +69,8 @@
   },
   "optionalDependencies": {
     "@redis/client": "6.3.0",
-    "@the-40-thieves/obsidian-tc-embedder-local": "1.32.0"
+    "@the-40-thieves/obsidian-tc-embedder-local": "1.32.0",
+    "libsql": "0.5.29"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",

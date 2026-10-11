@@ -26,6 +26,10 @@ export async function openDatabase(
   busyTimeoutMs?: number,
   opts: OpenOptions = {},
 ): Promise<Database> {
+  if (opts.sync) {
+    const { openLibsql } = await import("./libsql");
+    return openLibsql(path, busyTimeoutMs, opts);
+  }
   if (isBun()) {
     const { openBunSqlite } = await import("./bun-sqlite");
     return openBunSqlite(path, busyTimeoutMs, opts);

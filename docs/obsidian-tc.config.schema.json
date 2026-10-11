@@ -1313,6 +1313,39 @@
         }
       }
     },
+    "storage": {
+      "description": "Experimental storage options. ABSENT (the default) changes nothing: the index lives in local SQLite files only. `storage.sync` opts into replicating it through a libSQL server.",
+      "type": "object",
+      "properties": {
+        "sync": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Sync server: a Turso Cloud database (`libsql://<db>-<org>.turso.io`) or a self-hosted libSQL server, sqld (`https://…`, or `http://<host>` on a private network such as a tailnet or loopback; a non-loopback http:// host must also be listed in `network.plainHttpHosts`). Credentials are refused here: userinfo and token-like query parameters fail validation."
+            },
+            "authTokenEnv": {
+              "description": "Name of the environment variable holding the server's auth token (a Turso database token, or a sqld JWT). The token is never written in the config file: an inline `authToken` key is rejected as an unknown key. Omit for a server that needs none (loopback sqld).",
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
+            "syncIntervalMs": {
+              "description": "Background pull period in milliseconds. Omitted means the replica pulls only when asked, so another machine's writes appear after the next explicit sync. Writes made by this machine are visible to it at once either way.",
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false,
+          "description": "Embedded-replica sync of the derived index. EXPERIMENTAL. The whole index, including note text, chunk text and embeddings, is stored on this server; `egress.excludePaths` is NOT yet honoured by it. Off unless this block is present."
+        }
+      },
+      "additionalProperties": false
+    },
     "network": {
       "description": "Connection policy shared by every outbound provider client: which plain-http hosts may be named. https:// and loopback need no entry.",
       "default": {},

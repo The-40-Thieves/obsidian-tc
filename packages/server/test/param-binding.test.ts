@@ -34,6 +34,7 @@
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { openLibsql } from "../src/db/libsql";
 import { openBetterSqlite3 } from "../src/db/node-better-sqlite3";
 import { openNodeSqlite } from "../src/db/node-node-sqlite";
 import { provisionCacheDb } from "../src/db/provision";
@@ -68,6 +69,19 @@ try {
   betterSqlite3Ok = false;
 }
 
+// libsql (the optional dependency behind the sync adapter) ships a prebuilt native binding for
+// linux/darwin x64+arm64 and win32-x64 only, so it is probed and skipped like better-sqlite3 — but
+// unlike it, a miss is only tolerated on the one platform with no binary (win32-arm64); see the
+// coverage floor below.
+let libsqlOk = true;
+try {
+  const d = await openLibsql(":memory:");
+  d.close?.();
+} catch {
+  libsqlOk = false;
+}
+const libsqlExpected = !(process.platform === "win32" && process.arch === "arm64");
+
 // bun:sqlite cannot be probed in-process — vitest runs under Node, and `import("bun:sqlite")`
 // throws there. Probe `bun`'s presence on PATH instead; the adapter itself is exercised by
 // spawning it (test/param-binding-bun-probe.ts). Every build-test / lint job installs `bun` via
@@ -85,6 +99,8 @@ if (nodeSqliteOk) adaptersRun.push("node:sqlite");
 else adaptersSkipped.push("node:sqlite (probe failed)");
 if (betterSqlite3Ok) adaptersRun.push("better-sqlite3");
 else adaptersSkipped.push("better-sqlite3 (not loadable; removed on CI Node 24 legs)");
+if (libsqlOk) adaptersRun.push("libsql");
+else adaptersSkipped.push("libsql (not loadable; no win32-arm64 binary)");
 if (bunAvailable) adaptersRun.push("bun:sqlite (subprocess)");
 else adaptersSkipped.push("bun:sqlite (bun not on PATH)");
 console.log(
@@ -199,6 +215,25 @@ describe.skipIf(!betterSqlite3Ok)("THE-665: parameter-binding conformance (bette
   });
 });
 
+describe.skipIf(!libsqlOk)("THE-665: parameter-binding conformance (libsql)", () => {
+  it("stores correct, non-null values for a bare-key object bound to a named-param statement", async () => {
+    const db = await openLibsql(":memory:");
+    db.exec("CREATE TABLE probe (id TEXT, name TEXT)");
+    db.prepare("INSERT INTO probe (id, name) VALUES (@id, @name)").run({
+      id: "abc",
+      name: "xyz",
+    });
+    expect(db.prepare("SELECT * FROM probe").get()).toEqual({ id: "abc", name: "xyz" });
+  });
+
+  it("JobQueue.enqueue + Scheduler persist store correct values end-to-end", async () => {
+    const db = await openLibsql(":memory:");
+    const { jobRow, scheduleRow } = await runIntegrationProbe(db);
+    expectCorrectJobRow(jobRow);
+    expectCorrectScheduleRow(scheduleRow);
+  });
+});
+
 describe.skipIf(!bunAvailable)("THE-665: parameter-binding conformance (bun:sqlite)", () => {
   const PROBE = fileURLToPath(new URL("./param-binding-bun-probe.ts", import.meta.url));
 
@@ -255,5 +290,6 @@ describe("THE-665: parameter-binding conformance — coverage floor", () => {
     expect(adaptersRun.length).toBeGreaterThan(0);
     expect(nodeSqliteOk).toBe(true);
     expect(bunAvailable).toBe(true);
+    expect(libsqlOk || !libsqlExpected).toBe(true);
   });
 });

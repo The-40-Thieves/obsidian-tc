@@ -1122,3 +1122,68 @@ describe("ObsidianTcError", () => {
     expect(j).toMatchObject({ code: "acl_denied", retryable: false, details: { path: "/x" } });
   });
 });
+
+// Experimental multi-device index sync. Off unless `storage.sync` is present; the token is only ever
+// the NAME of an environment variable; a plain-http leg to a remote host needs the operator's say-so.
+describe("storage.sync (experimental index sync)", () => {
+  const parse = (storage: unknown) => ServerConfigSchema.safeParse({ ...base, storage });
+  const problems = (storage: unknown): string =>
+    JSON.stringify(parse(storage).error?.issues.map((i) => i.message) ?? []);
+
+  it("is absent by default: no storage key appears in the parsed config", () => {
+    const c = ServerConfigSchema.parse(base);
+    expect(c.storage).toBeUndefined();
+    expect("storage" in c).toBe(false);
+  });
+
+  it.each([
+    "libsql://index-acme.turso.io",
+    "https://sync.example.org",
+    "http://127.0.0.1:8080",
+    "http://localhost:8080",
+  ])("accepts %s", (url) => {
+    const r = parse({ sync: { url, authTokenEnv: "OTC_SYNC_TOKEN", syncIntervalMs: 5000 } });
+    expect(r.success).toBe(true);
+  });
+
+  it("refuses an inline token: authToken is an unknown key, not a field", () => {
+    const r = parse({ sync: { url: "https://sync.example.org", authToken: "s3cret" } });
+    expect(r.success).toBe(false);
+    // The refusal names the key, never echoes the value.
+    expect(problems({ sync: { url: "https://x.example", authToken: "s3cret" } })).not.toContain(
+      "s3cret",
+    );
+  });
+
+  it.each([
+    ["userinfo", "https://user:pw@sync.example.org"],
+    ["a token query param", "https://sync.example.org/?authToken=abc"],
+    ["a wrong scheme", "ftp://sync.example.org"],
+    ["no host", "https://"],
+    ["a non-URL", "not a url"],
+  ])("refuses a url with %s", (_why, url) => {
+    expect(parse({ sync: { url } }).success).toBe(false);
+  });
+
+  it.each(["has space", "1STARTS_WITH_NUMBER", "a-b", ""])(
+    "refuses authTokenEnv %j (must be a variable NAME)",
+    (authTokenEnv) => {
+      expect(parse({ sync: { url: "https://x.example", authTokenEnv } }).success).toBe(false);
+    },
+  );
+
+  it("refuses a syncIntervalMs below 100 ms", () => {
+    expect(parse({ sync: { url: "https://x.example", syncIntervalMs: 99 } }).success).toBe(false);
+  });
+
+  it("refuses plain http to a remote host unless network.plainHttpHosts lists it", () => {
+    const storage = { sync: { url: "http://100.78.123.100:8080" } };
+    expect(parse(storage).success).toBe(false);
+    const listed = ServerConfigSchema.safeParse({
+      ...base,
+      storage,
+      network: { plainHttpHosts: ["100.78.123.100"] },
+    });
+    expect(listed.success).toBe(true);
+  });
+});

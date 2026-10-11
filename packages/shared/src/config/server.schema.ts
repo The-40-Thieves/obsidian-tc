@@ -6,7 +6,7 @@
 // refinement reads (`cfg.transports.http` and `cfg.auth`) now lives. `../config.schema.ts` stays a
 // pure re-export facade after this; this file must never import it back (that would be a cycle).
 import { z } from "zod";
-import { isLoopbackHost } from "../net-host";
+import { isLoopbackHost, isPlainHttpHostListed } from "../net-host";
 import { AclConfigSchema, AuthConfigSchema } from "./auth-acl.schema";
 import { refineAuthAs } from "./auth-as.schema";
 import { GatewayConfigSchema } from "./gateway.schema";
@@ -27,6 +27,7 @@ import {
 } from "./observability.schema";
 import { PersonasConfigSchema } from "./personas.schema";
 import { ProvenanceConfigSchema } from "./provenance.schema";
+import { StorageConfigSchema, syncUrlProblem } from "./storage.schema";
 import { RerankerConfigSchema } from "./reranker.schema";
 import {
   ExperientialConfigSchema,
@@ -121,6 +122,9 @@ export const ServerConfigObject = z.object({
   // OBSIDIAN_TC_GATEWAY_TOKEN, then to every generative seam degrading gracefully.
   gateway: GatewayConfigSchema.optional().describe(
     "Inference gateway connection. ABSENT falls through to OBSIDIAN_TC_GATEWAY_URL / OBSIDIAN_TC_GATEWAY_TOKEN, preserving today's behaviour exactly.",
+  ),
+  storage: StorageConfigSchema.optional().describe(
+    "Experimental storage options. ABSENT (the default) changes nothing: the index lives in local SQLite files only. `storage.sync` opts into replicating it through a libSQL server.",
   ),
   network: NetworkConfigSchema.prefault({}).describe(
     "Connection policy shared by every outbound provider client: which plain-http hosts may be named. https:// and loopback need no entry.",
@@ -238,6 +242,24 @@ export const ServerConfigObject = z.object({
 // HTTP transport is enabled on a non-loopback host with auth.mode "none", every request would
 // resolve to full wildcard scopes (see transports/http.ts resolveAuth) — refuse the config.
 export const ServerConfigSchema = ServerConfigObject.superRefine((cfg, ctx) => {
+  // storage.sync carries a bearer token and the whole index: a plain http:// leg to anything but
+  // loopback is allowed only for a host the operator listed in network.plainHttpHosts (a tailnet
+  // peer, say) — the same rule every provider URL is held to.
+  const syncUrl = cfg.storage?.sync?.url;
+  if (syncUrl !== undefined && syncUrlProblem(syncUrl) === undefined) {
+    const u = new URL(syncUrl);
+    if (
+      u.protocol === "http:" &&
+      !isLoopbackHost(u.hostname) &&
+      !isPlainHttpHostListed(u.hostname, cfg.network.plainHttpHosts)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["storage", "sync", "url"],
+        message: `storage.sync.url is plain http:// to "${u.hostname}", which is not loopback and is not listed in network.plainHttpHosts. Use https://, or list the host there if it is a private-network peer.`,
+      });
+    }
+  }
   const http = cfg.transports.http;
   if (http.enabled && cfg.auth.mode === "none" && !isLoopbackHost(http.host)) {
     ctx.addIssue({

@@ -44,6 +44,24 @@ export interface Database {
    *  Optional so a minimal test double can omit it — every caller must treat a missing probe as
    *  "unknown", never as "lost" (see vault-lock.ts's own use for the exact fallback). */
   inTransaction?(): boolean;
+  /** Present only on a libSQL embedded replica (`OpenOptions.sync`): pull the primary's newer WAL
+   *  frames into the local file now. Writes do not need it (they go through the primary and are
+   *  visible locally on return); it is what makes ANOTHER machine's writes visible. */
+  sync?(): ReplicaSyncResult;
+}
+
+/** Where a libSQL embedded replica pulls from and forwards writes to: Turso Cloud or a
+ *  self-hosted sqld. `authToken` is the resolved secret, never read from the config file. */
+export interface LibsqlSyncOptions {
+  url: string;
+  authToken?: string;
+  /** Background pull period; omitted means pull only on `sync()`. */
+  syncIntervalMs?: number;
+}
+
+export interface ReplicaSyncResult {
+  framesSynced: number;
+  frameNo?: number;
 }
 
 /**
@@ -76,6 +94,10 @@ export interface OpenOptions {
    *  revocations (`auth.db`, `oauth.db`). Honoured by `openConfiguredDatabase`; ignored when
    *  `readonly`, which never changes a file. */
   ownerOnly?: boolean;
+  /** Open the file as a libSQL embedded replica of this server (db/libsql.ts). Experimental; the
+   *  server boot path does not set it yet. Combined with `readonly` it opens the local read handle
+   *  only (a follower process). */
+  sync?: LibsqlSyncOptions;
 }
 
 /** prepareCached when the adapter provides it (production bun / better-sqlite3), else prepare. */
