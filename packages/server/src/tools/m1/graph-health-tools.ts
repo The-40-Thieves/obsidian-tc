@@ -7,12 +7,13 @@ import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { FolderAcl } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
+import { drainYielding, type ScanSteps } from "../../util/scan-steps";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { buildVaultIndex, resolveTarget } from "../../vault/links";
 import { normalizeVaultPath } from "../../vault/paths";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
-import { isExternal, linksOf, readableNotes, scanProvenance } from "../wiki-scan";
+import { isExternal, linksOf, readableNotesSteps, scanProvenanceSteps } from "../wiki-scan";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
 
@@ -26,12 +27,13 @@ interface Graph {
   warnings: ScanWarnings;
 }
 
-function buildLinkGraph(
+/** One step per note, so a handler drains it with `drainYielding` and the event loop stays free. */
+function* buildLinkGraphSteps(
   root: string,
   acl: FolderAcl | undefined,
   grantedScopes: Iterable<string>,
-): Graph {
-  const notes = readableNotes(root, acl, grantedScopes);
+): ScanSteps<Graph> {
+  const notes = yield* readableNotesSteps(root, acl, grantedScopes);
   const index = buildVaultIndex(notes);
   const out = new Map<string, Set<string>>();
   const inn = new Map<string, Set<string>>();
@@ -56,28 +58,44 @@ function buildLinkGraph(
         unresolved++;
       }
     }
+    yield;
   }
   return { notes, out, inn, unresolved, links, warnings };
 }
 
 /** Directed-cycle enumeration (DFS back-edges). Bounded by `limit` cycles reported; a cycle of more
  *  than `maxLength` links is not reported (a dense vault's DFS closes cycles hundreds of notes long,
- *  which is a page-sized answer to a question nobody asked) and is counted in `skippedLonger`. */
-function findCycles(
+ *  which is a page-sized answer to a question nobody asked) and is counted in `skippedLonger`.
+ *  Iterative (an explicit stack of neighbour iterators) with a step per node, so a drain can hand the
+ *  event loop back during the walk, and a 20 000-deep chain cannot overflow the call stack. */
+function* findCyclesSteps(
   out: Map<string, Set<string>>,
   limit: number,
   maxLength: number,
-): { cycles: string[][]; skippedLonger: number } {
+): ScanSteps<{ cycles: string[][]; skippedLonger: number }> {
   let skippedLonger = 0;
   const state = new Map<string, number>(); // 0 unseen, 1 on-stack, 2 done
   const stack: string[] = [];
+  const nexts: Iterator<string>[] = [];
   const cycles: string[][] = [];
-  const visit = (u: string): void => {
-    if (cycles.length >= limit) return;
+  const enter = (u: string): void => {
     state.set(u, 1);
     stack.push(u);
-    for (const w of out.get(u) ?? []) {
-      if (cycles.length >= limit) break;
+    nexts.push((out.get(u) ?? new Set<string>()).values());
+  };
+  for (const n of out.keys()) {
+    if (cycles.length >= limit) break;
+    if ((state.get(n) ?? 0) !== 0) continue;
+    enter(n);
+    while (stack.length > 0 && cycles.length < limit) {
+      const nx = (nexts[nexts.length - 1] as Iterator<string>).next();
+      if (nx.done) {
+        nexts.pop();
+        state.set(stack.pop() as string, 2);
+        yield;
+        continue;
+      }
+      const w = nx.value;
       const s = state.get(w) ?? 0;
       if (s === 1) {
         const i = stack.lastIndexOf(w);
@@ -86,15 +104,10 @@ function findCycles(
           else cycles.push([...stack.slice(i), w]);
         }
       } else if (s === 0) {
-        visit(w);
+        enter(w);
+        yield;
       }
     }
-    stack.pop();
-    state.set(u, 2);
-  };
-  for (const n of out.keys()) {
-    if (cycles.length >= limit) break;
-    if ((state.get(n) ?? 0) === 0) visit(n);
   }
   return { cycles, skippedLonger };
 }
@@ -247,13 +260,18 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         .strict(),
       outputSchema: ConciseableVaultHealthScoreOutput,
       requiredScopes: ["read:notes"],
-      handler: (input, ctx) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const g = buildLinkGraph(v.root, ctx.acl, ctx.grantedScopes);
+        const g = await drainYielding(
+          buildLinkGraphSteps(v.root, ctx.acl, ctx.grantedScopes),
+          ctx.signal,
+        );
         const total = g.notes.length;
         const orphans = g.notes.filter((p) => (g.inn.get(p)?.size ?? 0) === 0).length;
         const hubs = g.notes.filter((p) => (g.inn.get(p)?.size ?? 0) >= input.hub_threshold).length;
-        const cycles = findCycles(g.out, 100, Number.POSITIVE_INFINITY).cycles.length;
+        const cycles = (
+          await drainYielding(findCyclesSteps(g.out, 100, Number.POSITIVE_INFINITY), ctx.signal)
+        ).cycles.length;
         const orphanRatio = total ? orphans / total : 0;
         const unresolvedRatio = g.links ? g.unresolved / g.links : 0;
         const hubRatio = total ? hubs / total : 0;
@@ -306,10 +324,16 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         .strict(),
       outputSchema: FindLinkCyclesOutput,
       requiredScopes: ["read:notes"],
-      handler: (input, ctx) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
-        const g = buildLinkGraph(v.root, ctx.acl, ctx.grantedScopes);
-        const { cycles, skippedLonger } = findCycles(g.out, input.limit, input.max_length);
+        const g = await drainYielding(
+          buildLinkGraphSteps(v.root, ctx.acl, ctx.grantedScopes),
+          ctx.signal,
+        );
+        const { cycles, skippedLonger } = await drainYielding(
+          findCyclesSteps(g.out, input.limit, input.max_length),
+          ctx.signal,
+        );
         return {
           ...g.warnings.out(),
           vault: v.id,
@@ -332,13 +356,16 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
       inputSchema: z.object({ vault: VaultId, from: VaultPath, to: VaultPath }).strict(),
       outputSchema: GetLinkStrengthOutput,
       requiredScopes: ["read:notes"],
-      handler: (input, ctx) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const from = normalizeVaultPath(input.from);
         const to = normalizeVaultPath(input.to);
         enforcePathAcl(ctx.acl, "read", from, v.root, ctx.grantedScopes);
         enforcePathAcl(ctx.acl, "read", to, v.root, ctx.grantedScopes);
-        const g = buildLinkGraph(v.root, ctx.acl, ctx.grantedScopes);
+        const g = await drainYielding(
+          buildLinkGraphSteps(v.root, ctx.acl, ctx.grantedScopes),
+          ctx.signal,
+        );
         if (!g.out.has(from)) throw err.noteNotFound("note not found", { path: from });
         if (!g.out.has(to)) throw err.noteNotFound("note not found", { path: to });
         const direct = (g.out.get(from)?.has(to) ?? false) || (g.out.get(to)?.has(from) ?? false);
@@ -381,11 +408,14 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         .strict(),
       outputSchema: ConciseableSuggestLinksOutput,
       requiredScopes: ["read:notes"],
-      handler: (input, ctx) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const p = normalizeVaultPath(input.path);
         enforcePathAcl(ctx.acl, "read", p, v.root, ctx.grantedScopes);
-        const g = buildLinkGraph(v.root, ctx.acl, ctx.grantedScopes);
+        const g = await drainYielding(
+          buildLinkGraphSteps(v.root, ctx.acl, ctx.grantedScopes),
+          ctx.signal,
+        );
         if (!g.out.has(p)) throw err.noteNotFound("note not found", { path: p });
         const already = new Set<string>(g.out.get(p) ?? []);
         already.add(p);
@@ -442,20 +472,23 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         .strict(),
       outputSchema: ConciseableAuditProvenanceOutput,
       requiredScopes: ["read:notes"],
-      handler: (input, ctx) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const warnings = new ScanWarnings();
-        const scan = scanProvenance(
-          {
-            root: v.root,
-            acl: ctx.acl,
-            grantedScopes: ctx.grantedScopes,
-            wikiFolder: v.wikiFolder,
-            wikiFolders: v.wikiFolders,
-            rawFolders: v.rawFolders,
-          },
-          warnings,
-          { field: input.field, include: input.include, exclude: input.exclude },
+        const scan = await drainYielding(
+          scanProvenanceSteps(
+            {
+              root: v.root,
+              acl: ctx.acl,
+              grantedScopes: ctx.grantedScopes,
+              wikiFolder: v.wikiFolder,
+              wikiFolders: v.wikiFolders,
+              rawFolders: v.rawFolders,
+            },
+            warnings,
+            { field: input.field, include: input.include, exclude: input.exclude },
+          ),
+          ctx.signal,
         );
         const { scanned, withField, withConfidence, withVerified, missing, byFolder } = scan;
         const field = input.field;
