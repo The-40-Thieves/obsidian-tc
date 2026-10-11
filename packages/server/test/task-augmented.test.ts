@@ -239,7 +239,9 @@ describe("deferred result retrieval — the point of the extension", () => {
     const stored = queue.get(job.id);
     expect(stored?.outcome).toEqual({ ok: true, result: { ran: true } });
     // The projection only surfaces it on a COMPLETED task — a working one has no result yet.
-    expect(toMcpTask({ ...(stored as Job), state: "complete" }).result).toEqual({ ran: true });
+    expect(toMcpTask({ ...(stored as Job), state: "complete" }).result).toMatchObject({
+      structuredContent: { ran: true },
+    });
     expect(toMcpTask(stored as Job).result).toBeUndefined();
   });
 
