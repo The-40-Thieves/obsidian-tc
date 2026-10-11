@@ -49,6 +49,8 @@ export interface M5Deps {
   bootstrap?: BootstrapConfig;
   /** Per-vault memory materialization folder; defaults to "memory". */
   memoryFolder?: (vaultId: string) => string;
+  /** Per-vault memory.supersededInNote; absent -> true (the schema default). */
+  supersededInNote?: (vaultId: string) => boolean;
   /** Per-vault workspace trace folder; defaults to ".obsidian-tc/traces". */
   traceFolder?: (vaultId: string) => string;
   /** GH #994: per-vault memoryDefense policy; absent -> MEMORY_DEFENSE_OFF (mode "off", no scan). */
@@ -62,6 +64,10 @@ export interface M5Deps {
 
 export function memoryFolderFor(deps: M5Deps, vaultId: string): string {
   return deps.memoryFolder?.(vaultId) ?? DEFAULT_MEMORY_FOLDER;
+}
+
+export function supersededInNoteFor(deps: M5Deps, vaultId: string): boolean {
+  return deps.supersededInNote?.(vaultId) ?? true;
 }
 
 export function traceFolderFor(deps: M5Deps, vaultId: string): string {

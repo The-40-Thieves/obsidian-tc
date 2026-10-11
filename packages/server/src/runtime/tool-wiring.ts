@@ -12,14 +12,12 @@ import type {
   VaultMemoryDefenseConfig,
   VaultReflectConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
-import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
 import type { CapabilityCache } from "../bridge";
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import type { EmbedderWarmupStatus } from "../embeddings/warmup";
 import type { RetrievalLogger } from "../experiential/log";
-import { MEMORY_DEFENSE_OFF } from "../experiential/memory-defense";
 import { createGatewayClient, type GatewayClient } from "../gateway";
 import { createPagingDeps } from "../mcp/byte-page";
 import { toolFacadeHealthView } from "../mcp/facade-auto";
@@ -50,7 +48,7 @@ import { type ProvenanceRecorder, provenanceDepsOf, registerM1Tools } from "../t
 import { registerM2Tools } from "../tools/m2";
 import { registerM3Tools } from "../tools/m3";
 import { bridgeTimeouts, type M4Deps, openBridge, registerM4Tools } from "../tools/m4";
-import { DEFAULT_TRACE_FOLDER, registerM5Tools } from "../tools/m5";
+import { registerM5Tools } from "../tools/m5";
 import { registerM6Tools, type SandboxRerunFn } from "../tools/m6";
 import { registerM7Tools } from "../tools/m7";
 import { getOrCreateWikiSealKey, readWikiSealKey } from "../tools/m7/knowledge/wiki-generated-seal";
@@ -62,6 +60,7 @@ import { buildAcls } from "./acl-build";
 import { resolveDeclaredReranker } from "./declared-reranker";
 import type { IndexHealthState, IndexResources } from "./indexing-wiring";
 import { buildM6Deps } from "./m6-wiring";
+import { memoryVaultAccessors } from "./memory-vault-accessors";
 
 export interface HealthToolsDeps {
   registry: ToolRegistry;
@@ -493,6 +492,8 @@ export interface DomainToolsDeps {
   deindex: (vaultId: string, path: string) => void;
   activeSessions: ActiveSessionTracker;
   memoryFolderByVault: Map<string, string>;
+  /** memory.supersededInNote, present only for a vault that configured a `memory` block. */
+  supersededInNoteByVault: Map<string, boolean>;
   traceFolderByVault: Map<string, string>;
   /** GH #994: per-vault memoryDefense config, present only for a vault that configured one. */
   memoryDefenseByVault: Map<string, VaultMemoryDefenseConfig>;
@@ -538,14 +539,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
   // already guarded at the port — this is the CONSUMER-side filter reflect/knowledge_challenge
   // apply before building their gateway request).
   const m7ExcludeFilter = compileEgressFilter(config.egress.excludePaths);
-  const memoryFolder = (vaultId: string): string =>
-    deps.memoryFolderByVault.get(vaultId) ?? DEFAULT_MEMORY_FOLDER;
-  const traceFolder = (vaultId: string): string =>
-    deps.traceFolderByVault.get(vaultId) ?? DEFAULT_TRACE_FOLDER;
-  // GH #994: absent -> MEMORY_DEFENSE_OFF (mode "off", no scan) — same "closure, defaulted at the
-  // read site" shape as memoryFolder/traceFolder above.
-  const memoryDefense = (vaultId: string): VaultMemoryDefenseConfig =>
-    deps.memoryDefenseByVault.get(vaultId) ?? MEMORY_DEFENSE_OFF;
+  const { memoryFolder, supersededInNote, traceFolder, memoryDefense } = memoryVaultAccessors(deps);
 
   // GH #1027: tools.defaults.responseFormat, threaded to every domain whose tools take response_format.
   const responseFormat = config.tools?.defaults?.responseFormat;
@@ -651,6 +645,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     plur: plurClient,
     bootstrap: config.bootstrap,
     memoryFolder,
+    supersededInNote,
     traceFolder,
     memoryDefense,
     metrics: deps.metrics,

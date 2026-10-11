@@ -135,6 +135,8 @@ export async function run_memory_import(cmd: Cmd<"memory-import">): Promise<void
       vaultRegistry,
       cacheDir: cfg.cacheDir,
       memoryFolder: (id) => cfg.vaults.find((v) => v.id === id)?.memory?.folder ?? "memory",
+      supersededInNote: (id) =>
+        cfg.vaults.find((v) => v.id === id)?.memory?.supersededInNote ?? true,
       // GH #994 follow-up: without this, every create_entity/add_observation/link_entities call
       // this command dispatches ran with memoryDefenseFor's absent-config default
       // (MEMORY_DEFENSE_OFF) regardless of what the target vault actually configured — a batch

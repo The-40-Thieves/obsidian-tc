@@ -105,6 +105,11 @@ all return one per observation, stable across reads. Pass `observation` to repla
 visible with an earlier `as_of`, listed under Superseded), and a correction keeps the old
 observation's key. It needs write access to the entity's note path, like every memory write.
 
+The note's `## Superseded` section is on by default. Set `memory.supersededInNote: false` for the
+vault to leave it out: the note then lists current facts only, search stops returning the old text,
+and `get_entity` with an earlier `as_of` still returns it. Existing notes pick this up on their next
+write.
+
 `get_entity` and `query_entity_graph` both take an `as_of` (epoch ms; default now) and return only
 the observations valid at that instant — `valid_from <= as_of` and (`valid_to` unset or `as_of <
 valid_to`). An `as_of` in the PAST excludes any observation added after that instant, even one

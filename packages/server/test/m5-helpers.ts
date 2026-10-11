@@ -47,6 +47,8 @@ export interface M5VaultOptions {
   /** GH #994: memoryDefense's obsidian_tc_memory_defense_hits_total counter — pass a real
    *  MetricsRecorder to assert on it from a test. */
   metrics?: MetricsRecorder;
+  /** memory.supersededInNote for this vault. Omit to leave it unwired (the schema default, true). */
+  supersededInNote?: boolean;
   /** GH #1027: the operator default (`tools.defaults.responseFormat`) a call naming no format gets. */
   responseFormat?: ResponseFormat;
   /** session_bootstrap's routing table (server config `bootstrap`); absent -> degrades to lightweight. */
@@ -128,6 +130,9 @@ export function makeM5Vault(opts: M5VaultOptions = {}): M5Vault {
     traceFolder: () => opts.traceFolder ?? ".obsidian-tc/traces",
     ...(opts.memoryDefense
       ? { memoryDefense: () => opts.memoryDefense as VaultMemoryDefenseConfig }
+      : {}),
+    ...(opts.supersededInNote !== undefined
+      ? { supersededInNote: () => opts.supersededInNote as boolean }
       : {}),
     ...(opts.metrics ? { metrics: opts.metrics } : {}),
     ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
