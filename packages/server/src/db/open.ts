@@ -1,13 +1,4 @@
-import {
-  chmodSync,
-  closeSync,
-  constants,
-  fchmodSync,
-  fstatSync,
-  lstatSync,
-  openSync,
-  type Stats,
-} from "node:fs";
+import { chmodSync, closeSync, constants, lstatSync, openSync, type Stats } from "node:fs";
 import { basename, join } from "node:path";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database, OpenOptions } from "./types";
@@ -63,8 +54,8 @@ export async function openDatabase(
  * stage) that only ever hold a bare `cacheDir` string, not a full `ServerConfig`, and so cannot
  * route through this helper.
  *
- * `ownerOnly` (auth.db, oauth.db) tightens the file and its -wal/-shm to 0600 twice: before the
- * open, through a descriptor, and again after it. See `tightenBeforeOpen` and `tightenAfterOpen`.
+ * `ownerOnly` (auth.db, oauth.db) tightens the file and its -wal/-shm to 0600 when they are looser,
+ * before the open and again after it, by pathname. See `tightenByPath`.
  * Nothing here throws on a permission problem: each file that cannot be tightened is named once,
  * by basename and reason, on one stderr line, and the database still opens.
  *
@@ -81,21 +72,23 @@ export async function openConfiguredDatabase(
   if (!opts.ownerOnly || opts.readonly) return openDatabase(path, cfg.db.busyTimeoutMs, opts);
   // SQLite gives a new -wal/-shm the mode of the main file, so creating that one 0600 first covers
   // every sidecar born later. O_EXCL means an existing name, a symlink included, is never created
-  // through: it is left to the passes below, which tighten a regular file and refuse a link.
+  // through: it is left to the passes below, which tighten a regular file and refuse a link. A
+  // descriptor is opened only when this call creates the file, so no lock another connection holds
+  // can be on it.
   createOwnerOnly(path);
   // Win32 has no owner-only mode: a chmod there would only toggle the read-only flag.
   const posix = process.platform !== "win32";
   const notes: Notes = new Map();
   if (posix) {
-    for (const suffix of SUFFIXES) tightenBeforeOpen(path + suffix, notes);
+    for (const suffix of SUFFIXES) tightenByPath(path + suffix, notes);
   }
   hooks.afterPreCheck?.(path);
-  // The second pass is by path, not by descriptor. SQLite holds POSIX locks on -wal and -shm for as
-  // long as the connection is open, and closing any descriptor on a file drops every lock this
-  // process holds on it, so the open connection must not be given a descriptor close.
+  // Both passes are by pathname and open no descriptor on the database, -wal or -shm. Closing any
+  // descriptor on a file drops every POSIX lock this process holds on it, and SQLite's write lock
+  // lives on -shm, so a descriptor here would release another open connection's lock.
   return openDatabase(path, cfg.db.busyTimeoutMs, opts).finally(() => {
     if (posix) {
-      for (const suffix of SUFFIXES) tightenAfterOpen(path + suffix, notes);
+      for (const suffix of SUFFIXES) tightenByPath(path + suffix, notes);
     }
     if (notes.size > 0) {
       const parts = [...notes].map(([name, text]) => `${name} ${text}`);
@@ -151,56 +144,34 @@ function refusalFor(st: Stats): string | undefined {
 }
 
 /**
- * Before the open: open with O_NOFOLLOW (a symlink is refused, never followed), check the open
- * descriptor's inode, and fchmod it. A missing sidecar is not an error.
+ * Tighten one path to 0600 if, and only if, it is looser: a no-op when it is already owner-only, so
+ * the common path touches nothing. A looser file is refused rather than chmodded when it is a
+ * symbolic link, has another name (nlink > 1) or belongs to another user. A missing file is not an
+ * error. Pathname-based, so no descriptor is opened on the file.
+ *
+ * Known limit: the lstat and the chmod are two pathname operations, and SQLite opens the file after
+ * them. A swap in either window can be won only by a party that can already write cacheDir, and
+ * that party can replace oauth.db outright, so this check does not stop it.
  */
-function tightenBeforeOpen(file: string, notes: Notes): void {
-  let fd: number;
+function tightenByPath(file: string, notes: Notes): void {
+  let st: Stats;
   try {
-    fd = openSync(file, constants.O_RDWR | NOFOLLOW);
+    st = lstatSync(file);
   } catch (err) {
-    if (errorCode(err) === "ELOOP") note(notes, file, REFUSED_LINK, true);
-    else if (errorCode(err) !== "ENOENT") note(notes, file, notTightened(err), true);
+    if (errorCode(err) !== "ENOENT") note(notes, file, notTightened(err), true);
+    return;
+  }
+  if (!isLooser(st)) return;
+  const refusal = st.isSymbolicLink() ? REFUSED_LINK : refusalFor(st);
+  if (refusal) {
+    note(notes, file, refusal, true);
     return;
   }
   try {
-    const st = fstatSync(fd);
-    if (!isLooser(st)) return;
-    const refusal = refusalFor(st);
-    if (refusal) {
-      note(notes, file, refusal, true);
-    } else {
-      fchmodSync(fd, 0o600);
-      note(notes, file, TIGHTENED);
-    }
-  } catch (err) {
-    note(notes, file, notTightened(err), true);
-  } finally {
-    closeSync(fd);
-  }
-}
-
-/**
- * After the open: catch a file swapped in between the two passes. lstat, not stat, so a symlink
- * that appeared in the window is refused rather than followed.
- */
-function tightenAfterOpen(file: string, notes: Notes): void {
-  try {
-    const st = lstatSync(file);
-    if (st.isSymbolicLink()) {
-      note(notes, file, REFUSED_LINK, true);
-      return;
-    }
-    if (!isLooser(st)) return;
-    const refusal = refusalFor(st);
-    if (refusal) {
-      note(notes, file, refusal, true);
-      return;
-    }
     chmodSync(file, 0o600);
     note(notes, file, TIGHTENED);
   } catch (err) {
-    if (errorCode(err) !== "ENOENT") note(notes, file, notTightened(err), true);
+    note(notes, file, notTightened(err), true);
   }
 }
 

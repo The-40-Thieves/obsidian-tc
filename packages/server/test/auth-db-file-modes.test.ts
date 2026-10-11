@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openOauthDb } from "../src/auth/oauth-db";
 import { openAuthRegistry } from "../src/auth/registry-open";
 import { openConfiguredDatabase } from "../src/db/open";
+import { runBunSync } from "./spawn-cli";
 import { makeTempDir, rmTemp } from "./tmp";
 
 // The chmod-failure tests make fchmodSync/chmodSync throw; every other call passes straight through.
@@ -307,13 +308,13 @@ describe("a chmod failure does not abort the open", () => {
       chmodSync(path, 0o644);
       writeFileSync(`${path}-wal`, "");
       chmodSync(`${path}-wal`, 0o644);
-      // Pre-open order is main, then -wal: fail the second descriptor-level chmod only.
+      // Pre-open order is main, then -wal: fail the second chmod only.
       const real = await vi.importActual<typeof import("node:fs")>("node:fs");
       let call = 0;
-      vi.mocked(fchmodSync).mockImplementation((fd, mode) => {
+      vi.mocked(chmodSync).mockImplementation((file, mode) => {
         call += 1;
         if (call === 2) throw Object.assign(new Error("EPERM"), { code: "EPERM" });
-        return real.fchmodSync(fd, mode);
+        return real.chmodSync(file, mode);
       });
       const lines = await captureStderr(async () => {
         (await openConfiguredDatabase(config, "oauth.db", { ownerOnly: true })).close?.();
@@ -360,4 +361,54 @@ it.skipIf(win32)("a looser database keeps its mode when the platform reports win
     if (real) Object.defineProperty(process, "platform", real);
   }
   expect(modeOf(path)).toBe(0o644);
+});
+
+posix("opening an owner-only database never drops a lock another connection holds", () => {
+  // POSIX fcntl locks belong to the process, and closing ANY descriptor on the file drops them all.
+  // SQLite keeps its write lock on -shm, so a descriptor opened and closed on -shm by a second open
+  // in this process hands that lock to whoever asks next. The probe is a child process: a
+  // same-process connection cannot tell whether the OS-level lock is still held.
+  it("a write lock held by an open transaction on oauth.db survives a second open, checked from another process", async () => {
+    const config = configIn();
+    const path = join(config.cacheDir, "oauth.db");
+    const holder = await openOauthDb(config);
+    try {
+      holder.db.exec("BEGIN IMMEDIATE");
+      const second = await openConfiguredDatabase(config, "oauth.db", { ownerOnly: true });
+      try {
+        const probe = runBunSync([
+          "-e",
+          `const { Database } = require("bun:sqlite");
+const db = new Database(${JSON.stringify(path)});
+db.exec("PRAGMA busy_timeout = 0");
+try { db.exec("BEGIN IMMEDIATE"); console.log("ACQUIRED"); } catch (err) { console.log("BUSY " + err.code); }`,
+        ]);
+        expect(probe.stdout.trim()).toBe("BUSY SQLITE_BUSY");
+      } finally {
+        second.close?.();
+      }
+      holder.db.exec("ROLLBACK");
+    } finally {
+      holder.close();
+    }
+  });
+});
+
+posix("an already owner-only database is not touched on open", () => {
+  it("opening oauth.db, -wal and -shm that are already 0600 calls neither chmod nor fchmod", async () => {
+    const config = configIn();
+    const first = await openOauthDb(config);
+    try {
+      first.db.prepare("SELECT count(*) FROM users").get();
+      expectOwnerOnly(join(config.cacheDir, "oauth.db"));
+      vi.mocked(chmodSync).mockClear();
+      vi.mocked(fchmodSync).mockClear();
+      const second = await openConfiguredDatabase(config, "oauth.db", { ownerOnly: true });
+      second.close?.();
+      expect(vi.mocked(chmodSync)).not.toHaveBeenCalled();
+      expect(vi.mocked(fchmodSync)).not.toHaveBeenCalled();
+    } finally {
+      first.close();
+    }
+  });
 });
