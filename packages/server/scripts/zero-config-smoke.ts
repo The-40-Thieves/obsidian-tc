@@ -56,6 +56,7 @@ import {
   removeTree,
   waitForPidExit,
 } from "./lib/isolated-home.mjs";
+import { settleReconcile } from "./lib/reconcile-settle.mjs";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -196,27 +197,19 @@ async function main(): Promise<void> {
     return status.reconcile;
   }
 
-  // THE-1122 item 8: --expect-local-embeddings drives a REAL model load + CPU ONNX inference on
-  // the first embed, which is not instantaneous the way Ollama's immediate ECONNREFUSED-driven
-  // "degraded" is — poll rather than assert on the first read, so this does not flake on a
-  // slightly slower runner. Every other mode's reconcile already settles by the time `initialize`
-  // returns (no real provider work happens), so they keep the single immediate read.
-  let finalReconcile: string | undefined;
-  if (expectLocalEmbeddings) {
-    const deadline = Date.now() + reconcileTimeoutMs;
-    for (;;) {
-      finalReconcile = await getReconcile();
-      if (finalReconcile !== "pending") break;
-      if (Date.now() >= deadline) {
-        fail(
-          `get_index_status.reconcile stayed "pending" for ${reconcileTimeoutMs}ms — the local ` +
-            "embedder never finished its first embed (model download/load too slow, or wedged)",
-        );
-      }
-      await new Promise((r) => setTimeout(r, 500));
-    }
-  } else {
-    finalReconcile = await getReconcile();
+  // The boot reconcile starts after initialize and runs in the background, so it is still "pending"
+  // here on a slow runner (windows-latest, 2026-10-11; reproduced on Linux under CPU load). Poll
+  // until it settles, bounded by reconcileTimeoutMs. THE-1122 item 8: --expect-local-embeddings
+  // drives a REAL model load + CPU ONNX inference on the first embed, which takes the longest.
+  const finalReconcile = await settleReconcile(getReconcile, {
+    timeoutMs: reconcileTimeoutMs,
+    intervalMs: 500,
+  });
+  if (finalReconcile === "pending") {
+    fail(
+      `get_index_status.reconcile stayed "pending" for ${reconcileTimeoutMs}ms — the boot ` +
+        "reconcile never settled (a model download/load too slow, or a wedged embedder)",
+    );
   }
   if (finalReconcile !== expectReconcile) {
     fail(
