@@ -31,7 +31,9 @@ fits your environment.
 
 Measured, not assumed: CI installs each path on a clean Ubuntu, macOS and Windows machine,
 points it at a vault with no config file, and runs a real semantic search
-(`ci-first-run-smoke`). All nine cells pass.
+(`ci-first-run-smoke`). Every cell passes on Ubuntu, on Apple Silicon macOS and on Windows. The Intel
+macOS cells (`macos-15-intel`, `macos-26-intel`) do not pass yet: ONNX Runtime ships no darwin-x64
+build, so the bundled embedder cannot load there.
 
 | Method | Default semantic search (no config) | Dense index (`sqlite-vec`) | Native addon | Size |
 | --- | --- | --- | --- | --- |
