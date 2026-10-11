@@ -148,20 +148,33 @@ registration by metadata document and by RFC 7591 (`dynamicRegistration`, on by 
 
 A minimal example: the bundled server with Dynamic Client Registration turned off and one pre-registered client.
 
-```yaml
-auth:
-  mode: jwt
-  resource: https://vault.example.com/mcp
-  audience: https://vault.example.com/mcp
-  as:
-    enabled: true
-    issuer: https://vault.example.com
-    dynamicRegistration: false
-    clients:
-      - clientId: local-script
-        name: Local script
-        redirectUris: ["http://127.0.0.1/callback"]
+```json
+{
+  "cacheDir": "/var/lib/obsidian-tc/cache",
+  "vaults": [{ "id": "main", "path": "/absolute/path/to/vault" }],
+  "transports": { "http": { "allowedHosts": ["vault.example.com"] } },
+  "auth": {
+    "mode": "jwt",
+    "resource": "https://vault.example.com/mcp",
+    "audience": "https://vault.example.com/mcp",
+    "requireJti": true,
+    "as": {
+      "enabled": true,
+      "issuer": "https://vault.example.com",
+      "dynamicRegistration": false,
+      "clients": [
+        {
+          "clientId": "local-script",
+          "name": "Local script",
+          "redirectUris": ["http://127.0.0.1/callback"]
+        }
+      ]
+    }
+  }
+}
 ```
+
+The config file is JSON. The loader reads no other format.
 
 Cross-checks refused at load: `auth.authorizationServers`, when set, must list `auth.as.issuer` first (it defaults
 to `[issuer]`); `auth.jwksUri` may not point at this server's own `/.well-known/jwks.json`; `clientId`s must be

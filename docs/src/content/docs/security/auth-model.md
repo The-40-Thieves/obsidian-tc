@@ -473,13 +473,18 @@ and the client registrations below.
 The bundled server is off until you enable it. Set these in the config (every key is listed in
 [the `auth.as` table](/configuration/config-yaml/#bundled-authorization-server-authas)):
 
-```yaml
-auth:
-  mode: jwt
-  resource: https://vault.example.com/mcp
-  as:
-    enabled: true
-    issuer: https://vault.example.com
+```json
+{
+  "cacheDir": "/var/lib/obsidian-tc/cache",
+  "vaults": [{ "id": "main", "path": "/absolute/path/to/vault" }],
+  "transports": { "http": { "allowedHosts": ["vault.example.com"] } },
+  "auth": {
+    "mode": "jwt",
+    "resource": "https://vault.example.com/mcp",
+    "requireJti": true,
+    "as": { "enabled": true, "issuer": "https://vault.example.com" }
+  }
+}
 ```
 
 - `auth.mode: jwt` is required. `auth.as.enabled` is refused under `none` and under `oidc`.

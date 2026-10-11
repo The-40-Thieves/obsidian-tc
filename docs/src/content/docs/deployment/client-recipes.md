@@ -5,7 +5,7 @@ description: Setup for each MCP client against the bundled authorization server,
 
 Each recipe connects one MCP client to a server you run. The bundled authorization server is the default. WorkOS AuthKit and Keycloak are the vetted outside alternatives. The settings are explained in [Authentication](/security/auth-model/) and [Configuration](/configuration/config-yaml/).
 
-**Nothing on this page has been checked with a live login yet.** Every client carries one tag:
+**No client sign-in on this page has been run live yet.** Every client carries one tag:
 
 - **verified**: a live login was done and the steps worked. None yet.
 - **documented**: the vendor's own docs describe the setup. The steps have not been run here.
@@ -97,46 +97,103 @@ These send a token and run no OAuth flow, and they do not refresh. A token from 
 
 ### WorkOS AuthKit
 
-Tag: **documented** (WorkOS AuthKit MCP guide). Keep the bundled server off: `auth.as.enabled` stays `false`.
+Tag: **documented** (WorkOS AuthKit MCP guide). The settings below were measured on 2026-10-11 against a WorkOS staging environment. The organization roles and the scope mapping are **documented, pending live login**: no sign-in through AuthKit has been run yet. Do not enable `auth.as`: the bundled server is refused under `oidc`.
 
-1. In the WorkOS dashboard, under Connect and then Configuration, turn on Client ID Metadata Documents. It is off by default. Turn on Dynamic Client Registration only for a client that needs it.
-2. Add the MCP URL as a Resource Indicator and set it as the default with "Set as default". The default applies to clients that omit `resource`, and only to metadata-document or DCR clients. A wildcard indicator cannot be the default.
-3. Point obsidian-tc at AuthKit:
+1. Create the default resource indicator through the API. It returns `201`:
 
-```yaml
-auth:
-  mode: jwt
-  resource: https://vault.example.com/mcp
-  audience: https://vault.example.com/mcp
-  issuer: https://<authkit-domain>
-  jwksUri: https://<authkit-domain>/oauth2/jwks
-  authorizationServers:
-    - https://<authkit-domain>
-```
+   ```bash
+   curl -X POST https://api.workos.com/user_management/authkit_oauth_resources \
+     -H "Authorization: Bearer $WORKOS_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"uri":"https://vault.example.com/mcp","default":true}'
+   ```
 
-The `issuer` must equal the `iss` in AuthKit's tokens, so copy the value your environment shows. The JWKS URL is `https://<authkit-domain>/oauth2/jwks`. With `resource` set by the client, `aud` is the MCP URL. Without it, `aud` is the default indicator, which must also be the MCP URL.
+   The default applies to clients that omit `resource`, and only to metadata-document or DCR clients. A wildcard indicator cannot be the default. Changing the default later is dashboard-only (Set as default). Without a default indicator, `aud` is the environment's client id, and obsidian-tc refuses that token.
+2. In the dashboard, under Connect and then Configuration, turn on Client ID Metadata Documents (CIMD). It is off by default. Dynamic Client Registration (DCR) is also dashboard-only: turn it on only for a client that needs it. To read the state from outside, AuthKit's `/.well-known/oauth-authorization-server` has no `registration_endpoint` while DCR is off. Its `token_endpoint_auth_methods_supported` lists `none`, `client_secret_post` and `client_secret_basic`.
+3. Scopes come from an organization role. AuthKit's own `scopes_supported` are `email`, `offline_access`, `openid` and `profile`. Its access tokens carry `iss aud client_id sub org_id sid jti exp iat` and no `scope` claim. The `role` claim appears only for a member of an organization with a role. So put users in an organization with a role, and let `scopeMap` turn each role into obsidian-tc scopes. A bare role name grants nothing unless it is mapped. Documented, pending live login.
+4. Point obsidian-tc at AuthKit:
+
+   ```json
+   {
+     "cacheDir": "/var/lib/obsidian-tc/cache",
+     "vaults": [{ "id": "main", "path": "/absolute/path/to/vault" }],
+     "transports": { "http": { "allowedHosts": ["vault.example.com"] } },
+     "auth": {
+       "mode": "oidc",
+       "resource": "https://vault.example.com/mcp",
+       "authorizationServers": ["https://<authkit-domain>"],
+       "requireJti": true,
+       "scopesSupported": ["read:*", "write:*"],
+       "oidc": {
+         "issuer": "https://<authkit-domain>",
+         "jwksUri": "https://<authkit-domain>/oauth2/jwks",
+         "audience": "https://vault.example.com/mcp",
+         "claimMapping": {
+           "subject": "sub",
+           "scopes": "role",
+           "scopeMap": {
+             "member": ["read:*"],
+             "admin": ["read:*", "write:*"]
+           }
+         }
+       }
+     }
+   }
+   ```
+
+   `issuer` is the AuthKit domain origin, with no trailing slash, exactly as `/.well-known/oauth-authorization-server` states it. `jwksUri` is `https://<authkit-domain>/oauth2/jwks`. `audience` and `resource` are both the MCP URL. `oidc` mode runs discovery at boot and checks the issuer exactly, and it refuses to boot if discovery fails. The role names `member` and `admin` are examples: use the roles your organization defines.
+5. Check Protected Resource Metadata at the path-suffixed URL, which is where obsidian-tc serves it:
+
+   ```bash
+   curl https://vault.example.com/.well-known/oauth-protected-resource/mcp
+   ```
+
+   Its `authorization_servers` names the AuthKit issuer.
+
+Whether AuthKit needs the claude.ai, ChatGPT or loopback redirect URIs listed in advance is **unverified**. Check it on the first live login.
 
 ### Keycloak 26.7
 
-Tag: **documented** (Keycloak MCP authorization server guide). The guide marks both features as experimental, and its header reads "Nightly 26.8.0", so check the flags against your 26.7 release before you rely on them.
+Tag: **documented** (Keycloak MCP authorization server guide). Measured 2026-10-11 against Keycloak 26.7.4: a token issued by the realm got `initialize` 200 and `tools/list` 200, and a request with no token got 401 with `resource_metadata`. No client sign-in (Claude Code, Codex) has been run, so the tag stays documented. The guide marks both features as experimental, and its header reads "Nightly 26.8.0", so check the flags against your release.
 
-1. Start Keycloak with the flags the guide names: `--features=cimd,resource-indicators`.
-2. In the admin console, create a client profile with the `client-id-metadata-document` executor, and a client policy with the `client-id-uri` condition. Together they accept CIMD client ids.
-3. Add an Audience mapper. Without resource indicators, set Included Custom Audience to the MCP URL. With resource indicators, use Included Client Audience for the MCP server client. With CIMD and the resource-indicator allow list set, the executor adds the mapper for you.
-4. Point obsidian-tc at the realm:
+1. Start Keycloak with the features the guide names, behind a TLS-terminating proxy:
 
-```yaml
-auth:
-  mode: jwt
-  resource: https://vault.example.com/mcp
-  audience: https://vault.example.com/mcp
-  issuer: https://keycloak.example.com/realms/<realm>
-  jwksUri: https://keycloak.example.com/realms/<realm>/protocol/openid-connect/certs
-  authorizationServers:
-    - https://keycloak.example.com/realms/<realm>
-```
+   ```bash
+   KC_HOSTNAME=https://keycloak.example.com \
+   KC_PROXY_HEADERS=xforwarded \
+   KC_HTTP_ENABLED=true \
+   kc.sh start --features=cimd,resource-indicators
+   ```
 
-ChatGPT is not supported through Keycloak's CIMD: Keycloak rejects ChatGPT's metadata document, because that document uses `token_endpoint_auth_methods_supported`, which Keycloak does not implement. Claude Code and Codex work with the Keycloak setup above, as the guide describes.
+2. Create the client scopes `read:notes` and `write:notes` as realm default-optional, so a client has to ask for them.
+3. Add an audience mapper (`oidc-audience-mapper`) to the client scope that carries them: Included Custom Audience is the MCP URL, and Add to access token is on. With CIMD and the resource-indicator allow list set, the executor adds the mapper for you.
+4. Anonymous DCR: in the Trusted Hosts policy, keep the sending-host match off and the client-URI match on. Keycloak refuses both off.
+5. CIMD: create a client profile with the `client-id-metadata-document` executor, and a client policy with the `client-id-uri` condition (`uri-scheme` https, `trusted-domains`). Together they accept CIMD client ids. List each client's CIMD host in `trusted-domains`: `claude.ai` for Claude Code, `chatgpt.com` for Codex, `vscode.dev` and `zed.dev`. Set `resource-indicator-allow-list` to the MCP URL.
+6. Point obsidian-tc at the realm:
+
+   ```json
+   {
+     "cacheDir": "/var/lib/obsidian-tc/cache",
+     "vaults": [{ "id": "main", "path": "/absolute/path/to/vault" }],
+     "transports": { "http": { "allowedHosts": ["vault.example.com"] } },
+     "auth": {
+       "mode": "oidc",
+       "resource": "https://vault.example.com/mcp",
+       "requireJti": true,
+       "scopesSupported": ["read:notes", "write:notes"],
+       "oidc": {
+         "issuer": "https://keycloak.example.com/realms/<realm>",
+         "jwksUri": "https://keycloak.example.com/realms/<realm>/protocol/openid-connect/certs",
+         "audience": "https://vault.example.com/mcp",
+         "claimMapping": { "subject": "sub", "scopes": "scope" }
+       }
+     }
+   }
+   ```
+
+   The token's `scope` claim carries `read:notes write:notes` when a client asks for them. Both names are scopes the server checks, so no `scopeMap` is needed. Documented, pending live login.
+
+ChatGPT (developer mode) is not supported through Keycloak's CIMD. The research note says Keycloak rejects ChatGPT's metadata document, because that document uses `token_endpoint_auth_methods_supported`, which Keycloak does not implement. Codex is listed above under `chatgpt.com`, as the guide describes.
 
 ### Cloudflare Access: not yet supported
 
