@@ -16,7 +16,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target node --external better-sqlite3 --external @the-40-thieves/obsidian-tc-reranker-local --external @the-40-thieves/obsidian-tc-embedder-local --external @redis/client --minify --sourcemap=linked && bun scripts/copy-assets.mjs",
+    "build": "bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target node --external better-sqlite3 --external libsql --external @the-40-thieves/obsidian-tc-reranker-local --external @the-40-thieves/obsidian-tc-embedder-local --external @redis/client --minify --sourcemap=linked && bun scripts/copy-assets.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.bun-smoke.json && tsc -p tsconfig.eval.json",
     "test": "vitest run",
     "smoke:live": "vitest run test/live-companion.test.ts",
@@ -43,7 +43,7 @@
     "perf:update-baseline:isolated": "bun eval/perf/run.ts --scenario small --samples 5 --out perf-report.json --update-baseline",
     "perf:gate:densify:isolated": "bun eval/perf/run.ts --scenario densify --samples 5 --out perf-report-densify.json --gate",
     "perf:colbert": "bun eval/perf/run.ts --scenario colbert --samples 5 --out perf-report-colbert.json",
-    "perf:node-parity": "bun build eval/perf/run.ts --target node --external better-sqlite3 --outfile eval/perf/.node-parity.mjs && node eval/perf/.node-parity.mjs --scenario small --profile portable --out perf-node-parity.json",
+    "perf:node-parity": "bun build eval/perf/run.ts --target node --external better-sqlite3 --external libsql --outfile eval/perf/.node-parity.mjs && node eval/perf/.node-parity.mjs --scenario small --profile portable --out perf-node-parity.json",
     "test:local": "../../scripts/with-host-budget.sh node ./node_modules/vitest/vitest.mjs run"
   },
   "dependencies": {

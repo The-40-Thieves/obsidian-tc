@@ -11,6 +11,9 @@
 // packages/embedder-local (+ @huggingface/transformers + onnxruntime-node, rewritten by
 // scripts/lib/embedder-bundle.mjs) into the executable and embeds that target's onnxruntime native
 // files, gzipped; packages/server/src/providers/local-embedder-registry.ts unpacks them on first use.
+// `--with-libsql` additionally embeds the libSQL native addon for the target (the experimental
+// libsql database adapter; ~8 MB, see scripts/lib/libsql-bundle.mjs). Without it `libsql` stays
+// external, so the default binary does not grow.
 // Prerequisites: packages/embedder-local installed and built (`bun install --frozen-lockfile && bun
 // run build` there); sqlite-vec / SQLite are embedded by their own earlier steps.
 import { createHash } from "node:crypto";
@@ -23,6 +26,7 @@ import {
   embedderBundlePlugin,
   ortNativeFiles,
 } from "./lib/embedder-bundle.mjs";
+import { fetchLibsqlNative, libsqlBundlePlugin } from "./lib/libsql-bundle.mjs";
 
 const repoRoot = resolve(import.meta.dir, "..");
 const server = join(repoRoot, "packages", "server");
@@ -40,8 +44,11 @@ const target = arg("target");
 const outfile = resolve(arg("outfile"));
 const ortPlatform = BUN_TARGET_ORT_PLATFORM[target as keyof typeof BUN_TARGET_ORT_PLATFORM];
 
+const withLibsql = process.argv.includes("--with-libsql");
 const external = ["@the-40-thieves/obsidian-tc-reranker-local"];
+if (!withLibsql) external.push("libsql");
 const work = mkdtempSync(join(tmpdir(), "obtc-binary-"));
+const cleanups: string[] = [];
 try {
   let plugins: Bun.BunPlugin[] = [];
   if (ortPlatform) {
@@ -89,6 +96,17 @@ export const embeddedEmbedder = {
     );
   }
 
+  if (withLibsql) {
+    const libsqlVersion = JSON.parse(
+      readFileSync(join(server, "node_modules", "libsql", "package.json"), "utf8"),
+    ).version;
+    const native = await fetchLibsqlNative(target, libsqlVersion, (m) =>
+      console.log(`build-binary: ${m}`),
+    );
+    cleanups.push(native.cleanupDir);
+    plugins.push(libsqlBundlePlugin(native.nodeFile));
+  }
+
   mkdirSync(resolve(outfile, ".."), { recursive: true });
   const result = await Bun.build({
     entrypoints: [join(server, "src", "cli.ts")],
@@ -107,4 +125,5 @@ export const embeddedEmbedder = {
   console.log(`build-binary: wrote ${outfile}`);
 } finally {
   rmSync(work, { recursive: true, force: true });
+  for (const dir of cleanups) rmSync(dir, { recursive: true, force: true });
 }

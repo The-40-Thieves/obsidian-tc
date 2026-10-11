@@ -270,6 +270,8 @@ describe.skipIf(!bunAvailable)(
           "--external",
           "better-sqlite3",
           "--external",
+          "libsql",
+          "--external",
           REAL_RERANKER_LOCAL_NAME,
         ],
         { cwd: SERVER_DIR, stdio: "pipe" },

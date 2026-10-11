@@ -5,7 +5,7 @@
 # glibc base (NOT alpine/musl): the native prebuilds are gnu-only, so a
 # gnu .node can never load against musl. The builder installs deps + builds shared + server; the
 # runtime stage copies ONLY packages/server/dist. The bundle is built --target node with all npm
-# deps (incl. @the-40-thieves/obsidian-tc-shared) inlined and only better-sqlite3 kept external.
+# deps (incl. @the-40-thieves/obsidian-tc-shared) inlined and only better-sqlite3 and libsql (the opt-in libsql adapter) kept external.
 # At runtime the entrypoint runs under Bun, so openDatabase() uses the built-in bun:sqlite; the
 # external better-sqlite3 and the node:sqlite fallback are never reached. The runtime stage does
 # ship a small node_modules next to dist/ (see "Runtime-only node_modules" below): the bundle

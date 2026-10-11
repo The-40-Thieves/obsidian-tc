@@ -8,7 +8,7 @@
 //
 // This gate exists so that class of bug can never hide again: it exercises the real db/*.ts
 // adapters against the real `jobs` + `job_schedule` schema through the real call sites
-// (JobQueue.enqueue, Scheduler's durable persist path), on all three adapters this repo supports,
+// (JobQueue.enqueue, Scheduler's durable persist path), on every adapter this repo supports (node:sqlite, better-sqlite3, libsql, bun:sqlite),
 // and asserts the STORED VALUES — never a row count. A row-count assertion is exactly what let the
 // original bug through (see THE-665's own writeup): the INSERT succeeds, a row exists, and every
 // column on it is NULL.
