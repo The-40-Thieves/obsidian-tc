@@ -328,7 +328,8 @@ describe("a chmod failure does not abort the open", () => {
   );
 });
 
-describe("the notice logs basenames only, as one line", () => {
+// Windows rejects a newline in a directory name, and the notice is POSIX-only anyway.
+posix("the notice logs basenames only, as one line", () => {
   it("a cacheDir containing a newline produces a single-line notice with no directory", async () => {
     const config = configIn("cache\nforged: log line");
     const path = join(config.cacheDir, "oauth.db");
