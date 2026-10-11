@@ -35,6 +35,8 @@ export interface TestVaultOptions {
   requireCas?: boolean;
   /** GH #1027: the operator default (`tools.defaults.responseFormat`) a call naming no format gets. */
   responseFormat?: ResponseFormat;
+  /** `resources.boundVaultOnly`: read_resources confines an unbound caller to the default vault. */
+  boundVaultOnly?: boolean;
   /** Index-coordinator hook. Unwired by default; a test that needs to fault the post-write step
    *  supplies a throwing one (THE-572). */
   reindex?: (vaultId: string, path: string, content: string) => void;
@@ -113,7 +115,12 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
   const wiki = opts.wikiFolder
     ? { folder: opts.wikiFolder, ...(opts.rawFolder ? { rawFolder: opts.rawFolder } : {}) }
     : undefined;
-  const vaultRegistry = new VaultRegistry([{ id, path: root, ...(wiki ? { wiki } : {}) }]);
+  const vaultRegistry = new VaultRegistry(
+    [{ id, path: root, ...(wiki ? { wiki } : {}) }],
+    undefined,
+    undefined,
+    { boundVaultOnly: opts.boundVaultOnly === true },
+  );
   // The per-vault ACLs as production builds them (runtime/acl-build.ts): an override block, and the
   // immutable raw-sources folder a wiki vault carries.
   const withDefaults = (cfg: Partial<AclConfigT>): AclConfigT => ({

@@ -42,6 +42,7 @@ import {
   type VerifyElicit,
 } from "./registry/types";
 import { withDefaultVault } from "./registry/vault-default";
+import { internalReasonOf } from "./resource-errors";
 import { ALLOW_ALL, type EffectiveToolVisibilityConfig, type VisibilityCaller } from "./visibility";
 
 // WP4.3: assertScopesGranted moved to registry/policy-gates.ts, memoizeSerialized/takeSerialized
@@ -354,7 +355,9 @@ export class ToolRegistry {
       emit("ok", now() - start, size);
       return out;
     } catch (e) {
-      const code = e instanceof ObsidianTcError ? e.code : "internal_error";
+      // A refusal answered to the caller as note_not_found still audits as its true reason.
+      const code =
+        internalReasonOf(e) ?? (e instanceof ObsidianTcError ? e.code : "internal_error");
       emit("error", now() - start, 0, code);
       throw e;
     }

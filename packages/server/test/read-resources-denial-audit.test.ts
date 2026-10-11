@@ -4,12 +4,15 @@
 // read_notes emits for a denied path, without telling an unauthorized caller whether a hidden
 // note exists. Also pins that the gates keyed elsewhere (rate limit, read-only, visibility) still
 // apply to a tool that declares no central `pathAcl`.
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildResourceUri } from "../src/mcp/resources";
 import { ALLOW_ALL } from "../src/mcp/visibility";
 import { MetricsRecorder } from "../src/metrics/registry";
 import { RateLimiter } from "../src/throttle";
 import { makeTestVault, type TestVault } from "./m1-helpers";
+import { makeTempDir, rmTemp } from "./tmp";
 
 const vaults: TestVault[] = [];
 afterEach(() => {
@@ -121,6 +124,29 @@ describe("read_resources: denied and missing do not reveal a hidden note", () =>
     if (!r.ok) throw new Error("call failed");
     return (r.data as { results: { ok: boolean; error: unknown }[] }).results[0];
   };
+
+  it("a denied note in a registered foreign vault reads as note_not_found and is still audited as acl_denied", async () => {
+    const { v, metrics } = vault(FILES);
+    const root2 = makeTempDir("obtc-denial-other-");
+    try {
+      mkdirSync(join(root2, "secret"), { recursive: true });
+      writeFileSync(join(root2, "secret", "b.md"), "S");
+      v.vaultRegistry.register({ id: "other", path: root2 });
+      const r = await v.call("read_resources", { uris: [uri("secret/b.md", "other")] });
+      if (!r.ok) throw new Error("call failed");
+      const item = (r.data as { results: { ok: boolean; error: { code: string } }[] }).results[0];
+      expect(item?.error.code).toBe("note_not_found");
+      const denials = v
+        .events()
+        .filter((e) => e.tool_name === "read_resources" && e.status === "error");
+      expect(denials.map((e) => e.error_code)).toEqual(["acl_denied"]);
+      expect(await metrics.metrics()).toMatch(
+        /obsidian_tc_acl_denied_total\{vault="test",scope_class="read",reason="acl_denied"\} 1/,
+      );
+    } finally {
+      rmTemp(root2);
+    }
+  });
 
   it("a hidden note that exists and one that does not are byte-identical to the caller", async () => {
     const { v } = vault(FILES);

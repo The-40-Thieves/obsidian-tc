@@ -106,7 +106,8 @@ describe("read_resources: per-item results", () => {
       "invalid_input",
       "invalid_input",
       "ok",
-      "forbidden",
+      // An unbound caller naming a vault that is not registered: the same answer as a missing note.
+      "note_not_found",
     ]);
     expect((d.results[0] as { text: string }).text).toBe("# A");
     expect((d.results[7] as { text: string }).text).toBe("B body");
@@ -121,9 +122,15 @@ describe("read_resources: per-item results", () => {
 
   it("a cross-vault URI is a per-item error and does not read the other vault", async () => {
     const v = vault({ "a.md": "A" });
-    const d = pageOf(await readPage(v, [uri("a.md", "other-vault"), uri("a.md")]));
-    expect(codeOf(d.results[0] as Item)).toBe("forbidden");
-    expect(d.results[1]?.ok).toBe(true);
+    // A vault-bound caller (an HTTP token) is pinned to its own vault: the old refusal.
+    const bound = pageOf(
+      await readPage(v, [uri("a.md", "other-vault"), uri("a.md")], undefined, { vaultBound: true }),
+    );
+    expect(codeOf(bound.results[0] as Item)).toBe("forbidden");
+    expect(bound.results[1]?.ok).toBe(true);
+    // An unbound caller naming a vault that is not registered gets what a missing note gets.
+    const unbound = pageOf(await readPage(v, [uri("a.md", "other-vault")]));
+    expect(codeOf(unbound.results[0] as Item)).toBe("note_not_found");
   });
 
   it("with the central ACL stage wired, a denied URI is still a per-item error", async () => {
@@ -168,8 +175,13 @@ describe("read_resources: per-item results", () => {
     const uris = [uri("a b/ünï.md"), uri("n.md")];
     const d = pageOf(await readPage(v, uris));
     d.results.forEach((item, i) => {
-      const single = readResource(v.vaultRegistry, v.ctx(), uris[i] as string, 1_000_000, (id) =>
-        v.registry.aclFor(id),
+      const single = readResource(
+        v.vaultRegistry,
+        v.ctx(),
+        uris[i] as string,
+        1_000_000,
+        (id) => v.registry.aclFor(id),
+        "detailed",
       );
       expect(item.ok).toBe(true);
       if (!item.ok) return;
@@ -184,7 +196,14 @@ describe("read_resources: per-item results", () => {
     for (const bad of [uri("missing.md"), "nope://x/y.md", uri("x.md", "other")]) {
       let thrown: { code?: string } = {};
       try {
-        readResource(v.vaultRegistry, v.ctx(), bad, 1_000_000, (id) => v.registry.aclFor(id));
+        readResource(
+          v.vaultRegistry,
+          v.ctx(),
+          bad,
+          1_000_000,
+          (id) => v.registry.aclFor(id),
+          "detailed",
+        );
       } catch (e) {
         thrown = e as { code?: string };
       }

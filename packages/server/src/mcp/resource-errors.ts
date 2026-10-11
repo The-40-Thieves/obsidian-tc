@@ -21,13 +21,30 @@ const RESOURCE_CALLER_FAULTS = new Set([
   "path_ambiguous",
 ]);
 
+/** The internal reason behind a refusal answered to the caller as `note_not_found`
+ *  (resources.ts answeringAsMissing). The caller never sees it: the audit reads it, so a denial is
+ *  still counted (dispatchResource, read_resources' deniedItems). */
+const internalReasons = new WeakMap<object, string>();
+
+export function withInternalReason<E extends object>(error: E, reason: string): E {
+  internalReasons.set(error, reason);
+  return error;
+}
+
+/** The reason recorded by withInternalReason on `e`, or undefined. */
+export function internalReasonOf(e: unknown): string | undefined {
+  return typeof e === "object" && e !== null ? internalReasons.get(e) : undefined;
+}
+
 export function asResourceProtocolError(e: unknown, uri: string): Error {
   const code = (e as { code?: unknown } | null)?.code;
   if (typeof code === "string" && RESOURCE_CALLER_FAULTS.has(code)) {
-    return new ResourceNotFoundError(
+    const mapped = new ResourceNotFoundError(
       uri,
       (e as { message?: string }).message ?? `not found: ${uri}`,
     );
+    const reason = internalReasonOf(e);
+    return reason === undefined ? mapped : withInternalReason(mapped, reason);
   }
   // Anything else is rethrown untouched, so a genuine internal failure keeps reporting as one.
   return e instanceof Error ? e : new Error(String(e));

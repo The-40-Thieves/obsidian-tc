@@ -29,6 +29,18 @@
         }
       }
     },
+    "resources": {
+      "description": "Note resources: which vaults the obsidian-tc:// resource surfaces serve.",
+      "default": {},
+      "type": "object",
+      "properties": {
+        "boundVaultOnly": {
+          "default": false,
+          "description": "When true, a trusted (stdio) caller's note resources stay confined to the server's default vault, as before: resources/read refuses any other vault and resources/list lists only the default vault's notes. When false (the default), resources/read and resources/list serve every registered vault the caller may read, each under that vault's own folder ACL, and a refusal in another vault answers as a missing note. A vault-bound caller (an HTTP token) is confined to its own vault either way.",
+          "type": "boolean"
+        }
+      }
+    },
     "vaults": {
       "minItems": 1,
       "type": "array",

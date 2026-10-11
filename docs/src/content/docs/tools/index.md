@@ -741,6 +741,12 @@ Other concise shapes: `read_frontmatter` omits `has_frontmatter` (it is `frontma
 per link plus `heading`, `target_path` and `candidates` when they are set; `read_resources`
 returns `{ ok, uri, text }` per item with the note body only.
 
+Note resources (`obsidian-tc://<vault>/<path>`) name their vault in the URI. A trusted (stdio) caller
+can read any registered vault it may read, under that vault's own folder ACL, and a refusal in
+another vault answers as a missing note. Set `resources.boundVaultOnly: true` to keep them on the
+default vault ([configuration](/configuration/config-yaml/)). A vault-bound HTTP token stays on its
+own vault either way.
+
 `resources/read` takes no parameters, so only the config default applies to it: with
 `tools.defaults.responseFormat: "concise"` it returns the note body without its frontmatter
 block (the URI and MIME type are kept). The scope, vault binding, folder ACL, size ceiling
