@@ -252,6 +252,15 @@ jobs:
         # unrequired on purpose: a new required context that turns out flaky blocks every PR, and
         # soaking first kept the option of learning something before committing to it.
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+        # The Intel macOS legs (x64 Darwin, the ISA of the published darwin-x64 addon and binary) run
+        # on Node 26 only. macos-latest already covers the Node 24 floor on macOS; a second Intel
+        # Node column would double the macOS queue for the same ISA. `include` keeps the Node 26 name
+        # shape `build-test (<os>)`.
+        include:
+          - os: macos-15-intel
+            node: '26'
+          - os: macos-26-intel
+            node: '26'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -381,6 +390,10 @@ jobs:
             target: bun-windows-x64
           - os: macos-14
             target: bun-darwin-arm64
+          - os: macos-15-intel
+            target: bun-darwin-x64
+          - os: macos-26-intel
+            target: bun-darwin-x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

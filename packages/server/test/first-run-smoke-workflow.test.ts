@@ -18,6 +18,7 @@ const text = readFileSync(WORKFLOW, "utf8");
 interface Step {
   id?: string;
   name?: string;
+  if?: string;
   run?: string;
   "continue-on-error"?: unknown;
 }
@@ -27,7 +28,13 @@ const wf = parse(text) as {
     string,
     {
       "continue-on-error"?: unknown;
-      strategy?: { matrix: { path: string[]; os: string[] } };
+      strategy?: {
+        matrix: {
+          path: string[];
+          os: string[];
+          include?: { os: string; target: string }[];
+        };
+      };
       steps: Step[];
     }
   >;
@@ -35,9 +42,28 @@ const wf = parse(text) as {
 const job = wf.jobs["first-run"];
 
 describe("ci-first-run-smoke.yml", () => {
-  it("is a 3 paths x 3 operating systems matrix", () => {
+  it("is a 3 paths x 5 operating systems matrix, both Intel macOS labels included", () => {
     expect(job?.strategy?.matrix.path).toEqual(["npm", "mcpb", "binary"]);
-    expect(job?.strategy?.matrix.os).toEqual(["ubuntu-latest", "macos-latest", "windows-latest"]);
+    expect(job?.strategy?.matrix.os).toEqual([
+      "ubuntu-latest",
+      "macos-latest",
+      "macos-15-intel",
+      "macos-26-intel",
+      "windows-latest",
+    ]);
+  });
+
+  it("each Intel macOS label builds its own darwin-x64 standalone binary", () => {
+    const include = job?.strategy?.matrix.include ?? [];
+    for (const os of ["macos-15-intel", "macos-26-intel"]) {
+      expect(include, os).toContainEqual({ os, target: "bun-darwin-x64" });
+    }
+  });
+
+  it("no step is keyed on the literal macos-latest string (it would skip the Intel labels)", () => {
+    const conditions = job?.steps.map((s) => s.if ?? "").join("\n") ?? "";
+    expect(conditions).not.toContain("macos-latest");
+    expect(conditions).toContain("runner.os == 'macOS'");
   });
 
   it("EXPECTED_FAILURES names only real matrix cells, each once", () => {

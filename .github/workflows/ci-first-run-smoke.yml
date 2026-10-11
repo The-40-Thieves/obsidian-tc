@@ -14,7 +14,7 @@ name: ci-first-run-smoke
 #           hosts bundle their own; what they bundle is recorded in the PR that added this workflow.
 #   binary  scripts/build-binary.ts (`bun build --compile` plus the embedded local embedder, the
 #           script publish.yml's build-binaries runs) in the job, for the runner's own arch (ubuntu
-#           x64, macos arm64, windows x64), run from a tree with node_modules deleted so only the
+#           x64, macos arm64, macos x64, windows x64), run from a tree with node_modules deleted so only the
 #           binary itself can provide sqlite-vec and the embedder.
 #
 # Each cell runs packages/server/scripts/first-run-smoke.ts (bundled to one .mjs first, so node_modules
@@ -102,13 +102,18 @@ jobs:
       fail-fast: false
       matrix:
         path: [npm, mcpb, binary]
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, macos-15-intel, macos-26-intel, windows-latest]
         include:
           # The bun --compile target for the runner's own arch (a binary must run where it was built).
           - os: ubuntu-latest
             target: bun-linux-x64
           - os: macos-latest
             target: bun-darwin-arm64
+          # x64 Darwin is built and run natively on the Intel labels, not cross-compiled on arm64.
+          - os: macos-15-intel
+            target: bun-darwin-x64
+          - os: macos-26-intel
+            target: bun-darwin-x64
           - os: windows-latest
             target: bun-windows-x64
     runs-on: ${{ matrix.os }}
@@ -161,7 +166,7 @@ jobs:
         if: matrix.path == 'binary'
         run: node scripts/gen-embedded-vec.mjs --target "$FR_TARGET"
       - name: embed vanilla SQLite (binary, darwin only)
-        if: matrix.path == 'binary' && matrix.os == 'macos-latest'
+        if: matrix.path == 'binary' && runner.os == 'macOS'
         run: node scripts/gen-embedded-sqlite.mjs --target "$FR_TARGET"
       - name: install + build embedder-local (binary)
         if: matrix.path == 'binary'
@@ -242,5 +247,5 @@ jobs:
           {
             echo "## first-run matrix"
             echo
-            node packages/server/scripts/first-run-matrix-table.mjs "$RUNNER_TEMP/reports" "npm,mcpb,binary" "ubuntu-latest,macos-latest,windows-latest"
+            node packages/server/scripts/first-run-matrix-table.mjs "$RUNNER_TEMP/reports" "npm,mcpb,binary" "ubuntu-latest,macos-latest,macos-15-intel,macos-26-intel,windows-latest"
           } | tee -a "$GITHUB_STEP_SUMMARY"
