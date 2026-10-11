@@ -147,7 +147,7 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
      ```
 
      The identity is an exact match for this release's tag (owner/repo in real case, workflow path
-     case-sensitive); the image is verified the same way, by digest (`cosign verify
+     case-sensitive); the image is verified by digest with the identity pattern in `SECURITY.md`, which accepts both the `publish.yml` release identity and the `release-image.yml` recovery identity (`cosign verify
      ghcr.io/the-40-thieves/obsidian-tc@sha256:<digest> ...`, see `SECURITY.md`).
 
 6. **Confirm the registry entry (THE-940).** `publish-registry` runs mcp-publisher non-interactively
