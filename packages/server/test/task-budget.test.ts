@@ -150,7 +150,11 @@ describe("a long tool called by a client without Tasks support", () => {
     release();
     const done = await untilCompleted(client, handle.task_id as string);
     expect(done.status).toBe("completed");
-    expect(done.result).toMatchObject({ finished: true });
+    // The finished call's own result: a text block beside the structured payload.
+    expect(done.result).toMatchObject({
+      content: [{ type: "text", text: JSON.stringify({ finished: true }) }],
+      structuredContent: { finished: true },
+    });
   });
 
   it("a call that finishes inside the budget returns its result, not a handle", async () => {
