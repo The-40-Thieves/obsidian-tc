@@ -572,7 +572,7 @@ and the client registrations below.
 - **A fourth store, `<cacheDir>/oauth.db`.** It holds the authorization server's own state (operator account,
   grants, refresh tokens, registered clients, pending requests), created owner-only (0600, with its `-wal` and
   `-shm`, and so is `<cacheDir>/auth.db`). A copy an earlier version left readable by group or other is tightened
-  to 0600 on its next open, with one line on stderr naming it; nothing refuses to start. This is POSIX only: on
+  to 0600 before it is opened, with one line on stderr naming it. A file that cannot be tightened (a symbolic link, a hard link, another user's file, or a chmod error such as `EPERM`) is left as it is and that line says why; it still opens, and nothing refuses to start. This is POSIX only: on
   **Windows** there is no owner-only mode, so protect `<cacheDir>` with its ACL. Unlike `<cacheDir>/auth.db` it is **fail-safe when lost**:
   a missing file is recreated empty, clients sign in again after the account is re-claimed, access tokens already
   issued expire on their own and revocations live in `<cacheDir>/auth.db`. Back it up anyway: **`<cacheDir>/oauth.db` (with `-wal`),
