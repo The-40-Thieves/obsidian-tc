@@ -457,6 +457,176 @@ describe("M8 experiential tools (THE-229)", () => {
     expect(admin.updated).toBe(1);
   });
 
+  // #1229: one call stamps a batch of verdicts. Each item goes through the SAME stampRetrievalFeedback
+  // the single form uses, so ownership and session scope are checked per item, and the whole batch
+  // commits or rolls back as one transaction.
+  const retrievalRow = (db: Database, id: string, chunk: string, session: string, caller: string) =>
+    db
+      .prepare(
+        "INSERT INTO chunk_retrievals (id, chunk_id, retrieved_at, session_id, caller) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(id, chunk, NOW, session, caller);
+
+  it("batch of 3 verdicts stamps 3 retrieval rows, one per chunk", async () => {
+    const db = edb0();
+    retrievalRow(db, "r1", "c1", "s1", "tester");
+    retrievalRow(db, "r2", "c2", "s1", "tester");
+    retrievalRow(db, "r3", "c3", "s1", "tester");
+    const { registry, ctx } = harness(db);
+    const res = un<{ results: Array<{ chunk_id: string; updated: number }> }>(
+      await registry.dispatch(
+        "record_retrieval_feedback",
+        {
+          verdicts: [
+            { chunk_id: "c1", feedback: 1 },
+            { chunk_id: "c2", feedback: -1 },
+            { chunk_id: "c3", feedback: 1 },
+          ],
+        },
+        ctx({ sessionId: "s1" }),
+      ),
+    );
+    expect(res.results).toEqual([
+      { chunk_id: "c1", updated: 1 },
+      { chunk_id: "c2", updated: 1 },
+      { chunk_id: "c3", updated: 1 },
+    ]);
+    const stamped = db
+      .prepare("SELECT id, feedback FROM chunk_retrievals ORDER BY id")
+      .all() as Array<{ id: string; feedback: number | null }>;
+    expect(stamped).toEqual([
+      { id: "r1", feedback: 1 },
+      { id: "r2", feedback: -1 },
+      { id: "r3", feedback: 1 },
+    ]);
+  });
+
+  it("mixed batch: an unowned item gets a per-item reason and the others still stamp", async () => {
+    const db = edb0();
+    retrievalRow(db, "r1", "c1", "s1", "tester");
+    retrievalRow(db, "r2", "c2", "s1", "someone-else"); // another principal's: no_owned_retrievals
+    retrievalRow(db, "r3", "c3", "s2", "tester"); // owned, but in another session: session_scope
+    retrievalRow(db, "r4", "c4", "s1", "tester");
+    const { registry, ctx } = harness(db);
+    const res = un<{
+      results: Array<{ chunk_id: string; updated: number; reason?: string }>;
+    }>(
+      await registry.dispatch(
+        "record_retrieval_feedback",
+        {
+          verdicts: [
+            { chunk_id: "c1", feedback: 1 },
+            { chunk_id: "c2", feedback: 1 },
+            { chunk_id: "c3", feedback: 1 },
+            { chunk_id: "c4", feedback: -1 },
+          ],
+        },
+        ctx({ sessionId: "s1" }),
+      ),
+    );
+    expect(res.results).toEqual([
+      { chunk_id: "c1", updated: 1 },
+      { chunk_id: "c2", updated: 0, reason: "no_owned_retrievals" },
+      { chunk_id: "c3", updated: 0, reason: "session_scope" },
+      { chunk_id: "c4", updated: 1 },
+    ]);
+    const feedback = Object.fromEntries(
+      (
+        db.prepare("SELECT id, feedback FROM chunk_retrievals").all() as Array<{
+          id: string;
+          feedback: number | null;
+        }>
+      ).map((r) => [r.id, r.feedback]),
+    );
+    expect(feedback).toEqual({ r1: 1, r2: null, r3: null, r4: -1 });
+  });
+
+  it("single form response shape unchanged: chunk_id + feedback returns no results array", async () => {
+    const db = edb0();
+    retrievalRow(db, "r1", "c1", "s1", "tester");
+    const { registry, ctx } = harness(db);
+    const hit = un<Record<string, unknown>>(
+      await registry.dispatch(
+        "record_retrieval_feedback",
+        { chunk_id: "c1", feedback: 1 },
+        ctx({ sessionId: "s1" }),
+      ),
+    );
+    expect(hit).toEqual({ available: true, chunk_id: "c1", updated: 1 });
+    const miss = un<Record<string, unknown>>(
+      await registry.dispatch(
+        "record_retrieval_feedback",
+        { chunk_id: "c9", feedback: 1 },
+        ctx({ sessionId: "s1" }),
+      ),
+    );
+    expect(miss).toEqual({
+      available: true,
+      chunk_id: "c9",
+      updated: 0,
+      reason: "no_owned_retrievals",
+    });
+  });
+
+  it("exactly one form: both forms, neither, or a half single form is a validation error naming the fix", async () => {
+    const db = edb0();
+    const { registry, ctx } = harness(db);
+    const cases: Array<Record<string, unknown>> = [
+      {},
+      { chunk_id: "c1", feedback: 1, verdicts: [{ chunk_id: "c1", feedback: 1 }] },
+      { verdicts: [{ chunk_id: "c1", feedback: 1 }], feedback: 1 },
+      { chunk_id: "c1" },
+    ];
+    for (const input of cases) {
+      const res = await registry.dispatch("record_retrieval_feedback", input, ctx());
+      expect(res.ok).toBe(false);
+      if (!res.ok) {
+        expect(res.error.code).toBe("validation_error");
+        // The fix is in the zod issue's message (details.issues), not the generic top-level text.
+        const issues = JSON.stringify(res.error.details?.issues ?? []);
+        expect(issues).toMatch(/chunk_id \+ feedback/);
+        expect(issues).toMatch(/verdicts/);
+      }
+    }
+  });
+
+  it("batch over the cap of 50 is rejected, and an empty batch is too", async () => {
+    const db = edb0();
+    const { registry, ctx } = harness(db);
+    const over = Array.from({ length: 51 }, (_, i) => ({ chunk_id: `c${i}`, feedback: 1 }));
+    const tooMany = await registry.dispatch(
+      "record_retrieval_feedback",
+      { verdicts: over },
+      ctx({ sessionId: "s1" }),
+    );
+    expect(tooMany.ok).toBe(false);
+    if (!tooMany.ok) expect(tooMany.error.code).toBe("validation_error");
+    const empty = await registry.dispatch(
+      "record_retrieval_feedback",
+      { verdicts: [] },
+      ctx({ sessionId: "s1" }),
+    );
+    expect(empty.ok).toBe(false);
+  });
+
+  it("batch of exactly 50 verdicts is accepted, the cap boundary", async () => {
+    const db = edb0();
+    const ids = Array.from({ length: 50 }, (_, i) => `c${i}`);
+    ids.forEach((chunk, i) => {
+      retrievalRow(db, `r${i}`, chunk, "s1", "tester");
+    });
+    const { registry, ctx } = harness(db);
+    const res = un<{ results: Array<{ chunk_id: string; updated: number }> }>(
+      await registry.dispatch(
+        "record_retrieval_feedback",
+        { verdicts: ids.map((chunk_id) => ({ chunk_id, feedback: 1 })) },
+        ctx({ sessionId: "s1" }),
+      ),
+    );
+    expect(res.results).toHaveLength(50);
+    expect(res.results.every((r) => r.updated === 1)).toBe(true);
+  });
+
   // THE-718. Measured on the live store 2026-08-03, and the two NULLs have DIFFERENT causes —
   // conflating them misreads the fix:
   //   * session_id is NULL on 97 of 97 retrieval events, because no client has ever opened a
