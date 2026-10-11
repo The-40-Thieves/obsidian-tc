@@ -75,7 +75,7 @@ describe("lint_wiki and the wiki lint sweep: cooperative output equals the synch
     got.sweep = JSON.stringify(reports[0]);
 
     if (process.env.UPDATE_LINT_EXPECTED === "1")
-      writeFileSync(EXPECTED, `${JSON.stringify(got, null, 1)}\n`);
+      writeFileSync(EXPECTED, `${JSON.stringify(got, null, 2)}\n`);
     const expected = JSON.parse(readFileSync(EXPECTED, "utf8")) as Record<string, string>;
     expect(Object.keys(expected).length).toBe(LINT_CALLS.length + 1);
     expect(got).toEqual(expected);
