@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { FolderAcl } from "../../acl";
+import type { EmbedderWarmupStatus } from "../../embeddings/warmup";
 import type { FacadeMode } from "../../mcp/facade";
 import { AUTO_FACADE_DEPRECATION, FALLBACK_FACADE_MODE } from "../../mcp/facade-auto";
 import type { AutoFacadeExplanation } from "../../mcp/facade-mode";
@@ -135,6 +136,7 @@ export interface HealthInfo {
     lock_error: { message?: string; code?: string; count: number; last_at: string };
   };
   deprecations?: string[];
+  embedder_warmup?: EmbedderWarmupStatus;
 }
 
 /** THE-491: the `server_health` index block, thinned to a named, agent-discoverable reader —
@@ -284,6 +286,15 @@ const HealthInfoOutput = z.object({
       "Config still in use that the next major release removes (a TypeSafe judge's allowPlainHttp), and advice on plain-http provider URLs (gateway, embeddings, reranker, plur, a vault's restApiUrl) that are unlisted or refused. Entries name config paths, vault ids, host names and addresses, so only a caller that may read every vault sees them; any other caller gets ONE generic line carrying the count. Absent when none.",
     )
     .optional(),
+  embedder_warmup: z
+    .object({
+      state: z.enum(["not-applicable", "pending", "loading", "ready", "failed"]),
+      error: z.string().optional(),
+    })
+    .describe(
+      "Background load of the local embedding model, started after the first initialize so the first semantic search does not pay for it: not-applicable (a remote provider is never called to warm up), pending, loading, ready, or failed (the next search retries). error names the failure and is withheld from callers that may not read every vault. Absent when not wired.",
+    )
+    .optional(),
   leader_role: z.enum(["leader", "follower"]).optional(),
   leader_role_detail: z
     .object({
@@ -386,6 +397,7 @@ export function createHealthTool(opts: {
     oldestPrincipal: string | null;
   };
   deprecations?: readonly string[];
+  getEmbedderWarmup?: () => EmbedderWarmupStatus;
   /** GH #995: read live — role can flip on promotion. Absent omits the field entirely. */
   getLeaderRole?: () => "leader" | "follower";
   getLeaderRoleDetail?: () =>
@@ -496,6 +508,18 @@ export function createHealthTool(opts: {
                     `${opts.deprecations.length} deprecation notice${opts.deprecations.length === 1 ? "" : "s"} in effect; the detail names hosts and vaults and is withheld from this caller (run \`obsidian-tc doctor\` on the server, or call server_health as an unrestricted administrator)`,
                   ],
             }
+          : {}),
+        ...(opts.getEmbedderWarmup
+          ? (() => {
+              const w = opts.getEmbedderWarmup?.();
+              if (!w) return {};
+              return {
+                embedder_warmup: {
+                  state: w.state,
+                  ...(authedUnbound && w.error !== undefined ? { error: w.error } : {}),
+                },
+              };
+            })()
           : {}),
         ...(opts.getLeaderRole ? { leader_role: opts.getLeaderRole() } : {}),
         ...(opts.getLeaderRoleDetail

@@ -17,6 +17,7 @@
 import type { Job, JobQueue } from "../scheduler/job-queue";
 import { isIdentifiedCaller } from "./registry/identified-caller";
 import type { CallerSnapshot } from "./task-caller-context";
+import { ensureTextContent, NO_DETAIL_ERROR_TEXT, toolDataResult } from "./tool-result";
 
 /**
  * The extension's status vocabulary.
@@ -98,8 +99,27 @@ export function toMcpTask(job: Job): McpTask {
     // Gated on BOTH the status and the tag, so a mismatch (a `failed` row carrying an ok envelope,
     // reachable only if the two writes interleaved oddly) emits neither field rather than the wrong
     // one under the right name.
-    ...(status === "completed" && job.outcome?.ok === true ? { result: job.outcome.result } : {}),
-    ...(status === "failed" && job.outcome?.ok === false ? { error: job.outcome.error } : {}),
+    //
+    // The stored record is the tool's raw data, not a CallToolResult, so it is shaped HERE, once, the
+    // way a synchronous result is (a self-contained text block: mcp/tool-result.ts). Every reader
+    // of a stored task (tasks/get, notifications/tasks, get_task_status) goes through this
+    // projection, so none can hand a text-only client a result with nothing to read. The byte
+    // governor already ran inside the runner's dispatch.
+    ...(status === "completed" && job.outcome?.ok === true
+      ? { result: { ...ensureTextContent(toolDataResult(job.outcome.result)) } }
+      : {}),
+    ...(status === "failed" && job.outcome?.ok === false
+      ? {
+          error: {
+            ...job.outcome.error,
+            // The message is the text a text-only client reads: never an empty one.
+            message:
+              job.outcome.error.message.trim() === ""
+                ? NO_DETAIL_ERROR_TEXT
+                : job.outcome.error.message,
+          },
+        }
+      : {}),
   };
 }
 
