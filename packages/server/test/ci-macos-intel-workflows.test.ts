@@ -39,6 +39,7 @@ describe("macOS Intel legs in CI", () => {
   it("the Intel native-addon job runs in ci-server.yml on both Intel labels, not in the filtered ci-native.yml", () => {
     const job = server.jobs["macos-intel-native-server-tests"];
     expect(job?.strategy?.matrix.host).toEqual(["macos-15-intel", "macos-26-intel"]);
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, not a template
     expect(job?.["runs-on"]).toBe("${{ matrix.host }}");
     expect(native.jobs["macos-intel-native-server-tests"]).toBeUndefined();
     expect(serverText).toContain("compiled addon did NOT load");
