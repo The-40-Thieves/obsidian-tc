@@ -20,7 +20,7 @@
     "packages/shared"
   ],
   "scripts": {
-    "build": "bun run --filter='*' build",
+    "build": "bun run --filter='*' build && node scripts/warn-unbuilt-local-packages.mjs",
     "bundle": "bun scripts/bundle-mcpb.ts",
     "check:acl-identity": "node scripts/check-acl-canonical-identity.mjs",
     "check:actions-shellcheck": "node scripts/check-actions-shellcheck.mjs",

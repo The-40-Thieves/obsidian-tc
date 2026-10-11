@@ -14,7 +14,9 @@ This is a condensed guide. The authoritative version is [`CONTRIBUTING.md`](http
 git clone https://github.com/the-40-thieves/obsidian-tc.git
 cd obsidian-tc
 bun install      # native falls back to pure-JS if Rust is absent; also installs a DCO git hook
-bun run build    # shared + native + server + plugin
+bun run build    # shared + native + server + plugin (warns if the two local packages below are unbuilt)
+(cd packages/embedder-local && bun install && bun run build)   # default local embedder: not built by the root
+(cd packages/reranker-local && bun install && bun run build)   # default local reranker: likewise
 just test        # CI-equivalent suite (packages/server explicitly under Node, not `bun run test`)
 ```
 

@@ -696,6 +696,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
           ? { modelsCachePath: join(config.cacheDir, "models", "embedder-local") }
           : {}),
         ...embeddingsDoctorProbes,
+        probeRequested: cmd.probe === true,
       },
     },
     profile,
