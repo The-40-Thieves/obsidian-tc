@@ -13,7 +13,7 @@ name: release-image
 # promoted); cut a new patch release through publish.yml instead.
 #
 # The image is pushed to a staging tag, booted offline on linux/amd64 and linux/arm64 (native=on,
-# vec=on), and only then does that same digest get its public tags.
+# vec=on), signed by that same digest, and only then does it get its public tags.
 on:
   workflow_dispatch:
     inputs:
@@ -34,6 +34,11 @@ permissions:
 jobs:
   image:
     runs-on: ubuntu-latest
+    # id-token: keyless cosign signature of the staged image, by digest (in the smoke-and-promote action).
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     steps:
       # The version becomes a git ref and a package spec: refuse anything that is not a plain
       # semver (no leading v, no path or shell characters) before it reaches either.
@@ -43,10 +48,20 @@ jobs:
         run: |
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::version must be a plain semver without a leading v, got '$VERSION'"; exit 1; }
         shell: bash
-      # Source from the release tag, not from whatever ref the workflow was dispatched on.
+      # Source from the release tag, not from whatever ref the workflow was dispatched on. A dispatch from a
+      # branch is fine (the source is the tag), but the tag itself must be a signed release tag: the same rule
+      # publish.yml's verify-tag enforces. fetch-depth 0: a tag's object and signature are not in a shallow clone.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/tags/v${{ inputs.version }}
+          fetch-depth: 0
+      - name: verify the release tag is signed by an allowed signer
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          git -c gpg.ssh.allowedSignersFile=.github/allowed_signers verify-tag "refs/tags/v${VERSION}"
+        shell: bash
       - name: assert the checked-out source is the requested release
         id: source
         env:

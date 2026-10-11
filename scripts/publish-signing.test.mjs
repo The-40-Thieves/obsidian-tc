@@ -7,6 +7,7 @@
 // release cannot be assembled without the signing job, and every artifact family the release
 // ships has a signing step feeding the assets the release attaches.
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { test } from "node:test";
@@ -74,7 +75,7 @@ test("the signing job runs after every build job and is skipped on the same dry-
   ]) {
     assert.ok(needs[1].split(/,\s*/).includes(job), `sign-artifacts must need ${job}`);
   }
-  assert.match(sign, /if: github\.event_name == 'push' \|\| !inputs\.dry_run/);
+  assert.match(sign, /if: github\.event_name == 'push' \|\| \(github\.ref_type == 'tag' && !inputs\.dry_run\)/);
 });
 
 test("every released artifact family is downloaded and has a signing step with an existence floor", () => {
@@ -200,6 +201,8 @@ const OIDC_MARKERS = [
   /actions\/attest-build-provenance/,
   /cosign sign(-blob)? /,
   /login github-oidc/,
+  // the image is signed by digest inside the shared composite action build-docker calls
+  /smoke-and-promote-image/,
 ];
 
 test("workflow-level permissions are read-only; write scopes are granted per job", () => {
@@ -281,18 +284,6 @@ test("the signing job depends on no publisher (no cycle, and signing precedes ev
       `sign-artifacts must not depend on ${dep}`,
     );
   }
-});
-
-test("the GHCR image is signed by digest, keylessly, and verified against the workflow identity", () => {
-  const docker = jobBlock("build-docker");
-  assert.match(docker, /uses: docker\/build-push-action@[0-9a-f]{40}[^\n]*\n\s+id: push\n/);
-  assert.match(docker, /uses: sigstore\/cosign-installer@[0-9a-f]{40} # v\d+\.\d+\.\d+/);
-  assert.match(docker, /DIGEST: \$\{\{ steps\.push\.outputs\.digest \}\}/);
-  assert.match(docker, /cosign sign --yes "\$\{IMAGE\}@\$\{DIGEST\}"/);
-  assert.match(docker, /cosign verify "\$\{IMAGE\}@\$\{DIGEST\}"/);
-  assert.match(docker, /--certificate-identity "\$IDENTITY"/);
-  // signed only after the push
-  assert.ok(docker.indexOf("id: push") < docker.indexOf("cosign sign --yes"));
 });
 
 test("the signature manifest lists every bundle sign-artifacts produced and ships with the signatures", () => {
@@ -424,12 +415,42 @@ for (const [name, text] of [
   });
 }
 
-test("publish.yml: the image signature is over the smoked digest, after the promotion", () => {
-  const docker = jobBlock("build-docker");
-  assert.ok(docker.indexOf("smoke-and-promote-image") >= 0);
-  assert.ok(docker.indexOf("smoke-and-promote-image") < docker.indexOf("cosign sign --yes"));
-  assert.match(docker, /DIGEST: \$\{\{ steps\.push\.outputs\.digest \}\}/);
+// The signature is written INSIDE the shared action, between the boot smoke and the promotion, so no
+// public tag can point at an unsigned digest. Each route only installs cosign and calls the action.
+test("the shared action signs the smoked digest keylessly against the workflow identity, never with a key", () => {
+  const run = stripComments(SMOKE_ACTION);
+  assert.match(run, /IDENTITY="\$\{GITHUB_SERVER_URL\}\/\$\{GITHUB_WORKFLOW_REF\}"/);
+  assert.match(run, /cosign sign --yes "\$\{IMAGE\}@\$\{DIGEST\}"/);
+  assert.match(
+    run,
+    /cosign verify "\$\{IMAGE\}@\$\{DIGEST\}" \\\n\s+--certificate-identity "\$IDENTITY" \\\n\s+--certificate-oidc-issuer "\$ISSUER"/,
+  );
+  assert.doesNotMatch(run, /--key\b|COSIGN_PRIVATE_KEY|--output-signature/);
 });
+
+for (const [name, text] of [
+  ["publish.yml build-docker", jobBlock("build-docker")],
+  ["release-image.yml", RELEASE_IMAGE],
+]) {
+  test(`${name}: the image is signed and verified by digest before its public tags are promoted`, () => {
+    const route = stripComments(text);
+    assert.doesNotMatch(route, /cosign sign /, "signing lives in the shared action, not after it");
+    assert.ok(
+      route.indexOf("cosign-installer") >= 0 &&
+        route.indexOf("cosign-installer") < route.indexOf("smoke-and-promote-image"),
+      "cosign is installed before the action runs",
+    );
+    const run = stripComments(SMOKE_ACTION);
+    const smoke = run.indexOf("docker-boot-smoke.mjs");
+    const sign = run.indexOf('cosign sign --yes "${IMAGE}@${DIGEST}"');
+    const verify = run.indexOf('cosign verify "${IMAGE}@${DIGEST}"');
+    const promote = run.indexOf("docker buildx imagetools create");
+    assert.ok(
+      smoke >= 0 && smoke < sign && sign < verify && verify < promote,
+      `order: smoke=${smoke} sign=${sign} verify=${verify} promote=${promote}`,
+    );
+  });
+}
 
 test("the smoke-and-promote action boots both platforms of the digest, then re-tags that digest and checks it", () => {
   const run = stripComments(SMOKE_ACTION);
@@ -482,4 +503,79 @@ test("release-image.yml verifies each npm-delivered .node against the release's 
   assert.doesNotMatch(run, /tar [^\n]*-C packages\/native/);
   // and the build comes after the whole fetch+verify step
   assert.ok(run.indexOf("cosign verify-blob") < run.indexOf("docker/build-push-action"));
+});
+
+// ---- F1: a real publish requires a signed release tag ----
+
+// Runs verify-tag's signature step shell with the runner's three expressions substituted.
+function runVerifyTag({ refType, eventName, dryRun }) {
+  const m = jobBlock("verify-tag").match(
+    /- name: verify the release tag is signed\n[\s\S]*?\n {8}run: \|\n((?: {10}.*\n|\n)+)/,
+  );
+  assert.ok(m, "verify-tag has no 'verify the release tag is signed' run block");
+  const script = m[1]
+    .replace(/^ {10}/gm, "")
+    .replaceAll("${{ github.ref_type }}", refType)
+    .replaceAll("${{ github.event_name }}", eventName)
+    .replaceAll("${{ inputs.dry_run }}", dryRun);
+  return spawnSync("bash", ["-c", script], {
+    encoding: "utf8",
+    env: { ...process.env, TAG: "v0.0.0-test", REQUIRE_SIGNED_TAG: "true" },
+  });
+}
+
+test("verify-tag refuses a real publish from a branch and keeps a branch dry run passing", () => {
+  const real = runVerifyTag({ refType: "branch", eventName: "workflow_dispatch", dryRun: "false" });
+  assert.notEqual(real.status, 0, real.stdout + real.stderr);
+  assert.match(real.stdout, /A real publish requires a signed release tag; dispatch from the tag\./);
+  const dry = runVerifyTag({ refType: "branch", eventName: "workflow_dispatch", dryRun: "true" });
+  assert.equal(dry.status, 0, dry.stdout + dry.stderr);
+});
+
+test("every dry-run-guarded job also requires a tag ref for a real publish", () => {
+  const guarded = ALL_JOBS.filter((job) => /^ {4}if: .*!inputs\.dry_run\)?$/m.test(jobBlock(job)));
+  assert.deepEqual(guarded.sort(), [
+    "build-binaries",
+    "build-docker",
+    "build-mcpb",
+    "build-plugin",
+    "draft-release",
+    "publish-embedder-local",
+    "publish-npm",
+    "publish-reranker-local",
+    "sign-artifacts",
+  ]);
+  for (const job of guarded) {
+    assert.match(
+      jobBlock(job),
+      /^ {4}if: github\.event_name == 'push' \|\| \(github\.ref_type == 'tag' && !inputs\.dry_run\)$/m,
+      `${job}: non-dry-run guard must require a tag ref`,
+    );
+  }
+});
+
+test("publish.yml header no longer says a dispatch publishes nothing", () => {
+  const header = WORKFLOW.slice(0, WORKFLOW.indexOf("\npermissions:"));
+  assert.doesNotMatch(header, /This dispatch builds the same 8-target matrix and publishes nothing/);
+  assert.match(header, /dry_run=false[^\n]*signed release tag/);
+});
+
+test("release-image.yml: the image job holds id-token write at job level, for the keyless signature", () => {
+  const image = RELEASE_IMAGE.slice(RELEASE_IMAGE.indexOf("\n  image:\n"));
+  assert.deepEqual(permissionsAt(image, 4), {
+    contents: "read",
+    packages: "write",
+    "id-token": "write",
+  });
+});
+
+test("release-image.yml verifies the release tag signature before anything is built or pushed", () => {
+  const run = stripComments(RELEASE_IMAGE);
+  const verify = run.indexOf('verify-tag "refs/tags/v${VERSION}"');
+  assert.ok(verify > 0, "no signed-tag check in release-image.yml");
+  assert.match(RELEASE_IMAGE, /ref: refs\/tags\/v\$\{\{ inputs\.version \}\}\n\s+fetch-depth: 0/);
+  assert.match(run, /git -c gpg\.ssh\.allowedSignersFile=\.github\/allowed_signers verify-tag/);
+  assert.ok(verify > run.indexOf("actions/checkout@"), "the tag is fetched before it is verified");
+  assert.ok(verify < run.indexOf("npm pack"), "verified before the prebuilds are fetched");
+  assert.ok(verify < run.indexOf("docker/build-push-action"), "verified before the image is pushed");
 });

@@ -1,7 +1,7 @@
 name: smoke-and-promote-image
 description: >-
   Boot-smoke the EXACT multi-arch image a release workflow just pushed to its staging tag, on both
-  release platforms, and only then give that same digest its public tags. Shared by publish.yml
+  release platforms, sign and verify that same digest, and only then give it its public tags. Shared by publish.yml
   (build-docker) and release-image.yml so both release routes gate the public tags identically.
 
 # Why this exists: `native` and `vec` are optional at run time, so a corrupt, ABI-incompatible or
@@ -11,11 +11,13 @@ description: >-
 # artifact that is actually published was never booted, and arm64 never at all. This boots both
 # platform images of the pushed digest, offline, and requires native=on vec=on.
 #
-# Promotion is `docker buildx imagetools create` from the staged DIGEST, which re-tags the existing
-# manifest list without rebuilding: the digest that gets the public tags is, by construction, the
-# digest that was smoked, and the cosign signature the caller adds next is over that same digest.
-# The caller must have logged in to the registry, set up QEMU (arm64 boots under emulation on an
-# amd64 runner) and buildx before this step.
+# Order: boot-smoke both platforms of the staged DIGEST, sign that digest keylessly and verify the
+# signature against this run's workflow identity, and only then promote. Promotion is `docker buildx
+# imagetools create` from the same DIGEST, which re-tags the existing manifest list without rebuilding:
+# the digest that gets the public tags is, by construction, the digest that was smoked AND signed, so no
+# public tag can point at an unsigned image. The caller must have logged in to the registry, set up QEMU
+# (arm64 boots under emulation on an amd64 runner), buildx and cosign (sigstore/cosign-installer) before
+# this step, and the job must hold `id-token: write` for the keyless signature.
 #
 # Runs from the checkout it is given: scripts/docker-boot-smoke.mjs must exist there (a release
 # whose tag predates the script cannot be promoted, which is the intended fail-closed outcome).
@@ -51,6 +53,22 @@ runs:
           [ "$got" = "$want" ] || { echo "::error::pulled $ref for $platform but the image is $got"; exit 1; }
           node scripts/docker-boot-smoke.mjs "$ref" --platform "$platform"
         done
+    # Signing sits between the boot smoke and the promotion, by DIGEST: the signature covers exactly the
+    # image that was booted, and it exists before any public tag can point at that digest.
+    - name: sign the smoked digest by digest (keyless) and verify it before promotion
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.image }}
+        DIGEST: ${{ inputs.digest }}
+      run: |
+        set -euo pipefail
+        [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no staged image digest to sign (got '$DIGEST')"; exit 1; }
+        IDENTITY="${GITHUB_SERVER_URL}/${GITHUB_WORKFLOW_REF}"
+        ISSUER=https://token.actions.githubusercontent.com
+        cosign sign --yes "${IMAGE}@${DIGEST}"
+        cosign verify "${IMAGE}@${DIGEST}" \
+          --certificate-identity "$IDENTITY" \
+          --certificate-oidc-issuer "$ISSUER"
     - name: promote the smoked digest to the public tags
       shell: bash
       env:
