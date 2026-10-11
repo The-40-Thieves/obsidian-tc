@@ -87,7 +87,7 @@ runners are free and unmetered for public repos, and cover three OSes:
 gh workflow run ci-server.yml --ref <branch>     # lint + build-test (3 OS) + bun-smoke
 ```
 
-Targeted vitest stays local. Anything heavy that must run here goes through
+Targeted vitest and `bun run test:related` stay local. Anything heavy that must run here goes through
 `scripts/with-host-budget.sh` (or `bun run test:local` in `packages/server`) — it serialises
 concurrent runs with `flock` and caps CPU at 2.5 of 4 cores, leaving the rest for the services.
 
@@ -116,8 +116,14 @@ These hold for every PR, so a task brief does not repeat them.
 - **Gates** come from the `gates` skill (the CI lint job runs ~21 steps; `bun run lint` is only
   biome). Mind the `check:comment-style` ratchet and biome's 700-line ceiling.
 - **Before pushing:** merge `origin/main` by hand (resolve conflicts yourself, never by script),
-  re-run the affected suites, then run `ledger replay` as its own command and push separately.
-  Whole-suite runs go through `bun run test:local`, which serialises them on a shared host.
+  then run `ledger replay` as its own command and push separately.
+- **Local tests = the diff; the full suite = CI.** Locally run your targeted files plus
+  `bun run test:related` in `packages/server` (every test that imports a changed file, via
+  `vitest run --changed origin/main`; a config or `package.json` change runs everything). Put that,
+  not the full suite, in the ledger. The full suite runs in CI on three OSes; when it fails there,
+  run `pr-doctor <pr>` (it prints the failing test and assertion), fix from that, and push. Do not
+  re-run the whole suite locally to find a failure. Import-graph selection misses tests that read
+  source as text (source scans, fixtures); that is the gap CI covers.
 - **Never** `git stash` (the stash is shared across worktrees; use a temporary commit), never
   `pkill`/`killall` by pattern (it hits other runs), never force-push.
 - **Report back** with the PR number, head SHA, a table of what was done and how it was proven,
