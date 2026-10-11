@@ -6,13 +6,28 @@
 // apply to a tool that declares no central `pathAcl`.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildResourceUri } from "../src/mcp/resources";
 import { ALLOW_ALL } from "../src/mcp/visibility";
 import { MetricsRecorder } from "../src/metrics/registry";
 import { RateLimiter } from "../src/throttle";
 import { makeTestVault, type TestVault } from "./m1-helpers";
 import { makeTempDir, rmTemp } from "./tmp";
+
+// The native no-follow open refuses a path after the ACL and stat checks have passed; forced here.
+const nativeRefusal = vi.hoisted(() => ({ on: false }));
+vi.mock("../src/vault/notes-io", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/vault/notes-io")>();
+  return {
+    ...actual,
+    readNote: (abs: string) => {
+      if (nativeRefusal.on)
+        throw err.aclDenied("safe open refused the path: forced by test", { path: abs });
+      return actual.readNote(abs);
+    },
+  };
+});
 
 const vaults: TestVault[] = [];
 afterEach(() => {
@@ -79,7 +94,7 @@ describe("read_resources: denied items emit the denial records read_notes emits"
         uri("secret/b.md"), // denied (exists)
         uri("secret/none.md"), // denied (absent)
         uri("pub/none.md"), // missing under an allowed path: NOT a denial
-        uri("x.md", "other"), // foreign vault: forbidden, counted like dispatch counts it
+        uri("x.md", "other"), // unknown foreign vault: its true reason, counted as a denial
         "obsidian-tc://test/50%.md", // malformed: NOT a denial
       ],
     });
@@ -89,7 +104,7 @@ describe("read_resources: denied items emit the denial records read_notes emits"
     expect(denialRows.map((e) => e.error_code).sort()).toEqual([
       "acl_denied",
       "acl_denied",
-      "forbidden",
+      "vault_not_found",
     ]);
     // Same audit shape as read_notes' own denial row (only the tool name differs).
     for (const row of denialRows) {
@@ -105,7 +120,7 @@ describe("read_resources: denied items emit the denial records read_notes emits"
       /obsidian_tc_acl_denied_total\{vault="test",scope_class="read",reason="acl_denied"\} 3/,
     ); // 1 from the read_notes baseline + 2 here
     expect(text).toMatch(
-      /obsidian_tc_acl_denied_total\{vault="test",scope_class="read",reason="forbidden"\} 1/,
+      /obsidian_tc_acl_denied_total\{vault="test",scope_class="read",reason="vault_not_found"\} 1/,
     );
   });
 
@@ -146,6 +161,55 @@ describe("read_resources: denied and missing do not reveal a hidden note", () =>
     } finally {
       rmTemp(root2);
     }
+  });
+
+  it("a native read refusal in a foreign vault reads as note_not_found and is still audited as acl_denied", async () => {
+    const { v, metrics } = vault(FILES);
+    const root2 = makeTempDir("obtc-native-refusal-");
+    try {
+      mkdirSync(join(root2, "pub"), { recursive: true });
+      writeFileSync(join(root2, "pub", "a.md"), "A");
+      v.vaultRegistry.register({ id: "other", path: root2 });
+      const readItem = async () => {
+        const r = await v.call("read_resources", { uris: [uri("pub/a.md", "other")] });
+        if (!r.ok) throw new Error("call failed");
+        return (r.data as { results: { ok: boolean; error: { code: string } }[] }).results[0];
+      };
+      // Existence floor: the note is readable before the read refusal is forced.
+      expect((await readItem())?.ok).toBe(true);
+      nativeRefusal.on = true;
+      try {
+        const refused = await readItem();
+        expect(refused?.error.code).toBe("note_not_found");
+        expect(JSON.stringify(refused)).not.toContain("safe open refused");
+      } finally {
+        nativeRefusal.on = false;
+      }
+      const denials = v
+        .events()
+        .filter((e) => e.tool_name === "read_resources" && e.status === "error");
+      expect(denials.map((e) => e.error_code)).toEqual(["acl_denied"]);
+      expect(await metrics.metrics()).toMatch(
+        /obsidian_tc_acl_denied_total\{vault="test",scope_class="read",reason="acl_denied"\} 1/,
+      );
+    } finally {
+      rmTemp(root2);
+    }
+  });
+
+  it("an unknown foreign vault is audited under its true reason vault_not_found and still counted as a denial", async () => {
+    const { v, metrics } = vault(FILES);
+    const r = await v.call("read_resources", { uris: [uri("x.md", "no-such-vault")] });
+    if (!r.ok) throw new Error("call failed");
+    const item = (r.data as { results: { ok: boolean; error: { code: string } }[] }).results[0];
+    expect(item?.error.code).toBe("note_not_found");
+    const denials = v
+      .events()
+      .filter((e) => e.tool_name === "read_resources" && e.status === "error");
+    expect(denials.map((e) => e.error_code)).toEqual(["vault_not_found"]);
+    expect(await metrics.metrics()).toMatch(
+      /obsidian_tc_acl_denied_total\{vault="test",scope_class="read",reason="vault_not_found"\} 1/,
+    );
   });
 
   it("a hidden note that exists and one that does not are byte-identical to the caller", async () => {

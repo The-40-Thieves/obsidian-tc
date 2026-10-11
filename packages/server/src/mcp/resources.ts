@@ -167,7 +167,8 @@ function servesForeignVaults(ctx: CallerContext, vaultRegistry: VaultRegistry): 
  * time. A trusted, unbound caller lists every registered vault it may read; a vault-bound caller
  * and `boundVaultOnly` list the caller's own vault alone. Each vault is walked under its OWN ACL
  * (`aclFor`), and the read-ACL filters the walk before the page is cut, so no page is short of or
- * padded with notes the caller cannot read. Mirrors list_notes. Returns an empty list when the
+ * padded with notes the caller cannot read. Mirrors list_notes, except that a hard-linked note (which
+ * every read refuses) is left out; list_notes still lists it. Returns an empty list when the
  * caller lacks the read:notes scope. `cursor` is the opaque offset carried over from a prior
  * result's nextCursor, into the caller's whole filtered list.
  */
@@ -184,8 +185,10 @@ export function listResources(
     : [vaultRegistry.resolve(ctx.vaultId)];
   const notes = vaults.flatMap((v) => {
     const acl = aclOfVault(ctx, v.id, aclFor);
+    // A hard-linked note is refused by every read (readNote, the acl-path guard), so it is left out
+    // here, before the page is cut, rather than taking a slot in a page the caller cannot read.
     return walkVault(v.root, { extensions: [".md"] })
-      .filter((e) => readableEntry(acl, e, ctx.grantedScopes))
+      .filter((e) => !e.hardLinked && readableEntry(acl, e, ctx.grantedScopes))
       .map((e) => ({ vaultId: v.id, relPath: e.relPath }));
   });
   // Offset cursor over the filtered walk: walkVault sorts each vault by relPath and vaults keep
@@ -212,10 +215,9 @@ function answeringAsMissing<T>(uri: string, locate: () => T): T {
     return locate();
   } catch (e) {
     if (e instanceof ObsidianTcError && e.code !== "internal") {
-      // The caller learns nothing; the audit still gets the true reason. An unknown vault was a
-      // `forbidden` before this answer existed, and stays one, so its denial is still counted.
-      const reason = e.code === "vault_not_found" ? "forbidden" : e.code;
-      throw withInternalReason(err.noteNotFound("note not found", { uri }), reason);
+      // The caller learns nothing; the audit gets the true reason (an unknown vault is
+      // vault_not_found), and read_resources still counts every such item as a denial.
+      throw withInternalReason(err.noteNotFound("note not found", { uri }), e.code);
     }
     throw e;
   }
@@ -287,15 +289,18 @@ export function readResource(
   // Stat before reading: readNote loads the whole file into memory, so enforcing the ceiling only
   // after the read would let any read:notes caller point at a multi-hundred-MB file and force the
   // full allocation just to be told it is too big.
-  const { abs, stat } = foreign
-    ? answeringAsMissing(uri, () => locateNote(vaultRegistry, ctx, vaultId, relPath, aclFor, uri))
-    : locateNote(vaultRegistry, ctx, vaultId, relPath, aclFor, uri);
+  // A foreign refusal answers as a missing note at every step that can refuse, the read included:
+  // the native no-follow open refuses an in-vault symlink only after locate has passed.
+  const onForeign = <T>(run: () => T): T => (foreign ? answeringAsMissing(uri, run) : run());
+  const { abs, stat } = onForeign(() =>
+    locateNote(vaultRegistry, ctx, vaultId, relPath, aclFor, uri),
+  );
   if (stat.size > maxResourceBytes)
     throw err.invalidInput(
       `resource exceeds ${maxResourceBytes} bytes; read it with the read_note tool instead`,
       { uri, size: stat.size, budget: maxResourceBytes },
     );
-  const { raw } = readNote(abs);
+  const { raw } = onForeign(() => readNote(abs));
   const text = format === "concise" ? splitFrontmatterBody(raw) : raw;
   return { contents: [{ uri, mimeType: MIME_MARKDOWN, text }] };
 }

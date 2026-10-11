@@ -7,8 +7,10 @@ import { linkSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { afterEach, describe, expect, it } from "vitest";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AclConfigT } from "../src/acl";
+import { internalReasonOf } from "../src/mcp/resource-errors";
 import {
   buildResourceUri,
   listResources,
@@ -18,6 +20,21 @@ import {
 import { createMcpServer } from "../src/mcp/server";
 import { makeTestVault, type TestVault } from "./m1-helpers";
 import { makeTempDir, rmTemp } from "./tmp";
+
+// The native no-follow open refuses a path AFTER the ACL and stat checks have passed
+// (notes-io's mapNativeReadError). The refusal is forced on the read alone, so locate still passes.
+const nativeRefusal = vi.hoisted(() => ({ on: false }));
+vi.mock("../src/vault/notes-io", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/vault/notes-io")>();
+  return {
+    ...actual,
+    readNote: (abs: string) => {
+      if (nativeRefusal.on)
+        throw err.aclDenied("safe open refused the path: forced by test", { path: abs });
+      return actual.readNote(abs);
+    },
+  };
+});
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -193,6 +210,66 @@ describe("note resources serve every registered vault the caller may read", () =
     // A vault-bound caller lists its own vault only, as before.
     const bound = listResourcesFor(v.registry, v.vaultRegistry, v.ctx({ vaultBound: true }));
     expect(bound.resources.map((r) => r.uri)).toEqual([uri("test", "a.md")]);
+  });
+
+  it("a read refused after the locate checks answers as a missing note, audited as acl_denied", () => {
+    const { v } = twoVaults({ files: { "pub/a.md": "A" }, acl: { readPaths: ["pub/**"] } });
+    // Existence floor: the note really is readable, so the refusal below is the read's alone.
+    expect(textOf(readAs(v, v.ctx(), uri("other", "pub/a.md"))())).toBe("A");
+    const missing = refused(readAs(v, v.ctx(), uri("other", "pub/nope.md")));
+    nativeRefusal.on = true;
+    try {
+      const refusedRead = refused(readAs(v, v.ctx(), uri("other", "pub/a.md")));
+      expect(refusedRead).toEqual(missing);
+      let thrown: unknown;
+      try {
+        readAs(v, v.ctx(), uri("other", "pub/a.md"))();
+      } catch (e) {
+        thrown = e;
+      }
+      expect(thrown).toMatchObject({ code: "note_not_found" });
+      expect(internalReasonOf(thrown)).toBe("acl_denied");
+    } finally {
+      nativeRefusal.on = false;
+    }
+  });
+
+  it("resources/list leaves out hard-linked notes in every vault, before paging", () => {
+    const { v } = twoVaults({
+      files: { "pub/a.md": "A", "pub/c.md": "C", "pub/real.md": "R" },
+      acl: { readPaths: ["pub/**"] },
+      setup: (root) => linkSync(join(root, "pub", "real.md"), join(root, "pub", "alias.md")),
+    });
+    writeFileSync(join(v.root, "own.md"), "O");
+    writeFileSync(join(v.root, "own-real.md"), "R");
+    linkSync(join(v.root, "own-real.md"), join(v.root, "own-alias.md"));
+    const ctx = v.ctx();
+    const aclFor = (id: string) => v.registry.aclFor(id);
+    // Existence floor: the unlinked notes are listed, so an empty listing cannot pass. Hard-linked
+    // ones (pub/real.md, pub/alias.md, own-real.md, own-alias.md) must not appear.
+    const readable = [
+      uri("other", "pub/a.md"),
+      uri("other", "pub/c.md"),
+      uri("test", "a.md"),
+      uri("test", "own.md"),
+    ].sort();
+    expect(
+      listResourcesFor(v.registry, v.vaultRegistry, ctx)
+        .resources.map((r) => r.uri)
+        .sort(),
+    ).toEqual(readable);
+    // One page per readable note: a hard link does not take a page slot or a cursor step.
+    const walked: string[] = [];
+    let pages = 0;
+    let cursor: string | undefined;
+    do {
+      const page = listResources(v.vaultRegistry, ctx, aclFor, cursor, 1);
+      pages += 1;
+      walked.push(...page.resources.map((r) => r.uri));
+      cursor = page.nextCursor;
+    } while (cursor !== undefined);
+    expect(walked.sort()).toEqual(readable);
+    expect(pages).toBe(readable.length);
   });
 
   it("resources.boundVaultOnly reaches resources/read over MCP through the registry", async () => {
