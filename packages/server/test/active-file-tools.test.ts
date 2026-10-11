@@ -427,14 +427,14 @@ describe("append_active_file / patch_active_file", () => {
   });
 
   it("replace_text with no anchor edits the whole active note body (frontmatter kept)", async () => {
-    const note = "---\ntitle: Plan\n---\n# Plannig\n- one\n";
+    const note = "---\ntitle: Plan\n---\n# Planing\n- one\n";
     const h = harness({ files: { "Notes/a.md": note } });
     h.focus("Notes/a.md");
     const d = okData(
       await h.call("patch_active_file", {
         vault: "test",
         operation: "replace_text",
-        old_string: "Plannig",
+        old_string: "Planing",
         new_string: "Planning",
       }),
     );

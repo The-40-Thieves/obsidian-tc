@@ -14,7 +14,7 @@ const NOTE = [
   "title: Plan",
   "status: draft",
   "---",
-  "# Plannig",
+  "# Planing",
   "## Goals",
   "- ship it",
   "- ship it again",
@@ -46,11 +46,11 @@ describe("replace_text with no anchor: whole-note scope", () => {
         vault: "test",
         path: PATH,
         operation: "replace_text",
-        old_string: "Plannig",
+        old_string: "Planing",
         new_string: "Planning",
       });
       expect(r.ok).toBe(true);
-      expect(v.read(PATH)).toBe(NOTE.replace("# Plannig", "# Planning"));
+      expect(v.read(PATH)).toBe(NOTE.replace("# Planing", "# Planning"));
     } finally {
       v.cleanup();
     }
