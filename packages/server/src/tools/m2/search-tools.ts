@@ -82,8 +82,8 @@ const RegexSearchHit = z.object({
 });
 
 /** search_semantic hits (SemanticHit). chunk_id/embedding_model are always present on a
- *  SemanticHit but dropped by projectHits under verbosity=terse (which keeps only path/score/
- *  snippet — and SemanticHit has no snippet field, so terse here is path+score only). */
+ *  SemanticHit; projectHits under verbosity=terse keeps path/score/chunk_id and drops the rest
+ *  (SemanticHit has no snippet field, so terse here is path+score+chunk_id). */
 const SemanticSearchHit = z.object({
   path: z.string(),
   score: z.number(),
@@ -205,17 +205,21 @@ const Cursor = {
 };
 
 // THE-251 / GH #1027: the concise projection (formerly verbosity=terse) — collapse each hit to
-// path + score + snippet (whichever are present), dropping heavy per-hit fields
-// (line/col/chunk_id/content) to cut agent prompt cost. The shipped default stays "detailed".
+// path + score + snippet + chunk_id (whichever are present), dropping heavy per-hit fields
+// (line/col/content) to cut agent prompt cost. chunk_id stays: record_retrieval_feedback needs it
+// (GH #1219). The shipped default stays "detailed".
 function projectHits(
-  items: ReadonlyArray<{ path: string; score?: number; snippet?: string }>,
+  items: ReadonlyArray<{ path: string; score?: number; snippet?: string; chunk_id?: string }>,
   format: ResponseFormat,
 ): unknown[] {
   if (format !== "concise") return items as unknown[];
   return items.map((h) => {
-    const out: { path: string; score?: number; snippet?: string } = { path: h.path };
+    const out: { path: string; score?: number; snippet?: string; chunk_id?: string } = {
+      path: h.path,
+    };
     if (h.score !== undefined) out.score = h.score;
     if (h.snippet !== undefined) out.snippet = h.snippet;
+    if (h.chunk_id !== undefined) out.chunk_id = h.chunk_id;
     return out;
   });
 }
@@ -405,7 +409,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       name: "search_semantic",
       domain: "search",
       description:
-        "Dense-vector retrieval over the chunk store (run index_vault first). Returns the top-k chunks by cosine similarity. response_format=concise (legacy alias verbosity=terse) drops chunk content/metadata, returning path/score only.",
+        "Dense-vector retrieval over the chunk store (run index_vault first). Returns the top-k chunks by cosine similarity. response_format=concise (legacy alias verbosity=terse) drops chunk content/metadata, returning path/score/chunk_id only.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -499,7 +503,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       name: "search_vault",
       domain: "search",
       description:
-        "Unified search dispatch. mode=auto routes a string query text->semantic (fallback on zero hits) and an object query to jsonlogic; or force text/regex/semantic/jsonlogic/dql. Set response_format=concise (legacy alias verbosity=terse) to compact each hit to path/score/snippet.",
+        "Unified search dispatch. mode=auto routes a string query text->semantic (fallback on zero hits) and an object query to jsonlogic; or force text/regex/semantic/jsonlogic/dql. Set response_format=concise (legacy alias verbosity=terse) to compact each hit to path/score/snippet, keeping chunk_id on hits that carry one.",
       inputSchema: z
         .object({
           vault: VaultId,

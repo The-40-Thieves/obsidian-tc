@@ -3,17 +3,23 @@
 // so each case below pins one property of that composition: search order, the k cap, a hidden note
 // never surfacing (not even as a denied item), the vault's OWN ACL (parity with read_notes), the
 // per-item denial audit, budget pagination, section mode, the truncation marker, cursor binding.
-import { rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
+import { runMigrations } from "../src/db/migrate";
+import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import { fakeEmbeddingProvider } from "../src/embeddings";
+import { createRetrievalLogger, type RetrievalLogger } from "../src/experiential/log";
 import { createPagingDeps } from "../src/mcp/byte-page";
 import { MetricsRecorder } from "../src/metrics/registry";
 import { indexVault } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { registerM7Tools } from "../src/tools/m7";
 import { candidatePoolSize } from "../src/tools/m7/knowledge/search-and-read";
+import { registerM8Tools } from "../src/tools/m8";
+import { openMemoryDb } from "./helpers";
 import { makeTestVault, type TestVault, type TestVaultOptions } from "./m1-helpers";
 
 interface Entry {
@@ -56,6 +62,7 @@ const doc = (title: string, extra = "") =>
 async function setup(
   files: Record<string, string>,
   over: Partial<TestVaultOptions> = {},
+  extra: { retrievalLog?: RetrievalLogger } = {},
 ): Promise<{ v: TestVault; metrics: MetricsRecorder; emitted: string[] }> {
   const metrics = new MetricsRecorder();
   const emitted: string[] = [];
@@ -83,6 +90,7 @@ async function setup(
     reranker: null,
     roles: null,
     acl: v.acl,
+    ...extra,
     paging: createPagingDeps({
       secret: "test-secret",
       budgetBytes: () => v.registry.maxResponseBytes,
@@ -516,6 +524,7 @@ describe("search_and_read: response_format=concise (GH #1027)", () => {
     expect(one?.size_bytes).toBe(full.notes.find((n) => n.path === "one.md")?.size_bytes);
     expect(Object.keys(two ?? {}).sort()).toEqual([
       "body",
+      "chunk_id",
       "content_hash",
       "path",
       "rank",
@@ -572,5 +581,71 @@ describe("search_and_read: a caller with no identity keeps no continuation", () 
     expect(new Set([...first.notes, ...rest.notes].map((n) => n.path)).size).toBe(
       first.notes.length + rest.notes.length,
     );
+  });
+});
+
+// GH #1219: every item says which chunk it was ranked by, so record_retrieval_feedback can target it
+// from note mode and from both formats. The chunk a note-mode item carries is its top-ranked one.
+describe("search_and_read: chunk_id (GH #1219)", () => {
+  const EXP_CHAIN = EXPERIENTIAL_MIGRATION_FILES.map((file) => ({
+    version: versionOf(file),
+    sql: readFileSync(fileURLToPath(new URL(`../src/migrations/${file}`, import.meta.url)), "utf8"),
+  }));
+  const NOW = 1_700_000_000_000;
+
+  it("note mode, detailed and concise: each item carries the top-ranked chunk of its note", async () => {
+    const { v } = await setup(FIVE);
+    const search = await v.call("vault_graph_search", {
+      vault: "test",
+      query: "zeta quokka",
+      final_top_k: candidatePoolSize(3),
+    });
+    if (!search.ok) throw new Error("search failed");
+    const topChunk = new Map<string, string>();
+    for (const r of (search.data as { results: Array<{ path: string; chunk_id: string }> }).results)
+      if (!topChunk.has(r.path)) topChunk.set(r.path, r.chunk_id);
+
+    const detailed = await ok(v, { k: 3 });
+    const concise = await ok(v, { k: 3, response_format: "concise" });
+    expect(detailed.notes).toHaveLength(3);
+    expect(concise.notes).toHaveLength(3);
+    for (const page of [detailed, concise])
+      for (const n of page.notes) expect(n.chunk_id).toBe(topChunk.get(n.path));
+  });
+
+  it("section mode, concise: each item carries its matched chunk", async () => {
+    const { v } = await setup(FIVE);
+    const detailed = await ok(v, { k: 3, mode: "section" });
+    const concise = await ok(v, { k: 3, mode: "section", response_format: "concise" });
+    expect(concise.notes.length).toBeGreaterThan(0);
+    for (const n of concise.notes) expect(n.chunk_id).toEqual(expect.any(String));
+    expect(concise.notes.map((n) => n.chunk_id)).toEqual(detailed.notes.map((n) => n.chunk_id));
+  });
+
+  it("round trip: a note-mode chunk_id stamps its retrieval row via record_retrieval_feedback", async () => {
+    const edb = openMemoryDb();
+    runMigrations(edb, EXP_CHAIN);
+    const { v } = await setup(
+      FIVE,
+      {},
+      { retrievalLog: createRetrievalLogger(edb, { now: () => NOW }) },
+    );
+    registerM8Tools(v.registry, { edb, now: () => NOW });
+
+    const d = await ok(v, { k: 1 });
+    const chunkId = d.notes[0]?.chunk_id;
+    expect(chunkId).toEqual(expect.any(String));
+    // The search logged its hits under this caller with no session, so the stamp is cross-principal.
+    const fb = await v.call(
+      "record_retrieval_feedback",
+      { chunk_id: chunkId, feedback: 1 },
+      { grantedScopes: new Set(["write:workspace", "admin:workspace"]) },
+    );
+    expect(fb.ok).toBe(true);
+    if (fb.ok) expect(fb.data).toMatchObject({ chunk_id: chunkId, updated: 1 });
+    const rows = edb
+      .prepare("SELECT feedback FROM chunk_retrievals WHERE chunk_id = ?")
+      .all(chunkId) as Array<{ feedback: number | null }>;
+    expect(rows).toEqual([{ feedback: 1 }]);
   });
 });
