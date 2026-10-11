@@ -12,6 +12,7 @@ import {
   removeTree,
   waitForPidExit,
 } from "../scripts/lib/isolated-home.mjs";
+import { settleReconcile } from "../scripts/lib/reconcile-settle.mjs";
 import { runBunSync } from "./spawn-cli";
 import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
@@ -106,6 +107,47 @@ describe("isolated-home teardown helpers", () => {
     removeTree(dir);
     expect(existsSync(dir)).toBe(false);
     expect(() => removeTree(dir)).not.toThrow();
+  });
+});
+
+describe("settleReconcile", () => {
+  // The incident (windows-latest, 2026-10-11): the smoke read get_index_status ONCE, two round trips
+  // after initialize. reconcile is a background pass that initialize starts, so on a slow runner the
+  // read landed while it was still "pending" and the smoke failed. Reproduced on Linux under CPU load.
+  it("polls a reconcile that is still pending until it settles, instead of asserting the first read", async () => {
+    const reads = ["pending", "pending", "degraded"];
+    let now = 0;
+    const settled = await settleReconcile(async () => reads.shift() as string, {
+      timeoutMs: 10_000,
+      intervalMs: 500,
+      now: () => now,
+      sleep: async (ms) => {
+        now += ms;
+      },
+    });
+    expect(settled).toBe("degraded");
+    expect(reads).toEqual([]);
+  });
+
+  it("gives up at the deadline and returns the still-pending value instead of looping forever", async () => {
+    let now = 0;
+    let reads = 0;
+    const settled = await settleReconcile(
+      async () => {
+        reads += 1;
+        return "pending";
+      },
+      {
+        timeoutMs: 1_000,
+        intervalMs: 300,
+        now: () => now,
+        sleep: async (ms) => {
+          now += ms;
+        },
+      },
+    );
+    expect(settled).toBe("pending");
+    expect(reads).toBeLessThanOrEqual(5);
   });
 });
 
