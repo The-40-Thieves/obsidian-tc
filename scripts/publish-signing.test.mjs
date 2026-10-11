@@ -770,6 +770,33 @@ test("release-image verify step: fails closed when origin/main has no allowed_si
   assert.notEqual(r.status, 0, r.stdout + r.stderr);
 });
 
+// ---- release-image runs only from main: a tag dispatch would take the workflow file and trusted/ from the tag ----
+
+test("release-image.yml refuses any dispatch ref but refs/heads/main, as its first step", () => {
+  const steps = RELEASE_IMAGE.slice(RELEASE_IMAGE.indexOf("    steps:\n"));
+  assert.equal(
+    steps.match(/^ {6}- name: (.*)$/m)[1],
+    "refuse a dispatch from anything but main",
+    "the guard is the first step, before any checkout or credential use",
+  );
+});
+
+test("release-image.yml refuses any dispatch ref but refs/heads/main (behavioural)", () => {
+  const run = (ref) =>
+    runStep(RELEASE_IMAGE, "refuse a dispatch from anything but main", { env: { REF: ref } });
+  const ok = run("refs/heads/main");
+  assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+  for (const ref of ["refs/tags/v1.2.3", "refs/heads/feature", "refs/heads/main-x"]) {
+    const r = run(ref);
+    assert.notEqual(r.status, 0, `${ref}: ${r.stdout}${r.stderr}`);
+    assert.match(
+      r.stdout,
+      /::error::release-image must be dispatched from main \(the trusted workflow ref\); the tag to rebuild is the version input/,
+      ref,
+    );
+  }
+});
+
 // ---- release-image runs no repo-local code from the tag ----
 
 test("release-image.yml invokes the action from trusted/, never from the tag checkout", () => {
@@ -826,16 +853,20 @@ test("SECURITY.md accepts both release identities and nothing else", () => {
   const base = "https://github.com/The-40-Thieves/obsidian-tc/.github/workflows/";
   for (const id of [
     "publish.yml@refs/tags/v1.2.3",
-    "release-image.yml@refs/tags/v1.2.3",
     "publish.yml@refs/tags/v1.28.0-rc.1",
+    "release-image.yml@refs/heads/main",
   ]) {
     assert.match(base + id, re, `accepts ${id}`);
   }
   for (const id of [
+    "release-image.yml@refs/tags/v1.2.3",
     "publish.yml@refs/heads/main",
-    "release-image.yml@refs/heads/main",
+    "publish.yml@refs/heads/feature",
+    "release-image.yml@refs/heads/feature",
     "ci-server.yml@refs/tags/v1.2.3",
+    "ci-server.yml@refs/heads/main",
     "release.yml@refs/tags/v1.2.3",
+    "release.yml@refs/heads/main",
     "publish.yml@refs/tags/v01.2.3",
     "publish.yml@refs/tags/v1.2",
     "publish.yml@refs/tags/v1.2.3-",
@@ -843,6 +874,13 @@ test("SECURITY.md accepts both release identities and nothing else", () => {
     "publish.yml@refs/tags/v1.2.3/../x",
   ]) {
     assert.doesNotMatch(base + id, re, `rejects ${id}`);
+  }
+  for (const url of [
+    "https://github.com/The-40-Thieves/obsidian-tc-fork/.github/workflows/release-image.yml@refs/heads/main",
+    "https://github.com/someone/obsidian-tc/.github/workflows/release-image.yml@refs/heads/main",
+    "https://github.com/someone/obsidian-tc/.github/workflows/publish.yml@refs/tags/v1.2.3",
+  ]) {
+    assert.doesNotMatch(url, re, `rejects other repo ${url}`);
   }
   assert.doesNotMatch(
     "https://github.com/the-40-thieves/obsidian-tc/.github/workflows/publish.yml@refs/tags/v1.2.3",

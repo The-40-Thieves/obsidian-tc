@@ -44,6 +44,14 @@ jobs:
       packages: write
       id-token: write
     steps:
+      # Dispatchable from main only. A tag dispatch would take this workflow file and trusted/ from that tag, which
+      # bypasses the trusted/src split below. Visible failure, before any checkout or credential is used.
+      - name: refuse a dispatch from anything but main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          [ "$REF" = "refs/heads/main" ] || { echo "::error::release-image must be dispatched from main (the trusted workflow ref); the tag to rebuild is the version input"; exit 1; }
+        shell: bash
       # The version becomes a git ref and a package spec: refuse anything that is not a plain
       # semver (no leading v, no path or shell characters) before it reaches either.
       - name: validate the version input
@@ -53,8 +61,8 @@ jobs:
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::version must be a plain semver without a leading v, got '$VERSION'"; exit 1; }
         shell: bash
       # The workflow's own commit, kept apart as trusted/: the composite action and its smoke script come from
-      # here, never from the release tag. Dispatched from main, that is main's copy. Dispatched from a tag, this
-      # file is that tag's own, so the owner's tag ruleset is what protects that route.
+      # here, never from the release tag. Only dispatchable from main (the first step refuses any other ref), so this
+      # is main's copy: main is protected, and a tag can never supply this file.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.workflow_sha }}

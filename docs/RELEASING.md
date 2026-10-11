@@ -147,7 +147,7 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
      ```
 
      The identity is an exact match for this release's tag (owner/repo in real case, workflow path
-     case-sensitive); the image is verified by digest with the identity pattern in `SECURITY.md`, which accepts both the `publish.yml` release identity and the `release-image.yml` recovery identity (`cosign verify
+     case-sensitive); the image is verified by digest with the identity pattern in `SECURITY.md`, which accepts exactly the `publish.yml` release-tag identity and the `release-image.yml` recovery identity from `main` (`cosign verify
      ghcr.io/the-40-thieves/obsidian-tc@sha256:<digest> ...`, see `SECURITY.md`).
 
 6. **Confirm the registry entry (THE-940).** `publish-registry` runs mcp-publisher non-interactively
@@ -242,7 +242,7 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
   release as a draft, `check-release-assets.sh` compares it to the checksum list, the signature manifest
   and the pinned per-family counts, and only then is it published. This is separate from, and does not
   replace, the SSH-signed tag (`RELEASE-SIGNING.md`), the plugin's GitHub build-provenance attestation, or
-  npm provenance. The `release-image` dispatch workflow (an image-only re-push from the `v<x.y.z>` tag) signs the image by
+  npm provenance. Recovery is dispatched from `main` with the version input (`release-image`, an image-only re-push of an existing version; its source is still the `v<x.y.z>` tag) and signs the image by
   digest in the same shared action, under that run's identity (see `SECURITY.md`); it does verify each npm-delivered native `.node` against that release's `.sigstore.json` bundle
   before building, and it needs a tag whose source already contains the image's native/sqlite-vec
   staging (an older tag fails the boot smoke and is never promoted: cut a patch release instead).
