@@ -320,6 +320,62 @@ jobs:
         run: node ./node_modules/vitest/vitest.mjs run ${{ matrix.os == 'ubuntu-latest' && matrix.node == '26' && '--coverage' || '' }}
         working-directory: packages/server
 
+  # The Intel twin of ci-native.yml's macos-native-server-tests, on the two Intel runner labels. It lives
+  # HERE, not in ci-native.yml, because that workflow is path-filtered (packages/native/**, its own file,
+  # publish.yml, setup-rust): a server-only change would skip it. Same steps and same six server files,
+  # with x86_64-apple-darwin in place of aarch64. It proves the x64 Darwin addon builds natively, loads,
+  # and runs the native server paths. The load assertion fails the job if the addon silently fell back
+  # to the JS path.
+  macos-intel-native-server-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [macos-15-intel, macos-26-intel]
+    runs-on: ${{ matrix.host }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.2'
+      # vitest forks Node workers; node:sqlite + --experimental-sqlite need Node >=22.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '26'
+          check-latest: true
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: packages/native
+      - name: cache bun install
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      - name: install (skip lifecycle scripts; native is built explicitly below)
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: build native addon (debug; host platform)
+        working-directory: packages/native
+        run: bun run build:debug
+      - name: assert the addon actually loaded (a silent JS fallback here defeats the lane)
+        working-directory: packages/server
+        run: |
+          set -euo pipefail
+          bun -e '
+            import { createRequire } from "node:module";
+            const mod = createRequire(import.meta.url)("@the-40-thieves/obsidian-tc-native");
+            if (mod.nativeLoaded !== true) {
+              console.error("macos-intel-native-server-tests: compiled addon did NOT load -- silently on the JS fallback");
+              process.exit(1);
+            }
+            console.log("macos-intel-native-server-tests: addon loaded");
+          '
+      - name: server tests under native, Intel macOS (THE-1081 / #946)
+        working-directory: packages/server
+        run: node ./node_modules/vitest/vitest.mjs run test/base-tools-branch-coverage.test.ts test/notes-tools.test.ts test/federated-search-security.test.ts test/m5-memory-lifecycle.test.ts test/frontmatter-tools-branch-coverage.test.ts test/vault-root-symlink-registration.test.ts
+
   # Rate-limit backends against a REAL Redis. The shared conformance suite (ratelimit-conformance),
   # the cross-instance/restart cases (ratelimit-shared) and the Redis-only cases (ratelimit-redis)
   # skip their redis legs when REDIS_URL is unset, which is right on a laptop and would be a silent
