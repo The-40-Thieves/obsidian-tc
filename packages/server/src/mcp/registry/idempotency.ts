@@ -41,6 +41,13 @@ export function extractIdempotencyKey(data: unknown): string | undefined {
   return undefined;
 }
 
+/** Whose row it is: a key is unique per (vault, principal), so one caller's key can never claim,
+ *  read or replay another's. `principal` is the server-observed `ctx.caller`, never caller input. */
+export interface IdempotencyOwner {
+  vaultId: string;
+  principal: string;
+}
+
 export interface IdempotencyRow {
   tool_name: string;
   args_hash: string;
@@ -55,7 +62,7 @@ export interface IdempotencyRow {
 /** Try to atomically claim the in-flight idempotency slot for (vault, key). */
 export function tryClaimIdempotency(
   db: Database,
-  vaultId: string,
+  o: IdempotencyOwner,
   key: string,
   tool: string,
   argsHashValue: string,
@@ -65,8 +72,8 @@ export function tryClaimIdempotency(
   try {
     cachedPrepare(
       db,
-      "INSERT INTO idempotency_keys (vault_id, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, ?)",
-    ).run(vaultId, key, tool, argsHashValue, nowMs, nowMs + ttlMs);
+      "INSERT INTO idempotency_keys (vault_id, principal, idem_key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?)",
+    ).run(o.vaultId, o.principal, key, tool, argsHashValue, nowMs, nowMs + ttlMs);
     return "claimed";
   } catch (e) {
     if (/UNIQUE constraint failed|SQLITE_CONSTRAINT/i.test((e as Error).message)) return "exists";
@@ -76,18 +83,18 @@ export function tryClaimIdempotency(
 
 export function readIdempotency(
   db: Database,
-  vaultId: string,
+  o: IdempotencyOwner,
   key: string,
 ): IdempotencyRow | undefined {
   return cachedPrepare(
     db,
-    "SELECT tool_name, args_hash, started_at, completed_at, result, result_size, expires_at, state FROM idempotency_keys WHERE vault_id = ? AND key = ?",
-  ).get(vaultId, key) as IdempotencyRow | undefined;
+    "SELECT tool_name, args_hash, started_at, completed_at, result, result_size, expires_at, state FROM idempotency_keys WHERE vault_id = ? AND principal = ? AND idem_key = ?",
+  ).get(o.vaultId, o.principal, key) as IdempotencyRow | undefined;
 }
 
 export function finalizeIdempotency(
   db: Database,
-  vaultId: string,
+  o: IdempotencyOwner,
   key: string,
   json: string,
   size: number,
@@ -95,22 +102,22 @@ export function finalizeIdempotency(
 ): void {
   cachedPrepare(
     db,
-    "UPDATE idempotency_keys SET completed_at = ?, result = ?, result_size = ?, state = 'completed' WHERE vault_id = ? AND key = ?",
-  ).run(nowMs, json, size, vaultId, key);
+    "UPDATE idempotency_keys SET completed_at = ?, result = ?, result_size = ?, state = 'completed' WHERE vault_id = ? AND principal = ? AND idem_key = ?",
+  ).run(nowMs, json, size, o.vaultId, o.principal, key);
 }
 
 /** #13: durable marker set the instant the handler returns — the effect may now be committed.
  *  A crash after this leaves a durable 'effect_committed' row that reclaim honors (never re-runs). */
 export function markEffectCommitted(
   db: Database,
-  vaultId: string,
+  o: IdempotencyOwner,
   key: string,
   _nowMs: number,
 ): void {
   cachedPrepare(
     db,
-    "UPDATE idempotency_keys SET state = 'effect_committed' WHERE vault_id = ? AND key = ? AND completed_at IS NULL",
-  ).run(vaultId, key);
+    "UPDATE idempotency_keys SET state = 'effect_committed' WHERE vault_id = ? AND principal = ? AND idem_key = ? AND completed_at IS NULL",
+  ).run(o.vaultId, o.principal, key);
 }
 
 /** #13: a post-effect fault finalizes the claim as indeterminate (never deletes it), so a retry
@@ -118,21 +125,21 @@ export function markEffectCommitted(
  *  re-check never fires; the state='indeterminate' branch answers first. */
 export function finalizeIndeterminate(
   db: Database,
-  vaultId: string,
+  o: IdempotencyOwner,
   key: string,
   nowMs: number,
 ): void {
   cachedPrepare(
     db,
-    "UPDATE idempotency_keys SET completed_at = ?, result = 'null', result_size = NULL, state = 'indeterminate' WHERE vault_id = ? AND key = ?",
-  ).run(nowMs, vaultId, key);
+    "UPDATE idempotency_keys SET completed_at = ?, result = 'null', result_size = NULL, state = 'indeterminate' WHERE vault_id = ? AND principal = ? AND idem_key = ?",
+  ).run(nowMs, o.vaultId, o.principal, key);
 }
 
-export function deleteIdempotency(db: Database, vaultId: string, key: string): void {
-  cachedPrepare(db, "DELETE FROM idempotency_keys WHERE vault_id = ? AND key = ?").run(
-    vaultId,
-    key,
-  );
+export function deleteIdempotency(db: Database, o: IdempotencyOwner, key: string): void {
+  cachedPrepare(
+    db,
+    "DELETE FROM idempotency_keys WHERE vault_id = ? AND principal = ? AND idem_key = ?",
+  ).run(o.vaultId, o.principal, key);
 }
 
 /** The resolved outcome of claiming (or failing to claim) an idempotency key — see claimOrReplay. */
@@ -154,7 +161,7 @@ export type IdempotencyClaimResult =
   | { kind: "replay"; outcome: "ok"; data: unknown; json: string; resultSize: number };
 
 /**
- * Claim the in-flight slot for (vaultId, key), or resolve what a caller who lost the race should
+ * Claim the in-flight slot for (vault, principal, key), or resolve what a caller who lost the race should
  * see — as one explicit discriminated state instead of the ~100-line inline re-derivation this
  * replaces in runDispatch. Preserves, byte-for-byte:
  *  - the expired/crashed-row reclaim window (`reclaimMs`, THE-293) and its single retry;
@@ -170,7 +177,7 @@ export type IdempotencyClaimResult =
  */
 export function claimOrReplay(
   db: Database,
-  vaultId: string,
+  o: IdempotencyOwner,
   key: string,
   tool: string,
   argsHashValue: string,
@@ -186,11 +193,11 @@ export function claimOrReplay(
   // across a slow claim+read) advances between them. Sampling once here and reusing it backdates a
   // reclaimed row's started_at/expires_at to the pre-read instant, silently shrinking its reclaim
   // window. Call `now()` at each of the same four sites the original did, not before.
-  if (tryClaimIdempotency(db, vaultId, key, tool, argsHashValue, now(), ttlMs) === "claimed") {
+  if (tryClaimIdempotency(db, o, key, tool, argsHashValue, now(), ttlMs) === "claimed") {
     return { kind: "claimed" };
   }
 
-  let row = readIdempotency(db, vaultId, key);
+  let row = readIdempotency(db, o, key);
   // Reclaim an expired or crashed (in-flight past the configured reclaim window) row, then retry
   // once (idempotencyReclaimSeconds, THE-293).
   if (
@@ -200,11 +207,11 @@ export function claimOrReplay(
         row.completed_at == null &&
         row.started_at + reclaimMs <= now()))
   ) {
-    deleteIdempotency(db, vaultId, key);
-    if (tryClaimIdempotency(db, vaultId, key, tool, argsHashValue, now(), ttlMs) === "claimed") {
+    deleteIdempotency(db, o, key);
+    if (tryClaimIdempotency(db, o, key, tool, argsHashValue, now(), ttlMs) === "claimed") {
       return { kind: "claimed" };
     }
-    row = readIdempotency(db, vaultId, key);
+    row = readIdempotency(db, o, key);
   }
 
   if (!row) return { kind: "in_flight" };
@@ -235,7 +242,7 @@ export function claimOrReplay(
       return { kind: "replay", outcome: "ok", data: cached, json: cachedStr, resultSize };
     } catch {
       // Corrupt cached blob: drop it (so the next call re-executes) and fail this one cleanly.
-      deleteIdempotency(db, vaultId, key);
+      deleteIdempotency(db, o, key);
       throw new ObsidianTcError("internal", "cached idempotent result was unreadable; retry");
     }
   }

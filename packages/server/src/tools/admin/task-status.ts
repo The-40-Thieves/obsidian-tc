@@ -9,7 +9,8 @@
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
-import { findOwnedJob, isIdentifiedCaller, toMcpTask } from "../../mcp/tasks";
+import { isIdentifiedCaller } from "../../mcp/registry/identified-caller";
+import { findOwnedJob, toMcpTask } from "../../mcp/tasks";
 import type { Job, JobQueue } from "../../scheduler/job-queue";
 
 export const TaskStatusOutput = z.object({

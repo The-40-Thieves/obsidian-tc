@@ -70,6 +70,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
 
     defineTool({
       name: "work_episodes",
+      principalOwned: true,
       domain: "knowledge",
       description:
         "List/inspect the raw experiential episode log (management surface, the first-party list/inspect verb). Shows pending and ineligible state for review; tombstoned rows stay hidden unless include_blocked. Partitioned to the calling principal unless any_caller, which requires the admin:workspace scope (P1.7). Set unstamped_debt to see judgeable work that still carries no verdict — yours, or every principal's when combined with any_caller — pair it with `until` to mean 'older than' — then clear it with work_result. Protocol traffic and the verdict verbs themselves never appear there; they are not work anyone can judge. response_format=concise returns each episode without vault, caller, channel, episode_type, duration_ms, result_size and null or empty fields; trust, eligibility, session_id and a true blocked flag are kept.",
@@ -151,6 +152,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
 
     defineTool({
       name: "work_episode_chain",
+      principalOwned: true,
       domain: "knowledge",
       description:
         "Walk an episode's amendment chain in one call. `prev_id` links each episode to the caller's previous one, and following it hop by hop cost one round trip per link. Returns the chain newest-first starting at `id`. The work-memory reader contract applies at every hop, not just the first: tombstoned rows never surface, expired rows are excluded, and the walk stays inside the calling principal unless any_caller (admin:workspace, P1.7). The walk STOPS at the first hop that fails those filters rather than skipping over it — a gap in a returned chain would itself disclose that a hidden episode exists. response_format=concise returns each episode as work_episodes does; truncated is always kept.",
@@ -287,6 +289,7 @@ export function buildExperientialTools(deps: M8Deps): ToolDefinition[] {
 
     defineTool({
       name: "work_forget",
+      principalOwned: true,
       domain: "knowledge",
       description:
         "Tombstone an experiential episode — the first-party forget verb for the work-memory tier. A forgotten episode never surfaces in work_search again; each successful forget appends a hash-chained forget_log row for forensics. Idempotent: a repeat call, foreign, or unknown episode id is a silent no-op (forgotten:false) that appends NO additional log row. P1.7: only your OWN episodes unless you hold admin:workspace — a foreign or unknown id is a silent no-op, not an error.",

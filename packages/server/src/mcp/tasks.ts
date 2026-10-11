@@ -15,6 +15,7 @@
 // row, and every existing enqueue call site) is invisible by construction rather than by a filter
 // someone has to remember to write.
 import type { Job, JobQueue } from "../scheduler/job-queue";
+import { isIdentifiedCaller } from "./registry/identified-caller";
 import type { CallerSnapshot } from "./task-caller-context";
 import { ensureTextContent, NO_DETAIL_ERROR_TEXT, toolDataResult } from "./tool-result";
 
@@ -121,14 +122,6 @@ export function toMcpTask(job: Job): McpTask {
       : {}),
   };
 }
-
-/**
- * `null` (or empty) is the absence of an identity, not an identity: `===` cannot tell two absences
- * apart, so a verified token with no `sub` would share one task bucket with every other. Only HTTP
- * produces it (stdio is `stdio`, mode `none` is `http-local`); the task surfaces refuse it.
- */
-export const isIdentifiedCaller = (caller: string | null): caller is string =>
-  typeof caller === "string" && caller.length > 0;
 
 /** The caller a task must belong to before it is visible or cancellable. */
 export interface McpTaskOwner {

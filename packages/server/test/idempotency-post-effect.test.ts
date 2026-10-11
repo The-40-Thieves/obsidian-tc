@@ -21,7 +21,7 @@ function ctx(db: Database, over: Partial<CallerContext> = {}): CallerContext {
   };
 }
 function idemRow(db: Database, key: string) {
-  return db.prepare("SELECT * FROM idempotency_keys WHERE vault_id='v1' AND key=?").get(key) as
+  return db.prepare("SELECT * FROM idempotency_keys WHERE vault_id='v1' AND idem_key=?").get(key) as
     | { completed_at: number | null; state: string }
     | undefined;
 }
@@ -104,7 +104,7 @@ describe("idempotency post-effect fault (THE-562 #13)", () => {
 });
 
 const INSERT_STATE =
-  "INSERT INTO idempotency_keys (vault_id, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at, state) VALUES (?,?,?,?,?,?,?,?,?,?)";
+  "INSERT INTO idempotency_keys (vault_id, principal, idem_key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at, state) VALUES (?,'t',?,?,?,?,?,?,?,?,?)";
 
 describe("idempotency crash-after-effect (THE-562 #13)", () => {
   it("an orphaned effect_committed row (crash before finalize) replays indeterminate, never re-runs", async () => {

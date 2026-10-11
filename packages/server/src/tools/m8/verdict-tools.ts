@@ -25,6 +25,7 @@ export function buildVerdictTools(deps: M8Deps): ToolDefinition[] {
   return [
     defineTool({
       name: "record_retrieval_feedback",
+      principalOwned: true,
       domain: "knowledge",
       // THE-718: the description leads with WHEN to call this, because the emitter decision landed
       // on "the acting agent stamps it" and a tool description is the only affordance an MCP
@@ -64,6 +65,7 @@ export function buildVerdictTools(deps: M8Deps): ToolDefinition[] {
 
     defineTool({
       name: "work_result",
+      principalOwned: true,
       domain: "knowledge",
       description:
         "Record how the task you just finished went, as -1 (it failed or produced a bad result), 0 (neutral) or +1 (it worked). The verdict applies to every judgeable tool call in your current session that has no verdict yet, and then a fresh window opens — so calling this once at the end of a session covers the session, and calling it after each task partitions the session into those tasks. Protocol traffic and this verb itself are never judged. Nothing else writes agent_episodes.task_result, and two retrieval behaviours read it: a -1 holds those episodes out of promotion, and the preference extractor only ever learns from episodes carrying a verdict.",

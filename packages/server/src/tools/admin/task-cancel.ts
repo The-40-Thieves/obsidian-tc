@@ -10,7 +10,8 @@
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
-import { cancelOwnedTask, isIdentifiedCaller } from "../../mcp/tasks";
+import { isIdentifiedCaller } from "../../mcp/registry/identified-caller";
+import { cancelOwnedTask } from "../../mcp/tasks";
 import type { JobQueue } from "../../scheduler/job-queue";
 import { projectTaskStatus, TaskStatusOutput } from "./task-status";
 

@@ -524,3 +524,53 @@ describe("search_and_read: response_format=concise (GH #1027)", () => {
     expect(Buffer.byteLength(JSON.stringify(d))).toBeLessThanOrEqual(8000);
   });
 });
+
+describe("search_and_read: a caller with no identity keeps no continuation", () => {
+  // A token with no `sub` is `caller: null`, and every such credential is the same continuation
+  // key. The selection a first page was cut from must not be shared (or overwritten) between them.
+  const files = Object.fromEntries([
+    ...["a", "b", "c", "e"].map((n) => [`n/${n}.md`, doc(n.toUpperCase(), "w".repeat(1200))]),
+    ["gated/d.md", doc("D", "w".repeat(1200))],
+  ]);
+  const opts = {
+    maxResponseBytes: 4000,
+    acl: { rules: [{ glob: "gated/**", scopes: ["read:secret"] }] },
+  };
+  const args = { k: 5, max_bytes_per_item: 1500 };
+  const wide = { caller: null, grantedScopes: new Set(["read:notes", "read:secret"]) };
+  const narrow = { caller: null, grantedScopes: new Set(["read:notes"]) };
+
+  async function walk(v: TestVault, over: typeof wide, first?: Page): Promise<string[]> {
+    const order: string[] = [];
+    let page = first ?? (await ok(v, args, over));
+    for (;;) {
+      order.push(...page.notes.map((n) => n.path));
+      if (!page.next_cursor) return order;
+      page = await ok(v, { ...args, cursor: page.next_cursor }, over);
+    }
+  }
+
+  it("a second sub-less caller's search cannot replace the first one's remaining pages", async () => {
+    const { v } = await setup(files, opts);
+    const baseline = await walk(v, wide);
+    expect(baseline).toHaveLength(5);
+
+    const firstPage = await ok(v, args, wide);
+    expect(firstPage.next_cursor).not.toBeNull();
+    // Another credential with no `sub` (and a narrower grant) searches the same thing.
+    const other = await ok(v, args, narrow);
+    expect(other.notes.map((n) => n.path)).not.toContain("gated/d.md");
+
+    expect(await walk(v, wide, firstPage)).toEqual(baseline);
+  });
+
+  it("a cursor still resumes for a sub-less caller (paging degrades to a fresh search, it is not refused)", async () => {
+    const { v } = await setup(files, opts);
+    const first = await ok(v, args, wide);
+    const rest = await ok(v, { ...args, cursor: first.next_cursor as string }, wide);
+    expect(first.notes.length + rest.notes.length).toBeGreaterThanOrEqual(2);
+    expect(new Set([...first.notes, ...rest.notes].map((n) => n.path)).size).toBe(
+      first.notes.length + rest.notes.length,
+    );
+  });
+});

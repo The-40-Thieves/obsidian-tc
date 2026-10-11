@@ -120,6 +120,10 @@ export const CACHE_MIGRATION_FILES = [
   // on, next to `path`, the display name. Existing rows are marked unresolved (fail closed) until
   // the next index pass resolves them. See the migration header.
   "20261009_001_index_acl_path.sql",
+  // `principal` joins idempotency_keys' primary key, so a claim, a replay and a reclaim are scoped
+  // to the caller that made them (Bob reusing Alice's key no longer replays Alice's result).
+  // Existing rows are purged: none recorded an owner. See the migration header.
+  "20261010_001_idempotency_principal.sql",
 ] as const;
 
 /**

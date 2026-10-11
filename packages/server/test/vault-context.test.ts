@@ -243,6 +243,27 @@ describe("vault_context (THE-132)", () => {
     expect(eps.map((e) => e.id)).toEqual(["ep-ok"]); // eligible-only; pending never surfaces
   });
 
+  it("include_work refuses a caller with no identity; the rest of the tool still serves it", async () => {
+    // The work leg is `caller IS ?` over agent_episodes: with caller null every sub-less
+    // credential would read the one NULL partition. The tool is not `principalOwned` (a sub-less
+    // credential keeps vault_context itself), so the leg checks the identity itself.
+    const { registry, ctx } = harness(edb0());
+    const anon = { ...ctx, caller: null };
+    const refused = await registry.dispatch(
+      "vault_context",
+      { vault: "main", query: "zylophrastic", include_work: true },
+      anon,
+    );
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) expect(refused.error.code).toBe("forbidden");
+    const plain = await registry.dispatch(
+      "vault_context",
+      { vault: "main", query: "zylophrastic" },
+      anon,
+    );
+    expect(plain.ok).toBe(true);
+  });
+
   it("include_lessons: false suppresses the lessons leg", async () => {
     const { registry, ctx } = harness();
     const res = un<ContextData>(

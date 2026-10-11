@@ -198,26 +198,40 @@ describe("THE-602 branch coverage: experiential-tools.ts", () => {
     expect(res.results.map((r) => r.id)).toEqual(["still-valid"]);
   });
 
-  it("work_search: a caller with no principal (null) is partitioned to caller IS NULL rows", async () => {
+  // These three asserted that a caller with no principal reads/forgets the `caller IS NULL` rows.
+  // That was the bug: a valid JWT with no `sub` is `caller: null`, so every sub-less credential
+  // shared that one partition and could read or tombstone each other's episodes. `principalOwned`
+  // makes dispatch refuse such a caller (test/principal-owned-gate.test.ts holds the repros); the
+  // rows stay readable only through `any_caller` by an identified holder of admin:workspace.
+  it("work_search: a caller with no principal (null) is refused, not partitioned to caller IS NULL", async () => {
     const db = edb0();
     seed(db, { id: "anon-ep", caller: null });
     seed(db, { id: "tester-ep", caller: "tester" });
     const { registry, ctx } = harness(db);
-    const res = un<{ results: Array<{ id: string }> }>(
-      await registry.dispatch("work_search", {}, ctx({ caller: null })),
-    );
-    expect(res.results.map((r) => r.id)).toEqual(["anon-ep"]);
+    const r = await registry.dispatch("work_search", {}, ctx({ caller: null }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe("forbidden");
   });
 
-  it("work_episodes: a caller with no principal (null) is partitioned to caller IS NULL rows", async () => {
+  it("work_episodes: a caller with no principal (null) is refused; an identified admin reaches the NULL rows via any_caller", async () => {
     const db = edb0();
     seed(db, { id: "anon-ep", caller: null, eligibility: "pending" });
     seed(db, { id: "tester-ep", caller: "tester", eligibility: "pending" });
     const { registry, ctx } = harness(db);
-    const res = un<{ episodes: Array<{ id: string }> }>(
-      await registry.dispatch("work_episodes", {}, ctx({ caller: null })),
+    const r = await registry.dispatch("work_episodes", {}, ctx({ caller: null }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe("forbidden");
+    const admin = un<{ episodes: Array<{ id: string }> }>(
+      await registry.dispatch(
+        "work_episodes",
+        { any_caller: true },
+        ctx({
+          caller: "ops",
+          grantedScopes: new Set(["read:workspace", "admin:workspace"]),
+        }),
+      ),
     );
-    expect(res.episodes.map((e) => e.id)).toEqual(["anon-ep"]);
+    expect(admin.episodes.map((e) => e.id).sort()).toEqual(["anon-ep", "tester-ep"]);
   });
 
   it("work_search: tool/session_id/since/until/query filters each narrow the result set", async () => {
@@ -308,18 +322,21 @@ describe("THE-602 branch coverage: experiential-tools.ts", () => {
     expect(byUntil.episodes.map((e) => e.id)).toEqual(["early"]);
   });
 
-  it("work_forget: a null-caller episode is forgettable by a null-caller principal, and the log records a null actor", async () => {
+  it("work_forget: a null-caller principal is refused and tombstones nothing", async () => {
     const db = edb0();
     seed(db, { id: "anon-ep", caller: null });
     const { registry, ctx } = harness(db);
-    const res = un<{ forgotten: boolean }>(
-      await registry.dispatch("work_forget", { episode_id: "anon-ep" }, ctx({ caller: null })),
+    const r = await registry.dispatch(
+      "work_forget",
+      { episode_id: "anon-ep" },
+      ctx({ caller: null }),
     );
-    expect(res.forgotten).toBe(true);
-    const row = db.prepare("SELECT details FROM forget_log WHERE target = 'anon-ep'").get() as {
-      details: string;
-    };
-    expect(JSON.parse(row.details)).toMatchObject({ actor: null });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe("forbidden");
+    expect(db.prepare("SELECT blocked FROM agent_episodes WHERE id = 'anon-ep'").get()).toEqual({
+      blocked: 0,
+    });
+    expect(db.prepare("SELECT COUNT(*) AS n FROM forget_log").get()).toEqual({ n: 0 });
   });
 
   // THE-718: this test used to be "feedback-only (outcome omitted) leaves outcome untouched via

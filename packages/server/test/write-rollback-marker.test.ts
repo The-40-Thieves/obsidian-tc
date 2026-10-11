@@ -76,7 +76,7 @@ describe("write_attachment overwrite: rollback and the committed marker", () => 
   });
   const state = (v: ReturnType<typeof makeM3Vault>): string | undefined =>
     (
-      v.db.prepare("SELECT state FROM idempotency_keys WHERE key = ?").get(key) as
+      v.db.prepare("SELECT state FROM idempotency_keys WHERE idem_key = ?").get(key) as
         | { state: string }
         | undefined
     )?.state;
