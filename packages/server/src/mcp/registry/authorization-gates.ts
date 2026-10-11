@@ -11,6 +11,7 @@
 // that must not be touched passes a copy). The rate limiter, idempotency, HITL and the handler are
 // stateful and stay in dispatch, which applies them between these gates and the path ACL.
 import { type EffectiveToolVisibilityConfig, isDisabled } from "../visibility";
+import { requireIdentifiedCaller } from "./identified-caller";
 import { applyVaultAcl, enforceVaultBinding } from "./input-binding";
 import {
   assertScopesGranted,
@@ -80,6 +81,7 @@ export function runAuthorizationGates(
   const mutating = isMutatingCall(policy);
   observe?.("auth_check", { ctx, policy, mutating });
   requireAuthenticated(ctx);
+  if (def.principalOwned) requireIdentifiedCaller(ctx, name);
   assertScopesGranted(ctx, policy.requiredScopes, "missing required scope(s)");
 
   observe?.("policy_eval", { ctx, policy, mutating });

@@ -8,6 +8,7 @@ import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { tableExists } from "../../../db/introspect";
 import type { ToolDefinition } from "../../../mcp/registry";
+import { requireIdentifiedCaller } from "../../../mcp/registry/identified-caller";
 import { bm25Chunks } from "../../../search/chunk_fts";
 import { readGeneration } from "../../../search/generation";
 import type { GraphSearchResult } from "../../../search/graph_search";
@@ -77,6 +78,9 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
     requiredScopes: ["read:notes"],
     tags: ["knowledge", "search", "external-network"],
     handler: async (input, ctx) => {
+      // The one owner-partitioned leg of an otherwise caller-independent tool (`caller IS ?` over
+      // agent_episodes below). Not `principalOwned`: a sub-less credential keeps the rest of it.
+      if (input.include_work) requireIdentifiedCaller(ctx, "vault_context include_work");
       const v = deps.vaultRegistry.resolve(input.vault);
       const exclusion = vaultExclusionFor(deps.vaultRegistry, v.id);
       const isReadable = withVaultExclusion(

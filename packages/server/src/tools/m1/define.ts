@@ -25,6 +25,8 @@ export interface ToolSpec<S extends z.ZodTypeAny, O, B extends object = Record<n
    *  key (see ToolDefinition.acceptsIdempotencyKey). Cross-checked against the runtime extraction
    *  by `idempotency-declaration-coverage.test.ts` in both directions. */
   acceptsIdempotencyKey?: boolean;
+  /** See ToolDefinition.principalOwned: dispatch refuses a caller with no identity. */
+  principalOwned?: boolean;
   description: string;
   inputSchema: S;
   /** Optional output schema (Zod object) advertised as the tool's `outputSchema` (THE-278). */

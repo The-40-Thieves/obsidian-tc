@@ -314,7 +314,9 @@ describe("audit and idempotency follow the effect vault", () => {
     b.write(OTHER, "a.md", "old");
     const r = await b.call("idem_probe", { idempotency_key: "k-eff-1" });
     expect(r.ok).toBe(true);
-    const rows = b.db.prepare("SELECT vault_id FROM idempotency_keys WHERE key = ?").all("k-eff-1");
+    const rows = b.db
+      .prepare("SELECT vault_id FROM idempotency_keys WHERE idem_key = ?")
+      .all("k-eff-1");
     expect(rows).toEqual([{ vault_id: OTHER }]);
   });
 });

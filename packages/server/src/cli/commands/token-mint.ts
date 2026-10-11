@@ -24,6 +24,7 @@ import { readFileSync } from "node:fs";
 import { SignJWT } from "jose";
 import { type AuthRegistry, summarizeScopes } from "../../auth/registry";
 import { openAuthRegistry } from "../../auth/registry-open";
+import { isReservedPrincipal } from "../../auth/reserved-principals";
 import { importSigningKey, isAsymmetricAlg } from "../../auth/signing-keys";
 import { applyEnvOverlays } from "../../config/load";
 import { CliError } from "../args";
@@ -92,6 +93,10 @@ export interface MintPlan {
  */
 export function planMint(auth: AuthShape, cmd: TokenMintCmd, now: number): MintPlan {
   if (!cmd.sub) throw new CliError("token mint requires --sub (the caller identity)");
+  if (isReservedPrincipal(cmd.sub))
+    throw new CliError(
+      `--sub ${cmd.sub} is reserved for the server's own callers (stdio, http-local, the CLI workers, rerun:*, internal:*): the token would share their idempotency keys, work memory and sessions. Pick another subject`,
+    );
   if (auth.mode !== "jwt") {
     throw new CliError(
       `config auth.mode is "${auth.mode ?? "none"}", not "jwt" — this server would not verify a minted token`,

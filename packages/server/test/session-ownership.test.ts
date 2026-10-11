@@ -100,24 +100,34 @@ describe("THE-838: end_session enforces session ownership", () => {
     }
   });
 
-  it("treats a NULL-principal session as UNOWNED: any caller may end it", async () => {
-    // The null decision, pinned deliberately rather than left to fall out of the comparison.
-    //
-    // `principal` is `ctx.caller`, which is `string | null` — an unauthenticated transport writes
-    // NULL rather than fabricating a value. Strict equality would make such a session unclosable by
-    // any authenticated caller, and `closeStaleImplicitSessions` cannot rescue it either: that
-    // sweep requires `principal IS NOT NULL` (workspace/sessions.ts). The row would leak open
-    // forever. NULL therefore means unowned — there is no principal to protect — and anyone may
-    // close it.
+  it("treats a NULL-principal session as UNOWNED: only the cross-principal scope may end it", async () => {
+    // This pinned the opposite ("any caller may end it"), reasoned as "no principal to protect".
+    // But NULL was never "no one": a valid JWT with no `sub` is `caller: null`, so every sub-less
+    // credential counted as the owner of every NULL-principal session and could end another's and
+    // append `end_metadata` to its trace. start_session is `principalOwned` now (no new NULL rows);
+    // the legacy ones are closed deliberately by the holder of admin:workspace.
+    // (The helper's default grant is `*`, which includes that scope, so the callers narrow it.)
     const v = makeM5Vault();
     try {
-      const id = await startAs(v, null);
-      const r = await v.call(
+      const id = await startAs(v, "alice");
+      v.db.prepare("UPDATE workspace_sessions SET principal = NULL WHERE id = ?").run(id);
+      const denied = await v.call(
         "end_session",
         { vault: "test", session_id: id },
-        { now: () => 5000, caller: "someone" },
+        { now: () => 5000, caller: "someone", grantedScopes: new Set(["write:workspace"]) },
       );
-      expect(r.ok).toBe(true);
+      expect(denied.ok).toBe(false);
+      if (!denied.ok) expect(denied.error.code).toBe("forbidden");
+      const admin = await v.call(
+        "end_session",
+        { vault: "test", session_id: id },
+        {
+          now: () => 5000,
+          caller: "ops",
+          grantedScopes: new Set(["write:workspace", "admin:workspace"]),
+        },
+      );
+      expect(admin.ok).toBe(true);
     } finally {
       v.cleanup();
     }
@@ -177,11 +187,12 @@ describe("THE-838: the session_id-resolving handler set is closed", () => {
     expect(src).toContain("this tool does not filter by principal");
 
     // The guard itself: server-observed `principal`, never the caller-declared `caller` column.
-    expect(src).toContain("s.principal !== null && s.principal !== ctx.caller");
+    expect(src).toContain("s.principal === null");
+    expect(src).toContain("s.principal !== ctx.caller");
     expect(src).toContain('err.forbidden("session belongs to another principal"');
 
     // And it precedes the already-ended check, so the error code is not an ownership oracle.
-    const guardAt = src.indexOf("s.principal !== null && s.principal !== ctx.caller");
+    const guardAt = src.indexOf("s.principal !== ctx.caller");
     const endedAt = src.indexOf('err.invalidInput("session already ended"');
     expect(guardAt).toBeGreaterThan(-1);
     expect(endedAt).toBeGreaterThan(-1);

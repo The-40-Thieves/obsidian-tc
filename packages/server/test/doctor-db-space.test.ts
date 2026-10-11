@@ -233,7 +233,7 @@ describe("probeDbSpace — a real cache.db", () => {
       const db = await openDatabase(dbPath); // openDatabase's own pragmas set journal_mode = WAL
       provisionCacheDb(db, { version: "test" });
       db.prepare(
-        "INSERT INTO idempotency_keys (vault_id, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO idempotency_keys (vault_id, principal, idem_key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?,'t',?,?,?,?,?,?,?,?)",
       ).run("v1", "k1", "t", "h", 1, 2, "{}", 2, 9_999_999_999_999);
       db.close?.();
 
@@ -310,7 +310,7 @@ describe("probeDbSpace — a real cache.db", () => {
       const db = await openDatabase(dbPath); // openDatabase's own pragmas set journal_mode = WAL
       provisionCacheDb(db, { version: "test" });
       db.prepare(
-        "INSERT INTO idempotency_keys (vault_id, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO idempotency_keys (vault_id, principal, idem_key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?,'t',?,?,?,?,?,?,?,?)",
       ).run("v1", "k1", "t", "h", 1, 2, "{}", 2, 9_999_999_999_999);
       db.close?.();
 

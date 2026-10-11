@@ -62,6 +62,7 @@ interface RetrievalRow {
 export function createExplainAnswerTool(deps: M7Deps): ToolDefinition {
   return defineTool({
     name: "explain_answer",
+    principalOwned: true,
     domain: "knowledge",
     description:
       "Explain what an answer actually used: walks retrieval -> chunk -> citation -> episode for one session or time window and reports each link with how well it is known. Distinguishes a retrieval the citation pass never judged from one it judged and rejected, and a chunk whose note no longer exists from one that was never used. Read-only; reports nothing about paths the caller cannot read. response_format=concise drops the summary counts and each link's retrieval echo (time, surface, query text, rank); the caveat and the citation-pass record stay.",

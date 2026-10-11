@@ -283,7 +283,7 @@ Derived edges added to the `vault_edges` graph beyond authored wikilinks, so a m
 | `toolVisibility.hidden` / `hiddenTags` | `[]` | Drop from `tools/list` but keep callable (lean surface, not a security boundary). Tags are the fixed vocabulary in [Tool tags](/tools/#tool-tags), e.g. `destructive`, `bulk`, `external-network`. |
 | `toolVisibility.disabled` / `disabledTags` | `[]` | Drop from the list **and** reject at dispatch. Same tag vocabulary. |
 | `toolVisibility.requireReadOnly` | false | Hide every mutating tool (derived from scopes — no per-tool annotation needed). |
-| `idempotencyTtlSeconds` | 86400 | Idempotency-key replay window. |
+| `idempotencyTtlSeconds` | 86400 | Idempotency-key replay window. A key is scoped to the calling principal, so another caller reusing it runs its own call. |
 | `idempotencyReclaimSeconds` | 60 | Window before a crashed in-flight idempotency row may be reclaimed — raise for slow bulk tools. |
 | `elicitTtlSeconds` | 300 | HITL elicit-token lifetime (single-use, args-hash-bound). |
 

@@ -422,7 +422,7 @@ describe("THE-1039 (GH #930) — obsidian-tc compact (end to end)", () => {
       const db = await openDatabase(dbPath);
       provisionCacheDb(db, { version: "test" });
       const ins = db.prepare(
-        "INSERT INTO idempotency_keys (vault_id, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO idempotency_keys (vault_id, principal, idem_key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?,'t',?,?,?,?,?,?,?,?)",
       );
       const blob = "x".repeat(4000);
       for (let i = 0; i < 100; i++) {

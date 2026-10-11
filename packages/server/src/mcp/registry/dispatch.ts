@@ -21,10 +21,12 @@ import {
   extractIdempotencyKey,
   finalizeIdempotency,
   finalizeIndeterminate,
+  type IdempotencyOwner,
   markEffectCommitted,
   readIdempotency,
 } from "./idempotency";
 import { idempotentErrorReplay } from "./idempotent-replay";
+import { requireIdentifiedCaller } from "./identified-caller";
 import { parseInput, vaultFailureHint } from "./input-binding";
 import {
   checkHitl,
@@ -104,10 +106,12 @@ export async function runDispatch(
   // Governing scope class for the limiter gate + `scope_class` metric label; resolved
   // once the tool definition is known (stays "unknown" for an unrecognized tool name).
   let scopeClass = "unknown";
-  // Idempotency gate state (D3): set when the call carries an idempotency key and
-  // we own its in-flight row, so the catch/overflow paths can release it.
+  // Idempotency gate state (D3): set when the call carries a key and we own its in-flight row
+  // (keyed by vault, principal, key), so the catch/overflow paths can release it.
   let idemKey: string | undefined;
   let idemClaimed = false;
+  let idemPrincipal = "";
+  const idemAt = (): IdempotencyOwner => ({ vaultId: ctx.vaultId, principal: idemPrincipal });
   // THE-667: which rejection gate's release attempt failed, if any. Recorded rather than counted at
   // the gate, because the outer catch makes a SECOND delete attempt for every pre-handler failure
   // (see the `else` branch below) — so a gate-site failure alone does NOT mean the claim survived.
@@ -121,9 +125,8 @@ export async function runDispatch(
   // ctx.markEffectCommitted() — i.e. BEFORE it returns. From that point the same rule as
   // handlerReturned applies: the catch must record indeterminate, never delete-and-re-run.
   let effectCommitted = false;
-  // THE-573 #1: the ctx we installed markEffectCommitted on, so the finally can remove it. Kept
-  // as its own handle rather than re-deriving from ctx, so cleanup only ever clears a callback
-  // THIS dispatch installed.
+  // THE-573 #1: the ctx we installed markEffectCommitted on, so the finally only ever clears a
+  // callback THIS dispatch installed.
   let installedMarker: { markEffectCommitted?: () => void } | undefined;
   const provenance = provenanceScope(deps.provenance, deps.rootResolver); // see provenance-scope.ts
 
@@ -238,29 +241,26 @@ export async function runDispatch(
 
     await runPrecheck(def, inputData, ctx);
 
-    // Idempotency gate (D3). A keyed call claims a row in idempotency_keys; a
-    // replay returns the cached result without re-running the handler. Runs after
-    // auth/scope/ACL/precheck but BEFORE throttle/HITL: the lock must be claimed
-    // atomically before the single-use elicit token is consumed, so two concurrent
-    // identical requests can't each consume the token (TOCTOU). Authorization
-    // (auth/scope/ACL) still runs before this gate, so it stays authoritative on replays.
+    // Idempotency gate (D3). A keyed call claims a row in idempotency_keys; a replay returns the
+    // cached result without re-running the handler. Runs after auth/scope/ACL/precheck (so those
+    // stay authoritative on replays) but BEFORE throttle/HITL: the lock must be taken before the
+    // single-use elicit token is consumed, or two concurrent identical requests could each
+    // consume it (TOCTOU). The row is the caller's own: its principal is part of the key.
     idemKey = extractIdempotencyKey(inputData);
     if (idemKey) {
       spans?.stage("idempotency");
-      // WP4.2: claim/replay decision-making (reclaim-and-retry, corrupt-blob recovery, terminal-
-      // overflow replay) lives in registry/idempotency.ts's claimOrReplay, returning one explicit
-      // discriminated state. Only the dispatch-shaped reaction — error construction, audit/meter
-      // calls, result-serialization memo — stays here.
+      idemPrincipal = requireIdentifiedCaller(ctx, "idempotency_key");
+      // WP4.2: the claim/replay decision (reclaim, corrupt-blob recovery, overflow replay) lives in
+      // idempotency.ts's claimOrReplay as one discriminated state; the dispatch-shaped reaction
+      // (errors, audit/meter, result memo) stays here.
       const claim = claimOrReplay(
         ctx.db,
-        ctx.vaultId,
+        idemAt(),
         idemKey,
         name,
         hash,
-        // Pass the clock FUNCTION, not a single now() sample — claimOrReplay calls it at each of
-        // the (up to) four points the original inline block did (initial claim, both reclaim-
-        // window comparisons, retry claim), so it observes the same drift a stateful ctx.now
-        // would (cross-vendor review, WP4.2).
+        // The clock FUNCTION, not one sample: claimOrReplay reads it at each of its four points so
+        // a stateful ctx.now is observed as before (cross-vendor review, WP4.2).
         now,
         deps.idempotencyTtlMs,
         deps.idempotencyReclaimMs,
@@ -345,7 +345,7 @@ export async function runDispatch(
     if (throttled) {
       if (idemClaimed && idemKey) {
         try {
-          deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+          deleteIdempotency(ctx.db, idemAt(), idemKey);
         } catch {
           // THE-667: best-effort — releasing the claim must never replace the `throttled` error
           // the caller has to see. Record the gate; the outer catch retries this delete and only
@@ -383,7 +383,7 @@ export async function runDispatch(
         deps.observability.meter((m) => m.incHitlElicited(ctx.vaultId, name));
         if (idemClaimed && idemKey) {
           try {
-            deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+            deleteIdempotency(ctx.db, idemAt(), idemKey);
           } catch {
             // THE-667: same shape as the throttle gate above — the release must not replace the
             // `elicit_required` the caller has to see. Recorded, not counted; see the outer catch.
@@ -439,7 +439,7 @@ export async function runDispatch(
         );
       }
       slot.markEffectCommitted = () => {
-        markEffectCommitted(ctx.db, ctx.vaultId, claimedKey, now());
+        markEffectCommitted(ctx.db, idemAt(), claimedKey, now());
         effectCommitted = true;
       };
       if (ctx !== callerCtx) (ctx as typeof slot).markEffectCommitted = slot.markEffectCommitted;
@@ -469,7 +469,7 @@ export async function runDispatch(
         // more fallible work before returning; THE-572's ctx.markEffectCommitted() closes that
         // window from the handler side by setting the same marker earlier. This call stays as the
         // backstop for every single-effect handler (and re-fires harmlessly if already signalled).
-        if (idemClaimed && idemKey) markEffectCommitted(ctx.db, ctx.vaultId, idemKey, now());
+        if (idemClaimed && idemKey) markEffectCommitted(ctx.db, idemAt(), idemKey, now());
         return r;
       },
     );
@@ -501,7 +501,7 @@ export async function runDispatch(
       if (idemClaimed && idemKey) {
         deps.observability.meter((m) => m.incIdempotencyCacheSkipped(ctx.vaultId, name));
         try {
-          finalizeIdempotency(ctx.db, ctx.vaultId, idemKey, "null", resultSize, now());
+          finalizeIdempotency(ctx.db, idemAt(), idemKey, "null", resultSize, now());
         } catch (finalizeErr) {
           // A finalize fault here leaves the row 'effect_committed' (not in-flight) — #13's durable
           // marker means a retry resolves to indeterminate_outcome rather than re-executing. Surface
@@ -540,7 +540,7 @@ export async function runDispatch(
     }
 
     if (idemClaimed && idemKey)
-      finalizeIdempotency(ctx.db, ctx.vaultId, idemKey, json, resultSize, now());
+      finalizeIdempotency(ctx.db, idemAt(), idemKey, json, resultSize, now());
     audit("ok", duration, resultSize);
     deps.observability.meter((m) =>
       m.observeToolCall(ctx.vaultId, name, "ok", duration / 1000, resultSize, telemetryDetail(ctx)),
@@ -591,7 +591,7 @@ export async function runDispatch(
       if (effectCommitted) {
         try {
           durablyCommitted =
-            readIdempotency(ctx.db, ctx.vaultId, idemKey)?.state === "effect_committed";
+            readIdempotency(ctx.db, idemAt(), idemKey)?.state === "effect_committed";
         } catch {
           durablyCommitted = true;
         }
@@ -600,7 +600,7 @@ export async function runDispatch(
         // #13: post-effect fault — NEVER delete; record indeterminate so a retry gets a definite
         // answer instead of re-executing the committed effect.
         try {
-          finalizeIndeterminate(ctx.db, ctx.vaultId, idemKey, now());
+          finalizeIndeterminate(ctx.db, idemAt(), idemKey, now());
         } catch (finErr) {
           try {
             deps.onInternalError?.(`idempotency_indeterminate:${name}`, ctx.vaultId, finErr);
@@ -611,7 +611,7 @@ export async function runDispatch(
       } else {
         // pre-handler failure: safe to release the slot so a legitimate retry re-runs.
         try {
-          deleteIdempotency(ctx.db, ctx.vaultId, idemKey);
+          deleteIdempotency(ctx.db, idemAt(), idemKey);
         } catch {
           // THE-667: cleanup stays best-effort — must not mask the original error. This is the
           // LAST release attempt though, so its failure means the claim is genuinely orphaned;

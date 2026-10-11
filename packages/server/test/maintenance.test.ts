@@ -18,7 +18,7 @@ describe("cache.db maintenance sweep (THE-292)", () => {
     const db = freshDb();
     const now = 10_000_000_000;
     const idem =
-      "INSERT INTO idempotency_keys (vault_id, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?,?,?,?,?,?,?,?,?)";
+      "INSERT INTO idempotency_keys (vault_id, principal, idem_key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at) VALUES (?,'t',?,?,?,?,?,?,?,?)";
     db.prepare(idem).run("v1", "old", "t", "h", now - 100_000, now - 90_000, "{}", 2, now - 1);
     db.prepare(idem).run("v1", "live", "t", "h", now - 100_000, now - 90_000, "{}", 2, now + 1000);
     // Crashed in-flight row: the EXPIRED-ONLY sweep must NOT reap it before expires_at —

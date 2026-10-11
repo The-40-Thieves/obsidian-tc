@@ -196,8 +196,11 @@ describe("resolveSearchVaultMode", () => {
     ).toBe("default");
   });
 
-  it("caller scoping: a null caller (unauthenticated stdio) reads the '' partition", () => {
+  it("no identity: a null caller reads NO stored preference, not even the '' partition", () => {
+    // A token with no `sub` is `caller: null`, and every such credential is the same `''` partition.
+    // stdio and `auth.mode: none` have named callers, so a preference there is a named caller's own.
     seed(edb, "main", "", "search_text", STRONG);
+    seed(edb, "main", "alice", "search_text", STRONG);
     expect(
       resolveSearchVaultMode({
         explicit: undefined,
@@ -206,7 +209,36 @@ describe("resolveSearchVaultMode", () => {
         vaultId: "main",
         caller: null,
       }),
-    ).toEqual({ mode: "text", source: "preference" });
+    ).toEqual({ mode: "auto", source: "default" });
+    // An empty string is no identity either.
+    expect(
+      resolveSearchVaultMode({
+        explicit: undefined,
+        stringQuery: true,
+        edb,
+        vaultId: "main",
+        caller: "",
+      }).source,
+    ).toBe("default");
+  });
+
+  it("no identity: the read touches no store at all (nothing shared to steer or leak)", () => {
+    const touched: string[] = [];
+    const spy = new Proxy(edb, {
+      get(target, key) {
+        touched.push(String(key));
+        const v = Reflect.get(target, key) as unknown;
+        return typeof v === "function" ? v.bind(target) : v;
+      },
+    });
+    resolveSearchVaultMode({
+      explicit: undefined,
+      stringQuery: true,
+      edb: spy,
+      vaultId: "main",
+      caller: null,
+    });
+    expect(touched).toEqual([]);
   });
 
   it("vault scoping: a row for another vault is not read", () => {
@@ -272,6 +304,22 @@ describe("search_vault with the reader wired", () => {
     const d = ok(await v.call("search_vault", { vault: "test", query: "fox" }));
     expect(d.mode_used).toBe("text");
     expect(d.mode_source).toBe("preference");
+    v.cleanup();
+  });
+
+  it("no identity: two sub-less callers cannot influence each other's search mode", async () => {
+    const edb = edbWith();
+    // What a sub-less caller's episodes would produce, plus a named caller's own row.
+    seed(edb, "test", "", "search_text", STRONG);
+    const v = await wired(edb);
+    const first = ok(
+      await v.call("search_vault", { vault: "test", query: "fox" }, { caller: null }),
+    );
+    const second = ok(
+      await v.call("search_vault", { vault: "test", query: "fox" }, { caller: null }),
+    );
+    expect(first.mode_source).toBe("default");
+    expect(second.mode_source).toBe("default");
     v.cleanup();
   });
 
