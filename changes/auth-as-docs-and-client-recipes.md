@@ -1,0 +1,4 @@
+---
+type: Added
+---
+- **Bundled authorization server: documentation, client recipes and threat model.** The authentication page has a section on turning the server on, what to back up (`oauth.db`, `auth.db`, `auth-keys/` and the per-server secret) and trusted proxies. Every `auth.as.*` key is documented with its default and an example, and `check:config-paths` now fails when a key under `auth.as` has no documentation. `SECURITY.md` has threat rows for the server (metadata-document SSRF, localhost impersonation, DCR abuse, refresh-token replay, `oauth.db` disclosure, forwarded-IP spoofing and consent phishing), each naming its mitigation and test. The new Client recipes page covers Claude Code, claude.ai, ChatGPT, Codex, Gemini CLI and other clients, and the WorkOS AuthKit and Keycloak setups. Cloudflare Access is listed as not yet supported.

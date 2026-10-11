@@ -421,4 +421,42 @@ if (violations.length > 0) {
   process.exit(1);
 }
 
+// ---- 6. Completeness: every auth.as.* key is documented -----------------------------------------
+// The reverse direction: sections 1-5 only check that a path a doc MENTIONS exists. A key the
+// schema gained (the bundled authorization server, auth.as.*) can ship with no doc at all, and no
+// check above notices. So every leaf under auth.as must appear as a backticked path in one of the
+// two pages that document it. `[]` is stripped on both sides, so `auth.as.clients[].name` and the
+// schema's `auth.as.clients.name` compare equal.
+const AS_DOC_FILES = [
+  "docs/src/content/docs/configuration/config-yaml.md",
+  "docs/src/content/docs/security/auth-model.md",
+];
+const MIN_EXPECTED_AS_PATHS = 15; // the schema carries 20 leaves under auth.as today
+const asLeaves = validPaths
+  .map((p) => segmentsOf(p).join("."))
+  .filter((p) => p.startsWith("auth.as."));
+if (asLeaves.length < MIN_EXPECTED_AS_PATHS) {
+  console.error(
+    `config-paths gate: only ${asLeaves.length} auth.as.* path(s) in the JSON Schema (expected >= ${MIN_EXPECTED_AS_PATHS}). Refusing to pass a completeness check that saw (near-)nothing.`,
+  );
+  process.exit(1);
+}
+const documentedAs = new Set();
+for (const file of AS_DOC_FILES) {
+  const text = readFileSync(resolve(ROOT, file), "utf8");
+  for (const m of text.matchAll(BACKTICK_SPAN)) documentedAs.add(m[1].replace(/\[\]/g, ""));
+}
+const undocumentedAs = asLeaves.filter((p) => !documentedAs.has(p));
+if (undocumentedAs.length > 0) {
+  console.log(
+    `config-paths gate: ${undocumentedAs.length} auth.as.* key(s) of ${asLeaves.length} not documented in ${AS_DOC_FILES.map((f) => f.split("/").pop()).join(" or ")}:`,
+  );
+  for (const p of undocumentedAs) console.log(`  missing \`${p}\``);
+  console.error(
+    "\nconfig-paths gate: every auth.as.* key must be documented (default, meaning, example) in config-yaml.md or auth-model.md.",
+  );
+  process.exit(1);
+}
+console.log(`config-paths gate: all ${asLeaves.length} auth.as.* keys are documented`);
+
 process.exit(0);

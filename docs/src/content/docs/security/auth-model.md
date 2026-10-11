@@ -468,6 +468,56 @@ Opt-in (`auth.as.enabled`, default off; see [config](/configuration/config-yaml/
 It issues tokens itself: the metadata, the signing key, the store, the authorize, consent, token and revoke routes,
 and the client registrations below.
 
+### Turning it on
+
+The bundled server is off until you enable it. Set these in the config (every key is listed in
+[the `auth.as` table](/configuration/config-yaml/#bundled-authorization-server-authas)):
+
+```json
+{
+  "cacheDir": "/var/lib/obsidian-tc/cache",
+  "vaults": [{ "id": "main", "path": "/absolute/path/to/vault" }],
+  "transports": { "http": { "allowedHosts": ["vault.example.com"] } },
+  "auth": {
+    "mode": "jwt",
+    "resource": "https://vault.example.com/mcp",
+    "requireJti": true,
+    "as": { "enabled": true, "issuer": "https://vault.example.com" }
+  }
+}
+```
+
+- `auth.mode: jwt` is required. `auth.as.enabled` is refused under `none` and under `oidc`.
+- `auth.resource` is the MCP URL clients are given. `auth.as.issuer` is an https origin with no path. Both come
+  from config and never from the request's `Host` header.
+- Claim the operator account once, before anything can sign in:
+  [Operator login and claiming the server](#operator-login-and-claiming-the-server). Until then the server is
+  unclaimed and refuses to issue tokens.
+- Behind a proxy or tunnel, list it in `transports.http.trustedProxies`; see [Trusted proxies](#trusted-proxies)
+  below.
+
+### Standards at a glance
+
+- **Clients.** A client is identified by a metadata document (CIMD) first, then by Dynamic Client Registration
+  (DCR, on by default), then by a pre-registered entry in `auth.as.clients`. The bullets below say what each checks.
+- **PKCE.** `S256` only. The metadata advertises `code_challenge_methods_supported: ["S256"]`, and a `plain`
+  challenge is refused.
+- **`none` client authentication.** Public clients authenticate with PKCE and no secret. `private_key_jwt` is
+  never advertised. A metadata document that permits only `private_key_jwt` is refused.
+- **RFC 9207 `iss`.** The metadata advertises `authorization_response_iss_parameter_supported: true`. Every
+  authorization response, success and error, carries `iss`, equal to the metadata `issuer`, to Protected Resource
+  Metadata `authorization_servers[0]` and to the token's `iss`. That is what makes ChatGPT use its stable redirect
+  URI.
+- **Resource indicators (RFC 8707).** `resource` is accepted on the authorize and token requests and must be
+  `auth.resource`; it is copied into `aud`. Any other value is `invalid_target`.
+- **Refresh tokens.** Rotated on every use and reuse-detected, and the family ends `auth.as.refreshTokenDays` after
+  the code exchange. The reuse grace is described in the refresh bullet below.
+- For the client-by-client setup, see [Client recipes](/deployment/client-recipes/). To put an external
+  authorization server in front instead, see
+  [Verifying an external OpenID Connect provider](#verifying-an-external-openid-connect-provider-oidc-mode).
+
+### What the server serves
+
 - **Metadata, once the server can issue.** `GET /.well-known/oauth-authorization-server` (and
   `/.well-known/openid-configuration`) returns the RFC 8414 document, and Protected Resource Metadata names the
   issuer first by default, only when the authorize and token routes are actually served (a build without them
@@ -588,6 +638,30 @@ and the client registrations below.
   absent, which would have made it impossible to revoke.
 - **No JWKS duplicate.** A configured `auth.jwks` or `auth.jwksFile` holding the `as` key's public key stops the
   boot; a remote `auth.jwksUri` cannot be checked.
+
+### What to back up
+
+The bundled server keeps four things on disk under `cacheDir`. Back them up together, in one window, so a restore
+never pairs one part with an older copy of another.
+
+| Path | What it holds | If it is lost |
+| --- | --- | --- |
+| `oauth.db`, with its `-wal` and `-shm` | The operator account and password hash, passkeys, grants, refresh tokens (stored as hashes), registered clients, pending requests | Recreated empty. Clients sign in again and the operator claims the server again. Access tokens already issued expire on their own. |
+| `<cacheDir>/auth.db` | The token registry: revocations and the key rows | Judged lost, so every HS256 bearer is refused. Recover from backup, as described under "Back up `<cacheDir>/auth.db`" above. |
+| `auth-keys/` | The signing keys, including the `as` key, and the marker files that record they were created | Signing keys are not regenerable, and retired keys could come back if the markers are lost. |
+| `server-secrets/wiki-generated.key` | The per-server secret. Refresh tokens are bound to it, and so are the HITL state seals | A new secret retires every refresh family, so each client signs in again. |
+
+### Trusted proxies
+
+Behind a reverse proxy or tunnel on the same host, list that proxy in `transports.http.trustedProxies`. Three parts of
+the bundled server depend on it:
+
+- The per-source budgets (dynamic registration, metadata-document lookups, login, passkey challenges) count the
+  forwarded client, not the proxy, and only when the proxy is listed. Unlisted, every client behind it shares one bucket.
+- The forwarded header is read only from a listed peer. A forged `X-Forwarded-For` from any other peer is ignored.
+- The issuer, every endpoint URL and `resource` are never derived from `Host` or `X-Forwarded-*`, listed or not.
+
+The proxy setup itself, with nginx and Caddy examples, is in [Running behind a proxy or tunnel](#running-behind-a-proxy-or-tunnel).
 
 ### Operator login and claiming the server
 
