@@ -147,6 +147,25 @@ export function findOwnedJob(queue: JobQueue, id: string, owner: McpTaskOwner): 
   return job;
 }
 
+/**
+ * Ask for a cooperative cancel of an owned task, and return the job as it now stands (`null` when
+ * it is not the caller's, exactly as findOwnedJob). The ONE cancel path: `tasks/cancel` and the
+ * `cancel_task` tool both come here.
+ *
+ * A task that is no longer working is left alone. The projection reads a FAILED job carrying the
+ * cancel flag as cancelled, so flagging one that already failed would rewrite its outcome after the
+ * fact (and bump its `updated_at`); a completed one must keep its result (see toMcpTask).
+ * Cancelling a finished task is a no-op, not an error: that is what a client that raced the end of
+ * its task should see.
+ */
+export function cancelOwnedTask(queue: JobQueue, id: string, owner: McpTaskOwner): Job | null {
+  const job = findOwnedJob(queue, id, owner);
+  if (job === null) return null;
+  if (toMcpTask(job).status !== "working") return job;
+  queue.requestCancel(job.id);
+  return queue.get(job.id) ?? job;
+}
+
 /** The revision the extension is defined against. Tasks does not exist in 2025-11-25. */
 export const MODERN_PROTOCOL_VERSION = "2026-07-28";
 
@@ -213,7 +232,7 @@ export async function serveTaskExtension(
     // eventually consistent." Returning the projected task here instead would read as a REPORT of
     // the outcome, which is the one thing cancellation cannot give you: the work may still be
     // running, and may still reach a non-`cancelled` terminal state.
-    queue.requestCancel(job.id);
+    cancelOwnedTask(queue, job.id, owner);
     return { jsonrpc: "2.0", id, result: {} };
   }
 

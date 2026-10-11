@@ -162,6 +162,8 @@ export const EXEMPT_FROM_RESPONSE_FORMAT: Readonly<Record<string, string>> = {
   get_index_status:
     "every field is an index-health signal (reconcile state, write failures, vec/fts)",
   get_metrics: "the metric rows are the payload",
+  cancel_task:
+    "the same small status envelope get_task_status answers with: a state and timestamps, no payload worth trimming",
   get_task_status:
     "a status envelope (state, progress, retry hint) whose `result` is the finished tool's own output, already shaped by the response_format the original call carried",
   inspect_acl: "one allow/deny verdict with its rule: every field is part of the decision",

@@ -11,6 +11,7 @@ import type { EffectiveToolVisibilityConfig } from "../../src/mcp/visibility";
 import { buildRepresentationManifest } from "../../src/search/representation";
 import { RateLimiter } from "../../src/throttle";
 import { createHealthTool, createIndexStatusTool } from "../../src/tools/admin/health";
+import { createTaskCancelTool } from "../../src/tools/admin/task-cancel";
 import { createTaskStatusTool } from "../../src/tools/admin/task-status";
 import { registerM1Tools } from "../../src/tools/m1";
 import { registerM2Tools } from "../../src/tools/m2";
@@ -73,6 +74,7 @@ export function buildFullRegistry(opts?: {
   );
   // Registered inline beside the two above (wireHealthTools); docgen reads only its schema.
   registry.register(createTaskStatusTool({ queue: {} as never }));
+  registry.register(createTaskCancelTool({ queue: {} as never }));
   registerM1Tools(registry, {
     vaultRegistry,
     version: "docgen",
