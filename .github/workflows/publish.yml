@@ -82,17 +82,20 @@ jobs:
       - name: verify the release tag is signed
         env:
           TAG: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          EVENT_NAME: ${{ github.event_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -uo pipefail
           # A workflow_dispatch dry run targets a BRANCH, not a tag — there is no tag object to
           # verify and github.ref_name is the branch name. Now that build-native needs this job,
           # enforcing here would break every dry run the moment REQUIRE_SIGNED_TAG flips to true,
           # which is precisely the 8-target rehearsal that must keep working.
-          if [ "${{ github.ref_type }}" != "tag" ]; then
+          if [ "$REF_TYPE" != "tag" ]; then
             # Fail closed: only a dispatch with dry_run=true may pass on a non-tag ref. A real publish
             # (dry_run=false) from a branch must not ship anything unverified, so it is refused here.
-            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "true" ]; then
-              echo "ref_type is '${{ github.ref_type }}', not a tag: dry run, nothing to verify."
+            if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$DRY_RUN" = "true" ]; then
+              echo "ref_type is '$REF_TYPE', not a tag: dry run, nothing to verify."
               exit 0
             fi
             echo "::error title=Real publish from a non-tag ref::A real publish requires a signed release tag; dispatch from the tag."

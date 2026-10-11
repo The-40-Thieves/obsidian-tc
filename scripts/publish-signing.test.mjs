@@ -76,7 +76,10 @@ test("the signing job runs after every build job and is skipped on the same dry-
   ]) {
     assert.ok(needs[1].split(/,\s*/).includes(job), `sign-artifacts must need ${job}`);
   }
-  assert.match(sign, /if: github\.event_name == 'push' \|\| \(github\.ref_type == 'tag' && !inputs\.dry_run\)/);
+  assert.match(
+    sign,
+    /if: github\.event_name == 'push' \|\| \(github\.ref_type == 'tag' && !inputs\.dry_run\)/,
+  );
 });
 
 test("every released artifact family is downloaded and has a signing step with an existence floor", () => {
@@ -508,27 +511,33 @@ test("release-image.yml verifies each npm-delivered .node against the release's 
 
 // ---- F1: a real publish requires a signed release tag ----
 
-// Runs verify-tag's signature step shell with the runner's three expressions substituted.
+// Runs verify-tag's signature step shell with the runner's three context values in its env.
 function runVerifyTag({ refType, eventName, dryRun }) {
   const m = jobBlock("verify-tag").match(
     /- name: verify the release tag is signed\n[\s\S]*?\n {8}run: \|\n((?: {10}.*\n|\n)+)/,
   );
   assert.ok(m, "verify-tag has no 'verify the release tag is signed' run block");
-  const script = m[1]
-    .replace(/^ {10}/gm, "")
-    .replaceAll("${{ github.ref_type }}", refType)
-    .replaceAll("${{ github.event_name }}", eventName)
-    .replaceAll("${{ inputs.dry_run }}", dryRun);
+  const script = m[1].replace(/^ {10}/gm, "");
   return spawnSync("bash", ["-c", script], {
     encoding: "utf8",
-    env: { ...process.env, TAG: "v0.0.0-test", REQUIRE_SIGNED_TAG: "true" },
+    env: {
+      ...process.env,
+      TAG: "v0.0.0-test",
+      REQUIRE_SIGNED_TAG: "true",
+      REF_TYPE: refType,
+      EVENT_NAME: eventName,
+      DRY_RUN: dryRun,
+    },
   });
 }
 
 test("verify-tag refuses a real publish from a branch and keeps a branch dry run passing", () => {
   const real = runVerifyTag({ refType: "branch", eventName: "workflow_dispatch", dryRun: "false" });
   assert.notEqual(real.status, 0, real.stdout + real.stderr);
-  assert.match(real.stdout, /A real publish requires a signed release tag; dispatch from the tag\./);
+  assert.match(
+    real.stdout,
+    /A real publish requires a signed release tag; dispatch from the tag\./,
+  );
   const dry = runVerifyTag({ refType: "branch", eventName: "workflow_dispatch", dryRun: "true" });
   assert.equal(dry.status, 0, dry.stdout + dry.stderr);
 });
@@ -557,7 +566,10 @@ test("every dry-run-guarded job also requires a tag ref for a real publish", () 
 
 test("publish.yml header no longer says a dispatch publishes nothing", () => {
   const header = WORKFLOW.slice(0, WORKFLOW.indexOf("\npermissions:"));
-  assert.doesNotMatch(header, /This dispatch builds the same 8-target matrix and publishes nothing/);
+  assert.doesNotMatch(
+    header,
+    /This dispatch builds the same 8-target matrix and publishes nothing/,
+  );
   assert.match(header, /dry_run=false[^\n]*signed release tag/);
 });
 
@@ -575,10 +587,16 @@ test("release-image.yml verifies the release tag signature before anything is bu
   const verify = run.indexOf('verify-tag "refs/tags/v${VERSION}"');
   assert.ok(verify > 0, "no signed-tag check in release-image.yml");
   assert.match(RELEASE_IMAGE, /ref: refs\/tags\/v\$\{\{ inputs\.version \}\}\n\s+fetch-depth: 0/);
-  assert.match(run, /git -c gpg\.ssh\.allowedSignersFile="\$RUNNER_TEMP\/allowed_signers" verify-tag/);
+  assert.match(
+    run,
+    /git -c gpg\.ssh\.allowedSignersFile="\$RUNNER_TEMP\/allowed_signers" verify-tag/,
+  );
   assert.ok(verify > run.indexOf("actions/checkout@"), "the tag is fetched before it is verified");
   assert.ok(verify < run.indexOf("npm pack"), "verified before the prebuilds are fetched");
-  assert.ok(verify < run.indexOf("docker/build-push-action"), "verified before the image is pushed");
+  assert.ok(
+    verify < run.indexOf("docker/build-push-action"),
+    "verified before the image is pushed",
+  );
 });
 
 // ---- trust root: a tag is verified against main's allowed_signers, never against its own copy ----
@@ -616,10 +634,13 @@ function stepScript(text, name) {
   return lines.join("\n");
 }
 
-function runStep(text, name, { cwd, env, subs = {} }) {
-  let script = stepScript(text, name);
-  for (const [expr, value] of Object.entries(subs)) script = script.replaceAll(expr, value);
-  return spawnSync("bash", ["-c", script], { cwd, encoding: "utf8", env: { ...process.env, ...env } });
+function runStep(text, name, { cwd, env }) {
+  const script = stepScript(text, name);
+  return spawnSync("bash", ["-c", script], {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+  });
 }
 
 function git(cwd, args) {
@@ -679,7 +700,10 @@ function releaseFixture(root, mainLists) {
   git(seed, ["push", "-q", origin, "main"]);
   // The candidate: its own tree lists the attacker, and the attacker signs the tag.
   git(seed, ["checkout", "-q", "-b", "candidate"]);
-  writeFileSync(join(seed, ".github/allowed_signers"), `# candidate\nattacker ${keys.attacker.pub}\n`);
+  writeFileSync(
+    join(seed, ".github/allowed_signers"),
+    `# candidate\nattacker ${keys.attacker.pub}\n`,
+  );
   git(seed, ["add", "-A"]);
   git(seed, ["commit", "-q", "-m", "candidate"]);
   git(seed, [
@@ -702,11 +726,13 @@ function releaseFixture(root, mainLists) {
 function publishVerify(fx) {
   return runStep(WORKFLOW, PUBLISH_VERIFY, {
     cwd: fx.clone,
-    env: { TAG, RUNNER_TEMP: fx.runnerTemp, REQUIRE_SIGNED_TAG: "true" },
-    subs: {
-      "${{ github.ref_type }}": "tag",
-      "${{ github.event_name }}": "push",
-      "${{ inputs.dry_run }}": "false",
+    env: {
+      TAG,
+      RUNNER_TEMP: fx.runnerTemp,
+      REQUIRE_SIGNED_TAG: "true",
+      REF_TYPE: "tag",
+      EVENT_NAME: "push",
+      DRY_RUN: "false",
     },
   });
 }
@@ -724,9 +750,16 @@ function assertSignersFromMain(script) {
     script,
     /git show origin\/main:\.github\/allowed_signers > "\$RUNNER_TEMP\/allowed_signers"/,
   );
-  assert.match(script, /-s "\$RUNNER_TEMP\/allowed_signers"/, "an empty or missing list must fail closed");
+  assert.match(
+    script,
+    /-s "\$RUNNER_TEMP\/allowed_signers"/,
+    "an empty or missing list must fail closed",
+  );
   assert.match(script, /gpg\.ssh\.allowedSignersFile="\$RUNNER_TEMP\/allowed_signers"/);
-  assert.doesNotMatch(script, /allowedSignersFile=\.github\/allowed_signers|-f \.github\/allowed_signers/);
+  assert.doesNotMatch(
+    script,
+    /allowedSignersFile=\.github\/allowed_signers|-f \.github\/allowed_signers/,
+  );
 }
 
 test("publish verify-tag: the signers come from origin/main, never from the tag (structural)", () => {
@@ -829,8 +862,14 @@ test("release-image.yml runs every step that reads the tag's tree in src/, and b
 });
 
 test("the smoke-and-promote action runs its smoke script from its own checkout, not the caller's tree", () => {
-  const block = stepBlock(SMOKE_ACTION, "boot-smoke linux/amd64 and linux/arm64 of the staged digest");
-  assert.match(block, /^ {6}working-directory: \$\{\{ github\.action_path \}\}\/\.\.\/\.\.\/\.\.$/m);
+  const block = stepBlock(
+    SMOKE_ACTION,
+    "boot-smoke linux/amd64 and linux/arm64 of the staged digest",
+  );
+  assert.match(
+    block,
+    /^ {6}working-directory: \$\{\{ github\.action_path \}\}\/\.\.\/\.\.\/\.\.$/m,
+  );
   assert.match(block, /node scripts\/docker-boot-smoke\.mjs "\$ref" --platform "\$platform"/);
 });
 
