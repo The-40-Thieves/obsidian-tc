@@ -132,12 +132,36 @@ registration by metadata document and by RFC 7591 (`dynamicRegistration`, on by 
 | `auth.as.refreshTokenDays` | int 1 to 90, `30` | Absolute lifetime of a refresh-token family. |
 | `auth.as.refreshReuseGraceSeconds` | int 0 to 60, `30` | Seconds after a refresh token's successor is first used during which that token, presented again by its own client, is answered with the same successor and access token instead of revoking the family. Absorbs clients that refresh from several windows sharing one token (Okta's grace period defaults to 30 s, range 0 to 60). Trade-off: inside the window rotation's theft detection does not fire for the previous token; `0` restores strict rotation. |
 | `auth.as.dynamicRegistration` | bool, `true` | RFC 7591 Dynamic Client Registration, on by default because many MCP surfaces (Cursor, Windsurf, Antigravity, grok.com, Le Chat, n8n and others) can only register this way. Claude, ChatGPT and Codex prefer a metadata document, which this server also advertises. The unauthenticated client-creation surface is bounded by `auth.as.dcr` below. Set `false` to turn it off: `/oauth/register` is then a 404 and `registration_endpoint` is not advertised. A client that registers `grant_types` without `refresh_token` (or none, the RFC 7591 default) is issued no refresh token. One info line is logged at boot while it is on, and `securityProfile: "hardened"` forces it off even when set to `true`. |
-| `auth.as.dcr.maxClients` / `perIpPerHour` / `unusedDays` | int, `1000` / `10` / `90` | Limits used when DCR is on; an unused dynamic client is deleted after `unusedDays`. |
+| `auth.as.dcr.maxClients` | int, `1000` | Most dynamically registered clients kept at once. At the cap, registrations never used within a day are dropped first, then the server answers `503`. Only used while `dynamicRegistration` is on. |
+| `auth.as.dcr.perIpPerHour` | int, `10` | Registrations accepted per source address per hour; an IPv6 address counts as its /64. The eleventh from one source in an hour is `429`. |
+| `auth.as.dcr.unusedDays` | int, `90` | A dynamically registered client that has not completed a sign-in for this many days is deleted. |
 | `auth.as.cimd.allowedHosts` | hostname[], `[]` | Hosts a Client ID Metadata Document may be served from, matched exactly against the `client_id` URL's host. Empty admits any public https host; a document is never fetched from a non-public address either way. |
 | `auth.as.consent.loopback` | `remember \| prompt`, `remember` | Whether a sign-in that returns to this machine (`127.0.0.0/8`, `::1`, `localhost`) is remembered once you approved the client. `remember`: reused across ports, so native CLIs (Claude Code, Codex) sign in without a click, but a malicious local process could then start its own sign-in without a prompt. `prompt`: every such sign-in shows the consent page. Redirects elsewhere are always remembered. |
 | `auth.as.setupTokenEnv` | env name, `OBSIDIAN_TC_AS_SETUP_TOKEN` | Name of the variable holding the one-time token that claims the operator account on a host with no terminal. The token is never read from the config file. |
-| `auth.as.login.maxFailuresPerWindow` / `windowSeconds` | int, `5` / `900` | Wrong passwords tolerated per account per window. |
-| `auth.as.clients[]` | list, `[]` | Pre-registered clients (`clientId`, `name`, `redirectUris`, optional `secretEnv`). Only these can be confidential. |
+| `auth.as.login.maxFailuresPerWindow` | int, `5` | Wrong passwords tolerated per account within one window. The next one locks that name for 30 s, doubling with each further failure, never longer than the window. |
+| `auth.as.login.windowSeconds` | int, `900` | Length of the window that `maxFailuresPerWindow` counts within. Counters are in memory and reset at restart. |
+| `auth.as.clients[]` | list, `[]` | Pre-registered clients. Each entry is one client, with the keys below. Only these can be confidential. |
+| `auth.as.clients[].clientId` | string | The client's id. Must be unique across the list. |
+| `auth.as.clients[].name` | string | The name the consent page shows for this client. |
+| `auth.as.clients[].redirectUris` | string list | Redirect URIs this client may use. A loopback match ignores the port. |
+| `auth.as.clients[].secretEnv` | env name, optional | Names the environment variable holding this client's secret, which makes the client confidential. |
+
+A minimal example: the bundled server with Dynamic Client Registration turned off and one pre-registered client.
+
+```yaml
+auth:
+  mode: jwt
+  resource: https://vault.example.com/mcp
+  audience: https://vault.example.com/mcp
+  as:
+    enabled: true
+    issuer: https://vault.example.com
+    dynamicRegistration: false
+    clients:
+      - clientId: local-script
+        name: Local script
+        redirectUris: ["http://127.0.0.1/callback"]
+```
 
 Cross-checks refused at load: `auth.authorizationServers`, when set, must list `auth.as.issuer` first (it defaults
 to `[issuer]`); `auth.jwksUri` may not point at this server's own `/.well-known/jwks.json`; `clientId`s must be
