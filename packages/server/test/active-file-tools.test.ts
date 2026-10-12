@@ -521,7 +521,7 @@ describe("append_active_file / patch_active_file", () => {
       ),
     );
     expect(e.code).toBe("invalid_input");
-    expect(e.message).toBe("old_string not found in section");
+    expect(e.message).toBe("old_string must occur exactly once in the section");
     expect(e.details).toEqual({
       path: "Notes/a.md",
       anchor: { type: "heading", heading: "Todo" },
@@ -550,7 +550,7 @@ describe("append_active_file / patch_active_file", () => {
       ),
     );
     expect(e.code).toBe("invalid_input");
-    expect(e.message).toBe("old_string not found in section");
+    expect(e.message).toBe("old_string must occur exactly once in the section");
     expect(e.details).toEqual({
       path: "Notes/a.md",
       anchor: { type: "heading", heading: "Todo" },
@@ -560,6 +560,120 @@ describe("append_active_file / patch_active_file", () => {
     expect(wire).not.toContain("body-secret");
     expect(wire).not.toContain("- one");
   });
+
+  for (const auth of [
+    {
+      label: "without read:notes",
+      options: {},
+      scopes: new Set(["write:notes"]),
+    },
+    {
+      label: "when read ACL denies the active note",
+      options: { acl: { readPaths: ["Public/**"] as string[] } },
+      scopes: new Set(["read:notes", "write:notes"]),
+    },
+  ] as const) {
+    it(`makes replace_text zero and duplicate matches indistinguishable ${auth.label}`, async () => {
+      const errors = [];
+      for (const note of ["## Todo\nsafe", "## Todo\nsecret\nsecret"]) {
+        const h = harness({ files: { "Notes/a.md": note }, ...auth.options });
+        h.focus("Notes/a.md");
+        const error = errOf(
+          await h.call(
+            "patch_active_file",
+            {
+              vault: "test",
+              operation: "replace_text",
+              anchor: { type: "heading", heading: "Todo" },
+              old_string: "secret",
+              new_string: "replacement",
+            },
+            { grantedScopes: auth.scopes },
+          ),
+        );
+        expect(error).toMatchObject({
+          code: "invalid_input",
+          message: "old_string must occur exactly once in the section",
+          details: {
+            path: "Notes/a.md",
+            anchor: { type: "heading", heading: "Todo" },
+          },
+        });
+        errors.push(error);
+      }
+      expect(errors[0]).toEqual(errors[1]);
+    });
+
+    it(`collapses heading resolution failures ${auth.label}`, async () => {
+      const cases = [
+        {
+          note: "## Other\nold",
+          anchor: { type: "heading", heading: "Todo" },
+        },
+        {
+          note: "## Todo\nold\n## Todo\nold",
+          anchor: { type: "heading", heading: "Todo" },
+        },
+        {
+          note: "## Todo\nold\n## Todo\nold",
+          anchor: { type: "heading", heading: "Todo", occurrence: 3 },
+        },
+      ] as const;
+      const errors = [];
+      for (const testCase of cases) {
+        const h = harness({ files: { "Notes/a.md": testCase.note }, ...auth.options });
+        h.focus("Notes/a.md");
+        const error = errOf(
+          await h.call(
+            "patch_active_file",
+            {
+              vault: "test",
+              operation: "replace_text",
+              anchor: testCase.anchor,
+              old_string: "old",
+              new_string: "new",
+            },
+            { grantedScopes: auth.scopes },
+          ),
+        );
+        expect(error).toMatchObject({
+          code: "invalid_input",
+          message: "anchor could not be resolved",
+          details: { path: "Notes/a.md" },
+        });
+        errors.push(error);
+      }
+      expect(errors[0]).toEqual(errors[1]);
+      expect(errors[1]).toEqual(errors[2]);
+    });
+
+    it(`collapses block resolution failures ${auth.label}`, async () => {
+      const errors = [];
+      for (const note of ["plain text", "first ^secret-block\n\nsecond ^secret-block"]) {
+        const h = harness({ files: { "Notes/a.md": note }, ...auth.options });
+        h.focus("Notes/a.md");
+        const error = errOf(
+          await h.call(
+            "patch_active_file",
+            {
+              vault: "test",
+              operation: "append",
+              anchor: { type: "block", block_id: "secret-block" },
+              content: "new",
+            },
+            { grantedScopes: auth.scopes },
+          ),
+        );
+        expect(error).toMatchObject({
+          code: "invalid_input",
+          message: "anchor could not be resolved",
+          details: { path: "Notes/a.md" },
+        });
+        errors.push(error);
+      }
+      expect(errors[0]).toEqual(errors[1]);
+    });
+  }
 });
 
 describe("response_format (GH #1027): the active-file tools hand it to their delegates", () => {

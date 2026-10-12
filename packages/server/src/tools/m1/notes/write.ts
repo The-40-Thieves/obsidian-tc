@@ -17,7 +17,7 @@ import {
 } from "../../../experiential/memory-defense";
 import { noteQualityWarningFor } from "../../../experiential/note-quality";
 import { assessPoison } from "../../../experiential/poison";
-import type { ToolDefinition } from "../../../mcp/registry";
+import type { CallerContext, ToolDefinition } from "../../../mcp/registry";
 import { frontmatterFallbackSink } from "../../../util/errors";
 import { callerCanReadVaultPath, enforcePathAcl } from "../../../vault/acl-path";
 import { parseNote, serializeNote } from "../../../vault/frontmatter";
@@ -56,6 +56,30 @@ import {
   WriteInput,
   WriteNoteOutput,
 } from "./schemas";
+
+/** One authorization decision for every diagnostic derived from an existing note's bytes. */
+function callerMayReadNote(
+  ctx: Pick<CallerContext, "acl" | "grantedScopes">,
+  root: string,
+  rel: string,
+): boolean {
+  return (
+    grantsAll(ctx.grantedScopes, ["read:notes"]) &&
+    callerCanReadVaultPath(ctx.acl, ctx.grantedScopes, root, rel)
+  );
+}
+
+/** Anchor helpers stay context-free and detailed for read_note. This is patch_note's single
+ *  boundary: a caller who cannot read the target gets the same refusal for every resolution
+ *  failure, including any new detailed failure an anchor helper may add later. */
+function resolveWriteAnchor<T>(resolve: () => T, canReadNote: boolean, path: string): T {
+  try {
+    return resolve();
+  } catch (error) {
+    if (canReadNote) throw error;
+    throw err.invalidInput("anchor could not be resolved", { path });
+  }
+}
 
 // ── tools ────────────────────────────────────────────────────────────────────
 
@@ -315,6 +339,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
         });
       const eol = raw.includes("\r\n") ? "\r\n" : "\n";
       const parsed = parseNote(raw, rel);
+      const canReadNote = callerMayReadNote(ctx, v.root, rel);
       // replace_text may name neither (refinePatchInput): its scope is then the whole note body,
       // which is `parsed.body` (frontmatter already split off, so it is preserved). Every other
       // operation has an anchor, so `anchor` is undefined only on that replace_text path.
@@ -334,7 +359,11 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
         const resolved =
           anchor === undefined
             ? { startIndex: 0, endIndex: parsed.body.split(/\r?\n/).length }
-            : resolveSectionOrThrow(parsed.body, anchor, rel);
+            : resolveWriteAnchor(
+                () => resolveSectionOrThrow(parsed.body, anchor, rel),
+                canReadNote,
+                rel,
+              );
         // Review round 1 I4: the tool description promises replace_text "preserves the anchor
         // heading line" the same way `replace` does — exclude line 0 of a heading anchor's
         // section (the heading itself) from the match window, so old_string can never rewrite or
@@ -384,13 +413,17 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
           eol,
           excludeTrailing,
         );
+        if (count !== 1 && !canReadNote)
+          throw err.invalidInput("old_string must occur exactly once in the section", {
+            path: rel,
+            ...(anchor === undefined ? {} : { anchor }),
+          });
         if (count === 0)
           throw err.invalidInput("old_string not found in section", {
             path: rel,
             anchor,
             // GH #1226: where the string is instead, so a caller need not re-read and guess.
-            ...(grantsAll(ctx.grantedScopes, ["read:notes"]) &&
-            callerCanReadVaultPath(ctx.acl, ctx.grantedScopes, v.root, rel)
+            ...(canReadNote
               ? replaceMissDetail(
                   parsed.body,
                   resolved,
@@ -425,8 +458,9 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
         // convention to dedupe against; only checked when resolution is unambiguous (an
         // ambiguous/missing anchor is reported below by the real resolve inside patchByHeading,
         // unaffected by this).
+        const operation = input.operation;
         let content = input.content as string;
-        if (anchor.type === "heading" && input.operation === "replace") {
+        if (anchor.type === "heading" && operation === "replace") {
           const check = resolveSection(parsed.body, anchor);
           if (check.found && check.headingLevel !== undefined)
             content = dropDuplicateLeadingHeading(
@@ -435,41 +469,41 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
               check.headingTitle ?? anchor.heading,
             );
         }
-        let result: PatchResult | null;
-        if (anchor.type === "heading")
-          result = patchByHeading(
-            parsed.body,
-            input.operation,
-            anchor.heading,
-            content,
-            eol,
-            anchor.occurrence,
-            input.insert_before,
-          );
-        else if (anchor.type === "block")
-          result = patchByBlock(
-            parsed.body,
-            input.operation,
-            anchor.block_id,
-            content,
-            eol,
-            input.insert_before,
-          );
-        else
-          result = patchByPreamble(parsed.body, input.operation, content, eol, input.insert_before);
-        if (result === null)
-          throw err.invalidInput(
-            anchor.type === "block" ? "block reference not found" : "target heading not found",
-            { path: rel, anchor },
-          );
-        const canReadInsertBeforeDiagnostics =
-          grantsAll(ctx.grantedScopes, ["read:notes"]) &&
-          callerCanReadVaultPath(ctx.acl, ctx.grantedScopes, v.root, rel);
-        if (
-          result.insertBefore !== undefined &&
-          result.insertBefore.count !== 1 &&
-          !canReadInsertBeforeDiagnostics
-        )
+        const result = resolveWriteAnchor(
+          (): PatchResult => {
+            let resolved: PatchResult | null;
+            if (anchor.type === "heading")
+              resolved = patchByHeading(
+                parsed.body,
+                operation,
+                anchor.heading,
+                content,
+                eol,
+                anchor.occurrence,
+                input.insert_before,
+              );
+            else if (anchor.type === "block")
+              resolved = patchByBlock(
+                parsed.body,
+                operation,
+                anchor.block_id,
+                content,
+                eol,
+                input.insert_before,
+              );
+            else
+              resolved = patchByPreamble(parsed.body, operation, content, eol, input.insert_before);
+            if (resolved === null)
+              throw err.invalidInput(
+                anchor.type === "block" ? "block reference not found" : "target heading not found",
+                { path: rel, anchor },
+              );
+            return resolved;
+          },
+          canReadNote,
+          rel,
+        );
+        if (result.insertBefore !== undefined && result.insertBefore.count !== 1 && !canReadNote)
           throw err.invalidInput("insert_before must match exactly one line in the section", {
             path: rel,
             anchor,
@@ -478,7 +512,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
           throw err.invalidInput("insert_before not found in section", {
             path: rel,
             anchor,
-            ...(canReadInsertBeforeDiagnostics
+            ...(canReadNote
               ? insertBeforeMissDetail(
                   parsed.body,
                   result.insertBefore.section,
@@ -494,9 +528,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
               path: rel,
               anchor,
               count: result.insertBefore.count,
-              ...(canReadInsertBeforeDiagnostics
-                ? { match_lines: result.insertBefore.matchLines }
-                : {}),
+              ...(canReadNote ? { match_lines: result.insertBefore.matchLines } : {}),
             },
           );
         patched = result;
@@ -523,7 +555,12 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
         patched.removedLines > 20 &&
         patched.removedLines > patched.bodyLineCount * 0.5 &&
         !input.confirm_replace
-      )
+      ) {
+        if (!canReadNote)
+          throw err.invalidInput(
+            "replace requires confirm_replace: true to proceed, or a narrower anchor",
+            { path: rel, anchor },
+          );
         throw err.invalidInput(
           `replace would remove ${patched.removedLines} of ${patched.bodyLineCount} lines in the note body (heading "${anchor.heading}" has no lower-or-equal heading below it to bound the section). Set confirm_replace: true to proceed, or narrow the anchor to a subsection.`,
           {
@@ -533,6 +570,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
             body_line_count: patched.bodyLineCount,
           },
         );
+      }
 
       let next = serializeNote(parsed.frontmatter, patched.body, parsed.rawFrontmatter, {
         frontmatterEol: parsed.frontmatterEol,
