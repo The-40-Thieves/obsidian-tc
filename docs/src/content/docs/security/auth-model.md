@@ -532,7 +532,7 @@ The bundled server is off until you enable it. Set these in the config (every ke
   advertised.
 - **Clients registered by Dynamic Client Registration (on by default).** DCR is on unless you set
   `auth.as.dynamicRegistration: false` (owner decision, 2026-10-09): many MCP surfaces (Cursor, Windsurf,
-  Antigravity, grok.com, Grok Build, Le Chat, n8n, the Gemini app) only support DCR, so a default-off server did
+  grok.com, Grok Build, Le Chat, n8n, the Gemini app) only support DCR, so a default-off server did
   not work with them out of the box. To disable it, set the flag to `false`; `/oauth/register` is then a 404 and
   `registration_endpoint` is not advertised. `POST /oauth/register` (RFC 7591, JSON) creates a public client by default: `token_endpoint_auth_method` is `none` (or
   absent) and no secret is issued. A client that asks for `client_secret_basic` is issued a random secret once, in the `201`
@@ -553,14 +553,14 @@ The bundled server is off until you enable it. Set these in the config (every ke
   hourly budget for every other client behind the same proxy; see [Running behind a proxy or tunnel](#running-behind-a-proxy-or-tunnel)). A registered client's consent page warns that it registered itself and has never been approved. The
   server logs one info line at boot naming these limits while DCR is on, and `securityProfile: "hardened"` forces
   it off even when the flag is set to `true` (the loader says so). Claude (claude.ai, Claude Code) and ChatGPT support both registration methods and prefer a metadata
-  document when the server advertises one, which this server does, so they do not need DCR; it is for clients
-  with no metadata-document support. The registered `grant_types` are honored: a client that lists `refresh_token`
+  document when the server advertises one, which this server does; Codex and Antigravity also use metadata
+  documents. None of them needs DCR. The registered `grant_types` are honored: a client that lists `refresh_token`
   gets a refresh token, one that lists only `authorization_code` (or nothing: the RFC 7591 default) gets none, and
   the `201` echoes exactly what will be served. A registration counts as used only when a sign-in succeeded (a code
   issued or a refresh token rotated), never because someone looked its `client_id` up, so a full table can always
   reclaim registrations that were only ever probed.
 - **Clients registered by a metadata document (CIMD).** A `client_id` that is an `https://` URL with a path is
-  fetched, and the document served there is the client's registration (Claude Code, Codex and ChatGPT register this
+  fetched, and the document served there is the client's registration (Claude Code, Codex, ChatGPT and Antigravity register this
   way). The fetch is the same bounded one OIDC discovery uses: https only, no redirects, every resolved address
   public (loopback, private, link-local and cloud-metadata targets are refused, and there is no private-network
   opt-in for a document), the connection pinned to the addresses just checked, 5 KiB and 5 s. The document's

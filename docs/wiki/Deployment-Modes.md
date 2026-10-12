@@ -185,11 +185,12 @@ matches this server's `/mcp` endpoint with no `--transport` flag needed. Confirm
 flags against `mcp-remote`'s own README before relying on this verbatim — it is a moving target
 this project does not control.
 
-**ChatGPT** (Developer Mode custom connectors) speaks only to a **remote, public HTTPS** MCP
-server — there is no local/stdio option at all (OpenAI's current Developer Mode / Apps SDK docs).
-Put the HTTP server above behind a public HTTPS front (a tunnel, or a real deployment) with `jwt`
-auth, then add that URL as a Developer Mode connector — the same `token mint` step (2) applies,
-scoped to that connector's own `--sub`.
+**ChatGPT (Plugins)** speaks only to a **remote, public HTTPS** MCP server — there is no
+local/stdio option. Put the HTTP server behind a public HTTPS front with the bundled authorization
+server enabled, then add the `/mcp` URL with **Add custom MCP server** at `chatgpt.com/plugins` and
+choose OAuth. ChatGPT has no static-header option, so the `token mint` step above does not apply.
+See the [client recipe](https://obsidian-tc.the40thieves.io/deployment/client-recipes/#chatgpt-plugins)
+for the full sign-in flow.
 
 #### Security notes
 

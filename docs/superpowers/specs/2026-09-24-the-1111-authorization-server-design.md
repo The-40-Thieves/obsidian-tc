@@ -73,7 +73,7 @@ What the clients actually do (measured or first-party docs; "inferred" = binary 
 | ChatGPT connectors | yes (stable client only with RFC 9207 `iss` + identical issuer everywhere) | yes, once per server | yes | `https://chatgpt.com/connector_platform_oauth_redirect` | its CIMD document declares `private_key_jwt`; fallback to `none` unverified |
 | Codex CLI 0.156.1 | yes (merged 2026-08-12), loopback only | yes | `--oauth-client-id` | loopback, fixed via `mcp_oauth_callback_port` | `--oauth-client-registration auto\|cimd\|dcr` |
 | Gemini CLI | unverified | yes | yes | random loopback port | |
-| Antigravity 1.2.10 | inferred yes | yes | yes | `http://localhost:<port>/auth/callback` (inferred) | community reports of a post-login request without the bearer |
+| Antigravity 1.2.10 | yes; verified 2026-10-12 | not used in the live sign-in | yes | `https://antigravity.google/oauth-callback` | client id `https://antigravity.google/oauth/client-metadata.json`; the Windows desktop app completed a vault tool call |
 | Grok Build 1.0.41 | inferred **no** | inferred yes | `oauth_client_id` | `http://127.0.0.1/callback` (inferred) | |
 | Cursor | no | yes, sends a `cursor://` private-use redirect that strict servers reject | yes | `cursor://…` + loopback | accept-or-drop private-use schemes, never fail the whole registration |
 

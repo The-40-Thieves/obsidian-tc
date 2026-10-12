@@ -60,15 +60,24 @@ describe("docs config examples", () => {
         mode?: string;
         requireJti?: boolean;
         scopesSupported?: string[];
-        oidc?: { claimMapping?: unknown };
+        oidc?: {
+          issuer?: string;
+          claimMapping?: { scopes?: string; scopeMap?: Record<string, string[]> };
+        };
       };
     };
     expect(cfg.cacheDir).toBeTruthy();
     expect(cfg.transports?.http?.allowedHosts?.length).toBeGreaterThan(0);
     expect(cfg.auth?.requireJti).toBe(true);
     if (cfg.auth?.mode === "oidc") {
-      expect(cfg.auth.scopesSupported?.length).toBeGreaterThan(0);
       expect(cfg.auth.oidc?.claimMapping).toBeDefined();
+      if (cfg.auth.oidc?.issuer?.endsWith(".authkit.app")) {
+        expect(cfg.auth.scopesSupported).toBeUndefined();
+        expect(cfg.auth.oidc.claimMapping?.scopes).toBe("org_id");
+        expect(Object.values(cfg.auth.oidc.claimMapping?.scopeMap ?? {})).toEqual([["read:*"]]);
+      } else {
+        expect(cfg.auth.scopesSupported?.length).toBeGreaterThan(0);
+      }
     }
 
     const dir = makeTempDir("docs-config-example-");
