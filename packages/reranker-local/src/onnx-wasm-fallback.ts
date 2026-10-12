@@ -22,6 +22,8 @@ export interface OnnxBackendOptions {
   /** The transformers entry file whose require() graph reaches onnxruntime-node. Defaults to the
    *  ESM entry transformers is imported from. */
   transformersEntry?: string;
+  /** Resolves the default transformers entry. Injectable for a bundle with no package path. */
+  resolveTransformersEntry?: () => string;
   /** Requires onnxruntime-node from `transformersEntry`; throws when its native binding is missing. */
   loadNative?: (transformersEntry: string) => unknown;
   platform?: NodeJS.Platform;
@@ -51,10 +53,26 @@ export async function ensureOnnxBackend(opts: OnnxBackendOptions = {}): Promise<
   const arch = opts.arch ?? process.arch;
   if (platform !== "darwin" || arch !== "x64") return { backend: "native" };
 
-  const transformersEntry =
-    opts.transformersEntry ?? fileURLToPath(import.meta.resolve("@huggingface/transformers"));
+  let transformersEntry: string;
+  try {
+    transformersEntry =
+      opts.transformersEntry ??
+      (
+        opts.resolveTransformersEntry ??
+        (() => fileURLToPath(import.meta.resolve("@huggingface/transformers")))
+      )();
+  } catch (err) {
+    const why = (err instanceof Error ? err.message : String(err)).split("\n")[0];
+    return { backend: "wasm", reason: `the bundle supplies onnxruntime-web (${why})` };
+  }
   const fromTransformers = createRequire(transformersEntry);
-  const resolved = fromTransformers.resolve("onnxruntime-node");
+  let resolved: string;
+  try {
+    resolved = fromTransformers.resolve("onnxruntime-node");
+  } catch (err) {
+    const why = (err instanceof Error ? err.message : String(err)).split("\n")[0];
+    return { backend: "wasm", reason: `the bundle supplies onnxruntime-web (${why})` };
+  }
   const cache = createRequire(import.meta.url).cache as Record<string, unknown>;
 
   const primed = cache[resolved] as Partial<PrimedModule> | undefined;
@@ -90,7 +108,7 @@ export async function ensureOnnxBackend(opts: OnnxBackendOptions = {}): Promise<
     };
     cache[resolved] = record;
     (opts.log ?? console.error)(
-      `obsidian-tc: ${reason}; the local embedder runs on onnxruntime-web (WASM) instead.`,
+      `obsidian-tc: ${reason}; the local model runs on onnxruntime-web (WASM) instead.`,
     );
     return { backend: "wasm", reason };
   }

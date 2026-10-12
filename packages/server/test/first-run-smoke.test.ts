@@ -151,7 +151,7 @@ describe("classifySemantic: which retriever answered", () => {
   });
 });
 
-describe("report + 3x3 table", () => {
+describe("report + 3x5 table", () => {
   const pass = buildReport({
     path: "npm",
     platform: "linux",

@@ -16,7 +16,7 @@
 // Unlike zero-config-smoke.ts (which asserts one expected state and exits at the first miss) this
 // MEASURES: every stage is recorded as pass / fail / skip / info, later stages still run when an
 // earlier one failed (a degraded index still tells us what search_semantic does), and the exit code
-// is 1 when any stage failed. `--report` writes the per-stage JSON the workflow folds into the 3x3
+// is 1 when any stage failed. `--report` writes the per-stage JSON the workflow folds into the 3x5
 // table; its `firstFailure` is the exact one-line reason. It reuses zero-config-smoke's isolated
 // HOME (scripts/lib/isolated-home.mjs), so the run never reads or writes the operator's real
 // `~/.obsidian-tc`, and the same `--model-cache` shape for CI's model-weights cache.
@@ -74,9 +74,6 @@ const MCPB_CLI = "@anthropic-ai/mcpb@2.1.2";
 const pathKind = arg("--path");
 const artifact = arg("--artifact");
 const npmSpec = arg("--npm-spec") ?? "obsidian-tc@latest";
-// A binary built for a target with no onnxruntime-node build (darwin-x64) carries no local embedder.
-// That is the documented state, so the run asserts it: search_semantic must NOT answer dense.
-const expectNoLocalEmbedder = process.argv.includes("--expect-no-local-embedder");
 const reportFile = arg("--report");
 const modelCache = arg("--model-cache");
 const reconcileTimeoutMs = Number(arg("--reconcile-timeout-ms") ?? "300000");
@@ -408,17 +405,7 @@ async function exercise(launch: Launch): Promise<void> {
       "search_semantic",
     );
     const c = classifySemantic(res, SEMANTIC_TARGET);
-    if (expectNoLocalEmbedder) {
-      rec(
-        "search_semantic",
-        c.kind === "semantic" ? "fail" : "pass",
-        c.kind === "semantic"
-          ? "unexpected: dense retrieval answered in a binary built without a local embedder"
-          : `expected: no local embedder in this binary (${c.kind}: ${c.detail})`,
-      );
-    } else {
-      rec("search_semantic", c.kind === "semantic" ? "pass" : "fail", `${c.kind}: ${c.detail}`);
-    }
+    rec("search_semantic", c.kind === "semantic" ? "pass" : "fail", `${c.kind}: ${c.detail}`);
   } catch (e) {
     rec("search_semantic", "fail", `error: ${errText(e)}`);
   }

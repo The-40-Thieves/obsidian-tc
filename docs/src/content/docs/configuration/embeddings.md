@@ -91,7 +91,8 @@ binaries. Those cannot be loaded from inside a single-file executable or a bundl
 `scripts/build-binary.ts` (the standalone binaries) and `scripts/bundle-mcpb.ts` (the `.mcpb`) bundle
 the embedder with a few build-time rewrites (`scripts/lib/embedder-bundle.mjs`) and ship the
 platform's ONNX runtime files alongside: embedded in the binary and unpacked into
-`<cacheDir>/runtime/` on first use, or sitting in the bundle's `ort/<platform>/` directory. The local
+`<cacheDir>/runtime/` on first use, or sitting next to the bundle. Native targets carry the binding
+and runtime library; macOS x64 carries `onnxruntime-web`'s WASM loader and binary. The local
 reranker has no such packaging, so it stays unreachable there. Practically, today:
 
 | Install method | `local` embedder |
@@ -99,8 +100,8 @@ reranker has no such packaging, so it stays unreachable there. Practically, toda
 | A source checkout of this monorepo (`git clone` + `bun install`) | Works — resolves via the source-checkout route once `packages/embedder-local` is built. A root `bun install` + `bun run build` does not build it, so run `(cd packages/embedder-local && bun install && bun run build)`; the root build warns with these commands when it is missing. CI does this automatically. |
 | Docker (GHCR) | **Works** — the image builds `packages/embedder-local` from source in the same stage as the server and copies its built package (dist + `node_modules`) into the same relative path the source-checkout resolution route walks for, so the identical route resolves inside the container. |
 | npm (`npm install -g obsidian-tc`) | **Works.** `packages/server`'s `package.json` declares `@the-40-thieves/obsidian-tc-embedder-local` as an `optionalDependencies` entry, so a fresh `npm install` pulls it. The first-run matrix (`ci-first-run-smoke`) runs a real semantic search on the published package on Linux, macOS and Windows. |
-| Standalone binary (`bun --compile`) | **Works** on Linux x64 and arm64, macOS arm64 and Windows x64: compiled in, about 14 MB larger. **Unavailable on macOS x64**, which `onnxruntime-node` publishes no build for: set `embeddings.provider` to a hosted/self-hosted backend there. |
-| One-click `.mcpb` bundle | **Works** on Linux x64 and arm64, macOS arm64 and Windows x64 (the bundle carries those platforms' ONNX runtime; it is about 52 MB). Elsewhere, set a hosted/self-hosted `embeddings.provider`. |
+| Standalone binary (`bun --compile`) | **Works** on Linux x64 and arm64, macOS arm64, macOS x64 and Windows x64: compiled in, about 14 MB larger. macOS x64 uses WASM. |
+| One-click `.mcpb` bundle | **Works** on Linux x64 and arm64, macOS arm64, macOS x64 and Windows x64 (the bundle carries every required ONNX runtime; it is about 66 MB). |
 
 An unresolvable `local` provider does not crash boot — the same graceful degradation an
 unreachable Ollama endpoint has always had (a `[index] reconcile degraded` notice, FTS/lexical
@@ -112,21 +113,21 @@ but the package still cannot resolve (for example an npm install that skipped op
 
 ### Known gaps
 
-**A platform `onnxruntime-node` publishes no build for has no local embedder** (the macOS x64
-standalone binary, and the `.mcpb` bundle on an OS outside the four it carries). There, an explicit
-hosted or self-hosted `embeddings.provider` (see [Hosted and self-hosted
-providers](#hosted-and-self-hosted-providers) above) is needed for semantic search to work.
+**Intel macOS uses WASM instead of a native ONNX Runtime binding.** It produces the same embedding
+results, but measured embedding time is roughly 4x slower than the native backend. A future target
+with neither a configured native runtime nor this WASM route will still need an explicit hosted or
+self-hosted `embeddings.provider`.
 
 **Install footprint is heavier than the pinned model download.** `packages/embedder-local`'s
 `node_modules` is ~585 MB, almost entirely `@huggingface/transformers`'s two bundled ONNX
-runtimes: `onnxruntime-node` (~288 MB, the one actually used) and `onnxruntime-web` (~141 MB).
+runtimes: `onnxruntime-node` (~288 MB, used on native targets) and `onnxruntime-web` (~141 MB, used
+on Intel macOS).
 Transformers.js's Node build (`dist/transformers.node.mjs`, selected via the package's `"node"`
-export condition) never `require()`s `onnxruntime-web` at runtime — it bundles a browser/WebGPU
-code path that this package's CPU-only Node usage never reaches — but it is still a hard
-`dependencies` entry of `@huggingface/transformers`, so every install pays for it on disk
-regardless. Excluding it would need overriding the resolved package to a stub, which this PR
-does not attempt without an integration test proving the override is safe on every supported
-platform (see the model-load CI leg tracked separately); until then, budget ~585 MB of install
+export condition) uses `onnxruntime-web` only on Intel macOS; native targets do not reach that
+runtime. It remains a hard `dependencies` entry of `@huggingface/transformers`, so every install
+pays for it on disk regardless. Excluding it on native targets would need a platform-specific
+package override plus integration coverage proving the override safe; until then, budget ~585 MB
+of install
 size for this optional package, on top of the ~137 MB (or ~23-34 MB for the smaller catalog
 entries) of pinned model weights downloaded on first use.
 

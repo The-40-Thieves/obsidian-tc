@@ -119,7 +119,7 @@ export function classifySemantic(result, expectedTopPath) {
 /** @typedef {{stage: string, status: "pass" | "fail" | "skip" | "info", detail: string}} StageResult */
 
 /** Fold stage results into the report the workflow summarises. `firstFailure` is the exact
- *  one-line reason of the first failed stage, which is what the 3x3 table records. */
+ *  one-line reason of the first failed stage, which is what the 3x5 table records. */
 export function buildReport({ path, platform, arch, node, stages }) {
   const failed = stages.find((s) => s.status === "fail");
   return {
@@ -148,7 +148,7 @@ function cellText(report, expected) {
   return `FAIL${expected ? " (expected)" : " (UNEXPECTED)"}: ${esc(report.firstFailure ?? "unknown")}`;
 }
 
-/** The 3x3 table the workflow writes to its step summary. `reports` maps `<path>/<os>` -> report. */
+/** The 3x5 table the workflow writes to its step summary. `reports` maps `<path>/<os>` -> report. */
 export function renderMatrix({ paths, oses, reports, expected }) {
   const rows = [`| path | ${oses.join(" | ")} |`, `|---|${oses.map(() => "---").join("|")}|`];
   for (const path of paths) {

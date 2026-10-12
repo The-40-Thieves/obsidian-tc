@@ -199,10 +199,10 @@ describe("autoSelectLocalRerankerApplies now folds in platform support (THE-944 
     ).toBe(true);
   });
 
-  it("false on darwin-x64 in a standalone binary, which carries no local embedder", () => {
+  it("false for a future standalone-binary target marked as carrying no local embedder", () => {
     expect(
       autoSelectLocalRerankerApplies(undefined, NONE, {
-        platformOverride: { platform: "darwin", arch: "x64", binary: true },
+        platformOverride: { platform: "linux", arch: "x64", binary: true },
       }),
     ).toBe(false);
   });

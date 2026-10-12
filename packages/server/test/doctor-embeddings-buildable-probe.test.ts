@@ -55,11 +55,11 @@ describe("embeddings.buildable (#1231: resolved is not the same as working)", ()
     expect(r.status).toBe("fail");
   });
 
-  it("a resolved local embedder in a darwin-x64 standalone binary stays a warning under --probe too", async () => {
+  it("a resolved embedder in a future no-runtime binary stays a warning under --probe", async () => {
     const r = await embeddingsBuildableCheck({
       denseProvider: "local",
       probeLocalEmbedder: resolvedProbe(),
-      platformOverride: { platform: "darwin", arch: "x64", binary: true },
+      platformOverride: { platform: "linux", arch: "x64", binary: true },
       probeRequested: true,
     }).run(ctx);
     expect(r.status).toBe("warning");

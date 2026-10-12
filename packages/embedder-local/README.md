@@ -81,13 +81,14 @@ fully functional).
 - **`bun --compile` and the `.mcpb` bundle carry a BUNDLED copy.** `onnxruntime-node` (a transitive
   dependency) dlopens a sidecar `.node`/`.so` file next to itself at runtime, which a single-file
   executable or a bundle cannot satisfy as published. `scripts/build-binary.ts` and
-  `scripts/bundle-mcpb.ts` therefore bundle this package, transformers.js and onnxruntime-node's JS
-  into one file (build-time rewrites in `scripts/lib/embedder-bundle.mjs`, each asserted so a pinned
-  dependency changing shape fails the build) and ship the platform's onnxruntime files next to it:
-  embedded in the binary and unpacked into `<cacheDir>/runtime/` on first use, or under `ort/` in the
-  bundle. That needs the dynamic `import("@huggingface/transformers")` in `src/index.ts` to stay a
-  literal specifier, so a bundler can follow it. onnxruntime-node ships no macOS x64 build, so that
-  binary has no local embedder; set `embeddings.provider` to a hosted or self-hosted backend there.
+  `scripts/bundle-mcpb.ts` therefore bundle this package, Transformers.js, and one ONNX runtime shim
+  (build-time rewrites in `scripts/lib/embedder-bundle.mjs`, each asserted so a pinned dependency
+  changing shape fails the build). Native targets ship the binding and runtime library; macOS x64
+  ships `onnxruntime-web`'s WASM loader and binary instead. Binary assets are unpacked into
+  `<cacheDir>/runtime/` on first use; bundle assets sit next to the bundled embedder. That needs the
+  dynamic `import("@huggingface/transformers")` in `src/index.ts` to stay a literal specifier, so a
+  bundler can follow it. WASM produces the same embeddings but is roughly 4x slower than native in
+  the measured two-text probe.
 
 ## Provenance
 

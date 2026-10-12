@@ -72,7 +72,12 @@ describe("ci-first-run-smoke.yml", () => {
     const listed = wf.env.EXPECTED_FAILURES.split(/\s+/).filter(Boolean);
     expect(new Set(listed).size, "duplicate entry in EXPECTED_FAILURES").toBe(listed.length);
     for (const cell of listed) expect(cells.has(cell), `${cell} is not a matrix cell`).toBe(true);
+    expect(listed.sort()).toEqual(["npm/macos-15-intel", "npm/macos-26-intel"]);
     expect([...parseExpectedFailures(wf.env.EXPECTED_FAILURES)].sort()).toEqual([...listed].sort());
+  });
+
+  it("every current binary cell expects the local embedder", () => {
+    expect(text).not.toContain("--expect-no-local-embedder");
   });
 
   it("no job carries a job-level continue-on-error", () => {

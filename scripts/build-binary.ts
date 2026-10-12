@@ -7,21 +7,22 @@
 // inside the executable.
 //
 // `bun build --compile` embeds no assets and freezes import.meta.url, so an optional package cannot
-// be found at run time. For a target onnxruntime-node ships a build for, this script bundles
-// packages/embedder-local (+ @huggingface/transformers + onnxruntime-node, rewritten by
-// scripts/lib/embedder-bundle.mjs) into the executable and embeds that target's onnxruntime native
-// files, gzipped; packages/server/src/providers/local-embedder-registry.ts unpacks them on first use.
+// be found at run time. This script bundles packages/embedder-local, Transformers.js, and the ONNX
+// runtime shim into the executable, then embeds the target's native ORT files or darwin-x64 WASM
+// files, gzipped. packages/server/src/providers/local-embedder-registry.ts unpacks them on first use.
 // Prerequisites: packages/embedder-local installed and built (`bun install --frozen-lockfile && bun
 // run build` there); sqlite-vec / SQLite are embedded by their own earlier steps.
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { gzipSync } from "node:zlib";
+import {
+  generateEmbeddedEmbedderModule,
+  prepareEmbeddedRuntimeFiles,
+} from "./lib/embedded-embedder-module.mjs";
 import {
   BUN_TARGET_ORT_PLATFORM,
   embedderBundlePlugin,
-  ortNativeFiles,
+  ortRuntimeFiles,
 } from "./lib/embedder-bundle.mjs";
 
 const repoRoot = resolve(import.meta.dir, "..");
@@ -47,30 +48,18 @@ try {
   if (ortPlatform) {
     const embedderEntry = join(embedder, "dist", "index.js");
     const ortNodeDir = join(embedder, "node_modules", "onnxruntime-node");
-    for (const need of [embedderEntry, ortNodeDir]) {
+    const ortWebDir = join(embedder, "node_modules", "onnxruntime-web");
+    const runtimeFiles = ortRuntimeFiles(ortNodeDir, ortWebDir, ortPlatform);
+    for (const need of [embedderEntry, ...runtimeFiles.map((f) => f.path)]) {
       if (!existsSync(need)) {
         throw new Error(
           `build-binary: ${need} is missing; run \`bun install --frozen-lockfile && bun run build\` in packages/embedder-local first`,
         );
       }
     }
-    const files = ortNativeFiles(ortNodeDir, ortPlatform).map(({ name, path }) => {
-      const bytes = readFileSync(path);
-      const gz = join(work, `${name}.gz`);
-      writeFileSync(gz, gzipSync(bytes, { level: 9 }));
-      return { name, gz, sha256: createHash("sha256").update(bytes).digest("hex") };
-    });
+    const files = prepareEmbeddedRuntimeFiles(runtimeFiles, work);
     // The module that replaces embeddings/embedded-embedder.ts for this build (see its header).
-    const generated = `${files.map((f, i) => `import asset${i} from ${JSON.stringify(f.gz)} with { type: "file" };`).join("\n")}
-const files = [
-${files.map((f, i) => `  { name: ${JSON.stringify(f.name)}, asset: asset${i}, sha256: ${JSON.stringify(f.sha256)} },`).join("\n")}
-];
-export const embeddedEmbedder = {
-  files,
-  load: () => import(${JSON.stringify(EMBEDDER_PACKAGE)}),
-};
-export const localEmbedderAbsentFromBinary = false;
-`;
+    const generated = generateEmbeddedEmbedderModule(files, EMBEDDER_PACKAGE);
     const placeholder = join(server, "src", "embeddings", "embedded-embedder.ts");
     plugins = [
       embedderBundlePlugin((build: Bun.PluginBuilder) => {
@@ -85,8 +74,7 @@ export const localEmbedderAbsentFromBinary = false;
     ];
   } else {
     external.push(EMBEDDER_PACKAGE);
-    // The placeholder module records that this binary has no local embedder, so the server reports
-    // that state instead of a route that would only fail at first use (embedded-embedder.ts).
+    // Keep an explicit absent module for a future Bun target that has neither native nor WASM ORT.
     const absentPlaceholder = join(server, "src", "embeddings", "embedded-embedder.ts");
     plugins = [
       embedderBundlePlugin((build: Bun.PluginBuilder) => {
@@ -101,7 +89,7 @@ export const localEmbedderAbsentFromBinary = false;
       }),
     ];
     console.warn(
-      `build-binary: onnxruntime-node ships no build for ${target}; the binary has no local embedder`,
+      `build-binary: no bundled ONNX runtime is configured for ${target}; the binary has no local embedder`,
     );
   }
 

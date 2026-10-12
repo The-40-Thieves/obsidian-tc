@@ -306,14 +306,14 @@ describe("wireGatewaySeams — THE-944 auto-select 'local' (no gateway configure
   });
 });
 
-// THE-944 review round 2 (G3): boot must SKIP auto-select entirely on a platform with no
-// onnxruntime-node native prebuild — never wire a reranker guaranteed to throw on first use.
+// Boot must skip auto-select entirely when a future compiled target carries no ONNX runtime —
+// never wire a reranker guaranteed to throw on first use.
 // Uses the injected `resolveLocalReranker` (always resolves, matching a fully-working deployment)
 // alongside `platformOverride`, so these tests are decoupled from packages/reranker-local/dist's
 // real on-disk state entirely — the platform check must short-circuit BEFORE resolution is ever
 // attempted, so a stub that WOULD succeed proves the skip is real, not incidental.
 describe("wireGatewaySeams — THE-944 review round 2 (G3): boot skips auto-select on an unsupported platform", () => {
-  it("darwin-x64 standalone binary: reranker stays null and resolution is NEVER attempted, even though it would succeed", async () => {
+  it("a future no-runtime binary keeps reranker null and never attempts resolution", async () => {
     delete process.env.OBSIDIAN_TC_GATEWAY_URL;
     const resolveLocalReranker = vi.fn(async () => ({
       ok: true as const,
@@ -328,7 +328,7 @@ describe("wireGatewaySeams — THE-944 review round 2 (G3): boot skips auto-sele
       undefined,
       undefined,
       resolveLocalReranker,
-      { platform: "darwin", arch: "x64", binary: true },
+      { platform: "linux", arch: "x64", binary: true },
     );
     expect(reranker).toBeNull();
     expect(resolveLocalReranker).not.toHaveBeenCalled();
@@ -388,12 +388,12 @@ describe("wireGatewaySeams — THE-944 review round 2 (G3): boot skips auto-sele
         undefined,
         undefined,
         undefined,
-        { platform: "darwin", arch: "x64", binary: true },
+        { platform: "linux", arch: "x64", binary: true },
       );
       expect(consoleSpy).toHaveBeenCalledTimes(1);
       const logged = String(consoleSpy.mock.calls[0]?.[0]);
       expect(logged).toMatch(/auto-select: skipped/);
-      expect(logged).toMatch(/darwin-x64/);
+      expect(logged).toMatch(/no configured bundled ONNX runtime/i);
     } finally {
       consoleSpy.mockRestore();
     }

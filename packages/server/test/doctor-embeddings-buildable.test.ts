@@ -42,21 +42,21 @@ describe("embeddings.buildable (THE-1122 review round 3: three-way status)", () 
     expect(r.summary).toMatch(/not yet built/);
   });
 
-  it("WARNs (not FAILs) when the platform is genuinely unsupported, even on a real (non-source-checkout) install", async () => {
+  it("WARNs when a future binary has no runtime, even on a real install", async () => {
     const r = await embeddingsBuildableCheck({
       denseProvider: "local",
       probeLocalEmbedder: unresolvedProbe(false),
-      platformOverride: { platform: "darwin", arch: "x64", binary: true },
+      platformOverride: { platform: "linux", arch: "x64", binary: true },
     }).run(ctx);
     expect(r.status).toBe("warning");
     expect(r.summary).toMatch(/cannot run it anyway/);
   });
 
-  it("WARNs on an unsupported platform even when it IS a source checkout (platform takes precedence in the summary text)", async () => {
+  it("a future no-runtime binary takes precedence over source-checkout remediation", async () => {
     const r = await embeddingsBuildableCheck({
       denseProvider: "local",
       probeLocalEmbedder: unresolvedProbe(true),
-      platformOverride: { platform: "darwin", arch: "x64", binary: true },
+      platformOverride: { platform: "linux", arch: "x64", binary: true },
     }).run(ctx);
     expect(r.status).toBe("warning");
     expect(r.summary).toMatch(/cannot run it anyway/);

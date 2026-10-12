@@ -77,6 +77,20 @@ describe("ensureOnnxBackend", () => {
     expect(log).not.toHaveBeenCalled();
   });
 
+  it("returns the bundled wasm backend when transformers cannot be resolved outside node_modules", async () => {
+    await expect(
+      ensureOnnxBackend({
+        ...darwinX64,
+        resolveTransformersEntry: () => {
+          throw new Error(
+            "Cannot find package '@huggingface/transformers' imported from /bundle/index.mjs",
+          );
+        },
+        log: () => {},
+      }),
+    ).resolves.toMatchObject({ backend: "wasm" });
+  });
+
   it.each([
     ["linux", "x64"],
     ["linux", "arm64"],

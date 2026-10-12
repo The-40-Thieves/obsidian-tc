@@ -32,15 +32,15 @@ fits your environment.
 Measured, not assumed: CI installs each path on a clean Ubuntu, macOS and Windows machine,
 points it at a vault with no config file, and runs a real semantic search
 (`ci-first-run-smoke`). Every cell passes on Ubuntu, on Apple Silicon macOS and on Windows. On Intel
-macOS (`macos-15-intel`, `macos-26-intel`) ONNX Runtime publishes no native build, so the npm install
-runs the local embedder and reranker on ONNX Runtime's WASM backend instead, with the same models. The mcpb bundle does not yet carry a darwin-x64 ONNX runtime, and the
-standalone binary has no local embedder on that platform; the first-run matrix asserts that state.
+macOS (`macos-15-intel`, `macos-26-intel`) ONNX Runtime publishes no native build, so npm, `.mcpb`,
+and the standalone binary run the local embedder on ONNX Runtime's WASM backend instead, with the
+same models. WASM embedding is roughly 4x slower than native in the measured two-text probe.
 
 | Method | Default semantic search (no config) | Dense index (`sqlite-vec`) | Native addon | Size |
 | --- | --- | --- | --- | --- |
 | **npm** | Yes. The embedder installs with the server as an optional dependency. On Intel macOS it runs on the WASM backend. | Yes | Yes (prebuilds); pure-JS fallback elsewhere | Large install: the embedder's runtime is ~0.6 GB of `node_modules` |
-| **Standalone binary** | Yes on Linux x64 and arm64, macOS arm64 and Windows x64: the embedder and its ONNX runtime are inside the one file. **No on macOS x64** (the runtime has no build for it; configure a hosted provider). | Yes (embedded) | Pure-JS fallback | About 14 MB larger than a binary without the embedder |
-| **One-click `.mcpb`** | Yes on Linux x64 and arm64, macOS arm64 and Windows x64 | Yes | Pure-JS fallback (one universal bundle) | About 52 MB, up from about 2 MB; it carries the ONNX runtime for Linux x64 and arm64, macOS arm64 and Windows x64 |
+| **Standalone binary** | Yes on Linux x64 and arm64, macOS arm64 and x64, and Windows x64: the embedder and its selected native/WASM ONNX runtime are inside the one file. | Yes (embedded) | Pure-JS fallback | About 14 MB larger than a binary without the embedder |
+| **One-click `.mcpb`** | Yes on Linux x64 and arm64, macOS arm64 and x64, and Windows x64 | Yes | Pure-JS fallback (one universal bundle) | About 66 MB, up from about 2 MB; it carries all native runtimes plus the macOS x64 WASM assets |
 | **Docker** | Not part of the matrix; see [Docker](#docker) below. | | | |
 
 The model weights are not in any of them: the first search downloads and checksum-verifies
@@ -68,14 +68,12 @@ host. Targets: macOS x64 + arm64, Windows x64, and Linux x64 + arm64. Download t
 asset for your platform from the GitHub release and run it directly. (Windows on
 arm64 is not a `bun --compile` target; use the npm install there.)
 
-The bundled local embedder runs from inside the binary: it is compiled in with its ONNX
-runtime, whose native files are unpacked into the cache directory (`<cacheDir>/runtime/`)
-on first use, so semantic search works with no config file. That adds about 14 MB to the
-file. It is not available in the macOS x64 binary (the ONNX runtime ships no macOS x64
-build); set `embeddings.provider` to a hosted or self-hosted backend there (see
-[Embeddings](/configuration/embeddings/)). The local reranker cannot run from a binary
-either way, and the pure-JS fallback replaces the native addon; lexical search is
-unaffected.
+The bundled local embedder runs from inside the binary: it is compiled in with its selected ONNX
+runtime, whose native files or macOS x64 WASM assets are unpacked into the cache directory
+(`<cacheDir>/runtime/`) on first use, so semantic search works with no config file. That adds about
+14 MB to the file. Intel macOS uses WASM, measured at roughly 4x slower embedding than native. The
+local reranker cannot run from a binary, and the pure-JS fallback replaces the native addon;
+lexical search is unaffected.
 
 ## Docker
 
@@ -98,10 +96,10 @@ For MCPB-capable MCP hosts, each release attaches a one-click `obsidian-tc.mcpb`
 bundle. It runs the server under the host's Node (24+) and is self-contained: no
 `node_modules` and no native build are required on the machine. It carries `sqlite-vec`
 for every platform (loaded through Node's built-in `node:sqlite`, so the dense index is on)
-and the bundled local embedder with its ONNX runtime for Linux x64 and arm64, macOS arm64
-and Windows x64, so semantic search works with no config file. Because one bundle serves
-every OS, it uses the pure-JS fallback instead of the native addon, and it is about 52 MB.
-On an OS outside that list, configure a hosted or self-hosted `embeddings.provider`.
+and the bundled local embedder with native ONNX Runtime for Linux x64 and arm64, macOS arm64 and
+Windows x64, plus ONNX Runtime Web WASM for macOS x64. Semantic search therefore works with no
+config file on every current target. Because one bundle serves every OS, it uses the pure-JS
+fallback instead of the native addon, and it is about 66 MB.
 Install it through your host's MCP-bundle installer.
 
 Anthropic's connector directory no longer accepts local servers packaged as `.mcpb`
