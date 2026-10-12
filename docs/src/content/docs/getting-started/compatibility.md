@@ -114,7 +114,7 @@ the only thing given up is the byte-for-byte guarantee against a dangling WAL.
 
 The baseline path is not a theoretical fallback that rots. `.github/workflows/ci-native.yml` runs a
 dedicated job with `OBSIDIAN_TC_FORCE_JS_FALLBACK=1` across a host matrix, and `ci-server.yml` runs
-the full suite on Ubuntu, macOS and Windows. A change that breaks the pure-JS path fails CI the same
+the full suite on Ubuntu, macOS (arm64, and Intel on Node 26) and Windows. A change that breaks the pure-JS path fails CI the same
 way a change that breaks the native path does.
 
 The optionality is enforced at **load** time, not install time: the native module and `sqlite-vec`

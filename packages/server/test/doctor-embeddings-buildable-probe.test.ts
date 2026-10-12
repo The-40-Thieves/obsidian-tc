@@ -55,13 +55,24 @@ describe("embeddings.buildable (#1231: resolved is not the same as working)", ()
     expect(r.status).toBe("fail");
   });
 
-  it("a resolved local embedder on an unsupported platform stays a warning under --probe too", async () => {
+  it("a resolved embedder in a future no-runtime binary stays a warning under --probe", async () => {
+    const r = await embeddingsBuildableCheck({
+      denseProvider: "local",
+      probeLocalEmbedder: resolvedProbe(),
+      platformOverride: { platform: "linux", arch: "x64", binary: true },
+      probeRequested: true,
+    }).run(ctx);
+    expect(r.status).toBe("warning");
+  });
+
+  it("on darwin-x64's Node route (wasm fallback) a resolved local embedder is ok under --probe", async () => {
     const r = await embeddingsBuildableCheck({
       denseProvider: "local",
       probeLocalEmbedder: resolvedProbe(),
       platformOverride: { platform: "darwin", arch: "x64" },
       probeRequested: true,
     }).run(ctx);
-    expect(r.status).toBe("warning");
+    expect(r.status).toBe("ok");
+    expect(r.details?.platform).toMatch(/wasm fallback/);
   });
 });

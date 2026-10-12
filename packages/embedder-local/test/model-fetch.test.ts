@@ -102,17 +102,15 @@ describe("fetchAndVerifyModel", () => {
     expect(fetchFn2).not.toHaveBeenCalled();
   });
 
-  it("refuses to download on an unsupported platform (darwin-x64), leaving no partial state", async () => {
+  it("downloads on darwin-x64 because the embedder uses the WASM runtime there", async () => {
     const fetchFn = okFetchFn();
-    await expect(
-      fetchAndVerifyModel(root, {
-        ...SPEC,
-        fetchFn,
-        platformOverride: { platform: "darwin", arch: "x64" },
-      }),
-    ).rejects.toThrow(/darwin-x64|Intel Mac/);
-    expect(fetchFn).not.toHaveBeenCalled();
-    expect(existsSync(modelDirFor(root, SPEC))).toBe(false);
+    const dir = await fetchAndVerifyModel(root, {
+      ...SPEC,
+      fetchFn,
+      platformOverride: { platform: "darwin", arch: "x64" },
+    });
+    expect(dir).toBe(modelDirFor(root, SPEC));
+    expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 
   it("throws an actionable error naming the offline fetch-model alternative when every attempt fails", async () => {
@@ -165,10 +163,8 @@ describe("assertVerified", () => {
 });
 
 describe("unsupportedPlatformReason", () => {
-  it("names darwin-x64 and linux-musl as unsupported", () => {
-    expect(unsupportedPlatformReason({ platform: "darwin", arch: "x64" })).toMatch(
-      /darwin-x64|Intel Mac/,
-    );
+  it("supports darwin-x64 through WASM and names linux-musl as unsupported", () => {
+    expect(unsupportedPlatformReason({ platform: "darwin", arch: "x64" })).toBeUndefined();
     expect(
       unsupportedPlatformReason({ platform: "linux", arch: "x64", isMuslRuntime: () => true }),
     ).toMatch(/musl/);
@@ -180,10 +176,7 @@ describe("unsupportedPlatformReason", () => {
     ).toBeUndefined();
   });
 
-  it("names embeddings.provider as the fix on both unsupported platforms (THE-1122 review)", () => {
-    expect(unsupportedPlatformReason({ platform: "darwin", arch: "x64" })).toMatch(
-      /embeddings\.provider/,
-    );
+  it("names embeddings.provider as the fix on unsupported musl (THE-1122 review)", () => {
     expect(
       unsupportedPlatformReason({ platform: "linux", arch: "x64", isMuslRuntime: () => true }),
     ).toMatch(/embeddings\.provider/);

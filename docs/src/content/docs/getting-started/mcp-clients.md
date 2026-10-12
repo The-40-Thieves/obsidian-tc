@@ -287,6 +287,9 @@ Four `build-test` legs are **required** on every pull request:
 | `macos-latest` | |
 | `windows-latest` | |
 
+The Intel macOS legs (`macos-15-intel`, `macos-26-intel`, x86_64) run on every pull request too, but
+they are not required.
+
 The aarch64 leg is not padding. `search/vec.ts` records the same commit producing nDCG@10
 **0.8028** on aarch64 and **0.8414** on x86_64 — while `recall_at10` and the candidate counts
 matched *exactly*. The difference is **tie ordering**, not retrieval quality: chunks with identical

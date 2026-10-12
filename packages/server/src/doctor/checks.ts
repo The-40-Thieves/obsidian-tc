@@ -379,7 +379,9 @@ export interface RerankerBuildableView {
  *  on either verdict. */
 function platformDetails(view: RerankerBuildableView): Record<string, string> {
   const platform = onnxNativePrebuildStatus(view.platformOverride);
-  return platform.supported ? {} : { platform: platform.note ?? "unsupported platform" };
+  return platform.supported && !platform.route
+    ? {}
+    : { platform: platform.note ?? "unsupported platform" };
 }
 
 /**
@@ -476,12 +478,11 @@ export function rerankerBuildableCheck(view: RerankerBuildableView): Check {
       if (view.rerankerProvider === "local" && view.probeLocalReranker) {
         const probe = await view.probeLocalReranker();
         if (probe.ok) {
-          // THE-944 review round 2 (G3): a declared "local" block that RESOLVES on darwin-x64/musl
-          // still cannot serve inference — resolving the small JS package never imports
-          // @huggingface/transformers, so it cannot see the missing native onnxruntime-node binary.
-          // The first real rerank() call refuses (fetchAndVerifyModel's own platform gate, or a
-          // hard failure inside Transformers.js if weights were pre-staged) — "ok" here would hide
-          // that from an operator who only checks doctor.
+          // THE-944 review round 2 (G3): a declared "local" block that RESOLVES on musl still
+          // cannot serve inference — resolving the small JS package never imports
+          // @huggingface/transformers, so it cannot see the missing ONNX runtime. Intel macOS is
+          // supported separately through the WASM fallback. The first real rerank() call refuses
+          // on musl; "ok" here would hide that from an operator who only checks doctor.
           const platform = onnxNativePrebuildStatus(view.platformOverride);
           return {
             status: (platform.supported ? "ok" : "warning") as CheckStatus,

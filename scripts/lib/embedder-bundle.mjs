@@ -1,51 +1,77 @@
-// Bundling the local embedder (packages/embedder-local + @huggingface/transformers +
-// onnxruntime-node) into places that have no node_modules: the .mcpb bundle (scripts/bundle-mcpb.ts)
-// and the standalone binaries (scripts/build-binary.ts).
+// Bundling the local embedder (packages/embedder-local + @huggingface/transformers + one selected
+// ONNX runtime) into places that have no node_modules: the .mcpb bundle (scripts/bundle-mcpb.ts)
+// and standalone binaries (scripts/build-binary.ts).
 //
-// Three things in the dependency tree cannot be bundled as-is, each handled by the Bun plugin below:
+// Four things in the dependency tree cannot be bundled as-is, each handled by the Bun plugin below:
 //
-//   1. transformers.node.mjs reaches onnxruntime-node through `createRequire(import.meta.url)(...)`,
-//      a runtime lookup no bundler follows (and a compiled binary has nothing to resolve it
-//      against). Rewritten into a plain static import.
-//   2. onnxruntime-node's binding.js `require()`s its native addon by a template-literal path.
+//   1. transformers.node.mjs reaches onnxruntime-node through a runtime-only CommonJS lookup that
+//      no bundler follows (and a compiled binary has nothing to resolve it against). Rewritten into
+//      a plain static import.
+//   2. Both ONNX package specifiers must share one runtime. They resolve to ort-runtime-shim.mjs,
+//      whose bare private requires stay visible to Bun and resolve to the real native/web entries.
+//   3. onnxruntime-node's binding.js `require()`s its native addon by a template-literal path.
 //      Rewritten to scripts/lib/ort-binding-loader.mjs, which dlopens it from a real directory.
-//   3. transformers.node.mjs statically imports `sharp` (image preprocessing, a per-platform native
+//   4. transformers.node.mjs statically imports `sharp` (image preprocessing, a per-platform native
 //      addon). Text embedding never calls it, so it is stubbed.
 //
 // Every rewrite asserts that it found exactly the text it expects and throws otherwise: the packages
 // are pinned exactly (embedder-local's `@huggingface/transformers`), so a drift fails the build here
 // instead of shipping a bundle whose embedder cannot load.
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ORT_WASM_BINARY, ORT_WASM_MJS } from "./ort-runtime-selection.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 /** Where the plugin resolves the binding loader the rewritten onnxruntime-node require points at. */
 export const ORT_BINDING_LOADER = join(HERE, "ort-binding-loader.mjs");
+export const ORT_RUNTIME_SHIM = join(HERE, "ort-runtime-shim.mjs");
 const ORT_BINDING_SPECIFIER = "obtc-ort-binding";
+const ORT_NATIVE_SPECIFIER = "obtc-ort-native";
+const ORT_WEB_SPECIFIER = "obtc-ort-web";
+const EMBEDDER_PACKAGE_JSON = join(HERE, "..", "..", "packages", "embedder-local", "package.json");
+
+// Resolve lazily inside a real build. The root lint job deliberately does not install this optional
+// package's private dependency tree, but it still imports this module to run its seam-only tests.
+const resolveFromEmbedder = (specifier) => createRequire(EMBEDDER_PACKAGE_JSON).resolve(specifier);
 
 /**
- * onnxruntime-node's per-platform native files (under `bin/napi-v6/<dir>/`), by `process.platform-
- * process.arch`. Only what the CPU execution provider needs: the binding and the runtime library it
- * is linked against. onnxruntime-node ships no darwin-x64 build, so a standalone binary for that
- * target has no local embedder.
+ * Bundled ONNX backend by `process.platform-process.arch`. Native entries name the files under
+ * `bin/napi-v6/<dir>/` needed by the CPU execution provider. darwin-x64 uses the two web WASM
+ * assets instead because onnxruntime-node does not publish that native binding.
  */
 export const ORT_PLATFORMS = {
-  "linux-x64": { dir: "linux/x64", files: ["onnxruntime_binding.node", "libonnxruntime.so.1"] },
-  "linux-arm64": { dir: "linux/arm64", files: ["onnxruntime_binding.node", "libonnxruntime.so.1"] },
+  "linux-x64": {
+    backend: "native",
+    dir: "linux/x64",
+    files: ["onnxruntime_binding.node", "libonnxruntime.so.1"],
+  },
+  "linux-arm64": {
+    backend: "native",
+    dir: "linux/arm64",
+    files: ["onnxruntime_binding.node", "libonnxruntime.so.1"],
+  },
   "darwin-arm64": {
+    backend: "native",
     dir: "darwin/arm64",
     files: ["onnxruntime_binding.node", "libonnxruntime.1.dylib"],
   },
-  "win32-x64": { dir: "win32/x64", files: ["onnxruntime_binding.node", "onnxruntime.dll"] },
+  "darwin-x64": { backend: "wasm" },
+  "win32-x64": {
+    backend: "native",
+    dir: "win32/x64",
+    files: ["onnxruntime_binding.node", "onnxruntime.dll"],
+  },
 };
 
-/** bun --compile target -> ORT_PLATFORMS key. A target absent here has no local embedder. */
+/** bun --compile target -> ORT_PLATFORMS key. A future target absent here has no local embedder. */
 export const BUN_TARGET_ORT_PLATFORM = {
   "bun-linux-x64": "linux-x64",
   "bun-linux-arm64": "linux-arm64",
   "bun-darwin-arm64": "darwin-arm64",
+  "bun-darwin-x64": "darwin-x64",
   "bun-windows-x64": "win32-x64",
 };
 
@@ -90,14 +116,23 @@ const TRANSFORMERS_NODE_FILE =
 const ORT_BINDING_FILE = /[\\/]onnxruntime-node[\\/]dist[\\/]binding\.js$/;
 
 /**
- * The Bun.build plugin applying the three rewrites above. `extra` lets a caller add its own
- * resolvers/loaders to the same build (scripts/build-binary.ts adds the embedded-embedder module).
+ * The Bun.build plugin applying the rewrites and runtime aliases above. `extra` lets a caller add
+ * its own resolvers/loaders to the same build (build-binary.ts adds the embedded-embedder module).
  */
 export function embedderBundlePlugin(extra) {
   return {
     name: "obsidian-tc-embedder-bundle",
     setup(build) {
       build.onResolve({ filter: /^sharp$/ }, () => ({ path: "sharp", namespace: "obtc-stub" }));
+      build.onResolve({ filter: /^onnxruntime-(?:node|web)$/ }, () => ({
+        path: ORT_RUNTIME_SHIM,
+      }));
+      build.onResolve({ filter: new RegExp(`^${ORT_NATIVE_SPECIFIER}$`) }, () => ({
+        path: resolveFromEmbedder("onnxruntime-node"),
+      }));
+      build.onResolve({ filter: new RegExp(`^${ORT_WEB_SPECIFIER}$`) }, () => ({
+        path: resolveFromEmbedder("onnxruntime-web"),
+      }));
       build.onLoad({ filter: /.*/, namespace: "obtc-stub" }, () => ({
         contents: SHARP_STUB,
         loader: "js",
@@ -121,9 +156,28 @@ export function embedderBundlePlugin(extra) {
 /** Absolute directory of onnxruntime-node's native files for `platformKey`, under `ortNodeDir`. */
 export function ortNativeFiles(ortNodeDir, platformKey) {
   const spec = ORT_PLATFORMS[platformKey];
-  if (!spec) throw new Error(`embedder-bundle: no onnxruntime-node build for ${platformKey}`);
+  if (spec?.backend !== "native") {
+    throw new Error(`embedder-bundle: no onnxruntime-node build for ${platformKey}`);
+  }
   return spec.files.map((name) => ({
     name,
     path: join(ortNodeDir, "bin", "napi-v6", ...spec.dir.split("/"), name),
   }));
+}
+
+/** WASM loader and binary used by the darwin-x64 bundled runtime. */
+export function ortWasmFiles(ortWebDir) {
+  return [ORT_WASM_MJS, ORT_WASM_BINARY].map((name) => ({
+    name,
+    path: join(ortWebDir, "dist", name),
+  }));
+}
+
+/** Runtime files embedded in a standalone binary for one ORT platform. */
+export function ortRuntimeFiles(ortNodeDir, ortWebDir, platformKey) {
+  const spec = ORT_PLATFORMS[platformKey];
+  if (!spec) throw new Error(`embedder-bundle: no ONNX runtime for ${platformKey}`);
+  return spec.backend === "wasm"
+    ? ortWasmFiles(ortWebDir)
+    : ortNativeFiles(ortNodeDir, platformKey);
 }

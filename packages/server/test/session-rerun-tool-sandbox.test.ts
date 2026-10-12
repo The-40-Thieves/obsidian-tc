@@ -443,7 +443,15 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
     const config = configFromVaultPath(vaultDir);
     config.cacheDir = cacheDir;
     const events: string[] = [];
+    // The timeout is made to fire deterministically rather than raced: the builder is held until the
+    // call has already rejected with the timeout, so staging can never beat the 1ms budget on a slow
+    // or fast machine. The budget itself is unchanged; only when the runtime is allowed to exist is.
+    let releaseBuild!: () => void;
+    const buildMayProceed = new Promise<void>((resolve) => {
+      releaseBuild = resolve;
+    });
     const rerun = makeSandboxRerun(config, join(vaultDir, "config.json"), async (cfg, cp) => {
+      await buildMayProceed;
       const rt = await buildServerRuntime(cfg, cp);
       runtimes.push(rt); // afterEach still closes it if the code under test never does
       events.push("built");
@@ -459,6 +467,7 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
     await expect(
       rerun({ vaultId: "main", sessionId: id, replayScopes: ["read:*"], timeoutMs: 1 }),
     ).rejects.toThrow(/sandbox timeout/);
+    releaseBuild(); // the timeout has fired: only now may the late runtime be built
     await awaitPendingSandboxCleanup(); // a timed-out call returns BEFORE its cleanup finishes
     expect(events).toEqual(["built", "close:staged-dir-present"]);
   });

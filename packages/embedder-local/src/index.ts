@@ -22,6 +22,7 @@ import {
   type EmbeddingModelInfo,
   modelInfoByName,
 } from "./model-info.js";
+import { ensureOnnxBackend } from "./onnx-wasm-fallback.js";
 import { availableParallelism, ortSessionOptions } from "./ort-session-options.js";
 
 export interface EmbedOptions {
@@ -85,6 +86,16 @@ export function weightsPresent(
 // dependency this package's own TypeScript project does not require to be installed to typecheck.
 // biome-ignore lint/suspicious/noExplicitAny: see reranker-local's index.ts for the same pattern.
 type TransformersModule = any;
+
+/** Transformers' WASM preloader rewrites the configured .mjs file to a blob: URL when this cache
+ *  is enabled. Node's ESM loader rejects blob: imports, so the WASM route must let
+ *  onnxruntime-web load the file: URL configured by onnx-wasm-fallback.ts directly. */
+export function configureTransformersEnvForOnnxBackend(
+  env: { useWasmCache?: boolean },
+  backend: { backend: "native" | "wasm" },
+): void {
+  if (backend.backend === "wasm") env.useWasmCache = false;
+}
 
 export interface Session {
   extractor: (
@@ -153,7 +164,11 @@ async function loadSession(
       await assertVerified(modelDir, spec);
       // A LITERAL specifier, so a bundler can follow it: scripts/lib/embedder-bundle.mjs bundles this
       // package for the .mcpb and the standalone binaries, neither of which has a node_modules.
+      // Intel macOS has no onnxruntime-node binding, so transformers' own import would throw: prime
+      // the WASM backend first (see onnx-wasm-fallback.ts). A no-op on every other platform.
+      const backend = await ensureOnnxBackend();
       const { pipeline, env } = (await import("@huggingface/transformers")) as TransformersModule;
+      configureTransformersEnvForOnnxBackend(env, backend);
       env.allowRemoteModels = false;
       // `modelDir` is passed as `path_or_repo_id` directly, NOT env.localModelPath + a bare model
       // id — same reasoning as reranker-local's index.ts: Transformers.js treats a multi-slash

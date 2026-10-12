@@ -2,6 +2,7 @@
 // fake Session, so this always runs (no @huggingface/transformers, no model weights needed).
 import { availableParallelism } from "node:os";
 import { describe, expect, it, vi } from "vitest";
+import * as rerankerModule from "../src/index.js";
 import { createReranker, rerankModelOptions, type Session } from "../src/index.js";
 
 function stubSession(logitsByDoc: number[]): Session {
@@ -9,6 +10,28 @@ function stubSession(logitsByDoc: number[]): Session {
   const model = vi.fn(async (_inputs: unknown) => ({ logits: { data: logitsByDoc } }));
   return { tokenizer, model };
 }
+
+describe("configureTransformersEnvForOnnxBackend", () => {
+  it("disables Transformers' WASM cache only when the selected backend is wasm", () => {
+    // Incident: Node rejected Transformers' generated module with
+    // `Received protocol 'blob:'`; disabling useWasmCache bypasses that blob: import path.
+    const configure = (
+      rerankerModule as unknown as {
+        configureTransformersEnvForOnnxBackend?: (
+          env: { useWasmCache: boolean },
+          backend: { backend: "native" | "wasm" },
+        ) => void;
+      }
+    ).configureTransformersEnvForOnnxBackend;
+    expect(configure).toBeTypeOf("function");
+    const wasmEnv = { useWasmCache: true };
+    configure?.(wasmEnv, { backend: "wasm" });
+    expect(wasmEnv.useWasmCache).toBe(false);
+    const nativeEnv = { useWasmCache: true };
+    configure?.(nativeEnv, { backend: "native" });
+    expect(nativeEnv.useWasmCache).toBe(true);
+  });
+});
 
 describe("createReranker (stubbed session)", () => {
   it("returns [] without loading a session when documents is empty", async () => {

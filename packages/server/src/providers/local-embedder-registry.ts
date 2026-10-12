@@ -171,8 +171,8 @@ export async function resolveLocalEmbedderModule(
   // other install leaves `embeddedEmbedder` undefined and skips straight to the package lookup.
   if (embeddedEmbedder) {
     try {
-      // The binding finds its library next to itself, so unpack first and point the bundled
-      // onnxruntime-node loader (scripts/lib/ort-binding-loader.mjs) at that directory.
+      // Native ORT finds its library next to the binding; the darwin-x64 WASM shim likewise needs
+      // file: URLs for the extracted loader/binary. Point both bundled routes at this directory.
       (globalThis as Record<symbol, unknown>)[Symbol.for("obsidian-tc.ort-dir")] =
         extractEmbeddedRuntime({
           cacheDir: ctx.cacheDir ?? join(homedir(), ".obsidian-tc"),

@@ -3,6 +3,7 @@
 // @huggingface/transformers, never real weights.
 import { availableParallelism } from "node:os";
 import { describe, expect, it, vi } from "vitest";
+import * as embedderModule from "../src/index.js";
 import { createEmbeddingProvider, DEFAULT_MODEL_NAME, embedPipelineOptions } from "../src/index.js";
 import { modelInfoByName } from "../src/model-info.js";
 
@@ -13,6 +14,28 @@ function stubExtractor(dims: number, expectedPooling: "mean" | "cls" = "mean") {
     return { tolist: () => texts.map((_, i) => Array.from({ length: dims }, (_, j) => i + j)) };
   });
 }
+
+describe("configureTransformersEnvForOnnxBackend", () => {
+  it("disables Transformers' WASM cache only when the selected backend is wasm", () => {
+    // Incident: Node rejected Transformers' generated module with
+    // `Received protocol 'blob:'`; disabling useWasmCache bypasses that blob: import path.
+    const configure = (
+      embedderModule as unknown as {
+        configureTransformersEnvForOnnxBackend?: (
+          env: { useWasmCache: boolean },
+          backend: { backend: "native" | "wasm" },
+        ) => void;
+      }
+    ).configureTransformersEnvForOnnxBackend;
+    expect(configure).toBeTypeOf("function");
+    const wasmEnv = { useWasmCache: true };
+    configure?.(wasmEnv, { backend: "wasm" });
+    expect(wasmEnv.useWasmCache).toBe(false);
+    const nativeEnv = { useWasmCache: true };
+    configure?.(nativeEnv, { backend: "native" });
+    expect(nativeEnv.useWasmCache).toBe(true);
+  });
+});
 
 describe("createEmbeddingProvider", () => {
   it("id/provider/model/dimensions reflect the resolved catalog entry, sync, with no session load", () => {
