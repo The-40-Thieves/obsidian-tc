@@ -886,10 +886,11 @@ key), and S4–S8 run in order after it. S9 can start after S5.
    fallback under §3.1's flip conditions.
 2. **DCR off by default** (`auth.as.dynamicRegistration`, opt-in, with a boot notice). It blocks
    neither claude.ai, ChatGPT nor Codex, which use CIMD (§2). **Reversed 2026-10-09 (owner):** DCR is
-   now ON by default, because many MCP surfaces (Meta Muse Code, Antigravity, Cursor, grok.com, Grok
+   now ON by default, because many MCP surfaces (Meta Muse Code, Cursor, grok.com, Grok
    Build, Mistral Le Chat, n8n, the Gemini app, Windsurf) support only DCR and defaults must work out of
    the box. The abuse controls (S8: per-source budget, client cap, unused-registration GC) bound it;
-   `hardened` still forces it off; the boot notice is one info line, not a warning.
+   `hardened` still forces it off; the boot notice is one info line, not a warning. Antigravity was
+   subsequently verified on 2026-10-12 to use a metadata document rather than DCR.
 3. **Password login first; passkeys in a later slice** (S10, §4.11).
 4. **Persona narrowing:** for AS-issued tokens, effective scopes = persona ∩ token `scope`. It only
    removes scopes. Hand-minted persona tokens keep "persona replaces scopes".

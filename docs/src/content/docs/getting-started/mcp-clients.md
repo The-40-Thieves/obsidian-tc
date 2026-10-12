@@ -28,17 +28,23 @@ its original 1.19.0 capture rather than restamped — it was a real observation 
 re-labelling it with a version it was not taken under would be the kind of quiet drift this page
 exists to avoid.
 
+**OAuth smoke-checked on 2026-10-12.** A separate live sign-in against the bundled authorization
+server connected Claude Code, Codex CLI and the claude.ai custom connector used from Claude
+Desktop over Streamable HTTP, then ran a vault tool from each. These checks update only the HTTP
+and Auth cells below; they did not repeat the protocol, schema or facade measurements.
+
 | Client | stdio | Streamable HTTP | Surface | `outputSchema` | Auth | Recommended `toolFacade.mode`[^mode] |
 |---|---|---|---|---|---|---|
-| **Claude Code** | ✅ connects | ✅ connects | 3-tool facade | ✅ honoured | bearer on HTTP; none on stdio | `triad` — measured |
-| **Codex CLI** | ✅ connects (0.159.2, headless) | `UNTESTED` | 3-tool facade | `UNTESTED` | none on stdio | `domain` — measured |
-| Claude Desktop | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `triad` — unmeasured |
+| **Claude Code** | ✅ connects | ✅ connects; OAuth checked 2026-10-12 | 3-tool facade | ✅ honoured | bundled OAuth on HTTP; none on stdio | `triad` — measured |
+| **Codex CLI** | ✅ connects (0.159.2, headless) | ✅ connects; OAuth checked 2026-10-12 | 3-tool facade | `UNTESTED` | bundled OAuth on HTTP; none on stdio | `domain` — measured |
+| Claude Desktop (claude.ai custom connector) | `UNTESTED` | ✅ connects; OAuth checked 2026-10-12 | `UNTESTED` | `UNTESTED` | bundled OAuth on HTTP | `triad` — unmeasured |
 | Cursor | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `triad` — unmeasured, from docs |
 | Gemini CLI | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `triad` — unmeasured, from docs |
 | VS Code | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `UNTESTED` | `triad` — unmeasured |
 
-The unfilled rows need a desktop session driving GUI clients (or, for Gemini CLI, a run nobody has
-done yet). Nothing about them is known to be broken; they simply have not been exercised.
+The remaining unfilled rows and cells need a desktop session driving GUI clients (or, for Gemini
+CLI, a run nobody has done yet). Nothing about them is known to be broken; they simply have not
+been exercised.
 
 [^mode]: The facade mode to set for that client, and how firmly the evidence supports it — the
     measurement, its limits and the per-client reasoning are in
