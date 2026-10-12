@@ -457,6 +457,64 @@ describe("append_active_file / patch_active_file", () => {
     expect(e.message).toBe("old_string not found in section");
     expect(e.details).toMatchObject({ found_elsewhere: { count: 1, headings: ["A"] } });
   });
+
+  it("a replace_text miss hides patch_note's detail without read:notes", async () => {
+    const note = "# PublicHeading\n\nbody-secret\n\n## Todo\n\n- one\n";
+    const h = harness({ files: { "Notes/a.md": note } });
+    h.focus("Notes/a.md");
+    const e = errOf(
+      await h.call(
+        "patch_active_file",
+        {
+          vault: "test",
+          operation: "replace_text",
+          anchor: { type: "heading", heading: "Todo" },
+          old_string: "body-secret",
+          new_string: "replacement",
+        },
+        { grantedScopes: new Set(["write:notes"]) },
+      ),
+    );
+    expect(e.code).toBe("invalid_input");
+    expect(e.message).toBe("old_string not found in section");
+    expect(e.details).toEqual({
+      path: "Notes/a.md",
+      anchor: { type: "heading", heading: "Todo" },
+    });
+    const wire = JSON.stringify(e);
+    expect(wire).not.toContain("PublicHeading");
+    expect(wire).not.toContain("body-secret");
+    expect(wire).not.toContain("- one");
+  });
+
+  it("a replace_text miss hides patch_note's detail when readPaths excludes the active note", async () => {
+    const note = "# PublicHeading\n\nbody-secret\n\n## Todo\n\n- one\n";
+    const h = harness({ files: { "Notes/a.md": note }, acl: { readPaths: ["Public/**"] } });
+    h.focus("Notes/a.md");
+    const e = errOf(
+      await h.call(
+        "patch_active_file",
+        {
+          vault: "test",
+          operation: "replace_text",
+          anchor: { type: "heading", heading: "Todo" },
+          old_string: "body-secret",
+          new_string: "replacement",
+        },
+        { grantedScopes: new Set(["read:notes", "write:notes"]) },
+      ),
+    );
+    expect(e.code).toBe("invalid_input");
+    expect(e.message).toBe("old_string not found in section");
+    expect(e.details).toEqual({
+      path: "Notes/a.md",
+      anchor: { type: "heading", heading: "Todo" },
+    });
+    const wire = JSON.stringify(e);
+    expect(wire).not.toContain("PublicHeading");
+    expect(wire).not.toContain("body-secret");
+    expect(wire).not.toContain("- one");
+  });
 });
 
 describe("response_format (GH #1027): the active-file tools hand it to their delegates", () => {

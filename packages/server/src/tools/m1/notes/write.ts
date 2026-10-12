@@ -10,7 +10,7 @@
 // patchByPreamble and their shared PatchResult/removedSpan/escapeRegExp) used to be
 // private to this file — nothing else in the notes domain called them. read_note's section read
 // needs the same resolution, so they moved to ./anchors.ts; read.ts imports from there too.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
 import {
   enforceMemoryDefenseOnNoteWrite,
   MEMORY_DEFENSE_OFF,
@@ -19,7 +19,7 @@ import { noteQualityWarningFor } from "../../../experiential/note-quality";
 import { assessPoison } from "../../../experiential/poison";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { frontmatterFallbackSink } from "../../../util/errors";
-import { enforcePathAcl } from "../../../vault/acl-path";
+import { callerCanReadVaultPath, enforcePathAcl } from "../../../vault/acl-path";
 import { parseNote, serializeNote } from "../../../vault/frontmatter";
 import { requireConfirmation } from "../../../vault/hitl";
 import { noteExists, readNote, writeNoteAtomic } from "../../../vault/notes-io";
@@ -388,13 +388,16 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
             path: rel,
             anchor,
             // GH #1226: where the string is instead, so a caller need not re-read and guess.
-            ...replaceMissDetail(
-              parsed.body,
-              resolved,
-              matchWindow,
-              oldString,
-              anchor !== undefined,
-            ),
+            ...(grantsAll(ctx.grantedScopes, ["read:notes"]) &&
+            callerCanReadVaultPath(ctx.acl, ctx.grantedScopes, v.root, rel)
+              ? replaceMissDetail(
+                  parsed.body,
+                  resolved,
+                  matchWindow,
+                  oldString,
+                  anchor !== undefined,
+                )
+              : {}),
           });
         if (count > 1)
           throw err.invalidInput(
