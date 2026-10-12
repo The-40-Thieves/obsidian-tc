@@ -226,7 +226,10 @@ function inMemoryCallerStateTools(toolNames: readonly string[]): Map<string, str
 }
 
 /** In-memory-state tools that are NOT keyed by the caller, each with the reason. */
-const IN_MEMORY_NOT_CALLER_KEYED: Record<string, string> = {};
+const IN_MEMORY_NOT_CALLER_KEYED: Record<string, string> = {
+  read_resources:
+    "`trueReasons` (a WeakMap): the true denial reason of each error item, keyed by the item object of one call's output. No caller can reach another call's entries, so nothing is shared.",
+};
 
 describe("principalOwned coverage", () => {
   const tables = ownedTables();

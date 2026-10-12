@@ -47,6 +47,7 @@ export async function wireRuntimeCore(deps: RuntimeCoreDeps): Promise<RuntimeCor
         vaults: deps.vaults,
         acl: deps.acl,
         defaultVaultId: deps.defaultVaultId,
+        boundVaultOnly: deps.boundVaultOnly,
         elicitTtlSeconds: deps.elicitTtlSeconds,
         throttle: deps.throttle,
         rateLimitBackend,
