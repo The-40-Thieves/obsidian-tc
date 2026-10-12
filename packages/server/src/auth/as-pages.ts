@@ -13,7 +13,7 @@ export const AS_RESPONSE_HEADERS: Readonly<Record<string, string>> = {
   "content-security-policy":
     "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'",
   "x-frame-options": "DENY",
-  "referrer-policy": "no-referrer",
+  "referrer-policy": "same-origin",
   "cache-control": "no-store",
   "x-content-type-options": "nosniff",
 };
@@ -47,7 +47,7 @@ function layout(title: string, body: string): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="referrer" content="no-referrer">
+<meta name="referrer" content="same-origin">
 <title>${escapeHtml(title)}</title>
 <link rel="stylesheet" href="${AS_CSS_PATH}">
 </head>

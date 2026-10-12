@@ -370,12 +370,12 @@ describe("credential re-POST and headers", () => {
     expect(denied.res.status).toBe(303);
   });
 
-  it("the consent page is frame-proof, no-referrer, uncacheable, and lets the browser follow the redirect to the client only", async () => {
+  it("the consent page is frame-proof, same-origin, uncacheable, and lets the browser follow the redirect to the client only", async () => {
     const flow = await makeFlow();
     const { page } = await toConsent(flow, new Jar());
     const h = page.seen.res.headers;
     expect(h.get("x-frame-options")).toBe("DENY");
-    expect(h.get("referrer-policy")).toBe("no-referrer");
+    expect(h.get("referrer-policy")).toBe("same-origin");
     expect(h.get("cache-control")).toBe("no-store");
     const csp = h.get("content-security-policy") ?? "";
     expect(csp).toContain("frame-ancestors 'none'");

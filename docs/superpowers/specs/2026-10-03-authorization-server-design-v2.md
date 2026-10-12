@@ -349,8 +349,11 @@ promise (§7). So:
 
 All AS endpoints are served only when `auth.as.enabled`. All POST bodies are capped (16 KiB). All
 HTML responses carry `Content-Security-Policy: default-src 'none'; style-src 'self';
-form-action 'self'; frame-ancestors 'none'`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`
-and `Cache-Control: no-store`. One deliberate exception (built in S5): the **consent page** names the
+form-action 'self'; frame-ancestors 'none'`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`
+and `Cache-Control: no-store`. `same-origin` preserves the real `Origin` on same-origin form POSTs and
+sends no referrer cross-origin. Fetch would serialize the `Origin` of a non-GET/HEAD request as `null`
+under `no-referrer`, causing the required issuer-origin check to refuse every browser form. One deliberate
+exception (built in S5): the **consent page** names the
 client's redirect origin in `form-action` (`form-action 'self' https://app.example`; a loopback client gets
 `http://<host>:*`). Chrome applies `form-action` to the redirect that answers a form POST, and the consent
 POST answers with a 303 to the client, so `'self'` alone would block the approval. Nothing else about the
@@ -797,7 +800,7 @@ Each row is a RED test written before its mitigation (the slice in brackets). Th
 | Login brute force | per-account failure window (5 / 15 min → exponential backoff, constant-time compare, same error for unknown user); per-IP counter where the socket IP is real; setup token single-use | a 6th wrong password within the window is refused **even if the password is right**, until backoff elapses; a reused setup token → 403 [S4] |
 | First-run claim race | unclaimed AS refuses authorize, token, register | fresh `oauth.db` → `/oauth/authorize` 503 "not claimed" [S4] |
 | Refresh-token theft | rotation; family revocation on reuse beyond the one-step window; the window is idempotent (a retry gets the stored first response, never a new bearer); a token of a replaced server secret is retired; revocation is a durable outbox; hash-only storage; absolute cap | use RT1→RT2, use RT2→RT3, replay RT1 → `invalid_grant` and RT3 + the family's access tokens die; N retries of RT0 return one access token and one `issued_access` row; a replaced secret → the current leaf is `invalid_grant` and its family dies; a failing `registry.revoke` mid-family is repaired by a drain; the DB holds no plaintext RT (grep the file) [S6] |
-| Token leakage in logs | never log `Authorization`, `code`, `code_verifier`, `refresh_token`, setup token, password, session cookie; request logging of `/oauth/*` records path only (no query); Referrer-Policy no-referrer | drive a full flow with a capture logger and assert none of those values appears in any log line or telemetry attribute [S5, S6] |
+| Token leakage in logs | never log `Authorization`, `code`, `code_verifier`, `refresh_token`, setup token, password, session cookie; request logging of `/oauth/*` records path only (no query); Referrer-Policy same-origin, so cross-origin redirects disclose no referrer without turning same-origin POST origins into `null` | drive a full flow with a capture logger and assert none of those values appears in any log line or telemetry attribute [S5, S6] |
 | Host-header spoofing | issuer and URLs from config only | metadata fetched with `Host: evil.example` still names the configured issuer [S3] |
 | Credential re-POST on redirect | 303 after login/consent POSTs | status is 303, never 307/308 [S4, S5] |
 | Lost `oauth.db` | fail-safe: no grants means a re-login; re-claim needs CLI or setup token | delete `oauth.db` → authorize 503 unclaimed; an old RT → `invalid_grant`; an HS256 hand-minted token still works [S3, S6] |

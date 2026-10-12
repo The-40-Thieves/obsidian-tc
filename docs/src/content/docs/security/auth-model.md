@@ -712,8 +712,11 @@ run at once; beyond that login answers `503`. Counters are in memory and reset a
 
 **The pages** carry `Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self';
 connect-src 'self'; form-action 'self'; frame-ancestors 'none'` (the one script is the server's own passkey script,
-below; no inline script or style, no CDN), `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store` and
-`X-Content-Type-Options: nosniff`, on every response including errors and redirects. Every form is protected
+below; no inline script or style, no CDN), `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, `Cache-Control: no-store` and
+`X-Content-Type-Options: nosniff`, on every response including errors and redirects. `same-origin` keeps the
+real `Origin` on same-origin form POSTs while suppressing the referrer on cross-origin redirects; under
+`no-referrer`, Fetch serializes the `Origin` of these non-GET/HEAD requests as `null`, which the server must
+refuse. Every form is protected
 against cross-site requests three ways: a token bound to the form and to the browser (before sign-in a per-browser
 cookie, after it the session), an `Origin` header equal to the issuer's origin (a request without one is refused),
 and the urlencoded content type; bodies are capped at 16 KiB. A successful POST answers `303`, never a status

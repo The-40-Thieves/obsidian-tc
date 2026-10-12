@@ -478,7 +478,7 @@ describe("CSRF on every state-changing form (CSRF row)", () => {
 });
 
 describe("every AS response is frame-proof (clickjacking row) and never cached", () => {
-  it("carries CSP, X-Frame-Options DENY, no-referrer, no-store and nosniff everywhere", async () => {
+  it("carries CSP, X-Frame-Options DENY, same-origin, no-store and nosniff everywhere", async () => {
     const unclaimed = await makeOperator();
     const op = await claimed();
     const jar = new Jar();
@@ -516,7 +516,7 @@ describe("every AS response is frame-proof (clickjacking row) and never cached",
     for (const [name, res] of out) {
       expect(res.headers.get("content-security-policy"), name).toBe(CSP);
       expect(res.headers.get("x-frame-options"), name).toBe("DENY");
-      expect(res.headers.get("referrer-policy"), name).toBe("no-referrer");
+      expect(res.headers.get("referrer-policy"), name).toBe("same-origin");
       expect(res.headers.get("cache-control"), name).toMatch(/no-store/);
       expect(res.headers.get("x-content-type-options"), name).toBe("nosniff");
     }

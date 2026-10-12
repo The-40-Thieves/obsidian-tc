@@ -289,7 +289,7 @@ describe("scopes and the pending request", () => {
   it("carries the AS headers on the redirect itself", async () => {
     const flow = await makeFlow();
     const res = await authorize(flow, new Jar(), challenge);
-    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(res.headers.get("referrer-policy")).toBe("same-origin");
     expect(res.headers.get("cache-control")).toBe("no-store");
   });
 });
