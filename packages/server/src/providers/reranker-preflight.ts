@@ -14,6 +14,8 @@
 // code as a side effect of diagnosing, which is exactly why `module` returns null here rather than
 // being probed. An unbuildable module is caught at boot by the loader's own five refusals.
 
+import { localEmbedderAbsentFromBinary } from "../embeddings/embedded-embedder";
+
 /** The subset of the embeddings config this preflight reads. */
 export interface RerankerPreflightEmbeddings {
   modelTier?: { full?: unknown };
@@ -71,16 +73,17 @@ export function rerankerBuildBlocker(
  *  @the-40-thieves/obsidian-tc-reranker-local package, via @huggingface/transformers) ships a
  *  native prebuilt binary for THIS process's platform/arch/libc — confirmed against onnxruntime-node
  *  4.x's published npm platform packages: linux x64 + arm64 (glibc only), darwin arm64, win32 x64 +
- *  arm64. musl libc (Alpine and similar) and darwin x64 (Intel Mac) ship NONE.
+ *  arm64. musl libc (Alpine and similar) ships NONE. darwin x64 (Intel Mac) ships NONE too, but
+ *  every current distribution route runs on onnxruntime-web's WASM backend there.
  *
  *  Deliberately independent of whether `resolveLocalRerankerModule` actually resolved the JS
  *  package: that resolution only proves reranker-local's own small dist/index.js is importable — it
  *  never imports @huggingface/transformers itself (see that package's own header comment), so it
- *  cannot detect a missing NATIVE binary. A musl/darwin-x64 deployment can resolve the package via
- *  route (i)/(iii) and still hard-fail the moment a real rerank() call tries to load onnxruntime-node
- *  — this function is what lets doctor say so up front, on either verdict, rather than only after
- *  that first real failure in production, and what lets boot skip auto-selecting it at all (G3)
- *  instead of wiring a reranker guaranteed to throw on first use.
+ *  cannot detect a missing runtime. A musl deployment can resolve the package via route (i)/(iii)
+ *  and still hard-fail the moment a real rerank() call tries to load ONNX Runtime — this function
+ *  is what lets doctor say so up front, on either verdict, rather than only after that first real
+ *  failure in production, and what lets boot skip auto-selecting it at all (G3) instead of wiring a
+ *  reranker guaranteed to throw on first use. darwin-x64 resolves through the WASM fallback.
  *
  *  musl detection: `process.report`'s own header carries `glibcVersionRuntime` on a glibc build and
  *  omits it on musl (Node's own diagnostic report already draws this distinction) — a known,
@@ -89,20 +92,33 @@ export function rerankerBuildBlocker(
  *
  *  `platform`/`arch`/`isMuslRuntime` are injectable (defaulting to the REAL `process.platform` /
  *  `process.arch` / the report heuristic above) purely for test determinism — this repo's CI and
- *  every contributor's machine is glibc, so a test asserting the musl/darwin-x64 CASE cannot rely on
- *  ambient `process.platform` and must be able to fake it. Production callers never pass these. */
+ *  every contributor's machine is glibc, so a test asserting the musl case cannot rely on ambient
+ *  runtime detection and must be able to fake it. Production callers never pass these. */
 export function onnxNativePrebuildStatus(
-  opts: { platform?: NodeJS.Platform; arch?: string; isMuslRuntime?: () => boolean } = {},
-): { supported: boolean; note?: string } {
+  opts: {
+    platform?: NodeJS.Platform;
+    arch?: string;
+    isMuslRuntime?: () => boolean;
+    /** Whether this process is a standalone binary built without the local embedder. Production
+     *  callers never pass it: it reads the build-time flag in embeddings/embedded-embedder.ts. */
+    binary?: boolean;
+  } = {},
+): { supported: boolean; route?: string; note?: string } {
   const platform = opts.platform ?? process.platform;
   const arch = opts.arch ?? process.arch;
-  if (platform === "darwin" && arch === "x64") {
+  if (opts.binary ?? localEmbedderAbsentFromBinary) {
     return {
       supported: false,
+      note: "no local embedder in this binary: this target has no configured bundled ONNX runtime; use the npm install or a hosted provider.",
+    };
+  }
+  if (platform === "darwin" && arch === "x64") {
+    return {
+      supported: true,
+      route: "wasm fallback",
       note:
-        "this platform (darwin-x64 / Intel Mac) has NO onnxruntime-node prebuilt binary — the " +
-        '"local" reranker cannot run here regardless of whether the package resolves; it is not a ' +
-        "configuration gap.",
+        "darwin-x64 (Intel Mac) has no onnxruntime-node prebuilt binary, so the Node route runs the " +
+        "local models on onnxruntime-web (WASM backend, the wasm fallback).",
     };
   }
   const isMuslRuntime =

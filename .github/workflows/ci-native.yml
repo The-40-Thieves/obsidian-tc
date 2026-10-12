@@ -32,12 +32,17 @@ jobs:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             triple: linux-x64-gnu
-          # macOS CI builds arm64 only — the macOS hosted-runner pool is capped at 5
-          # concurrent jobs account-wide (GitHub Free), so the x64 darwin build is left
-          # to the G2.5 release prebuild matrix to keep PR queues from stalling.
           - host: macos-15
             target: aarch64-apple-darwin
             triple: darwin-arm64
+          # x64 Darwin is built NATIVELY on the Intel labels. publish.yml's darwin-x64 prebuild is only
+          # ever cross-compiled on arm64, so before this the x64 addon was never built or run on x64.
+          - host: macos-15-intel
+            target: x86_64-apple-darwin
+            triple: darwin-x64
+          - host: macos-26-intel
+            target: x86_64-apple-darwin
+            triple: darwin-x64
           - host: windows-latest
             target: x86_64-pc-windows-msvc
             triple: win32-x64-msvc

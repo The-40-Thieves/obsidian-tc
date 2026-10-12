@@ -24,7 +24,12 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { $ } from "bun";
-import { embedderBundlePlugin, ORT_PLATFORMS, ortNativeFiles } from "./lib/embedder-bundle.mjs";
+import {
+  embedderBundlePlugin,
+  ORT_PLATFORMS,
+  ortNativeFiles,
+  ortWasmFiles,
+} from "./lib/embedder-bundle.mjs";
 import { packFromStaging, stageRuntimeModules } from "./lib/mcpb-staging.mjs";
 import { fetchVerifiedNpmPackage } from "./lib/npm-tarball.mjs";
 
@@ -50,7 +55,13 @@ if (!existsSync(serverEntry)) {
 // packages/embedder-local is its own install root, so it is installed and built here when it is not.
 const embedderDir = join(repoRoot, "packages", "embedder-local");
 const ortNodeDir = join(embedderDir, "node_modules", "onnxruntime-node");
-if (!existsSync(join(embedderDir, "dist", "index.js")) || !existsSync(ortNodeDir)) {
+const ortWebDir = join(embedderDir, "node_modules", "onnxruntime-web");
+const wasmFiles = ortWasmFiles(ortWebDir);
+if (
+  !existsSync(join(embedderDir, "dist", "index.js")) ||
+  !existsSync(ortNodeDir) ||
+  wasmFiles.some((f) => !existsSync(f.path))
+) {
   console.log("embedder-local not installed/built — installing + building…");
   await $`bun install --frozen-lockfile`.cwd(embedderDir);
   await $`bun run build`.cwd(embedderDir);
@@ -98,8 +109,11 @@ try {
           embedder: {
             version: embedderVersion,
             bundleFile: join(scratch, "embedder.mjs"),
+            wasmFiles,
             ortFiles: Object.fromEntries(
-              Object.keys(ORT_PLATFORMS).map((key) => [key, ortNativeFiles(ortNodeDir, key)]),
+              Object.entries(ORT_PLATFORMS)
+                .filter(([, spec]) => spec.backend === "native")
+                .map(([key]) => [key, ortNativeFiles(ortNodeDir, key)]),
             ),
           },
         }),

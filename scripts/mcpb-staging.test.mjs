@@ -188,6 +188,8 @@ test("stageRuntimeModules lays out sqlite-vec, every vec0 platform package and t
     await writeFile(join(src, "embedder.mjs"), "// bundled embedder");
     await writeFile(join(src, "binding.node"), "binding");
     await writeFile(join(src, "libonnxruntime.so.1"), "lib");
+    await writeFile(join(src, "ort-wasm-simd-threaded.mjs"), "// wasm loader");
+    await writeFile(join(src, "ort-wasm-simd-threaded.wasm"), "wasm");
 
     await stageRuntimeModules(stagingDir, {
       sqliteVec: {
@@ -200,6 +202,13 @@ test("stageRuntimeModules lays out sqlite-vec, every vec0 platform package and t
       embedder: {
         version: "9.9.9",
         bundleFile: join(src, "embedder.mjs"),
+        wasmFiles: [
+          { name: "ort-wasm-simd-threaded.mjs", path: join(src, "ort-wasm-simd-threaded.mjs") },
+          {
+            name: "ort-wasm-simd-threaded.wasm",
+            path: join(src, "ort-wasm-simd-threaded.wasm"),
+          },
+        ],
         ortFiles: {
           "linux-x64": [
             { name: "onnxruntime_binding.node", path: join(src, "binding.node") },
@@ -221,6 +230,8 @@ test("stageRuntimeModules lays out sqlite-vec, every vec0 platform package and t
     assert.equal(pkg.version, "9.9.9");
     assert.equal(pkg.main, "./index.mjs");
     assert.equal(pkg.type, "module");
+    assert.equal(await readFile(join(emb, "ort-wasm-simd-threaded.mjs"), "utf8"), "// wasm loader");
+    assert.equal(await readFile(join(emb, "ort-wasm-simd-threaded.wasm"), "utf8"), "wasm");
     const ort = join(emb, "ort", "linux-x64");
     assert.deepEqual((await readdir(ort)).sort(), [
       "libonnxruntime.so.1",

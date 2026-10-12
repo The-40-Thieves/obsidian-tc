@@ -1,4 +1,4 @@
-// Folds the per-cell reports ci-first-run-smoke.yml uploads into the 3x3 markdown table on the run's
+// Folds the per-cell reports ci-first-run-smoke.yml uploads into the 3x5 markdown table on the run's
 // step summary.   node first-run-matrix-table.mjs <reports-dir> <paths,..> <oses,..>
 // Env: EXPECTED_FAILURES (the workflow's list). Reads <reports-dir>/first-run-<path>-<os>/report.json.
 import { existsSync, readFileSync } from "node:fs";

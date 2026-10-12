@@ -237,8 +237,8 @@ export async function wireGatewaySeams(
   /** THE-944 review round 2 (G3): test-only override for the auto-select platform-support check
    *  (forwarded to `autoSelectLocalRerankerApplies` and the remedy-log's `onnxNativePrebuildStatus`
    *  call). Production callers never pass this — it defaults to reading the REAL process. This
-   *  repo's CI and every contributor's machine is glibc, so a test asserting the darwin-x64/musl
-   *  SKIP case cannot rely on ambient `process.platform` and must be able to fake it. */
+   *  repo's CI and every contributor's machine is glibc, so a test asserting the musl SKIP case
+   *  cannot rely on ambient runtime detection and must be able to fake it. */
   platformOverride?: Parameters<typeof onnxNativePrebuildStatus>[0],
 ): Promise<GatewaySeams> {
   let gateway: GatewayClient | null = null;

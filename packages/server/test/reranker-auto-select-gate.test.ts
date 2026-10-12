@@ -191,10 +191,18 @@ describe("why a broken gateway check inside the gate is invisible to wireGateway
 // needs (see its own doc comment) for a platform-specific "why not" message instead of the generic
 // one — its OWN table proves it stays platform-blind on purpose.
 describe("autoSelectLocalRerankerApplies now folds in platform support (THE-944 review round 2, G3)", () => {
-  it("false on darwin-x64 even though config alone would have said yes", () => {
+  it("true on darwin-x64's Node route, where the wasm fallback runs the local models", () => {
     expect(
       autoSelectLocalRerankerApplies(undefined, NONE, {
         platformOverride: { platform: "darwin", arch: "x64" },
+      }),
+    ).toBe(true);
+  });
+
+  it("false for a future standalone-binary target marked as carrying no local embedder", () => {
+    expect(
+      autoSelectLocalRerankerApplies(undefined, NONE, {
+        platformOverride: { platform: "linux", arch: "x64", binary: true },
       }),
     ).toBe(false);
   });

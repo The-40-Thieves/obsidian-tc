@@ -28,9 +28,9 @@ import {
   pinnedFilesFor,
 } from "./model-info.js";
 
-/** Refuses a DOWNLOAD (never a read of already-verified files) on a platform with no
- *  onnxruntime-node native prebuild: linux x64/arm64 glibc, darwin arm64, win32 x64/arm64 only —
- *  musl and darwin-x64 have none. Duplicated, not imported, from packages/server's own
+/** Refuses a DOWNLOAD (never a read of already-verified files) on a platform with no usable ONNX
+ *  runtime. Native prebuilds cover linux x64/arm64 glibc, darwin arm64, and win32 x64/arm64;
+ *  darwin-x64 uses the WASM fallback, while musl has neither route. Duplicated, not imported, from packages/server's own
  *  `onnxNativePrebuildStatus` AND from packages/reranker-local's copy of the same check (this
  *  package stays dependency-free of both — keep all three in sync if the matrix changes). musl
  *  detection via `process.report`'s own `header.glibcVersionRuntime` (present on glibc, absent on
@@ -39,15 +39,6 @@ export function unsupportedPlatformReason(
   opts: { platform?: NodeJS.Platform; arch?: string; isMuslRuntime?: () => boolean } = {},
 ): string | undefined {
   const platform = opts.platform ?? process.platform;
-  const arch = opts.arch ?? process.arch;
-  if (platform === "darwin" && arch === "x64") {
-    return (
-      "this platform (darwin-x64 / Intel Mac) has NO onnxruntime-node prebuilt binary — the " +
-      '"local" embedder cannot run here regardless of whether the pinned weights are fetched. ' +
-      "Set embeddings.provider to a hosted or self-hosted backend instead (openai, voyage, " +
-      "cohere, bge-m3, openai-compatible, ollama)."
-    );
-  }
   const isMuslRuntime =
     opts.isMuslRuntime ??
     (() => {

@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertVerified, fetchAndVerifyModel, modelDirFor } from "./model-fetch.js";
 import { MODEL_DTYPE, PINNED_FILES } from "./model-info.js";
+import { ensureOnnxBackend } from "./onnx-wasm-fallback.js";
 import { availableParallelism, ortSessionOptions } from "./ort-session-options.js";
 
 export interface RerankHit {
@@ -81,6 +82,16 @@ export function rankLogits(logits: readonly number[], topN: number): RerankHit[]
 // biome-ignore lint/suspicious/noExplicitAny: see above.
 type TransformersModule = any;
 
+/** Transformers' WASM preloader rewrites the configured .mjs file to a blob: URL when this cache
+ *  is enabled. Node's ESM loader rejects blob: imports, so the WASM route must let
+ *  onnxruntime-web load the file: URL configured by onnx-wasm-fallback.ts directly. */
+export function configureTransformersEnvForOnnxBackend(
+  env: { useWasmCache?: boolean },
+  backend: { backend: "native" | "wasm" },
+): void {
+  if (backend.backend === "wasm") env.useWasmCache = false;
+}
+
 export interface Session {
   tokenizer: (
     text: string[],
@@ -143,6 +154,9 @@ async function loadSession(localModelPath: string): Promise<Session> {
       // import even happens, rather than silently loaded. Cheap (a handful of small files plus one
       // ~23 MB sha256, no network) — see model-fetch.ts's assertVerified for the full contract.
       await assertVerified(modelDir);
+      // Intel macOS has no onnxruntime-node binding, so transformers' own import would throw: prime
+      // the WASM backend first (see onnx-wasm-fallback.ts). A no-op on every other platform.
+      const backend = await ensureOnnxBackend();
       // The dynamic import target is a VARIABLE, not a string literal — TypeScript only attempts to
       // resolve a literal specifier's module/type declarations for a dynamic import, so this line
       // typechecks whether or not @huggingface/transformers is installed. That is deliberate: this
@@ -155,6 +169,7 @@ async function loadSession(localModelPath: string): Promise<Session> {
       const { AutoModelForSequenceClassification, AutoTokenizer, env } = (await import(
         transformersPackage
       )) as TransformersModule;
+      configureTransformersEnvForOnnxBackend(env, backend);
       env.allowRemoteModels = false;
       // `modelDir` (MODEL_ID@MODEL_REVISION, already fetched+verified above) is passed as
       // `path_or_repo_id` directly, NOT `env.localModelPath` + the bare MODEL_ID — see

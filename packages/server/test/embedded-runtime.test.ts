@@ -1,5 +1,5 @@
 // The standalone binary carries the local embedder inside itself (scripts/build-binary.ts):
-// embeddings/embedded-runtime.ts unpacks its onnxruntime native files, and the "local" resolver
+// embeddings/embedded-runtime.ts unpacks its native or WASM runtime files, and the "local" resolver
 // tries that embedded route before the package lookup. The real compiled path is proven by the
 // first-run matrix's binary cells; this pins the two pieces that do not need a binary.
 import { createHash } from "node:crypto";
@@ -42,6 +42,18 @@ describe("extractEmbeddedRuntime", () => {
     expect(dir.startsWith(join(root, "c1", "runtime", "onnxruntime-"))).toBe(true);
     expect(readFileSync(join(dir, "onnxruntime_binding.node"), "utf8")).toBe("binding");
     expect(readFileSync(join(dir, "libonnxruntime.so.1"), "utf8")).toBe("lib");
+  });
+
+  it("unpacks the darwin-x64 WASM loader and binary with their distribution filenames", () => {
+    const files = [
+      asset("ort-wasm-simd-threaded.mjs", "export default async () => ({})"),
+      asset("ort-wasm-simd-threaded.wasm", "wasm-bytes"),
+    ];
+    const dir = extractEmbeddedRuntime({ cacheDir: join(root, "darwin-x64"), files });
+    expect(readFileSync(join(dir, "ort-wasm-simd-threaded.mjs"), "utf8")).toContain(
+      "export default",
+    );
+    expect(readFileSync(join(dir, "ort-wasm-simd-threaded.wasm"), "utf8")).toBe("wasm-bytes");
   });
 
   it("reuses a verified cache and replaces a tampered file", () => {

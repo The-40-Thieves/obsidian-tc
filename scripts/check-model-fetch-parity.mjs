@@ -185,6 +185,12 @@ export const FILE_PAIRS = [
     symbols: ["ortSessionOptions"],
     deltas: new Map(),
   },
+  {
+    embedderFile: "packages/embedder-local/src/onnx-wasm-fallback.ts",
+    rerankerFile: "packages/reranker-local/src/onnx-wasm-fallback.ts",
+    symbols: ["ensureOnnxBackend"],
+    deltas: new Map(),
+  },
 ];
 
 function main() {

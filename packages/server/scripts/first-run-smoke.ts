@@ -16,7 +16,7 @@
 // Unlike zero-config-smoke.ts (which asserts one expected state and exits at the first miss) this
 // MEASURES: every stage is recorded as pass / fail / skip / info, later stages still run when an
 // earlier one failed (a degraded index still tells us what search_semantic does), and the exit code
-// is 1 when any stage failed. `--report` writes the per-stage JSON the workflow folds into the 3x3
+// is 1 when any stage failed. `--report` writes the per-stage JSON the workflow folds into the 3x5
 // table; its `firstFailure` is the exact one-line reason. It reuses zero-config-smoke's isolated
 // HOME (scripts/lib/isolated-home.mjs), so the run never reads or writes the operator's real
 // `~/.obsidian-tc`, and the same `--model-cache` shape for CI's model-weights cache.

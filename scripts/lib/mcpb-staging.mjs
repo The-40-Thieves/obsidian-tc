@@ -111,12 +111,13 @@ const EMBEDDER_PACKAGE = "@the-40-thieves/obsidian-tc-embedder-local";
  *   sqlite-vec       the loader package plus ALL of its platform packages: one .mcpb runs on every
  *                    OS, so vec0 for each must be inside it (they are ~150 KB each).
  *   embedder-local   the default embeddings provider, as ONE bundled file (scripts/lib/
- *                    embedder-bundle.mjs inlines transformers.js and onnxruntime-node's JS) plus
- *                    onnxruntime's native files per platform under `ort/<platform>-<arch>/`, which
- *                    that file loads at run time.
+ *                    embedder-bundle.mjs inlines Transformers.js and the ONNX runtime shim), plus
+ *                    native files under `ort/<platform>-<arch>/` and darwin-x64 WASM files beside
+ *                    the bundle.
  *
  * `sources` is `{ sqliteVec: { dir, platformPackages: [{ name, dir }] },
- *   embedder: { version, bundleFile, ortFiles: { "<platform>-<arch>": [{ name, path }] } } }`.
+ *   embedder: { version, bundleFile, wasmFiles: [{ name, path }],
+ *     ortFiles: { "<platform>-<arch>": [{ name, path }] } } }`.
  */
 export async function stageRuntimeModules(stagingDir, sources) {
   const modules = join(stagingDir, "node_modules");
@@ -136,6 +137,9 @@ export async function stageRuntimeModules(stagingDir, sources) {
     exports: { ".": "./index.mjs", "./package.json": "./package.json" },
   };
   await writeFile(join(embedderDir, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  for (const f of sources.embedder.wasmFiles) {
+    await copyFile(f.path, join(embedderDir, f.name));
+  }
   for (const [platformKey, files] of Object.entries(sources.embedder.ortFiles)) {
     const ortDir = join(embedderDir, "ort", platformKey);
     await mkdir(ortDir, { recursive: true });

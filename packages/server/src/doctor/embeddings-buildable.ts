@@ -39,7 +39,7 @@ export interface EmbeddingsBuildableView {
 
 function platformDetails(view: EmbeddingsBuildableView): Record<string, string> {
   const platform = onnxNativePrebuildStatus(view.platformOverride);
-  return platform.supported
+  return platform.supported && !platform.route
     ? {}
     : {
         platform:
@@ -92,7 +92,7 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
         };
       }
       // THE-1122 review round 3: three-way status, not two.
-      //   - Platform genuinely unsupported (darwin-x64, musl): always WARN, never FAIL, even on a
+      //   - Platform genuinely unsupported (currently musl): always WARN, never FAIL, even on a
       //     real (not source-checkout) install — no amount of installing/building the package can
       //     ever fix this; the honest remediation is "configure a different provider," which a
       //     scary FAIL would misrepresent as a fixable broken state.

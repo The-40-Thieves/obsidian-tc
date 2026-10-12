@@ -220,21 +220,17 @@ describe("fetchAndVerifyModel — download, retry, and atomic rename", () => {
 // Review round 1 ("Also"/F11): the platform check must run BEFORE any download attempt, so an
 // auto-selected deployment on an unsupported platform never spends the network round-trip only to
 // fail later at model-load time. Uses `platformOverride` (real callers never set it — see the
-// field's own doc comment) so this is assertable without the CI runner actually being darwin-x64
-// or musl.
+// field's own doc comment) so this is assertable without the CI runner actually being musl.
 describe("platform check runs BEFORE the download (THE-944 review round 1)", () => {
-  it("darwin-x64: refuses without ever calling fetchFn", async () => {
-    const fetchFn = vi.fn(async () => {
-      throw new Error("must not be called — the platform check must refuse first");
-    }) as unknown as typeof fetch;
-    await expect(
-      fetchAndVerifyModel(root, {
-        ...SPEC,
-        fetchFn,
-        platformOverride: { platform: "darwin", arch: "x64" },
-      }),
-    ).rejects.toThrow(/darwin-x64/);
-    expect(fetchFn).not.toHaveBeenCalled();
+  it("darwin-x64: downloads because the reranker uses the WASM runtime there", async () => {
+    const fetchFn = okFetchFn();
+    const dir = await fetchAndVerifyModel(root, {
+      ...SPEC,
+      fetchFn,
+      platformOverride: { platform: "darwin", arch: "x64" },
+    });
+    expect(dir).toBe(modelDirFor(root, SPEC));
+    expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 
   it("musl linux: refuses without ever calling fetchFn", async () => {
