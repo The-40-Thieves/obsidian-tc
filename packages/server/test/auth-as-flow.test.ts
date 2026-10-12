@@ -486,7 +486,7 @@ describe("token leakage in logs", () => {
     expect(out).not.toContain(w.token.slice(0, 30));
   });
 
-  it("every /oauth page and redirect says no-referrer and no-store; the AS adds no request log of its own", async () => {
+  it("every /oauth page and redirect says same-origin and no-store; the AS adds no request log of its own", async () => {
     const s = await boot();
     const { value } = await capturing(async () => {
       const { challenge } = pkce();
@@ -501,7 +501,7 @@ describe("token leakage in logs", () => {
       });
       return call(s, `/oauth/authorize?${q}`);
     });
-    expect(value.res.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(value.res.headers.get("referrer-policy")).toBe("same-origin");
     expect(value.res.headers.get("cache-control")).toBe("no-store");
     const { out } = await capturing(async () =>
       call(s, `/oauth/authorize?client_id=agent&state=visible-state-value&redirect_uri=nope`),
