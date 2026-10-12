@@ -305,6 +305,105 @@ export function replaceInSection(
   return { body: next.join(eol), count };
 }
 
+/** What a 0-match `replace_text` refusal says about where the string is (GH #1226). Note text
+ *  never appears here: headings are the only titles, everything else is a number. */
+export interface ReplaceMissDetail {
+  section_resolved: { heading: string | null; start_line: number; end_line: number };
+  /** Anchored scope only: exact matches in the body outside the section, and the enclosing heading
+   *  of each (deduped; a match before any heading adds no title). */
+  found_elsewhere?: { count: number; headings: string[] };
+  /** The best window of the section's searchable lines after whitespace collapse and lowercasing.
+   *  Similarity 1 means the normalized old_string occurs there; otherwise it is below 1. Omitted
+   *  when the section has no searchable line. */
+  nearest?: { line: number; similarity: number };
+}
+
+const normalizeForMiss = (s: string): string => s.replace(/\s+/g, " ").trim().toLowerCase();
+
+/** Dice coefficient over character bigrams of two normalized strings. Linear in their length, so
+ *  scoring every window of a section stays cheap where an edit distance per window would not. */
+function bigramDice(a: string, b: string): number {
+  if (a.length < 2 || b.length < 2) return a === b ? 1 : 0;
+  const counts = new Map<string, number>();
+  for (let i = 0; i + 1 < a.length; i++) {
+    const gram = a.slice(i, i + 2);
+    counts.set(gram, (counts.get(gram) ?? 0) + 1);
+  }
+  let shared = 0;
+  for (let i = 0; i + 1 < b.length; i++) {
+    const gram = b.slice(i, i + 2);
+    const left = counts.get(gram) ?? 0;
+    if (left > 0) {
+      shared++;
+      counts.set(gram, left - 1);
+    }
+  }
+  return (2 * shared) / (a.length - 1 + (b.length - 1));
+}
+
+/** Diagnostics for a `replace_text` that matched nothing. `section` is the resolved section;
+ *  `searchable` is the part a match may land in (the section less a heading anchor's own heading
+ *  line); `anchored` is false for the whole-note scope, which has no outside to search. Pure. */
+export function replaceMissDetail(
+  body: string,
+  section: SectionSpan,
+  searchable: SectionSpan,
+  oldString: string,
+  anchored: boolean,
+): ReplaceMissDetail {
+  const lines = body.split(/\r?\n/);
+  const detail: ReplaceMissDetail = {
+    section_resolved: {
+      heading: section.headingTitle ?? null,
+      start_line: section.startIndex + 1,
+      end_line: section.endIndex,
+    },
+  };
+  const needle = oldString.replace(/\r\n/g, "\n");
+  if (anchored && needle.length > 0) {
+    const mask = fenceMask(lines);
+    const headings = scanHeadings(lines, mask);
+    // Line start offsets of the EOL-normalized body, so each match maps to its 0-based line.
+    const text = body.replace(/\r\n/g, "\n");
+    const lineStarts = [0];
+    for (let i = 0; i < text.length; i++) if (text[i] === "\n") lineStarts.push(i + 1);
+    const titles = new Set<string>();
+    let count = 0;
+    let line = 0;
+    for (let at = text.indexOf(needle); at !== -1; at = text.indexOf(needle, at + 1)) {
+      while (line + 1 < lineStarts.length && (lineStarts[line + 1] ?? 0) <= at) line++;
+      if (line >= section.startIndex && line < section.endIndex) continue;
+      count++;
+      let enclosing: string | undefined;
+      for (const h of headings) {
+        if (h.index > line) break;
+        enclosing = h.title;
+      }
+      if (enclosing !== undefined) titles.add(enclosing);
+    }
+    detail.found_elsewhere = { count, headings: [...titles] };
+  }
+  const window = lines.slice(searchable.startIndex, searchable.endIndex);
+  const normNeedle = normalizeForMiss(oldString);
+  if (window.length > 0 && normNeedle.length > 0) {
+    const span = Math.min(oldString.split(/\r?\n/).length, window.length);
+    let best: { line: number; similarity: number } | undefined;
+    for (let i = 0; i + span <= window.length; i++) {
+      const norm = normalizeForMiss(window.slice(i, i + span).join("\n"));
+      // Exact only on the normalized text: a rounded score is capped below 1 so 1 always means
+      // the normalized old_string occurs.
+      const similarity = norm.includes(normNeedle)
+        ? 1
+        : Math.min(0.99, Math.round(bigramDice(norm, normNeedle) * 100) / 100);
+      if (best === undefined || similarity > best.similarity)
+        best = { line: searchable.startIndex + i + 1, similarity };
+      if (similarity === 1) break;
+    }
+    if (best !== undefined) detail.nearest = best;
+  }
+  return detail;
+}
+
 function ambiguousError(
   kind: "heading" | "block reference",
   matchLines: number[],
