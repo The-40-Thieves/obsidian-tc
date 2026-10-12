@@ -248,8 +248,10 @@ export class DispatchObservability {
    * records a thrown denial gets from runDispatch's catch — the audit/trace/episode row
    * (recordOutcome, status "error" + the domain code), `acl_denied_total`, and `tc.acl.denied` via
    * relayOutcomeSignal's switch. NOT `observeToolCall`/`tc.tool.call.completed`: the call is counted
-   * once, as the success it was, and its one completion event comes from emitCompletion. Codes other than the two denial codes are not denials and are
-   * ignored, so a missing or malformed item stays quiet exactly as it does through read_note.
+   * once, as the success it was, and its one completion event comes from emitCompletion. Codes other
+   * than the denial codes are not denials and are ignored, so a missing or malformed item stays
+   * quiet exactly as it does through read_note. vault_not_found is one: an unknown foreign vault
+   * answers as note_not_found but is still a refusal.
    */
   recordItemDenial(
     ctx: CallerContext,
@@ -262,14 +264,17 @@ export class DispatchObservability {
     durationMs: number,
     scopesRequired: readonly string[],
   ): void {
-    if (code !== "acl_denied" && code !== "forbidden") return;
+    if (code !== "acl_denied" && code !== "forbidden" && code !== "vault_not_found") return;
+    // An unknown foreign vault keeps the forbidden signal it had before the audit carried its true
+    // code: the audit row and the metric label record vault_not_found, the relay stays tc.acl.denied.
+    const signalCode = code === "vault_not_found" ? "forbidden" : code;
     this.recordOutcome(ctx, name, kind, hash, rawInput, "error", durationMs, 0, code);
     this.meter((m) => m.incAclDenied(ctx.vaultId, scopeClass, code));
-    this.relayOutcomeSignal(ctx.vaultId, name, callStatusForError(code), code, {
+    this.relayOutcomeSignal(ctx.vaultId, name, callStatusForError(signalCode), signalCode, {
       tool: name,
       caller_hash: callerHash(ctx.caller),
       scopes_required: [...scopesRequired],
-      status: callStatusForError(code),
+      status: callStatusForError(signalCode),
       duration_ms: durationMs,
       result_size: 0,
       elicit_token: null,

@@ -348,7 +348,7 @@ describe("error text names the real parameters", () => {
 // oneOf or allOf), so the rules are written into the descriptions, which clients read, and every
 // refusal names the operation. OPERATION_RULES is the whole per-operation rule set.
 const OPERATION_RULES =
-  "Required fields per operation (anchor or target_heading on every one): append, prepend, replace: content; replace_text: old_string + new_string. Refused: old_string/new_string on append, prepend, replace; content on replace_text.";
+  "Required fields per operation (anchor or target_heading on append, prepend and replace only): append, prepend, replace: content; replace_text: old_string + new_string. Refused: old_string/new_string on append, prepend, replace; content on replace_text.";
 
 describe("published rules: the advertised descriptions", () => {
   for (const name of ["patch_note", "patch_active_file"]) {
@@ -375,8 +375,10 @@ describe("field description: names the operations that require or forbid the fie
   });
 
   it("anchor and target_heading", () => {
-    for (const k of ["anchor", "target_heading"] as const)
-      expect(text(k)).toContain("Every operation needs anchor or target_heading");
+    for (const k of ["anchor", "target_heading"] as const) {
+      expect(text(k)).toContain("append, prepend and replace need anchor or target_heading");
+      expect(text(k)).toContain("replace_text needs neither");
+    }
   });
 });
 
@@ -389,12 +391,6 @@ describe("refusals: each names the operation and the field it requires or forbid
       { operation: "append", content: "x" },
       undefined,
       'operation "append" requires anchor or target_heading',
-    ],
-    [
-      "replace_text with no anchor",
-      { operation: "replace_text", old_string: "a", new_string: "b" },
-      undefined,
-      'operation "replace_text" requires anchor or target_heading',
     ],
     [
       "replace_text without old_string",
@@ -466,16 +462,15 @@ describe("refusals: each names the operation and the field it requires or forbid
       const r = await v.call("patch_note", {
         vault: "test",
         path: PLAN,
-        operation: "replace_text",
-        old_string: "a",
-        new_string: "b",
+        operation: "append",
+        content: "x",
       });
       expect(r.ok).toBe(false);
       if (!r.ok) {
         expect(r.error.code).toBe("validation_error");
         const issues = (r.error.details as { issues: { message: string }[] }).issues;
         expect(issues.map((i) => i.message).join("\n")).toContain(
-          'operation "replace_text" requires anchor or target_heading',
+          'operation "append" requires anchor or target_heading',
         );
       }
     } finally {

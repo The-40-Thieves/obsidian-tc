@@ -1,5 +1,5 @@
 import type { ListResourcesResult, ReadResourceResult } from "@modelcontextprotocol/server";
-import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
+import { err, grantsAll, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
 import { type ResponseFormat, resolveResponseFormat } from "../tools/response-format";
 import { enforcePathAcl } from "../vault/acl-path";
@@ -11,6 +11,7 @@ import type { VaultRegistry } from "../vault/registry";
 import { profileHiddenTools } from "./capability-hidden";
 import { buildCatalog, renderCatalogResource } from "./facade";
 import { assertScopesGranted, type CallerContext, type ToolRegistry } from "./registry";
+import { withInternalReason } from "./resource-errors";
 import type { VisibilityCaller } from "./visibility";
 
 /** Resource URI scheme. Deliberately distinct from the Obsidian app's `obsidian://` deep links. */
@@ -153,11 +154,23 @@ function aclOfVault(ctx: CallerContext, vaultId: string, aclFor: VaultAclResolve
 const RESOURCE_PAGE_SIZE = 500;
 
 /**
- * resources/list — readable markdown notes in the caller's bound vault, as MCP resources, one
- * page (RESOURCE_PAGE_SIZE) at a time. Mirrors list_notes: the same vault walk, filtered by the
- * same read-ACL. Returns an empty list when the caller lacks the read:notes scope. `cursor` is
- * the opaque offset carried over from a prior result's nextCursor. `aclFor` is the per-vault ACL
- * resolver (VaultAclResolver): the vault's own override filters the listing, not the root ACL.
+ * Whether this caller may be served notes from a vault other than its own. A vault-bound caller (an
+ * HTTP token, `vaultBound: true`) never is, because its tools are pinned to its vault too
+ * (registry/input-binding.ts). Nor is any caller when `resources.boundVaultOnly` is set.
+ */
+function servesForeignVaults(ctx: CallerContext, vaultRegistry: VaultRegistry): boolean {
+  return ctx.vaultBound !== true && !vaultRegistry.boundVaultOnly;
+}
+
+/**
+ * resources/list — readable markdown notes as MCP resources, one page (RESOURCE_PAGE_SIZE) at a
+ * time. A trusted, unbound caller lists every registered vault it may read; a vault-bound caller
+ * and `boundVaultOnly` list the caller's own vault alone. Each vault is walked under its OWN ACL
+ * (`aclFor`), and the read-ACL filters the walk before the page is cut, so no page is short of or
+ * padded with notes the caller cannot read. Mirrors list_notes, except that a hard-linked note (which
+ * every read refuses) is left out; list_notes still lists it. Returns an empty list when the
+ * caller lacks the read:notes scope. `cursor` is the opaque offset carried over from a prior
+ * result's nextCursor, into the caller's whole filtered list.
  */
 export function listResources(
   vaultRegistry: VaultRegistry,
@@ -167,46 +180,95 @@ export function listResources(
   pageSize = RESOURCE_PAGE_SIZE,
 ): ListResourcesResult {
   if (!canReadNotes(ctx)) return { resources: [] };
-  const v = vaultRegistry.resolve(ctx.vaultId);
-  const acl = aclOfVault(ctx, v.id, aclFor);
-  const rels = walkVault(v.root, { extensions: [".md"] })
-    .filter((e) => readableEntry(acl, e, ctx.grantedScopes))
-    .map((e) => e.relPath);
-  // Offset cursor over the sorted walk (walkVault sorts by relPath, so paging is stable).
+  const vaults = servesForeignVaults(ctx, vaultRegistry)
+    ? vaultRegistry.list()
+    : [vaultRegistry.resolve(ctx.vaultId)];
+  const notes = vaults.flatMap((v) => {
+    const acl = aclOfVault(ctx, v.id, aclFor);
+    // A hard-linked note is refused by every read (readNote, the acl-path guard), so it is left out
+    // here, before the page is cut, rather than taking a slot in a page the caller cannot read.
+    return walkVault(v.root, { extensions: [".md"] })
+      .filter((e) => !e.hardLinked && readableEntry(acl, e, ctx.grantedScopes))
+      .map((e) => ({ vaultId: v.id, relPath: e.relPath }));
+  });
+  // Offset cursor over the filtered walk: walkVault sorts each vault by relPath and vaults keep
+  // their registration order, so paging is stable.
   const start = cursor ? Math.max(0, Number.parseInt(cursor, 10) || 0) : 0;
-  const page = rels.slice(start, start + pageSize);
-  const resources = page.map((rel) => ({
-    uri: buildResourceUri(v.id, rel),
-    name: rel,
+  const page = notes.slice(start, start + pageSize);
+  const resources = page.map((n) => ({
+    uri: buildResourceUri(n.vaultId, n.relPath),
+    name: n.relPath,
     mimeType: MIME_MARKDOWN,
   }));
   const nextStart = start + page.length;
-  return nextStart < rels.length ? { resources, nextCursor: String(nextStart) } : { resources };
+  return nextStart < notes.length ? { resources, nextCursor: String(nextStart) } : { resources };
 }
 
 /**
- * resources/read — read one note's raw markdown. Enforces the read:notes scope, the folder
- * read-ACL, path containment, AND the P1.4 per-path rule-scopes (the same gates read_note applies —
- * this is the same content read on the same path, so it must honor an operator's rule-scope fence),
- * then a size ceiling.
+ * Runs a lookup in a FOREIGN vault and answers any domain refusal it raises as a missing note. An
+ * unknown vault, a denied folder or path, a link escape and a hard link then all carry the same
+ * error, so the URI cannot be used to learn which vaults or notes exist. An unexpected failure
+ * (`internal`, or not a domain error at all) is rethrown.
+ */
+function answeringAsMissing<T>(uri: string, locate: () => T): T {
+  try {
+    return locate();
+  } catch (e) {
+    if (e instanceof ObsidianTcError && e.code !== "internal") {
+      // The caller learns nothing; the audit gets the true reason (an unknown vault is
+      // vault_not_found), and read_resources still counts every such item as a denial.
+      throw withInternalReason(err.noteNotFound("note not found", { uri }), e.code);
+    }
+    throw e;
+  }
+}
+
+/**
+ * The note's absolute path and stat, once the caller may read it: the vault's root and folder ACL
+ * (plus the path's rule-scopes), then existence. A folder answers like a missing note (read_note's
+ * rule), and so does a path with no stat.
+ */
+function locateNote(
+  vaultRegistry: VaultRegistry,
+  ctx: CallerContext,
+  vaultId: string,
+  relPath: string,
+  aclFor: VaultAclResolver,
+  uri: string,
+): { abs: string; stat: NonNullable<ReturnType<typeof statNote>> } {
+  const v = vaultRegistry.resolve(vaultId);
+  const rel = normalizeVaultPath(relPath);
+  // P1.4: the caller's granted scopes gate a path's rule-scopes here too. readResource is not a
+  // runDispatch tool, so the central stage never covers this direct content read.
+  enforcePathAcl(aclOfVault(ctx, vaultId, aclFor), "read", rel, v.root, ctx.grantedScopes);
+  const abs = resolveVaultPath(v.root, rel);
+  const stat = noteExists(abs).type === "folder" ? null : statNote(abs);
+  if (stat === null) throw err.noteNotFound("note not found", { uri });
+  return { abs, stat };
+}
+
+/**
+ * resources/read — read one note's raw markdown, with the checks read_note applies to the same note:
+ * the read:notes scope, the folder read-ACL (plus the path's P1.4 rule-scopes), path containment and
+ * the hard-link refusal, then a size ceiling.
+ *
+ * Which vault the URI may name:
+ *  - the caller's own vault (`ctx.vaultId`) is read exactly as before;
+ *  - a vault-bound caller (an HTTP token, `vaultBound: true`, THE-267) gets the old refusal for any
+ *    other vault, as the tools give it, and so does every caller when `boundVaultOnly` is set
+ *    (`resources.boundVaultOnly`);
+ *  - any other registered vault is served under that vault's OWN ACL (`aclFor`). For such a vault
+ *    every refusal answers as a missing note (answeringAsMissing), so the URI cannot be used to
+ *    learn which vaults or notes exist.
  *
  * `maxResourceBytes` (THE-514 item 2): REQUIRED, deliberately — the caller passes the registry's
- * actual configured `maxResponseBytes` here (see mcp/server.ts) so a lowered ceiling applies to
- * resources too, not just tools. An optional parameter defaulting to some fixed literal would
- * silently recreate the exact bug this fixes: a caller that forgets to pass it gets an
- * unconfigured ceiling with no compile-time signal that config was ignored. There is exactly one
- * production call site (mcp/server.ts) and it always has a registry in scope, so there is no
- * legitimate caller this default would have served.
+ * configured `maxResponseBytes` (see mcp/server.ts) so a lowered ceiling applies to resources too.
+ * `aclFor` and `format` are REQUIRED for the same reason: a caller that forgets one must fail to
+ * compile, not silently fall back to the root ACL.
  *
- * `aclFor` is REQUIRED for the same reason: the folder/rule-scope ACL enforced is the one of the
- * vault the URI resolves to (per-vault override, else the root default), not `ctx.acl` blindly —
- * see aclOfVault. read_resources calls this per item, so both surfaces share the one rule.
- *
- * `format` (GH #1027): "concise" returns the note body without its frontmatter block (read_note's
- * concise body); "detailed" (the default, byte-identical to before) returns the raw markdown.
- * Everything before the final return, the scope, vault binding, ACLs and the size ceiling (checked
- * against the RAW size), is the same for both. resources/read carries no parameters, so its caller
- * resolves `format` from the config default alone; read_resources resolves it per call.
+ * `format` (GH #1027): "concise" returns the note body without its frontmatter block; "detailed"
+ * returns the raw markdown. The size ceiling is checked against the RAW size for both.
+ * read_resources calls this per item, so both surfaces share the one rule.
  */
 export function readResource(
   vaultRegistry: VaultRegistry,
@@ -214,45 +276,31 @@ export function readResource(
   uri: string,
   maxResourceBytes: number,
   aclFor: VaultAclResolver,
-  format: ResponseFormat = "detailed",
+  format: ResponseFormat,
 ): ReadResourceResult {
   assertScopesGranted(ctx, ["read:notes"], "missing required scope: read:notes");
   const { vaultId, relPath } = parseResourceUri(uri);
-  // Bind the read to the caller's own vault. ctx.acl is the caller's ACL for ctx.vaultId, so
-  // resolving any other vault from the URI would apply the wrong ACL and leak a vault the
-  // caller holds no token for. listResources only ever emits ctx.vaultId URIs; enforce it here.
-  //
-  // THE-514 item 2: this check is UNCONDITIONAL — unlike the tool-dispatch equivalent
-  // (mcp/registry.ts, `if (ctx.vaultBound === true)` in the vault-binding guard), it fires for
-  // every caller including a trusted stdio one. See the AUTHORITATIVE NOTE at that guard for why
-  // the two are deliberately different rather than merely inconsistent.
-  if (vaultId !== ctx.vaultId)
+  const foreign = vaultId !== ctx.vaultId;
+  if (foreign && !servesForeignVaults(ctx, vaultRegistry))
     throw err.forbidden(`resource vault is not the caller's bound vault: ${vaultId}`, {
       uri,
       vaultId,
     });
-  const v = vaultRegistry.resolve(vaultId);
-  const rel = normalizeVaultPath(relPath);
-  // P1.4: pass the caller's granted scopes so a path's rule-scopes gate this direct content read
-  // too — otherwise resources/read would be a bypass of the read_note path-scope gate for the
-  // identical bytes. (readResource is not a runDispatch tool, so the central stage never covers it.)
-  enforcePathAcl(aclOfVault(ctx, vaultId, aclFor), "read", rel, v.root, ctx.grantedScopes);
-  const abs = resolveVaultPath(v.root, rel);
-  // Stat before reading: readNote loads the whole file into memory, so enforcing the ceiling
-  // only after the read would let any read:notes caller point at a multi-hundred-MB file and
-  // force the full allocation just to be told it is too big. A null stat is a missing note: a
-  // domain `note_not_found` (asResourceProtocolError maps it to -32602), not the raw ENOENT that
-  // readNote would throw and that surfaced as an internal error.
-  // A folder answers like a missing note (read_note's rule), so a caller inside its allowed paths
-  // cannot tell "a folder is here" from "nothing is here".
-  const stat = noteExists(abs).type === "folder" ? null : statNote(abs);
-  if (stat === null) throw err.noteNotFound("note not found", { uri });
+  // Stat before reading: readNote loads the whole file into memory, so enforcing the ceiling only
+  // after the read would let any read:notes caller point at a multi-hundred-MB file and force the
+  // full allocation just to be told it is too big.
+  // A foreign refusal answers as a missing note at every step that can refuse, the read included:
+  // the native no-follow open refuses an in-vault symlink only after locate has passed.
+  const onForeign = <T>(run: () => T): T => (foreign ? answeringAsMissing(uri, run) : run());
+  const { abs, stat } = onForeign(() =>
+    locateNote(vaultRegistry, ctx, vaultId, relPath, aclFor, uri),
+  );
   if (stat.size > maxResourceBytes)
     throw err.invalidInput(
       `resource exceeds ${maxResourceBytes} bytes; read it with the read_note tool instead`,
       { uri, size: stat.size, budget: maxResourceBytes },
     );
-  const { raw } = readNote(abs);
+  const { raw } = onForeign(() => readNote(abs));
   const text = format === "concise" ? splitFrontmatterBody(raw) : raw;
   return { contents: [{ uri, mimeType: MIME_MARKDOWN, text }] };
 }

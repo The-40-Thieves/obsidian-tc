@@ -137,6 +137,7 @@ describe("readResource", () => {
       "obsidian-tc://main/alpha.md",
       DEFAULT_TEST_CEILING,
       () => undefined,
+      "detailed",
     );
     const c = out.contents[0];
     expect(c?.uri).toBe("obsidian-tc://main/alpha.md");
@@ -151,6 +152,7 @@ describe("readResource", () => {
         "obsidian-tc://main/../escape.md",
         DEFAULT_TEST_CEILING,
         () => undefined,
+        "detailed",
       ),
     ).toThrow();
   });
@@ -162,6 +164,7 @@ describe("readResource", () => {
         "obsidian-tc://main/alpha.md",
         DEFAULT_TEST_CEILING,
         () => undefined,
+        "detailed",
       ),
     ).toThrow(/read:notes/);
   });
@@ -176,7 +179,14 @@ describe("readResource", () => {
     const uri = buildResourceUri("main", "finance/secret.md");
     // Holds the baseline read:notes but NOT the path's read:finance -> denied, same as read_note.
     expect(() =>
-      readResource(reg, ctx(["read:notes"], acl), uri, DEFAULT_TEST_CEILING, () => undefined),
+      readResource(
+        reg,
+        ctx(["read:notes"], acl),
+        uri,
+        DEFAULT_TEST_CEILING,
+        () => undefined,
+        "detailed",
+      ),
     ).toThrow(/scope/i);
     // Holds the path scope -> the content is returned.
     const out = readResource(
@@ -185,6 +195,7 @@ describe("readResource", () => {
       uri,
       DEFAULT_TEST_CEILING,
       () => undefined,
+      "detailed",
     );
     const c = out.contents[0];
     if (!c || !("text" in c)) throw new Error("expected text contents");
@@ -195,10 +206,11 @@ describe("readResource", () => {
     expect(() =>
       readResource(
         tempMultiVault(),
-        ctx(["*"]),
+        { ...ctx(["*"]), vaultBound: true },
         "obsidian-tc://other/secret.md",
         DEFAULT_TEST_CEILING,
         () => undefined,
+        "detailed",
       ),
     ).toThrow(/bound vault/);
   });
@@ -210,6 +222,7 @@ describe("readResource", () => {
       buildResourceUri("main", "50% done.md"),
       DEFAULT_TEST_CEILING,
       () => undefined,
+      "detailed",
     );
     const c = out.contents[0];
     if (!c || !("text" in c)) throw new Error("expected text contents");
@@ -224,6 +237,7 @@ describe("readResource", () => {
         "obsidian-tc://main/big.md",
         DEFAULT_TEST_CEILING,
         () => undefined,
+        "detailed",
       ),
     ).toThrow(/exceeds/);
   });
@@ -235,10 +249,17 @@ describe("readResource", () => {
   it("honors a caller-supplied ceiling below the 1MB default", () => {
     const reg = tempVaultWith({ "small.md": "x".repeat(100) });
     expect(() =>
-      readResource(reg, ctx(["*"]), "obsidian-tc://main/small.md", 50, () => undefined),
+      readResource(reg, ctx(["*"]), "obsidian-tc://main/small.md", 50, () => undefined, "detailed"),
     ).toThrow(/exceeds 50 bytes/);
     // The identical content passes under a larger explicit ceiling.
-    const out = readResource(reg, ctx(["*"]), "obsidian-tc://main/small.md", 1000, () => undefined);
+    const out = readResource(
+      reg,
+      ctx(["*"]),
+      "obsidian-tc://main/small.md",
+      1000,
+      () => undefined,
+      "detailed",
+    );
     const c = out.contents[0];
     if (!c || !("text" in c)) throw new Error("expected text contents");
     expect(c.text).toBe("x".repeat(100));
@@ -319,10 +340,11 @@ describe("Greptile review fixes", () => {
     expect(() =>
       readResource(
         tempVault(),
-        ctx(["*"]),
+        { ...ctx(["*"]), vaultBound: true },
         "obsidian-tc://main2/alpha.md",
         DEFAULT_TEST_CEILING,
         () => undefined,
+        "detailed",
       ),
     ).toThrow(/bound vault/);
   });
