@@ -374,6 +374,12 @@ describe("field description: names the operations that require or forbid the fie
     }
   });
 
+  it("insert_before is documented as append-only", () => {
+    expect(text("insert_before")).toContain("Optional for append only");
+    expect(text("insert_before")).toContain("unique line");
+    expect(text("insert_before")).toContain("resolved section");
+  });
+
   it("anchor and target_heading", () => {
     for (const k of ["anchor", "target_heading"] as const) {
       expect(text(k)).toContain("append, prepend and replace need anchor or target_heading");

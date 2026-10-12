@@ -21,12 +21,12 @@ parameter's description and still enforced; it is narrower in one case only: an
 explicit `null` for a nullable optional parameter is accepted by the server but not
 advertised.
 
-Some rules relate two parameters: `patch_note` needs `content` for `append`, `prepend` and
-`replace` and `old_string` with `new_string` for `replace_text`. A portable schema cannot express
-that (it has no `if`/`then`, and `oneOf`/`allOf` at the root break several clients), so the server
-does not advertise it as schema keywords. The rule is written into the tool's description and into
-each parameter's description instead, and a call that breaks it is refused with a message naming
-the operation and the field.
+Some rules relate parameters: `patch_note` needs `content` for `append`, `prepend` and `replace`,
+accepts optional `insert_before` only for `append`, and needs `old_string` with `new_string` for
+`replace_text`. A portable schema cannot express that (it has no `if`/`then`, and
+`oneOf`/`allOf` at the root break several clients), so the server does not advertise it as schema
+keywords. The rule is written into the tool's description and into each parameter's description
+instead, and a call that breaks it is refused with a message naming the operation and the field.
 
 For how to connect and call these over MCP — stdio or HTTP, auth, and the discover → describe → call flow — see the [API Reference](/tools/api-reference/).
 
