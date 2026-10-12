@@ -348,11 +348,11 @@ promise (§7). So:
 ### 4.3 Endpoints
 
 All AS endpoints are served only when `auth.as.enabled`. All POST bodies are capped (16 KiB). All
-HTML responses carry `Content-Security-Policy: default-src 'none'; style-src 'self';
-form-action 'self'; frame-ancestors 'none'`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`
+HTML responses carry `Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self';
+connect-src 'self'; form-action 'self'; frame-ancestors 'none'`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`
 and `Cache-Control: no-store`. `same-origin` preserves the real `Origin` on same-origin form POSTs and
-sends no referrer cross-origin. Fetch would serialize the `Origin` of a non-GET/HEAD request as `null`
-under `no-referrer`, causing the required issuer-origin check to refuse every browser form. One deliberate
+sends no referrer cross-origin. Under `no-referrer`, Fetch serializes the `Origin` of a non-GET/HEAD navigation request (an HTML
+form POST; a CORS-mode `fetch()` keeps its real origin) as `null`, causing the required issuer-origin check to refuse every browser form. One deliberate
 exception (built in S5): the **consent page** names the
 client's redirect origin in `form-action` (`form-action 'self' https://app.example`; a loopback client gets
 `http://<host>:*`). Chrome applies `form-action` to the redirect that answers a form POST, and the consent
