@@ -446,7 +446,9 @@ for (const [name, text] of [
     );
     const run = stripComments(SMOKE_ACTION);
     const smoke = run.indexOf("docker-boot-smoke.mjs");
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: shell variables in the action's run text
     const sign = run.indexOf('cosign sign --yes "${IMAGE}@${DIGEST}"');
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: see comment above.
     const verify = run.indexOf('cosign verify "${IMAGE}@${DIGEST}"');
     const promote = run.indexOf("docker buildx imagetools create");
     assert.ok(
@@ -584,6 +586,7 @@ test("release-image.yml: the image job holds id-token write at job level, for th
 
 test("release-image.yml verifies the release tag signature before anything is built or pushed", () => {
   const run = stripComments(RELEASE_IMAGE);
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: a shell variable in the workflow's run text
   const verify = run.indexOf('verify-tag "refs/tags/v${VERSION}"');
   assert.ok(verify > 0, "no signed-tag check in release-image.yml");
   assert.match(RELEASE_IMAGE, /ref: refs\/tags\/v\$\{\{ inputs\.version \}\}\n\s+fetch-depth: 0/);
