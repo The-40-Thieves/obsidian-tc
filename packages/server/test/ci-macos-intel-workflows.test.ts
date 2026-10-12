@@ -5,7 +5,7 @@ import { parse } from "yaml";
 
 // The Intel macOS legs must run on every PR, server-only changes included. ci-native.yml is
 // path-filtered (packages/native/**, its own file, publish.yml, setup-rust), so the Intel
-// native-addon job lives in ci-server.yml, which has no filter. The macos-14 entries are
+// native-addon job lives in ci-server.yml, which has no filter. The macos-15 entries are
 // REQUIRED check names: adding Intel entries must never rename or drop them.
 
 const WORKFLOWS = join(resolve(import.meta.dirname, "..", "..", ".."), ".github", "workflows");
@@ -71,15 +71,15 @@ describe("macOS Intel legs in CI", () => {
     });
   });
 
-  it("the macos-14 entries are unchanged (required check names must not move)", () => {
+  it("the macos-15 entries are unchanged (required check names must not move)", () => {
     expect(native.jobs.build?.strategy?.matrix.include).toContainEqual({
-      host: "macos-14",
+      host: "macos-15",
       target: "aarch64-apple-darwin",
       triple: "darwin-arm64",
     });
-    expect(native.jobs["macos-native-server-tests"]?.["runs-on"]).toBe("macos-14");
+    expect(native.jobs["macos-native-server-tests"]?.["runs-on"]).toBe("macos-15");
     expect(server.jobs["embed-codegen"]?.strategy?.matrix.include).toContainEqual({
-      os: "macos-14",
+      os: "macos-15",
       target: "bun-darwin-arm64",
     });
   });
