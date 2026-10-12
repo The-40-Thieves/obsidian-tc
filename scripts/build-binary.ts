@@ -69,6 +69,7 @@ export const embeddedEmbedder = {
   files,
   load: () => import(${JSON.stringify(EMBEDDER_PACKAGE)}),
 };
+export const localEmbedderAbsentFromBinary = false;
 `;
     const placeholder = join(server, "src", "embeddings", "embedded-embedder.ts");
     plugins = [
