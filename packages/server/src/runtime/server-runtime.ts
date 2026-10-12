@@ -180,6 +180,7 @@ export async function buildServerRuntime(
     vaults: config.vaults,
     acl: config.acl,
     defaultVaultId: process.env.OBSIDIAN_TC_DEFAULT_VAULT,
+    boundVaultOnly: config.resources?.boundVaultOnly,
     elicitTtlSeconds: config.elicitTtlSeconds,
     throttle: config.throttle,
     busyTimeoutMs: config.db.busyTimeoutMs,

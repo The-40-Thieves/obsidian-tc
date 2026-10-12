@@ -327,14 +327,16 @@ describe("THE-514 item 2 — vault-binding: documented divergence, asserted as s
     expect(res.ok).toBe(true); // conditional guard: unbound caller crosses vaults freely
   });
 
-  it("resources/read: an UNBOUND caller is STILL refused a foreign-vault URI (unconditional)", () => {
+  it("resources/read: an UNBOUND caller is refused a foreign-vault URI only under boundVaultOnly", () => {
     const cfg = ServerConfigSchema.parse({
       vaults: [
         { id: "main", path: "/tmp/otc-parity-main" },
         { id: "other", path: "/tmp/otc-parity-other" },
       ],
     });
-    const vaultRegistry = new VaultRegistry(cfg.vaults);
+    const vaultRegistry = new VaultRegistry(cfg.vaults, undefined, undefined, {
+      boundVaultOnly: true,
+    });
     expect(() =>
       readResource(
         vaultRegistry,
@@ -344,12 +346,14 @@ describe("THE-514 item 2 — vault-binding: documented divergence, asserted as s
           grantedScopes: new Set(["*"]),
           vaultId: "main",
           db: openMemoryDb(),
-          // vaultBound intentionally absent, same as the tool test above — and it makes NO
-          // difference here, which is exactly the documented divergence.
+          // vaultBound intentionally absent, as in the tool test above. Under boundVaultOnly the
+          // refusal is the old one; without it "other" is a registered vault, served (or refused as
+          // a missing note) under its own ACL. See resources.ts's readResource.
         },
         "obsidian-tc://other/secret.md",
         1_000_000,
         () => undefined,
+        "detailed",
       ),
     ).toThrow(/bound vault/);
   });
@@ -388,6 +392,7 @@ describe("THE-514 item 1 — resources and tool-dispatch share one scope-authori
         "obsidian-tc://main/alpha.md",
         1_000_000,
         () => undefined,
+        "detailed",
       );
     } catch (e) {
       resourceErr = e;
@@ -479,6 +484,7 @@ describe("THE-514 item 2 — the same lowered maxResponseBytes refuses an oversi
         // configured ceiling, not a hardcoded resources.ts constant.
         registry.maxResponseBytes,
         () => undefined,
+        "detailed",
       ),
     ).toThrow(/exceeds 50 bytes/);
   });

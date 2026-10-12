@@ -117,10 +117,19 @@ export class VaultRegistry {
   /** This registry's folder pins (vault/folder-links.ts), fixed at construction: a request through
    *  this registry sees them (mcp/registry.ts sets the frame), and no other registry can alter them. */
   readonly folderPins: FolderPins;
+  /** `resources.boundVaultOnly`: when true, a trusted (unbound) caller's note resources stay on the
+   *  default vault. Fixed at construction, like the folder pins. */
+  readonly boundVaultOnly: boolean;
 
-  constructor(vaults: VaultConfigInput[], defaultId?: string, exclusionCacheDir?: string) {
+  constructor(
+    vaults: VaultConfigInput[],
+    defaultId?: string,
+    exclusionCacheDir?: string,
+    options: { boundVaultOnly?: boolean } = {},
+  ) {
     if (vaults.length === 0) throw new Error("VaultRegistry requires at least one vault");
     this.exclusionCacheDir = exclusionCacheDir;
+    this.boundVaultOnly = options.boundVaultOnly === true;
     const placed = vaults.map((v) => {
       const { root, canonical } = canonicalizeVaultRootWithStatus(v.path);
       const wikiFolder = wikiFolderOf(v.id, v.wiki?.folder);
