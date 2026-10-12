@@ -413,6 +413,51 @@ describe("append_active_file / patch_active_file", () => {
     expect(after.indexOf("- two")).toBeGreaterThan(after.indexOf("- one"));
   });
 
+  it("preserves the final newline when appending to the last section", async () => {
+    const h = harness({ files: { "Notes/a.md": "## Notes\nbody\n" } });
+    h.focus("Notes/a.md");
+    const r = await h.call("patch_active_file", {
+      vault: "test",
+      operation: "append",
+      anchor: { type: "heading", heading: "Notes" },
+      content: "new",
+    });
+    expect(r.ok).toBe(true);
+    expect(h.read("Notes/a.md")).toBe("## Notes\nbody\nnew\n");
+  });
+
+  it("inserts above a footer in the active note through the shared patch_note path", async () => {
+    const note = [
+      "# Project",
+      "## Notes",
+      "existing content",
+      "—",
+      "Signed, X",
+      "Parent: [[Index]]",
+    ].join("\n");
+    const h = harness({ files: { "Notes/a.md": note } });
+    h.focus("Notes/a.md");
+    const result = await h.call("patch_active_file", {
+      vault: "test",
+      operation: "append",
+      anchor: { type: "heading", heading: "Notes" },
+      content: "new content",
+      insert_before: "Parent: [[Index]]",
+    });
+    expect(result.ok).toBe(true);
+    expect(h.read("Notes/a.md")).toBe(
+      [
+        "# Project",
+        "## Notes",
+        "existing content",
+        "—",
+        "Signed, X",
+        "new content",
+        "Parent: [[Index]]",
+      ].join("\n"),
+    );
+  });
+
   it("enforces patch_note's cross-field rules at the schema (replace_text needs old_string)", async () => {
     const h = harness({ files: { "Notes/a.md": NOTE_A } });
     h.focus("Notes/a.md");

@@ -879,6 +879,264 @@ describe("a CRLF note keeps its EOL across every patch_note operation", () => {
   });
 });
 
+describe("patch_note preserves a trailing newline when the resolved section reaches EOF", () => {
+  it("appends to the last heading section in an LF note", async () => {
+    const v = makeTestVault({ files: { "a.md": "## Notes\nbody\n" } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        target_heading: "Notes",
+        content: "new",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("## Notes\nbody\nnew\n");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("appends to the last heading section in a CRLF note", async () => {
+    const v = makeTestVault({ files: { "a.md": "## Notes\r\nbody\r\n" } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        target_heading: "Notes",
+        content: "new",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("## Notes\r\nbody\r\nnew\r\n");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("replaces only the real content line in the last heading section", async () => {
+    const v = makeTestVault({ files: { "a.md": "## Notes\nbody\n" } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace",
+        target_heading: "Notes",
+        content: "new",
+      });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect((r.data as { lines_removed: number }).lines_removed).toBe(1);
+      expect(v.read("a.md")).toBe("## Notes\nnew\n");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("appends to a preamble-only note ending in a newline", async () => {
+    const v = makeTestVault({ files: { "a.md": "body\n" } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        anchor: { type: "frontmatter" },
+        content: "new",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("body\nnew\n");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("appends after one blank line at the end of the last section", async () => {
+    const v = makeTestVault({ files: { "a.md": "## Notes\nbody\n\n" } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "append",
+        target_heading: "Notes",
+        content: "new",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("## Notes\nbody\n\nnew\n");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+describe("#1228 round 4: anchored replace_text matches HEAD bytes at a terminated EOF", () => {
+  it.each([
+    {
+      name: "one content line",
+      raw: "## Notes\nbody\n",
+      oldString: "body\n",
+      expected: "## Notes\nZ",
+    },
+    {
+      name: "multiple content lines",
+      raw: "## Notes\na\nb\n",
+      oldString: "a\nb\n",
+      expected: "## Notes\nZ",
+    },
+    {
+      name: "a blank line before EOF",
+      raw: "## Notes\nbody\n\n",
+      oldString: "body\n\n",
+      expected: "## Notes\nZ",
+    },
+    {
+      name: "a final section after an earlier heading",
+      raw: "## A\nx\n## Notes\nbody\n",
+      oldString: "body\n",
+      expected: "## A\nx\n## Notes\nZ",
+    },
+    {
+      name: "CRLF",
+      raw: "## Notes\r\nbody\r\n",
+      oldString: "body\r\n",
+      expected: "## Notes\r\nZ",
+    },
+  ])(
+    "replaces an old_string ending in the terminator ($name)",
+    async ({ raw, oldString, expected }) => {
+      const v = makeTestVault({ files: { "a.md": raw } });
+      try {
+        const r = await v.call("patch_note", {
+          vault: "test",
+          path: "a.md",
+          operation: "replace_text",
+          target_heading: "Notes",
+          old_string: oldString,
+          new_string: "Z",
+        });
+        expect(r.ok).toBe(true);
+        expect(v.read("a.md")).toBe(expected);
+      } finally {
+        v.cleanup();
+      }
+    },
+  );
+});
+
+describe("#1228 round 5: an empty heading window does not contain the EOF terminator", () => {
+  it("LF insert: refuses to replace a phantom newline", async () => {
+    const raw = "## Notes\n";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        anchor: { type: "heading", heading: "Notes" },
+        old_string: "\n",
+        new_string: "Z",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.message).toBe("old_string not found in section");
+      expect(v.read("a.md")).toBe(raw);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("LF delete: refuses to delete a phantom newline", async () => {
+    const raw = "## Notes\n";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        anchor: { type: "heading", heading: "Notes" },
+        old_string: "\n",
+        new_string: "",
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.message).toBe("old_string not found in section");
+      expect(v.read("a.md")).toBe(raw);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it.each(["\n", "\r\n"])(
+    "CRLF: refuses old_string %j in the empty final section",
+    async (oldString) => {
+      const raw = "## A\r\nx\r\n## Notes\r\n";
+      const v = makeTestVault({ files: { "a.md": raw } });
+      try {
+        const r = await v.call("patch_note", {
+          vault: "test",
+          path: "a.md",
+          operation: "replace_text",
+          anchor: { type: "heading", heading: "Notes" },
+          old_string: oldString,
+          new_string: "Z",
+        });
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.message).toBe("old_string not found in section");
+        expect(v.read("a.md")).toBe(raw);
+      } finally {
+        v.cleanup();
+      }
+    },
+  );
+});
+
+// The oracle is plain literal substitution over the text after the anchor heading line, which is
+// what a heading-anchored replace_text did before section ends stopped covering the final line
+// terminator. Empty windows deliberately contain no phantom split terminator.
+describe("#1228 round 4: anchored replace_text equals literal substitution at EOF", () => {
+  const cases: Array<[raw: string, oldString: string]> = [
+    ["## Notes\nbody\n", "body\n"],
+    ["## Notes\nbody\n", "body"],
+    ["## Notes\nbody\n", "y\n"],
+    ["## Notes\nbody\n", "\n"],
+    ["## Notes\na\nb\n", "a\nb\n"],
+    ["## Notes\na\nb\n", "b\n"],
+    ["## Notes\na\nb\n", "a\n"],
+    ["## Notes\nbody\n\n", "body\n\n"],
+    ["## Notes\nbody\n\n", "\n\n"],
+    ["## Notes\nbody\n\n", "body"],
+    ["## A\nx\n## Notes\nbody\n", "body\n"],
+    ["## Notes\nbody", "body"],
+    ["## Notes\nbody\nlast", "last"],
+    ["## Notes\n", "\n"],
+    ["## A\nx\n## Notes\n", "\n"],
+  ];
+  const rows = cases.flatMap(([raw, oldString]) =>
+    (["\n", "\r\n"] as const).map((eol) => ({
+      eol,
+      raw: raw.replace(/\n/g, eol),
+      oldString,
+    })),
+  );
+
+  it.each(rows)("$eol $raw / $oldString", async ({ eol, raw, oldString }) => {
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        target_heading: "Notes",
+        old_string: oldString,
+        new_string: "Z",
+      });
+      const start = raw.indexOf(`## Notes${eol}`) + `## Notes${eol}`.length;
+      const window = raw.slice(start);
+      const normalizedOld = oldString.replace(/\n/g, eol);
+      expect(r.ok).toBe(window.includes(normalizedOld));
+      expect(v.read("a.md")).toBe(raw.slice(0, start) + window.replace(normalizedOld, () => "Z"));
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
 describe("Review round 1 I2/M8 + round 2 Codex: CommonMark-correct fence closing", () => {
   it("I2: a shorter closer inside a longer fence does not close it; the real close does", async () => {
     // Verbatim shape from #926's own issue body (a 4-backtick wrapper around a 3-backtick sample).
@@ -1424,6 +1682,25 @@ describe("Review round 2 B2: replace_text on a block anchor preserves the ^id ma
       });
       expect(r.ok).toBe(true);
       expect(v.read("a.md")).toBe("para TWO ^blk1\nkeep");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("preserves both an inline marker and the final newline at EOF", async () => {
+    const raw = "para one ^blk1\n";
+    const v = makeTestVault({ files: { "a.md": raw } });
+    try {
+      const r = await v.call("patch_note", {
+        vault: "test",
+        path: "a.md",
+        operation: "replace_text",
+        anchor: { type: "block", block_id: "blk1" },
+        old_string: "one",
+        new_string: "TWO",
+      });
+      expect(r.ok).toBe(true);
+      expect(v.read("a.md")).toBe("para TWO ^blk1\n");
     } finally {
       v.cleanup();
     }

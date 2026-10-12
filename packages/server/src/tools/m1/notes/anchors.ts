@@ -27,6 +27,14 @@ export interface PatchResult {
   removedLines: number;
   removedBytes: number;
   bodyLineCount: number;
+  /** Present when append used insert_before. The caller turns non-unique matches into a refusal
+   *  and decides whether line-level diagnostics may be disclosed. */
+  insertBefore?: {
+    count: number;
+    matchLines: number[];
+    section: SectionSpan;
+    searchable: SectionSpan;
+  };
 }
 
 export function removedSpan(
@@ -63,6 +71,21 @@ function trimAsciiEnd(line: string): string {
     else break;
   }
   return line.slice(0, end);
+}
+
+function realLineCount(body: string, lines: string[]): number {
+  const hasTrailingPhantom =
+    lines.length > 0 && lines[lines.length - 1] === "" && /\r?\n$/.test(body);
+  return hasTrailingPhantom ? lines.length - 1 : lines.length;
+}
+
+function insertBeforeLineMatches(
+  lines: string[],
+  mask: boolean[],
+  index: number,
+  needle: string,
+): boolean {
+  return !mask[index] && trimAsciiEnd(lines[index] ?? "") === needle;
 }
 
 /** CommonMark-ish fenced-code state machine, shared by `fenceMask` and `hasUnterminatedFence`
@@ -176,10 +199,11 @@ export type SectionResolution =
 export function resolveSection(body: string, anchor: ResolvedAnchor): SectionResolution {
   const lines = body.split(/\r?\n/);
   const mask = fenceMask(lines);
+  const documentEnd = realLineCount(body, lines);
 
   if (anchor.type === "frontmatter") {
-    let end = lines.length;
-    for (let i = 0; i < lines.length; i++) {
+    let end = documentEnd;
+    for (let i = 0; i < documentEnd; i++) {
       if (mask[i]) continue;
       if (matchHeadingBoundary(lines[i] ?? "")) {
         end = i;
@@ -200,8 +224,8 @@ export function resolveSection(body: string, anchor: ResolvedAnchor): SectionRes
     const picked = matches[occurrence - 1];
     if (!picked) return { found: false, reason: "out_of_range", matchLines, occurrence };
     const { index: hi, level, title } = picked;
-    let end = lines.length;
-    for (let j = hi + 1; j < lines.length; j++) {
+    let end = documentEnd;
+    for (let j = hi + 1; j < documentEnd; j++) {
       if (mask[j]) continue;
       const m = matchHeadingBoundary(lines[j] ?? "");
       if (m && m.level <= level) {
@@ -222,7 +246,7 @@ export function resolveSection(body: string, anchor: ResolvedAnchor): SectionRes
   // inside a fenced code block is never a candidate, for resolution OR ambiguity counting.
   const re = new RegExp(`(?:^|\\s)\\^${escapeRegExp(anchor.block_id)}\\s*$`);
   const matches: number[] = [];
-  for (let i = 0; i < lines.length; i++) {
+  for (let i = 0; i < documentEnd; i++) {
     if (mask[i]) continue;
     if (re.test(lines[i] ?? "")) matches.push(i);
   }
@@ -280,9 +304,15 @@ export function replaceInSection(
   excludeTrailing = "",
 ): ReplaceTextResult {
   const lines = body.split(/\r?\n/);
-  const sectionText = lines.slice(span.startIndex, span.endIndex).join(eol);
-  const searchableText = excludeTrailing
-    ? sectionText.slice(0, sectionText.length - excludeTrailing.length)
+  const reachesTerminatedEnd =
+    span.endIndex === realLineCount(body, lines) &&
+    lines[lines.length - 1] === "" &&
+    /\r?\n$/.test(body);
+  const trailingTerminator = reachesTerminatedEnd && span.startIndex < span.endIndex ? eol : "";
+  const sectionText = lines.slice(span.startIndex, span.endIndex).join(eol) + trailingTerminator;
+  const protectedTrailing = excludeTrailing ? excludeTrailing + trailingTerminator : "";
+  const searchableText = protectedTrailing
+    ? sectionText.slice(0, sectionText.length - protectedTrailing.length)
     : sectionText;
   // Review round 1 I3: a caller's old_string/new_string are plain strings, and a multi-line one is
   // very likely authored with "\n" regardless of the note's own EOL — normalize both sides (and
@@ -296,11 +326,11 @@ export function replaceInSection(
   // Review round 2 N1: `String.replace(str, replacement)` treats a STRING replacement as a
   // template ($&, $$, $1, ...) — a replacement callback inserts `normalizedNew` literally.
   const nextNormalizedSection = normalizedSection.replace(normalizedOld, () => normalizedNew);
-  const nextSection = nextNormalizedSection.split("\n").join(eol) + excludeTrailing;
+  const nextSection = nextNormalizedSection.split("\n").join(eol) + protectedTrailing;
   const next = [
     ...lines.slice(0, span.startIndex),
     ...nextSection.split(/\r?\n/),
-    ...lines.slice(span.endIndex),
+    ...lines.slice(span.endIndex + (reachesTerminatedEnd ? 1 : 0)),
   ];
   return { body: next.join(eol), count };
 }
@@ -404,6 +434,75 @@ export function replaceMissDetail(
   return detail;
 }
 
+export interface InsertBeforeMissDetail {
+  section_resolved: { heading: string | null; start_line: number; end_line: number };
+  /** Exact eligible-line matches outside the resolved section. */
+  found_elsewhere?: { count: number; lines: number[] };
+  /** Closest eligible body line in the section; the line's text is never returned. */
+  nearest?: { line: number; similarity: number };
+}
+
+/** Read-authorized diagnostics for an insert_before line that was absent from its section. */
+export function insertBeforeMissDetail(
+  body: string,
+  section: SectionSpan,
+  searchable: SectionSpan,
+  insertBefore: string,
+): InsertBeforeMissDetail {
+  const lines = body.split(/\r?\n/);
+  const mask = fenceMask(lines);
+  const documentEnd = realLineCount(body, lines);
+  const needle = trimAsciiEnd(insertBefore);
+  const detail: InsertBeforeMissDetail = {
+    section_resolved: {
+      heading: section.headingTitle ?? null,
+      start_line: section.startIndex + 1,
+      end_line: section.endIndex,
+    },
+  };
+  const eligible = new Array<boolean>(documentEnd).fill(false);
+  const headingLevels: number[] = [];
+  for (let i = 0; i < documentEnd; i++) {
+    if (mask[i]) continue;
+    const heading = matchHeadingBoundary(lines[i] ?? "");
+    if (!heading) {
+      eligible[i] = true;
+      continue;
+    }
+    while (
+      headingLevels.length > 0 &&
+      (headingLevels[headingLevels.length - 1] as number) >= heading.level
+    )
+      headingLevels.pop();
+    eligible[i] = headingLevels.length > 0;
+    headingLevels.push(heading.level);
+  }
+  const elsewhere: number[] = [];
+  for (let i = 0; i < documentEnd; i++) {
+    if (i >= section.startIndex && i < section.endIndex) continue;
+    if (!eligible[i]) continue;
+    if (insertBeforeLineMatches(lines, mask, i, needle)) elsewhere.push(i + 1);
+  }
+  if (elsewhere.length > 0) detail.found_elsewhere = { count: elsewhere.length, lines: elsewhere };
+
+  const normNeedle = normalizeForMiss(needle);
+  let nearest: { line: number; similarity: number } | undefined;
+  if (normNeedle.length > 0) {
+    for (let i = searchable.startIndex; i < searchable.endIndex; i++) {
+      if (mask[i]) continue;
+      const norm = normalizeForMiss(trimAsciiEnd(lines[i] ?? ""));
+      const similarity =
+        norm === normNeedle
+          ? 1
+          : Math.min(0.99, Math.round(bigramDice(norm, normNeedle) * 100) / 100);
+      if (nearest === undefined || similarity > nearest.similarity)
+        nearest = { line: i + 1, similarity };
+    }
+  }
+  if (nearest !== undefined) detail.nearest = nearest;
+  return detail;
+}
+
 function ambiguousError(
   kind: "heading" | "block reference",
   matchLines: number[],
@@ -474,14 +573,54 @@ function splice(
   endAt: number,
   content: string,
   eol: string,
+  section: SectionSpan,
+  searchable: SectionSpan,
+  insertBefore?: string,
 ): PatchResult {
   const ins = content.split(/\r?\n/);
   let next: string[];
   let removedLines = 0;
   let removedBytes = 0;
   if (op === "prepend") next = [...lines.slice(0, prependAt), ...ins, ...lines.slice(prependAt)];
-  else if (op === "append") next = [...lines.slice(0, endAt), ...ins, ...lines.slice(endAt)];
-  else {
+  else if (op === "append") {
+    if (insertBefore === undefined)
+      next = [...lines.slice(0, endAt), ...ins, ...lines.slice(endAt)];
+    else {
+      const mask = fenceMask(lines);
+      const needle = trimAsciiEnd(insertBefore);
+      const matches: number[] = [];
+      for (let i = searchable.startIndex; i < searchable.endIndex; i++) {
+        if (insertBeforeLineMatches(lines, mask, i, needle)) matches.push(i);
+      }
+      if (matches.length !== 1)
+        return {
+          body: lines.join(eol),
+          removedLines,
+          removedBytes,
+          bodyLineCount: lines.length,
+          insertBefore: {
+            count: matches.length,
+            matchLines: matches.map((i) => i + 1),
+            section,
+            searchable,
+          },
+        };
+      const at = matches[0] as number;
+      next = [...lines.slice(0, at), ...ins, ...lines.slice(at)];
+      return {
+        body: next.join(eol),
+        removedLines,
+        removedBytes,
+        bodyLineCount: lines.length,
+        insertBefore: {
+          count: 1,
+          matchLines: [at + 1],
+          section,
+          searchable,
+        },
+      };
+    }
+  } else {
     [removedLines, removedBytes] = removedSpan(lines, replaceFrom, endAt, eol);
     next = [...lines.slice(0, replaceFrom), ...ins, ...lines.slice(endAt)];
   }
@@ -499,6 +638,7 @@ export function patchByHeading(
   content: string,
   eol: string,
   occurrence?: number,
+  insertBefore?: string,
 ): PatchResult | null {
   const anchor = { type: "heading" as const, heading: target, occurrence };
   const r = resolveSection(body, anchor);
@@ -507,7 +647,19 @@ export function patchByHeading(
     return throwUnresolved(r, anchor, undefined, { heading: target });
   }
   const lines = body.split(/\r?\n/);
-  return splice(lines, op, r.startIndex + 1, r.startIndex + 1, r.endIndex, content, eol);
+  const searchable = { ...r, startIndex: r.startIndex + 1 };
+  return splice(
+    lines,
+    op,
+    r.startIndex + 1,
+    r.startIndex + 1,
+    r.endIndex,
+    content,
+    eol,
+    r,
+    searchable,
+    insertBefore,
+  );
 }
 
 /** THE-198: insert/replace content relative to a block reference (`^block-id`). The block spans
@@ -520,6 +672,7 @@ export function patchByBlock(
   blockId: string,
   content: string,
   eol: string,
+  insertBefore?: string,
 ): PatchResult | null {
   const r = resolveSection(body, { type: "block", block_id: blockId });
   if (!r.found) {
@@ -527,7 +680,18 @@ export function patchByBlock(
     throw ambiguousError("block reference", r.matchLines, { block_id: blockId });
   }
   const lines = body.split(/\r?\n/);
-  return splice(lines, op, r.startIndex, r.startIndex, r.endIndex, content, eol);
+  return splice(
+    lines,
+    op,
+    r.startIndex,
+    r.startIndex,
+    r.endIndex,
+    content,
+    eol,
+    r,
+    r,
+    insertBefore,
+  );
 }
 
 /** GH #922 shape 2: `replace` content that repeats the section's own anchor heading duplicates
@@ -560,9 +724,11 @@ export function patchByPreamble(
   op: "append" | "prepend" | "replace",
   content: string,
   eol: string,
+  insertBefore?: string,
 ): PatchResult {
   const r = resolveSection(body, { type: "frontmatter" });
   const lines = body.split(/\r?\n/);
   const end = r.found ? r.endIndex : lines.length;
-  return splice(lines, op, 0, 0, end, content, eol);
+  const span = r.found ? r : { startIndex: 0, endIndex: end };
+  return splice(lines, op, 0, 0, end, content, eol, span, span, insertBefore);
 }

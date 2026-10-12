@@ -366,6 +366,12 @@ export const PatchInputShape = {
     .string()
     .optional()
     .describe("Required for append, prepend and replace; refused for replace_text."),
+  insert_before: z
+    .string()
+    .optional()
+    .describe(
+      "Optional for append only: insert content immediately above the unique line matching this value within the resolved section, ignoring trailing spaces and tabs. Fenced code and a heading anchor's own heading line are excluded.",
+    ),
   // THE-1038 / GH #928: replace_text's exact-string substitution, scoped to the resolved
   // anchor's section. Required (both fields) iff operation is replace_text.
   old_string: z
@@ -397,7 +403,13 @@ export const PatchInputShape = {
 export function refinePatchInput(
   i: Pick<
     z.infer<z.ZodObject<typeof PatchInputShape>>,
-    "operation" | "target_heading" | "anchor" | "content" | "old_string" | "new_string"
+    | "operation"
+    | "target_heading"
+    | "anchor"
+    | "content"
+    | "insert_before"
+    | "old_string"
+    | "new_string"
   >,
   ctx: z.RefinementCtx,
 ): void {
@@ -448,6 +460,18 @@ export function refinePatchInput(
         message: `operation "${i.operation}" forbids new_string; it is only valid for replace_text`,
       });
   }
+  if (i.operation !== "append" && i.insert_before !== undefined)
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["insert_before"],
+      message: `operation "${i.operation}" forbids insert_before; it is only valid for append`,
+    });
+  if (i.insert_before !== undefined && i.insert_before.trim().length === 0)
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["insert_before"],
+      message: "insert_before must contain non-whitespace content",
+    });
 }
 
 export const PatchInput = z.object(PatchInputShape).strict().superRefine(refinePatchInput);
