@@ -12,8 +12,12 @@ name: release-image
 # sqlite-vec staging cannot be repaired here (its image fails the boot smoke and is never
 # promoted); cut a new patch release through publish.yml instead.
 #
+# Trust: the workflow's own commit (checked out as trusted/) supplies the composite action and its smoke script.
+# The release tag (checked out as src/) supplies only source, and it must verify against main's allowed_signers
+# before anything else runs. No repo-local action or script from the tag is ever executed.
+#
 # The image is pushed to a staging tag, booted offline on linux/amd64 and linux/arm64 (native=on,
-# vec=on), and only then does that same digest get its public tags.
+# vec=on), signed by that same digest, and only then does it get its public tags.
 on:
   workflow_dispatch:
     inputs:
@@ -34,7 +38,20 @@ permissions:
 jobs:
   image:
     runs-on: ubuntu-latest
+    # id-token: keyless cosign signature of the staged image, by digest (in the smoke-and-promote action).
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
     steps:
+      # Dispatchable from main only. A tag dispatch would take this workflow file and trusted/ from that tag, which
+      # bypasses the trusted/src split below. Visible failure, before any checkout or credential is used.
+      - name: refuse a dispatch from anything but main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          [ "$REF" = "refs/heads/main" ] || { echo "::error::release-image must be dispatched from main (the trusted workflow ref); the tag to rebuild is the version input"; exit 1; }
+        shell: bash
       # The version becomes a git ref and a package spec: refuse anything that is not a plain
       # semver (no leading v, no path or shell characters) before it reaches either.
       - name: validate the version input
@@ -43,12 +60,36 @@ jobs:
         run: |
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::version must be a plain semver without a leading v, got '$VERSION'"; exit 1; }
         shell: bash
-      # Source from the release tag, not from whatever ref the workflow was dispatched on.
+      # The workflow's own commit, kept apart as trusted/: the composite action and its smoke script come from
+      # here, never from the release tag. Only dispatchable from main (the first step refuses any other ref), so this
+      # is main's copy: main is protected, and a tag can never supply this file.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: trusted
+      # Source from the release tag, in src/, not from whatever ref the workflow was dispatched on. The tag itself
+      # must be a signed release tag: the same rule publish.yml's verify-tag enforces. fetch-depth 0: a tag's
+      # object and signature are not in a shallow clone.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: refs/tags/v${{ inputs.version }}
+          fetch-depth: 0
+          path: src
+      - name: verify the release tag is signed by an allowed signer
+        working-directory: src
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # The signers come from main, never from the tag: a tag's own allowed_signers is whatever its author wrote.
+          git fetch --no-tags origin main
+          git show origin/main:.github/allowed_signers > "$RUNNER_TEMP/allowed_signers"
+          [ -s "$RUNNER_TEMP/allowed_signers" ] || { echo "::error::origin/main has no non-empty .github/allowed_signers; refusing to release"; exit 1; }
+          git -c gpg.ssh.allowedSignersFile="$RUNNER_TEMP/allowed_signers" verify-tag "refs/tags/v${VERSION}"
+        shell: bash
       - name: assert the checked-out source is the requested release
         id: source
+        working-directory: src
         env:
           VERSION: ${{ inputs.version }}
         run: |
@@ -68,6 +109,7 @@ jobs:
       # release (the native prebuilds are not release assets themselves, only their bundles are),
       # pinned to that workflow at this release's tag, BEFORE it is staged into the build context.
       - name: fetch the published native prebuilds (linux x64 + arm64, glibc) and verify their signatures
+        working-directory: src
         env:
           VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}
@@ -106,8 +148,8 @@ jobs:
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         id: push
         with:
-          context: .
-          file: Dockerfile
+          context: src
+          file: src/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/the-40-thieves/obsidian-tc:smoke-${{ inputs.version }}
@@ -119,7 +161,7 @@ jobs:
             org.opencontainers.image.created=${{ steps.buildmeta.outputs.created }}
             org.opencontainers.image.title=obsidian-tc
       - name: boot-smoke both platforms, then promote the smoked digest to the public tags
-        uses: ./.github/actions/smoke-and-promote-image
+        uses: ./trusted/.github/actions/smoke-and-promote-image
         with:
           image: ghcr.io/the-40-thieves/obsidian-tc
           digest: ${{ steps.push.outputs.digest }}
