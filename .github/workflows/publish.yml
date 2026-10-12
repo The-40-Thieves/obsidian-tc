@@ -7,9 +7,12 @@ on:
   # first time anyone finds out is mid-release. Do NOT "just push a throwaway tag" to test: the push
   # trigger above matches any v*, the preflight only checks that the version is UNpublished, so a
   # v0.0.0-test tag would pass and really publish obsidian-tc + all 8 platform sub-packages to npm
-  # (immutable, unrevocable) and push a ghcr image. This dispatch builds the same 8-target matrix and
-  # publishes nothing.
+  # (immutable, unrevocable) and push a ghcr image. A dispatch with dry_run=true builds the same
+  # 8-target matrix and publishes nothing.
   #   gh workflow run publish.yml --ref <branch> -f dry_run=true
+  # A dispatch with dry_run=false is a REAL publish: it must run from a signed release tag
+  # (gh workflow run publish.yml --ref v<x.y.z> -f dry_run=false). verify-tag refuses it from any
+  # branch, and every publishing job also requires github.ref_type == 'tag'.
   workflow_dispatch:
     inputs:
       dry_run:
@@ -79,23 +82,33 @@ jobs:
       - name: verify the release tag is signed
         env:
           TAG: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          EVENT_NAME: ${{ github.event_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -uo pipefail
           # A workflow_dispatch dry run targets a BRANCH, not a tag — there is no tag object to
           # verify and github.ref_name is the branch name. Now that build-native needs this job,
           # enforcing here would break every dry run the moment REQUIRE_SIGNED_TAG flips to true,
           # which is precisely the 8-target rehearsal that must keep working.
-          if [ "${{ github.ref_type }}" != "tag" ]; then
-            echo "ref_type is '${{ github.ref_type }}', not a tag — nothing to verify (dry run)."
-            exit 0
-          fi
-          if [ ! -f .github/allowed_signers ]; then
-            echo "::warning title=Release tag not verified::No .github/allowed_signers committed, so the signature on '$TAG' cannot be checked. See docs/RELEASE-SIGNING.md."
-            if [ "$REQUIRE_SIGNED_TAG" = "true" ]; then
-              echo "REQUIRE_SIGNED_TAG=true but no allowed_signers file exists — refusing to release."
-              exit 1
+          if [ "$REF_TYPE" != "tag" ]; then
+            # Fail closed: only a dispatch with dry_run=true may pass on a non-tag ref. A real publish
+            # (dry_run=false) from a branch must not ship anything unverified, so it is refused here.
+            if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$DRY_RUN" = "true" ]; then
+              echo "ref_type is '$REF_TYPE', not a tag: dry run, nothing to verify."
+              exit 0
             fi
-            exit 0
+            echo "::error title=Real publish from a non-tag ref::A real publish requires a signed release tag; dispatch from the tag."
+            exit 1
+          fi
+          # The signers come from main, never from the tag: a tag's own .github/allowed_signers is whatever
+          # its author wrote, so checking the tag against it proves nothing. Fail closed: a main that cannot
+          # be fetched, or has no non-empty list, refuses the release. There is no fallback to the checkout.
+          git fetch --no-tags origin main || { echo "::error::cannot fetch origin/main to load the allowed signers"; exit 1; }
+          git show origin/main:.github/allowed_signers > "$RUNNER_TEMP/allowed_signers"
+          if [ ! -s "$RUNNER_TEMP/allowed_signers" ]; then
+            echo "::error title=No trusted allowed_signers::origin/main has no non-empty .github/allowed_signers, so '$TAG' cannot be verified. Refusing to release. See docs/RELEASE-SIGNING.md."
+            exit 1
           fi
           # A lightweight tag is a bare commit ref with no object to carry a signature.
           if [ "$(git cat-file -t "$TAG")" != "tag" ]; then
@@ -103,10 +116,10 @@ jobs:
             [ "$REQUIRE_SIGNED_TAG" = "true" ] && exit 1
             exit 0
           fi
-          if git -c gpg.ssh.allowedSignersFile=.github/allowed_signers verify-tag "$TAG"; then
+          if git -c gpg.ssh.allowedSignersFile="$RUNNER_TEMP/allowed_signers" verify-tag "$TAG"; then
             echo "Tag '$TAG' carries a valid signature from an allowed signer."
           else
-            echo "::warning title=Unsigned or unverifiable tag::'$TAG' did not verify against .github/allowed_signers."
+            echo "::warning title=Unsigned or unverifiable tag::'$TAG' did not verify against origin/main's .github/allowed_signers."
             [ "$REQUIRE_SIGNED_TAG" = "true" ] && exit 1
           fi
           exit 0
@@ -232,7 +245,7 @@ jobs:
     # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
     # A real release is a tag push, where github.event_name == 'push' and this is always true.
-    if: github.event_name == 'push' || !inputs.dry_run
+    if: github.event_name == 'push' || (github.ref_type == 'tag' && !inputs.dry_run)
     # verify-tag added directly (THE-957) to read needs.verify-tag.outputs.prerelease below --
     # build-native already needs verify-tag, so this changes no scheduling, only visibility.
     # THE-1122 review round 3: publish-embedder-local added. packages/server now declares
@@ -700,7 +713,7 @@ jobs:
   # publishing for it, the publish step below will fail on a from-scratch registry (403/404) — that
   # is EXPECTED on every run before that one-time setup, not a defect in this job.
   publish-reranker-local:
-    if: github.event_name == 'push' || !inputs.dry_run
+    if: github.event_name == 'push' || (github.ref_type == 'tag' && !inputs.dry_run)
     needs: [sign-artifacts, verify-tag]
     runs-on: ubuntu-latest
     permissions:
@@ -763,7 +776,7 @@ jobs:
   # package name is a deferred, one-time OWNER action; this job's publish step 403/404s on a
   # from-scratch registry until that manual step has happened, which is EXPECTED, not a defect.
   publish-embedder-local:
-    if: github.event_name == 'push' || !inputs.dry_run
+    if: github.event_name == 'push' || (github.ref_type == 'tag' && !inputs.dry_run)
     needs: [sign-artifacts, verify-tag]
     runs-on: ubuntu-latest
     permissions:
@@ -816,7 +829,7 @@ jobs:
     # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
     # A real release is a tag push, where github.event_name == 'push' and this is always true.
-    if: github.event_name == 'push' || !inputs.dry_run
+    if: github.event_name == 'push' || (github.ref_type == 'tag' && !inputs.dry_run)
     # THE-575: was `needs: publish-npm`. This job builds from the TAG and consumes no
     # npm-published package, so gating it on the publish only meant that a publish failure made it
     # unreachable — which is how v1.11.0 shipped without its standalone binaries. Depends on
@@ -968,7 +981,7 @@ jobs:
     # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
     # A real release is a tag push, where github.event_name == 'push' and this is always true.
-    if: github.event_name == 'push' || !inputs.dry_run
+    if: github.event_name == 'push' || (github.ref_type == 'tag' && !inputs.dry_run)
     # THE-958: this was the one build job with no `needs:` at all, so it started in parallel with
     # verify-tag and built the plugin artifact even when the signature check failed. Nothing it
     # produced could publish (draft-release and mirror-plugin-release need verify-tag), but
@@ -1069,7 +1082,7 @@ jobs:
     # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
     # A real release is a tag push, where github.event_name == 'push' and this is always true.
-    if: github.event_name == 'push' || !inputs.dry_run
+    if: github.event_name == 'push' || (github.ref_type == 'tag' && !inputs.dry_run)
     # THE-575: was `needs: publish-npm`. This job builds from the TAG and consumes no
     # npm-published package, so gating it on the publish only meant that a publish failure made it
     # unreachable — which is how v1.11.0 shipped without its ghcr image. It still needs no
@@ -1152,10 +1165,17 @@ jobs:
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.created=${{ steps.buildmeta.outputs.created }}
             org.opencontainers.image.title=obsidian-tc
-      # Boot the exact pushed digest on linux/amd64 and linux/arm64 (arm64 under QEMU), then give
-      # that same digest its public tags (a re-tag of the staged manifest list, no rebuild). The
-      # image is signed below by this same digest, so what is signed is what was smoked.
-      - name: boot-smoke both platforms, then promote the smoked digest to the public tags
+      # Keyless cosign signing of the image happens inside the smoke-and-promote action, by DIGEST, after
+      # the boot smoke and before any public tag moves: a tag can be re-pointed later, a signature over the
+      # digest cannot. The installer pin is the same as sign-artifacts'; it must run before the action.
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: 'v3.1.3'
+      # Boot the exact pushed digest on linux/amd64 and linux/arm64 (arm64 under QEMU), sign it and verify the
+      # signature against this run's own workflow identity (a misconfigured signer fails this job, and with it
+      # draft-release, so no GitHub Release is published), then give that same digest its public tags (a re-tag
+      # of the staged manifest list, no rebuild).
+      - name: boot-smoke, sign and verify both platforms, then promote the digest to the public tags
         uses: ./.github/actions/smoke-and-promote-image
         with:
           image: ghcr.io/the-40-thieves/obsidian-tc
@@ -1163,28 +1183,6 @@ jobs:
           tags: |
             ghcr.io/the-40-thieves/obsidian-tc:${{ needs.verify-tag.outputs.version }}
             ${{ needs.verify-tag.outputs.prerelease != 'true' && 'ghcr.io/the-40-thieves/obsidian-tc:latest' || '' }}
-      # Keyless cosign signature of the image, by DIGEST (a tag can be re-pointed after signing; the
-      # digest of the multi-arch index cannot). The signature is stored in the registry beside the
-      # image and verified straight away against this run's own workflow identity, so a misconfigured
-      # signer fails this job -- and with it draft-release, so no GitHub Release is published --
-      # rather than shipping an image nobody can verify. Same installer pin as sign-artifacts.
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-        with:
-          cosign-release: 'v3.1.3'
-      - name: sign the image by digest (keyless) and verify it
-        shell: bash
-        env:
-          IMAGE: ghcr.io/the-40-thieves/obsidian-tc
-          DIGEST: ${{ steps.push.outputs.digest }}
-        run: |
-          set -euo pipefail
-          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::the push step produced no image digest (got '$DIGEST')"; exit 1; }
-          IDENTITY="${GITHUB_SERVER_URL}/${GITHUB_WORKFLOW_REF}"
-          ISSUER=https://token.actions.githubusercontent.com
-          cosign sign --yes "${IMAGE}@${DIGEST}"
-          cosign verify "${IMAGE}@${DIGEST}" \
-            --certificate-identity "$IDENTITY" \
-            --certificate-oidc-issuer "$ISSUER"
       # An SBOM of the IMAGE, which nothing else produces. The THE-299 step in publish-npm runs
       # `npm sbom` over the three packages — npm dependency trees only. It cannot see what actually
       # ships in the container: the Debian base packages, the bun runtime, or the compiled native
@@ -1222,7 +1220,7 @@ jobs:
     # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
     # A real release is a tag push, where github.event_name == 'push' and this is always true.
-    if: github.event_name == 'push' || !inputs.dry_run
+    if: github.event_name == 'push' || (github.ref_type == 'tag' && !inputs.dry_run)
     # THE-575: was `needs: publish-npm`. This job builds from the TAG and consumes no
     # npm-published package, so gating it on the publish only meant that a publish failure made it
     # unreachable — which is how v1.11.0 shipped without its MCPB bundle. Depends on
@@ -1285,7 +1283,7 @@ jobs:
   # (draft-release) and the GitHub build-provenance attestations on the plugin files are separate,
   # independent records; see docs/RELEASING.md for how the three relate.
   sign-artifacts:
-    if: github.event_name == 'push' || !inputs.dry_run
+    if: github.event_name == 'push' || (github.ref_type == 'tag' && !inputs.dry_run)
     needs: [build-native, build-binaries, build-plugin, build-mcpb, verify-tag]
     runs-on: ubuntu-latest
     permissions:
@@ -1358,7 +1356,7 @@ jobs:
     # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
     # A real release is a tag push, where github.event_name == 'push' and this is always true.
-    if: github.event_name == 'push' || !inputs.dry_run
+    if: github.event_name == 'push' || (github.ref_type == 'tag' && !inputs.dry_run)
     # verify-tag added directly (THE-957) to read needs.verify-tag.outputs.prerelease below --
     # publish-npm, build-binaries, build-docker and build-mcpb each already need verify-tag, so
     # this changes no scheduling, only which outputs this job can see.

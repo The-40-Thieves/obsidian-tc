@@ -7,8 +7,10 @@
 // release cannot be assembled without the signing job, and every artifact family the release
 // ships has a signing step feeding the assets the release attaches.
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { devNull, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { test } from "node:test";
 
 const WORKFLOW = readFileSync(
@@ -74,7 +76,10 @@ test("the signing job runs after every build job and is skipped on the same dry-
   ]) {
     assert.ok(needs[1].split(/,\s*/).includes(job), `sign-artifacts must need ${job}`);
   }
-  assert.match(sign, /if: github\.event_name == 'push' \|\| !inputs\.dry_run/);
+  assert.match(
+    sign,
+    /if: github\.event_name == 'push' \|\| \(github\.ref_type == 'tag' && !inputs\.dry_run\)/,
+  );
 });
 
 test("every released artifact family is downloaded and has a signing step with an existence floor", () => {
@@ -200,6 +205,8 @@ const OIDC_MARKERS = [
   /actions\/attest-build-provenance/,
   /cosign sign(-blob)? /,
   /login github-oidc/,
+  // the image is signed by digest inside the shared composite action build-docker calls
+  /smoke-and-promote-image/,
 ];
 
 test("workflow-level permissions are read-only; write scopes are granted per job", () => {
@@ -281,18 +288,6 @@ test("the signing job depends on no publisher (no cycle, and signing precedes ev
       `sign-artifacts must not depend on ${dep}`,
     );
   }
-});
-
-test("the GHCR image is signed by digest, keylessly, and verified against the workflow identity", () => {
-  const docker = jobBlock("build-docker");
-  assert.match(docker, /uses: docker\/build-push-action@[0-9a-f]{40}[^\n]*\n\s+id: push\n/);
-  assert.match(docker, /uses: sigstore\/cosign-installer@[0-9a-f]{40} # v\d+\.\d+\.\d+/);
-  assert.match(docker, /DIGEST: \$\{\{ steps\.push\.outputs\.digest \}\}/);
-  assert.match(docker, /cosign sign --yes "\$\{IMAGE\}@\$\{DIGEST\}"/);
-  assert.match(docker, /cosign verify "\$\{IMAGE\}@\$\{DIGEST\}"/);
-  assert.match(docker, /--certificate-identity "\$IDENTITY"/);
-  // signed only after the push
-  assert.ok(docker.indexOf("id: push") < docker.indexOf("cosign sign --yes"));
 });
 
 test("the signature manifest lists every bundle sign-artifacts produced and ships with the signatures", () => {
@@ -413,7 +408,7 @@ for (const [name, text] of [
   test(`${name}: the public tags are given by the smoke-and-promote action, from the pushed digest, after the push`, () => {
     assert.match(text, /uses: docker\/build-push-action@[0-9a-f]{40}[^\n]*\n\s+id: push\n/);
     const step = text.match(
-      /uses: \.\/\.github\/actions\/smoke-and-promote-image\n([\s\S]*?)(?=\n {6}- |\n {2}[a-z]|(?![\s\S]))/,
+      /uses: \.\/(?:trusted\/)?\.github\/actions\/smoke-and-promote-image\n([\s\S]*?)(?=\n {6}- |\n {2}[a-z]|(?![\s\S]))/,
     );
     assert.ok(step, "smoke-and-promote-image step not found");
     assert.match(step[1], /digest: \$\{\{ steps\.push\.outputs\.digest \}\}/);
@@ -424,12 +419,44 @@ for (const [name, text] of [
   });
 }
 
-test("publish.yml: the image signature is over the smoked digest, after the promotion", () => {
-  const docker = jobBlock("build-docker");
-  assert.ok(docker.indexOf("smoke-and-promote-image") >= 0);
-  assert.ok(docker.indexOf("smoke-and-promote-image") < docker.indexOf("cosign sign --yes"));
-  assert.match(docker, /DIGEST: \$\{\{ steps\.push\.outputs\.digest \}\}/);
+// The signature is written INSIDE the shared action, between the boot smoke and the promotion, so no
+// public tag can point at an unsigned digest. Each route only installs cosign and calls the action.
+test("the shared action signs the smoked digest keylessly against the workflow identity, never with a key", () => {
+  const run = stripComments(SMOKE_ACTION);
+  assert.match(run, /IDENTITY="\$\{GITHUB_SERVER_URL\}\/\$\{GITHUB_WORKFLOW_REF\}"/);
+  assert.match(run, /cosign sign --yes "\$\{IMAGE\}@\$\{DIGEST\}"/);
+  assert.match(
+    run,
+    /cosign verify "\$\{IMAGE\}@\$\{DIGEST\}" \\\n\s+--certificate-identity "\$IDENTITY" \\\n\s+--certificate-oidc-issuer "\$ISSUER"/,
+  );
+  assert.doesNotMatch(run, /--key\b|COSIGN_PRIVATE_KEY|--output-signature/);
 });
+
+for (const [name, text] of [
+  ["publish.yml build-docker", jobBlock("build-docker")],
+  ["release-image.yml", RELEASE_IMAGE],
+]) {
+  test(`${name}: the image is signed and verified by digest before its public tags are promoted`, () => {
+    const route = stripComments(text);
+    assert.doesNotMatch(route, /cosign sign /, "signing lives in the shared action, not after it");
+    assert.ok(
+      route.indexOf("cosign-installer") >= 0 &&
+        route.indexOf("cosign-installer") < route.indexOf("smoke-and-promote-image"),
+      "cosign is installed before the action runs",
+    );
+    const run = stripComments(SMOKE_ACTION);
+    const smoke = run.indexOf("docker-boot-smoke.mjs");
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: shell variables in the action's run text
+    const sign = run.indexOf('cosign sign --yes "${IMAGE}@${DIGEST}"');
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: see comment above.
+    const verify = run.indexOf('cosign verify "${IMAGE}@${DIGEST}"');
+    const promote = run.indexOf("docker buildx imagetools create");
+    assert.ok(
+      smoke >= 0 && smoke < sign && sign < verify && verify < promote,
+      `order: smoke=${smoke} sign=${sign} verify=${verify} promote=${promote}`,
+    );
+  });
+}
 
 test("the smoke-and-promote action boots both platforms of the digest, then re-tags that digest and checks it", () => {
   const run = stripComments(SMOKE_ACTION);
@@ -482,4 +509,424 @@ test("release-image.yml verifies each npm-delivered .node against the release's 
   assert.doesNotMatch(run, /tar [^\n]*-C packages\/native/);
   // and the build comes after the whole fetch+verify step
   assert.ok(run.indexOf("cosign verify-blob") < run.indexOf("docker/build-push-action"));
+});
+
+// ---- F1: a real publish requires a signed release tag ----
+
+// Runs verify-tag's signature step shell with the runner's three context values in its env.
+function runVerifyTag({ refType, eventName, dryRun }) {
+  const m = jobBlock("verify-tag").match(
+    /- name: verify the release tag is signed\n[\s\S]*?\n {8}run: \|\n((?: {10}.*\n|\n)+)/,
+  );
+  assert.ok(m, "verify-tag has no 'verify the release tag is signed' run block");
+  const script = m[1].replace(/^ {10}/gm, "");
+  return spawnSync("bash", ["-c", script], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      TAG: "v0.0.0-test",
+      REQUIRE_SIGNED_TAG: "true",
+      REF_TYPE: refType,
+      EVENT_NAME: eventName,
+      DRY_RUN: dryRun,
+    },
+  });
+}
+
+test("verify-tag refuses a real publish from a branch and keeps a branch dry run passing", () => {
+  const real = runVerifyTag({ refType: "branch", eventName: "workflow_dispatch", dryRun: "false" });
+  assert.notEqual(real.status, 0, real.stdout + real.stderr);
+  assert.match(
+    real.stdout,
+    /A real publish requires a signed release tag; dispatch from the tag\./,
+  );
+  const dry = runVerifyTag({ refType: "branch", eventName: "workflow_dispatch", dryRun: "true" });
+  assert.equal(dry.status, 0, dry.stdout + dry.stderr);
+});
+
+test("every dry-run-guarded job also requires a tag ref for a real publish", () => {
+  const guarded = ALL_JOBS.filter((job) => /^ {4}if: .*!inputs\.dry_run\)?$/m.test(jobBlock(job)));
+  assert.deepEqual(guarded.sort(), [
+    "build-binaries",
+    "build-docker",
+    "build-mcpb",
+    "build-plugin",
+    "draft-release",
+    "publish-embedder-local",
+    "publish-npm",
+    "publish-reranker-local",
+    "sign-artifacts",
+  ]);
+  for (const job of guarded) {
+    assert.match(
+      jobBlock(job),
+      /^ {4}if: github\.event_name == 'push' \|\| \(github\.ref_type == 'tag' && !inputs\.dry_run\)$/m,
+      `${job}: non-dry-run guard must require a tag ref`,
+    );
+  }
+});
+
+test("publish.yml header no longer says a dispatch publishes nothing", () => {
+  const header = WORKFLOW.slice(0, WORKFLOW.indexOf("\npermissions:"));
+  assert.doesNotMatch(
+    header,
+    /This dispatch builds the same 8-target matrix and publishes nothing/,
+  );
+  assert.match(header, /dry_run=false[^\n]*signed release tag/);
+});
+
+test("release-image.yml: the image job holds id-token write at job level, for the keyless signature", () => {
+  const image = RELEASE_IMAGE.slice(RELEASE_IMAGE.indexOf("\n  image:\n"));
+  assert.deepEqual(permissionsAt(image, 4), {
+    contents: "read",
+    packages: "write",
+    "id-token": "write",
+  });
+});
+
+test("release-image.yml verifies the release tag signature before anything is built or pushed", () => {
+  const run = stripComments(RELEASE_IMAGE);
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: a shell variable in the workflow's run text
+  const verify = run.indexOf('verify-tag "refs/tags/v${VERSION}"');
+  assert.ok(verify > 0, "no signed-tag check in release-image.yml");
+  assert.match(RELEASE_IMAGE, /ref: refs\/tags\/v\$\{\{ inputs\.version \}\}\n\s+fetch-depth: 0/);
+  assert.match(
+    run,
+    /git -c gpg\.ssh\.allowedSignersFile="\$RUNNER_TEMP\/allowed_signers" verify-tag/,
+  );
+  assert.ok(verify > run.indexOf("actions/checkout@"), "the tag is fetched before it is verified");
+  assert.ok(verify < run.indexOf("npm pack"), "verified before the prebuilds are fetched");
+  assert.ok(
+    verify < run.indexOf("docker/build-push-action"),
+    "verified before the image is pushed",
+  );
+});
+
+// ---- trust root: a tag is verified against main's allowed_signers, never against its own copy ----
+//
+// A tag carries its own .github/allowed_signers, so whoever can push a tag can add their key to that
+// file, sign the tag with it and pass verification. The fixture below reproduces exactly that: origin's
+// main lists the maintainer (or nothing at all), the candidate tag's tree lists the attacker, and the
+// attacker signs the annotated tag. The runner clone sits at the tag, as actions/checkout leaves it.
+
+const TAG = "v9.9.9-test";
+const PUBLISH_VERIFY = "verify the release tag is signed";
+const RELEASE_VERIFY = "verify the release tag is signed by an allowed signer";
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** The whole `- name:` step block, cut at the next sibling step. */
+function stepBlock(text, name) {
+  const m = text.match(
+    new RegExp(`^( *)- name: ${escapeRe(name)}\\n[\\s\\S]*?(?=^\\1- |(?![\\s\\S]))`, "m"),
+  );
+  assert.ok(m, `step "${name}" not found`);
+  return m[0];
+}
+
+/** The `run: |` script of a named step, de-indented. */
+function stepScript(text, name) {
+  const m = stepBlock(text, name).match(/^( +)run: \|\n([\s\S]*)$/m);
+  assert.ok(m, `step "${name}" has no run: | block`);
+  const pad = m[1].length + 2;
+  const lines = [];
+  for (const line of m[2].split("\n")) {
+    if (line.trim() !== "" && line.search(/\S/) < pad) break;
+    lines.push(line.slice(pad));
+  }
+  return lines.join("\n");
+}
+
+function runStep(text, name, { cwd, env }) {
+  const script = stepScript(text, name);
+  return spawnSync("bash", ["-c", script], {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+  });
+}
+
+function git(cwd, args) {
+  const r = spawnSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: devNull,
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_AUTHOR_NAME: "fixture",
+      GIT_AUTHOR_EMAIL: "fixture@example.invalid",
+      GIT_COMMITTER_NAME: "fixture",
+      GIT_COMMITTER_EMAIL: "fixture@example.invalid",
+    },
+  });
+  assert.equal(r.status, 0, `git ${args.join(" ")}: ${r.stderr}`);
+  return r.stdout;
+}
+
+function keypair(dir, name) {
+  const priv = join(dir, name);
+  const r = spawnSync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-C", name, "-f", priv], {
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, `ssh-keygen: ${r.stderr}`);
+  return { priv, pub: readFileSync(`${priv}.pub`, "utf8").trim() };
+}
+
+/** Runs `check` on a fresh release fixture and removes the fixture's directory whatever happens. */
+function withRelease(mainLists, check) {
+  const root = mkdtempSync(join(tmpdir(), "publish-signing-"));
+  try {
+    return check(releaseFixture(root, mainLists));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+/** origin's main lists `mainLists` ("maintainer", "attacker", or "none" for no file). */
+function releaseFixture(root, mainLists) {
+  const keys = { maintainer: keypair(root, "maintainer"), attacker: keypair(root, "attacker") };
+  const seed = join(root, "seed");
+  const origin = join(root, "origin.git");
+  const clone = join(root, "clone");
+  const runnerTemp = join(root, "runner-temp");
+  mkdirSync(runnerTemp);
+  git(root, ["init", "-q", "-b", "main", seed]);
+  mkdirSync(join(seed, ".github"));
+  if (mainLists !== "none") {
+    writeFileSync(join(seed, ".github/allowed_signers"), `${mainLists} ${keys[mainLists].pub}\n`);
+  }
+  writeFileSync(join(seed, "README.md"), "fixture\n");
+  git(seed, ["add", "-A"]);
+  git(seed, ["commit", "-q", "-m", "main"]);
+  git(root, ["init", "-q", "--bare", "-b", "main", origin]);
+  git(seed, ["push", "-q", origin, "main"]);
+  // The candidate: its own tree lists the attacker, and the attacker signs the tag.
+  git(seed, ["checkout", "-q", "-b", "candidate"]);
+  writeFileSync(
+    join(seed, ".github/allowed_signers"),
+    `# candidate\nattacker ${keys.attacker.pub}\n`,
+  );
+  git(seed, ["add", "-A"]);
+  git(seed, ["commit", "-q", "-m", "candidate"]);
+  git(seed, [
+    "-c",
+    "gpg.format=ssh",
+    "-c",
+    `user.signingkey=${keys.attacker.priv}`,
+    "tag",
+    "-s",
+    "-m",
+    "release",
+    TAG,
+  ]);
+  git(seed, ["push", "-q", origin, TAG]);
+  git(root, ["clone", "-q", origin, clone]);
+  git(clone, ["checkout", "-q", "--detach", TAG]);
+  return { clone, runnerTemp };
+}
+
+function publishVerify(fx) {
+  return runStep(WORKFLOW, PUBLISH_VERIFY, {
+    cwd: fx.clone,
+    env: {
+      TAG,
+      RUNNER_TEMP: fx.runnerTemp,
+      REQUIRE_SIGNED_TAG: "true",
+      REF_TYPE: "tag",
+      EVENT_NAME: "push",
+      DRY_RUN: "false",
+    },
+  });
+}
+
+function releaseVerify(fx) {
+  return runStep(RELEASE_IMAGE, RELEASE_VERIFY, {
+    cwd: fx.clone,
+    env: { VERSION: TAG.slice(1), RUNNER_TEMP: fx.runnerTemp },
+  });
+}
+
+function assertSignersFromMain(script) {
+  assert.match(script, /git fetch --no-tags origin main/);
+  assert.match(
+    script,
+    /git show origin\/main:\.github\/allowed_signers > "\$RUNNER_TEMP\/allowed_signers"/,
+  );
+  assert.match(
+    script,
+    /-s "\$RUNNER_TEMP\/allowed_signers"/,
+    "an empty or missing list must fail closed",
+  );
+  assert.match(script, /gpg\.ssh\.allowedSignersFile="\$RUNNER_TEMP\/allowed_signers"/);
+  assert.doesNotMatch(
+    script,
+    /allowedSignersFile=\.github\/allowed_signers|-f \.github\/allowed_signers/,
+  );
+}
+
+test("publish verify-tag: the signers come from origin/main, never from the tag (structural)", () => {
+  assertSignersFromMain(stepScript(WORKFLOW, PUBLISH_VERIFY));
+});
+
+test("publish verify-tag: a doctored tag is refused when only its own tree lists the signer", () => {
+  const r = withRelease("maintainer", publishVerify);
+  assert.notEqual(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /carries a valid signature/);
+});
+
+test("publish verify-tag: the same tag verifies when origin/main lists its signer (control)", () => {
+  const r = withRelease("attacker", publishVerify);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /carries a valid signature/);
+});
+
+test("publish verify-tag: fails closed when origin/main has no allowed_signers", () => {
+  const r = withRelease("none", publishVerify);
+  assert.notEqual(r.status, 0, r.stdout + r.stderr);
+  assert.doesNotMatch(r.stdout, /carries a valid signature/);
+});
+
+test("release-image verify step: the signers come from origin/main, never from the tag (structural)", () => {
+  assertSignersFromMain(stepScript(RELEASE_IMAGE, RELEASE_VERIFY));
+});
+
+test("release-image verify step: a doctored tag is refused when only its own tree lists the signer", () => {
+  const r = withRelease("maintainer", releaseVerify);
+  assert.notEqual(r.status, 0, r.stdout + r.stderr);
+});
+
+test("release-image verify step: the same tag verifies when origin/main lists its signer (control)", () => {
+  const r = withRelease("attacker", releaseVerify);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+});
+
+test("release-image verify step: fails closed when origin/main has no allowed_signers", () => {
+  const r = withRelease("none", releaseVerify);
+  assert.notEqual(r.status, 0, r.stdout + r.stderr);
+});
+
+// ---- release-image runs only from main: a tag dispatch would take the workflow file and trusted/ from the tag ----
+
+test("release-image.yml refuses any dispatch ref but refs/heads/main, as its first step", () => {
+  const steps = RELEASE_IMAGE.slice(RELEASE_IMAGE.indexOf("    steps:\n"));
+  assert.equal(
+    steps.match(/^ {6}- name: (.*)$/m)[1],
+    "refuse a dispatch from anything but main",
+    "the guard is the first step, before any checkout or credential use",
+  );
+});
+
+test("release-image.yml refuses any dispatch ref but refs/heads/main (behavioural)", () => {
+  const run = (ref) =>
+    runStep(RELEASE_IMAGE, "refuse a dispatch from anything but main", { env: { REF: ref } });
+  const ok = run("refs/heads/main");
+  assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+  for (const ref of ["refs/tags/v1.2.3", "refs/heads/feature", "refs/heads/main-x"]) {
+    const r = run(ref);
+    assert.notEqual(r.status, 0, `${ref}: ${r.stdout}${r.stderr}`);
+    assert.match(
+      r.stdout,
+      /::error::release-image must be dispatched from main \(the trusted workflow ref\); the tag to rebuild is the version input/,
+      ref,
+    );
+  }
+});
+
+// ---- release-image runs no repo-local code from the tag ----
+
+test("release-image.yml invokes the action from trusted/, never from the tag checkout", () => {
+  const run = stripComments(RELEASE_IMAGE);
+  assert.match(run, /uses: \.\/trusted\/\.github\/actions\/smoke-and-promote-image\n/);
+  assert.doesNotMatch(run, /uses: \.\/\.github\//);
+  assert.doesNotMatch(run, /uses: \.\/src\//);
+});
+
+test("release-image.yml checks out the calling workflow commit into trusted/ and the release tag into src/", () => {
+  assert.match(RELEASE_IMAGE, /ref: \$\{\{ github\.workflow_sha \}\}\n\s+path: trusted\n/);
+  assert.match(
+    RELEASE_IMAGE,
+    /ref: refs\/tags\/v\$\{\{ inputs\.version \}\}\n\s+fetch-depth: 0\n\s+path: src\n/,
+  );
+});
+
+test("release-image.yml runs every step that reads the tag's tree in src/, and builds the image from src/", () => {
+  for (const step of [
+    RELEASE_VERIFY,
+    "assert the checked-out source is the requested release",
+    "fetch the published native prebuilds (linux x64 + arm64, glibc) and verify their signatures",
+  ]) {
+    assert.match(stepBlock(RELEASE_IMAGE, step), /^ {8}working-directory: src$/m, step);
+  }
+  assert.match(
+    RELEASE_IMAGE,
+    /uses: docker\/build-push-action@[^\n]*\n\s+id: push\n\s+with:\n\s+context: src\n\s+file: src\/Dockerfile\n/,
+  );
+});
+
+test("the smoke-and-promote action runs its smoke script from its own checkout, not the caller's tree", () => {
+  const block = stepBlock(
+    SMOKE_ACTION,
+    "boot-smoke linux/amd64 and linux/arm64 of the staged digest",
+  );
+  assert.match(
+    block,
+    /^ {6}working-directory: \$\{\{ github\.action_path \}\}\/\.\.\/\.\.\/\.\.$/m,
+  );
+  assert.match(block, /node scripts\/docker-boot-smoke\.mjs "\$ref" --platform "\$platform"/);
+});
+
+test("every publish.yml job other than verify-tag transitively needs verify-tag, so no job runs tag code before the signature gate", () => {
+  for (const job of ALL_JOBS) {
+    if (job === "verify-tag") continue;
+    assert.ok(closure(job).has("verify-tag"), `${job} can run before the signature gate`);
+  }
+});
+
+// ---- docs: one identity pattern, accepting both release workflows and nothing else ----
+
+test("SECURITY.md accepts both release identities and nothing else", () => {
+  const sec = readFileSync(resolve(import.meta.dirname, "../SECURITY.md"), "utf8");
+  assert.match(sec, /release-image\.yml/, "SECURITY.md names the recovery workflow");
+  const patterns = [...sec.matchAll(/--certificate-identity-regexp '([^']+)'/g)].map((m) => m[1]);
+  assert.ok(patterns.length > 0, "SECURITY.md has an identity regexp");
+  assert.equal(new Set(patterns).size, 1, "every regexp in SECURITY.md is the same pattern");
+  const re = new RegExp(patterns[0]);
+  const base = "https://github.com/The-40-Thieves/obsidian-tc/.github/workflows/";
+  for (const id of [
+    "publish.yml@refs/tags/v1.2.3",
+    "publish.yml@refs/tags/v1.28.0-rc.1",
+    "release-image.yml@refs/heads/main",
+  ]) {
+    assert.match(base + id, re, `accepts ${id}`);
+  }
+  for (const id of [
+    "release-image.yml@refs/tags/v1.2.3",
+    "publish.yml@refs/heads/main",
+    "publish.yml@refs/heads/feature",
+    "release-image.yml@refs/heads/feature",
+    "ci-server.yml@refs/tags/v1.2.3",
+    "ci-server.yml@refs/heads/main",
+    "release.yml@refs/tags/v1.2.3",
+    "release.yml@refs/heads/main",
+    "publish.yml@refs/tags/v01.2.3",
+    "publish.yml@refs/tags/v1.2",
+    "publish.yml@refs/tags/v1.2.3-",
+    "publish.yml@refs/tags/v1.2.3 ",
+    "publish.yml@refs/tags/v1.2.3/../x",
+  ]) {
+    assert.doesNotMatch(base + id, re, `rejects ${id}`);
+  }
+  for (const url of [
+    "https://github.com/The-40-Thieves/obsidian-tc-fork/.github/workflows/release-image.yml@refs/heads/main",
+    "https://github.com/someone/obsidian-tc/.github/workflows/release-image.yml@refs/heads/main",
+    "https://github.com/someone/obsidian-tc/.github/workflows/publish.yml@refs/tags/v1.2.3",
+  ]) {
+    assert.doesNotMatch(url, re, `rejects other repo ${url}`);
+  }
+  assert.doesNotMatch(
+    "https://github.com/the-40-thieves/obsidian-tc/.github/workflows/publish.yml@refs/tags/v1.2.3",
+    re,
+    "owner and repo are matched in their real case",
+  );
 });

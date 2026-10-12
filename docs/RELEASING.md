@@ -85,7 +85,7 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
 
 3. **Merge to `main`.**
 
-4. **Tag.** A human pushes the annotated tag `v<x.y.z>`, firing `publish.yml`: the eight-triple
+4. **Tag.** A human pushes the annotated tag `v<x.y.z>` (signed by a key listed in `.github/allowed_signers` on `main`; that list is read from `main`, never from the tag, so a new signer's key must be merged before its tag can release), firing `publish.yml`: the eight-triple
    native build matrix (linux gnu+musl x64/arm64, darwin x64/arm64, win32 x64/arm64) → npm
    (dependency order, `obsidian-tc` last) → the MCP Registry entry (`publish-registry`, gated on
    every npm package `server.json` references resolving live on npmjs — see *MCP Registry publish*
@@ -147,7 +147,7 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
      ```
 
      The identity is an exact match for this release's tag (owner/repo in real case, workflow path
-     case-sensitive); the image is verified the same way, by digest (`cosign verify
+     case-sensitive); the image is verified by digest with the identity pattern in `SECURITY.md`, which accepts exactly the `publish.yml` release-tag identity and the `release-image.yml` recovery identity from `main` (`cosign verify
      ghcr.io/the-40-thieves/obsidian-tc@sha256:<digest> ...`, see `SECURITY.md`).
 
 6. **Confirm the registry entry (THE-940).** `publish-registry` runs mcp-publisher non-interactively
@@ -242,8 +242,8 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
   release as a draft, `check-release-assets.sh` compares it to the checksum list, the signature manifest
   and the pinned per-family counts, and only then is it published. This is separate from, and does not
   replace, the SSH-signed tag (`RELEASE-SIGNING.md`), the plugin's GitHub build-provenance attestation, or
-  npm provenance. The `release-image` dispatch workflow (an image-only re-push from the `v<x.y.z>` tag) does not sign the
-  image; it does verify each npm-delivered native `.node` against that release's `.sigstore.json` bundle
+  npm provenance. Recovery is dispatched from `main` with the version input (`release-image`, an image-only re-push of an existing version; its source is still the `v<x.y.z>` tag) and signs the image by
+  digest in the same shared action, under that run's identity (see `SECURITY.md`); it does verify each npm-delivered native `.node` against that release's `.sigstore.json` bundle
   before building, and it needs a tag whose source already contains the image's native/sqlite-vec
   staging (an older tag fails the boot smoke and is never promoted: cut a patch release instead).
   Consumer verification is documented in `SECURITY.md`.
