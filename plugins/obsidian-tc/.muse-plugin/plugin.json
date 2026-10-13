@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "name": "obsidian-tc",
   "displayName": "Obsidian Turbocharged",
-  "version": "1.33.0",
+  "version": "1.33.1",
   "description": "Governed Obsidian vault access over MCP: hybrid retrieval, Markdown-native memory, folder ACLs and HITL confirmations. Launches the published obsidian-tc npm package over stdio.",
   "author": {
     "name": "The 40 Thieves"
@@ -20,7 +20,7 @@
       {
         "id": "obsidian-tc",
         "transport": "stdio",
-        "command": ["npx", "-y", "obsidian-tc@1.33.0"]
+        "command": ["npx", "-y", "obsidian-tc@1.33.1"]
       }
     ]
   }
