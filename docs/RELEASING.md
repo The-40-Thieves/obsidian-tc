@@ -25,11 +25,11 @@ is, by itself, a reason to cut a release out of cadence.
 
 **The CHANGELOG coverage gate still requires PR numbers in entries.** `release.mjs`'s coverage
 check (*Step 1* below) asserts that every user-visible commit (`feat`/`fix`/`perf`/`build`, minus
-anything listed in `NOT_USER_VISIBLE`) since the previous tag is cited in `[Unreleased]`: a
-squash-merged commit is cited by its `(#N)` PR number appearing in the CHANGELOG text, a commit
-brought in by an ordinary merge commit is cited the same way via the PR number `release.mjs`
-recovers from that merge commit, and a rebase-merged commit — which carries no PR number anywhere
-in the commit graph — must instead be cited by **every** `THE-`-ticket id in its own commit
+anything listed in `NOT_USER_VISIBLE`) since the previous tag is cited in `[Unreleased]`. It first
+attributes a commit through the ordinary `Merge pull request #N` commit that brought it in. Only
+when no such merge exists does it use a trailing `(#N)` on the commit itself, which identifies a
+squash merge onto `main`. A rebase-merged commit — which carries no PR number anywhere in the
+commit graph — must instead be cited by **every** `THE-`-ticket id in its own commit
 subject; one with no ticket id in its subject at all fails the same way, reported as `(no ticket)`.
 Weekly cadence does not relax this: it still runs before every staged release, batched or
 out-of-cadence alike, and still fails the same way on an undocumented user-visible commit.
@@ -63,16 +63,21 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
    **Release notes come from `changes/` fragments.** Each PR adds its own `changes/<slug>.md`
    (front matter `type:` plus a CHANGELOG bullet; see `changes/README.md`) instead of editing the
    shared `[Unreleased]` block, so two PRs never conflict on a CHANGELOG line. `bun run
-   check:changes` validates them (a fragment is written without its PR number: `release.mjs` appends `(#N)` to its first bullet from the `Merge pull request #N` commit that brought it in, leaves an explicit `(#N)` alone, and refuses, naming the file, when no PR can be determined; it needs full history, so fetch with `--unshallow` first); a release with no fragments and an empty `[Unreleased]` refuses
+   check:changes` validates them (a fragment is written without its PR number: `release.mjs` uses
+   the path's newest add that is live in the release tree, appends `(#N)` from the enclosing
+   `Merge pull request #N` commit, and falls back to the adding commit's trailing `(#N)` only for a
+   squash onto `main`; it leaves an explicit `(#N)` alone and refuses, naming the file, when no PR
+   can be determined; it needs full history, so fetch with `--unshallow` first); a release with no fragments and an empty `[Unreleased]` refuses
    to stage.
 
    **The CHANGELOG coverage gate runs first**, before anything is mutated. It asserts that every
    user-visible commit since the previous tag (`feat`/`fix`/`perf`/`build`) is cited in the
    assembled `[Unreleased]` text (fragments included), because `release.mjs` only *renames* that section — a PR that never wrote an entry
-   would otherwise ship undocumented. Each commit is attributed to a PR by `(#N)` in its own subject
-   (squash merges) or through its enclosing `Merge pull request #N` commit (merge commits); a
-   rebase-merged commit carries no PR number anywhere and must be cited by **every** ticket id in its
-   subject instead. Genuinely internal work — CI scripts, dev tooling, pure refactors — goes in
+   would otherwise ship undocumented. Each commit is attributed through its enclosing
+   `Merge pull request #N` commit first; only a commit with no enclosing merge falls back to a
+   trailing `(#N)` in its own subject (a squash onto `main`). A rebase-merged commit carries no PR
+   number anywhere and must be cited by **every** ticket id in its subject instead. Genuinely
+   internal work — CI scripts, dev tooling, pure refactors — goes in
    `NOT_USER_VISIBLE` in `release.mjs`, keyed by PR number or 8-char sha with a one-line reason,
    because the "reclassify the commit" escape hatch is only available before the commit is on `main`.
 

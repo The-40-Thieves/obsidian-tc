@@ -11,6 +11,7 @@ import {
   readFragments,
   rollUnreleased,
 } from "./lib/changes.mjs";
+import { attributeReleasePrs } from "./lib/release-pr-attribution.mjs";
 
 // Release assembly fills each fragment's `(#N)` from git history, so a PR never commits its own
 // number after opening. The fixtures are real repos with merge-queue-shaped history: a PR branch
@@ -65,7 +66,12 @@ function makeRepo() {
     git("add", "-A");
     git("commit", "-q", "-m", subject);
   };
-  return { dir, git, mergePr, commitOnMain };
+  const removeOnMain = (name, subject) => {
+    rmSync(join(dir, name));
+    git("add", "-A");
+    git("commit", "-q", "-m", subject);
+  };
+  return { dir, git, mergePr, commitOnMain, removeOnMain };
 }
 
 function withRepo(fn) {
@@ -143,6 +149,54 @@ test("a squash-merged fragment takes the trailing (#N) of its own commit subject
     const [f] = fillPrNumbers(readFragments(dir), gitPrOf(dir));
     assert.equal(f.body, "- **S.** squashed (#51).");
   }));
+
+test("a merge PR beats the adding commit's trailing issue number", () =>
+  withRepo(({ dir, mergePr }) => {
+    mergePr(
+      1177,
+      "fix/vecs",
+      { "changes/vecs.md": frag("Fixed", "- **Vecs.** fixed.") },
+      "fix: repair vecs (#1161)",
+    );
+    const [f] = fillPrNumbers(readFragments(dir), gitPrOf(dir));
+    assert.equal(f.body, "- **Vecs.** fixed (#1177).");
+  }));
+
+test("a fragment re-added after a revert gets the re-adding PR", () =>
+  withRepo(({ dir, mergePr, removeOnMain }) => {
+    mergePr(1167, "fix/safe-open-first", {
+      "changes/safe-open.md": frag("Fixed", "- **Safe open.** fixed."),
+    });
+    removeOnMain("changes/safe-open.md", "revert: remove safe-open fragment");
+    mergePr(1175, "fix/safe-open-again", {
+      "changes/safe-open.md": frag("Fixed", "- **Safe open.** fixed again."),
+    });
+    const [f] = fillPrNumbers(readFragments(dir), gitPrOf(dir));
+    assert.equal(f.body, "- **Safe open.** fixed again (#1175).");
+  }));
+
+test("a slug reused in a later release cycle gets the newer PR", () =>
+  withRepo(({ dir, mergePr, removeOnMain }) => {
+    mergePr(10, "feat/first-cycle", {
+      "changes/reused.md": frag("Added", "- **First.** shipped."),
+    });
+    removeOnMain("changes/reused.md", "chore: consume release fragments");
+    mergePr(20, "feat/second-cycle", {
+      "changes/reused.md": frag("Added", "- **Second.** shipped."),
+    });
+    const [f] = fillPrNumbers(readFragments(dir), gitPrOf(dir));
+    assert.equal(f.body, "- **Second.** shipped (#20).");
+  }));
+
+test("release coverage credits the merge PR instead of a trailing issue number", () => {
+  const commit = {
+    sha: "0123456789abcdef",
+    subject: "fix: repair vecs (#1161)",
+  };
+  const { prs, orphans } = attributeReleasePrs([commit], new Map([[commit.sha, "1177"]]));
+  assert.deepEqual([...prs], ["1177"]);
+  assert.deepEqual(orphans, []);
+});
 
 test("an orphan fragment (no PR) makes the release refuse and names the file", () =>
   withRepo(({ dir, mergePr, commitOnMain }) => {

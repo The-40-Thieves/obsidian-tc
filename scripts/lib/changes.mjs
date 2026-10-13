@@ -126,10 +126,11 @@ export function fillPrNumbers(fragments, prOf) {
 }
 
 /**
- * `file -> PR number` from git history alone: the oldest commit that added the file, then the
+ * `file -> PR number` from git history alone: the newest commit that added the file, then the
  * first `Merge pull request #N` commit whose second-parent side contains it (the merge queue
  * merges with merge commits), else a trailing `(#N)` on that commit's own subject (a squash
- * merge). `null` when the file was never committed or never reached `ref` through a PR.
+ * merge directly onto the target branch). `null` when the file was never committed or never
+ * reached `ref` through a PR.
  */
 export function gitPrOf(root = ".", ref = "HEAD") {
   const git = (...args) =>
@@ -151,13 +152,11 @@ export function gitPrOf(root = ".", ref = "HEAD") {
     } catch {
       return null;
     }
-    const oldest = added.at(-1);
-    if (!oldest) return null;
-    const [sha, parents, ...subject] = oldest.split("\t");
+    const newest = added[0];
+    if (!newest) return null;
+    const [sha, parents, ...subject] = newest.split("\t");
     // No parent: the root commit, or a shallow-clone boundary that "adds" every file it holds.
     if (!parents) return null;
-    const squash = /\(#(\d+)\)\s*$/.exec(subject.join("\t"));
-    if (squash) return squash[1];
     let merges;
     try {
       merges = git(
@@ -180,7 +179,8 @@ export function gitPrOf(root = ".", ref = "HEAD") {
       const [first, second] = parents.split(" ");
       if (second && isAncestor(sha, second) && !isAncestor(sha, first)) return pr[1];
     }
-    return null;
+    const squash = /\(#(\d+)\)\s*$/.exec(subject.join("\t"));
+    return squash?.[1] ?? null;
   };
 }
 
