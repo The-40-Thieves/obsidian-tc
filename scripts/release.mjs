@@ -126,6 +126,7 @@ const NOT_USER_VISIBLE = new Map([
   ["783", "eval harness: ceiling + fusion-conversion probe result, eval-only"],
   ["816", "release tooling: reranker-local prepack build guard, no shipped-code effect"],
   ["822", "test-only: 15s timeout for plane-disabled-reflect-stays-wired"],
+  ["1221", "test-only: the zero-config smoke waits for its boot reconcile before asserting"],
 ]);
 
 // Completeness gate. release.mjs only RENAMES [Unreleased] -> [next]; it does not generate notes.
