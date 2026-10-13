@@ -252,9 +252,10 @@ type: Changed
 ```
 
 `type` is one of `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`. The body is
-verbatim CHANGELOG markdown; do not write the PR number. The release derives it from the merge history and
-appends `(#N)` to the first bullet, because its coverage gate looks for that number; a fragment that
-already cites `(#N)` is left as written. A change to the type, default or constraint of an existing config key also
+verbatim CHANGELOG markdown; do not write the PR number. The release uses the path's newest live
+add, derives its number from the enclosing merge PR first, and uses a trailing `(#N)` on the adding
+commit only for a squash onto `main`. It appends that number to the first bullet because its
+coverage gate looks for it; a fragment that already cites `(#N)` is left as written. A change to the type, default or constraint of an existing config key also
 adds `config-schema-change: path.to.key` to the front matter, and rewording an advertised tool description
 adds `tool-description-change: tool_name` (after `bun run tool-descriptions:update` in `packages/server`;
 clients such as claude.ai re-prompt for approval when a description changes). `bun run check:changes` validates
@@ -414,7 +415,8 @@ Steps (repository admin, GitHub web UI; labels move, so match by name):
 2. Tick **Require merge queue**. The option is only offered where the plan and repository allow it
    (public repositories owned by an organization). If it is missing, the plan does not include it.
 3. Set: **Merge method** = *Merge commit* (what `main` history uses today: `Merge pull request #N`,
-   from which the release coverage gate recovers the PR number); **Build concurrency** 1 to start; **Minimum/maximum group
+   which the release coverage gate prefers over any trailing `(#N)` in a branch commit; that
+   subject form is only the fallback for a squash onto `main`); **Build concurrency** 1 to start; **Minimum/maximum group
    size** 1 (no batching until the queue is proven); **Only merge non-failing pull requests** on;
    **Status check timeout** above the slowest required leg (the `build-test` matrix).
 4. Leave the required status checks list as it is (`gh api repos/The-40-Thieves/obsidian-tc/branches/main/protection/required_status_checks --jq '.contexts[]'`).
@@ -436,12 +438,12 @@ reverting; the extra `merge_group:` triggers are inert without the queue.
 
 Releases are coordinated by maintainers; contributors do not need to drive them. Briefly:
 
-1. Run `bun run release <patch|minor|major>` (`scripts/release.mjs`). It sets the version across every `package.json` plus the distribution metadata (`server.json`, `manifest.json`), rolls the CHANGELOG `[Unreleased]` → `[next] - <date>`, refreshes `bun.lock`, and runs the version-coherence gate. It requires a non-empty `[Unreleased]` section, and the Obsidian plugin manifest is excluded (the plugin versions on its own cadence).
-2. Open a release PR, get reviews, merge.
-3. A maintainer pushes tag `v<x.y.z>`; `publish.yml` builds the eight-triple native matrix (linux gnu+musl x64/arm64, darwin x64/arm64, win32 x64/arm64) and publishes to npm (`pending` → `latest`), pushes the GHCR image, and drafts a GitHub Release.
-4. Plugin-store submission is a separate PR to `obsidianmd/obsidian-releases` for new minor versions.
+1. Run `bun scripts/release.mjs <patch|minor|major|x.y.z>` to stage the version, release notes, lockfile, and distribution metadata.
+2. Open the generated changes as a release PR, review it, and merge it.
+3. A maintainer creates and pushes a **signed** `v<x.y.z>` tag as described in `docs/RELEASE-SIGNING.md`.
+4. The tag starts `.github/workflows/publish.yml`, which publishes the packages and release artifacts.
 
-The full runbook lives at `docs/G2.5-release-engineering.md` §9.
+The current runbook lives at `docs/RELEASING.md`.
 
 ## License and Sign-off (DCO)
 

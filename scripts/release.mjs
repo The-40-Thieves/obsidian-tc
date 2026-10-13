@@ -20,6 +20,7 @@ import {
   PLUGIN_MCP_JSON,
   pinnedPackageSpec,
 } from "./lib/plugin-manifest-versions.mjs";
+import { attributeReleasePrs } from "./lib/release-pr-attribution.mjs";
 
 // Every path below is a hardcoded repo-relative metadata file; this guard keeps
 // the reads/writes provably contained to the repo root (defense in depth).
@@ -161,11 +162,12 @@ if (haveTag) {
     );
     process.exit(1);
   }
-  // Attribute each commit to a PR. Three merge styles land on main and only two leave a mark in
-  // the commit graph:
-  //   squash merge  -> `(#N)` in the commit's own subject
+  // Attribute each commit to a PR. Prefer the merge graph so a branch commit's trailing issue
+  // number cannot override the PR that brought it to main. Three merge styles land on main and
+  // only two leave a recoverable mark:
   //   merge commit  -> `Merge pull request #N from ...` on the MERGE COMMIT; every commit it
-  //                    brings in carries no marker at all
+  //                    brings in belongs to that PR, regardless of its own subject
+  //   squash merge  -> no enclosing merge; `(#N)` in the commit's own subject is the fallback
   //   rebase merge  -> no marker anywhere
   // Reading subjects alone therefore sees only the squashes. At the v1.14.0 cut that was 18 of 61
   // user-visible commits: the gate printed "coverage OK (18 user-visible PR(s))" while 43 commits
@@ -205,22 +207,7 @@ if (haveTag) {
   // User-visible by type. docs/chore/test/ci/refactor/style are exempt.
   const userVisible = commits.filter((c) => /^(feat|fix|perf|build)[(!:]/.test(c.subject));
 
-  const prs = new Set();
-  const orphans = [];
-  for (const c of userVisible) {
-    if (NOT_USER_VISIBLE.has(c.sha.slice(0, 8))) continue;
-    const inline = [...c.subject.matchAll(/\(#(\d+)\)/g)].map((m) => m[1]);
-    if (inline.length) {
-      for (const n of inline) prs.add(n);
-      continue;
-    }
-    const viaMerge = prOfCommit.get(c.sha);
-    if (viaMerge) {
-      prs.add(viaMerge);
-      continue;
-    }
-    orphans.push(c);
-  }
+  const { prs, orphans } = attributeReleasePrs(userVisible, prOfCommit, NOT_USER_VISIBLE);
 
   const missing = [...prs].filter((n) => !NOT_USER_VISIBLE.has(n) && !body.includes(`#${n}`));
   // A rebase-merged commit carries no PR number anywhere, so it has to be cited by ticket. Require
