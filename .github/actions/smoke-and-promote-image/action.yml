@@ -54,6 +54,9 @@ runs:
           got=$(docker image inspect --format '{{.Architecture}}' "$ref")
           [ "$got" = "$want" ] || { echo "::error::pulled $ref for $platform but the image is $got"; exit 1; }
           node scripts/docker-boot-smoke.mjs "$ref" --platform "$platform"
+          # The classic image store keeps one image per digest ref: pulling the next platform of the same
+          # ref fails "cannot overwrite digest" (v1.33.0's first tag run) unless this one is removed first.
+          docker image rm -f "$ref"
         done
     # Signing sits between the boot smoke and the promotion, by DIGEST: the signature covers exactly the
     # image that was booted, and it exists before any public tag can point at that digest.
