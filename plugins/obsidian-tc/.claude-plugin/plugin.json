@@ -1,7 +1,7 @@
 {
   "name": "obsidian-tc",
   "displayName": "Obsidian Turbocharged",
-  "version": "1.32.0",
+  "version": "1.33.0",
   "description": "Governed Obsidian vault access over MCP: hybrid retrieval, Markdown-native memory, folder ACLs and HITL confirmations. Launches the published obsidian-tc npm package over stdio.",
   "author": {
     "name": "The 40 Thieves",

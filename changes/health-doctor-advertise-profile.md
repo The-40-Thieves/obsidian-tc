@@ -1,5 +1,0 @@
----
-type: Changed
----
-- **`server_health` and `doctor` now report the tool-budget profile, not just `toolFacade.mode`.** `server_health`'s `toolFacade` block gains `advertise` (the configured `toolFacade.advertise`) and `effectiveAdvertise` (the subset this connection's URL selected, so `/mcp/essentials` reads `configured: "triad"`, `effective: "flat"`, `effectiveAdvertise: "essentials"` instead of looking contradictory). The `toolFacade.doctor` check reports `advertise` and a `urlProfiles` table of every `/mcp/<profile>` URL with the mode and subset it selects. Additive output fields; no tool description changes.
-- **Internal:** `toMcpTool` and `toMcpToolNoOutputSchema` take `{ maxResponseBytes }` instead of a positional number, so `defs.map(toMcpTool)` is a type error rather than silently passing the array index as the response budget (the Smithery card generator had that call shape). Test files that returned early on Windows now use `it.skipIf`, so the Windows leg reports them as skipped, and a new test keeps it that way.

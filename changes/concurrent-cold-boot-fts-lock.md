@@ -1,4 +1,0 @@
----
-type: Fixed
----
-- **Several servers starting on one cache directory no longer queue behind each other, and none of them silently loses full-text search or crashes.** Every boot ran a consistency check between the notes table and its full-text index that took SQLite's single write lock even when nothing needed repairing, and scanned the whole index once per note (quadratic in vault size). The first process held the lock for the whole scan, so each sibling waited out `busy_timeout` and then either started with full-text search off or died with `database is locked`; this is why `ready on stdio` stepped later with every extra instance (GH #1209). The check is now read-only and linear, and the repair writes run only when the two tables actually disagree. Measured on a 3 000-note warm index, one server to `ready` went from 11-18 s to 1.3-2.7 s, and six servers started together no longer lose a member.
