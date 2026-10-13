@@ -29,6 +29,7 @@ import {
 import { createHttpApp } from "../src/transports/http";
 import { openMemoryDb } from "./helpers";
 import { REGISTERED_TOOL_COUNT } from "./registered-tool-count";
+import { stallTimeout } from "./stall-timeouts";
 
 const FULL = { grantedScopes: new Set(["*"]) };
 
@@ -257,15 +258,21 @@ describe("URL routing on the HTTP transport", () => {
     await a.close();
   });
 
-  it("/mcp/full serves the whole flat surface and /mcp/core the existing core curation", async () => {
-    const a = app();
-    expect((await listAt(a, "/mcp/full")).names.length).toBe(REGISTERED_TOOL_COUNT);
-    expect((await listAt(a, "/mcp/core")).names.length).toBe(
-      REGISTERED_TOOL_COUNT - NON_CORE_TOOL_NAMES.length,
-    );
-    expect((await listAt(a, "/mcp/triad")).names.length).toBe(3 + TRIAD_DIRECT_TOOLS.length);
-    await a.close();
-  });
+  // Three HTTP tools/list round trips, one of them the whole flat surface: 6.5s on macos-15-intel,
+  // past the 5s default there.
+  it(
+    "/mcp/full serves the whole flat surface and /mcp/core the existing core curation",
+    async () => {
+      const a = app();
+      expect((await listAt(a, "/mcp/full")).names.length).toBe(REGISTERED_TOOL_COUNT);
+      expect((await listAt(a, "/mcp/core")).names.length).toBe(
+        REGISTERED_TOOL_COUNT - NON_CORE_TOOL_NAMES.length,
+      );
+      expect((await listAt(a, "/mcp/triad")).names.length).toBe(3 + TRIAD_DIRECT_TOOLS.length);
+      await a.close();
+    },
+    stallTimeout(20_000),
+  );
 
   it("an unknown or inherited-key surface is a 404, never a silent default", async () => {
     const a = app();
