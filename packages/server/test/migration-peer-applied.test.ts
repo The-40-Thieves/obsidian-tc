@@ -308,7 +308,7 @@ describe("schema migration peer races", () => {
       });
     const writers = sourceFiles(root).filter(
       (file) =>
-        !file.endsWith("db/migrations-embedded.ts") &&
+        file !== join(root, "db", "migrations-embedded.ts") &&
         readFileSync(file, "utf8").includes("INSERT INTO schema_migrations"),
     );
     expect(writers.length).toBeGreaterThan(0);
