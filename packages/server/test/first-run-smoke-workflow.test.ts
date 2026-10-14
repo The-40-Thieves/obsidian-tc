@@ -42,8 +42,8 @@ const wf = parse(text) as {
 const job = wf.jobs["first-run"];
 
 describe("ci-first-run-smoke.yml", () => {
-  it("is a 3 paths x 5 operating systems matrix, both Intel macOS labels included", () => {
-    expect(job?.strategy?.matrix.path).toEqual(["npm", "mcpb", "binary"]);
+  it("is a 4 paths x 5 operating systems matrix, both Intel macOS labels included", () => {
+    expect(job?.strategy?.matrix.path).toEqual(["npm", "npm-local", "mcpb", "binary"]);
     expect(job?.strategy?.matrix.os).toEqual([
       "ubuntu-latest",
       "macos-latest",
@@ -51,6 +51,26 @@ describe("ci-first-run-smoke.yml", () => {
       "macos-26-intel",
       "windows-latest",
     ]);
+  });
+
+  it("packs generated embedder npm tarballs once and makes the npm-local cells consume them", () => {
+    const pack = wf.jobs["pack-embedder-local"];
+    expect(pack, "pack-embedder-local job").toBeDefined();
+    const packText = pack?.steps.map((step) => step.run ?? "").join("\n") ?? "";
+    expect(packText).toContain("bun scripts/pack-embedder-local.ts");
+    expect(packText).toContain("npm pack");
+    expect(text).toContain("first-run-embedder-tgz");
+    expect(text).toContain("--npm-extra");
+    expect(text).toContain("--report-path npm-local");
+  });
+
+  it("the npm-local cell finds its tarballs without a bash glob over RUNNER_TEMP", () => {
+    const smoke = job?.steps.find((s) => s.id === "smoke")?.run ?? "";
+    expect(smoke).toContain("scripts/lib/pick-tgz.mjs");
+    // Git Bash on Windows treats the backslashes in RUNNER_TEMP as glob escapes.
+    expect(smoke).not.toMatch(/\.tgz\)/);
+    expect(smoke).not.toMatch(/\*\.tgz/);
+    expect(smoke).not.toMatch(/\[0-9\]\*/);
   });
 
   it("each Intel macOS label builds its own darwin-x64 standalone binary", () => {
