@@ -83,6 +83,7 @@ export interface IndexResourcesDeps {
    *  embedding PORT — so the provider this returns is guarded before ANY consumer sees it. Absent
    *  -> excludes nothing. */
   excludeFilter?: EgressFilter;
+  guardSchema?: <T>(fn: () => T) => Promise<T>;
 }
 
 /** Mutable index-health tracker surfaced by server_health. reconcile flips pending -> ok/degraded
@@ -183,13 +184,17 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
     ...deps.embeddings,
     ...(deps.chunkTokens !== undefined ? { chunkTokens: deps.chunkTokens } : {}),
   });
-  const hasVec = ensureVecChunks(deps.db, representation, {
-    now: Date.now,
-    onRebuild: deps.onVecRebuild,
-    // Fix A: the backfill must match what chunk_embeddings.model actually stores.
-    activeModel: embeddingProvider.id,
-  });
-  ensureNotesFts(deps.db, { now: Date.now });
+  const provision = (): boolean => {
+    const vec = ensureVecChunks(deps.db, representation, {
+      now: Date.now,
+      onRebuild: deps.onVecRebuild,
+      // Fix A: the backfill must match what chunk_embeddings.model actually stores.
+      activeModel: embeddingProvider.id,
+    });
+    ensureNotesFts(deps.db, { now: Date.now });
+    return vec;
+  };
+  const hasVec = await (deps.guardSchema ? deps.guardSchema(provision) : provision());
   const fts = createFtsMonitor(deps.db);
   const indexHealth: IndexHealthState = {
     reconcile: "pending",

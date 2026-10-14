@@ -4,6 +4,8 @@
 // search_text promises — unicode61 would silently lose recall). All FTS writes are app-managed
 // behind the ensureNotesFts capability probe, mirroring ensureVecChunks/sqlite-vec: a cache.db
 // written under an FTS5-capable adapter stays openable under one without it.
+import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { applySchemaMigration, type SchemaMigrationHooks } from "../db/migrate";
 import { busyReason } from "../db/txn";
 import type { Database } from "../db/types";
 import { parseNote } from "../vault/frontmatter";
@@ -45,7 +47,7 @@ export function hasNotesTable(db: Database): boolean {
  */
 export function ensureNotesFts(
   db: Database,
-  opts: { now?: () => number; force?: boolean } = {},
+  opts: { now?: () => number; force?: boolean; migrationHooks?: SchemaMigrationHooks } = {},
 ): boolean {
   const now = opts.now ?? Date.now;
   const known = ftsRecord(db);
@@ -63,17 +65,26 @@ export function ensureNotesFts(
     return false;
   }
   try {
-    db.exec(
-      "CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(vault_id UNINDEXED, path, title, content, tokenize='trigram')",
-    );
     const version = "20260702_002_notes_fts";
-    const recorded = db
-      .prepare("SELECT version FROM schema_migrations WHERE version = ?")
-      .get(version);
-    if (!recorded) {
-      db.prepare(
-        "INSERT INTO schema_migrations (version, applied_at, obsidian_tc_version, duration_ms, checksum) VALUES (?, ?, ?, ?, ?)",
-      ).run(version, now(), "m2-runtime", 0, "fts5:trigram");
+    const ddl =
+      "CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(vault_id UNINDEXED, path, title, content, tokenize='trigram')";
+    const applied = applySchemaMigration(
+      db,
+      {
+        version,
+        checksum: "fts5:trigram",
+        obsidianTcVersion: "m2-runtime",
+        appliedAt: now,
+        durationMs: () => 0,
+      },
+      () => db.exec(ddl),
+      opts.migrationHooks,
+    );
+    if (
+      !applied &&
+      db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'notes_fts'").get() === undefined
+    ) {
+      db.exec(ddl);
     }
     // DIVERGENCE REPAIR. `notes` is DURABLE; `notes_fts` is a DERIVED index, runtime-provisioned and
     // rebuildable from the vault files. So the repair may never delete from `notes` on the strength of
@@ -132,6 +143,7 @@ export function ensureNotesFts(
     setFtsRecord(db, { kind: "available" });
     return true;
   } catch (e) {
+    if (e instanceof ObsidianTcError) throw e;
     if (busyReason(e)) return recordBusy(db, e, now);
     setFtsRecord(db, {
       kind: "terminal",

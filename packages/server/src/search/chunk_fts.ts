@@ -6,7 +6,8 @@
 // chunks never become chunks), so a row-count divergence rebuilds it wholesale from chunks; no
 // per-write sync-detector is needed. Runtime-provisioned like notes_fts/vec_chunks: a cache.db
 // written under an FTS5-less adapter stays openable under one with FTS5.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { applySchemaMigration, type SchemaMigrationHooks } from "../db/migrate";
 import { busyReason } from "../db/txn";
 import type { Database } from "../db/types";
 import { enrichChunkText } from "./chunk";
@@ -39,7 +40,7 @@ export function ensureChunkFts(
    *  of raw chunk content, so the BM25 stream can never silently de-enrich under a live enriched
    *  index. Callers that cannot know the flag omit it and get the raw rebuild — correct for
    *  legacy raw indexes, which are the only place a flagless rebuild occurs. */
-  opts: { now?: () => number; enrich?: boolean } = {},
+  opts: { now?: () => number; enrich?: boolean; migrationHooks?: SchemaMigrationHooks } = {},
 ): boolean {
   const cached = chunkFtsCache.get(db);
   if (cached !== undefined) return cached;
@@ -71,17 +72,27 @@ export function ensureChunkFts(
     // rowid. `contentless_delete=1` (FTS5 3.43+; the runtimes here are 3.53) is what makes
     // `DELETE ... WHERE rowid = ?` legal at all.
     migrateChunkFtsShape(db);
-    db.exec(
-      "CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(content, content='', contentless_delete=1, tokenize='porter unicode61')",
-    );
     const version = "20260710_001_chunk_fts";
-    const recorded = db
-      .prepare("SELECT version FROM schema_migrations WHERE version = ?")
-      .get(version);
-    if (!recorded) {
-      db.prepare(
-        "INSERT INTO schema_migrations (version, applied_at, obsidian_tc_version, duration_ms, checksum) VALUES (?, ?, ?, ?, ?)",
-      ).run(version, now(), "search-runtime", 0, "fts5:porter");
+    const ddl =
+      "CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5(content, content='', contentless_delete=1, tokenize='porter unicode61')";
+    const applied = applySchemaMigration(
+      db,
+      {
+        version,
+        checksum: "fts5:porter",
+        obsidianTcVersion: "search-runtime",
+        appliedAt: now,
+        durationMs: () => 0,
+      },
+      () => db.exec(ddl),
+      opts.migrationHooks,
+    );
+    // The row is historical; the derived table can still need repair/recreation.
+    if (
+      !applied &&
+      db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'chunk_fts'").get() === undefined
+    ) {
+      db.exec(ddl);
     }
     const nChunks = (db.prepare("SELECT COUNT(*) AS n FROM chunks").get() as { n: number }).n;
     const nFts = (db.prepare("SELECT COUNT(*) AS n FROM chunk_fts").get() as { n: number }).n;
@@ -119,6 +130,7 @@ export function ensureChunkFts(
     chunkFtsCache.set(db, true);
     return true;
   } catch (e) {
+    if (e instanceof ObsidianTcError) throw e;
     if (busyReason(e)) {
       const attempts = (busy?.attempts ?? 0) + 1;
       chunkFtsBusy.set(db, { attempts, nextRetryAt: now() + ftsBackoffMs(attempts) });

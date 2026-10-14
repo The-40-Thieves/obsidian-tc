@@ -8,6 +8,7 @@ import { type OwnedLayer, requireBoot, unwindReversed } from "./boot-helpers";
 import { wireGovernance } from "./governance";
 import { type IndexHealthState, wireIndexResources } from "./indexing-wiring";
 import type { RuntimeCore, RuntimeCoreDeps } from "./runtime-core-types";
+import { withBootstrapBarrier } from "./vault-lock";
 
 /**
  * Composes governance -> index resources on top of already-open stores, with no process-argument
@@ -81,6 +82,10 @@ export async function wireRuntimeCore(deps: RuntimeCoreDeps): Promise<RuntimeCor
       securityProfile: deps.securityProfile,
       cacheDir: deps.cacheDir,
       ...(deps.excludeFilter !== undefined ? { excludeFilter: deps.excludeFilter } : {}),
+      // The stores barrier ends before runtime resources are built. Reacquire it around only the
+      // two runtime-provisioned index migrations, which otherwise run before leader election
+      // exists; provider construction stays outside the 60 s barrier wait.
+      guardSchema: (fn) => withBootstrapBarrier(deps.cacheDir, async () => fn()),
     });
     indexHealthRef = indexResources.indexHealth;
     built.push({ name: "indexResources", close: () => {} });

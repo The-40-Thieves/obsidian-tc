@@ -2,6 +2,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { applySchemaMigration, type SchemaMigrationHooks } from "../db/migrate";
 import { cachedPrepare, type Database } from "../db/types";
 import { type RepresentationManifest, representationFingerprint } from "./representation";
 import {
@@ -204,6 +205,8 @@ export function ensureVecChunks(
      *  every deployed index to rebuild. Undefined preserves today's behaviour exactly (bind
      *  `fp.model`), so no non-production caller changes. */
     activeModel?: string;
+    /** Test-only deterministic interleaving seam; production callers omit it. */
+    migrationHooks?: SchemaMigrationHooks;
   } = {},
 ): boolean {
   if (!loadVec(db)) return false;
@@ -235,7 +238,24 @@ export function ensureVecChunks(
   // the incremental per-chunk path (390 of 16,882 rows, no error) — every caller that drops the
   // table (the eval loaders) hit it, not just the one that reported it.
   const missingWithRows = !hasTable && hasActiveEmbeddingsToMirror(db);
-  if (!hasTable) db.exec(ddl);
+  const applied = applySchemaMigration(
+    db,
+    {
+      version,
+      checksum: `vec0:cosine:${dims}`,
+      obsidianTcVersion: "m2-runtime",
+      appliedAt: now,
+      durationMs: () => 0,
+    },
+    () => db.exec(ddl),
+    opts.migrationHooks,
+  );
+  if (
+    !applied &&
+    db.prepare("SELECT 1 AS x FROM sqlite_master WHERE name = 'vec_chunks'").get() === undefined
+  ) {
+    db.exec(ddl);
+  }
   if (hasTable || missingWithRows) {
     // Shape-detect a legacy (pre-partition) table and rebuild it IN PLACE from the stored
     // embeddings — chunk_embeddings holds every active vector, so no re-embed is needed and
@@ -297,20 +317,20 @@ export function ensureVecChunks(
         shortfall = backfillShortfall(db, active, inserted);
       }
       const rebuiltVersion = `20260712_004_vec_chunks_aux_${dims}`;
-      const rec = db
-        .prepare("SELECT version FROM schema_migrations WHERE version = ?")
-        .get(rebuiltVersion);
-      if (!rec) {
-        db.prepare(
-          "INSERT INTO schema_migrations (version, applied_at, obsidian_tc_version, duration_ms, checksum) VALUES (?, ?, ?, ?, ?)",
-        ).run(
-          rebuiltVersion,
-          now(),
-          "m2-runtime",
-          0,
-          `vec0:partition+aux:${dims}${skipped > 0 ? `:skipped${skipped}` : ""}${shortfall ? `:short${shortfall.inserted}of${shortfall.active}` : ""}`,
-        );
-      }
+      applySchemaMigration(
+        db,
+        {
+          version: rebuiltVersion,
+          checksum: `vec0:partition+aux:${dims}${skipped > 0 ? `:skipped${skipped}` : ""}${shortfall ? `:short${shortfall.inserted}of${shortfall.active}` : ""}`,
+          obsidianTcVersion: "m2-runtime",
+          appliedAt: now,
+          durationMs: () => 0,
+          // The text carries this run's skipped/short counts; a later rebuild's counts differ.
+          advisoryChecksum: true,
+        },
+        () => {},
+        opts.migrationHooks,
+      );
       // THE-612: a full re-embed of every vault sharing this table, previously silent. `legacy`,
       // `fpChanged` and `missingWithRows` are the only ways into this block; one reason applies.
       const reason: VecRebuildEvent["reason"] = legacy
@@ -335,14 +355,6 @@ export function ensureVecChunks(
         );
       opts.onRebuild?.({ reason, skippedVectors: skipped, ...(shortfall ? { shortfall } : {}) });
     }
-  }
-  const recorded = db
-    .prepare("SELECT version FROM schema_migrations WHERE version = ?")
-    .get(version);
-  if (!recorded) {
-    db.prepare(
-      "INSERT INTO schema_migrations (version, applied_at, obsidian_tc_version, duration_ms, checksum) VALUES (?, ?, ?, ?, ?)",
-    ).run(version, now(), "m2-runtime", 0, `vec0:cosine:${dims}`);
   }
   // THE-460: only write when the fingerprint actually changed — a no-change call (fingerprint
   // matches, table already current) stays a true no-op with no writes here.
