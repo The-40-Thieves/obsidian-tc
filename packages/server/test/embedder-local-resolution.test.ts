@@ -53,6 +53,19 @@ function writeAnchorOnly(root: string): string {
 }
 
 describe("resolveLocalEmbedderModule — the ladder", () => {
+  it("records a string import error code on failed attempts", async () => {
+    const importError = Object.assign(new Error("missing platform runtime"), {
+      code: "OBTC_EMBEDDER_RUNTIME_MISSING",
+    });
+    const resolution = await resolveLocalEmbedderModule({}, {}, async () => {
+      throw importError;
+    });
+    expect(resolution.ok).toBe(false);
+    expect(resolution.attempts.find((attempt) => attempt.route === "bare-specifier")?.code).toBe(
+      "OBTC_EMBEDDER_RUNTIME_MISSING",
+    );
+  });
+
   it("fails cleanly — never throws — when nothing resolves", async () => {
     const anchorRoot = makeTempDir("obtc-embedder-local-unbuilt-");
     try {
@@ -236,14 +249,31 @@ describe("buildLocalEmbeddingProvider", () => {
     ]);
   });
 
-  it("embed() rejects (never silently degrades) when resolution fails, naming the doctor remedy", async () => {
+  it("embed() rejects with the missing runtime package and optional-dependency remedy", async () => {
+    const runtimePackage = `@the-40-thieves/obsidian-tc-embedder-local-${process.platform}-${process.arch}`;
     const resolveModule = async () => ({
       ok: false as const,
-      attempts: [{ route: "bare-specifier" as const, target: "x", ok: false, error: "boom" }],
+      attempts: [
+        {
+          route: "bare-specifier" as const,
+          target: "x",
+          ok: false,
+          error: "boom",
+          code: "OBTC_EMBEDDER_RUNTIME_MISSING",
+        },
+      ],
       inSourceCheckout: false,
     });
     const provider = buildLocalEmbeddingProvider(BASE_CFG, TEST_CTX, resolveModule);
-    await expect(provider.embed(["a"])).rejects.toThrow(/could not resolve/);
+    try {
+      await provider.embed(["a"]);
+      throw new Error("expected embed() to reject");
+    } catch (error) {
+      const details = (error as { details?: { hint?: string } }).details;
+      expect(details?.hint).toContain(runtimePackage);
+      expect(details?.hint).toContain("--omit=optional");
+      expect(details?.hint).toMatch(/ollama|hosted provider/);
+    }
   });
 
   it("a failed resolution is NOT memoized — a later call that fixes the environment succeeds", async () => {
