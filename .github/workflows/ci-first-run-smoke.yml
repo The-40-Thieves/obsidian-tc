@@ -55,11 +55,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # The Intel npm cells install published obsidian-tc@latest (currently 1.32.0), which predates the
-  # Node WASM-cache fix in this change. Remove both once a release containing the fix is npm latest.
-  EXPECTED_FAILURES: >-
-    npm/macos-15-intel
-    npm/macos-26-intel
+  # Space-separated `<path>/<os>` cells that fail today, one per line, each with the reason. Empty:
+  # every cell is enforced.
+  EXPECTED_FAILURES: ''
   # The model weights the local embedder downloads on first use, cached like ci-server.yml's
   # zero-config-smoke-local-embeddings job (same key: bump with model-info.ts's pinned revision).
   EMBEDDER_REVISION: e9b6763023c676ca8431644204f50c2b100d9aab
