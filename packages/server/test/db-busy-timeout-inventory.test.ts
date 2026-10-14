@@ -45,7 +45,7 @@ const ALLOWLIST: Record<string, string> = {
     "standalone perf-probe database — see the :61 entry above (same file, the paired holder/waiter connection).",
   "packages/server/eval/history.ts:366":
     "eval/runs.db, this script's own run-history store selected by a --db flag / DEFAULT_DB, never the production cache.db/experiential.db — no loadConfig() or ServerConfig anywhere in this file.",
-  "packages/server/eval/perf/harness.ts:252":
+  "packages/server/eval/perf/harness.ts:255":
     'opens ":memory:", not a file — every :memory: connection is its own SEPARATE database (same fact lock.ts\'s own header documents), so there is no shared file and structurally no contention busy_timeout could ever apply to; buildVault(sc: Scenario) also has no ServerConfig in scope.',
 };
 

@@ -36,14 +36,33 @@ describe("perf harness synthetic vault", () => {
   });
 
   it(
-    "exposes a real write-transaction count from indexVault's own batching (THE-503)",
+    "excludes lazy schema setup from indexVault's write-transaction count (THE-503)",
     async () => {
       const v = await buildVault(SCENARIOS.small);
-      expect(v.writeTxnCount).toBeGreaterThan(0);
-      // 100 notes fit in one THE-500 batch flush (default 100 notes / 8MiB) -> one write txn,
-      // nowhere near "one per chunk" (200 chunks).
-      expect(v.writeTxnCount).toBeLessThan(v.chunkCount);
-      v.cleanup();
+      try {
+        const runtimeSchemas = v.db
+          .prepare(
+            `SELECT version FROM schema_migrations
+             WHERE version IN (
+               '20260519_002_vec_chunks_32',
+               '20260702_002_notes_fts',
+               '20260710_001_chunk_fts'
+             )
+             ORDER BY version`,
+          )
+          .all() as Array<{ version: string }>;
+
+        // These schemas each use applySchemaMigration's BEGIN IMMEDIATE on a cold database. They
+        // are harness setup, not indexVault batching, and therefore must be outside the counter.
+        expect(runtimeSchemas.map((row) => row.version)).toEqual([
+          "20260519_002_vec_chunks_32",
+          "20260702_002_notes_fts",
+          "20260710_001_chunk_fts",
+        ]);
+        expect(v.writeTxnCount).toBe(3);
+      } finally {
+        v.cleanup();
+      }
     },
     perfTimeout(5_000),
   );

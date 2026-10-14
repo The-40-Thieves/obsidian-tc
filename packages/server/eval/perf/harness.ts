@@ -7,8 +7,11 @@ import { provisionCacheDb } from "../../src/db/provision";
 import type { Database, Statement } from "../../src/db/types";
 import { type EmbeddingProvider, fakeEmbeddingProvider } from "../../src/embeddings";
 import { estimateTokens } from "../../src/search/chunk";
+import { ensureChunkFts } from "../../src/search/chunk_fts";
+import { ensureNotesFts } from "../../src/search/fts";
 import { type IndexStats, indexVault } from "../../src/search/indexer";
 import { buildRepresentationManifest } from "../../src/search/representation";
+import { ensureVecChunks } from "../../src/search/vec";
 import type { Scenario } from "./scenarios";
 
 /** Deterministic PRNG (Mulberry32). No Date/Math.random in corpus generation. */
@@ -250,9 +253,17 @@ export async function buildVault(sc: Scenario): Promise<VaultCtx> {
   }
 
   const rawDb = await openDatabase(":memory:");
-  provisionCacheDb(rawDb); // schema setup — not counted; only indexVault's own write txns are.
-  const db = countingDatabase(rawDb);
   const provider = countingProvider(fakeEmbeddingProvider({ dimensions: 32, model: "fake-perf" }));
+  const representation = buildRepresentationManifest(provider, { chunkContext: false });
+  const now = Date.now;
+  // Schema setup — not counted; only indexVault's own write txns are. The three runtime-provisioned
+  // indexes now use BEGIN IMMEDIATE via applySchemaMigration, so ensure them on rawDb with the same
+  // arguments indexVault receives before installing the transaction-counting wrapper.
+  provisionCacheDb(rawDb);
+  ensureVecChunks(rawDb, representation, { now, activeModel: provider.id });
+  ensureNotesFts(rawDb, { now });
+  ensureChunkFts(rawDb, { now, enrich: false });
+  const db = countingDatabase(rawDb);
   const indexT0 = performance.now();
   const stats = await indexVault({
     db,
@@ -261,7 +272,8 @@ export async function buildVault(sc: Scenario): Promise<VaultCtx> {
     root,
     isReadable: () => true,
     chunkContext: false,
-    representation: buildRepresentationManifest(provider, { chunkContext: false }),
+    representation,
+    now,
     // THE-581: the missing option. Densification is opt-in and off by default, so omitting this —
     // as every scenario did before — meant the pass never ran and no metric could observe it.
     ...(sc.densify ? { densify: sc.densify } : {}),
