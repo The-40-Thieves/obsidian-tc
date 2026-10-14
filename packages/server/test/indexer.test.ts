@@ -1,9 +1,11 @@
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import type { Database } from "../src/db/types";
+import { ensureChunkFts } from "../src/search/chunk_fts";
+import { ensureNotesFts } from "../src/search/fts";
 import { indexNote, indexVault } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
-import { blobToFloats, loadVec } from "../src/search/vec";
+import { blobToFloats, ensureVecChunks, loadVec } from "../src/search/vec";
 import { makeM2Vault } from "./m2-helpers";
 
 interface EmbRow {
@@ -178,6 +180,10 @@ describe("index_vault (incremental chunk + embed)", () => {
     const v = makeM2Vault({
       files: { "a.md": "# A\n\nalpha", "b.md": "# B\n\nbeta", "c.md": "# C\n\ngamma" },
     });
+    const representation = buildRepresentationManifest(v.provider, {});
+    ensureVecChunks(v.db, representation, { activeModel: v.provider.id });
+    ensureNotesFts(v.db);
+    ensureChunkFts(v.db);
     let begins = 0;
     const counting: Database = {
       exec: (sql) => {
@@ -189,7 +195,7 @@ describe("index_vault (incremental chunk + embed)", () => {
     await indexVault({
       db: counting,
       provider: v.provider,
-      representation: buildRepresentationManifest(v.provider, {}),
+      representation,
       vaultId: v.id,
       root: v.root,
       isReadable: () => true,

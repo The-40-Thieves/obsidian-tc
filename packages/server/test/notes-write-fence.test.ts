@@ -14,6 +14,7 @@ import type { Database } from "../src/db/types";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { deindexNote, indexNote, indexVault } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
+import { ensureVecChunks } from "../src/search/vec";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const VAULT = "v1";
@@ -136,6 +137,9 @@ describe("notes/FTS writes are fenced the same as chunk writes (cross-vendor rev
     const bodyV1 = "---\ntitle: Original\n---\n# Note\nSame body throughout.\n";
     await indexNote(dbA, provider, VAULT, PATH, bodyV1, false, () => 1);
 
+    const representation = buildRepresentationManifest(provider, {});
+    ensureVecChunks(dbA, representation, { activeModel: provider.id });
+
     // A competing connection bumps this path's fence first (a fresher, unrelated write) — landing
     // exactly at flushNotes's own "index_notes_flush" write-transaction boundary (the FIRST
     // BEGIN IMMEDIATE indexVault issues, per THE-291's notes-before-chunks ordering).
@@ -152,8 +156,6 @@ describe("notes/FTS writes are fenced the same as chunk writes (cross-vendor rev
       join(root, PATH),
       "---\ntitle: Changed Title\n---\n# Note\nSame body throughout.\n",
     );
-    const representation = buildRepresentationManifest(provider, {});
-
     const stats = await indexVault({
       db: raceDb,
       provider,

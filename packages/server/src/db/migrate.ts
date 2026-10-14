@@ -17,6 +17,25 @@ export interface Migration {
 export interface MigrateOptions {
   version?: string;
   now?: () => number;
+  /** Test-only deterministic interleaving seam; production callers omit it. */
+  migrationHooks?: SchemaMigrationHooks;
+}
+
+export interface SchemaMigrationRecord {
+  version: string;
+  checksum: string;
+  obsidianTcVersion: string;
+  appliedAt: () => number;
+  durationMs: () => number;
+  /** The checksum is a diagnostic note, not an identity: an existing row counts as applied
+   *  whatever it holds. For markers whose text embeds live counts that legitimately differ
+   *  between runs (the vec rebuild marker). Never set for a shipped migration. */
+  advisoryChecksum?: boolean;
+}
+
+export interface SchemaMigrationHooks {
+  /** Test seam for the exact gap between the unlocked fast-path read and BEGIN IMMEDIATE. */
+  afterPendingCheck?: (version: string) => void;
 }
 
 export function checksum(sql: string): string {
@@ -35,6 +54,58 @@ function ensureMigrationsTable(db: Database): void {
   );
 }
 
+/** Apply and record one schema migration while holding SQLite's write lock. */
+export function applySchemaMigration(
+  db: Database,
+  migration: SchemaMigrationRecord,
+  apply: () => void,
+  hooks: SchemaMigrationHooks = {},
+): boolean {
+  const getRow = db.prepare("SELECT checksum FROM schema_migrations WHERE version = ?");
+  const insert = db.prepare(
+    "INSERT INTO schema_migrations (version, applied_at, obsidian_tc_version, duration_ms, checksum) VALUES (?, ?, ?, ?, ?)",
+  );
+  const check = (): boolean => {
+    const existing = getRow.get(migration.version) as { checksum: string } | undefined;
+    if (!existing) return false;
+    if (!migration.advisoryChecksum && existing.checksum !== migration.checksum) {
+      throw new ObsidianTcError("conflict", `migration ${migration.version} checksum mismatch`, {
+        version: migration.version,
+        recorded: existing.checksum,
+        current: migration.checksum,
+      });
+    }
+    return true;
+  };
+
+  if (check()) return false;
+  hooks.afterPendingCheck?.(migration.version);
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    if (check()) {
+      db.exec("COMMIT");
+      return false;
+    }
+    apply();
+    insert.run(
+      migration.version,
+      migration.appliedAt(),
+      migration.obsidianTcVersion,
+      migration.durationMs(),
+      migration.checksum,
+    );
+    db.exec("COMMIT");
+    return true;
+  } catch (error) {
+    // SQLite already rolled back on BUSY/FULL/IOERR/NOMEM/INTERRUPT, so ROLLBACK can itself throw
+    // "no transaction is active"; that must never replace the error the caller classifies.
+    try {
+      db.exec("ROLLBACK");
+    } catch {}
+    throw error;
+  }
+}
+
 export function runMigrations(
   db: Database,
   migrations: Migration[],
@@ -44,47 +115,28 @@ export function runMigrations(
   const appVersion = opts.version ?? "1.0.0";
   ensureMigrationsTable(db);
   const sorted = [...migrations].sort((a, b) => a.version.localeCompare(b.version));
-  const getRow = db.prepare("SELECT checksum FROM schema_migrations WHERE version = ?");
-  const insert = db.prepare(
-    "INSERT INTO schema_migrations (version, applied_at, obsidian_tc_version, duration_ms, checksum) VALUES (?, ?, ?, ?, ?)",
-  );
   const applied: string[] = [];
-  const check = (m: Migration, sum: string): boolean => {
-    const existing = getRow.get(m.version) as { checksum: string } | undefined;
-    if (!existing) return false;
-    if (existing.checksum !== sum) {
-      throw new ObsidianTcError("conflict", `migration ${m.version} checksum mismatch`, {
-        version: m.version,
-        recorded: existing.checksum,
-        current: sum,
-      });
-    }
-    return true;
-  };
   for (const m of sorted) {
     const sum = checksum(m.sql);
-    // Unlocked fast path: a warm boot (everything already applied) never takes the write lock.
-    if (check(m, sum)) continue;
     const start = now();
-    // IMMEDIATE takes the database write lock up front (waiting out `busy_timeout`), which
-    // serializes check-and-apply across every process sharing this file. A plain BEGIN defers the
-    // lock to the first write, so two processes that both saw the migration as pending would run
-    // it twice: its DDL again, or the `schema_migrations` INSERT into a UNIQUE violation. Outside
-    // the try on purpose — a BEGIN that fails (SQLITE_BUSY past busy_timeout) opened no transaction.
-    db.exec("BEGIN IMMEDIATE");
     try {
-      // Re-read now that we hold the lock: a process that lost the race finds the winner's row,
-      // skips the migration (never re-running non-idempotent DDL), and continues to the next.
-      if (check(m, sum)) {
-        db.exec("COMMIT");
-        continue;
-      }
-      db.exec(m.sql);
-      m.postApply?.(db);
-      insert.run(m.version, now(), appVersion, Math.max(0, now() - start), sum);
-      db.exec("COMMIT");
+      const didApply = applySchemaMigration(
+        db,
+        {
+          version: m.version,
+          checksum: sum,
+          obsidianTcVersion: appVersion,
+          appliedAt: now,
+          durationMs: () => Math.max(0, now() - start),
+        },
+        () => {
+          db.exec(m.sql);
+          m.postApply?.(db);
+        },
+        opts.migrationHooks,
+      );
+      if (!didApply) continue;
     } catch (e) {
-      db.exec("ROLLBACK");
       if (e instanceof ObsidianTcError) throw e;
       throw new ObsidianTcError(
         "internal",
