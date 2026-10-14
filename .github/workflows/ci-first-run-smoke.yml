@@ -1,12 +1,14 @@
 name: ci-first-run-smoke
 # The first-run matrix: the SAME first run (no config file, a vault folder as the only argument,
-# semantic search ON via the default in-process local embedder) over the three distribution paths a
+# semantic search ON via the default in-process local embedder) over four distribution paths a
 # user can start from, on five runner images (Linux, Windows, macOS arm64, two Intel macOS):
 #
 #   npm     `npm install obsidian-tc@<spec>` into a clean prefix, then the generated bin shim (what
 #           `npx obsidian-tc` and a global install both run). Installs the PUBLISHED package, latest by
 #           default: part 2 needs the published truth, and the unpublished tarball cannot be
 #           installed alone (its workspace deps are pinned to registry versions by publish.yml).
+#   npm-local installs that same published server plus the generated embedder base and matching
+#           platform runtime tarballs, proving the next package layout before it is published.
 #   mcpb    the .mcpb built once on ubuntu (as publish.yml's build-mcpb does), unpacked on each OS
 #           and started the way a desktop host starts an extension: read manifest.json's
 #           server.mcp_config, expand ${__dirname}/${user_config.*}, spawn `node` from PATH.
@@ -20,7 +22,7 @@ name: ci-first-run-smoke
 # Each cell runs packages/server/scripts/first-run-smoke.ts (bundled to one .mjs first, so node_modules
 # can be deleted before it runs): boot, banner (native/vec), boot reconcile, then search_semantic with
 # a paraphrase query only a real dense retriever answers. It writes a per-stage report; the `matrix`
-# job folds the reports into the 3x5 table on the run summary.
+# job folds the reports into the 4x5 table on the run summary.
 #
 # EXPECTED_FAILURES is the explicit list of cells that fail today. A listed cell still runs and its
 # failure is still recorded in the table; it just does not turn the run red, so the matrix can record
@@ -92,16 +94,45 @@ jobs:
           path: dist/obsidian-tc.mcpb
           if-no-files-found: error
 
+  pack-embedder-local:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-repo
+        with:
+          node-required: 'true'
+      - name: install + build embedder-local
+        working-directory: packages/embedder-local
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+      - name: pack generated embedder npm packages
+        run: |
+          set -euo pipefail
+          v=$(npm view obsidian-tc@latest version)
+          bun scripts/pack-embedder-local.ts --out dist/embedder-local-npm --version "$v"
+          mkdir -p embedder-tgz
+          for dir in dist/embedder-local-npm/*/; do
+            (cd "$dir" && npm pack --pack-destination "$GITHUB_WORKSPACE/embedder-tgz")
+          done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: first-run-embedder-tgz
+          path: embedder-tgz/
+          if-no-files-found: error
+
   first-run:
     name: first-run (${{ matrix.path }}, ${{ matrix.os }})
-    # Only the mcpb cells read the bundle; the others must run even if the pack failed.
-    needs: build-mcpb
+    needs: [build-mcpb, pack-embedder-local]
     if: ${{ !cancelled() }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
-        path: [npm, mcpb, binary]
+        path: [npm, npm-local, mcpb, binary]
         os: [ubuntu-latest, macos-latest, macos-15-intel, macos-26-intel, windows-latest]
         include:
           # The bun --compile target for the runner's own arch (a binary must run where it was built).
@@ -156,6 +187,13 @@ jobs:
           name: first-run-mcpb-bundle
           path: ${{ runner.temp }}/mcpb
 
+      - name: download generated embedder npm packages
+        if: matrix.path == 'npm-local'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: first-run-embedder-tgz
+          path: ${{ runner.temp }}/embedder-tgz
+
       # Mirrors publish.yml's build-binaries (same embeds, same flags). Keep them in step: a binary
       # built differently here would measure something users never get.
       - name: build shared (binary)
@@ -195,6 +233,15 @@ jobs:
           mkdir -p "$RUNNER_TEMP/first-run-report"
           args=(--path "$FR_PATH")
           case "$FR_PATH" in
+            npm-local)
+              v=$(npm view obsidian-tc@latest version)
+              host_key=$(node -p 'process.platform+"-"+process.arch')
+              # Not a bash glob: RUNNER_TEMP is a backslash path on Windows and `\` escapes there.
+              pkg=the-40-thieves-obsidian-tc-embedder-local-
+              base_tgz=$(node scripts/lib/pick-tgz.mjs "$RUNNER_TEMP/embedder-tgz" "$pkg")
+              runtime_tgz=$(node scripts/lib/pick-tgz.mjs "$RUNNER_TEMP/embedder-tgz" "$pkg$host_key-")
+              args=(--path npm --npm-spec "obsidian-tc@$v" --npm-extra "$base_tgz" --npm-extra "$runtime_tgz" --report-path npm-local)
+              ;;
             mcpb) args+=(--artifact "$RUNNER_TEMP/mcpb/obsidian-tc.mcpb") ;;
             binary) args+=(--artifact "packages/server/dist/obsidian-tc-$FR_TARGET") ;;
           esac
@@ -225,7 +272,7 @@ jobs:
           if-no-files-found: warn
 
   matrix:
-    name: first-run 3x5 table
+    name: first-run 4x5 table
     needs: first-run
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
@@ -242,10 +289,10 @@ jobs:
         with:
           pattern: first-run-*
           path: ${{ runner.temp }}/reports
-      - name: write the 3x5 table to the run summary
+      - name: write the 4x5 table to the run summary
         run: |
           {
             echo "## first-run matrix"
             echo
-            node packages/server/scripts/first-run-matrix-table.mjs "$RUNNER_TEMP/reports" "npm,mcpb,binary" "ubuntu-latest,macos-latest,macos-15-intel,macos-26-intel,windows-latest"
+            node packages/server/scripts/first-run-matrix-table.mjs "$RUNNER_TEMP/reports" "npm,npm-local,mcpb,binary" "ubuntu-latest,macos-latest,macos-15-intel,macos-26-intel,windows-latest"
           } | tee -a "$GITHUB_STEP_SUMMARY"

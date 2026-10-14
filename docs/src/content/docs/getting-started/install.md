@@ -38,7 +38,7 @@ same models. WASM embedding is roughly 4x slower than native in the measured two
 
 | Method | Default semantic search (no config) | Dense index (`sqlite-vec`) | Native addon | Size |
 | --- | --- | --- | --- | --- |
-| **npm** | Yes. The embedder installs with the server as an optional dependency. On Intel macOS it runs on the WASM backend. | Yes | Yes (prebuilds); pure-JS fallback elsewhere | Large install: the embedder's runtime is ~0.6 GB of `node_modules` |
+| **npm** | Yes. The generated embedder base installs with only the host's optional ONNX runtime package. On Intel macOS it runs on the WASM backend. | Yes | Yes (prebuilds); pure-JS fallback elsewhere | About 15-46 MB of ONNX runtime files plus the bundled base, down from about 585 MB |
 | **Standalone binary** | Yes on Linux x64 and arm64, macOS arm64 and x64, and Windows x64: the embedder and its selected native/WASM ONNX runtime are inside the one file. | Yes (embedded) | Pure-JS fallback | About 14 MB larger than a binary without the embedder |
 | **One-click `.mcpb`** | Yes on Linux x64 and arm64, macOS arm64 and x64, and Windows x64 | Yes | Pure-JS fallback (one universal bundle) | About 66 MB, up from about 2 MB; it carries all native runtimes plus the macOS x64 WASM assets |
 | **Docker** | Not part of the matrix; see [Docker](#docker) below. | | | |
@@ -59,6 +59,12 @@ native module ships prebuilds for eight targets — `linux-x64-gnu`,
 `linux-arm64-gnu`, `linux-x64-musl`, `linux-arm64-musl` (Alpine), `darwin-x64`,
 `darwin-arm64`, `win32-x64-msvc`, and `win32-arm64-msvc`; on any other platform it
 transparently falls back to a pure-JS implementation.
+
+The local embedder is also platform-filtered: npm installs its generated base package plus only
+`@the-40-thieves/obsidian-tc-embedder-local-<os>-<arch>`. It does not install
+`@huggingface/transformers` or the other platforms' ONNX binaries. Do not use `--omit=optional` or
+`--no-optional` if you want the default local embedder; otherwise configure Ollama or a hosted
+embeddings provider.
 
 ## Standalone binary
 

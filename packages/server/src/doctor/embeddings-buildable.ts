@@ -130,8 +130,7 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
             ? 'embeddings.provider "local" (the default) is not built in this checkout yet — run "bun run build" in packages/embedder-local, or the boot reconcile will degrade to FTS-only, same as an unreachable hosted provider'
             : 'embeddings.provider "local" is configured (or is the unconfigured default) but the optional package does not resolve — dense retrieval and indexing will fail until this is fixed',
         ],
-        remediation:
-          'In a source checkout of this monorepo, run "bun run build" inside packages/embedder-local; once published, run "bun add @the-40-thieves/obsidian-tc-embedder-local"; or set an explicit hosted/hosted-compatible embeddings.provider instead (openai, voyage, cohere, bge-m3, openai-compatible, ollama).',
+        remediation: `In a source checkout, run "bun run build" inside packages/embedder-local. For an npm install, reinstall without --omit=optional/--no-optional so @the-40-thieves/obsidian-tc-embedder-local-${process.platform}-${process.arch} is installed; otherwise pick ollama or a hosted provider.`,
       };
     },
   };

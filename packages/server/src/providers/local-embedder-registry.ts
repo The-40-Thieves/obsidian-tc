@@ -115,6 +115,7 @@ export interface LocalEmbedderResolutionAttempt {
   target: string;
   ok: boolean;
   error?: string;
+  code?: string;
 }
 
 export interface LocalEmbedderResolution {
@@ -146,11 +147,19 @@ export async function resolveLocalEmbedderModule(
 ): Promise<LocalEmbedderResolution> {
   const attempts: LocalEmbedderResolutionAttempt[] = [];
   const record = (route: LocalEmbedderResolutionRoute, target: string, error: unknown): void => {
+    const code =
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      typeof error.code === "string"
+        ? error.code
+        : undefined;
     attempts.push({
       route,
       target,
       ok: false,
       error: error instanceof Error ? error.message : String(error),
+      ...(code ? { code } : {}),
     });
   };
 
@@ -321,11 +330,17 @@ export function buildLocalEmbeddingProvider(
               `embeddings "local": ${a.route} (${a.target}) did not resolve — ${a.error ?? "unknown error"}`,
             );
           }
+          const runtimeMissing = resolution.attempts.some(
+            (attempt) => attempt.code === "OBTC_EMBEDDER_RUNTIME_MISSING",
+          );
+          const runtimePackage = `${LOCAL_EMBEDDER_PACKAGE}-${process.platform}-${process.arch}`;
           throw err.embeddingProviderError(
             `embeddings.provider "local" could not resolve the optional ${LOCAL_EMBEDDER_PACKAGE} package`,
             {
               attempts: resolution.attempts,
-              hint: 'run "bun run build" in packages/embedder-local (source checkouts), or `bun add`/`bun link` the published package once it exists — see "obsidian-tc doctor" for the full attempt list.',
+              hint: runtimeMissing
+                ? `reinstall obsidian-tc without --omit=optional/--no-optional so ${runtimePackage} is installed; if this platform has no published runtime, pick ollama or a hosted provider instead.`
+                : 'run "bun run build" in packages/embedder-local (source checkouts), or reinstall obsidian-tc with optional dependencies enabled — see "obsidian-tc doctor" for the full attempt list.',
             },
           );
         }

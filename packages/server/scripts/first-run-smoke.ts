@@ -1,11 +1,11 @@
 // First-run smoke: does a clean install of ONE distribution path boot with no config and answer a
 // semantic query over MCP stdio? Run once per path x OS by .github/workflows/ci-first-run-smoke.yml.
 //
-//   bun scripts/first-run-smoke.ts --path npm    [--npm-spec obsidian-tc@latest]
+//   bun scripts/first-run-smoke.ts --path npm    [--npm-spec obsidian-tc@latest] [--npm-extra file]
 //   bun scripts/first-run-smoke.ts --path mcpb   --artifact dist/obsidian-tc.mcpb
 //   bun scripts/first-run-smoke.ts --path binary --artifact dist/obsidian-tc-bun-linux-x64
 //   bun scripts/first-run-smoke.ts --path cli    --artifact packages/server/dist/cli.js  (dev / tests)
-//     [--report <file.json>] [--reconcile-timeout-ms <ms>] [--boot-timeout-ms <ms>]
+//     [--report <file.json>] [--report-path <label>] [--reconcile-timeout-ms <ms>]
 //     [--model-cache <dir>]
 //
 // What it does, per path: install/unpack the artifact the way a user gets it, start it against a
@@ -68,13 +68,21 @@ function arg(name: string): string | undefined {
   return i === -1 ? undefined : process.argv[i + 1];
 }
 
+function args(name: string): string[] {
+  return process.argv.flatMap((value, index) =>
+    value === name && process.argv[index + 1] ? [String(process.argv[index + 1])] : [],
+  );
+}
+
 // Keep in step with scripts/bundle-mcpb.ts's MCPB constant (first-run-smoke.test.ts asserts it).
 const MCPB_CLI = "@anthropic-ai/mcpb@2.1.2";
 
 const pathKind = arg("--path");
 const artifact = arg("--artifact");
 const npmSpec = arg("--npm-spec") ?? "obsidian-tc@latest";
+const npmExtra = args("--npm-extra");
 const reportFile = arg("--report");
+const reportPath = arg("--report-path") ?? pathKind;
 const modelCache = arg("--model-cache");
 const reconcileTimeoutMs = Number(arg("--reconcile-timeout-ms") ?? "300000");
 const bootTimeoutMs = Number(arg("--boot-timeout-ms") ?? "120000");
@@ -165,7 +173,17 @@ function prepareNpm(vault: string): Launch | null {
   const t0 = Date.now();
   const r = run(
     "npm",
-    ["install", "--prefix", prefix, "--no-audit", "--no-fund", "--loglevel", "error", npmSpec],
+    [
+      "install",
+      "--prefix",
+      prefix,
+      "--no-audit",
+      "--no-fund",
+      "--loglevel",
+      "error",
+      npmSpec,
+      ...npmExtra,
+    ],
     600_000,
   );
   if (!r.ok) {
@@ -179,11 +197,27 @@ function prepareNpm(vault: string): Launch | null {
   const embedder = existsSync(
     join(prefix, "node_modules", "@the-40-thieves", "obsidian-tc-embedder-local"),
   );
-  rec(
-    "prepare",
-    "pass",
-    `npm install ${npmSpec} -> obsidian-tc@${version} in ${Date.now() - t0}ms; embedder-local ${embedder ? "installed" : "NOT installed"}`,
+  const runtimePackage = `@the-40-thieves/obsidian-tc-embedder-local-${process.platform}-${process.arch}`;
+  const runtime = existsSync(
+    join(
+      prefix,
+      "node_modules",
+      "@the-40-thieves",
+      `obsidian-tc-embedder-local-${process.platform}-${process.arch}`,
+    ),
   );
+  const onnxruntimeNode = existsSync(join(prefix, "node_modules", "onnxruntime-node"));
+  const transformers = existsSync(join(prefix, "node_modules", "@huggingface", "transformers"));
+  const installDetail =
+    `npm install ${npmSpec} -> obsidian-tc@${version} in ${Date.now() - t0}ms; ` +
+    `embedder-local ${embedder ? "installed" : "NOT installed"}; ${runtimePackage} ` +
+    `${runtime ? "installed" : "NOT installed"}; onnxruntime-node ${onnxruntimeNode ? "present" : "absent"}; ` +
+    `@huggingface/transformers ${transformers ? "present" : "absent"}`;
+  if (npmExtra.length > 0 && (!runtime || onnxruntimeNode || transformers)) {
+    rec("prepare", "fail", `${installDetail}; generated package split check failed`);
+    return null;
+  }
+  rec("prepare", "pass", installDetail);
   // The bin shim npm generates is what `npx obsidian-tc` / a global install runs.
   const bin = join(
     prefix,
@@ -285,7 +319,7 @@ async function main(): Promise<void> {
       rec(s, "skip", "prepare failed");
 
   const report = buildReport({
-    path: pathKind as string,
+    path: reportPath as string,
     platform: process.platform,
     arch: process.arch,
     node: process.version,
@@ -293,7 +327,7 @@ async function main(): Promise<void> {
   });
   if (reportFile) writeFileSync(reportFile, `${JSON.stringify(report, null, 2)}\n`);
   process.stdout.write(
-    `FIRST-RUN ${pathKind} ${process.platform}-${process.arch}: ${report.result.toUpperCase()}${report.firstFailure ? ` (${report.firstFailure})` : ""}\n`,
+    `FIRST-RUN ${reportPath} ${process.platform}-${process.arch}: ${report.result.toUpperCase()}${report.firstFailure ? ` (${report.firstFailure})` : ""}\n`,
   );
   process.exit(report.result === "pass" ? 0 : 1);
 }
