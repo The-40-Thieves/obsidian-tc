@@ -10,7 +10,11 @@ import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { applyTrailers } from "../../provenance/stamp";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { readEnumerationUnrestricted } from "../../vault/acl-read-filter";
+import {
+  bridgeSiblingsSafe,
+  filterBridgeItemsByAcl,
+  readEnumerationUnrestricted,
+} from "../../vault/acl-read-filter";
 import { gitCommitState } from "../../vault/git-state";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
@@ -69,7 +73,31 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
           plugin: "git",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, ...result };
+        const changedRaw = Array.isArray(result.changed) ? result.changed : [];
+        const stagedRaw = Array.isArray(result.staged) ? result.staged : [];
+        const conflictedRaw = Array.isArray(result.conflicted) ? result.conflicted : [];
+        const changed = filterBridgeItemsByAcl(ctx.acl, v.root, ctx.grantedScopes, changedRaw, {
+          tool: "git_status",
+        });
+        const staged = filterBridgeItemsByAcl(ctx.acl, v.root, ctx.grantedScopes, stagedRaw, {
+          tool: "git_status",
+        });
+        const conflicted = filterBridgeItemsByAcl(
+          ctx.acl,
+          v.root,
+          ctx.grantedScopes,
+          conflictedRaw,
+          { tool: "git_status", barePath: true },
+        );
+        const rawCount = changedRaw.length + stagedRaw.length + conflictedRaw.length;
+        const keptCount = changed.length + staged.length + conflicted.length;
+        return {
+          vault: v.id,
+          ...(bridgeSiblingsSafe(ctx.acl, ctx.grantedScopes, rawCount, keptCount) ? result : {}),
+          changed,
+          staged,
+          conflicted,
+        };
       },
     }),
 

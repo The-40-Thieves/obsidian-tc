@@ -10,8 +10,7 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { paginate } from "../../util/paginate";
 import { enforcePathAcl } from "../../vault/acl-path";
 import {
-  bridgeSiblingsSafe,
-  filterBridgeItemsByAcl,
+  filterBridgeResultItems,
   readableEntry,
   readableResolved,
 } from "../../vault/acl-read-filter";
@@ -330,15 +329,13 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
         // Intersect bridge-enumerated tasks with the read ACL; fail closed on an
         // unattributable row when a read whitelist is configured (D2/B1). `groups`
         // (aggregate counts) pass through untouched.
-        const rawItems = Array.isArray(result.items) ? (result.items as unknown[]) : [];
-        const items = filterBridgeItemsByAcl(ctx.acl, v.root, ctx.grantedScopes, rawItems, {
+        const filtered = filterBridgeResultItems(ctx.acl, v.root, ctx.grantedScopes, result, {
           tool: "tasks_filter",
         });
-        // Under a read whitelist, drop `...result` — `groups` (and any other sibling) is computed
-        // over the UNFILTERED task set and leaks counts of notes outside the whitelist (THE-270).
-        if (!bridgeSiblingsSafe(ctx.acl, ctx.grantedScopes, rawItems.length, items.length))
-          return { vault: v.id, items, total: items.length };
-        return { vault: v.id, ...result, items, total: items.length };
+        // `...result` is dropped unless nothing was hidden, and always when `items` is absent:
+        // `groups` (and any other sibling) is computed over the UNFILTERED task set and leaks
+        // counts of notes outside the whitelist (THE-270).
+        return { vault: v.id, ...filtered };
       },
     }),
   ];

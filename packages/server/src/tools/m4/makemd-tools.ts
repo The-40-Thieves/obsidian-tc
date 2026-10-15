@@ -5,11 +5,7 @@
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
-import {
-  bridgeSiblingsSafe,
-  filterBridgeItemsByAcl,
-  readEnumerationUnrestricted,
-} from "../../vault/acl-read-filter";
+import { filterBridgeResultItems, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import { defineTool } from "../m1/define";
 import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
 
@@ -97,17 +93,14 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
         // Intersect make.md rows with the read ACL by note path; fail closed on an
-        // unattributable row under a read whitelist (D2/B2).
-        const rawItems = Array.isArray(result.items) ? (result.items as unknown[]) : [];
-        const items = filterBridgeItemsByAcl(ctx.acl, v.root, ctx.grantedScopes, rawItems, {
+        // unattributable row under a read whitelist (D2/B2). The `...result` siblings are dropped
+        // unless nothing was hidden, and always when `items` is absent: they can carry
+        // path-attributable content from the UNFILTERED make.md rows (THE-270).
+        const filtered = filterBridgeResultItems(ctx.acl, v.root, ctx.grantedScopes, result, {
           tool: "makemd_query",
-          keys: ["note_path", "path", "file", "filePath"],
+          keys: ["note_path", "path", "file", "filePath", "from"],
         });
-        // Under a read whitelist, drop `...result` siblings — they can carry path-attributable
-        // content from the UNFILTERED make.md rows (THE-270).
-        if (!bridgeSiblingsSafe(ctx.acl, ctx.grantedScopes, rawItems.length, items.length))
-          return { vault: v.id, space_id: input.space_id, items, total: items.length };
-        return { vault: v.id, space_id: input.space_id, ...result, items, total: items.length };
+        return { vault: v.id, space_id: input.space_id, ...filtered };
       },
     }),
   ];
