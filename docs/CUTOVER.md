@@ -1,4 +1,4 @@
-# CUTOVER: obsidian-tc as the sole Obsidian agent interface (THE-279)
+# CUTOVER: obsidian-tc as the sole Obsidian agent interface
 
 This document is the cutover plan that makes **obsidian-tc** the only MCP surface an
 agent uses against Obsidian vaults. It retires:
@@ -21,14 +21,14 @@ Bases with a real expression-DSL evaluator, attachments, bookmarks, workspaces, 
 notes, Excalidraw, OCR, Tasks, bulk ops, capture queue, memory entities, GraphRAG
 `vault_graph_search`, `knowledge_challenge`). Critically, every call runs through one
 governed dispatch pipeline the wrappers lack entirely: auth (JWT, including asymmetric
-RS256/ES256/EdDSA via a local JWKS with `kid` rotation, THE-297) → scopes → folder ACL
+RS256/ES256/EdDSA via a local JWKS with `kid` rotation) → scopes → folder ACL
 (canonical/symlink-resolved, NFC-normalized, hard-deny on `.obsidian/**`, `.git/**`,
-`.trash/**`, now **per-vault** with the root ACL as inherited default, THE-286/295) →
+`.trash/**`, now **per-vault** with the root ACL as inherited default) →
 read-only kill switch → idempotency → throttle → HITL elicitation on destructive ops →
 response governor → audit, with OTel/Prometheus/CloudEvents observability and compute
-budgets (regex worker timeout, JSONLogic op budget, THE-293). The retired servers
+budgets (regex worker timeout, JSONLogic op budget). The retired servers
 authenticate with a single LRA bearer key that is equivalent to full vault admin
-(documented trust boundary, THE-289) and offer no path scoping, no HITL, no audit, and no
+(documented trust boundary) and offer no path scoping, no HITL, no audit, and no
 index health signal. Consolidating on obsidian-tc removes three ungoverned write paths
 into the vault and leaves exactly one.
 
@@ -65,8 +65,8 @@ Beyond parity, obsidian-tc adds links (`get_outgoing_links`, `get_backlinks`,
 (`list_attachments`, `get_attachment`, `write_attachment`, `move_attachment`, `delete_attachment`), canvas
 (`read_canvas`, `create_canvas`, `update_canvas`, `query_canvas`), Bases (`read_base`,
 `create_base`, `update_base`, `query_base` — evaluates the real Obsidian 1.12 Bases
-expression-DSL subset, THE-281, with realigned `order`/`sort`/`limit`/`groupBy` view keys
-and deprecation notices for the old aliases, THE-280), bookmarks, workspaces, bulk ops
+expression-DSL subset, with realigned `order`/`sort`/`limit`/`groupBy` view keys
+and deprecation notices for the old aliases), bookmarks, workspaces, bulk ops
 (`bulk_create_notes`, `bulk_set_property`, `bulk_move_notes`), multi-vault registry
 (`list_vaults`, `get_vault`, `reload_vault`, `reset_vault_cache`), `bundle_folder`/
 `bundle_files`, OCR (`ocr_attachment`, `ocr_bulk`), Tasks (`list_tasks`, `update_task`,
@@ -79,10 +79,10 @@ and deprecation notices for the old aliases, THE-280), bookmarks, workspaces, bu
 |---|---|
 | Vault file CRUD (`get/create/append/patch/delete_vault_file`, `list_vault_files`) | `read_note`, `write_note`, `append_note`, `patch_note`, `delete_note`, `list_notes` |
 | Dataview DQL (`search_vault`) | `search_dql` / `search_vault(mode: dql)` — read-only by contract, companion-bridged, fail-closed under a read whitelist |
-| JsonLogic search | `search_jsonlogic` — native evaluator with a 10k-op compute budget (THE-293), no plugin required |
+| JsonLogic search | `search_jsonlogic` — native evaluator with a 10k-op compute budget, no plugin required |
 | Simple search (`search_vault_simple`) | `search_text` / `search_vault(mode: text)` |
-| Semantic search (`search_vault_smart`, requires the Smart Connections plugin) | `search_semantic` — **sqlite-vec-native** KNN with SQL-side vault filtering and an ACL-correct brute-force fallback (THE-287); embeddings via local Ollama by default. Independent of Smart Connections — retiring mcp-tools does not lose semantic search even if Smart Connections is removed. |
-| Templater (`execute_template`) | `list_templates`, `execute_template` — companion-bridged; the server now refuses to clobber an existing target unless `overwrite: true` (THE-289) |
+| Semantic search (`search_vault_smart`, requires the Smart Connections plugin) | `search_semantic` — **sqlite-vec-native** KNN with SQL-side vault filtering and an ACL-correct brute-force fallback; embeddings via local Ollama by default. Independent of Smart Connections — retiring mcp-tools does not lose semantic search even if Smart Connections is removed. |
+| Templater (`execute_template`) | `list_templates`, `execute_template` — companion-bridged; the server now refuses to clobber an existing target unless `overwrite: true` |
 | `get_server_info` | `server_health` |
 | `show_file_in_obsidian` | `show_file_in_obsidian` (companion-backed; opt-in OS-launch fallback) — see §2c |
 | Active-file tools | `get_active_file`, `update_active_file`, `append_active_file`, `patch_active_file`, `delete_active_file` (companion-backed) — see §2c |
@@ -118,7 +118,7 @@ full obsidian-tc equivalent today:
   (`execute:uri`). It needs a companion that ships `POST /files/open`; an older companion answers
   with an "update the companion plugin" hint.
 - The opt-in companion "refresh nudge" for open panes is designed but deferred
-  (THE-283, `docs/COHERENCE.md`).
+  (`docs/COHERENCE.md`).
 
 The active-file workflow needs a live Obsidian session with the companion plugin; on a headless
 server keep using the path-addressed tools.
@@ -174,7 +174,7 @@ governed dispatch pipeline none of the LRA built-in MCP tools run through.
 
 2. **Configure vault(s) + ACL.** Zero-config works (`obsidian-tc /path/to/vault` boots a
    single vault `main`); for the cutover, write a config so ACLs are explicit. Per-vault
-   ACL is supported (THE-295): each `vaults[]` entry may carry its own `acl` block, and
+   ACL is supported: each `vaults[]` entry may carry its own `acl` block, and
    the root `acl` is the inherited default — "write vault A, read-only vault B" works in
    one process.
    ```json
@@ -194,7 +194,7 @@ governed dispatch pipeline none of the LRA built-in MCP tools run through.
    ```
    ACL fields: `readOnly`, `readPaths`/`writePaths`/`deletePaths` glob whitelists,
    `rules`, `strictReadDefault`. `.obsidian/**`, `.git/**`, `.trash/**` are hard-denied
-   regardless (THE-268); matching is symlink-canonical and NFC-normalized (THE-269/272/286).
+   regardless; matching is symlink-canonical and NFC-normalized.
    Validate: `obsidian-tc config validate ./obsidian-tc.config.json` and inspect with
    `obsidian-tc config show` (secrets redacted).
 
@@ -206,13 +206,13 @@ governed dispatch pipeline none of the LRA built-in MCP tools run through.
    This copies the vendored `manifest.json` + `main.js` into
    `<vault>/.obsidian/plugins/tc-bridge/` (plugin id `tc-bridge`, name "TC Bridge" — renamed
    from `obsidian-tc` / "Obsidian Turbocharged" so it can list in Obsidian's community
-   directory, THE-943; re-running is an in-place upgrade). Existing installs migrate
+   directory; re-running is an in-place upgrade). Existing installs migrate
    automatically: on first load TC Bridge copies `.obsidian/plugins/obsidian-tc/data.json` to
    its own `data.json` if present, and refuses to start if the old `obsidian-tc` plugin is
    still enabled. Then enable it in Obsidian's Community Plugins. It requires the **Local
    REST API** plugin installed and enabled — the companion extends LRA's HTTP server;
    without LRA it logs a warning and registers no bridge routes. The server enforces a
-   companion API floor via `/probe` (THE-282): an incompatible companion degrades bridge
+   companion API floor via `/probe`: an incompatible companion degrades bridge
    tools with a typed `plugin_incompatible` error and an update hint, never silent divergence.
 
    **Upgrading an existing BRAT or direct install:** BRAT tracks the repository, not the
@@ -231,7 +231,7 @@ governed dispatch pipeline none of the LRA built-in MCP tools run through.
    - `native_loaded` — compiled Rust search primitives (pure-JS fallback otherwise);
    - `vec_enabled` — sqlite-vec loaded (brute-force cosine fallback otherwise);
    - `fts_enabled` — FTS5 `notes_fts` available (disk-scan fallback otherwise);
-   - the `index` block (THE-288/291): `reconcile` (`pending`/`ok`/`degraded`),
+   - the `index` block: `reconcile` (`pending`/`ok`/`degraded`),
      `reconcile_at`, `write_failures`, `notes_ready`; authenticated callers also get
      `detail` (per-vault reconcile errors + last write error).
    All fallbacks are behavioral no-ops (identical results, slower) — but a `degraded`
@@ -253,7 +253,7 @@ governed dispatch pipeline none of the LRA built-in MCP tools run through.
    (Claude Code: `claude mcp add obsidian-tc -e OBSIDIAN_TC_CONFIG=... -- npx -y obsidian-tc`.
    Cursor uses `mcpServers`, VS Code uses `servers`; `.mcpb` for Claude Desktop.)
    The stdio transport is the trusted local transport with full multi-vault access;
-   HTTP is opt-in and, when used, tokens are vault-bound (THE-267).
+   HTTP is opt-in and, when used, tokens are vault-bound.
 
 6. **Retire the old surfaces.** Remove the MCP client entries for the LRA-MCP server
    (e.g. `obsidian` / `obsidian-files`), for `obsidian-mcp-tools`, and for the
@@ -264,7 +264,7 @@ governed dispatch pipeline none of the LRA built-in MCP tools run through.
    stay on.
 
 7. **Keep LRA enabled — it is now transport only.** The companion rides it; obsidian-tc
-   reaches it via each vault's `restApiUrl`/`restApiKey`. Trust boundary (THE-289,
+   reaches it via each vault's `restApiUrl`/`restApiKey`. Trust boundary (see
    SECURITY.md): possession of the LRA bearer key is equivalent to full vault admin —
    LRA's own endpoints grant full read/write/delete, and the companion routes add no new
    authority and deliberately do not re-implement the server's ACL/HITL gates (those
@@ -294,10 +294,10 @@ Nothing in the cutover is destructive; rollback is configuration-only:
 operates on the local vault filesystem directly (atomic writes via `writeNoteAtomic`; the
 companion/LRA are Tier-3 bridge-only). It neither replaces nor interferes with Obsidian Sync,
 Syncthing, iCloud, or Git-based sync: those keep replicating the same files obsidian-tc
-reads and writes. Two coherence notes (THE-283, `docs/COHERENCE.md`):
+reads and writes. Two coherence notes (`docs/COHERENCE.md`):
 
 - The sole-agent-writer invariant: obsidian-tc's compare-and-swap gates (`prev_hash` on
-  note writes and, since THE-292, on bookmark/workspace JSON edits) defend against the
+  note writes and, since a later change, on bookmark/workspace JSON edits) defend against the
   remaining human-writer concurrency; do not run a second agent writer against the vault.
 - Obsidian's external-change watcher has honest limits: an open pane may not refresh
   until navigated, and change detection degrades on OneDrive/network drives. Sync engines

@@ -41,7 +41,7 @@ or convention; each gate is server-side code:
   that advertises MCP elicitation, as an actual protocol round trip
   (`inputRequired`/`elicitation/create`) that asks the human directly and is
   verified server-side before it authorizes anything — on both the modern and
-  legacy protocol eras, and on stdio as well as HTTP (THE-1106; the legacy-era
+  legacy protocol eras, and on stdio as well as HTTP (the legacy-era
   server-initiated form is stdio-only, never HTTP).
 - **CAS (compare-and-swap).** Writes accept a `prev_hash`: if the note (or bookmark /
   workspace file) changed underneath the caller, the write fails with

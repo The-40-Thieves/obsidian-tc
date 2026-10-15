@@ -69,13 +69,13 @@ That measurement was taken at n=136. <!-- facts-check:ignore: historical power m
 The golden set is now **n=250**, and the spread has been
 re-measured twice since: first at σ_d 0.204 / MDE 0.036 on the same nomic representation, then —
 after that representation was deleted on 2026-07-31 — at **σ_d 0.198 / MDE 0.035 on `ndcg_at_10`**
-against the live BAAI/bge-m3 store (THE-674, 2026-08-02, at `be4962d`). Every step was *worse*
+against the live BAAI/bge-m3 store (2026-08-02, at `be4962d`). Every step was *worse*
 resolution than the figure before it, not better. All three are kept rather than quietly replaced.
 
 **The current bar is metric-specific, and the spread across metrics is 2.5×.** 0.035 is the
 `ndcg_at_10` row. `recall_at_10` resolves at 0.026 and `bridge_recall` at 0.022, while `mrr_at_10`
 needs 0.055 — and `bridge_ndcg_at_10`, which is scored only on the labelled subset rather than the
-full set, needs 0.062. <!-- facts-check:ignore: per-metric resolution figures from THE-674, not corpus counts -->
+full set, needs 0.062. <!-- facts-check:ignore: per-metric resolution figures from a measurement run, not corpus counts -->
 Quoting the headline for a bridge-gated experiment overstates the resolution by nearly 2×. The full
 per-metric table lives in `packages/server/eval/README.md`.
 
@@ -106,9 +106,9 @@ The obvious move was to re-derive the figures against a bge-m3 index already on 
 produced a number that looked like a finding and was not, and the diagnosis took two wrong turns
 worth recording.
 
-**What actually happens.** A cache built before `chunk_fts` became contentless (THE-711) has FTS
+**What actually happens.** A cache built before `chunk_fts` became contentless has FTS
 rowids that are *independent* of `chunks.rowid`. Current code joins on that identity, so the join
-does not fail — it **pairs BM25 hits to the wrong chunks**. Measured on a real pre-THE-711 cache:
+does not fail — it **pairs BM25 hits to the wrong chunks**. Measured on a real pre-fix cache:
 8,933 of 13,451 rows "joined", all mis-paired, and 4,897 dropped.
 
 **Why it reads as a retrieval result.** The pure-dense arm never touches FTS, so it reproduces
@@ -132,7 +132,7 @@ migrations while the manifest holds 42 across multiple stores, so comparing thos
 meaningless, and the real gap was three. And it is **not** `acl_path_sets`, which is inert on this
 path. It is the FTS shape, specifically.
 
-The read path now **refuses** a pre-THE-711 `chunk_fts` rather than mis-joining it (THE-750), so
+The read path now **refuses** a pre-fix `chunk_fts` rather than mis-joining it, so
 this failure mode is loud from here on. Still: never reuse an eval cache across a
 retrieval-touching schema change. "Same embeddings" is not "same index", and
 `vec_index_fingerprint` records the embedding provider and dimensionality but **no schema version**,
@@ -253,7 +253,7 @@ would be evidence about nothing.
 `leaked_paths` is `null` when no ACL is in force, never `0`: "not checked" and "checked, none" are
 different claims, and conflating them would print PASS for an arm where the boundary was never
 evaluated. Five tests pin every state including a **failing** one, because a gate that has only
-reported PASS is indistinguishable from one wired to a constant — the defect THE-699 found in this
+reported PASS is indistinguishable from one wired to a constant — the defect found in this
 very harness.
 
 **A fourth principal was refused, and that is the harness working.** `P4` (`r-z` plus digits) leaves
@@ -269,7 +269,7 @@ is not: the intersection is mechanical, committed, and independently checkable. 
 ### Under-fill: the secondary metric (2026-08-10)
 
 Leakage above is a correctness gate. **Under-fill** is the quality half — recall lost against each
-principal's *own* achievable ceiling — and it is the number the `acl_path_sets` work (THE-694/695)
+principal's *own* achievable ceiling — and it is the number the `acl_path_sets` work
 exists to protect, because the over-fetch window means a heavily-restricted principal can lose
 recall for reasons unrelated to ranking.
 

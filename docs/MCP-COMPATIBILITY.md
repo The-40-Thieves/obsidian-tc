@@ -1,13 +1,13 @@
 # MCP protocol & client compatibility
 
-THE-510 shipped two deliverables. **Deliverable A (perf benchmarks) is now published** — see
+This work shipped two deliverables. **Deliverable A (perf benchmarks) is now published** — see
 [Performance benchmarks](https://obsidian-tc.the40thieves.io/observability/performance-benchmarks/).
 Its "gated on a measurement host" blocker was refuted on 2026-08-07: six isolated `ubuntu-latest`
 dispatches cleared the harness's own variance gate, six times out of six. This page is deliverable
 B only: what obsidian-tc's MCP surface can be shown to support, and what cannot honestly be claimed
 yet.
 
-See also [`MCP-CLIENT-COMPAT-MATRIX.md`](./MCP-CLIENT-COMPAT-MATRIX.md) (THE-725) — a narrower,
+See also [`MCP-CLIENT-COMPAT-MATRIX.md`](./MCP-CLIENT-COMPAT-MATRIX.md) — a narrower,
 code-focused cut across the client-identity surface (`client-info.ts`) and the three
 deprecated-but-served server→client features (`client-features.ts`: Logging, Roots, Sampling,
 SEP-2577), which surfaced two gaps between this repo's own code comments and what the pinned SDK
@@ -22,7 +22,7 @@ suite this page is generated against reading.
 
 ## Protocol revisions this server speaks
 
-obsidian-tc runs a dual-era MCP server (THE-583): it serves **2025-11-25** (the "legacy" era —
+obsidian-tc runs a dual-era MCP server: it serves **2025-11-25** (the "legacy" era —
 `initialize`/`initialized` handshake, per-connection sessions) and **2026-07-28** (the "modern"
 era — SEP-2575's stateless per-request envelope, `server/discover` in place of the handshake)
 *on the same endpoint, simultaneously*, distinguishing eras per request rather than per
@@ -69,7 +69,7 @@ Evidence key:
 | Unknown/future protocol version | — | refused with `400` naming the unrecognized version; the advertised set is finite | suite — `mcp-protocol-eras.test.ts` |
 | Tasks extension (`tasks/get`, `tasks/cancel`, `tasks/update`, `notifications/tasks`) | **not served at all** — "Tasks does not exist in that revision" | served, but only when the *client* declares the `io.modelcontextprotocol/tasks` extension capability; a client that does not is never handed a deferred-task handle and gets a synchronous result instead | suite — `mcp-tasks-wire.test.ts`, `task-augmented.test.ts`, `notifications-tasks.test.ts` |
 | `subscriptions/listen` (server-push events outside a request) | n/a | works — acknowledges a subscription and delivers events published outside any in-flight request; does not deliver types the client didn't opt into | suite — `subscriptions-listen.test.ts` (SEP-2575) |
-| Advisory push extension (`notifications/advisory`, THE-634) — a `experiential.proactive`-enabled scheduler sweep surfacing goal-anchored, unprompted advisories | **not served at all**, same as Tasks above — the `subscriptions/listen` method this rides does not exist in this era | served, but only when `experiential.proactive.enabled` (default **false**) AND the client opts into the `io.the40thieves.obsidian-tc/advisory` key on `subscriptions/listen`; a caller that does neither is never sent an advisory frame and gets no error either — a silent, documented gap, not a bug. **This is why the feature does not reach production traffic today**: obsidian-tc's own deployment sits behind LiteLLM, pinned to `mcp` 1.28.1 (legacy ceiling 2025-11-25, see "Protocol revisions this server speaks" above), so even with the flag on, no advisory reaches it through this channel — only a direct modern-era client (Claude Code, per the client matrix below) can. Closing that gap for the LiteLLM-fronted majority is explicitly out of scope for THE-634; see its PR description | suite — `mcp-advisories.test.ts` |
+| Advisory push extension (`notifications/advisory`) — a `experiential.proactive`-enabled scheduler sweep surfacing goal-anchored, unprompted advisories | **not served at all**, same as Tasks above — the `subscriptions/listen` method this rides does not exist in this era | served, but only when `experiential.proactive.enabled` (default **false**) AND the client opts into the `io.the40thieves.obsidian-tc/advisory` key on `subscriptions/listen`; a caller that does neither is never sent an advisory frame and gets no error either — a silent, documented gap, not a bug. **This is why the feature does not reach production traffic today**: obsidian-tc's own deployment sits behind LiteLLM, pinned to `mcp` 1.28.1 (legacy ceiling 2025-11-25, see "Protocol revisions this server speaks" above), so even with the flag on, no advisory reaches it through this channel — only a direct modern-era client (Claude Code, per the client matrix below) can. Closing that gap for the LiteLLM-fronted majority is explicitly out of scope for this feature; see its PR description | suite — `mcp-advisories.test.ts` |
 | HITL multi-round-trip (`inputRequired` + signed `requestState`) | n/a (no `_meta` envelope to carry it) | a destructive call the caller must confirm returns `inputRequired` + a `requestState`, not a bare error; the same state must be echoed back to authorize the *same* call — different arguments, tool, vault, or caller are all refused | suite — `hitl-multi-round-trip.test.ts`, `elicit-request-state.test.ts` (SEP-2260/2322) |
 | JSON Schema dialect on `inputSchema`/`outputSchema` | draft-2020-12 | draft-2020-12 (unchanged; SEP-2106 loosened the *keyword set* accepted, not the dialect this server emits) | suite — `protocol-surface.test.ts`, `schema-dialect.test.ts`, `tool-surface-2025.test.ts` |
 | `outputSchema` + `structuredContent`, tool-execution errors as structured results (SEP-1303) | present | present (unchanged by the 2026 revision) | suite — `tool-surface-2025.test.ts` |
@@ -121,7 +121,7 @@ for d in ~/src/*-sdk; do
 done
 ```
 
-### Known client-side hazard: `structuredContent` on an error result (THE-827)
+### Known client-side hazard: `structuredContent` on an error result
 
 This server attaches the structured error object as `structuredContent` alongside `isError: true`
 (the SEP-1303 row above). That is deliberate, documented, and asserted by

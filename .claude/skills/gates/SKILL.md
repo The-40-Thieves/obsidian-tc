@@ -30,7 +30,7 @@ rg -n 'run: (bun|node|npx)' .github/workflows/*.yml
 
 **`bun run lint` is ONLY `biome check`.** CI's `lint` *job* runs eight steps, and the seven beyond
 biome are where the interesting failures live. Running the script and believing it covered the job
-cost a CI round on THE-658. Run the loop:
+cost a CI round on a past incident. Run the loop:
 
 ```bash
 for g in lint check:boundaries check:dev-dep-imports check:perf-timing-scope \
@@ -86,7 +86,7 @@ also pins workspace resolution to tracked source, so running a build first is sa
 ## Offload the full suite — don't run it locally
 
 This repo is developed on a 4-core host that also runs ~43 containers, Falco and a remote desktop.
-A local full-suite run costs the whole box; two at once have driven it to load 28, and THE-503
+A local full-suite run costs the whole box; two at once have driven it to load 28, and a past incident
 measured an overlapping run reading throughput **51% low** while the gate still passed.
 
 Standard GitHub-hosted runners are **free and unmetered for public repositories**, and this repo is

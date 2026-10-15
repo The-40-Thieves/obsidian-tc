@@ -1,7 +1,7 @@
-# Durable Idempotency Claim State-Machine (THE-562 #13 / THE-413 residual) — Design
+# Durable Idempotency Claim State-Machine (audit #13 residual) — Design
 
 **Date:** 2026-07-24
-**Ticket:** THE-562 audit item **#13** (the residual of THE-413, which is marked Done but only partially fixed).
+**Ticket:** audit item **#13** (the residual of an earlier fix, which is marked Done but only partially fixed).
 **Status:** approved design → implementation plan next.
 
 ## Problem
@@ -20,7 +20,7 @@ mutation — commits **inside** the handler (`registry.ts:935`). Several failure
    advertised `outputSchema` throws `internal_error` *after* committing.
 2. **`JSON.stringify(out ?? null)`** (`registry.ts:966`) — a circular reference or `BigInt` in the
    payload throws *after* the effect committed.
-3. **Overflow-finalize fault** (`registry.ts:982-991`) — THE-413 changed the overflow path to
+3. **Overflow-finalize fault** (`registry.ts:982-991`) — an earlier fix changed the overflow path to
    *finalize* (not delete) so a retry replays the "too big" error; but if that finalize UPDATE
    itself faults, the claim stays in-flight and is reclaimable — the documented residual.
 
@@ -49,7 +49,7 @@ This is Approach **B** (durable state machine, chosen over the cheaper in-memory
 ### 1. Explicit state column (new migration)
 
 Add an explicit `state` column to `idempotency_keys`, making the implicit state machine real. The
-THE-413 states (claimed → executing → effect_committed → response_recorded → unknown) collapse to
+The earlier fix's states (claimed → executing → effect_committed → response_recorded → unknown) collapse to
 four persisted values:
 
 | `state` | `completed_at` | meaning | retry / reclaim response |
@@ -152,7 +152,7 @@ key, the worst case is a *blocked harmless retry* (an `indeterminate_outcome` wh
 have been safe) — never a double-effect. The implementation will confirm the keyed-tool set and
 note it; no per-tool effect declaration is introduced (YAGNI).
 
-> **Correction (THE-572).** The keyed-tool set named above was never confirmed against the schemas,
+> **Correction.** The keyed-tool set named above was never confirmed against the schemas,
 > and three of its members are wrong. `extractIdempotencyKey` (`registry.ts`) reads a top-level
 > `idempotency_key`, the `bulk_idempotency_key` alias, **or a nested `options.idempotency_key`** —
 > and every tool taking `WriteOptions` (`packages/shared/src/schemas/primitives.ts`) carries the
@@ -185,7 +185,7 @@ detectable:
 3. **Overflow-finalize fault:** handler commits, output > `maxResponseBytes`, and the finalize
    UPDATE is made to throw (db stub / read-only). Assert the durable marker was `effect_committed`
    *before* finalize, so a subsequent retry returns `indeterminate_outcome` (not a re-run) — closes
-   the documented THE-413 residual.
+   the documented residual.
 4. **Simulated crash after effect:** drive dispatch to set `state='effect_committed'` then skip
    finalize (simulate death). A later dispatch with the same key, past the reclaim window but within
    TTL, returns `indeterminate_outcome` and does **not** re-run the handler. Past TTL: GC'd + re-runnable.

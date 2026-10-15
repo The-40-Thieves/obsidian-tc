@@ -110,14 +110,14 @@ assumptions:
   through an explicit-path / published-package / source-checkout ladder, and resolution failure
   degrades gracefully (the same behaviour an unreachable hosted provider has always had) rather
   than crashing boot.
-- Vault-kind isolation, enforced bidirectionally (P1.5 / THE-569): a vault's `kind` (`private` |
+- Vault-kind isolation, enforced bidirectionally (P1.5): a vault's `kind` (`private` |
   `docs` | `system`) is a code-enforced property, not just a token-provisioning convention. The
   `read:docs` tools (`knowledge_search`, `knowledge_get_critical`) refuse any vault whose `kind`
   isn't `docs` (confidentiality direction), and the central dispatch gate refuses any mutating call
   (write/delete/execute/bulk, or a tool marked `destructive`) against a `docs`- or `system`-kind
   vault (write/integrity direction) — a reserved docs/system corpus is now read-only by kind on
   both axes. Zero blast radius for the default all-`private` config.
-- **Graph-walk ACL filter is on unconditionally (THE-695/THE-852, v1.22.0).** The recursive
+- **Graph-walk ACL filter is on unconditionally (v1.22.0).** The recursive
   graph-expansion walk behind `vault_graph_search` / `knowledge_search` / `vault_context` /
   `reflect` joins the caller's permitted-path set INSIDE the walk (not just on the final result
   list), so an ACL-denied note cannot serve as a stepping-stone bridge between two readable ones —
@@ -125,13 +125,13 @@ assumptions:
   behind a config flag, and not conditioned on whether a given caller happens to be restricted.
   That is a fail-safe-defaults choice, not an oversight — a recall miss (a note the walk should
   have reached but didn't) is detectable; an inference leak through a forbidden bridge is silent,
-  and a caller-conditional gate was the exact prior defect class it replaces: THE-852 closed two
+  and a caller-conditional gate was the exact prior defect class it replaces: an earlier fix closed two
   live P0s that a "only engage the join for restricted callers" design had left open —
   `via_edge.source_path` could surface a denied predecessor path, and an unreadable bridge note
   could act as a membership/rank oracle (its presence or absence in results, inferred from what it
   bridged to, leaked whether it existed). For an unrestricted caller the join is a structural
   no-op (their permitted set is the whole corpus), so this is zero-cost in the common
-  single-principal deployment. `obsidian_tc_acl_walk_pruned_total` (THE-891) turns that recall
+  single-principal deployment. `obsidian_tc_acl_walk_pruned_total` turns that recall
   cost from an unmeasured tradeoff into a per-vault counter: it fires only for a genuinely
   restricted caller and is zero by construction otherwise, so a live deployment can see the size
   of what the filter is protecting rather than taking the design argument on faith.
@@ -257,22 +257,22 @@ per-principal, what is content-level, and what is shared runtime-wide.
 | Store | Namespace | Intended scope | Rationale |
 |---|---|---|---|
 | `agent_episodes` (work memory) | `vault_id` + `caller` + `session_id` | **Per-principal** | An agent's recorded actions are private to it. The partition is authorization-enforced: crossing it (`any_caller`, cross-caller `work_forget`) requires `admin:workspace` (P1.7). |
-| `chunk_retrievals` (retrieval events + feedback) | `chunk_id` + `session_id` + `caller` | **Content-level events, caller-owned feedback** | A retrieval event is a relevance signal *about a chunk*, not about a principal, so the aggregate signal itself is never per-caller scoped. Stamping feedback onto it is a write to someone's judgment, though, so `record_retrieval_feedback` is caller-owned (THE-568, closing the P1.7 follow-up): a non-elevated caller may only stamp retrievals its own `caller` produced, on top of the pre-existing session scoping; `admin:workspace` crosses both. **THE-718 narrowed the session half:** a session-scoped caller also reaches its own rows where `session_id IS NULL`. A retrieval logged outside any session belongs to no session, so there is no second session to confuse it with and ownership is carried entirely by `caller` — the caller partition is unchanged, and a row that *does* carry a session is still reachable only from that session. Before this, the narrowing was a deny-all in practice: `session_id` was NULL on 97/97 live rows because nothing calls `start_session` (THE-714), so `admin:workspace` was the only principal that could stamp at all, and a correctly-behaving client got `updated: 0` with no error to say why. A no-op now names its reason (`session_scope` / `no_owned_retrievals`), computed only over rows the caller already owns so it cannot become an existence oracle. **THE-1099 (GH #964 part 2):** `record_retrieval_feedback`'s write lands here — in `chunk_retrievals`, this derived-cognition plane — and never in authored vault content, so it is the one tool `experiential.allowFeedbackInReadOnly` (default false, requires `experiential.logRetrievals: true` too) exempts by name from the `acl.readOnly` kill switch and `toolVisibility.requireReadOnly` hiding (`mcp/visibility.ts`'s `READ_ONLY_DERIVED_TELEMETRY_EXEMPT_TOOLS`). The `write:workspace` scope requirement above, and every other mutating tool's exposure to `acl.readOnly`, are unchanged — this is a single, name-enumerated carve-out for the derived plane, not a relaxation of read-only mode. |
-| `workspace_sessions` (session rows + JSONL traces) | `vault_id` + `principal` (server-observed) | **Per-principal for writes; metadata readable in-vault** | A session id is the correlation key for a principal's retrieval history, so `activeSessionFor` resolves a session ONLY on the server-observed `principal`, never on the caller-declared `caller` column (PR #691). **THE-838 applied the same rule to `end_session`**, which had validated only the vault: any principal with `write:workspace` could close another's session and, because the handler appends a `session_end` record carrying unconstrained `end_metadata`, write attacker-controlled JSON into that principal's trace — an input to `inferCitations` and to replay. A **NULL** `principal` means UNOWNED and anyone may close it: an unauthenticated transport writes NULL rather than fabricating a value, `closeStaleImplicitSessions` skips such rows (`principal IS NOT NULL`), and strict equality would leak them open forever. **Reads are a separate, narrower posture:** `get_session_traces` is `read:workspace`-scoped and deliberately does NOT filter by principal, so trace *metadata* (tool, timing, status) is visible in-vault; it mitigates the content axis instead, stripping captured `args` so cross-principal note bodies cannot leave through it (THE-736/THE-737). **THE-1108** gave an explicit `start_session` row an absolute ceiling: `sessions.windowSeconds` already stops `activeSessionFor` from attaching new traffic to one that old, but the row itself stayed open indefinitely — one forgotten `start_session` absorbed 34 days and 1,279 events before anything noticed. The maintenance sweep now also closes an explicit session once it is older than `sessions.maxExplicitLifetimeSeconds` (default 86400s), recording `ended_reason: "absolute_expired"` in the same `metadata_json` the stale-implicit sweep already writes to; like that sweep, it never touches an unowned (`caller IS NULL`) row and never closes one with a request in flight. `server_health`/`doctor`'s `sessions.liveness` check and a boot-time notice both surface a session already past this bound before the sweep gets to it. |
+| `chunk_retrievals` (retrieval events + feedback) | `chunk_id` + `session_id` + `caller` | **Content-level events, caller-owned feedback** | A retrieval event is a relevance signal *about a chunk*, not about a principal, so the aggregate signal itself is never per-caller scoped. Stamping feedback onto it is a write to someone's judgment, though, so `record_retrieval_feedback` is caller-owned (closing the P1.7 follow-up): a non-elevated caller may only stamp retrievals its own `caller` produced, on top of the pre-existing session scoping; `admin:workspace` crosses both. **The session half was narrowed later:** a session-scoped caller also reaches its own rows where `session_id IS NULL`. A retrieval logged outside any session belongs to no session, so there is no second session to confuse it with and ownership is carried entirely by `caller` — the caller partition is unchanged, and a row that *does* carry a session is still reachable only from that session. Before this, the narrowing was a deny-all in practice: `session_id` was NULL on 97/97 live rows because nothing calls `start_session`, so `admin:workspace` was the only principal that could stamp at all, and a correctly-behaving client got `updated: 0` with no error to say why. A no-op now names its reason (`session_scope` / `no_owned_retrievals`), computed only over rows the caller already owns so it cannot become an existence oracle. **GH #964 part 2:** `record_retrieval_feedback`'s write lands here — in `chunk_retrievals`, this derived-cognition plane — and never in authored vault content, so it is the one tool `experiential.allowFeedbackInReadOnly` (default false, requires `experiential.logRetrievals: true` too) exempts by name from the `acl.readOnly` kill switch and `toolVisibility.requireReadOnly` hiding (`mcp/visibility.ts`'s `READ_ONLY_DERIVED_TELEMETRY_EXEMPT_TOOLS`). The `write:workspace` scope requirement above, and every other mutating tool's exposure to `acl.readOnly`, are unchanged — this is a single, name-enumerated carve-out for the derived plane, not a relaxation of read-only mode. |
+| `workspace_sessions` (session rows + JSONL traces) | `vault_id` + `principal` (server-observed) | **Per-principal for writes; metadata readable in-vault** | A session id is the correlation key for a principal's retrieval history, so `activeSessionFor` resolves a session ONLY on the server-observed `principal`, never on the caller-declared `caller` column (PR #691). **The same rule was applied to `end_session`**, which had validated only the vault: any principal with `write:workspace` could close another's session and, because the handler appends a `session_end` record carrying unconstrained `end_metadata`, write attacker-controlled JSON into that principal's trace — an input to `inferCitations` and to replay. A **NULL** `principal` means UNOWNED and anyone may close it: an unauthenticated transport writes NULL rather than fabricating a value, `closeStaleImplicitSessions` skips such rows (`principal IS NOT NULL`), and strict equality would leak them open forever. **Reads are a separate, narrower posture:** `get_session_traces` is `read:workspace`-scoped and deliberately does NOT filter by principal, so trace *metadata* (tool, timing, status) is visible in-vault; it mitigates the content axis instead, stripping captured `args` so cross-principal note bodies cannot leave through it. **A later change** gave an explicit `start_session` row an absolute ceiling: `sessions.windowSeconds` already stops `activeSessionFor` from attaching new traffic to one that old, but the row itself stayed open indefinitely — one forgotten `start_session` absorbed 34 days and 1,279 events before anything noticed. The maintenance sweep now also closes an explicit session once it is older than `sessions.maxExplicitLifetimeSeconds` (default 86400s), recording `ended_reason: "absolute_expired"` in the same `metadata_json` the stale-implicit sweep already writes to; like that sweep, it never touches an unowned (`caller IS NULL`) row and never closes one with a request in flight. `server_health`/`doctor`'s `sessions.liveness` check and a boot-time notice both surface a session already past this bound before the sweep gets to it. |
 | `vault_object_state` (ACT-R activation: strengths / frequency / hits) | `object_id` = chunk id (no `vault_id`/`caller`) | **Corpus-global** | A chunk's activation is a property of the *content*, learned from aggregate access. Per-caller activation would defeat the ACT-R model (a chunk many retrieve is important regardless of who). |
 | `activation_state` (recompute watermark) | singleton (`id = 1`) | **Global** | One incremental-recompute cursor for the store. |
-| `preference_profile` / `preference_deltas` | `vault_id` + `scope_caller` + `key` | **Per-vault; per-key scope (human-shared or per-principal)** | One learned preference profile *per vault*, further partitioned by `scope_caller` on a PER-KEY basis (THE-891, migration `20260820_001`). THE-710 (migration `20260803_001`) first added the `vault_id` partition, revising the earlier global scope: "correct for the single-user model" did not extend to a single-*vault* assumption, and with two vaults configured one vault's learned preference silently overwrote the other's under the same key, with no column to filter on. THE-891 narrowed the remaining `caller` residual: each registered key (`PREFERENCE_KEYS` in `reflect.ts`) now declares whether it is `"human"`-scoped (`scope_caller = ''`, shared by every caller of the vault) or `"caller"`-scoped (partitioned per principal). Caller-scoped reads are authorization-enforced, not filtered — see the residual below and the `agent_episodes` row above for the P1.7 pattern it mirrors. |
+| `preference_profile` / `preference_deltas` | `vault_id` + `scope_caller` + `key` | **Per-vault; per-key scope (human-shared or per-principal)** | One learned preference profile *per vault*, further partitioned by `scope_caller` on a PER-KEY basis (migration `20260820_001`). An earlier change (migration `20260803_001`) first added the `vault_id` partition, revising the earlier global scope: "correct for the single-user model" did not extend to a single-*vault* assumption, and with two vaults configured one vault's learned preference silently overwrote the other's under the same key, with no column to filter on. A later change narrowed the remaining `caller` residual: each registered key (`PREFERENCE_KEYS` in `reflect.ts`) now declares whether it is `"human"`-scoped (`scope_caller = ''`, shared by every caller of the vault) or `"caller"`-scoped (partitioned per principal). Caller-scoped reads are authorization-enforced, not filtered — see the residual below and the `agent_episodes` row above for the P1.7 pattern it mirrors. |
 
 The per-principal / content-level split is deliberate: **episodes** are private to the agent that
 produced them, while **retrieval and activation state** are corpus-level signals about content, so they
 are intentionally *not* per-caller scoped for reading or aggregation. The one exception is *writing*
 feedback onto a retrieval event: that is an act attributable to a principal, so it is caller-owned
-(THE-568) even though the retrieval event it targets is not. `preference_profile` sits between the
+ even though the retrieval event it targets is not. `preference_profile` sits between the
 two: it is neither fully corpus-level nor uniformly per-principal, because *which* it is depends on
 the individual key — documented under *Known limitations and accepted residuals*.
 
-That axis has narrowed twice. THE-710 partitioned the preference plane by `vault_id` (migration
-`20260803_001`), so preferences no longer blend **across vaults**. THE-891 partitioned it again, this
+That axis has narrowed twice. An earlier change partitioned the preference plane by `vault_id` (migration
+`20260803_001`), so preferences no longer blend **across vaults**. A later change partitioned it again, this
 time **within** a vault, but only per-key rather than uniformly: each registered key now declares a
 `"human"` or `"caller"` scope, and only `"caller"`-scoped keys are principal-partitioned — a
 telemetry-derived key like `preferred.search_mode` encodes the *observing agent's* workload, not the
@@ -289,7 +289,7 @@ write is rejected with `concurrent_modification` if the note changed underneath 
 `write_note` (overwrite), `append_note`, and `update_frontmatter` — defense-in-depth for multi-writer
 setups (e.g. several agents writing one vault). It is optional by default; set **`writes.requireCas: true`**
 to make it **mandatory** on the destructive paths (`write_note` overwrite, `append_note` to an existing
-note), which then fail closed with `invalid_input` when `prev_hash` is absent (THE-252). Making it the
+note), which then fail closed with `invalid_input` when `prev_hash` is absent. Making it the
 non-configurable hard default remains deferred to a future major (a breaking API change).
 
 When `execute_template` creates a note and provenance frontmatter stamping is enabled, the
@@ -456,7 +456,7 @@ by content it retrieves.
   notes, Dataview/Tasks bridge output, and OCR text can all carry adversarial instructions.
 - **Deny sensitive folders by ACL, not by prompt.** A system-prompt rule ("never read
   Journal/") is one injection away from ignored; a `readPaths` whitelist is not.
-- **`readPaths` and `egress.excludePaths` answer different questions (THE-934).** `readPaths` is a
+- **`readPaths` and `egress.excludePaths` answer different questions.** `readPaths` is a
   read-visibility whitelist — what a caller (human or agent) may read and see in search results.
   `egress.excludePaths` is a separate, narrower control: vault-relative glob patterns withheld
   from every content-bearing gateway and embedding call the server makes, regardless of what
@@ -890,7 +890,7 @@ so operators can reason about them rather than discover them.
   boundaries, although the IDs reveal neither the other vault nor observation content. Treat the
   gap as process-level activity metadata until a future breaking release can migrate to opaque IDs.
 
-- **`move_attachment` rewrites references in notes outside the caller's write ACL (N-3, THE-303).**
+- **`move_attachment` rewrites references in notes outside the caller's write ACL (N-3).**
   When an attachment moves, every note that links to it is updated so links do not break — including
   notes the caller could not otherwise write. This is intentional: a partial rewrite (only the
   writable notes) would leave dangling links and is the worse failure. The rewrite is confined to
@@ -963,12 +963,12 @@ so operators can reason about them rather than discover them.
   the scheduled lint, the link map, and the wiki judge, whose `loadSendable` refuses a raw note (also
   one reached through a symlink from another folder) so its text never leaves the process. With
   `raw -> sources`, `sources/Topic.md` is a source, never "an existing page" that blocks a commit.
-- **Token max-age applies only to `iat`-bearing tokens (M-3, THE-304).** The JWT verifier enforces
+- **Token max-age applies only to `iat`-bearing tokens (M-3).** The JWT verifier enforces
   `auth.tokenTtlSeconds` against a token's `iat`; a token minted without `iat` (exp-only) is accepted
   for its full `exp` lifetime and is not additionally aged. This is a deliberate contract (exp-only
   tokens keep working), covered by a regression test. Deployments that require a max-age ceiling on
   every token must mint tokens with `iat` and a bounded `exp`.
-- **Intermediate-directory symlink-swap TOCTOU (THE-272) — closed on platforms with the native
+- **Intermediate-directory symlink-swap TOCTOU — closed on platforms with the native
   module.** Folder-ACL enforcement resolves the real (symlink-canonical) path, reads/writes on an fd,
   and rejects hard links. The intermediate-directory race — an attacker swapping an *ancestor*
   directory for a symlink between the realpath check and the fd open — is closed by the native module:
@@ -980,18 +980,18 @@ so operators can reason about them rather than discover them.
   ordinary paths, and refuses any path through a configured symlinked wiki or raw folder outright (see
   the wiki folder paragraph above); the hard-link and final-component-symlink guards still apply there. Windows uses the JS path (symlink
   creation is admin/developer-mode gated, and `number_of_links` is unstable on stable Rust).
-- **The pre-ingest poison scanner is layer 1 of a layered defense, not a complete filter (THE-238).**
+- **The pre-ingest poison scanner is layer 1 of a layered defense, not a complete filter.**
   `experiential/poison.ts` is a deterministic pattern scanner over auto-captured agent episodes. It
   now canonicalizes text before matching (NFKC + zero-width/bidi strip, so homoglyph and
   interleaved-invisible evasion folds into its patterns), but single-entry pattern scanning still
   misses subtle, novel-phrasing, or cross-episode poison **by design** — the literature puts the
   miss rate around two-thirds. It is **not** a standalone guarantee. Content that evades it is born
   `pending`, not `eligible` — never eligible at capture; retrieval-use waits for the sleep-time
-  evaluator (layer 2, THE-222). That evaluator promotes `pending → eligible` **deterministically**,
+  evaluator (layer 2). That evaluator promotes `pending → eligible` **deterministically**,
   not on human review, so for a *promotable* row `pending` is a short-lived state and not a
   quarantine — it runs on the maintenance cadence as the `episode-evaluation` scheduled job
-  (THE-698). Two caveats this document previously did not make, both load-bearing. First, that
-  scheduling only shipped in THE-698: before it, the evaluator had **no scheduled caller at all**
+. Two caveats this document previously did not make, both load-bearing. First, that
+  scheduling only shipped in a later change: before it, the evaluator had **no scheduled caller at all**
   and was reachable solely through a manual `obsidian-tc reflect`, which left a real deployment at
   337 of 337 episodes `pending` for seventeen days with `work_search` returning zero rows
   throughout. If you run a build predating that, promotion is manual and `pending` *is* a
@@ -1000,21 +1000,21 @@ so operators can reason about them rather than discover them.
   indefinitely, and that is the safety contract working, not a stalled evaluator. The safety
   contract is what the evaluator **refuses** to promote: a poison-flagged row is born `ineligible`
   and never raised; an unstable cluster (the same caller+tool+args_hash showing both `ok` and
-  `error`) is held; a row already marked a bad result (`task_result = -1`, THE-565 — the column was
+  `error`) is held; a row already marked a bad result (`task_result = -1`, the column was
   named `outcome` before 20260806_003) is held; and an optional model judge can only **lower** a
   promotion (a parse failure aborts the judge, so the deterministic promotions stand). Since
-  THE-726, `task_result = -1` can come from two writers distinguished by `verdict_source`: an
+  `task_result = -1` can come from two writers distinguished by `verdict_source`: an
   `operator` stamp (`work_result`, a first-person judgement) always holds, but a `derived` one — the
   server inferring a verdict from a closed session's tool-call log — holds only when
   `experiential.derivedVerdictHold` is on (default off); with the flag off a derived `-1` is written
   and still feeds the preference extractor, it just does not gate promotion. A plain
   `error` dispatch with no bad-result stamp
   **is** promoted — a failed action is a lesson. Retrieval is then gated by the reader trust floor +
-  eligible-only contract (layer 6, THE-229/237). Operators relying on the experiential tier should
+  eligible-only contract (layer 6). Operators relying on the experiential tier should
   treat captured episodes as **partially-trusted input** and keep `include_pending` off for
   untrusted callers; do not treat a clean layer-1 scan — or promotion to `eligible` — as proof an
   episode is safe.
-- **The learned `preference_profile` is scoped per key (P1.8, narrowed by THE-710 and THE-891).**
+- **The learned `preference_profile` is scoped per key (P1.8, narrowed by later changes).**
   Each registered preference key declares its scope: **human-scoped** keys are shared by every
   caller of a vault (correct for context-free, intent-derived preferences — the human's preference,
   whichever agent is asking), while **caller-scoped** keys are partitioned by principal, because a
@@ -1034,14 +1034,14 @@ so operators can reason about them rather than discover them.
   `vault_id` half was not a considered position: the rationale on record was "correct for the
   single-user model", and single-user is not single-**vault** — with two vaults configured, one
   vault's learned preference silently overwrote the other's under the same key, which is the same
-  defect class as the derived-plane namespacing done for `contradictions`/`syntheses` (THE-563) and
-  for `vault_edges` (THE-310). Migration `20260803_001` rebuilt both tables with `vault_id` leading
+  defect class as the derived-plane namespacing done for `contradictions`/`syntheses` and
+  for `vault_edges`. Migration `20260803_001` rebuilt both tables with `vault_id` leading
   the primary key. Existing rows were **purged rather than backfilled**, because a preference's
   originating vault was never recorded and inventing one would be indistinguishable downstream from
   a real attribution. The full per-store namespace model is documented under *Learned-state
   namespaces* above.
 
-  **Corrected 2026-08-21 (THE-891).** The `caller` half above is no longer fully intentional either
+  **Corrected 2026-08-21.** The `caller` half above is no longer fully intentional either
   — it was narrowed, not closed. `preference_profile`/`preference_deltas` gained `scope_caller`
   (migration `20260820_001`), and every registered key now declares whether it is human-shared or
   caller-partitioned; see the bullet above for the current posture. The one registered key,

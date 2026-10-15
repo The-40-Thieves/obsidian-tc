@@ -41,7 +41,7 @@ bun run test        # per-workspace; server is vitest under Node, native is carg
 just                # list recipes (build, test, lint, format, bundle, map, release)
 ```
 
-**`bun-smoke/` is a SEPARATE tsc project** (`packages/server/tsconfig.bun-smoke.json`, THE-687). It
+**`bun-smoke/` is a SEPARATE tsc project** (`packages/server/tsconfig.bun-smoke.json`). It
 is not in the main config's `include`, because it is the only code allowed to see Bun's globals —
 `src`/`test` pin `types: ["node"]` so they keep compiling against the Node floor that `build-test`
 runs on. Before it was wired in, `bun run typecheck` reported 0 while nine bun-smoke files did not
@@ -268,7 +268,7 @@ on an eighth nobody had written down.
 
 **If the tool MUTATES** (`destructive: true`, or any `write:`/`admin:` scope):
 
-6. **`pathAcl`, or a documented exemption** — `test/acl-extraction-coverage.test.ts` (THE-414). A
+6. **`pathAcl`, or a documented exemption** — `test/acl-extraction-coverage.test.ts`. A
    mutating tool that names no caller-controlled vault path belongs in `EXEMPT_NO_PATH` **with a
    comment saying why**. Being vault-*scoped* and *naming a path inside a vault* are different
    things; only the second is `pathAcl`'s business.
@@ -276,7 +276,7 @@ on an eighth nobody had written down.
 **If it also takes a vault:**
 
 7. **`vaultArg`, and the field must be the branded `VaultId`** —
-   `test/vault-arg-coverage.test.ts` (THE-513 Part 2). The gate recognises a vault-shaped field by
+   `test/vault-arg-coverage.test.ts`. The gate recognises a vault-shaped field by
    that schema, so `vault: z.string()` reads to it as *a mutating tool with no vault at all* and
    fails with a confusing message about a set you did not touch.
 
@@ -292,7 +292,7 @@ line-ceiling rule is invisible per-file, and per-file formatting leaves drift a 
 
 ## Security posture
 
-`trusted-local` is the default and leaves `snapshots.enabled` **on** (THE-648) — destructive note
+`trusted-local` is the default and leaves `snapshots.enabled` **on** — destructive note
 writes capture an undo via `restore_note` unless a config explicitly opts out
 (`snapshots: { enabled: false }`). Retention (10 versions/note) is pruned inline and orphan blobs
 are GC'd, so growth is bounded by construction. Worth knowing either way before running anything

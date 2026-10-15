@@ -1,12 +1,12 @@
-# Wire the durable JobQueue to its workloads — THE-562 #14 (THE-517)
+# Wire the durable JobQueue to its workloads — audit #14
 
 **Date:** 2026-07-24
-**Parent:** THE-562 (Codex audit tail, item #14) · extends THE-517 (durable JobQueue), THE-462 (unified scheduler), THE-457 (contradiction drain)
+**Parent:** Codex audit tail, item #14 · extends the durable JobQueue work, the unified scheduler work, and the contradiction drain work
 **Baseline:** `main` @ `7443740`
 
 ## Problem
 
-`scheduler/job-queue.ts` (THE-517) is a complete, crash-safe, DB-backed durable job queue — `enqueue` (idempotency-keyed), `claim` (lease + reclaim of expired leases, per-class concurrency), `checkpoint`, `complete`, `fail` (attempt tracking, exponential backoff, dead-letter → `failed`), and `runJob()` (per-job executor with lease heartbeat, real `AbortController`-backed cancellation, and lease-loss detection). It provisioned the `jobs` table (`20260723_002_jobs.sql`) and is fully tested — **but nothing claims from it.** The module sits in `check-boundaries.mjs`'s `UNREACHABLE_ALLOWLIST` marked "THE-517 — durable queue, not yet wired to a workload." Audit #14 asks: wire it, so its durability guarantees are real, and remove the allowlist entry.
+`scheduler/job-queue.ts` is a complete, crash-safe, DB-backed durable job queue — `enqueue` (idempotency-keyed), `claim` (lease + reclaim of expired leases, per-class concurrency), `checkpoint`, `complete`, `fail` (attempt tracking, exponential backoff, dead-letter → `failed`), and `runJob()` (per-job executor with lease heartbeat, real `AbortController`-backed cancellation, and lease-loss detection). It provisioned the `jobs` table (`20260723_002_jobs.sql`) and is fully tested — **but nothing claims from it.** The module sits in `check-boundaries.mjs`'s `UNREACHABLE_ALLOWLIST` marked "durable queue, not yet wired to a workload." Audit #14 asks: wire it, so its durability guarantees are real, and remove the allowlist entry.
 
 Two background workloads currently lack the durability the queue provides:
 

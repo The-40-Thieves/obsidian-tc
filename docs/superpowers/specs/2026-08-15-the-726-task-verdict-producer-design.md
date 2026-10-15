@@ -1,8 +1,8 @@
-# THE-726 — the task-verdict producer
+# The task-verdict producer
 
 > # SUPERSEDED 2026-08-16 — REJECTED by cross-vendor review. Do not implement from this file.
 >
-> **Replacement: [`2026-08-16-the-726-task-verdict-producer-design-v2.md`](./2026-08-16-the-726-task-verdict-producer-design-v2.md).**
+> **Replacement: the v2 design in this directory (2026-08-16).**
 >
 > A Codex refutation pass returned **reject**: seven blocking findings and five internal
 > contradictions. Three were independently re-verified against the code before being accepted.
@@ -31,14 +31,14 @@
 > * **`work_result(note?)`** accepts a parameter with nowhere to store it.
 
 **Status:** ~~design agreed~~ **REJECTED**, not built. **Date:** 2026-08-15.
-**Ticket:** THE-726 (EPIC: client lifecycle coordinator).
+**Ticket:** the client lifecycle coordinator epic.
 **Supersedes nothing.** Extends the 2026-08-10 decision `task_result is stamped by the acting agent, with the session-close sweep making the debt visible` — that named the *emitter*; this names the *unit* it writes to, which the epic left open.
 
 ---
 
 ## 1. What this closes
 
-THE-726's constraint 1 asked who stamps `agent_episodes.task_result`, and the 2026-08-10 decision answered: **the acting agent stamps, with a session-close sweep making the debt visible.**
+The epic's constraint 1 asked who stamps `agent_episodes.task_result`, and the 2026-08-10 decision answered: **the acting agent stamps, with a session-close sweep making the debt visible.**
 
 A second question was raised in review and never answered:
 
@@ -103,7 +103,7 @@ Neither wants "did the task succeed". Both want "was **this call** part of somet
 | **D2** | **A stamp closes the open window.** It applies to every unstamped episode in the session so far, then the window reopens. |
 | **D3** | **A new `work_result` verb**, plus an optional `task_result` passthrough on the existing `end_session`. |
 
-**Why D1 over a new task grain or a per-dispatch verdict.** A `work_tasks` table is the most faithful model — a task genuinely is neither a session nor a call — but it needs boundaries the server cannot observe, so the agent must declare start *and* end. That is a third affordance, and two have already gone unadopted (THE-718's tool-description affordance: 0/108; THE-633's goals: 0 rows). Redefining `task_result` as a per-dispatch verdict is honest about the row grain and matches both readers exactly, but it puts adoption cost at one stamp per call — precisely the shape `record_retrieval_feedback` already measured at **0/108**.
+**Why D1 over a new task grain or a per-dispatch verdict.** A `work_tasks` table is the most faithful model — a task genuinely is neither a session nor a call — but it needs boundaries the server cannot observe, so the agent must declare start *and* end. That is a third affordance, and two have already gone unadopted (the tool-description affordance: 0/108; the goals table: 0 rows). Redefining `task_result` as a per-dispatch verdict is honest about the row grain and matches both readers exactly, but it puts adoption cost at one stamp per call — precisely the shape `record_retrieval_feedback` already measured at **0/108**.
 
 D1 costs one stamp per ~4.8 dispatches and rides a session-close hook that already fires in production.
 
@@ -133,7 +133,7 @@ ALTER TABLE agent_episodes ADD COLUMN verdict_at INTEGER;  -- ms epoch of the st
 
 `task_result` already exists (renamed from `outcome` by `20260806_003`) and is **unchanged as a column**, newly **written by projection**. No new table, no FK, no cross-database write, no reader change.
 
-This also keeps the change inside the derived plane rather than reaching into the authored one, which is the boundary THE-563/564 established.
+This also keeps the change inside the derived plane rather than reaching into the authored one, which is the boundary the derived-plane work established.
 
 `verdict_at` earns its column: `task_result IS NULL` already separates unjudged from neutral-judged (`0`), but `verdict_at` gives the stamp-to-dispatch latency the kill condition is measured in, and distinguishes a live stamp from a later backfill.
 
@@ -235,16 +235,16 @@ Per the epic's constraint 3, this closes on **row counts over HTTP after a real 
 
 **Tool surface 162 → 163.** Per CLAUDE.md that moves `REGISTERED_TOOL_COUNT`, the facade domain map, and `boot.tools_registered`. `work_result` mutates, so it also needs `pathAcl` or a documented `EXEMPT_NO_PATH` entry — it names no caller-controlled vault path, so the exemption is the right answer *with a comment saying why*.
 
-`boot.tools_registered` is `tol: 0`, and `perf` runs push-to-main only and is not required, so **adding this tool cannot fail the PR that breaks the baseline**. Re-record via `gh workflow run perf-baseline.yml` and commit **all four** artifact files — copying `baseline.small.json` without its provenance sidecar is refused as a hand-edit (THE-754).
+`boot.tools_registered` is `tol: 0`, and `perf` runs push-to-main only and is not required, so **adding this tool cannot fail the PR that breaks the baseline**. Re-record via `gh workflow run perf-baseline.yml` and commit **all four** artifact files — copying `baseline.small.json` without its provenance sidecar is refused as a hand-edit.
 
 **One migration, experiential chain.** Append the `.sql`, register it in `db/migration-manifest.ts`, regenerate `migrations-embedded.ts`. Then the fourth step nothing gates: **`just migration-impact <file>.sql`**. 62 test files hand-build their own literal migration chain and only 16 read the manifest, so a new migration leaves the rest behind and you find them one red CI build at a time. That cost three rounds on 2026-08-06.
 
 ## 8. Out of scope
 
 - Deleting or re-typing the 192 mislabelled protocol-method episodes.
-- `agent_episodes.summary`, which also has readers and no writer. Fixing only `task_result` activates a low-evidence preference learner; that is accepted here and stays THE-726's problem, not this design's.
+- `agent_episodes.summary`, which also has readers and no writer. Fixing only `task_result` activates a low-evidence preference learner; that is accepted here and stays the epic's problem, not this design's.
 - Server-side task segmentation (§3, rejected).
-- THE-673, which unblocks on this but is its own ticket.
+- The counters item, which unblocks on this but is its own ticket.
 
 ## 9. Open
 

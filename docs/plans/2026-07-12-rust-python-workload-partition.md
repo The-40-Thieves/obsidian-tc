@@ -7,7 +7,7 @@ blanket "Python is out of scope" framing for the *technical* question of languag
 
 An audit raised: *where would Rust or Python be a better fit than the current TypeScript?* The
 honest answer is a **partition by compute profile**, decided per function — not by the prior
-scope decision (the V2 Python **in-process sidecar** was cut in THE-298; that was a coupling /
+scope decision (the V2 Python **in-process sidecar** was cut in a later change; that was a coupling /
 deployment call, not a claim that Python is wrong for ML). This doc maps the codebase's functions
 to the language whose runtime characteristics actually fit them, and proposes a build order.
 
