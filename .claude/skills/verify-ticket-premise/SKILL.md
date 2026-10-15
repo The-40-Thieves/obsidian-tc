@@ -11,11 +11,11 @@ Tickets in this repo go stale fast and stale confidently. A sample from a single
 
 | ticket | claimed | actual |
 |---|---|---|
-| THE-417 | "0 of 141 tools populate `outputSchema`" | **all 150 did**; the fail-closed phase had also shipped |
-| THE-464 | "~40% of vector bytes duplicated" | **0.06%** on the real vault — the 40% was a synthetic fixture |
-| THE-510 | "blocked on THE-503" | THE-503 had shipped **5 days earlier** |
-| THE-424 | runbook step "flip `activationRerank`" | the flag reaches no ranking code — a no-op |
-| THE-514 | "path ACL is written twice" | identical arg lists; one shared helper, two callers |
+| (ticket) | "0 of 141 tools populate `outputSchema`" | **all 150 did**; the fail-closed phase had also shipped |
+| (ticket) | "~40% of vector bytes duplicated" | **0.06%** on the real vault — the 40% was a synthetic fixture |
+| (ticket) | "blocked on another ticket" | that ticket had shipped **5 days earlier** |
+| (ticket) | runbook step "flip `activationRerank`" | the flag reaches no ranking code — a no-op |
+| (ticket) | "path ACL is written twice" | identical arg lists; one shared helper, two callers |
 
 Acting on any of those as written would have wasted between an afternoon and a week. Two of them
 would have *introduced* defects. The check below costs minutes.
@@ -46,7 +46,7 @@ just where <Symbol>                      # or: bun run where <Symbol> --path pac
 It reports **DECLARED / USED / PROSE-ONLY** and exits 1 when nothing declares the symbol. The third
 bucket is the one `rg` cannot give you: lines that mention the symbol in a comment or string. In
 this repo that is not a rounding error — `MAX_JUDGED` reads as 4 ripgrep lines and 2 real ones,
-and the two extra are a comment about a constant deleted from another file (THE-747).
+and the two extra are a comment about a constant deleted from another file.
 
 ### 3. Re-derive every number
 Tickets quote tool counts, test counts, line counts, coverage, corpus sizes, versions. Check each:
@@ -63,8 +63,8 @@ is before quoting it as evidence.
 
 ### 4. Test the central claim
 The one sentence the ticket rests on. Search by **capability, not by the ticket's chosen
-identifier** — work frequently ships under a different name than the ticket uses. THE-492 asked for
-a `note_quality` rollup that had already shipped under exactly that table name; THE-417's
+identifier** — work frequently ships under a different name than the ticket uses. The ticket asked for
+a `note_quality` rollup that had already shipped under exactly that table name; an earlier ticket's
 fail-closed phase shipped as `strictOutputSchema`.
 
 ### 5. Report before coding

@@ -1,7 +1,7 @@
-# THE-726 — the task-verdict producer, v2
+# The task-verdict producer, v2
 
-**Status:** design, not built. **Date:** 2026-08-16. **Ticket:** THE-726.
-**Supersedes:** `2026-08-15-the-726-task-verdict-producer-design.md`, which was **rejected** by cross-vendor review. That file is kept, not deleted — the review is the most useful artefact this design has produced, and a rejected draft with its refutation attached is worth more than a clean file with no history.
+**Status:** design, not built. **Date:** 2026-08-16. **Ticket:** the epic.
+**Supersedes:** the 2026-08-15 draft of this design, which was **rejected** by cross-vendor review. That file is kept, not deleted — the review is the most useful artefact this design has produced, and a rejected draft with its refutation attached is worth more than a clean file with no history.
 
 ---
 
@@ -21,7 +21,7 @@ A Codex refutation pass (framed to *refute*, not extend) returned **reject**: se
 | 4 | `pending_verdict` ≠ closure — the sweep is **age**-based, not idle-based | confirmed | §4.6 |
 | 5 | One judgment becomes N evidence lines; sampling weight is dispatch count | confirmed | §4.7 |
 | 6 | `tool NOT LIKE '%/%'` is lexical inference, not structure — and the spec **permits** `/` | confirmed | §4.3 |
-| 7 | `end_session(task_result)` reintroduces the cross-database write | confirmed | §4.8, THE-838 |
+| 7 | `end_session(task_result)` reintroduces the cross-database write | confirmed | §4.8, the session-ownership item |
 
 ### The claim that was wrong, and whose it was
 
@@ -56,23 +56,23 @@ Two facts the ticket still does not carry: **client adoption already happened** 
 | --- | --- | --- |
 | **D1** | The **session is the task**; the verdict projects onto that window's judgeable rows. | owner, stands |
 | **D2** | A **stamp closes the open window**, which then reopens. | owner, stands |
-| **D3** | A new `work_result` verb + a `task_result` passthrough on `end_session`. | stands; passthrough now **blocked on THE-838** |
+| **D3** | A new `work_result` verb + a `task_result` passthrough on `end_session`. | stands; passthrough now **blocked on the session-ownership item** |
 | **D4** | **Event kind becomes structural.** The producer writes `episode_type` honestly; nothing downstream infers kind from a name. | new, v2 |
 | **D5** | The queue is **debt-age**, not closure. It says so in its name. | new, v2 |
 | **D6** | A `-1` stamp **demotes** the rows it stamps back to `pending`, so the hold rule is order-independent. | new, v2 |
 | **D7** | `(session_id, verdict_at)` is the **window identity**, and every consumer must dedupe on it. | new, v2 |
 
-## 3. Scope change — split out as THE-839
+## 3. Scope change — split out as its own item
 
 **The producer's `episode_type` must be fixed first.** v1 scoped that out and tried to work around it with a string filter; findings #1 and #6 are both consequences of that choice, and every workaround is a variant of the refuted filter.
 
-**Split into THE-839 on 2026-08-16, at the owner's call**, with a `blocks` edge onto THE-726 so the dependency is a real graph edge rather than a sentence in a design doc. THE-839 owns the `DispatchEpisode.kind` field, the `episodes.ts` write, the one-time backfill, and the `channel` decision.
+**Split out on 2026-08-16, at the owner's call**, with a `blocks` edge onto the epic so the dependency is a real graph edge rather than a sentence in a design doc. The split-out item owns the `DispatchEpisode.kind` field, the `episodes.ts` write, the one-time backfill, and the `channel` decision.
 
-It is split because it is **independently valuable**: 30.5% of live rows are mislabelled today, and that is wrong whether or not the verdict producer is ever built. It is a blocker because **v2 has no correct exclusion predicate until `episode_type` is true** — §4.3 is a one-line filter precisely because THE-839 does the work.
+It is split because it is **independently valuable**: 30.5% of live rows are mislabelled today, and that is wrong whether or not the verdict producer is ever built. It is a blocker because **v2 has no correct exclusion predicate until `episode_type` is true** — §4.3 is a one-line filter precisely because the split-out item does the work.
 
-The `verdict` tag ships in THE-839 with **no consumer yet**; this design is its consumer. That is deliberate, so the producer changes once rather than twice.
+The `verdict` tag ships in the split-out item with **no consumer yet**; this design is its consumer. That is deliberate, so the producer changes once rather than twice.
 
-> **Corrected 2026-08-16 during THE-839's implementation:** this document originally spelled the judgeable kind `"tool"`. It ships as **`"tool_call"`** — the value `episode_type` already held for real tool calls. Renaming it would have churned 438 correct rows and ten test fixtures for no reader's benefit, and the defect was never the spelling; it was protocol methods borrowing the value. Every predicate below reads `episode_type = 'tool_call'`.
+> **Corrected 2026-08-16 during the split-out item's implementation:** this document originally spelled the judgeable kind `"tool"`. It ships as **`"tool_call"`** — the value `episode_type` already held for real tool calls. Renaming it would have churned 438 correct rows and ten test fixtures for no reader's benefit, and the defect was never the spelling; it was protocol methods borrowing the value. Every predicate below reads `episode_type = 'tool_call'`.
 
 ## 4. Design
 
@@ -102,7 +102,7 @@ episodes.ts writes it to episode_type instead of the literal.
 The registry knows which it is — it dispatched it. `kind` is derived at the dispatch site, never re-inferred downstream:
 
 - `"protocol"` — an MCP method (`tools/list`, `prompts/list`, `resources/list`), not a registered tool.
-- `"verdict"` — a registered tool carrying the `verdict` tag. Today: `work_result`, `end_session`. Derived from the registry's existing `tags` array, so adding a third verdict verb needs no edit here — the same registry-derived closed-set pattern THE-837 established.
+- `"verdict"` — a registered tool carrying the `verdict` tag. Today: `work_result`, `end_session`. Derived from the registry's existing `tags` array, so adding a third verdict verb needs no edit here — the same registry-derived closed-set pattern an earlier item established.
 - `"tool_call"` — everything else. **This is the judgeable set.** The existing spelling is kept: it was always correct for a real tool call, and renaming would rewrite 438 correct rows and ten test fixtures to say the same thing differently. The defect was protocol methods borrowing the value, not the value.
 
 **Historical rows.** 192 existing rows are mislabelled. One backfill, in the migration:
@@ -157,7 +157,7 @@ UPDATE agent_episodes
  WHERE session_id = :session AND verdict_at = :now AND eligibility = 'eligible';
 ```
 
-The next evaluator pass re-inspects and applies the hold, with its reason recorded (THE-746). Demotion is consistent with the existing model: a *held* row already keeps `eligibility='pending'` (`reflect.ts:173`), so "pending" already means "not yet promoted", not "never seen".
+The next evaluator pass re-inspects and applies the hold, with its reason recorded. Demotion is consistent with the existing model: a *held* row already keeps `eligibility='pending'` (`reflect.ts:173`), so "pending" already means "not yet promoted", not "never seen".
 
 Only `-1` demotes. A `0` or `+1` verdict changes no promotion decision, and demoting on every stamp would re-run the evaluator over the entire corpus for no verdict change.
 
@@ -188,14 +188,14 @@ Per-row, so chatter cannot hide anything: a protocol row is not judgeable and ne
 
 Projecting one judgment onto N rows therefore spends N of 40 evidence slots on one observation. Measured against this corpus: **~8 distinct judgments** would fill the 40-row budget, and an 18-dispatch task outweighs a 1-dispatch task **18:1** for the same single verdict. That is a length bias, not a quality signal, and it biases learned preferences toward tool-heavy workflows.
 
-This is not philosophical. It lands hardest on **THE-673 — the ticket this design exists to unblock** — whose premise is *"replace LLM preference extraction with **counters** over typed evidence."* A counter reads 4.82 correlated rows as 4.82 independent observations.
+This is not philosophical. It lands hardest on **The counters item — the ticket this design exists to unblock** — whose premise is *"replace LLM preference extraction with **counters** over typed evidence."* A counter reads 4.82 correlated rows as 4.82 independent observations.
 
 Requirements, both binding:
 
 1. `extractPreferences` selects `session_id, verdict_at` and collapses each window to **one** evidence line, carrying the member count as context rather than as repetition.
-2. **THE-673's counters MUST group by `(session_id, verdict_at)`.** Recorded on that ticket, not only here — a requirement stated only in a superseded design is a requirement nobody reads.
+2. **The counters item MUST group by `(session_id, verdict_at)`.** Recorded on that ticket, not only here — a requirement stated only in a superseded design is a requirement nobody reads.
 
-The external literature agrees this direction is the weak one: outcome-level rewards *"cannot identify which intermediate memory contents support the final answer"* ([AttriMem, arXiv 2607.21106](https://arxiv.org/abs/2607.21106v1)), and step-level attribution consistently outperforms it. **We are choosing the weaker signal deliberately**, because the binding constraint here is adoption, not attribution quality — two finer-grained affordances have already measured 0 (THE-718's 0/108, THE-633's 0 rows). A precise scheme nobody calls is worth less than a coarse one that gets stamped. D2's window preserves the grouping, so a later refinement (weighting by position, or by whether a dispatch's result was cited) is not foreclosed.
+The external literature agrees this direction is the weak one: outcome-level rewards *"cannot identify which intermediate memory contents support the final answer"* ([AttriMem, arXiv 2607.21106](https://arxiv.org/abs/2607.21106v1)), and step-level attribution consistently outperforms it. **We are choosing the weaker signal deliberately**, because the binding constraint here is adoption, not attribution quality — two finer-grained affordances have already measured 0 (0/108 on one affordance, 0 rows on the goals table). A precise scheme nobody calls is worth less than a coarse one that gets stamped. D2's window preserves the grouping, so a later refinement (weighting by position, or by whether a dispatch's result was cited) is not foreclosed.
 
 ### 4.8 `end_session` passthrough — ordering, and a blocker (fixes #7)
 
@@ -206,7 +206,7 @@ The passthrough must write to both files, which cannot share a transaction. Orde
 
 A crash between leaves the session open with its episodes stamped: recoverable, because subsequent dispatches attach to the still-open session and surface as debt. The reverse order leaves a permanently closed session with unstamped episodes and no path back — unrecoverable. The existing `end_session` already carries a third non-transactional effect (the JSONL append, `session-tools.ts:205`); the trace append stays first, since a trace entry for a session that then fails to close is inert.
 
-> **BLOCKED: the passthrough must not ship before THE-838.** `end_session` never checks `s.principal === ctx.caller`, so any principal with `write:workspace` on the vault can end another's session. Adding a verdict passthrough upgrades that from *closing your session* to *stamping verdicts onto your episodes*. `work_result` (D3) is unaffected and can ship first — it resolves its session through `activeSessionFor`, which is keyed on the server-observed principal.
+> **BLOCKED: the passthrough must not ship before the session-ownership item.** `end_session` never checks `s.principal === ctx.caller`, so any principal with `write:workspace` on the vault can end another's session. Adding a verdict passthrough upgrades that from *closing your session* to *stamping verdicts onto your episodes*. `work_result` (D3) is unaffected and can ship first — it resolves its session through `activeSessionFor`, which is keyed on the server-observed principal.
 
 ### 4.9 API
 
@@ -255,26 +255,26 @@ Larger than v1, and the increase is the scope change in §3.
 
 - `agent_episodes.summary`, still readers-and-no-writer.
 - Server-side task segmentation (rejected in v1, still rejected).
-- THE-673 itself, which unblocks on this — but §4.7's grouping requirement must be written onto that ticket.
-- THE-838, filed separately, blocking only D3's passthrough.
+- The counters item itself, which unblocks on this — but §4.7's grouping requirement must be written onto that ticket.
+- The session-ownership item, filed separately, blocking only D3's passthrough.
 
 ## 9. Open
 
-1. ~~§3's scope increase~~ — **resolved: split as THE-839**, which now `blocks` THE-726. Not an open question; a sequencing constraint.
-2. **NULL-principal sessions** (THE-838) — whether NULL means "anyone may close" or "only an unauthenticated transport may". Affects `work_result`'s ownership check too, so it must be decided on THE-838 before either verb ships, not discovered twice.
+1. ~~§3's scope increase~~ — **resolved: split out**, which now `blocks` the epic. Not an open question; a sequencing constraint.
+2. **NULL-principal sessions** — whether NULL means "anyone may close" or "only an unauthenticated transport may". Affects `work_result`'s ownership check too, so it must be decided on the session-ownership item before either verb ships, not discovered twice.
 3. **`as_of` ergonomics** — a caller with no clock discipline passing a skewed value stamps the wrong set. Server-side clamping to `[session.started_at, now]` is the obvious guard and is not yet specified. Note `session.started_at` lives in **cache.db** (§4.1), so the clamp cannot read it from the projection's own transaction — clamp to `[MIN(ts) of the session's episodes, now]` instead, or accept the unclamped value and say so.
 
 ## 10. Sequencing
 
 ```
-THE-839  episode_type becomes true          ──blocks──┐
-THE-838  end_session ownership              ──blocks──┤
+split-out  episode_type becomes true          ──blocks──┐
+own-item  end_session ownership              ──blocks──┤
                                                       ▼
-                                        THE-726  this design
+                                        epic  this design
                                                       │
                                                       ▼
-                                        THE-673  counters, grouping on
+                                        counters, grouping on
                                                  (session_id, verdict_at)
 ```
 
-THE-838 blocks only D3's `end_session` passthrough. **`work_result` can ship without it** — it resolves its session through `activeSessionFor`, which is keyed on the server-observed principal and therefore already carries the property `end_session` is missing.
+The session-ownership item blocks only D3's `end_session` passthrough. **`work_result` can ship without it** — it resolves its session through `activeSessionFor`, which is keyed on the server-observed principal and therefore already carries the property `end_session` is missing.

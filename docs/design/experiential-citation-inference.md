@@ -2,7 +2,7 @@
 
 Extracted from inline commentary, 2026-08-21. The code carries the invariants; this note carries the history and evidence.
 
-## Where the transcript comes from (THE-717 / THE-675)
+## Where the transcript comes from
 
 The module header used to say the transcript was "assistant-side text the MCP server itself never
 sees," and that sentence got quoted forward for months as proof the whole citation-inference feature
@@ -27,7 +27,7 @@ does not promise.
   for a clean rerun. Stage-1 negatives are always safe to stamp `cited = 0` without a judge call.
 
 Correlation is by `session_id` (threaded from `ctx` into every retrieval-log call) or a
-`retrieved_at` window — the join THE-228's capture bus made trivial.
+`retrieved_at` window — the join the capture bus made trivial.
 
 ## Transcript tokenization: hoist and intern once (measured)
 
@@ -41,21 +41,21 @@ compares vs. **40.1 ns/cell** over interned ints, for an identical score. `prepa
 `rougeLPrepared` hoist the tokenize out of the per-chunk loop and intern tokens to ints once, which
 is pure removed work on top of the per-cell speedup.
 
-## Cosine scoring: batch the crossing (THE-420)
+## Cosine scoring: batch the crossing
 
 The naive per-pair form — one `cosineSimilarity` call per (transcript block, chunk) pair, up to
-`MAX_BLOCKS` (48) crossings per chunk — was measured by THE-420 at **13–22x slower** than the pure-JS
+`MAX_BLOCKS` (48) crossings per chunk — was measured at **13–22x slower** than the pure-JS
 fallback, because `cosineSimilarity`'s `a: number[]` parameter marshals a fresh `Vec<f64>` on every
 one of those 48 crossings. `prepareBlocks` + `maxBlockCosine` flatten the block vectors once into a
 row-major `Float32Array` so each chunk costs one `cosineBatch` crossing instead of 48. Mirrors
 `search/colbert.ts`'s `flattenRectangular`.
 
 Narrowing block vectors from f64 (`number[]` as received) to f32 (the flat buffer) can shift scores
-from the old all-f64 query path in the last bits; THE-504 measured that narrowing at **< 1e-6
+from the old all-f64 query path in the last bits; A later measurement put that narrowing at **< 1e-6
 absolute**, against a stage-1 threshold of 0.30 — well below anything that could flip a pass/fail
 decision.
 
-## A typed judge seam, and the opt-in TypeSafe Jev provider (THE-1078)
+## A typed judge seam, and the opt-in TypeSafe Jev provider
 
 The stage-2 judge used to be a single inline block: build a gateway chat-completions request with
 the `JUDGE_SYSTEM`/`JUDGE_SYSTEM_UNCERTAIN` prompt, call `judge()`, parse the JSON reply. That
@@ -71,7 +71,7 @@ regardless of which provider answers a call — a provider swap must not require
 TypeSafe Jev is reached over `gateway/typesafe.ts`, a minimal client for TypeSafe's `/v1/systemone`
 endpoint and its "Noul" question type (a single yes/no-with-confidence answer, 0..1). It mirrors
 `gateway/client.ts`'s per-attempt-timeout/fresh-AbortController/exponential-backoff shape, with one
-deliberate deviation from THE-615's rule that a bare 429 (no `Retry-After`) is not retryable:
+deliberate deviation from the rule that a bare 429 (no `Retry-After`) is not retryable:
 TypeSafe documents a bare 429 as transient ("rate limits adjusting dynamically"), unlike the
 self-hosted gateway's 429, which is a quota/config answer about OUR request. Different providers,
 different contracts.
@@ -106,9 +106,9 @@ is `"gateway"` (the default); a `"typesafe"` provider needs no gateway at all, s
 
 ## `MAX_JUDGED`'s counterpart, and why it no longer has one
 
-`maxJudged` (THE-617 item 3, default 25, override via `--max-judged`) used to be documented as the
+`maxJudged` (item 3, default 25, override via `--max-judged`) used to be documented as the
 counterpart to an identically named `MAX_JUDGED` in `reflect.ts`, kept as a separate constant because
 citation-inference and episode-evaluation were independent workloads that should stay independently
-tunable. THE-701 deleted the episode judge entirely, so `reflect.ts` no longer has such a constant —
+tunable. A later change deleted the episode judge entirely, so `reflect.ts` no longer has such a constant —
 there is no longer a second workload to stay tunable apart from, and this is the only `MAX_JUDGED`
-left in the codebase (THE-747).
+left in the codebase.

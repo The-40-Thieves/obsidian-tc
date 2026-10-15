@@ -1,4 +1,4 @@
-# Durable Idempotency Claim State-Machine (THE-562 #13) Implementation Plan
+# Durable Idempotency Claim State-Machine (audit #13) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -51,7 +51,7 @@ import { describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import { openMemoryDb } from "./helpers";
 
-describe("idempotency_keys.state column (THE-562 #13)", () => {
+describe("idempotency_keys.state column (audit #13)", () => {
   it("adds a state column defaulting to 'in_flight'", () => {
     const db = openMemoryDb();
     provisionCacheDb(db);
@@ -85,7 +85,7 @@ Expected: FAIL — no `state` column.
 Create `packages/server/src/migrations/20260724_002_idempotency_state.sql`:
 
 ```sql
--- THE-562 #13 (THE-413 residual): make the idempotency claim state machine explicit. Prior code
+-- audit #13 (earlier residual): make the idempotency claim state machine explicit. Prior code
 -- inferred state from completed_at (+ an overflow sentinel), so a post-effect fault could not be
 -- distinguished from a pre-effect one and the claim was deleted → a retry re-ran a committed effect.
 -- states: in_flight (claimed) -> effect_committed (handler returned, effect may be durable, response
@@ -131,7 +131,7 @@ Expected: PASS — every `migrations/*.sql` is registered in exactly one chain.
 
 ```bash
 git add packages/server/src/migrations/20260724_002_idempotency_state.sql packages/server/src/db/migration-manifest.ts packages/server/src/mcp/registry.ts packages/server/test/idempotency-state-column.test.ts
-git commit -s -m "feat(THE-562 #13): add idempotency_keys.state column + read path
+git commit -s -m "feat(audit #13): add idempotency_keys.state column + read path
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
@@ -174,7 +174,7 @@ function idemRow(db: Database, key: string) {
     | undefined;
 }
 
-describe("idempotency post-effect fault (THE-562 #13)", () => {
+describe("idempotency post-effect fault (audit #13)", () => {
   it("a strict-output-schema violation AFTER the effect records indeterminate, not delete", async () => {
     const db = freshDb();
     const reg = new ToolRegistry(); // NODE_ENV=test => strictOutputSchema on
@@ -369,7 +369,7 @@ Expected: PASS — new post-effect tests pass; every existing idempotency test s
 
 ```bash
 git add packages/server/src/mcp/registry.ts packages/server/test/idempotency-post-effect.test.ts
-git commit -s -m "feat(THE-562 #13): record indeterminate on post-effect faults instead of deleting the claim
+git commit -s -m "feat(audit #13): record indeterminate on post-effect faults instead of deleting the claim
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
@@ -394,7 +394,7 @@ Add to `test/idempotency-post-effect.test.ts` (reuse its helpers). Include an IN
 const INSERT_STATE =
   "INSERT INTO idempotency_keys (vault_id, key, tool_name, args_hash, started_at, completed_at, result, result_size, expires_at, state) VALUES (?,?,?,?,?,?,?,?,?,?)";
 
-describe("idempotency crash-after-effect (THE-562 #13)", () => {
+describe("idempotency crash-after-effect (audit #13)", () => {
   it("an orphaned effect_committed row (crash before finalize) replays indeterminate, never re-runs", async () => {
     const db = freshDb();
     const { reg, calls } = (() => {
@@ -544,7 +544,7 @@ Expected: PASS — new crash/overflow-fault tests pass; existing crash-reclaim t
 
 ```bash
 git add packages/server/src/mcp/registry.ts packages/server/test/idempotency-post-effect.test.ts
-git commit -s -m "feat(THE-562 #13): honor effect_committed on reclaim — crash after effect is indeterminate, not re-run
+git commit -s -m "feat(audit #13): honor effect_committed on reclaim — crash after effect is indeterminate, not re-run
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
@@ -573,7 +573,7 @@ At the `markEffectCommitted` call site (Task 2, Step 4), add:
 In `CHANGELOG.md`, under `## [Unreleased]` `### Fixed` (create the subsection if absent, ordered after `### Added`/`### Security`/before `### Changed` per the file's existing order), add:
 
 ```markdown
-- **At-most-once idempotency under post-effect faults** (THE-562 #13, closing the THE-413 residual):
+- **At-most-once idempotency under post-effect faults** (audit #13, closing the earlier residual):
   the dispatch pipeline deleted an idempotency claim on any failure *after* the handler had already
   committed its side effect (a strict-output-schema violation, a `JSON.stringify` failure on the
   payload, or an overflow-finalize fault), so a retry with the same key re-ran the handler and
@@ -594,11 +594,11 @@ Expected: all green.
 
 ```bash
 git add packages/server/src/mcp/registry.ts CHANGELOG.md
-git commit -s -m "docs(THE-562 #13): document the two-generals residual + CHANGELOG
+git commit -s -m "docs(audit #13): document the two-generals residual + CHANGELOG
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
-git push -u origin mislam2/the-562-13-idempotency-durable-claim
-gh pr create --base main --title "feat(THE-562 #13): durable idempotency claim state-machine (at-most-once under post-effect faults)" --body "<summary — see spec>"
+git push -u origin mislam2/idempotency-durable-claim
+gh pr create --base main --title "feat(audit #13): durable idempotency claim state-machine (at-most-once under post-effect faults)" --body "<summary — see spec>"
 ```
 
 - [ ] **Step 5: Confirm CI triggered with a non-zero check count; merge on green** — after an adversarial whole-branch review (this changes the dispatch hot-path idempotency contract for every mutating tool).

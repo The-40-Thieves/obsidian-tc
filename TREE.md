@@ -89,7 +89,7 @@ The list is generated — see `scripts/gen-tree-map.mjs`.
 _The largest files numbers are generated on demand and not committed: run `bun run map`, then read the “Largest files” section of `generated/tree-map.md`._
 | 900 | `packages/server/eval/run.ts` *(dev tooling, outside `src/`)* |
 
-**The structural refactor program (THE-466, merged 2026-07-31) removed every entry that
+**The structural refactor program (merged 2026-07-31) removed every entry that
 used to head this table.** Seven concentration targets, 9,422 → 842 lines (91.1% removed), measured
 at merge. <!-- facts-check:ignore -->
 
@@ -110,7 +110,7 @@ gated — a dated measurement is not a current fact.
 | `tools/m1/notes-tools.ts` | 1,042 | 51 |
 | `plugin/src/routes.ts` | 953 | 80 |
 
-`graph_search.ts` was taken 1066 → 237 earlier by THE-465.
+`graph_search.ts` was taken 1066 → 237 earlier in the same refactor.
 
 A repo-wide biome `noExcessiveLinesPerFile` cap of **700** now guards against
 re-concentration — see `biome.json`. Note it counts **code** lines, not `wc -l`:
@@ -166,7 +166,7 @@ durable leases separate from execution/retry policy.
 | **tools/m7** | **3** | **0** ← no dedicated test file |
 
 **`tools/m7` has no test file named for it.** That is `knowledge-tools.ts` (now a 98-line facade over `tools/m7/knowledge/`),
-holding all four `graphSearch` call sites, THE-451's HyDE param, and THE-536's
+holding all four `graphSearch` call sites, the HyDE param, and the
 `adaptiveRrf` threading. It is covered indirectly by `vault-context`, `reflect-tool`,
 and `knowledge-search` tests, but nothing is named for the module.
 
@@ -177,7 +177,7 @@ and `knowledge-search` tests, but nothing is named for the module.
 ## 7. Dependency graph
 
 `dependency-cruiser` is already a dev dependency, configured by `.dependency-cruiser.cjs`
-and wrapped by `scripts/check-boundaries.mjs` (THE-525).
+and wrapped by `scripts/check-boundaries.mjs`.
 
 ### Regenerating this
 

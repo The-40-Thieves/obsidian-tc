@@ -1232,7 +1232,7 @@ bunx vitest run bun-smoke/vec-model-swap.test.ts bun-smoke/vec-rebuild-signal.te
 bun run test:local test/indexer.test.ts test/model-swap-reembed.test.ts > /tmp/idx.log 2>&1; echo "indexer=$?"
 ```
 
-Expected: every line `=0`. `vec-model-swap` encodes THE-460 — a same-dimension swap where the
+Expected: every line `=0`. `vec-model-swap` encodes an earlier defect — a same-dimension swap where the
 fingerprint was **correct** and the backfill still re-selected old-model rows.
 
 - [ ] **Step 8: Commit**
@@ -1256,7 +1256,7 @@ and rebuild the table the other just built. Absent revision is byte-identical
 to the old fingerprint, so no existing index rebuilds on upgrade.
 
 Does NOT wire RepresentationManifest: it still has no production producer."
-(Deferral closed by THE-683 on 2026-08-01 — the manifest now has one.)
+(Deferral closed on 2026-08-01 — the manifest now has one.)
 ```
 
 ---

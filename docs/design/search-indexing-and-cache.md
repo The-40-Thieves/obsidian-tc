@@ -9,30 +9,30 @@ verbatim out of `indexer.ts` — the whole-vault walk, two-phase batching (plan+
 transaction, apply a batch inside one), stale-note cleanup, edge reconciliation (literal +
 derived), and aggregated `IndexStats`.
 
-## index-vault.ts — DEFAULT_BATCH_MAX_NOTES / DEFAULT_BATCH_MAX_BYTES (THE-500)
+## index-vault.ts — DEFAULT_BATCH_MAX_NOTES / DEFAULT_BATCH_MAX_BYTES
 
-100 notes was the prior hardcoded flush size before THE-500 made it configurable
+100 notes was the prior hardcoded flush size before a later change made it configurable
 (`args.batch?.maxNotes`); 8 MiB is the accompanying byte cap for batches of large notes
 (`args.batch?.maxBytes`).
 
-## index-vault.ts — representation manifest (THE-683)
+## index-vault.ts — representation manifest
 
-Before THE-683, `indexVault` hand-built its own copy of the representation manifest instead of
+Before the manifest change, `indexVault` hand-built its own copy of the representation manifest instead of
 accepting the caller's. That hand-built copy carried a comment warning that if it drifted from
 `runtime/indexing-wiring.ts`, "boot and index_vault each DROP and rebuild the table the other just
-built — an unbounded rebuild loop." THE-683 changed the function to accept the manifest identity
+built — an unbounded rebuild loop." That change changed the function to accept the manifest identity
 from the caller instead of recomputing it, which makes that drift unrepresentable rather than
 merely tested-against. A caller without one (tests, eval harnesses) builds it with
 `buildRepresentationManifest`, the same function boot uses, so there remains exactly one
 derivation of the manifest in the codebase.
 
-## index-vault.ts — dedup registry seeding (THE-445)
+## index-vault.ts — dedup registry seeding
 
 The dedup registry (`dedupRegistry`, migration `20260719_001`) is one in-memory map shared across
-the whole walk, keyed on `content_hash` (the enriched embed text under THE-406, not the raw
+the whole walk, keyed on `content_hash` (the enriched embed text not the raw
 `body_sha`) so distinctly titled notes never share a vector.
 
-THE-445 seeds the registry, before the walk starts, from embed texts already embedded in a PRIOR
+The walk seeds the registry, before the walk starts, from embed texts already embedded in a PRIOR
 run — reading existing `chunks` rows and taking the first path (by `path, chunk_index` order) per
 `content_hash`. Without this, content indexed under an UNCHANGED path (never re-walked this pass,
 so never registered by the walk itself) would fail to dedup against a new path carrying the same
@@ -51,9 +51,9 @@ embed, and a K-note reconcile pays ~ceil(N/BATCH) fsyncs instead of N. A batch i
 a mid-batch failure rolls the whole batch back, which only costs re-work (the reconcile is
 idempotent, the content-hash skip re-converges next pass), never correctness.
 
-**THE-925 correction:** this section used to claim the plan/apply gap was safe because `indexVault`
+**Correction:** this section used to claim the plan/apply gap was safe because `indexVault`
 is "the sole writer on this single connection during the reconcile" — that stopped being true once
-THE-455 routed `write_note`/the vault watcher through `IndexCoordinator` -> `indexNote` on the SAME
+A later change routed `write_note`/the vault watcher through `IndexCoordinator` -> `indexNote` on the SAME
 `cache.db` connection, with no serialization against `indexVault`. A concurrent `indexNote` commit
 for the same path can land between a plan's pre-read (`preloadChunkState`/`computeNotePlan`) and its
 apply here, since both happen on one connection but the plan spans an `await` (`embedPlans`'s
@@ -69,12 +69,12 @@ rather than applying them, and the next `index_vault` re-plans the path against 
 write for the same path can land inside one `indexNote` call's own `await`. Reproduced and pinned by
 `test/index-vault-concurrent-write-guard.test.ts`.
 
-The embed() calls are additionally batched across the whole flush batch (THE-277) BEFORE opening
+The embed() calls are additionally batched across the whole flush batch BEFORE opening
 the write transaction, so the reconcile makes ceil(chunks/EMBED_BATCH) requests with a few in
 flight instead of one serial round-trip per note. The write lock is still never held across a
 network call.
 
-## index-vault.ts — embed-rejection quarantine (THE-390)
+## index-vault.ts — embed-rejection quarantine
 
 A chunk the embedding provider rejects even alone quarantines its NOTE: the rest of the batch
 still applies and the reconcile completes (surfaced via `stats.notes_embed_failed` + reconcile
@@ -83,9 +83,9 @@ health; the content-hash skip retries the note next pass).
 This is a deliberate consequence, not an oversight: a quarantined note keeps serving its
 LAST-INDEXED chunks (stale-but-consistent) rather than being pruned to a search hole or failing
 the whole reindex. Its notes/FTS metadata may be newer than its chunks, which the notes pass
-already allows by design (THE-291 independence — see below).
+already allows by design (independence — see below).
 
-## index-vault.ts — two-transaction split (notes vs chunks) (THE-291)
+## index-vault.ts — two-transaction split (notes vs chunks)
 
 The notes/FTS pass is flushed INDEPENDENTLY of the chunk/embed pass, so a broken embedding backend
 cannot block metadata/FTS readiness (they need no embeddings). Notes batches commit inline during
@@ -95,11 +95,11 @@ This two-transaction split is a deliberate atomicity gap. It is safe ONLY becaus
 `index_vault` self-heals either side (an absent chunk set re-embeds; a missing notes row is
 rewritten). That invariant is pinned by `test/index-selfheal.test.ts` — do not break it.
 
-## index-vault.ts — THE-823 (link extraction needs the note's own path)
+## index-vault.ts — link extraction needs the note's own path
 
 `processNote`'s `rel` parameter is already in scope at the point `noteLinks.set(rel, ...)` runs —
 this is the whole reason the boot reconcile's "frontmatter is not valid YAML" degrade message used
-to name no file, even though this call site knew one. THE-823 fixed the degrade message to use it.
+to name no file, even though this call site knew one. A later fix changed the degrade message to use it.
 
 ## Excluded files (Obsidian's `userIgnoreFilters` + `index.excludePaths`)
 
@@ -136,7 +136,7 @@ write's index step was skipped for broken frontmatter YAML. Both are warnings, n
 both clear on the next `index_vault` once the note's YAML is fixed. The 2 second slack absorbs the
 gap between a file's mtime and the `indexed_at` stamped just after it.
 
-## index-vault.ts — graph densification (THE-486, docs/plans/2026-07-13-graph-densification.md)
+## index-vault.ts — graph densification (docs/plans/2026-07-13-graph-densification.md)
 
 Densification reconciles derived edges — shared-tag co-occurrence and vec0 kNN neighbors — on
 their OWN edge_types, so the literal layer and the LLM layer (`semantically_similar_to`, built
@@ -158,31 +158,31 @@ Reconciling unconditionally against a `vault_edges` table that predates migratio
 would throw on the upsert and kill the entire index pass, hence the `derivedColumnsOk` guard around
 all of this.
 
-**Tag-cooccurrence warm delta (THE-486).** The warm-delta branch computes the FULL post-pass tag
+**Tag-cooccurrence warm delta.** The warm-delta branch computes the FULL post-pass tag
 map as the old snapshot overlaid with this pass's walked notes' fresh tags, minus anything deleted
 — cheaper than re-reading the whole notes table, and exactly what a fresh read would produce anyway
 (every untouched note keeps its old value). When NO note's tags changed this pass, the call is
 skipped entirely (not even the scope build runs) — the same "no scan on a true no-op" guarantee as
 the kNN branch below, applied to the tag layer.
 
-**kNN discovery scope (THE-533).** The kNN branch uses `knnDiscoveryScope`, not a narrower
+**kNN discovery scope.** The kNN branch uses `knnDiscoveryScope`, not a narrower
 edge-only "neighbor scope": the edge-only expansion cannot reach a note that would newly rank a
 changed/new note in its OWN top-k without being ranked back, so it needs the forward vector
 neighbours too. This costs one extra `vecKnn` per CHANGED chunk (not per vault chunk), which is
-what keeps THE-486's speedup intact. When `densifyKnnRequested` is true but `changedChunkPaths` is
+what keeps the densification speedup intact. When `densifyKnnRequested` is true but `changedChunkPaths` is
 empty, nothing this pass could have invalidated any `similar_to` edge, so the acceptance criterion
 (criterion 1) applies: skip the call entirely, not even a scope lookup, rather than paying any kNN
 scan on a warm no-op pass.
 
-## query_cache.ts — module header (THE-497)
+## query_cache.ts — module header
 
 The query-product cache caches the expensive-but-reusable products of a retrieval (the query's
 dense/sparse/ColBERT encodings, and the whole graph-search result) under a key that binds both
-halves of THE-496:
+halves of the change:
 
 1. **IDENTITY** — the caller's ACL fingerprint (`acl.ts`). Two callers with different effective
    read sets never share an entry, so the cache can never serve caller A's content to caller B. An
-   incorrect key here is a data leak of the same class as THE-453/THE-456, which is why it is part
+   incorrect key here is a data leak of the same class as earlier leaks, which is why it is part
    of EVERY key in this file, even for products that do not depend on vault content: it costs only
    cross-principal hit rate (nothing at all in a single-principal runtime) and it also closes the
    timing side channel where B learns that A asked the same question.
@@ -262,9 +262,9 @@ the earlier ones; the box was less loaded and the load average is not controlled
 what the decision uses. The decision is unchanged, and so is each of its bars. The r=30% stream, the live-embedding
 arm and the other two tools were not re-run.
 
-## query_cache.ts — FUNCTION_FIELDS: `activationFor` (THE-424 Part A / Part B)
+## query_cache.ts — FUNCTION_FIELDS: `activationFor` (Part A / Part B)
 
-`activationFor` is a DB lookup of `cached_activation_score`. It was re-reviewed for THE-424 Part A,
+`activationFor` is a DB lookup of `cached_activation_score`. It was re-reviewed for Part A,
 which wired `bubbleSafe` into the serve path: the entry used to lead with "inert unless
 bubbleSafe.enabled," and that clause is now false whenever an operator sets
 `experiential.activationRerank`.
@@ -276,7 +276,7 @@ the generation. So a cache hit inside the TTL can serve an order computed from p
 activation. That is bounded twice over: the bubble pass moves any item at most one position, and
 the TTL bounds how stale the scores can be.
 
-**Correction after THE-424 Part B.** This comment used to end "never a wrong result set,"
+**Correction after Part B.** This comment used to end "never a wrong result set,"
 reasoning that a one-position bound cannot change top-K MEMBERSHIP. It can: an item at rank K+1
 moving to rank K is a one-position move that swaps a document into the returned set. Measured on
 the public evergreen corpus: zero membership changes at the 512-token chunk budget, but 1-2 queries
@@ -289,10 +289,10 @@ This is accepted deliberately: keying on activation values would invalidate the 
 every recompute, which costs more than the one-slot drift it would fix. If the bubble pass ever
 becomes a full re-sort, this trade dies and activation must enter the key.
 
-## query_cache.ts — TRACE_SELECTOR_FIELDS: `traceNotePath` (THE-632, cross-vendor review correction)
+## query_cache.ts — TRACE_SELECTOR_FIELDS: `traceNotePath` (cross-vendor review correction)
 
-`traceNotePath` selects which note the trace FOLLOWS (`diagnose_retrieval`'s per-note trace sink,
-THE-632). It never filters, boosts, or reorders — results are byte-identical with it set, unset, or
+`traceNotePath` selects which note the trace FOLLOWS (`diagnose_retrieval`'s per-note trace sink).
+It never filters, boosts, or reorders — results are byte-identical with it set, unset, or
 pointed at a different note.
 
 **Correction (cross-vendor review).** An earlier version of this comment said the field was
@@ -313,7 +313,7 @@ DIRECTLY and never `cachedGraphSearch`. Anyone wiring tracing into the cached pa
 explicitly — a silently empty trace reads as "the note was never anywhere," which is a wrong
 answer, not a missing one.
 
-## query_cache.ts — COVERAGE_ONLY_FIELDS (THE-631 item 2, THE-733)
+## query_cache.ts — COVERAGE_ONLY_FIELDS (item 2)
 
 `staleThresholdDays` sets the age past which a returned note counts toward
 `CoverageEstimate.staleReturned`. It reaches exactly one place — `countStaleNotes`, whose output is
@@ -331,14 +331,14 @@ schema field is optional for exactly this). A stale threshold therefore cannot p
 staleness count from cache — only an absent one, which is already the documented behaviour for
 every coverage field.
 
-THE-733 added `scoreCalibration` and `engineVersion` to this list on the same grounds. Both reach
+A later change added `scoreCalibration` and `engineVersion` to this list on the same grounds. Both reach
 exactly one place — `confidenceFor`, whose output is the `confidence` field of the coverage
 estimate — and nothing downstream of it touches scoring, fusion, or ordering. Two searches
 differing only in which calibration row was current return byte-identical RESULTS and must share a
 cache entry; keying on them would fragment the cache every time a vault is recalibrated, for no
 change in what is cached.
 
-## query_cache.ts — `copyResults` deep-copies `via_edge` (THE-626)
+## query_cache.ts — `copyResults` deep-copies `via_edge`
 
 `GraphSearchResult` is NOT flat — `via_edge` (`graph_search_stages/types.ts`) is itself an object,
 so a bare `{...r}` spread only protects the top-level fields; `via_edge` would still be the SAME
@@ -350,7 +350,7 @@ worth paying for on fields that are already flat.
 
 `query-cache.test.ts` has a mutation test exercising this.
 
-## query_cache.ts — QueryCache.set() expiry sweep (THE-626)
+## query_cache.ts — QueryCache.set() expiry sweep
 
 `set()` sweeps one expired entry before growing the map. Without this, an entry that expires and is
 never re-requested just sits at the front of the LRU order — `get()` is the only other place that

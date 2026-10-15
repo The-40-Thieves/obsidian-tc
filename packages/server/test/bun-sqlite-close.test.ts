@@ -21,6 +21,11 @@ import { makeTempDir, rmTemp } from "./tmp";
 
 const bunAvailable = spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0;
 const CHILD = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "db-close-child.ts");
+const BUSY_CHILD = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "fixtures",
+  "db-close-busy-child.ts",
+);
 
 const tmpDirs: string[] = [];
 afterEach(() => {
@@ -43,6 +48,28 @@ describe.skipIf(!bunAvailable || process.platform === "darwin")(
     });
   },
 );
+
+// GH #1259: `close(true)` can report SQLITE_BUSY after the writes have committed (another process
+// holds the same cache.db open). That is a close-time contention, not a failed write, so the caller
+// (note-quality's finally) must not turn it into exit 1. Any other close failure still propagates.
+describe.skipIf(!bunAvailable)("bun:sqlite adapter close() on SQLITE_BUSY (GH #1259)", () => {
+  const runChild = (mode: "busy" | "other"): { threw: string | null } => {
+    const dir = makeTempDir("otc-bun-close-busy-");
+    tmpDirs.push(dir);
+    const r = spawnSync("bun", [BUSY_CHILD, join(dir, "close.db"), mode], { encoding: "utf8" });
+    expect(r.status, r.stderr).toBe(0);
+    const line = r.stdout.split("\n").find((l) => l.startsWith("{"));
+    return JSON.parse(line ?? "{}");
+  };
+
+  it("does not throw when close(true) reports SQLITE_BUSY after committed writes", () => {
+    expect(runChild("busy")).toEqual({ threw: null });
+  });
+
+  it("still propagates a close failure that is not SQLITE_BUSY", () => {
+    expect(runChild("other")).toEqual({ threw: "disk I/O error" });
+  });
+});
 
 // The same observable for the adapter this (Node) process picks, so the two Node adapters stay held
 // to the contract the Bun one was fixed for: close() finalizes outstanding statements, then closes.

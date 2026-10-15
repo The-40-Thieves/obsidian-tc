@@ -6,7 +6,7 @@ Extracted from inline commentary, 2026-08-21. The code carries the invariants; t
 
 **"Rerun", not "replay".** The prevailing meaning of "replay" in agent tooling is to walk the
 control flow again substituting stored results, so nothing executes. That is impossible here, and
-not by oversight: THE-736 captured arguments and deliberately not results. The only available shape
+not by oversight: an earlier design captured arguments and deliberately not results. The only available shape
 is to re-issue the inputs and compare what comes back, which is also what the ticket asks for.
 Hence `rerun`, not `replay`.
 
@@ -65,12 +65,12 @@ vault-binding guard: under `["*"]` it registered an operator-supplied real path 
 
 Required, and that is the fix rather than a style choice. It used to be optional with a `?? ""`
 default, which only `--sandbox` ever supplied: a legacy `trace_store = 'vault'` row (the
-`DEFAULT 'vault'` backfill of migration `20260805_003` — i.e. every row predating THE-737) then
+`DEFAULT 'vault'` backfill of migration `20260805_003` — i.e. every row predating that change) then
 resolved its trace against `resolve("")` = `process.cwd()`, found nothing, and reported
 `no_capture` for the whole session while blaming `sessions.traceContent`. A required resolver makes
 that silent misattribution unrepresentable.
 
-## `rerunSession` — caller attribution (THE-740)
+## `rerunSession` — caller attribution
 
 Every re-issued call goes through the real dispatch — which is the point, since a rerun that passes
 is evidence about the actual gates — and `recordOutcome` therefore writes an `event_log` row for
@@ -85,7 +85,7 @@ The prefix keeps the original principal legible (`rerun:alice` still says alice)
 rows excludable from any analysis over `event_log`, needs no migration, and makes the rows
 filterable with a `LIKE`. A null caller becomes `rerun:` rather than staying null, so a synthetic
 row is never indistinguishable from an unattributed real one. This repo already treats audit
-integrity as load-bearing (the forget log is hash-chained; THE-605 reasons explicitly about which
+integrity as load-bearing (the forget log is hash-chained; the earlier audit reasons explicitly about which
 commands may write audit rows), and synthesising indistinguishable rows was never part of that
 reasoning.
 
@@ -120,7 +120,7 @@ command exists to surface. Only the read-only gate's own message (`READ_ONLY_DEN
 imported so it cannot drift) is treated as a skip; every other `forbidden` falls through and is
 compared like any other outcome.
 
-## `rerunSession` — refusals caused by this runner, not by the vault (THE-738)
+## `rerunSession` — refusals caused by this runner, not by the vault
 
 `plugin_unreachable` is the sandbox stripping `restApiUrl`/`restApiKey` so bridge tools cannot reach
 the live Obsidian app — correct, and the only safe answer, since a filesystem copy cannot bound a
@@ -134,7 +134,7 @@ deliberately omits that family. This is exactly the class the design doc names �
 diverges for a reason unrelated to the change being investigated" — arriving through a different
 door. Both are folded into the `refused_by_policy` verdict rather than counted as divergence.
 
-## `stageDatabase` (THE-739)
+## `stageDatabase`
 
 `cpSync` was the original implementation, and it was wrong quietly. Every adapter sets `PRAGMA
 journal_mode = WAL`, so a live database's recent writes sit in a `-wal` sidecar that a file copy
@@ -177,7 +177,7 @@ staging call that never returned. Every throwing path from `stageSandbox` cleans
 rethrowing, and the original error `e` — the reason staging failed — is what propagates, since
 `safeDispose` never throws (see above), not whatever `rmSync` ran into while cleaning up after it.
 
-THE-737: a session minted today writes `trace_store='cache'` — its JSONL lives under
+Note: a session minted today writes `trace_store='cache'` — its JSONL lives under
 `<cacheDir>/traces/`, not under the vault. Skipping the traces copy would make `--sandbox` find
 `no_capture` for every record on the only generation of session anything writes now (nothing
 constructs `trace_store='vault'` any more; see `sessions.ts`'s own comment on the column), which

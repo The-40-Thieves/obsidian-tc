@@ -23,25 +23,50 @@ export function readEnumerationUnrestricted(
   return false;
 }
 
-/** Extract a vault-relative path from a bridge item, or undefined if unattributable. */
-export function bridgeItemPath(
-  item: unknown,
-  keys: readonly string[] = ["path", "note_path", "file", "filePath"],
-): string | undefined {
-  if (typeof item !== "object" || item === null) return undefined;
-  const o = item as Record<string, unknown>;
-  for (const k of keys) {
-    const val = o[k];
-    if (typeof val === "string" && val.length > 0) {
-      try {
-        return normalizeVaultPath(val);
-      } catch {
-        // An invalid value for this key (e.g. a traversal attempt) — keep trying the
-        // remaining keys before treating the item as unattributable.
-      }
+const DEFAULT_BRIDGE_PATH_KEYS = ["path", "note_path", "file", "filePath", "from"] as const;
+
+interface BridgePathScan {
+  found: boolean;
+  invalid: boolean;
+  paths: string[];
+}
+
+function scanPathValues(values: unknown[]): BridgePathScan {
+  const paths: string[] = [];
+  let found = false;
+  let invalid = false;
+  for (const value of values) {
+    if (typeof value !== "string" || value.length === 0) continue;
+    found = true;
+    try {
+      paths.push(normalizeVaultPath(value));
+    } catch {
+      invalid = true;
     }
   }
-  return undefined;
+  return { found, invalid, paths };
+}
+
+function scanBridgeItemPaths(
+  item: unknown,
+  keys: readonly string[] = DEFAULT_BRIDGE_PATH_KEYS,
+  barePath = false,
+): BridgePathScan {
+  if (barePath && typeof item === "string") return scanPathValues([item]);
+  if (typeof item !== "object" || item === null) return { found: false, invalid: false, paths: [] };
+  const o = item as Record<string, unknown>;
+  return scanPathValues(keys.map((key) => o[key]));
+}
+
+/** Extract the first vault-relative path from a bridge item, or undefined if unattributable or
+ *  any path-shaped value is invalid. Filtering uses every path returned by scanBridgeItemPaths. */
+export function bridgeItemPath(
+  item: unknown,
+  keys: readonly string[] = DEFAULT_BRIDGE_PATH_KEYS,
+  barePath = false,
+): string | undefined {
+  const scan = scanBridgeItemPaths(item, keys, barePath);
+  return scan.invalid ? undefined : scan.paths[0];
 }
 
 /**
@@ -134,13 +159,14 @@ export function filterBridgeItemsByAcl(
   root: string,
   grantedScopes: Iterable<string>,
   items: unknown[],
-  opts: { tool: string; keys?: readonly string[] },
+  opts: { tool: string; keys?: readonly string[]; barePath?: boolean },
 ): unknown[] {
   const unrestricted = readEnumerationUnrestricted(acl, grantedScopes);
   const out: unknown[] = [];
   for (const it of items) {
-    const rel = bridgeItemPath(it, opts.keys);
-    if (rel === undefined) {
+    const scan = scanBridgeItemPaths(it, opts.keys, opts.barePath);
+    if (scan.invalid) continue;
+    if (!scan.found) {
       if (unrestricted) {
         out.push(it);
         continue;
@@ -149,28 +175,72 @@ export function filterBridgeItemsByAcl(
         tool: opts.tool,
       });
     }
-    if (readableResolved(acl, root, rel, grantedScopes)) out.push(it);
+    if (scan.paths.every((rel) => readableResolved(acl, root, rel, grantedScopes))) out.push(it);
   }
   return out;
+}
+
+function nestedPathValues(row: unknown): unknown[] {
+  const paths: unknown[] = [];
+  const seen = new Set<object>();
+  const visit = (value: unknown): void => {
+    if (typeof value !== "object" || value === null || seen.has(value)) return;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (const cell of value) visit(cell);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    paths.push(record.path);
+    for (const cell of Object.values(record)) visit(cell);
+  };
+  visit(row);
+  return paths;
+}
+
+/** Filter Dataview rows by every nested Link/TASK `path`. Rows such as TABLE WITHOUT ID that have
+ *  no attributable path remain visible to an unrestricted caller. */
+export function filterBridgeDqlRowsByAcl(
+  acl: FolderAcl | undefined,
+  root: string,
+  grantedScopes: Iterable<string>,
+  rows: unknown[][],
+  tool: string,
+): unknown[][] {
+  const unrestricted = readEnumerationUnrestricted(acl, grantedScopes);
+  return rows.filter((row) => {
+    const scan = scanPathValues(nestedPathValues(row));
+    if (scan.invalid) return false;
+    if (!scan.found) {
+      if (unrestricted) return true;
+      throw err.aclDenied("bridge result cannot be attributed to a vault path; failing closed", {
+        tool,
+      });
+    }
+    return scan.paths.every((rel) => readableResolved(acl, root, rel, grantedScopes));
+  });
 }
 
 /**
  * Filter a bridge result shaped `{ items: [...], total, ... }` (Datacore, Omnisearch). The rows are
  * filtered by note path (fail closed on an unattributable row for a restricted caller) and `total`
- * is recounted. Every sibling field is DROPPED unless the caller is unrestricted AND no row was
- * removed: siblings are computed over the unfiltered set by the plugin and can carry a hidden
- * note's path or text (THE-270).
+ * is always recounted. A result without an `items` array is reduced to an empty envelope. Every
+ * other sibling field is DROPPED unless the caller is unrestricted AND no row was removed:
+ * siblings are computed over the unfiltered set by the plugin and can carry a hidden note's path
+ * or text (THE-270).
  */
 export function filterBridgeResultItems(
   acl: FolderAcl | undefined,
   root: string,
   grantedScopes: Iterable<string>,
   result: Record<string, unknown>,
-  opts: { tool: string; keys?: readonly string[] },
+  opts: { tool: string; keys?: readonly string[]; barePath?: boolean },
 ): Record<string, unknown> {
-  const rows = Array.isArray(result.items) ? (result.items as unknown[]) : [];
+  if (!Array.isArray(result.items)) return { items: [], total: 0 };
+  const rows = result.items as unknown[];
   const items = filterBridgeItemsByAcl(acl, root, grantedScopes, rows, opts);
-  if (bridgeSiblingsSafe(acl, grantedScopes, rows.length, items.length)) return result;
+  if (bridgeSiblingsSafe(acl, grantedScopes, rows.length, items.length))
+    return { ...result, items, total: items.length };
   return { items, total: items.length };
 }
 
@@ -198,11 +268,12 @@ export function assertBridgePathReadable(
   result: unknown,
   opts: { tool: string },
 ): void {
-  const rel = bridgeItemPath(result);
-  const readable =
-    rel === undefined
+  const scan = scanBridgeItemPaths(result);
+  const readable = scan.invalid
+    ? false
+    : !scan.found
       ? readEnumerationUnrestricted(acl, grantedScopes)
-      : readableResolved(acl, root, rel, grantedScopes);
+      : scan.paths.every((rel) => readableResolved(acl, root, rel, grantedScopes));
   if (!readable) throw err.aclDenied("path is not readable by this caller", { tool: opts.tool });
 }
 

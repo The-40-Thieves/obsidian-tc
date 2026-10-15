@@ -15,7 +15,7 @@ never touches this file or `cli.ts`, so moving these call sites changes nothing 
 (M2-M8) runs after it, because M2's `dataviewBridge`, M3's `templaterBridge`, and M4 itself all read
 the composed `M4Deps` object `bridge-wiring.ts` returns.
 
-## `resolveDeclaredReranker`'s `local`-provider exception (THE-705 round 2, #806)
+## `resolveDeclaredReranker`'s `local`-provider exception (#806)
 
 `resolveDeclaredReranker` turns a resolver returning `null` for a *declared* `reranker` block into a
 boot-time failure naming the provider and what it needed — except for `provider: "local"`, which is
@@ -34,20 +34,20 @@ unavailable gets a hard boot crash, which is the opposite of "rerank reachable w
 So `local` degrades exactly like an absent block: `rerankWithScores` reports `not_configured`,
 retrieval stays RRF-only. `doctor/checks.ts`'s `rerankerBuildableCheck` (wired with a real
 resolution probe in `cli/commands/doctor.ts`) is what keeps this loud instead of silently identical
-to "nothing configured". See CHANGELOG.md THE-705 (#806) for the `local` provider's own history.
+to "nothing configured". See CHANGELOG.md (#806) for the `local` provider's own history.
 
-## `planeRoles`: separate gateway roles for background jobs (THE-700/THE-709, #659)
+## `planeRoles`: separate gateway roles for background jobs (#659)
 
 `planeRoles` gives the background plane (synthesis/audit) its own `GatewayClient` with a larger
 attempt budget and, separately, its own per-attempt timeout, distinct from the interactive `roles`
 seam the M7 challenge tool shares. The full measured history — the Modal cold-start budget, why more
 attempts beats a longer per-attempt timeout, the rejected `ping()`-based pre-warm idea, and the
 370.4s-twice-12ms-apart / LiteLLM-60.8s-across-470-models measurements — is already recorded in
-CHANGELOG.md under THE-700 (#659) and THE-709, plus `docs/wiki/Configuration.md` /
+CHANGELOG.md under #659 and a follow-up, plus `docs/wiki/Configuration.md` /
 `docs/src/content/docs/configuration/config-reference.md` for `plane.gatewayTimeoutMs`. Check those
 before re-deriving the numbers.
 
-## ACL construction is duplicated on purpose (THE-630, #809)
+## ACL construction is duplicated on purpose (#809)
 
 `wireDomainTools` calls `buildAcls(config.acl, config.vaults)` itself rather than threading
 `wireGovernance`'s already-built `acl`/`aclByVault` objects through `server-runtime.ts`'s

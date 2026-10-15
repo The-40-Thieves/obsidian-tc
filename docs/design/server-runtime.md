@@ -24,7 +24,7 @@ The map's target shape for WP5. `registry` is the one thing every caller of a fu
 
 ## `requireBoot`
 
-THE-466 slice 2's established idiom (originally documented in cli.ts's header comment, before this extraction): a boot resource read through a closure before the `const`/`let` that holds it has executed is a bug if that closure is ever CALLED early, and correct — by construction, never called before boot finishes — otherwise. A thrown `Error` (never a non-null assertion, forbidden by lint) documents the invariant instead of silently returning undefined.
+The established idiom (slice 2) (originally documented in cli.ts's header comment, before this extraction): a boot resource read through a closure before the `const`/`let` that holds it has executed is a bug if that closure is ever CALLED early, and correct — by construction, never called before boot finishes — otherwise. A thrown `Error` (never a non-null assertion, forbidden by lint) documents the invariant instead of silently returning undefined.
 
 `requireBoot` moved into this file (from `cli.ts`) because `wireRuntimeCore` needs the same pattern for `indexHealth` (constructed one step after the registry that closes over it). `cli.ts` still uses it for `indexCoordinatorRef`/`schedulerRef` (WP5.2) and imports it from here.
 
@@ -58,7 +58,7 @@ Inline: otel opens right after stores in real boot, so its cleanup slots into `b
 
 ## `SHUTDOWN_DRAIN_MS`
 
-THE-457: cap on how long graceful shutdown waits for in-flight index work. Value (5000ms) is unchanged from `cli.ts`'s pre-extraction value — the map's WP5 acceptance criterion is that this timeout does not change.
+Cap on how long graceful shutdown waits for in-flight index work. Value (5000ms) is unchanged from `cli.ts`'s pre-extraction value — the map's WP5 acceptance criterion is that this timeout does not change.
 
 ## `buildServerRuntime` — `configDir` derivation
 
@@ -72,7 +72,7 @@ Test-only observability: fires with each already-built layer's name, in the orde
 
 ## `buildServerRuntime.planeEnabledExplicit` (parameter)
 
-THE-825: whether the raw config file explicitly set `plane.enabled` (vs. absent and defaulted). Governs `start()`'s boot-time opt-in notice (`plane-opt-in-notice.ts`). Defaults to `true` ("assume explicit") so non-`run_serve` callers (`rerun.ts`, tests) never nag by accident — `cli.ts`'s `run_serve` is the one production caller and passes the real computed value.
+Whether the raw config file explicitly set `plane.enabled` (vs. absent and defaulted). Governs `start()`'s boot-time opt-in notice (`plane-opt-in-notice.ts`). Defaults to `true` ("assume explicit") so non-`run_serve` callers (`rerun.ts`, tests) never nag by accident — `cli.ts`'s `run_serve` is the one production caller and passes the real computed value.
 
 ## `postCoreLayers` (in `buildServerRuntime`)
 

@@ -2,7 +2,7 @@
 
 Extracted from inline commentary, 2026-08-21. The code carries the invariants; this note carries the history and evidence.
 
-## SEP-2577 client features: roots and sampling (THE-583)
+## SEP-2577 client features: roots and sampling
 
 `CallerContext.roots` and `CallerContext.sample` surface the 2026-07-28 MCP revision's
 deprecated-but-still-implemented `roots`/`sampling` client features. Deprecated by that revision but
@@ -53,7 +53,7 @@ gateway path that sampling must not silently replace (see `sampleViaClient`).
   separate, unverified-in-this-repo claim the compat matrix records for roots. A failed round trip
   lands in the `declined_or_failed` fallback, never in an error.
 
-## `episode_type` becomes a structural value, not a hardcoded literal (THE-839)
+## `episode_type` becomes a structural value, not a hardcoded literal
 
 Before this type existed, `episodes.ts` hardcoded `'tool_call'` for every captured operation. A
 count against live data found **192 of 630 live rows (30.5%) were MCP protocol methods labelled as
@@ -64,20 +64,20 @@ valid example — so a name-shape test would misclassify a spec-conforming tool,
 
 `EpisodeKind` fixes this by having the registry state the kind at the dispatch site, where it is
 structurally known: `dispatch()` (tools/call) produces `tool_call`; `dispatchResource()`
-(resources/* and prompts/*, THE-415) produces `protocol`. `tool_call`'s spelling is unchanged
+(resources/* and prompts/*) produces `protocol`. `tool_call`'s spelling is unchanged
 deliberately — it was already the right value for a real tool call; the defect was protocol methods
 borrowing it, not the value itself, and renaming would have churned 438 live rows and ten test
 fixtures for no gain.
 
 `verdict` (a registered tool tagged with `VERDICT_TOOL_TAG`, one whose whole job is to record a
 judgement about other episodes) has no producer in this codebase yet. It is defined ahead of need so
-THE-726 does not have to touch the producer a second time, and so a verdict verb cannot become its
+The follow-up does not have to touch the producer a second time, and so a verdict verb cannot become its
 own evidence.
 
-See CHANGELOG.md (`#802, THE-839`) for the shipped-fix summary; this note carries the measured
+See CHANGELOG.md (`#802`) for the shipped-fix summary; this note carries the measured
 figure that motivated it.
 
-## `idempotentHint` is unconditional, not derived from `acceptsIdempotencyKey` (THE-743)
+## `idempotentHint` is unconditional, not derived from `acceptsIdempotencyKey`
 
 `ToolDefinition.idempotent` maps to the MCP spec's `ToolAnnotations.idempotentHint` — "calling the
 tool repeatedly with the same arguments will have no additional effect on its environment," default
@@ -92,19 +92,19 @@ caller supplies one*, and the key is optional — a repeat without it still has 
 No tool declares this today, and that is a finding rather than an omission. Every mutating call on
 this server leaves a durable record by construction: `forget_log` is an append-only hash-chained
 audit (one INSERT per call), and destructive note writes capture a snapshot for `restore_note`
-(THE-648, on by default under `trusted-local`). A second identical call therefore appends a second
+(on by default under `trusted-local`). A second identical call therefore appends a second
 audit row or a second snapshot version — an additional effect on the environment, which is exactly
 what the hint denies. So `false` is the honest value for all 60 mutating tools at the time this
 field was added, and it is also the spec default. The value of declaring the field is that the next
 tool to be genuinely idempotent has somewhere to say so, and a gate that checks it.
 
-## `domain`, `vaultArg`, `acceptsIdempotencyKey` close three silent-drift classes (THE-513)
+## `domain`, `vaultArg`, `acceptsIdempotencyKey` close three silent-drift classes
 
 All three fields exist to turn a runtime sniff or a hand-maintained side catalog into a
 compiler-checked declaration on the tool definition itself:
 
 - **`domain`** replaces a hand-kept facade domain map that had fallen 38 tools behind by the time
-  THE-577 backfilled it. `ToolSpec` (m1/define.ts) requires it, so a production tool cannot ship
+  A later change backfilled it. `ToolSpec` (m1/define.ts) requires it, so a production tool cannot ship
   without one — the old failure mode (silently landing in an "other" bucket) is now a type error at
   the definition site. Optional on the sink `ToolDefinition` type only because dispatch/throttle/HITL
   unit-test fixtures build bare literals unrelated to the facade.
@@ -122,7 +122,7 @@ compiler-checked declaration on the tool definition itself:
   vice versa) went unnoticed. `idempotency-declaration-coverage.test.ts` cross-checks both
   directions: declared-but-schema-silent, and schema-exposes-a-key-but-undeclared.
 
-## `conditionallyDestructive` exists so the wire annotation stops lying (THE-824)
+## `conditionallyDestructive` exists so the wire annotation stops lying
 
 A tool that calls `requireConfirmation` demands its elicit token *conditionally* (crossing a folder
 boundary, an overwrite, a bulk-cost floor, ...), decided at runtime by the handler. `destructive`
@@ -138,7 +138,7 @@ statement, not a conservative one. `mcp/facade.ts`'s `isAdvertisedDestructive` a
 every authorization/HITL/read-only gate in `mcp/registry/policy-gates.ts` reads *only* the real
 `destructive` field and must keep doing so.
 
-## `pathAcl`: centralizing folder-ACL enforcement (THE-414)
+## `pathAcl`: centralizing folder-ACL enforcement
 
 `pathAcl` returns the vault-relative paths a tool touches, tagged by op, so `runDispatch` enforces
 the folder ACL centrally (immediately before the handler) instead of trusting each handler to call
@@ -148,7 +148,7 @@ tool with neither fails that guarantee test. Extractors must mirror the handler'
 `enforcePathAcl` calls exactly (same ops, same paths, same conditionals) so central enforcement
 never denies a call the handler would have allowed.
 
-## `resolvePolicy`: per-call authorization, not a static union (THE-727)
+## `resolvePolicy`: per-call authorization, not a static union
 
 A tool that dispatches on an `action` argument cannot honestly declare one static scope set:
 unioning makes a harmless read demand delete privileges; intersecting leaves a destructive action

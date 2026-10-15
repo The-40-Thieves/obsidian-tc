@@ -1,4 +1,4 @@
-# Session Re-run (THE-645 item 3) Implementation Plan
+# Session Re-run Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -10,7 +10,7 @@
 
 **Tech Stack:** TypeScript 7.0.2, Bun 1.3.14, Vitest 4, Biome 2.5.x, `better-sqlite3`-style `Database` handle via `db/open`.
 
-**Spec:** `docs/superpowers/specs/2026-08-05-the-645-item-3-session-rerun-design.md`
+**Spec:** the session re-run design in `docs/superpowers/specs/`
 
 ## Global Constraints
 
@@ -54,7 +54,7 @@ The pure/impure split is deliberate: the classifier is the part with six branche
 Create `packages/server/test/session-rerun-verdict.test.ts`:
 
 ```ts
-// THE-645 item 3 — the verdict classifier. Pure: no vault, no dispatch, no I/O.
+// The verdict classifier. Pure: no vault, no dispatch, no I/O.
 //
 // Every non-`runnable` verdict is a way a "successful" re-run would be silently wrong, so the
 // classifier is DEFAULT-DENY: a record that does not positively satisfy the capture contract is
@@ -65,7 +65,7 @@ import { classifyRecord } from "../src/workspace/rerun-verdict";
 
 const base: TraceRecord = { ts: 1000, type: "tool_invocation", tool: "read_note", status: "ok" };
 
-describe("THE-645 item 3 — classifyRecord", () => {
+describe("classifyRecord", () => {
   it("runnable only when args are present AND the scan says clean", () => {
     const out = classifyRecord({ ...base, args: '{"path":"a.md"}', args_scan: "clean" });
     expect(out.verdict).toBe("runnable");
@@ -122,7 +122,7 @@ Expected: FAIL — `Failed to resolve import "../src/workspace/rerun-verdict"`.
 Create `packages/server/src/workspace/rerun-verdict.ts`:
 
 ```ts
-// THE-645 item 3 — is re-issuing this recorded call FAITHFUL?
+// Is re-issuing this recorded call FAITHFUL?
 //
 // Pure by design: six branches, no dependencies, so it is testable without a vault fixture.
 //
@@ -204,7 +204,7 @@ Expected: PASS, 7 tests.
 cd ~/obsidian-tc
 bun run lint
 git add packages/server/src/workspace/rerun-verdict.ts packages/server/test/session-rerun-verdict.test.ts
-git commit -s -m "feat(rerun): classify whether a trace record is faithfully re-issuable (THE-645 item 3)"
+git commit -s -m "feat(rerun): classify whether a trace record is faithfully re-issuable"
 ```
 
 ---
@@ -239,7 +239,7 @@ const rec = (over: Partial<RerunRecord>): RerunRecord => ({
   ...over,
 });
 
-describe("THE-645 item 3 — summary and exit codes", () => {
+describe("summary and exit codes", () => {
   it("counts every verdict, including the ones that are zero", () => {
     const s = summarize([rec({}), rec({ seq: 1, verdict: "no_capture", replayed: null })]);
     expect(s.total).toBe(2);
@@ -370,7 +370,7 @@ Expected: PASS, 13 tests total.
 cd ~/obsidian-tc
 bun run lint
 git add packages/server/src/workspace/rerun-verdict.ts packages/server/test/session-rerun-verdict.test.ts
-git commit -s -m "feat(rerun): run summary and the exit code that makes total refusal visible (THE-645 item 3)"
+git commit -s -m "feat(rerun): run summary and the exit code that makes total refusal visible"
 ```
 
 ---
@@ -392,7 +392,7 @@ This is the task that carries the safety guarantee. Steps 5–8 are the mutation
 Create `packages/server/test/session-rerun.test.ts`:
 
 ```ts
-// THE-645 item 3 — the runner.
+// The runner.
 //
 // The load-bearing test here is "observe mode does not write", and it asserts the NOTE ON DISK,
 // not the verdict string. A runner that classified correctly and then dispatched anyway would
@@ -440,7 +440,7 @@ function seedSession(vault: TestVault, records: Array<Record<string, unknown>>):
   return id;
 }
 
-describe("THE-645 item 3 — rerun in observe mode", () => {
+describe("rerun in observe mode", () => {
   it("re-issues a clean read and reports no divergence", async () => {
     v = readOnlyVault({ "a.md": "hello" });
     const id = seedSession(v, [
@@ -563,11 +563,11 @@ Expected: FAIL — `Failed to resolve import "../src/workspace/rerun"`.
 Create `packages/server/src/workspace/rerun.ts`:
 
 ```ts
-// THE-645 item 3 — re-issue a recorded session's captured arguments against current vault state.
+// Re-issue a recorded session's captured arguments against current vault state.
 //
 // RE-EXECUTION, not reconstruction. The prevailing meaning of "replay" in agent tooling is to walk
 // the control flow again substituting STORED RESULTS, so nothing executes. That is impossible here
-// and not by oversight: THE-736 captured arguments and deliberately not results. So the only
+// and not by oversight: an earlier change captured arguments and deliberately not results. So the only
 // available shape is to re-issue the inputs and compare what comes back — which is also what the
 // ticket asks for. Hence `rerun`, not `replay`.
 //
@@ -769,7 +769,7 @@ Expected: PASS, 6 tests.
 cd ~/obsidian-tc
 bun run lint
 git add packages/server/src/workspace/rerun.ts packages/server/test/session-rerun.test.ts
-git commit -s -m "feat(rerun): re-issue a recorded session under a read-only ACL (THE-645 item 3)
+git commit -s -m "feat(rerun): re-issue a recorded session under a read-only ACL
 
 Observe mode is ctx.acl.readOnly, not a runner-side classifier: policy-gates.ts
 already refuses mutating calls using the same isMutating predicate the facade and
@@ -807,7 +807,7 @@ booleans, and a `scan` copy with flag pairs spliced out so the positional can be
 return `{ kind: "error", message }` — the parser never calls `process.exit`; `run_error` renders it.**
 
 ```ts
-    // THE-645 item 3: re-issue a recorded session's captured arguments.
+    // Re-issue a recorded session's captured arguments.
     if (first === "rerun") {
       const scan = [...rest];
       for (const f of ["--vault", "--config"]) {
@@ -841,7 +841,7 @@ In the `USAGE` template literal in `packages/server/src/cli/args.ts`, beside the
   obsidian-tc rerun <session-id> [path] [--vault <id>] [--sandbox] [--json]
                                         Re-issue a recorded session's captured tool arguments
                                         against current vault state and report which calls
-                                        diverged (THE-645 item 3). RE-EXECUTION, not stubbed
+                                        diverged. RE-EXECUTION, not stubbed
                                         replay: results were never captured, so there is nothing
                                         to substitute. Requires `sessions.traceContent` to have
                                         been ON when the session was recorded; otherwise every
@@ -966,7 +966,7 @@ Append to `packages/server/test/session-rerun.test.ts`:
 ```ts
 import { withReadOnlyAcl } from "../src/cli/commands/rerun";
 
-describe("THE-645 item 3 — withReadOnlyAcl", () => {
+describe("withReadOnlyAcl", () => {
   it("forces readOnly on the ROOT acl", () => {
     const out = withReadOnlyAcl({
       acl: { readOnly: false, defaultScopes: [], rules: [] },
@@ -1039,7 +1039,7 @@ Expected: both `0`. `bun run lint` must be run at the repo root.
 ```bash
 cd ~/obsidian-tc
 git add packages/server/src/cli/commands/rerun.ts packages/server/src/cli/args.ts packages/server/src/cli.ts packages/server/test/session-rerun.test.ts
-git commit -s -m "feat(cli): obsidian-tc rerun <session-id> (THE-645 item 3)
+git commit -s -m "feat(cli): obsidian-tc rerun <session-id>
 
 Leads the summary with runnable N/total and writes an explicit note to stderr
 when nothing was runnable, naming sessions.traceContent -- otherwise 0 of N
@@ -1066,7 +1066,7 @@ Append to `packages/server/test/session-rerun.test.ts`:
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { stageSandbox } from "../src/workspace/rerun";
 
-describe("THE-645 item 3 — sandbox staging", () => {
+describe("sandbox staging", () => {
   it("copies the vault so a write to the copy leaves the original untouched", () => {
     v = readOnlyVault({ "a.md": "original" });
     const sb = stageSandbox(v.root, cacheDir as string);
@@ -1201,7 +1201,7 @@ Expected: all three `0`; 26 tests total (13 verdict + 13 runner/config/sandbox).
 ```bash
 cd ~/obsidian-tc
 git add packages/server/src/workspace/rerun.ts packages/server/src/cli/commands/rerun.ts packages/server/test/session-rerun.test.ts
-git commit -s -m "feat(rerun): --sandbox stages a disposable vault + DB copy (THE-645 item 3)
+git commit -s -m "feat(rerun): --sandbox stages a disposable vault + DB copy
 
 Copies cache.db and experiential.db alongside the vault: without them the
 sandbox index is empty and every search diverges for a reason unrelated to
@@ -1212,8 +1212,8 @@ the change under investigation. Copy, never symlink."
 
 ```bash
 cd ~/obsidian-tc
-git push -u origin mislam2/the-645-item-3-session-rerun
-gh workflow run ci-server.yml --ref mislam2/the-645-item-3-session-rerun
+git push -u origin mislam2/session-rerun
+gh workflow run ci-server.yml --ref mislam2/session-rerun
 ```
 
 This box is 4 cores shared with ~43 containers; GitHub-hosted runners are free for this repo and cover three OSes. Before opening the PR, use the **`gates`** skill to enumerate the real gate list from the workflows rather than from memory.
@@ -1222,7 +1222,7 @@ This box is 4 cores shared with ~43 containers; GitHub-hosted runners are free f
 
 ## Notes for the implementer
 
-**`sessions.traceContent` stays OFF.** This work consumes the capture; it does not enable it. Flipping that flag is an operator decision still gated on the THE-238 red-team. Every test above seeds its own trace records directly with `appendTrace`, which is why the suite passes on a deployment where capture is dark.
+**`sessions.traceContent` stays OFF.** This work consumes the capture; it does not enable it. Flipping that flag is an operator decision still gated on the red-team review. Every test above seeds its own trace records directly with `appendTrace`, which is why the suite passes on a deployment where capture is dark.
 
 **Do not add a `--allow-degraded` flag.** `redacted` and `truncated` are hard refusals by decision. An override would be reached for exactly when someone is under time pressure, which is when re-issuing a call carrying a `[REDACTED]` placeholder does the most damage.
 

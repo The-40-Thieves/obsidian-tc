@@ -1,17 +1,17 @@
-# Post-release directory listings checklist (owner-fired, THE-945)
+# Post-release directory listings checklist (owner-fired)
 
 Ordered list of what to fire or confirm once `v1.26.0` tags and `publish.yml` finishes (see
 `docs/RELEASING.md`). **Nothing in this file is executed by this task** — every action below is the
 owner's to run, in this order: item 1 is a prerequisite for items 4-7, and item 3 has its own
 release-tag prerequisite.
 
-**Items 3's release-tag prerequisite and item 4 are now both confirm-only** (THE-955 and THE-956
+**Items 3's release-tag prerequisite and item 4 are now both confirm-only** 
 respectively — see the notes on each item below); item 5 (mcp.so) is still fully manual.
 
 ## 1. MCP Registry entry — automatic, confirm only
 
 - Fires on the `v*` tag push, no owner action to trigger it (`publish.yml`'s `publish-registry`
-  job, THE-940).
+  job).
 - Verify:
   ```sh
   curl -fsS "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.The-40-Thieves%2Fobsidian-tc" | jq .
@@ -29,11 +29,11 @@ respectively — see the notes on each item below); item 5 (mcp.so) is still ful
 
 ## 3. Community store listing — TC Bridge companion plugin — manual, owner (release-tag prerequisite now automatic)
 
-- Text already prepared (THE-943): the file at
+- Text already prepared: the file at
   `docs/superpowers/plans/2026-09-03-listings/community-obsidian.md` — do not duplicate its
   content here. It carries its own "Do NOT submit until" checklist (a tagged release must exist
   with `tc-bridge` in `manifest.json` and all three loose assets attached) — **that release-tag
-  prerequisite is now confirm-only** (THE-955): `mirror-plugin-release` creates it automatically
+  prerequisite is now confirm-only**: `mirror-plugin-release` creates it automatically
   on every `v*` tag, at the un-prefixed `<version>` tag Obsidian's validator actually reads (see
   `docs/RELEASING.md`'s "What a tag produces"). The form SUBMISSION itself is still a one-time,
   owner-run action once the owner decides to submit.
@@ -43,12 +43,12 @@ respectively — see the notes on each item below); item 5 (mcp.so) is still ful
   This is not a PR against `obsidianmd/obsidian-releases`; that repo-PR flow is Obsidian's
   pre-self-service submission path and is no longer how new plugins are listed (confirmed against
   `obsidianmd/obsidian-developer-docs`'s "Submit your plugin" doc, 2026-09-04). The form reads
-  `manifest.json` from the repo's default branch (THE-950: that is now this repo's root
+  `manifest.json` from the repo's default branch (that is now this repo's root
   `manifest.json`, byte-identical to `packages/plugin/manifest.json`).
 - Verify: the submission is confirmed in the community.obsidian.md account dashboard; once
   reviewed and published, `tc-bridge` appears in Obsidian's in-app community plugin browser.
 
-## 4. Smithery — automatic, confirm only (THE-956)
+## 4. Smithery — automatic, confirm only
 
 - Fires on the `v*` tag push, no owner action to trigger it (`publish.yml`'s `publish-smithery`
   job, gated identically to `publish-registry` — a real tag push only). Full steps + citations:

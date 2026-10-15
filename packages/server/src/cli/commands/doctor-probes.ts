@@ -115,8 +115,8 @@ export async function probeDerivedTables(
         // memory_entities/memory_relations report `on-demand`, not `none` — a client calling
         // create_entity/link_entities is a valid, if rare, writer (THE-629). See
         // docs/design/cli-doctor.md.
-        ["memory_entities", "on-demand", "a client calling create_entity (THE-629)"],
-        ["memory_relations", "on-demand", "a client calling link_entities (THE-629)"],
+        ["memory_entities", "on-demand", "a client calling create_entity"],
+        ["memory_relations", "on-demand", "a client calling link_entities"],
         // Client- and user-driven surface: enabled means the verb is registered and reachable;
         // empty means it has never been exercised. THE-726: `sessions.autoOpen` also lets the
         // server open one itself on a principal's first dispatch — still on-demand, off by
@@ -124,7 +124,7 @@ export async function probeDerivedTables(
         [
           "workspace_sessions",
           "on-demand",
-          "a client calling start_session, or the server itself under sessions.autoOpen (THE-726)",
+          "a client calling start_session, or the server itself under sessions.autoOpen",
         ],
         ["capture_queue", "on-demand", "a client calling the capture verb"],
         [

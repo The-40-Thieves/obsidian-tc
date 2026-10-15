@@ -6,7 +6,7 @@
 | **Date** | 2026-07-30 |
 | **Verified against** | `main` @ `7567575` (evidence); re-verified against `refactor/structural-program` before deletion |
 | **Scope** | WP0.2 of `2026-07-30-codebase-refactor-map.md` |
-| **Supersedes nothing** | Annotates `2026-06-25-headless-vaultbackend-adr.md` (THE-255), which stays the record of the original design intent |
+| **Supersedes nothing** | Annotates `2026-06-25-headless-vaultbackend-adr.md`, which stays the record of the original design intent |
 
 ## Why this ADR exists
 
@@ -110,7 +110,7 @@ breaking change to any consumer of the npm package.**
    mutation (not once per layer).
 6. Both implementations pass one shared contract test suite.
 7. `backend.ts` becomes reachable and its `UNREACHABLE_ALLOWLIST` entry is deleted.
-8. `ARCHITECTURE.md` and the THE-255 ADR describe construction that actually happens.
+8. `ARCHITECTURE.md` and the headless ADR describe construction that actually happens.
 
 ### Delete branch — adopt if EITHER holds
 
@@ -119,7 +119,7 @@ breaking change to any consumer of the npm package.**
 
 Then: remove `VaultBackend`, `FilesystemBackend`, `ReindexHook`, the class-only test
 (`test/vault-backend.test.ts`), and the `UNREACHABLE_ALLOWLIST` entry. Keep `notes-io` / `paths`
-behaviour and the existing index-on-write tests green. Correct the THE-255 ADR and the architecture
+behaviour and the existing index-on-write tests green. Correct the headless ADR and the architecture
 text so neither claims a backend seam that does not exist. `bun run check:boundaries` must report no
 new unreachable module.
 
@@ -133,7 +133,7 @@ The evidence therefore points at **delete**, and it is not a close call.
 
 Two honest counterpoints, recorded so the decision is made with them in view rather than despite them:
 
-- The THE-255 ADR's *headless* goal was real and was delivered — but it was delivered by
+- The headless ADR's *headless* goal was real and was delivered — but it was delivered by
   `notes-io`/`paths` running filesystem-native, **not** by this interface. Deleting the interface does
   not retract headless operation.
 - If a genuine second backend is ever wanted, reintroducing the interface at that point is cheap and

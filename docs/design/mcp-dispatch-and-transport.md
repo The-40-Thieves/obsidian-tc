@@ -21,16 +21,16 @@ The `now` clock (`ctx.now ?? Date.now`) is called at the exact same points and t
 times as before the move — the commit that performed the move has the full call-site list — so
 nothing was hoisted into a pre-sampled value during the refactor.
 
-## dispatch.ts — scopeClass (THE-727)
+## dispatch.ts — scopeClass
 
 The static `scopeClass` assignment (before `parseInput` runs) is set there **on purpose**, not by
-oversight. THE-727's ticket text proposed relocating this line to below the parse; that would have
+oversight. The ticket text proposed relocating this line to below the parse; that would have
 been a regression: a call that fails `parseInput` never reaches the policy resolver, so leaving
 `scopeClass` at its default `"unknown"` would have silently degraded every parse-failure throttle
 and error-path metric. It stays before the parse and is refined (to the policy-resolved value)
 after the parse instead.
 
-## dispatch.ts — idempotency-claim release accounting (THE-667)
+## dispatch.ts — idempotency-claim release accounting
 
 The `releaseFailedGate` bookkeeping exists because an earlier version of the throttle/HITL
 gate-rejection paths had **no channel at all** for a release failure — the `catch` around
@@ -44,22 +44,22 @@ also fails is the claim counted as genuinely orphaned (`incIdempotencyReleaseFai
 the gate site would have alerted on transient failures the retry then cleaned up — the counter has
 to mean "a claim was actually orphaned" to be worth paging on.
 
-## dispatch.ts — central path-ACL enforcement and effect-commit marker install (THE-414, THE-572)
+## dispatch.ts — central path-ACL enforcement and effect-commit marker install
 
-THE-414 moved folder-ACL enforcement for `def.pathAcl` paths to run centrally, immediately before
+A later change moved folder-ACL enforcement for `def.pathAcl` paths to run centrally, immediately before
 the handler, instead of depending on every handler remembering to call `enforcePathAcl` itself
 (handler-side calls remain as defense-in-depth, not removed). It runs wrapped in a default-off
 ACL-audit frame (#280) so a dev/test run can assert that each tool's `pathAcl` extractor actually
 mirrors the paths the handler touches on the real filesystem.
 
-THE-572 installs the `ctx.markEffectCommitted` callback at this same point in the pipeline — after
+This step installs the `ctx.markEffectCommitted` callback at this same point in the pipeline — after
 every gate that can still reject-and-release the idempotency claim (throttle, HITL), so the callback
 can never outlive the claim it points at. It is a plain property mutation on the per-dispatch `ctx`
 object, the same pattern the per-vault ACL swap earlier in the pipeline uses. The underlying UPDATE
 is guarded on `completed_at IS NULL`, so calling it twice — or calling it and then having the
 handler return normally (which fires the `#13` default marker call site again) — is harmless.
 
-## dispatch.ts — concurrent CallerContext sharing (THE-573 #1)
+## dispatch.ts — concurrent CallerContext sharing (item 1)
 
 Because the `markEffectCommitted` callback above is installed by *mutating* `ctx`, two concurrent
 dispatches sharing one `CallerContext` object would silently overwrite each other's callback: the
@@ -84,8 +84,8 @@ sequential reuse of one `CallerContext` across separate, non-overlapping calls i
 The default marker point for "the effect is committed" is simply "the whole handler returned"
 (`handlerReturned = true`, then `markEffectCommitted` for a keyed call). That alone leaves a window
 for a **multi-step** handler: one that commits its first durable effect and then does more fallible
-work before finally returning. A throw in that window would (absent THE-572) delete the idempotency
-claim and let a retry double-apply the already-committed effect. THE-572's
+work before finally returning. A throw in that window would (absent that step) delete the idempotency
+claim and let a retry double-apply the already-committed effect. That step's
 `ctx.markEffectCommitted()` closes that window from the handler side by letting the handler signal
 its own first durable effect explicitly, earlier than its return. The `#13` call site at handler
 return remains as the backstop for every single-effect handler, and re-fires harmlessly if the
@@ -129,7 +129,7 @@ catalog, whereas a resource-blind client in triad mode can only search it with `
 query is required; there is no tool that lists everything), and the built-in prompts have no tool
 equivalent (they are templates, not capabilities).
 
-## server.ts — dual protocol-era support (THE-583)
+## server.ts — dual protocol-era support
 
 Serving both the 2025-11-25 and 2026-07-28 (`MODERN_PROTOCOL_VERSION`) wire codecs from one server
 was verified end-to-end against LiteLLM's actual pinned `mcp` 1.28.1 client (whose ceiling is
@@ -148,7 +148,7 @@ request**, is what actually makes the method route. The claim is now pinned by
 `mcp-protocol-eras.test.ts` end to end, rather than left to a comment that could silently stop being
 true the next time the serving path changed.
 
-## server.ts — protocol-era construction parameter (THE-583)
+## server.ts — protocol-era construction parameter
 
 An earlier version of `McpServerOptions.era` was not a constructor parameter at all — the code read
 the negotiated protocol version directly off `server.getNegotiatedProtocolVersion()`. Because this
@@ -158,16 +158,16 @@ headers. The old code therefore silently emitted no 2026-only field at all, on e
 still looking like correctly-era-aware code. `era` is now supplied explicitly by the caller
 (`createMcpHandler`'s per-request classification), closing that gap.
 
-## server.ts — logging/setLevel (THE-583, THE-725/THE-862)
+## server.ts — logging/setLevel
 
 This server used to register its own hand-written `logging/setLevel` handler. That handler was dead
 code that read as a feature: once the `logging: {}` capability is declared (as it is here), the
 SDK's own `Server` constructor auto-registers a built-in `logging/setLevel` handler that answers
 `{}` and wins over any handler this code tries to register itself. The hand-written handler was
 removed rather than left in place looking implemented. See `docs/MCP-CLIENT-COMPAT-MATRIX.md`
-(Finding 2, THE-725/THE-862) for the full compatibility matrix this interacts with.
+(Finding 2) for the full compatibility matrix this interacts with.
 
-## server.ts — tool-call error text (THE-823)
+## server.ts — tool-call error text
 
 The text block returned in a `CallToolResult` on a dispatch failure used to carry only
 `code + message + retryable`. Real MCP clients drop `structuredContent` on an `isError` result and
@@ -176,7 +176,7 @@ it never named which field was wrong (e.g. which Zod validation issue fired). `f
 was added specifically to append the capped, human-readable issue detail into the text itself so a
 model has something to act on and self-correct from.
 
-## server.ts — facade envelope validation (THE-823)
+## server.ts — facade envelope validation
 
 `CALL_CAPABILITY_SCHEMA`'s `args` field used to be declared `z.record(...).default({})`. That meant
 a caller who wrote `"arguments"` instead of `"args"` in its envelope silently fell through to the
@@ -192,7 +192,7 @@ for the method — so a client probing the resource surface saw the **method its
 rather than learning (correctly) that the server simply publishes no URI templates because every
 resource here is a concrete vault note enumerated via `resources/list`.
 
-## server.ts — elicitation shape comparison (THE-583, SEP-2260/2322)
+## server.ts — elicitation shape comparison (SEP-2260/2322)
 
 The 2026-07-28 `inputRequired` shape answers a confirmation requirement with an opaque state that
 the client echoes back verbatim on retry — a shape any generic, spec-compliant MCP client already
@@ -201,9 +201,9 @@ knows how to complete without server-specific code. The older `elicit_required` 
 own convention. The new path is offered only to modern-era callers that both wired an `elicitCodec`
 and advertised form-elicitation support; every other caller still gets the old error and token path.
 
-## http.ts — session tracking on the HTTP transport (THE-726)
+## http.ts — session tracking on the HTTP transport
 
-Before THE-726, this transport carried **no concept of a session at all** — `sessionId` and
+Before sessions were added, this transport carried **no concept of a session at all** — `sessionId` and
 `activeSessions` appeared zero times in this file — while the stdio factory tracked sessions via a
 process-local in-memory map. Because production traffic reaches this server over HTTP, that gap was
 the entire reason `session_id` was `NULL` on 100% of `chunk_retrievals` and `agent_episodes` rows.
@@ -215,7 +215,7 @@ restart simply resumes untracked." That is an acceptable trade-off for one local
 but not for concurrent HTTP clients surviving a restart — which is why the HTTP path resolves the
 caller's session durably from SQLite on every request instead of caching it.
 
-THE-726 slice 3 (`sessions.autoOpen`): "client adoption" — getting every client to actually open a
+Slice 3 (`sessions.autoOpen`): "client adoption" — getting every client to actually open a
 session — was recorded as the remaining blocker to closing the session-tracking gap. But every
 client that would need to change is one this project does not control. The same reasoning that made
 the original missing-session problem a **transport** gap rather than a client-adoption gap applies
@@ -224,7 +224,7 @@ exists) was available, so it was taken. It stays off by default — privacy is a
 input, per `SessionsConfigSchema` — in which case the behavior is byte-identical to the resolve-only
 path.
 
-## http.ts — per-app vs. per-request MCP handler (THE-583)
+## http.ts — per-app vs. per-request MCP handler
 
 The MCP handler used to be constructed **per request**, and the original reason was sound: the
 caller context was captured in a closure over that specific request's verified identity, so a
@@ -232,7 +232,7 @@ long-lived handler risked leaking one caller's authorization into a different ca
 same constraint is what made a long-lived `subscriptions/listen` stream impossible to support — the
 handler serving such a stream was torn down the instant the request that created it returned.
 
-THE-583 moved to one handler per app instead, preserving caller isolation through a different
+That change moved to one handler per app instead, preserving caller isolation through a different
 mechanism: `createMcpHandler` invokes its factory once per **serving unit** (one HTTP request) and
 hands that invocation the request's own `authInfo`, which the SDK treats as strictly pass-through
 (it never reads headers or verifies anything itself). The caller context is therefore still built
@@ -241,22 +241,22 @@ captured in a closure. This isolation guarantee is asserted by
 `test/http-caller-isolation.test.ts`, which drives two different tokens through the **same** handler
 instance and fails if either one observes the other's scopes or vault.
 
-## http.ts — Bun keep-alive bug (THE-561) and its regression harnesses (THE-730)
+## http.ts — Bun keep-alive bug and its regression harnesses
 
 `@hono/node-server`'s Node-compatibility `http.Server` measurably dropped **~25%** of requests that
 arrived on a reused keep-alive connection, surfacing as `ECONNRESET` — a failure mode that a
 connection-pooling client such as LiteLLM's `httpx` hits constantly under normal load. This is why
 the transport prefers Bun's native server when running under Bun (the Bun-vs-Node choice itself
-lives in `serveHono`, since it is a process-wide decision — see THE-659 there).
+lives in `serveHono`, since it is a process-wide decision — see that section).
 
 Two Bun-only regression harnesses exist for this: `bun-smoke/http-keepalive-reuse.test.ts` and
-`bun-smoke/dual-http-servers.test.ts`, both intended to run under `bun test bun-smoke`. THE-730
+`bun-smoke/dual-http-servers.test.ts`, both intended to run under `bun test bun-smoke`. A later fix
 records a gap that existed between them: an earlier comment named the two tests together as though
 they were equivalently wired into that run, but the first test actually lived at
 `test/http-keepalive-reuse.bun.ts` — a path no test runner in the project actually invoked — so only
-the second test was ever really exercised. THE-730 fixed the location so both are reachable.
+the second test was ever really exercised. A later fix fixed the location so both are reachable.
 
-## http.ts — Tasks extension routing (THE-583)
+## http.ts — Tasks extension routing
 
 Measured during development: a `tasks/get` handler registered directly on the underlying `Server`
 object is never actually consulted, even when the connection classifies as `era=modern`, because
