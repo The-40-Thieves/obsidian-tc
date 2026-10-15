@@ -28,7 +28,7 @@ interface Family {
   route: string;
   input: Record<string, unknown>;
   /** The plugin's response `result` for rows naming `path`. */
-  result: (path: string, text: string) => unknown;
+  result: (path: string, text: string) => Record<string, unknown>;
 }
 
 interface UnrestrictedBridgeFamily {
@@ -147,6 +147,30 @@ describe.skipIf(process.platform === "win32")(
         expect(dump(r)).not.toContain(MARK);
       });
 
+      it("keeps the readable row and drops the Windows-reserved one in the same response", async () => {
+        const hidden = f.result("pages/CON.md", MARK);
+        const readable = f.result("pages/open.md", "open text");
+        const result = Object.fromEntries(
+          Object.keys(hidden).map((k) => [
+            k,
+            [...(hidden[k] as unknown[]), ...(readable[k] as unknown[])],
+          ]),
+        );
+        const v = makeM4Vault({
+          files: { "pages/CON.md": MARK, "pages/open.md": "open text" },
+          acl: {},
+          installed: f.installed,
+          routes: { [f.route]: { body: { ok: true, result } } },
+        });
+        cleanups.push(v.cleanup);
+
+        const r = await call(v);
+        expect(r.ok, dump(r)).toBe(true);
+        expect(dump(r)).not.toContain("CON.md");
+        expect(dump(r)).not.toContain(MARK);
+        expect(dump(r)).toContain("pages/open.md");
+      });
+
       it.each([".obsidian", ".git", ".trash"])(
         "drops an alias into the hard-denied %s folder",
         async (dir) => {
@@ -211,7 +235,7 @@ describe.skipIf(process.platform === "win32")(
         expect(dump(hiddenResult)).not.toContain(MARK);
       });
 
-      it("returns an ordinary row unchanged", async () => {
+      it("returns an ordinary row", async () => {
         const result = f.result("templates/ok.md", "open text");
         const v = makeM4Vault({
           files: { "templates/ok.md": "open text" },
@@ -223,7 +247,12 @@ describe.skipIf(process.platform === "win32")(
 
         const r = await call(v);
         expect(r.ok, dump(r)).toBe(true);
-        if (r.ok) expect(r.data).toEqual({ vault: "test", ...result });
+        if (r.ok)
+          expect(r.data).toEqual({
+            vault: "test",
+            ...result,
+            ...(f.tool === "list_templates" ? { total: 1 } : {}),
+          });
       });
 
       it("returns a row through an alias to a readable target", async () => {
@@ -282,6 +311,48 @@ describe.skipIf(process.platform === "win32")(
     });
 
     describe.each(FAMILIES)("$tool", (f) => {
+      it("drops a Windows-reserved path while keeping a readable row in the same response", async () => {
+        const hidden = f.result("pages/CON.md", MARK);
+        const readable = f.result("pages/open.md", "open text");
+        const result = {
+          items: [...((hidden.items as unknown[]) ?? []), ...((readable.items as unknown[]) ?? [])],
+          total: 2,
+        };
+        const v = makeM4Vault({
+          files: { "pages/CON.md": MARK, "pages/open.md": "open text" },
+          acl: {},
+          installed: f.installed,
+          routes: { [f.route]: { body: { ok: true, result } } },
+        });
+        cleanups.push(v.cleanup);
+
+        const r = await v.call(f.tool, { vault: "test", ...f.input });
+        expect(r.ok, dump(r)).toBe(true);
+        expect(dump(r)).not.toContain("CON.md");
+        expect(dump(r)).not.toContain(MARK);
+        expect(dump(r)).toContain("pages/open.md");
+        if (r.ok) expect((r.data as { total: number }).total).toBe(1);
+      });
+
+      it("does not pass a path-bearing envelope without items through raw", async () => {
+        const v = makeM4Vault({
+          files: { "pages/open.md": "open text" },
+          acl: {},
+          installed: f.installed,
+          routes: {
+            [f.route]: {
+              body: { ok: true, result: { hits: [{ path: ".trash/secret.md", excerpt: MARK }] } },
+            },
+          },
+        });
+        cleanups.push(v.cleanup);
+
+        const r = await v.call(f.tool, { vault: "test", ...f.input });
+        expect(r.ok, dump(r)).toBe(true);
+        expect(dump(r)).not.toContain(MARK);
+        expect(dump(r)).not.toContain(".trash");
+      });
+
       it("a row naming a denied target through the alias is dropped", async () => {
         const v = vault(f.installed, {
           [f.route]: { body: { ok: true, result: f.result("wiki/secret.md", MARK) } },
@@ -302,6 +373,49 @@ describe.skipIf(process.platform === "win32")(
         expect(r.ok, dump(r)).toBe(true);
         expect(dump(r)).toContain("shared/open.md");
       });
+    });
+
+    describe.each(UNRESTRICTED_PATH_FAMILIES)("$tool: invalid bridge paths", (f) => {
+      it("drops a Windows-reserved path", async () => {
+        const v = makeM4Vault({
+          files: { "pages/CON.md": MARK },
+          acl: {},
+          installed: f.installed,
+          routes: { [f.route]: { body: { ok: true, result: f.result("pages/CON.md", MARK) } } },
+        });
+        cleanups.push(v.cleanup);
+
+        const r = await v.call(f.tool, { vault: "test", ...f.input });
+        expect(r.ok, dump(r)).toBe(true);
+        expect(dump(r)).not.toContain("CON.md");
+        expect(dump(r)).not.toContain(MARK);
+      });
+    });
+
+    it("git_status drops a rename when its from path is unreadable", async () => {
+      const v = makeM4Vault({
+        files: { "pages/new.md": "open", ".trash/old-secret.md": MARK },
+        acl: {},
+        installed: ["git"],
+        routes: {
+          "POST /obsidian-tc/v1/git/status": {
+            body: {
+              ok: true,
+              result: {
+                changed: [{ path: "pages/new.md", from: ".trash/old-secret.md", working_dir: "R" }],
+                staged: [],
+                conflicted: [],
+              },
+            },
+          },
+        },
+      });
+      cleanups.push(v.cleanup);
+
+      const r = await v.call("git_status", { vault: "test" });
+      expect(r.ok, dump(r)).toBe(true);
+      expect(dump(r)).not.toContain("old-secret.md");
+      expect(dump(r)).not.toContain("pages/new.md");
     });
 
     describe("resolve_daily_note", () => {

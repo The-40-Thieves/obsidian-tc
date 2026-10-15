@@ -5,6 +5,7 @@ import { enforcePathAcl, evaluatePathAcl, pathScopesSatisfied } from "../src/vau
 import {
   bridgeItemPath,
   filterBridgeItemsByAcl,
+  filterBridgeResultItems,
   readableByFolder,
   readableRel,
   readEnumerationUnrestricted,
@@ -64,10 +65,57 @@ describe("acl-read-filter (D2)", () => {
     expect(bridgeItemPath("../escape.md", undefined, true)).toBeUndefined();
     expect(bridgeItemPath("unattributable")).toBeUndefined();
     expect(bridgeItemPath({ path: "../escape.md" })).toBeUndefined();
-    // a bad value for an earlier key falls through to a later valid key
+    // one bad path-shaped value makes the whole multi-path row unreadable
     expect(
       bridgeItemPath({ path: "../escape.md", note_path: "Notes/ok.md" }, ["path", "note_path"]),
-    ).toBe("Notes/ok.md");
+    ).toBeUndefined();
+  });
+
+  it("drops invalid path-shaped values but keeps rows with no path for an unrestricted caller", () => {
+    const rows = [
+      { path: "CON.md", text: "hidden" },
+      { line: 1, text: "aggregate" },
+    ];
+    expect(filterBridgeItemsByAcl(acl({}), tmpdir(), [], rows, { tool: "t" })).toEqual([
+      { line: 1, text: "aggregate" },
+    ]);
+    expect(
+      filterBridgeItemsByAcl(acl({}), tmpdir(), [], ["AUX.txt", "Notes/ok.md"], {
+        tool: "t",
+        barePath: true,
+      }),
+    ).toEqual(["Notes/ok.md"]);
+  });
+
+  it("drops a multi-path row when any path-shaped key is unreadable", () => {
+    const rows = [{ path: "pages/new.md", from: ".trash/old-secret.md" }];
+    expect(
+      filterBridgeItemsByAcl(acl({}), tmpdir(), [], rows, {
+        tool: "git_status",
+        keys: ["path", "from"],
+      }),
+    ).toEqual([]);
+  });
+
+  it("always reports a kept-row total and rejects result envelopes without items", () => {
+    expect(
+      filterBridgeResultItems(
+        acl({}),
+        tmpdir(),
+        [],
+        { items: [{ path: "Notes/ok.md" }] },
+        { tool: "list_templates" },
+      ),
+    ).toEqual({ items: [{ path: "Notes/ok.md" }], total: 1 });
+    expect(
+      filterBridgeResultItems(
+        acl({}),
+        tmpdir(),
+        [],
+        { templates: [{ path: ".trash/x.md" }] },
+        { tool: "list_templates" },
+      ),
+    ).toEqual({ items: [], total: 0 });
   });
 });
 
