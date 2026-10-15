@@ -1,12 +1,12 @@
-# Smithery listing — obsidian-tc (THE-945, THE-956)
+# Smithery listing — obsidian-tc
 
-**Status: AUTOMATED (THE-956).** `publish.yml`'s `publish-smithery` job now runs `smithery mcp
+**Status: AUTOMATED.** `publish.yml`'s `publish-smithery` job now runs `smithery mcp
 publish` on every `v*` tag, via `scripts/publish-smithery.mjs` and the `SMITHERY_API_KEY` repo
 secret (set 2026-09-05) — no manual step remains. This file stays as the citations + the manual
 steps below for reference (they describe exactly what the CI job automates) and for the known
 upstream defect that still needs a human glance at the listing page after every publish.
 
-## Re-publish safety (probed live 2026-09-05, THE-956)
+## Re-publish safety (probed live 2026-09-05)
 
 A second `smithery mcp publish` of an ALREADY-published version does not error and does not return
 any distinct "already published"/"duplicate" response — the real CLI (4.11.1) accepted it as a new
@@ -64,7 +64,7 @@ array: the CLI casts each MCPB tool entry (name + optional description only) int
 `Tool[]` schema, which requires `inputSchema` — a field the MCPB manifest format forbids on tool
 entries (`arcadeai-labs/smithery-cli#787`, open as of 2026-09-03; fix PR `#789` open, unmerged, and
 only patches this narrow case — see below). Checked our MCPB manifest
-(`mcpb/manifest.json` as of THE-950 — it moved off the repo root, which is now the companion
+(`mcpb/manifest.json` as of that change — it moved off the repo root, which is now the companion
 plugin's Obsidian manifest instead; `manifest_version: "0.3"`): it declares no `tools` array at
 all — only `"tools_generated": true` —
 so **this specific 400 does not fire for us.** No change to `scripts/bundle-mcpb.ts` or

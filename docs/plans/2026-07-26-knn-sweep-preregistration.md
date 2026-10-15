@@ -6,7 +6,7 @@ quality number from a densified index has been observed. Nothing below may be am
 data exists; if the protocol turns out to be wrong it is abandoned and rewritten as a new
 pre-registration, and that fact recorded.
 
-Ticket: THE-532. Follows the convention of
+Follows the convention of
 [the tag-edge pre-registration](2026-07-14-tag-edges-preregistration.md).
 
 ## Why this document exists
@@ -57,14 +57,14 @@ cell. The full grid is reported including null cells — not just the best one.
 
 ## Power — and the honest limit of this sweep
 
-THE-422 records σ_d ≈ 0.173 at n=250, giving SE ≈ 0.0109 and a single-comparison
+An earlier run records σ_d ≈ 0.173 at n=250, giving SE ≈ 0.0109 and a single-comparison
 MDE ≈ **0.031** (α=0.05, power=0.8, two-sided).
 
 Across m=8 under BH-FDR, the worst-case position tests at α ≈ 0.0125, so the grid's detectable
 effect is approximately **ΔnDCG@10 ≈ 0.037** in the worst case and ≈0.031 in the best.
 
 **This is the load-bearing statement of this document.** The tag-edge arm's *observed* effect was
-+0.0045, and THE-422's ship gate demanded ≥0.010. Both sit far **below** this sweep's resolution.
++0.0045, and the earlier ship gate demanded ≥0.010. Both sit far **below** this sweep's resolution.
 Therefore, declared in advance:
 
 > A null result across this grid rules out kNN effects of roughly **0.037 or larger**. It does
@@ -72,12 +72,12 @@ Therefore, declared in advance:
 > effect lived. If the sweep returns null, the correct conclusion is **"no large effect; effects
 > below ~0.037 remain unresolved at n=250"** — *not* "kNN is inert".
 
-Outcome (b) in THE-532 — upgrading "kNN is inert" to a settled verdict — is therefore **available
+Outcome (b) above — upgrading "kNN is inert" to a settled verdict — is therefore **available
 only if the ship bar is ≥0.037**. Under a 0.010 bar it is unavailable at this n, and no amount of
 sweeping fixes that: it is a property of the corpus size, not of the grid. Settling a 0.010 bar
 would need roughly n ≥ 2,300 paired queries.
 
-Recording this now, before the data, so a null cannot later be over-read the way THE-422's was.
+Recording this now, before the data, so a null cannot later be over-read the way the earlier run's was.
 
 ## Cost, reported alongside quality
 
@@ -100,7 +100,7 @@ buys quality at similar cost is not automatically a ship. Each cell reports:
 
 A winning cell is **hypothesis-generating only**. It may not be shipped on the data that selected
 it; confirmation requires queries that did not participate in selection. This is the same rule
-THE-422 applies to the tag-edge result, and the reason that ticket still exists.
+The earlier result applies to the tag-edge result, and the reason that earlier run still matters.
 
 ## Artifact
 

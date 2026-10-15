@@ -103,7 +103,7 @@ That is 8 embeddings entries and 4 reranker entries as shipped — `embeddingsPr
 `rerankerProviderNames()` are the authority, and both are asserted exactly in
 `test/provider-registry-backcompat.test.ts`.
 
-> **`tei` was DEFERRED, not shipped (THE-682).** Earlier drafts of this spec listed a `tei` entry in
+> **`tei` was DEFERRED, not shipped.** Earlier drafts of this spec listed a `tei` entry in
 > both slots. No such entry exists in `providers/registry.ts` and no `.describe()` mentions one.
 > TEI is already reachable through `model-tier`, so a standalone entry enables nothing new while
 > adding a *third* `baseUrl` convention to document (it appends `/v1/embeddings` to a bare root,
@@ -127,7 +127,7 @@ split was a judgement call:
   emits (`ollama:bge-m3`).
 - **LangChain's `Embeddings`** interface splits `embed_documents` from `embed_query` — the same
   asymmetric-encoding distinction obsidian-tc carries as `EmbedOptions.input: "query" | "document"`
-  (THE-308). The existing interface is already the standard shape; nothing about it needs changing.
+. The existing interface is already the standard shape; nothing about it needs changing.
 
 ### Changes
 
@@ -207,7 +207,7 @@ and the difference changes the work:
 - `RepresentationManifest` has **no production producer**. Only `test/search-representation-manifest.test.ts`
   constructs one. It is a type awaiting wiring.
 
-  > **Superseded by THE-683 (2026-08-01).** `buildRepresentationManifest`
+  > **Superseded (2026-08-01).** `buildRepresentationManifest`
   > (`search/representation.ts`) is now that producer, called once at the composition root; both
   > former `VecFingerprint` construction sites consume the manifest instead of building their own,
   > and `representationFingerprint` is what `vec_index_fingerprint` stores. The paragraphs below
@@ -242,7 +242,7 @@ contract:
   `gateway/client.ts:236` already speaks. LiteLLM follows the Cohere rerank format for *all* rerank
   providers, and Jina, Voyage, TogetherAI and Infinity all speak it — which is why this one shape
   is enough.
-- **`tei`** — *deferred, not registered (THE-682).* Would have exposed the existing `model/tei.ts`
+- **`tei`** — *deferred, not registered.* Would have exposed the existing `model/tei.ts`
   client under its own registry name. It appends `/v1/embeddings` to a bare root, *not*
   `/embeddings` to a versioned base — a third `baseUrl` convention for no new capability, since TEI
   already serves the dense half of `model-tier`. Reconsider only if TEI is wanted *without* the
@@ -367,7 +367,7 @@ Also assert the constructed URL for a `baseUrl` with and without a trailing slas
    byte-identical to today's fingerprint, so no existing index rebuilds merely on upgrade.
 
 **Why property 4 is the highest-risk item in this spec.** That smoke test exists because of the
-THE-460 defect: a **same-dimension** model swap was detected by the fingerprint and triggered a
+An earlier defect: a **same-dimension** model swap was detected by the fingerprint and triggered a
 rebuild, but the backfill then selected `WHERE is_active = 1 AND length(embedding) = dims*4` with
 no model predicate — so it re-selected the *old* model's vectors while the stored fingerprint
 claimed the new one. Retrieval then scored new-model queries against old-model embeddings.
@@ -375,7 +375,7 @@ claimed the new one. Retrieval then scored new-model queries against old-model e
 Making providers drop-in turns a same-dimension swap from a rare event into a routine one: pointing
 `baseUrl` at a different gateway alias of the same width is now a one-line config edit. Every test
 in property 4 must therefore assert on the *stored model attribution*, not only on the fingerprint
-changing — the fingerprint was already correct in THE-460 and the data was still wrong.
+changing — the fingerprint was already correct in the earlier fix and the data was still wrong.
 
 **Module gate — three refusals**, each asserting a boot-time throw: `hardened` refuses any
 `modulePath`; a module exporting nothing usable is refused; a module exporting a malformed provider

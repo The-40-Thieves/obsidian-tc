@@ -5,7 +5,7 @@
 | **Status** | Design (not implemented) |
 | **Date** | 2026-07-29 |
 | **Goal** | Minimize client-agent tokens while preserving the full 151-capability engine (`REGISTERED_TOOL_COUNT` as of v1.13.1) |
-| **Depends on** | triad facade (THE-219), `vault_context` / `session_bootstrap`, sleep-time plane, ADR-0006 |
+| **Depends on** | triad facade, `vault_context` / `session_bootstrap`, sleep-time plane, ADR-0006 |
 | **Does not change** | Dispatch pipeline order, ACL/HITL/CAS, isnad boundary, dual DB membrane |
 
 ---

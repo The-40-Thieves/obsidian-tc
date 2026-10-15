@@ -1,4 +1,4 @@
-# mcp.so listing — obsidian-tc (THE-945)
+# mcp.so listing — obsidian-tc
 
 **Status: PREPARED, NOT SUBMITTED.** No submission or issue comment has been posted. This file is
 the text + steps for the owner to use when they decide to submit; this task does not submit it.

@@ -1,14 +1,14 @@
-# THE-1111 — an authorization server for obsidian-tc (design, G1)
+# An authorization server for obsidian-tc (design, G1)
 
 > **Superseded 2026-10-03** by `2026-10-03-authorization-server-design-v2.md` in this directory
 > (library decision, key purposes, `oauth.db`, build slices). Kept for its research digest.
 
 Status: **design for owner review, not built.** Written 2026-09-24 against `main` `101c91c6`
 (v1.31.3 + three unreleased changes). Supersedes the 2026-07-29 "pre-registration only" decision on
-THE-661, whose two re-check triggers (a third-party client with no prior relationship; multi-user
-access) were both met by owner direction on 2026-09-24. Parent epic: THE-1110. Siblings that depend
-on this note: THE-1113 (browser clients), THE-1112 (vendor onboarding), THE-1114 (hosted deploy),
-THE-1116 (era sunset), THE-1115 (per-device attribution).
+A prior decision, whose two re-check triggers (a third-party client with no prior relationship; multi-user
+access) were both met by owner direction on 2026-09-24. Parent epic: the authorization epic. Siblings that depend
+on this note: browser clients, vendor onboarding, hosted deploy,
+era sunset, per-device attribution.
 
 Research digest with sources: `scratchpad/the1111-oauth-research.md` (2026-09-24; the load-bearing
 facts are repeated here with their citations so this note stands alone).
@@ -33,15 +33,15 @@ the external path is for operators who already run Keycloak, Auth0, Zitadel or C
 | piece | state | where |
 | --- | --- | --- |
 | Bearer verification | HS256 secret, inline JWKS, JWKS file, or remote `jwksUri` (cached, `kid` rotation); alg-routed so an asymmetric key can never be used as an HMAC secret; allowlist `RS256/ES256/EdDSA` | `auth/verifier.ts`, `auth/jwt.ts` |
-| Audience + issuer binding | enforced (THE-456), verified live | `auth/jwt.ts` |
-| Age cap | `auth.tokenTtlSeconds` caps token age from `iat` regardless of `exp` (THE-520's "exp still in the future" trap) | `auth/jwt.ts` |
+| Audience + issuer binding | enforced, verified live | `auth/jwt.ts` |
+| Age cap | `auth.tokenTtlSeconds` caps token age from `iat` regardless of `exp` (the "exp still in the future" trap) | `auth/jwt.ts` |
 | PRM (RFC 9728) | builder exists; served at `/.well-known/oauth-protected-resource` and `…/mcp` only when `auth.resource` AND `auth.authorizationServers` are set | `auth/protected-resource.ts`, `transports/http.ts:416` |
 | Personas | named bundles `{vaults, scopes, toolVisibility?}` a token's `persona` claim resolves to; unknown persona → refused, never degraded | `auth/persona.ts`, `config/personas.schema.ts` |
 | Scopes | families `read/write/delete/execute/admin/bulk`, `verb:noun` vocabulary, HITL floor scopes | `shared/src/scopes.ts` |
 | Authorization server | **none**; tokens minted by hand (`obsidian-tc token mint`), 1-year TTL on Cave | `cli/commands/token-mint.ts` |
 | SDK help | `@modelcontextprotocol/server` 2.0.0 / 2.1.0 ship resource-side helpers only (`requireBearerAuth`, `verifyBearerToken`, `oauthMetadataResponse`, `buildOAuthProtectedResourceMetadata`, `bearerAuthChallengeResponse`, `validateOriginHeader`); no provider | installed package, type files |
 | HTTP framework | Hono 4.12, `createMcpHandler`; `jose` 6.2.3; `zod` 4.4; `bun:sqlite` via `openBunSqlite` | `packages/server/package.json` |
-| Deployment on Cave | HTTP behind the LiteLLM gateway on the tailnet; the gateway is a 2025-era MCP client (python `mcp` 1.28.1) and cannot move (litellm#35306) | THE-1116 |
+| Deployment on Cave | HTTP behind the LiteLLM gateway on the tailnet; the gateway is a 2025-era MCP client (python `mcp` 1.28.1) and cannot move (litellm#35306) | era-sunset item |
 
 ## 2. What the standards and the real clients require
 
@@ -124,7 +124,7 @@ flag with a boot notice.
 - **D10 DPoP.** Not now: absent from 2026-07-28, SEP-1932 open, no major client documents support.
   Leave the metadata field out; jose can verify proofs later.
 - **D11 HITL codec.** With asymmetric tokens there is no `jwtSecret`; the `inputRequired` codec is
-  keyed from a server-local random secret (as the stdio path already does since THE-1106), not from
+  keyed from a server-local random secret (as the stdio path already does since an earlier change), not from
   the signing key.
 
 ## 4. Design
@@ -237,7 +237,7 @@ the docs say so before the first deploy.
 | localhost impersonation | show client host + redirect host; warn on loopback-only; optional host allowlist | CIMD-02 §8.5/§8.9 |
 | DCR flooding | per-IP rate limit, unused-client TTL, row cap, operator switch | RFC 7591 §5 |
 | consent phishing | fresh owner auth on first grant per client+redirect; full-context consent page; no auto-approve | RFC 9700 §4.18 |
-| audience confusion | `aud` = canonical resource; RS enforces (THE-456); no passthrough | RFC 8707, RFC 9700 §4.10.2 |
+| audience confusion | `aud` = canonical resource; RS enforces; no passthrough | RFC 8707, RFC 9700 §4.10.2 |
 | clickjacking | `frame-ancestors 'none'`, `X-Frame-Options: DENY` on every AS page | RFC 9700 §4.16 |
 | CSRF | `__Host-` SameSite cookie; per-form CSRF token bound to the pending-request handle | RFC 9700 §4.7 |
 | refresh-token theft | rotation + family revocation on reuse; hashed at rest; absolute cap | RFC 9700 §2.2.2/§4.14 |
@@ -257,7 +257,7 @@ the docs say so before the first deploy.
   token is single-use; a second enrollment attempt fails.
 - Passkey ceremony with `@simplewebauthn/server` in-memory; hostname change → credentials orphaned →
   recovery path re-enrolls.
-- Interop with the existing suites: THE-456 audience gate, THE-520 max-age diagnosis, THE-1106 HITL
+- Interop with the existing suites: the audience gate, the max-age diagnosis, the HITL
   round trip under an asymmetric token with the server-local codec secret.
 - Cross-vendor review through the security lane before merge (auth surface).
 
@@ -266,14 +266,14 @@ the docs say so before the first deploy.
 - With `as.enabled: true` on a fresh install: valid AS metadata and PRM; Claude Code (`elicitation: {}`,
   CIMD), `codex mcp login` (CIMD), Gemini CLI or Grok Build (DCR flag on), and a claude.ai custom
   connector each complete a login and call `list_vaults`; a browser PKCE client completes the flow
-  (THE-1113).
+.
 - With `as.enabled: false` and an external issuer: the same clients work; no bundled route is served.
 - Tokens are audience-bound; a token for another resource is refused 401 (existing test extended).
-- No placeholder ever in `authorizationServers` (THE-661 rule); PRM still 404s honestly when nothing
+- No placeholder ever in `authorizationServers` (placeholder rule); PRM still 404s honestly when nothing
   is configured.
 - `config show` and `doctor` never print the setup token, signing private key, or any hash.
 - Docs: `security/auth-model.md` gains the bundled-mode section; a "Connect a client" page per client
-  lands with THE-1112; SECURITY.md threat-model table gains the §5 rows.
+  lands with the vendor-onboarding item; SECURITY.md threat-model table gains the §5 rows.
 
 ## 8. Cost
 
@@ -289,7 +289,7 @@ service, no new database engine. One config block, one new file `auth.db`.
 2. **Passkey-first or password-first** for the single operator? (D5; recommendation: passkey, password
    fallback.)
 3. **Does LiteLLM keep a pre-registered confidential client, or does the gateway MCP hop go away
-   first?** THE-1116 recorded "take MCP out of LiteLLM" as the direction; if so, the pre-registered
+   first?** The era-sunset item recorded "take MCP out of LiteLLM" as the direction; if so, the pre-registered
    client list may start empty and `client_credentials` is not needed.
 4. **Multi-user later?** The `owner` table is `CHECK (id = 1)` on purpose; lifting it is a schema
    change plus a user-management UI. Personas cover the "different agents, different rights" need.
@@ -303,19 +303,19 @@ service, no new database engine. One config block, one new file `auth.db`.
 Multi-user identity; OIDC identity provider features (`id_token`, `userinfo`) beyond the discovery
 alias; DPoP; federated login to upstream providers (Google, GitHub) — a later `auth.as.upstream`
 that would use URL-mode elicitation correctly, since there the server is the OAuth *client*; token
-introspection for third parties; the per-device attribution stamp (THE-1115, which this note enables
+introspection for third parties; the per-device attribution stamp (the per-device attribution item, which this note enables
 by making every device its own `sub`).
 
 ## 11. Sequencing
 
 1. Owner answers §9 → this note is stamped `G1-CONFIRMED` or revised.
-2. Build ticket split from THE-1111 in three PRs: (a) metadata + JWKS + token/refresh + PRM wiring +
+2. Build ticket split from this note in three PRs: (a) metadata + JWKS + token/refresh + PRM wiring +
    config, behind `as.enabled`, no UI (tokens obtainable only via pre-registered clients; proves the
    verifier path); (b) CIMD + DCR + consent + passkey/setup UI; (c) docs + client recipes + advisory
    text. Security-lane review on each.
-3. THE-1113 (browser) and the claude.ai/ChatGPT rows of THE-1112 unblock after (b).
-4. THE-1116 Gate A (devices off the gateway MCP hop) becomes a config change after (b).
-5. THE-1114 (Railway) picks up `OBSIDIAN_TC_AS_SETUP_TOKEN` as its first-run story.
+3. The browser item and the claude.ai/ChatGPT rows of the vendor-onboarding item unblock after (b).
+4. The era-sunset item's Gate A (devices off the gateway MCP hop) becomes a config change after (b).
+5. The hosted-deploy item (Railway) picks up `OBSIDIAN_TC_AS_SETUP_TOKEN` as its first-run story.
 
 ## Sources
 

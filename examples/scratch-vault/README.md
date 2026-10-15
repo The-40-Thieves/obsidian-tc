@@ -6,7 +6,7 @@ against your real notes.
 
 Every file here is placeholder content invented for this repository. None of it names, describes, or
 resembles any real note, vault, or person — see `scripts/check-vault-leak.mjs`, the gate this fixture
-must never trip (THE-421: this public repo has leaked real vault data once already).
+must never trip (this public repo has leaked real vault data once already).
 
 If you need more notes to exercise a feature (backlinks, tags, folders), add more placeholder `.md`
 files under here rather than pointing the server at anything real.

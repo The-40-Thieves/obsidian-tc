@@ -1,6 +1,6 @@
 # Graph densification pass (graphify spec-donor port)
 
-> **CORRECTION 2026-08-07 (THE-748) — the acceptance bar below is void.** This plan tells an
+> **CORRECTION 2026-08-07 — the acceptance bar below is void.** This plan tells an
 > implementer to beat `bridge recall 0.831 / graph nDCG@10 0.786`. Those figures were withdrawn as
 > unreproducible, and the comparison that produced them ran the graph arm at twice the baseline's
 > retrieval depth. **Do not use them as a bar.** Densification needs its own control, measured with
@@ -23,7 +23,7 @@ Grounded facts (verified in-tree 2026-07-13):
 - `expandGraphLiteral` walks `edge_type='links_to'` only (`search/graph_expand.ts:62-64`). Graph
   traversal is wikilink-only; ALL semantic reach comes from the dense/BM25 SEED streams, never edges.
 - So graphify's core diagnosis — "the vault graph holds only human-authored edges, so multi-hop
-  queries cannot traverse" — is STILL LIVE and unbuilt. THE-406 enrichment improved chunk quality,
+  queries cannot traverse" — is STILL LIVE and unbuilt. The enrichment improved chunk quality,
   not graph density.
 
 Reframe (the insight): graphify builds `semantically_similar_to` density with an LLM pass (the whole
@@ -32,7 +32,7 @@ density from vec0 kNN, DETERMINISTICALLY, with zero remote egress, into the sche
 
 ## Measured caution (do not assume this wins)
 
-`graph_expand.ts:9-14`: the THE-135 frontier-leaf virtual-hop (query-time pull of edgeless leaves
+`graph_expand.ts:9-14`: the frontier-leaf virtual-hop (query-time pull of edgeless leaves
 toward the query embedding) "sat at an 80% bridge-recall ceiling through the whole v1.1 ladder" and
 was NOT ported. The current champion bridge recall is 0.831 — already past that ceiling. Densification
 must beat 0.831 on the n=136 / multi-hop golden set under the standard ship rule (paired permutation,
@@ -70,7 +70,7 @@ they do not gate" applied to edge weight — the load-bearing constraint both gr
    without an explicit sandboxed-copy opt-in.
 3. Everything ships OFF by default (`retrieval.densify.*` flags) and is measured before any flip.
 4. Hub exclusion at EDGE-CREATION: p99-degree nodes emit no derived edges (graphify --exclude-hubs;
-   mirrors the existing THE-401 hub penalty at query time). No-edge-when-ambiguous reuses resolveTarget.
+   mirrors the existing hub penalty at query time). No-edge-when-ambiguous reuses resolveTarget.
 
 ## Increments
 
@@ -105,7 +105,7 @@ require an index built WITH derived edges, then a densify-on vs densify-off A/B 
 4. Flip `includeInWalk` (and the build flags) to default-on ONLY if it wins; else it stays dark with
    numbers on file, joining sparse / ColBERT / rerank.
 
-Honest expectation: the THE-135 query-time virtual-hop hit an 80% bridge-recall ceiling below the current
+Honest expectation: the query-time virtual-hop hit an 80% bridge-recall ceiling below the current
 champion, so this likely stays dark unless stored-kNN + tag + LLM edges clear a bar the virtual-hop could
 not. The measurement decides; the code ships dark either way.
 

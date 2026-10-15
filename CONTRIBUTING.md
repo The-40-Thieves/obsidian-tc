@@ -369,7 +369,7 @@ It was not always. `build-test`, `lint`, `bun-smoke` and `drift-gate` used to be
 and GitHub treats a required check that never reports as *"Expected — waiting for status"*, blocking
 the pull request forever — so requiring one would have deadlocked every docs-only PR.
 
-THE-599 removed the `paths:` filters from `ci-server.yml` and `ci-docgen.yml` precisely so these
+The `paths:` filters were removed from `ci-server.yml` and `ci-docgen.yml` precisely so these
 could be required. That is why the repo's `CLAUDE.md` calls both workflows *"deliberately
 unfiltered"* and warns never to re-add a filter: doing so would silently un-require the test suite
 by making its checks path-conditional again.
@@ -384,9 +384,9 @@ short-circuits to success when its paths are untouched — is **no longer necess
 
 The jobs above are non-blocking by construction. A separate set of jobs is the opposite: they hard-gate (no `continue-on-error`, a failure is a real red X) yet are still outside the required-checks list above. That list is not uniform in why:
 
-* **`acl-audit`, `perf`** (`ci-server.yml`) — each job's own comment says so directly: "intentionally not (yet) a required status check ... promote it once it has run green for a while." `perf` additionally only runs on `push` to `main` (never `pull_request`), so listing it as required would deadlock every PR the same way the pre-THE-599 path-filtered jobs did.
+* **`acl-audit`, `perf`** (`ci-server.yml`) — each job's own comment says so directly: "intentionally not (yet) a required status check ... promote it once it has run green for a while." `perf` additionally only runs on `push` to `main` (never `pull_request`), so listing it as required would deadlock every PR the same way the earlier path-filtered jobs did.
 * **`native-contract`** (`ci-server.yml`) — the guard against the exact crash class in #855: every other server test lane runs against the JS fallback (`--ignore-scripts`, or `ci-native.yml`'s `fallback-test`), whose types are more lenient than the compiled Rust binding's, so a caller that violates the native signature passes every one of those lanes and crashes on a real install that ships the prebuilt addon. This job builds the addon for real and asserts it loaded. It should be promoted to required; doing so is a branch-protection API change for a maintainer to make separately, not part of this documentation pass.
-* **`reranker-local`** (`ci-server.yml`) — closes the gap that the optional local-reranker package's tests ran in no CI workflow at all before it existed (THE-705 round 2). Newly added, same not-yet-promoted status as `acl-audit`.
+* **`reranker-local`** (`ci-server.yml`) — closes the gap that the optional local-reranker package's tests ran in no CI workflow at all before it existed. Newly added, same not-yet-promoted status as `acl-audit`.
 * **`trufflehog`, `checkov`, `hadolint`** — hard-gate, and no job comment in this repo documents a reason for their absence from the required set, unlike the rows above. `trufflehog` is the one with a known fragility: it verifies findings against the issuing provider over the network, so it fails OPEN when that provider is unreachable (documented in its own step comment in `ci-security.yml`), and it has one recorded false-positive incident there — the `lob` detector verifying a pytest function name as a live key. `checkov` and `hadolint` carry no comparable documented issue.
 
 ### Merge queue (maintainers)

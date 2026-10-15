@@ -2,7 +2,7 @@
 
 Extracted from inline commentary, 2026-08-21. The code carries the invariants; this note carries the history and evidence.
 
-## Why a CLI command, not an MCP tool (THE-636)
+## Why a CLI command, not an MCP tool
 
 `context-export`/`context-import` are CLI-only (`cli/commands/context-export.ts`,
 `context-import.ts`), never dispatched through `registry.dispatch` or exposed as an MCP tool. The
@@ -12,7 +12,7 @@ reachable from inside a session. `forget.ts` already established the precedent t
 admin/operator-only, filesystem-touching commands that read or write the experiential store directly,
 outside the dispatch path.
 
-## "Forget wins over import" has two directions (ticket item 3; THE-239/THE-605/THE-609's audit story)
+## "Forget wins over import" has two directions (item 3; the audit story)
 
 **(a) Imported-forgotten stays forgotten.** `agent_episodes` rows are only ever exported with
 `blocked = 0` (`context-bundle-schema.ts` hard-pins `blocked: z.literal(0)` on the row schema) — a
@@ -41,7 +41,7 @@ that episode is native to the target or arrived via a different, earlier import.
 travelling in the bundle must be able to retroactively forget content the bundle itself never
 carried.
 
-## Cross-install vault identity (THE-636 review fix, BLOCKER 2)
+## Cross-install vault identity (review fix, BLOCKER 2)
 
 A vault id is a bare operator label (`"main"` everywhere, in practice) with no cross-install
 identity, and `vault_object_state.object_id` / `chunk_retrievals.chunk_id` are

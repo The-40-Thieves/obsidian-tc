@@ -2,7 +2,7 @@
 
 Extracted from inline commentary, 2026-08-21. The code carries the invariants; this note carries the history and evidence.
 
-## Glob-cache memoization: nested Map, not a concatenated key (THE-618)
+## Glob-cache memoization: nested Map, not a concatenated key
 
 `globToRegExp` compiles on every call and sits on the per-note ACL hot path. Memoizing the
 compiled regex is necessary, but the cache key shape was a deliberate choice, not the obvious one.
@@ -39,7 +39,7 @@ growth from a caller pumping distinct globs, not maximizing hit rate.
 name, such as a vault's immutable raw folder, go through it, so a folder called `my*raw` locks that
 folder and not every `myXraw`. `[` has no special meaning in this grammar.
 
-## Case-insensitivity and Unicode normalization (THE-272)
+## Case-insensitivity and Unicode normalization
 
 Two independent hazards, both handled by normalizing before comparison rather than trusting the
 byte/case form a rule was authored in:
@@ -61,10 +61,10 @@ byte/case form a rule was authored in:
   `FolderAcl` construction for the rule globs) makes the ACL decide on the logical name, not its
   byte form.
 
-Residual THE-272 hardening (hardlink/TOCTOU, which needs non-portable `openat`/`O_NOFOLLOW`)
-remains tracked separately; symlink canonicalization landed earlier under THE-269.
+Residual hardening (hardlink/TOCTOU, which needs non-portable `openat`/`O_NOFOLLOW`)
+remains tracked separately; symlink canonicalization landed earlier.
 
-## ACL fingerprint is the security-critical half of the query-cache key (THE-496)
+## ACL fingerprint is the security-critical half of the query-cache key
 
 `aclFingerprint` is the *only* thing that keeps caller A's cached retrieval results from reaching
 caller B. The read predicate (`readableRel`/`scopesForPath`) is a pure function of the ACL config
@@ -99,7 +99,7 @@ frozen source — reading a live, since-mutated `cfg` for the fingerprint while 
 were compiled earlier would move the cache key without moving the ACL it claims to describe, and
 two callers could then share an entry computed under a different rule set.
 
-## Index-time and write-time read gating (THE-453)
+## Index-time and write-time read gating
 
 `makeIndexReadable` resolves the *effective* ACL per vault (per-vault override, falling back to
 the root default) — the same resolution the dispatch `aclResolver` performs — so a vault's

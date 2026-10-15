@@ -150,7 +150,7 @@ want to do. The surface grows release to release; `find_capability` and
 | **One-call context for a question** | `vault_context` (`get_context(query, token_budget)`) | Budget-packed graph-reranked chunks + synthesis patterns + open contradictions + proactive lessons. The single best entry point for "answer from my vault." |
 | **Grounded synthesis** | `reflect` | Synthesis with source provenance, an adversarial challenge mode, a versioned preference profile. Needs the inference gateway. |
 | **Red-team a claim** | `knowledge_challenge` | Retrieves decision notes to argue against a proposal. |
-| **Search vendor / external docs** | `knowledge_search` (docs corpus) | The docs-scoped analogue of `vault_graph_search`, bound to a reserved read-only docs vault. Gated on `read:docs`; no reranker (THE-441). |
+| **Search vendor / external docs** | `knowledge_search` (docs corpus) | The docs-scoped analogue of `vault_graph_search`, bound to a reserved read-only docs vault. Gated on `read:docs`; no reranker. |
 | **Critical docs to read first** | `knowledge_get_critical` | Frontmatter `severity == critical` pre-filter: breaking changes / security / production gotchas, optionally per source. |
 | **Structured formats** | Bases (`.base` DSL evaluator), Canvas, Kanban, Periodic notes, Tasks, Excalidraw, Bookmarks, Workspaces | Several need live mode (render/DSL). |
 | **Attachments / OCR** | attachment tools, OCR route | OCR needs live mode + the plugin. |
@@ -169,14 +169,14 @@ These are the skills that set obsidian-tc apart. Teach your agent to prefer them
 **Measured retrieval, not asserted.** Every ranking change is gated by an n=250
 multi-hop golden set with a statistical ship rule (paired permutation, BH-FDR,
 a ΔnDCG ≥ 0.010 cost gate). Named "champion" figures previously quoted here were
-**withdrawn on 2026-08-07** (THE-748) as unreproducible; see
+**withdrawn on 2026-08-07** as unreproducible; see
 [`docs/EVALUATION.md`](./docs/EVALUATION.md) for what is measured and how.
 Contextual chunk enrichment measured **+0.223 nDCG** and defaults on. The
 practical takeaway for an agent is narrower than it used to read: **the defaults
 are the measured configuration**, and experimental streams that did not beat
 their control ship *dark* behind flags (see below). There is currently **no
 published figure** for how the graph walk compares to plain dense retrieval on
-this corpus (THE-748) — do not quote one.
+this corpus — do not quote one.
 
 **`vault_context`, the one-call context primitive.** Instead of hand-orchestrating
 search + graph + rerank, call `get_context(query, token_budget)` and get a

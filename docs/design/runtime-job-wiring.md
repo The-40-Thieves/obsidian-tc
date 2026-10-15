@@ -31,27 +31,27 @@ in `registerPlaneSchedule`'s period-keyed enqueues are both corrections with ful
 histories already recorded in `CHANGELOG.md`:
 
 - Cold-start budget, more-attempts-not-longer-timeout, and the rejected `ping()`-based pre-warm
-  idea (LiteLLM `/health` measured at 60.8s across 470 models spanning 9 providers): THE-700, #659.
+  idea (LiteLLM `/health` measured at 60.8s across 470 models spanning 9 providers) (#659).
 - The per-attempt timeout knob (`gatewayTimeoutMs`) and the 370.4s-twice-12ms-apart measurement
-  that showed a deterministically slow request, not a varying cold start: THE-709, and
+  that showed a deterministically slow request, not a varying cold start (a follow-up), and
   `docs/wiki/Configuration.md` / `docs/src/content/docs/configuration/config-reference.md`
   (`plane.gatewayTimeoutMs`).
 - `replaceIfTerminal` silently re-running completed weekly/daily work (`audit_reports` going from
-  2 writes/day to 243) and the narrower `replaceIfFailed` fix: THE-723, #687.
+  2 writes/day to 243) and the narrower `replaceIfFailed` fix (#687).
 
 Do not re-derive these numbers from scratch when touching this code again — check the CHANGELOG
 entries above first.
 
-## `planeGatedRoles` gate (THE-822, #788)
+## `planeGatedRoles` gate (#788)
 
-Before THE-822, disabling the plane (`plane.enabled: false`) stopped the scheduled consolidation
+Before that gate existed, disabling the plane (`plane.enabled: false`) stopped the scheduled consolidation
 pass but not the per-index-write contradiction enqueue or the contradiction/synthesis/audit handler
 registration — so with any gateway configured, a *disabled* plane still ran unattended per-chunk LLM
 calls on every index write across the whole vault. `planeGatedRoles()` is the single gate every
 plane-scoped consumer in this file must route through instead of reading `deps.roles` directly.
-Full narrative: CHANGELOG.md, THE-822 (#788).
+Full narrative: CHANGELOG.md (#788).
 
-## Citation pass: the four gating conditions (THE-717, #708/#709/#707)
+## Citation pass: the four gating conditions (#708/#709/#707)
 
 `wireJobHandlers`' citation-job registration requires all four of `experientialOpen`,
 `citationInfer.enabled`, a configured `transcriptIndex`, and `roles` (a gateway/judge) before
@@ -72,10 +72,10 @@ nothing or doing active harm:
   0.6 — so an unattended stage-1-only schedule would inflate 60% of every quality score with rows
   no judge ever read. A human can still choose that mode deliberately at the CLI.
 
-## Episode evaluation scheduling (THE-698, #648)
+## Episode evaluation scheduling (#648)
 
 `registerNoteQualitySchedule` wires `registerEpisodeEvaluation` (the evaluator that promotes
-`pending` episodes to `eligible`) onto the maintenance cadence. Before THE-698 this pass had no
+`pending` episodes to `eligible`) onto the maintenance cadence. Before that change this pass had no
 scheduled caller — only the manual `obsidian-tc reflect` CLI — and on the live deployment 337 of 337
 episodes sat `pending` across seventeen days. `work_search`, which by contract serves only eligible
 rows, returned zero rows every time: the capture half of the experiential tier worked, the recall
@@ -85,10 +85,10 @@ No judge is threaded into this registration, and that is not a degraded mode: th
 lower a deterministic promotion, never raise one, so the deterministic layer is the whole job. Wire
 `judge` here if that invariant changes.
 
-## The recurring "no scheduled caller" pattern, and the goal-expiry sweep (THE-633, #675)
+## The recurring "no scheduled caller" pattern, and the goal-expiry sweep (#675)
 
 `registerNoteQualitySchedule`'s `goal-expiry` registration lands in the same change that adds the
-`goals` table, deliberately so. THE-698's evaluator, THE-717's citation pass, and THE-719's gap
+`goals` table, deliberately so. The episode evaluator, the citation pass, and the gap
 sweep all shared one shape before their fixes: correct code, complete tests, no scheduled caller,
 and therefore invisible from inside the repo — nothing failed loudly, the feature simply never ran
 in production. A `goals` table whose expiry sweep never ran would have silently become a list of

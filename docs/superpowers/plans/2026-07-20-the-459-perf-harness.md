@@ -1,8 +1,8 @@
-# THE-459 Synthetic-vault perf harness Implementation Plan
+# Synthetic-vault perf harness Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a deterministic, bun-run synthetic-vault benchmark harness covering THE-459's 14 metric families, with a committed baseline and a CI gate that hard-fails deterministic-metric regressions and warns on noisy latency.
+**Goal:** Build a deterministic, bun-run synthetic-vault benchmark harness covering the 14 metric families, with a committed baseline and a CI gate that hard-fails deterministic-metric regressions and warns on noisy latency.
 
 **Architecture:** A self-contained `packages/server/eval/perf/` tree drives the real `better-sqlite3 + sqlite-vec` storage path over a seeded synthetic vault built with the deterministic `fake` embedding provider. Collectors (one module per metric group) return typed `MetricSample[]`; a pure `gate.ts` compares the report against a committed `baseline.json` and exits non-zero only on hard-class violations. Two source seams are added additively: a counting-provider wrapper and an `onStage` observer on `graphSearch`.
 
@@ -10,13 +10,13 @@
 
 ## Global Constraints
 
-- Runtime for the harness is **bun only** (`better-sqlite3 + sqlite-vec`, real prod path). Node parity is out of scope — tracked as THE-494.
+- Runtime for the harness is **bun only** (`better-sqlite3 + sqlite-vec`, real prod path). Node parity is out of scope — tracked as a follow-up.
 - All new source edits outside `eval/perf/` must be **additive and behavior-preserving** (new optional fields/params defaulting to current behavior).
 - Determinism is mandatory: seeded PRNG + `fakeEmbeddingProvider`; no network, no wall-clock in corpus generation.
-- The synthetic labelled query set is **in-repo and throwaway** — it must share nothing with the private golden set (THE-421 leak class).
+- The synthetic labelled query set is **in-repo and throwaway** — it must share nothing with the private golden set (leak class).
 - Lint/format via biome (`bun run lint`); server typechecks strict (`bun run typecheck` in `packages/server`).
 - Commits are DCO-signed: `git commit -s`. Trailer: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
-- Branch: `mislam2/the-459-perf-gates-synthetic-vault-benchmark` (already created off `origin/main`).
+- Branch: `mislam2/perf-gates-synthetic-vault-benchmark` (already created off `origin/main`).
 - All harness files live under `packages/server/eval/perf/`; run commands are executed from `packages/server`.
 
 ---
@@ -196,7 +196,7 @@ Expected: PASS (5 tests).
 
 ```bash
 git add packages/server/eval/perf/report.ts packages/server/eval/perf/gate.ts packages/server/test/perf-gate.test.ts
-git commit -s -m "feat(perf): report types + baseline gate for THE-459 harness"
+git commit -s -m "feat(perf): report types + baseline gate for the perf harness"
 ```
 
 ---
@@ -466,8 +466,8 @@ Expected: FAIL — `onStage` not in options / not emitted (`stages` empty, `.toC
 In `src/search/graph_search.ts`, add to the `GraphSearchOptions` interface (near the other optional fields, e.g. after `finalTopK`):
 
 ```ts
-  /** THE-459 (additive, observability-only): fired once per retrieval stage with its candidate
-   *  count. Default undefined -> no behavior change. THE-465 will formalize typed stages. */
+  /** Additive, observability-only: fired once per retrieval stage with its candidate
+   *  count. Default undefined -> no behavior change. The staged-retrieval work will formalize typed stages. */
   onStage?: (stage: string, count: number) => void;
 ```
 
@@ -496,7 +496,7 @@ Expected: PASS (unchanged).
 
 ```bash
 git add packages/server/src/search/graph_search.ts packages/server/test/graph-onstage.test.ts
-git commit -s -m "feat(search): additive onStage observer on graphSearch (THE-459 family 8 seam)"
+git commit -s -m "feat(search): additive onStage observer on graphSearch (family 8 seam)"
 ```
 
 ---
@@ -619,7 +619,7 @@ Expected: FAIL — cannot resolve `collectors/retrieval`.
 
 ```ts
 // packages/server/eval/perf/labelled.ts
-/** In-repo, throwaway synthetic relevance set. NOT the private golden set (THE-421 leak class):
+/** In-repo, throwaway synthetic relevance set. NOT the private golden set (leak class):
  *  these queries + paths are generated from the same seeded corpus and carry no real vault data.
  *  Populated to match SCENARIOS.small's note-<n>.md paths; relevance = notes sharing the query's
  *  body pool index. */
@@ -1342,7 +1342,7 @@ Temporarily edit `eval/perf/baseline.small.json` to set `index.chunk_count.value
 ```bash
 git checkout packages/server/eval/perf/baseline.small.json  # ensure the revert from step 4 is in
 git add packages/server/package.json .github/workflows/ci-server.yml
-git commit -s -m "ci(perf): perf:gate job + scripts for THE-459 harness"
+git commit -s -m "ci(perf): perf:gate job + scripts for the perf harness"
 ```
 
 ---
@@ -1354,13 +1354,13 @@ git commit -s -m "ci(perf): perf:gate job + scripts for THE-459 harness"
 
 - [ ] **Step 1: Write the README**
 
-Document: what the harness is (THE-459), how to run (`bun run perf`, `bun run perf:gate`, `--update-baseline`), the hard/warn split and why (noisy shared runners), why it is bun-only (sqlite-vec; Node parity = THE-494), the determinism guarantee (seed + fake provider), how to regenerate the baseline deliberately (and that a baseline diff needs rationale in the PR), and the metric-family → collector map. State that the synthetic labelled set is throwaway and shares nothing with the private golden set.
+Document: what the harness is, how to run (`bun run perf`, `bun run perf:gate`, `--update-baseline`), the hard/warn split and why (noisy shared runners), why it is bun-only (sqlite-vec; Node parity = a follow-up), the determinism guarantee (seed + fake provider), how to regenerate the baseline deliberately (and that a baseline diff needs rationale in the PR), and the metric-family → collector map. State that the synthetic labelled set is throwaway and shares nothing with the private golden set.
 
 - [ ] **Step 2: Commit**
 
 ```bash
 git add packages/server/eval/perf/README.md
-git commit -s -m "docs(perf): THE-459 harness README (usage, gate model, bun-only rationale)"
+git commit -s -m "docs(perf): perf harness README (usage, gate model, bun-only rationale)"
 ```
 
 ---
@@ -1373,9 +1373,9 @@ git commit -s -m "docs(perf): THE-459 harness README (usage, gate model, bun-onl
 - Hard/warn split, one-sided directionality → gate.ts `isViolation` + Task 1 tests. ✓
 - Determinism (seed + fake provider) → Task 2 + determinism assertions in Tasks 2,5,7. ✓
 - Warmup + N-iteration quantiles → `timedQuantiles`/`quantiles` (Task 2), used in dispatch (Task 6). ✓
-- bun-only real path; Node parity deferred → Global Constraints + Task 11 uses bun; THE-494 referenced. ✓
+- bun-only real path; Node parity deferred → Global Constraints + Task 11 uses bun; the follow-up referenced. ✓
 - Additive-only source edits → Task 3 (`onStage`) is the only src change, optional + default-undefined. ✓
-- In-repo throwaway labelled set (THE-421) → Task 5 `labelled.ts` + README. ✓
+- In-repo throwaway labelled set → Task 5 `labelled.ts` + README. ✓
 - CI job + artifact upload → Task 12. ✓
 - Harness self-tests (determinism + gate) → Tasks 1, 2. ✓
 

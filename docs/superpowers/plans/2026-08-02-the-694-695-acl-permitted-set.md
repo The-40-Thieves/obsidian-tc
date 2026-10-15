@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript 7, Bun 1.3.14 (SQLite 3.53.0), Vitest 4, Biome 2.5, SQLite with `WITHOUT ROWID` + `ON DELETE CASCADE`.
 
-**Spec:** `docs/superpowers/specs/2026-08-02-the-694-695-acl-permitted-set-design.md`
+**Spec:** `docs/superpowers/specs/` (ACL permitted-set design)
 
 ## Global Constraints
 
@@ -19,7 +19,7 @@
 - **Don't run the full suite locally.** Targeted Vitest only, through `../../scripts/with-host-budget.sh`. Push and let CI run the rest.
 - **Before opening the PR, use the `gates` skill** — it enumerates gates from the workflows rather than from memory.
 - **`readableRel` must receive the path exactly as the DB stores it.** 35 live paths contain non-ASCII; `readableRel` NFC-normalizes internally to decide, but the stored join key must be byte-identical to `chunks.path`.
-- **Branch:** `mislam2/the-694-695-acl-permitted-set` (already created, spec already committed).
+- **Branch:** `mislam2/acl-permitted-set` (already created, spec already committed).
 
 ## File Structure
 
@@ -55,7 +55,7 @@
 Create `packages/server/test/acl-path-set.test.ts`:
 
 ```ts
-// THE-694/695 — the permitted-path set. Path-keyed, not chunk-keyed: readableRel is a pure
+// The permitted-path set. Path-keyed, not chunk-keyed: readableRel is a pure
 // function of the path, so the live vault needs 1,146 rows rather than 13,486.
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
@@ -118,7 +118,7 @@ Create `packages/server/src/migrations/20260802_001_acl_path_sets.sql`:
 
 ```sql
 -- 20260802_001_acl_path_sets.sql
--- THE-694/695: the read-ACL predicate, made visible to SQLite.
+-- The read-ACL predicate, made visible to SQLite.
 --
 -- PATH-keyed, not chunk-keyed: readableRel is a pure function of the path, so this holds 1,146 rows
 -- on the live vault rather than 13,486, and still serves chunks (join path), vault_edges (join
@@ -187,7 +187,7 @@ git add packages/server/src/migrations/20260802_001_acl_path_sets.sql \
         packages/server/src/db/migration-manifest.ts \
         packages/server/src/db/migrations-embedded.ts \
         packages/server/test/acl-path-set.test.ts
-git commit -s -m "feat(acl): permitted-path set tables (THE-694, THE-695)"
+git commit -s -m "feat(acl): permitted-path set tables"
 ```
 
 ---
@@ -378,7 +378,7 @@ Expected: FAIL with `ensureAclPathSet is not a function` (feature missing, not a
 Create `packages/server/src/search/acl_path_set.ts`:
 
 ```ts
-// THE-694/695 — the read-ACL predicate, materialized so SQLite can join on it.
+// The read-ACL predicate, materialized so SQLite can join on it.
 //
 // Three retrieval paths compute an aggregate over the whole corpus and hand the result to a caller
 // who can only see part of it. Fixing that needs the authorization boundary visible to SQL, which
@@ -400,9 +400,9 @@ export const DEFAULT_MAX_SETS = 32;
 
 export interface EnsureAclPathSetOpts {
   vaultId: string;
-  /** THE-496 aclFingerprint(config, grantedScopes) for THIS caller and vault. */
+  /** aclFingerprint(config, grantedScopes) for THIS caller and vault. */
   aclFingerprint: string;
-  /** THE-496 readGeneration(db, vaultId). 0 on a pre-migration db, which is safe: a never-bumping
+  /** readGeneration(db, vaultId). 0 on a pre-migration db, which is safe: a never-bumping
    *  generation degrades this to build-once, it never widens the key. */
   generation: number;
   /** The path universe. Injected so this module never guesses which table defines it. */
@@ -413,7 +413,7 @@ export interface EnsureAclPathSetOpts {
   maxSets?: number;
 }
 
-/** True when the THE-694 tables exist (a pre-migration cache.db lacks them). */
+/** True when the timing-item tables exist (a pre-migration cache.db lacks them). */
 export function hasAclPathSets(db: Database): boolean {
   return tableExists(db, "acl_path_sets");
 }
@@ -544,12 +544,12 @@ Both expected exit 0. If lint fails on import order, run `npx @biomejs/biome che
 ```bash
 cd /home/ubuntu/obsidian-tc
 git add packages/server/src/search/acl_path_set.ts packages/server/test/acl-path-set.test.ts
-git commit -s -m "feat(acl): build, read and evict the permitted-path set (THE-694, THE-695)"
+git commit -s -m "feat(acl): build, read and evict the permitted-path set"
 ```
 
 ---
 
-### Task 3: Close THE-694 — stop probing when the caller is restricted
+### Task 3: Close the timing item — stop probing when the caller is restricted
 
 **Files:**
 - Modify: `packages/server/src/search/router.ts:97-135` (`termDf`), `:141-155` (`routeQuery` opts), `:172-188` (the rare-term block)
@@ -567,8 +567,8 @@ git commit -s -m "feat(acl): build, read and evict the permitted-path set (THE-6
 Create `packages/server/test/router-acl-probe.test.ts`:
 
 ```ts
-// THE-694 — the router's rare-term probe is the timing oracle. A restricted caller must not issue
-// it at all: the value channel was closed by THE-691, but latency still correlated with how much
+// Timing item — the router's rare-term probe is the timing oracle. A restricted caller must not issue
+// it at all: the value channel was closed earlier, but latency still correlated with how much
 // DENIED content matched a caller-supplied term (measured 72x, non-overlapping distributions).
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -601,7 +601,7 @@ function countingDb() {
   return { db, probes: () => prepares };
 }
 
-describe("THE-694 rare-term probe gating", () => {
+describe("timing-item rare-term probe gating", () => {
   it("does NOT touch chunk_fts when read enumeration is restricted", () => {
     const { db, probes } = countingDb();
     const d = routeQuery(db, "main", "zarquon", {
@@ -649,8 +649,8 @@ In `packages/server/src/search/router.ts`, replace the whole `termDf` function (
 /**
  * Exact document frequency for a term, over the WHOLE vault.
  *
- * No ACL parameter, deliberately. THE-691 made the readable count exact by paging and filtering in
- * JS; THE-694 then measured that the residual timing channel was the real problem, and that no
+ * No ACL parameter, deliberately. An earlier change made the readable count exact by paging and filtering in
+ * JS; the timing item then measured that the residual timing channel was the real problem, and that no
  * in-SQL filter closes it — SQLite still scans the entire match list, so latency tracks TOTAL
  * matches however the predicate is expressed. The paged scan that used to live here has been
  * DELETED rather than left reachable: `routeQuery` now issues this only for callers who can read
@@ -678,7 +678,7 @@ Delete the now-unused `DF_PAGE` constant (search for `DF_PAGE` and remove its de
 In `routeQuery`'s `opts` (line 145), add after `isReadable`:
 
 ```ts
-    /** THE-694: true when the caller can read the whole vault (readEnumerationUnrestricted). The
+    /** Timing item: true when the caller can read the whole vault (readEnumerationUnrestricted). The
      *  rare-term probe runs ONLY then. For a restricted caller the probe is skipped entirely —
      *  not filtered, not capped, not issued — because its LATENCY is the disclosure, and no
      *  in-SQL predicate removes that. Restricted callers lose a ranking optimization, not
@@ -690,7 +690,7 @@ In `routeQuery`'s `opts` (line 145), add after `isReadable`:
 Then replace the rare-term block's condition (line 172) so the probe is gated:
 
 ```ts
-  // THE-694: probe only when the caller sees everything. `isReadable` absent means no ACL at all.
+  // Timing item: probe only when the caller sees everything. `isReadable` absent means no ACL at all.
   const mayProbe = opts.isReadable === undefined || opts.readUnrestricted === true;
   if (mayProbe && tokens.length > 0 && tokens.length <= 5) {
 ```
@@ -734,12 +734,12 @@ Expected: PASS. If `test/router.test.ts` has a case asserting the paged behaviou
 cd /home/ubuntu/obsidian-tc
 bun run typecheck > /tmp/tc3.log 2>&1; echo "typecheck=$?"
 git add packages/server/src/search/router.ts packages/server/src/tools/m7/knowledge/ packages/server/test/router-acl-probe.test.ts
-git commit -s -m "fix(router): stop probing term df for restricted callers (THE-694)"
+git commit -s -m "fix(router): stop probing term df for restricted callers"
 ```
 
 ---
 
-### Task 4: Close THE-695 item 2 — exact BM25 filtering
+### Task 4: Close the BM25 over-fetch item — exact BM25 filtering
 
 **Files:**
 - Modify: `packages/server/src/search/chunk_fts.ts:208-238` (`bm25Chunks`)
@@ -755,7 +755,7 @@ git commit -s -m "fix(router): stop probing term df for restricted callers (THE-
 Create `packages/server/test/bm25-acl-exact.test.ts`:
 
 ```ts
-// THE-695 item 2 — the over-fetch boundary leaks the returned LENGTH. bm25Chunks over-fetches
+// BM25 over-fetch item — the over-fetch boundary leaks the returned LENGTH. bm25Chunks over-fetches
 // F = k*20 + 50, filters in JS, then cuts to k. When it underfills, that is because EXCLUDED rows
 // outranked the caller's, so the length depends on hidden content. Reproduced at k=1: 69
 // higher-scoring hidden matches return the readable row, 70 return nothing.
@@ -790,7 +790,7 @@ function seeded(hiddenCount: number): Database {
 
 const readable = (p: string) => p === "02-visible.md";
 
-describe("THE-695 bm25 over-fetch boundary", () => {
+describe("bm25 over-fetch boundary", () => {
   it("underfills today once hidden rows exceed the over-fetch window", () => {
     // k=1 -> F = 70. With 70 higher-ranked hidden rows the readable row falls outside the window.
     const db = seeded(70);
@@ -834,7 +834,7 @@ export function bm25Chunks(
   query: string,
   k: number,
   isReadable?: (path: string) => boolean,
-  /** THE-695: an acl_path_members set_id. When present, filtering happens IN SQL and the
+  /** An acl_path_members set_id. When present, filtering happens IN SQL and the
    *  over-fetch is not needed — the returned length no longer depends on how many higher-scoring
    *  hidden rows exist, which is the channel this closes. */
   aclSetId?: number,
@@ -880,12 +880,12 @@ Expected: PASS.
 ```bash
 cd /home/ubuntu/obsidian-tc
 git add packages/server/src/search/chunk_fts.ts packages/server/test/bm25-acl-exact.test.ts
-git commit -s -m "fix(search): exact ACL filtering for bm25, dropping the over-fetch boundary (THE-695)"
+git commit -s -m "fix(search): exact ACL filtering for bm25, dropping the over-fetch boundary"
 ```
 
 ---
 
-### Task 5: Close THE-695 item 1 — filter the graph walk, behind a flag
+### Task 5: Close the graph-walk item — filter the graph walk, behind a flag
 
 **Files:**
 - Modify: `packages/server/src/search/graph_expand.ts:55-105`
@@ -902,7 +902,7 @@ git commit -s -m "fix(search): exact ACL filtering for bm25, dropping the over-f
 Create `packages/server/test/graph-walk-acl.test.ts`:
 
 ```ts
-// THE-695 item 1 — an unreadable note is a usable BRIDGE. readable A -> unreadable S -> readable B
+// Graph-walk item — an unreadable note is a usable BRIDGE. readable A -> unreadable S -> readable B
 // reaches B at hop 2 ONLY because S exists, so the presence of an unreadable note changes the
 // READABLE result set. expandGraphLiteral has no ACL awareness; graph_expansion.ts filters only the
 // hydrated rows, after the walk has finished.
@@ -930,7 +930,7 @@ function bridged(): Database {
   return db;
 }
 
-describe("THE-695 graph walk bridges", () => {
+describe("graph walk bridges", () => {
   it("reaches B through an unreadable bridge today", () => {
     const db = bridged();
     const paths = expandGraphLiteral(db, ["public/a.md"], { vaultId: "main", hopLimit: 2 }).map(
@@ -991,7 +991,7 @@ export function expandGraphLiteral(
     vaultId: string;
     hopLimit?: number;
     includeDerived?: boolean;
-    /** THE-695: an acl_path_members set_id. When present, a node the caller cannot read cannot be
+    /** An acl_path_members set_id. When present, a node the caller cannot read cannot be
      *  TRAVERSED — not merely omitted from the results. Filtering only the hydrated rows (which is
      *  what graph_expansion.ts does) leaves an unreadable note usable as a bridge, so the readable
      *  result set depends on unreadable material. */
@@ -1045,10 +1045,10 @@ Expected: PASS, 3 tests.
 In `packages/server/src/search/graph_search_stages/types.ts`, after the `smoothExpansion` field (line 132), add:
 
 ```ts
-  /** THE-695: filter the graph WALK by the caller's permitted-path set, so an unreadable note
+  /** Graph-walk item: filter the graph WALK by the caller's permitted-path set, so an unreadable note
    *  cannot serve as a bridge between two readable ones. OFF by default and shipped dark: pruning
    *  bridges is a RECALL change (measured 583 -> 57 nodes on a deliberately harsh test ACL), so it
-   *  is decided by the eval, not by assertion. Evaluated jointly with THE-693's hubDegreeCap
+   *  is decided by the eval, not by assertion. Evaluated jointly with the hub-defence hubDegreeCap
    *  because both land in graph_expansion.ts and nodeDegrees is itself computed with no ACL. */
   aclWalkFilter?: { enabled?: boolean };
 ```
@@ -1056,7 +1056,7 @@ In `packages/server/src/search/graph_search_stages/types.ts`, after the `smoothE
 In `packages/server/src/search/graph_search_stages/graph_expansion.ts`, at the `expandGraphLiteral` call (line 62), pass the set id only when the flag is on. Add above the call:
 
 ```ts
-  // THE-695: dark by default. `opts.aclSetId` is resolved by the caller (tool wiring) via
+  // Graph-walk item: dark by default. `opts.aclSetId` is resolved by the caller (tool wiring) via
   // ensureAclPathSet; absent means the substrate was unavailable and the existing hydrated-row
   // filter below remains the only ACL applied, which is exactly today's behaviour.
   const aclSetId = opts.aclWalkFilter?.enabled === true ? opts.aclSetId : undefined;
@@ -1078,7 +1078,7 @@ cd packages/server && ../../scripts/with-host-budget.sh node ./node_modules/vite
 ```bash
 cd /home/ubuntu/obsidian-tc
 git add packages/server/src/search/graph_expand.ts packages/server/src/search/graph_search_stages/ packages/server/test/graph-walk-acl.test.ts
-git commit -s -m "feat(search): ACL-filter the graph walk behind a flag (THE-695)"
+git commit -s -m "feat(search): ACL-filter the graph walk behind a flag"
 ```
 
 ---
@@ -1090,14 +1090,14 @@ git commit -s -m "feat(search): ACL-filter the graph walk behind a flag (THE-695
 - Create: `~/obsidian-tc-eval/analyze-the693-arms.ts` (analysis, modelled on `analyze-the692-sweep-corrected.ts`)
 
 **Interfaces:**
-- Consumes: Task 5's `aclWalkFilter`, and THE-693's existing `graphStream.enabled` / `smoothExpansion.enabled`.
+- Consumes: Task 5's `aclWalkFilter`, and the hub-defence item's existing `graphStream.enabled` / `smoothExpansion.enabled`.
 - Produces: an nDCG@10 comparison across three arms with permutation testing and BH-FDR correction.
 
 **Critical:** a new eval flag needs threading in FOUR places and every miss is silent. Before trusting any null result, count how many queries actually differ between arms — a null from arms that produced identical results is a threading bug, not a finding.
 
 - [ ] **Step 1: Thread the flags through the eval harness**
 
-Add `--acl-walk-filter`, and confirm `--graph-stream` / `--smooth-expansion` already exist, in `packages/server/eval/run.ts`. Follow the exact pattern `--max-per-cluster` used (added in PR #646): the flag must reach the **searchOptions object**, not merely be parsed. That was the THE-692 trap — the parameter was inert because it never reached `searchOptions`.
+Add `--acl-walk-filter`, and confirm `--graph-stream` / `--smooth-expansion` already exist, in `packages/server/eval/run.ts`. Follow the exact pattern `--max-per-cluster` used (added in PR #646): the flag must reach the **searchOptions object**, not merely be parsed. That was the trap — the parameter was inert because it never reached `searchOptions`.
 
 - [ ] **Step 2: Verify the flag is not inert BEFORE running the full grid**
 
@@ -1122,27 +1122,27 @@ bun run eval --corpus /data/obsidian-tc-eval/cache-the674-bgem3 --limit 250 --sm
 
 Use `eval/stats.ts` (permutation test + BH-FDR at q=0.10 + non-inferiority) via the template at `~/obsidian-tc-eval/analyze-the692-sweep-corrected.ts`. Do not hand-roll the analysis — a previous hand-rolled version was superseded.
 
-Standing bar: **sigma_d 0.198 / MDE 0.035 on `ndcg_at_10` at n=250** (THE-674, re-measured 2026-08-02 on the live bge-m3 store at `be4962d`). An effect below that is **below resolution**, not absent, and must be reported that way. The bar is metric-specific and the spread is 2.5× — `recall_at_10` 0.026, `bridge_recall` 0.022, `mrr_at_10` 0.055, and `bridge_ndcg_at_10` is n=103 with MDE 0.0617. Graph-expansion work gates on the bridge metrics, so 0.062 is the relevant number here, not the headline.
+Standing bar: **sigma_d 0.198 / MDE 0.035 on `ndcg_at_10` at n=250** (re-measured 2026-08-02 on the live bge-m3 store at `be4962d`). An effect below that is **below resolution**, not absent, and must be reported that way. The bar is metric-specific and the spread is 2.5× — `recall_at_10` 0.026, `bridge_recall` 0.022, `mrr_at_10` 0.055, and `bridge_ndcg_at_10` is n=103 with MDE 0.0617. Graph-expansion work gates on the bridge metrics, so 0.062 is the relevant number here, not the headline.
 
-> Corrected 2026-08-04: this line read `sigma_d 0.204 / MDE 0.036`, which was THE-674's intermediate recompute against the nomic representation. That representation was deleted 2026-07-31; the final THE-674 figure is the bge-m3 one above.
+> Corrected 2026-08-04: this line read `sigma_d 0.204 / MDE 0.036`, which was an intermediate recompute against the nomic representation. That representation was deleted 2026-07-31; the final figure is the bge-m3 one above.
 
 - [ ] **Step 5: Post the result and decide**
 
-Post the table to THE-693 and THE-695 with the differing-query count, the effect sizes, and the q-values. Enable the winning arm in config **only** if it clears the bar; otherwise record the null and leave both flags off, as THE-692 did.
+Post the table to the hub-defence and graph-walk items with the differing-query count, the effect sizes, and the q-values. Enable the winning arm in config **only** if it clears the bar; otherwise record the null and leave both flags off, as the earlier arm did.
 
 - [ ] **Step 6: Commit the eval wiring**
 
 ```bash
 cd /home/ubuntu/obsidian-tc
 git add packages/server/eval/run.ts
-git commit -s -m "feat(eval): --acl-walk-filter arm for the THE-693/695 measurement"
+git commit -s -m "feat(eval): --acl-walk-filter arm for the hub-defence and graph-walk measurement"
 ```
 
 ---
 
 ## Self-Review
 
-**Spec coverage:** schema (Task 1), module with empty-set floor + LRU + rowid-reuse regression (Task 2), THE-694 probe skip (Task 3), BM25 exactness (Task 4), walk filter behind a flag (Task 5), three-arm eval (Task 6). The spec's read-only-degradation requirement is covered by Task 2's "returns null rather than throwing" test; the PRAGMA-independence requirement by Task 2's `foreign_keys = OFF` test.
+**Spec coverage:** schema (Task 1), module with empty-set floor + LRU + rowid-reuse regression (Task 2), timing probe skip (Task 3), BM25 exactness (Task 4), walk filter behind a flag (Task 5), three-arm eval (Task 6). The spec's read-only-degradation requirement is covered by Task 2's "returns null rather than throwing" test; the PRAGMA-independence requirement by Task 2's `foreign_keys = OFF` test.
 
 **Type consistency:** `ensureAclPathSet` returns `number | null` in Task 2 and is consumed as a `number` in Tasks 4-5 via `aclSetId?: number`. `bm25Chunks`'s sixth parameter is named `aclSetId` in both its definition (Task 4) and the spec. `expandGraphLiteral`'s option is `aclSetId` in Task 5, matching.
 
