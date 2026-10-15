@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { applyConnectionPragmasOrClose } from "./apply-pragmas";
 import { openReadonlyWithFallback, readonlyConnectionPragmas } from "./pragmas";
 import { EMBEDDED_SQLITE_BASE64 } from "./sqlite-embedded";
+import { busyReason } from "./txn";
 import type { Database as Db, OpenOptions, RunResult, Statement } from "./types";
 
 // THE-663 follow-up: bun:sqlite uses APPLE'S SYSTEM SQLite on macOS, and Apple builds it without
@@ -173,8 +174,16 @@ export async function openBunSqlite(
     // connection a zombie that keeps its locks until the statements are collected or the process
     // ends. On Windows a terminating process's locks are released lazily, so siblings sharing the
     // file saw SQLITE_BUSY for seconds after one shut down. `true` finalizes them first.
+    // GH #1259: `close(true)` can throw SQLITE_BUSY AFTER the writes committed, while another process
+    // holds the same file. That is contention on the way out, not a failed write, so retry with
+    // `close(false)`, which does not throw on busy. Any other error is a real failure and propagates.
     close: (): void => {
-      db.close(true);
+      try {
+        db.close(true);
+      } catch (err) {
+        if (busyReason(err) === null) throw err;
+        db.close(false);
+      }
     },
     // GH #995 fix round (LOCK_TXN_LOSS) — see db/types.ts's Database.inTransaction doc comment.
     inTransaction: (): boolean => db.inTransaction,
