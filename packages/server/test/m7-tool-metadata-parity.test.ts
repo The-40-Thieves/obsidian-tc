@@ -94,7 +94,7 @@ const EXPECTED: ToolSnapshot[] = [
   {
     name: "reflect",
     description:
-      "The reflect verb (retain/recall/reflect): recall over the vault, then a gateway synthesis pass — one on-demand, query-scoped operation returning a grounded answer with source provenance. mode 'challenge' runs the adversarial red-team over the decision-bearing recall instead (the knowledge_challenge core). persist: true writes the answer as a derived note under the memory folder's reflections/ with source_model + chunk provenance (requires write:notes). Degrades gracefully: without the inference gateway, recall still returns sources with available: false. The sleep-time half (episode-eligibility evaluator + preference profile) runs via the `obsidian-tc reflect` CLI command.",
+      "The reflect verb (retain/recall/reflect): recall over the vault, then a gateway synthesis pass — one on-demand, query-scoped operation returning a grounded answer with source provenance. mode 'challenge' runs the adversarial red-team over the decision-bearing recall instead (the knowledge_challenge core) and returns a coverage object (recalled, decision_matched, filtered_out, kept, dropped, unresolved_evidence_paths). persist: true writes the answer as a derived note under the memory folder's reflections/ with source_model + chunk provenance (requires write:notes); it applies to mode 'synthesis' only and is rejected with mode 'challenge'. Degrades gracefully: without the inference gateway, recall still returns sources with available: false. The sleep-time half (episode-eligibility evaluator + preference profile) runs via the `obsidian-tc reflect` CLI command.",
     domain: "knowledge",
     requiredScopes: ["read:notes"],
     tags: ["external-network", "knowledge"],
@@ -104,6 +104,7 @@ const EXPECTED: ToolSnapshot[] = [
       "answer",
       "available",
       "challenge",
+      "coverage",
       "excluded_count",
       "message",
       "mode",
@@ -223,7 +224,7 @@ const EXPECTED: ToolSnapshot[] = [
   {
     name: "knowledge_challenge",
     description:
-      "Red-team a proposal against your documented decision history. Retrieves decision-bearing chunks (02-projects, 04-writing/Published, 09-reference/system-reviews, 09-reference/syntheses) and asks the inference gateway to flag DIRECT_CONTRADICTION / PATTERN_REPEAT / REVERSAL / HIDDEN_DEPENDENCY. Requires the gateway; reports unavailable when it is not configured.",
+      "Red-team a proposal against your documented decision history. Retrieves decision-bearing chunks (02-projects, 04-writing/Published, 09-reference/system-reviews, 09-reference/syntheses, or notes tagged decision, audit, self-audit, outcome, postmortem, reversal, lesson, review, analysis) and asks the inference gateway to flag DIRECT_CONTRADICTION / PATTERN_REPEAT / REVERSAL / HIDDEN_DEPENDENCY. That decision rule is fixed, not per-vault: a vault whose folders and tags match neither list gets no evidence, and coverage reports recalled and filtered_out counts so the cause is visible. Open contradictions are supplied only when the plane is enabled (plane.enabled). Cited paths are checked against the evidence shown; unseen ones are listed in coverage.unresolved_evidence_paths. Requires the gateway; reports unavailable when it is not configured.",
     domain: "knowledge",
     requiredScopes: ["read:notes"],
     tags: ["external-network", "knowledge"],
@@ -232,6 +233,7 @@ const EXPECTED: ToolSnapshot[] = [
     outputKeys: [
       "available",
       "contradiction_count",
+      "coverage",
       "evidence_count",
       "excluded_count",
       "message",

@@ -6,8 +6,7 @@
 import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
-import { challengeProposal, isDecisionChunk } from "../../../plane/challenge";
-import { buildEvidence } from "../../../search/evidence";
+import { challengeProposal } from "../../../plane/challenge";
 import { vaultExclusionFor, withVaultExclusion } from "../../../search/index-exclusion";
 import { semanticSearch } from "../../../search/semantic";
 import { readableRel } from "../../../vault/acl-read-filter";
@@ -15,11 +14,12 @@ import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
 import type { M7Deps } from "./deps";
 import {
-  CHALLENGE_EVIDENCE_BUDGET,
-  CHALLENGE_RECALL,
+  CHALLENGE_POOL,
   noteTagsByPath,
   openContradictionsForPaths,
   type RetrievalRuntime,
+  selectChallengeEvidence,
+  withCitationCheck,
 } from "./retrieval-runtime";
 import { KnowledgeChallengeOutput } from "./schemas";
 
@@ -31,7 +31,7 @@ export function createKnowledgeChallengeTool(
     name: "knowledge_challenge",
     domain: "knowledge",
     description:
-      "Red-team a proposal against your documented decision history. Retrieves decision-bearing chunks (02-projects, 04-writing/Published, 09-reference/system-reviews, 09-reference/syntheses) and asks the inference gateway to flag DIRECT_CONTRADICTION / PATTERN_REPEAT / REVERSAL / HIDDEN_DEPENDENCY. Requires the gateway; reports unavailable when it is not configured.",
+      "Red-team a proposal against your documented decision history. Retrieves decision-bearing chunks (02-projects, 04-writing/Published, 09-reference/system-reviews, 09-reference/syntheses, or notes tagged decision, audit, self-audit, outcome, postmortem, reversal, lesson, review, analysis) and asks the inference gateway to flag DIRECT_CONTRADICTION / PATTERN_REPEAT / REVERSAL / HIDDEN_DEPENDENCY. That decision rule is fixed, not per-vault: a vault whose folders and tags match neither list gets no evidence, and coverage reports recalled and filtered_out counts so the cause is visible. Open contradictions are supplied only when the plane is enabled (plane.enabled). Cited paths are checked against the evidence shown; unseen ones are listed in coverage.unresolved_evidence_paths. Requires the gateway; reports unavailable when it is not configured.",
     inputSchema: z
       .object({
         vault: VaultId,
@@ -56,7 +56,7 @@ export function createKnowledgeChallengeTool(
       );
       const queryVec = await retrieval.embedQuery(input.proposal);
       const hits = semanticSearch(ctx.db, v.id, queryVec, {
-        k: CHALLENGE_RECALL,
+        k: CHALLENGE_POOL,
         returnContent: true,
         isReadable,
         model: deps.embeddingProvider.id, // THE-530: constrain to the active model
@@ -86,29 +86,26 @@ export function createKnowledgeChallengeTool(
       // Enrich with note-level tags so isDecisionChunk's tag rule fires (not just the path
       // prefix) and the judge sees the tags; the semantic hit itself carries no tags (THE-309).
       const tagsByPath = noteTagsByPath(ctx.db, v.id, [...new Set(hits.map((h) => h.path))]);
-      // Selection goes through the shared builder (search/evidence.ts) so this path and reflect.ts's
-      // challenge mode cannot drift on dedup, per-note quota, trimming or citation numbering — they
-      // used to assemble their own sets and only agreed by coincidence. `chunk_id` is threaded so
-      // dedup keys on retrieval identity rather than on text.
-      const built = buildEvidence(
-        hits
-          .map((h) => ({
-            path: h.path,
-            content: h.content ?? "",
-            chunkId: h.chunk_id,
-            tags: tagsByPath.get(h.path) ?? [],
-          }))
-          .filter((e) => isDecisionChunk({ path: e.path, tags: e.tags })),
-        CHALLENGE_EVIDENCE_BUDGET,
+      // Selection goes through the shared selector (retrieval-runtime.ts) so this path and reflect.ts's
+      // challenge mode cannot drift on the decision filter, dedup, per-note quota, trimming or citation
+      // numbering. The filter runs over the whole recall pool before any cut (#1257). `chunk_id` is
+      // threaded so dedup keys on retrieval identity rather than on text.
+      const { evidence, coverage } = selectChallengeEvidence(
+        hits.map((h) => ({
+          path: h.path,
+          content: h.content ?? "",
+          chunkId: h.chunk_id,
+          tags: tagsByPath.get(h.path) ?? [],
+        })),
       );
-      const evidence = built.items;
       if (evidence.length === 0) {
         return {
           vault: v.id,
           available: true,
           evidence_count: 0,
           output: null,
-          message: "no decision-bearing chunks matched this proposal",
+          message: `no decision-bearing chunks matched this proposal (${coverage.recalled} recalled, ${coverage.filtered_out} failed the decision filter)`,
+          coverage,
         };
       }
       // Open contradictions touching the evidence give the judge cross-note conflict context.
@@ -118,7 +115,7 @@ export function createKnowledgeChallengeTool(
         evidence.map((e) => e.path),
         isReadable,
       );
-      const { output, model, excludedCount } = await challengeProposal(
+      const { output, model, excludedCount, citations } = await challengeProposal(
         deps.roles,
         input.proposal,
         evidence,
@@ -132,6 +129,7 @@ export function createKnowledgeChallengeTool(
         contradiction_count: contradictions.length,
         output,
         model,
+        coverage: withCitationCheck(coverage, citations),
         ...(excludedCount > 0 ? { excluded_count: excludedCount } : {}),
       };
     },

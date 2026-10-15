@@ -31,6 +31,49 @@ describe("knowledge_challenge core (gateway judge seam)", () => {
     expect(r.model).toBe("judge-model");
   });
 
+  it("citation check: drops items with no shown path, strips unseen paths, reports them", async () => {
+    const out = JSON.stringify({
+      verdict: "reconsider",
+      summary: "s",
+      categories: [
+        {
+          kind: "REVERSAL",
+          items: [
+            {
+              evidence_paths: ["02-projects/x.md", "private/y.md"],
+              why_it_matters: "mixed citation",
+              severity: "high",
+            },
+            { evidence_paths: ["ghost.md"], why_it_matters: "invented", severity: "low" },
+          ],
+        },
+        {
+          kind: "PATTERN_REPEAT",
+          items: [{ evidence_paths: [], why_it_matters: "uncited", severity: "low" }],
+        },
+      ],
+    });
+    const r = await challengeProposal(
+      judgeReturning(out),
+      "do X",
+      [{ path: "02-projects/x.md", content: "we reversed X" }],
+      [],
+    );
+    expect(r.output.categories).toEqual([
+      {
+        kind: "REVERSAL",
+        items: [
+          {
+            evidence_paths: ["02-projects/x.md"],
+            why_it_matters: "mixed citation",
+            severity: "high",
+          },
+        ],
+      },
+    ]);
+    expect(r.citations).toEqual({ unresolved: ["private/y.md", "ghost.md"], droppedItems: 2 });
+  });
+
   it("parseChallengeOutput tolerates code fences and empty categories", () => {
     const fenced = '```json\n{"verdict":"proceed","summary":"ok","categories":[]}\n```';
     expect(parseChallengeOutput(fenced).verdict).toBe("proceed");

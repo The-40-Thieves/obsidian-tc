@@ -10,10 +10,20 @@ import type { Database } from "../../../db/types";
 import { readLatestCalibration } from "../../../experiential/calibration";
 import type { RetrievalPolicyRecord } from "../../../experiential/log";
 import type { CallerContext } from "../../../mcp/registry";
-import { type ContradictionContext, EVIDENCE_TRUNCATE } from "../../../plane/challenge";
+import {
+  type CitationCheck,
+  type ContradictionContext,
+  EVIDENCE_TRUNCATE,
+  isDecisionChunk,
+} from "../../../plane/challenge";
 import { allChunkPaths, ensureAclPathSet } from "../../../search/acl_path_set";
 import type { ColbertMatrix } from "../../../search/colbert";
-import type { EvidenceBudget } from "../../../search/evidence";
+import {
+  buildEvidence,
+  type EvidenceBudget,
+  type EvidenceItem,
+  type EvidenceSource,
+} from "../../../search/evidence";
 import { readGeneration } from "../../../search/generation";
 import type {
   CoverageEstimate,
@@ -29,6 +39,7 @@ import type { RerankOutcome } from "../../../search/rerank";
 import type { SparseVec } from "../../../search/sparse";
 import { readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
 import type { M7Deps } from "./deps";
+import type { ChallengeCoverage } from "./schemas";
 
 /**
  * WP2.2: the shared retrieval state `buildKnowledgeTools` used to build as bare local closures at
@@ -253,6 +264,51 @@ export const CHALLENGE_EVIDENCE_BUDGET: EvidenceBudget = {
   maxCharsPerItem: EVIDENCE_TRUNCATE,
   maxPerNote: 6,
 };
+
+/** Recall depth for challenge evidence (#1257). The decision filter runs over this pool BEFORE the
+ *  CHALLENGE_RECALL cut. A fixed top-k recall let the filter trim a set that already lacked the
+ *  decision notes whenever they were a small share of the vault's chunks. */
+export const CHALLENGE_POOL = 200;
+
+/** Selects challenge evidence from a recall pool given in rank order. The pool is already
+ *  ACL-filtered at query time by its caller, so every count here is over what the caller may read:
+ *  a note the caller cannot read cannot change `recalled`, `decision_matched` or `filtered_out`. */
+export function selectChallengeEvidence(pool: readonly EvidenceSource[]): {
+  evidence: EvidenceItem[];
+  coverage: ChallengeCoverage;
+} {
+  const decision = pool.filter((c) => isDecisionChunk({ path: c.path, tags: c.tags }));
+  const built = buildEvidence(decision, CHALLENGE_EVIDENCE_BUDGET);
+  return {
+    evidence: built.items,
+    coverage: {
+      recalled: pool.length,
+      decision_matched: decision.length,
+      filtered_out: pool.length - decision.length,
+      kept: built.items.length,
+      dropped: {
+        duplicate: built.stats.droppedDuplicate,
+        per_note_quota: built.stats.droppedPerNoteQuota,
+        item_cap: built.stats.droppedItemCap,
+        unexamined_after_budget: built.stats.unexaminedAfterBudget,
+      },
+      truncated: built.items.filter((i) => i.truncated).length,
+      low_coverage: built.lowCoverage,
+    },
+  };
+}
+
+/** Adds the judge-citation check to a coverage object, once the judge has run. */
+export function withCitationCheck(
+  coverage: ChallengeCoverage,
+  citations: CitationCheck,
+): ChallengeCoverage {
+  return {
+    ...coverage,
+    unresolved_evidence_paths: citations.unresolved,
+    ungrounded_items_dropped: citations.droppedItems,
+  };
+}
 
 /** The evidence budget for reflect's SYNTHESIS prompt. Its caps are what that path already hard-
  *  coded inline (`results.slice(0, 20)`, `content.slice(0, 800)`); naming them makes the gap

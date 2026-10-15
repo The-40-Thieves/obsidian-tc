@@ -265,4 +265,119 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
     expect(composed).not.toContain("Private/decision.md");
     expect(composed).toContain("public decision body");
   });
+
+  describe("decision filter, coverage and ACL (#1257)", () => {
+    /** Inserts a chunk + note with an explicit embedding and tags. Callers stampAclPath once after. */
+    function seedChunk(db: any, id: string, path: string, vec: number[], tags: string[]): void {
+      db.prepare(
+        "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, ?, ?, '0', '[]', ?, ?, 10, 0, 0)",
+      ).run(id, VAULT, path, `evidence body for ${path}`, `h-${id}`);
+      db.prepare(
+        "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, 'stub-embed', ?, ?, 1, 0)",
+      ).run(id, vec.length, floatBlob(vec));
+      db.prepare(
+        "INSERT INTO notes (vault_id, path, title, tags, content_hash, mtime, size, indexed_at) VALUES (?, ?, '', ?, 'h', 0, 0, 0)",
+      ).run(VAULT, path, JSON.stringify(tags));
+    }
+
+    const PROPOSAL = "we should proceed with this plan regardless of history";
+
+    it("filter before the cut: a decision chunk behind 40 non-decision chunks is still evidence", async () => {
+      const db = openMemoryDb();
+      provisionCacheDb(db);
+      // Non-decision chunks sit exactly on the query vector, so they fill the nearest-neighbour
+      // ranks; the decision chunk is further away and would be cut by a fixed top-k recall.
+      for (let i = 0; i < 40; i++) seedChunk(db, `p${i}`, `notes/plain/n${i}.md`, QVEC, []);
+      seedChunk(db, "d1", "notes/decision.md", [0.7, 0.7], ["decision"]);
+      stampAclPath(db);
+      const seen: string[] = [];
+      const { registry, ctx } = harness(
+        db,
+        restrictedToNotes,
+        mockJudgeCapturing((m) => seen.push(m)),
+      );
+      const res = un<{ evidence_count: number }>(
+        await registry.dispatch("knowledge_challenge", { vault: VAULT, proposal: PROPOSAL }, ctx),
+      );
+      expect(res.evidence_count).toBe(1);
+      expect(seen.join("\n")).toContain("notes/decision.md");
+    });
+
+    it("no silent zero: a zero-evidence result reports recalled and filtered counts", async () => {
+      const db = openMemoryDb();
+      provisionCacheDb(db);
+      for (let i = 0; i < 3; i++) seedChunk(db, `p${i}`, `notes/plain/n${i}.md`, QVEC, []);
+      stampAclPath(db);
+      const { registry, ctx } = harness(
+        db,
+        restrictedToNotes,
+        mockJudgeCapturing(() => {}),
+      );
+      const res = un<{ evidence_count: number; output: unknown; coverage?: unknown }>(
+        await registry.dispatch("knowledge_challenge", { vault: VAULT, proposal: PROPOSAL }, ctx),
+      );
+      expect(res.evidence_count).toBe(0);
+      expect(res.output).toBeNull();
+      expect(res.coverage).toMatchObject({
+        recalled: 3,
+        decision_matched: 0,
+        filtered_out: 3,
+        kept: 0,
+      });
+    });
+
+    it("surfaces coverage counts on a successful challenge", async () => {
+      const db = openMemoryDb();
+      provisionCacheDb(db);
+      seedChunk(db, "d1", "notes/decision.md", [0.7, 0.7], ["decision"]);
+      for (let i = 0; i < 2; i++) seedChunk(db, `p${i}`, `notes/plain/n${i}.md`, QVEC, []);
+      stampAclPath(db);
+      const { registry, ctx } = harness(
+        db,
+        restrictedToNotes,
+        mockJudgeCapturing(() => {}),
+      );
+      const res = un<{ evidence_count: number; coverage?: unknown }>(
+        await registry.dispatch("knowledge_challenge", { vault: VAULT, proposal: PROPOSAL }, ctx),
+      );
+      expect(res.evidence_count).toBe(1);
+      expect(res.coverage).toMatchObject({
+        recalled: 3,
+        decision_matched: 1,
+        filtered_out: 2,
+        kept: 1,
+        truncated: 0,
+        low_coverage: false,
+      });
+    });
+
+    it("a denied decision note leaves the output identical to it being absent (ACL before count)", async () => {
+      // The secret is the nearest chunk and a decision by tag, so an unfiltered count or an early
+      // cut would show it. Both runs must agree byte for byte, judge prompt included.
+      const run = async (withSecret: boolean) => {
+        const db = openMemoryDb();
+        provisionCacheDb(db);
+        seedChunk(db, "d1", "notes/decision.md", [0.7, 0.7], ["decision"]);
+        for (let i = 0; i < 3; i++) seedChunk(db, `p${i}`, `notes/plain/n${i}.md`, QVEC, []);
+        if (withSecret) seedChunk(db, "s1", "private/secret.md", QVEC, ["decision"]);
+        stampAclPath(db);
+        const seen: string[] = [];
+        const { registry, ctx } = harness(
+          db,
+          restrictedToNotes,
+          mockJudgeCapturing((m) => seen.push(m)),
+        );
+        const res = await registry.dispatch(
+          "knowledge_challenge",
+          { vault: VAULT, proposal: PROPOSAL },
+          ctx,
+        );
+        return { res, prompt: seen.join("\n") };
+      };
+      const absent = await run(false);
+      const present = await run(true);
+      expect(present).toEqual(absent);
+      expect(present.prompt).not.toContain("private/secret.md");
+    });
+  });
 });

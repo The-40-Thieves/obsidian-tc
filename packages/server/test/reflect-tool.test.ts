@@ -6,6 +6,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
 import { compileEgressFilter } from "../src/plane/egress-filter";
@@ -45,7 +46,11 @@ function un<T>(r: unknown): T {
 const root = makeTempDir("obtc-reflect-");
 afterAll(() => rmTemp(root));
 
-function harness(roles: GatewayRoles | null, scopes: string[] = ["read:notes"]) {
+function harness(
+  roles: GatewayRoles | null,
+  scopes: string[] = ["read:notes"],
+  opts: { db?: ReturnType<typeof openMemoryDb>; acl?: FolderAcl } = {},
+) {
   const registry = new ToolRegistry({});
   const vaultRegistry = new VaultRegistry([{ id: "main", name: "main", path: root }]);
   registerM7Tools(registry, {
@@ -66,8 +71,9 @@ function harness(roles: GatewayRoles | null, scopes: string[] = ["read:notes"]) 
     authenticated: true,
     grantedScopes: new Set(scopes),
     vaultId: "main",
-    db: cacheDb0(),
+    db: opts.db ?? cacheDb0(),
     now: () => NOW,
+    ...(opts.acl ? { acl: opts.acl } : {}),
   };
   return { registry, ctx };
 }
@@ -237,5 +243,118 @@ describe("reflect tool — egress exclusion skip-and-report (THE-934 fix round 2
     expect(capturedPrompt).not.toContain("SECRET_MARKER");
     expect(capturedPrompt).toContain("public content");
     expect(res.excluded_count).toBe(1);
+  });
+});
+
+describe("reflect challenge mode: decision filter, coverage, persist and ACL (#1257)", () => {
+  /** A FTS-indexed chunk store; `[id, path, content]` rows. */
+  function seedPool(rows: ReadonlyArray<readonly [string, string, string]>) {
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    const ins = db.prepare(
+      "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, 'main', ?, 0, '[]', ?, ?, 40, ?, ?)",
+    );
+    for (const [id, path, content] of rows) ins.run(id, path, content, `h-${id}`, NOW, NOW);
+    stampAclPath(db);
+    ensureChunkFts(db, { now: () => NOW, enrich: false });
+    return db;
+  }
+
+  /** Records the composed judge request, then returns a canned verdict. */
+  function capturingRoles(sink: (composed: string) => void): GatewayRoles {
+    return {
+      ...mockRoles,
+      judge: async (req) => {
+        sink(req.messages.map((m) => m.content).join("\n"));
+        return {
+          text: JSON.stringify({ verdict: "reconsider", summary: "seen before", categories: [] }),
+          model: "mock-judge",
+        };
+      },
+    };
+  }
+
+  it("filter before the cut: a decision chunk behind 30 non-decision matches is still evidence (and surfaces coverage)", async () => {
+    const plain = Array.from(
+      { length: 30 },
+      (_, i) => [`p${i}`, `notes/plain-${i}.md`, "quorble pattern"] as const,
+    );
+    // BM25 favours short chunks, so the long decision chunk ranks below all thirty.
+    const decision = [
+      "d1",
+      "02-projects/decide.md",
+      `quorble pattern ${"filler ".repeat(80)}`,
+    ] as const;
+    const db = seedPool([...plain, decision]);
+    const seen: string[] = [];
+    const { registry, ctx } = harness(
+      capturingRoles((m) => seen.push(m)),
+      ["read:notes"],
+      {
+        db,
+      },
+    );
+    const res = un<ReflectData & { coverage?: unknown }>(
+      await registry.dispatch(
+        "reflect",
+        { vault: "main", query: '"quorble pattern"', mode: "challenge" },
+        ctx,
+      ),
+    );
+    expect(seen.join("\n")).toContain("02-projects/decide.md");
+    expect(res.coverage).toMatchObject({ decision_matched: 1 });
+  });
+
+  it("a denied decision note leaves the output identical to it being absent (ACL before count)", async () => {
+    // The readable decision note is the only decision the caller may see. The denied one shares
+    // its wording and its folder, so any count taken before the ACL filter would show it.
+    const acl = new FolderAcl({
+      readOnly: false,
+      defaultScopes: [],
+      rules: [],
+      readPaths: ["02-projects/decide.md", "notes/**"],
+    });
+    const decisionBody = `quorble pattern ${"filler ".repeat(80)}`;
+    const base = [
+      ["p0", "notes/plain.md", "quorble pattern"],
+      ["d1", "02-projects/decide.md", decisionBody],
+    ] as const;
+    const run = async (withSecret: boolean) => {
+      const rows = withSecret
+        ? [...base, ["s1", "02-projects/secret.md", decisionBody] as const]
+        : base;
+      const seen: string[] = [];
+      const { registry, ctx } = harness(
+        capturingRoles((m) => seen.push(m)),
+        ["read:notes"],
+        {
+          db: seedPool(rows),
+          acl,
+        },
+      );
+      const res = await registry.dispatch(
+        "reflect",
+        { vault: "main", query: '"quorble pattern"', mode: "challenge" },
+        ctx,
+      );
+      return { res, prompt: seen.join("\n") };
+    };
+    const absent = await run(false);
+    const present = await run(true);
+    // Guard against a vacuous pass: both runs must reach the judge with the readable decision.
+    expect(absent.prompt).toContain("02-projects/decide.md");
+    expect(present).toEqual(absent);
+    expect(present.prompt).not.toContain("02-projects/secret.md");
+  });
+
+  it("rejects persist with mode challenge with a validation error instead of ignoring it", async () => {
+    const { registry, ctx } = harness(mockRoles, ["read:notes", "write:notes"]);
+    const r = await registry.dispatch(
+      "reflect",
+      { vault: "main", query: "quorble pattern", mode: "challenge", persist: true },
+      ctx,
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe("validation_error");
   });
 });

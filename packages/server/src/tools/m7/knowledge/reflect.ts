@@ -6,7 +6,7 @@
 import { err, grantsAll, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
-import { challengeProposal, type EvidenceChunk, isDecisionChunk } from "../../../plane/challenge";
+import { challengeProposal } from "../../../plane/challenge";
 import { isExcludedPath } from "../../../plane/egress-filter";
 import { prompt } from "../../../plane/gateway";
 import { buildEvidence } from "../../../search/evidence";
@@ -22,7 +22,7 @@ import { defineTool } from "../../m1/define";
 import type { M7Deps } from "./deps";
 import {
   buildGraphSearchOptions,
-  CHALLENGE_EVIDENCE_BUDGET,
+  CHALLENGE_POOL,
   cacheContextFor,
   capturePolicy,
   noteTagsByPath,
@@ -35,6 +35,8 @@ import {
   resolveAclWalkFilter,
   retrievalHits,
   SYNTHESIS_EVIDENCE_BUDGET,
+  selectChallengeEvidence,
+  withCitationCheck,
 } from "./retrieval-runtime";
 import { ReflectOutput } from "./schemas";
 
@@ -43,7 +45,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
     name: "reflect",
     domain: "knowledge",
     description:
-      "The reflect verb (retain/recall/reflect): recall over the vault, then a gateway synthesis pass — one on-demand, query-scoped operation returning a grounded answer with source provenance. mode 'challenge' runs the adversarial red-team over the decision-bearing recall instead (the knowledge_challenge core). persist: true writes the answer as a derived note under the memory folder's reflections/ with source_model + chunk provenance (requires write:notes). Degrades gracefully: without the inference gateway, recall still returns sources with available: false. The sleep-time half (episode-eligibility evaluator + preference profile) runs via the `obsidian-tc reflect` CLI command.",
+      "The reflect verb (retain/recall/reflect): recall over the vault, then a gateway synthesis pass — one on-demand, query-scoped operation returning a grounded answer with source provenance. mode 'challenge' runs the adversarial red-team over the decision-bearing recall instead (the knowledge_challenge core) and returns a coverage object (recalled, decision_matched, filtered_out, kept, dropped, unresolved_evidence_paths). persist: true writes the answer as a derived note under the memory folder's reflections/ with source_model + chunk provenance (requires write:notes); it applies to mode 'synthesis' only and is rejected with mode 'challenge'. Degrades gracefully: without the inference gateway, recall still returns sources with available: false. The sleep-time half (episode-eligibility evaluator + preference profile) runs via the `obsidian-tc reflect` CLI command.",
     inputSchema: z
       .object({
         vault: VaultId,
@@ -73,8 +75,17 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
     requiredScopes: ["read:notes"],
     tags: ["knowledge", "external-network"],
     handler: async (input, ctx) => {
+      // #1257: persist is written only by the synthesis branch. Rejecting the combination here, before
+      // any recall, is what stops it being silently ignored.
+      if (input.mode === "challenge" && input.persist) {
+        throw err.validation(
+          "persist is not supported with mode 'challenge'; use mode 'synthesis'",
+        );
+      }
       const v = deps.vaultRegistry.resolve(input.vault);
       const exclusion = vaultExclusionFor(deps.vaultRegistry, v.id);
+      // The challenge pool is deeper than the caller's k so the decision filter sees enough candidates.
+      const recallK = input.mode === "challenge" ? CHALLENGE_POOL : input.k;
       const isReadable = withVaultExclusion(
         readableStoredRow(ctx.db, v.id, (a) => readableRel(ctx.acl, a, ctx.grantedScopes)),
         exclusion,
@@ -107,7 +118,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
           ctx.db,
           v.id,
           input.query,
-          input.k,
+          recallK,
           isReadable,
           walkFilter.aclSetId,
           walkFilter.aclWalkFilter?.blocked,
@@ -119,7 +130,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
             route,
             query: input.query,
             vaultId: v.id,
-            finalTopK: input.k,
+            finalTopK: recallK,
             reranker: deps.reranker,
             isReadable,
             db: ctx.db,
@@ -143,7 +154,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
         hits: retrievalHits(results),
         policy: policy.record(route.class === "lexical" ? "lexical-route" : "static"),
       });
-      const sources = results.map((r) => ({
+      const sources = results.slice(0, input.k).map((r) => ({
         chunk_id: r.chunk_id,
         path: r.path,
         score: r.rerank_score,
@@ -160,26 +171,24 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
         };
       }
       if (input.mode === "challenge") {
-        const paths = [...new Set(results.map((r) => r.path))];
-        const tags = noteTagsByPath(ctx.db, v.id, paths);
-        // Same shared builder and same budget as knowledge-challenge.ts — these two paths feed the
-        // identical judge prompt and used to build their sets independently (this one sliced to
-        // CHALLENGE_RECALL with no dedup; the other did not slice at all).
-        const evidence: EvidenceChunk[] = buildEvidence(
-          results
-            .filter((r) => isDecisionChunk({ path: r.path, tags: tags.get(r.path) ?? null }))
-            .map((r) => ({
-              path: r.path,
-              chunkId: r.chunk_id,
-              tags: tags.get(r.path) ?? null,
-              content: r.content ?? "",
-            })),
-          CHALLENGE_EVIDENCE_BUDGET,
-        ).items;
-        const contradictions = openContradictionsForPaths(ctx.db, v.id, paths, (rel) =>
-          isReadable(rel),
+        const tags = noteTagsByPath(ctx.db, v.id, [...new Set(results.map((r) => r.path))]);
+        // Same shared selector as knowledge-challenge.ts: these two paths feed the identical judge
+        // prompt, so they cannot disagree on the decision filter, dedup, budget or numbering.
+        const { evidence, coverage } = selectChallengeEvidence(
+          results.map((r) => ({
+            path: r.path,
+            chunkId: r.chunk_id,
+            tags: tags.get(r.path) ?? null,
+            content: r.content ?? "",
+          })),
         );
-        const { output, model, excludedCount } = await challengeProposal(
+        const contradictions = openContradictionsForPaths(
+          ctx.db,
+          v.id,
+          [...new Set(evidence.map((e) => e.path))],
+          (rel) => isReadable(rel),
+        );
+        const { output, model, excludedCount, citations } = await challengeProposal(
           deps.roles,
           input.query,
           evidence,
@@ -193,6 +202,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
           available: true,
           model,
           challenge: output,
+          coverage: withCitationCheck(coverage, citations),
           sources,
           ...(excludedCount > 0 ? { excluded_count: excludedCount } : {}),
         };

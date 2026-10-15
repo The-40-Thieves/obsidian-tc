@@ -287,6 +287,24 @@ export const ConciseableVaultContextOutput = VaultContextOutput.extend({
  *    synthesis { available: true,  model, answer, sources, persisted? }
  *
  *  Every field name and type is still checked; only the correlation between them is not. */
+export const ChallengeCoverageSchema = z.object({
+  recalled: z.number().int().nonnegative(),
+  decision_matched: z.number().int().nonnegative(),
+  filtered_out: z.number().int().nonnegative(),
+  kept: z.number().int().nonnegative(),
+  dropped: z.object({
+    duplicate: z.number().int().nonnegative(),
+    per_note_quota: z.number().int().nonnegative(),
+    item_cap: z.number().int().nonnegative(),
+    unexamined_after_budget: z.number().int().nonnegative(),
+  }),
+  truncated: z.number().int().nonnegative(),
+  low_coverage: z.boolean(),
+  unresolved_evidence_paths: z.array(z.string()).optional(),
+  ungrounded_items_dropped: z.number().int().nonnegative().optional(),
+});
+export type ChallengeCoverage = z.infer<typeof ChallengeCoverageSchema>;
+
 export const ReflectOutput = z.object({
   vault: z.string(),
   mode: z.string(),
@@ -296,6 +314,7 @@ export const ReflectOutput = z.object({
   answer: z.string().nullable().optional(),
   model: z.string().optional(),
   challenge: challengeOutputSchema.optional(),
+  coverage: ChallengeCoverageSchema.optional(),
   sources: z.array(SourceRef),
   persisted: z.object({ path: z.string() }).optional(),
   /** THE-934: candidates egress.excludePaths dropped. Omitted (not zero) when nothing excluded. */
@@ -437,6 +456,7 @@ export const KnowledgeChallengeOutput = z.object({
   model: z.string().optional(),
   /** THE-934: evidence/contradictions egress.excludePaths dropped. Omitted when nothing excluded. */
   excluded_count: z.number().int().nonnegative().optional(),
+  coverage: ChallengeCoverageSchema.optional(),
 });
 
 export const ListContradictionsOutput = z.object({
