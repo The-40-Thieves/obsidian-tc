@@ -14,11 +14,13 @@ import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
 import type { M7Deps } from "./deps";
 import {
-  CHALLENGE_POOL,
+  CHALLENGE_EXPANDED_RECALL,
+  CHALLENGE_RECALL,
   noteTagsByPath,
   openContradictionsForPaths,
   type RetrievalRuntime,
   selectChallengeEvidence,
+  shouldExpandChallengeRecall,
   withCitationCheck,
 } from "./retrieval-runtime";
 import { KnowledgeChallengeOutput } from "./schemas";
@@ -55,12 +57,30 @@ export function createKnowledgeChallengeTool(
         vaultExclusionFor(deps.vaultRegistry, v.id),
       );
       const queryVec = await retrieval.embedQuery(input.proposal);
-      const hits = semanticSearch(ctx.db, v.id, queryVec, {
-        k: CHALLENGE_POOL,
-        returnContent: true,
-        isReadable,
-        model: deps.embeddingProvider.id, // THE-530: constrain to the active model
-      });
+      const recall = (k: number) =>
+        semanticSearch(ctx.db, v.id, queryVec, {
+          k,
+          returnContent: true,
+          isReadable,
+          model: deps.embeddingProvider.id, // THE-530: constrain to the active model
+        });
+      const select = (hits: ReturnType<typeof recall>) => {
+        const tagsByPath = noteTagsByPath(ctx.db, v.id, [...new Set(hits.map((h) => h.path))]);
+        return selectChallengeEvidence(
+          hits.map((h) => ({
+            path: h.path,
+            content: h.content ?? "",
+            chunkId: h.chunk_id,
+            tags: tagsByPath.get(h.path) ?? [],
+          })),
+        );
+      };
+      let hits = recall(CHALLENGE_RECALL);
+      let selected = select(hits);
+      if (shouldExpandChallengeRecall(hits.length, selected.coverage)) {
+        hits = recall(CHALLENGE_EXPANDED_RECALL);
+        selected = select(hits);
+      }
       // THE-230: challenge recall is a real retrieval surface — log it like the search tools.
       deps.retrievalLog?.({
         queryText: input.proposal,
@@ -83,21 +103,10 @@ export function createKnowledgeChallengeTool(
           routeClass: null,
         },
       });
-      // Enrich with note-level tags so isDecisionChunk's tag rule fires (not just the path
-      // prefix) and the judge sees the tags; the semantic hit itself carries no tags (THE-309).
-      const tagsByPath = noteTagsByPath(ctx.db, v.id, [...new Set(hits.map((h) => h.path))]);
       // Selection goes through the shared selector (retrieval-runtime.ts) so this path and reflect.ts's
       // challenge mode cannot drift on the decision filter, dedup, per-note quota, trimming or citation
-      // numbering. The filter runs over the whole recall pool before any cut (#1257). `chunk_id` is
-      // threaded so dedup keys on retrieval identity rather than on text.
-      const { evidence, coverage } = selectChallengeEvidence(
-        hits.map((h) => ({
-          path: h.path,
-          content: h.content ?? "",
-          chunkId: h.chunk_id,
-          tags: tagsByPath.get(h.path) ?? [],
-        })),
-      );
+      // numbering. `chunk_id` is threaded so dedup keys on retrieval identity rather than on text.
+      const { evidence, coverage } = selected;
       if (evidence.length === 0) {
         return {
           vault: v.id,

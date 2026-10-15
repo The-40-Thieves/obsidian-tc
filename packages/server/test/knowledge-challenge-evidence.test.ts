@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
+import type { RetrievalLogger } from "../src/experiential/log";
 import { ToolRegistry } from "../src/mcp/registry";
 import { compileEgressFilter } from "../src/plane/egress-filter";
 import type { GatewayRoles } from "../src/plane/gateway";
@@ -122,6 +123,7 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
     acl: FolderAcl,
     roles: GatewayRoles,
     excludeFilter?: ReturnType<typeof compileEgressFilter>,
+    retrievalLog?: RetrievalLogger,
   ) {
     const registry = new ToolRegistry({});
     const vaultRegistry = new VaultRegistry([{ id: VAULT, name: VAULT, path: tmpdir() }]);
@@ -137,6 +139,7 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
       reranker: null,
       roles,
       ...(excludeFilter ? { excludeFilter } : {}),
+      ...(retrievalLog ? { retrievalLog } : {}),
     });
     const ctx = {
       caller: "tester",
@@ -266,7 +269,7 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
     expect(composed).toContain("public decision body");
   });
 
-  describe("decision filter, coverage and ACL (#1257)", () => {
+  describe("decision filter, coverage and ACL", () => {
     /** Inserts a chunk + note with an explicit embedding and tags. Callers stampAclPath once after. */
     function seedChunk(db: any, id: string, path: string, vec: number[], tags: string[]): void {
       db.prepare(
@@ -282,25 +285,31 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
 
     const PROPOSAL = "we should proceed with this plan regardless of history";
 
-    it("filter before the cut: a decision chunk behind 40 non-decision chunks is still evidence", async () => {
+    it("expands once to a bounded 90-hit pool when the first 30 underfill decision evidence", async () => {
       const db = openMemoryDb();
       provisionCacheDb(db);
-      // Non-decision chunks sit exactly on the query vector, so they fill the nearest-neighbour
-      // ranks; the decision chunk is further away and would be cut by a fixed top-k recall.
       for (let i = 0; i < 40; i++) seedChunk(db, `p${i}`, `notes/plain/n${i}.md`, QVEC, []);
       seedChunk(db, "d1", "notes/decision.md", [0.7, 0.7], ["decision"]);
+      for (let i = 0; i < 60; i++) seedChunk(db, `tail${i}`, `notes/tail/n${i}.md`, [0, 1], []);
       stampAclPath(db);
       const seen: string[] = [];
+      let loggedHits = -1;
       const { registry, ctx } = harness(
         db,
         restrictedToNotes,
         mockJudgeCapturing((m) => seen.push(m)),
+        undefined,
+        (event) => {
+          loggedHits = event.hits.length;
+        },
       );
-      const res = un<{ evidence_count: number }>(
+      const res = un<{ evidence_count: number; coverage?: { recalled: number } }>(
         await registry.dispatch("knowledge_challenge", { vault: VAULT, proposal: PROPOSAL }, ctx),
       );
       expect(res.evidence_count).toBe(1);
       expect(seen.join("\n")).toContain("notes/decision.md");
+      expect(res.coverage?.recalled).toBe(90);
+      expect(loggedHits).toBe(90);
     });
 
     it("no silent zero: a zero-evidence result reports recalled and filtered counts", async () => {

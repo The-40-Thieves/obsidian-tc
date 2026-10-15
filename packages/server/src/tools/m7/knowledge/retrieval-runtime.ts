@@ -265,10 +265,8 @@ export const CHALLENGE_EVIDENCE_BUDGET: EvidenceBudget = {
   maxPerNote: 6,
 };
 
-/** Recall depth for challenge evidence (#1257). The decision filter runs over this pool BEFORE the
- *  CHALLENGE_RECALL cut. A fixed top-k recall let the filter trim a set that already lacked the
- *  decision notes whenever they were a small share of the vault's chunks. */
-export const CHALLENGE_POOL = 200;
+/** One bounded retry when the normal recall does not contain enough decision-bearing chunks. */
+export const CHALLENGE_EXPANDED_RECALL = 90;
 
 /** Selects challenge evidence from a recall pool given in rank order. The pool is already
  *  ACL-filtered at query time by its caller, so every count here is over what the caller may read:
@@ -296,6 +294,16 @@ export function selectChallengeEvidence(pool: readonly EvidenceSource[]): {
       low_coverage: built.lowCoverage,
     },
   };
+}
+
+/** Expands only when the index returned a full initial page (`fetched`, counted BEFORE any scope
+ *  filter, so a narrowing scope cannot suppress it) and the evidence cut still fell short of the
+ *  target, whether from the decision filter, duplicates or the per-note quota. */
+export function shouldExpandChallengeRecall(
+  fetched: number,
+  coverage: ChallengeCoverage,
+): boolean {
+  return fetched >= CHALLENGE_RECALL && coverage.kept < CHALLENGE_EVIDENCE_BUDGET.maxItems;
 }
 
 /** Adds the judge-citation check to a coverage object, once the judge has run. */
@@ -428,6 +436,9 @@ export function buildGraphSearchOptions(
     queryColbert?: GraphSearchOptions["queryColbert"];
     vaultId: string;
     finalTopK: number;
+    /** Per-call stream depth for a caller that widens `finalTopK` past the 30 the seed streams
+     *  default to (challenge recall). Absent -> key absent -> the unchanged default. */
+    seedCount?: number;
     reranker: GraphSearchOptions["reranker"];
     isReadable: GraphSearchOptions["isReadable"];
     /** THE-852: required, not optional — see this function's header and `resolveAclWalkFilter`.
@@ -461,6 +472,7 @@ export function buildGraphSearchOptions(
     model: deps.embeddingProvider.id, // THE-530: constrain seeds to the active model
     vaultId: site.vaultId,
     finalTopK: site.finalTopK,
+    ...(site.seedCount !== undefined ? { seedCount: site.seedCount } : {}),
     ...(deps.retrieval?.rrfK !== undefined ? { rrfK: deps.retrieval.rrfK } : {}),
     // ADR-0007 class (b): graphSearch resolves the per-vault derived rrfK itself (it owns db +
     // vaultId), so this only forwards the opt-in. Absent (the default) -> key absent -> constant.
