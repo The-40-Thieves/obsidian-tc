@@ -271,18 +271,16 @@ describe.skipIf(process.platform === "win32")("enumeration filters on the canoni
 describe.skipIf(process.platform === "win32")(
   "index candidates are judged on the canonical target",
   () => {
-    it("index_vault of an alias folder does not index a denied target", async () => {
+    it("index_vault does not index through an unconfigured linked ancestor", async () => {
       const v = m2(ACL_INDEX);
       const r = await v.call("index_vault", { vault: "test", folder: "wiki" }, ADMIN);
       const rows = (db: Database): unknown[] =>
         db.prepare("SELECT path FROM chunks WHERE vault_id = ?").all("test");
       expect(rows(v.db)).toEqual([]);
       expect(leaks(dump(r))).toBe(false);
-      // The readable alias is indexed under its display path.
-      if (!nativeVaultIo) {
-        await v.call("index_vault", { vault: "test", folder: "shared" }, ADMIN);
-        expect(JSON.stringify(rows(v.db))).toContain("shared/open-note.md");
-      }
+      const readable = await v.call("index_vault", { vault: "test", folder: "shared" }, ADMIN);
+      expect(rows(v.db)).toEqual([]);
+      expect(leaks(dump(readable))).toBe(false);
     });
   },
 );

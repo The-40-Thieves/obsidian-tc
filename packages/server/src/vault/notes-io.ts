@@ -50,10 +50,10 @@ import { assertCreatableName, contentHash } from "./paths";
 // check is the cross-platform guard.
 const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 
-// THE-272: prefer the native, symlink-safe, TOCTOU-free open when the compiled module is loaded: it
-// follows no symlink in ANY path component (vault/native-io.ts). Without it (unsupported platform, no
-// addon, or `OBSIDIAN_TC_FORCE_JS_FALLBACK=1`) the JS path keeps its documented residual, and refuses
-// any path that runs through a configured symlinked (pinned) folder.
+// Prefer the native, symlink-safe, TOCTOU-free open when the compiled module is loaded: it follows
+// no symlink in any path component (vault/native-io.ts). Without it, the JS path lstats every
+// component and verifies the opened leaf's identity. That refuses stable links on every platform;
+// unlike openat, it cannot make the intermediate component checks atomic with the leaf open.
 export { nativeVaultIo };
 
 /** Reclassify a native safe-open rejection at `abs`: a genuinely-missing path keeps ENOENT
@@ -73,10 +73,55 @@ function nativeRead(io: NativeVaultIo, abs: string): Buffer {
   return io.safeReadNote(path, pinned);
 }
 
-/** The JS read path: refuse a path through a pinned folder, else open `abs` as it is. */
-function fallbackOpenPath(abs: string): string {
+const fallbackReadRefused = (message: string, abs: string): ObsidianTcError =>
+  err.aclDenied(`safe open refused the path: ${message}`, { path: abs });
+
+/**
+ * Open a JS-fallback read without following a stable symlink or junction in any component.
+ * `refuseJsThroughPin` stays first so configured-folder callers retain its more specific message.
+ * The opened-leaf identity check closes the lstat/open swap for the leaf; only the native openat
+ * walk can make the intermediate checks and open one atomic descriptor-relative operation.
+ */
+function fallbackOpen(abs: string): number {
   refuseJsThroughPin(abs);
-  return abs;
+  const { root } = parse(abs);
+  const components = abs.slice(root.length).split(sep).filter(Boolean);
+  let current = root;
+  for (const component of components.slice(0, -1)) {
+    current = join(current, component);
+    const st = lstatSync(current, { bigint: true });
+    if (st.isSymbolicLink() || !st.isDirectory()) {
+      throw fallbackReadRefused(
+        `refusing symlinked or missing path component: ${JSON.stringify(component)}`,
+        abs,
+      );
+    }
+  }
+
+  const leaf = lstatSync(abs, { bigint: true });
+  if (leaf.isSymbolicLink()) {
+    throw fallbackReadRefused("refusing symlinked or missing file", abs);
+  }
+
+  let fd: number;
+  try {
+    fd = openSync(abs, constants.O_RDONLY | O_NOFOLLOW);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ELOOP") {
+      throw fallbackReadRefused("refusing symlinked or missing file", abs);
+    }
+    throw e;
+  }
+  try {
+    const opened = fstatSync(fd, { bigint: true });
+    if (opened.dev !== leaf.dev || opened.ino !== leaf.ino) {
+      throw fallbackReadRefused("file changed while opening", abs);
+    }
+    return fd;
+  } catch (e) {
+    closeSync(fd);
+    throw e;
+  }
 }
 
 export interface NoteStat {
@@ -114,7 +159,7 @@ export function readNote(abs: string): { raw: string; hash: string } {
       mapNativeReadError(e, abs);
     }
   }
-  const fd = openSync(fallbackOpenPath(abs), constants.O_RDONLY);
+  const fd = fallbackOpen(abs);
   try {
     assertRegularSingleLink(fd, abs);
     const raw = readFileSync(fd, "utf8");
@@ -134,7 +179,7 @@ export function readNoteBounded(abs: string, maxBytes: number): { raw: string | 
       mapNativeReadError(e, abs);
     }
   }
-  const fd = openSync(fallbackOpenPath(abs), constants.O_RDONLY);
+  const fd = fallbackOpen(abs);
   try {
     assertRegularSingleLink(fd, abs);
     const buf = Buffer.allocUnsafe(maxBytes + 1);
@@ -159,7 +204,7 @@ export function readFileChecked(abs: string): Buffer {
       mapNativeReadError(e, abs);
     }
   }
-  const fd = openSync(fallbackOpenPath(abs), constants.O_RDONLY);
+  const fd = fallbackOpen(abs);
   try {
     assertRegularSingleLink(fd, abs);
     return readFileSync(fd);

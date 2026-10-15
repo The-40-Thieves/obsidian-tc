@@ -374,7 +374,7 @@ jobs:
           '
       - name: server tests under native, Intel macOS (THE-1081 / #946)
         working-directory: packages/server
-        run: node ./node_modules/vitest/vitest.mjs run test/base-tools-branch-coverage.test.ts test/notes-tools.test.ts test/federated-search-security.test.ts test/m5-memory-lifecycle.test.ts test/frontmatter-tools-branch-coverage.test.ts test/vault-root-symlink-registration.test.ts
+        run: node ./node_modules/vitest/vitest.mjs run test/base-tools-branch-coverage.test.ts test/notes-tools.test.ts test/federated-search-security.test.ts test/m5-memory-lifecycle.test.ts test/frontmatter-tools-branch-coverage.test.ts test/vault-root-symlink-registration.test.ts test/native-safe-io.test.ts test/vault-fallback-no-follow.test.ts
 
   # Rate-limit backends against a REAL Redis. The shared conformance suite (ratelimit-conformance),
   # the cross-instance/restart cases (ratelimit-shared) and the Redis-only cases (ratelimit-redis)
