@@ -1,7 +1,7 @@
 # An ACL predicate SQLite can see
 
-> **UPDATE (2026-08-21, THE-891 item 3):** the "Rollout" step 4 disposition below — the walk filter
-> "ships dark" behind a config flag — was SUPERSEDED by THE-852 (#815, v1.22.0, 2026-08-19/20):
+> **UPDATE (2026-08-21):** the "Rollout" step 4 disposition below — the walk filter
+> "ships dark" behind a config flag — was SUPERSEDED by PR #815 (v1.22.0, 2026-08-19/20):
 > `resolveAclWalkFilter` (retrieval-runtime.ts) now wires the filter into every M7 surface and
 > defaults it **unconditionally on**, with no config gate at all. Two live P0s (`via_edge.source_path`
 > leaking a denied predecessor path; an unreadable bridge note acting as a membership/rank oracle)
@@ -15,12 +15,12 @@
 > real `acl_path_set` and `graph_expand.ts`'s join always runs, for every caller, restricted or not.
 > The doc's refusal to report the inert arm as a measured null (rather than a design argument) STANDS
 > — nothing below was re-measured, and this banner does not attempt to. `obsidian_tc_acl_walk_pruned_total`
-> (THE-891 item 3) now makes the filter's actual recall cost, for a genuinely restricted caller,
+> This now makes the filter's actual recall cost, for a genuinely restricted caller,
 > observable — see MetricsRecorder.incAclWalkPruned. The body below is otherwise unchanged.
 
 **Date:** 2026-08-02
 **Status:** design approved, not yet implemented
-**Tickets:** THE-694 (router timing residual), THE-695 (graph-walk bridges, BM25 over-fetch boundary), THE-693 (hub defence, shares the eval)
+**Tickets:** router timing residual, graph-walk bridges and BM25 over-fetch boundary, hub defence (shares the eval)
 **Scope:** `packages/server/src/migrations` (new), `packages/server/src/search/acl_path_set.ts` (new), `search/router.ts`, `search/chunk_fts.ts`, `search/graph_expand.ts`, `search/graph_search_stages/graph_expansion.ts`
 
 ## Goal
@@ -37,11 +37,11 @@ It also **retires one of the two things the tickets asked for**, on measured evi
 
 - Unifying every ACL check in the codebase. Only the three aggregate paths above are in scope.
 - Changing the read contract of any tool. No tool returns content it did not return before.
-- Closing the timing channel for the dense arm. THE-287 already pushed that filter into SQL.
+- Closing the timing channel for the dense arm. The vec0 path already pushed that filter into SQL.
 
 ## What the measurement changed
 
-THE-694 proposes a materialized permitted set so the router's readable-df count "never leaves SQL —
+The timing item proposes a materialized permitted set so the router's readable-df count "never leaves SQL —
 so denied rows are never examined in JS." Both halves of that are true. Neither closes the ticket.
 
 Built on a live snapshot with a restricted ACL, running the ticket's own guardrail — is a term
@@ -65,7 +65,7 @@ SQLite iterates the whole match list and probes membership per row, so work stay
 **total** matches, not readable ones. Moving the scan from JS into SQLite makes it faster and
 lower-variance — if anything easier to exploit.
 
-So the permitted set is the right substrate for THE-695 and the wrong tool for THE-694. THE-694 is
+So the permitted set is the right substrate for the graph-walk work and the wrong tool for the timing item. The timing item is
 closed instead by **not asking the question**: when `readEnumerationUnrestricted(acl)` is false,
 skip rare-term classification entirely and take `standard` routing. No query is issued, so there is
 nothing to time. The cost is that restricted callers lose a ranking optimization, not correctness.
@@ -210,27 +210,27 @@ on a single-principal deployment is the only branch taken.
 
 ## Consumers
 
-**`termDf` (`search/router.ts`) — THE-694.** No join. When `readEnumerationUnrestricted(acl)` is
+**`termDf` (`search/router.ts`) — the timing item.** No join. When `readEnumerationUnrestricted(acl)` is
 false, skip rare-term classification and return `standard` routing. The unrestricted path keeps its
 existing exact `COUNT(*)`.
 
-**`bm25Chunks` (`search/chunk_fts.ts`) — THE-695 item 2.** Join `acl_path_members` and delete the
+**`bm25Chunks` (`search/chunk_fts.ts`) — BM25 over-fetch.** Join `acl_path_members` and delete the
 `F = k*20 + 50` over-fetch. Exact filtering removes the underfill boundary, so the returned length
 no longer depends on how many higher-scoring hidden rows exist. This returns *more* rows in the
 underfill case — a recall improvement, but a behaviour change.
 
-**Graph walk (`search/graph_expand.ts`) — THE-695 item 1, behind a flag.** Join
+**Graph walk (`search/graph_expand.ts`) — graph-walk filter, behind a flag.** Join
 `acl_path_members` inside the recursive CTE so an unreadable note cannot serve as a bridge.
 Measured on a live snapshot with a restricted ACL: 583 nodes unfiltered, 57 filtered, at
 37.9 ms vs 38.6 ms — the join is free relative to the walk, and the recall change is large.
 
-That last one is why it ships dark. THE-693's `hubDegreeCap` lands in the same file and prunes on
+That last one is why it ships dark. The hub-defence `hubDegreeCap` lands in the same file and prunes on
 degrees `nodeDegrees` computes with no ACL, so both must be evaluated in one pass rather than
 sequentially.
 
 ## Testing
 
-- **THE-694 guardrail is a timing-distribution test, not a config assertion.** Assert that
+- **Timing guardrail is a timing-distribution test, not a config assertion.** Assert that
   hidden-only and absent terms are statistically indistinguishable. The failing baseline is already
   captured (72x, non-overlapping) and is what the test must be watched failing against.
 - **Bridge test:** `readable A -> unreadable S -> readable B` at `hopLimit=2`; assert B is absent
@@ -250,13 +250,13 @@ sequentially.
 ## Rollout
 
 1. Migration + module + tests. Closes nothing on its own.
-2. `termDf` restricted-caller skip. **Closes THE-694.**
-3. `bm25Chunks` join. **Closes THE-695 item 2.**
+2. `termDf` restricted-caller skip. **Closes the timing item.**
+3. `bm25Chunks` join. **Closes the BM25 over-fetch item.**
 4. Walk filter behind a config flag, dark.
 
 ## Measured after implementation: the walk filter cannot be evaluated on this corpus
 
-The plan called for a three-arm eval covering both THE-693's hub defence and THE-695's walk filter.
+The plan called for a three-arm eval covering both the hub defence and the walk filter.
 Only the first is measurable here.
 
 `eval/run.ts` never populates `isReadable` — there is no `--acl` flag and no assignment anywhere in
@@ -276,10 +276,10 @@ borne only by restricted callers, who are exactly the callers the non-interferen
 protects. That is a design argument, not a measurement, and it should be recorded as one.
 
 Evaluating it properly would need a golden set scored against a *restricted* principal — a
-different corpus and a different question than THE-674's bar answers.
+different corpus and a different question than the standing bar answers.
 
-5. **THE-693 only:** three-arm eval (off / hard cap / smooth damping) at n=250 against the standing
-   bar, **sigma_d 0.198 / MDE 0.035 on `ndcg_at_10`** (THE-674, re-measured 2026-08-02 on bge-m3;
+5. **Hub defence only:** three-arm eval (off / hard cap / smooth damping) at n=250 against the standing
+   bar, **sigma_d 0.198 / MDE 0.035 on `ndcg_at_10`** (re-measured 2026-08-02 on bge-m3;
    the `0.204 / 0.036` this line used to quote was the intermediate nomic recompute). Gate on the
    BRIDGE metrics for graph expansion — `bridge_ndcg_at_10` is scored on **n=103**, MDE **0.062**,
-   nearly 2× the headline. **Closes THE-693** on the measured outcome.
+   nearly 2× the headline. **Closes the hub-defence item** on the measured outcome.

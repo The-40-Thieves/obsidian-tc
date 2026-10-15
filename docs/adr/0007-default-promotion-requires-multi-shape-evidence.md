@@ -31,7 +31,7 @@ is the shape this ADR adopts.
 change with corpus shape — may default ON on single-vault evidence. RRF's rank constant is the
 textbook case: the folklore k=60 is documented as insensitive enough that Elasticsearch, Qdrant and
 Vespa all ship it unconditionally, with no per-corpus tuning path. Note what this class does *not*
-cover: `graph_search.ts`'s own `rrfK=10` default (THE-397) is not this project's example of class
+cover: `graph_search.ts`'s own `rrfK=10` default is not this project's example of class
 (a) — its own code comment says the k=10-over-k=60 effect "appears only below the pool-size
 crossover," which is a statement about pool depth, a corpus fact, not a flat optimum. It belongs in
 class (b) below, mis-filed as a settled default until this ADR named the category.
@@ -59,7 +59,7 @@ one* of the flags currently defaulted on on the strength of a single-vault win i
 rather than by a real effect. The Benjamini–Hochberg control `packages/server/eval/stats.ts` already
 runs (q = 0.1) covers the *within-run* family — the metrics compared in one sweep — and was never
 designed to, and does not, cover the *across-experiment* family this 53.7% describes. One measured
-data point makes the risk concrete rather than hypothetical: THE-397's own recorded numbers (n=32,
+data point makes the risk concrete rather than hypothetical: the earlier run's own recorded numbers (n=32,
 ΔnDCG 0.444 → 0.426, i.e. a 0.018 mean delta) sit below the ≈0.10 minimum detectable effect this
 project's own harness later established as necessary at that same n. That is not grounds to flip
 `rrfK` back — doing so would itself be an unaudited single-vault change, the exact move this ADR
@@ -78,7 +78,7 @@ corpora existing to build it from. Shape #1 already exists and is in use — the
 notes corpus this project already publishes a number against (`docs/EVALUATION.md`, "Published on a
 public corpus"). The two missing shapes are a code-documentation corpus and a CJK corpus; both are
 named rather than merely implied because sourcing them is tracked work, referenced here in prose as
-THE-884 and THE-637. Until the suite exists, no *new* mechanism is promoted to a global default off
+the two follow-ups. Until the suite exists, no *new* mechanism is promoted to a global default off
 a single-vault win — it may still ship dark per ADR 0003, or ship labeled as a personal-notes-shape
 preset per class (c) above.
 

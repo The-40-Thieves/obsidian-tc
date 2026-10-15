@@ -2,7 +2,7 @@
 
 Extracted from inline commentary, 2026-08-21. The code carries the invariants; this note carries the history and evidence.
 
-## Prewarm-cache hit: four independent layers, any one a miss (THE-543, THE-417, THE-136)
+## Prewarm-cache hit: four independent layers, any one a miss
 
 `vault_context`'s session-bootstrap mode (no `query`) can serve a bundle the anticipatory prefetch
 already composed, instead of a live compose. Serving from cache is safe only because four
@@ -15,24 +15,24 @@ miss — never a partial return.
    through to a live compose rather than being served. Cache hits are not retrieval-logged: no live
    retrieval happened, and the prefetch run that produced the cached bundle already logged its own.
 
-2. **Cache key: caller + content** (THE-543). The key binds the CALLER (`acl_fingerprint`) and the
+2. **Cache key: caller + content**. The key binds the CALLER (`acl_fingerprint`) and the
    CONTENT (`vault_generation`) that produced the bundle. An entry written under a broader ACL, or
    one whose vault has since mutated, is a miss here, not a match — this is the same
    `callerAclFingerprint` used elsewhere to key retrieval caches by effective ACL.
 
-3. **Per-path ACL recheck** (THE-543 layer 3). Every path the cached bundle references is
+3. **Per-path ACL recheck** (layer 3). Every path the cached bundle references is
    re-checked against THIS dispatch's ACL, regardless of the key match in layer 2. A bundle is a
    composed whole: if any path in it is now unreadable, the whole entry is a miss, never a partial
    return.
 
-4. **Shape validation** (THE-417 layer 4). `PrewarmEntry.bundle` is `Record<string, unknown>` read
+4. **Shape validation** (layer 4). `PrewarmEntry.bundle` is `Record<string, unknown>` read
    from disk, so nothing guarantees a cached entry matches the tool's current response shape — a
    bundle written by an older build with a different shape would previously have been served
    verbatim. The bundle is now validated against `VaultContextOutput` and a mismatch is treated as a
    MISS, the same discipline as layers 2 and 3: a bundle is a composed whole, so a partial or
    stale-shaped one falls through to a live compose rather than being returned in part.
 
-## Write-through: a live bootstrap compose refreshes the cache (THE-136)
+## Write-through: a live bootstrap compose refreshes the cache
 
 When a live compose happens in bootstrap mode (cache miss, or no `prewarmDir`), the composed
 response is written back to the prewarm cache (atomic tmp+rename, so no reader ever catches a torn
@@ -43,7 +43,7 @@ and the vault generation at write time, so a later reader under a different or w
 content moved, misses instead of inheriting this caller's view. Best-effort: a write failure leaves
 the response (already fully composed) unaffected.
 
-## Differential mode: `since` is a floor hint, not the filter of record (THE-647)
+## Differential mode: `since` is a floor hint, not the filter of record
 
 `since` (ISO-8601) switches `vault_context` from top-K-by-relevance packing to "what's new since a
 cutoff" for notes, syntheses, contradictions, and (with `include_work`) episodes. The client-supplied

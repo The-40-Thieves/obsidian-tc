@@ -82,9 +82,9 @@ the reference:
 
 | grammar | example | verdict |
 |---|---|---|
-| **historical attribution** | "THE-310 exists because `vault_edges` had no `vault_id`" | correct — leave it |
+| **historical attribution** | "the `vault_id` column on `vault_edges` was added later" | correct — leave it |
 | **provenance** | "shipped in #675, cited in that release's CHANGELOG" | correct — leave it |
-| **forward pointer** | "blocked on THE-222", "pending THE-296", "waits on someone taking X" | **defect once closed** |
+| **forward pointer** | "blocked on <ticket>", "pending <ticket>", "waits on someone taking X" | **defect once closed** |
 
 Only the third is a stale edge. Grep for the *verbs*, not the ids:
 
@@ -92,9 +92,9 @@ Only the third is a stale edge. Grep for the *verbs*, not the ids:
 rg -i 'blocked (on|by)|pending|waits? on|gated on|until .*THE-[0-9]|prerequisite' <body-on-disk>
 ```
 
-Three instances of exactly this shipped undetected until 2026-08-06 — THE-296 cited as live in the
-README (it had closed by *de-scoping that very README*), THE-675 on THE-671, and THE-222 on both
-THE-642 and THE-647. Each rendered as a valid link, so nothing flagged them. **A closed ticket cited
+Three instances of exactly this shipped undetected until 2026-08-06 — a closed ticket cited as live in the
+README (it had closed by *de-scoping that very README*), one ticket on another, and a third on both
+Two more such ids. Each rendered as a valid link, so nothing flagged them. **A closed ticket cited
 as a forward pointer reads as "work someone will get to" when the truth is "nobody owns this"** —
 and those need opposite decisions, which is why the distinction is worth a stage.
 

@@ -1,4 +1,4 @@
-# community.obsidian.md submission text — TC Bridge (THE-943)
+# community.obsidian.md submission text — TC Bridge
 
 **Status: PREPARED, NOT SUBMITTED.** Nobody has run the self-service submission flow at
 community.obsidian.md and no directory PR/listing exists. This file is the text + checklist for
@@ -13,7 +13,7 @@ only inside a zip) — that's what BRAT and the directory's own installer fetch.
 release matching that version" means a release tagged with the **UN-PREFIXED** version
 (`1.27.0`, not `v1.27.0`) — the validator rejected the first real submission attempt
 (2026-09-05) for exactly this: "Make sure your GitHub release doesn't use a 'v' in front of the
-version number." **As of THE-955, that un-prefixed release is created automatically by CI**
+version number." **As of the CI change, that un-prefixed release is created automatically by CI**
 (`publish.yml`'s `mirror-plugin-release` job, `scripts/mirror-plugin-release.mjs`) on every
 `v*` tag — no manual step is needed to satisfy this prerequisite any more; only steps 3-4 below
 remain owner-run.
@@ -26,13 +26,13 @@ a tag — even once `mirror-plugin-release` has already created the un-prefixed 
 expected, not a signal that the automation failed; confirm the release itself first (the release
 URL below), and only suspect the CI job if the release is genuinely missing or incomplete.
 
-**As of THE-950, the repo-root `manifest.json` IS `packages/plugin/manifest.json` (byte-identical,
-`release.mjs`-mirrored, `check-version-coherence.mjs`-gated).** Before THE-950 the root
-`manifest.json` was the MCPB 0.3 bundle manifest (`name: obsidian-tc`, THE-220) — the validator's
+**The repo-root `manifest.json` IS `packages/plugin/manifest.json` (byte-identical,
+`release.mjs`-mirrored, `check-version-coherence.mjs`-gated).** Before that change, the root
+`manifest.json` was the MCPB 0.3 bundle manifest (`name: obsidian-tc`) — the validator's
 default-branch read would have found that file instead of the plugin's, which was a submission
 blocker no release tag could have fixed. The MCPB manifest now lives at `mcpb/manifest.json`.
 
-This branch (`gaps/plugin-rename`, THE-943) only renames the manifest; it does not cut a release.
+This branch (`gaps/plugin-rename`) only renames the manifest; it does not cut a release.
 `.github/workflows/publish.yml`'s `build-plugin` job already produces the right release-asset
 shape on every tag push (`packages/plugin/dist/{manifest.json,main.js,styles.css}` uploaded loose,
 alongside the zipped bundle) — no workflow change is needed to make the NEXT tag correct. Before
@@ -41,7 +41,7 @@ submitting:
 1. Merge this rename to `main`.
 2. Cut the next release (`bun scripts/release.mjs <bump>`, tag, push — standard flow;
    see `docs/G2.5-release-engineering.md`). Note the resulting **un-prefixed** tag `mirror-plugin-
-   release` produces, e.g. `1.26.0` (not `v1.26.0`) — THE-955 creates it automatically, no
+   release` produces, e.g. `1.26.0` (not `v1.26.0`) — CI creates it automatically, no
    separate action needed.
 3. Confirm the mirrored release's assets include `manifest.json` with `"id": "tc-bridge"` at its
    release URL (`https://github.com/The-40-Thieves/obsidian-tc/releases/tag/<un-prefixed-version>`,
@@ -56,7 +56,7 @@ submitting:
 | Plugin id (from manifest.json) | `tc-bridge` |
 | Plugin name | `TC Bridge` |
 | Release tag | `<RELEASE_TAG>` (see prerequisite above) |
-| Release assets required | `main.js`, `manifest.json`, `styles.css` — all three attached to `<RELEASE_TAG>` as individual files (built by `build-plugin`, attached to the un-prefixed release by `mirror-plugin-release`, THE-955) |
+| Release assets required | `main.js`, `manifest.json`, `styles.css` — all three attached to `<RELEASE_TAG>` as individual files (built by `build-plugin`, attached to the un-prefixed release by `mirror-plugin-release`) |
 | Author | The 40 Thieves |
 | Author URL | `https://github.com/The-40-Thieves` |
 | License | AGPL-3.0-only |

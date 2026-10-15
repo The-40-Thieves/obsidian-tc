@@ -102,7 +102,7 @@ signature. `git tag -s` (or `-a`) is required.
 
 ---
 
-## Recovering a partially-failed release (THE-575)
+## Recovering a partially-failed release
 
 npm versions are immutable, so a release that fails *after* publishing cannot be retried by bumping.
 Two changes make it resumable:
@@ -123,7 +123,7 @@ To resume: `gh run rerun <run-id>` (a **full** re-run, not `--failed`).
 > and are unexpired — it resolves them scoped to the run *attempt*. A full re-run rebuilds them in
 > the same attempt. This costs a full native-matrix rebuild, which is the price of resumability.
 
-### The promote step is gone (THE-574, resolved)
+### The promote step is gone (resolved)
 
 There is no longer a manual promote. Trusted publishing authorises `npm publish` only, so
 `npm dist-tag add` fell back to token auth and failed `EOTP` on **every** release — a structural

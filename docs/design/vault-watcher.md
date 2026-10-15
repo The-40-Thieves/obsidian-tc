@@ -2,7 +2,7 @@
 
 Extracted from inline commentary, 2026-08-21. The code carries the invariants; this note carries the history and evidence.
 
-## Why a filesystem watch, not the companion plugin's event stream (THE-649)
+## Why a filesystem watch, not the companion plugin's event stream
 
 `docs/SYNC.md` had told users "the server picks them up via its filesystem watch" and "the server
 watches vaultPath and reindexes changed files" since before any watcher existed (#524). Every sync
@@ -39,7 +39,7 @@ deliberately no second, private echo-suppression layer in the watcher: `content_
 I already seen these bytes" is decided for every other caller, and a private copy here would be a
 second answer to a question that already has one.
 
-## THE-657: the Windows crash, and why it was never `fs.watch` itself
+## The Windows crash, and why it was never `fs.watch` itself
 
 Windows recursive watching was disabled for a long time on the assumption that `fs.watch({recursive:
 true})` itself was unstable there. It was not. The actual crash was an **8.3 short-path** collision
@@ -93,7 +93,7 @@ be quietly reintroduced.
 
 There was a brief detour in the code's own history: this was `unref()` for a while, because
 `persistent: false` on a recursive watch was (mistakenly) blamed for killing the vitest worker on
-Windows before THE-657's actual root cause (the 8.3 short-path libuv assertion, above) was found.
+Windows before the actual root cause (the 8.3 short-path libuv assertion, above) was found.
 That detour is moot now — `registerVaultWatch` does not start a watch on win32 differently at all
 any more; the realpath fix applies uniformly.
 
@@ -125,7 +125,7 @@ entirely — the guarantees now hold deterministically on every platform.
 ## Why `registerVaultWatch` lives in `watcher.ts`, not `cli.ts`
 
 `cli.ts` is at its `noExcessiveLinesPerFile` lint cap, and that cap has already been raised once
-(THE-610) — the file's own header asks the next change to shrink it rather than raise the cap again.
+ — the file's own header asks the next change to shrink it rather than raise the cap again.
 `registerVaultWatch` is the config-shaped wrapper that keeps that possible: it maps the vault list
 onto watch targets structurally (not against the full `ServerConfig` type, mirroring
 `resolveTraceDirs`'s own reasoning), which keeps this module free of a dependency on the whole config

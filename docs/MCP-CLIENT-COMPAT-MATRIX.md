@@ -1,7 +1,7 @@
-# MCP-client compatibility matrix (THE-725)
+# MCP-client compatibility matrix
 
 This page is a narrower, code-focused companion to
-[`MCP-COMPATIBILITY.md`](./MCP-COMPATIBILITY.md) (the full THE-510/THE-583 protocol-conformance
+[`MCP-COMPATIBILITY.md`](./MCP-COMPATIBILITY.md) (the full protocol-conformance
 matrix) and to
 [`mcp-clients.md`](./src/content/docs/getting-started/mcp-clients.md) (live client-to-server
 observations). Where those two ask "what does the server do on the wire, broadly" and "what has a
@@ -37,7 +37,7 @@ expectation, then reading why. Two of those failures turned out not to be test b
 between what this repo's own code comments claim and what `@modelcontextprotocol/server@2.0.0` <!-- facts-check:ignore -->
 (the pinned SDK) actually does on the wire.
 
-### 1. Client identity (THE-627) never reached a real request, in EITHER era — fixed by THE-861
+### 1. Client identity never reached a real request, in EITHER era — fixed in a later change
 
 `client-info.ts`'s header comment said client identity is read from per-request `_meta`, "same
 [code path] under BOTH specs." That is true of `extractClientInfo` in isolation
@@ -54,13 +54,13 @@ handler used to read `req.params._meta` directly (`extractClientInfo(req.params.
 the time the handler ran had had the `clientInfo` key stripped out from under it — in both
 2025-11-25 and 2026-07-28.
 
-Net effect: a real client that correctly sent its identity per THE-627's own design got it silently
+Net effect: a real client that correctly sent its identity per its own design got it silently
 discarded before `ctx.clientInfo` was ever set, in both eras. `client-info.test.ts`'s round-trip
 tests never caught this because they call `extractClientInfo`/`insertSession` directly —
-`mcp-client-compat-matrix.test.ts` was the first test in this repo to drive THE-627 identity
+`mcp-client-compat-matrix.test.ts` was the first test in this repo to drive client identity
 capture through a real `tools/call` request, and it is what caught the gap.
 
-**THE-861 fixes this**: `server.ts` now reads `extractClientInfo(extra.mcpReq.envelope)` first —
+**A later change fixes this**: `server.ts` now reads `extractClientInfo(extra.mcpReq.envelope)` first —
 the location the SDK actually lifts the reserved key to, on every message in both eras — falling
 back to `extractClientInfo(req.params._meta)` for any path that still legitimately carries it there
 directly. `extractClientInfo` itself is unchanged: `envelope` is keyed by the same reserved
@@ -70,7 +70,7 @@ cells below now assert the client's declared name/version arrive on `ctx.clientI
 ### 2. `logging/setLevel` succeeds under legacy, contrary to `client-features.ts`'s own comment
 
 `client-features.ts` stated the method "is not a routable method in SDK v2 (absent from both wire
-registries; a handler registered for it answers -32601, measured)" (fixed by THE-862 — see the
+registries; a handler registered for it answers -32601, measured)" (fixed in a later change — see the
 update note below). True under **2026-07-28**
 (`protocol-2026-conformance.test.ts` proves it — the method is removed by SEP-2575 and refused by
 name before any `Server` handler runs). **Not** true under **2025-11-25** on this SDK version:
@@ -82,8 +82,8 @@ keyed by `transportSessionId`, and returns `{}` — a success, not a `-32601`. T
 inert (this transport is stateless — the same session key never comes back), but "succeeds and is
 silently ignored" and "answers -32601" are a materially different contract for a legacy caller.
 
-**THE-862 update:** this row and the write-up above already stated the true per-era behavior — only
-`client-features.ts`'s and `server.ts`'s own comments still told the pre-THE-725 (-32601-under-both-
+**Later update:** this row and the write-up above already stated the true per-era behavior — only
+`client-features.ts`'s and `server.ts`'s own comments still told the pre-fix (-32601-under-both-
 eras) story. Resolution was option (a): the SDK's built-in legacy handler is accepted as harmless
 (the level it stores is never consulted on this stateless transport), so the fix was correcting
 those two stale comments to match this page and the test below, not pre-filtering the method under
@@ -93,9 +93,9 @@ legacy too.
 
 | Feature | 2025-11-25 (legacy) | 2026-07-28 (modern) | Provenance |
 |---|---|---|---|
-| **Client identity** (`_meta.io.modelcontextprotocol/clientInfo`) — client-info.ts | Read from the SDK's lifted `ctx.mcpReq.envelope` (THE-861, Finding 1 above) — `ctx.clientInfo` carries the client's declared name/version | Same lifted read, same reason — the SDK's reservation is era-independent | asserted from code |
+| **Client identity** (`_meta.io.modelcontextprotocol/clientInfo`) — client-info.ts | Read from the SDK's lifted `ctx.mcpReq.envelope` (Finding 1 above) — `ctx.clientInfo` carries the client's declared name/version | Same lifted read, same reason — the SDK's reservation is era-independent | asserted from code |
 | **`logging/setLevel`** | **Succeeds** with `{}` via the SDK's own built-in handler (Finding 2 above) — the declared level is stored but never consulted on this stateless transport | Refused (SEP-2575 removed the method; the modern route rejects it by name before any `Server` handler runs) | asserted from code |
-| **`roots`** (SEP-2577, deprecated-but-served) | `ctx.roots` is unconditionally exposed on every call, but resolves `undefined`: `createMcpServer` runs fresh per HTTP request (THE-583), and this server's stateless legacy route never backfills `getClientCapabilities()` from a prior `initialize` — there is no per-connection state to backfill FROM | `ctx.roots` exposed the same way; the CAPABILITY GATE is proven backfilled correctly per request (`seedClientIdentityFromEnvelope`, SDK-internal) by the `sampling` row below, which shares the identical gate/backfill mechanism through a boolean check that needs no live client. Whether the follow-on `listRoots()` round trip returns a REAL client's roots is a separate claim this harness cannot check — it has no live bidirectional MCP client to answer that request | legacy: asserted from code; modern round trip: **needs live-client verify** |
+| **`roots`** (SEP-2577, deprecated-but-served) | `ctx.roots` is unconditionally exposed on every call, but resolves `undefined`: `createMcpServer` runs fresh per HTTP request, and this server's stateless legacy route never backfills `getClientCapabilities()` from a prior `initialize` — there is no per-connection state to backfill FROM | `ctx.roots` exposed the same way; the CAPABILITY GATE is proven backfilled correctly per request (`seedClientIdentityFromEnvelope`, SDK-internal) by the `sampling` row below, which shares the identical gate/backfill mechanism through a boolean check that needs no live client. Whether the follow-on `listRoots()` round trip returns a REAL client's roots is a separate claim this harness cannot check — it has no live bidirectional MCP client to answer that request | legacy: asserted from code; modern round trip: **needs live-client verify** |
 | **`sampling`** (SEP-2577, deprecated-but-served) | `ctx.sample` is **absent** from the context entirely (not merely ungated) — same stateless-transport reason as `roots`: the capability never reaches `getClientCapabilities()` | `ctx.sample` is **attached** when the client declares `sampling` in `_meta.clientCapabilities` on that same call — the per-request backfill works, provable without a live client because this is a pure gate check (no RPC round trip needed to observe the boolean) | asserted from code |
 | **`server/discover`** (SEP-2575 handshake replacement) | Refused — not a 2025-11-25 method; `createMcpHandler` checks the inbound method against the era's own spec registry and answers `-32601` before any `Server` handler is consulted | Works — the mandatory way a modern client learns supported versions + capabilities; reachable because `createMcpHandler` classifies the era per request (an earlier hand-wired Server+transport left it unreachable even when registered) | asserted from code |
 
@@ -114,7 +114,7 @@ working — `mcp-clients.md`'s own first-party rows outrank this table wherever 
 | Cursor | Self-reports `2025-06-18`; "Stateless requests & per-request negotiation," "Server discovery," and "Multi round-trip requests" are marked unknown/unverified by the source | [canimcp.dev/client/cursor-vscode](https://canimcp.dev/client/cursor-vscode/) | needs-live-client-verify |
 | Continue (CLI client) | Tracked at only ~6% feature coverage by the source; no protocol-version string surfaced by this pass | [canimcp.dev](https://canimcp.dev/) (client index; the per-client page returned 404 at fetch time) | needs-live-client-verify |
 | Claude Desktop | Not tracked by the source consulted | — (no source found this pass) | needs-live-client-verify |
-| Official Python `mcp` SDK, `1.28.1` | Ceiling **2025-11-25** — the v1.x line speaks the pre-stateless spec; `pip install mcp` now defaults to the 2.x (`2026-07-28`-capable) line, so `mcp>=1.28,<2` is what pins a deployment to the older ceiling | `packages/server/src/mcp/server.ts`'s own comment (THE-583, verified directly against this SDK: "negotiated 2025-11-25, listed tools, called one") + [PyPI `mcp` release history](https://pypi.org/project/mcp/2.0.0a1/) | asserted from code (this repo) + third-party corroboration |
+| Official Python `mcp` SDK, `1.28.1` | Ceiling **2025-11-25** — the v1.x line speaks the pre-stateless spec; `pip install mcp` now defaults to the 2.x (`2026-07-28`-capable) line, so `mcp>=1.28,<2` is what pins a deployment to the older ceiling | `packages/server/src/mcp/server.ts`'s own comment (verified directly against this SDK: "negotiated 2025-11-25, listed tools, called one") + [PyPI `mcp` release history](https://pypi.org/project/mcp/2.0.0a1/) | asserted from code (this repo) + third-party corroboration |
 | LiteLLM (the gateway in front of obsidian-tc's own production deployment) | Pins the Python `mcp` package at **1.28.1** → ceiling 2025-11-25; LiteLLM's own MCP protocol version independently reports **2025-11-25** as of `v1.80.18` | `CLAUDE.md`/this repo's own deployment notes (the `1.28.1` pin) + [LiteLLM MCP docs](https://docs.litellm.ai/docs/mcp) | asserted from code (this repo's pin) + third-party corroboration (LiteLLM's own docs) |
 
 **Why this table stays this thin.** `verify-ticket-premise` discipline applies here too: a
@@ -140,7 +140,7 @@ without a red CI run.
 
 ## See also
 
-- [`MCP-COMPATIBILITY.md`](./MCP-COMPATIBILITY.md) — the full THE-510/THE-583 protocol-conformance
+- [`MCP-COMPATIBILITY.md`](./MCP-COMPATIBILITY.md) — the full protocol-conformance
   matrix (sessions, cache hints, Tasks, HITL, schema dialect, and more) — broader, less code-level.
 - [`mcp-clients.md`](./src/content/docs/getting-started/mcp-clients.md) — live, first-party
   observations of real clients (currently: Claude Code) connecting to a running obsidian-tc

@@ -1,4 +1,4 @@
-# THE-459/THE-503: Synthetic-Vault Perf Harness
+# Synthetic-Vault Perf Harness
 
 A deterministic, CI-gated benchmark for obsidian-tc, isolated from the live-model golden-set evaluation. Measures indexing throughput, embedding efficiency, graph-search recall/nDCG, dispatch latency, storage overhead, runtime memory/eventloop health, and database lifecycle metrics over a seeded synthetic vault.
 
@@ -11,7 +11,7 @@ From `packages/server`:
 bun run perf
 bun run perf:gate
 
-# THE-503: isolated (5 fresh subprocess samples, gated on the median, contention-checked) --
+# Isolated (5 fresh subprocess samples, gated on the median, contention-checked) --
 # what CI actually runs. Slower; use this before trusting a number.
 bun run perf:isolated
 bun run perf:gate:isolated
@@ -27,7 +27,7 @@ bun eval/perf/run.ts --scenario vault1k --samples 5 --gate
 bun eval/perf/run.ts --scenario large --samples 5 --update-baseline
 ```
 
-## Isolation & Statistics (THE-503)
+## Isolation & Statistics
 
 **The incident that motivated this:** a perf run once overlapped the Vitest suite. Index/embedding throughput read ~51% below baseline and dispatch p99 was 16ms vs an isolated 1ms — and **the gate still passed**, because latency/throughput are warn-only and nothing was watching for the contention itself.
 
@@ -36,10 +36,10 @@ bun eval/perf/run.ts --scenario large --samples 5 --update-baseline
 1. **Fresh subprocess per sample.** Each of the N samples is a genuinely separate `bun eval/perf/run.ts` process — no shared module cache, event loop, JIT state, or GC pressure with the harness's own runtime or with each other.
 2. **Gate on the median, never a single observation.** `isolate.ts`'s `aggregate()` computes the median across all N samples per metric; the gate compares the median against the baseline.
 3. **Coefficient of variation (CV) is tracked and reported** for every metric, alongside the full raw series — the artifact (`--out`) preserves every raw sample, not just the aggregate.
-4. **Host-contention detection** (`contention.ts`): each subprocess runs two fixed, scenario-independent calibration probes alongside the real scenario — a **CPU** busy-loop and an **I/O** write+`fsync` loop (THE-584). Both are judged, and a recording is only trustworthy when **every channel** is quiet.
+4. **Host-contention detection** (`contention.ts`): each subprocess runs two fixed, scenario-independent calibration probes alongside the real scenario — a **CPU** busy-loop and an **I/O** write+`fsync` loop. Both are judged, and a recording is only trustworthy when **every channel** is quiet.
    - **Relative** (CV / max-over-median), per channel: catches *intermittent* contention (comes and goes between samples, or stalls one sample hard). Needs no external reference.
    - **Absolute** (vs a committed `eval/perf/calibration-reference.json`), per channel: catches *sustained, uniform* contention that the relative checks miss — the interfering load runs for the WHOLE measurement, slowing every sample by roughly the same amount (low CV, still wrong). Found empirically for both channels, not hypothesized: a constant 4-core CPU load produced `cv=0.159` ("clean") at roughly double a quiet median, and three concurrent `fsync` writers moved the I/O probe **43ms → 498ms (11.5×) while its CV went DOWN**, from 0.123 to 0.105.
-   - **Why two channels.** The detector was CPU-only until THE-584. Two independent CI recordings then came back 40–90% worse on every warn metric while it printed `contention: clean (median 15.39ms, cv 0.056)` against a 15.37ms reference — CPU genuinely was fine, and everything that moved was I/O-shaped (SQLite writes, freshness, HTTP handshake). A recording accepted there ratchets ~14 warn thresholds looser in one commit. **This check is no longer CPU-only; it is CPU + I/O, and it is still not "any contention" — a channel nobody probes is a channel nobody detects.**
+   - **Why two channels.** The detector was CPU-only until a later change. Two independent CI recordings then came back 40–90% worse on every warn metric while it printed `contention: clean (median 15.39ms, cv 0.056)` against a 15.37ms reference — CPU genuinely was fine, and everything that moved was I/O-shaped (SQLite writes, freshness, HTTP handshake). A recording accepted there ratchets ~14 warn thresholds looser in one commit. **This check is no longer CPU-only; it is CPU + I/O, and it is still not "any contention" — a channel nobody probes is a channel nobody detects.**
    - **Thresholds are per channel.** I/O is intrinsically noisier: a *quiet* host measured `cv` up to 0.229 and max/median up to 1.46, so it gets `cv 0.45 / max-median 2.5 / reference-tol 1.0` against CPU's `0.20 / 1.6 / 0.5`. Reusing the CPU numbers would refuse clean recordings, and a detector that cries wolf gets ignored.
    - **An unmeasured channel counts as dirty, never clean.** An all-zero calibration series passes every relative check (`cv` 0, max/median 1) and would read as the quietest host imaginable. It means the probe never ran, and it is reported as contention.
    - **Baselines are refused, not silently recorded, under detected contention.** `--update-baseline` in isolated mode exits 1 and leaves the existing baseline file untouched if any channel is contended. A plain `--gate` run still completes (CI must run regardless of transient noise) but prints a `WARN host contention detected` line. Both print the full **calibration vector** (`cpu … , io …`) so a reviewer can see *which* dimension was clean, and the baseline provenance sidecar records it so a past baseline can be re-judged later.
@@ -54,13 +54,13 @@ bun eval/perf/run.ts --scenario large --samples 5 --update-baseline
    Overridable with **`--accept-uniform-shift`**, which exists because PR #459 deliberately accepted exactly this shift — those numbers reproduced across runners while the old ones did not, so the new host *was* the reference. The override prints what it is accepting and how many thresholds it ratchets.
 6. **Hard-class metrics must agree EXACTLY across all N samples**, independent of the baseline comparison. `isolate.ts`'s `checkHardStability()` treats any disagreement as its own hard failure (`HARD-UNSTABLE`, exit 1) — a "deterministic" invariant that varies across identically-seeded runs means the determinism assumption itself broke (real nondeterminism or a corrupted run), which is a different and more serious problem than a tolerance violation.
 7. **CI concurrency**: the `perf` job in `ci-server.yml` carries its own (non-ref-scoped) `concurrency: group: perf-exclusive` so at most one `perf` job runs anywhere in the repo at a time.
-8. **The I/O calibration probe's own scaling check** (THE-594): `contention.ts`'s `measureIoScalingRho()` samples `calibrateIo()` at ten round-counts and asserts a Spearman rank correlation (`spearman.ts`) between round-count and measured duration exceeds a calibrated threshold — proof that the probe measures real work rather than a constant. Gated on the **median rho across the N isolated samples** (`run.ts`'s `main()`), exactly like the contention channels above, not on any single observation. This assertion used to live in `test/perf-contention-io.test.ts`; see "Timing assertions belong here, not in `test/`" below for why it moved.
+8. **The I/O calibration probe's own scaling check**: `contention.ts`'s `measureIoScalingRho()` samples `calibrateIo()` at ten round-counts and asserts a Spearman rank correlation (`spearman.ts`) between round-count and measured duration exceeds a calibrated threshold — proof that the probe measures real work rather than a constant. Gated on the **median rho across the N isolated samples** (`run.ts`'s `main()`), exactly like the contention channels above, not on any single observation. This assertion used to live in `test/perf-contention-io.test.ts`; see "Timing assertions belong here, not in `test/`" below for why it moved.
 
 Recalibrating the quiet-host reference happens automatically as part of a successful (non-contended) `--update-baseline` run in isolated mode — it is committed and reviewed exactly like the metric baseline, for the same drift-safety reason (see "Baseline and Regeneration" below).
 
-## Timing assertions belong here, not in `test/` (THE-594)
+## Timing assertions belong here, not in `test/`
 
-`packages/server/test/*.test.ts` runs on `ubuntu-latest`, `macos-latest` and `windows-latest`, on shared runners, with no isolation from whatever else vitest is running concurrently, and no host-contention detection. A wall-clock assertion placed there has to hold under all of that, every time, on three different OSes' scheduler and filesystem behavior. Twice on this exact metric (`calibrateIo()`'s scaling check, THE-584 → THE-594) a statistically-sound assertion was tuned, re-tuned, and still failed — first on macOS, then on `windows-latest` after the re-tune. The fix was never a better threshold; it was the wrong venue.
+`packages/server/test/*.test.ts` runs on `ubuntu-latest`, `macos-latest` and `windows-latest`, on shared runners, with no isolation from whatever else vitest is running concurrently, and no host-contention detection. A wall-clock assertion placed there has to hold under all of that, every time, on three different OSes' scheduler and filesystem behavior. Twice on this exact metric (`calibrateIo()`'s scaling check, across two follow-up changes) a statistically-sound assertion was tuned, re-tuned, and still failed — first on macOS, then on `windows-latest` after the re-tune. The fix was never a better threshold; it was the wrong venue.
 
 **The rule going forward:** if an assertion compares two real elapsed-time measurements (`performance.now()`/`Date.now()` diffs, or a function like `calibrateIo()` that measures wall time), it does not belong in `packages/server/test/`. It belongs here, under `eval/perf/`, where:
 
@@ -82,9 +82,9 @@ Deterministic scenarios, each with a fixed PRNG seed (0x5eed), parametrizing the
 | `large` | 5000 | 1000 | 4 | 3 | 10,000 | no | ~2min |
 | `vault100k` | 50,000 | 10,000 | 4 | 3 | 100,000 | no — `expensive: true`, deliberately excluded from every script | not run in this session (see below) |
 
-Only `small` has a committed baseline and a CI gate today (`ci-server.yml`'s `perf` job). The others are available for manual/ad-hoc use (`bun eval/perf/run.ts --scenario <name> ...`) when a THE-467/THE-468 decision needs a specific scale point.
+Only `small` has a committed baseline and a CI gate today (`ci-server.yml`'s `perf` job). The others are available for manual/ad-hoc use (`bun eval/perf/run.ts --scenario <name> ...`) when a lock-tuning decision needs a specific scale point.
 
-**THE-503 scope note on `vault100k`:** cost scales super-linearly with corpus size (10,000 chunks measured ~2m23s single-shot on the reference dev host during this work — see git history for the exact number), so a single `vault100k` run is expected to take on the order of tens of minutes, and the 5-sample isolated mode proportionally longer. It was **not executed** in this session for that reason (and because this host itself has ambient multi-tenant noise — see the contention section above, which would make the numbers untrustworthy anyway). The scenario is fully defined and usable; running it and capturing a baseline is left as deliberate follow-up work, ideally on a dedicated (not shared) host.
+**Scope note on `vault100k`:** cost scales super-linearly with corpus size (10,000 chunks measured ~2m23s single-shot on the reference dev host during this work — see git history for the exact number), so a single `vault100k` run is expected to take on the order of tens of minutes, and the 5-sample isolated mode proportionally longer. It was **not executed** in this session for that reason (and because this host itself has ambient multi-tenant noise — see the contention section above, which would make the numbers untrustworthy anyway). The scenario is fully defined and usable; running it and capturing a baseline is left as deliberate follow-up work, ideally on a dedicated (not shared) host.
 
 Each scenario:
 - Uses the same seed (0x5eed), so results are **deterministic** across runs on the same codebase.
@@ -92,19 +92,19 @@ Each scenario:
 - Reuses note bodies verbatim across duplicate groups to test embedding deduplication.
 - Generates per-note distinct wikilinks to build a meaningful graph structure.
 
-## What this harness does NOT cover (THE-503 audit finding)
+## What this harness does NOT cover (audit finding)
 
-~~Graph densification is not exercised at all.~~ **Closed by THE-581.** The `densify` scenario runs the pass (`densify: { tagEdges: true, knnEdges: true }`) and family 15 gates its cost — see "Densification (family 15)" below.
+~~Graph densification is not exercised at all.~~ **Closed by a later change.** The `densify` scenario runs the pass (`densify: { tagEdges: true, knnEdges: true }`) and family 15 gates its cost — see "Densification (family 15)" below.
 
-Still not covered: multi-vault contention, concurrent indexing+retrieval, ACL-heavy over-fetch, sparse/ColBERT embedding scenarios, same-dimension model migration, scheduler-during-traffic, and failure injection (locked DB, slow provider, canceled shutdown) — see the THE-503 ticket for the full target list and the implementation notes for what was prioritized this pass.
+Still not covered: multi-vault contention, concurrent indexing+retrieval, ACL-heavy over-fetch, sparse/ColBERT embedding scenarios, same-dimension model migration, scheduler-during-traffic, and failure injection (locked DB, slow provider, canceled shutdown) — see the follow-up ticket for the full target list and the implementation notes for what was prioritized this pass.
 
-### Densification (family 15, THE-581)
+### Densification (family 15)
 
 The `densify` scenario shares `small`'s corpus parameters EXACTLY (same seed, notes, dupGroups, linkFanout, paragraphs) and adds two things: deterministic frontmatter tags, and the `densify` option on `indexVault`. Sharing the corpus is what makes the comparison legible — any difference between the two scenarios is attributable to densification and nothing else. Tags live in frontmatter specifically because `parseNote` strips it before chunking, so chunk content, dedup groups, and embeddings stay byte-identical to `small`; only note-level tag metadata differs.
 
 | metric | class | direction | why |
 | -- | -- | -- | -- |
-| `densify.vec_knn_calls` | hard | higher-worse | The cost driver. THE-486's "100x fewer chunks" and THE-533's reverse-neighbour bound are both expressed in outer per-chunk vec0 KNN calls; a call count is deterministic, so it gates without tolerance guesswork. `higher-worse` rather than `exact` so a future improvement registers as a win instead of tripping an invariant. |
+| `densify.vec_knn_calls` | hard | higher-worse | The cost driver. The earlier "100x fewer chunks" claim and the reverse-neighbour bound are both expressed in outer per-chunk vec0 KNN calls; a call count is deterministic, so it gates without tolerance guesswork. `higher-worse` rather than `exact` so a future improvement registers as a win instead of tripping an invariant. |
 | `densify.edges_similar_to` | hard | exact | The edge SET is correctness, not cost — building fewer edges is a different graph, not a faster one. |
 | `densify.edges_shared_tag` | hard | exact | Same. |
 | `densify.index_ms` | warn | higher-worse | Whole `indexVault` call with densification on, not densification alone (the indexer exposes no hook to time the pass by itself). The densification cost proper is this minus `small`'s index_ms. |
@@ -113,14 +113,14 @@ The collector **throws** rather than emitting zeros if a densify scenario produc
 
 **Demonstrated, not asserted.** Doubling the per-chunk `vecKnn` call in `computeKnnEdges` moved `densify.vec_knn_calls` 200 → 400 and the gate failed (`FAIL densify.vec_knn_calls: 400 vs baseline 200 (tol 0.15)`, exit 1); reverting returned it to 200 and exit 0.
 
-### `densify.vec_knn_mean_ms` — the PER-CALL half (THE-419)
+### `densify.vec_knn_mean_ms` — the PER-CALL half
 
 The call count above is a property of the **traversal**. It cannot see per-call cost, and that is
 precisely what an ANN index changes: HNSW/IVF lowers the cost of each KNN while leaving the count
 identical. Measured against `vec_knn_calls` alone, a perfect ANN index and a catastrophic one are
 the same number.
 
-THE-419 is gated on *"a MEASURED large-vault vector-latency bottleneck"*, and before this metric that
+The large-vault work is gated on *"a MEASURED large-vault vector-latency bottleneck"*, and before this metric that
 gate was **unmeasurable as written** — the only mention of the measurement anywhere in the repo was
 the sentence demanding it (`docs/plans/2026-07-12-rust-python-workload-partition.md:67`), and
 `eval/perf` recorded no vector latency at all. Neither the gate opening nor a latency regression
@@ -134,14 +134,14 @@ report near-zero and look like a fast index.
 **Known limitation, stated so it is not mistaken for coverage.** Only the `densify` scenario runs
 densification (100 notes / 200 chunks); `large` and `vault100k` do not, so no KNN executes there.
 This metric therefore measures per-call latency at ONE small corpus size. That is enough to catch a
-latency regression and to give THE-419's gate a number to name; it is **not** a large-vault
+latency regression and to give the large-vault gate a number to name; it is **not** a large-vault
 measurement, and opening that gate needs a second point on the curve.
 
 **The baseline IS committed** as of 2026-08-06 (#745): `densify.vec_knn_mean_ms` sits in `baseline.densify.json` at **0.2989 ms**, `warn` / `higher-worse` / tol 0.5, so the scenario is now part of the CI-gated set. It was recorded through the `perf-baseline` workflow on `ubuntu-latest`, not on a dev box — recording one here still fails, and correctly so (calibration CV 0.822 against a 0.2 threshold).
 
-Read the ceiling with the limitation above in mind: it gates per-call KNN latency at ONE small corpus size, and a second point on the curve is still what THE-419 needs.
+Read the ceiling with the limitation above in mind: it gates per-call KNN latency at ONE small corpus size, and a second point on the curve is still what the large-vault gate needs.
 
-### Cold boot (family 16, THE-515)
+### Cold boot (family 16)
 
 Emitted for the **`small` scenario only**. Cold boot is scenario-independent — the probe never touches the vault — so measuring it in every baseline would copy identical numbers into several files and make one registration change demand several deliberate re-records for no added signal.
 
@@ -160,12 +160,12 @@ Emitted for the **`small` scenario only**. Cold boot is scenario-independent —
 
 **Registration is stubbed, and the stub throws.** Tool builders construct Zod schemas at build time and touch `deps` only inside handlers, so a stub pays the real registration cost without a vault, provider or database. The stub raises on *call*, verified against all eight registrars (148 tools still build) — a stub that quietly returned `undefined` would let a future builder do construction-time work for free and report a cheaper registration than production pays.
 
-**Why this family exists.** THE-515 proposed lazy-initializing embeddings, ColBERT, the native module, sqlite-vec, graph analytics, the Dataview bridge and the scheduler, on the premise that startup pays for them. Measured 2026-07-26, it does not:
+**Why this family exists.** A proposal suggested lazy-initializing embeddings, ColBERT, the native module, sqlite-vec, graph analytics, the Dataview bridge and the scheduler, on the premise that startup pays for them. Measured 2026-07-26, it does not:
 
 ```
 import mcp/registry (+transitive)   738.2 ms   <- 83% of cold start
 import tools/m1 (+transitive)       101.0 ms
---- everything THE-515 proposed to lazy-init ---
+--- everything the proposal listed for lazy-init ---
 createEmbeddingProvider (ollama)      0.4 ms
 loadVec (sqlite-vec)                  2.1 ms
 native binding load + first call      0.3 ms
@@ -221,7 +221,7 @@ The harness runs **under bun**, not node, because:
 - `node` + `sqlite` (the Node.js built-in) does NOT load sqlite-vec; queries that depend on it fail.
 - This means `migration.rebuilt` (vec-index rebuild metric) and `graph.candidates_*` (ANN-based graph traversal counts) only work under bun.
 
-### Node portability run (THE-494)
+### Node portability run
 
 There **is** a Node run now, and it is deliberately not a second perf gate:
 
@@ -278,15 +278,15 @@ Two mechanisms ensure results are byte-identical across runs:
    - Embedding calls always return the same vectors for the same text.
    - No network, no model inference, no variance.
 
-3. **Total ordering on ranked results (THE-582):** `vecKnn` and `semanticSearch` break exact distance/score ties by `chunk_id`, so equal-scoring candidates rank in a fixed order rather than in whatever order the vec0 scan or the table scan produced.
+3. **Total ordering on ranked results:** `vecKnn` and `semanticSearch` break exact distance/score ties by `chunk_id`, so equal-scoring candidates rank in a fixed order rather than in whatever order the vec0 scan or the table scan produced.
    - Ties are the common case here, not a corner case: `dupGroups=20` over `notes=100` means five notes share a byte-identical body, embed to identical vectors, and tie exactly. In the `small` corpus the rank-10 distance spans the top-10 cut on 3 of 5 labelled queries, so the tie order decides top-10 **membership**.
    - vec0 will not do this in SQL — it rejects a second sort key (`Only a single 'ORDER BY distance' clause is allowed on vec0 KNN queries`) — so the tiebreak is applied after the query returns, and is pinned by `bun-smoke/vec-tie-order.test.ts`.
 
-**Result:** Deterministic invariants (families 3, 4, 5, 7, 8, 9, 11, 13, 14 — counts, ratios, recall/nDCG, storage bytes, booleans) are identical **run-to-run on a given host**. Latency figures (families 1, 2, 6, 10 and the `*_ms` sub-metrics) vary naturally and are gated warn-only. Family 12 (HTTP handshake) is deferred (THE-495) and not emitted.
+**Result:** Deterministic invariants (families 3, 4, 5, 7, 8, 9, 11, 13, 14 — counts, ratios, recall/nDCG, storage bytes, booleans) are identical **run-to-run on a given host**. Latency figures (families 1, 2, 6, 10 and the `*_ms` sub-metrics) vary naturally and are gated warn-only. Family 12 (HTTP handshake) is deferred and not emitted.
 
 ### Run-to-run is not the same claim as host-to-host
 
-Read the sentence above precisely: it says *run-to-run*. Until THE-582 that distinction was not made, and the wording invited reading it as "identical everywhere" — the reading under which a legitimate cross-host difference looks like a regression.
+Read the sentence above precisely: it says *run-to-run*. Until a later change, that distinction was not made, and the wording invited reading it as "identical everywhere" — the reading under which a legitimate cross-host difference looks like a regression.
 
 The difference was real. On commit `8a99e39`, same seeded corpus, same scenario:
 
@@ -331,15 +331,15 @@ This:
 
 **Important:** Baseline changes must be **manually committed** and **justified in the PR**. The baseline is drift-safe because you hand-commit it, not because it auto-updates. Include a rationale in your commit message explaining why the baseline shifted (e.g., "optimize graph traversal → 5% faster nDCG/ms").
 
-**THE-503:** in isolated mode (`--samples N --update-baseline`), the same file is written from the **median** across N fresh-subprocess samples, and the run is **refused outright (exit 1, file untouched)** if host contention was detected during sampling — see "Isolation & Statistics" above. `eval/perf/calibration-reference.json` (the committed "quiet host" calibration median used for sustained-contention detection) is written alongside it, under the same refusal discipline, and should be regenerated whenever the reference CI hardware changes materially.
+**Isolated mode:** with `--samples N --update-baseline`, the same file is written from the **median** across N fresh-subprocess samples, and the run is **refused outright (exit 1, file untouched)** if host contention was detected during sampling — see "Isolation & Statistics" above. `eval/perf/calibration-reference.json` (the committed "quiet host" calibration median used for sustained-contention detection) is written alongside it, under the same refusal discipline, and should be regenerated whenever the reference CI hardware changes materially.
 
-**THE-510 — the reference is keyed by CPU architecture** (`byArch`, on `process.arch`). The absolute check compares a measured median against a committed quiet-host median, which only means anything on the same silicon: a 15.0ms x64 reference judged an ARM64 host whose quiet median is ~27ms, so `detectContention` reported *sustained load* at every load level, permanently. Measured on that host 2026-08-04, the median held at 27.0-28.7ms across 14 runs while load average moved 30% — the signature of a different CPU, not of contention.
+**The reference is keyed by CPU architecture** (`byArch`, on `process.arch`). The absolute check compares a measured median against a committed quiet-host median, which only means anything on the same silicon: a 15.0ms x64 reference judged an ARM64 host whose quiet median is ~27ms, so `detectContention` reported *sustained load* at every load level, permanently. Measured on that host 2026-08-04, the median held at 27.0-28.7ms across 14 runs while load average moved 30% — the signature of a different CPU, not of contention.
 
-A missing entry for the running arch makes the absolute check **stand down** (relative CV/max checks still apply), and `--update-baseline` records under the running arch while **merging** rather than replacing, so recording on one platform never disarms another's check. An untagged pre-THE-510 file still applies as-is, which is correct on the machine that wrote it.
+A missing entry for the running arch makes the absolute check **stand down** (relative CV/max checks still apply), and `--update-baseline` records under the running arch while **merging** rather than replacing, so recording on one platform never disarms another's check. An untagged pre-fix file still applies as-is, which is correct on the machine that wrote it.
 
 Do not hand-write an entry for an architecture you have not measured on a quiet host: an invented reference looks measured and blinds the check for everyone on that platform.
 
-### The reference host is the CI runner (THE-534)
+### The reference host is the CI runner
 
 **Do not record a baseline on a developer machine.** The reference is the machine the gate compares on: `ubuntu-latest`, via the `perf-baseline` workflow (`workflow_dispatch` → pick a scenario → it uploads the recorded files as a run artifact, which you download and commit).
 
@@ -347,7 +347,7 @@ This is a decision, not a convenience. A baseline is only meaningful if it was m
 
 Three properties are deliberate:
 
-- **It hands back a file, it does not push.** Recording moves to CI; *review* does not. A self-updating baseline would ratchet in a regression one green run at a time — the exact failure THE-534 exists to prevent. Review the **direction** of every changed number: one that moved the worse way is a regression being accepted into the reference, and needs a reason in the PR you open.
+- **It hands back a file, it does not push.** Recording moves to CI; *review* does not. A self-updating baseline would ratchet in a regression one green run at a time — the exact failure the provenance check exists to prevent. Review the **direction** of every changed number: one that moved the worse way is a regression being accepted into the reference, and needs a reason in the PR you open.
 
   It used to push a branch and try to open a PR on it, which never worked — Actions cannot create PRs here (an org-level setting; the repo-level API returns 409) — so every run left an orphan branch behind. The artifact is the same deliverable without the litter, and the job token dropped to `contents: read` as a result.
 - **The artifact carries `perf-report.json`, not just the baseline.** That file holds the raw per-sample series; the committed `baseline.*.json` keeps only aggregates, and aggregates cannot tell a noisy metric from a bimodal one. `storage.txn_ms` and `storage.cpu_ms` turned out to be the latter — two disjoint clusters ~3x apart, switching together on 30/30 samples — and the only surviving raw copy at the time was in run logs, which expire. Artifact retention is set to 90 days for that reason.
@@ -359,7 +359,7 @@ Three properties are deliberate:
   system that no longer exists. That is not hypothetical: between 2026-07-27 and 08-05 the count was
   bumped seven times (148 → 157) while `boot.tools_list_ms` stayed at what 148 tools cost, and it was
   compared against that figure for 13 days without a single gate noticing, because the drift fitted
-  inside a 0.5 warn tolerance. Re-record instead (THE-754).
+  inside a 0.5 warn tolerance. Re-record instead.
 
   A baseline recorded before this shipped has no `recordedExact`, and the gate says
   **`coherence NOT CHECKED`** rather than folding it into the OK line — "not checked" has to stay
@@ -368,9 +368,9 @@ Three properties are deliberate:
 
 A refused recording (contention detected) fails the job and opens no PR — so a PR existing is itself the evidence that contention was not detected.
 
-**THE-534:** every baseline write also emits `eval/perf/baseline.<scenario>.provenance.json` recording the commit SHA it was measured against, whether the working tree was dirty at the time, the mode (`isolated-median` / `single-shot`), the sample count, and the host shape. A baseline measured on a dirty tree is **not reproducible from its SHA**, so that case prints a loud `WARN` — the SHA alone would be a false provenance claim. It is a **sidecar file, not a key inside the baseline**, because the gate now walks the baseline's own keys and demands a measurement for each; a metadata key living in that file would be read as a metric that is never measured, i.e. a permanent phantom failure.
+**Provenance:** every baseline write also emits `eval/perf/baseline.<scenario>.provenance.json` recording the commit SHA it was measured against, whether the working tree was dirty at the time, the mode (`isolated-median` / `single-shot`), the sample count, and the host shape. A baseline measured on a dirty tree is **not reproducible from its SHA**, so that case prints a loud `WARN` — the SHA alone would be a false provenance claim. It is a **sidecar file, not a key inside the baseline**, because the gate now walks the baseline's own keys and demands a measurement for each; a metadata key living in that file would be read as a metric that is never measured, i.e. a permanent phantom failure.
 
-## Gate coverage: what the gate can and cannot see (THE-534 audit)
+## Gate coverage: what the gate can and cannot see (provenance audit)
 
 The gate compares by walking the **baseline**, not the report. That inversion is load-bearing. The previous version iterated `report.samples` and looked the baseline up, which made it blind to anything the report failed to mention — and all three of these reported `perf gate OK`:
 
@@ -382,13 +382,13 @@ Now a baselined key with no sample is a violation of its own class (`reason: "mi
 
 **Large improvements are reported, never silently accepted.** An improvement never fails (blocking a good change would be worse than the bug), but one beyond 2× is listed as `STALE BASELINE`, because a baseline that no longer describes the system gets cited later in a go/no-go.
 
-**What the gate still cannot see.** Re-read the "What this harness does NOT cover" section above before trusting a null result. Densification *was* the headline entry here — `buildVault()` called `indexVault()` without `densify` and no collector emitted a densification metric, which is why THE-486's 113× improvement passed CI without comment: there was never a number to compare, and no tolerance change could have produced one. THE-581 closed that with the `densify` scenario and family 15, so THE-533's write cost is now expressible as a gated number rather than a table in a PR body. That residual closed on 2026-08-06 (#745): `baseline.densify.json` is committed and recorded on `ubuntu-latest`, so the coverage is now enforced in CI rather than merely present.
+**What the gate still cannot see.** Re-read the "What this harness does NOT cover" section above before trusting a null result. Densification *was* the headline entry here — `buildVault()` called `indexVault()` without `densify` and no collector emitted a densification metric, which is why the densification 113× improvement passed CI without comment: there was never a number to compare, and no tolerance change could have produced one. A later change closed that with the `densify` scenario and family 15, so the write cost is now expressible as a gated number rather than a table in a PR body. That residual closed on 2026-08-06 (#745): `baseline.densify.json` is committed and recorded on `ubuntu-latest`, so the coverage is now enforced in CI rather than merely present.
 
 ## Synthetic Labelled Set
 
 For family 9 (recall/nDCG) metrics, the harness uses a small, **throwaway synthetic relevance set**. It:
 
-- **Is NOT the private golden set** (see THE-421 leak class). No real vault data, no user queries, no secret information.
+- **Is NOT the private golden set** (see the leak class). No real vault data, no user queries, no secret information.
 - **Is co-generated** with the seeded synthetic vault: queries + paths are deterministic artifacts of the corpus.
 - **Is in-repo** and can be freely shared in PRs, GitHub, etc., without leak concerns.
 - Uses sentinel tokens (`zqmarker${i}`) to distinguish body groups in queries (hard to confuse with other groups via the shared word vocabulary).
@@ -397,7 +397,7 @@ See `packages/server/eval/perf/labelled.ts` for the definition (5 queries, 20 re
 
 ## Metric Families
 
-The harness collects all 14 THE-459 metric families across 7 collector modules, plus a THE-503 concurrent-HTTP addition.
+The harness collects all 14 metric families across 7 collector modules, plus a concurrent-HTTP addition.
 
 | Family | Type | Metrics | Module | Class | Notes |
 |---|---|---|---|---|---|
@@ -406,14 +406,14 @@ The harness collects all 14 THE-459 metric families across 7 collector modules, 
 | 3 | Index throughput | `index.{chunk_count, chunks_per_s}` | indexing.ts | {hard, warn} | Indexing rate; count is deterministic |
 | 4 | Embed throughput | `embed.{call_count, texts_per_s}` | indexing.ts | {hard, warn} | Embedding API usage; call count deterministic |
 | 5 | Embed dedup ratio | `embed.dup_ratio` | indexing.ts | hard | Fraction of chunks sharing a body (exact deterministic) |
-| 6 | Event-loop delay | `runtime.eventloop_p99_ms` | runtime.ts | warn | P99 event-loop delay under REAL concurrent load (THE-503: see below — this used to read 0 almost every run) |
-| 7 | SQLite txn/lock + write-txn count | `storage.{txn_count, txn_ms}`, `index.txn_count` | storage.ts, indexing.ts | {hard, warn} | `storage.txn_count` is a synthetic fixed-size (200) scratch-table microbench timing raw commit overhead — NOT connected to indexVault. `index.txn_count` (THE-503, new) IS the real write-transaction count indexVault used (via a `db.exec("BEGIN")` counting wrapper), gated hard as "lower is better" (`direction: "higher-worse"`) rather than exact-match, so THE-500's batching can register as an improvement instead of tripping an invariant that could never recognize one. |
+| 6 | Event-loop delay | `runtime.eventloop_p99_ms` | runtime.ts | warn | P99 event-loop delay under REAL concurrent load (see below — this used to read 0 almost every run) |
+| 7 | SQLite txn/lock + write-txn count | `storage.{txn_count, txn_ms}`, `index.txn_count` | storage.ts, indexing.ts | {hard, warn} | `storage.txn_count` is a synthetic fixed-size (200) scratch-table microbench timing raw commit overhead — NOT connected to indexVault. `index.txn_count` (new) IS the real write-transaction count indexVault used (via a `db.exec("BEGIN")` counting wrapper), gated hard as "lower is better" (`direction: "higher-worse"`) rather than exact-match, so the batching can register as an improvement instead of tripping an invariant that could never recognize one. |
 | 8 | Graph candidates | `graph.candidates_{seed, expand, fused}` | retrieval.ts | hard | ANN graph traversal stage cardinality (exact deterministic) |
 | 9 | Recall/nDCG | `retrieval.{recall_at10, ndcg_at10, ndcg_per_ms}` | retrieval.ts | {hard, hard, warn} | Relevance metrics over synthetic labelled set |
-| 10 | Peak memory | `runtime.peak_rss_mb` | runtime.ts | warn | Peak process RSS during the run, in MB. NOT normalized per chunk: RSS is whole-process, so a per-chunk figure attributes memory it cannot account for (THE-459). Scenarios are fixed-size, so absolute RSS is comparable run-to-run. |
+| 10 | Peak memory | `runtime.peak_rss_mb` | runtime.ts | warn | Peak process RSS during the run, in MB. NOT normalized per chunk: RSS is whole-process, so a per-chunk figure attributes memory it cannot account for. Scenarios are fixed-size, so absolute RSS is comparable run-to-run. |
 | 11 | Vec migration | `migration.{rebuilt, ms}` | lifecycle.ts | {hard, warn} | Vec-index rebuild latency; rebuilt = bun-only true |
-| 12 | HTTP handshake | `http.handshake_ok`, `http.cold_ms`, `http.warm_ms` | http.ts | hard / warn | MCP `initialize` round-trip through the real Hono app via `app.fetch()` — **no network listener is bound**. Cold vs warm separates one-time init from steady-state per-request cost (the build THE-463 proposes caching). `handshake_ok` requires a protocol-level `result`, so a degraded handshake fails rather than passing on a 200. |
-| 12b | Concurrent HTTP callers (THE-503) | `http.concurrent{2,8}_{ok_count,p99_ms}` | http.ts | {hard, warn} | 2 and 8 concurrent `initialize` calls fired via `Promise.all` over `app.fetch()` (still no network listener). `ok_count` must equal the concurrency level (hard) — a degraded/racy handshake under load fails rather than passing silently. |
+| 12 | HTTP handshake | `http.handshake_ok`, `http.cold_ms`, `http.warm_ms` | http.ts | hard / warn | MCP `initialize` round-trip through the real Hono app via `app.fetch()` — **no network listener is bound**. Cold vs warm separates one-time init from steady-state per-request cost (the build that proposes caching). `handshake_ok` requires a protocol-level `result`, so a degraded handshake fails rather than passing on a 200. |
+| 12b | Concurrent HTTP callers | `http.concurrent{2,8}_{ok_count,p99_ms}` | http.ts | {hard, warn} | 2 and 8 concurrent `initialize` calls fired via `Promise.all` over `app.fetch()` (still no network listener). `ok_count` must equal the concurrency level (hard) — a degraded/racy handshake under load fails rather than passing silently. |
 | 13 | Shutdown drain | `shutdown.{drained, ms}` | lifecycle.ts | {hard, warn} | Graceful DB close under deadline; runs last |
 | 14 | Per-vault storage | `storage.{bytes, cpu_ms}` | storage.ts | {hard, warn} | DB page bytes (exact); CPU over the txn batch |
 
@@ -426,7 +426,7 @@ The harness collects all 14 THE-459 metric families across 7 collector modules, 
 6. http (family 12, then 12b) — needs a live db
 7. lifecycle (families 11, 13) — **closes vault.db, must run last**
 
-### THE-503: event-loop delay used to silently read 0
+### Event-loop delay used to silently read 0
 
 `runtime.eventloop_p99_ms` used to read 0 on almost every run. Root cause, confirmed empirically: the old load loop `await`ed one `graphSearch` call at a time. Each call resolves through nothing but microtasks, and microtasks always drain completely before the event loop returns to its poll phase — so control never crossed a macrotask boundary while the load ran, and `monitorEventLoopDelay`'s internal check (driven off that boundary) recorded **zero samples at all** (`h.count === 0`), not "delay below resolution". A histogram with no samples reports 0 from `.percentile()`, silently indistinguishable from "no delay".
 
@@ -463,12 +463,12 @@ Harness self-tests verify:
 - Determinism: running the same scenario twice produces identical counts.
 - Gate logic: violations are correctly classified as hard/warn (`test/perf-gate.test.ts`).
 - Baseline format: entries are parsed correctly.
-- THE-503: aggregation (median/CV/raw preservation, `test/perf-isolate.test.ts`), contention
+- Aggregation (median/CV/raw preservation, `test/perf-isolate.test.ts`), contention
   detection (`test/perf-contention.test.ts`), subprocess orchestration against a fake spawn
   (`test/perf-sample.test.ts`), and a REAL end-to-end subprocess-isolation run
   (`test/perf-isolate-integration.test.ts` — actually spawns 2 fresh `bun` processes; slower by
   design, this is what proves isolation rather than asserting it).
-- THE-594: the Spearman rank-correlation statistic behind the I/O calibration probe's scaling
+- The Spearman rank-correlation statistic behind the I/O calibration probe's scaling
   check is proven to have power — including rejecting a constant-duration stub — with no real
   timing at all (`test/perf-spearman.test.ts`). The check itself (real `calibrateIo()`
   measurements, gated on the median across N isolated samples) runs as part of this harness, not
@@ -483,6 +483,6 @@ bun run test
 
 ## References
 
-- Task brief: [THE-459 issue](https://linear.app/the-40-thieves/issue/THE-459), [THE-503 issue](https://linear.app/the-40-thieves/issue/THE-503) (isolation + statistics + scenario coverage)
-- Private golden set (THE-421 leak class): see `/data/llm-stack/obsidian-tc-eval/` on Cave.
-- Node.js parity: [THE-494 issue](https://linear.app/the-40-thieves/issue/THE-494)
+- Task brief: ,  (isolation + statistics + scenario coverage)
+- Private golden set (leak class): see `/data/llm-stack/obsidian-tc-eval/` on Cave.
+- Node.js parity: 

@@ -21,7 +21,7 @@
 > | 17-entry circular-dependency baseline | confirmed |
 >
 > **Line anchors in this document are from `721cc5f` and will rot.** Locate targets by symbol name,
-> not by line number. This is not hypothetical: THE-651 cited `graph_search.ts:51-52` for a comment
+> not by line number. This is not hypothetical: A prior review cited `graph_search.ts:51-52` for a comment
 > that had moved to ~L94, and the cited lines held an unrelated *correct* docblock — from which the
 > natural conclusion was "already fixed, close the ticket". Anchors in this document are therefore
 > given as symbol names wherever possible.

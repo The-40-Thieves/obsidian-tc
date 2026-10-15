@@ -1,7 +1,7 @@
 # Measurement record: kNN derived-edge sweep (k × floor × derivedWeight)
 
 **Status: COMPLETE 2026-07-26.** Result of the protocol frozen in
-[the pre-registration](2026-07-26-knn-sweep-preregistration.md). Ticket: THE-532.
+[the pre-registration](2026-07-26-knn-sweep-preregistration.md).
 
 Aggregates only. The golden set keys queries to real note paths and is not committed; nothing here
 carries vault content.
@@ -41,7 +41,7 @@ the record.
 
 ## The power estimate in the pre-registration was wrong, and conservatively so
 
-The pre-registration assumed **σ_d = 0.173**, taken from THE-422. Observed: **σ_d = 0.055**.
+The pre-registration assumed **σ_d = 0.173**, taken from an earlier measurement. Observed: **σ_d = 0.055**.
 
 | | σ_d | SE | MDE (single) | MDE (BH, m=8) |
 | -- | -- | -- | -- | -- |
@@ -60,7 +60,7 @@ test, the FDR correction and the replication gate were all fixed before the data
 
 **No effect ≥ ≈0.012 nDCG@10 exists anywhere in the swept grid.**
 
-THE-422's ship bar is ≥0.010. The grid resolves ≈0.0124 — just above it. So this is a
+The earlier ship bar is ≥0.010. The grid resolves ≈0.0124 — just above it. So this is a
 no-ship result at, and very nearly at the resolution of, the bar that matters:
 
 - **Recommendation: do not enable kNN derived edges.** Nothing in the grid earns its cost.

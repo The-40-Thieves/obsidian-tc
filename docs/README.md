@@ -16,7 +16,7 @@ runbooks (`QUICKSTART.md`, `RELEASING.md`, `PORTABILITY.md`, `SYNC.md`,
 - `G2.4-security.md` — Auth, ACLs, and runtime governance
 - `G2.5-release-engineering.md` — Build, CI, versioning, and distribution
 
-## TypeScript pin (THE-604)
+## TypeScript pin
 
 `docs/` is a separate install root (its own `bun.lock`, not part of the root workspace) and stays
 on TypeScript **^6.0.3** (`package.json`), one major behind the root/`packages/shared` pin of

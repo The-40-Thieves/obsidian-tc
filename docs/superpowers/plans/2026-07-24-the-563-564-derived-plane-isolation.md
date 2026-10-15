@@ -1,19 +1,19 @@
-# Derived-Cognition Plane Isolation (THE-563 / THE-564 + #9 + P1.6) Implementation Plan
+# Derived-Cognition Plane Isolation (+ #9 + P1.6) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give every derived-cognition object (`contradictions`, `syntheses`) a `vault_id`, run the plane per-vault, re-authorize every contributing source of a derived row before it is returned or sent to a model, and close two folded tail items (migration completeness gate, `reflect.persist` governed write).
 
-**Architecture:** Two layered gates established by shipped precedents — a vault predicate (THE-310's `vault_id`-on-derived-tables) as the coarse gate, and a per-path ACL recheck (THE-543's prewarm recheck) as the fine gate. Regenerable derived rows with no recoverable vault are **purged**, not backfilled. The plane job enumerates vaults from `SELECT DISTINCT vault_id FROM chunks`, so no `JobContext` interface change is needed.
+**Architecture:** Two layered gates established by shipped precedents — a vault predicate (the `vault_id`-on-derived-tables precedent) as the coarse gate, and a per-path ACL recheck (the prewarm recheck) as the fine gate. Regenerable derived rows with no recoverable vault are **purged**, not backfilled. The plane job enumerates vaults from `SELECT DISTINCT vault_id FROM chunks`, so no `JobContext` interface change is needed.
 
 **Tech Stack:** TypeScript, Bun runtime, Vitest, SQLite (better-sqlite3-compatible `Database` interface), monorepo package `@the-40-thieves/obsidian-tc-server`.
 
 ## Global Constraints
 
 - **Commits:** DCO-signed (`git commit -s`); every commit message ends with `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`. One ticket per commit; order **563 → 564 → #9 → P1.6**.
-- **Purge, not backfill:** existing `contradictions`/`syntheses` rows are deleted by the migration (unrecoverable vault + regenerable). Mirror THE-310's `20260703_001_vault_edges_vault_id.sql` header rationale.
+- **Purge, not backfill:** existing `contradictions`/`syntheses` rows are deleted by the migration (unrecoverable vault + regenerable). Mirror the header rationale of `20260703_001_vault_edges_vault_id.sql`.
 - **Migration versioning:** filename `YYYYMMDD_NNN_<desc>.sql`; the registered `version` is the first two underscore segments (`20260724_001`). New migrations append to `CACHE_MIGRATIONS` in application order — never reorder existing entries.
-- **ACL recheck is post-fetch drop** using `readableRel(ctx.acl, rel)` (matches THE-543 layer-3); the vault predicate is pushed into SQL (pre-fetch).
+- **ACL recheck is post-fetch drop** using `readableRel(ctx.acl, rel)` (matches the layer-3 recheck); the vault predicate is pushed into SQL (pre-fetch).
 - **Gate before merge:** `bun run lint` (biome) + `tsc` across the 4 packages + the server test suite green, with a non-zero CI check count.
 - **Tests live in** `packages/server/test/*.test.ts`; provision in-memory DBs via `openMemoryDb()` + `runMigrations()` from `./helpers` and `../src/db/migrate`.
 
@@ -21,7 +21,7 @@
 
 ## File Structure
 
-**Item 1 — THE-563 (namespace)**
+**Item 1 — namespace**
 - Create: `packages/server/src/migrations/20260724_001_plane_vault_id.sql` — purge + reshape `contradictions`/`syntheses`.
 - Modify: `packages/server/src/db/provision.ts` — register the migration.
 - Modify: `packages/server/src/plane/jobs/contradiction.ts` — write `vault_id`; fold vault into dedup id.
@@ -29,7 +29,7 @@
 - Modify: `packages/server/src/tools/m7/knowledge-tools.ts` — `vault_context` syntheses vault predicate.
 - Test: `packages/server/test/plane-vault-id-migration.test.ts` (new); update `contradiction-job.test.ts`, `synthesis-job.test.ts`.
 
-**Item 2 — THE-564 (all-source ACL)**
+**Item 2 — all-source ACL**
 - Modify: `packages/server/src/tools/m7/knowledge-tools.ts` — `openContradictionsForPaths` signature + both callers.
 - Test: update `list-contradictions.test.ts`, `knowledge-challenge-evidence.test.ts`.
 
@@ -47,7 +47,7 @@
 
 ---
 
-## Task 1: THE-563 migration — purge + reshape the plane tables
+## Task 1: Migration — purge + reshape the plane tables
 
 **Files:**
 - Create: `packages/server/src/migrations/20260724_001_plane_vault_id.sql`
@@ -119,12 +119,12 @@ Create `packages/server/src/migrations/20260724_001_plane_vault_id.sql`:
 
 ```sql
 -- 20260724_001_plane_vault_id.sql
--- THE-563: namespace the derived-cognition plane. contradictions + syntheses predate the shared
+-- Namespace the derived-cognition plane. contradictions + syntheses predate the shared
 -- cache.db vault_id isolation that chunks/notes/embeddings carry. Both are REGENERABLE derived
 -- caches (contradictions re-flag on the next reindex; syntheses regenerate on the next weekly run)
 -- and their historical vault is UNRECOVERABLE (a contradiction may pair chunks from two vaults; a
 -- synthesis blended every vault). So we PURGE the unscoped rows rather than backfill a guess -- the
--- same disposition THE-310 (20260703_001) took for vault_edges. Writers repopulate scoped.
+-- same disposition as `20260703_001` took for vault_edges. Writers repopulate scoped.
 
 -- contradictions: purge, add vault_id, re-scope the pair-dedup index to include it so two vaults may
 -- hold the same content-sha pair. NOT NULL DEFAULT '' satisfies the ALTER on the emptied table; no
@@ -170,14 +170,14 @@ Expected: PASS (3 tests).
 
 ```bash
 git add packages/server/src/migrations/20260724_001_plane_vault_id.sql packages/server/src/db/provision.ts packages/server/test/plane-vault-id-migration.test.ts
-git commit -s -m "feat(THE-563): migrate contradictions/syntheses to per-vault namespace (purge)
+git commit -s -m "feat: migrate contradictions/syntheses to per-vault namespace (purge)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
 
-## Task 2: THE-563 — contradiction writer persists vault_id
+## Task 2: contradiction writer persists vault_id
 
 **Files:**
 - Modify: `packages/server/src/plane/jobs/contradiction.ts:78-80` (INSERT) and `:138` (dedup id)
@@ -256,14 +256,14 @@ Expected: PASS. (Update the same inline `CREATE TABLE contradictions` DDL in any
 
 ```bash
 git add packages/server/src/plane/jobs/contradiction.ts packages/server/test/contradiction-*.test.ts
-git commit -s -m "feat(THE-563): contradiction writer persists vault_id + vault-scoped dedup id
+git commit -s -m "feat: contradiction writer persists vault_id + vault-scoped dedup id
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
 
-## Task 3: THE-563 — synthesis runs per vault
+## Task 3: synthesis runs per vault
 
 **Files:**
 - Modify: `packages/server/src/plane/jobs/synthesis.ts:92-149` (`runSynthesis`)
@@ -394,14 +394,14 @@ Expected: PASS. The pre-existing single-vault test still passes (one vault → o
 
 ```bash
 git add packages/server/src/plane/jobs/synthesis.ts packages/server/test/synthesis-job.test.ts
-git commit -s -m "feat(THE-563): synthesis runs per vault, one weekly row per vault
+git commit -s -m "feat: synthesis runs per vault, one weekly row per vault
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
 
-## Task 4: THE-563 — `vault_context` scopes syntheses by vault
+## Task 4: `vault_context` scopes syntheses by vault
 
 **Files:**
 - Modify: `packages/server/src/tools/m7/knowledge-tools.ts:433-437` (syntheses SELECT)
@@ -425,7 +425,7 @@ import { VaultRegistry } from "../src/vault/registry";
 // Reuse this file's existing M7Deps builder helper if one exists in the test dir; otherwise
 // construct the minimal deps mirroring knowledge-search.test.ts's setup.
 
-describe("vault_context syntheses are vault-scoped (THE-563)", () => {
+describe("vault_context syntheses are vault-scoped", () => {
   it("does not surface another vault's synthesis patterns", async () => {
     const db = openMemoryDb();
     runMigrations(db, CACHE_MIGRATIONS);
@@ -468,14 +468,14 @@ Expected: PASS.
 
 ```bash
 git add packages/server/src/tools/m7/knowledge-tools.ts packages/server/test/vault-context-syntheses-scope.test.ts
-git commit -s -m "feat(THE-563): vault_context syntheses leg filters by vault_id
+git commit -s -m "feat: vault_context syntheses leg filters by vault_id
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
 
-## Task 5: THE-564 — all-source ACL on `openContradictionsForPaths`
+## Task 5: all-source ACL on `openContradictionsForPaths`
 
 **Files:**
 - Modify: `packages/server/src/tools/m7/knowledge-tools.ts:222-244` (`openContradictionsForPaths`), `:416-419` (`vault_context` caller), `:1082` (`list_contradictions` caller)
@@ -490,7 +490,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 In `packages/server/test/list-contradictions.test.ts`, update the inline `contradictions` DDL to the migrated shape (as in Task 2), insert a row whose `source_path` is readable but `conflict_path` is under a folder the caller cannot read, and assert `list_contradictions` omits it:
 
 ```ts
-it("drops a contradiction whose conflict-side note is unreadable (THE-564)", async () => {
+it("drops a contradiction whose conflict-side note is unreadable", async () => {
   // ACL grants read on "notes/" but not "private/". Row: source in notes/, conflict in private/.
   db.prepare(
     "INSERT INTO contradictions (id, vault_id, source_chunk_id, source_path, conflict_chunk_id, conflict_path, source_content_sha, conflict_content_sha, judge_verdict, status, detected_at) VALUES ('x', 'v1', 'sc', 'notes/a.md', 'cc', 'private/b.md', 's1', 's2', 'tension', 'open', 0)",
@@ -512,8 +512,8 @@ Expected: FAIL — the `private/b.md` row is returned (only `source_path` was ch
 In `packages/server/src/tools/m7/knowledge-tools.ts`, replace `openContradictionsForPaths` (lines 222-244) with:
 
 ```ts
-/** Open contradictions whose source or conflict note is in `paths` (THE-309), scoped to `vaultId`
- *  (THE-563) and re-authorized against the caller ACL (THE-564): a row is returned only if BOTH
+/** Open contradictions whose source or conflict note is in `paths`, scoped to `vaultId`
+ * and re-authorized against the caller ACL: a row is returned only if BOTH
  *  contributing sources remain readable — the opposite side of a matched pair may be outside the
  *  caller's set. Empty when the plane table is absent. */
 export function openContradictionsForPaths(
@@ -576,14 +576,14 @@ Expected: PASS.
 
 ```bash
 git add packages/server/src/tools/m7/knowledge-tools.ts packages/server/test/list-contradictions.test.ts
-git commit -s -m "feat(THE-564): re-authorize both contributing sources of a contradiction before return
+git commit -s -m "feat: re-authorize both contributing sources of a contradiction before return
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
 
 ---
 
-## Task 6: THE-564 — challenge/model-egress path is covered
+## Task 6: challenge/model-egress path is covered
 
 **Files:**
 - Test: `packages/server/test/knowledge-challenge-evidence.test.ts` (add an egress-filter assertion)
@@ -598,7 +598,7 @@ This task adds no production code — it proves Task 5's filter covers the model
 In `packages/server/test/knowledge-challenge-evidence.test.ts`, add a test that seeds a contradiction whose conflict-side note is unreadable, runs `knowledge_challenge` with a captured/mock gateway `judge` role, and asserts the composed prompt text passed to the gateway contains neither the unreadable `conflict_path` nor its rationale:
 
 ```ts
-it("never sends an unreadable contradiction source to the model (THE-564)", async () => {
+it("never sends an unreadable contradiction source to the model", async () => {
   const seen: string[] = [];
   const roles = mockRolesCapturing((userMsg) => seen.push(userMsg)); // capture the judge prompt
   // seed contradiction: source readable (notes/a.md), conflict unreadable (private/b.md)
@@ -619,7 +619,7 @@ Expected: PASS (Task 5 already routes the challenge path through the filtered he
 
 ```bash
 git add packages/server/test/knowledge-challenge-evidence.test.ts
-git commit -s -m "test(THE-564): assert unreadable contradiction source never reaches the model
+git commit -s -m "test: assert unreadable contradiction source never reaches the model
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
@@ -811,7 +811,7 @@ Expected: FAIL — raw `writeFileSync` neither snapshots nor reindexes; `reindex
 Create `packages/server/src/vault/persist-note.ts`:
 
 ```ts
-// THE-562 P1.6: the governed note-write sequence, shared by write_note and reflect.persist so the
+// P1.6: the governed note-write sequence, shared by write_note and reflect.persist so the
 // two cannot drift. A raw writeFileSync bypasses the snapshot (no recovery point on overwrite), the
 // atomic tmp+rename (a reader can catch a torn file), and index-on-write + generation bump (the note
 // is never indexed and stale caches are not invalidated). Route derived-note writes through here.
@@ -856,7 +856,7 @@ export function persistGovernedNote(
 In `packages/server/src/tools/m7/knowledge-tools.ts`, add to the `M7Deps` interface (near `prewarmDir`):
 
 ```ts
-  /** THE-562 P1.6: governed-write handles so reflect.persist snapshots + reindexes like write_note. */
+  /** P1.6: governed-write handles so reflect.persist snapshots + reindexes like write_note. */
   snapshots?: { enabled: boolean; retention: number };
   reindex?: (vaultId: string, path: string, content: string) => void;
 ```
@@ -898,7 +898,7 @@ Remove the now-unused `mkdirSync`/`writeFileSync`/`dirname` imports if nothing e
 In `packages/server/src/cli.ts`, in the `registerM7Tools(registry, { ... })` call (around line 1321), add:
 
 ```ts
-    // THE-562 P1.6: reflect.persist writes through the governed path (snapshot + index-on-write).
+    // P1.6: reflect.persist writes through the governed path (snapshot + index-on-write).
     snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },
     reindex: reindexHook,
 ```
@@ -958,13 +958,13 @@ Expected: all green. Fix any biome/tsc findings in the touched files before proc
 
 ```bash
 git push -u origin <branch>
-gh pr create --base main --title "THE-563/564: derived-plane vault isolation + all-source ACL (+#9, P1.6)" --body "$(cat <<'EOF'
-Closes THE-563, THE-564. Folds THE-562 tail items #9 (migration completeness gate) and P1.6 deep-half (reflect.persist governed write).
+gh pr create --base main --title "Derived-plane vault isolation + all-source ACL (+#9, P1.6)" --body "$(cat <<'EOF'
+Closes the derived-plane tickets. Folds the audit tail items #9 (migration completeness gate) and P1.6 deep-half (reflect.persist governed write).
 
-Spec: docs/superpowers/specs/2026-07-24-the-563-564-derived-plane-isolation-design.md
+Spec: the derived-plane isolation design in docs/superpowers/specs/
 
-- THE-563: contradictions/syntheses gain vault_id (purge migration, THE-310 precedent); synthesis runs per vault; readers filter by vault.
-- THE-564: openContradictionsForPaths re-authorizes BOTH contributing sources against the caller ACL before return/model-egress (THE-543 pattern).
+- Contradictions/syntheses gain vault_id (purge migration, same precedent as vault_edges); synthesis runs per vault; readers filter by vault.
+- openContradictionsForPaths re-authorizes BOTH contributing sources against the caller ACL before return/model-egress (prewarm-recheck pattern).
 - #9: single migration manifest + CI bijection gate over both chains.
 - P1.6: reflect.persist routes through the governed snapshot→atomic→reindex helper, shared with write_note.
 
@@ -983,12 +983,12 @@ Expected: a non-empty list of checks, none failing. If zero checks appear, close
 ## Self-Review
 
 **Spec coverage:**
-- THE-563 migration (purge + reshape) → Task 1. ✓
-- THE-563 contradiction writer vault_id + id hash → Task 2. ✓
-- THE-563 per-vault synthesis → Task 3. ✓
-- THE-563 reader vault predicates: syntheses → Task 4; contradictions → folded into Task 5's `WHERE vault_id = ?`. ✓
-- THE-564 all-source ACL on `openContradictionsForPaths` + both callers → Task 5. ✓
-- THE-564 challenge/model-egress coverage → Task 6. ✓
+- Migration (purge + reshape) → Task 1. ✓
+- Contradiction writer vault_id + id hash → Task 2. ✓
+- Per-vault synthesis → Task 3. ✓
+- Reader vault predicates: syntheses → Task 4; contradictions → folded into Task 5's `WHERE vault_id = ?`. ✓
+- All-source ACL on `openContradictionsForPaths` + both callers → Task 5. ✓
+- Challenge/model-egress coverage → Task 6. ✓
 - Syntheses boundary (vault-predicate only) → honored: Task 4 gates syntheses by vault; no per-path claim made. ✓
 - #9 manifest gate → Task 7. ✓
 - P1.6 governed write (helper + reflect + write_note reuse) → Task 8. ✓

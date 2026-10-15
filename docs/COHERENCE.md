@@ -1,4 +1,4 @@
-# Live-Obsidian write coherence (THE-283)
+# Live-Obsidian write coherence
 
 obsidian-tc writes notes **direct-to-disk** (`writeNoteAtomic`: write to a `.tmp-<pid>-<ts>`
 sibling, then a same-directory atomic rename). This is the correct substrate for a filesystem-
@@ -61,4 +61,4 @@ the source rather than renaming over the target.
 An opt-in companion route that asks a live Obsidian to re-read an externally-modified file
 (via the private `vault.adapter` reconcile surface) is designed but **deferred**: it relies on
 another undocumented internal (see the companion README's private-API inventory) and cannot be
-verified in CI (needs a live app). Tracked on THE-283.
+verified in CI (needs a live app). Tracked as a follow-up.

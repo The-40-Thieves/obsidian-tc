@@ -1,4 +1,4 @@
-# docs-ingest (THE-444)
+# docs-ingest
 
 Vendor / external-docs ingestion for obsidian-tc. Produces the corpus that `knowledge_search`
 and `knowledge_get_critical` serve, kept separate from the private vault.
@@ -35,7 +35,7 @@ and `source` so results are vendor-attributed.
 
 ## Status
 
-Scaffold (THE-444 increment 3): the parse-router, the writer, and the dry-run pipeline are
+Scaffold (increment 3): the parse-router, the writer, and the dry-run pipeline are
 implemented and tested. The live LangExtract extraction (prompt + few-shot schema) and the
 crawl driver are the next increment.
 

@@ -2,7 +2,7 @@
 
 Extracted from inline commentary, 2026-08-21. The code carries the invariants; this note carries the history and evidence.
 
-## Extension loading and the embedded fallback (THE-663)
+## Extension loading and the embedded fallback
 
 SQLite's extension loader derives the entry-point symbol it `dlsym()`s from the loaded file's
 *basename* (stripped of extension, prefixed `sqlite3_`, suffixed `_init`) rather than from any
@@ -16,7 +16,7 @@ the plain `require` throws in every published standalone binary, on every platfo
 cross-compiled ones, which is what made this surprising when first diagnosed. `loadVec` falls back
 to the copy baked into the binary for its own target platform (`vec-embedded.ts`).
 
-## Representation manifest and fingerprinting (THE-460, THE-683)
+## Representation manifest and fingerprinting
 
 `ensureVecChunks` takes the full `RepresentationManifest`, not the narrower `VecFingerprint`. The
 manifest is a structural superset, so nothing is lost — but the extra axes (pooling, instruct
@@ -26,11 +26,11 @@ alone is what previously let `embeddings.pooling` be a validated, documented con
 silently changed nothing (it wasn't folded into the old fingerprint shape, so a pooling change
 never triggered a rebuild).
 
-A fingerprint mismatch is the general rebuild trigger. It subsumes the old THE-457 dims-only check
+A fingerprint mismatch is the general rebuild trigger. It subsumes the old dims-only check
 (dimensions are one field folded into the fingerprint) and additionally catches a same-dimension
 model swap, a chunker/enrichment version bump, or a schema-gen bump.
 
-### THE-460 fix A: filtering the backfill by model, not just byte length
+### Fix A: filtering the backfill by model, not just byte length
 
 The pre-partition rebuild backfill originally filtered candidate vectors by byte length only
 (`length(embedding) = dims*4`). That can't distinguish a same-dimension model swap — old-model
@@ -46,7 +46,7 @@ the first operator-settable field that moves the fingerprint while leaving `prov
 which is what surfaced the bug. `opts.activeModel` now carries the actually-stored identity, and
 falls back to `fp.model` only when absent (non-production callers, back-compat).
 
-## `.changes` is not a row count on vec0 (THE-612)
+## `.changes` is not a row count on vec0
 
 The post-backfill row count in `ensureVecChunks` is deliberately a plain `SELECT COUNT(*)`, not
 `.changes` from the preceding `INSERT`. vec0 virtual tables are backed by several shadow tables, so
@@ -54,7 +54,7 @@ The post-backfill row count in `ensureVecChunks` is deliberately a plain `SELECT
 logical row backfilled. Since `vec_chunks` was just `DROP`ped and recreated, a plain `COUNT(*)`
 after the insert is exactly what that insert wrote: cheap and exact, unlike `.changes` here.
 
-## Exact-tie ordering and the aarch64/x86_64 divergence (THE-582)
+## Exact-tie ordering and the aarch64/x86_64 divergence
 
 `totalOrderByDistance` imposes a total order (distance ascending, then `chunk_id` compared by code
 unit) on vec0 KNN results, because vec0 rejects a second `ORDER BY` key
@@ -74,7 +74,7 @@ would trade one source of host dependence for another. The brute-force fallback 
 breaks ties on the same key (score descending, then `chunk_id` by code unit) so the two backends
 can't diverge on tie-break order.
 
-## Brute-force fallback: batched cosine (THE-420, THE-504)
+## Brute-force fallback: batched cosine
 
 The brute-force scan scores the whole candidate set in one native crossing (`cosineBatch`) instead
 of one native call per row. Per-pair cosine across the JS/native boundary is dominated by
@@ -82,11 +82,11 @@ re-marshaling the f64 query on every call — measured **13–22x slower** than 
 scoring. `cosineBatch` marshals the query once (as a `Float32Array`, converted once per search) and
 scans the corpus in native code.
 
-## Crowding-out and the ACL side channel (THE-287, THE-277, THE-585)
+## Crowding-out and the ACL side channel
 
 A global vec0 KNN's top-N can be dominated by chunks the caller cannot see, silently returning
 fewer than `k` visible hits even though visible candidates exist further down the ranked list
-(THE-287). THE-277 made cross-vault crowding structurally impossible by adding `vault_id` as a
+. A later change made cross-vault crowding structurally impossible by adding `vault_id` as a
 vec0 partition key, so the KNN never scans another vault's vectors. Within a vault, crowding is
 still possible, so `semanticSearch` over-fetches (`k * 20 + 50`) and falls back to the exhaustive
 brute-force scan whenever the over-fetched candidates can't fill `k` visible hits *and* the index

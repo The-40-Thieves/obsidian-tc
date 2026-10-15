@@ -15,7 +15,7 @@ markdown files under `.scratch/`. A ticket that isn't in Linear is invisible to 
 
 - **Create an issue**: `save_issue` with `team: "The 13th Letter"` and a `title`. Omit `id` when
   creating. `description` is Markdown — pass literal newlines, never `\n` escape sequences.
-- **Read an issue**: `get_issue` with the identifier (e.g. `THE-462`). Use `list_comments` for the
+- **Read an issue**: `get_issue` with the identifier (e.g. `<issue-id>`). Use `list_comments` for the
   discussion; `get_issue` alone does not include it.
 - **List issues**: `list_issues` with `team`, plus `state`, `label`, `assignee`, `parentId`, or
   `query` as filters. `state` accepts a state **type** (`backlog`, `unstarted`, `started`,
@@ -27,7 +27,7 @@ markdown files under `.scratch/`. A ticket that isn't in Linear is invisible to 
 - **Close**: `save_issue` with `state: "completed"` (or `"canceled"` for won't-do).
 - **Assign**: `save_issue` with `assignee: "me"`.
 
-Issues are referenced by identifier (`THE-462`), not a bare number. Use the identifier everywhere
+Issues are referenced by identifier (`<issue-id>`), not a bare number. Use the identifier everywhere
 a skill says "the ticket number".
 
 ## Pull requests
@@ -74,7 +74,7 @@ Used by `/wayfinder`. The **map** is a single issue; its **tickets** are child i
   convention. Label each with its type: `wayfinder:research`, `wayfinder:prototype`,
   `wayfinder:grilling`, or `wayfinder:task`.
 - **Blocking**: Linear's **native issue relations** — `save_issue` with
-  `blockedBy: ["THE-123"]` on the blocked ticket (or `blocks: [...]` from the other side). Both are
+  `blockedBy: ["<issue-id>"]` on the blocked ticket (or `blocks: [...]` from the other side). Both are
   **append-only**; use `removeBlockedBy` / `removeBlocks` to retract an edge. This is the canonical
   representation: Linear renders it as a blocking badge on the board, so the frontier is visible to
   the human without opening the map.
@@ -96,8 +96,8 @@ All ten labels exist on the The 13th Letter team as of 2026-07-24. The five wayf
 
 ### Live maps
 
-- **THE-546** — lock the capability-manifest shape and rule what it subsumes
-- **THE-547** — decide what obsidian-tc is out of the box
+- **Capability-manifest shape** — lock the shape and rule what it subsumes
+- **Out-of-the-box scope** — decide what obsidian-tc is out of the box
 
-Both charted 2026-07-24. `THE-508` and `THE-512` are held off THE-547 pending THE-546's
-subsumption ruling (THE-552); do not ticket them on THE-547 until it lands.
+Both charted 2026-07-24. Two follow-ups are held off the out-of-the-box decision pending the
+subsumption ruling; do not ticket them on the out-of-the-box decision until it lands.

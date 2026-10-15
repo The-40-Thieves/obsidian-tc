@@ -1,10 +1,10 @@
-# Durable JobQueue Wiring (THE-562 #14) Implementation Plan
+# Durable JobQueue Wiring (audit #14) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Route both the contradiction-detection and plane-consolidation workloads through the already-built durable `JobQueue`, via one generic runner on the shared scheduler, so their work is crash-safe, retryable, and dead-letterable — and remove the queue's "not yet wired" reachability-allowlist entry.
 
-**Architecture:** The `JobQueue` (THE-517) already provides `enqueue`/`claim`/`complete`/`fail` (backoff + dead-letter) and `runJob()` (lease heartbeat, cancellation, lease-loss). This plan adds (1) `JobQueue.stats()`, (2) a generic `job-runner.ts` that claims + dispatches by type, (3) producers that enqueue instead of pushing to an in-memory queue / firing a bespoke timer, (4) handlers adapting `checkContradictions`/`runSynthesis`/`runAudit`, (5) a `server_health` job-queue block, and removes the in-memory contradiction drain, `registerPlaneScheduler`, and the allowlist entry.
+**Architecture:** The `JobQueue` already provides `enqueue`/`claim`/`complete`/`fail` (backoff + dead-letter) and `runJob()` (lease heartbeat, cancellation, lease-loss). This plan adds (1) `JobQueue.stats()`, (2) a generic `job-runner.ts` that claims + dispatches by type, (3) producers that enqueue instead of pushing to an in-memory queue / firing a bespoke timer, (4) handlers adapting `checkContradictions`/`runSynthesis`/`runAudit`, (5) a `server_health` job-queue block, and removes the in-memory contradiction drain, `registerPlaneScheduler`, and the allowlist entry.
 
 **Tech Stack:** TypeScript, Bun, Vitest, SQLite `Database`, monorepo package `@the-40-thieves/obsidian-tc-server`.
 
@@ -127,7 +127,7 @@ Expected: PASS (2 tests).
 
 ```bash
 git add packages/server/src/scheduler/job-queue.ts packages/server/test/job-queue-stats.test.ts
-git commit -s -m "feat(THE-562 #14): JobQueue.stats() — counts by state for health/observability
+git commit -s -m "feat(audit #14): JobQueue.stats() — counts by state for health/observability
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
@@ -217,10 +217,10 @@ Expected: FAIL — `../src/scheduler/job-runner` does not exist.
 Create `packages/server/src/scheduler/job-runner.ts`:
 
 ```ts
-// #14 (THE-562 / THE-517): the generic runner that finally wires the durable JobQueue to work.
+// #14: the generic runner that finally wires the durable JobQueue to work.
 // It owns NO durability — claim/lease/retry/dead-letter/cancel all live in the queue + runJob. It
 // only claims due jobs and dispatches each to its type's handler, bounded per tick. Registered on
-// the shared Scheduler (THE-462) as one single-flight job, so its lifecycle, backoff, and bounded
+// the shared Scheduler as one single-flight job, so its lifecycle, backoff, and bounded
 // shutdown come for free.
 import { type Job, JobQueue, type RunJobContext, runJob } from "./job-queue";
 
@@ -286,7 +286,7 @@ Expected: PASS (3 tests).
 
 ```bash
 git add packages/server/src/scheduler/job-runner.ts packages/server/test/job-runner.test.ts
-git commit -s -m "feat(THE-562 #14): generic JobQueue runner (claim + dispatch-by-type on the scheduler)
+git commit -s -m "feat(audit #14): generic JobQueue runner (claim + dispatch-by-type on the scheduler)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
@@ -397,7 +397,7 @@ Expected: PASS. Delete/rewrite `contradiction-drain.test.ts` and fix any `contra
 
 ```bash
 git add packages/server/src/cli.ts packages/server/test/job-queue-integration.test.ts packages/server/test/contradiction-drain.test.ts
-git commit -s -m "feat(THE-562 #14): route contradiction detection through the durable JobQueue (no drops)
+git commit -s -m "feat(audit #14): route contradiction detection through the durable JobQueue (no drops)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
@@ -471,7 +471,7 @@ Run: `cd packages/server && bun run test` → PASS (fix any `plane.test.ts`/`reg
 
 ```bash
 git add packages/server/src/cli.ts packages/server/test/job-queue-integration.test.ts
-git commit -s -m "feat(THE-562 #14): route plane synthesis/audit through the durable JobQueue (retry + dead-letter)
+git commit -s -m "feat(audit #14): route plane synthesis/audit through the durable JobQueue (retry + dead-letter)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
@@ -528,7 +528,7 @@ Run: `cd packages/server && bun run test` → PASS.
 
 ```bash
 git add packages/server/src/tools/admin/health.ts packages/server/src/cli.ts packages/server/test/*health*
-git commit -s -m "feat(THE-562 #14): surface job-queue depth + dead-letter count in server_health
+git commit -s -m "feat(audit #14): surface job-queue depth + dead-letter count in server_health
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ```
@@ -548,7 +548,7 @@ In `scripts/check-boundaries.mjs`, delete the `UNREACHABLE_ALLOWLIST` entry:
 ```js
   [
     "packages/server/src/scheduler/job-queue.ts",
-    "THE-517 — durable queue, not yet wired to a workload",
+    "durable queue, not yet wired to a workload",
   ],
 ```
 
@@ -570,12 +570,12 @@ Expected: all green. Add a CHANGELOG entry (Added/Changed) for #14.
 
 ```bash
 git add scripts/check-boundaries.mjs packages/shared/src/config.schema.ts CHANGELOG.md docs/
-git commit -s -m "feat(THE-562 #14): wire the durable JobQueue; drop the not-yet-wired allowlist entry
+git commit -s -m "feat(audit #14): wire the durable JobQueue; drop the not-yet-wired allowlist entry
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 git push -u origin <branch>
-gh pr create --base main --title "feat(THE-562 #14): wire the durable JobQueue to its workloads" --body "$(cat <<'EOF'
-Closes THE-562 #14 (extends THE-517). Wires the already-built durable JobQueue to both background workloads via one generic runner.
+gh pr create --base main --title "feat(audit #14): wire the durable JobQueue to its workloads" --body "$(cat <<'EOF'
+Closes audit #14 (extends the durable queue work). Wires the already-built durable JobQueue to both background workloads via one generic runner.
 
 - Generic runner (`scheduler/job-runner.ts`): claims + dispatches by type on the shared scheduler; all durability (lease/retry/dead-letter/cancel) stays in the queue + `runJob`.
 - Contradiction detection → durable jobs (idempotency `vault:chunk`), replacing the in-memory queue that dropped under backpressure. No more silent drops.
@@ -583,7 +583,7 @@ Closes THE-562 #14 (extends THE-517). Wires the already-built durable JobQueue t
 - `JobQueue.stats()` + a `server_health` job-queue block (queued/running/retrying/failed) for backlog + dead-letter visibility.
 - Removes the `job-queue.ts` reachability-allowlist entry — the literal close of #14.
 
-Spec: `docs/superpowers/specs/2026-07-24-the-562-14-durable-job-queue-wiring-design.md`. Follow-up (filed): a `complete`-row retention sweep in the maintenance pass.
+Spec: the job-queue wiring design in `docs/superpowers/specs/`. Follow-up (filed): a `complete`-row retention sweep in the maintenance pass.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF

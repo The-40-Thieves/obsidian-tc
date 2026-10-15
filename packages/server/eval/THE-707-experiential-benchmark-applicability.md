@@ -1,4 +1,4 @@
-# THE-707 — does a public "experiential memory" benchmark fit obsidian-tc? (STEP 0 finding)
+# Does a public "experiential memory" benchmark fit obsidian-tc? (STEP 0 finding)
 
 **Verdict: genuinely poor fit. No adapter was built.** This file records the research so the
 question isn't re-opened from scratch next time it comes up.
