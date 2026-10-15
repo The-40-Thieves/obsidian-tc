@@ -8,7 +8,7 @@ import { err, ObsidianTcError, VaultId, VaultPath } from "@the-40-thieves/obsidi
 import { z } from "zod";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { readEnumerationUnrestricted } from "../../vault/acl-read-filter";
+import { filterBridgeResultItems, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import { noteExists, readNote } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { applyWriteBatch } from "../../vault/write-batch";
@@ -77,7 +77,12 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
           plugin: "templater",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, ...result };
+        return {
+          vault: v.id,
+          ...filterBridgeResultItems(ctx.acl, v.root, ctx.grantedScopes, result, {
+            tool: "list_templates",
+          }),
+        };
       },
     }),
 

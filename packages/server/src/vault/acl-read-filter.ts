@@ -27,7 +27,15 @@ export function readEnumerationUnrestricted(
 export function bridgeItemPath(
   item: unknown,
   keys: readonly string[] = ["path", "note_path", "file", "filePath"],
+  barePath = false,
 ): string | undefined {
+  if (barePath && typeof item === "string" && item.length > 0) {
+    try {
+      return normalizeVaultPath(item);
+    } catch {
+      return undefined;
+    }
+  }
   if (typeof item !== "object" || item === null) return undefined;
   const o = item as Record<string, unknown>;
   for (const k of keys) {
@@ -134,12 +142,12 @@ export function filterBridgeItemsByAcl(
   root: string,
   grantedScopes: Iterable<string>,
   items: unknown[],
-  opts: { tool: string; keys?: readonly string[] },
+  opts: { tool: string; keys?: readonly string[]; barePath?: boolean },
 ): unknown[] {
   const unrestricted = readEnumerationUnrestricted(acl, grantedScopes);
   const out: unknown[] = [];
   for (const it of items) {
-    const rel = bridgeItemPath(it, opts.keys);
+    const rel = bridgeItemPath(it, opts.keys, opts.barePath);
     if (rel === undefined) {
       if (unrestricted) {
         out.push(it);
@@ -166,7 +174,7 @@ export function filterBridgeResultItems(
   root: string,
   grantedScopes: Iterable<string>,
   result: Record<string, unknown>,
-  opts: { tool: string; keys?: readonly string[] },
+  opts: { tool: string; keys?: readonly string[]; barePath?: boolean },
 ): Record<string, unknown> {
   const rows = Array.isArray(result.items) ? (result.items as unknown[]) : [];
   const items = filterBridgeItemsByAcl(acl, root, grantedScopes, rows, opts);

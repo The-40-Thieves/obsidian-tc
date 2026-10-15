@@ -31,6 +31,14 @@ interface Family {
   result: (path: string, text: string) => unknown;
 }
 
+interface UnrestrictedBridgeFamily {
+  tool: "git_status" | "list_templates";
+  installed: string[];
+  route: string;
+  input: Record<string, unknown>;
+  result: (path: string, text: string) => Record<string, unknown>;
+}
+
 const FAMILIES: Family[] = [
   {
     tool: "search_omnisearch",
@@ -59,6 +67,27 @@ const FAMILIES: Family[] = [
     route: "POST /obsidian-tc/v1/tasks/filter",
     input: { filter: "done" },
     result: (path, text) => ({ items: [{ path, line: 1, text }] }),
+  },
+];
+
+const UNRESTRICTED_PATH_FAMILIES: UnrestrictedBridgeFamily[] = [
+  {
+    tool: "git_status",
+    installed: ["git"],
+    route: "POST /obsidian-tc/v1/git/status",
+    input: {},
+    result: (path, text) => ({
+      changed: [{ path, working_dir: text, index: "" }],
+      staged: [{ path, index: text }],
+      conflicted: [path],
+    }),
+  },
+  {
+    tool: "list_templates",
+    installed: ["templater"],
+    route: "POST /obsidian-tc/v1/templater/list",
+    input: {},
+    result: (path, text) => ({ items: [{ path, name: "template", parsed_body: text }] }),
   },
 ];
 
@@ -94,6 +123,164 @@ const dump = (r: { ok: boolean; data?: unknown; error?: unknown }): string =>
 describe.skipIf(process.platform === "win32")(
   "bridge rows are judged on the canonical target",
   () => {
+    describe.each(UNRESTRICTED_PATH_FAMILIES)("$tool: unrestricted bridge paths", (f) => {
+      const call = (v: M4Vault) => v.call(f.tool, { vault: "test", ...f.input });
+
+      it("drops a hard-linked row without refusing the whole capability", async () => {
+        const v = makeM4Vault({
+          files: {
+            "private/secret.md": MARK,
+            "pages/open.md": "open text",
+            "templates/ok.md": "open text",
+          },
+          acl: {},
+          installed: f.installed,
+          routes: { [f.route]: { body: { ok: true, result: f.result("pages/hard.md", MARK) } } },
+        });
+        cleanups.push(v.cleanup);
+        linkSync(join(v.root, "private", "secret.md"), join(v.root, "pages", "hard.md"));
+        expect(readRefused(v, "pages/hard.md")).toBe(true);
+
+        const r = await call(v);
+        expect(r.ok, dump(r)).toBe(true);
+        expect(dump(r)).not.toContain("pages/hard.md");
+        expect(dump(r)).not.toContain(MARK);
+      });
+
+      it.each([".obsidian", ".git", ".trash"])(
+        "drops an alias into the hard-denied %s folder",
+        async (dir) => {
+          const v = makeM4Vault({
+            files: {
+              [`${dir}/plugins/foo/data.md`]: MARK,
+              "templates/ok.md": "open text",
+            },
+            acl: {},
+            installed: f.installed,
+            routes: {
+              [f.route]: {
+                body: {
+                  ok: true,
+                  result: f.result("alias/plugins/foo/data.md", MARK),
+                },
+              },
+            },
+          });
+          cleanups.push(v.cleanup);
+          symlinkSync(join(v.root, dir), join(v.root, "alias"));
+          expect(readRefused(v, "alias/plugins/foo/data.md")).toBe(true);
+
+          const r = await call(v);
+          expect(r.ok, dump(r)).toBe(true);
+          expect(dump(r)).not.toContain("alias/");
+          expect(dump(r)).not.toContain(MARK);
+        },
+      );
+
+      it("makes a hard-denied alias indistinguishable from an aliased nonexistent path", async () => {
+        const aliasPath = "alias/bridge-acl-nonexistent-74291.md";
+        const hidden = makeM4Vault({
+          files: { ".obsidian/bridge-acl-nonexistent-74291.md": MARK },
+          acl: {},
+          installed: f.installed,
+          routes: {
+            [f.route]: {
+              body: { ok: true, result: f.result(aliasPath, MARK) },
+            },
+          },
+        });
+        const missing = makeM4Vault({
+          acl: {},
+          installed: f.installed,
+          routes: {
+            [f.route]: {
+              body: { ok: true, result: f.result(aliasPath, MARK) },
+            },
+          },
+        });
+        cleanups.push(hidden.cleanup, missing.cleanup);
+        symlinkSync(join(hidden.root, ".obsidian"), join(hidden.root, "alias"));
+        symlinkSync("/etc", join(missing.root, "alias"));
+
+        const hiddenResult = await call(hidden);
+        const missingResult = await call(missing);
+        expect(hiddenResult.ok, dump(hiddenResult)).toBe(true);
+        expect(missingResult.ok, dump(missingResult)).toBe(true);
+        expect(dump(hiddenResult)).toBe(dump(missingResult));
+        expect(dump(hiddenResult)).not.toContain("alias/");
+        expect(dump(hiddenResult)).not.toContain(MARK);
+      });
+
+      it("returns an ordinary row unchanged", async () => {
+        const result = f.result("templates/ok.md", "open text");
+        const v = makeM4Vault({
+          files: { "templates/ok.md": "open text" },
+          acl: {},
+          installed: f.installed,
+          routes: { [f.route]: { body: { ok: true, result } } },
+        });
+        cleanups.push(v.cleanup);
+
+        const r = await call(v);
+        expect(r.ok, dump(r)).toBe(true);
+        if (r.ok) expect(r.data).toEqual({ vault: "test", ...result });
+      });
+
+      it("returns a row through an alias to a readable target", async () => {
+        const v = makeM4Vault({
+          files: { "shared/templates/ok.md": "open text" },
+          acl: {},
+          installed: f.installed,
+          routes: {
+            [f.route]: {
+              body: { ok: true, result: f.result("alias2/templates/ok.md", "open text") },
+            },
+          },
+        });
+        cleanups.push(v.cleanup);
+        symlinkSync(join(v.root, "shared"), join(v.root, "alias2"));
+
+        const r = await call(v);
+        expect(r.ok, dump(r)).toBe(true);
+        expect(dump(r)).toContain("alias2/templates/ok.md");
+      });
+
+      it("still refuses a read-whitelisted caller before touching the bridge", async () => {
+        const v = makeM4Vault({
+          files: { "templates/ok.md": "open text" },
+          acl: { readPaths: ["templates/**"] },
+          installed: f.installed,
+          routes: {
+            [f.route]: {
+              body: { ok: true, result: f.result("templates/ok.md", "open text") },
+            },
+          },
+        });
+        cleanups.push(v.cleanup);
+
+        const r = await call(v);
+        expect(r.ok).toBe(false);
+        if (!r.ok) expect(r.error.code).toBe("acl_denied");
+        expect(v.bridgeRequests).toHaveLength(0);
+      });
+    });
+
+    it("git_status keeps an unattributable row for an unrestricted caller", async () => {
+      const result = { changed: [{ working_dir: "M", index: "" }], staged: [], conflicted: [] };
+      const v = makeM4Vault({
+        acl: {},
+        installed: ["git"],
+        routes: {
+          "POST /obsidian-tc/v1/git/status": { body: { ok: true, result } },
+        },
+      });
+      cleanups.push(v.cleanup);
+
+      const r = await v.call("git_status", { vault: "test" });
+      expect(r.ok, dump(r)).toBe(true);
+      if (r.ok) expect(r.data).toEqual({ vault: "test", ...result });
+    });
+
     describe.each(FAMILIES)("$tool", (f) => {
       it("a row naming a denied target through the alias is dropped", async () => {
         const v = vault(f.installed, {

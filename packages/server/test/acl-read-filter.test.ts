@@ -57,10 +57,12 @@ describe("acl-read-filter (D2)", () => {
     ); // THE-268: strict now denies non-whitelisted reads too (fail-closed)
   });
 
-  it("bridgeItemPath extracts the first present key and rejects bad paths", () => {
+  it("bridgeItemPath extracts object fields or a bare path and rejects bad paths", () => {
     expect(bridgeItemPath({ note_path: "A.md", path: "B.md" }, ["note_path", "path"])).toBe("A.md");
     expect(bridgeItemPath({})).toBeUndefined();
-    expect(bridgeItemPath("nope")).toBeUndefined();
+    expect(bridgeItemPath("A.md", undefined, true)).toBe("A.md");
+    expect(bridgeItemPath("../escape.md", undefined, true)).toBeUndefined();
+    expect(bridgeItemPath("unattributable")).toBeUndefined();
     expect(bridgeItemPath({ path: "../escape.md" })).toBeUndefined();
     // a bad value for an earlier key falls through to a later valid key
     expect(
