@@ -1,5 +1,5 @@
 import { linkSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeTempDir, rmTemp } from "./tmp";
 
@@ -191,6 +191,99 @@ describe("pure-JS vault reads refuse linked path components", () => {
     },
   );
 
+  it.runIf(directorySymlinkOk && fileSymlinkOk && nativeNotes?.nativeVaultIo === true)(
+    "matches native refusals for every missing, linked, and non-directory component shape",
+    () => {
+      const cases: Array<{
+        name: string;
+        arrange: (root: string, outside: string) => string;
+      }> = [
+        {
+          name: "symlinked ancestor with no leaf beyond it",
+          arrange: (root, outside) => {
+            symlinkSync(outside, join(root, "sub"), "dir");
+            return join(root, "sub", "missing.md");
+          },
+        },
+        {
+          name: "dangling symlinked ancestor",
+          arrange: (root, outside) => {
+            symlinkSync(join(outside, "missing-dir"), join(root, "sub"), "dir");
+            return join(root, "sub", "missing.md");
+          },
+        },
+        {
+          name: "leaf symlink to a missing outside file",
+          arrange: (root, outside) => {
+            symlinkSync(join(outside, "missing.md"), join(root, "note.md"), "file");
+            return join(root, "note.md");
+          },
+        },
+        {
+          name: "regular file used as an intermediate component",
+          arrange: (root) => {
+            writeFileSync(join(root, "sub"), "not a directory");
+            return join(root, "sub", "note.md");
+          },
+        },
+      ];
+
+      for (const shape of cases) {
+        const fallbackRoot = temp(`otc-fallback-${shape.name}-`);
+        const fallbackOutside = temp(`otc-fallback-outside-${shape.name}-`);
+        const nativeRoot = temp(`otc-native-${shape.name}-`);
+        const nativeOutside = temp(`otc-native-outside-${shape.name}-`);
+        const fallbackPath = shape.arrange(fallbackRoot, fallbackOutside);
+        const nativePath = shape.arrange(nativeRoot, nativeOutside);
+
+        const fallbackError = refusalOf(() => fallbackNotes.readNote(fallbackPath));
+        const nativeError = refusalOf(() => nativeNotes?.readNote(nativePath));
+
+        expect(fallbackError.code, shape.name).toBe("acl_denied");
+        expect(signature(nativeError, [nativeRoot, nativeOutside]), shape.name).toEqual(
+          signature(fallbackError, [fallbackRoot, fallbackOutside]),
+        );
+      }
+    },
+  );
+
+  it.runIf(directorySymlinkOk && nativeNotes?.nativeVaultIo === true)(
+    "does not reveal whether a file beyond a symlinked ancestor exists on either backend",
+    () => {
+      for (const notes of [fallbackNotes, nativeNotes] as const) {
+        const existingRoot = temp("otc-parity-existing-vault-");
+        const existingOutside = temp("otc-parity-existing-outside-");
+        const missingRoot = temp("otc-parity-missing-vault-");
+        const missingOutside = temp("otc-parity-missing-outside-");
+        writeFileSync(join(existingOutside, "note.md"), "SECRET");
+        symlinkSync(existingOutside, join(existingRoot, "sub"), "dir");
+        symlinkSync(missingOutside, join(missingRoot, "sub"), "dir");
+
+        const existing = refusalOf(() => notes?.readNote(join(existingRoot, "sub", "note.md")));
+        const missing = refusalOf(() => notes?.readNote(join(missingRoot, "sub", "note.md")));
+
+        expect(signature(existing, [existingRoot, existingOutside])).toEqual(
+          signature(missing, [missingRoot, missingOutside]),
+        );
+        expect(existing.code).toBe("acl_denied");
+      }
+    },
+  );
+
+  it.runIf(nativeNotes?.nativeVaultIo === true)(
+    "keeps ENOENT when every component before the missing leaf is a real directory",
+    () => {
+      for (const notes of [fallbackNotes, nativeNotes] as const) {
+        const root = temp("otc-parity-ordinary-missing-");
+        mkdirSync(join(root, "sub"));
+
+        const error = refusalOf(() => notes?.readNote(join(root, "sub", "missing.md")));
+
+        expect(error.code).toBe("ENOENT");
+      }
+    },
+  );
+
   it("reads an ordinary nested note exactly", () => {
     const root = temp("otc-fallback-vault-");
     mkdirSync(join(root, "a", "b"), { recursive: true });
@@ -216,5 +309,196 @@ describe("pure-JS vault reads refuse linked path components", () => {
     expect(error.message).toBe(
       "configured symlinked folders require the native module: this path runs through one, and without it (Windows, OBSIDIAN_TC_FORCE_JS_FALLBACK, or an addon-less install) it cannot be opened safely",
     );
+  });
+});
+
+describe("pure-JS no-follow race and platform guards", () => {
+  it("starts the ancestor walk at a known canonical vault root", async () => {
+    const root = temp("otc-fallback-known-root-");
+    const leaf = join(root, "a", "b", "note.md");
+    mkdirSync(join(root, "a", "b"), { recursive: true });
+    writeFileSync(leaf, "known root");
+    const inspected: string[] = [];
+
+    vi.doMock("node:fs", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("node:fs")>();
+      return {
+        ...actual,
+        lstatSync: ((path: Parameters<typeof actual.lstatSync>[0], options?: unknown) => {
+          inspected.push(String(path));
+          return actual.lstatSync(path, options as never);
+        }) as typeof actual.lstatSync,
+      };
+    });
+    process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = "1";
+    vi.resetModules();
+    try {
+      const rootedNotes = await import("../src/vault/notes-io");
+      const rootedLinks = await import("../src/vault/folder-links");
+      const pins = new rootedLinks.FolderPins([{ root }]);
+
+      const note = rootedLinks.withFolderPins(pins, () => rootedNotes.readNote(leaf));
+
+      expect(note.raw).toBe("known root");
+      expect(inspected.length).toBeGreaterThan(0);
+      expect(inspected.every((path) => path === root || path.startsWith(`${root}${sep}`))).toBe(
+        true,
+      );
+    } finally {
+      if (ambientFallback === undefined) delete process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
+      else process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = ambientFallback;
+      vi.doUnmock("node:fs");
+      vi.resetModules();
+    }
+  });
+
+  it.skipIf(!directorySymlinkOk)(
+    "rechecks ancestor identities after the leaf is opened",
+    async () => {
+      const root = temp("otc-fallback-race-vault-");
+      const outside = temp("otc-fallback-race-outside-");
+      const sub = join(root, "sub");
+      const held = join(root, "held");
+      const leaf = join(sub, "note.md");
+      mkdirSync(sub);
+      writeFileSync(leaf, "INSIDE");
+      writeFileSync(join(outside, "note.md"), "OUTSIDE-SECRET");
+      let swapped = false;
+
+      vi.doMock("node:fs", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("node:fs")>();
+        return {
+          ...actual,
+          lstatSync: ((path: Parameters<typeof actual.lstatSync>[0], options?: unknown) => {
+            if (path === leaf && !swapped) {
+              swapped = true;
+              actual.renameSync(sub, held);
+              actual.symlinkSync(outside, sub, "dir");
+            }
+            return actual.lstatSync(path, options as never);
+          }) as typeof actual.lstatSync,
+        };
+      });
+      process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = "1";
+      vi.resetModules();
+      try {
+        const racedNotes = await import("../src/vault/notes-io");
+
+        const error = refusalOf(() => racedNotes.readNote(leaf));
+
+        expect(swapped).toBe(true);
+        expect(error.code).toBe("acl_denied");
+      } finally {
+        if (ambientFallback === undefined) delete process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
+        else process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = ambientFallback;
+        vi.doUnmock("node:fs");
+        vi.resetModules();
+      }
+    },
+  );
+
+  it("normalizes a Windows path before splitting its components", async () => {
+    const abs = "C:/vault/sub/n.md";
+    const leaf = {
+      dev: 1n,
+      ino: 2n,
+      nlink: 1,
+      isDirectory: () => false,
+      isFile: () => true,
+      isSymbolicLink: () => false,
+    };
+    const dir = {
+      ...leaf,
+      ino: 1n,
+      isDirectory: () => true,
+      isFile: () => false,
+    };
+    const symlink = {
+      ...dir,
+      isDirectory: () => false,
+      isSymbolicLink: () => true,
+    };
+
+    vi.doMock("node:path", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("node:path")>();
+      return {
+        ...actual,
+        dirname: actual.win32.dirname,
+        join: actual.win32.join,
+        normalize: actual.win32.normalize,
+        parse: actual.win32.parse,
+        sep: actual.win32.sep,
+      };
+    });
+    vi.doMock("node:fs", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("node:fs")>();
+      return {
+        ...actual,
+        closeSync: vi.fn(),
+        fstatSync: vi.fn(() => leaf),
+        lstatSync: vi.fn((path: string) => {
+          if (path === "C:\\vault\\sub") return symlink;
+          if (path === abs || path === "C:\\vault\\sub\\n.md") return leaf;
+          return dir;
+        }),
+        openSync: vi.fn(() => 42),
+        readFileSync: vi.fn(() => "SECRET"),
+      };
+    });
+    process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = "1";
+    vi.resetModules();
+    try {
+      const windowsNotes = await import("../src/vault/notes-io");
+
+      const error = refusalOf(() => windowsNotes.readNote(abs));
+
+      expect(error.code).toBe("acl_denied");
+    } finally {
+      if (ambientFallback === undefined) delete process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
+      else process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = ambientFallback;
+      vi.doUnmock("node:fs");
+      vi.doUnmock("node:path");
+      vi.resetModules();
+    }
+  });
+
+  it("refuses a non-regular leaf before calling open", async () => {
+    const abs = "/virtual/vault/pipe";
+    const dir = {
+      dev: 1n,
+      ino: 1n,
+      nlink: 1,
+      isDirectory: () => true,
+      isFile: () => false,
+      isSymbolicLink: () => false,
+    };
+    const fifo = { ...dir, ino: 2n, isDirectory: () => false };
+    const open = vi.fn(() => 42);
+
+    vi.doMock("node:fs", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("node:fs")>();
+      return {
+        ...actual,
+        closeSync: vi.fn(),
+        fstatSync: vi.fn(() => fifo),
+        lstatSync: vi.fn((path: string) => (path === abs ? fifo : dir)),
+        openSync: open,
+      };
+    });
+    process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = "1";
+    vi.resetModules();
+    try {
+      const fifoNotes = await import("../src/vault/notes-io");
+
+      const error = refusalOf(() => fifoNotes.readNote(abs));
+
+      expect(error.code).toBe("path_invalid");
+      expect(open).not.toHaveBeenCalled();
+    } finally {
+      if (ambientFallback === undefined) delete process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
+      else process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = ambientFallback;
+      vi.doUnmock("node:fs");
+      vi.resetModules();
+    }
   });
 });

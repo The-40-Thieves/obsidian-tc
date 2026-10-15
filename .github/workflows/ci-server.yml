@@ -322,7 +322,7 @@ jobs:
 
   # The Intel twin of ci-native.yml's macos-native-server-tests, on the two Intel runner labels. It lives
   # HERE, not in ci-native.yml, because that workflow is path-filtered (packages/native/**, its own file,
-  # publish.yml, setup-rust): a server-only change would skip it. Same steps and same six server files,
+  # publish.yml, setup-rust): a server-only change would skip it. Same steps and same eight server files,
   # with x86_64-apple-darwin in place of aarch64. It proves the x64 Darwin addon builds natively, loads,
   # and runs the native server paths. The load assertion fails the job if the addon silently fell back
   # to the JS path.

@@ -27,6 +27,26 @@ try {
 }
 
 describe("walkImportDir", () => {
+  it.skipIf(!symlinkOk)("canonicalizes a root reached through a symlinked ancestor", () => {
+    const parent = makeTempDir("obtc-mi-walk-root-link-");
+    const real = makeTempDir("obtc-mi-walk-root-real-");
+    try {
+      mkdirSync(join(real, "memory"));
+      writeFileSync(join(real, "memory", "note.md"), "linked root content");
+      symlinkSync(real, join(parent, "link"), "dir");
+
+      const { files, skipped } = walkImportDir(join(parent, "link", "memory"), {
+        extensions: [".md"],
+      });
+
+      expect(files).toStrictEqual([{ sourcePath: "note.md", raw: "linked root content" }]);
+      expect(skipped).toStrictEqual([]);
+    } finally {
+      rmTemp(parent);
+      rmTemp(real);
+    }
+  });
+
   it("walks .md files and returns them sorted by source_path", () => {
     const root = makeTempDir("obtc-mi-walk-");
     try {

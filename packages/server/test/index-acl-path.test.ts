@@ -63,7 +63,7 @@ interface World {
     tool: string,
     input: Record<string, unknown>,
     acl: FolderAcl,
-  ) => Promise<{ ok: boolean; data?: any; error?: { code: string } }>;
+  ) => Promise<{ ok: boolean; data?: any; error?: { code: string; message?: string } }>;
   index: (sub: string | undefined, acl: FolderAcl, db?: Database) => Promise<void>;
 }
 
@@ -100,6 +100,7 @@ function makeWorld(db: Database = freshDb()): World {
   const metadataIndex = { hasFts: true, ready: () => true };
   const registry = new ToolRegistry({
     aclResolver: (id) => aclByVault.get(id),
+    folderPins: pins,
     rootResolver: (id) => vaultRegistry.resolve(id).root,
   });
   registerM1Tools(registry, {
@@ -208,6 +209,8 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
           // The premise: the alias name is not a way to read the note.
           const direct = await w.call("read_note", { path: "wiki/secret-project.md" }, ACL_ALIAS);
           expect(direct.ok).toBe(false);
+          expect(direct.error?.code).toBe("acl_denied");
+          expect(direct.error?.message).toContain("outside the read whitelist");
           const r = await w.call(f.tool, f.input, ACL_ALIAS);
           expect(r.ok, dump(r)).toBe(true);
           expect(pathsOf(r.data)).toEqual([]);

@@ -89,11 +89,19 @@ export interface PinnedVault {
 export class FolderPins {
   /** Most specific root first, then the longest alias: the first match is the one that applies. */
   private readonly slots: readonly Slot[];
+  /** Canonical vault roots, most specific first, used to bound fallback filesystem walks. */
+  private readonly roots: readonly string[];
 
   constructor(vaults: ReadonlyArray<PinnedVault>) {
+    this.roots = [...new Set(vaults.map((v) => v.root))].sort((a, b) => b.length - a.length);
     this.slots = vaults
       .flatMap(slotsOf)
       .sort((a, b) => b.root.length - a.root.length || b.alias.length - a.alias.length);
+  }
+
+  /** The canonical vault root containing `abs`, when this dispatch knows one. */
+  rootFor(abs: string): string | undefined {
+    return this.roots.find((root) => under(abs, root));
   }
 
   /** The slot `abs` runs through: by the configured alias, else (a placed pin only) by the pinned
@@ -212,4 +220,9 @@ export function folderPinVerdict(abs: string): FolderPinVerdict {
 export function pinnedOpenPath(abs: string): { path: string; pinned?: PinnedDir } {
   const hit = (frame.getStore() ?? NO_PINS).forSink(abs);
   return hit === undefined ? { path: abs } : { path: hit.path, pinned: hit.pin };
+}
+
+/** The canonical vault root containing `abs` in the current dispatch, when one is registered. */
+export function folderRootForSink(abs: string): string | undefined {
+  return (frame.getStore() ?? NO_PINS).rootFor(abs);
 }

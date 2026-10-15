@@ -14,6 +14,7 @@ import { type Dirent, lstatSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { readNote } from "../vault/notes-io";
 import { resolveVaultPathChecked } from "../vault/paths";
+import { canonicalizeVaultRoot } from "../vault/registry";
 import type { SkippedFile } from "./types";
 
 /** Review finding: a missing/unreadable/not-a-directory `<dir>`, or a `<dir>` that is ITSELF a
@@ -60,7 +61,8 @@ export function checkedImportPath(root: string, relPath: string): string {
  *  dot-directories/files and refusing every symlink and hard link by name (reported, not
  *  silently dropped — the caller's dry-run table needs the reason). */
 export function walkImportDir(root: string, opts: { extensions?: string[] } = {}): WalkResult {
-  assertImportRootUsable(root);
+  const canonicalRoot = canonicalizeVaultRoot(root);
+  assertImportRootUsable(canonicalRoot);
   const exts = opts.extensions?.map((e) => e.toLowerCase());
   const files: WalkedFile[] = [];
   const skipped: SkippedFile[] = [];
@@ -102,7 +104,7 @@ export function walkImportDir(root: string, opts: { extensions?: string[] } = {}
       if (exts && !exts.some((x) => name.toLowerCase().endsWith(x))) continue;
       let checkedAbs: string;
       try {
-        checkedAbs = checkedImportPath(root, rel);
+        checkedAbs = checkedImportPath(canonicalRoot, rel);
       } catch (pathErr) {
         // Surface the REAL reason (traversal, absolute path, a reserved name like `nul.md`, or a
         // genuine realpath-containment escape) instead of a single hardcoded "escapes" string —
@@ -135,7 +137,7 @@ export function walkImportDir(root: string, opts: { extensions?: string[] } = {}
     }
   };
 
-  walk(root, "");
+  walk(canonicalRoot, "");
   files.sort((a, b) => a.sourcePath.localeCompare(b.sourcePath));
   skipped.sort((a, b) => a.sourcePath.localeCompare(b.sourcePath));
   return { files, skipped };
