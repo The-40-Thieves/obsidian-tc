@@ -299,10 +299,7 @@ export function selectChallengeEvidence(pool: readonly EvidenceSource[]): {
 /** Expands only when the index returned a full initial page (`fetched`, counted BEFORE any scope
  *  filter, so a narrowing scope cannot suppress it) and the evidence cut still fell short of the
  *  target, whether from the decision filter, duplicates or the per-note quota. */
-export function shouldExpandChallengeRecall(
-  fetched: number,
-  coverage: ChallengeCoverage,
-): boolean {
+export function shouldExpandChallengeRecall(fetched: number, coverage: ChallengeCoverage): boolean {
   return fetched >= CHALLENGE_RECALL && coverage.kept < CHALLENGE_EVIDENCE_BUDGET.maxItems;
 }
 

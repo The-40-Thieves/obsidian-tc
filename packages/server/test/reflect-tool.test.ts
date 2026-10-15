@@ -28,14 +28,7 @@ function cacheDb0() {
     "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, 'main', ?, 0, '[]', ?, ?, 40, ?, ?)",
   );
   ins.run("c1", "notes/topic.md", "the quorble pattern part one", "h1", NOW, NOW);
-  ins.run(
-    "d1",
-    "09-reference/decisions/2026-01-01-quorble.md",
-    "decision: quorble it",
-    "h2",
-    NOW,
-    NOW,
-  );
+  ins.run("d1", "02-projects/2026-01-01-quorble.md", "decision: quorble it", "h2", NOW, NOW);
   stampAclPath(db);
   ensureChunkFts(db, { now: () => NOW, enrich: false });
   return db;
@@ -148,13 +141,35 @@ describe("reflect tool (THE-222)", () => {
     const res = un<ReflectData>(
       await registry.dispatch(
         "reflect",
-        { vault: "main", query: "let us quorble the whole vault", mode: "challenge" },
+        { vault: "main", query: "quorble", mode: "challenge" },
         ctx,
       ),
     );
     expect(res.mode).toBe("challenge");
     expect(res.challenge?.verdict).toBe("reconsider");
     expect(res.model).toBe("mock-judge");
+  });
+
+  it("challenge mode with no decision evidence refuses instead of asking the judge", async () => {
+    let judged = 0;
+    const counting: GatewayRoles = {
+      ...mockRoles,
+      judge: async (...args) => {
+        judged++;
+        return mockRoles.judge(...args);
+      },
+    };
+    const { registry, ctx } = harness(counting);
+    const res = un<ReflectData & { message?: string }>(
+      await registry.dispatch(
+        "reflect",
+        { vault: "main", query: "quorble pattern", mode: "challenge", scope: "notes" },
+        ctx,
+      ),
+    );
+    expect(res.challenge).toBeUndefined();
+    expect(res.message).toMatch(/no decision-bearing chunks/);
+    expect(judged).toBe(0);
   });
 
   it("persist writes the derived note with provenance; gated on write:notes", async () => {

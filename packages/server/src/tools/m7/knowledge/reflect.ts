@@ -207,6 +207,19 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
         const { evidence, coverage } = challengeSelection as ReturnType<
           typeof selectChallengeEvidence
         >;
+        // Same refusal as knowledge_challenge: no decision evidence means no judge call, not an
+        // unsupported "proceed".
+        if (evidence.length === 0) {
+          return {
+            vault: v.id,
+            mode: "challenge",
+            route: route.signals,
+            available: true,
+            message: `no decision-bearing chunks matched this proposal (${coverage.recalled} recalled, ${coverage.filtered_out} failed the decision filter)`,
+            coverage,
+            sources,
+          };
+        }
         const contradictions = openContradictionsForPaths(
           ctx.db,
           v.id,
