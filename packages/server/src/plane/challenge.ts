@@ -92,6 +92,52 @@ export function parseChallengeOutput(raw: string): ChallengeOutput {
   return challengeOutputSchema.parse(JSON.parse(stripped));
 }
 
+/** What the citation check found in the judge's output. */
+export interface CitationCheck {
+  /** Paths the judge cited that were not among the evidence it was shown. */
+  unresolved: string[];
+  /** Items dropped because none of their cited paths was shown. */
+  droppedItems: number;
+}
+
+/** Keeps only evidence the judge was shown. An item is grounded when at least one of its paths was
+ *  shown; its unseen paths are stripped and reported, and an item with no shown path is dropped. A
+ *  category left with no items is dropped too. A non-"proceed" verdict left with no supported
+ *  category is downgraded to "reconsider" with a neutral summary. */
+export function checkCitations(
+  output: ChallengeOutput,
+  shown: ReadonlySet<string>,
+): { output: ChallengeOutput; citations: CitationCheck } {
+  const unresolved = new Set<string>();
+  let droppedItems = 0;
+  const categories = output.categories.flatMap((cat) => {
+    const items = cat.items.flatMap((item) => {
+      for (const p of item.evidence_paths) if (!shown.has(p)) unresolved.add(p);
+      const grounded = item.evidence_paths.filter((p) => shown.has(p));
+      if (grounded.length === 0) {
+        droppedItems++;
+        return [];
+      }
+      return [{ ...item, evidence_paths: grounded }];
+    });
+    return items.length > 0 ? [{ ...cat, items }] : [];
+  });
+  // A "proceed" asserts no objection, so it needs no citation. Any other verdict is an objection
+  // and survives only while a supported citation backs it, whether the judge's citations were
+  // stripped here or it never cited anything.
+  const unsupportedObjection = output.verdict !== "proceed" && categories.length === 0;
+  return {
+    output: unsupportedObjection
+      ? {
+          verdict: "reconsider",
+          summary: "Insufficient supported evidence to retain the original verdict.",
+          categories,
+        }
+      : { ...output, categories },
+    citations: { unresolved: [...unresolved], droppedItems },
+  };
+}
+
 /** Per-item truncation for the challenge prompt. Exported so the callers that assemble evidence for
  *  it build to the same cap instead of inventing their own — see CHALLENGE_EVIDENCE_BUDGET in
  *  tools/m7/knowledge/retrieval-runtime.ts, which composes this with CHALLENGE_RECALL.
@@ -162,7 +208,12 @@ export async function challengeProposal(
    *  unless dropped. Filtered HERE, once, so both callers share the fix rather than each
    *  reimplementing it. */
   excludeFilter?: EgressFilter,
-): Promise<{ output: ChallengeOutput; model: string; excludedCount: number }> {
+): Promise<{
+  output: ChallengeOutput;
+  model: string;
+  excludedCount: number;
+  citations: CitationCheck;
+}> {
   const excluded = (p: string): boolean =>
     excludeFilter !== undefined && isExcludedPath(excludeFilter, p);
   const keptEvidence = evidence.filter((e) => !excluded(e.path));
@@ -184,5 +235,14 @@ export async function challengeProposal(
       ...keptContradictions.flatMap((c) => [c.source_path, c.conflict_path]),
     ],
   });
-  return { output: parseChallengeOutput(res.text), model: res.model, excludedCount };
+  // A citation is grounded only if the judge was shown that path. Checked here, once, so every
+  // caller that renders the verdict gets the same grounding.
+  const checked = checkCitations(
+    parseChallengeOutput(res.text),
+    new Set([
+      ...keptEvidence.map((e) => e.path),
+      ...keptContradictions.flatMap((c) => [c.source_path, c.conflict_path]),
+    ]),
+  );
+  return { output: checked.output, model: res.model, excludedCount, citations: checked.citations };
 }
