@@ -6,7 +6,7 @@
 import { err, grantsAll, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
-import { challengeProposal, type EvidenceChunk, isDecisionChunk } from "../../../plane/challenge";
+import { challengeProposal } from "../../../plane/challenge";
 import { isExcludedPath } from "../../../plane/egress-filter";
 import { prompt } from "../../../plane/gateway";
 import { buildEvidence } from "../../../search/evidence";
@@ -22,7 +22,8 @@ import { defineTool } from "../../m1/define";
 import type { M7Deps } from "./deps";
 import {
   buildGraphSearchOptions,
-  CHALLENGE_EVIDENCE_BUDGET,
+  CHALLENGE_EXPANDED_RECALL,
+  CHALLENGE_RECALL,
   cacheContextFor,
   capturePolicy,
   noteTagsByPath,
@@ -35,6 +36,9 @@ import {
   resolveAclWalkFilter,
   retrievalHits,
   SYNTHESIS_EVIDENCE_BUDGET,
+  selectChallengeEvidence,
+  shouldExpandChallengeRecall,
+  withCitationCheck,
 } from "./retrieval-runtime";
 import { ReflectOutput } from "./schemas";
 
@@ -43,7 +47,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
     name: "reflect",
     domain: "knowledge",
     description:
-      "The reflect verb (retain/recall/reflect): recall over the vault, then a gateway synthesis pass — one on-demand, query-scoped operation returning a grounded answer with source provenance. mode 'challenge' runs the adversarial red-team over the decision-bearing recall instead (the knowledge_challenge core). persist: true writes the answer as a derived note under the memory folder's reflections/ with source_model + chunk provenance (requires write:notes). Degrades gracefully: without the inference gateway, recall still returns sources with available: false. The sleep-time half (episode-eligibility evaluator + preference profile) runs via the `obsidian-tc reflect` CLI command.",
+      "The reflect verb (retain/recall/reflect): recall over the vault, then a gateway synthesis pass — one on-demand, query-scoped operation returning a grounded answer with source provenance. mode 'challenge' runs the adversarial red-team over the decision-bearing recall instead (the knowledge_challenge core) and returns a coverage object (recalled, decision_matched, filtered_out, kept, dropped, unresolved_evidence_paths). persist: true writes the answer as a derived note under the memory folder's reflections/ with source_model + chunk provenance (requires write:notes); it applies to mode 'synthesis' only and is rejected with mode 'challenge'. Degrades gracefully: without the inference gateway, recall still returns sources with available: false. The sleep-time half (episode-eligibility evaluator + preference profile) runs via the `obsidian-tc reflect` CLI command.",
     inputSchema: z
       .object({
         vault: VaultId,
@@ -73,6 +77,13 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
     requiredScopes: ["read:notes"],
     tags: ["knowledge", "external-network"],
     handler: async (input, ctx) => {
+      // Persist is written only by the synthesis branch. Rejecting the combination here, before any
+      // recall, is what stops it being silently ignored.
+      if (input.mode === "challenge" && input.persist) {
+        throw err.validation(
+          "persist is not supported with mode 'challenge'; use mode 'synthesis'",
+        );
+      }
       const v = deps.vaultRegistry.resolve(input.vault);
       const exclusion = vaultExclusionFor(deps.vaultRegistry, v.id);
       const isReadable = withVaultExclusion(
@@ -90,50 +101,83 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
           })
         : { class: "standard" as const, signals: [] as string[] };
       const policy = capturePolicy(v.id, route.class);
-      let results: GraphSearchResult[];
-      if (route.class === "lexical") {
-        // THE-853: resolve the caller's ACL partition so the lexical-route bm25Chunks call takes
-        // the exact JOIN path (or fails closed) instead of the leaky over-fetch fallback — same
-        // resolution the "standard" route gets for free inside buildGraphSearchOptions below.
-        const walkFilter = resolveAclWalkFilter(
-          ctx.db,
-          v.id,
-          ctx.acl,
-          ctx.grantedScopes,
-          isReadable,
-          exclusion.digest,
-        );
-        results = lexicalRouteResults(
-          ctx.db,
-          v.id,
-          input.query,
-          input.k,
-          isReadable,
-          walkFilter.aclSetId,
-          walkFilter.aclWalkFilter?.blocked,
-        );
-      } else {
-        results = await cachedGraphSearch(
-          ctx.db,
-          buildGraphSearchOptions(deps, {
-            route,
-            query: input.query,
-            vaultId: v.id,
-            finalTopK: input.k,
-            reranker: deps.reranker,
+      // `fetched` is the index's page size BEFORE the scope filter: whether a page came back full
+      // is a fact about the index, not about the caller's scope.
+      const recall = async (
+        k: number,
+      ): Promise<{ results: GraphSearchResult[]; fetched: number }> => {
+        let recalled: GraphSearchResult[];
+        if (route.class === "lexical") {
+          const walkFilter = resolveAclWalkFilter(
+            ctx.db,
+            v.id,
+            ctx.acl,
+            ctx.grantedScopes,
             isReadable,
-            db: ctx.db,
-            acl: ctx.acl,
-            grantedScopes: ctx.grantedScopes,
-            onFusionWeights: policy.sink,
-          }),
-          () => retrieval.embedAll(input.query, input.query),
-          cacheContextFor(deps, ctx, v.id, input.query),
-        );
-      }
-      if (input.scope !== undefined) {
-        const scope = input.scope;
-        results = results.filter((r) => r.path.startsWith(scope));
+            exclusion.digest,
+          );
+          recalled = lexicalRouteResults(
+            ctx.db,
+            v.id,
+            input.query,
+            k,
+            isReadable,
+            walkFilter.aclSetId,
+            walkFilter.aclWalkFilter?.blocked,
+          );
+        } else {
+          recalled = await cachedGraphSearch(
+            ctx.db,
+            buildGraphSearchOptions(deps, {
+              route,
+              query: input.query,
+              vaultId: v.id,
+              finalTopK: k,
+              // The seed streams default to 30, so a deeper challenge page needs them widened too.
+              ...(input.mode === "challenge" && k > CHALLENGE_RECALL ? { seedCount: k } : {}),
+              reranker: deps.reranker,
+              isReadable,
+              db: ctx.db,
+              acl: ctx.acl,
+              grantedScopes: ctx.grantedScopes,
+              onFusionWeights: policy.sink,
+            }),
+            () => retrieval.embedAll(input.query, input.query),
+            cacheContextFor(deps, ctx, v.id, input.query),
+          );
+        }
+        return {
+          results:
+            input.scope === undefined
+              ? recalled
+              : recalled.filter((r) => r.path.startsWith(input.scope as string)),
+          fetched: recalled.length,
+        };
+      };
+      // Challenge recall only runs when the gateway exists: without it the handler returns early
+      // below and no challenge can run, so a deeper page would be pure cost.
+      const challenging = input.mode === "challenge" && Boolean(deps.roles);
+      let page = await recall(challenging ? Math.max(CHALLENGE_RECALL, input.k) : input.k);
+      let results = page.results;
+      let challengeSelection: ReturnType<typeof selectChallengeEvidence> | undefined;
+      if (challenging) {
+        const select = (pool: GraphSearchResult[]) => {
+          const tags = noteTagsByPath(ctx.db, v.id, [...new Set(pool.map((r) => r.path))]);
+          return selectChallengeEvidence(
+            pool.map((r) => ({
+              path: r.path,
+              chunkId: r.chunk_id,
+              tags: tags.get(r.path) ?? null,
+              content: r.content ?? "",
+            })),
+          );
+        };
+        challengeSelection = select(results);
+        if (shouldExpandChallengeRecall(page.fetched, challengeSelection.coverage)) {
+          page = await recall(CHALLENGE_EXPANDED_RECALL);
+          results = page.results;
+          challengeSelection = select(results);
+        }
       }
       deps.retrievalLog?.({
         queryText: input.query,
@@ -143,7 +187,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
         hits: retrievalHits(results),
         policy: policy.record(route.class === "lexical" ? "lexical-route" : "static"),
       });
-      const sources = results.map((r) => ({
+      const sources = results.slice(0, input.k).map((r) => ({
         chunk_id: r.chunk_id,
         path: r.path,
         score: r.rerank_score,
@@ -160,26 +204,29 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
         };
       }
       if (input.mode === "challenge") {
-        const paths = [...new Set(results.map((r) => r.path))];
-        const tags = noteTagsByPath(ctx.db, v.id, paths);
-        // Same shared builder and same budget as knowledge-challenge.ts — these two paths feed the
-        // identical judge prompt and used to build their sets independently (this one sliced to
-        // CHALLENGE_RECALL with no dedup; the other did not slice at all).
-        const evidence: EvidenceChunk[] = buildEvidence(
-          results
-            .filter((r) => isDecisionChunk({ path: r.path, tags: tags.get(r.path) ?? null }))
-            .map((r) => ({
-              path: r.path,
-              chunkId: r.chunk_id,
-              tags: tags.get(r.path) ?? null,
-              content: r.content ?? "",
-            })),
-          CHALLENGE_EVIDENCE_BUDGET,
-        ).items;
-        const contradictions = openContradictionsForPaths(ctx.db, v.id, paths, (rel) =>
-          isReadable(rel),
+        const { evidence, coverage } = challengeSelection as ReturnType<
+          typeof selectChallengeEvidence
+        >;
+        // Same refusal as knowledge_challenge: no decision evidence means no judge call, not an
+        // unsupported "proceed".
+        if (evidence.length === 0) {
+          return {
+            vault: v.id,
+            mode: "challenge",
+            route: route.signals,
+            available: true,
+            message: `no decision-bearing chunks matched this proposal (${coverage.recalled} recalled, ${coverage.filtered_out} failed the decision filter)`,
+            coverage,
+            sources,
+          };
+        }
+        const contradictions = openContradictionsForPaths(
+          ctx.db,
+          v.id,
+          [...new Set(evidence.map((e) => e.path))],
+          (rel) => isReadable(rel),
         );
-        const { output, model, excludedCount } = await challengeProposal(
+        const { output, model, excludedCount, citations } = await challengeProposal(
           deps.roles,
           input.query,
           evidence,
@@ -193,6 +240,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
           available: true,
           model,
           challenge: output,
+          coverage: withCitationCheck(coverage, citations),
           sources,
           ...(excludedCount > 0 ? { excluded_count: excludedCount } : {}),
         };
