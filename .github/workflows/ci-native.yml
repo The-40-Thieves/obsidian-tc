@@ -210,7 +210,7 @@ jobs:
   # (vault-root-symlink-registration.test.ts) — not the full suite: the macOS hosted-runner pool
   # is capped at 5 concurrent jobs account-wide (GitHub Free, see the `build` job above), and this
   # workflow already runs a macOS leg of that build matrix on every PR. A regression in the fix
-  # would show up in any of these six files just as reliably as in the other 111 files #946 named
+  # would show up in any of the files listed below just as reliably as in the other 111 files identified as
   # failing, at a fraction of the runner time a full 4,882-test macOS run would cost.
   macos-native-server-tests:
     runs-on: macos-15
@@ -258,4 +258,4 @@ jobs:
           '
       - name: server tests under native, symlinked-TMPDIR-shaped macOS (THE-1081 / #946)
         working-directory: packages/server
-        run: node ./node_modules/vitest/vitest.mjs run test/base-tools-branch-coverage.test.ts test/notes-tools.test.ts test/federated-search-security.test.ts test/m5-memory-lifecycle.test.ts test/frontmatter-tools-branch-coverage.test.ts test/vault-root-symlink-registration.test.ts
+        run: node ./node_modules/vitest/vitest.mjs run test/base-tools-branch-coverage.test.ts test/notes-tools.test.ts test/federated-search-security.test.ts test/m5-memory-lifecycle.test.ts test/frontmatter-tools-branch-coverage.test.ts test/vault-root-symlink-registration.test.ts test/native-safe-io.test.ts test/vault-fallback-no-follow.test.ts

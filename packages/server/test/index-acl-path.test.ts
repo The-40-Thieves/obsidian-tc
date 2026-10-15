@@ -26,15 +26,16 @@ import { registerM1Tools } from "../src/tools/m1";
 import { registerM2Tools } from "../src/tools/m2";
 import { registerM7Tools } from "../src/tools/m7";
 import { readableByFolder, readableRel } from "../src/vault/acl-read-filter";
+import { FolderPins, withFolderPins } from "../src/vault/folder-links";
 import { nativeVaultIo } from "../src/vault/notes-io";
 import { VaultRegistry } from "../src/vault/registry";
 import { readableStoredRow, storedAclPathOf } from "../src/vault/stored-acl-path";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
-// With the native addon a safe open refuses any path through a symlinked folder, so a pass cannot
-// read (and so cannot index) a note under an alias: the cases that index through one run on the JS
-// fallback only. Every other case here, hard links included, runs on both.
+// Safe opens refuse any unconfigured path through a symlinked folder on every backend. The alias
+// identity cases therefore run only when native I/O can open their configured folder pins; the
+// backend-independent indexNote identity cases and refusal parity cases continue to run everywhere.
 const VAULT = "v";
 const SECRET_PATH = "private/secret-project.md";
 const OPEN_PATH = "pages/open-note.md";
@@ -56,12 +57,13 @@ const ACL_PAGES = cfg({ readPaths: ["pages", "pages/**"] });
 
 interface World {
   root: string;
+  pins: FolderPins;
   db: Database;
   call: (
     tool: string,
     input: Record<string, unknown>,
     acl: FolderAcl,
-  ) => Promise<{ ok: boolean; data?: any; error?: { code: string } }>;
+  ) => Promise<{ ok: boolean; data?: any; error?: { code: string; message?: string } }>;
   index: (sub: string | undefined, acl: FolderAcl, db?: Database) => Promise<void>;
 }
 
@@ -90,11 +92,15 @@ function makeRoot(): string {
 
 function makeWorld(db: Database = freshDb()): World {
   const root = makeRoot();
+  const pins = new FolderPins(
+    nativeVaultIo ? [{ root, wikiFolder: "wiki", rawFolder: "shared" }] : [],
+  );
   const vaultRegistry = new VaultRegistry([{ id: VAULT, path: root }]);
   const aclByVault = new Map<string, FolderAcl>();
   const metadataIndex = { hasFts: true, ready: () => true };
   const registry = new ToolRegistry({
     aclResolver: (id) => aclByVault.get(id),
+    folderPins: pins,
     rootResolver: (id) => vaultRegistry.resolve(id).root,
   });
   registerM1Tools(registry, {
@@ -120,6 +126,7 @@ function makeWorld(db: Database = freshDb()): World {
   });
   return {
     root,
+    pins,
     db,
     call: (tool, input, acl) => {
       aclByVault.set(VAULT, acl);
@@ -131,19 +138,24 @@ function makeWorld(db: Database = freshDb()): World {
         db,
         acl,
       };
-      return registry.dispatch(tool, { vault: VAULT, ...input }, ctx) as Promise<any>;
+      return withFolderPins(
+        pins,
+        () => registry.dispatch(tool, { vault: VAULT, ...input }, ctx) as Promise<any>,
+      );
     },
     // Index time is the caller-independent folder whitelist, exactly as index_vault tool applies it.
     index: async (sub, acl, into = db) => {
-      await indexVault({
-        db: into,
-        provider,
-        representation,
-        vaultId: VAULT,
-        root,
-        ...(sub ? { sub } : {}),
-        isReadable: (rel) => readableByFolder(acl, rel),
-      });
+      await withFolderPins(pins, () =>
+        indexVault({
+          db: into,
+          provider,
+          representation,
+          vaultId: VAULT,
+          root,
+          ...(sub ? { sub } : {}),
+          isReadable: (rel) => readableByFolder(acl, rel),
+        }),
+      );
     },
   };
 }
@@ -187,7 +199,7 @@ const FAMILIES: Array<{ name: string; tool: string; input: Record<string, unknow
 ];
 
 describe.skipIf(process.platform === "win32")("a stored row is authorized on its acl_path", () => {
-  describe.skipIf(nativeVaultIo)(
+  describe.skipIf(!nativeVaultIo)(
     "LEAK: wiki -> private; the row was indexed under the alias",
     () => {
       for (const f of FAMILIES) {
@@ -197,6 +209,8 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
           // The premise: the alias name is not a way to read the note.
           const direct = await w.call("read_note", { path: "wiki/secret-project.md" }, ACL_ALIAS);
           expect(direct.ok).toBe(false);
+          expect(direct.error?.code).toBe("acl_denied");
+          expect(direct.error?.message).toContain("outside the read whitelist");
           const r = await w.call(f.tool, f.input, ACL_ALIAS);
           expect(r.ok, dump(r)).toBe(true);
           expect(pathsOf(r.data)).toEqual([]);
@@ -268,28 +282,31 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
     },
   );
 
-  describe.skipIf(nativeVaultIo)("FAIL-CLOSED BUG: shared -> pages, only pages/** readable", () => {
-    for (const f of FAMILIES.filter((x) => x.name !== "find_notes_by_tag (notes table)")) {
-      it(`${f.name}: the readable note is returned under its display path`, async () => {
+  describe.skipIf(!nativeVaultIo)(
+    "FAIL-CLOSED BUG: shared -> pages, only pages/** readable",
+    () => {
+      for (const f of FAMILIES.filter((x) => x.name !== "find_notes_by_tag (notes table)")) {
+        it(`${f.name}: the readable note is returned under its display path`, async () => {
+          const w = makeWorld();
+          await w.index("shared", ACL_PAGES);
+          const input =
+            f.tool === "find_notes_by_property" ? { key: "kind", value: "open" } : { ...f.input };
+          const r = await w.call(f.tool, input, ACL_PAGES);
+          expect(r.ok, dump(r)).toBe(true);
+          expect(pathsOf(r.data)).toContain("shared/open-note.md");
+        });
+      }
+
+      it("find_notes_by_tag (notes table): the readable note is returned", async () => {
         const w = makeWorld();
         await w.index("shared", ACL_PAGES);
-        const input =
-          f.tool === "find_notes_by_property" ? { key: "kind", value: "open" } : { ...f.input };
-        const r = await w.call(f.tool, input, ACL_PAGES);
-        expect(r.ok, dump(r)).toBe(true);
+        const r = await w.call("find_notes_by_tag", { tag: "opentag" }, ACL_PAGES);
         expect(pathsOf(r.data)).toContain("shared/open-note.md");
       });
-    }
+    },
+  );
 
-    it("find_notes_by_tag (notes table): the readable note is returned", async () => {
-      const w = makeWorld();
-      await w.index("shared", ACL_PAGES);
-      const r = await w.call("find_notes_by_tag", { tag: "opentag" }, ACL_PAGES);
-      expect(pathsOf(r.data)).toContain("shared/open-note.md");
-    });
-  });
-
-  describe.skipIf(nativeVaultIo)(
+  describe.skipIf(!nativeVaultIo)(
     "legacy rows: the migration marks them unresolved, a pass resolves them",
     () => {
       const preMigration = (): Database => {
@@ -342,15 +359,17 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
             return provider.embed(t);
           },
         };
-        await indexVault({
-          db,
-          provider: counting,
-          representation: buildRepresentationManifest(counting, {}),
-          vaultId: VAULT,
-          root: w.root,
-          sub: "wiki",
-          isReadable: (rel) => readableByFolder(ACL_TARGET, rel),
-        });
+        await withFolderPins(w.pins, () =>
+          indexVault({
+            db,
+            provider: counting,
+            representation: buildRepresentationManifest(counting, {}),
+            vaultId: VAULT,
+            root: w.root,
+            sub: "wiki",
+            isReadable: (rel) => readableByFolder(ACL_TARGET, rel),
+          }),
+        );
         expect(embedCalls).toBe(0);
         const after = db
           .prepare("SELECT DISTINCT path, acl_path FROM chunks WHERE path LIKE 'wiki/%'")
@@ -378,7 +397,7 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
   );
 
   describe("the indexer records the identity", () => {
-    it.skipIf(nativeVaultIo)(
+    it.skipIf(!nativeVaultIo)(
       "a pass stores display path and acl_path on chunks and notes; plain notes are their own identity",
       async () => {
         const w = makeWorld();
@@ -395,7 +414,7 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
       },
     );
 
-    it.skipIf(nativeVaultIo)(
+    it.skipIf(!nativeVaultIo)(
       "an unchanged note whose stored identity is stale is re-synced with no re-embed, and the generation moves",
       async () => {
         const w = makeWorld();
@@ -414,18 +433,20 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
       },
     );
 
-    it.skipIf(nativeVaultIo)("the streaming walk records it too", async () => {
+    it.skipIf(!nativeVaultIo)("the streaming walk records it too", async () => {
       const w = makeWorld();
-      await indexVault({
-        db: w.db,
-        provider,
-        representation,
-        vaultId: VAULT,
-        root: w.root,
-        sub: "wiki",
-        isReadable: (rel) => readableByFolder(ACL_TARGET, rel),
-        walk: { streaming: true },
-      });
+      await withFolderPins(w.pins, () =>
+        indexVault({
+          db: w.db,
+          provider,
+          representation,
+          vaultId: VAULT,
+          root: w.root,
+          sub: "wiki",
+          isReadable: (rel) => readableByFolder(ACL_TARGET, rel),
+          walk: { streaming: true },
+        }),
+      );
       expect(w.db.prepare("SELECT DISTINCT path, acl_path FROM chunks").all()).toEqual([
         { path: "wiki/secret-project.md", acl_path: SECRET_PATH },
       ]);
@@ -483,24 +504,34 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
       }
     });
 
-    it.skipIf(nativeVaultIo)(
-      "an unchanged note re-indexed without an identity does not keep a stale one trusted",
-      async () => {
-        const w = makeWorld();
-        await w.index("wiki", ACL_TARGET);
-        await indexNote(
-          w.db,
-          provider,
-          VAULT,
-          "wiki/secret-project.md",
-          FILES[SECRET_PATH] as string,
-          false,
-          Date.now,
-        );
-        const sem = await w.call("search_semantic", { query: "zebra", k: 20 }, ACL_ALIAS);
-        expect(pathsOf(sem.data)).not.toContain("wiki/secret-project.md");
-      },
-    );
+    it("an unchanged note re-indexed without an identity does not keep a stale one trusted", async () => {
+      const w = makeWorld();
+      await indexNote(
+        w.db,
+        provider,
+        VAULT,
+        "wiki/secret-project.md",
+        FILES[SECRET_PATH] as string,
+        false,
+        Date.now,
+        undefined,
+        false,
+        undefined,
+        undefined,
+        SECRET_PATH,
+      );
+      await indexNote(
+        w.db,
+        provider,
+        VAULT,
+        "wiki/secret-project.md",
+        FILES[SECRET_PATH] as string,
+        false,
+        Date.now,
+      );
+      const sem = await w.call("search_semantic", { query: "zebra", k: 20 }, ACL_ALIAS);
+      expect(pathsOf(sem.data)).not.toContain("wiki/secret-project.md");
+    });
   });
 
   // read_note refuses a hard-linked file (st_nlink > 1: realpath cannot see through a hard link, so
@@ -635,16 +666,9 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
       );
       symlinkSync(join(w.root, ".obsidian"), join(w.root, "oalias"));
       const DEFAULT_ACL = cfg({});
-      // Control: the walk does reach the note; only the hard-deny on its identity stops it.
-      if (!nativeVaultIo) {
-        const open = freshDb();
-        await w.index("oalias", undefined as unknown as FolderAcl, open);
-        expect(
-          (open.prepare("SELECT path FROM chunks WHERE path LIKE 'oalias%'").all() as unknown[])
-            .length,
-        ).toBeGreaterThan(0);
-      }
-      await w.index("oalias", DEFAULT_ACL);
+      await expect(
+        w.index("oalias", undefined as unknown as FolderAcl, freshDb()),
+      ).rejects.toMatchObject({ code: "acl_denied" });
       await w.index(undefined, DEFAULT_ACL);
       expect(
         (w.db.prepare("SELECT path FROM chunks WHERE path LIKE 'oalias%'").all() as unknown[])

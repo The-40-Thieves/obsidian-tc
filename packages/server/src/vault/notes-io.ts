@@ -14,9 +14,9 @@ import {
   fsyncSync,
   linkSync,
   lstatSync,
-  mkdirSync,
   openSync,
   readFileSync,
+  readlinkSync,
   readSync,
   renameSync,
   rmdirSync,
@@ -26,7 +26,7 @@ import {
   unlinkSync,
   writeSync,
 } from "node:fs";
-import { basename, dirname, join, parse, relative, sep } from "node:path";
+import { basename, dirname, join, normalize, relative, sep } from "node:path";
 import {
   err,
   ObsidianTcError,
@@ -44,39 +44,124 @@ import {
   probePath,
   refuseJsThroughPin,
 } from "./native-io";
+import { verifyWalkedDirectories, walkDirectoriesNoFollow } from "./no-follow-walk";
 import { assertCreatableName, contentHash } from "./paths";
 
 // O_NOFOLLOW is POSIX-only (undefined on Windows Node): 0 is a no-op there, and the st_nlink inode
 // check is the cross-platform guard.
 const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 
-// THE-272: prefer the native, symlink-safe, TOCTOU-free open when the compiled module is loaded: it
-// follows no symlink in ANY path component (vault/native-io.ts). Without it (unsupported platform, no
-// addon, or `OBSIDIAN_TC_FORCE_JS_FALLBACK=1`) the JS path keeps its documented residual, and refuses
-// any path that runs through a configured symlinked (pinned) folder.
+// Prefer the native, symlink-safe, TOCTOU-free open when the compiled module is loaded: it follows
+// no symlink in any path component (vault/native-io.ts). Without it, the JS path lstats every
+// component and verifies the opened leaf's identity. That refuses stable links on every platform;
+// unlike openat, it cannot make the intermediate component checks atomic with the leaf open.
 export { nativeVaultIo };
-
-/** Reclassify a native safe-open rejection at `abs`: a genuinely-missing path keeps ENOENT
- *  semantics (matching the JS path's openSync), while a path that resolves — through a symlink or a
- *  hard link — but was refused is surfaced as acl_denied (fail-closed) rather than a raw napi error. */
-function mapNativeReadError(e: unknown, abs: string): never {
-  if (!existsSync(abs)) {
-    const enoent = new Error(`ENOENT: no such file, open '${abs}'`) as NodeJS.ErrnoException;
-    enoent.code = "ENOENT";
-    throw enoent;
-  }
-  throw err.aclDenied(`safe open refused the path: ${(e as Error).message}`, { path: abs });
-}
 
 function nativeRead(io: NativeVaultIo, abs: string): Buffer {
   const { path, pinned } = nativeOpen(abs);
   return io.safeReadNote(path, pinned);
 }
 
-/** The JS read path: refuse a path through a pinned folder, else open `abs` as it is. */
-function fallbackOpenPath(abs: string): string {
-  refuseJsThroughPin(abs);
-  return abs;
+const fallbackReadRefused = (message: string, abs: string): ObsidianTcError =>
+  err.aclDenied(`safe open refused the path: ${message}`, { path: abs });
+
+const readWalkOptions = (abs: string) => ({
+  create: false,
+  onSymlink: (component: string): never => {
+    throw fallbackReadRefused(
+      `refusing symlinked or missing path component: ${JSON.stringify(component)}`,
+      abs,
+    );
+  },
+  onNotDirectory: (component: string): never => {
+    throw fallbackReadRefused(
+      `refusing symlinked or missing path component: ${JSON.stringify(component)}`,
+      abs,
+    );
+  },
+});
+
+function missingReadPath(abs: string): never {
+  const enoent = new Error(`ENOENT: no such file, open '${abs}'`) as NodeJS.ErrnoException;
+  enoent.code = "ENOENT";
+  throw enoent;
+}
+
+/** Classify a native refusal without following any component while deciding ENOENT vs refusal. */
+function mapNativeReadError(e: unknown, abs: string): never {
+  // Classify the path the native open actually walked: under a configured pinned folder that is
+  // the real directory, not the alias spelling, so a missing note there stays ENOENT.
+  const path = normalize(nativeOpen(abs).path);
+  try {
+    walkDirectoriesNoFollow(dirname(path), readWalkOptions(path));
+    const leaf = lstatSync(path);
+    if (leaf.isSymbolicLink()) {
+      throw fallbackReadRefused("refusing symlinked or missing file", path);
+    }
+  } catch (error) {
+    if (error instanceof ObsidianTcError) throw error;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") missingReadPath(path);
+    throw fallbackReadRefused(
+      `native path classification failed: ${(error as Error).message}`,
+      path,
+    );
+  }
+  throw fallbackReadRefused((e as Error).message, path);
+}
+
+/**
+ * Open a JS-fallback read without following a stable symlink or junction in any component.
+ * `refuseJsThroughPin` stays first so configured-folder callers retain its more specific message.
+ * The opened-leaf identity check closes the lstat/open swap for the leaf; only the native openat
+ * walk can make the intermediate checks and open one atomic descriptor-relative operation.
+ */
+function fallbackOpen(abs: string): number {
+  const path = normalize(abs);
+  refuseJsThroughPin(path);
+  const ancestors = walkDirectoriesNoFollow(dirname(path), readWalkOptions(path));
+  const leaf = lstatSync(path, { bigint: true });
+  if (leaf.isSymbolicLink()) {
+    throw fallbackReadRefused("refusing symlinked or missing file", path);
+  }
+  if (!leaf.isFile()) {
+    throw err.pathInvalid("not a regular file", { path });
+  }
+
+  let fd: number;
+  try {
+    fd = openSync(path, constants.O_RDONLY | O_NOFOLLOW);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ELOOP") {
+      throw fallbackReadRefused("refusing symlinked or missing file", path);
+    }
+    throw e;
+  }
+  try {
+    const opened = fstatSync(fd, { bigint: true });
+    if (opened.dev !== leaf.dev || opened.ino !== leaf.ino) {
+      throw fallbackReadRefused("file changed while opening", path);
+    }
+    verifyWalkedDirectories(ancestors, (component) => {
+      throw fallbackReadRefused(
+        `path component changed while opening: ${JSON.stringify(component)}`,
+        path,
+      );
+    });
+    if (process.platform === "linux") {
+      try {
+        if (normalize(readlinkSync(`/proc/self/fd/${fd}`)) !== path) {
+          throw fallbackReadRefused("opened file resolved to an unexpected path", path);
+        }
+      } catch (e) {
+        if (e instanceof ObsidianTcError) throw e;
+        // procfs is optional; ancestor and leaf identity checks remain authoritative without it.
+      }
+    }
+    return fd;
+  } catch (e) {
+    closeSync(fd);
+    throw e;
+  }
 }
 
 export interface NoteStat {
@@ -114,7 +199,7 @@ export function readNote(abs: string): { raw: string; hash: string } {
       mapNativeReadError(e, abs);
     }
   }
-  const fd = openSync(fallbackOpenPath(abs), constants.O_RDONLY);
+  const fd = fallbackOpen(abs);
   try {
     assertRegularSingleLink(fd, abs);
     const raw = readFileSync(fd, "utf8");
@@ -134,7 +219,7 @@ export function readNoteBounded(abs: string, maxBytes: number): { raw: string | 
       mapNativeReadError(e, abs);
     }
   }
-  const fd = openSync(fallbackOpenPath(abs), constants.O_RDONLY);
+  const fd = fallbackOpen(abs);
   try {
     assertRegularSingleLink(fd, abs);
     const buf = Buffer.allocUnsafe(maxBytes + 1);
@@ -159,7 +244,7 @@ export function readFileChecked(abs: string): Buffer {
       mapNativeReadError(e, abs);
     }
   }
-  const fd = openSync(fallbackOpenPath(abs), constants.O_RDONLY);
+  const fd = fallbackOpen(abs);
   try {
     assertRegularSingleLink(fd, abs);
     return readFileSync(fd);
@@ -186,32 +271,16 @@ function noteExistsConcurrently(): ObsidianTcError {
  * Pure-JS residual: lstat and the later open are not one atomic step; the native path re-checks.
  */
 export function ensureDirNoFollow(dir: string, create = true): void {
-  const { root } = parse(dir);
-  let cur = root;
-  for (const seg of dir.slice(root.length).split(sep)) {
-    if (seg === "") continue;
-    cur = join(cur, seg);
-    let st: Stats | null;
-    try {
-      st = lstatSync(cur);
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "ENOENT" || !create) throw e;
-      st = null;
-    }
-    if (st === null) {
-      assertCreatableName(seg, seg);
-      try {
-        mkdirSync(cur);
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-      }
-      st = lstatSync(cur);
-    }
-    if (st.isSymbolicLink())
-      throw err.aclDenied("refusing a symlinked path component", { path: seg });
-    if (!st.isDirectory())
-      throw err.pathInvalid("a path component is not a directory", { path: seg });
-  }
+  walkDirectoriesNoFollow(dir, {
+    create,
+    beforeCreate: (component) => assertCreatableName(component, component),
+    onSymlink: (component) => {
+      throw err.aclDenied("refusing a symlinked path component", { path: component });
+    },
+    onNotDirectory: (component) => {
+      throw err.pathInvalid("a path component is not a directory", { path: component });
+    },
+  });
 }
 
 /** Commit `tmp` to `abs` ONLY IF `abs` does not exist: `link(tmp, abs)` fails EEXIST, then `tmp` is

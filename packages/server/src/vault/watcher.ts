@@ -109,10 +109,9 @@ export type WatchResolution =
  * covers the other:
  *
  *   lstat + isFile()  — SYMLINKS. `walkVault` classifies from readdir Dirents, whose isFile() is
- *     false for a symlink, so index_vault silently skips them. readNote alone would NOT catch this:
- *     its open() follows the symlink and its fstat then describes the TARGET, which for an ordinary
- *     file passes every check. The walk protects the normal path, so the walk's test is what has to
- *     be reproduced.
+ *     false for a symlink, so index_vault silently skips them. readNote also refuses linked path
+ *     components, but the watch still reproduces the walk's classification so a linked leaf is a
+ *     delete rather than an indexing error.
  *   readNote()        — HARD LINKS. lstat alone would NOT catch these: a hard link IS a regular
  *     file (isFile() true, nlink 2), so a second name for an inode outside the vault reads as an
  *     ordinary note. readNote's assertRegularSingleLink fstats the OPEN fd and refuses nlink > 1 —

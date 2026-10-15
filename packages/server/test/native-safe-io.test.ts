@@ -8,6 +8,7 @@
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { resolveAttachmentFolder } from "../src/formats/attachments";
 import { nativeVaultIo, readNote, writeNoteAtomic } from "../src/vault/notes-io";
 import { makeTempDir, rmTemp } from "./tmp";
 
@@ -21,9 +22,8 @@ function trySymlink(target: string, link: string, type: "dir" | "file"): boolean
   }
 }
 
-describe("THE-272 native symlink-safe vault I/O", () => {
+describe.skipIf(!nativeVaultIo)("native symlink-safe vault I/O", () => {
   it("reads a normal note through the native path", () => {
-    if (!nativeVaultIo) return;
     const root = makeTempDir("otc-safe-");
     try {
       writeFileSync(join(root, "note.md"), "hello native\n");
@@ -34,7 +34,6 @@ describe("THE-272 native symlink-safe vault I/O", () => {
   });
 
   it("writes atomically through the native path (nested dir)", () => {
-    if (!nativeVaultIo) return;
     const root = makeTempDir("otc-safe-");
     try {
       writeNoteAtomic(join(root, "sub", "note.md"), "written\n", true);
@@ -45,7 +44,6 @@ describe("THE-272 native symlink-safe vault I/O", () => {
   });
 
   it("refuses to read a note whose ANCESTOR directory is a symlink", () => {
-    if (!nativeVaultIo) return;
     const root = makeTempDir("otc-toctou-");
     const outside = makeTempDir("otc-outside-");
     try {
@@ -62,7 +60,6 @@ describe("THE-272 native symlink-safe vault I/O", () => {
   });
 
   it("refuses to read a note that is itself a symlink", () => {
-    if (!nativeVaultIo) return;
     const root = makeTempDir("otc-toctou-");
     const outside = makeTempDir("otc-outside-");
     try {
@@ -70,6 +67,19 @@ describe("THE-272 native symlink-safe vault I/O", () => {
       mkdirSync(join(root, "pub"));
       if (!trySymlink(join(outside, "secret.md"), join(root, "pub", "link.md"), "file")) return;
       expect(() => readNote(join(root, "pub", "link.md"))).toThrow();
+    } finally {
+      rmTemp(root);
+      rmTemp(outside);
+    }
+  });
+
+  it("does not read attachment settings through a symlinked .obsidian directory", () => {
+    const root = makeTempDir("otc-toctou-");
+    const outside = makeTempDir("otc-outside-");
+    try {
+      writeFileSync(join(outside, "app.json"), '{"attachmentFolderPath":"SYMLINK-SECRET"}');
+      if (!trySymlink(outside, join(root, ".obsidian"), "dir")) return;
+      expect(resolveAttachmentFolder(root)).toBe("");
     } finally {
       rmTemp(root);
       rmTemp(outside);

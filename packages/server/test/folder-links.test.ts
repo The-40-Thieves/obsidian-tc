@@ -77,6 +77,17 @@ describe.skipIf(process.platform === "win32" || !nativeVaultIo)(
       expect(readUnder(p, join(root, "wiki", "a.md")).raw).toBe("page A\n");
     });
 
+    it("a missing note under a configured symlinked folder is ENOENT, not a refusal", () => {
+      const { root } = vault();
+      symlinkSync(join(root, "pages"), join(root, "wiki"));
+      const p = pin(root, "wiki");
+      for (const rel of ["wiki/missing.md", "wiki/sub/missing.md"]) {
+        expect(() => readUnder(p, join(root, rel))).toThrow(
+          expect.objectContaining({ code: "ENOENT" }),
+        );
+      }
+    });
+
     it("refuses a symlinked folder that is NOT configured", () => {
       const { root } = vault();
       symlinkSync(join(root, "notes"), join(root, "planted"));

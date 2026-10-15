@@ -11,9 +11,10 @@
 // both the root and the deepest existing segment of the target through symlinks. Reused here
 // verbatim with the import directory standing in for "vault root" — the guarantee is identical.
 import { type Dirent, lstatSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { readNote } from "../vault/notes-io";
 import { resolveVaultPathChecked } from "../vault/paths";
+import { canonicalizeVaultRoot } from "../vault/registry";
 import type { SkippedFile } from "./types";
 
 /** Review finding: a missing/unreadable/not-a-directory `<dir>`, or a `<dir>` that is ITSELF a
@@ -60,7 +61,11 @@ export function checkedImportPath(root: string, relPath: string): string {
  *  dot-directories/files and refusing every symlink and hard link by name (reported, not
  *  silently dropped — the caller's dry-run table needs the reason). */
 export function walkImportDir(root: string, opts: { extensions?: string[] } = {}): WalkResult {
-  assertImportRootUsable(root);
+  // Canonicalize the parent only: a root that is itself a symlink must still reach
+  // assertImportRootUsable's refusal, while a symlinked ancestor is resolved.
+  const resolved = resolve(root);
+  const canonicalRoot = join(canonicalizeVaultRoot(dirname(resolved)), basename(resolved));
+  assertImportRootUsable(canonicalRoot);
   const exts = opts.extensions?.map((e) => e.toLowerCase());
   const files: WalkedFile[] = [];
   const skipped: SkippedFile[] = [];
@@ -102,7 +107,7 @@ export function walkImportDir(root: string, opts: { extensions?: string[] } = {}
       if (exts && !exts.some((x) => name.toLowerCase().endsWith(x))) continue;
       let checkedAbs: string;
       try {
-        checkedAbs = checkedImportPath(root, rel);
+        checkedAbs = checkedImportPath(canonicalRoot, rel);
       } catch (pathErr) {
         // Surface the REAL reason (traversal, absolute path, a reserved name like `nul.md`, or a
         // genuine realpath-containment escape) instead of a single hardcoded "escapes" string —
@@ -135,7 +140,7 @@ export function walkImportDir(root: string, opts: { extensions?: string[] } = {}
     }
   };
 
-  walk(root, "");
+  walk(canonicalRoot, "");
   files.sort((a, b) => a.sourcePath.localeCompare(b.sourcePath));
   skipped.sort((a, b) => a.sourcePath.localeCompare(b.sourcePath));
   return { files, skipped };
