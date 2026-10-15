@@ -1,18 +1,18 @@
-# docgen — automated documentation pipeline (THE-470)
+# docgen — automated documentation pipeline
 
-Generates the reference docs from the code so they can never drift. See Linear THE-470 (epic) and its
-sub-issues THE-471…THE-477.
+Generates the reference docs from the code so they can never drift. See the tracking epic and its
+sub-issues.
 
 ## Pipeline
 
 ```
-code ──(extractors, THE-471)──▶ docs-model.json ──(renderers, THE-472)──▶ markdown
+code ──(extractors)──▶ docs-model.json ──(renderers)──▶ markdown
                                                           │
-                       inject.ts (THE-473) ───────────────┼─▶ wiki / docs pages  (marker regions, filled at build)
-                       astro (THE-474) ──────────────────┼─▶ docs/ site
-                       wiki publisher (THE-475) ─────────┴─▶ obsidian-tc.wiki.git
+                       inject.ts ───────────────┼─▶ wiki / docs pages  (marker regions, filled at build)
+                       astro ──────────────────┼─▶ docs/ site
+                       wiki publisher ─────────┴─▶ obsidian-tc.wiki.git
                                                           │
-                       drift gate + coverage lint (THE-476) enforces regeneration in CI
+                       drift gate + coverage lint enforces regeneration in CI
 ```
 
 Marker regions are committed **empty** and filled at build time (`bun run docgen:render`; docs
@@ -25,12 +25,12 @@ no region: they link to the generated tool catalog instead.
 ## What's here now (bootstrap)
 
 - **`model.ts`** — `DocsModel`, the single normalized structure every extractor targets and every
-  renderer reads (THE-471 foundation).
-- **`inject.ts`** — `injectGenerated(source, name, content)` (THE-473): idempotent replacement of a
+  renderer reads (foundation).
+- **`inject.ts`** — `injectGenerated(source, name, content)`: idempotent replacement of a
   `<!-- BEGIN GENERATED: name --> … <!-- END GENERATED: name -->` region. Prose outside markers is
   preserved byte-for-byte.
 
-## Next commits (THE-471 extractors)
+## Next commits (extractors)
 
 - `extract-tools.ts` — enumerate the registry, `describeCapability` → `ToolDoc[]`
 - `extract-config.ts` — walk the config schema → `ConfigDoc[]`
@@ -46,7 +46,7 @@ Any hand-authored doc opts in to a generated block by adding a marker pair:
 ```
 
 `injectGenerated` fills only between the markers; everything else stays as written. The docs-drift CI
-gate (THE-476) regenerates and `git diff --exit-code`s these regions, so a PR that changes a tool or
+gate regenerates and `git diff --exit-code`s these regions, so a PR that changes a tool or
 config key without regenerating fails.
 
 ## Per-tool pages (build time, not committed)

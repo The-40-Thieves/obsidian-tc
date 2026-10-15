@@ -577,7 +577,7 @@ export function parseCliArgs(argv: string[]): CliCommand {
         return {
           kind: "error",
           message:
-            "--max-judged is no longer supported on `reflect`: THE-701 removed the episode-eligibility judge it capped, and the pass is now purely deterministic. The citation-infer command's --max-judged is unaffected.",
+            "--max-judged is no longer supported on `reflect`: an earlier change removed the episode-eligibility judge it capped, and the pass is now purely deterministic. The citation-infer command's --max-judged is unaffected.",
         };
       const scan = [...rest];
       const i = scan.indexOf("--config");

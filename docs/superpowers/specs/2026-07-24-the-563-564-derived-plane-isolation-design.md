@@ -1,19 +1,19 @@
-# Derived-cognition plane isolation — THE-563 / THE-564 (+ audit #9, P1.6 deep-half)
+# Derived-cognition plane isolation (+ audit #9, P1.6 deep-half)
 
 **Date:** 2026-07-24
-**Parent:** THE-562 (Codex full-repo audit 2026-07-23 triage)
-**Tickets:** THE-563 (P0.1), THE-564 (P0.2), plus two "cheap mechanical" tail items folded from THE-562's body: audit #9 (migration completeness gate) and P1.6 deep-half (`reflect.persist` governed write).
+**Parent:** Codex full-repo audit 2026-07-23 triage)
+**Tickets:** P0.1, P0.2, plus two "cheap mechanical" tail items folded from the audit body: audit #9 (migration completeness gate) and P1.6 deep-half (`reflect.persist` governed write).
 **Baseline:** `main` @ `b2209bd`.
 
 ## Problem
 
 The derived-cognition plane (contradictions, syntheses, and the reflect/challenge surfaces that read them) does not carry a vault namespace, and does not re-authorize the *sources* of a derived row before returning it. Two consequences:
 
-1. **No namespace (THE-563).** `contradictions` has no `vault_id`; `syntheses` is keyed `(iso_year, iso_week)` — one global row per ISO week. `runSynthesis` reads chunks from *every* vault and writes one blended weekly record. Path-equal notes in different vaults collide on the contradiction readers. Single-user today (a privacy-hygiene/correctness failure — the weekly synthesis blends the `agents` and `main` vaults); a cross-domain leak where vaults are authorization domains (the public product's SECURITY.md claim).
+1. **No namespace.** `contradictions` has no `vault_id`; `syntheses` is keyed `(iso_year, iso_week)` — one global row per ISO week. `runSynthesis` reads chunks from *every* vault and writes one blended weekly record. Path-equal notes in different vaults collide on the contradiction readers. Single-user today (a privacy-hygiene/correctness failure — the weekly synthesis blends the `agents` and `main` vaults); a cross-domain leak where vaults are authorization domains (the public product's SECURITY.md claim).
 
-2. **No all-source re-authorization (THE-564).** A derived row references two sources (`source_path`, `conflict_path`). Readers verify only the paths the caller supplied / the packed evidence, then surface *both* sides plus a model rationale — the opposite side can be outside the caller's readable set, and can be sent to the inference gateway.
+2. **No all-source re-authorization.** A derived row references two sources (`source_path`, `conflict_path`). Readers verify only the paths the caller supplied / the packed evidence, then surface *both* sides plus a model rationale — the opposite side can be outside the caller's readable set, and can be sent to the inference gateway.
 
-Both are the same defect class as already-fixed tickets: THE-310 (added `vault_id` to `vault_edges`) and THE-543 (rechecked every prewarm-cache path against the caller ACL before serving). This work extends those established patterns to the plane.
+Both are the same defect class as already-fixed tickets: an earlier fix (added `vault_id` to `vault_edges`) and another (rechecked every prewarm-cache path against the caller ACL before serving). This work extends those established patterns to the plane.
 
 ## Invariants (the contract this work establishes)
 
@@ -26,22 +26,22 @@ Both are the same defect class as already-fixed tickets: THE-310 (added `vault_i
 
 | # | Item | Ticket |
 |---|------|--------|
-| 1 | `vault_id` on `contradictions` + `syntheses`; per-vault synthesis + contradiction persistence | THE-563 |
-| 2 | All-source ACL recheck on contradiction read/challenge/model-egress paths | THE-564 |
+| 1 | `vault_id` on `contradictions` + `syntheses`; per-vault synthesis + contradiction persistence | P0.1 |
+| 2 | All-source ACL recheck on contradiction read/challenge/model-egress paths | P0.2 |
 | 3 | Migration file/manifest completeness CI gate | audit #9 |
 | 4 | Route `reflect.persist` through the governed note-write service | audit P1.6 (deep half) |
 
-**Out of scope** (remain tracked in THE-562's body, decided item-by-item later): P1.4 (rule-scope enforcement vs doc-deprecate), P1.5 (`read:docs` vault `kind`), P1.7 (caller partitioning authorization), P1.8 (learned-state namespace doc), #10 (release cut), #13 (idempotency finalize-fault), #14 (job-queue workload), #15 (`bm25_weight`), #16 (retrieval-head health), #17 (`npx`/Windows boundary).
+**Out of scope** (remain tracked in the audit body, decided item-by-item later): P1.4 (rule-scope enforcement vs doc-deprecate), P1.5 (`read:docs` vault `kind`), P1.7 (caller partitioning authorization), P1.8 (learned-state namespace doc), #10 (release cut), #13 (idempotency finalize-fault), #14 (job-queue workload), #15 (`bm25_weight`), #16 (retrieval-head health), #17 (`npx`/Windows boundary).
 
 ## Design
 
-### Item 1 — THE-563: namespace the plane
+### Item 1 — namespace the plane
 
 **Migration** — new `packages/server/src/migrations/20260724_001_plane_vault_id.sql`, appended to `CACHE_MIGRATIONS` in `db/provision.ts` (version `20260724_001`).
 
-Contradictions and syntheses are **regenerable derived caches** — contradictions re-flag on the next reindex, syntheses regenerate on the next weekly run. Existing rows have no recoverable `vault_id` (a contradiction may pair chunks from different vaults; a synthesis blended all vaults). Following THE-310's `vault_edges` precedent, we **purge** rather than backfill a guessed value.
+Contradictions and syntheses are **regenerable derived caches** — contradictions re-flag on the next reindex, syntheses regenerate on the next weekly run. Existing rows have no recoverable `vault_id` (a contradiction may pair chunks from different vaults; a synthesis blended all vaults). Following the `vault_edges` precedent, we **purge** rather than backfill a guessed value.
 
-> **Note (industry-default vs this case).** The general multi-tenant guidance (Citus, Azure Cosmos for PostgreSQL) is to add `tenant_id` and **backfill** existing rows — but that assumes the correct value is *recoverable* (e.g. deriving `store_id` on `line_items` via a join to `orders`). That precondition fails here: the correct namespace of a blended contradiction/synthesis row is unrecoverable. When the value is unrecoverable **and** the data regenerates, purge is the justified exception to the backfill default — the same reasoning THE-310 applied. (Validated by deep research 2026-07-24; report in the branch scratchpad.)
+> **Note (industry-default vs this case).** The general multi-tenant guidance (Citus, Azure Cosmos for PostgreSQL) is to add `tenant_id` and **backfill** existing rows — but that assumes the correct value is *recoverable* (e.g. deriving `store_id` on `line_items` via a join to `orders`). That precondition fails here: the correct namespace of a blended contradiction/synthesis row is unrecoverable. When the value is unrecoverable **and** the data regenerates, purge is the justified exception to the backfill default — the same reasoning applied to `vault_edges`. (Validated by deep research 2026-07-24; report in the branch scratchpad.)
 
 ```sql
 -- contradictions: purge unscoped rows, add vault_id, re-scope the dedup index.
@@ -86,9 +86,9 @@ Rationale for `DISTINCT vault_id FROM chunks` over threading `VaultRegistry`: sy
 - `tools/m7/knowledge-tools.ts` `vault_context` synthesis LIKE query (~line 430): add `AND vault_id = ?` bound to `input.vault`.
 - `openContradictionsForPaths` (see Item 2 — gains a `vaultId` parameter and a `WHERE vault_id = ?` predicate).
 
-### Item 2 — THE-564: all-source ACL on derived objects
+### Item 2 — all-source ACL on derived objects
 
-Mirror THE-543's prewarm recheck (`readableRel(ctx.acl, rel)` over every referenced path).
+Mirror the prewarm recheck (`readableRel(ctx.acl, rel)` over every referenced path).
 
 **`openContradictionsForPaths`** — signature changes from `(db, paths)` to `(db, vaultId, paths, isReadable)`:
 - `WHERE vault_id = ?` (I1 gate) **and** `(source_path IN (...) OR conflict_path IN (...))` as today.
@@ -101,7 +101,7 @@ Mirror THE-543's prewarm recheck (`readableRel(ctx.acl, rel)` over every referen
 
 **Syntheses boundary (explicit).** A synthesis row is a whole-vault aggregate and does **not** carry a per-source path list, so per-path ACL is not enforceable on it — the vault predicate (I1) is the enforceable gate: a caller with any read grant in the vault may see that vault's synthesis patterns. This is stated as a known boundary, not silently skipped; it matches the audit framing ("563 = first gate for syntheses").
 
-**Two-layer design is deliberate (pre- + post-fetch).** OWASP's RAG guidance prefers pushing authorization *into* the query (pre-retrieval) over "retrieve-all-then-filter," whose risk is leaking the *similarity scores* of restricted documents. This design already pushes the coarse gate into SQL — the vault predicate (`WHERE vault_id = ?`, I1) is pre-retrieval — and applies the per-path ACL as a **post-fetch drop**, mirroring THE-543's shipped layer-3 recheck. The score-leak concern is vector-search-specific (ANN ranking); it does not transfer to a `contradictions` lookup keyed on exact path membership, so post-fetch dropping of unreadable-source rows is sound here. Per-path ACL is not cleanly SQL-expressible for folder-glob rules, and THE-543 already sets the post-fetch-recheck precedent. (Validated by deep research 2026-07-24.)
+**Two-layer design is deliberate (pre- + post-fetch).** OWASP's RAG guidance prefers pushing authorization *into* the query (pre-retrieval) over "retrieve-all-then-filter," whose risk is leaking the *similarity scores* of restricted documents. This design already pushes the coarse gate into SQL — the vault predicate (`WHERE vault_id = ?`, I1) is pre-retrieval — and applies the per-path ACL as a **post-fetch drop**, mirroring the shipped layer-3 recheck. The score-leak concern is vector-search-specific (ANN ranking); it does not transfer to a `contradictions` lookup keyed on exact path membership, so post-fetch dropping of unreadable-source rows is sound here. Per-path ACL is not cleanly SQL-expressible for folder-glob rules, and the prewarm recheck already sets the post-fetch-recheck precedent. (Validated by deep research 2026-07-24.)
 
 ### Item 3 — audit #9: migration completeness gate
 
@@ -122,7 +122,7 @@ Minimal: no codegen — a single assertion over the two source-of-truth lists.
 - **atomic write** (`writeNoteAtomic` tmp+rename) → a reader can catch a torn file,
 - **index-on-write + generation bump** (`deps.reindex`) → the derived note is never indexed and stale caches aren't invalidated.
 
-The scope-check half of P1.6 (wildcard-aware `grantsAll`) is already fixed (THE-562 / PR #396).
+The scope-check half of P1.6 (wildcard-aware `grantsAll`) is already fixed (PR #396).
 
 Fix:
 - Extract the governed core of `write_note` (notes-tools.ts:455–458: read-prior → `captureSnapshot` → `writeNoteAtomic` → `reindex`) into a small shared helper in `vault/` (e.g. `persistGovernedNote`) so `write_note` and `reflect.persist` cannot drift.
@@ -144,7 +144,7 @@ Gate before merge: `biome` + `tsc` (×4 packages) + server test suite green.
 
 - Isolated **git worktree** off `main` (the `~/obsidian-tc` symlink shares `.git` with `~/src/obsidian-tc`; `[ -d .git ]` is not isolation — use `git worktree add`).
 - Commits in dependency order: **563 → 564 → #9 → P1.6**, each DCO-signed (`git commit -s`).
-- One PR under parent THE-562. Merge only once the full gate is green and CI has a non-zero check count (no stale/zero-run green).
+- One PR under the parent audit. Merge only once the full gate is green and CI has a non-zero check count (no stale/zero-run green).
 
 ## Risks / notes
 

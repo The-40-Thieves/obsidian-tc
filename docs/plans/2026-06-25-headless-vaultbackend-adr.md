@@ -1,7 +1,7 @@
-# Headless VaultBackend ADR (THE-255) — lean v1
+# Headless VaultBackend ADR — lean v1
 
 **Status:** Accepted (design locked at G2, trimmed at G3). Normal PR — G1 is closed.
-**Branch:** `mislam2/the-255-obsidian-tc-headless-vaultbackend-full-vault-state`
+**Branch:** `mislam2/obsidian-tc-headless-vaultbackend-full-vault-state`
 
 > **2026-07-30 update (WP0.2):** the `VaultBackend` interface and `FilesystemBackend` class
 > described below have been **deleted** — see
@@ -44,7 +44,7 @@ corrupt and rebuilds on next launch. Direct atomic writes are correct in both st
   caveat: a file open in the live app with unsaved edits races the editor buffer
   (last-writer-wins, identical to any external editor or git).
 - **D2.** No new dispatcher abstraction in v1. The existing bridge client already dispatches
-  commands / QuickAdd / Templater / URI. THE-255 adds only `assertLive()` + the
+  commands / QuickAdd / Templater / URI. This work adds only `assertLive()` + the
   `requires_live_obsidian` error that Tier-3 tools raise before hitting the bridge headless.
 - **D3.** Mode resolution is per-vault. Config `mode: live | headless | auto`; `auto` probes
   via `bridge/probe.ts` once at startup and caches; default `auto`. Explicit `live`/`headless`
@@ -60,8 +60,8 @@ corrupt and rebuilds on next launch. Direct atomic writes are correct in both st
   basic due date). No Dataview dependency. Full Tasks-plugin emoji set deferred.
 - **D7.** Tool partition: Tier-1 read and Tier-2 write vault-state are always available; Tier-3
   (action-firing, link-aware app ops, app-computed reads) is live-only.
-- **D8 (G3).** v1 is decoupled from THE-219: runtime `requires_live_obsidian` degrade only. The
-  "headless feeds THE-219 a default hidden set" integration waits until THE-219 merges.
+- **D8 (G3).** v1 is decoupled from the default-hidden set: runtime `requires_live_obsidian` degrade only. The
+  "headless feeds the default hidden set" integration waits until that work merges.
 
 ## Degradation contract
 
@@ -102,7 +102,7 @@ wired to the backend with Tier-3 `assertLive` degrade; tests.
 - `chokidar` external-change watcher (index-on-write + boot reconcile cover v1).
 - Filesystem link-rewriter for headless rename/move; `links_not_updated` soft-warning type.
 - `readBytes` / `stat` backend methods (no in-scope caller — M3 formats read as text/JSON).
-- THE-219 default-hidden integration (waits until THE-219 merges).
+- Default-hidden integration (waits until that work merges).
 - Server-side Dataview-DQL / Templater evaluators; full Tasks-plugin emoji set.
 
 Build only on proven headless-agent demand.

@@ -57,7 +57,7 @@ Usage:
                                           default: every other check is offline, and a "module"
                                           provider is never probed at all.
   obsidian-tc compact [path] [--dry-run] [--into <dir>] [--json <file>]
-                                          Reclaim disk from cache.db and experiential.db (THE-1039):
+                                          Reclaim disk from cache.db and experiential.db:
                                           FTS5 'optimize' on every notes_fts/chunk_fts table
                                           present (a full merge — heavier than the maintenance
                                           sweep's bounded 'merge', which runs automatically and
@@ -84,25 +84,25 @@ Usage:
                                           and changes nothing.
   obsidian-tc plugin install --vault <p>  Copy the companion plugin into <p>/.obsidian/plugins/
   obsidian-tc index [path] [--vault id] [--folder rel/path]
-                                          Chunk and embed the vault into the search index (THE-697).
+                                          Chunk and embed the vault into the search index.
                                           Incremental: unchanged content hashes are skipped, removed
                                           chunks pruned. The operator path for a reindex — the
                                           index_vault tool cannot hold an HTTP request open long
                                           enough for a large vault. --folder requires --vault.
                                           Exits non-zero if any note failed to embed, since those
                                           notes are indexed but NOT retrievable.
-  obsidian-tc cluster [path] [--k N]      Recompute chunk clusters for diversified retrieval (THE-73)
-  obsidian-tc activation-recompute [path] Recompute ACT-R activation from retrieval history (THE-227)
+  obsidian-tc cluster [path] [--k N]      Recompute chunk clusters for diversified retrieval
+  obsidian-tc activation-recompute [path] Recompute ACT-R activation from retrieval history
   obsidian-tc prefetch [path] [--vault id] [--ttl-hours N]
-                                          Prewarm the session-bootstrap context cache (THE-136)
+                                          Prewarm the session-bootstrap context cache
   obsidian-tc densify-llm [path] [--vault id]
                                           LLM Pass-3 semantic-edge densification via the local gateway (graph densification)
   obsidian-tc reflect [path]
-                                          Sleep-time reflect: stamp episode eligibility + update the preference profile (THE-222)
+                                          Sleep-time reflect: stamp episode eligibility + update the preference profile
   obsidian-tc rerun <session-id> [path] [--vault <id>] [--sandbox] [--json]
                                         Re-issue a recorded session's captured tool arguments
                                         against current vault state and report which calls
-                                        diverged (THE-645 item 3). RE-EXECUTION, not stubbed
+                                        diverged. RE-EXECUTION, not stubbed
                                         replay: results were never captured, so there is nothing
                                         to substitute. Requires \`sessions.traceContent\` to have
                                         been ON when the session was recorded; otherwise every
@@ -131,7 +131,7 @@ Usage:
                             [--max-judged N] [--judge-concurrency N] [--min-judged-for-kill N] [--allow-uncertain]
                                           Infer which retrieved chunks were actually USED in a response
                                           and stamp cited_in_response / citation_score / citation_state
-                                          over the retrievals in scope (THE-170). Two stages: a cheap
+                                          over the retrievals in scope. Two stages: a cheap
                                           ROUGE-L/cosine filter, then a gateway judge over the
                                           survivors. The transcript is assistant-side text no MCP
                                           surface supplies, so it is fed in rather than observed.
@@ -140,7 +140,7 @@ Usage:
                                           and runs ONE PASS PER ENTRY — a window spanning several
                                           queries has several answers, and scoring chunks against
                                           their concatenation attributes citations across queries
-                                          that never saw each other (THE-717). Ambiguous and empty
+                                          that never saw each other. Ambiguous and empty
                                           entries are SKIPPED and reported, never guessed at. The
                                           transcript must already be filtered to text produced AFTER
                                           retrieved_at.
@@ -150,29 +150,29 @@ Usage:
                                           traffic; raise it when the judge role has real inference
                                           capacity behind it. --min-judged-for-kill floors the
                                           parse-failure kill switch (default 10) so one bad reply
-                                          cannot abort a small pass (THE-621). --allow-uncertain lets
+                                          cannot abort a small pass. --allow-uncertain lets
                                           the judge abstain — dark by default, since it moves rows out
                                           of the citation count.
   obsidian-tc metrics [path] [--vault id] [--since ms] [--until ms] [--stale-days N] [--json file]
-                                          Knowledge-health scorecard from the derive layer (THE-44/46)
+                                          Knowledge-health scorecard from the derive layer
   obsidian-tc config explain [path] [--source env|file|profile|default|derived] [--json]
                                           Trace every resolved config value to WHERE it came from.
-                                          Secrets report their SOURCE, never their value (THE-518)
+                                          Secrets report their SOURCE, never their value
   obsidian-tc note-quality [path] [--vault id] [--flags a,b] [--limit N] [--suggest]
                                           Recompute the note_quality rollup and list flagged notes:
-                                          duplicate | orphan | stale_edit | stale_access | contradicted | tombstoned (THE-537)
+                                          duplicate | orphan | stale_edit | stale_access | contradicted | tombstoned
                                           --suggest additionally prints one remediation line per
-                                          flag (never writes to the vault) (THE-643)
+                                          flag (never writes to the vault)
   obsidian-tc gaps [path] --queries <file> [--vault id] [--threshold T] [--min-results N] [--json file]
   obsidian-tc gaps [path] --calibrate <golden.yaml> [--vault id]
-                                          Knowledge-gap detector / threshold calibration (THE-48)
+                                          Knowledge-gap detector / threshold calibration
   obsidian-tc forget [path] (--episode <id> | --note <rel-path>) [--erase] [--vault id]
-  obsidian-tc forget [path] --verify      Dependency-aware deletion + hash-chained audit (THE-239)
+  obsidian-tc forget [path] --verify      Dependency-aware deletion + hash-chained audit
   obsidian-tc context-export [path] --out <file> [--vault id]
                                           Export the derived plane (preferences, episodes,
                                           note_quality, retrieval feedback, forget_log — the 9
                                           experiential.db tables) as a versioned, vendor-neutral
-                                          JSON bundle (THE-636). --out is REQUIRED and refused
+                                          JSON bundle. --out is REQUIRED and refused
                                           if it resolves inside any configured vault's root —
                                           the bundle is derived personal data and must never be
                                           indexed/synced like vault content. --vault narrows the
@@ -180,7 +180,7 @@ Usage:
                                           and forget_log have no vault axis and always export in
                                           full. A tombstoned/blocked episode is never included.
   obsidian-tc context-import <bundle> [path] [--vault id] [--dry-run]
-                                          Import a context-export bundle (THE-636). Every row is
+                                          Import a context-export bundle. Every row is
                                           schema-validated before any write; a format_version
                                           mismatch or one malformed row aborts the whole import
                                           with nothing written. Idempotent (re-importing the same
@@ -193,7 +193,7 @@ Usage:
                                           Pull highlights from a configured read-later source
                                           (Readwise's v2 export API, the only adapter so far) and
                                           stage them in capture_queue as source: "import" for
-                                          commit_capture review (THE-650) — the same staged,
+                                          commit_capture review — the same staged,
                                           human-gated path every capture producer uses; nothing
                                           here writes to the vault directly. INERT with no
                                           readwise.token configured: exits 0 with NO network call.
@@ -208,7 +208,7 @@ Usage:
                                           Pull passive screen observations from a configured
                                           ambient-capture backend (Pensieve, the only adapter so
                                           far) and stage them in capture_queue as source: "ambient"
-                                          for commit_capture review (THE-175) — the same staged,
+                                          for commit_capture review — the same staged,
                                           human-gated path every capture producer uses; nothing
                                           here writes to the vault directly. Secret-shaped
                                           substrings in the captured text are redacted BEFORE
@@ -224,7 +224,7 @@ Usage:
   obsidian-tc memory import --from <basic-memory|claude-code-memory> <dir> [path] --vault <id>
                              [--apply] [--resume]
                                           Import external memory notes as entities in the
-                                          memory graph (THE-1124), through the same create_entity
+                                          memory graph, through the same create_entity
                                           / add_observation / link_entities / update_frontmatter
                                           tools an MCP client calls — ACL-checked (the caller's
                                           folder ACL for --vault, built from [path]/--config the
@@ -265,7 +265,7 @@ Usage:
   obsidian-tc consolidate --once [--dry-run] [path]
                                           Run (or evaluate) one ambient sleep-time consolidation
                                           pass — a single synthesis + audit job — without arming
-                                          the recurring plane.intervalMinutes schedule (THE-934).
+                                          the recurring plane.intervalMinutes schedule.
                                           CLI-only, no MCP tool: an agent-callable trigger would be
                                           the unattended behaviour egress.excludePaths exists to
                                           keep off the model. --dry-run reports the candidate
@@ -300,7 +300,7 @@ Usage:
                                           Mint a bearer token signed with the registry's active key
                                           (HS256, ES256 or EdDSA). --kid pins the mint to that key
                                           and refuses a retiring, retired or unknown one. Refuses to mint without an aud when the config binds one,
-                                          or a --ttl above auth.tokenTtlSeconds (THE-658). Records
+                                          or a --ttl above auth.tokenTtlSeconds. Records
                                           the token's jti and signing kid in <cacheDir>/auth.db (not
                                           regenerable: back it up) so it can be revoked with
                                           'auth revoke'.
@@ -366,7 +366,7 @@ Usage:
   obsidian-tc elicit [path] --hash <args_hash> --tool <name> [--vault <id>] [--caller <id>]
                         [--state-fp <fp>] [--json]
                                           Mint a single-use HITL confirmation token bound to the
-                                          args_hash an elicit_required error returned (THE-826) —
+                                          args_hash an elicit_required error returned —
                                           the route to a token for a client that cannot complete the
                                           MCP elicitation prompt (unsupported, or auto-cancelled by a
                                           headless client such as Claude Code). Authorization is

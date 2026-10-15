@@ -2,16 +2,16 @@
 
 Extracted from inline commentary, 2026-08-21. The code carries the invariants; this note carries the history and evidence.
 
-## 20260818_001_vault_context_watermark.sql (THE-647 item 1)
+## 20260818_001_vault_context_watermark.sql (item 1)
 
-Borrows THE-461's `activation_state` discipline (capture the new watermark BEFORE the diff read,
+Borrows the `activation_state` discipline (capture the new watermark BEFORE the diff read,
 persist it only AFTER the response is composed, never regress) rather than re-deriving it — see the
 migration header and `context-watermark.ts` for the full reasoning.
 
-Not `workspace_sessions`: THE-714 found it stays empty in production, so the watermark could not be
+Not `workspace_sessions`: a review found it stays empty in production, so the watermark could not be
 anchored there.
 
-## EXPERIENTIAL_MIGRATION_FILES — THE-713, the admission test
+## EXPERIENTIAL_MIGRATION_FILES — the admission test
 
 Four shipped migration headers describe this store's charter and appear to contradict each other:
 `20260626_001_experiential_init` says it holds *"only NON-RECONSTRUCTABLE keep-state"*, while
@@ -45,48 +45,48 @@ editing a shipped migration is a hard startup error, so those four sentences can
 and this manifest is the nearest editable home that every reader of the chain already passes
 through.
 
-## 20260805_002_score_calibration.sql (THE-733)
+## 20260805_002_score_calibration.sql
 
 `gaps --calibrate` printed the per-vault calibrated score distribution and returned, so no
 percentile existed at query time — the only number reachable from the request path was a global
 constant from an n=136 calibration on ONE vault. This migration persists the distribution instead.
 
-## 20260806_001_retire_retrieval_outcome.sql (THE-718, final)
+## 20260806_001_retire_retrieval_outcome.sql (final)
 
 Measured 0 stamps across 108 rows for `chunk_retrievals.outcome`. The column was unreachable until
 2026-08-03, so the zero is not low adoption of a working signal — the column never had a caller
 that could write it.
 
-## 20260806_004_citation_runs_judge_errors.sql (THE-717 follow-up)
+## 20260806_004_citation_runs_judge_errors.sql (follow-up)
 
 Both live passes logged 3/3 "parse failures" that were, every one of them, an HTTP 404 — a judge
 that is DOWN was recorded identically to a judge that is BABBLING before this split.
 
-## 20260806_006_episode_eligibility_reason.sql (THE-746)
+## 20260806_006_episode_eligibility_reason.sql
 
-THE-672's measurement had to diff two hand-made database copies to learn which eligibility rule
+A measurement had to diff two hand-made database copies to learn which eligibility rule
 fired for a given episode. This migration records the reason and the policy version directly so a
 later policy change is distinguishable from a data change without that manual diff.
 
-## 20260816_001_episode_type_structural.sql (THE-839)
+## 20260816_001_episode_type_structural.sql
 
 `episode_type` had been the literal `'tool_call'` for every captured operation since
 `20260711_002_agent_episodes.sql` — 630 rows, one distinct value, no information. 192 of them
 (30.5%) turned out to be MCP protocol methods arriving through `dispatchResource`, not tool calls.
 
-## 20260816_002_episode_verdict_at.sql (THE-726)
+## 20260816_002_episode_verdict_at.sql
 
 Measured 4.82 dispatches per session on average. Without `verdict_at` + `session_id` establishing
 window identity, the preference extractor read N projected rows as N independent observations — a
 single 18-dispatch task would consume 18 of its 40 evidence slots.
 
-## 20260818_002_chunk_access_stats_excludes_advisory.sql (THE-634)
+## 20260818_002_chunk_access_stats_excludes_advisory.sql
 
 Found via adversarial review, not routine testing: the proactive-advisory sweep's pushed-not-retrieved
 rows were silently bumping `access_count`/`last_accessed_at`, clearing `note_quality`'s
 `stale_access` flag and inflating `metrics.ts`'s knowledge-health scorecard.
 
-## 20260820_001_preference_scope_caller.sql (THE-891 item 6)
+## 20260820_001_preference_scope_caller.sql (item 6)
 
 The mapping of a NULL caller to `''` (human-shared scope) was chosen deliberately to avoid
 repeating the NULL-`vault_id` invented-attribution mistake from the earlier global-scope design

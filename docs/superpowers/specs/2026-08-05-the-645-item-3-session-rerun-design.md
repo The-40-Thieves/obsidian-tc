@@ -1,28 +1,28 @@
-# Session Re-run (THE-645 item 3) — Design
+# Session Re-run — Design
 
 **Date:** 2026-08-05
-**Ticket:** THE-645 item 3 — *"sessions cannot be replayed"*. Items 1 and 2 shipped (#563, #718).
-**Depends on:** THE-736 (#721, merged) — the trace carries arguments for the first time.
+**Ticket:** item 3 — *"sessions cannot be replayed"*. Items 1 and 2 shipped (#563, #718).
+**Depends on:** PR #721 (merged) — the trace carries arguments for the first time.
 **Status:** approved design → implementation plan next.
 
 ## Problem
 
-THE-645 item 3 asks for a way to *"re-run a recorded sequence against current vault state for
+This item asks for a way to *"re-run a recorded sequence against current vault state for
 debugging or regression testing."*
 
 Until #721 that was impossible: every dispatch appended `args_hash` (a hash) and `result_size` (a
 number) and nothing else, so a runner would know `patch_note` had been called and have nothing to
-send. THE-736 closed that — `TraceRecord.args` now carries the raw arguments when
+send. A prior change closed that — `TraceRecord.args` now carries the raw arguments when
 `sessions.traceContent` is on (`workspace/sessions.ts:353-373`).
 
 Three properties of that capture shape the whole design, and none of them are negotiable here
-because each was decided in THE-736 rather than by this ticket:
+because each was decided in the prior change rather than by this ticket:
 
 1. **Arguments only. Results are not captured**, and deliberately so — results are strictly larger
    and more sensitive. What is recorded per call is `status`, `error_code`, `result_size` and
    `duration_ms`.
 2. **Capture is dark by default.** `sessions.traceContent` defaults `false`
-   (`shared/src/config/runtime.schema.ts:175-180`), gated on the THE-238 red-team. On the current
+   (`shared/src/config/runtime.schema.ts:175-180`), gated on the red-team review. On the current
    production deployment **every** trace record therefore has no `args` field at all.
 3. **Captured arguments never leave through `get_session_traces`.** That tool is
    `read:workspace`-scoped, does not filter by principal, and strips `args`/`args_scan` on the way
@@ -36,7 +36,7 @@ effect repeats. That is the Temporal / event-sourcing model, and it is what repl
 modes in agent frameworks do.
 
 **obsidian-tc cannot do that, and the reason is a decision already taken rather than a limitation of
-this design.** Reconstruction needs recorded results; THE-736 captured arguments and explicitly not
+this design.** Reconstruction needs recorded results; The prior change captured arguments and explicitly not
 results. So the design space has exactly one member: **re-execution** — re-issue the recorded inputs
 against live code and current state, and compare what comes back.
 
@@ -75,7 +75,7 @@ Flow:
 
 1. Look up the session row by id → `trace_path` + `trace_store`.
 2. Resolve through the existing `resolveTracePath` (`sessions.ts:80`, *"the ONE place a stored
-   `trace_path` becomes an absolute path"*), so pre-THE-737 rows with `trace_store = 'vault'` still
+   `trace_path` becomes an absolute path"*), so rows from before that change with `trace_store = 'vault'` still
    resolve.
 3. `readTrace(abs)` → records; keep `type === "tool_invocation"`, ordered by `ts`.
 4. Assign each record a verdict (below). Only `runnable` records are dispatched.
@@ -114,7 +114,7 @@ second, independent layer sits at `vault/acl-path.ts:44`, which denies any non-`
 **So observe mode is a read-only ACL, and the runner classifies nothing.** A runner-side "is this
 tool mutating" list would be a second copy of a rule that already exists, and the two can disagree —
 which is how a re-run eventually executes a write it believed was a read. One derivation, not two;
-the same principle THE-645 item 2 applied when `visibilityOf` was made to delegate to
+the same principle an earlier item applied when `visibilityOf` was made to delegate to
 `explainVisibility`.
 
 Mutating calls come back as `forbidden`, which the runner records as a skip. The verdict is the
@@ -230,7 +230,7 @@ the live one.
 
 `examples/scratch-vault/` is *not* the sandbox target. It holds three notes in total — `README.md`,
 `Welcome.md` and `00-example/Example Note.md` — and exists for contributor onboarding; a session
-recorded against a real vault diverges on its first `read_note` against it. THE-645's note that
+recorded against a real vault diverges on its first `read_note` against it. The earlier note that
 scratch-vault "makes that option cheaper" is true of its existence and not of its usefulness here.
 
 ## Testing
@@ -259,7 +259,7 @@ the runner, so the test supplies its own `mkdtempSync` directory for traces.
 
 - **Reconstruction / stubbed replay.** Impossible without captured results; see above.
 - **Enabling `sessions.traceContent`.** That flag's flip is an operator decision still gated on the
-  THE-238 red-team. This design consumes the capture; it does not turn it on.
+  red-team review. This design consumes the capture; it does not turn it on.
 - **Capturing results.** A separate capture-posture decision, larger exposure, nobody has needed it.
 - **An MCP tool surface.** Deferred, cheap to add later because the runner is a library function.
 - **`result_size` as a pass/fail oracle.** Reported, never asserted.

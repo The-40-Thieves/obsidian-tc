@@ -2,7 +2,7 @@
 
 The release flow is **single-command staging + a human-pushed tag**. Everything before the tag is
 automated and gated; the tag is the one deliberate human step — an irreversible npm/ghcr publish
-should never fire from an unattended merge (THE-256). Pushing a `v*` tag fires
+should never fire from an unattended merge. Pushing a `v*` tag fires
 `.github/workflows/publish.yml`; nothing publishes on a branch push or pull request. CI
 (build/test, coverage, native, plugin, docs) runs on every PR — publishing does not.
 
@@ -47,15 +47,15 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
    Muse Code plugin manifests under `plugins/obsidian-tc` (with the exact `obsidian-tc@<version>`
    their launchers pin, `scripts/lib/plugin-manifest-versions.mjs`), and the companion
    plugin's `manifest.json` / `package.json` / `versions.json` in lockstep — including mirroring
-   the bumped plugin `manifest.json` onto the repo-root `manifest.json`, THE-950), folds
+   the bumped plugin `manifest.json` onto the repo-root `manifest.json`), folds
    every `changes/*.md` fragment (and any text already in `CHANGELOG.md`'s `[Unreleased]` section)
    into a new dated version section, deletes the consumed fragments, rewrites `bun.lock`'s
-   `workspaces[*].version` fields for the four lockstep workspace members (THE-948: `bun install`
+   `workspaces[*].version` fields for the four lockstep workspace members (`bun install`
    does not refresh these after a version-only `package.json` bump, so `release.mjs` does it
    itself, via `scripts/lib/bun-lock-workspace-versions.mjs`, before running `bun install`), runs
    `bun run format`, and runs the coherence gate. It does **not** commit, push, or tag.
 
-   THE-944: `packages/reranker-local` is not a root workspace member (its own README explains why),
+   `packages/reranker-local` is not a root workspace member (its own README explains why),
    but its version stays in lockstep too — the `publish-reranker-local` CI job's F3-style
    already-published preflight skips publishing any version already on npm, so a version that never
    moved would make every release after the owner's one-time first manual publish silently no-op.
@@ -96,11 +96,10 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
    every npm package `server.json` references resolving live on npmjs — see *MCP Registry publish*
    below) → standalone binaries →
    Docker/ghcr → the `.mcpb` bundle → the companion-plugin assets → a published GitHub Release
-   with checksums (`draft-release`) → the un-prefixed plugin release (`mirror-plugin-release`,
-   THE-955) → the Smithery listing (`publish-smithery`, THE-956). See *What a tag produces* and
+   with checksums (`draft-release`) → the un-prefixed plugin release (`mirror-plugin-release`) → the Smithery listing (`publish-smithery`). See *What a tag produces* and
    *Ordered npm publish* below for the details.
 
-   **RC tags (THE-957).** `verify-tag` classifies the version ONCE
+   **RC tags.** `verify-tag` classifies the version ONCE
    (`scripts/release-version-info.mjs`, a hyphen in the version means a prerelease — `1.28.0-rc.1`,
    `1.28.0-beta`) and every downstream job now reads that single `needs.verify-tag.outputs.*`
    classification instead of each re-deriving its own. Tagging a prerelease version therefore
@@ -111,10 +110,10 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
    - Docker: the image still gets its version tag, but **no `:latest` tag** is pushed.
    - GitHub Release: `draft-release` passes `prerelease: true` and `make_latest: false` to
      `action-gh-release`, so an RC is marked as a prerelease **and** never becomes "Latest" —
-     before THE-957 this step passed neither flag, so an RC tag would have published as a normal,
+     before this fix, this step passed neither flag, so an RC tag would have published as a normal,
      Latest release, which `/releases/latest`, BRAT and the Obsidian community directory all read.
    - `mirror-plugin-release` and `publish-smithery` both skip outright: no un-prefixed mirror tag
-     and no live Smithery listing for a prerelease (unchanged from THE-955/THE-956, now reading
+     and no live Smithery listing for a prerelease (unchanged from the earlier steps, now reading
      the shared classification instead of recomputing it).
 
 5. **Verify the assets** — the Release is already PUBLISHED, not a draft: `draft-release` creates it as
@@ -155,7 +154,7 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
      case-sensitive); the image is verified by digest with the identity pattern in `SECURITY.md`, which accepts exactly the `publish.yml` release-tag identity and the `release-image.yml` recovery identity from `main` (`cosign verify
      ghcr.io/the-40-thieves/obsidian-tc@sha256:<digest> ...`, see `SECURITY.md`).
 
-6. **Confirm the registry entry (THE-940).** `publish-registry` runs mcp-publisher non-interactively
+6. **Confirm the registry entry.** `publish-registry` runs mcp-publisher non-interactively
    and its own job log is the primary signal, but confirm the entry actually landed rather than
    trusting a green job in isolation (the same "red job can still have shipped almost everything, and
    a green one is not proof either" caution as step 5). Use the exact-match endpoint, not
@@ -205,11 +204,11 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
      `obsidian`, `obsidian-md`, `rust`, `typescript` as of this task) and add any newly-relevant
      one; there is no automated coherence gate for topics the way there is for the tool count.
 
-8. **Fire the directory listings (THE-945).** The registry entry from step 6 only reaches an
+8. **Fire the directory listings.** The registry entry from step 6 only reaches an
    aggregator that scrapes it (Glama, PulseMCP); the companion plugin's community-store submission
    is a one-time, owner-run form (see prerequisite note below); Smithery and mcp.so used to each
    need their own manual submission too. **Smithery is now automatic** (`publish-smithery`,
-   THE-956, gated identically to `publish-registry` — a real `v*` tag only): this step is
+   gated identically to `publish-registry` — a real `v*` tag only): this step is
    confirm-only — open the URL the job's log line prints
    (`https://smithery.ai/servers/the-40-thieves/obsidian-tc/releases`) and check it directly, not
    just the job's exit code — a known upstream defect (`arcadeai-labs/smithery-cli#787`) can leave
@@ -223,7 +222,7 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
   `@the-40-thieves/obsidian-tc-native`) plus **eight** platform sub-packages
   (`@the-40-thieves/obsidian-tc-native-{linux-x64-gnu,linux-x64-musl,linux-arm64-gnu,linux-arm64-musl,darwin-x64,darwin-arm64,win32-x64-msvc,win32-arm64-msvc}`),
   published with npm provenance.
-- **MCP Registry entry** (THE-940) — `server.json` published to
+- **MCP Registry entry** — `server.json` published to
   `registry.modelcontextprotocol.io` via `mcp-publisher`, after every npm package it references
   resolves live on npmjs. See *MCP Registry publish* below.
 - **Standalone binaries** — `bun build --compile` for the four platforms.
@@ -253,20 +252,20 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
   staging (an older tag fails the boot smoke and is never promoted: cut a patch release instead).
   Consumer verification is documented in `SECURITY.md`.
 - **Published GitHub Release** (`v<x.y.z>`) — binaries, plugin zips, `.mcpb`, `SHASUMS256.txt`, and the `.sigstore.json` bundles (created as a draft, validated, then published).
-- **Un-prefixed plugin release** (`<x.y.z>`, THE-955) — `mirror-plugin-release` mirrors the three
+- **Un-prefixed plugin release** (`<x.y.z>`) — `mirror-plugin-release` mirrors the three
   loose companion-plugin assets (`main.js`, `manifest.json`, `styles.css`) from the `v<x.y.z>`
   release onto a second, `--latest=false` release tagged with the bare version — the tag
   Obsidian's community directory actually reads. The tag is unsigned by construction (CI holds no maintainer
   signing key), but each file carries its cosign bundle, which verifies against the `v<x.y.z>` workflow
   identity; idempotent on re-run. See `scripts/mirror-plugin-release.mjs`.
-- **Smithery listing** (THE-956) — `publish-smithery` publishes the `.mcpb` bundle to
+- **Smithery listing** — `publish-smithery` publishes the `.mcpb` bundle to
   `the-40-thieves/obsidian-tc` on the Smithery Registry via `SMITHERY_API_KEY`. A repeat publish
   of an already-listed version is treated as success (probed live 2026-09-05 — see
   `scripts/publish-smithery.mjs`'s header). See `docs/superpowers/plans/2026-09-03-listings/smithery.md`.
 
-## MCP Registry publish (THE-940)
+## MCP Registry publish
 
-THE-220 committed `server.json` to the repo root against the 2025-12-11 schema, but nothing ever
+An earlier change committed `server.json` to the repo root against the 2025-12-11 schema, but nothing ever
 published it — `publish-registry` (`publish.yml`, `needs: publish-npm`) is that automation:
 
 1. **Preflight — is this exact name+version already registered?** `GET
@@ -300,7 +299,7 @@ alone. If a future change ever adds it (or any other npm package) to `server.jso
 two things move together: add that package's publish job to `publish-registry`'s `needs:` list, and
 know that step 2's propagation wait needs **no corresponding edit** — it already loops every
 `packages[]` npm entry, because it derives the list from `server.json` rather than a hardcoded name.
-That claim is true precisely BECAUSE the encoding is scope-aware (THE-940 review finding G1):
+That claim is true precisely BECAUSE the encoding is scope-aware (review finding G1):
 reranker-local's actual npm package is `@the-40-thieves/obsidian-tc-reranker-local`, a SCOPED
 name, and the wait loop encodes only the `/` in an identifier (leaving a leading `@` literal —
 matching the registry's own npm validator, which builds the version-document URL with Go's
@@ -324,16 +323,16 @@ not transient). **This job is advisory only and must never be promoted to a requ
 check** — unlike every currently-required check, it depends on a third-party service's uptime,
 which has nothing to do with whether a given PR's own code is correct.
 
-## Ordered npm publish (THE-224, revised by THE-574)
+## Ordered npm publish
 
 npm publishes are immutable: a published version cannot be overwritten or moved backward, only
 deprecated. The release must therefore never be able to leave a version-skewed set resolvable by
 installers.
 
-THE-224 originally solved this by publishing the umbrellas to a holding `pending` dist-tag and
+An earlier approach originally solved this by publishing the umbrellas to a holding `pending` dist-tag and
 promoting them to `latest` at the end. **That design could not survive trusted publishing**: OIDC
 authorises `npm publish` only, so `npm dist-tag add` fell back to token auth and failed `EOTP` on
-every release (THE-574). Worse, it is on a deadline — npm's 2026-07-08 changelog puts package
+every release. Worse, it is on a deadline — npm's 2026-07-08 changelog puts package
 *management* actions first in line as 2FA-bypass tokens are withdrawn from early August 2026.
 
 The `pending` tag is gone. Safety now rests on two structural facts instead of a tag mutation:
@@ -352,7 +351,7 @@ Together those give the property `pending` was there to provide, with no step th
 
 1. **Preflight (F3).** Classify the target version on npm before publishing: **none** published →
    fresh release; **all** published → resumed release, skip the npm-mutating steps and let the
-   pipeline finish (THE-575); **some** published → hard fail, because that is either a mid-publish
+   pipeline finish; **some** published → hard fail, because that is either a mid-publish
    death or a tag cut without bumping, and guessing there is how a skewed release gets cemented.
 2. **Publish platform sub-packages.** The eight leaf `@the-40-thieves/obsidian-tc-native-*` packages
    publish via `napi pre-publish`, which also pins the native umbrella's `optionalDependencies` to
@@ -368,7 +367,7 @@ Together those give the property `pending` was there to provide, with no step th
   partway, fix on `main` and delete + re-create the tag at the fixed HEAD; never reuse a partially
   published version number.
 - **A release that failed *after* publishing** is resumable: re-run the workflow. The F3 preflight
-  recognises the fully-published case and skips straight to the artifact jobs (THE-575). Use a
+  recognises the fully-published case and skips straight to the artifact jobs. Use a
   **full** `gh run rerun <run-id>`, never `--failed` — see `RELEASE-SIGNING.md` for why.
 - **The publish sequence died partway** (e.g. `-native` and `-shared` up, `obsidian-tc` not).
   `obsidian-tc@latest` still points at the previous release, so installers are unaffected. The
@@ -385,8 +384,8 @@ name in a prerelease, publish a throwaway version first or accept the initial `l
 
 ## Not adopted: npm staged publishing
 
-npm's own staged publishing (GA May 2026) is the registry-native version of THE-224's staging idea
-and was evaluated for THE-574. It fits OIDC by design — `npm stage publish` needs no 2FA and works
+npm's own staged publishing (GA May 2026) is the registry-native version of the staging idea
+and was evaluated for this flow. It fits OIDC by design — `npm stage publish` needs no 2FA and works
 with any token type, while `npm stage approve <stage-id>` requires 2FA and **cannot** be performed by
 an OIDC token, deliberately, since human approval is the point. Nothing is publicly resolvable until
 approved, which is stronger isolation than `pending` ever gave.
@@ -404,8 +403,7 @@ npm CLI ≥ 11.15.0 and Node ≥ 22.14.0, and the trusted publisher must be reco
 - The companion plugin's manifest version equals the repo version and `versions.json` lists it.
 - No doc states the tool count (`docgen:facts-check` forbids it; the registered names live in `packages/server/test/registered-tools.txt`).
 - `packages/server/package.json`'s `mcpName` matches `server.json`'s `name` and `server.json`'s
-  `description` stays within the registry's 100-character cap (`scripts/check-mcp-name.mjs`,
-  THE-940).
+  `description` stays within the registry's 100-character cap (`scripts/check-mcp-name.mjs`).
 
 ## Community-store submission (companion plugin)
 
@@ -415,11 +413,11 @@ Obsidian community-store listing is a one-time submission through the **self-ser
 link the GitHub account that owns this repo to verify ownership. This is not a PR against
 [`obsidianmd/obsidian-releases`](https://github.com/obsidianmd/obsidian-releases); that repo-PR
 flow is Obsidian's pre-self-service submission path and is no longer how new plugins are listed
-(confirmed against `obsidianmd/obsidian-developer-docs`'s "Submit your plugin" doc, THE-950).
+(confirmed against `obsidianmd/obsidian-developer-docs`'s "Submit your plugin" doc).
 
 The directory's validator reads `manifest.json` from this repo's **default branch** — before
-THE-950 that would have found the MCPB bundle manifest that used to live at the repo root
-(`name: obsidian-tc`, THE-220), not the plugin's. As of THE-950 the repo-root `manifest.json` IS
+A later fix that would have found the MCPB bundle manifest that used to live at the repo root
+(`name: obsidian-tc`), not the plugin's. As of that change, the repo-root `manifest.json` IS
 the plugin's Obsidian manifest, byte-identical to `packages/plugin/manifest.json` by construction
 (`release.mjs` mirrors it; `check-version-coherence.mjs` gates the two staying in sync) — no manual
 copy step is needed at submission time. See

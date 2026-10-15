@@ -1,14 +1,14 @@
-# THE-459 — Synthetic-vault perf harness + CI gates (design)
+# Synthetic-vault perf harness + CI gates (design)
 
-- **Ticket:** [THE-459](https://linear.app/the-13th-letter/issue/THE-459) (sub-issue of [THE-458](https://linear.app/the-13th-letter/issue/THE-458), the architecture/efficiency program)
+- **Ticket:**  (sub-issue of , the architecture/efficiency program)
 - **Date:** 2026-07-20
 - **Status:** design approved, pre-implementation
-- **Follow-up spun out:** [THE-494](https://linear.app/the-13th-letter/issue/THE-494) (Node-runtime parity check)
+- **Follow-up spun out:**  (Node-runtime parity check)
 
 ## Problem
 
-THE-459 is the **first** item of the THE-458 program and gates the two XL items
-(per-vault storage isolation THE-467, event-loop offload THE-468): those must not
+This is the **first** item of the program and gates the two XL items
+(per-vault storage isolation, event-loop offload): those must not
 be built before a *measured* bottleneck exists. We need a deterministic,
 CI-gated benchmark harness over a synthetic vault that produces the numbers those
 go/no-go decisions depend on, kept strictly separate from the existing live-model
@@ -17,11 +17,11 @@ golden-set quality eval.
 ## Goals
 
 - A deterministic synthetic-vault benchmark harness covering the 14 metric
-  families named in THE-459.
+  families named for this item.
 - A committed baseline + a CI gate that **hard-fails on regressions in
   low-variance (deterministic) metrics** and **warns (never fails) on noisy
   latency metrics**, so the gate is trustworthy on GitHub's shared runners.
-- A baseline report for the current architecture, so THE-467/THE-468 can be
+- A baseline report for the current architecture, so the storage and offload items can be
   justified or declined on data.
 
 ## Non-goals (YAGNI)
@@ -29,7 +29,7 @@ golden-set quality eval.
 - No real embedding provider or live model (that is the separate golden-set eval).
 - No historical trend database — the gate is a stateless compare against a
   committed baseline.
-- No Node-runtime path — deferred to **THE-494**. This harness runs bun-only.
+- No Node-runtime path — deferred to **a follow-up**. This harness runs bun-only.
 - We do **not** reuse `benchmark-action/github-action-benchmark`: it applies one
   global ratio threshold and auto-drifts its baseline on `main`, and cannot
   express the per-family hard/warn split or absolute tolerances this design needs.
@@ -45,7 +45,7 @@ ANN vector search, real transaction/lock durations.
 Under Node + `node:sqlite` (the vitest path) `sqlite-vec` does not load
 (`vec_enabled: false`) and vector search silently falls back to brute-force —
 benchmarking a path prod never takes. That path is intentionally excluded here
-and captured as THE-494 (deterministic-metric parity only).
+and captured as a follow-up (deterministic-metric parity only).
 
 ## Architecture
 
@@ -91,7 +91,7 @@ Each unit has one purpose and a typed interface:
     duplicate-embedding-ratio metric,
   - a **multi-hop link structure** to exercise graph candidate counts,
   - a small **in-repo synthetic labelled query set** for recall/nDCG. This is
-    NOT the private golden set and shares nothing with it (avoids the THE-421
+    NOT the private golden set and shares nothing with it (avoids the
     leak class entirely); it is a throwaway relevance set whose only job is to
     make recall/nDCG deterministic and non-zero.
 - **Tiers/scenarios:** `small` (~100 notes), `medium` (~1k notes),
@@ -136,7 +136,7 @@ Notes:
   recorded handler time.
 - Family 8 may require adding lightweight per-stage counters to `graph_search.ts`
   if none are exposed; this is additive and behavior-preserving, and it is also
-  what THE-465 (staged retrieval) will consume later.
+  what the staged-retrieval work will consume later.
 
 ## Baseline + gate
 
@@ -188,7 +188,7 @@ Notes:
   native path (not `--ignore-scripts`); verify sqlite-vec loads or the ANN
   families silently degrade.
 - **graph_search stage counters** may not exist yet → additive instrumentation,
-  behavior-preserving, reused by THE-465.
+  behavior-preserving, reused by the staged-retrieval work.
 
 ## Open questions
 

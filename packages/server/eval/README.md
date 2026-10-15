@@ -9,13 +9,13 @@ bun eval/run.ts <config.json> [golden-set.yaml] [flags] [--json out.json]
 Flags A/B one mechanism each: `--adaptive-rrf`, `--graph-stream`, `--mmr`, `--no-lexical`,
 `--sparse`, `--gated-rerank`, plus `RRF_K`-style env overrides where noted in `run.ts`. Every run
 reports recall@10 / nDCG@10 / MRR@10 / bridge recall for the semantic baseline and the graph side, a
-hard-subset slice, and (THE-399) a **paired permutation p-value + bootstrap 95% CI** for
+hard-subset slice, and a **paired permutation p-value + bootstrap 95% CI** for
 graph-vs-baseline ΔnDCG@10 and Δrecall@10 on the same queries.
 
 **`--gated-rerank`'s reranker** comes from `RERANK_URL` (a Cohere/Jina-shaped `/rerank` HTTP
 backend — TEI or vLLM) when set, else from the config JSON's `reranker` block, resolved through the
-SAME provider registry production uses (THE-806 step 2) — `{ "reranker": { "provider": "local" } }`
-reaches THE-705's bundled offline cross-encoder with no separate server to stand up. **Its hardness
+SAME provider registry production uses — `{ "reranker": { "provider": "local" } }`
+reaches the bundled offline cross-encoder with no separate server to stand up. **Its hardness
 rule** (cosine top-1 vs z-margin, and the threshold) comes from the config's
 `retrieval.gatedRerankHardness` block, via the SAME `gatedRerankOptionsFromConfig` function
 `retrieval-runtime.ts` calls at boot — so a golden-set `--gated-rerank` result now measures exactly
@@ -127,9 +127,9 @@ updates none. The model id, revision, width, pooling and checksums are read from
 `python-eval` job; run it locally with `cd packages/server/eval && ruff check . && ruff format --check . && pytest pytests`.
 A Modal run costs money and is run by the owner; the image has not been exercised against onnxruntime-gpu 1.26.0 on a T4 in CI.
 
-## The ship rule (THE-399)
+## The ship rule
 
-**Status 2026-08-02 (THE-674): the MDE is MEASURED on the engine that actually runs, and it is
+**Status 2026-08-02: the MDE is MEASURED on the engine that actually runs, and it is
 METRIC-SPECIFIC.** Quote the row for the metric you are gating on, and name that metric when you
 quote it.
 
@@ -149,14 +149,14 @@ quote it.
    `ndcg_at_10` number and is correct only for an nDCG gate.
 2. **`bridge_ndcg_at_10` is scored on n=103, not 250.** The bridge metrics are `None` on unlabelled
    queries. Quoting an n=250 MDE for it is a fiction — and the bridge metrics are exactly the ones
-   graph-expansion work (THE-693, THE-695) will want to gate on.
+   graph-expansion work will want to gate on.
 
 Sample sizes for smaller effects on `ndcg_at_10`: **Δ=0.030 → n≥344**, **Δ=0.020 → n≥773**,
 **Δ=0.010 → n≥3,091**. The set is at n=250, so **Δ=0.030 is not yet resolvable at 80% power on
 nDCG** — though it is on `recall_at_10` and `bridge_recall`.
 
 Read a null against the row for your metric: a non-significant arm whose |Δ| is under that row's
-MDE is *underpowered*, not *disproven*. THE-422 was cancelled on exactly this distinction.
+MDE is *underpowered*, not *disproven*. An earlier measurement was cancelled on exactly this distinction.
 
 ### Provenance — why the older figures in this file were retired
 
@@ -164,16 +164,16 @@ The `σ_d 0.155 / MDE@n=136 0.037` line this section used to carry was a genuine
 2026-07-19 at n=136 against the **nomic-embed-text / 768d** representation. That representation no
 longer exists (Ollama was deleted 2026-07-31), so the figure describes an engine nothing runs. This
 section also used to say the MDE "has **not** been re-measured at n=250 … treat that as an open
-follow-up". **THE-674 closed that follow-up on 2026-08-02**; leaving the sentence in place was
+follow-up". **The follow-up closed on 2026-08-02**; leaving the sentence in place was
 sending readers to redo finished work.
 
-THE-674 re-measured on the live **BAAI/bge-m3 / 1024d** store at `be4962d`, over the same n=250
+A re-measurement on the live **BAAI/bge-m3 / 1024d** store at `be4962d`, over the same n=250
 golden set and the same control-vs-fanout contrast. Two results worth carrying forward:
 
 * **σ_d moved only −2.7% across a full embedding-model swap** (0.2039 → 0.1984), which is why this
   table is expected to hold until the representation changes again rather than until the next PR.
 * **Fan-out replicated as a regression on the new model** (−0.0430, t=−3.43, against −0.0474,
-  t=−3.68 on nomic), so THE-448's conclusion survives a representation change — a stronger result
+  t=−3.68 on nomic), so the earlier conclusion survives a representation change — a stronger result
   than the original single measurement.
 
 Note that **σ_d is contrast-specific**: the table above is the fan-out contrast. `eval/run.ts`
@@ -200,27 +200,27 @@ improvements are smaller than that. Until the golden set reaches **n ≈ 126** (
 
 1. **A point-estimate win alone never ships.** Report the permutation p and CI with every claim.
 2. A default flips only on **(a) non-inferiority** — Δ > −0.015 on EVERY gate metric — **and (b) a
-   mathematically identified structural fix** (e.g. the RRF k=10 crossover, THE-397), or on a
+   mathematically identified structural fix** (e.g. the RRF k=10 crossover), or on a
    statistically significant win once the set is large enough.
 3. **Multiple comparisons:** a session that tests many configs applies Benjamini-Hochberg at
    q = 0.10 across its raw p-values before believing any single one.
 4. Golden-set growth: fold the single-hop q031–q060 donor pool (KMS era) toward n≈126 — queries
-   count toward gates only after Suavecito approves them (THE-171 convention). That expansion also
+   count toward gates only after Suavecito approves them (approval convention). That expansion also
    adds the lexical/exact-term query class the multi-hop set lacks, which is required before any
    verdict on the BM25-stream default.
 
-## gatedRerank hardness — calibration and the mode decision (THE-806, 2026-08-18)
+## gatedRerank hardness — calibration and the mode decision (2026-08-18)
 
-THE-806 step 1 (PR #778) gave `gatedRerank`'s hardness rule a config surface
+Step 1 (PR #778) gave `gatedRerank`'s hardness rule a config surface
 (`retrieval.gatedRerankHardness`) so production and the eval harness could construct the SAME
 gate object — but the harness's own `--gated-rerank` flag never actually read it, so a golden-set
 result still measured a rule production couldn't reproduce. This section is step 2/3: the harness
-fix (see "`--gated-rerank`'s reranker" above), the calibration this repo owed THE-400 since
+fix (see "`--gated-rerank`'s reranker" above), the calibration this repo owed since
 2026-07-11, and the resulting default decision. Measured against a **reachable, live-probed
-reranker** for the first time — THE-705's bundled offline cross-encoder
+reranker** for the first time — the bundled offline cross-encoder
 (`{ "reranker": { "provider": "local" } }`), confirmed serving via `obsidian-tc doctor`
 (`reranker.buildable` — resolved via source-checkout) and via `assertFlagDependencies`'s real probe
-call (THE-807): both arms below stamp `gated-rerank` in their `--json` artifact, which only happens
+call: both arms below stamp `gated-rerank` in their `--json` artifact, which only happens
 when that preflight passed.
 
 **Corpus:** the private multi-hop golden set (n=250) against the live BAAI/bge-m3 / 1024d
@@ -239,9 +239,9 @@ every run — no reranker required):
 
 **The floor is 1.57 — above the harness's own `hardZ` default of 1.0.** That default was never
 calibrated against this backbone; it is the z-margin threshold `--gated-rerank` has hardcoded since
-THE-400 (2026-07-11), carried forward unchanged. On bge-m3, `zMargin < 1.0` cannot fire on ANY of
+The calibration (2026-07-11), carried forward unchanged. On bge-m3, `zMargin < 1.0` cannot fire on ANY of
 these 250 queries — the exact same structural-zero shape as `top1 < 0.55` firing 0/32 on nomic
-(the defect THE-400 was filed to replace). The two thresholds "currently in play" were both
+(the defect the calibration was filed to replace). The two thresholds "currently in play" were both
 miscalibrated for the backbone that measures them; this ticket's premise (one construction, so the
 arms are comparable) was necessary but not sufficient — the *values* still needed calibrating, and
 still do, for anyone revisiting `hardZ`'s default.
@@ -278,7 +278,7 @@ rule, a null result inside the MDE is a legitimate outcome, not license to pick 
   this corpus at all, and its effect is at least non-negative and non-inferior.
 - `retrieval.gatedRerank` stays `false` (dark) — unchanged; this result does not meet the bar to
   flip it on.
-- No config schema change. THE-806 step 1 already collapsed the "three thresholds" (0.55 / 1.0 /
+- No config schema change. Step 1 already collapsed the "three thresholds" (0.55 / 1.0 /
   the audit's rejected 1.5) to a `mode`-switched surface that emits exactly one at a time; there is
   no ranking evidence here to justify moving the value either switch reads.
 - What *should* change, as a follow-up rather than blocking this PR: `hardZ`'s default (1.0) is
@@ -436,4 +436,4 @@ disagrees with the corpus length, which means a partial run.
 ## History
 
 Decision-grade baselines and every measured verdict live in the vault decision notes
-(`09-reference/decisions/2026-07-11-*`) and on the Linear tickets (THE-390 … THE-406).
+(`09-reference/decisions/2026-07-11-*`) and on the Linear tickets.
