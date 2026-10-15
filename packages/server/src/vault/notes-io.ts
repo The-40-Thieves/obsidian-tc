@@ -89,7 +89,9 @@ function missingReadPath(abs: string): never {
 
 /** Classify a native refusal without following any component while deciding ENOENT vs refusal. */
 function mapNativeReadError(e: unknown, abs: string): never {
-  const path = normalize(abs);
+  // Classify the path the native open actually walked: under a configured pinned folder that is
+  // the real directory, not the alias spelling, so a missing note there stays ENOENT.
+  const path = normalize(nativeOpen(abs).path);
   try {
     walkDirectoriesNoFollow(dirname(path), readWalkOptions(path));
     const leaf = lstatSync(path);

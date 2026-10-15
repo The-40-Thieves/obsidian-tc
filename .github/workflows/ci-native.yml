@@ -210,7 +210,7 @@ jobs:
   # (vault-root-symlink-registration.test.ts) — not the full suite: the macOS hosted-runner pool
   # is capped at 5 concurrent jobs account-wide (GitHub Free, see the `build` job above), and this
   # workflow already runs a macOS leg of that build matrix on every PR. A regression in the fix
-  # would show up in any of these eight files just as reliably as in the other 111 files identified as
+  # would show up in any of the files listed below just as reliably as in the other 111 files identified as
   # failing, at a fraction of the runner time a full 4,882-test macOS run would cost.
   macos-native-server-tests:
     runs-on: macos-15

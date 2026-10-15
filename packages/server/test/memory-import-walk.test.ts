@@ -47,6 +47,19 @@ describe("walkImportDir", () => {
     }
   });
 
+  it.skipIf(!symlinkOk)("still refuses an import root that is itself a symlink", () => {
+    const parent = makeTempDir("obtc-mi-walk-self-link-");
+    const outside = makeTempDir("obtc-mi-walk-self-outside-");
+    try {
+      writeFileSync(join(outside, "a.md"), "outside content");
+      symlinkSync(outside, join(parent, "link"), "dir");
+      expect(() => walkImportDir(join(parent, "link"), { extensions: [".md"] })).toThrow(/symlink/);
+    } finally {
+      rmTemp(parent);
+      rmTemp(outside);
+    }
+  });
+
   it("walks .md files and returns them sorted by source_path", () => {
     const root = makeTempDir("obtc-mi-walk-");
     try {

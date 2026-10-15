@@ -11,7 +11,7 @@
 // both the root and the deepest existing segment of the target through symlinks. Reused here
 // verbatim with the import directory standing in for "vault root" — the guarantee is identical.
 import { type Dirent, lstatSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { readNote } from "../vault/notes-io";
 import { resolveVaultPathChecked } from "../vault/paths";
 import { canonicalizeVaultRoot } from "../vault/registry";
@@ -61,7 +61,10 @@ export function checkedImportPath(root: string, relPath: string): string {
  *  dot-directories/files and refusing every symlink and hard link by name (reported, not
  *  silently dropped — the caller's dry-run table needs the reason). */
 export function walkImportDir(root: string, opts: { extensions?: string[] } = {}): WalkResult {
-  const canonicalRoot = canonicalizeVaultRoot(root);
+  // Canonicalize the parent only: a root that is itself a symlink must still reach
+  // assertImportRootUsable's refusal, while a symlinked ancestor is resolved.
+  const resolved = resolve(root);
+  const canonicalRoot = join(canonicalizeVaultRoot(dirname(resolved)), basename(resolved));
   assertImportRootUsable(canonicalRoot);
   const exts = opts.extensions?.map((e) => e.toLowerCase());
   const files: WalkedFile[] = [];
