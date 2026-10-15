@@ -40,7 +40,7 @@ import {
   resolveResponseFormat,
 } from "../response-format";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
-import { runDql } from "./dql";
+import { filterDqlResult, runDql } from "./dql";
 import type { M2Deps } from "./shared";
 
 interface UnifiedHit {
@@ -495,7 +495,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
             { tool: "search_dql" },
           );
         const result = await runDql(deps, s.id, input.dql, input.format);
-        return { vault: s.id, ...result };
+        return { vault: s.id, ...filterDqlResult(ctx, s.rootPath, result, "search_dql") };
       },
     }),
 
@@ -641,7 +641,8 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
                 { tool: "search_vault" },
               );
             const dql = await runDql(deps, s.id, asString(), "table");
-            return { vault: s.id, mode_used: "dql", ...dql, ...sourceField };
+            const filtered = filterDqlResult(ctx, s.rootPath, dql, "search_vault");
+            return { vault: s.id, mode_used: "dql", ...filtered, ...sourceField };
           }
           default: {
             // auto: object -> jsonlogic; string -> text, then semantic on zero hits.

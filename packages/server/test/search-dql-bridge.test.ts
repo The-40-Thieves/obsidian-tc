@@ -4,6 +4,8 @@
 // inline (deny-by-default). Self-contained inline harness — the M2 search harness
 // stays bridge-free, so the existing "plugin_missing (no bridge)" test is unchanged.
 
+import { linkSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -23,6 +25,7 @@ import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
 interface Rig {
+  root: string;
   call: (
     name: string,
     input: Record<string, unknown>,
@@ -36,8 +39,14 @@ function makeRig(opts: {
   routes?: Record<string, FakeRoute>;
   unreachable?: boolean;
   noBridge?: boolean;
+  files?: Record<string, string>;
 }): Rig {
   const root = makeTempDir("obtc-dql-");
+  for (const [rel, content] of Object.entries(opts.files ?? {})) {
+    const abs = join(root, rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content);
+  }
   const db = openMemoryDb();
   provisionCacheDb(db);
   const vaultRegistry = new VaultRegistry([{ id: "test", path: root }]);
@@ -66,6 +75,7 @@ function makeRig(opts: {
     registry.register(tool);
 
   return {
+    root,
     call: (name, input, scopes = ["*"]) =>
       registry.dispatch(name, input, {
         caller: "t",
@@ -84,6 +94,35 @@ const DQL_OK: Record<string, FakeRoute> = {
     body: { ok: true, result: { headers: ["File"], rows: [["A.md"]], note_paths: ["A.md"] } },
   },
 };
+
+const aclRows = {
+  headers: ["File", "Value"],
+  rows: [
+    [{ nested: { path: "pages/hard.md", type: "file" } }, "TOPSECRET link"],
+    [{ path: ".trash/secret.md", text: "TOPSECRET task" }],
+    [{ path: "pages/CON.md", type: "file" }, "TOPSECRET reserved"],
+    [{ path: "pages/open.md", type: "file" }, "open text"],
+    ["TABLE WITHOUT ID", 1],
+  ],
+  note_paths: [".trash/secret.md", "pages/hard.md", "pages/CON.md", "pages/open.md"],
+};
+
+const DQL_ACL_ROWS: Record<string, FakeRoute> = {
+  "POST /obsidian-tc/v1/dataview/dql": { body: { ok: true, result: aclRows } },
+};
+
+function makeAclRig(): Rig {
+  const rig = makeRig({
+    routes: DQL_ACL_ROWS,
+    files: {
+      ".trash/secret.md": "TOPSECRET",
+      "pages/CON.md": "TOPSECRET",
+      "pages/open.md": "open text",
+    },
+  });
+  linkSync(join(rig.root, ".trash/secret.md"), join(rig.root, "pages/hard.md"));
+  return rig;
+}
 
 describe("search_dql via the Dataview bridge", () => {
   let rig: Rig | undefined;
@@ -104,6 +143,20 @@ describe("search_dql via the Dataview bridge", () => {
     const body = JSON.parse(req.body ?? "{}") as Record<string, unknown>;
     expect(body.dql).toBe("TABLE file.name");
     expect(body.format).toBe("table");
+  });
+
+  it("filters unreadable nested links, task paths, and reserved names but keeps readable and unattributable rows", async () => {
+    rig = makeAclRig();
+    const res = await rig.call("search_dql", { vault: "test", dql: "TABLE value" });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      const data = res.data as Record<string, unknown>;
+      expect(data.rows).toEqual([
+        [{ path: "pages/open.md", type: "file" }, "open text"],
+        ["TABLE WITHOUT ID", 1],
+      ]);
+      expect(data.note_paths).toEqual(["pages/open.md"]);
+    }
   });
 
   it("degrades to plugin_unreachable when the bridge does not answer", async () => {
@@ -150,6 +203,24 @@ describe("search_vault mode:dql", () => {
       const data = res.data as Record<string, unknown>;
       expect(data.mode_used).toBe("dql");
       expect(data.note_paths).toEqual(["A.md"]);
+    }
+  });
+
+  it("applies the same DQL row filter in search_vault mode:dql", async () => {
+    rig = makeAclRig();
+    const res = await rig.call(
+      "search_vault",
+      { vault: "test", query: "TABLE value", mode: "dql" },
+      ["read:notes", "read:dataview"],
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      const data = res.data as Record<string, unknown>;
+      expect(data.rows).toEqual([
+        [{ path: "pages/open.md", type: "file" }, "open text"],
+        ["TABLE WITHOUT ID", 1],
+      ]);
+      expect(data.note_paths).toEqual(["pages/open.md"]);
     }
   });
 });
