@@ -4,8 +4,12 @@
 // stand-in is a wrapper over Database.prototype.close: it performs the real close first (so the
 // connection is genuinely released, as on the platform where the failure was seen) and then throws
 // the busy- or other-class error the native call reports. Prints whatever the adapter's close threw.
-import { Database } from "bun:sqlite";
 import { openDatabase } from "../../src/db/open";
+
+// "bun:sqlite" resolves only under the bun-smoke tsconfig, as in vault-lock-gc-trap-bad-holder-probe.ts.
+// biome-ignore lint/suspicious/noTsIgnore: same reason as that probe — the specifier never resolves here.
+// @ts-ignore
+const { Database } = await import("bun:sqlite");
 
 const [path, mode] = process.argv.slice(2) as [string, "busy" | "other"];
 const proto = Database.prototype as unknown as { close: (throwOnError?: boolean) => void };
