@@ -9,6 +9,8 @@ import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";
 import { graphSearch } from "../src/search/graph_search";
+import { expandGraph } from "../src/search/graph_search_stages/graph_expansion";
+import type { GraphSearchOptions } from "../src/search/graph_search_stages/types";
 import { floatBlob } from "../src/search/vec";
 import { openMemoryDb } from "./helpers";
 
@@ -55,6 +57,88 @@ function addEdge(db: Database, source: string, target: string): void {
   db.prepare(
     "INSERT INTO vault_edges (vault_id, source_path, target_path, edge_type, provenance, created_at, updated_at) VALUES (?, ?, ?, 'links_to', 'wikilink', 0, 0)",
   ).run(VAULT, source, target);
+}
+
+function addAclSet(db: Database, setId: number, paths: string[]): void {
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS acl_path_members (set_id INTEGER NOT NULL, path TEXT NOT NULL, PRIMARY KEY (set_id, path)) WITHOUT ROWID",
+  );
+  const insert = db.prepare("INSERT INTO acl_path_members (set_id, path) VALUES (?, ?)");
+  for (const path of paths) insert.run(setId, path);
+}
+
+interface HubAclFixture {
+  db: Database;
+  readableSetId: number;
+  unrestrictedSetId: number;
+}
+
+function hubAclFixture(includeDenied: boolean): HubAclFixture {
+  const db = seedDb();
+  addChunk(db, "root", "Root.md", "root seed", vd(0.99));
+  addChunk(db, "candidate", "S.md", "candidate hub", vd(0.6));
+  addChunk(db, "public", "public/N.md", "readable neighbor", vd(0.5));
+  addEdge(db, "Root.md", "S.md");
+  addEdge(db, "S.md", "public/N.md");
+
+  const deniedPaths: string[] = [];
+  if (includeDenied) {
+    for (let i = 0; i < 6; i++) {
+      const path = `denied/N${i}.md`;
+      deniedPaths.push(path);
+      addChunk(db, `denied-${i}`, path, `denied neighbor ${i}`, vd(0.4));
+      addEdge(db, "S.md", path);
+    }
+    // Unindexed edge targets are absent from acl_path_members even for an unrestricted caller.
+    // Their degree contribution must remain unchanged for that caller.
+    addEdge(db, "S.md", "denied/unindexed.md");
+  }
+
+  const readablePaths = ["Root.md", "S.md", "public/N.md"];
+  addAclSet(db, 1, readablePaths);
+  addAclSet(db, 2, [...readablePaths, ...deniedPaths]);
+  return { db, readableSetId: 1, unrestrictedSetId: 2 };
+}
+
+function expandHubFixture(
+  fixture: HubAclFixture,
+  access: "restricted" | "predicate" | "unrestricted" | "legacy",
+  smooth = false,
+) {
+  const isReadable = (path: string) => !path.startsWith("denied/");
+  let accessOpts: Partial<GraphSearchOptions> = {};
+  if (access === "restricted") {
+    accessOpts = {
+      isReadable,
+      aclSetId: fixture.readableSetId,
+      aclWalkFilter: { enabled: true, restricted: true },
+    };
+  } else if (access === "predicate") {
+    accessOpts = { isReadable };
+  } else if (access === "unrestricted") {
+    accessOpts = {
+      isReadable: () => true,
+      aclSetId: fixture.unrestrictedSetId,
+      aclWalkFilter: { enabled: true, unrestricted: true },
+    };
+  }
+  return expandGraph({
+    db: fixture.db,
+    opts: {
+      ...BASE,
+      ...accessOpts,
+      graphStream: { enabled: true, hubDegreeCap: 3, perSeedCap: 20 },
+      ...(smooth ? { smoothExpansion: { enabled: true, hubMu: 1, hubGamma: 1 } } : {}),
+    },
+    seedPaths: ["Root.md"],
+    seedChunkIds: new Set(["root"]),
+    hopLimit: 2,
+    similarityThreshold: 0.2,
+    maxExpansionChunks: 20,
+    decayEnabled: false,
+    decayLambda: 0,
+    decayNowMs: 0,
+  });
 }
 
 const BASE = {
@@ -109,6 +193,48 @@ describe("THE-393 capped graph stream", () => {
     expect(expansions).toHaveLength(2);
     // Best-similarity neighbors kept, worst dropped.
     expect(expansions.map((r) => r.chunk_id).sort()).toEqual(["tA", "tB"]);
+  });
+
+  it("does not suppress a candidate whose degree exceeds the cap only through denied neighbors", () => {
+    const fixture = hubAclFixture(true);
+    const result = expandHubFixture(fixture, "restricted");
+
+    expect(result.expansionChunks.map((candidate) => candidate.path)).toContain("S.md");
+  });
+
+  it("makes restricted hard-cap results independent of denied notes and edges", () => {
+    const withDenied = hubAclFixture(true);
+    const withoutDenied = hubAclFixture(false);
+
+    expect(expandHubFixture(withDenied, "restricted")).toStrictEqual(
+      expandHubFixture(withoutDenied, "restricted"),
+    );
+  });
+
+  it("makes restricted smooth scores independent of denied notes and edges", () => {
+    const withDenied = hubAclFixture(true);
+    const withoutDenied = hubAclFixture(false);
+
+    expect(expandHubFixture(withDenied, "restricted", true)).toStrictEqual(
+      expandHubFixture(withoutDenied, "restricted", true),
+    );
+  });
+
+  it("filters neighbor rows with the live predicate when no materialized ACL set is available", () => {
+    const fixture = hubAclFixture(true);
+
+    expect(expandHubFixture(fixture, "predicate", true)).toStrictEqual(
+      expandHubFixture(fixture, "restricted", true),
+    );
+  });
+
+  it("preserves the vault-wide degree and expansion result for unrestricted callers", () => {
+    const fixture = hubAclFixture(true);
+    const legacy = expandHubFixture(fixture, "legacy", true);
+    const unrestricted = expandHubFixture(fixture, "unrestricted", true);
+
+    expect(unrestricted).toStrictEqual(legacy);
+    expect(legacy.expSimById.get("candidate")).toBeCloseTo(0.6 / (1 + 9), 8);
   });
 });
 

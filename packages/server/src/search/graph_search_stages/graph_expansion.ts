@@ -140,7 +140,13 @@ export function expandGraph(input: GraphExpansionInput): GraphExpansionResult {
   const smGamma = opts.smoothExpansion?.hubGamma ?? 6;
   const hubCap = !smooth && gsEnabled ? (opts.graphStream?.hubDegreeCap ?? 40) : 0;
   const degreeByPath =
-    hubCap > 0 || smooth ? nodeDegrees(db, opts.vaultId, paths) : new Map<string, number>();
+    hubCap > 0 || smooth
+      ? nodeDegrees(db, opts.vaultId, paths, {
+          ...(aclSetId !== undefined ? { aclSetId } : {}),
+          ...(isReadable ? { isReadable } : {}),
+          unrestricted: opts.aclWalkFilter?.unrestricted === true,
+        })
+      : new Map<string, number>();
   if (paths.length > 0) {
     const placeholders = paths.map(() => "?").join(",");
     const rows = db
@@ -243,10 +249,23 @@ function loadMtimes(db: Database, vaultId: string, paths: string[]): Map<string,
   return out;
 }
 
+interface DegreeReadAccess {
+  aclSetId?: number;
+  isReadable?: (path: string) => boolean;
+  unrestricted: boolean;
+}
+
 // THE-393: undirected degree per node path over vault_edges (source + target sides), batched.
-// The measure only needs to catch pathological hubs, so exactness beyond the candidate set is
-// irrelevant. Missing table (pre-integration) yields an empty map — suppression no-ops.
-function nodeDegrees(db: Database, vaultId: string, paths: string[]): Map<string, number> {
+// For a restricted caller, count an edge only when its other endpoint is readable. A materialized
+// ACL set keeps that filtering in SQL; the live predicate is the fallback for callers without one.
+// Unrestricted callers deliberately retain the original aggregate, including dangling edge targets
+// that cannot appear in acl_path_members. Missing table (pre-integration) returns an empty map.
+function nodeDegrees(
+  db: Database,
+  vaultId: string,
+  paths: string[],
+  access: DegreeReadAccess,
+): Map<string, number> {
   const out = new Map<string, number>();
   if (paths.length === 0) return out;
   const CHUNK = 500;
@@ -254,24 +273,55 @@ function nodeDegrees(db: Database, vaultId: string, paths: string[]): Map<string
     for (let i = 0; i < paths.length; i += CHUNK) {
       const slice = paths.slice(i, i + CHUNK);
       const placeholders = slice.map(() => "?").join(",");
-      for (const col of ["source_path", "target_path"]) {
+      for (const [candidateCol, neighborCol] of [
+        ["source_path", "target_path"],
+        ["target_path", "source_path"],
+      ] as const) {
+        // Hub degree counts AUTHORED structure only. A hub is a node the operator wired into many
+        // notes (an index page, a dashboard) — not a node that happens to sit in many kNN
+        // neighbourhoods. Counting derived edges here let densification sabotage itself: doubling the
+        // edge count inflated every degree, pushing legitimate bridge notes past the hub threshold
+        // and suppressing the exact nodes densification exists to surface (measured: bridge recall
+        // 0.831 -> 0.824 with derived edges counted). The DELTA is what justifies this exclusion and
+        // it still holds; the 0.831 absolute was withdrawn as unreproducible in THE-748, so do not
+        // reuse it as a bar. Excluding the derived types leaves the literal graph's degrees
+        // byte-identical, so defaults are unaffected either way. `property_link` is excluded for the
+        // same default-neutral reason: it is walked only under includeInWalk.
+        const baseWhere = `WHERE e.vault_id = ?
+             AND e.edge_type NOT IN ('shared_tag', 'similar_to', 'semantically_similar_to', 'property_link')
+             AND e.${candidateCol} IN (${placeholders})`;
+        if (!access.unrestricted && access.aclSetId !== undefined) {
+          const rows = db
+            .prepare(
+              `SELECT e.${candidateCol} AS p, COUNT(*) AS n
+               FROM vault_edges e
+               JOIN acl_path_members am
+                 ON am.set_id = ? AND am.path = e.${neighborCol}
+               ${baseWhere}
+               GROUP BY e.${candidateCol}`,
+            )
+            .all(access.aclSetId, vaultId, ...slice) as Array<{ p: string; n: number }>;
+          for (const r of rows) out.set(r.p, (out.get(r.p) ?? 0) + r.n);
+          continue;
+        }
+        if (!access.unrestricted && access.isReadable) {
+          const rows = db
+            .prepare(
+              `SELECT e.${candidateCol} AS p, e.${neighborCol} AS neighbor
+               FROM vault_edges e
+               ${baseWhere}`,
+            )
+            .all(vaultId, ...slice) as Array<{ p: string; neighbor: string }>;
+          for (const r of rows) {
+            if (access.isReadable(r.neighbor)) out.set(r.p, (out.get(r.p) ?? 0) + 1);
+          }
+          continue;
+        }
         const rows = db
           .prepare(
-            // Hub degree counts AUTHORED structure only. A hub is a node the operator wired into many
-            // notes (an index page, a dashboard) — not a node that happens to sit in many kNN
-            // neighbourhoods. Counting derived edges here let densification sabotage itself: doubling the
-            // edge count inflated every degree, pushing legitimate bridge notes past the hub threshold
-            // and suppressing the exact nodes densification exists to surface (measured: bridge recall
-            // 0.831 -> 0.824 with derived edges counted). The DELTA is what justifies this exclusion and
-            // it still holds; the 0.831 absolute was withdrawn as unreproducible in THE-748, so do not
-            // reuse it as a bar. Excluding the derived types leaves the literal graph's degrees
-            // byte-identical, so defaults are unaffected either way. `property_link` is excluded for the
-            // same default-neutral reason: it is walked only under includeInWalk.
-            `SELECT ${col} AS p, COUNT(*) AS n FROM vault_edges
-             WHERE vault_id = ?
-               AND edge_type NOT IN ('shared_tag', 'similar_to', 'semantically_similar_to', 'property_link')
-               AND ${col} IN (${placeholders})
-             GROUP BY ${col}`,
+            `SELECT e.${candidateCol} AS p, COUNT(*) AS n FROM vault_edges e
+             ${baseWhere}
+             GROUP BY e.${candidateCol}`,
           )
           .all(vaultId, ...slice) as Array<{ p: string; n: number }>;
         for (const r of rows) out.set(r.p, (out.get(r.p) ?? 0) + r.n);

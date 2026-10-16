@@ -191,9 +191,8 @@ export interface GraphSearchOptions {
    *  note cannot serve as a bridge between two readable ones. Wired into every M7 surface and
    *  defaulted ON by `buildGraphSearchOptions` (retrieval-runtime.ts's `resolveAclWalkFilter`) —
    *  no longer a config-gated knob; pruning bridges IS the fix, not an evaluated tradeoff.
-   *  Evaluated jointly with THE-693's hubDegreeCap because both land in graph_expansion.ts and
-   *  `nodeDegrees` is itself computed with NO ACL — so the hub defence prunes using degrees
-   *  counted over nodes the caller may not be able to read. */
+   *  The same permitted-path set also constrains graph_expansion.ts's hub degree to readable
+   *  neighbours, so an unreadable note cannot change hard suppression or smooth scoring. */
   aclWalkFilter?: {
     enabled?: boolean;
     /** THE-852 fail-closed signal: true when the caller is RESTRICTED (readEnumerationUnrestricted
