@@ -24,8 +24,10 @@ import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir } from "./tmp";
 
 const CLI = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
-// Each real spawn is one cold `bun` boot; vitest's own default (5s) is what applied before.
-const SPAWN_TEST_TIMEOUT_MS = stallTimeout(5_000);
+// Each real spawn is one cold `bun` boot: ~0.8s on a fast host, ~4s on a loaded macOS Intel runner,
+// so vitest's 5s default sat on the edge. The test budget must outlast runBunSync's own 20s child
+// kill timeout, or a slow-but-alive child fails the test before its own budget is spent.
+const SPAWN_TEST_TIMEOUT_MS = stallTimeout(25_000);
 
 function runCli(args: string[]): CliRun {
   return runBunSync([CLI, ...args]);

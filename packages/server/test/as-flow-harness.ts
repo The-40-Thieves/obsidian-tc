@@ -60,6 +60,15 @@ const CLIENTS = [
   },
 ];
 
+// One production-cost Argon2id hash of PASSWORD per test file, not per flow: it is read-only input to
+// every flow (a login verifies against it, nothing rewrites it at the same parameters), and each
+// derivation allocates 19 MiB, which is what a loaded runner feels first.
+let operatorHashOnce: Promise<string> | undefined;
+const operatorHash = (): Promise<string> => {
+  operatorHashOnce ??= hashPassword(PASSWORD);
+  return operatorHashOnce;
+};
+
 const dirs: string[] = [];
 export const cleanupFlows = (): void => {
   for (const d of dirs.splice(0)) rmTemp(d);
@@ -131,7 +140,7 @@ export async function makeFlow(
   if (opts.claim !== false) {
     claimOperator(db, {
       username: "operator",
-      passwordHash: await hashPassword(PASSWORD),
+      passwordHash: await operatorHash(),
       now: Date.now(),
     });
   }

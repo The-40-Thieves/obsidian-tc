@@ -15,6 +15,7 @@ import { type CallerContext, type ToolDefinition, ToolRegistry } from "../src/mc
 import { createMcpServer } from "../src/mcp/server";
 import { isNonCoreTool, NON_CORE_TOOL_NAMES } from "../src/mcp/tool-profiles";
 import { ALLOW_ALL } from "../src/mcp/visibility";
+import { listToolsRaw } from "./list-tools-raw";
 import { REGISTERED_TOOL_COUNT } from "./registered-tool-count";
 
 const CORE_TOOL_COUNT = REGISTERED_TOOL_COUNT - NON_CORE_TOOL_NAMES.length;
@@ -288,7 +289,7 @@ describe("THE-1131 real stdio matrix: profile x facade mode", () => {
 
   it(`core + flat: tools/list advertises exactly ${97} tools (the core count, not >=)`, async () => {
     const { client, server } = await connect(registryFor("core"), "flat");
-    const names = (await client.listTools()).tools.map((t) => t.name);
+    const names = (await listToolsRaw(client)).map((t) => t.name);
     expect(names.length).toBe(CORE_TOOL_COUNT);
     expect(names).not.toContain("create_excalidraw");
     await client.close();
@@ -297,7 +298,7 @@ describe("THE-1131 real stdio matrix: profile x facade mode", () => {
 
   it("full + flat: tools/list advertises all 163", async () => {
     const { client, server } = await connect(registryFor("full"), "flat");
-    const names = (await client.listTools()).tools.map((t) => t.name);
+    const names = (await listToolsRaw(client)).map((t) => t.name);
     expect(names.length).toBe(REGISTERED_TOOL_COUNT);
     await client.close();
     await server.close();
