@@ -408,7 +408,9 @@ mod safe_io {
         let fd = openat(
             &parent,
             leaf,
-            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            // NONBLOCK: opening a FIFO with no writer would otherwise block here forever. The fstat
+            // below rejects anything that is not a regular file, where NONBLOCK has no effect.
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
             Mode::empty(),
         )
         .map_err(|_| denied("refusing symlinked or missing file"))?;
