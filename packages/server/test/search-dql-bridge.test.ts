@@ -172,6 +172,20 @@ describe("search_dql via the Dataview bridge", () => {
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("plugin_missing");
   });
+
+  it.each([null, "invalid", { headers: [] }])(
+    "reports plugin_incompatible when the companion returns a malformed result (%#)",
+    async (result) => {
+      rig = makeRig({
+        routes: {
+          "POST /obsidian-tc/v1/dataview/dql": { body: { ok: true, result } },
+        },
+      });
+      const res = await rig.call("search_dql", { vault: "test", dql: "LIST" });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error.code).toBe("plugin_incompatible");
+    },
+  );
 });
 
 describe("search_vault mode:dql", () => {

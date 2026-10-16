@@ -45,6 +45,23 @@ describe("list_templates", () => {
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.data).toEqual({ vault: "test", items: [], total: 0 });
   });
+
+  it.each([null, "invalid"])(
+    "reports plugin_incompatible when the companion returns a non-object result (%#)",
+    async (result) => {
+      v = makeM4Vault({
+        installed: ["templater"],
+        routes: {
+          "POST /obsidian-tc/v1/templater/list": {
+            body: { ok: true, result },
+          },
+        },
+      });
+      const res = await v.call("list_templates", { vault: "test" });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error.code).toBe("plugin_incompatible");
+    },
+  );
 });
 
 describe("execute_template", () => {
