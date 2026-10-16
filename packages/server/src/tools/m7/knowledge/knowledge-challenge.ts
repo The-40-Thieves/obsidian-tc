@@ -74,6 +74,7 @@ export function createKnowledgeChallengeTool(
             chunkId: h.chunk_id,
             tags: tagsByPath.get(h.path) ?? [],
           })),
+          deps.excludeFilter,
         );
       };
       let hits = recall(CHALLENGE_RECALL);
@@ -113,15 +114,23 @@ export function createKnowledgeChallengeTool(
       // challenge mode cannot drift on the decision filter, dedup, per-note quota, trimming or citation
       // numbering. `chunk_id` is threaded so dedup keys on retrieval identity rather than on text.
       const { evidence, coverage } = selected;
+      // Logged before the judge runs, so a judge call that throws still leaves the retrieval logged.
+      // The set is the evidence the judge is shown: egress exclusion ran at selection.
+      logReturned(evidence);
       if (evidence.length === 0) {
-        logReturned(evidence);
+        // Chunks withheld by egress are gone before selection, so an empty set can be egress's doing.
+        const withheld = coverage.dropped.egress ?? 0;
         return {
           vault: v.id,
           available: true,
           evidence_count: 0,
           output: null,
-          message: `no decision-bearing chunks matched this proposal (${coverage.recalled} recalled, ${coverage.filtered_out} failed the decision filter)`,
+          message:
+            withheld > 0
+              ? `no decision evidence remained after egress exclusion (${coverage.recalled} recalled, ${withheld} excluded)`
+              : `no decision-bearing chunks matched this proposal (${coverage.recalled} recalled, ${coverage.filtered_out} failed the decision filter)`,
           coverage,
+          ...(withheld > 0 ? { excluded_count: withheld } : {}),
         };
       }
       // Open contradictions touching the evidence give the judge cross-note conflict context.
@@ -140,7 +149,8 @@ export function createKnowledgeChallengeTool(
       );
       const { output, model, excludedCount, citations, keptEvidence, keptContradictions } =
         challenged;
-      logReturned(keptEvidence);
+      // Withheld evidence is counted at selection (dropped.egress), so it joins the judge's own count.
+      const excludedTotal = (coverage.dropped.egress ?? 0) + excludedCount;
       const egressCoverage = withEgressCoverage(
         coverage,
         keptEvidence.length,
@@ -153,9 +163,9 @@ export function createKnowledgeChallengeTool(
           available: true,
           evidence_count: 0,
           output: null,
-          message: `no decision evidence remained after egress exclusion (${coverage.recalled} recalled, ${excludedCount} excluded)`,
+          message: `no decision evidence remained after egress exclusion (${coverage.recalled} recalled, ${excludedTotal} excluded)`,
           coverage: egressCoverage,
-          excluded_count: excludedCount,
+          excluded_count: excludedTotal,
         };
       }
       return {
@@ -166,7 +176,7 @@ export function createKnowledgeChallengeTool(
         output,
         model,
         coverage: withCitationCheck(egressCoverage, citations),
-        ...(excludedCount > 0 ? { excluded_count: excludedCount } : {}),
+        ...(excludedTotal > 0 ? { excluded_count: excludedTotal } : {}),
       };
     },
   });

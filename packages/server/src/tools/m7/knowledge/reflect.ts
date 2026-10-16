@@ -171,6 +171,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
               tags: tags.get(r.path) ?? null,
               content: r.content ?? "",
             })),
+            deps.excludeFilter,
           );
         };
         challengeSelection = select(results);
@@ -180,25 +181,12 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
           challengeSelection = select(results);
         }
       }
-      // The judge runs before `sources` and the retrieval log are built: evidence drawn from the
-      // expanded ranks reaches the caller only if egress exclusion kept it, so the caller never
-      // receives (and the log never credits) a chunk the judge was not shown.
-      let challenged: Awaited<ReturnType<typeof challengeProposal<EvidenceItem>>> | undefined;
-      if (challengeSelection && challengeSelection.evidence.length > 0 && deps.roles) {
-        const contradictions = openContradictionsForPaths(
-          ctx.db,
-          v.id,
-          [...new Set(challengeSelection.evidence.map((e) => e.path))],
-          (rel) => isReadable(rel),
-        );
-        challenged = await challengeProposal(
-          deps.roles,
-          input.query,
-          challengeSelection.evidence,
-          contradictions,
-          deps.excludeFilter,
-        );
-      }
+      // The judge is shown exactly the evidence the selector kept: egress exclusion ran before the
+      // cap (selectChallengeEvidence), so nothing withheld is in it. That evidence is returned and
+      // logged alongside the top-k hits, and it is settled BEFORE the judge runs, so a judge call
+      // that throws still leaves the retrieval logged and the log never credits a chunk the judge
+      // was not shown.
+      const judgedEvidence = challengeSelection && deps.roles ? challengeSelection.evidence : [];
       // Every top-k hit is returned and logged, egress-excluded ones included. `sources` and the
       // retrieval log carry ids, paths and scores, never content, so they are not egress: only the
       // text is withheld from a model (synthesis and challenge filter their evidence below).
@@ -211,10 +199,10 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
         (result) => excludeFilter !== undefined && isExcludedPath(excludeFilter, result.path),
       ).length;
       const excludedField = excludedCount > 0 ? { excluded_count: excludedCount } : {};
-      if (challenged) {
+      if (judgedEvidence.length > 0) {
         const returnedIds = new Set(returnedResults.map((result) => result.chunk_id));
         const resultById = new Map(results.map((result) => [result.chunk_id, result]));
-        for (const item of challenged.keptEvidence) {
+        for (const item of judgedEvidence) {
           if (item.chunkId === undefined || returnedIds.has(item.chunkId)) continue;
           const result = resultById.get(item.chunkId);
           if (result === undefined) continue;
@@ -235,6 +223,22 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
         path: r.path,
         score: r.rerank_score,
       }));
+      let challenged: Awaited<ReturnType<typeof challengeProposal<EvidenceItem>>> | undefined;
+      if (challengeSelection && judgedEvidence.length > 0 && deps.roles) {
+        const contradictions = openContradictionsForPaths(
+          ctx.db,
+          v.id,
+          [...new Set(judgedEvidence.map((e) => e.path))],
+          (rel) => isReadable(rel),
+        );
+        challenged = await challengeProposal(
+          deps.roles,
+          input.query,
+          judgedEvidence,
+          contradictions,
+          deps.excludeFilter,
+        );
+      }
       if (!deps.roles) {
         return {
           vault: v.id,
@@ -259,7 +263,11 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
             mode: "challenge",
             route: route.signals,
             available: true,
-            message: `no decision-bearing chunks matched this proposal (${coverage.recalled} recalled, ${coverage.filtered_out} failed the decision filter)`,
+            // Chunks withheld by egress are gone before selection, so an empty set can be egress's doing.
+            message:
+              (coverage.dropped.egress ?? 0) > 0
+                ? `no decision evidence remained after egress exclusion (${coverage.recalled} recalled, ${coverage.dropped.egress} excluded)`
+                : `no decision-bearing chunks matched this proposal (${coverage.recalled} recalled, ${coverage.filtered_out} failed the decision filter)`,
             coverage,
             sources,
             ...excludedField,

@@ -275,6 +275,85 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
     expect(composed).toContain("public decision body");
   });
 
+  /** A decision-tagged chunk at an explicit embedding, for the egress selection tests below. */
+  function seedChunkAt(db: any, id: string, path: string, vec: number[]): void {
+    db.prepare(
+      "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, ?, ?, '0', '[]', ?, ?, 10, 0, 0)",
+    ).run(id, VAULT, path, `body of ${path}`, `h-${id}`);
+    db.prepare(
+      "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?, 'stub-embed', ?, ?, 1, 0)",
+    ).run(id, vec.length, floatBlob(vec));
+    db.prepare(
+      "INSERT INTO notes (vault_id, path, title, tags, content_hash, mtime, size, indexed_at) VALUES (?, ?, '', ?, 'h', 0, 0, 0)",
+    ).run(VAULT, path, JSON.stringify(["decision"]));
+    stampAclPath(db);
+  }
+
+  it("egress.excludePaths: excluded decision chunks do not use up the recall cap, so recall expands to the readable ones", async () => {
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    // Thirty excluded chunks fill the first recall page exactly; the readable ones rank below it.
+    for (let i = 0; i < 30; i++) seedChunkAt(db, `priv${i}`, `Private/d${i}.md`, QVEC);
+    for (let i = 0; i < 3; i++) seedChunkAt(db, `pub${i}`, `Public/d${i}.md`, [0, 1]);
+
+    const unrestricted = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
+    const seen: string[] = [];
+    const { registry, ctx } = harness(
+      db,
+      unrestricted,
+      mockJudgeCapturing((m) => seen.push(m)),
+      compileEgressFilter(["Private/**"]),
+    );
+    const res = un<{
+      evidence_count: number;
+      excluded_count?: number;
+      coverage?: { kept: number; dropped: { egress?: number } };
+    }>(
+      await registry.dispatch(
+        "knowledge_challenge",
+        { vault: VAULT, proposal: "we should proceed with this plan" },
+        ctx,
+      ),
+    );
+    expect(res.evidence_count).toBe(3);
+    expect(res.coverage).toMatchObject({ kept: 3, dropped: { egress: 30 } });
+    expect(res.excluded_count).toBe(30);
+    const composed = seen.join("\n");
+    expect(composed).not.toContain("Private/d");
+    expect(composed).toContain("Public/d0.md");
+  });
+
+  it("a judge call that throws still logs the retrieval it ran on, once", async () => {
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    seedChunkAt(db, "pub1", "Public/decision.md", QVEC);
+    seedChunkAt(db, "priv1", "Private/decision.md", QVEC);
+
+    const unrestricted = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
+    const logged: string[][] = [];
+    const throwingJudge: GatewayRoles = {
+      ...mockJudgeCapturing(() => undefined),
+      judge: async () => {
+        throw new Error("gateway unavailable");
+      },
+    };
+    const { registry, ctx } = harness(
+      db,
+      unrestricted,
+      throwingJudge,
+      compileEgressFilter(["Private/**"]),
+      (event) => logged.push(event.hits.map((hit) => hit.chunkId)),
+    );
+    await registry
+      .dispatch(
+        "knowledge_challenge",
+        { vault: VAULT, proposal: "we should proceed with this plan" },
+        ctx,
+      )
+      .catch(() => undefined);
+    expect(logged).toEqual([["pub1"]]);
+  });
+
   it("reports contradiction_count from the post-egress contradiction set", async () => {
     const db = openMemoryDb();
     provisionCacheDb(db);

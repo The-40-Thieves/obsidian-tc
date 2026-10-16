@@ -284,6 +284,7 @@ export const ChallengeCoverageSchema = z.object({
     per_note_quota: z.number().int().nonnegative(),
     item_cap: z.number().int().nonnegative(),
     unexamined_after_budget: z.number().int().nonnegative(),
+    egress: z.number().int().nonnegative().optional(),
   }),
   truncated: z.number().int().nonnegative(),
   low_coverage: z.boolean(),

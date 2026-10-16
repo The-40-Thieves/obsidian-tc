@@ -804,3 +804,20 @@ describe("reflect challenge mode: decision filter, coverage, persist and ACL", (
     if (!r.ok) expect(r.error.code).toBe("validation_error");
   });
 });
+
+it("reflect challenge: a judge call that throws still logs the retrieval it ran on", async () => {
+  const logged: string[] = [];
+  const throwingRoles: GatewayRoles = {
+    ...mockRoles,
+    judge: async () => {
+      throw new Error("gateway unavailable");
+    },
+  };
+  const { registry, ctx } = harness(throwingRoles, ["read:notes"], {
+    retrievalLog: (event) => logged.push(...event.hits.map((hit) => hit.chunkId)),
+  });
+  await registry
+    .dispatch("reflect", { vault: "main", query: '"quorble pattern"', mode: "challenge" }, ctx)
+    .catch(() => undefined);
+  expect(logged).toContain("d1");
+});
