@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FolderAcl } from "../src/acl";
 import {
   CapabilityCache,
@@ -437,7 +437,13 @@ describe("frontmatter stamp", () => {
 describe("commit trailers", () => {
   const status = (staged: string[]) => ({
     "POST /obsidian-tc/v1/git/status": {
-      body: { ok: true, result: { staged: staged.map((path) => ({ path, index: "A" })) } },
+      body: {
+        ok: true,
+        result: {
+          paths_relative_to_vault: true,
+          staged: staged.map((path) => ({ path, index: "A" })),
+        },
+      },
     },
     "POST /obsidian-tc/v1/git/commit": {
       body: { ok: true, result: { committed: 1, fired_at: "t" } },
@@ -548,5 +554,57 @@ describe("commit trailers", () => {
     const r = await b.confirmed("git_commit", { vault: VAULT, message: "snapshot" }, ALICE);
     expect(r.ok).toBe(true);
     expect(commitMessage(b)).toBe("snapshot");
+  });
+
+  it("skips only malformed staged rows when producing commit trailers", async () => {
+    const b = await boot({
+      stamp: { gitTrailers: true },
+      routes: {
+        "POST /obsidian-tc/v1/git/status": {
+          body: {
+            ok: true,
+            result: {
+              paths_relative_to_vault: true,
+              staged: [{ path: "a.md", index: "A" }, "malformed", { path: "b.md", index: "A" }],
+            },
+          },
+        },
+        "POST /obsidian-tc/v1/git/commit": {
+          body: { ok: true, result: { committed: 1, fired_at: "t" } },
+        },
+      },
+    });
+    await b.call("write_note", { vault: VAULT, path: "a.md", content: "A" }, ALICE);
+    await b.call("write_note", { vault: VAULT, path: "b.md", content: "B" }, ALICE);
+
+    await b.confirmed("git_commit", { vault: VAULT, message: "snapshot" }, ALICE);
+
+    expect(commitMessage(b)).toContain("Obsidian-TC-Provenance-Seq: test:1-2");
+  });
+
+  it("warns explicitly when an old companion cannot provide safe staged paths", async () => {
+    const warning = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const b = await boot({
+      stamp: { gitTrailers: true },
+      routes: {
+        "POST /obsidian-tc/v1/git/status": {
+          body: { ok: true, result: { staged: [{ path: "a.md", index: "A" }] } },
+        },
+        "POST /obsidian-tc/v1/git/commit": {
+          body: { ok: true, result: { committed: 1, fired_at: "t" } },
+        },
+      },
+    });
+    await b.call("write_note", { vault: VAULT, path: "a.md", content: "A" }, ALICE);
+
+    await b.confirmed("git_commit", { vault: VAULT, message: "snapshot" }, ALICE);
+
+    expect(commitMessage(b)).toBe("snapshot");
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "cannot stamp git provenance trailers: companion plugin predates vault-relative git paths",
+      ),
+    );
+    warning.mockRestore();
   });
 });

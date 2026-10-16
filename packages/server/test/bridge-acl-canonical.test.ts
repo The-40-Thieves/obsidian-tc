@@ -97,6 +97,7 @@ const UNRESTRICTED_PATH_FAMILIES: UnrestrictedBridgeFamily[] = [
     route: "POST /obsidian-tc/v1/git/status",
     input: {},
     result: (path, text) => ({
+      paths_relative_to_vault: true,
       changed: [{ path, working_dir: text, index: "" }],
       staged: [{ path, index: text }],
       conflicted: [path],
@@ -360,7 +361,9 @@ describe.skipIf(process.platform === "win32")(
         const result = Object.fromEntries(
           Object.keys(hidden).map((k) => [
             k,
-            [...(hidden[k] as unknown[]), ...(readable[k] as unknown[])],
+            k === "paths_relative_to_vault"
+              ? true
+              : [...(hidden[k] as unknown[]), ...(readable[k] as unknown[])],
           ]),
         );
         const v = makeM4Vault({
@@ -461,7 +464,10 @@ describe.skipIf(process.platform === "win32")(
               items: [{ path: "templates/ok.md", name: "template" }],
               total: 1,
             });
-          } else expect(r.data).toEqual({ vault: "test", ...result });
+          } else {
+            const { paths_relative_to_vault: _, ...publicResult } = result;
+            expect(r.data).toEqual({ vault: "test", ...publicResult });
+          }
         }
       });
 
@@ -504,7 +510,7 @@ describe.skipIf(process.platform === "win32")(
       });
     });
 
-    it("git_status keeps an unattributable row for an unrestricted caller", async () => {
+    it("git_status rejects rows whose bridge does not certify a vault-relative path basis", async () => {
       const result = { changed: [{ working_dir: "M", index: "" }], staged: [], conflicted: [] };
       const v = makeM4Vault({
         acl: {},
@@ -516,8 +522,45 @@ describe.skipIf(process.platform === "win32")(
       cleanups.push(v.cleanup);
 
       const r = await v.call("git_status", { vault: "test" });
+      expect(r.ok, dump(r)).toBe(false);
+      if (!r.ok) {
+        expect(r.error.code).toBe("plugin_incompatible");
+        expect(r.error.message).toBe(
+          "companion plugin predates vault-relative git paths; update the companion plugin inside Obsidian",
+        );
+      }
+    });
+
+    it("git_status judges certified mapped rows against the vault ACL", async () => {
+      const result = {
+        paths_relative_to_vault: true,
+        changed: [
+          { path: "Notes/a.md", working_dir: "M", index: "" },
+          { path: ".trash/secret.md", working_dir: "M", index: "" },
+        ],
+        staged: [],
+        conflicted: [],
+      };
+      const v = makeM4Vault({
+        files: { "Notes/a.md": "open", ".trash/secret.md": MARK },
+        acl: {},
+        installed: ["git"],
+        routes: {
+          "POST /obsidian-tc/v1/git/status": { body: { ok: true, result } },
+        },
+      });
+      cleanups.push(v.cleanup);
+
+      const r = await v.call("git_status", { vault: "test" });
       expect(r.ok, dump(r)).toBe(true);
-      if (r.ok) expect(r.data).toEqual({ vault: "test", ...result });
+      if (r.ok) {
+        expect(r.data).toEqual({
+          vault: "test",
+          changed: [{ path: "Notes/a.md", working_dir: "M", index: "" }],
+          staged: [],
+          conflicted: [],
+        });
+      }
     });
 
     describe.each(FAMILIES)("$tool", (f) => {
@@ -702,6 +745,7 @@ describe.skipIf(process.platform === "win32")(
             body: {
               ok: true,
               result: {
+                paths_relative_to_vault: true,
                 changed: [{ path: "pages/new.md", from: ".trash/old-secret.md", working_dir: "R" }],
                 staged: [],
                 conflicted: [],
@@ -728,6 +772,7 @@ describe.skipIf(process.platform === "win32")(
             body: {
               ok: true,
               result: {
+                paths_relative_to_vault: true,
                 changed: [{ path: "pages/open.md", working_dir: "M", index: "" }],
                 staged: [],
                 conflicted: [],
@@ -820,6 +865,7 @@ describe.skipIf(process.platform === "win32")(
 
     it("git_status projects row fields before returning them", async () => {
       const result = {
+        paths_relative_to_vault: true,
         changed: [
           {
             path: "pages/open.md",

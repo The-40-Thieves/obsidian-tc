@@ -14,10 +14,233 @@ import {
 // probed before use and absence degrades, never throws.
 interface GitManagerLite {
   status?: () => Promise<unknown>;
+  absoluteRepoPath?: unknown;
   getDiffString?: (path: string, staged?: boolean) => Promise<unknown>;
   log?: (file: undefined, relativeToVault: boolean, limit: number) => Promise<unknown>;
   stage?: (path: string, relativeToVault: boolean) => Promise<unknown>;
   commit?: (opts: { message: string }) => Promise<unknown>;
+}
+
+interface GitStatusRow {
+  path?: string;
+  from?: string;
+  workingDir?: string;
+  working_dir?: string;
+  index?: string;
+}
+
+type VaultPathMapper = (path: string) => string | null;
+
+interface GitPathMappers {
+  toVaultPath: VaultPathMapper;
+  toRepoPath: VaultPathMapper;
+  nativeGitPathspecs: boolean;
+}
+
+interface ParsedAbsolutePath {
+  root: string;
+  segments: string[];
+  caseInsensitive: boolean;
+}
+
+function relativeSegments(path: string, allowEmpty = false): string[] | null {
+  if (path.includes("\\") || path.includes("\0") || path.startsWith("/") || /^[A-Za-z]:/.test(path))
+    return null;
+  if (path === "" && allowEmpty) return [];
+  const segments = path.split("/");
+  return segments.length > 0 &&
+    segments.every((part) => part !== "" && part !== "." && part !== "..")
+    ? segments
+    : null;
+}
+
+function absolutePath(path: unknown): ParsedAbsolutePath | null {
+  if (typeof path !== "string" || path.length === 0 || path.includes("\0")) return null;
+  const normalized = path.replace(/\\/g, "/");
+  const drive = /^([A-Za-z]:)\/(.*)$/.exec(normalized);
+  const posix = normalized.startsWith("/");
+  if (!drive && !posix) return null;
+  const driveRoot = drive?.[1];
+  const driveRest = drive?.[2];
+  if (drive && (driveRoot === undefined || driveRest === undefined)) return null;
+  const root = driveRoot?.toLowerCase() ?? "/";
+  const rawSegments = (driveRest ?? normalized.slice(1)).split("/");
+  const segments: string[] = [];
+  for (const part of rawSegments) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      if (segments.length === 0) return null;
+      segments.pop();
+    } else {
+      segments.push(part);
+    }
+  }
+  return { root, segments, caseInsensitive: Boolean(drive) };
+}
+
+function startsWithPath(path: ParsedAbsolutePath, parent: ParsedAbsolutePath): boolean {
+  if (path.root !== parent.root || path.caseInsensitive !== parent.caseInsensitive) return false;
+  if (parent.segments.length > path.segments.length) return false;
+  return parent.segments.every((part, index) => {
+    const candidate = path.segments[index];
+    if (candidate === undefined) return false;
+    return path.caseInsensitive
+      ? candidate.toLowerCase() === part.toLowerCase()
+      : candidate === part;
+  });
+}
+
+function desktopPathMappers(repositoryPath: unknown, vaultPath: unknown): GitPathMappers | null {
+  const repository = absolutePath(repositoryPath);
+  const vault = absolutePath(vaultPath);
+  if (!repository || !vault) return null;
+  if (!startsWithPath(repository, vault) && !startsWithPath(vault, repository)) return null;
+  return {
+    nativeGitPathspecs: true,
+    toVaultPath: (path) => {
+      const rel = relativeSegments(path);
+      if (!rel) return null;
+      const file: ParsedAbsolutePath = {
+        ...repository,
+        segments: [...repository.segments, ...rel],
+      };
+      if (!startsWithPath(file, vault)) return null;
+      const mapped = file.segments.slice(vault.segments.length);
+      return mapped.length > 0 ? mapped.join("/") : null;
+    },
+    toRepoPath: (path) => {
+      const rel = relativeSegments(path);
+      if (!rel) return null;
+      const file: ParsedAbsolutePath = {
+        ...vault,
+        segments: [...vault.segments, ...rel],
+      };
+      if (!startsWithPath(file, repository)) return null;
+      const mapped = file.segments.slice(repository.segments.length);
+      return mapped.length > 0 ? mapped.join("/") : null;
+    },
+  };
+}
+
+function settingsBasePath(app: InternalApp): string | undefined {
+  const settings = communityPlugin(app, "git")?.settings;
+  if (typeof settings !== "object" || settings === null) return undefined;
+  if (!Object.hasOwn(settings, "basePath")) return undefined;
+  const basePath = (settings as { basePath?: unknown }).basePath;
+  return typeof basePath === "string" ? basePath : undefined;
+}
+
+function gitPathMappers(
+  app: InternalApp,
+  gm: GitManagerLite,
+): { mappers?: GitPathMappers; reason?: string; hint?: string } {
+  const adapter = app.vault.adapter as unknown as { getBasePath?: () => unknown };
+  if (typeof gm.absoluteRepoPath === "string") {
+    if (typeof adapter.getBasePath !== "function")
+      return {
+        reason: "obsidian-git cannot determine the vault base path",
+        hint: "Update Obsidian and obsidian-git, then retry",
+      };
+    let vaultPath: unknown;
+    try {
+      vaultPath = adapter.getBasePath();
+    } catch {
+      return {
+        reason: "obsidian-git cannot determine the vault base path",
+        hint: "Update Obsidian and obsidian-git, then retry",
+      };
+    }
+    const mappers = desktopPathMappers(gm.absoluteRepoPath, vaultPath);
+    return mappers
+      ? { mappers }
+      : {
+          reason: "obsidian-git cannot determine the repo-to-vault offset",
+          hint: "Check the configured repository location and update obsidian-git",
+        };
+  }
+
+  if (typeof adapter.getBasePath === "function")
+    return {
+      reason: "this obsidian-git version does not expose the desktop repository path",
+      hint: "Update obsidian-git to version 2.28.0 or newer",
+    };
+
+  const basePath = settingsBasePath(app);
+  if (basePath === undefined)
+    return {
+      reason: "obsidian-git cannot determine the mobile repo-to-vault offset",
+      hint: "Update obsidian-git, then retry",
+    };
+  const prefix = relativeSegments(basePath, true);
+  if (!prefix)
+    return {
+      reason: "obsidian-git reported an invalid vault-relative basePath",
+      hint: "Correct the obsidian-git base path setting",
+    };
+  return {
+    mappers: {
+      nativeGitPathspecs: false,
+      toVaultPath: (path) => {
+        const rel = relativeSegments(path);
+        return rel ? [...prefix, ...rel].join("/") : null;
+      },
+      toRepoPath: (path) => {
+        const rel = relativeSegments(path);
+        if (!rel || prefix.some((part, index) => rel[index] !== part)) return null;
+        const mapped = rel.slice(prefix.length);
+        return mapped.length > 0 ? mapped.join("/") : null;
+      },
+    },
+  };
+}
+
+function requireGitPathMappers(
+  app: InternalApp,
+  gm: GitManagerLite,
+  res: BridgeRes,
+): GitPathMappers | null {
+  const result = gitPathMappers(app, gm);
+  if (result.mappers) return result.mappers;
+  fail(res, "plugin_incompatible", result.reason ?? "unknown git path basis", {
+    plugin: "git",
+    ...(result.hint ? { hint: result.hint } : {}),
+  });
+  return null;
+}
+
+function safeRepoPath(path: unknown, mappers: GitPathMappers): string | null {
+  const mapped = mapVaultPath(path, mappers.toRepoPath);
+  if (!mapped) return null;
+  return mappers.nativeGitPathspecs ? `:(literal)${mapped}` : mapped;
+}
+
+/** Convert one repository-relative path and reject results outside the vault. */
+function mapVaultPath(path: unknown, toVaultPath: VaultPathMapper): string | null {
+  if (typeof path !== "string" || path.length === 0) return null;
+  const rel = toVaultPath(path);
+  if (
+    typeof rel !== "string" ||
+    rel.length === 0 ||
+    rel.includes("\\") ||
+    rel.includes("\0") ||
+    rel.startsWith("/") ||
+    /^[A-Za-z]:/.test(rel) ||
+    rel.split("/").some((part) => part === "" || part === "." || part === "..")
+  )
+    return null;
+  return rel;
+}
+
+/** Map all path-bearing fields together; an unsafe rename source drops the whole row. */
+function mapStatusPaths(
+  row: GitStatusRow,
+  toVaultPath: VaultPathMapper,
+): { path: string; from?: string } | null {
+  const path = mapVaultPath(row.path, toVaultPath);
+  if (!path) return null;
+  const from = row.from === undefined ? undefined : mapVaultPath(row.from, toVaultPath);
+  if (from === null) return null;
+  return { path, ...(from === undefined ? {} : { from }) };
 }
 
 /** Resolve obsidian-git's gitManager, mapping absence onto the error taxonomy. */
@@ -49,20 +272,40 @@ export function buildGitRoutes(app: InternalApp): RouteDef[] {
           return fail(res, "plugin_unreachable", "obsidian-git exposes no status()", {
             plugin: "git",
           });
+        const pathMappers = requireGitPathMappers(app, gm, res);
+        if (!pathMappers) return;
         try {
+          const { toVaultPath } = pathMappers;
           const s = (await gm.status()) as {
-            changed?: Array<{ path?: string; working_dir?: string; index?: string }>;
-            staged?: Array<{ path?: string; index?: string }>;
+            changed?: GitStatusRow[];
+            staged?: GitStatusRow[];
             conflicted?: string[];
           };
+          const changed = (s.changed ?? []).flatMap((row) => {
+            const paths = mapStatusPaths(row, toVaultPath);
+            return paths
+              ? [
+                  {
+                    ...paths,
+                    working_dir: row.workingDir ?? row.working_dir ?? "",
+                    index: row.index ?? "",
+                  },
+                ]
+              : [];
+          });
+          const staged = (s.staged ?? []).flatMap((row) => {
+            const paths = mapStatusPaths(row, toVaultPath);
+            return paths ? [{ ...paths, index: row.index ?? "" }] : [];
+          });
+          const conflicted = (s.conflicted ?? []).flatMap((path) => {
+            const mapped = mapVaultPath(path, toVaultPath);
+            return mapped ? [mapped] : [];
+          });
           ok(res, {
-            changed: (s.changed ?? []).map((f) => ({
-              path: f.path ?? "",
-              working_dir: f.working_dir ?? "",
-              index: f.index ?? "",
-            })),
-            staged: (s.staged ?? []).map((f) => ({ path: f.path ?? "", index: f.index ?? "" })),
-            conflicted: s.conflicted ?? [],
+            paths_relative_to_vault: true,
+            changed,
+            staged,
+            conflicted,
           });
         } catch (e) {
           fail(res, "git_error", e instanceof Error ? e.message : String(e));
@@ -81,9 +324,14 @@ export function buildGitRoutes(app: InternalApp): RouteDef[] {
           });
         const path = str(body(req), "path");
         if (!path) return fail(res, "invalid_input", "path is required");
+        const pathMappers = requireGitPathMappers(app, gm, res);
+        if (!pathMappers) return;
+        const repoPath = safeRepoPath(path, pathMappers);
+        if (!repoPath)
+          return fail(res, "invalid_input", "path must identify a file inside the git repository");
         const staged = body(req).staged === true;
         try {
-          const diff = await gm.getDiffString(path, staged);
+          const diff = await gm.getDiffString(repoPath, staged);
           ok(res, { diff: typeof diff === "string" ? diff : "" });
         } catch (e) {
           fail(res, "git_error", e instanceof Error ? e.message : String(e));
@@ -139,10 +387,19 @@ export function buildGitRoutes(app: InternalApp): RouteDef[] {
           !paths.every((p) => typeof p === "string")
         )
           return fail(res, "invalid_input", "paths must be a non-empty string array");
+        const pathMappers = requireGitPathMappers(app, gm, res);
+        if (!pathMappers) return;
+        const repoPaths = paths.map((path) => safeRepoPath(path, pathMappers));
+        if (repoPaths.some((path) => path === null))
+          return fail(
+            res,
+            "invalid_input",
+            "every path must identify a file inside the git repository",
+          );
         let staged = 0;
         try {
-          for (const p of paths) {
-            await gm.stage(p, true);
+          for (const path of repoPaths) {
+            await gm.stage(path as string, false);
             staged++;
           }
           ok(res, { staged });
@@ -151,7 +408,7 @@ export function buildGitRoutes(app: InternalApp): RouteDef[] {
           // partial state (some staged, some not), leaving the caller unable to resume safely.
           fail(res, "git_error", e instanceof Error ? e.message : String(e), {
             staged,
-            total: paths.length,
+            total: repoPaths.length,
           });
         }
       },
