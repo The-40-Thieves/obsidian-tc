@@ -17,7 +17,6 @@ import {
   lstatSync,
   openSync,
   readFileSync,
-  readlinkSync,
   readSync,
   renameSync,
   rmdirSync,
@@ -46,6 +45,7 @@ import {
   refuseJsThroughPin,
 } from "./native-io";
 import { verifyWalkedDirectories, walkDirectoriesNoFollow } from "./no-follow-walk";
+import { expectedOpenedPath, openedFdPathResolver } from "./opened-fd-path";
 import { assertCreatableName, contentHash } from "./paths";
 
 // O_NOFOLLOW and O_NONBLOCK are POSIX-only (undefined on Windows Node): 0 is a no-op there, and the
@@ -53,6 +53,7 @@ import { assertCreatableName, contentHash } from "./paths";
 const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 const O_NONBLOCK = constants.O_NONBLOCK ?? 0;
 
+export { openedFdPathSupported, setOpenedFdPathResolverForTest } from "./opened-fd-path";
 // Prefer the native, symlink-safe, TOCTOU-free open when the compiled module is loaded: it follows
 // no symlink in any path component (vault/native-io.ts). Without it, the JS path lstats every
 // component and verifies the opened leaf's identity. That refuses stable links on every platform;
@@ -137,6 +138,9 @@ function mapNativeReadError(e: unknown, abs: string): never {
 function fallbackOpen(abs: string): number {
   const path = normalize(abs);
   refuseJsThroughPin(path);
+  // The expected descriptor path uses the root's realpath, taken BEFORE the walk: a realpath taken
+  // after it would follow a component swapped in since the walk and accept the swapped location.
+  const expectedPath = expectedOpenedPath(path);
   const ancestors = walkDirectoriesNoFollow(dirname(path), readWalkOptions(path));
   const leaf = lstatSync(path, { bigint: true });
   if (leaf.isSymbolicLink()) {
@@ -160,16 +164,12 @@ function fallbackOpen(abs: string): number {
     if (opened.dev !== leaf.dev || opened.ino !== leaf.ino) {
       throw fallbackReadRefused("file changed while opening", path);
     }
-    if (process.platform === "linux") {
-      try {
-        if (normalize(readlinkSync(`/proc/self/fd/${fd}`)) !== path) {
-          throw fallbackReadRefused("opened file resolved to an unexpected path", path);
-        }
-        return fd;
-      } catch (e) {
-        if (e instanceof ObsidianTcError) throw e;
-        // procfs is optional; fall through to the ancestor identity check when it is unavailable.
+    const resolved = openedFdPathResolver()?.(fd);
+    if (resolved !== undefined) {
+      if (resolved !== expectedPath) {
+        throw fallbackReadRefused("opened file resolved to an unexpected path", path);
       }
+      return fd;
     }
     verifyWalkedDirectories(ancestors, (component) => {
       throw fallbackReadRefused(

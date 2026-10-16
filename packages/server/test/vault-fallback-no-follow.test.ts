@@ -616,3 +616,225 @@ describe("pure-JS no-follow race and platform guards", () => {
     },
   );
 });
+
+// Child process body: flips `<root>/sub` between the real directory and a symlink to `outside`.
+const FLIP_SCRIPT = `
+const fs = require("node:fs");
+const [root, outside] = process.argv.slice(1);
+const sub = root + "/sub";
+const held = root + "/held";
+const end = Date.now() + 2500;
+while (Date.now() < end) {
+  try { fs.renameSync(sub, held); fs.symlinkSync(outside, sub, "dir"); } catch {}
+  try { fs.unlinkSync(sub); fs.renameSync(held, sub); } catch {}
+}
+`;
+
+describe("pure-JS read verifies the opened descriptor's path", () => {
+  afterEach(() => {
+    fallbackNotes.setOpenedFdPathResolverForTest(undefined);
+  });
+
+  it("refuses an opened file whose descriptor resolves outside the vault", () => {
+    const root = temp("otc-fallback-fd-vault-");
+    const outside = temp("otc-fallback-fd-outside-");
+    writeFileSync(join(root, "note.md"), "INSIDE");
+    writeFileSync(join(outside, "note.md"), "OUTSIDE-SECRET");
+    fallbackNotes.setOpenedFdPathResolverForTest(() => join(outside, "note.md"));
+
+    const error = refusalOf(() => fallbackNotes.readNote(join(root, "note.md")));
+
+    expect(error.code).toBe("acl_denied");
+    expect(error.message).toBe(
+      "safe open refused the path: opened file resolved to an unexpected path",
+    );
+  });
+
+  it("closes the descriptor when the opened-path check refuses", async () => {
+    const root = temp("otc-fallback-fd-close-vault-");
+    const outside = temp("otc-fallback-fd-close-outside-");
+    writeFileSync(join(root, "note.md"), "INSIDE");
+    writeFileSync(join(outside, "note.md"), "OUTSIDE-SECRET");
+    const opened: number[] = [];
+    const closed: number[] = [];
+
+    vi.doMock("node:fs", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("node:fs")>();
+      return {
+        ...actual,
+        openSync: ((...args: Parameters<typeof actual.openSync>) => {
+          const fd = actual.openSync(...args);
+          opened.push(fd);
+          return fd;
+        }) as typeof actual.openSync,
+        closeSync: ((fd: number) => {
+          closed.push(fd);
+          return actual.closeSync(fd);
+        }) as typeof actual.closeSync,
+      };
+    });
+    vi.resetModules();
+    try {
+      const closeNotes = await import("../src/vault/notes-io");
+      closeNotes.setOpenedFdPathResolverForTest(() => join(outside, "note.md"));
+
+      const error = refusalOf(() => closeNotes.readNote(join(root, "note.md")));
+
+      expect(error.message).toContain("opened file resolved to an unexpected path");
+      expect(opened).toHaveLength(1);
+      expect(closed).toEqual(opened);
+    } finally {
+      vi.doUnmock("node:fs");
+      vi.resetModules();
+    }
+  });
+
+  it.skipIf(!directorySymlinkOk)(
+    "runs the ancestor re-walk when no opened-path resolver is available",
+    async () => {
+      const root = temp("otc-fallback-rewalk-vault-");
+      const outside = temp("otc-fallback-rewalk-outside-");
+      const sub = join(root, "sub");
+      const held = join(root, "held");
+      const leaf = join(sub, "note.md");
+      mkdirSync(sub);
+      writeFileSync(leaf, "INSIDE");
+      writeFileSync(join(outside, "note.md"), "OUTSIDE-SECRET");
+      let swapped = false;
+
+      vi.doMock("node:fs", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("node:fs")>();
+        return {
+          ...actual,
+          openSync: ((...args: Parameters<typeof actual.openSync>) => {
+            const fd = actual.openSync(...args);
+            if (args[0] === leaf && !swapped) {
+              swapped = true;
+              actual.renameSync(sub, held);
+              actual.symlinkSync(outside, sub, "dir");
+            }
+            return fd;
+          }) as typeof actual.openSync,
+        };
+      });
+      vi.resetModules();
+      try {
+        const rewalkNotes = await import("../src/vault/notes-io");
+        rewalkNotes.setOpenedFdPathResolverForTest(() => undefined);
+
+        const error = refusalOf(() => rewalkNotes.readNote(leaf));
+
+        expect(swapped).toBe(true);
+        expect(error.code).toBe("acl_denied");
+        expect(error.message).toContain("path component changed while opening");
+      } finally {
+        vi.doUnmock("node:fs");
+        vi.resetModules();
+      }
+    },
+  );
+
+  it.runIf(process.platform === "linux" && directorySymlinkOk)(
+    "refuses a component swapped back before the check when the platform has no procfs",
+    async () => {
+      const root = temp("otc-fallback-swapback-vault-");
+      const outside = temp("otc-fallback-swapback-outside-");
+      const sub = join(root, "sub");
+      const held = join(root, "held");
+      const leaf = join(sub, "note.md");
+      mkdirSync(sub);
+      writeFileSync(leaf, "INSIDE");
+      writeFileSync(join(outside, "note.md"), "OUTSIDE-SECRET");
+      let swaps = 0;
+      const platform = Object.getOwnPropertyDescriptor(process, "platform");
+
+      // Simulates macOS on Linux: procfs is absent from the picture, so the only descriptor check
+      // is the platform's own. The component is swapped to the outside directory for the open and
+      // back to the real directory before the post-open checks, so the ancestor re-walk sees the
+      // original identity.
+      vi.doMock("node:fs", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("node:fs")>();
+        return {
+          ...actual,
+          lstatSync: ((path: Parameters<typeof actual.lstatSync>[0], options?: unknown) => {
+            if (path === leaf && swaps === 0) {
+              swaps += 1;
+              actual.renameSync(sub, held);
+              actual.symlinkSync(outside, sub, "dir");
+            }
+            return actual.lstatSync(path, options as never);
+          }) as typeof actual.lstatSync,
+          openSync: ((...args: Parameters<typeof actual.openSync>) => {
+            const fd = actual.openSync(...args);
+            if (args[0] === leaf && swaps === 1) {
+              swaps += 1;
+              actual.unlinkSync(sub);
+              actual.renameSync(held, sub);
+            }
+            return fd;
+          }) as typeof actual.openSync,
+        };
+      });
+      Object.defineProperty(process, "platform", { ...platform, value: "darwin" });
+      vi.resetModules();
+      try {
+        const swapNotes = await import("../src/vault/notes-io");
+
+        const error = refusalOf(() => swapNotes.readNote(leaf));
+
+        expect(swaps).toBe(2);
+        expect(error.code).toBe("acl_denied");
+        expect(error.message).toContain("opened file resolved to an unexpected path");
+      } finally {
+        Object.defineProperty(process, "platform", platform as PropertyDescriptor);
+        vi.doUnmock("node:fs");
+        vi.resetModules();
+      }
+    },
+  );
+
+  it.runIf(process.platform === "darwin")("reports the macOS /dev/fd probe as available", () => {
+    expect(
+      fallbackNotes.openedFdPathSupported(),
+      "macOS fd check unavailable: realpath(/dev/fd/N) does not name the opened file",
+    ).toBe(true);
+  });
+
+  it.runIf(process.platform === "darwin")(
+    "never serves outside content while a component flips between a directory and a symlink",
+    { timeout: stallTimeout(15_000) },
+    () => {
+      const root = temp("otc-fallback-darwin-race-vault-");
+      const outside = temp("otc-fallback-darwin-race-outside-");
+      const leaf = join(root, "sub", "note.md");
+      mkdirSync(join(root, "sub"));
+      writeFileSync(leaf, "INSIDE");
+      writeFileSync(join(outside, "note.md"), "OUTSIDE-SECRET");
+      const flipper = spawn(process.execPath, ["-e", FLIP_SCRIPT, root, outside], {
+        stdio: "ignore",
+      });
+      const pins = new FolderPins([{ root }]);
+      const served: string[] = [];
+      let attempts = 0;
+      const deadline = performance.now() + 3_000;
+      try {
+        withFolderPins(pins, () => {
+          for (let i = 0; i < 2_000 && performance.now() < deadline; i += 1) {
+            attempts += 1;
+            try {
+              const { raw } = fallbackNotes.readNote(leaf);
+              if (raw.includes("OUTSIDE")) served.push(raw);
+            } catch {
+              // A refusal, or a path caught mid-flip, is the correct answer.
+            }
+          }
+        });
+      } finally {
+        flipper.kill();
+      }
+
+      expect(served).toEqual([]);
+      expect(attempts).toBeGreaterThan(0);
+    },
+  );
+});
