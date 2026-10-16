@@ -274,19 +274,6 @@ export const ConciseableVaultContextOutput = VaultContextOutput.extend({
   lessons: z.array(VaultContextLesson.partial({ via: true })),
 });
 
-/** reflect: three arms. `mode` in the degraded arm ECHOES the input rather than being normalised,
- *  which is why it is a plain string there and a literal in the other two. */
-/** reflect. Encoded as ONE object with optionals rather than a discriminated union, because
- *  TypeScript unifies the handler's three branch returns into a single widened shape
- *  (`available: boolean`, absent fields as `?: undefined`) rather than preserving the union — so a
- *  union of literal-tagged arms cannot match the inferred return type.
- *
- *  What the three arms actually are, since the schema can no longer say it:
- *    degraded  { available: false, message, answer: null, sources }   — `mode` ECHOES the input here
- *    challenge { available: true,  model, challenge, sources }
- *    synthesis { available: true,  model, answer, sources, persisted? }
- *
- *  Every field name and type is still checked; only the correlation between them is not. */
 export const ChallengeCoverageSchema = z.object({
   recalled: z.number().int().nonnegative(),
   decision_matched: z.number().int().nonnegative(),
@@ -305,6 +292,19 @@ export const ChallengeCoverageSchema = z.object({
 });
 export type ChallengeCoverage = z.infer<typeof ChallengeCoverageSchema>;
 
+/** reflect: three arms. `mode` in the degraded arm ECHOES the input rather than being normalised,
+ *  which is why it is a plain string there and a literal in the other two. */
+/** reflect. Encoded as ONE object with optionals rather than a discriminated union, because
+ *  TypeScript unifies the handler's three branch returns into a single widened shape
+ *  (`available: boolean`, absent fields as `?: undefined`) rather than preserving the union — so a
+ *  union of literal-tagged arms cannot match the inferred return type.
+ *
+ *  What the three arms actually are, since the schema can no longer say it:
+ *    degraded  { available: false, message, answer: null, sources }   — `mode` ECHOES the input here
+ *    challenge { available: true,  model, challenge, sources }
+ *    synthesis { available: true,  model, answer, sources, persisted? }
+ *
+ *  Every field name and type is still checked; only the correlation between them is not. */
 export const ReflectOutput = z.object({
   vault: z.string(),
   mode: z.string(),

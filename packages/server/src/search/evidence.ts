@@ -245,6 +245,29 @@ export function buildEvidence(
   };
 }
 
+/** Render the model's `[n]` markers as `[[path]]` (extension dropped, Obsidian's canonical form)
+ *  from the evidence items actually shown to it — deterministic, never trusting the model to emit
+ *  links. An `[n]` with no matching item is left as written and returned in `unresolved` (sorted,
+ *  unique) so a caller can report it. Existing `[[n]]` wikilinks, `[n](url)` markdown links and
+ *  non-integer brackets are not citations and are left alone. */
+export function renderWikilinkCitations(
+  text: string,
+  items: ReadonlyArray<{ citation: number; path: string }>,
+): { text: string; unresolved: number[] } {
+  const pathByCitation = new Map(items.map((i) => [i.citation, i.path]));
+  const unresolved = new Set<number>();
+  const rendered = text.replace(/(?<!\[)\[(\d+)\](?![\](])/g, (marker, digits: string) => {
+    const n = Number(digits);
+    const path = pathByCitation.get(n);
+    if (path === undefined) {
+      unresolved.add(n);
+      return marker;
+    }
+    return `[[${path.replace(/\.md$/i, "")}]]`;
+  });
+  return { text: rendered, unresolved: [...unresolved].sort((a, b) => a - b) };
+}
+
 /** Render one item in the `[n] path / headings / tags / content` shape both former call sites
  *  used, so the text handed to a model is identical in structure regardless of which tool built
  *  it. Kept separate from `buildEvidence` because the challenge path renders into its own prompt

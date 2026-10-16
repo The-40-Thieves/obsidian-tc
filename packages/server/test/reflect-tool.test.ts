@@ -51,6 +51,7 @@ function harness(
     retrieval?: M7Deps["retrieval"];
     embeddingProvider?: M7Deps["embeddingProvider"];
     classRouter?: boolean;
+    excludeFilter?: ReturnType<typeof compileEgressFilter>;
   } = {},
 ) {
   const registry = new ToolRegistry({});
@@ -71,6 +72,7 @@ function harness(
     classRouter: opts.classRouter ?? true,
     ...(opts.retrievalLog ? { retrievalLog: opts.retrievalLog } : {}),
     ...(opts.retrieval ? { retrieval: opts.retrieval } : {}),
+    ...(opts.excludeFilter ? { excludeFilter: opts.excludeFilter } : {}),
   });
   const ctx = {
     caller: "tester",
@@ -102,6 +104,18 @@ interface ReflectData {
   challenge?: { verdict: string; summary: string };
   persisted?: { path: string };
 }
+
+it("keeps the reflect output doc comment attached to ReflectOutput", () => {
+  const schemas = readFileSync(
+    new URL("../src/tools/m7/knowledge/schemas.ts", import.meta.url),
+    "utf8",
+  );
+  const coverageDeclaration = schemas.indexOf("export const ChallengeCoverageSchema");
+  const reflectDoc = schemas.indexOf("/** reflect: three arms.");
+  const reflectDeclaration = schemas.indexOf("export const ReflectOutput");
+  expect(coverageDeclaration).toBeLessThan(reflectDoc);
+  expect(reflectDoc).toBeLessThan(reflectDeclaration);
+});
 
 describe("reflect tool (THE-222)", () => {
   it("degrades gracefully: no gateway -> available false, recall sources still returned", async () => {
@@ -288,6 +302,24 @@ describe("reflect challenge mode: decision filter, coverage, persist and ACL", (
     return db;
   }
 
+  function expandedPoolRows(): ReadonlyArray<readonly [string, string, string]> {
+    const leading = Array.from(
+      { length: 40 },
+      (_, i) => [`p${i}`, `notes/plain-${i}.md`, "quorble pattern"] as const,
+    );
+    const decision = [
+      "d1",
+      "02-projects/decide.md",
+      `quorble pattern ${"filler ".repeat(80)}`,
+    ] as const;
+    const trailing = Array.from(
+      { length: 60 },
+      (_, i) =>
+        [`tail${i}`, `notes/tail-${i}.md`, `quorble pattern ${"filler ".repeat(160)}`] as const,
+    );
+    return [...leading, decision, ...trailing];
+  }
+
   /** Records the composed judge request, then returns a canned verdict. */
   function capturingRoles(sink: (composed: string) => void): GatewayRoles {
     return {
@@ -303,21 +335,7 @@ describe("reflect challenge mode: decision filter, coverage, persist and ACL", (
   }
 
   it("expands once to a bounded 90-hit pool when the first 30 underfill decision evidence", async () => {
-    const leading = Array.from(
-      { length: 40 },
-      (_, i) => [`p${i}`, `notes/plain-${i}.md`, "quorble pattern"] as const,
-    );
-    const decision = [
-      "d1",
-      "02-projects/decide.md",
-      `quorble pattern ${"filler ".repeat(80)}`,
-    ] as const;
-    const trailing = Array.from(
-      { length: 60 },
-      (_, i) =>
-        [`tail${i}`, `notes/tail-${i}.md`, `quorble pattern ${"filler ".repeat(160)}`] as const,
-    );
-    const db = seedPool([...leading, decision, ...trailing]);
+    const db = seedPool(expandedPoolRows());
     const seen: string[] = [];
     const { registry, ctx } = harness(
       capturingRoles((m) => seen.push(m)),
@@ -335,6 +353,119 @@ describe("reflect challenge mode: decision filter, coverage, persist and ACL", (
     );
     expect(seen.join("\n")).toContain("02-projects/decide.md");
     expect(res.coverage).toMatchObject({ recalled: 90, decision_matched: 1 });
+    expect(res.sources.map((source) => source.chunk_id)).toContain("d1");
+  });
+
+  it("logs only sources returned after expanded challenge recall", async () => {
+    const loggedChunkIds: string[] = [];
+    const { registry, ctx } = harness(
+      capturingRoles(() => {}),
+      ["read:notes"],
+      {
+        db: seedPool(expandedPoolRows()),
+        retrievalLog: (event) => loggedChunkIds.push(...event.hits.map((hit) => hit.chunkId)),
+      },
+    );
+    const res = un<ReflectData>(
+      await registry.dispatch(
+        "reflect",
+        { vault: "main", query: '"quorble pattern"', mode: "challenge" },
+        ctx,
+      ),
+    );
+    expect(loggedChunkIds).toEqual(res.sources.map((source) => source.chunk_id));
+  });
+
+  it("an egress-excluded chunk from the expanded ranks is neither returned nor credited", async () => {
+    const body = `quorble pattern ${"filler ".repeat(80)}`;
+    const rows = [
+      ...expandedPoolRows().filter(([id]) => id !== "d1"),
+      ["d1", "02-projects/decide.md", body] as const,
+      ["d2", "02-projects/private/secret.md", body] as const,
+    ];
+    const seen: string[] = [];
+    const loggedChunkIds: string[] = [];
+    const { registry, ctx } = harness(
+      capturingRoles((m) => seen.push(m)),
+      ["read:notes"],
+      {
+        db: seedPool(rows),
+        excludeFilter: compileEgressFilter(["02-projects/private/**"]),
+        retrievalLog: (event) => loggedChunkIds.push(...event.hits.map((hit) => hit.chunkId)),
+      },
+    );
+    const res = un<ReflectData & { excluded_count?: number }>(
+      await registry.dispatch(
+        "reflect",
+        { vault: "main", query: '"quorble pattern"', mode: "challenge" },
+        ctx,
+      ),
+    );
+    const sourceIds = res.sources.map((source) => source.chunk_id);
+    expect(seen.join("\n")).toContain("02-projects/decide.md");
+    expect(seen.join("\n")).not.toContain("02-projects/private/secret.md");
+    expect(sourceIds).toContain("d1");
+    expect(sourceIds).not.toContain("d2");
+    expect(loggedChunkIds).toEqual(sourceIds);
+    expect(res.excluded_count).toBe(1);
+  });
+
+  it("filters egress-excluded top-k sources before returning or logging them", async () => {
+    const loggedChunkIds: string[] = [];
+    const { registry, ctx } = harness(
+      capturingRoles(() => {}),
+      ["read:notes"],
+      {
+        db: seedPool(expandedPoolRows()),
+        excludeFilter: compileEgressFilter(["notes/plain-*.md"]),
+        retrievalLog: (event) => loggedChunkIds.push(...event.hits.map((hit) => hit.chunkId)),
+      },
+    );
+    const res = un<ReflectData>(
+      await registry.dispatch(
+        "reflect",
+        { vault: "main", query: '"quorble pattern"', mode: "challenge" },
+        ctx,
+      ),
+    );
+    expect(res.sources.map((source) => source.chunk_id)).toEqual(["d1"]);
+    expect(loggedChunkIds).toEqual(["d1"]);
+  });
+
+  it("evidence the egress filter empties refuses instead of calling the judge", async () => {
+    let judged = 0;
+    const counting: GatewayRoles = {
+      ...mockRoles,
+      judge: async (...args) => {
+        judged++;
+        return mockRoles.judge(...args);
+      },
+    };
+    const loggedChunkIds: string[] = [];
+    const { registry, ctx } = harness(counting, ["read:notes"], {
+      db: seedPool(expandedPoolRows()),
+      excludeFilter: compileEgressFilter(["02-projects/**"]),
+      retrievalLog: (event) => loggedChunkIds.push(...event.hits.map((hit) => hit.chunkId)),
+    });
+    const res = un<
+      ReflectData & {
+        message?: string;
+        excluded_count?: number;
+        coverage?: { kept: number; truncated: number; low_coverage: boolean };
+      }
+    >(
+      await registry.dispatch(
+        "reflect",
+        { vault: "main", query: '"quorble pattern"', mode: "challenge" },
+        ctx,
+      ),
+    );
+    expect(judged).toBe(0);
+    expect(res.challenge).toBeUndefined();
+    expect(res.message).toMatch(/after egress exclusion/);
+    expect(res.coverage).toMatchObject({ kept: 0, truncated: 0, low_coverage: true });
+    expect(res.sources.map((source) => source.chunk_id)).not.toContain("d1");
+    expect(loggedChunkIds).not.toContain("d1");
   });
 
   it("a scope that empties the first page still expands (fullness is counted before scope)", async () => {
