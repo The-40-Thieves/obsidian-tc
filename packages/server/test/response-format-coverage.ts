@@ -14,9 +14,9 @@ export const EXEMPT_FROM_RESPONSE_FORMAT: Readonly<Record<string, string>> = {
   list_workspaces: "a list of workspace names only: nothing to drop",
   list_kanban_boards: "one minimal row per board: nothing to drop",
   list_bookmarks: "the items tree and the CAS content_hash are the payload",
-  list_commands: "opaque plugin passthrough, {id, name} per command",
-  list_quickadd_actions: "opaque plugin passthrough, {name, type} per action",
-  list_templates: "opaque plugin passthrough, {path, name} per template",
+  list_commands: "fixed {id, name} rows and their total",
+  list_quickadd_actions: "fixed {name, type} rows",
+  list_templates: "one ACL-filtered {path, name} row per template",
   list_tasks: "every field is task data; optional fields are already omitted when empty",
   list_contradictions: "the rationale is the product",
   episode_stats: "aggregate counts only",
@@ -38,14 +38,13 @@ export const EXEMPT_FROM_RESPONSE_FORMAT: Readonly<Record<string, string>> = {
   graph_communities:
     "the communities are the payload; modularity, meaningful and the chance warning are safety signals",
   graph_path_between: "the hop chain and the presence flags are the answer",
-  git_status: "opaque Obsidian Git companion passthrough: this server does not own the payload",
-  git_diff: "opaque Obsidian Git companion passthrough: the unified diff is the payload",
-  git_log: "opaque Obsidian Git companion passthrough: hash, message, author and date per commit",
-  git_stage: "opaque Obsidian Git companion acknowledgement",
-  git_commit:
-    "opaque Obsidian Git companion acknowledgement; any stamped_trailers are provenance a caller must see",
-  ocr_attachment: "opaque Text Extractor passthrough: the extracted text is the payload",
-  ocr_bulk: "opaque Text Extractor passthrough: the per-file extracted text is the payload",
+  git_status: "fixed changed, staged and conflicted status arrays",
+  git_diff: "one unified diff string plus the requested path and staged flag",
+  git_log: "hash, message, author and date per commit",
+  git_stage: "one staged-path count",
+  git_commit: "fixed commit acknowledgement; any stamped_trailers are provenance a caller must see",
+  ocr_attachment: "fixed extracted text, cache flag and duration for the requested path",
+  ocr_bulk: "fixed per-file OCR results, counts and duration",
   read_base: "the parsed base document is the payload; content_hash is the compare-and-swap token",
   query_base: "the resolved rows are the payload; view_used and total qualify them",
   create_base:
@@ -57,9 +56,9 @@ export const EXEMPT_FROM_RESPONSE_FORMAT: Readonly<Record<string, string>> = {
     "write acknowledgement: applied counts and the compare-and-swap hashes the next write needs",
   query_canvas: "the matching nodes are the payload; errors name the canvases that did not parse",
   read_excalidraw:
-    "already selects its payload with `format` (elements, text or both); the rest is opaque companion JSON",
-  create_excalidraw: "opaque Excalidraw companion acknowledgement",
-  update_excalidraw: "opaque Excalidraw companion acknowledgement",
+    "fixed filesystem parse fields or the companion's text_content for the requested path",
+  create_excalidraw: "fixed path, plugin_used and optional unchanged acknowledgement",
+  update_excalidraw: "fixed path, plugin_used and optional unchanged acknowledgement",
   read_kanban_board:
     "every column and card is the payload; content_hash is the compare-and-swap token",
   add_kanban_card: "write acknowledgement: the compare-and-swap hashes the next write needs",
@@ -72,15 +71,15 @@ export const EXEMPT_FROM_RESPONSE_FORMAT: Readonly<Record<string, string>> = {
     "write acknowledgement: row and column counts, the compare-and-swap hashes and the redactions signal",
   sort_table_by_column:
     "write acknowledgement: row and column counts, the compare-and-swap hashes and the redactions signal",
-  eval_dataview_field: "opaque Dataview companion passthrough: the evaluated value and its type",
+  eval_dataview_field: "the evaluated value and type, with nested paths ACL-checked",
   search_dql: "the Dataview rows are the payload; note_paths indexes the matched notes",
-  validate_dql: "opaque Dataview companion passthrough: the AST or the parse-error location",
-  query_datacore: "opaque Datacore companion passthrough",
-  makemd_list_spaces: "opaque MakeMD companion passthrough",
-  makemd_query: "opaque MakeMD companion passthrough: the items are the payload",
-  search_omnisearch: "opaque Omnisearch companion passthrough: the hits are the payload",
-  remotely_save_status: "opaque Remotely Save companion passthrough",
-  remotely_save_trigger: "opaque Remotely Save companion acknowledgement",
+  validate_dql: "one validity flag and an optional parse error",
+  query_datacore: "ACL-filtered items and their recomputed total",
+  makemd_list_spaces: "the spaces array only, with nested paths ACL-checked",
+  makemd_query: "ACL-filtered items and their recomputed total",
+  search_omnisearch: "ACL-filtered items and their recomputed total",
+  remotely_save_status: "fixed sync status and last-success timestamp",
+  remotely_save_trigger: "fixed triggered flag and firing time",
   // part 4b: reviewed with the memory, goal and session writes, the note, attachment and tag
   // operations, the workspace and plugin actions, and vault/index/server administration
   add_observation: "write acknowledgement: entity id, observation count, timestamps and redactions",
@@ -122,7 +121,7 @@ export const EXEMPT_FROM_RESPONSE_FORMAT: Readonly<Record<string, string>> = {
     "write acknowledgement: the compare-and-swap hashes, the snapshot restored and the redactions signal",
   snapshot_note: "write acknowledgement: the snapshot id and the content hash",
   read_snapshot: "the stored content is the payload; the other fields are four short scalars",
-  read_metadata_fields: "opaque Metadata Menu passthrough: the per-field values are the payload",
+  read_metadata_fields: "fixed path, fields and total; nested field paths are ACL-checked",
   delete_active_file:
     "write acknowledgement, the same shape as delete_note: where it was trashed and the hash it had",
   delete_attachment:
@@ -139,15 +138,12 @@ export const EXEMPT_FROM_RESPONSE_FORMAT: Readonly<Record<string, string>> = {
     "write acknowledgement: the path, the bytes appended and the redactions signal",
   create_periodic_note:
     "write acknowledgement: the path, whether the template expanded and the redactions signal",
-  resolve_daily_note: "opaque Daily Notes companion passthrough: the resolved path is the payload",
-  execute_command:
-    "opaque companion passthrough: the command id plus the plugin's own result, whose effects this server cannot see",
+  resolve_daily_note: "fixed date, folder, format, path and existence result",
+  execute_command: "fixed command id and firing time, plus the native-fallback source when used",
   execute_template:
-    "opaque Templater passthrough: the plugin's own result, plus any stamped_trailers provenance a caller must see",
-  trigger_quickadd:
-    "opaque QuickAdd companion passthrough: the action name plus the plugin's result",
-  tasks_filter:
-    "opaque Tasks companion passthrough: the matched tasks are the payload, ACL-filtered here",
+    "fixed template creation acknowledgement plus server-generated provenance status when present",
+  trigger_quickadd: "fixed action name and firing time",
+  tasks_filter: "ACL-filtered matched tasks and their recomputed total",
   update_task:
     "write acknowledgement: the before and after task state, the compare-and-swap hash and the redactions signal",
   generate_uri: "one URI: the payload",

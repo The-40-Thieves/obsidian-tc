@@ -6,9 +6,17 @@ import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { assertBridgeNestedPathsReadable } from "../../vault/acl-read-filter";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
+import { bridgeTimeouts, type M4Deps, openBridge, parseBridgePayload } from "./shared";
+
+const MetadataFieldsBridge = z.object({
+  path: z.string(),
+  fields: z.record(z.string(), z.unknown()),
+  total: z.number().int().nonnegative(),
+});
+const MetadataFieldsOutput = MetadataFieldsBridge.extend({ vault: z.string() }).strict();
 
 export function buildMetadataMenuTools(deps: M4Deps): ToolDefinition[] {
   return [
@@ -19,9 +27,7 @@ export function buildMetadataMenuTools(deps: M4Deps): ToolDefinition[] {
       description:
         "Read a note's typed metadata fields via the Metadata Menu plugin: returns each configured field's name, value, type, validity, and source (frontmatter vs inline). Read-only field introspection.",
       inputSchema: z.object({ vault: VaultId, path: VaultPath }).strict(),
-      // The companion's /metadata-menu/fields response (per-field name/value/type/validity/source)
-      // is arbitrary plugin JSON passed through verbatim; only `vault` is structurally guaranteed.
-      outputSchema: z.object({ vault: z.string() }).passthrough(),
+      outputSchema: MetadataFieldsOutput,
       requiredScopes: ["read:metadata-menu"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -35,7 +41,16 @@ export function buildMetadataMenuTools(deps: M4Deps): ToolDefinition[] {
           plugin: "metadata-menu",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, ...result };
+        const payload = parseBridgePayload(MetadataFieldsBridge, result, "metadata-menu");
+        // Field values can contain Dataview-style Link objects; validate every nested `path`.
+        assertBridgeNestedPathsReadable(
+          ctx.acl,
+          v.root,
+          ctx.grantedScopes,
+          payload.fields,
+          "read_metadata_fields",
+        );
+        return { vault: v.id, path: rel, fields: payload.fields, total: payload.total };
       },
     }),
   ];

@@ -18,7 +18,7 @@ import { requireConfirmation } from "../../vault/hitl";
 import { noteExists, readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
+import { bridgeTimeouts, type M4Deps, openBridge, parseBridgePayload } from "./shared";
 
 const ElementArray = z.array(z.record(z.string(), z.unknown()));
 
@@ -119,7 +119,11 @@ function isPluginUnavailable(e: unknown): boolean {
 
 /** Pure-filesystem read of an Excalidraw drawing (no plugin). Shape matches the bridge result
  *  ({ elements, text, ... }) plus source:"filesystem" and compressed. */
-function readFromDisk(root: string, rel: string, format: "elements" | "text" | "both"): Obj {
+function readFromDisk(
+  root: string,
+  rel: string,
+  format: "elements" | "text" | "both",
+): Obj & { source: "filesystem" } {
   const kind = excalidrawKind(rel);
   if (!kind)
     throw err.invalidInput("path must be a .excalidraw or .excalidraw.md file", { path: rel });
@@ -129,7 +133,11 @@ function readFromDisk(root: string, rel: string, format: "elements" | "text" | "
     throw err.noteNotFound("excalidraw drawing not found", { path: rel });
   const { raw, hash } = readNote(abs);
   const p = kind === "md" ? parseMd(raw) : parseJson(raw);
-  const out: Obj = { source: "filesystem", compressed: p.compressed, content_hash: hash };
+  const out: Obj & { source: "filesystem" } = {
+    source: "filesystem",
+    compressed: p.compressed,
+    content_hash: hash,
+  };
   if (format !== "text") {
     out.elements = p.elements;
     out.element_count = p.elements.length;
@@ -140,14 +148,15 @@ function readFromDisk(root: string, rel: string, format: "elements" | "text" | "
   return out;
 }
 
-// THE-417: read_excalidraw has two arms — source="filesystem" (readFromDisk's own fields:
-// compressed/content_hash always, elements/element_count/embedded_files/app_state when format is
-// not "text", text when format is not "elements") and source="plugin" (the companion's arbitrary
-// /excalidraw/read JSON, passthrough). readFromDisk builds its result into an `Obj`
-// (Record<string, unknown>) via property assignment rather than an object literal, so TypeScript
-// does not preserve per-arm literal shapes across the handler's three return statements — encoded
-// as ONE object with optional fields (the ReflectOutput pattern) rather than a union that would not
-// match the inferred return type, plus .passthrough() for the plugin arm's unknown extra keys.
+const ReadExcalidrawBridge = z.object({ path: z.string(), text_content: z.string() });
+const WriteExcalidrawBridge = z.object({
+  path: z.string(),
+  plugin_used: z.boolean(),
+  unchanged: z.boolean().optional(),
+});
+
+// read_excalidraw has two fixed arms: the filesystem parser fields below, or the companion route's
+// path/text_content response. Optional fields express the format-selected filesystem variants.
 const ReadExcalidrawOutput = z
   .object({
     vault: z.string(),
@@ -162,13 +171,13 @@ const ReadExcalidrawOutput = z
       .optional(),
     app_state: z.record(z.string(), z.unknown()).nullable().optional(),
     text: z.string().optional(),
+    text_content: z.string().optional(),
   })
-  .passthrough();
+  .strict();
 
-// create_excalidraw / update_excalidraw both proxy the companion's /excalidraw/write response
-// verbatim (`{ vault, path, ...result }`) — arbitrary plugin JSON, passthrough.
-const CreateExcalidrawOutput = z.object({ vault: z.string(), path: z.string() }).passthrough();
-const UpdateExcalidrawOutput = z.object({ vault: z.string(), path: z.string() }).passthrough();
+const WriteExcalidrawOutput = WriteExcalidrawBridge.extend({ vault: z.string() }).strict();
+const CreateExcalidrawOutput = WriteExcalidrawOutput;
+const UpdateExcalidrawOutput = WriteExcalidrawOutput;
 
 export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
   return [
@@ -203,7 +212,13 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
             plugin: "excalidraw",
             timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
           });
-          return { vault: v.id, path: rel, source: "plugin", ...result };
+          const payload = parseBridgePayload(ReadExcalidrawBridge, result, "excalidraw");
+          return {
+            vault: v.id,
+            path: rel,
+            source: "plugin" as const,
+            text_content: payload.text_content,
+          };
         } catch (e) {
           if (input.source === "auto" && isPluginUnavailable(e))
             return { vault: v.id, path: rel, ...readFromDisk(v.root, rel, input.format) };
@@ -259,7 +274,14 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
           plugin: "excalidraw",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, path: rel, ...result };
+        ctx.markEffectCommitted?.();
+        const payload = parseBridgePayload(WriteExcalidrawBridge, result, "excalidraw");
+        return {
+          vault: v.id,
+          path: rel,
+          plugin_used: payload.plugin_used,
+          ...(payload.unchanged === undefined ? {} : { unchanged: payload.unchanged }),
+        };
       },
     }),
 
@@ -301,7 +323,14 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
           plugin: "excalidraw",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, path: rel, ...result };
+        ctx.markEffectCommitted?.();
+        const payload = parseBridgePayload(WriteExcalidrawBridge, result, "excalidraw");
+        return {
+          vault: v.id,
+          path: rel,
+          plugin_used: payload.plugin_used,
+          ...(payload.unchanged === undefined ? {} : { unchanged: payload.unchanged }),
+        };
       },
     }),
   ];

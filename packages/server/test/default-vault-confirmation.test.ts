@@ -61,8 +61,12 @@ function boot() {
     apiKey: "k",
     fetchFn: fakeBridgeTransport({
       routes: {
-        "POST /obsidian-tc/v1/git/commit": { body: { ok: true, result: { sha: "abc" } } },
-        "POST /obsidian-tc/v1/quickadd/trigger": { body: { ok: true, result: { ok: true } } },
+        "POST /obsidian-tc/v1/git/commit": {
+          body: { ok: true, result: { committed: 1, fired_at: "t" } },
+        },
+        "POST /obsidian-tc/v1/quickadd/trigger": {
+          body: { ok: true, result: { action_name: "Capture", fired_at: "t" } },
+        },
         "POST /obsidian-tc/v1/commands/execute": {
           body: { ok: true, result: { fired_at: "t", plugin_response: { ok: true } } },
         },

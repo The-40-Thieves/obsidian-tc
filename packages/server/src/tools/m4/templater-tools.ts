@@ -13,16 +13,26 @@ import { noteExists, readNote } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { applyWriteBatch } from "../../vault/write-batch";
 import { defineTool } from "../m1/define";
-import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
+import { bridgeTimeouts, type M4Deps, openBridge, parseBridgePayload } from "./shared";
 
-// THE-417: both tools proxy the Templater companion route's own JSON verbatim
-// (`{ vault, ...result }` / `{ vault, template, target, ...result }`) — arbitrary plugin JSON
-// (e.g. execute_template's created_at/content_hash/expanded_size are the plugin's own fields), so
-// .passthrough() is the honest schema beyond what the handler itself guarantees.
-const ListTemplatesOutput = z.object({ vault: z.string() }).passthrough();
+const TemplateRow = z.object({ path: z.string(), name: z.string() });
+const ExecuteTemplateBridge = z.object({ created_at: z.string() });
+
+const ListTemplatesOutput = z
+  .object({ vault: z.string(), items: z.array(TemplateRow), total: z.number().int() })
+  .strict();
 const ExecuteTemplateOutput = z
-  .object({ vault: z.string(), template: z.string(), target: z.string() })
-  .passthrough();
+  .object({
+    vault: z.string(),
+    template: z.string(),
+    target: z.string(),
+    created_at: z.string(),
+    content_hash: z.string().optional(),
+    provenance_stamp: z
+      .object({ applied: z.literal(false), reason: z.literal("concurrent_modification") })
+      .optional(),
+  })
+  .strict();
 
 /** Provenance frontmatter stamp for a note Templater just CREATED (never one it replaced), added
  *  after the plugin wrote it. Fail-open: a note that cannot be re-read or re-written keeps what
@@ -77,11 +87,16 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
           plugin: "templater",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
+        const filtered = filterBridgeResultItems(ctx.acl, v.root, ctx.grantedScopes, result, {
+          tool: "list_templates",
+        });
+        const items = (filtered.items as unknown[]).map((row) =>
+          parseBridgePayload(TemplateRow, row, "templater"),
+        );
         return {
           vault: v.id,
-          ...filterBridgeResultItems(ctx.acl, v.root, ctx.grantedScopes, result, {
-            tool: "list_templates",
-          }),
+          items,
+          total: items.length,
         };
       },
     }),
@@ -135,19 +150,20 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
           plugin: "templater",
           timeoutMs: bridgeTimeouts(deps, v.id).templaterTimeoutMs,
         });
+        ctx.markEffectCommitted?.();
         // Only a note this call created is stamped: `overwrite` over an existing target is not.
         const stampResult = existed
           ? undefined
           : stampCreatedNote(deps, ctx, v.id, v.root, targetFile);
+        const payload = parseBridgePayload(ExecuteTemplateBridge, result, "templater");
         return {
           vault: v.id,
           template,
           target,
-          ...result,
-          // A companion that reports the hash of what it wrote must not contradict the stamp.
-          ...(stampResult?.contentHash !== undefined && typeof result.content_hash === "string"
-            ? { content_hash: stampResult.contentHash }
-            : {}),
+          created_at: payload.created_at,
+          ...(stampResult?.contentHash === undefined
+            ? {}
+            : { content_hash: stampResult.contentHash }),
           ...(stampResult?.skipped
             ? { provenance_stamp: { applied: false, reason: stampResult.skipped } }
             : {}),

@@ -26,6 +26,7 @@ import {
   companionUnreachable,
   type M4Deps,
   openCompanionBridge,
+  parseBridgePayload,
 } from "./shared";
 
 interface LraCommand {
@@ -85,12 +86,28 @@ async function executeCommandNative(
   return { command_id: commandId, fired_at: new Date().toISOString(), source: "local-rest-api" };
 }
 
-// THE-417: both tools proxy either the companion's own JSON (arbitrary — the plugin is what
-// shapes it) or the LRA-native fallback shape ({ items/total/source } or { command_id/fired_at/
-// source }), so `vault` (+ `command_id` on execute) is all that is structurally guaranteed; the
-// rest is genuinely unknown plugin/native-route JSON, which .passthrough() states honestly.
-const ListCommandsOutput = z.object({ vault: z.string() }).passthrough();
-const ExecuteCommandOutput = z.object({ vault: z.string(), command_id: z.string() }).passthrough();
+const CommandRow = z.object({ id: z.string(), name: z.string() });
+const ListCommandsBridge = z.object({
+  items: z.array(CommandRow),
+  total: z.number().int().optional(),
+});
+const ExecuteCommandBridge = z.object({ fired_at: z.string() });
+const ListCommandsOutput = z
+  .object({
+    vault: z.string(),
+    items: z.array(CommandRow),
+    total: z.number().int(),
+    source: z.literal("local-rest-api").optional(),
+  })
+  .strict();
+const ExecuteCommandOutput = z
+  .object({
+    vault: z.string(),
+    command_id: z.string(),
+    fired_at: z.string(),
+    source: z.literal("local-rest-api").optional(),
+  })
+  .strict();
 
 export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
   return [
@@ -129,7 +146,8 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
             plugin: "obsidian-tc-companion",
             timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
           });
-          return { vault: v.id, ...result };
+          const payload = parseBridgePayload(ListCommandsBridge, result, "obsidian-tc-companion");
+          return { vault: v.id, items: payload.items, total: payload.items.length };
         } catch (e) {
           // Companion unreachable -> retry via LRA's native /commands/ if a transport exists.
           const client = deps.bridgeFor(v.id);
@@ -178,7 +196,7 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
             command_id: input.command_id,
           });
       },
-      handler: async (input) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         try {
           const { client } = openCompanionBridge(deps, v.id);
@@ -189,7 +207,13 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
             plugin: "obsidian-tc-companion",
             timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
           });
-          return { vault: v.id, command_id: input.command_id, ...result };
+          ctx.markEffectCommitted?.();
+          const payload = parseBridgePayload(ExecuteCommandBridge, result, "obsidian-tc-companion");
+          return {
+            vault: v.id,
+            command_id: input.command_id,
+            fired_at: payload.fired_at,
+          };
         } catch (e) {
           // Gates already passed (precheck + HITL). Companion unreachable -> try LRA native.
           const client = deps.bridgeFor(v.id);

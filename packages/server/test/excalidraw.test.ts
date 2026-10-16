@@ -24,12 +24,12 @@ describe("read_excalidraw", () => {
   let v: M4Vault | undefined;
   afterEach(() => v?.cleanup());
 
-  it("proxies to /excalidraw/read and merges the bridge result", async () => {
+  it("proxies to /excalidraw/read and returns the declared bridge result", async () => {
     v = makeM4Vault({
       installed: ["excalidraw"],
       routes: {
         "POST /obsidian-tc/v1/excalidraw/read": {
-          body: { ok: true, result: { elements: [{ id: "a" }], text: "hello" } },
+          body: { ok: true, result: { path: DRAWING, text_content: "hello" } },
         },
       },
     });
@@ -40,8 +40,7 @@ describe("read_excalidraw", () => {
       const data = res.data as Record<string, unknown>;
       expect(data.vault).toBe("test");
       expect(data.path).toBe(DRAWING);
-      expect(data.text).toBe("hello");
-      expect(data.elements).toEqual([{ id: "a" }]);
+      expect(data.text_content).toBe("hello");
     }
 
     const req = reqAt(v, 0);
@@ -111,12 +110,14 @@ describe("create_excalidraw", () => {
     v = makeM4Vault({
       installed: ["excalidraw"],
       routes: {
-        "POST /obsidian-tc/v1/excalidraw/write": { body: { ok: true, result: { created: true } } },
+        "POST /obsidian-tc/v1/excalidraw/write": {
+          body: { ok: true, result: { path: DRAWING, plugin_used: true } },
+        },
       },
     });
     const res = await v.call("create_excalidraw", { vault: "test", path: DRAWING });
     expect(res.ok).toBe(true);
-    if (res.ok) expect((res.data as Record<string, unknown>).created).toBe(true);
+    if (res.ok) expect((res.data as Record<string, unknown>).plugin_used).toBe(true);
     const body = bodyOf(reqAt(v, 0));
     expect(body.mode).toBe("create");
     expect(body.overwrite).toBe(false);
@@ -126,7 +127,9 @@ describe("create_excalidraw", () => {
     v = makeM4Vault({
       installed: ["excalidraw"],
       routes: {
-        "POST /obsidian-tc/v1/excalidraw/write": { body: { ok: true, result: { created: true } } },
+        "POST /obsidian-tc/v1/excalidraw/write": {
+          body: { ok: true, result: { path: DRAWING, plugin_used: true } },
+        },
       },
     });
     const input = { vault: "test", path: DRAWING, overwrite: true };
@@ -153,7 +156,9 @@ describe("update_excalidraw", () => {
     v = makeM4Vault({
       installed: ["excalidraw"],
       routes: {
-        "POST /obsidian-tc/v1/excalidraw/write": { body: { ok: true, result: { updated: 1 } } },
+        "POST /obsidian-tc/v1/excalidraw/write": {
+          body: { ok: true, result: { path: DRAWING, plugin_used: true, unchanged: true } },
+        },
       },
     });
     const res = await v.call("update_excalidraw", {
@@ -162,7 +167,7 @@ describe("update_excalidraw", () => {
       add_elements: [{ id: "b", type: "rectangle" }],
     });
     expect(res.ok).toBe(true);
-    if (res.ok) expect((res.data as Record<string, unknown>).updated).toBe(1);
+    if (res.ok) expect((res.data as Record<string, unknown>).unchanged).toBe(true);
     const body = bodyOf(reqAt(v, 0));
     expect(body.mode).toBe("update");
     expect(body.add_elements).toEqual([{ id: "b", type: "rectangle" }]);

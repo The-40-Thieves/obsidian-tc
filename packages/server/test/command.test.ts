@@ -167,6 +167,30 @@ describe("LRA-native command fallback (#155 / THE-383)", () => {
     ).toBe(true);
   });
 
+  it("does not execute through LRA after the companion executed but returned a malformed ack", async () => {
+    const id = "editor:save-file";
+    v = makeM4Vault({
+      commandPolicy: () => ({ enabled: true, allowlist: [id] }),
+      routes: {
+        "POST /obsidian-tc/v1/commands/execute": {
+          body: { ok: true, result: { command_id: id } },
+        },
+        [`POST /commands/${enc(id)}/`]: { status: 204 },
+      },
+    });
+
+    const res = await v.callConfirmed("execute_command", { vault: "test", command_id: id });
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe("plugin_incompatible");
+      expect(res.error.retryable).toBe(false);
+    }
+    expect(v.bridgeRequests.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
+      "POST /obsidian-tc/v1/commands/execute",
+    ]);
+  });
+
   it("the native fallback never bypasses the allowlist gate", async () => {
     const id = "editor:save-file";
     v = makeM4Vault({

@@ -54,7 +54,14 @@ describe("execute_template", () => {
   const input = { vault: "test", template: "Templates/daily.md", target: "Daily/2026-06-18.md" };
   const routes = {
     "POST /obsidian-tc/v1/templater/execute": {
-      body: { ok: true, result: { created_at: "t", content_hash: "h", expanded_size: 42 } },
+      body: {
+        ok: true,
+        result: {
+          template: "Templates/daily.md",
+          target: "Daily/2026-06-18.md",
+          created_at: "t",
+        },
+      },
     },
   };
 
@@ -70,7 +77,7 @@ describe("execute_template", () => {
     v = makeM4Vault({ installed: ["templater"], routes });
     const res = await v.callConfirmed("execute_template", input);
     expect(res.ok).toBe(true);
-    if (res.ok) expect((res.data as Record<string, unknown>).expanded_size).toBe(42);
+    if (res.ok) expect((res.data as Record<string, unknown>).created_at).toBe("t");
     const req = v.bridgeRequests[0];
     if (!req) throw new Error("expected a bridge request");
     const body = JSON.parse(req.body ?? "{}") as Record<string, unknown>;

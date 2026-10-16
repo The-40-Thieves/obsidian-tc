@@ -12,7 +12,10 @@ describe("ocr_attachment", () => {
 
   const routes = {
     "POST /obsidian-tc/v1/ocr/attachment": {
-      body: { ok: true, result: { text: "hello world", cached: false, duration_ms: 12 } },
+      body: {
+        ok: true,
+        result: { path: ATT, text: "hello world", cached: false, duration_ms: 12 },
+      },
     },
   };
 
@@ -61,7 +64,14 @@ describe("ocr_bulk", () => {
 
   const routes = {
     "POST /obsidian-tc/v1/ocr/bulk": {
-      body: { ok: true, result: { processed: 1, results: [{ path: "a.png", ok: true }] } },
+      body: {
+        ok: true,
+        result: {
+          processed: 1,
+          results: [{ path: "Attach/a.png", ok: true }],
+          total_duration_ms: 12,
+        },
+      },
     },
   };
 

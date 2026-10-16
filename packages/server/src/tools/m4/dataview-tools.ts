@@ -8,9 +8,22 @@ import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { assertBridgeNestedPathsReadable } from "../../vault/acl-read-filter";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
+import { bridgeTimeouts, type M4Deps, openBridge, parseBridgePayload } from "./shared";
+
+const ValidateDqlBridge = z.object({
+  valid: z.boolean(),
+  error: z.object({ message: z.string() }).optional(),
+});
+const EvalDataviewBridge = z.object({ value: z.unknown().optional(), type: z.string() });
+const ValidateDqlOutput = ValidateDqlBridge.extend({ vault: z.string() }).strict();
+const EvalDataviewOutput = EvalDataviewBridge.extend({
+  vault: z.string(),
+  path: z.string(),
+  expression: z.string(),
+}).strict();
 
 export function buildDataviewTools(deps: M4Deps): ToolDefinition[] {
   return [
@@ -20,9 +33,7 @@ export function buildDataviewTools(deps: M4Deps): ToolDefinition[] {
       description:
         "Parse a Dataview DQL query without executing it. Returns the AST or a parse-error location.",
       inputSchema: z.object({ vault: VaultId, dql: z.string().min(1) }).strict(),
-      // The companion's /dataview/validate response (AST or parse-error location) is arbitrary
-      // plugin JSON passed through verbatim; only `vault` is structurally guaranteed.
-      outputSchema: z.object({ vault: z.string() }).passthrough(),
+      outputSchema: ValidateDqlOutput,
       requiredScopes: ["read:dataview"],
       handler: async (input) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -34,7 +45,8 @@ export function buildDataviewTools(deps: M4Deps): ToolDefinition[] {
           plugin: "dataview",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, ...result };
+        const payload = parseBridgePayload(ValidateDqlBridge, result, "dataview");
+        return { vault: v.id, ...payload };
       },
     }),
 
@@ -47,11 +59,7 @@ export function buildDataviewTools(deps: M4Deps): ToolDefinition[] {
       inputSchema: z
         .object({ vault: VaultId, path: VaultPath, expression: z.string().min(1) })
         .strict(),
-      // The companion's /dataview/eval response (evaluated value + type) is arbitrary plugin JSON;
-      // vault/path/expression are echoed by the handler itself and always present.
-      outputSchema: z
-        .object({ vault: z.string(), path: z.string(), expression: z.string() })
-        .passthrough(),
+      outputSchema: EvalDataviewOutput,
       requiredScopes: ["read:dataview"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
@@ -65,7 +73,16 @@ export function buildDataviewTools(deps: M4Deps): ToolDefinition[] {
           plugin: "dataview",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, path: rel, expression: input.expression, ...result };
+        const payload = parseBridgePayload(EvalDataviewBridge, result, "dataview");
+        // Dataview field values are intentionally opaque, but Dataview Link objects carry `path`.
+        assertBridgeNestedPathsReadable(
+          ctx.acl,
+          v.root,
+          ctx.grantedScopes,
+          payload.value,
+          "eval_dataview_field",
+        );
+        return { vault: v.id, path: rel, expression: input.expression, ...payload };
       },
     }),
   ];
