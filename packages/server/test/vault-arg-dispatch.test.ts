@@ -9,7 +9,7 @@
 // skipped the check entirely) — this is the shape THE-589's generate_uri hit from the opposite
 // direction (a `vault_name` colliding with the hardcoded match, forcing a rename instead of a
 // declaration). Mirrors cross-vault-binding.test.ts / per-vault-acl.test.ts /
-// the-569-vault-kind-gate.test.ts / acl-extraction-coverage.test.ts's own per-mechanism harnesses.
+// vault-kind-gate.test.ts / acl-extraction-coverage.test.ts's own per-mechanism harnesses.
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";

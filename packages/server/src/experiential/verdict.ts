@@ -1,5 +1,5 @@
 // THE-726 — the task-verdict producer. Design:
-// docs/superpowers/specs/2026-08-16-the-726-task-verdict-producer-design-v2.md
+// docs/superpowers/specs/2026-08-16-task-verdict-producer-design-v2.md
 //
 // `agent_episodes.task_result` has had READERS AND NO WRITER since it was renamed in 20260806_003.
 // Two live consumers sit on it and both are inert at 0 of 630 rows: reflect.ts holds a bad-result
