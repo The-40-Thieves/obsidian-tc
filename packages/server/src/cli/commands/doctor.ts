@@ -43,6 +43,7 @@ import { buildAcls } from "../../runtime/acl-build";
 import type { NotesFtsIntegrity } from "../../search/fts";
 import { createQueryEncoder } from "../../search/query-encoder";
 import { redactEndpoint } from "../../telemetry/redact-endpoint";
+import { nativeVaultIo } from "../../vault/notes-io";
 import { type Cmd, resolveOrUsageExitWithProvenance } from "../shared";
 import { probeAuthAsView } from "./doctor-auth-as";
 import { probeEmbeddingIntegrityFor, probeIndexCoverageFor } from "./doctor-index-probes";
@@ -535,6 +536,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
           : {}),
       },
       plainHttp: { resolveHost: defaultResolveHost, endpoints: plainHttpEndpoints(config) },
+      vaultIo: { nativeLoaded: nativeVaultIo, platform: process.platform },
       // THE-696: notes_fts availability always; the integrity verdict only when --probe looked.
       notesFts: {
         ftsEnabled: notesFts.ftsEnabled,

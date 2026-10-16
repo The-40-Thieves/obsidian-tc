@@ -974,12 +974,16 @@ so operators can reason about them rather than discover them.
   directory for a symlink between the realpath check and the fd open — is closed by the native module:
   `read_note`/`write_note` route through a per-component `openat(O_NOFOLLOW)` walk (Rust / `rustix`)
   that follows no symlink in any component and operates on the resulting fd, so the path is never
-  re-resolved after the check. This is active on every published platform (the 8 native prebuilds).
+  re-resolved after the check. This is active on every published Unix prebuild (six of the eight native prebuilds).
   The pure-JS fallback — an unsupported platform, a `.mcpb` without the addon, or
-  `OBSIDIAN_TC_FORCE_JS_FALLBACK=1` — retains the narrow residual (Node exposes no `openat`) for
-  ordinary paths, and refuses any path through a configured symlinked wiki or raw folder outright (see
-  the wiki folder paragraph above); the hard-link and final-component-symlink guards still apply there. Windows uses the JS path (symlink
-  creation is admin/developer-mode gated, and `number_of_links` is unstable on stable Rust).
+  `OBSIDIAN_TC_FORCE_JS_FALLBACK=1` — checks the opened descriptor's path through `/proc/self/fd` on
+  Linux, which closes the race there. On macOS it only re-walks the ancestors after the open, so an
+  ancestor swapped to a symlink and back before the re-walk is followed: a narrow window remains,
+  because Node cannot name an open file's path on macOS. It refuses any path through a configured
+  symlinked wiki or raw folder outright (see the wiki folder paragraph above); the hard-link and
+  final-component-symlink guards still apply there. Windows always runs the pure-JS path (the native
+  open is Unix-only), with the same best-effort limit as macOS; symlink creation is admin/developer-mode
+  gated, and `number_of_links` is unstable on stable Rust.
 - **The pre-ingest poison scanner is layer 1 of a layered defense, not a complete filter.**
   `experiential/poison.ts` is a deterministic pattern scanner over auto-captured agent episodes. It
   now canonicalizes text before matching (NFKC + zero-width/bidi strip, so homoglyph and
