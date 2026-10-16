@@ -22,6 +22,9 @@
 //      THE-749 exists to make visible. If a future change adds real validation, the assertion here
 //      will flip from "silently wrong" to "typed error" and this test will fail — that flip IS the
 //      tripwire, and updating this test in step with such a change is the intended workflow.
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { TFile } from "obsidian";
 import { describe, expect, it } from "vitest";
 import { buildDataviewRoutes } from "../src/routes/dataview";
@@ -302,6 +305,191 @@ describe("obsidian-git — /git/status path basis", () => {
       code: "plugin_incompatible",
       message: expect.stringContaining("vault base path"),
     });
+  });
+});
+
+describe("obsidian-git — path comparison: case, Unicode, realpath and settings reload", () => {
+  const rows = (path: string) => ({
+    changed: [{ path, workingDir: "M", index: "" }],
+    staged: [],
+    conflicted: [],
+  });
+
+  const gitApp = (options: {
+    repositoryPath: string;
+    vaultPath: string;
+    status?: unknown;
+    revparse?: (args: string[]) => Promise<unknown>;
+  }) => {
+    const app = fakeApp({
+      "obsidian-git": {
+        gitManager: {
+          absoluteRepoPath: options.repositoryPath,
+          status: async () => options.status,
+          ...(options.revparse ? { git: { revparse: options.revparse } } : {}),
+        },
+      },
+    });
+    app.vault.adapter = {
+      getBasePath: () => options.vaultPath,
+    } as unknown as typeof app.vault.adapter;
+    return app;
+  };
+
+  it.each(["darwin", "win32"] as const)(
+    "case-folds the vault prefix on %s and keeps the row's spelling below the vault root",
+    async (platform) => {
+      const app = gitApp({
+        repositoryPath: "/r",
+        vaultPath: "/r/Vault",
+        status: rows("vault/Notes/A.md"),
+      });
+      const { res, seen } = makeRes();
+
+      await findRoute(buildGitRoutes(app, platform), "/git/status")(req({}), res);
+
+      expect(seen.body).toEqual({
+        ok: true,
+        result: {
+          paths_relative_to_vault: true,
+          changed: [{ path: "Notes/A.md", working_dir: "M", index: "" }],
+          staged: [],
+          conflicted: [],
+        },
+      });
+    },
+  );
+
+  it("keeps the vault prefix comparison case-sensitive on linux", async () => {
+    const app = gitApp({
+      repositoryPath: "/r",
+      vaultPath: "/r/Vault",
+      status: rows("vault/Notes/A.md"),
+    });
+    const { res, seen } = makeRes();
+
+    await findRoute(buildGitRoutes(app, "linux"), "/git/status")(req({}), res);
+
+    expect(seen.body).toEqual({
+      ok: true,
+      result: { paths_relative_to_vault: true, changed: [], staged: [], conflicted: [] },
+    });
+  });
+
+  it.each(["linux", "darwin"] as const)(
+    "matches an NFD vault folder name against git's NFC spelling on %s",
+    async (platform) => {
+      const app = gitApp({
+        repositoryPath: "/r",
+        vaultPath: "/r/Vault/Café",
+        status: rows("Vault/Café/a.md"),
+      });
+      const { res, seen } = makeRes();
+
+      await findRoute(buildGitRoutes(app, platform), "/git/status")(req({}), res);
+
+      expect(seen.body).toEqual({
+        ok: true,
+        result: {
+          paths_relative_to_vault: true,
+          changed: [{ path: "a.md", working_dir: "M", index: "" }],
+          staged: [],
+          conflicted: [],
+        },
+      });
+    },
+  );
+
+  it("refuses status while the git instance does not sit at the repository root", async () => {
+    const calls: string[][] = [];
+    const app = gitApp({
+      repositoryPath: "/r/Vault",
+      vaultPath: "/r/Vault",
+      status: rows("secret.env"),
+      revparse: async (args) => {
+        calls.push(args);
+        return "../\n";
+      },
+    });
+    const { res, seen } = makeRes();
+
+    await findRoute(buildGitRoutes(app, "linux"), "/git/status")(req({}), res);
+
+    expect(calls).toEqual([["--show-cdup"]]);
+    expect(seen.body).toMatchObject({
+      ok: false,
+      code: "git_error",
+      message: expect.stringContaining("reconfigured"),
+    });
+    expect(seen.body).not.toHaveProperty("result");
+  });
+
+  it("maps status when the git instance sits at the repository root", async () => {
+    const app = gitApp({
+      repositoryPath: "/r/Vault",
+      vaultPath: "/r/Vault",
+      status: rows("secret.env"),
+      revparse: async () => "\n",
+    });
+    const { res, seen } = makeRes();
+
+    await findRoute(buildGitRoutes(app, "linux"), "/git/status")(req({}), res);
+
+    expect(seen.body).toEqual({
+      ok: true,
+      result: {
+        paths_relative_to_vault: true,
+        changed: [{ path: "secret.env", working_dir: "M", index: "" }],
+        staged: [],
+        conflicted: [],
+      },
+    });
+  });
+
+  it("fails closed with git_error when the git instance cannot report its top level", async () => {
+    const app = gitApp({
+      repositoryPath: "/r/Vault",
+      vaultPath: "/r/Vault",
+      status: rows("secret.env"),
+      revparse: async () => {
+        throw new Error("not a git repository");
+      },
+    });
+    const { res, seen } = makeRes();
+
+    await findRoute(buildGitRoutes(app, "linux"), "/git/status")(req({}), res);
+
+    expect(seen.body).toMatchObject({ ok: false, code: "git_error" });
+  });
+
+  it("maps a symlinked vault through its real location on linux", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "git-route-"));
+    try {
+      const repo = join(dir, "repo");
+      mkdirSync(join(repo, "Vault"), { recursive: true });
+      const link = join(dir, "vault-link");
+      symlinkSync(join(repo, "Vault"), link, "junction");
+      const app = gitApp({
+        repositoryPath: repo,
+        vaultPath: link,
+        status: rows("Vault/a.md"),
+      });
+      const { res, seen } = makeRes();
+
+      await findRoute(buildGitRoutes(app, "linux"), "/git/status")(req({}), res);
+
+      expect(seen.body).toEqual({
+        ok: true,
+        result: {
+          paths_relative_to_vault: true,
+          changed: [{ path: "a.md", working_dir: "M", index: "" }],
+          staged: [],
+          conflicted: [],
+        },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
