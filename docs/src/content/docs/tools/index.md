@@ -863,7 +863,7 @@ Each of these was reviewed and takes no parameter, because there is nothing a ca
 | `list_vaults`, `list_kanban_boards` | One minimal row per entry. |
 | `list_workspaces` | Workspace names only. |
 | `list_bookmarks` | The item tree and the compare-and-swap `content_hash` are the payload. |
-| `list_commands`, `list_quickadd_actions`, `list_templates` | Opaque plugin passthrough: `{ id, name }`, `{ name, type }` or `{ path, name }` per entry. |
+| `list_commands`, `list_quickadd_actions`, `list_templates` | Minimal `{ id, name }`, `{ name, type }` or ACL-filtered `{ path, name }` rows. |
 | `list_tasks` | Every field is task data, and empty optional fields are already omitted. |
 | `list_contradictions` | The rationale is the product. |
 | `episode_stats` | Aggregate counts only. |
@@ -874,15 +874,16 @@ Each of these was reviewed and takes no parameter, because there is nothing a ca
 | `find_link_cycles`, `graph_centrality`, `graph_path_between` | The path lists, ranked rows or hop chain are the payload; the rest is a count or a presence flag. |
 | `get_link_strength` | One scored row: every field is a component of the score. |
 | `graph_communities` | The communities are the payload; `modularity`, `meaningful` and the chance warning are safety signals. |
-| `git_status`, `git_diff`, `git_log`, `git_stage`, `git_commit` | Opaque Obsidian Git companion passthrough or acknowledgement. `git_commit` also returns any `stamped_trailers`, which are provenance a caller must see. |
-| `ocr_attachment`, `ocr_bulk` | Opaque Text Extractor passthrough: the extracted text is the payload. |
+| `git_status`, `git_diff`, `git_log`, `git_stage`, `git_commit` | Fixed status, diff, log or acknowledgement fields. `git_commit` also returns any `stamped_trailers`, which are provenance a caller must see. |
+| `ocr_attachment`, `ocr_bulk` | Fixed extracted text, cache/duration fields, and per-file batch results. |
 | `read_base`, `query_base`, `read_kanban_board`, `query_canvas` | The parsed document, resolved rows, columns and cards or matching nodes are the payload; `content_hash` is the compare-and-swap token. |
 | `create_base`, `update_base`, `create_canvas`, `update_canvas`, `add_kanban_card`, `move_kanban_card` | Write acknowledgements: counts, any deprecation notice and the compare-and-swap hashes the next write needs. |
-| `read_excalidraw`, `create_excalidraw`, `update_excalidraw` | `read_excalidraw` already selects its payload with `format`; the rest is opaque Excalidraw companion JSON or an acknowledgement. |
+| `read_excalidraw`, `create_excalidraw`, `update_excalidraw` | Fixed filesystem parse or companion text fields, and fixed write acknowledgements. |
 | `format_table`, `insert_table_column`, `insert_table_row`, `sort_table_by_column` | Write acknowledgements: row and column counts, the compare-and-swap hashes and the `redactions` signal. |
-| `eval_dataview_field`, `validate_dql`, `search_dql`, `query_datacore` | Opaque Dataview or Datacore companion passthrough: the value, AST, rows or parse-error location is the payload (`search_dql` also returns `note_paths`, which index the matched notes). |
-| `makemd_list_spaces`, `makemd_query`, `search_omnisearch` | Opaque MakeMD or Omnisearch companion passthrough: the items or hits are the payload. |
-| `remotely_save_status`, `remotely_save_trigger` | Opaque Remotely Save companion passthrough or acknowledgement. |
+| `eval_dataview_field`, `validate_dql`, `search_dql` | Dataview values, validity/errors, or rows; opaque values have nested paths ACL-checked, and `search_dql` returns indexing `note_paths`. |
+| `query_datacore`, `makemd_query`, `search_omnisearch`, `tasks_filter` | ACL-filtered `items` and their recomputed `total`. |
+| `makemd_list_spaces` | The spaces array only, with nested paths ACL-checked. |
+| `remotely_save_status`, `remotely_save_trigger` | Fixed sync status or trigger acknowledgement fields. |
 | `create_entity`, `add_observation`, `update_observation`, `link_entities`, `unlink_entities`, `rename_entity`, `delete_entity` | Write acknowledgements: entity and observation ids, status, the edge identity, counts (observations, relations removed, neighbours re-materialized), timestamps and the `redactions` signal. |
 | `start_session`, `end_session`, `enqueue_capture`, `commit_capture` | Write acknowledgements: ids, paths, event count and duration, the compare-and-swap hash and the `redactions` signal. |
 | `set_goal`, `close_goal`, `record_retrieval_feedback`, `work_result`, `work_forget` | Write acknowledgements: ids, the new state and how many retrievals were stamped, demoted or forgotten (`updated: 0` carries a `reason`). The batch form of `record_retrieval_feedback` (`verdicts`, 1 to 50 items, one transaction) returns `results`: one `{chunk_id, updated, reason?}` per item. |
@@ -892,8 +893,8 @@ Each of these was reviewed and takes no parameter, because there is nothing a ca
 | `bulk_move_notes` | Every per-move row is a blast-radius count or an error, and `hidden_backlinks` is a safety flag. |
 | `note_exists` | One boolean and a type. |
 | `read_snapshot` | The stored content is the payload; the rest is four short scalars. |
-| `read_metadata_fields`, `tasks_filter`, `resolve_daily_note` | Opaque companion passthrough: the fields, the matched tasks (ACL-filtered here) or the resolved path is the payload. |
-| `execute_command`, `execute_template`, `trigger_quickadd`, `show_file_in_obsidian` | Opaque companion passthrough or acknowledgement: the plugin's own result, whose effects this server cannot see. `execute_template` also returns any `stamped_trailers`, which are provenance a caller must see. |
+| `read_metadata_fields`, `resolve_daily_note` | Fixed metadata and daily-note fields; nested metadata paths and the resolved daily-note path are ACL-checked. |
+| `execute_command`, `execute_template`, `trigger_quickadd`, `show_file_in_obsidian` | Fixed action acknowledgements. `execute_template` also returns server-generated provenance status when present. |
 | `get_attachment` | The base64 bytes are the payload; MIME type, size and encoding describe them. |
 | `write_attachment`, `move_attachment`, `delete_attachment` | Write acknowledgements: the path, size and hash, where a replaced or deleted file was trashed, `references_updated` (a blast-radius count) and, for a delete, the notes that still reference it. |
 | `add_bookmark`, `remove_bookmark`, `open_workspace`, `save_workspace` | Write acknowledgements, or the layout itself for `open_workspace`: counts and the compare-and-swap hash the next write needs. |

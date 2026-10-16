@@ -7,15 +7,17 @@ import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "../m1/define";
-import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
+import { bridgeTimeouts, type M4Deps, openBridge, parseBridgePayload } from "./shared";
 
-// THE-417: both tools proxy the QuickAdd companion route's own JSON verbatim
-// (`{ vault, ...result }` / `{ vault, action_name, ...result }`) — arbitrary plugin JSON, so
-// .passthrough() is the honest schema beyond the fields the handler itself guarantees.
-const ListQuickAddActionsOutput = z.object({ vault: z.string() }).passthrough();
+const QuickAddAction = z.object({ name: z.string(), type: z.string() });
+const ListQuickAddActionsBridge = z.object({ items: z.array(QuickAddAction) });
+const TriggerQuickAddBridge = z.object({ fired_at: z.string() });
+const ListQuickAddActionsOutput = z
+  .object({ vault: z.string(), items: z.array(QuickAddAction) })
+  .strict();
 const TriggerQuickAddOutput = z
-  .object({ vault: z.string(), action_name: z.string() })
-  .passthrough();
+  .object({ vault: z.string(), action_name: z.string(), fired_at: z.string() })
+  .strict();
 
 export function buildQuickAddTools(deps: M4Deps): ToolDefinition[] {
   return [
@@ -36,7 +38,8 @@ export function buildQuickAddTools(deps: M4Deps): ToolDefinition[] {
           plugin: "quickadd",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, ...result };
+        const payload = parseBridgePayload(ListQuickAddActionsBridge, result, "quickadd");
+        return { vault: v.id, items: payload.items };
       },
     }),
 
@@ -58,7 +61,7 @@ export function buildQuickAddTools(deps: M4Deps): ToolDefinition[] {
       // Opaque: a QuickAdd action's effects happen inside Obsidian and are not observable from
       // here, so the confirmation binds on args_hash alone (documented residual, hitl-elicit.md).
       confirmationTargets: "none",
-      handler: async (input) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const { client } = openBridge(deps, v.id, "quickadd");
         const result = await client.request<Record<string, unknown>>({
@@ -68,7 +71,9 @@ export function buildQuickAddTools(deps: M4Deps): ToolDefinition[] {
           plugin: "quickadd",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, action_name: input.action_name, ...result };
+        ctx.markEffectCommitted?.();
+        const payload = parseBridgePayload(TriggerQuickAddBridge, result, "quickadd");
+        return { vault: v.id, action_name: input.action_name, fired_at: payload.fired_at };
       },
     }),
   ];

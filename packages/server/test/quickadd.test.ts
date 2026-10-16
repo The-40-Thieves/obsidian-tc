@@ -37,7 +37,7 @@ describe("trigger_quickadd", () => {
   const input = { vault: "test", action_name: "Capture Idea" };
   const routes = {
     "POST /obsidian-tc/v1/quickadd/trigger": {
-      body: { ok: true, result: { fired_at: "t", created_paths: ["Inbox/idea.md"] } },
+      body: { ok: true, result: { action_name: "Capture Idea", fired_at: "t" } },
     },
   };
 
@@ -56,7 +56,7 @@ describe("trigger_quickadd", () => {
     if (res.ok) {
       const data = res.data as Record<string, unknown>;
       expect(data.action_name).toBe("Capture Idea");
-      expect(data.created_paths).toEqual(["Inbox/idea.md"]);
+      expect(data.fired_at).toBe("t");
     }
     const req = v.bridgeRequests[0];
     if (!req) throw new Error("expected a bridge request");

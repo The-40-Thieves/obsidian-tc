@@ -297,12 +297,11 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
           cursor: z.string().optional(),
         })
         .strict(),
-      // items/total are ALWAYS the ACL-filtered, recomputed values (overriding whatever raw
-      // items/total the bridge sent); under a read whitelist the raw `...result` siblings
-      // (e.g. `groups`) are dropped entirely (THE-270) — passthrough covers them when present.
+      // items/total are always the ACL-filtered, recomputed values. Companion sibling fields are
+      // never exposed because they are neither path-checked nor part of this tool's result contract.
       outputSchema: z
         .object({ vault: z.string(), items: z.array(z.unknown()), total: z.number().int() })
-        .passthrough(),
+        .strict(),
       requiredScopes: ["read:tasks"],
       tags: ["plugin-bridge"],
       handler: async (input, ctx) => {
@@ -326,15 +325,13 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
           plugin: "tasks",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        // Intersect bridge-enumerated tasks with the read ACL; fail closed on an
-        // unattributable row when a read whitelist is configured (D2/B1). `groups`
-        // (aggregate counts) pass through untouched.
+        // Intersect bridge-enumerated tasks with the read ACL; fail closed on an unattributable row
+        // when a read whitelist is configured. Aggregate sibling fields are not public output.
         const filtered = filterBridgeResultItems(ctx.acl, v.root, ctx.grantedScopes, result, {
           tool: "tasks_filter",
         });
-        // `...result` is dropped unless nothing was hidden, and always when `items` is absent:
-        // `groups` (and any other sibling) is computed over the UNFILTERED task set and leaks
-        // counts of notes outside the whitelist (THE-270).
+        // The shared projection always drops sibling fields, keeping the shape independent of
+        // whether filtering removed a task.
         return { vault: v.id, ...filtered };
       },
     }),

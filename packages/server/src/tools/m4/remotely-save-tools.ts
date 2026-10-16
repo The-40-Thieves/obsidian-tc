@@ -6,13 +6,15 @@ import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { defineTool } from "../m1/define";
-import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
+import { bridgeTimeouts, type M4Deps, openBridge, parseBridgePayload } from "./shared";
 
-// THE-417: both tools proxy the Remotely Save companion route's own JSON verbatim
-// (`{ vault, ...result }`) — arbitrary plugin JSON, so .passthrough() is the honest schema
-// beyond `vault`, which the handler itself always supplies.
-const RemotelySaveStatusOutput = z.object({ vault: z.string() }).passthrough();
-const RemotelySaveTriggerOutput = z.object({ vault: z.string() }).passthrough();
+const RemotelySaveStatusBridge = z.object({
+  sync_status: z.string(),
+  last_success_sync: z.number().nullable(),
+});
+const RemotelySaveTriggerBridge = z.object({ triggered: z.boolean(), fired_at: z.string() });
+const RemotelySaveStatusOutput = RemotelySaveStatusBridge.extend({ vault: z.string() }).strict();
+const RemotelySaveTriggerOutput = RemotelySaveTriggerBridge.extend({ vault: z.string() }).strict();
 
 export function buildRemotelySaveTools(deps: M4Deps): ToolDefinition[] {
   return [
@@ -33,7 +35,8 @@ export function buildRemotelySaveTools(deps: M4Deps): ToolDefinition[] {
           plugin: "remotely-save",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, ...result };
+        const payload = parseBridgePayload(RemotelySaveStatusBridge, result, "remotely-save");
+        return { vault: v.id, ...payload };
       },
     }),
 
@@ -47,7 +50,7 @@ export function buildRemotelySaveTools(deps: M4Deps): ToolDefinition[] {
       outputSchema: RemotelySaveTriggerOutput,
       requiredScopes: ["write:remotely-save"],
       tags: ["external-network"],
-      handler: async (input) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const { client } = openBridge(deps, v.id, "remotely-save");
         const result = await client.request<Record<string, unknown>>({
@@ -56,7 +59,9 @@ export function buildRemotelySaveTools(deps: M4Deps): ToolDefinition[] {
           plugin: "remotely-save",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, ...result };
+        ctx.markEffectCommitted?.();
+        const payload = parseBridgePayload(RemotelySaveTriggerBridge, result, "remotely-save");
+        return { vault: v.id, ...payload };
       },
     }),
   ];

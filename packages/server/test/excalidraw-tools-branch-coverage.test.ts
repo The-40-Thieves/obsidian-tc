@@ -249,7 +249,12 @@ describe("create_excalidraw — optional body fields", () => {
     v = makeM4Vault({
       installed: ["excalidraw"],
       routes: {
-        "POST /obsidian-tc/v1/excalidraw/write": { body: { ok: true, result: { created: true } } },
+        "POST /obsidian-tc/v1/excalidraw/write": {
+          body: {
+            ok: true,
+            result: { path: "Drawings/Plan.excalidraw.md", plugin_used: true },
+          },
+        },
       },
     });
     const res = await v.call("create_excalidraw", {
@@ -273,7 +278,12 @@ describe("update_excalidraw — optional body fields", () => {
     v = makeM4Vault({
       installed: ["excalidraw"],
       routes: {
-        "POST /obsidian-tc/v1/excalidraw/write": { body: { ok: true, result: { updated: 3 } } },
+        "POST /obsidian-tc/v1/excalidraw/write": {
+          body: {
+            ok: true,
+            result: { path: "Drawings/Plan.excalidraw.md", plugin_used: true, unchanged: true },
+          },
+        },
       },
     });
     const res = await v.call("update_excalidraw", {

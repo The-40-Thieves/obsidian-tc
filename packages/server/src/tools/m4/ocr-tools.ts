@@ -16,15 +16,39 @@ import { requireConfirmation } from "../../vault/hitl";
 import { noteExists } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
+import { bridgeTimeouts, type M4Deps, openBridge, parseBridgePayload } from "./shared";
 
 const DEFAULT_EXTS = [".pdf", ".png", ".jpg", ".jpeg", ".tiff"];
 
-// THE-417: both tools proxy the Text Extractor companion route's own JSON verbatim
-// (`{ vault, ...result }` / `{ vault, requested, ...result }`) — arbitrary plugin JSON, so
-// .passthrough() is the honest schema beyond the fields the handler itself guarantees.
-const OcrAttachmentOutput = z.object({ vault: z.string(), path: z.string() }).passthrough();
-const OcrBulkOutput = z.object({ vault: z.string(), requested: z.number().int() }).passthrough();
+const OcrAttachmentBridge = z.object({
+  text: z.string(),
+  cached: z.boolean(),
+  duration_ms: z.number().nonnegative(),
+});
+const OcrBulkRow = z.object({
+  path: z.string(),
+  ok: z.boolean(),
+  text: z.string().optional(),
+  error: z.string().optional(),
+});
+const OcrBulkBridge = z.object({
+  processed: z.number().int().nonnegative(),
+  results: z.array(z.unknown()),
+  total_duration_ms: z.number().nonnegative(),
+});
+const OcrAttachmentOutput = OcrAttachmentBridge.extend({
+  vault: z.string(),
+  path: z.string(),
+}).strict();
+const OcrBulkOutput = z
+  .object({
+    vault: z.string(),
+    requested: z.number().int().nonnegative(),
+    processed: z.number().int().nonnegative(),
+    results: z.array(OcrBulkRow),
+    total_duration_ms: z.number().nonnegative(),
+  })
+  .strict();
 
 /** The ACL-filtered attachment paths an `ocr_bulk` call would OCR, from explicit `paths` or a walk. */
 function ocrCandidates(
@@ -72,7 +96,14 @@ export function buildOcrTools(deps: M4Deps): ToolDefinition[] {
           plugin: "text-extractor",
           timeoutMs: bridgeTimeouts(deps, v.id).ocrTimeoutMs,
         });
-        return { vault: v.id, path: rel, ...result };
+        const payload = parseBridgePayload(OcrAttachmentBridge, result, "text-extractor");
+        return {
+          vault: v.id,
+          path: rel,
+          text: payload.text,
+          cached: payload.cached,
+          duration_ms: payload.duration_ms,
+        };
       },
     }),
 
@@ -132,7 +163,18 @@ export function buildOcrTools(deps: M4Deps): ToolDefinition[] {
           plugin: "text-extractor",
           timeoutMs: bridgeTimeouts(deps, v.id).ocrTimeoutMs,
         });
-        return { vault: v.id, requested: candidates.length, ...result };
+        const payload = parseBridgePayload(OcrBulkBridge, result, "text-extractor");
+        const allowed = new Set(candidates);
+        const results = payload.results
+          .map((row) => parseBridgePayload(OcrBulkRow, row, "text-extractor"))
+          .filter((row) => allowed.has(row.path));
+        return {
+          vault: v.id,
+          requested: candidates.length,
+          processed: results.length,
+          results,
+          total_duration_ms: payload.total_duration_ms,
+        };
       },
     }),
   ];

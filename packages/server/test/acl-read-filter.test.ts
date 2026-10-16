@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import { enforcePathAcl, evaluatePathAcl, pathScopesSatisfied } from "../src/vault/acl-path";
 import {
+  assertBridgeNestedPathsReadable,
   bridgeItemPath,
   filterBridgeItemsByAcl,
   filterBridgeResultItems,
@@ -13,6 +14,33 @@ import {
 
 const acl = (over: Partial<AclConfigT>): FolderAcl =>
   new FolderAcl({ readOnly: false, defaultScopes: [], rules: [], ...over });
+
+describe("assertBridgeNestedPathsReadable (opaque field values)", () => {
+  it("keeps frontmatter-shaped values whose from/to/file keys are plain text", () => {
+    const a = acl({ readPaths: ["pages/**"] });
+    for (const value of [
+      { from: "Alice", to: "Bob" },
+      { from: "NYC", to: "LA" },
+      { file: "C:\\Users\\x" },
+      { nested: { to: "https://example.com/x" } },
+    ]) {
+      expect(() => assertBridgeNestedPathsReadable(a, tmpdir(), [], value, "t")).not.toThrow();
+      expect(() =>
+        assertBridgeNestedPathsReadable(acl({}), tmpdir(), [], value, "t"),
+      ).not.toThrow();
+    }
+  });
+
+  it("still refuses a Link-shaped value naming an unreadable path, at any depth", () => {
+    const a = acl({ readPaths: ["pages/**"] });
+    expect(() =>
+      assertBridgeNestedPathsReadable(a, tmpdir(), [], { up: { path: ".trash/secret.md" } }, "t"),
+    ).toThrow();
+    expect(() =>
+      assertBridgeNestedPathsReadable(a, tmpdir(), [], [{ path: ".trash/secret.md" }], "t"),
+    ).toThrow();
+  });
+});
 
 describe("acl-read-filter (D2)", () => {
   it("readEnumerationUnrestricted reflects acl / readPaths / strictReadDefault", () => {

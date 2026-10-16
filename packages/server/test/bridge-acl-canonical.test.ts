@@ -39,6 +39,26 @@ interface UnrestrictedBridgeFamily {
   result: (path: string, text: string) => Record<string, unknown>;
 }
 
+interface GitProjectionCase {
+  tool: "git_diff" | "git_log" | "git_stage" | "git_commit";
+  route: string;
+  input: Record<string, unknown>;
+  result: Record<string, unknown>;
+  expectedKeys: string[];
+  confirmed?: boolean;
+}
+
+interface CompanionProjectionCase {
+  tool: string;
+  route: string;
+  input: Record<string, unknown>;
+  result: Record<string, unknown>;
+  installed?: string[];
+  files?: Record<string, string>;
+  confirmed?: boolean;
+  commandPolicy?: (vaultId: string) => { enabled: boolean; allowlist: string[] };
+}
+
 const FAMILIES: Family[] = [
   {
     tool: "search_omnisearch",
@@ -88,6 +108,193 @@ const UNRESTRICTED_PATH_FAMILIES: UnrestrictedBridgeFamily[] = [
     route: "POST /obsidian-tc/v1/templater/list",
     input: {},
     result: (path, text) => ({ items: [{ path, name: "template", parsed_body: text }] }),
+  },
+];
+
+const ITEM_LIST_FAMILIES = [
+  ...FAMILIES,
+  {
+    tool: "list_templates",
+    installed: ["templater"],
+    route: "POST /obsidian-tc/v1/templater/list",
+    input: {},
+  },
+];
+
+const GIT_PROJECTION_CASES: GitProjectionCase[] = [
+  {
+    tool: "git_diff",
+    route: "POST /obsidian-tc/v1/git/diff",
+    input: { path: "pages/open.md" },
+    result: { diff: "+open", hits: [{ path: ".trash/secret.md", excerpt: "TOPSECRET" }] },
+    expectedKeys: ["diff", "path", "staged", "vault"],
+  },
+  {
+    tool: "git_log",
+    route: "POST /obsidian-tc/v1/git/log",
+    input: {},
+    result: { entries: [], hits: [{ path: ".trash/secret.md", excerpt: "TOPSECRET" }] },
+    expectedKeys: ["entries", "vault"],
+  },
+  {
+    tool: "git_stage",
+    route: "POST /obsidian-tc/v1/git/stage",
+    input: { paths: ["pages/open.md"] },
+    result: { staged: 1, hits: [{ path: ".trash/secret.md", excerpt: "TOPSECRET" }] },
+    expectedKeys: ["staged", "vault"],
+  },
+  {
+    tool: "git_commit",
+    route: "POST /obsidian-tc/v1/git/commit",
+    input: { message: "snapshot" },
+    result: {
+      committed: 1,
+      fired_at: "2026-10-15T00:00:00.000Z",
+      hits: [{ path: ".trash/secret.md", excerpt: "TOPSECRET" }],
+    },
+    expectedKeys: ["committed", "fired_at", "vault"],
+    confirmed: true,
+  },
+];
+
+const INCIDENT = { path: ".trash/secret.md", excerpt: "TOPSECRET" };
+const COMPANION_PROJECTION_CASES: CompanionProjectionCase[] = [
+  {
+    tool: "makemd_list_spaces",
+    route: "POST /obsidian-tc/v1/makemd/spaces",
+    input: {},
+    result: { spaces: [], hits: [INCIDENT] },
+    installed: ["make-md"],
+  },
+  {
+    tool: "list_commands",
+    route: "POST /obsidian-tc/v1/commands/list",
+    input: {},
+    result: { items: [{ id: "app:open", name: "Open" }], total: 1, hits: [INCIDENT] },
+  },
+  {
+    tool: "execute_command",
+    route: "POST /obsidian-tc/v1/commands/execute",
+    input: { command_id: "app:open" },
+    result: { command_id: "app:open", fired_at: "2026-10-15T00:00:00.000Z", hits: [INCIDENT] },
+    confirmed: true,
+    commandPolicy: () => ({ enabled: true, allowlist: ["app:open"] }),
+  },
+  {
+    tool: "list_quickadd_actions",
+    route: "POST /obsidian-tc/v1/quickadd/actions",
+    input: {},
+    result: { items: [{ name: "Capture", type: "template" }], hits: [INCIDENT] },
+    installed: ["quickadd"],
+  },
+  {
+    tool: "trigger_quickadd",
+    route: "POST /obsidian-tc/v1/quickadd/trigger",
+    input: { action_name: "Capture" },
+    result: { action_name: "Capture", fired_at: "2026-10-15T00:00:00.000Z", hits: [INCIDENT] },
+    installed: ["quickadd"],
+    confirmed: true,
+  },
+  {
+    tool: "validate_dql",
+    route: "POST /obsidian-tc/v1/dataview/validate",
+    input: { dql: "LIST" },
+    result: { valid: true, hits: [INCIDENT] },
+    installed: ["dataview"],
+  },
+  {
+    tool: "eval_dataview_field",
+    route: "POST /obsidian-tc/v1/dataview/eval",
+    input: { path: "pages/open.md", expression: "file.name" },
+    result: { value: "open", type: "string", hits: [INCIDENT] },
+    installed: ["dataview"],
+  },
+  {
+    tool: "read_metadata_fields",
+    route: "POST /obsidian-tc/v1/metadata-menu/fields",
+    input: { path: "pages/open.md" },
+    result: { path: "pages/open.md", fields: {}, total: 0, hits: [INCIDENT] },
+    installed: ["metadata-menu"],
+  },
+  {
+    tool: "ocr_attachment",
+    route: "POST /obsidian-tc/v1/ocr/attachment",
+    input: { path: "Attach/scan.png" },
+    result: {
+      path: "Attach/scan.png",
+      text: "open",
+      cached: false,
+      duration_ms: 1,
+      hits: [INCIDENT],
+    },
+    installed: ["text-extractor"],
+    files: { "Attach/scan.png": "binary" },
+  },
+  {
+    tool: "ocr_bulk",
+    route: "POST /obsidian-tc/v1/ocr/bulk",
+    input: { paths: ["Attach/scan.png"] },
+    result: {
+      processed: 1,
+      results: [{ path: "Attach/scan.png", ok: true, text: "open" }],
+      total_duration_ms: 1,
+      hits: [INCIDENT],
+    },
+    installed: ["text-extractor"],
+    confirmed: true,
+  },
+  {
+    tool: "read_excalidraw",
+    route: "POST /obsidian-tc/v1/excalidraw/read",
+    input: { path: "Drawings/open.excalidraw" },
+    result: { path: "Drawings/open.excalidraw", text_content: "open", hits: [INCIDENT] },
+    installed: ["excalidraw"],
+  },
+  {
+    tool: "create_excalidraw",
+    route: "POST /obsidian-tc/v1/excalidraw/write",
+    input: { path: "Drawings/new.excalidraw" },
+    result: { path: "Drawings/new.excalidraw", plugin_used: true, hits: [INCIDENT] },
+    installed: ["excalidraw"],
+  },
+  {
+    tool: "update_excalidraw",
+    route: "POST /obsidian-tc/v1/excalidraw/write",
+    input: { path: "Drawings/open.excalidraw", add_elements: [] },
+    result: {
+      path: "Drawings/open.excalidraw",
+      plugin_used: true,
+      unchanged: true,
+      hits: [INCIDENT],
+    },
+    installed: ["excalidraw"],
+  },
+  {
+    tool: "remotely_save_status",
+    route: "POST /obsidian-tc/v1/remotely-save/status",
+    input: {},
+    result: { sync_status: "idle", last_success_sync: null, hits: [INCIDENT] },
+    installed: ["remotely-save"],
+  },
+  {
+    tool: "remotely_save_trigger",
+    route: "POST /obsidian-tc/v1/remotely-save/trigger",
+    input: {},
+    result: { triggered: true, fired_at: "2026-10-15T00:00:00.000Z", hits: [INCIDENT] },
+    installed: ["remotely-save"],
+  },
+  {
+    tool: "execute_template",
+    route: "POST /obsidian-tc/v1/templater/execute",
+    input: { template: "Templates/daily.md", target: "Daily/2026-10-15.md" },
+    result: {
+      template: "Templates/daily.md",
+      target: ".trash/secret.md",
+      created_at: "2026-10-15T00:00:00.000Z",
+      hits: [INCIDENT],
+    },
+    installed: ["templater"],
+    confirmed: true,
   },
 ];
 
@@ -247,12 +454,15 @@ describe.skipIf(process.platform === "win32")(
 
         const r = await call(v);
         expect(r.ok, dump(r)).toBe(true);
-        if (r.ok)
-          expect(r.data).toEqual({
-            vault: "test",
-            ...result,
-            ...(f.tool === "list_templates" ? { total: 1 } : {}),
-          });
+        if (r.ok) {
+          if (f.tool === "list_templates") {
+            expect(r.data).toEqual({
+              vault: "test",
+              items: [{ path: "templates/ok.md", name: "template" }],
+              total: 1,
+            });
+          } else expect(r.data).toEqual({ vault: "test", ...result });
+        }
       });
 
       it("returns a row through an alias to a readable target", async () => {
@@ -375,6 +585,96 @@ describe.skipIf(process.platform === "win32")(
       });
     });
 
+    it("keeps Datacore rows whose frontmatter uses path-shaped field names", async () => {
+      const fields = [
+        { to: "Bob" },
+        { from: "2026-01-01" },
+        { file: "report.pdf" },
+        { to: "https://example.com/x" },
+        { path: "C:\\Users\\x" },
+      ];
+      const items = fields.map((frontmatter) => ({ path: "pages/open.md", fields: frontmatter }));
+      const v = makeM4Vault({
+        files: { "pages/open.md": "open text" },
+        acl: { readPaths: ["pages/**"] },
+        installed: ["datacore"],
+        routes: {
+          "POST /obsidian-tc/v1/datacore/query": {
+            body: { ok: true, result: { items, total: items.length } },
+          },
+        },
+      });
+      cleanups.push(v.cleanup);
+
+      const r = await v.call("query_datacore", { vault: "test", query: "@page" });
+
+      expect(r.ok, dump(r)).toBe(true);
+      if (r.ok) {
+        expect((r.data as { items: unknown[] }).items).toEqual(items);
+        expect((r.data as { total: number }).total).toBe(5);
+      }
+    });
+
+    describe.each(ITEM_LIST_FAMILIES)("$tool: listed result fields", (f) => {
+      it("drops an unlisted companion field for an unrestricted caller", async () => {
+        const result = {
+          items: [],
+          hits: [{ path: ".trash/secret.md", excerpt: "TOPSECRET" }],
+        };
+        const v = makeM4Vault({
+          acl: {},
+          installed: f.installed,
+          routes: { [f.route]: { body: { ok: true, result } } },
+        });
+        cleanups.push(v.cleanup);
+
+        const r = await v.call(f.tool, { vault: "test", ...f.input });
+        expect(r.ok, dump(r)).toBe(true);
+        if (r.ok) expect(r.data).not.toHaveProperty("hits");
+        expect(dump(r)).not.toContain("TOPSECRET");
+      });
+    });
+
+    it("returns the same key set whether or not an Omnisearch item is dropped", async () => {
+      const search = (result: Record<string, unknown>) =>
+        makeM4Vault({
+          files: { "pages/open.md": "open", ".trash/secret.md": MARK },
+          acl: {},
+          installed: ["omnisearch"],
+          routes: {
+            "POST /obsidian-tc/v1/omnisearch/search": {
+              body: { ok: true, result },
+            },
+          },
+        });
+      const kept = search({
+        items: [{ path: "pages/open.md", excerpt: "open" }],
+        total: 1,
+        query: "x",
+        groups: [],
+      });
+      const dropped = search({
+        items: [{ path: ".trash/secret.md", excerpt: MARK }],
+        total: 1,
+        query: "x",
+        groups: [],
+      });
+      cleanups.push(kept.cleanup, dropped.cleanup);
+
+      const keptResult = await kept.call("search_omnisearch", { vault: "test", query: "x" });
+      const droppedResult = await dropped.call("search_omnisearch", {
+        vault: "test",
+        query: "x",
+      });
+      expect(keptResult.ok, dump(keptResult)).toBe(true);
+      expect(droppedResult.ok, dump(droppedResult)).toBe(true);
+      if (keptResult.ok && droppedResult.ok) {
+        expect(Object.keys(keptResult.data as Record<string, unknown>).sort()).toEqual(
+          Object.keys(droppedResult.data as Record<string, unknown>).sort(),
+        );
+      }
+    });
+
     describe.each(UNRESTRICTED_PATH_FAMILIES)("$tool: invalid bridge paths", (f) => {
       it("drops a Windows-reserved path", async () => {
         const v = makeM4Vault({
@@ -418,6 +718,217 @@ describe.skipIf(process.platform === "win32")(
       expect(dump(r)).not.toContain("pages/new.md");
     });
 
+    it("git_status drops an unlisted renamed field without losing an allowed status entry", async () => {
+      const v = makeM4Vault({
+        files: { "pages/open.md": "open", ".trash/secret.md": MARK },
+        acl: {},
+        installed: ["git"],
+        routes: {
+          "POST /obsidian-tc/v1/git/status": {
+            body: {
+              ok: true,
+              result: {
+                changed: [{ path: "pages/open.md", working_dir: "M", index: "" }],
+                staged: [],
+                conflicted: [],
+                renamed: [{ from: ".trash/secret.md" }],
+              },
+            },
+          },
+        },
+      });
+      cleanups.push(v.cleanup);
+
+      const r = await v.call("git_status", { vault: "test" });
+      expect(r.ok, dump(r)).toBe(true);
+      expect(dump(r)).toContain("pages/open.md");
+      expect(dump(r)).not.toContain(".trash/secret.md");
+      if (r.ok) expect(r.data).not.toHaveProperty("renamed");
+    });
+
+    describe.each(GIT_PROJECTION_CASES)("$tool: listed result fields", (f) => {
+      it("drops unlisted companion fields", async () => {
+        const v = makeM4Vault({
+          files: { "pages/open.md": "open", ".trash/secret.md": MARK },
+          installed: ["git"],
+          routes: { [f.route]: { body: { ok: true, result: f.result } } },
+        });
+        cleanups.push(v.cleanup);
+
+        const input = { vault: "test", ...f.input };
+        const r = f.confirmed ? await v.callConfirmed(f.tool, input) : await v.call(f.tool, input);
+        expect(r.ok, dump(r)).toBe(true);
+        expect(dump(r)).not.toContain("TOPSECRET");
+        if (r.ok)
+          expect(Object.keys(r.data as Record<string, unknown>).sort()).toEqual(
+            [...f.expectedKeys].sort(),
+          );
+      });
+    });
+
+    it.each([
+      { acl: { readPaths: ["Daily/**"] }, label: "restricted" },
+      { acl: {}, label: "unrestricted" },
+    ])("resolve_daily_note drops undeclared fields for a $label caller", async ({ acl }) => {
+      const result = {
+        path: "Daily/2026-10-15.md",
+        exists: true,
+        hits: [{ path: ".trash/secret.md", excerpt: "TOPSECRET" }],
+      };
+      const v = makeM4Vault({
+        files: { "Daily/2026-10-15.md": "open" },
+        acl,
+        routes: {
+          "POST /obsidian-tc/v1/daily-notes/resolve": { body: { ok: true, result } },
+        },
+      });
+      cleanups.push(v.cleanup);
+
+      const r = await v.call("resolve_daily_note", { vault: "test" });
+      expect(r.ok, dump(r)).toBe(true);
+      expect(dump(r)).not.toContain("TOPSECRET");
+      expect(dump(r)).not.toContain(".trash/");
+    });
+
+    it("search_omnisearch drops a row with the incident nested inside it", async () => {
+      const result = {
+        items: [
+          {
+            path: "pages/open.md",
+            excerpt: "open",
+            hits: [{ path: ".trash/secret.md", excerpt: "TOPSECRET" }],
+            to: ".trash/secret.md",
+          },
+        ],
+        total: 1,
+      };
+      const v = makeM4Vault({
+        files: { "pages/open.md": "open" },
+        acl: { readPaths: ["pages/**"] },
+        installed: ["omnisearch"],
+        routes: {
+          "POST /obsidian-tc/v1/omnisearch/search": { body: { ok: true, result } },
+        },
+      });
+      cleanups.push(v.cleanup);
+
+      const r = await v.call("search_omnisearch", { vault: "test", query: "x" });
+      expect(r.ok, dump(r)).toBe(true);
+      expect(dump(r)).not.toContain("TOPSECRET");
+      expect(dump(r)).not.toContain(".trash/");
+    });
+
+    it("git_status projects row fields before returning them", async () => {
+      const result = {
+        changed: [
+          {
+            path: "pages/open.md",
+            working_dir: "R",
+            index: "R",
+            to: ".trash/secret.md",
+            hits: [{ path: ".trash/secret.md", excerpt: "TOPSECRET" }],
+          },
+        ],
+        staged: [],
+        conflicted: [],
+      };
+      const v = makeM4Vault({
+        files: { "pages/open.md": "open" },
+        acl: {},
+        installed: ["git"],
+        routes: { "POST /obsidian-tc/v1/git/status": { body: { ok: true, result } } },
+      });
+      cleanups.push(v.cleanup);
+
+      const r = await v.call("git_status", { vault: "test" });
+      expect(r.ok, dump(r)).toBe(true);
+      expect(dump(r)).not.toContain("TOPSECRET");
+      expect(dump(r)).not.toContain(".trash/");
+    });
+
+    it("git_log projects entry fields before returning them", async () => {
+      const result = {
+        entries: [
+          {
+            hash: "abc",
+            message: "open",
+            date: "2026-10-15",
+            author: "A",
+            hits: [{ path: ".trash/secret.md", excerpt: "TOPSECRET" }],
+          },
+        ],
+      };
+      const v = makeM4Vault({
+        acl: {},
+        installed: ["git"],
+        routes: { "POST /obsidian-tc/v1/git/log": { body: { ok: true, result } } },
+      });
+      cleanups.push(v.cleanup);
+
+      const r = await v.call("git_log", { vault: "test" });
+      expect(r.ok, dump(r)).toBe(true);
+      expect(dump(r)).not.toContain("TOPSECRET");
+      expect(dump(r)).not.toContain(".trash/");
+    });
+
+    describe.each(COMPANION_PROJECTION_CASES)("$tool: companion projection", (f) => {
+      it("does not expose undeclared incident fields", async () => {
+        const v = makeM4Vault({
+          acl: {},
+          installed: f.installed,
+          files: f.files,
+          commandPolicy: f.commandPolicy,
+          routes: { [f.route]: { body: { ok: true, result: f.result } } },
+        });
+        cleanups.push(v.cleanup);
+
+        const input = { vault: "test", ...f.input };
+        const r = f.confirmed ? await v.callConfirmed(f.tool, input) : await v.call(f.tool, input);
+        expect(r.ok, dump(r)).toBe(true);
+        expect(dump(r)).not.toContain("TOPSECRET");
+        expect(dump(r)).not.toContain(".trash/");
+      });
+    });
+
+    describe.each([
+      {
+        tool: "git_diff",
+        route: "POST /obsidian-tc/v1/git/diff",
+        input: { path: "pages/open.md" },
+        result: {},
+      },
+      {
+        tool: "git_stage",
+        route: "POST /obsidian-tc/v1/git/stage",
+        input: { paths: ["pages/open.md"] },
+        result: { staged: 1.5 },
+      },
+      {
+        tool: "git_commit",
+        route: "POST /obsidian-tc/v1/git/commit",
+        input: { message: "snapshot" },
+        result: { committed: 1 },
+        confirmed: true,
+      },
+    ])("$tool: malformed companion response", (f) => {
+      it("raises the bridge-shape error instead of manufacturing a valid value", async () => {
+        const v = makeM4Vault({
+          files: { "pages/open.md": "open" },
+          installed: ["git"],
+          routes: { [f.route]: { body: { ok: true, result: f.result } } },
+        });
+        cleanups.push(v.cleanup);
+
+        const input = { vault: "test", ...f.input };
+        const r = f.confirmed ? await v.callConfirmed(f.tool, input) : await v.call(f.tool, input);
+        expect(r.ok).toBe(false);
+        if (!r.ok) {
+          expect(r.error.code).toBe("plugin_incompatible");
+          expect(r.error.retryable).toBe(false);
+        }
+      });
+    });
+
     describe("resolve_daily_note", () => {
       const daily = (path: string) =>
         vault([], {
@@ -437,6 +948,32 @@ describe.skipIf(process.platform === "win32")(
         const v = daily("shared/open.md");
         const r = await v.call("resolve_daily_note", { vault: "test" });
         expect(r.ok, dump(r)).toBe(true);
+      });
+
+      it("derives the returned folder from the checked path", async () => {
+        const v = makeM4Vault({
+          files: { "pages/open.md": "open" },
+          acl: { readPaths: ["pages/**"] },
+          routes: {
+            "POST /obsidian-tc/v1/daily-notes/resolve": {
+              body: {
+                ok: true,
+                result: {
+                  path: "pages/open.md",
+                  exists: true,
+                  folder: ".trash/secret.md",
+                  format: "TOPSECRET",
+                },
+              },
+            },
+          },
+        });
+        cleanups.push(v.cleanup);
+
+        const r = await v.call("resolve_daily_note", { vault: "test" });
+
+        expect(r.ok, dump(r)).toBe(true);
+        if (r.ok) expect((r.data as { folder?: string }).folder).toBe("pages");
       });
     });
 

@@ -161,7 +161,9 @@ describe("stamping is off by default", () => {
   it("off by default: nothing is stamped or trailed with no stamper, and the bytes are the caller's", async () => {
     const b = await boot({
       routes: {
-        "POST /obsidian-tc/v1/git/commit": { body: { ok: true, result: { committed: 1 } } },
+        "POST /obsidian-tc/v1/git/commit": {
+          body: { ok: true, result: { committed: 1, fired_at: "t" } },
+        },
       },
     });
     expect(
@@ -384,6 +386,30 @@ describe("frontmatter stamp", () => {
     expect(b.read("out/new.md")).toBe("---\ntitle: From template\n---\nexpanded\n");
   });
 
+  it("stamps a note Templater created even when its acknowledgement is malformed", async () => {
+    const b = await boot({
+      stamp: { frontmatter: true },
+      routes: {
+        "POST /obsidian-tc/v1/templater/execute": { body: { ok: true, result: {} } },
+      },
+      onBridge: plugin,
+    });
+    b.put("tpl.md", "template");
+
+    const result = await b.confirmed(
+      "execute_template",
+      { vault: VAULT, template: "tpl.md", target: "out/new.md" },
+      ALICE,
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("plugin_incompatible");
+      expect(result.error.retryable).toBe(false);
+    }
+    expect(stampOf(b.read("out/new.md"))).toMatchObject({ principal: "alice", session: "sess-A" });
+  });
+
   it("preserves a concurrent edit while stamping a Templater-created note and reports the skip", async () => {
     const b = await boot({
       stamp: { frontmatter: true },
@@ -413,7 +439,9 @@ describe("commit trailers", () => {
     "POST /obsidian-tc/v1/git/status": {
       body: { ok: true, result: { staged: staged.map((path) => ({ path, index: "A" })) } },
     },
-    "POST /obsidian-tc/v1/git/commit": { body: { ok: true, result: { committed: 1 } } },
+    "POST /obsidian-tc/v1/git/commit": {
+      body: { ok: true, result: { committed: 1, fired_at: "t" } },
+    },
   });
   const commitMessage = (b: Awaited<ReturnType<typeof boot>>): string =>
     JSON.parse(b.requests.find((q) => q.url.endsWith("/git/commit"))?.body ?? "{}").message;
@@ -511,7 +539,9 @@ describe("commit trailers", () => {
       stamp: { gitTrailers: true },
       routes: {
         "POST /obsidian-tc/v1/git/status": { networkError: true },
-        "POST /obsidian-tc/v1/git/commit": { body: { ok: true, result: { committed: 1 } } },
+        "POST /obsidian-tc/v1/git/commit": {
+          body: { ok: true, result: { committed: 1, fired_at: "t" } },
+        },
       },
     });
     await b.call("write_note", { vault: VAULT, path: "a.md", content: "A" }, ALICE);

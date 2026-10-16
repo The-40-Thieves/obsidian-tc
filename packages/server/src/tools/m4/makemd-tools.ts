@@ -5,16 +5,18 @@
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
-import { filterBridgeResultItems, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
+import {
+  filterBridgeItemsByAcl,
+  filterBridgeResultItems,
+  readEnumerationUnrestricted,
+} from "../../vault/acl-read-filter";
 import { defineTool } from "../m1/define";
-import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
+import { bridgeTimeouts, type M4Deps, openBridge, parseBridgePayload } from "./shared";
 
-// THE-417: makemd_list_spaces proxies the companion's own JSON verbatim (arbitrary, passthrough).
-// makemd_query ACL-filters the plugin's rows (bridgeSiblingsSafe gates whether the
-// unfiltered `...result` siblings are also spread), but items/total are ALWAYS the ACL-filtered,
-// recomputed values overriding whatever raw items/total the plugin sent — both branches guarantee
-// vault/space_id/items/total; the passthrough covers the plugin's other, arbitrary sibling fields.
-const MakemdListSpacesOutput = z.object({ vault: z.string() }).passthrough();
+const MakemdSpacesBridge = z.object({ spaces: z.array(z.unknown()) });
+const MakemdListSpacesOutput = z
+  .object({ vault: z.string(), spaces: z.array(z.unknown()) })
+  .strict();
 const MakemdQueryOutput = z
   .object({
     vault: z.string(),
@@ -22,7 +24,7 @@ const MakemdQueryOutput = z
     items: z.array(z.unknown()),
     total: z.number().int(),
   })
-  .passthrough();
+  .strict();
 
 export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
   return [
@@ -50,7 +52,11 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
           plugin: "make-md",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, ...result };
+        const payload = parseBridgePayload(MakemdSpacesBridge, result, "make-md");
+        const spaces = filterBridgeItemsByAcl(ctx.acl, v.root, ctx.grantedScopes, payload.spaces, {
+          tool: "makemd_list_spaces",
+        });
+        return { vault: v.id, spaces };
       },
     }),
 
@@ -93,9 +99,8 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
         // Intersect make.md rows with the read ACL by note path; fail closed on an
-        // unattributable row under a read whitelist (D2/B2). The `...result` siblings are dropped
-        // unless nothing was hidden, and always when `items` is absent: they can carry
-        // path-attributable content from the UNFILTERED make.md rows (THE-270).
+        // unattributable row under a read whitelist (D2/B2). Sibling fields are never exposed:
+        // they are neither path-checked nor part of this tool's result contract.
         const filtered = filterBridgeResultItems(ctx.acl, v.root, ctx.grantedScopes, result, {
           tool: "makemd_query",
           keys: ["note_path", "path", "file", "filePath", "from"],
