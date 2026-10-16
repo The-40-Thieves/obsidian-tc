@@ -1,6 +1,7 @@
 // Obsidian Git (THE-378, WP6.1 extraction from routes.ts). The git plugin exposes no stable
 // `api`, so every method is probed before use and absence degrades, never throws. Every git
 // operation is wrapped so a git failure comes back as git_error, never a 500.
+import { realpathSync } from "node:fs";
 import { body, fail, ok, str } from "./envelope";
 import {
   type BridgeRes,
@@ -15,6 +16,7 @@ import {
 interface GitManagerLite {
   status?: () => Promise<unknown>;
   absoluteRepoPath?: unknown;
+  git?: { revparse?: (args: string[]) => Promise<unknown> };
   getDiffString?: (path: string, staged?: boolean) => Promise<unknown>;
   log?: (file: undefined, relativeToVault: boolean, limit: number) => Promise<unknown>;
   stage?: (path: string, relativeToVault: boolean) => Promise<unknown>;
@@ -40,7 +42,30 @@ interface GitPathMappers {
 interface ParsedAbsolutePath {
   root: string;
   segments: string[];
-  caseInsensitive: boolean;
+}
+
+/** Case folds only where the platform's filesystem does; Linux stays exact. */
+function foldsCase(platform: NodeJS.Platform): boolean {
+  return platform === "darwin" || platform === "win32";
+}
+
+/**
+ * Comparison key for one segment. NFC always, because git and the disk can disagree on Unicode
+ * form (NFD folder names on macOS); the mapped output keeps each segment's own spelling.
+ */
+function segmentKey(segment: string, caseInsensitive: boolean): string {
+  const nfc = segment.normalize("NFC");
+  return caseInsensitive ? nfc.toLowerCase() : nfc;
+}
+
+/** Resolve symlinks and junctions; an unresolvable path keeps its spelling, never throws. */
+function canonicalPath(path: unknown): unknown {
+  if (typeof path !== "string") return path;
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return path;
+  }
 }
 
 function relativeSegments(path: string, allowEmpty = false): string[] | null {
@@ -75,26 +100,48 @@ function absolutePath(path: unknown): ParsedAbsolutePath | null {
       segments.push(part);
     }
   }
-  return { root, segments, caseInsensitive: Boolean(drive) };
+  return { root, segments };
 }
 
-function startsWithPath(path: ParsedAbsolutePath, parent: ParsedAbsolutePath): boolean {
-  if (path.root !== parent.root || path.caseInsensitive !== parent.caseInsensitive) return false;
+function startsWithPath(
+  path: ParsedAbsolutePath,
+  parent: ParsedAbsolutePath,
+  caseInsensitive: boolean,
+): boolean {
+  if (path.root !== parent.root) return false;
   if (parent.segments.length > path.segments.length) return false;
   return parent.segments.every((part, index) => {
     const candidate = path.segments[index];
     if (candidate === undefined) return false;
-    return path.caseInsensitive
-      ? candidate.toLowerCase() === part.toLowerCase()
-      : candidate === part;
+    return segmentKey(candidate, caseInsensitive) === segmentKey(part, caseInsensitive);
   });
 }
 
-function desktopPathMappers(repositoryPath: unknown, vaultPath: unknown): GitPathMappers | null {
-  const repository = absolutePath(repositoryPath);
-  const vault = absolutePath(vaultPath);
+/** Same directory under the platform's comparison rules, after symlinks are resolved. */
+function sameDirectory(path: unknown, directory: string, platform: NodeJS.Platform): boolean {
+  if (typeof path !== "string") return false;
+  const left = absolutePath(canonicalPath(path.trim()));
+  const right = absolutePath(canonicalPath(directory));
+  if (!left || !right) return false;
+  return (
+    left.root === right.root &&
+    left.segments.length === right.segments.length &&
+    startsWithPath(left, right, foldsCase(platform))
+  );
+}
+
+function desktopPathMappers(
+  repositoryPath: unknown,
+  vaultPath: unknown,
+  platform: NodeJS.Platform,
+): GitPathMappers | null {
+  // Canonicalise first: a vault reached through a symlink or junction compares as its real place.
+  const repository = absolutePath(canonicalPath(repositoryPath));
+  const vault = absolutePath(canonicalPath(vaultPath));
   if (!repository || !vault) return null;
-  if (!startsWithPath(repository, vault) && !startsWithPath(vault, repository)) return null;
+  const startsWith = (path: ParsedAbsolutePath, parent: ParsedAbsolutePath) =>
+    startsWithPath(path, parent, foldsCase(platform));
+  if (!startsWith(repository, vault) && !startsWith(vault, repository)) return null;
   return {
     nativeGitPathspecs: true,
     toVaultPath: (path) => {
@@ -104,7 +151,7 @@ function desktopPathMappers(repositoryPath: unknown, vaultPath: unknown): GitPat
         ...repository,
         segments: [...repository.segments, ...rel],
       };
-      if (!startsWithPath(file, vault)) return null;
+      if (!startsWith(file, vault)) return null;
       const mapped = file.segments.slice(vault.segments.length);
       return mapped.length > 0 ? mapped.join("/") : null;
     },
@@ -115,7 +162,7 @@ function desktopPathMappers(repositoryPath: unknown, vaultPath: unknown): GitPat
         ...vault,
         segments: [...vault.segments, ...rel],
       };
-      if (!startsWithPath(file, repository)) return null;
+      if (!startsWith(file, repository)) return null;
       const mapped = file.segments.slice(repository.segments.length);
       return mapped.length > 0 ? mapped.join("/") : null;
     },
@@ -133,6 +180,7 @@ function settingsBasePath(app: InternalApp): string | undefined {
 function gitPathMappers(
   app: InternalApp,
   gm: GitManagerLite,
+  platform: NodeJS.Platform,
 ): { mappers?: GitPathMappers; reason?: string; hint?: string } {
   const adapter = app.vault.adapter as unknown as { getBasePath?: () => unknown };
   if (typeof gm.absoluteRepoPath === "string") {
@@ -150,7 +198,7 @@ function gitPathMappers(
         hint: "Update Obsidian and obsidian-git, then retry",
       };
     }
-    const mappers = desktopPathMappers(gm.absoluteRepoPath, vaultPath);
+    const mappers = desktopPathMappers(gm.absoluteRepoPath, vaultPath, platform);
     return mappers
       ? { mappers }
       : {
@@ -194,18 +242,37 @@ function gitPathMappers(
   };
 }
 
-function requireGitPathMappers(
+async function requireGitPathMappers(
   app: InternalApp,
   gm: GitManagerLite,
   res: BridgeRes,
-): GitPathMappers | null {
-  const result = gitPathMappers(app, gm);
-  if (result.mappers) return result.mappers;
-  fail(res, "plugin_incompatible", result.reason ?? "unknown git path basis", {
-    plugin: "git",
-    ...(result.hint ? { hint: result.hint } : {}),
-  });
-  return null;
+  platform: NodeJS.Platform,
+): Promise<GitPathMappers | null> {
+  const result = gitPathMappers(app, gm, platform);
+  if (!result.mappers) {
+    fail(res, "plugin_incompatible", result.reason ?? "unknown git path basis", {
+      plugin: "git",
+      ...(result.hint ? { hint: result.hint } : {}),
+    });
+    return null;
+  }
+  const git = gm.git;
+  if (typeof gm.absoluteRepoPath === "string" && typeof git?.revparse === "function") {
+    // obsidian-git sets absoluteRepoPath and its git instance in two steps on a settings reload.
+    // In between the path names the old root, so refuse rather than map against it.
+    let topLevel: unknown;
+    try {
+      topLevel = await git.revparse(["--show-toplevel"]);
+    } catch (e) {
+      fail(res, "git_error", e instanceof Error ? e.message : String(e));
+      return null;
+    }
+    if (!sameDirectory(topLevel, gm.absoluteRepoPath, platform)) {
+      fail(res, "git_error", "the repository is being reconfigured in obsidian-git; retry shortly");
+      return null;
+    }
+  }
+  return result.mappers;
 }
 
 function safeRepoPath(path: unknown, mappers: GitPathMappers): string | null {
@@ -260,7 +327,10 @@ function gitManagerOf(app: InternalApp, res: BridgeRes): GitManagerLite | null {
   return gitManager;
 }
 
-export function buildGitRoutes(app: InternalApp): RouteDef[] {
+export function buildGitRoutes(
+  app: InternalApp,
+  platform: NodeJS.Platform = process.platform,
+): RouteDef[] {
   return [
     {
       method: "post",
@@ -272,7 +342,7 @@ export function buildGitRoutes(app: InternalApp): RouteDef[] {
           return fail(res, "plugin_unreachable", "obsidian-git exposes no status()", {
             plugin: "git",
           });
-        const pathMappers = requireGitPathMappers(app, gm, res);
+        const pathMappers = await requireGitPathMappers(app, gm, res, platform);
         if (!pathMappers) return;
         try {
           const { toVaultPath } = pathMappers;
@@ -324,7 +394,7 @@ export function buildGitRoutes(app: InternalApp): RouteDef[] {
           });
         const path = str(body(req), "path");
         if (!path) return fail(res, "invalid_input", "path is required");
-        const pathMappers = requireGitPathMappers(app, gm, res);
+        const pathMappers = await requireGitPathMappers(app, gm, res, platform);
         if (!pathMappers) return;
         const repoPath = safeRepoPath(path, pathMappers);
         if (!repoPath)
@@ -387,7 +457,7 @@ export function buildGitRoutes(app: InternalApp): RouteDef[] {
           !paths.every((p) => typeof p === "string")
         )
           return fail(res, "invalid_input", "paths must be a non-empty string array");
-        const pathMappers = requireGitPathMappers(app, gm, res);
+        const pathMappers = await requireGitPathMappers(app, gm, res, platform);
         if (!pathMappers) return;
         const repoPaths = paths.map((path) => safeRepoPath(path, pathMappers));
         if (repoPaths.some((path) => path === null))
