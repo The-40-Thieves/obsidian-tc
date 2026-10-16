@@ -1,7 +1,12 @@
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { type AclConfigT, FolderAcl } from "../src/acl";
-import { enforcePathAcl, evaluatePathAcl, pathScopesSatisfied } from "../src/vault/acl-path";
+import {
+  callerCanReadVaultPath,
+  enforcePathAcl,
+  evaluatePathAcl,
+  pathScopesSatisfied,
+} from "../src/vault/acl-path";
 import {
   assertBridgeNestedPathsReadable,
   bridgeItemPath,
@@ -11,6 +16,8 @@ import {
   readableRel,
   readEnumerationUnrestricted,
 } from "../src/vault/acl-read-filter";
+
+vi.mock("../src/vault/acl-path", { spy: true });
 
 const acl = (over: Partial<AclConfigT>): FolderAcl =>
   new FolderAcl({ readOnly: false, defaultScopes: [], rules: [], ...over });
@@ -144,6 +151,26 @@ describe("acl-read-filter (D2)", () => {
         { tool: "list_templates" },
       ),
     ).toEqual({ items: [], total: 0 });
+  });
+
+  it("resolves readability once per distinct normalized path in one filter call", () => {
+    vi.clearAllMocks();
+    const items = Array.from({ length: 1000 }, (_, index) => ({
+      path: index % 20 < 10 ? `Notes/${index % 10}.md` : `Notes/./${index % 10}.md`,
+    }));
+
+    expect(filterBridgeItemsByAcl(acl({}), tmpdir(), [], items, { tool: "t" })).toHaveLength(1000);
+    expect(callerCanReadVaultPath).toHaveBeenCalledTimes(10);
+  });
+
+  it("does not reuse readability across calls with different grants", () => {
+    const ruled = acl({ rules: [{ glob: "secret/**", scopes: ["read:secret"] }] });
+    const rows = [{ path: "secret/b.md" }];
+
+    expect(filterBridgeItemsByAcl(ruled, tmpdir(), [], rows, { tool: "t" })).toEqual([]);
+    expect(filterBridgeItemsByAcl(ruled, tmpdir(), ["read:secret"], rows, { tool: "t" })).toEqual(
+      rows,
+    );
   });
 });
 
