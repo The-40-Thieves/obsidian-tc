@@ -623,16 +623,28 @@ const fs = require("node:fs");
 const [root, outside] = process.argv.slice(1);
 const sub = root + "/sub";
 const held = root + "/held";
-const end = Date.now() + 2500;
+const end = Date.now() + 4000;
+let flips = 0;
+process.stdout.write("ready\\n");
 while (Date.now() < end) {
-  try { fs.renameSync(sub, held); fs.symlinkSync(outside, sub, "dir"); } catch {}
+  try { fs.renameSync(sub, held); fs.symlinkSync(outside, sub, "dir"); flips += 1; } catch {}
   try { fs.unlinkSync(sub); fs.renameSync(held, sub); } catch {}
 }
+process.stdout.write("flips=" + flips + "\\n");
 `;
+
+// Polls until `done` holds. The stall ceiling bounds a child that never reports.
+async function waitUntil(done: () => boolean): Promise<void> {
+  const end = performance.now() + stallTimeout(5_000);
+  while (!done()) {
+    if (performance.now() > end) throw new Error("timed out waiting for the flip child");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
 
 describe("pure-JS read verifies the opened descriptor's path", () => {
   afterEach(() => {
-    fallbackNotes.setOpenedFdPathResolverForTest(undefined);
+    fallbackNotes.setOpenedFdPathResolverForTest?.(undefined);
   });
 
   it("refuses an opened file whose descriptor resolves outside the vault", () => {
@@ -640,7 +652,11 @@ describe("pure-JS read verifies the opened descriptor's path", () => {
     const outside = temp("otc-fallback-fd-outside-");
     writeFileSync(join(root, "note.md"), "INSIDE");
     writeFileSync(join(outside, "note.md"), "OUTSIDE-SECRET");
-    fallbackNotes.setOpenedFdPathResolverForTest(() => join(outside, "note.md"));
+    fallbackNotes.setOpenedFdPathResolverForTest(() => ({
+      kind: "path",
+      path: join(outside, "note.md"),
+      folded: false,
+    }));
 
     const error = refusalOf(() => fallbackNotes.readNote(join(root, "note.md")));
 
@@ -676,7 +692,11 @@ describe("pure-JS read verifies the opened descriptor's path", () => {
     vi.resetModules();
     try {
       const closeNotes = await import("../src/vault/notes-io");
-      closeNotes.setOpenedFdPathResolverForTest(() => join(outside, "note.md"));
+      closeNotes.setOpenedFdPathResolverForTest(() => ({
+        kind: "path",
+        path: join(outside, "note.md"),
+        folded: false,
+      }));
 
       const error = refusalOf(() => closeNotes.readNote(join(root, "note.md")));
 
@@ -688,6 +708,155 @@ describe("pure-JS read verifies the opened descriptor's path", () => {
       vi.resetModules();
     }
   });
+
+  it("refuses when a platform lookup fails or throws, and closes the descriptor", async () => {
+    const root = temp("otc-fallback-fd-failed-vault-");
+    writeFileSync(join(root, "note.md"), "INSIDE");
+    const opened: number[] = [];
+    const closed: number[] = [];
+
+    vi.doMock("node:fs", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("node:fs")>();
+      return {
+        ...actual,
+        openSync: ((...args: Parameters<typeof actual.openSync>) => {
+          const fd = actual.openSync(...args);
+          opened.push(fd);
+          return fd;
+        }) as typeof actual.openSync,
+        closeSync: ((fd: number) => {
+          closed.push(fd);
+          return actual.closeSync(fd);
+        }) as typeof actual.closeSync,
+      };
+    });
+    vi.resetModules();
+    try {
+      const failedNotes = await import("../src/vault/notes-io");
+      const leaf = join(root, "note.md");
+      const message = "safe open refused the path: opened file path could not be verified";
+
+      failedNotes.setOpenedFdPathResolverForTest(() => ({ kind: "failed" }));
+      const failed = refusalOf(() => failedNotes.readNote(leaf));
+      failedNotes.setOpenedFdPathResolverForTest(() => {
+        throw new Error("EBADF: bad file descriptor");
+      });
+      const thrown = refusalOf(() => failedNotes.readNote(leaf));
+
+      expect(failed.code).toBe("acl_denied");
+      expect(failed.message).toBe(message);
+      expect(thrown.message).toBe(message);
+      expect(opened).toHaveLength(2);
+      expect(closed).toEqual(opened);
+    } finally {
+      vi.doUnmock("node:fs");
+      vi.resetModules();
+    }
+  });
+
+  it("accepts a darwin-style lookup that differs only in case or Unicode form", () => {
+    const root = temp("otc-fallback-fd-fold-vault-");
+    writeFileSync(join(root, "note.md"), "INSIDE");
+    writeFileSync(join(root, "caf\u00e9.md"), "CAFE");
+    const leaf = join(root, "note.md");
+    const cafe = join(root, "caf\u00e9.md");
+
+    fallbackNotes.setOpenedFdPathResolverForTest(() => ({
+      kind: "path",
+      path: join(root, "NOTE.md"),
+      folded: true,
+    }));
+    expect(fallbackNotes.readNote(leaf).raw).toBe("INSIDE");
+
+    fallbackNotes.setOpenedFdPathResolverForTest(() => ({
+      kind: "path",
+      path: join(root, "cafe\u0301.md"),
+      folded: true,
+    }));
+    expect(fallbackNotes.readNote(cafe).raw).toBe("CAFE");
+
+    // Linux compares exactly: the same case-only variant is a mismatch there.
+    fallbackNotes.setOpenedFdPathResolverForTest(() => ({
+      kind: "path",
+      path: join(root, "NOTE.md"),
+      folded: false,
+    }));
+    const exact = refusalOf(() => fallbackNotes.readNote(leaf));
+    expect(exact.message).toContain("opened file resolved to an unexpected path");
+  });
+
+  it("still refuses a darwin-style lookup that resolves outside the root", () => {
+    const root = temp("otc-fallback-fd-fold-escape-vault-");
+    const outside = temp("otc-fallback-fd-fold-escape-outside-");
+    writeFileSync(join(root, "note.md"), "INSIDE");
+    writeFileSync(join(outside, "NOTE.md"), "OUTSIDE-SECRET");
+    fallbackNotes.setOpenedFdPathResolverForTest(() => ({
+      kind: "path",
+      path: join(outside, "NOTE.md"),
+      folded: true,
+    }));
+
+    const error = refusalOf(() => fallbackNotes.readNote(join(root, "note.md")));
+
+    expect(error.message).toContain("opened file resolved to an unexpected path");
+  });
+
+  it("refuses a named path when the root cannot be resolved for the expected path", async () => {
+    const root = temp("otc-fallback-root-realpath-vault-");
+    const leaf = join(root, "note.md");
+    writeFileSync(leaf, "INSIDE");
+    const outside = temp("otc-fallback-root-realpath-outside-");
+
+    vi.doMock("node:fs", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("node:fs")>();
+      const native = ((path: Parameters<typeof actual.realpathSync.native>[0]) => {
+        if (path === root) throw Object.assign(new Error("ENOENT: realpath"), { code: "ENOENT" });
+        return actual.realpathSync.native(path);
+      }) as typeof actual.realpathSync.native;
+      return {
+        ...actual,
+        realpathSync: Object.assign((path: string) => actual.realpathSync(path), { native }),
+      };
+    });
+    vi.resetModules();
+    try {
+      const rootNotes = await import("../src/vault/notes-io");
+      const { FolderPins: PinsForRoot, withFolderPins: pinForRoot } = await import(
+        "../src/vault/folder-links"
+      );
+      const pins = new PinsForRoot([{ root }]);
+      rootNotes.setOpenedFdPathResolverForTest(() => ({
+        kind: "path",
+        path: join(outside, "note.md"),
+        folded: false,
+      }));
+
+      const error = refusalOf(() => pinForRoot(pins, () => rootNotes.readNote(leaf)));
+
+      expect(error.code).toBe("acl_denied");
+      expect(error.message).toContain("opened file resolved to an unexpected path");
+    } finally {
+      vi.doUnmock("node:fs");
+      vi.resetModules();
+    }
+  });
+
+  it.skipIf(!directorySymlinkOk)(
+    "keeps the walk's refusal when the known root is a dangling symlink",
+    () => {
+      const holder = temp("otc-fallback-dangling-root-");
+      const root = join(holder, "vault");
+      symlinkSync(join(holder, "missing"), root, "dir");
+      const pins = new FolderPins([{ root }]);
+
+      const error = refusalOf(() =>
+        withFolderPins(pins, () => fallbackNotes.readNote(join(root, "note.md"))),
+      );
+
+      expect(error.code).toBe("acl_denied");
+      expect(error.message).not.toContain("realpath");
+    },
+  );
 
   it.skipIf(!directorySymlinkOk)(
     "runs the ancestor re-walk when no opened-path resolver is available",
@@ -720,7 +889,7 @@ describe("pure-JS read verifies the opened descriptor's path", () => {
       vi.resetModules();
       try {
         const rewalkNotes = await import("../src/vault/notes-io");
-        rewalkNotes.setOpenedFdPathResolverForTest(() => undefined);
+        rewalkNotes.setOpenedFdPathResolverForTest(() => ({ kind: "none" }));
 
         const error = refusalOf(() => rewalkNotes.readNote(leaf));
 
@@ -803,7 +972,7 @@ describe("pure-JS read verifies the opened descriptor's path", () => {
   it.runIf(process.platform === "darwin")(
     "never serves outside content while a component flips between a directory and a symlink",
     { timeout: stallTimeout(15_000) },
-    () => {
+    async () => {
       const root = temp("otc-fallback-darwin-race-vault-");
       const outside = temp("otc-fallback-darwin-race-outside-");
       const leaf = join(root, "sub", "note.md");
@@ -811,8 +980,14 @@ describe("pure-JS read verifies the opened descriptor's path", () => {
       writeFileSync(leaf, "INSIDE");
       writeFileSync(join(outside, "note.md"), "OUTSIDE-SECRET");
       const flipper = spawn(process.execPath, ["-e", FLIP_SCRIPT, root, outside], {
-        stdio: "ignore",
+        stdio: ["ignore", "pipe", "ignore"],
       });
+      let output = "";
+      flipper.stdout.setEncoding("utf8");
+      flipper.stdout.on("data", (chunk: string) => {
+        output += chunk;
+      });
+      await waitUntil(() => output.includes("ready"));
       const pins = new FolderPins([{ root }]);
       const served: string[] = [];
       let attempts = 0;
@@ -832,9 +1007,11 @@ describe("pure-JS read verifies the opened descriptor's path", () => {
       } finally {
         flipper.kill();
       }
+      await waitUntil(() => output.includes("flips="));
 
       expect(served).toEqual([]);
       expect(attempts).toBeGreaterThan(0);
+      expect(Number(/flips=(\d+)/.exec(output)?.[1])).toBeGreaterThan(0);
     },
   );
 });

@@ -45,7 +45,7 @@ import {
   refuseJsThroughPin,
 } from "./native-io";
 import { verifyWalkedDirectories, walkDirectoriesNoFollow } from "./no-follow-walk";
-import { expectedOpenedPath, openedFdPathResolver } from "./opened-fd-path";
+import { expectedOpenedPath, lookupOpenedFdPath, matchesOpenedPath } from "./opened-fd-path";
 import { assertCreatableName, contentHash } from "./paths";
 
 // O_NOFOLLOW and O_NONBLOCK are POSIX-only (undefined on Windows Node): 0 is a no-op there, and the
@@ -164,9 +164,12 @@ function fallbackOpen(abs: string): number {
     if (opened.dev !== leaf.dev || opened.ino !== leaf.ino) {
       throw fallbackReadRefused("file changed while opening", path);
     }
-    const resolved = openedFdPathResolver()?.(fd);
-    if (resolved !== undefined) {
-      if (resolved !== expectedPath) {
+    const named = lookupOpenedFdPath(fd);
+    if (named.kind === "failed") {
+      throw fallbackReadRefused("opened file path could not be verified", path);
+    }
+    if (named.kind === "path") {
+      if (expectedPath === undefined || !matchesOpenedPath(named, expectedPath)) {
         throw fallbackReadRefused("opened file resolved to an unexpected path", path);
       }
       return fd;
