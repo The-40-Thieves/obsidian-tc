@@ -31,6 +31,18 @@ interface BridgePathScan {
   paths: string[];
 }
 
+type BridgePathDecision = "keep" | "drop" | "deny";
+
+function decideBridgePaths(
+  scan: BridgePathScan,
+  unrestricted: boolean,
+  readable: (rel: string) => boolean,
+): BridgePathDecision {
+  if (scan.invalid) return "drop";
+  if (!scan.found) return unrestricted ? "keep" : "deny";
+  return scan.paths.every(readable) ? "keep" : "drop";
+}
+
 function scanPathValues(values: unknown[]): BridgePathScan {
   const paths: string[] = [];
   let found = false;
@@ -126,6 +138,22 @@ export function readableResolved(
   return callerCanReadVaultPath(acl, grantedScopes, root, rel);
 }
 
+function memoizedReadableResolved(
+  acl: FolderAcl | undefined,
+  root: string,
+  grantedScopes: Iterable<string>,
+): (rel: string) => boolean {
+  const cache = new Map<string, boolean>();
+  return (rel) => {
+    const normalized = normalizeVaultPath(rel);
+    const cached = cache.get(normalized);
+    if (cached !== undefined) return cached;
+    const readable = readableResolved(acl, root, normalized, grantedScopes);
+    cache.set(normalized, readable);
+    return readable;
+  };
+}
+
 /**
  * The CALLER-INDEPENDENT half of `readableRel`: the hard default-deny roots and the folder
  * whitelist, with no rule-scopes. This is what INDEXING may use, because the index is a shared
@@ -162,6 +190,7 @@ export function filterBridgeItemsByAcl(
   opts: { tool: string; keys?: readonly string[]; barePath?: boolean },
 ): unknown[] {
   const unrestricted = readEnumerationUnrestricted(acl, grantedScopes);
+  const readable = memoizedReadableResolved(acl, root, grantedScopes);
   const out: unknown[] = [];
   for (const it of items) {
     const scan =
@@ -171,17 +200,17 @@ export function filterBridgeItemsByAcl(
             ...directPathValues(it, opts.keys ?? DEFAULT_BRIDGE_PATH_KEYS),
             ...nestedPathValues(it),
           ]);
-    if (scan.invalid) continue;
-    if (!scan.found) {
-      if (unrestricted) {
+    switch (decideBridgePaths(scan, unrestricted, readable)) {
+      case "keep":
         out.push(it);
-        continue;
-      }
-      throw err.aclDenied("bridge result cannot be attributed to a vault path; failing closed", {
-        tool: opts.tool,
-      });
+        break;
+      case "drop":
+        break;
+      case "deny":
+        throw err.aclDenied("bridge result cannot be attributed to a vault path; failing closed", {
+          tool: opts.tool,
+        });
     }
-    if (scan.paths.every((rel) => readableResolved(acl, root, rel, grantedScopes))) out.push(it);
   }
   return out;
 }
@@ -224,7 +253,8 @@ export function assertBridgeNestedPathsReadable(
   tool: string,
 ): void {
   const scan = scanPathValues(nestedPathValues(value));
-  if (scan.invalid || scan.paths.some((rel) => !readableResolved(acl, root, rel, grantedScopes)))
+  const readable = memoizedReadableResolved(acl, root, grantedScopes);
+  if (decideBridgePaths(scan, true, readable) !== "keep")
     throw err.aclDenied("bridge result contains a path this caller cannot read", { tool });
 }
 
@@ -238,16 +268,16 @@ export function filterBridgeDqlRowsByAcl(
   tool: string,
 ): unknown[][] {
   const unrestricted = readEnumerationUnrestricted(acl, grantedScopes);
+  const readable = memoizedReadableResolved(acl, root, grantedScopes);
   return rows.filter((row) => {
     const scan = scanPathValues(nestedPathValues(row));
-    if (scan.invalid) return false;
-    if (!scan.found) {
-      if (unrestricted) return true;
+    const decision = decideBridgePaths(scan, unrestricted, readable);
+    if (decision === "deny") {
       throw err.aclDenied("bridge result cannot be attributed to a vault path; failing closed", {
         tool,
       });
     }
-    return scan.paths.every((rel) => readableResolved(acl, root, rel, grantedScopes));
+    return decision === "keep";
   });
 }
 
@@ -262,11 +292,16 @@ export function filterBridgeResultItems(
   acl: FolderAcl | undefined,
   root: string,
   grantedScopes: Iterable<string>,
-  result: Record<string, unknown>,
+  result: unknown,
   opts: { tool: string; keys?: readonly string[]; barePath?: boolean },
 ): Record<string, unknown> {
-  if (!Array.isArray(result.items)) return { items: [], total: 0 };
-  const rows = result.items as unknown[];
+  if (typeof result !== "object" || result === null || Array.isArray(result))
+    throw err.pluginIncompatible("companion returned an unexpected response payload", {
+      tool: opts.tool,
+    });
+  const record = result as Record<string, unknown>;
+  if (!Array.isArray(record.items)) return { items: [], total: 0 };
+  const rows = record.items as unknown[];
   const items = filterBridgeItemsByAcl(acl, root, grantedScopes, rows, opts);
   return { items, total: items.length };
 }
@@ -284,12 +319,10 @@ export function assertBridgePathReadable(
   opts: { tool: string },
 ): void {
   const scan = scanBridgeItemPaths(result);
-  const readable = scan.invalid
-    ? false
-    : !scan.found
-      ? readEnumerationUnrestricted(acl, grantedScopes)
-      : scan.paths.every((rel) => readableResolved(acl, root, rel, grantedScopes));
-  if (!readable) throw err.aclDenied("path is not readable by this caller", { tool: opts.tool });
+  const unrestricted = readEnumerationUnrestricted(acl, grantedScopes);
+  const readable = memoizedReadableResolved(acl, root, grantedScopes);
+  if (decideBridgePaths(scan, unrestricted, readable) !== "keep")
+    throw err.aclDenied("path is not readable by this caller", { tool: opts.tool });
 }
 
 /**

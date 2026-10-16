@@ -18,16 +18,24 @@ interface DqlResult {
 export function filterDqlResult(
   ctx: Pick<CallerContext, "acl" | "grantedScopes">,
   root: string,
-  result: DqlResult,
+  result: unknown,
   tool: string,
 ): DqlResult {
-  const rows = filterBridgeDqlRowsByAcl(ctx.acl, root, ctx.grantedScopes, result.rows, tool);
-  const notePaths = Array.isArray(result.note_paths) ? result.note_paths : [];
+  if (
+    typeof result !== "object" ||
+    result === null ||
+    Array.isArray(result) ||
+    !Array.isArray((result as { rows?: unknown }).rows)
+  )
+    throw err.pluginIncompatible("companion returned an unexpected response payload", { tool });
+  const record = result as DqlResult;
+  const rows = filterBridgeDqlRowsByAcl(ctx.acl, root, ctx.grantedScopes, record.rows, tool);
+  const notePaths = Array.isArray(record.note_paths) ? record.note_paths : [];
   const note_paths = filterBridgeItemsByAcl(ctx.acl, root, ctx.grantedScopes, notePaths, {
     tool,
     barePath: true,
   }) as string[];
-  return { ...(result.headers ? { headers: result.headers } : {}), rows, note_paths };
+  return { ...(record.headers ? { headers: record.headers } : {}), rows, note_paths };
 }
 
 // Execute a DQL query via the shared Dataview bridge (wired by cli.ts). Absent
