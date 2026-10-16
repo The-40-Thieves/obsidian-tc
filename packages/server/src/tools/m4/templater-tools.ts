@@ -8,15 +8,25 @@ import { err, ObsidianTcError, VaultId, VaultPath } from "@the-40-thieves/obsidi
 import { z } from "zod";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { filterBridgeResultItems, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
+import {
+  assertBridgePathReadable,
+  filterBridgeResultItems,
+  readEnumerationUnrestricted,
+} from "../../vault/acl-read-filter";
 import { noteExists, readNote } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { applyWriteBatch } from "../../vault/write-batch";
 import { defineTool } from "../m1/define";
-import { bridgeTimeouts, type M4Deps, openBridge, parseBridgePayload } from "./shared";
+import {
+  bridgeTimeouts,
+  effectCommittedIncompatible,
+  type M4Deps,
+  openBridge,
+  parseBridgePayload,
+} from "./shared";
 
 const TemplateRow = z.object({ path: z.string(), name: z.string() });
-const ExecuteTemplateBridge = z.object({ created_at: z.string() });
+const ExecuteTemplateBridge = z.object({ target: z.string().min(1), created_at: z.string() });
 
 const ListTemplatesOutput = z
   .object({ vault: z.string(), items: z.array(TemplateRow), total: z.number().int() })
@@ -110,7 +120,7 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
         { op: "write", path: input.target },
       ],
       description:
-        "Run a Templater template and write the expanded output to a target path. Always requires human confirmation (write:templater is a HITL floor) because templates can execute arbitrary user JavaScript. Domain: automation.",
+        "Run a Templater template and write the expanded output to a target path. Returns the vault-relative path Templater actually created. Always requires human confirmation (write:templater is a HITL floor) because templates can execute arbitrary user JavaScript. Domain: automation.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -151,21 +161,58 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
           timeoutMs: bridgeTimeouts(deps, v.id).templaterTimeoutMs,
         });
         ctx.markEffectCommitted?.();
-        // Only a note this call created is stamped: `overwrite` over an existing target is not.
+        // The effect has happened whatever the acknowledgement says, so stamp before reading it.
+        // Only the REQUESTED path is stamped: it is the one this call write-checked and saw absent,
+        // so it is the only one known to be a note this call created. The companion-reported path
+        // is untrusted: it can name a note the caller cannot write, or one that already existed.
+        // `overwrite` over an existing target is never stamped.
         const stampResult = existed
           ? undefined
           : stampCreatedNote(deps, ctx, v.id, v.root, targetFile);
-        const payload = parseBridgePayload(ExecuteTemplateBridge, result, "templater");
+        const payload = parseBridgePayload(ExecuteTemplateBridge, result, "templater", {
+          effectCommitted: true,
+        });
+        const unusableAck = (message: string) => effectCommittedIncompatible(message, "templater");
+        let reported: string;
+        try {
+          reported = normalizeVaultPath(payload.target);
+        } catch {
+          throw unusableAck("companion reported an invalid created path");
+        }
+        if (reported === "") throw unusableAck("companion reported an empty created path");
+        // Older companions echo the requested target back without the `.md` Templater appended.
+        const createdTarget = reported === target ? targetFile : reported;
+        // The requested target was write-checked before the call; a caller may write a folder it
+        // cannot read, and must not see a successful run reported as a denial.
+        if (createdTarget !== targetFile)
+          try {
+            assertBridgePathReadable(
+              ctx.acl,
+              v.root,
+              ctx.grantedScopes,
+              { path: createdTarget },
+              { tool: "execute_template" },
+            );
+          } catch (e) {
+            if (e instanceof ObsidianTcError)
+              throw new ObsidianTcError(e.code, e.message, {
+                ...e.details,
+                effect_committed: true,
+              });
+            throw e;
+          }
+        // The stamp's hash and skip reason describe the requested path; report them only for it.
+        const reportedStamp = createdTarget === targetFile ? stampResult : undefined;
         return {
           vault: v.id,
           template,
-          target,
+          target: createdTarget,
           created_at: payload.created_at,
-          ...(stampResult?.contentHash === undefined
+          ...(reportedStamp?.contentHash === undefined
             ? {}
-            : { content_hash: stampResult.contentHash }),
-          ...(stampResult?.skipped
-            ? { provenance_stamp: { applied: false, reason: stampResult.skipped } }
+            : { content_hash: reportedStamp.contentHash }),
+          ...(reportedStamp?.skipped
+            ? { provenance_stamp: { applied: false, reason: reportedStamp.skipped } }
             : {}),
         };
       },

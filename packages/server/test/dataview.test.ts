@@ -16,6 +16,15 @@ describe("validate_dql", () => {
   let v: M4Vault | undefined;
   afterEach(() => v?.cleanup());
 
+  it("describes that the companion runs the query and returns only validity", () => {
+    v = makeM4Vault({ installed: ["dataview"] });
+    const tool = v.registry.list().find((candidate) => candidate.name === "validate_dql");
+    expect(tool?.description).not.toContain("without executing");
+    expect(tool?.description).toContain(
+      "Returns `valid`; an invalid query also returns `error.message`",
+    );
+  });
+
   it("parses a query via the bridge and returns its validity", async () => {
     v = makeM4Vault({
       installed: ["dataview"],

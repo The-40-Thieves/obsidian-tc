@@ -295,9 +295,13 @@ describe("no active file / bridge unavailable: typed errors, never a default pat
   it("an unusable payload or path from the companion is refused, not trusted", async () => {
     const h = harness({ files: { "Notes/a.md": NOTE_A } });
     h.routes[ACTIVE] = { body: { ok: true, result: { nope: 1 } } };
-    expect(errOf(await h.call("get_active_file", { vault: "test" })).code).toBe(
-      "plugin_unreachable",
-    );
+    const malformed = errOf(await h.call("get_active_file", { vault: "test" }));
+    expect(malformed.code).toBe("plugin_incompatible");
+    expect(malformed.message).toBe("companion returned an unexpected response payload");
+    expect(malformed.details).toMatchObject({
+      plugin: "obsidian-tc-companion",
+      issues: [{ path: "path", code: "invalid_type" }],
+    });
     for (const bad of ["../outside.md", "/etc/passwd", "a/../../b.md"]) {
       h.focus(bad);
       const e = errOf(await h.call("update_active_file", { vault: "test", content: "x" }));

@@ -224,9 +224,27 @@ function directPathValues(row: unknown, keys: readonly string[]): unknown[] {
   return keys.map((key) => record[key]);
 }
 
+/** Dataview `Link.type` values. A `{ path, type }` object is a Link only with one of these; a plain
+ *  frontmatter map that merely has a `path` key (`{ path: "C:\\Users\\x" }`) is user text. */
+const DATAVIEW_LINK_TYPES: ReadonlySet<unknown> = new Set(["file", "header", "block"]);
+
 function nestedPathValues(row: unknown, keys: readonly string[] = ["path"]): unknown[] {
   const paths: unknown[] = [];
   const seen = new Set<object>();
+  const visitFields = (value: unknown): void => {
+    if (typeof value !== "object" || value === null || seen.has(value)) return;
+    seen.add(value);
+    // `fields` is usually a frontmatter map, whose values are visited below. But a note whose own
+    // frontmatter key is `fields` evaluates to the Link itself (`fields: [[secret]]`), and the
+    // loop below would read its `path` as a plain value and never judge it.
+    if (!Array.isArray(value)) {
+      const record = value as Record<string, unknown>;
+      if (DATAVIEW_LINK_TYPES.has(record.type)) for (const key of keys) paths.push(record[key]);
+    }
+    // The whole `fields` subtree is user frontmatter, so only typed Links are judged at any depth.
+    const cells = Array.isArray(value) ? value : Object.values(value as Record<string, unknown>);
+    for (const cell of cells) visitFields(cell);
+  };
   const visit = (value: unknown): void => {
     if (typeof value !== "object" || value === null || seen.has(value)) return;
     seen.add(value);
@@ -237,7 +255,8 @@ function nestedPathValues(row: unknown, keys: readonly string[] = ["path"]): unk
     const record = value as Record<string, unknown>;
     for (const key of keys) paths.push(record[key]);
     for (const [key, cell] of Object.entries(record)) {
-      if (key !== "fields") visit(cell);
+      if (key === "fields") visitFields(cell);
+      else visit(cell);
     }
   };
   visit(row);

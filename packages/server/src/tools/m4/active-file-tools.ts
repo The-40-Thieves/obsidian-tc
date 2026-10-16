@@ -43,6 +43,7 @@ import {
   companionUnreachable,
   type M4Deps,
   openCompanionBridge,
+  parseBridgePayload,
   withDegradeHint,
 } from "./shared";
 
@@ -92,20 +93,15 @@ async function resolveActiveFile(deps: M4Deps, vaultInput: string): Promise<Acti
       e.details?.http_status === 404 ? COMPANION_TOO_OLD_HINT : COMPANION_HINT,
     );
   }
-  const report = ActiveFileReport.safeParse(raw);
-  if (!report.success)
-    throw err.pluginUnreachable("companion returned an unexpected active-file payload", {
-      plugin: "obsidian-tc-companion",
-      hint: COMPANION_TOO_OLD_HINT,
-    });
-  if (report.data.path === null)
+  const report = parseBridgePayload(ActiveFileReport, raw, "obsidian-tc-companion");
+  if (report.path === null)
     throw err.noteNotFound("no note is open in Obsidian", {
       vault: v.id,
       reason: "no_active_file",
       hint: NO_ACTIVE_HINT,
     });
   // The path comes from another process: hold it to the same shape every caller-supplied path meets.
-  const path = VaultPath.safeParse(report.data.path);
+  const path = VaultPath.safeParse(report.path);
   if (!path.success)
     throw err.invalidInput("the companion reported an unusable active file path", {
       vault: v.id,

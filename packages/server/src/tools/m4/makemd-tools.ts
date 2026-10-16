@@ -64,7 +64,7 @@ export function buildMakeMdTools(deps: M4Deps): ToolDefinition[] {
       name: "makemd_query",
       domain: "automation",
       description:
-        "Run a make.md query against a space (filter/sort/paginate) via the companion bridge.",
+        "Forward a make.md space query through the companion bridge. Current make.md releases expose no query API, so the companion reports make.md as unreachable; `sort`, `limit` and `cursor` are not passed to make.md.",
       inputSchema: z
         .object({
           vault: VaultId,

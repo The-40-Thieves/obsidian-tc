@@ -60,7 +60,9 @@ export function buildRemotelySaveTools(deps: M4Deps): ToolDefinition[] {
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
         ctx.markEffectCommitted?.();
-        const payload = parseBridgePayload(RemotelySaveTriggerBridge, result, "remotely-save");
+        const payload = parseBridgePayload(RemotelySaveTriggerBridge, result, "remotely-save", {
+          effectCommitted: true,
+        });
         return { vault: v.id, ...payload };
       },
     }),

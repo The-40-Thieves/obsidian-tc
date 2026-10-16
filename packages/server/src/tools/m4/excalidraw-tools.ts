@@ -275,7 +275,9 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
         ctx.markEffectCommitted?.();
-        const payload = parseBridgePayload(WriteExcalidrawBridge, result, "excalidraw");
+        const payload = parseBridgePayload(WriteExcalidrawBridge, result, "excalidraw", {
+          effectCommitted: true,
+        });
         return {
           vault: v.id,
           path: rel,
@@ -324,7 +326,9 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
         ctx.markEffectCommitted?.();
-        const payload = parseBridgePayload(WriteExcalidrawBridge, result, "excalidraw");
+        const payload = parseBridgePayload(WriteExcalidrawBridge, result, "excalidraw", {
+          effectCommitted: true,
+        });
         return {
           vault: v.id,
           path: rel,

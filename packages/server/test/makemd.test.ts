@@ -33,6 +33,13 @@ describe("makemd_query", () => {
   let v: M4Vault | undefined;
   afterEach(() => v?.cleanup());
 
+  it("documents that make.md exposes no query API and which inputs are not forwarded", () => {
+    v = makeM4Vault({ installed: ["make-md"] });
+    const tool = v.registry.list().find((candidate) => candidate.name === "makemd_query");
+    expect(tool?.description).toContain("expose no query API");
+    expect(tool?.description).toContain("`sort`, `limit` and `cursor` are not passed to make.md");
+  });
+
   it("queries a space and forwards the space_id", async () => {
     v = makeM4Vault({
       installed: ["make-md"],
@@ -64,5 +71,18 @@ describe("makemd_query", () => {
     const res = await v.call("makemd_query", { vault: "test", space_id: "s1" });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe("plugin_unreachable");
+  });
+
+  it("still accepts the cursor input existing clients send", async () => {
+    v = makeM4Vault({ installed: ["make-md"] });
+
+    const res = await v.call("makemd_query", {
+      vault: "test",
+      space_id: "s1",
+      cursor: "opaque",
+    });
+
+    if (!res.ok) expect(res.error.code).not.toBe("validation_error");
+    expect(v.bridgeRequests).toHaveLength(1);
   });
 });

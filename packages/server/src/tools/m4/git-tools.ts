@@ -241,7 +241,9 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
         ctx.markEffectCommitted?.();
-        const payload = parseBridgePayload(GitStageBridge, result, "git");
+        const payload = parseBridgePayload(GitStageBridge, result, "git", {
+          effectCommitted: true,
+        });
         return {
           vault: v.id,
           staged: payload.staged,
@@ -280,7 +282,9 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
           timeoutMs: bridgeTimeouts(deps, v.id).templaterTimeoutMs,
         });
         ctx.markEffectCommitted?.();
-        const payload = parseBridgePayload(GitCommitBridge, result, "git");
+        const payload = parseBridgePayload(GitCommitBridge, result, "git", {
+          effectCommitted: true,
+        });
         return {
           vault: v.id,
           committed: payload.committed,
