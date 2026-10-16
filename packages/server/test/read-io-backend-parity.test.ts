@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { resolveVaultPath } from "../src/vault/paths";
+import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
 import { type Backend, loadNotesIo, trySymlink } from "./write-io-backends";
 
@@ -125,7 +126,7 @@ describe("vault read backend parity", () => {
           rescue.kill();
         }
       },
-      15_000,
+      stallTimeout(15_000),
     );
   });
 });
