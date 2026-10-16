@@ -39,7 +39,7 @@ describe("hosted macOS hostname workaround", () => {
     expect(action.runs.steps).toHaveLength(3);
     for (const step of action.runs.steps) expect(step.if).toBe("runner.os == 'macOS'");
 
-    const [before, configure, after] = action.runs.steps;
+    const [before, configure, after] = action.runs.steps as [Step, Step, Step];
     expect(before["continue-on-error"]).toBe(true);
     expect(before.run).toContain("hostname lookup before:");
     expect(before.run).toContain("sleep 60");
