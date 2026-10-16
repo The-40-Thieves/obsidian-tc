@@ -61,6 +61,17 @@ describe("isolated-home helper", () => {
     expect(existsSync(iso.root)).toBe(false);
   });
 
+  it("carries the run's shared Bun transpiler cache into the child env (an allowlisting spawner drops it)", () => {
+    const shared = process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH;
+    expect(shared).toBeDefined();
+    const iso = createIsolatedHome("obtc-iso-test-");
+    try {
+      expect(iso.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH).toBe(shared);
+    } finally {
+      iso.cleanup();
+    }
+  });
+
   it("assertStateUnderHome fails when the child created no state under the home", () => {
     const iso = createIsolatedHome("obtc-iso-test-");
     try {

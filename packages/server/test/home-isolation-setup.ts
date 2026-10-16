@@ -10,8 +10,21 @@
 // every test file — present and future — instead of a per-test stub each author has to remember.
 // A test that needs its OWN home still calls `stubHomedir` (tmp.ts); its restore now returns to
 // this pinned directory, never the real one.
+// The per-file home also gave every Bun child a cold runtime transpiler cache, forcing each test
+// file to repopulate the same import graph. Concurrent cache writes stalled Windows runners until
+// the 60-second subprocess guard fired, so Bun children share one repo-local cache across the run.
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll } from "vitest";
 import { makeTempDir, stubHomedir } from "./tmp";
+
+if (process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH === undefined) {
+  const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
+  const cachePath = join(repoRoot, "node_modules", ".cache", "obsidian-tc-bun-transpiler");
+  mkdirSync(cachePath, { recursive: true });
+  process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH = cachePath;
+}
 
 // `makeTempDir` under the realpath'd tmpdir (tmpdir-realpath-setup.ts runs first), so the pinned
 // home is never under a symlinked ancestor either. It is removed by makeTempDir's own file-end,

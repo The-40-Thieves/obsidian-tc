@@ -50,14 +50,20 @@ export async function waitForPidExit(pid, timeoutMs = 10_000) {
 }
 
 /** A throwaway home under the real (symlink-resolved) tmpdir, removed on `cleanup()` or at exit.
- *  `env` is the full set of overrides to merge over `process.env` for a spawned child. */
+ *  `env` is the full set of overrides to merge over `process.env` for a spawned child. It also
+ *  carries the parent's BUN_RUNTIME_TRANSPILER_CACHE_PATH (the vitest run pins a shared one): a
+ *  spawner that passes only an allowlist plus `env` (the MCP SDK's stdio transport) would drop it,
+ *  and a fresh home then makes the child rebuild Bun's transpiler cache from cold. */
 export function createIsolatedHome(prefix) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
   const home = join(root, "home");
   mkdirSync(home, { recursive: true });
   const cleanup = () => removeTree(root);
   process.once("exit", cleanup);
-  return { root, home, env: isolatedHomeEnv(home), cleanup };
+  const cache = process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH;
+  const env = isolatedHomeEnv(home);
+  if (cache !== undefined) env.BUN_RUNTIME_TRANSPILER_CACHE_PATH = cache;
+  return { root, home, env, cleanup };
 }
 
 /** Throws unless the child put its default state dir (`<home>/.obsidian-tc/cache.db`) under
