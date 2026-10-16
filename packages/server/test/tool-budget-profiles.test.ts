@@ -28,6 +28,7 @@ import {
 } from "../src/mcp/tool-profiles";
 import { createHttpApp } from "../src/transports/http";
 import { openMemoryDb } from "./helpers";
+import { listToolsRaw } from "./list-tools-raw";
 import { REGISTERED_TOOL_COUNT } from "./registered-tool-count";
 import { stallTimeout } from "./stall-timeouts";
 
@@ -58,13 +59,7 @@ async function listNames(
   await server.connect(st);
   const client = new Client({ name: "t", version: "0" });
   await client.connect(ct);
-  const names: string[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await client.listTools(cursor ? { cursor } : undefined);
-    names.push(...page.tools.map((t) => t.name));
-    cursor = page.nextCursor;
-  } while (cursor);
+  const names = (await listToolsRaw(client)).map((t) => t.name);
   await client.close();
   return names;
 }

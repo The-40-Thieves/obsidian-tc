@@ -28,9 +28,9 @@ export function buildDatacoreTools(deps: M4Deps): ToolDefinition[] {
           limit: z.number().int().positive().max(500).default(50),
         })
         .strict(),
-      // The companion's /datacore/query response is arbitrary Datacore-shaped JSON passed through
-      // verbatim (`{ vault, ...result }`); only `vault` is structurally guaranteed here.
-      outputSchema: z.object({ vault: z.string() }).passthrough(),
+      outputSchema: z
+        .object({ vault: z.string(), items: z.array(z.unknown()), total: z.number().int() })
+        .strict(),
       requiredScopes: ["read:datacore"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);

@@ -157,22 +157,23 @@ function fallbackOpen(abs: string): number {
     if (opened.dev !== leaf.dev || opened.ino !== leaf.ino) {
       throw fallbackReadRefused("file changed while opening", path);
     }
+    if (process.platform === "linux") {
+      try {
+        if (normalize(readlinkSync(`/proc/self/fd/${fd}`)) !== path) {
+          throw fallbackReadRefused("opened file resolved to an unexpected path", path);
+        }
+        return fd;
+      } catch (e) {
+        if (e instanceof ObsidianTcError) throw e;
+        // procfs is optional; fall through to the ancestor identity check when it is unavailable.
+      }
+    }
     verifyWalkedDirectories(ancestors, (component) => {
       throw fallbackReadRefused(
         `path component changed while opening: ${JSON.stringify(component)}`,
         path,
       );
     });
-    if (process.platform === "linux") {
-      try {
-        if (normalize(readlinkSync(`/proc/self/fd/${fd}`)) !== path) {
-          throw fallbackReadRefused("opened file resolved to an unexpected path", path);
-        }
-      } catch (e) {
-        if (e instanceof ObsidianTcError) throw e;
-        // procfs is optional; ancestor and leaf identity checks remain authoritative without it.
-      }
-    }
     return fd;
   } catch (e) {
     closeSync(fd);

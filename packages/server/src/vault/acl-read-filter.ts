@@ -23,7 +23,7 @@ export function readEnumerationUnrestricted(
   return false;
 }
 
-const DEFAULT_BRIDGE_PATH_KEYS = ["path", "note_path", "file", "filePath", "from"] as const;
+const DEFAULT_BRIDGE_PATH_KEYS = ["path", "note_path", "file", "filePath", "from", "to"] as const;
 
 interface BridgePathScan {
   found: boolean;
@@ -164,7 +164,13 @@ export function filterBridgeItemsByAcl(
   const unrestricted = readEnumerationUnrestricted(acl, grantedScopes);
   const out: unknown[] = [];
   for (const it of items) {
-    const scan = scanBridgeItemPaths(it, opts.keys, opts.barePath);
+    const scan =
+      opts.barePath && typeof it === "string"
+        ? scanBridgeItemPaths(it, opts.keys, true)
+        : scanPathValues([
+            ...directPathValues(it, opts.keys ?? DEFAULT_BRIDGE_PATH_KEYS),
+            ...nestedPathValues(it),
+          ]);
     if (scan.invalid) continue;
     if (!scan.found) {
       if (unrestricted) {
@@ -180,7 +186,13 @@ export function filterBridgeItemsByAcl(
   return out;
 }
 
-function nestedPathValues(row: unknown): unknown[] {
+function directPathValues(row: unknown, keys: readonly string[]): unknown[] {
+  if (typeof row !== "object" || row === null || Array.isArray(row)) return [];
+  const record = row as Record<string, unknown>;
+  return keys.map((key) => record[key]);
+}
+
+function nestedPathValues(row: unknown, keys: readonly string[] = ["path"]): unknown[] {
   const paths: unknown[] = [];
   const seen = new Set<object>();
   const visit = (value: unknown): void => {
@@ -191,11 +203,29 @@ function nestedPathValues(row: unknown): unknown[] {
       return;
     }
     const record = value as Record<string, unknown>;
-    paths.push(record.path);
-    for (const cell of Object.values(record)) visit(cell);
+    for (const key of keys) paths.push(record[key]);
+    for (const [key, cell] of Object.entries(record)) {
+      if (key !== "fields") visit(cell);
+    }
   };
   visit(row);
   return paths;
+}
+
+/** Refuse an opaque companion value when any nested path is invalid or unreadable. Values with no
+ *  path remain valid: field/evaluation payloads can legitimately be scalars or plain objects. Only
+ *  Link-shaped `path` keys count here: Dataview and Metadata Menu links carry `path`, while
+ *  frontmatter values legitimately use `from`/`to`/`file` as plain text. */
+export function assertBridgeNestedPathsReadable(
+  acl: FolderAcl | undefined,
+  root: string,
+  grantedScopes: Iterable<string>,
+  value: unknown,
+  tool: string,
+): void {
+  const scan = scanPathValues(nestedPathValues(value));
+  if (scan.invalid || scan.paths.some((rel) => !readableResolved(acl, root, rel, grantedScopes)))
+    throw err.aclDenied("bridge result contains a path this caller cannot read", { tool });
 }
 
 /** Filter Dataview rows by every nested Link/TASK `path`. Rows such as TABLE WITHOUT ID that have
@@ -225,9 +255,8 @@ export function filterBridgeDqlRowsByAcl(
  * Filter a bridge result shaped `{ items: [...], total, ... }` (Datacore, Omnisearch). The rows are
  * filtered by note path (fail closed on an unattributable row for a restricted caller) and `total`
  * is always recounted. A result without an `items` array is reduced to an empty envelope. Every
- * other sibling field is DROPPED unless the caller is unrestricted AND no row was removed:
- * siblings are computed over the unfiltered set by the plugin and can carry a hidden note's path
- * or text (THE-270).
+ * other sibling field is always dropped: a companion can add undeclared path-bearing fields, and
+ * changing sibling presence when a row is removed exposes the filter decision as a key-set oracle.
  */
 export function filterBridgeResultItems(
   acl: FolderAcl | undefined,
@@ -239,21 +268,7 @@ export function filterBridgeResultItems(
   if (!Array.isArray(result.items)) return { items: [], total: 0 };
   const rows = result.items as unknown[];
   const items = filterBridgeItemsByAcl(acl, root, grantedScopes, rows, opts);
-  if (bridgeSiblingsSafe(acl, grantedScopes, rows.length, items.length))
-    return { ...result, items, total: items.length };
   return { items, total: items.length };
-}
-
-/** May the sibling fields of a bridge result (`groups`, `total`, ...) be passed through? Only when
- *  the caller is unrestricted AND the filter removed no row: otherwise they were computed over rows
- *  the caller cannot read (THE-270). */
-export function bridgeSiblingsSafe(
-  acl: FolderAcl | undefined,
-  grantedScopes: Iterable<string>,
-  rawCount: number,
-  keptCount: number,
-): boolean {
-  return readEnumerationUnrestricted(acl, grantedScopes) && rawCount === keptCount;
 }
 
 /**

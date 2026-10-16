@@ -16,12 +16,12 @@ describe("validate_dql", () => {
   let v: M4Vault | undefined;
   afterEach(() => v?.cleanup());
 
-  it("parses a query via the bridge and returns the AST", async () => {
+  it("parses a query via the bridge and returns its validity", async () => {
     v = makeM4Vault({
       installed: ["dataview"],
       routes: {
         "POST /obsidian-tc/v1/dataview/validate": {
-          body: { ok: true, result: { valid: true, ast: { kind: "table" } } },
+          body: { ok: true, result: { valid: true } },
         },
       },
     });
@@ -30,7 +30,6 @@ describe("validate_dql", () => {
     if (res.ok) {
       const data = res.data as Record<string, unknown>;
       expect(data.valid).toBe(true);
-      expect(data.ast).toEqual({ kind: "table" });
     }
     expect(bodyOf(v, 0).dql).toBe("TABLE file.name");
   });
@@ -87,6 +86,54 @@ describe("eval_dataview_field", () => {
     const body = bodyOf(v, 0);
     expect(body.path).toBe("Notes/A.md");
     expect(body.expression).toBe("length(file.tasks)");
+  });
+
+  it("accepts the companion's undefined result without a value key", async () => {
+    v = makeM4Vault({
+      installed: ["dataview"],
+      routes: {
+        "POST /obsidian-tc/v1/dataview/eval": {
+          body: { ok: true, result: { type: "undefined" } },
+        },
+      },
+    });
+
+    const res = await v.call("eval_dataview_field", {
+      vault: "test",
+      path: "Notes/A.md",
+      expression: "missing",
+    });
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.data).not.toHaveProperty("value");
+      expect((res.data as Record<string, unknown>).type).toBe("undefined");
+    }
+  });
+
+  it("refuses a nested declared file path the caller cannot read", async () => {
+    v = makeM4Vault({
+      files: { "Notes/A.md": "open", ".trash/secret.md": "secret" },
+      acl: { readPaths: ["Notes/**"] },
+      installed: ["dataview"],
+      routes: {
+        "POST /obsidian-tc/v1/dataview/eval": {
+          body: {
+            ok: true,
+            result: { value: { note: { file: { path: ".trash/secret.md" } } }, type: "object" },
+          },
+        },
+      },
+    });
+
+    const res = await v.call("eval_dataview_field", {
+      vault: "test",
+      path: "Notes/A.md",
+      expression: "note",
+    });
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error.code).toBe("acl_denied");
   });
 
   it("enforces the read ACL before reaching the bridge", async () => {

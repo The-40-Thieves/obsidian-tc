@@ -9,6 +9,7 @@ import {
   type ResponseFormat,
   type VaultMemoryDefenseConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
+import type { ZodType } from "zod";
 import { type BridgeClient, type CapabilityCache, requirePlugin } from "../../bridge";
 import { type CapabilitySnapshot, EXPECTED_COMPANION_API } from "../../bridge/capabilities";
 import type { MetricsRecorder } from "../../metrics/registry";
@@ -93,6 +94,21 @@ export function openBridge(
 
 export function bridgeTimeouts(deps: M4Deps, vaultId: string): BridgeTimeouts {
   return deps.timeouts?.(vaultId) ?? DEFAULT_BRIDGE_TIMEOUTS;
+}
+
+/** Validate and project a companion result onto the route's declared shape. Zod object schemas
+ *  strip unknown keys here, so a companion cannot silently add fields to the public tool output. */
+export function parseBridgePayload<T>(schema: ZodType<T>, value: unknown, plugin: string): T {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success)
+    throw err.pluginIncompatible("companion returned an unexpected response payload", {
+      plugin,
+      issues: parsed.error.issues.map((issue) => ({
+        path: issue.path.join("."),
+        code: issue.code,
+      })),
+    });
+  return parsed.data;
 }
 
 /**

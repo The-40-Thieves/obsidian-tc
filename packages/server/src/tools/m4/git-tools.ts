@@ -10,26 +10,62 @@ import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { applyTrailers } from "../../provenance/stamp";
 import { enforcePathAcl } from "../../vault/acl-path";
-import {
-  bridgeSiblingsSafe,
-  filterBridgeItemsByAcl,
-  readEnumerationUnrestricted,
-} from "../../vault/acl-read-filter";
+import { filterBridgeItemsByAcl, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import { gitCommitState } from "../../vault/git-state";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import { bridgeTimeouts, type M4Deps, openBridge } from "./shared";
+import { bridgeTimeouts, type M4Deps, openBridge, parseBridgePayload } from "./shared";
 
-// THE-417: every git tool proxies the Obsidian Git companion route's own JSON verbatim
-// (`{ vault, ...result }`, some with an echoed input field) — arbitrary plugin JSON, so
-// .passthrough() is the honest schema beyond the fields the handler itself guarantees.
-const GitStatusOutput = z.object({ vault: z.string() }).passthrough();
+// Project only the fields produced by this repository's companion routes. A companion is a trust
+// boundary: newly added or compromised response fields must not become public tool output by default.
+const GitChangedRow = z.object({
+  path: z.string().optional(),
+  working_dir: z.string().optional(),
+  index: z.string().optional(),
+});
+const GitStagedRow = z.object({ path: z.string().optional(), index: z.string().optional() });
+const GitStatusBridge = z.object({
+  changed: z.array(z.unknown()).default([]),
+  staged: z.array(z.unknown()).default([]),
+  conflicted: z.array(z.unknown()).default([]),
+});
+const GitDiffBridge = z.object({ diff: z.string() });
+const GitLogRow = z.object({
+  hash: z.string(),
+  message: z.string(),
+  date: z.string(),
+  author: z.string(),
+});
+const GitLogBridge = z.object({ entries: z.array(GitLogRow) });
+const GitStageBridge = z.object({ staged: z.number().int().nonnegative() });
+const GitCommitBridge = z.object({
+  committed: z.number().nullable(),
+  fired_at: z.string(),
+});
+
+const GitStatusOutput = z
+  .object({
+    vault: z.string(),
+    changed: z.array(GitChangedRow),
+    staged: z.array(GitStagedRow),
+    conflicted: z.array(z.string()),
+  })
+  .strict();
 const GitDiffOutput = z
-  .object({ vault: z.string(), path: z.string(), staged: z.boolean() })
-  .passthrough();
-const GitLogOutput = z.object({ vault: z.string() }).passthrough();
-const GitStageOutput = z.object({ vault: z.string() }).passthrough();
-const GitCommitOutput = z.object({ vault: z.string() }).passthrough();
+  .object({ vault: z.string(), path: z.string(), staged: z.boolean(), diff: z.string() })
+  .strict();
+const GitLogOutput = z.object({ vault: z.string(), entries: z.array(GitLogRow) }).strict();
+const GitStageOutput = z
+  .object({ vault: z.string(), staged: z.number().int().nonnegative() })
+  .strict();
+const GitCommitOutput = z
+  .object({
+    vault: z.string(),
+    committed: z.number().nullable(),
+    fired_at: z.string(),
+    stamped_trailers: z.array(z.string()).optional(),
+  })
+  .strict();
 
 /** Paths the bridge reports as staged, for matching a commit to recorded writes. Best effort: a
  *  status that fails or has an unexpected shape means no trailers, never a failed commit. */
@@ -73,27 +109,22 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
           plugin: "git",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        const changedRaw = Array.isArray(result.changed) ? result.changed : [];
-        const stagedRaw = Array.isArray(result.staged) ? result.staged : [];
-        const conflictedRaw = Array.isArray(result.conflicted) ? result.conflicted : [];
-        const changed = filterBridgeItemsByAcl(ctx.acl, v.root, ctx.grantedScopes, changedRaw, {
+        const status = parseBridgePayload(GitStatusBridge, result, "git");
+        const changed = filterBridgeItemsByAcl(ctx.acl, v.root, ctx.grantedScopes, status.changed, {
           tool: "git_status",
-        });
-        const staged = filterBridgeItemsByAcl(ctx.acl, v.root, ctx.grantedScopes, stagedRaw, {
+        }).map((row) => parseBridgePayload(GitChangedRow, row, "git"));
+        const staged = filterBridgeItemsByAcl(ctx.acl, v.root, ctx.grantedScopes, status.staged, {
           tool: "git_status",
-        });
+        }).map((row) => parseBridgePayload(GitStagedRow, row, "git"));
         const conflicted = filterBridgeItemsByAcl(
           ctx.acl,
           v.root,
           ctx.grantedScopes,
-          conflictedRaw,
+          status.conflicted,
           { tool: "git_status", barePath: true },
-        );
-        const rawCount = changedRaw.length + stagedRaw.length + conflictedRaw.length;
-        const keptCount = changed.length + staged.length + conflicted.length;
+        ).map((row) => parseBridgePayload(z.string(), row, "git"));
         return {
           vault: v.id,
-          ...(bridgeSiblingsSafe(ctx.acl, ctx.grantedScopes, rawCount, keptCount) ? result : {}),
           changed,
           staged,
           conflicted,
@@ -124,7 +155,13 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
           plugin: "git",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, path: rel, staged: input.staged, ...result };
+        const payload = parseBridgePayload(GitDiffBridge, result, "git");
+        return {
+          vault: v.id,
+          path: rel,
+          staged: input.staged,
+          diff: payload.diff,
+        };
       },
     }),
 
@@ -152,7 +189,11 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
           plugin: "git",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, ...result };
+        const payload = parseBridgePayload(GitLogBridge, result, "git");
+        return {
+          vault: v.id,
+          entries: payload.entries,
+        };
       },
     }),
 
@@ -178,7 +219,12 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
           plugin: "git",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        return { vault: v.id, ...result };
+        ctx.markEffectCommitted?.();
+        const payload = parseBridgePayload(GitStageBridge, result, "git");
+        return {
+          vault: v.id,
+          staged: payload.staged,
+        };
       },
     }),
 
@@ -193,7 +239,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
       requiredScopes: ["execute:git"],
       // HEAD and the staged index of the vault's own repo (vault/git-state.ts).
       confirmationTargets: (_input, { root }) => (root ? gitCommitState(root) : null),
-      handler: async (input) => {
+      handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const { client } = openBridge(deps, v.id, "git");
         // provenance.stamp.gitTrailers (off by default): trailers for the recorded writes whose
@@ -212,9 +258,12 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
           // commits can be slow on large repos — reuse the long bridge budget.
           timeoutMs: bridgeTimeouts(deps, v.id).templaterTimeoutMs,
         });
+        ctx.markEffectCommitted?.();
+        const payload = parseBridgePayload(GitCommitBridge, result, "git");
         return {
           vault: v.id,
-          ...result,
+          committed: payload.committed,
+          fired_at: payload.fired_at,
           ...(trailers.length > 0 ? { stamped_trailers: trailers } : {}),
         };
       },

@@ -182,10 +182,13 @@ const HAPPY_FILES: Record<string, string> = {
 
 const HAPPY_ROUTES: Record<string, FakeRoute> = {
   "POST /obsidian-tc/v1/excalidraw/read": {
-    body: { ok: true, result: { elements: [{ id: "a" }], text: "hello" } },
+    body: {
+      ok: true,
+      result: { path: "Drawings/Plan.excalidraw.md", text_content: "hello" },
+    },
   },
   "POST /obsidian-tc/v1/dataview/validate": {
-    body: { ok: true, result: { valid: true, ast: { kind: "table" } } },
+    body: { ok: true, result: { valid: true } },
   },
   "POST /obsidian-tc/v1/tasks/filter": {
     body: { ok: true, result: { items: [{ path: "Notes/todo.md", line: 3 }], groups: [] } },
@@ -197,13 +200,19 @@ const HAPPY_ROUTES: Record<string, FakeRoute> = {
     },
   },
   "POST /obsidian-tc/v1/templater/execute": {
-    body: { ok: true, result: { created_at: "t", content_hash: "h", expanded_size: 42 } },
+    body: {
+      ok: true,
+      result: { template: "Templates/daily.md", target: "Daily/x.md", created_at: "t" },
+    },
   },
   "POST /obsidian-tc/v1/quickadd/trigger": {
-    body: { ok: true, result: { fired_at: "t", created_paths: ["Inbox/idea.md"] } },
+    body: { ok: true, result: { action_name: "Capture Idea", fired_at: "t" } },
   },
   "POST /obsidian-tc/v1/ocr/attachment": {
-    body: { ok: true, result: { text: "hello world", cached: false, duration_ms: 12 } },
+    body: {
+      ok: true,
+      result: { path: "Attach/scan.png", text: "hello world", cached: false, duration_ms: 12 },
+    },
   },
 };
 
@@ -227,7 +236,7 @@ describe("M4 integration: M2 search_dql + nine M4 domains on one registry and br
       path: "Drawings/Plan.excalidraw.md",
     });
     expect(rex.ok).toBe(true);
-    if (rex.ok) expect((rex.data as Record<string, unknown>).text).toBe("hello");
+    if (rex.ok) expect((rex.data as Record<string, unknown>).text_content).toBe("hello");
 
     expect((await drive("validate_dql", { vault: "test", dql: "TABLE file.name" })).ok).toBe(true);
     expect(
@@ -258,7 +267,7 @@ describe("M4 integration: M2 search_dql + nine M4 domains on one registry and br
     const tplOk = await vault.callConfirmed("execute_template", tplInput);
     results.push(tplOk);
     expect(tplOk.ok).toBe(true);
-    if (tplOk.ok) expect((tplOk.data as Record<string, unknown>).expanded_size).toBe(42);
+    if (tplOk.ok) expect((tplOk.data as Record<string, unknown>).created_at).toBe("t");
     expect(vault.bridgeRequests.length).toBe(beforeConfirm + 1);
 
     // ── HITL floor: trigger_quickadd (execute:quickadd) ──
