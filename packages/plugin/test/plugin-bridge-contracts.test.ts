@@ -26,6 +26,7 @@ import { TFile } from "obsidian";
 import { describe, expect, it } from "vitest";
 import { buildDataviewRoutes } from "../src/routes/dataview";
 import { buildExcalidrawRoutes } from "../src/routes/excalidraw";
+import { buildGitRoutes } from "../src/routes/git";
 import { buildMakemdRoutes } from "../src/routes/makemd";
 import { buildOcrRoutes } from "../src/routes/ocr";
 import { buildQuickAddRoutes } from "../src/routes/quickadd";
@@ -86,6 +87,358 @@ const findRoute = (defs: RouteDef[], path: string) => {
   if (!d) throw new Error(`no route ${path}`);
   return d.handler;
 };
+
+// ---------------------------------------------------------------------------------------------
+describe("obsidian-git — /git/status path basis", () => {
+  const parentStatus = {
+    changed: [
+      {
+        path: "Vault/Notes/a.md",
+        from: "Vault/Notes/old.md",
+        workingDir: "R",
+        index: "",
+        vaultPath: "Notes/a.md",
+      },
+      { path: "Vault/.trash/secret.md", workingDir: "M", index: "" },
+      { path: "outside-vault/.env", workingDir: "M", index: "" },
+      { path: "VaultX/a.md", workingDir: "M", index: "" },
+      { path: "Vault/Notes/b.md", from: "outside-vault/old.md", workingDir: "R", index: "" },
+    ],
+    staged: [
+      { path: "Vault/Notes/a.md", index: "A" },
+      { path: "outside-vault/.env", index: "A" },
+    ],
+    conflicted: ["Vault/Notes/a.md", "outside-vault/.env"],
+  };
+
+  const gitApp = (options: {
+    status: unknown;
+    repositoryPath?: string;
+    vaultPath?: string;
+    basePath?: string;
+    exposeBasePath?: boolean;
+    getDiffString?: (path: string, staged?: boolean) => Promise<unknown>;
+    stage?: (path: string, relativeToVault: boolean) => Promise<unknown>;
+  }) => {
+    const basePath = options.basePath;
+    const app = fakeApp({
+      "obsidian-git": {
+        settings: basePath === undefined ? {} : { basePath },
+        gitManager: {
+          status: async () => options.status,
+          ...(options.getDiffString ? { getDiffString: options.getDiffString } : {}),
+          ...(options.stage ? { stage: options.stage } : {}),
+          ...(options.repositoryPath === undefined
+            ? {}
+            : { absoluteRepoPath: options.repositoryPath }),
+        },
+      },
+    });
+    app.vault.adapter =
+      (options.exposeBasePath ?? true)
+        ? ({ getBasePath: () => options.vaultPath } as unknown as typeof app.vault.adapter)
+        : ({} as typeof app.vault.adapter);
+    return app;
+  };
+
+  it("maps a parent repository into the child vault and drops outside-vault paths", async () => {
+    const app = gitApp({
+      status: parentStatus,
+      repositoryPath: "/r",
+      vaultPath: "/r/Vault",
+      basePath: "",
+    });
+    const { res, seen } = makeRes();
+
+    await findRoute(buildGitRoutes(app), "/git/status")(req({}), res);
+
+    expect(seen.body).toEqual({
+      ok: true,
+      result: {
+        paths_relative_to_vault: true,
+        changed: [
+          {
+            path: "Notes/a.md",
+            from: "Notes/old.md",
+            working_dir: "R",
+            index: "",
+          },
+          { path: ".trash/secret.md", working_dir: "M", index: "" },
+        ],
+        staged: [{ path: "Notes/a.md", index: "A" }],
+        conflicted: ["Notes/a.md"],
+      },
+    });
+  });
+
+  it("prefixes the repository path when the repository is a child of the vault", async () => {
+    const status = {
+      changed: [{ path: "a.md", workingDir: "M", index: "" }],
+      staged: [{ path: "a.md", index: "A" }],
+      conflicted: ["a.md"],
+    };
+    const app = gitApp({
+      status,
+      repositoryPath: "/r/sub",
+      vaultPath: "/r",
+      basePath: "sub",
+    });
+    const { res, seen } = makeRes();
+
+    await findRoute(buildGitRoutes(app), "/git/status")(req({}), res);
+
+    expect(seen.body).toEqual({
+      ok: true,
+      result: {
+        paths_relative_to_vault: true,
+        changed: [{ path: "sub/a.md", working_dir: "M", index: "" }],
+        staged: [{ path: "sub/a.md", index: "A" }],
+        conflicted: ["sub/a.md"],
+      },
+    });
+  });
+
+  it("leaves paths unchanged when the repository root is the vault root", async () => {
+    const rootStatus = {
+      changed: [{ path: "Notes/a.md", workingDir: "M", index: "" }],
+      staged: [{ path: ".trash/secret.md", index: "A" }],
+      conflicted: ["Notes/a.md"],
+    };
+    const app = gitApp({
+      status: rootStatus,
+      repositoryPath: "/r",
+      vaultPath: "/r",
+      basePath: "",
+    });
+    const { res, seen } = makeRes();
+
+    await findRoute(buildGitRoutes(app), "/git/status")(req({}), res);
+
+    expect(seen.body).toEqual({
+      ok: true,
+      result: {
+        paths_relative_to_vault: true,
+        changed: [{ path: "Notes/a.md", working_dir: "M", index: "" }],
+        staged: rootStatus.staged,
+        conflicted: rootStatus.conflicted,
+      },
+    });
+  });
+
+  it("fails closed on desktop when older obsidian-git has basePath but no absoluteRepoPath", async () => {
+    const app = gitApp({ status: parentStatus, vaultPath: "/r/Vault", basePath: "" });
+    const { res, seen } = makeRes();
+
+    await findRoute(buildGitRoutes(app), "/git/status")(req({}), res);
+
+    expect(seen.body).toMatchObject({
+      ok: false,
+      code: "plugin_incompatible",
+      message: expect.stringContaining("repository path"),
+      details: {
+        plugin: "git",
+        hint: expect.stringContaining("Update obsidian-git"),
+      },
+    });
+  });
+
+  it("uses the settings basePath on mobile when the adapter has no getBasePath", async () => {
+    const status = {
+      changed: [{ path: "a.md", working_dir: "M", index: "" }],
+      staged: [{ path: "a.md", index: "A" }],
+      conflicted: ["a.md"],
+    };
+    const app = gitApp({
+      status,
+      basePath: "sub",
+      exposeBasePath: false,
+    });
+    const { res, seen } = makeRes();
+
+    await findRoute(buildGitRoutes(app), "/git/status")(req({}), res);
+
+    expect(seen.body).toEqual({
+      ok: true,
+      result: {
+        paths_relative_to_vault: true,
+        changed: [{ path: "sub/a.md", working_dir: "M", index: "" }],
+        staged: [{ path: "sub/a.md", index: "A" }],
+        conflicted: ["sub/a.md"],
+      },
+    });
+  });
+
+  it("preserves working_dir from older obsidian-git status rows", async () => {
+    const app = gitApp({
+      status: { changed: [{ path: "a.md", working_dir: "M", index: "" }] },
+      repositoryPath: "/r",
+      vaultPath: "/r",
+      basePath: "",
+    });
+    const { res, seen } = makeRes();
+
+    await findRoute(buildGitRoutes(app), "/git/status")(req({}), res);
+
+    expect(seen.body).toMatchObject({
+      ok: true,
+      result: { changed: [{ path: "a.md", working_dir: "M", index: "" }] },
+    });
+  });
+
+  it("fails closed when the vault adapter cannot report its base path", async () => {
+    const app = gitApp({
+      status: parentStatus,
+      repositoryPath: "/r",
+      vaultPath: "/r/Vault",
+      basePath: "",
+      exposeBasePath: false,
+    });
+    const { res, seen } = makeRes();
+
+    await findRoute(buildGitRoutes(app), "/git/status")(req({}), res);
+
+    expect(seen.body).toMatchObject({
+      ok: false,
+      code: "plugin_incompatible",
+      message: expect.stringContaining("vault base path"),
+    });
+  });
+});
+
+describe("obsidian-git — vault paths become literal repository pathspecs", () => {
+  const gitApp = (options: {
+    repositoryPath: string;
+    vaultPath: string;
+    basePath: string;
+    getDiffString?: (path: string, staged?: boolean) => Promise<unknown>;
+    stage?: (path: string, relativeToVault: boolean) => Promise<unknown>;
+  }) => {
+    const app = fakeApp({
+      "obsidian-git": {
+        settings: { basePath: options.basePath },
+        gitManager: {
+          absoluteRepoPath: options.repositoryPath,
+          ...(options.getDiffString ? { getDiffString: options.getDiffString } : {}),
+          ...(options.stage ? { stage: options.stage } : {}),
+        },
+      },
+    });
+    app.vault.adapter = {
+      getBasePath: () => options.vaultPath,
+    } as unknown as typeof app.vault.adapter;
+    return app;
+  };
+
+  it("maps a parent-repository diff path and makes it literal", async () => {
+    const calls: Array<[string, boolean | undefined]> = [];
+    const app = gitApp({
+      repositoryPath: "/r",
+      vaultPath: "/r/Vault",
+      basePath: "",
+      getDiffString: async (path, staged) => {
+        calls.push([path, staged]);
+        return "diff";
+      },
+    });
+    const { res, seen } = makeRes();
+
+    await findRoute(buildGitRoutes(app), "/git/diff")(
+      req({ path: "Notes/a.md", staged: true }),
+      res,
+    );
+
+    expect(seen.body).toEqual({ ok: true, result: { diff: "diff" } });
+    expect(calls).toEqual([[":(literal)Vault/Notes/a.md", true]]);
+  });
+
+  it("maps a child-repository diff path and rejects paths outside that child", async () => {
+    const calls: string[] = [];
+    const app = gitApp({
+      repositoryPath: "/r/sub",
+      vaultPath: "/r",
+      basePath: "sub",
+      getDiffString: async (path) => {
+        calls.push(path);
+        return "diff";
+      },
+    });
+    const route = findRoute(buildGitRoutes(app), "/git/diff");
+    const accepted = makeRes();
+    const refused = makeRes();
+
+    await route(req({ path: "sub/a.md" }), accepted.res);
+    await route(req({ path: "other/a.md" }), refused.res);
+
+    expect(accepted.seen.body).toEqual({ ok: true, result: { diff: "diff" } });
+    expect(refused.seen.body).toMatchObject({ ok: false, code: "invalid_input" });
+    expect(calls).toEqual([":(literal)a.md"]);
+  });
+
+  it("passes a question-mark filename to diff as a literal pathspec", async () => {
+    const calls: string[] = [];
+    const app = gitApp({
+      repositoryPath: "/r",
+      vaultPath: "/r",
+      basePath: "",
+      getDiffString: async (path) => {
+        calls.push(path);
+        return "diff";
+      },
+    });
+    const { res } = makeRes();
+
+    await findRoute(buildGitRoutes(app), "/git/diff")(
+      req({ path: "?obsidian/plugins/obsidian-local-rest-api/data.json", staged: true }),
+      res,
+    );
+
+    expect(calls).toEqual([":(literal)?obsidian/plugins/obsidian-local-rest-api/data.json"]);
+  });
+
+  it("passes a star filename to stage as a literal repository pathspec", async () => {
+    const calls: Array<[string, boolean]> = [];
+    const app = gitApp({
+      repositoryPath: "/r",
+      vaultPath: "/r",
+      basePath: "",
+      stage: async (path, relativeToVault) => {
+        calls.push([path, relativeToVault]);
+      },
+    });
+    const { res, seen } = makeRes();
+
+    await findRoute(buildGitRoutes(app), "/git/stage")(req({ paths: ["*"] }), res);
+
+    expect(seen.body).toEqual({ ok: true, result: { staged: 1 } });
+    expect(calls).toEqual([[":(literal)*", false]]);
+  });
+
+  it("passes mapped filenames unchanged to the exact-path mobile backend", async () => {
+    const diffs: string[] = [];
+    const stages: Array<[string, boolean]> = [];
+    const app = fakeApp({
+      "obsidian-git": {
+        settings: { basePath: "sub" },
+        gitManager: {
+          getDiffString: async (path: string) => {
+            diffs.push(path);
+            return "diff";
+          },
+          stage: async (path: string, relativeToVault: boolean) => {
+            stages.push([path, relativeToVault]);
+          },
+        },
+      },
+    });
+    app.vault.adapter = {} as typeof app.vault.adapter;
+
+    await findRoute(buildGitRoutes(app), "/git/diff")(req({ path: "sub/?note.md" }), makeRes().res);
+    await findRoute(buildGitRoutes(app), "/git/stage")(req({ paths: ["sub/*"] }), makeRes().res);
+
+    expect(diffs).toEqual(["?note.md"]);
+    expect(stages).toEqual([["*", false]]);
+  });
+});
 
 // ---------------------------------------------------------------------------------------------
 describe("dataview — /dataview/dql, /dataview/eval", () => {

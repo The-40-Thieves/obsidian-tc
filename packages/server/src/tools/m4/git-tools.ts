@@ -25,10 +25,12 @@ const GitChangedRow = z.object({
 });
 const GitStagedRow = z.object({ path: z.string().optional(), index: z.string().optional() });
 const GitStatusBridge = z.object({
+  paths_relative_to_vault: z.literal(true),
   changed: z.array(z.unknown()).default([]),
   staged: z.array(z.unknown()).default([]),
   conflicted: z.array(z.unknown()).default([]),
 });
+type GitStatusBridgePayload = z.infer<typeof GitStatusBridge>;
 const GitDiffBridge = z.object({ diff: z.string() });
 const GitLogRow = z.object({
   hash: z.string(),
@@ -67,19 +69,38 @@ const GitCommitOutput = z
   })
   .strict();
 
+function parseGitStatus(value: unknown): GitStatusBridgePayload {
+  if (typeof value !== "object" || value === null || !("paths_relative_to_vault" in value))
+    throw err.pluginIncompatible(
+      "companion plugin predates vault-relative git paths; update the companion plugin inside Obsidian",
+      { plugin: "git" },
+    );
+  return parseBridgePayload(GitStatusBridge, value, "git");
+}
+
 /** Paths the bridge reports as staged, for matching a commit to recorded writes. Best effort: a
  *  status that fails or has an unexpected shape means no trailers, never a failed commit. */
 async function stagedPaths(deps: M4Deps, vaultId: string): Promise<string[]> {
   try {
     const { client } = openBridge(deps, vaultId, "git");
-    const status = await client.request<{ staged?: Array<{ path?: unknown }> }>({
+    const result = await client.request<Record<string, unknown>>({
       method: "POST",
       path: "/git/status",
       plugin: "git",
       timeoutMs: bridgeTimeouts(deps, vaultId).timeoutMs,
     });
+    if (!("paths_relative_to_vault" in result)) {
+      process.stderr.write(
+        "[obsidian-tc] cannot stamp git provenance trailers: companion plugin predates vault-relative git paths; update the companion plugin inside Obsidian\n",
+      );
+      return [];
+    }
+    const status = parseGitStatus(result);
     return (Array.isArray(status.staged) ? status.staged : [])
-      .map((f) => f.path)
+      .flatMap((row) => {
+        const parsed = GitStagedRow.safeParse(row);
+        return parsed.success && parsed.data.path ? [parsed.data.path] : [];
+      })
       .filter((p): p is string => typeof p === "string" && p.length > 0);
   } catch {
     return [];
@@ -109,7 +130,7 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
           plugin: "git",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        const status = parseBridgePayload(GitStatusBridge, result, "git");
+        const status = parseGitStatus(result);
         const changed = filterBridgeItemsByAcl(ctx.acl, v.root, ctx.grantedScopes, status.changed, {
           tool: "git_status",
         }).map((row) => parseBridgePayload(GitChangedRow, row, "git"));
