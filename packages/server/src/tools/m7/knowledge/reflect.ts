@@ -9,7 +9,7 @@ import type { ToolDefinition } from "../../../mcp/registry";
 import { challengeProposal } from "../../../plane/challenge";
 import { isExcludedPath } from "../../../plane/egress-filter";
 import { prompt } from "../../../plane/gateway";
-import { buildEvidence } from "../../../search/evidence";
+import { buildEvidence, type EvidenceItem } from "../../../search/evidence";
 import type { GraphSearchResult } from "../../../search/graph_search";
 import { vaultExclusionFor, withVaultExclusion } from "../../../search/index-exclusion";
 import { cachedGraphSearch } from "../../../search/query_cache";
@@ -39,6 +39,7 @@ import {
   selectChallengeEvidence,
   shouldExpandChallengeRecall,
   withCitationCheck,
+  withEgressCoverage,
 } from "./retrieval-runtime";
 import { ReflectOutput } from "./schemas";
 
@@ -179,15 +180,51 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
           challengeSelection = select(results);
         }
       }
+      // The judge runs before `sources` and the retrieval log are built: evidence drawn from the
+      // expanded ranks reaches the caller only if egress exclusion kept it, so the caller never
+      // receives (and the log never credits) a chunk the judge was not shown.
+      let challenged: Awaited<ReturnType<typeof challengeProposal<EvidenceItem>>> | undefined;
+      if (challengeSelection && challengeSelection.evidence.length > 0 && deps.roles) {
+        const contradictions = openContradictionsForPaths(
+          ctx.db,
+          v.id,
+          [...new Set(challengeSelection.evidence.map((e) => e.path))],
+          (rel) => isReadable(rel),
+        );
+        challenged = await challengeProposal(
+          deps.roles,
+          input.query,
+          challengeSelection.evidence,
+          contradictions,
+          deps.excludeFilter,
+        );
+      }
+      const topKResults = results.slice(0, input.k);
+      const sourceExcludeFilter = deps.excludeFilter;
+      const returnedResults =
+        sourceExcludeFilter === undefined
+          ? topKResults
+          : topKResults.filter((result) => !isExcludedPath(sourceExcludeFilter, result.path));
+      if (challenged) {
+        const returnedIds = new Set(returnedResults.map((result) => result.chunk_id));
+        const resultById = new Map(results.map((result) => [result.chunk_id, result]));
+        for (const item of challenged.keptEvidence) {
+          if (item.chunkId === undefined || returnedIds.has(item.chunkId)) continue;
+          const result = resultById.get(item.chunkId);
+          if (result === undefined) continue;
+          returnedResults.push(result);
+          returnedIds.add(item.chunkId);
+        }
+      }
       deps.retrievalLog?.({
         queryText: input.query,
         surfaceType: "reflect",
         sessionId: ctx.sessionId ?? null,
         caller: ctx.caller ?? null,
-        hits: retrievalHits(results),
+        hits: retrievalHits(returnedResults),
         policy: policy.record(route.class === "lexical" ? "lexical-route" : "static"),
       });
-      const sources = results.slice(0, input.k).map((r) => ({
+      const sources = returnedResults.map((r) => ({
         chunk_id: r.chunk_id,
         path: r.path,
         score: r.rerank_score,
@@ -220,19 +257,26 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
             sources,
           };
         }
-        const contradictions = openContradictionsForPaths(
-          ctx.db,
-          v.id,
-          [...new Set(evidence.map((e) => e.path))],
-          (rel) => isReadable(rel),
+        const run = challenged as NonNullable<typeof challenged>;
+        const { output, model, excludedCount, citations, keptEvidence } = run;
+        const egressCoverage = withEgressCoverage(
+          coverage,
+          keptEvidence.length,
+          keptEvidence.filter((e) => e.truncated).length,
         );
-        const { output, model, excludedCount, citations } = await challengeProposal(
-          deps.roles,
-          input.query,
-          evidence,
-          contradictions,
-          deps.excludeFilter,
-        );
+        // Egress exclusion can empty an evidence set that was non-empty above; same refusal, no judge.
+        if (!run.judged) {
+          return {
+            vault: v.id,
+            mode: "challenge",
+            route: route.signals,
+            available: true,
+            message: `no decision evidence remained after egress exclusion (${coverage.recalled} recalled, ${excludedCount} excluded)`,
+            coverage: egressCoverage,
+            sources,
+            excluded_count: excludedCount,
+          };
+        }
         return {
           vault: v.id,
           mode: "challenge",
@@ -240,7 +284,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
           available: true,
           model,
           challenge: output,
-          coverage: withCitationCheck(coverage, citations),
+          coverage: withCitationCheck(egressCoverage, citations),
           sources,
           ...(excludedCount > 0 ? { excluded_count: excludedCount } : {}),
         };

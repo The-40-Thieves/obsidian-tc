@@ -22,6 +22,7 @@ import {
   selectChallengeEvidence,
   shouldExpandChallengeRecall,
   withCitationCheck,
+  withEgressCoverage,
 } from "./retrieval-runtime";
 import { KnowledgeChallengeOutput } from "./schemas";
 
@@ -81,33 +82,39 @@ export function createKnowledgeChallengeTool(
         hits = recall(CHALLENGE_EXPANDED_RECALL);
         selected = select(hits);
       }
-      // THE-230: challenge recall is a real retrieval surface — log it like the search tools.
-      deps.retrievalLog?.({
-        queryText: input.proposal,
-        surfaceType: "knowledge_challenge",
-        sessionId: ctx.sessionId ?? null,
-        caller: ctx.caller ?? null,
-        hits: hits.map((h, i) => ({ chunkId: h.chunk_id, rank: i + 1, score: h.score })),
-        // THE-538: challenge recall is a bare dense scan (semanticSearch), not a fusion — there
-        // is no stream to attribute a hit to and no lexical/sparse weight to record. Saying so
-        // explicitly is the point: a NULL here must read as "this policy has no such weight",
-        // never as "we forgot to log it".
-        policy: {
-          vaultId: v.id,
-          policyId: "dense-only",
-          denseW: 1,
-          lexW: null,
-          sparseW: null,
-          fusionMode: null,
-          rrfK: null,
-          routeClass: null,
-        },
-      });
+      const hitById = new Map(hits.map((hit) => [hit.chunk_id, hit]));
+      const logReturned = (items: ReadonlyArray<{ chunkId?: string | undefined }>) => {
+        const returnedHits = items.flatMap((item) => {
+          if (item.chunkId === undefined) return [];
+          const hit = hitById.get(item.chunkId);
+          return hit === undefined ? [] : [hit];
+        });
+        // Challenge recall is a real retrieval surface, but only evidence exposed by the result is
+        // logged; the expanded candidate pool must not receive activation credit.
+        deps.retrievalLog?.({
+          queryText: input.proposal,
+          surfaceType: "knowledge_challenge",
+          sessionId: ctx.sessionId ?? null,
+          caller: ctx.caller ?? null,
+          hits: returnedHits.map((h, i) => ({ chunkId: h.chunk_id, rank: i + 1, score: h.score })),
+          policy: {
+            vaultId: v.id,
+            policyId: "dense-only",
+            denseW: 1,
+            lexW: null,
+            sparseW: null,
+            fusionMode: null,
+            rrfK: null,
+            routeClass: null,
+          },
+        });
+      };
       // Selection goes through the shared selector (retrieval-runtime.ts) so this path and reflect.ts's
       // challenge mode cannot drift on the decision filter, dedup, per-note quota, trimming or citation
       // numbering. `chunk_id` is threaded so dedup keys on retrieval identity rather than on text.
       const { evidence, coverage } = selected;
       if (evidence.length === 0) {
+        logReturned(evidence);
         return {
           vault: v.id,
           available: true,
@@ -124,21 +131,41 @@ export function createKnowledgeChallengeTool(
         evidence.map((e) => e.path),
         isReadable,
       );
-      const { output, model, excludedCount, citations } = await challengeProposal(
+      const challenged = await challengeProposal(
         deps.roles,
         input.proposal,
         evidence,
         contradictions,
         deps.excludeFilter,
       );
+      const { output, model, excludedCount, citations, keptEvidence, keptContradictions } =
+        challenged;
+      logReturned(keptEvidence);
+      const egressCoverage = withEgressCoverage(
+        coverage,
+        keptEvidence.length,
+        keptEvidence.filter((e) => e.truncated).length,
+      );
+      // Egress exclusion can empty an evidence set that was non-empty above; same refusal, no judge.
+      if (!challenged.judged) {
+        return {
+          vault: v.id,
+          available: true,
+          evidence_count: 0,
+          output: null,
+          message: `no decision evidence remained after egress exclusion (${coverage.recalled} recalled, ${excludedCount} excluded)`,
+          coverage: egressCoverage,
+          excluded_count: excludedCount,
+        };
+      }
       return {
         vault: v.id,
         available: true,
-        evidence_count: evidence.length,
-        contradiction_count: contradictions.length,
+        evidence_count: keptEvidence.length,
+        contradiction_count: keptContradictions.length,
         output,
         model,
-        coverage: withCitationCheck(coverage, citations),
+        coverage: withCitationCheck(egressCoverage, citations),
         ...(excludedCount > 0 ? { excluded_count: excludedCount } : {}),
       };
     },

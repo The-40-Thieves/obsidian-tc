@@ -226,7 +226,7 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
     expect(composed).toContain("both sides readable rationale");
   });
 
-  it("egress.excludePaths: an excluded decision chunk never reaches the judge; excluded_count reports the skip (THE-934 fix round 2, N1)", async () => {
+  it("egress.excludePaths: an excluded decision chunk never reaches the judge; excluded_count reports the skip", async () => {
     const db = openMemoryDb();
     provisionCacheDb(db);
     const insertChunk = (id: string, path: string, content: string) => {
@@ -252,7 +252,12 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
       mockJudgeCapturing((m) => seen.push(m)),
       compileEgressFilter(["Private/**"]),
     );
-    const res = un<{ available: boolean; evidence_count: number; excluded_count?: number }>(
+    const res = un<{
+      available: boolean;
+      evidence_count: number;
+      excluded_count?: number;
+      coverage?: { kept: number; low_coverage: boolean };
+    }>(
       await registry.dispatch(
         "knowledge_challenge",
         { vault: VAULT, proposal: "we should proceed with this plan" },
@@ -262,11 +267,86 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
     expect(res.available).toBe(true);
     expect(res.evidence_count).toBeGreaterThan(0);
     expect(res.excluded_count).toBe(1);
+    expect(res.coverage).toMatchObject({ kept: 1, low_coverage: true });
 
     const composed = seen.join("\n");
     expect(composed).not.toContain("SECRET_MARKER");
     expect(composed).not.toContain("Private/decision.md");
     expect(composed).toContain("public decision body");
+  });
+
+  it("reports contradiction_count from the post-egress contradiction set", async () => {
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    seedDecisionChunk(db, "pub1", "Public/decision.md");
+    db.prepare(
+      "INSERT INTO notes (vault_id, path, title, tags, content_hash, mtime, size, indexed_at) VALUES (?, 'Private/secret.md', '', '[]', 'private-note', 0, 0, 0)",
+    ).run(VAULT);
+    stampAclPath(db);
+    db.prepare(
+      `INSERT INTO contradictions (id, vault_id, source_chunk_id, source_path, conflict_chunk_id,
+         conflict_path, source_content_sha, conflict_content_sha, judge_verdict, judge_rationale,
+         status, detected_at)
+       VALUES ('x-post-egress', ?, 'pub1', 'Public/decision.md', 'priv1', 'Private/secret.md',
+               'public-sha', 'private-sha', 'contradiction', 'private side excluded', 'open', 0)`,
+    ).run(VAULT);
+    const { registry, ctx } = harness(
+      db,
+      new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
+      mockJudgeCapturing(() => {}),
+      compileEgressFilter(["Private/**"]),
+    );
+    const res = un<{
+      evidence_count: number;
+      contradiction_count?: number;
+      excluded_count?: number;
+    }>(
+      await registry.dispatch(
+        "knowledge_challenge",
+        { vault: VAULT, proposal: "we should proceed with this plan" },
+        ctx,
+      ),
+    );
+    expect(res.evidence_count).toBe(1);
+    expect(res.contradiction_count).toBe(0);
+    expect(res.excluded_count).toBe(1);
+  });
+
+  it("egress.excludePaths: when every decision chunk is excluded the judge is not called and nothing is logged", async () => {
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    seedDecisionChunk(db, "priv1", "Private/decision.md");
+    const seen: string[] = [];
+    const loggedChunkIds: string[] = [];
+    const { registry, ctx } = harness(
+      db,
+      new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
+      mockJudgeCapturing((m) => seen.push(m)),
+      compileEgressFilter(["Private/**"]),
+      (event) => {
+        loggedChunkIds.push(...event.hits.map((hit) => hit.chunkId));
+      },
+    );
+    const res = un<{
+      available: boolean;
+      evidence_count: number;
+      output: unknown;
+      excluded_count?: number;
+      coverage?: { kept: number; truncated: number; low_coverage: boolean };
+    }>(
+      await registry.dispatch(
+        "knowledge_challenge",
+        { vault: VAULT, proposal: "we should proceed with this plan" },
+        ctx,
+      ),
+    );
+    expect(seen).toEqual([]);
+    expect(res.available).toBe(true);
+    expect(res.evidence_count).toBe(0);
+    expect(res.output).toBeNull();
+    expect(res.excluded_count).toBe(1);
+    expect(res.coverage).toMatchObject({ kept: 0, truncated: 0, low_coverage: true });
+    expect(loggedChunkIds).toEqual([]);
   });
 
   describe("decision filter, coverage and ACL", () => {
@@ -293,14 +373,14 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
       for (let i = 0; i < 60; i++) seedChunk(db, `tail${i}`, `notes/tail/n${i}.md`, [0, 1], []);
       stampAclPath(db);
       const seen: string[] = [];
-      let loggedHits = -1;
+      const loggedChunkIds: string[] = [];
       const { registry, ctx } = harness(
         db,
         restrictedToNotes,
         mockJudgeCapturing((m) => seen.push(m)),
         undefined,
         (event) => {
-          loggedHits = event.hits.length;
+          loggedChunkIds.push(...event.hits.map((hit) => hit.chunkId));
         },
       );
       const res = un<{ evidence_count: number; coverage?: { recalled: number } }>(
@@ -309,7 +389,7 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
       expect(res.evidence_count).toBe(1);
       expect(seen.join("\n")).toContain("notes/decision.md");
       expect(res.coverage?.recalled).toBe(90);
-      expect(loggedHits).toBe(90);
+      expect(loggedChunkIds).toEqual(["d1"]);
     });
 
     it("no silent zero: a zero-evidence result reports recalled and filtered counts", async () => {
@@ -339,7 +419,7 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
       const db = openMemoryDb();
       provisionCacheDb(db);
       seedChunk(db, "d1", "notes/decision.md", [0.7, 0.7], ["decision"]);
-      for (let i = 0; i < 2; i++) seedChunk(db, `p${i}`, `notes/plain/n${i}.md`, QVEC, []);
+      for (let i = 0; i < 29; i++) seedChunk(db, `p${i}`, `notes/plain/n${i}.md`, QVEC, []);
       stampAclPath(db);
       const { registry, ctx } = harness(
         db,
@@ -351,12 +431,12 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
       );
       expect(res.evidence_count).toBe(1);
       expect(res.coverage).toMatchObject({
-        recalled: 3,
+        recalled: 30,
         decision_matched: 1,
-        filtered_out: 2,
+        filtered_out: 29,
         kept: 1,
         truncated: 0,
-        low_coverage: false,
+        low_coverage: true,
       });
     });
 
