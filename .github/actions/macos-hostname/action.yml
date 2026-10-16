@@ -1,0 +1,105 @@
+# Hosted-runner hostname failures and the scutil workaround are tracked upstream:
+# https://github.com/actions/runner-images/issues/14568
+# https://github.com/actions/runner-images/issues/12562
+name: macos-hostname
+description: >-
+  Give hosted macOS runners a resolvable hostname and log lookup time before and after. Uses
+  macOS's built-in dscacheutil, so callers do not need setup-node to have run first.
+
+runs:
+  using: composite
+  steps:
+    - name: time own-hostname lookup before
+      if: runner.os == 'macOS'
+      continue-on-error: true
+      shell: bash
+      run: |
+        tmp_dir=$(mktemp -d)
+        trap 'rm -rf "$tmp_dir"' EXIT
+        runner_hostname=$(hostname 2>&1)
+        hostname_status=$?
+        if [ "$hostname_status" -ne 0 ]; then
+          printf 'hostname lookup before: 0 ms (error: hostname exited %s: %s)\n' "$hostname_status" "$runner_hostname"
+          exit "$hostname_status"
+        fi
+
+        dscacheutil -q host -a name "$runner_hostname" > "$tmp_dir/output" 2>&1 &
+        lookup_pid=$!
+        (
+          sleep 60
+          if kill -0 "$lookup_pid" 2>/dev/null; then
+            : > "$tmp_dir/timed-out"
+            kill -KILL "$lookup_pid" 2>/dev/null || true
+          fi
+        ) &
+        watchdog_pid=$!
+
+        TIMEFORMAT='%R'
+        { time wait "$lookup_pid"; } 2> "$tmp_dir/elapsed"
+        lookup_status=$?
+        kill "$watchdog_pid" 2>/dev/null || true
+        wait "$watchdog_pid" 2>/dev/null || true
+
+        elapsed_seconds=$(< "$tmp_dir/elapsed")
+        elapsed_ms=$(awk -v seconds="$elapsed_seconds" 'BEGIN { printf "%.0f", seconds * 1000 }')
+        lookup_output=$(tr '\n' ' ' < "$tmp_dir/output")
+        if [ -f "$tmp_dir/timed-out" ]; then
+          result='error: timed out after 60 s'
+        elif [ "$lookup_status" -eq 0 ]; then
+          result=${lookup_output:-no records}
+        else
+          result="error: dscacheutil exited $lookup_status: ${lookup_output:-no output}"
+        fi
+        printf 'hostname lookup before: %s ms (%s)\n' "$elapsed_ms" "$result"
+
+    - name: set resolvable macOS hostname
+      if: runner.os == 'macOS'
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo scutil --set HostName ci-mac
+        sudo scutil --set LocalHostName ci-mac
+        sudo scutil --set ComputerName ci-mac
+
+    - name: time own-hostname lookup after
+      if: runner.os == 'macOS'
+      continue-on-error: true
+      shell: bash
+      run: |
+        tmp_dir=$(mktemp -d)
+        trap 'rm -rf "$tmp_dir"' EXIT
+        runner_hostname=$(hostname 2>&1)
+        hostname_status=$?
+        if [ "$hostname_status" -ne 0 ]; then
+          printf 'hostname lookup after: 0 ms (error: hostname exited %s: %s)\n' "$hostname_status" "$runner_hostname"
+          exit "$hostname_status"
+        fi
+
+        dscacheutil -q host -a name "$runner_hostname" > "$tmp_dir/output" 2>&1 &
+        lookup_pid=$!
+        (
+          sleep 60
+          if kill -0 "$lookup_pid" 2>/dev/null; then
+            : > "$tmp_dir/timed-out"
+            kill -KILL "$lookup_pid" 2>/dev/null || true
+          fi
+        ) &
+        watchdog_pid=$!
+
+        TIMEFORMAT='%R'
+        { time wait "$lookup_pid"; } 2> "$tmp_dir/elapsed"
+        lookup_status=$?
+        kill "$watchdog_pid" 2>/dev/null || true
+        wait "$watchdog_pid" 2>/dev/null || true
+
+        elapsed_seconds=$(< "$tmp_dir/elapsed")
+        elapsed_ms=$(awk -v seconds="$elapsed_seconds" 'BEGIN { printf "%.0f", seconds * 1000 }')
+        lookup_output=$(tr '\n' ' ' < "$tmp_dir/output")
+        if [ -f "$tmp_dir/timed-out" ]; then
+          result='error: timed out after 60 s'
+        elif [ "$lookup_status" -eq 0 ]; then
+          result=${lookup_output:-no records}
+        else
+          result="error: dscacheutil exited $lookup_status: ${lookup_output:-no output}"
+        fi
+        printf 'hostname lookup after: %s ms (%s)\n' "$elapsed_ms" "$result"
