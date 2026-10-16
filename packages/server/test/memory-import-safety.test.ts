@@ -57,62 +57,68 @@ describe("PR #978 adversarial importer verification", () => {
     }
   });
 
-  it("dry-run reports a clear migration requirement and does not migrate an old cache.db", async () => {
-    const root = scratch("obtc-zz-memory-import-");
-    const vaultDir = join(root, "vault");
-    const sourceDir = join(root, "source");
-    const cacheDir = join(root, "cache");
-    mkdirSync(vaultDir, { recursive: true });
-    mkdirSync(sourceDir, { recursive: true });
-    mkdirSync(cacheDir, { recursive: true });
-    writeFileSync(
-      join(sourceDir, "note.md"),
-      "---\ntitle: Old DB Probe\ntype: note\n---\n## Observations\n- [fact] hello\n",
-    );
-    const configPath = join(root, "config.json");
-    writeFileSync(
-      configPath,
-      JSON.stringify({ vaults: [{ id: "main", path: vaultDir }], cacheDir }),
-    );
-
-    const dbPath = join(cacheDir, "cache.db");
-    const oldDb = await openDatabase(dbPath);
-    oldDb.exec(
-      "CREATE TABLE sentinel (value TEXT NOT NULL); INSERT INTO sentinel VALUES ('untouched')",
-    );
-    oldDb.close?.();
-
-    const run = spawnSync(
-      "bun",
-      [
-        CLI,
-        "memory",
-        "import",
-        "--from",
-        "basic-memory",
-        sourceDir,
-        "--config",
+  it(
+    "dry-run reports a clear migration requirement and does not migrate an old cache.db",
+    async () => {
+      const root = scratch("obtc-zz-memory-import-");
+      const vaultDir = join(root, "vault");
+      const sourceDir = join(root, "source");
+      const cacheDir = join(root, "cache");
+      mkdirSync(vaultDir, { recursive: true });
+      mkdirSync(sourceDir, { recursive: true });
+      mkdirSync(cacheDir, { recursive: true });
+      writeFileSync(
+        join(sourceDir, "note.md"),
+        "---\ntitle: Old DB Probe\ntype: note\n---\n## Observations\n- [fact] hello\n",
+      );
+      const configPath = join(root, "config.json");
+      writeFileSync(
         configPath,
-        "--vault",
-        "main",
-      ],
-      { encoding: "utf8", timeout: stallTimeout(20_000), env: { ...process.env, NO_COLOR: "1" } },
-    );
+        JSON.stringify({ vaults: [{ id: "main", path: vaultDir }], cacheDir }),
+      );
 
-    expect.soft(run.status).not.toBe(0);
-    expect
-      .soft(`${run.stdout}\n${run.stderr}`)
-      .toMatch(/cache\.db.*(?:migration|schema).*required/i);
+      const dbPath = join(cacheDir, "cache.db");
+      const oldDb = await openDatabase(dbPath);
+      oldDb.exec(
+        "CREATE TABLE sentinel (value TEXT NOT NULL); INSERT INTO sentinel VALUES ('untouched')",
+      );
+      oldDb.close?.();
 
-    const verifyDb = await openDatabase(dbPath, undefined, { readonly: true });
-    expect(verifyDb.prepare("SELECT value FROM sentinel").get()).toEqual({ value: "untouched" });
-    expect(
-      verifyDb
-        .prepare(
-          "SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'memory_entities'",
-        )
-        .get(),
-    ).toEqual({ n: 0 });
-    verifyDb.close?.();
-  });
+      const run = spawnSync(
+        "bun",
+        [
+          CLI,
+          "memory",
+          "import",
+          "--from",
+          "basic-memory",
+          sourceDir,
+          "--config",
+          configPath,
+          "--vault",
+          "main",
+        ],
+        { encoding: "utf8", timeout: stallTimeout(20_000), env: { ...process.env, NO_COLOR: "1" } },
+      );
+
+      expect.soft(run.status).not.toBe(0);
+      expect
+        .soft(`${run.stdout}\n${run.stderr}`)
+        .toMatch(/cache\.db.*(?:migration|schema).*required/i);
+
+      const verifyDb = await openDatabase(dbPath, undefined, { readonly: true });
+      expect(verifyDb.prepare("SELECT value FROM sentinel").get()).toEqual({ value: "untouched" });
+      expect(
+        verifyDb
+          .prepare(
+            "SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'memory_entities'",
+          )
+          .get(),
+      ).toEqual({ n: 0 });
+      verifyDb.close?.();
+      // One cold `bun` boot (~1.1s here, 7.5s on a loaded macOS Intel runner) inside a 20s child kill
+      // timeout; the test budget has to outlast the child's.
+    },
+    stallTimeout(30_000),
+  );
 });

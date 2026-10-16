@@ -6,6 +6,7 @@ import { canonicalJson } from "../src/hash";
 import { queryNoteProvenance } from "../src/provenance/query";
 import { sha256Hex } from "../src/provenance/store";
 import { moved, queryFixture } from "./provenance-query-helpers";
+import { stallTimeout } from "./stall-timeouts";
 
 type Fx = Awaited<ReturnType<typeof queryFixture>>;
 const open: Fx[] = [];
@@ -225,26 +226,32 @@ describe("RED 4: one bounded scan per query", () => {
     for (let i = 0; i < n; i++) f.add({ paths: [`dir${i}/a.md`] });
   };
 
-  it("examines each row of the chain at most once, lineage and records together", async () => {
-    const f = await make();
-    f.add({ paths: ["a.md"] }); // 1
-    noise(f, 300);
-    f.add({ tool: "move_note", paths: moved("a.md", "b.md") });
-    noise(f, 300);
-    f.add({ tool: "move_note", paths: moved("b.md", "c.md") });
-    const r = queryNoteProvenance(f.tv.db, {
-      vaultId: f.tv.id,
-      path: "c.md",
-      readable: () => true,
-      limit: 200,
-      resolveKey: f.fx.resolveKey(),
-      maxScanRows: 1_000_000,
-    });
-    expect(r.previousPaths).toEqual(["b.md", "a.md"]);
-    // One pass over the 603 rows, plus at most one 256-seq range re-read per hop; the first cut
-    // read the lineage and then the records, ~2 passes.
-    expect(r.rowsExamined).toBeLessThanOrEqual(603 + 2 * 256);
-  });
+  it(
+    "examines each row of the chain at most once, lineage and records together",
+    async () => {
+      const f = await make();
+      f.add({ paths: ["a.md"] }); // 1
+      noise(f, 300);
+      f.add({ tool: "move_note", paths: moved("a.md", "b.md") });
+      noise(f, 300);
+      f.add({ tool: "move_note", paths: moved("b.md", "c.md") });
+      const r = queryNoteProvenance(f.tv.db, {
+        vaultId: f.tv.id,
+        path: "c.md",
+        readable: () => true,
+        limit: 200,
+        resolveKey: f.fx.resolveKey(),
+        maxScanRows: 1_000_000,
+      });
+      expect(r.previousPaths).toEqual(["b.md", "a.md"]);
+      // One pass over the 603 rows, plus at most one 256-seq range re-read per hop; the first cut
+      // read the lineage and then the records, ~2 passes.
+      expect(r.rowsExamined).toBeLessThanOrEqual(603 + 2 * 256);
+      // 603 real signed appends (each signs the record and the head and re-verifies the old head): about
+      // 1s here, 7.7s on a loaded macOS Intel runner. The chain length is what the assertion is about.
+    },
+    stallTimeout(30_000),
+  );
 
   it("stops at the row budget and says so; what it found stays", async () => {
     const f = await make({ provenanceMaxScanRows: 100 });
