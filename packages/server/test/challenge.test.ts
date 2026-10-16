@@ -348,9 +348,9 @@ describe("knowledge_challenge core (gateway judge seam)", () => {
 
     const basenameAlias = await challengeProposal(
       judgeReturning(
-        oneItem(["02-projects/x.md", "private/y.md"], {
-          summary: "See [[y]] for the decisive point.",
-          why: "The y note contradicts the proposal.",
+        oneItem(["02-projects/x.md", "private/memo.md"], {
+          summary: "See [[memo]] for the decisive point.",
+          why: "The memo note contradicts the proposal.",
         }),
       ),
       "do X",
@@ -384,6 +384,127 @@ describe("knowledge_challenge core (gateway judge seam)", () => {
       "Rationale omitted: it named evidence that was unavailable.",
     );
     expect(r.output.categories[0]?.items[0]?.evidence_paths).toEqual(["02-projects/x.md"]);
+  });
+
+  it("citation check does not scrub a short bare basename out of unrelated text", async () => {
+    const r = await challengeProposal(
+      judgeReturning(
+        oneItem(["02-projects/x.md", "a.md"], {
+          summary: "a plan was made.",
+          why: "a plan was made.",
+        }),
+      ),
+      "do X",
+      [{ path: "02-projects/x.md", content: "documented evidence" }],
+      [],
+    );
+    expect(r.output.summary).toBe("a plan was made.");
+    expect(r.output.categories[0]?.items[0]?.why_it_matters).toBe("a plan was made.");
+    expect(r.citations).toEqual({ unresolved: ["a.md"], droppedItems: 0 });
+  });
+
+  it("citation check still scrubs a short basename written as a path or a wikilink", async () => {
+    for (const cited of ["Notes/a.md", "[[a]]"]) {
+      const r = await challengeProposal(
+        judgeReturning(
+          oneItem(["02-projects/x.md", "a.md"], {
+            summary: `See ${cited} for the decisive point.`,
+            why: `${cited} contradicts the proposal.`,
+          }),
+        ),
+        "do X",
+        [{ path: "02-projects/x.md", content: "documented evidence" }],
+        [],
+      );
+      expect(r.output.summary, cited).toBe(
+        "Some cited evidence was unavailable; retained findings use supported evidence only.",
+      );
+      expect(r.output.categories[0]?.items[0]?.why_it_matters, cited).toBe(
+        "Rationale omitted: it named evidence that was unavailable.",
+      );
+    }
+  });
+
+  it("citation check scrubs every path in a malformed citation that holds two", async () => {
+    const r = await challengeProposal(
+      judgeReturning(
+        oneItem(["02-projects/x.md", "private/y.md, other/z.md"], {
+          summary: "Prior work applies.",
+          why: "private/y.md contradicts the proposal.",
+        }),
+      ),
+      "do X",
+      [{ path: "02-projects/x.md", content: "documented evidence" }],
+      [],
+    );
+    expect(r.output.categories[0]?.items[0]?.why_it_matters).toBe(
+      "Rationale omitted: it named evidence that was unavailable.",
+    );
+    expect(r.output.categories[0]?.items[0]?.evidence_paths).toEqual(["02-projects/x.md"]);
+  });
+
+  it("citation check scrubs slug and percent-encoded spellings of a stripped title", async () => {
+    for (const spelling of ["Secret-Plan", "secret_plan", "secret%20plan", "private/secret-plan"]) {
+      const r = await challengeProposal(
+        judgeReturning(
+          oneItem(["02-projects/x.md", "Private/Secret Plan.md"], {
+            summary: "Prior work applies.",
+            why: `${spelling} contradicts the proposal.`,
+          }),
+        ),
+        "do X",
+        [{ path: "02-projects/x.md", content: "documented evidence" }],
+        [],
+      );
+      expect(r.output.categories[0]?.items[0]?.why_it_matters, spelling).toBe(
+        "Rationale omitted: it named evidence that was unavailable.",
+      );
+    }
+  });
+
+  it("citation check scrubs a wikilink alias's target and keeps its alias text", async () => {
+    const kept = await challengeProposal(
+      judgeReturning(
+        oneItem(["02-projects/x.md", "[[Private/secret|the memo]]"], {
+          why: "the memo supports this reading.",
+        }),
+      ),
+      "do X",
+      [{ path: "02-projects/x.md", content: "documented evidence" }],
+      [],
+    );
+    expect(kept.output.categories[0]?.items[0]?.why_it_matters).toBe(
+      "the memo supports this reading.",
+    );
+    const scrubbed = await challengeProposal(
+      judgeReturning(
+        oneItem(["02-projects/x.md", "[[Private/secret|the memo]]"], {
+          why: "[[Private/secret|the memo]] contradicts the proposal.",
+        }),
+      ),
+      "do X",
+      [{ path: "02-projects/x.md", content: "documented evidence" }],
+      [],
+    );
+    expect(scrubbed.output.categories[0]?.items[0]?.why_it_matters).toBe(
+      "Rationale omitted: it named evidence that was unavailable.",
+    );
+  });
+
+  it("citation check grounds a numbered citation to a shown path containing # | or ]", async () => {
+    for (const path of ["Notes/a#b.md", "Notes/a|b.md", "Notes/a]b.md"]) {
+      const r = await challengeProposal(
+        judgeReturning(oneItem(["[1]"])),
+        "do X",
+        [
+          { path, content: "a note whose name would break a wikilink" },
+          { path: "02-projects/x.md", content: "another" },
+        ],
+        [],
+      );
+      expect(r.citations, path).toEqual({ unresolved: [], droppedItems: 0 });
+      expect(r.output.categories[0]?.items[0]?.evidence_paths, path).toEqual([path]);
+    }
   });
 
   it("egress exclusion that leaves no evidence skips the judge and reports the kept contradictions", async () => {

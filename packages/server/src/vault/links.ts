@@ -198,6 +198,12 @@ export function buildVaultIndex(notePaths: string[]): VaultIndex {
   return { paths: notePaths, byBasename, byLowerPath };
 }
 
+/** The one spelling of the relative-link rule: backslashes become `/` and a leading `./` is dropped.
+ *  Callers trim and case-fold on their own, because each one's order of those steps is its contract. */
+export function normalizeLinkTarget(target: string): string {
+  return target.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
 export interface Resolution {
   resolved: boolean;
   target_path?: string;
@@ -207,7 +213,7 @@ export interface Resolution {
 /** Resolve a wikilink/markdown target (link part only — strip `#heading`/`|alias`
  *  before calling). Internal targets only; external URLs return unresolved. */
 export function resolveTarget(index: VaultIndex, target: string): Resolution {
-  const t = target.replace(/\\/g, "/").replace(/^\.\//, "").trim();
+  const t = normalizeLinkTarget(target).trim();
   if (t === "" || /^[a-z]+:\/\//i.test(t) || t.startsWith("#")) return { resolved: false };
   const lower = t.toLowerCase();
   const withMd = lower.endsWith(".md") ? lower : `${lower}.md`;
