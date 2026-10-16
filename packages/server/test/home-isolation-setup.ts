@@ -14,14 +14,12 @@
 // file to repopulate the same import graph. Concurrent cache writes stalled Windows runners until
 // the 60-second subprocess guard fired, so Bun children share one repo-local cache across the run.
 import { mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterAll } from "vitest";
+import { sharedBunRuntimeTranspilerCachePath } from "../scripts/lib/isolated-home.mjs";
 import { makeTempDir, stubHomedir } from "./tmp";
 
 if (process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH === undefined) {
-  const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
-  const cachePath = join(repoRoot, "node_modules", ".cache", "obsidian-tc-bun-transpiler");
+  const cachePath = sharedBunRuntimeTranspilerCachePath();
   mkdirSync(cachePath, { recursive: true });
   process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH = cachePath;
 }
