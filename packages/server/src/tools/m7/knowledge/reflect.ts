@@ -6,7 +6,7 @@
 import { err, grantsAll, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
-import { challengeProposal } from "../../../plane/challenge";
+import { challengeProposal, citedEvidence } from "../../../plane/challenge";
 import { isExcludedPath } from "../../../plane/egress-filter";
 import { prompt } from "../../../plane/gateway";
 import { buildEvidence, type EvidenceItem } from "../../../search/evidence";
@@ -171,6 +171,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
               tags: tags.get(r.path) ?? null,
               content: r.content ?? "",
             })),
+            deps.excludeFilter,
           );
         };
         challengeSelection = select(results);
@@ -180,61 +181,73 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
           challengeSelection = select(results);
         }
       }
-      // The judge runs before `sources` and the retrieval log are built: evidence drawn from the
-      // expanded ranks reaches the caller only if egress exclusion kept it, so the caller never
-      // receives (and the log never credits) a chunk the judge was not shown.
-      let challenged: Awaited<ReturnType<typeof challengeProposal<EvidenceItem>>> | undefined;
-      if (challengeSelection && challengeSelection.evidence.length > 0 && deps.roles) {
-        const contradictions = openContradictionsForPaths(
-          ctx.db,
-          v.id,
-          [...new Set(challengeSelection.evidence.map((e) => e.path))],
-          (rel) => isReadable(rel),
-        );
-        challenged = await challengeProposal(
-          deps.roles,
-          input.query,
-          challengeSelection.evidence,
-          contradictions,
-          deps.excludeFilter,
-        );
-      }
+      // The judge is shown exactly the evidence the selector kept: egress exclusion ran before the
+      // cap (selectChallengeEvidence), so nothing withheld is in it.
+      const judgedEvidence = challengeSelection && deps.roles ? challengeSelection.evidence : [];
       // Every top-k hit is returned and logged, egress-excluded ones included. `sources` and the
       // retrieval log carry ids, paths and scores, never content, so they are not egress: only the
       // text is withheld from a model (synthesis and challenge filter their evidence below).
-      const returnedResults = results.slice(0, input.k);
+      const topK = results.slice(0, input.k);
       const excludeFilter = deps.excludeFilter;
       // excluded_count has one meaning in every arm: the returned top-k sources whose content was
       // withheld from the model by egress exclusion. Degraded mode makes no model call, so there it
       // counts the hits that would have been withheld.
-      const excludedCount = returnedResults.filter(
+      const excludedCount = topK.filter(
         (result) => excludeFilter !== undefined && isExcludedPath(excludeFilter, result.path),
       ).length;
       const excludedField = excludedCount > 0 ? { excluded_count: excludedCount } : {};
-      if (challenged) {
-        const returnedIds = new Set(returnedResults.map((result) => result.chunk_id));
-        const resultById = new Map(results.map((result) => [result.chunk_id, result]));
-        for (const item of challenged.keptEvidence) {
-          if (item.chunkId === undefined || returnedIds.has(item.chunkId)) continue;
+      const resultById = new Map(results.map((result) => [result.chunk_id, result]));
+      // Judge-shown evidence outside the top-k. `sources` lists all of it; the retrieval log credits
+      // only the part the judge cited (see the `finally` below).
+      const outsideTopK = (items: readonly EvidenceItem[]) => {
+        const seen = new Set(topK.map((result) => result.chunk_id));
+        return items.flatMap((item) => {
+          if (item.chunkId === undefined || seen.has(item.chunkId)) return [];
           const result = resultById.get(item.chunkId);
-          if (result === undefined) continue;
-          returnedResults.push(result);
-          returnedIds.add(item.chunkId);
-        }
-      }
-      deps.retrievalLog?.({
-        queryText: input.query,
-        surfaceType: "reflect",
-        sessionId: ctx.sessionId ?? null,
-        caller: ctx.caller ?? null,
-        hits: retrievalHits(returnedResults),
-        policy: policy.record(route.class === "lexical" ? "lexical-route" : "static"),
-      });
+          if (result === undefined) return [];
+          seen.add(item.chunkId);
+          return [result];
+        });
+      };
+      const returnedResults = [...topK, ...outsideTopK(judgedEvidence)];
       const sources = returnedResults.map((r) => ({
         chunk_id: r.chunk_id,
         path: r.path,
         score: r.rerank_score,
       }));
+      let challenged: Awaited<ReturnType<typeof challengeProposal<EvidenceItem>>> | undefined;
+      try {
+        if (challengeSelection && judgedEvidence.length > 0 && deps.roles) {
+          const contradictions = openContradictionsForPaths(
+            ctx.db,
+            v.id,
+            [...new Set(judgedEvidence.map((e) => e.path))],
+            (rel) => isReadable(rel),
+          );
+          challenged = await challengeProposal(
+            deps.roles,
+            input.query,
+            judgedEvidence,
+            contradictions,
+            deps.excludeFilter,
+          );
+        }
+      } finally {
+        // One log call per request, after the judge, in `finally`: a judge call that throws logs the
+        // top-k hits only. Judge-shown evidence outside top-k earns activation credit only if the
+        // judge cited it. This narrows the log; `sources` above still lists every judge-shown chunk.
+        const cited = challenged
+          ? outsideTopK(citedEvidence(challenged.output, challenged.keptEvidence))
+          : [];
+        deps.retrievalLog?.({
+          queryText: input.query,
+          surfaceType: "reflect",
+          sessionId: ctx.sessionId ?? null,
+          caller: ctx.caller ?? null,
+          hits: retrievalHits([...topK, ...cited]),
+          policy: policy.record(route.class === "lexical" ? "lexical-route" : "static"),
+        });
+      }
       if (!deps.roles) {
         return {
           vault: v.id,
@@ -259,7 +272,11 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
             mode: "challenge",
             route: route.signals,
             available: true,
-            message: `no decision-bearing chunks matched this proposal (${coverage.recalled} recalled, ${coverage.filtered_out} failed the decision filter)`,
+            // Chunks withheld by egress are gone before selection, so an empty set can be egress's doing.
+            message:
+              (coverage.dropped.egress ?? 0) > 0
+                ? `no decision evidence remained after egress exclusion (${coverage.recalled} recalled, ${coverage.dropped.egress} excluded)`
+                : `no decision-bearing chunks matched this proposal (${coverage.recalled} recalled, ${coverage.filtered_out} failed the decision filter)`,
             coverage,
             sources,
             ...excludedField,

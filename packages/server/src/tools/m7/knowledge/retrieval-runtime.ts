@@ -16,6 +16,7 @@ import {
   EVIDENCE_TRUNCATE,
   isDecisionChunk,
 } from "../../../plane/challenge";
+import { type EgressFilter, isExcludedPath } from "../../../plane/egress-filter";
 import { allChunkPaths, ensureAclPathSet } from "../../../search/acl_path_set";
 import type { ColbertMatrix } from "../../../search/colbert";
 import {
@@ -253,25 +254,37 @@ export const CHALLENGE_EXPANDED_RECALL = 90;
 
 /** Selects challenge evidence from a recall pool given in rank order. The pool is already
  *  ACL-filtered at query time by its caller, so every count here is over what the caller may read:
- *  a note the caller cannot read cannot change `recalled`, `decision_matched` or `filtered_out`. */
-export function selectChallengeEvidence(pool: readonly EvidenceSource[]): {
+ *  a note the caller cannot read cannot change `recalled`, `decision_matched` or `filtered_out`.
+ *
+ *  Egress exclusion runs HERE, before the decision filter and the cap: a chunk whose text may not
+ *  reach a model must not take a slot in the item cap or the per-note quota, or it starves the judge
+ *  of readable evidence and hides from `shouldExpandChallengeRecall` the fact that the set fell
+ *  short. Withheld chunks are counted in `dropped.egress`, so `recalled` = `decision_matched` +
+ *  `filtered_out` + `dropped.egress`. */
+export function selectChallengeEvidence(
+  pool: readonly EvidenceSource[],
+  excludeFilter?: EgressFilter,
+): {
   evidence: EvidenceItem[];
   coverage: ChallengeCoverage;
 } {
-  const decision = pool.filter((c) => isDecisionChunk({ path: c.path, tags: c.tags }));
+  const readable =
+    excludeFilter === undefined ? pool : pool.filter((c) => !isExcludedPath(excludeFilter, c.path));
+  const decision = readable.filter((c) => isDecisionChunk({ path: c.path, tags: c.tags }));
   const built = buildEvidence(decision, CHALLENGE_EVIDENCE_BUDGET);
   return {
     evidence: built.items,
     coverage: {
       recalled: pool.length,
       decision_matched: decision.length,
-      filtered_out: pool.length - decision.length,
+      filtered_out: readable.length - decision.length,
       kept: built.items.length,
       dropped: {
         duplicate: built.stats.droppedDuplicate,
         per_note_quota: built.stats.droppedPerNoteQuota,
         item_cap: built.stats.droppedItemCap,
         unexamined_after_budget: built.stats.unexaminedAfterBudget,
+        egress: pool.length - readable.length,
       },
       truncated: built.items.filter((i) => i.truncated).length,
       low_coverage: built.lowCoverage,

@@ -21,7 +21,7 @@ import { makeTempDir, rmTemp } from "./tmp";
 
 const NOW = 1_700_000_000_000;
 
-function cacheDb0() {
+function cacheDb0(extra: Array<[id: string, path: string, content: string]> = []) {
   const db = openMemoryDb();
   provisionCacheDb(db);
   const ins = db.prepare(
@@ -29,6 +29,7 @@ function cacheDb0() {
   );
   ins.run("c1", "notes/topic.md", "the quorble pattern part one", "h1", NOW, NOW);
   ins.run("d1", "02-projects/2026-01-01-quorble.md", "decision: quorble it", "h2", NOW, NOW);
+  for (const [id, path, content] of extra) ins.run(id, path, content, `h-${id}`, NOW, NOW);
   stampAclPath(db);
   ensureChunkFts(db, { now: () => NOW, enrich: false });
   return db;
@@ -483,7 +484,10 @@ describe("reflect challenge mode: decision filter, coverage, persist and ACL", (
         ctx,
       ),
     );
-    expect(loggedChunkIds).toEqual(res.sources.map((source) => source.chunk_id));
+    // The judge cites nothing here, so the decision chunk it was shown outside top-k (d1) earns no credit.
+    expect(loggedChunkIds).toEqual(
+      res.sources.map((source) => source.chunk_id).filter((id) => id !== "d1"),
+    );
   });
 
   it("an egress-excluded chunk from the expanded ranks is neither returned, credited nor counted", async () => {
@@ -516,7 +520,7 @@ describe("reflect challenge mode: decision filter, coverage, persist and ACL", (
     expect(seen.join("\n")).not.toContain("02-projects/private/secret.md");
     expect(sourceIds).toContain("d1");
     expect(sourceIds).not.toContain("d2");
-    expect(loggedChunkIds).toEqual(sourceIds);
+    expect(loggedChunkIds).toEqual(sourceIds.filter((id) => id !== "d1"));
     // d2 is an expanded-rank judge candidate, not a returned top-k hit, so it is not withheld from
     // any returned source and excluded_count (returned top-k only) omits it.
     expect(res.excluded_count).toBeUndefined();
@@ -545,7 +549,7 @@ describe("reflect challenge mode: decision filter, coverage, persist and ACL", (
     expect(sourceIds).toContain("p0");
     expect(seen.join("\n")).not.toContain("notes/plain-");
     expect(seen.join("\n")).toContain("02-projects/decide.md");
-    expect(loggedChunkIds).toEqual(sourceIds);
+    expect(loggedChunkIds).toEqual(sourceIds.filter((id) => id !== "d1"));
     expect(res.excluded_count).toBe(
       res.sources.filter((source) => source.path.startsWith("notes/plain-")).length,
     );
@@ -803,4 +807,71 @@ describe("reflect challenge mode: decision filter, coverage, persist and ACL", (
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.code).toBe("validation_error");
   });
+});
+
+/** Two more decision chunks, so with k: 1 the judge is shown evidence outside the top-k hits. */
+const extraDecisions: Array<[id: string, path: string, content: string]> = [
+  ["d2", "02-projects/2026-01-02-quorble-b.md", "decision: quorble b"],
+  ["d3", "02-projects/2026-01-03-quorble-c.md", "decision: quorble c"],
+];
+
+it("reflect challenge: a judge call that throws logs top-k only, not the evidence it was shown", async () => {
+  const logged: string[] = [];
+  const throwingRoles: GatewayRoles = {
+    ...mockRoles,
+    judge: async () => {
+      throw new Error("gateway unavailable");
+    },
+  };
+  const { registry, ctx } = harness(throwingRoles, ["read:notes"], {
+    db: cacheDb0(extraDecisions),
+    retrievalLog: (event) => logged.push(...event.hits.map((hit) => hit.chunkId)),
+  });
+  await registry
+    .dispatch(
+      "reflect",
+      { vault: "main", query: '"quorble pattern"', mode: "challenge", k: 1 },
+      ctx,
+    )
+    .catch(() => undefined);
+  expect(logged).toEqual(["c1"]);
+});
+
+it("reflect challenge: a judge that cites one shown chunk outside top-k logs only that chunk, and sources keep every shown chunk", async () => {
+  const logged: string[] = [];
+  const citingRoles: GatewayRoles = {
+    ...mockRoles,
+    judge: async () => ({
+      text: JSON.stringify({
+        verdict: "reconsider",
+        summary: "seen before",
+        categories: [
+          {
+            kind: "REVERSAL",
+            items: [
+              {
+                evidence_paths: ["02-projects/2026-01-02-quorble-b.md"],
+                why_it_matters: "reversed earlier",
+                severity: "medium",
+              },
+            ],
+          },
+        ],
+      }),
+      model: "mock-judge",
+    }),
+  };
+  const { registry, ctx } = harness(citingRoles, ["read:notes"], {
+    db: cacheDb0(extraDecisions),
+    retrievalLog: (event) => logged.push(...event.hits.map((hit) => hit.chunkId)),
+  });
+  const res = un<{ sources: Array<{ chunk_id: string }> }>(
+    await registry.dispatch(
+      "reflect",
+      { vault: "main", query: '"quorble pattern"', mode: "challenge", k: 1 },
+      ctx,
+    ),
+  );
+  expect(res.sources.map((s) => s.chunk_id).sort()).toEqual(["c1", "d1", "d2", "d3"]);
+  expect(logged).toEqual(["c1", "d2"]);
 });
