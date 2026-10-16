@@ -318,6 +318,8 @@ jobs:
       # under Node 26 (folded in to avoid a separate full-suite job); every other leg, including
       # the whole Node 24 column, runs the same full suite without instrumentation.
       - name: test server (vitest under Node; coverage gate on Linux, Node 26)
+        env:
+          VITEST_MAX_WORKERS: ${{ matrix.os == 'macos-latest' && '2' || '' }}
         run: node ./node_modules/vitest/vitest.mjs run ${{ matrix.os == 'ubuntu-latest' && matrix.node == '26' && '--coverage' || '' }}
         working-directory: packages/server
 

@@ -2,6 +2,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { WINDOWS_STALL_TIMEOUT_MS } from "./test/stall-timeouts";
+import { resolveVitestMaxWorkers } from "./test/vitest-max-workers";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
@@ -38,12 +39,13 @@ export default defineConfig({
     // because latency there is warn-only. Oversubscription corrupts measurements before it fails
     // anything.
     //
-    // CI keeps full parallelism: a GitHub runner is dedicated, and capping there would slow every
-    // PR for no reason. `undefined` restores vitest's own default rather than guessing a number.
+    // CI normally keeps full parallelism: `undefined` restores vitest's own default rather than
+    // guessing a number. Jobs that share a smaller runner with the runner agent can set the
+    // explicit VITEST_MAX_WORKERS knob without silently changing every Mac or every ARM host.
     //
     // This bounds ONE process. It cannot bound two agents each starting a capped run — that needs
     // the lock in scripts/with-host-budget.sh, which is what `bun run test:local` uses.
-    maxWorkers: process.env.CI ? undefined : 2,
+    maxWorkers: resolveVitestMaxWorkers(),
     // Windows-only timeout floor. Vitest's 5s default is right for Linux/macOS, where it catches a
     // genuinely slow test — but windows-latest GitHub runners intermittently stall the whole
     // process under load, and a stall times out every in-flight test at once regardless of what it
