@@ -617,16 +617,18 @@ describe("pure-JS no-follow race and platform guards", () => {
   );
 });
 
-// Child process body: flips `<root>/sub` between the real directory and a symlink to `outside`.
+// Child process body: flips `<root>/sub` between the real directory and a symlink to `outside`
+// until the parent creates `stop` (its busy loop never yields to a signal or stdin handler), then
+// reports its flip count. The time cap only bounds a parent that never asks it to stop.
 const FLIP_SCRIPT = `
 const fs = require("node:fs");
-const [root, outside] = process.argv.slice(1);
+const [root, outside, stop] = process.argv.slice(1);
 const sub = root + "/sub";
 const held = root + "/held";
-const end = Date.now() + 4000;
+const end = Date.now() + 10000;
 let flips = 0;
 process.stdout.write("ready\\n");
-while (Date.now() < end) {
+while (Date.now() < end && !fs.existsSync(stop)) {
   try { fs.renameSync(sub, held); fs.symlinkSync(outside, sub, "dir"); flips += 1; } catch {}
   try { fs.unlinkSync(sub); fs.renameSync(held, sub); } catch {}
 }
@@ -979,7 +981,8 @@ describe("pure-JS read verifies the opened descriptor's path", () => {
       mkdirSync(join(root, "sub"));
       writeFileSync(leaf, "INSIDE");
       writeFileSync(join(outside, "note.md"), "OUTSIDE-SECRET");
-      const flipper = spawn(process.execPath, ["-e", FLIP_SCRIPT, root, outside], {
+      const stop = join(outside, "stop");
+      const flipper = spawn(process.execPath, ["-e", FLIP_SCRIPT, root, outside, stop], {
         stdio: ["ignore", "pipe", "ignore"],
       });
       let output = "";
@@ -1005,9 +1008,13 @@ describe("pure-JS read verifies the opened descriptor's path", () => {
           }
         });
       } finally {
+        writeFileSync(stop, "");
+      }
+      try {
+        await waitUntil(() => output.includes("flips="));
+      } finally {
         flipper.kill();
       }
-      await waitUntil(() => output.includes("flips="));
 
       expect(served).toEqual([]);
       expect(attempts).toBeGreaterThan(0);
