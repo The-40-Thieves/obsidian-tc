@@ -47,7 +47,10 @@ assumptions:
   on the same object), and the atomic write opens its temp file `O_EXCL | O_NOFOLLOW` on a random
   name so a planted symlink cannot hijack it.
 - **The host system is trusted.** obsidian-tc does not protect against attacks from
-  co-located processes.
+  co-located processes. That includes a process that can rename directories or files inside the
+  vault: the symlink guards detect a component swapped for a *link*, but an ordinary directory or
+  file renamed into an allowed path mid-read still has that path, so no backend's path check can
+  tell it apart. Such a process can read the vault's files directly anyway.
 - **The server writes two files nobody asked for.** In a vault with a wiki folder it generates
   `index.md` and `log.md` there. They are bounded by the rules in
   [Server-generated wiki pages](#server-generated-wiki-pages): nothing a reader may not read is
