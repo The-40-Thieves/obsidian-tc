@@ -190,7 +190,7 @@ test("packages/server/eval/perf/README.md: a Linear issue link is flagged", () =
 test("docs/superpowers/specs/*.md: a Linear link is flagged (superpowers no longer allowlisted)", () => {
   const violations = findPublicTextViolations([
     {
-      path: "docs/superpowers/specs/2026-07-20-the-459-perf-harness-design.md",
+      path: "docs/superpowers/specs/2026-07-20-perf-harness-design.md",
       content: "[THE-459](https://linear.app/the-40-thieves/issue/THE-459)\n",
     },
   ]);

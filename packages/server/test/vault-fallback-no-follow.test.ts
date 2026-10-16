@@ -1,6 +1,8 @@
-import { linkSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { linkSync, lstatSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const ambientFallback = process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
@@ -501,4 +503,63 @@ describe("pure-JS no-follow race and platform guards", () => {
       vi.resetModules();
     }
   });
+
+  it.skipIf(process.platform === "win32")(
+    "refuses a FIFO swapped in after the leaf check without blocking",
+    { timeout: stallTimeout(4_000) },
+    async (ctx) => {
+      const root = temp("otc-fallback-fifo-");
+      const abs = join(root, "note.md");
+      const prior = join(root, "prior.md");
+      writeFileSync(prior, "prior regular file");
+      const priorStat = lstatSync(prior, { bigint: true });
+      const made = spawnSync("mkfifo", [abs], { encoding: "utf8" });
+      if ((made.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+        ctx.skip("mkfifo is unavailable");
+        return;
+      }
+      expect(made.status, made.stderr).toBe(0);
+
+      vi.doMock("node:fs", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("node:fs")>();
+        return {
+          ...actual,
+          lstatSync: ((path: Parameters<typeof actual.lstatSync>[0], options?: unknown) =>
+            path === abs
+              ? priorStat
+              : actual.lstatSync(path, options as never)) as typeof lstatSync,
+        };
+      });
+      process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = "1";
+      vi.resetModules();
+      // Release the vulnerable blocking open after the two-second assertion budget so the RED run
+      // terminates instead of stranding its worker forever.
+      const writer = spawn(
+        process.execPath,
+        [
+          "-e",
+          "setTimeout(() => { const fs = require('node:fs'); const fd = fs.openSync(process.argv[1], 'w'); fs.closeSync(fd); }, 2250)",
+          abs,
+        ],
+        { stdio: "ignore" },
+      );
+      try {
+        const fifoNotes = await import("../src/vault/notes-io");
+
+        const started = performance.now();
+        const error = refusalOf(() => fifoNotes.readNote(abs));
+        const elapsed = performance.now() - started;
+
+        expect.soft(elapsed).toBeLessThan(2_000);
+        expect.soft(error.code).toBe("path_invalid");
+        expect.soft(error.message).toContain("not a regular file");
+      } finally {
+        writer.kill();
+        if (ambientFallback === undefined) delete process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
+        else process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = ambientFallback;
+        vi.doUnmock("node:fs");
+        vi.resetModules();
+      }
+    },
+  );
 });

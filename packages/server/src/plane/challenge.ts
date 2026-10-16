@@ -6,7 +6,8 @@
 // vendor-KB (knowledge_chunks: severity/mcp_name) data model the converged vault-centric tree
 // does not have; it stays integration-gated (THE-233 integration follow-up).
 import { z } from "zod";
-import { renderEvidenceItem, trimToBoundary } from "../search/evidence";
+import { renderEvidenceItem, renderWikilinkCitations, trimToBoundary } from "../search/evidence";
+import { extractLinks } from "../vault/links";
 import { type EgressFilter, isExcludedPath } from "./egress-filter";
 import { type GatewayRoles, prompt } from "./gateway";
 
@@ -36,6 +37,7 @@ export function isDecisionChunk(hit: { path: string; tags?: string[] | null }): 
 
 export interface EvidenceChunk {
   path: string;
+  chunkId?: string | undefined;
   headings?: string[] | null;
   tags?: string[] | null;
   content: string;
@@ -100,28 +102,122 @@ export interface CitationCheck {
   droppedItems: number;
 }
 
+/** The link target a cited string names: a lone `[[wikilink]]` unwraps to its target, anything else
+ *  is the string itself, with `./` and backslashes normalised. */
+function citedTarget(value: string): string {
+  const links = extractLinks(value);
+  const target = links.length === 1 && links[0]?.raw === value ? links[0].target : value;
+  return target.replace(/\\/g, "/").replace(/^\.\//, "").trim();
+}
+
+interface NormalizedCitation {
+  canonicalPath?: string;
+  scrubReliable: boolean;
+}
+
+/** Normalize only the citation syntaxes the challenge prompt advertises. The result is still a
+ *  vault-relative path; it is never resolved by basename or case-folded. */
+function normalizeCitation(
+  raw: string,
+  numberedEvidence: ReadonlyArray<{ citation: number; path: string }>,
+): NormalizedCitation {
+  const rendered = renderWikilinkCitations(raw.trim(), numberedEvidence);
+  if (rendered.unresolved.length > 0) return { scrubReliable: false };
+  const target = citedTarget(rendered.text.trim());
+  if (target === "") return { scrubReliable: false };
+  return {
+    canonicalPath: /\.md$/i.test(target) ? target : `${target}.md`,
+    scrubReliable: true,
+  };
+}
+
+/** Spellings under which a stripped canonical path may reappear in free text. Substring matching
+ *  is deliberately conservative: a false hit yields neutral text, while a miss can disclose an
+ *  unseen path. */
+function citationSpellings(canonicalPath: string, raw: string): string[] {
+  const noExt = canonicalPath.replace(/\.md$/i, "");
+  const base = noExt.slice(noExt.lastIndexOf("/") + 1);
+  const baseMd = `${base}.md`;
+  return [
+    raw.trim(),
+    canonicalPath,
+    noExt,
+    baseMd,
+    base,
+    `./${canonicalPath}`,
+    `./${noExt}`,
+    `[[${canonicalPath}]]`,
+    `[[${noExt}]]`,
+    `[[${baseMd}]]`,
+    `[[${base}]]`,
+  ]
+    .map((s) => s.toLowerCase())
+    .filter((s) => s !== "");
+}
+
+const STRIPPED_SUMMARY =
+  "Some cited evidence was unavailable; retained findings use supported evidence only.";
+const STRIPPED_RATIONALE = "Rationale omitted: it named evidence that was unavailable.";
+
 /** Keeps only evidence the judge was shown. An item is grounded when at least one of its paths was
  *  shown; its unseen paths are stripped and reported, and an item with no shown path is dropped. A
  *  category left with no items is dropped too. A non-"proceed" verdict left with no supported
- *  category is downgraded to "reconsider" with a neutral summary. */
+ *  category is downgraded to "reconsider" with a neutral summary. The summary and each retained
+ *  item's rationale are replaced when they name stripped evidence, in any spelling. */
 export function checkCitations(
   output: ChallengeOutput,
   shown: ReadonlySet<string>,
+  numberedEvidence: ReadonlyArray<{ citation: number; path: string }> = [],
 ): { output: ChallengeOutput; citations: CitationCheck } {
   const unresolved = new Set<string>();
+  const resolveCitation = (raw: string): string | undefined => {
+    // An exact shown path wins before any normalising: a real note named `[2024] Q3 review.md` must
+    // not be read as numbered citation `[2024]`.
+    const exact = raw.trim();
+    if (shown.has(exact)) return exact;
+    const normalized = normalizeCitation(raw, numberedEvidence);
+    return normalized.canonicalPath !== undefined && shown.has(normalized.canonicalPath)
+      ? normalized.canonicalPath
+      : undefined;
+  };
   let droppedItems = 0;
-  const categories = output.categories.flatMap((cat) => {
+  const grounded = output.categories.flatMap((cat) => {
     const items = cat.items.flatMap((item) => {
-      for (const p of item.evidence_paths) if (!shown.has(p)) unresolved.add(p);
-      const grounded = item.evidence_paths.filter((p) => shown.has(p));
-      if (grounded.length === 0) {
+      const paths = item.evidence_paths.flatMap((path) => {
+        const resolved = resolveCitation(path);
+        if (resolved === undefined) {
+          unresolved.add(path);
+          return [];
+        }
+        return [resolved];
+      });
+      if (paths.length === 0) {
         droppedItems++;
         return [];
       }
-      return [{ ...item, evidence_paths: grounded }];
+      return [{ ...item, evidence_paths: [...new Set(paths)] }];
     });
     return items.length > 0 ? [{ ...cat, items }] : [];
   });
+  const scrubTargets = [...unresolved].map((raw) => ({
+    raw,
+    normalized: normalizeCitation(raw, numberedEvidence),
+  }));
+  const unreliableScrub = scrubTargets.some(({ normalized }) => !normalized.scrubReliable);
+  const strippedSpellings = scrubTargets.flatMap(({ raw, normalized }) =>
+    normalized.canonicalPath === undefined ? [] : citationSpellings(normalized.canonicalPath, raw),
+  );
+  const namesStripped = (text: string): boolean => {
+    if (unreliableScrub) return true;
+    const lower = text.toLowerCase();
+    return strippedSpellings.some((s) => lower.includes(s));
+  };
+  const categories = grounded.map((cat) => ({
+    ...cat,
+    items: cat.items.map((item) =>
+      namesStripped(item.why_it_matters) ? { ...item, why_it_matters: STRIPPED_RATIONALE } : item,
+    ),
+  }));
   // A "proceed" asserts no objection, so it needs no citation. Any other verdict is an objection
   // and survives only while a supported citation backs it, whether the judge's citations were
   // stripped here or it never cited anything.
@@ -133,7 +229,11 @@ export function checkCitations(
           summary: "Insufficient supported evidence to retain the original verdict.",
           categories,
         }
-      : { ...output, categories },
+      : {
+          ...output,
+          summary: namesStripped(output.summary) ? STRIPPED_SUMMARY : output.summary,
+          categories,
+        },
     citations: { unresolved: [...unresolved], droppedItems },
   };
 }
@@ -196,10 +296,10 @@ function buildUserMessage(
  * `judge` role. The caller supplies the (already-retrieved + isDecisionChunk-filtered) evidence
  * — wiring that retrieval and registering the MCP tool are the integration step.
  */
-export async function challengeProposal(
+export async function challengeProposal<E extends EvidenceChunk>(
   roles: GatewayRoles,
   proposal: string,
-  evidence: EvidenceChunk[],
+  evidence: E[],
   contradictions: ContradictionContext[],
   /** THE-934 fix round 1 (Blocking-3): egress.excludePaths, compiled. Undefined -> nothing
    *  excluded. `reflect`'s "challenge" mode and `knowledge_challenge` both retrieve through the
@@ -213,6 +313,11 @@ export async function challengeProposal(
   model: string;
   excludedCount: number;
   citations: CitationCheck;
+  keptEvidence: E[];
+  keptContradictions: ContradictionContext[];
+  /** False when egress exclusion left no evidence: the judge was not called and `output` is a
+   *  placeholder the caller must not surface. */
+  judged: boolean;
 }> {
   const excluded = (p: string): boolean =>
     excludeFilter !== undefined && isExcludedPath(excludeFilter, p);
@@ -224,6 +329,23 @@ export async function challengeProposal(
   );
   const excludedCount =
     evidence.length - keptEvidence.length + (contradictions.length - keptContradictions.length);
+  // The callers refuse an empty evidence set before the filter runs; this is the same refusal for
+  // the set the filter leaves, so the judge is never asked to red-team against nothing.
+  if (keptEvidence.length === 0) {
+    return {
+      output: {
+        verdict: "reconsider",
+        summary: "No evidence to challenge against.",
+        categories: [],
+      },
+      model: "",
+      excludedCount,
+      citations: { unresolved: [], droppedItems: 0 },
+      keptEvidence,
+      keptContradictions,
+      judged: false,
+    };
+  }
   const res = await roles.judge({
     ...prompt(
       CHALLENGE_SYSTEM_PROMPT,
@@ -243,6 +365,15 @@ export async function challengeProposal(
       ...keptEvidence.map((e) => e.path),
       ...keptContradictions.flatMap((c) => [c.source_path, c.conflict_path]),
     ]),
+    keptEvidence.map((e, i) => ({ citation: i + 1, path: e.path })),
   );
-  return { output: checked.output, model: res.model, excludedCount, citations: checked.citations };
+  return {
+    output: checked.output,
+    model: res.model,
+    excludedCount,
+    citations: checked.citations,
+    keptEvidence,
+    keptContradictions,
+    judged: true,
+  };
 }

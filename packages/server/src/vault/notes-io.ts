@@ -7,6 +7,7 @@
 // no-follow on a randomized name so a planted symlink cannot hijack the write (H-4).
 import { randomBytes } from "node:crypto";
 import {
+  type BigIntStats,
   closeSync,
   constants,
   existsSync,
@@ -47,9 +48,10 @@ import {
 import { verifyWalkedDirectories, walkDirectoriesNoFollow } from "./no-follow-walk";
 import { assertCreatableName, contentHash } from "./paths";
 
-// O_NOFOLLOW is POSIX-only (undefined on Windows Node): 0 is a no-op there, and the st_nlink inode
-// check is the cross-platform guard.
+// O_NOFOLLOW and O_NONBLOCK are POSIX-only (undefined on Windows Node): 0 is a no-op there, and the
+// st_nlink inode check is the cross-platform guard.
 const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0;
+const O_NONBLOCK = constants.O_NONBLOCK ?? 0;
 
 // Prefer the native, symlink-safe, TOCTOU-free open when the compiled module is loaded: it follows
 // no symlink in any path component (vault/native-io.ts). Without it, the JS path lstats every
@@ -64,6 +66,20 @@ function nativeRead(io: NativeVaultIo, abs: string): Buffer {
 
 const fallbackReadRefused = (message: string, abs: string): ObsidianTcError =>
   err.aclDenied(`safe open refused the path: ${message}`, { path: abs });
+
+function openRegularRead(abs: string): { fd: number; stat: BigIntStats } {
+  // O_NONBLOCK prevents a swapped FIFO from hanging open; Linux/macOS ignore it for regular-file
+  // reads, so it does not need to be cleared after fstat.
+  const fd = openSync(abs, constants.O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
+  try {
+    const stat = fstatSync(fd, { bigint: true });
+    if (!stat.isFile()) throw err.pathInvalid("not a regular file", { path: abs });
+    return { fd, stat };
+  } catch (e) {
+    closeSync(fd);
+    throw e;
+  }
+}
 
 const readWalkOptions = (abs: string) => ({
   create: false,
@@ -128,8 +144,9 @@ function fallbackOpen(abs: string): number {
   }
 
   let fd: number;
+  let opened: BigIntStats;
   try {
-    fd = openSync(path, constants.O_RDONLY | O_NOFOLLOW);
+    ({ fd, stat: opened } = openRegularRead(path));
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === "ELOOP") {
       throw fallbackReadRefused("refusing symlinked or missing file", path);
@@ -137,7 +154,6 @@ function fallbackOpen(abs: string): number {
     throw e;
   }
   try {
-    const opened = fstatSync(fd, { bigint: true });
     if (opened.dev !== leaf.dev || opened.ino !== leaf.ino) {
       throw fallbackReadRefused("file changed while opening", path);
     }
@@ -517,7 +533,7 @@ export function moveNoReplace(fromAbs: string, toAbs: string): void {
 /** {@link moveNoReplace} without hard links: O_EXCL-create the destination from the source's bytes
  *  (EEXIST is note_exists), then unlink the source; a failure removes the new destination again. */
 function copyExclusiveThenUnlink(fromAbs: string, toAbs: string): void {
-  const src = openSync(fromAbs, constants.O_RDONLY | O_NOFOLLOW);
+  const { fd: src } = openRegularRead(fromAbs);
   let data: Buffer;
   let mode: number;
   try {

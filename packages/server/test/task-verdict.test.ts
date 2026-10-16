@@ -1,5 +1,5 @@
 // THE-726 — the task-verdict producer. Design:
-// docs/superpowers/specs/2026-08-16-the-726-task-verdict-producer-design-v2.md
+// docs/superpowers/specs/2026-08-16-task-verdict-producer-design-v2.md
 //
 // `agent_episodes.task_result` had READERS AND NO WRITER: reflect.ts holds a bad-result episode out
 // of promotion and gates the preference-extraction evidence set, and both were inert at 0 of 630

@@ -23,6 +23,7 @@ import {
   type EvidenceBudget,
   type EvidenceItem,
   type EvidenceSource,
+  renderWikilinkCitations,
 } from "../../../search/evidence";
 import { readGeneration } from "../../../search/generation";
 import type {
@@ -40,6 +41,8 @@ import type { SparseVec } from "../../../search/sparse";
 import { readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
 import type { M7Deps } from "./deps";
 import type { ChallengeCoverage } from "./schemas";
+
+export { renderWikilinkCitations };
 
 /**
  * WP2.2: the shared retrieval state `buildKnowledgeTools` used to build as bare local closures at
@@ -204,29 +207,6 @@ export function reflectSystemPrompt(
 
 export const REFLECT_SYSTEM_PROMPT = reflectSystemPrompt();
 
-/** Render the model's `[n]` markers as `[[path]]` (extension dropped, Obsidian's canonical form)
- *  from the evidence items actually shown to it — deterministic, never trusting the model to emit
- *  links. An `[n]` with no matching item is left as written and returned in `unresolved` (sorted,
- *  unique) so a caller can report it. Existing `[[n]]` wikilinks, `[n](url)` markdown links and
- *  non-integer brackets are not citations and are left alone. */
-export function renderWikilinkCitations(
-  text: string,
-  items: ReadonlyArray<{ citation: number; path: string }>,
-): { text: string; unresolved: number[] } {
-  const pathByCitation = new Map(items.map((i) => [i.citation, i.path]));
-  const unresolved = new Set<number>();
-  const rendered = text.replace(/(?<!\[)\[(\d+)\](?![\](])/g, (marker, digits: string) => {
-    const n = Number(digits);
-    const path = pathByCitation.get(n);
-    if (path === undefined) {
-      unresolved.add(n);
-      return marker;
-    }
-    return `[[${path.replace(/\.md$/i, "")}]]`;
-  });
-  return { text: rendered, unresolved: [...unresolved].sort((a, b) => a - b) };
-}
-
 /** THE-132: greedy budget packer — walk fused-rank order, spend token costs until the budget
  *  binds. Pure and exported for the packing pins. */
 export function packBudget<T>(
@@ -263,6 +243,8 @@ export const CHALLENGE_EVIDENCE_BUDGET: EvidenceBudget = {
   maxItems: CHALLENGE_RECALL,
   maxCharsPerItem: EVIDENCE_TRUNCATE,
   maxPerNote: 6,
+  // One chunk is too little historical breadth for a reliable adversarial challenge.
+  lowCoverageBelow: 2,
 };
 
 /** One bounded retry when the normal recall does not contain enough decision-bearing chunks. */
@@ -312,6 +294,23 @@ export function withCitationCheck(
     ...coverage,
     unresolved_evidence_paths: citations.unresolved,
     ungrounded_items_dropped: citations.droppedItems,
+  };
+}
+
+/** Reconciles the evidence counts after the model-egress filter has made its final cut. `truncated`
+ *  counts the kept items that were trimmed; omitted, it is only clamped so it cannot exceed `kept`. */
+export function withEgressCoverage(
+  coverage: ChallengeCoverage,
+  kept: number,
+  truncated: number = Math.min(coverage.truncated, kept),
+): ChallengeCoverage {
+  const lowCoverageBelow = CHALLENGE_EVIDENCE_BUDGET.lowCoverageBelow;
+  return {
+    ...coverage,
+    kept,
+    truncated,
+    low_coverage:
+      coverage.low_coverage || (lowCoverageBelow !== undefined && kept < lowCoverageBelow),
   };
 }
 
