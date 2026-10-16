@@ -31,7 +31,7 @@ export function buildDataviewTools(deps: M4Deps): ToolDefinition[] {
       name: "validate_dql",
       domain: "automation",
       description:
-        "Parse a Dataview DQL query without executing it. Returns the AST or a parse-error location.",
+        "Check a Dataview DQL query by running it through Dataview and reporting only whether it succeeded. Returns `valid`; an invalid query also returns `error.message`. No rows are returned.",
       inputSchema: z.object({ vault: VaultId, dql: z.string().min(1) }).strict(),
       outputSchema: ValidateDqlOutput,
       requiredScopes: ["read:dataview"],

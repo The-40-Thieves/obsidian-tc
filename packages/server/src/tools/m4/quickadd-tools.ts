@@ -72,7 +72,9 @@ export function buildQuickAddTools(deps: M4Deps): ToolDefinition[] {
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
         ctx.markEffectCommitted?.();
-        const payload = parseBridgePayload(TriggerQuickAddBridge, result, "quickadd");
+        const payload = parseBridgePayload(TriggerQuickAddBridge, result, "quickadd", {
+          effectCommitted: true,
+        });
         return { vault: v.id, action_name: input.action_name, fired_at: payload.fired_at };
       },
     }),

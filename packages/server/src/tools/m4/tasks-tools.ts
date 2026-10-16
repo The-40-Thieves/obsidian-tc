@@ -286,15 +286,21 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
       name: "tasks_filter",
       domain: "automation",
       description:
-        "Run a Tasks-plugin filter expression (its DSL) via the companion bridge, with optional grouping/sorting. Requires the Tasks plugin; if it is unavailable, use list_tasks for native status/priority/tag/due filtering.",
+        "Forward a Tasks-plugin filter expression (its DSL) through the companion bridge. The Tasks plugin exposes no programmatic filter API, so the companion reports it as unreachable and the other inputs are ignored; use list_tasks for native status/priority/tag/due filtering.",
       inputSchema: z
         .object({
           vault: VaultId,
           filter: z.string().min(1),
-          group_by: z.string().optional(),
+          group_by: z
+            .string()
+            .optional()
+            .describe("Accepted for compatibility; ignored by the companion route."),
           sort_by: z.string().optional(),
           limit: z.number().int().positive().max(1000).optional(),
-          cursor: z.string().optional(),
+          cursor: z
+            .string()
+            .optional()
+            .describe("Accepted for compatibility; ignored by the companion route."),
         })
         .strict(),
       // items/total are always the ACL-filtered, recomputed values. Companion sibling fields are

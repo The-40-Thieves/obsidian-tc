@@ -290,7 +290,7 @@ const COMPANION_PROJECTION_CASES: CompanionProjectionCase[] = [
     input: { template: "Templates/daily.md", target: "Daily/2026-10-15.md" },
     result: {
       template: "Templates/daily.md",
-      target: ".trash/secret.md",
+      target: "pages/open.md",
       created_at: "2026-10-15T00:00:00.000Z",
       hits: [INCIDENT],
     },
@@ -656,6 +656,68 @@ describe.skipIf(process.platform === "win32")(
         expect((r.data as { items: unknown[] }).items).toEqual(items);
         expect((r.data as { total: number }).total).toBe(5);
       }
+    });
+
+    it("judges a Dataview Link stored directly under a key named fields, not its values", () => {
+      const v = vault(["tasks"], {});
+      const link = (path: string) => ({ path, type: "file", embed: false });
+      const kept = { path: "pages/open.md", fields: link("pages/open.md") };
+      const plain = { path: "pages/open.md", fields: { path: "C:\\Users\\x", type: "contact" } };
+      const rows = [
+        { path: "pages/open.md", fields: link(".trash/secret.md") },
+        { path: "pages/open.md", fields: [link(".trash/secret.md")] },
+        { path: "pages/open.md", fields: { type: "header", path: "wiki/secret.md" } },
+        kept,
+        plain,
+      ];
+
+      const out = filterBridgeItemsByAcl(v.acl, v.root, ["*"], rows, { tool: "t" });
+
+      expect(out).toEqual([kept, plain]);
+    });
+
+    it("leaves plain path-keyed maps nested deeper under fields unchecked", () => {
+      const v = vault(["tasks"], {});
+      const rows = [
+        { path: "pages/open.md", fields: { home: { path: "C:\\Users\\x" } } },
+        { path: "pages/open.md", fields: { cover: { path: "assets/img.png" } } },
+        { path: "pages/open.md", fields: { list: [{ path: "C:\\Users\\x" }] } },
+      ];
+
+      const out = filterBridgeItemsByAcl(v.acl, v.root, ["*"], rows, { tool: "t" });
+
+      expect(out).toEqual(rows);
+    });
+
+    describe.each(ITEM_LIST_FAMILIES)("$tool: links nested under fields", (f) => {
+      it("drops a row whose fields contain an unreadable Link object", async () => {
+        const outerPath =
+          f.tool === "makemd_query" ? { note_path: "pages/open.md" } : { path: "pages/open.md" };
+        const row = {
+          ...outerPath,
+          fields: {
+            owner: "Bob",
+            related: { value: { path: ".trash/secret.md", type: "file" } },
+          },
+        };
+        const v = makeM4Vault({
+          files: { "pages/open.md": "open text", ".trash/secret.md": MARK },
+          acl: {},
+          installed: f.installed,
+          routes: {
+            [f.route]: { body: { ok: true, result: { items: [row], total: 1 } } },
+          },
+        });
+        cleanups.push(v.cleanup);
+
+        const r = await v.call(f.tool, { vault: "test", ...f.input });
+
+        expect(r.ok, dump(r)).toBe(true);
+        if (r.ok) {
+          expect((r.data as { items: unknown[] }).items).toEqual([]);
+          expect((r.data as { total: number }).total).toBe(0);
+        }
+      });
     });
 
     describe.each(ITEM_LIST_FAMILIES)("$tool: listed result fields", (f) => {

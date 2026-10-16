@@ -82,6 +82,14 @@ describe("execute_template", () => {
     },
   };
 
+  it("describes that it returns the path Templater actually created", () => {
+    v = makeM4Vault({ installed: ["templater"] });
+    const tool = v.registry.list().find((candidate) => candidate.name === "execute_template");
+    expect(tool?.description).toContain(
+      "Returns the vault-relative path Templater actually created",
+    );
+  });
+
   it("is HITL-floored: no elicit token => elicit_required before any bridge call", async () => {
     v = makeM4Vault({ installed: ["templater"], routes });
     const res = await v.call("execute_template", input);
@@ -101,6 +109,64 @@ describe("execute_template", () => {
     expect(body.template).toBe("Templates/daily.md");
     expect(body.target).toBe("Daily/2026-06-18.md");
     expect(body.overwrite).toBe(false);
+  });
+
+  it("returns the path reported by Templater instead of the requested target", async () => {
+    const created = "Daily/created-by-templater.md";
+    v = makeM4Vault({
+      installed: ["templater"],
+      files: { [created]: "created" },
+      routes: {
+        "POST /obsidian-tc/v1/templater/execute": {
+          body: { ok: true, result: { target: created, created_at: "t" } },
+        },
+      },
+    });
+
+    const res = await v.callConfirmed("execute_template", input);
+
+    expect(res.ok).toBe(true);
+    if (res.ok) expect((res.data as Record<string, unknown>).target).toBe(created);
+  });
+
+  it("does not reveal a reported created path outside the read ACL", async () => {
+    const created = "Secret/created.md";
+    v = makeM4Vault({
+      installed: ["templater"],
+      files: { [created]: "created" },
+      acl: { readPaths: ["Templates/**", "Daily/**"], writePaths: ["Daily/**"] },
+      routes: {
+        "POST /obsidian-tc/v1/templater/execute": {
+          body: { ok: true, result: { target: created, created_at: "t" } },
+        },
+      },
+    });
+
+    const res = await v.callConfirmed("execute_template", input);
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.error.code).toBe("acl_denied");
+      // The template already ran; the refusal is about what may be revealed, not about the effect.
+      expect(res.error.details).toMatchObject({ effect_committed: true });
+    }
+  });
+
+  it("reports success for a requested target the caller may write but not read", async () => {
+    v = makeM4Vault({
+      installed: ["templater"],
+      acl: { readPaths: ["Templates/**"], writePaths: ["Daily/**"] },
+      routes: {
+        "POST /obsidian-tc/v1/templater/execute": {
+          body: { ok: true, result: { target: "Daily/2026-06-18.md", created_at: "t" } },
+        },
+      },
+    });
+
+    const res = await v.callConfirmed("execute_template", input);
+
+    expect(res.ok).toBe(true);
+    if (res.ok) expect((res.data as Record<string, unknown>).target).toBe("Daily/2026-06-18.md");
   });
 
   it("enforces the target write ACL (after confirmation, before the bridge)", async () => {

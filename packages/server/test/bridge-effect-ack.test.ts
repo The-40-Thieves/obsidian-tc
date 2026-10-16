@@ -93,6 +93,8 @@ describe.each(CASES)("$tool malformed post-effect acknowledgement", (testCase) =
     if (!result.ok) {
       expect(result.error.code).toBe("plugin_incompatible");
       expect(result.error.retryable).toBe(false);
+      expect(result.error.message).toMatch(/action may already have taken effect/i);
+      expect(result.error.details).toMatchObject({ effect_committed: true });
     }
     expect(marked).toBe(1);
     expect(v.bridgeRequests).toHaveLength(1);

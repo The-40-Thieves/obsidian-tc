@@ -208,7 +208,12 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
             timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
           });
           ctx.markEffectCommitted?.();
-          const payload = parseBridgePayload(ExecuteCommandBridge, result, "obsidian-tc-companion");
+          const payload = parseBridgePayload(
+            ExecuteCommandBridge,
+            result,
+            "obsidian-tc-companion",
+            { effectCommitted: true },
+          );
           return {
             vault: v.id,
             command_id: input.command_id,

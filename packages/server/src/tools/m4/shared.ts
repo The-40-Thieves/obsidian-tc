@@ -98,17 +98,37 @@ export function bridgeTimeouts(deps: M4Deps, vaultId: string): BridgeTimeouts {
 
 /** Validate and project a companion result onto the route's declared shape. Zod object schemas
  *  strip unknown keys here, so a companion cannot silently add fields to the public tool output. */
-export function parseBridgePayload<T>(schema: ZodType<T>, value: unknown, plugin: string): T {
+export function parseBridgePayload<T>(
+  schema: ZodType<T>,
+  value: unknown,
+  plugin: string,
+  opts: { effectCommitted?: boolean } = {},
+): T {
   const parsed = schema.safeParse(value);
-  if (!parsed.success)
-    throw err.pluginIncompatible("companion returned an unexpected response payload", {
-      plugin,
-      issues: parsed.error.issues.map((issue) => ({
-        path: issue.path.join("."),
-        code: issue.code,
-      })),
-    });
+  if (!parsed.success) {
+    const message = "companion returned an unexpected response payload";
+    const issues = parsed.error.issues.map((issue) => ({
+      path: issue.path.join("."),
+      code: issue.code,
+    }));
+    if (opts.effectCommitted) throw effectCommittedIncompatible(message, plugin, { issues });
+    throw err.pluginIncompatible(message, { plugin, issues });
+  }
   return parsed.data;
+}
+
+/** An unusable acknowledgement after a side-effecting bridge call: the action may already have
+ *  happened, so the caller must not blindly retry it. */
+export function effectCommittedIncompatible(
+  message: string,
+  plugin: string,
+  details: Record<string, unknown> = {},
+): ObsidianTcError {
+  return err.pluginIncompatible(`${message}; the action may already have taken effect`, {
+    plugin,
+    effect_committed: true,
+    ...details,
+  });
 }
 
 /**

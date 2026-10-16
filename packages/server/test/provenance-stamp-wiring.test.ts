@@ -349,7 +349,9 @@ describe("frontmatter stamp", () => {
   });
 
   const templaterRoutes = {
-    "POST /obsidian-tc/v1/templater/execute": { body: { ok: true, result: { created_at: "t" } } },
+    "POST /obsidian-tc/v1/templater/execute": {
+      body: { ok: true, result: { target: "out/new.md", created_at: "t" } },
+    },
   };
   const plugin = (info: FakeRequestInfo, root: string) => {
     if (!info.url.endsWith("/templater/execute")) return;
@@ -409,6 +411,89 @@ describe("frontmatter stamp", () => {
     }
     expect(stampOf(b.read("out/new.md"))).toMatchObject({ principal: "alice", session: "sess-A" });
   });
+
+  it("never stamps a note the companion merely REPORTS, only the one this call created", async () => {
+    const human = "# existing human note\n";
+    const b = await boot({
+      stamp: { frontmatter: true },
+      routes: {
+        "POST /obsidian-tc/v1/templater/execute": {
+          body: { ok: true, result: { target: "out/other.md", created_at: "t" } },
+        },
+      },
+      onBridge: plugin,
+    });
+    b.put("tpl.md", "template");
+    b.put("out/other.md", human);
+
+    const result = await b.confirmed(
+      "execute_template",
+      { vault: VAULT, template: "tpl.md", target: "out/new.md" },
+      ALICE,
+    );
+
+    expect(result.ok).toBe(true);
+    expect(b.read("out/other.md")).toBe(human);
+    if (result.ok) {
+      expect(result.data).toMatchObject({ target: "out/other.md" });
+      expect(result.data).not.toHaveProperty("content_hash");
+    }
+    expect(stampOf(b.read("out/new.md"))).toMatchObject({ principal: "alice" });
+  });
+
+  it("stamps the created note when the companion echoes the target without its .md", async () => {
+    const b = await boot({
+      stamp: { frontmatter: true },
+      routes: {
+        "POST /obsidian-tc/v1/templater/execute": {
+          body: { ok: true, result: { target: "out/new", created_at: "t" } },
+        },
+      },
+      onBridge: plugin,
+    });
+    b.put("tpl.md", "template");
+
+    const result = await b.confirmed(
+      "execute_template",
+      { vault: VAULT, template: "tpl.md", target: "out/new" },
+      ALICE,
+    );
+
+    expect(result.ok, JSON.stringify(result)).toBe(true);
+    if (result.ok) expect(result.data).toMatchObject({ target: "out/new.md" });
+    expect(stampOf(b.read("out/new.md"))).toMatchObject({ principal: "alice" });
+  });
+
+  it.each(["", ".", "../escape.md"])(
+    "keeps the stamp and the effect_committed signal when the reported path is unusable (%j)",
+    async (reported) => {
+      const b = await boot({
+        stamp: { frontmatter: true },
+        routes: {
+          "POST /obsidian-tc/v1/templater/execute": {
+            body: { ok: true, result: { target: reported, created_at: "t" } },
+          },
+        },
+        onBridge: plugin,
+      });
+      b.put("tpl.md", "template");
+
+      const result = await b.confirmed(
+        "execute_template",
+        { vault: VAULT, template: "tpl.md", target: "out/new.md" },
+        ALICE,
+      );
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe("plugin_incompatible");
+        expect(result.error.retryable).toBe(false);
+        expect(result.error.message).toMatch(/action may already have taken effect/i);
+        expect(result.error.details).toMatchObject({ effect_committed: true });
+      }
+      expect(stampOf(b.read("out/new.md"))).toMatchObject({ principal: "alice" });
+    },
+  );
 
   it("preserves a concurrent edit while stamping a Templater-created note and reports the skip", async () => {
     const b = await boot({

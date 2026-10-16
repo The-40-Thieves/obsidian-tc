@@ -129,6 +129,14 @@ describe("tasks_filter", () => {
   let v: M4Vault | undefined;
   afterEach(() => v?.cleanup());
 
+  it("documents that the companion reports Tasks unreachable and points at list_tasks", () => {
+    v = makeM4Vault({ installed: ["tasks"] });
+    const tool = v.registry.list().find((candidate) => candidate.name === "tasks_filter");
+    expect(tool?.description).toContain("exposes no programmatic filter API");
+    expect(tool?.description).not.toContain("optional sorting");
+    expect(tool?.description).toContain("use list_tasks");
+  });
+
   it("proxies a filter expression to the bridge", async () => {
     v = makeM4Vault({
       installed: ["tasks"],
