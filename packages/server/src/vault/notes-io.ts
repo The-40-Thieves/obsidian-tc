@@ -114,6 +114,9 @@ function mapNativeReadError(e: unknown, abs: string): never {
     if (leaf.isSymbolicLink()) {
       throw fallbackReadRefused("refusing symlinked or missing file", path);
     }
+    if (!leaf.isFile()) {
+      throw err.pathInvalid("not a regular file", { path });
+    }
   } catch (error) {
     if (error instanceof ObsidianTcError) throw error;
     if ((error as NodeJS.ErrnoException).code === "ENOENT") missingReadPath(path);

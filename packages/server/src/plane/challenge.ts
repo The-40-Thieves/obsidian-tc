@@ -7,7 +7,7 @@
 // does not have; it stays integration-gated (THE-233 integration follow-up).
 import { z } from "zod";
 import { renderEvidenceItem, renderWikilinkCitations, trimToBoundary } from "../search/evidence";
-import { extractLinks } from "../vault/links";
+import { extractLinks, normalizeLinkTarget } from "../vault/links";
 import { type EgressFilter, isExcludedPath } from "./egress-filter";
 import { type GatewayRoles, prompt } from "./gateway";
 
@@ -107,7 +107,7 @@ export interface CitationCheck {
 function citedTarget(value: string): string {
   const links = extractLinks(value);
   const target = links.length === 1 && links[0]?.raw === value ? links[0].target : value;
-  return target.replace(/\\/g, "/").replace(/^\.\//, "").trim();
+  return normalizeLinkTarget(target).trim();
 }
 
 interface NormalizedCitation {
@@ -121,6 +121,15 @@ function normalizeCitation(
   raw: string,
   numberedEvidence: ReadonlyArray<{ citation: number; path: string }>,
 ): NormalizedCitation {
+  // A numbered citation names its shown item directly. Rendering it as `[[...]]` first would split
+  // a path holding `#`, `|` or `]` into a different link target.
+  const numbered = /^\[(\d+)\]$/.exec(raw.trim());
+  if (numbered) {
+    const path = numberedEvidence.find((e) => e.citation === Number(numbered[1]))?.path;
+    return path === undefined
+      ? { scrubReliable: false }
+      : { canonicalPath: path, scrubReliable: true };
+  }
   const rendered = renderWikilinkCitations(raw.trim(), numberedEvidence);
   if (rendered.unresolved.length > 0) return { scrubReliable: false };
   const target = citedTarget(rendered.text.trim());
@@ -131,28 +140,49 @@ function normalizeCitation(
   };
 }
 
-/** Spellings under which a stripped canonical path may reappear in free text. Substring matching
- *  is deliberately conservative: a false hit yields neutral text, while a miss can disclose an
- *  unseen path. */
+/** A bare name shorter than this is too common a word to scrub: a basename `a` would otherwise wipe
+ *  every rationale containing the letter. Its full-path and wikilink forms still match. */
+const MIN_BARE_SPELLING = 4;
+
+/** Spellings under which a stripped canonical path may reappear in free text: the path and its
+ *  basename, each as written, dot-relative, wikilinked, and slugged (spaces to `-` or `_`, or
+ *  percent-encoded). Matching is conservative: a false hit yields neutral text, while a miss can
+ *  disclose an unseen path. */
 function citationSpellings(canonicalPath: string, raw: string): string[] {
   const noExt = canonicalPath.replace(/\.md$/i, "");
   const base = noExt.slice(noExt.lastIndexOf("/") + 1);
-  const baseMd = `${base}.md`;
-  return [
-    raw.trim(),
-    canonicalPath,
-    noExt,
-    baseMd,
-    base,
-    `./${canonicalPath}`,
-    `./${noExt}`,
-    `[[${canonicalPath}]]`,
-    `[[${noExt}]]`,
-    `[[${baseMd}]]`,
-    `[[${base}]]`,
-  ]
-    .map((s) => s.toLowerCase())
-    .filter((s) => s !== "");
+  const spellings = [raw.trim(), canonicalPath, noExt, `${base}.md`, base].flatMap((name) =>
+    [name, name.replace(/ /g, "-"), name.replace(/ /g, "_"), encodeURI(name)].flatMap((s) => [
+      s,
+      `./${s}`,
+      `[[${s}]]`,
+    ]),
+  );
+  return [...new Set(spellings.map((s) => s.toLowerCase()))].filter(
+    (s) => s !== "" && (!isBareName(s) || s.length >= MIN_BARE_SPELLING),
+  );
+}
+
+/** A name with no folder, extension or bracket: the only spelling a short word could collide with. */
+const isBareName = (s: string): boolean => !/[./[]/.test(s);
+
+/** The path-like pieces a cited string may hold. A malformed citation can pack several paths into one
+ *  string (`a.md, b.md`, `a.md b.md`); each is scrubbed on its own as well as the whole string. */
+function citedPieces(raw: string): string[] {
+  const parts = raw.split(/[,;\n]+/);
+  const mdPaths = raw.match(/[^\s,;]+\.md\b/gi) ?? [];
+  return [...new Set([...parts, ...mdPaths].map((p) => p.trim()))].filter((p) => p !== "");
+}
+
+const isNameChar = (c: string | undefined): boolean => c !== undefined && /[\p{L}\p{N}_]/u.test(c);
+
+/** True when `spelling` occurs in `lower` at a path-token boundary, not flanked by a letter, digit or
+ *  underscore: `a.md` matches in `Notes/a.md` but not in `data.md`. */
+function containsSpelling(lower: string, spelling: string): boolean {
+  for (let at = lower.indexOf(spelling); at !== -1; at = lower.indexOf(spelling, at + 1)) {
+    if (!isNameChar(lower[at - 1]) && !isNameChar(lower[at + spelling.length])) return true;
+  }
+  return false;
 }
 
 const STRIPPED_SUMMARY =
@@ -199,10 +229,13 @@ export function checkCitations(
     });
     return items.length > 0 ? [{ ...cat, items }] : [];
   });
-  const scrubTargets = [...unresolved].map((raw) => ({
-    raw,
-    normalized: normalizeCitation(raw, numberedEvidence),
-  }));
+  const scrubTargets = [...unresolved].flatMap((raw) => [
+    { raw, normalized: normalizeCitation(raw, numberedEvidence) },
+    ...citedPieces(raw).map((piece) => ({
+      raw: piece,
+      normalized: normalizeCitation(piece, numberedEvidence),
+    })),
+  ]);
   const unreliableScrub = scrubTargets.some(({ normalized }) => !normalized.scrubReliable);
   const strippedSpellings = scrubTargets.flatMap(({ raw, normalized }) =>
     normalized.canonicalPath === undefined ? [] : citationSpellings(normalized.canonicalPath, raw),
@@ -210,7 +243,7 @@ export function checkCitations(
   const namesStripped = (text: string): boolean => {
     if (unreliableScrub) return true;
     const lower = text.toLowerCase();
-    return strippedSpellings.some((s) => lower.includes(s));
+    return strippedSpellings.some((s) => containsSpelling(lower, s));
   };
   const categories = grounded.map((cat) => ({
     ...cat,

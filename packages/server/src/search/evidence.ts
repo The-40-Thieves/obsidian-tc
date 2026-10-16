@@ -142,6 +142,11 @@ function dedupKey(s: EvidenceSource): string {
   return `p:${s.path.length}:${s.path}:${s.content.length}:${s.content}`;
 }
 
+/** Whether `count` falls under a coverage floor; an omitted floor never does. */
+export function belowCoverageFloor(count: number, lowCoverageBelow: number | undefined): boolean {
+  return lowCoverageBelow !== undefined && count < lowCoverageBelow;
+}
+
 /**
  * Build the evidence set. Input order is treated as rank order and preserved.
  *
@@ -238,7 +243,7 @@ export function buildEvidence(
     lowCoverage:
       items.length === 0 ||
       stats.droppedPerNoteQuota + stats.droppedItemCap + stats.unexaminedAfterBudget > 0 ||
-      (budget.lowCoverageBelow !== undefined && items.length < budget.lowCoverageBelow) ||
+      belowCoverageFloor(items.length, budget.lowCoverageBelow) ||
       // A set built entirely from duplicates saw less distinct material than its candidate count
       // suggests; that is a coverage fact, not a bookkeeping one.
       (dropped > 0 && items.length < budget.maxItems && stats.droppedDuplicate > items.length),
