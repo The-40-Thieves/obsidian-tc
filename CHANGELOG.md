@@ -3050,7 +3050,7 @@ A relation has two ends, so `link_entities` and `unlink_entities` now require th
   tool-call episodes without writing synthetic rows that bypass every real producer in the
   system, which would measure the general retrieval plane's text search (already covered by
   `eval/run.ts`'s golden set) while mislabeling it as experiential-tier performance. Verdict:
-  genuinely poor fit — documented in `packages/server/eval/THE-707-experiential-benchmark-applicability.md`
+  genuinely poor fit — documented in `packages/server/eval/experiential-benchmark-applicability.md`
   rather than forced into a misleading adapter.
 - **Source-agnostic highlight-import format + Readwise adapter, staged via `capture_queue`
   (#839, THE-650).** Read-later highlights (Readwise Reader, the live canonical source now that
