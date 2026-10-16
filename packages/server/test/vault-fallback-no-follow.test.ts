@@ -399,6 +399,59 @@ describe("pure-JS no-follow race and platform guards", () => {
     },
   );
 
+  it.runIf(process.platform === "linux" && directorySymlinkOk)(
+    "falls back to the ancestor re-walk when the proc fd lookup is unavailable",
+    async () => {
+      const root = temp("otc-fallback-no-proc-vault-");
+      const outside = temp("otc-fallback-no-proc-outside-");
+      const sub = join(root, "sub");
+      const held = join(root, "held");
+      const leaf = join(sub, "note.md");
+      mkdirSync(sub);
+      writeFileSync(leaf, "INSIDE");
+      writeFileSync(join(outside, "note.md"), "OUTSIDE-SECRET");
+      let swapped = false;
+      const readlink = vi.fn(() => {
+        const error = new Error("procfs unavailable") as NodeJS.ErrnoException;
+        error.code = "ENOENT";
+        throw error;
+      });
+
+      vi.doMock("node:fs", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("node:fs")>();
+        return {
+          ...actual,
+          lstatSync: ((path: Parameters<typeof actual.lstatSync>[0], options?: unknown) => {
+            if (path === leaf && !swapped) {
+              swapped = true;
+              actual.renameSync(sub, held);
+              actual.symlinkSync(outside, sub, "dir");
+            }
+            return actual.lstatSync(path, options as never);
+          }) as typeof actual.lstatSync,
+          readlinkSync: readlink,
+        };
+      });
+      process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = "1";
+      vi.resetModules();
+      try {
+        const racedNotes = await import("../src/vault/notes-io");
+
+        const error = refusalOf(() => racedNotes.readNote(leaf));
+
+        expect(swapped).toBe(true);
+        expect(readlink).toHaveBeenCalledOnce();
+        expect(error.code).toBe("acl_denied");
+        expect(error.message).toContain("path component changed while opening");
+      } finally {
+        if (ambientFallback === undefined) delete process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
+        else process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = ambientFallback;
+        vi.doUnmock("node:fs");
+        vi.resetModules();
+      }
+    },
+  );
+
   it("normalizes a Windows path before splitting its components", async () => {
     const abs = "C:/vault/sub/n.md";
     const leaf = {
