@@ -49,10 +49,13 @@ function scanPathValues(values: unknown[]): BridgePathScan {
   let invalid = false;
   for (const value of values) {
     if (typeof value !== "string" || value.length === 0) continue;
-    found = true;
     try {
-      paths.push(normalizeVaultPath(value));
+      const normalized = normalizeVaultPath(value);
+      if (normalized.length === 0) continue;
+      found = true;
+      paths.push(normalized);
     } catch {
+      found = true;
       invalid = true;
     }
   }
