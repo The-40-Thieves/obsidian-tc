@@ -194,6 +194,12 @@ jobs:
           restore-keys: bun-${{ runner.os }}-
       - name: install (skip napi build -> no .node)
         run: bun install --frozen-lockfile --ignore-scripts
+      - name: pre-warm shared Bun runtime transpiler cache
+        # Bun #34210 is safe here: the regex Worker imports only builtins; re-check before a Worker imports modules.
+        # An optimisation only: a failed warm-up leaves the tests to fill the cache themselves.
+        continue-on-error: true
+        run: node scripts/warm-bun-cache.mjs
+        working-directory: packages/server
       - name: server tests on pure-JS fallback
         run: node ./node_modules/vitest/vitest.mjs run
         working-directory: packages/server

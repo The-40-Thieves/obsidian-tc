@@ -314,6 +314,12 @@ jobs:
       - name: build server
         run: bun run build
         working-directory: packages/server
+      - name: pre-warm shared Bun runtime transpiler cache
+        # Bun #34210 is safe here: the regex Worker imports only builtins; re-check before a Worker imports modules.
+        # An optimisation only: a failed warm-up leaves the tests to fill the cache themselves.
+        continue-on-error: true
+        run: node scripts/warm-bun-cache.mjs
+        working-directory: packages/server
       # The v8 coverage gate is platform- and runtime-independent, so it runs once here on Linux
       # under Node 26 (folded in to avoid a separate full-suite job); every other leg, including
       # the whole Node 24 column, runs the same full suite without instrumentation.
@@ -404,6 +410,12 @@ jobs:
       - uses: ./.github/actions/setup-repo
         with:
           node-required: 'true'
+      - name: pre-warm shared Bun runtime transpiler cache
+        # Bun #34210 is safe here: the regex Worker imports only builtins; re-check before a Worker imports modules.
+        # An optimisation only: a failed warm-up leaves the tests to fill the cache themselves.
+        continue-on-error: true
+        run: node scripts/warm-bun-cache.mjs
+        working-directory: packages/server
       - name: rate-limit suites against a real redis
         env:
           REDIS_URL: redis://127.0.0.1:6379
