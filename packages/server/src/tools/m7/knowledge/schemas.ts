@@ -317,7 +317,7 @@ export const ReflectOutput = z.object({
   coverage: ChallengeCoverageSchema.optional(),
   sources: z.array(SourceRef),
   persisted: z.object({ path: z.string() }).optional(),
-  /** THE-934: candidates egress.excludePaths dropped. Omitted (not zero) when nothing excluded. */
+  /** Top-k sources whose text egress.excludePaths withheld from the model (ids stay in `sources`; degraded mode counts would-be-withheld hits). Omitted when none. */
   excluded_count: z.number().int().nonnegative().optional(),
   unresolved_citations: z
     .array(z.number().int().nonnegative())
