@@ -19,6 +19,7 @@ import {
 import { allChunkPaths, ensureAclPathSet } from "../../../search/acl_path_set";
 import type { ColbertMatrix } from "../../../search/colbert";
 import {
+  belowCoverageFloor,
   buildEvidence,
   type EvidenceBudget,
   type EvidenceItem,
@@ -309,8 +310,7 @@ export function withEgressCoverage(
     ...coverage,
     kept,
     truncated,
-    low_coverage:
-      coverage.low_coverage || (lowCoverageBelow !== undefined && kept < lowCoverageBelow),
+    low_coverage: coverage.low_coverage || belowCoverageFloor(kept, lowCoverageBelow),
   };
 }
 

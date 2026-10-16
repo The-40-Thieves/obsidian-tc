@@ -20,7 +20,7 @@ import { DEFAULT_SCAN_LIMIT, nextOffsetCursor, offsetOf } from "../../util/pagin
 import { drainYielding } from "../../util/scan-steps";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { requireConfirmation } from "../../vault/hitl";
-import { buildVaultIndex, resolveTarget } from "../../vault/links";
+import { buildVaultIndex, normalizeLinkTarget, resolveTarget } from "../../vault/links";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { pruneHubLinks } from "../../vault/prune";
@@ -47,7 +47,7 @@ import type { M1Deps } from "./shared";
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 function normTarget(t: string): string {
-  return t.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\.md$/i, "").trim().toLowerCase();
+  return normalizeLinkTarget(t).replace(/\.md$/i, "").trim().toLowerCase();
 }
 
 // ── output schemas (THE-417 Phase 1) ────────────────────────────────────────
