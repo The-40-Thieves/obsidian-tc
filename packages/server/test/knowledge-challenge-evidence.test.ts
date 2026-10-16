@@ -323,7 +323,7 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
     expect(composed).toContain("Public/d0.md");
   });
 
-  it("a judge call that throws still logs the retrieval it ran on, once", async () => {
+  it("a judge call that throws logs nothing, since the judge cited no evidence", async () => {
     const db = openMemoryDb();
     provisionCacheDb(db);
     seedChunkAt(db, "pub1", "Public/decision.md", QVEC);
@@ -351,7 +351,53 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
         ctx,
       )
       .catch(() => undefined);
-    expect(logged).toEqual([["pub1"]]);
+    expect(logged).toEqual([]);
+  });
+
+  it("a judge call that succeeds logs only the evidence the judge cited, not every shown chunk", async () => {
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    seedChunkAt(db, "pub1", "Public/decision.md", QVEC);
+    seedChunkAt(db, "pub2", "Public/other-decision.md", QVEC);
+
+    const unrestricted = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
+    const shown: string[] = [];
+    const logged: string[] = [];
+    const citingJudge: GatewayRoles = {
+      ...mockJudgeCapturing(() => undefined),
+      judge: async (req) => {
+        shown.push(req.messages.map((m) => m.content).join("\n"));
+        return {
+          text: JSON.stringify({
+            verdict: "reconsider",
+            summary: "seen before",
+            categories: [
+              {
+                kind: "REVERSAL",
+                items: [
+                  {
+                    evidence_paths: ["Public/decision.md"],
+                    why_it_matters: "reversed earlier",
+                    severity: "medium",
+                  },
+                ],
+              },
+            ],
+          }),
+          model: "mock-judge",
+        };
+      },
+    };
+    const { registry, ctx } = harness(db, unrestricted, citingJudge, undefined, (event) =>
+      logged.push(...event.hits.map((hit) => hit.chunkId)),
+    );
+    await registry.dispatch(
+      "knowledge_challenge",
+      { vault: VAULT, proposal: "we should proceed with this plan" },
+      ctx,
+    );
+    expect(shown.join("\n")).toContain("Public/other-decision.md");
+    expect(logged).toEqual(["pub1"]);
   });
 
   it("reports contradiction_count from the post-egress contradiction set", async () => {
@@ -468,7 +514,8 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
       expect(res.evidence_count).toBe(1);
       expect(seen.join("\n")).toContain("notes/decision.md");
       expect(res.coverage?.recalled).toBe(90);
-      expect(loggedChunkIds).toEqual(["d1"]);
+      // The judge cites nothing, so the decision chunk it was shown earns no activation credit.
+      expect(loggedChunkIds).toEqual([]);
     });
 
     it("no silent zero: a zero-evidence result reports recalled and filtered counts", async () => {

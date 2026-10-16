@@ -185,6 +185,19 @@ function containsSpelling(lower: string, spelling: string): boolean {
   return false;
 }
 
+/** The shown evidence the judge cited. `output` is the grounded verdict from `challengeProposal`, so
+ *  its evidence paths are shown paths already. The judge cites notes, not chunks: every shown chunk
+ *  of a cited note counts. */
+export function citedEvidence<E extends { path: string }>(
+  output: ChallengeOutput,
+  shown: readonly E[],
+): E[] {
+  const cited = new Set(
+    output.categories.flatMap((cat) => cat.items.flatMap((item) => item.evidence_paths)),
+  );
+  return shown.filter((e) => cited.has(e.path));
+}
+
 const STRIPPED_SUMMARY =
   "Some cited evidence was unavailable; retained findings use supported evidence only.";
 const STRIPPED_RATIONALE = "Rationale omitted: it named evidence that was unavailable.";

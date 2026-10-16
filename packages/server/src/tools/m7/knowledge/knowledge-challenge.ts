@@ -6,7 +6,7 @@
 import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
-import { challengeProposal } from "../../../plane/challenge";
+import { challengeProposal, citedEvidence } from "../../../plane/challenge";
 import { vaultExclusionFor, withVaultExclusion } from "../../../search/index-exclusion";
 import { semanticSearch } from "../../../search/semantic";
 import { readableRel } from "../../../vault/acl-read-filter";
@@ -114,9 +114,6 @@ export function createKnowledgeChallengeTool(
       // challenge mode cannot drift on the decision filter, dedup, per-note quota, trimming or citation
       // numbering. `chunk_id` is threaded so dedup keys on retrieval identity rather than on text.
       const { evidence, coverage } = selected;
-      // Logged before the judge runs, so a judge call that throws still leaves the retrieval logged.
-      // The set is the evidence the judge is shown: egress exclusion ran at selection.
-      logReturned(evidence);
       if (evidence.length === 0) {
         // Chunks withheld by egress are gone before selection, so an empty set can be egress's doing.
         const withheld = coverage.dropped.egress ?? 0;
@@ -168,6 +165,9 @@ export function createKnowledgeChallengeTool(
           excluded_count: excludedTotal,
         };
       }
+      // Activation credit goes only to evidence the judge cited. Logged after the judge, so a judge
+      // call that throws logs nothing: the judge cited nothing.
+      logReturned(citedEvidence(output, keptEvidence));
       return {
         vault: v.id,
         available: true,
