@@ -319,14 +319,14 @@ describe("obsidian-git — path comparison: case, Unicode, realpath and settings
     repositoryPath: string;
     vaultPath: string;
     status?: unknown;
-    toplevel?: (args: string[]) => Promise<unknown>;
+    revparse?: (args: string[]) => Promise<unknown>;
   }) => {
     const app = fakeApp({
       "obsidian-git": {
         gitManager: {
           absoluteRepoPath: options.repositoryPath,
           status: async () => options.status,
-          ...(options.toplevel ? { git: { revparse: options.toplevel } } : {}),
+          ...(options.revparse ? { git: { revparse: options.revparse } } : {}),
         },
       },
     });
@@ -400,22 +400,22 @@ describe("obsidian-git — path comparison: case, Unicode, realpath and settings
     },
   );
 
-  it("refuses status while the git instance and absoluteRepoPath disagree", async () => {
+  it("refuses status while the git instance does not sit at the repository root", async () => {
     const calls: string[][] = [];
     const app = gitApp({
       repositoryPath: "/r/Vault",
       vaultPath: "/r/Vault",
       status: rows("secret.env"),
-      toplevel: async (args) => {
+      revparse: async (args) => {
         calls.push(args);
-        return "/r\n";
+        return "../\n";
       },
     });
     const { res, seen } = makeRes();
 
     await findRoute(buildGitRoutes(app, "linux"), "/git/status")(req({}), res);
 
-    expect(calls).toEqual([["--show-toplevel"]]);
+    expect(calls).toEqual([["--show-cdup"]]);
     expect(seen.body).toMatchObject({
       ok: false,
       code: "git_error",
@@ -424,12 +424,12 @@ describe("obsidian-git — path comparison: case, Unicode, realpath and settings
     expect(seen.body).not.toHaveProperty("result");
   });
 
-  it("maps status when the git instance agrees with absoluteRepoPath", async () => {
+  it("maps status when the git instance sits at the repository root", async () => {
     const app = gitApp({
       repositoryPath: "/r/Vault",
       vaultPath: "/r/Vault",
       status: rows("secret.env"),
-      toplevel: async () => "/r/Vault\n",
+      revparse: async () => "\n",
     });
     const { res, seen } = makeRes();
 
@@ -451,7 +451,7 @@ describe("obsidian-git — path comparison: case, Unicode, realpath and settings
       repositoryPath: "/r/Vault",
       vaultPath: "/r/Vault",
       status: rows("secret.env"),
-      toplevel: async () => {
+      revparse: async () => {
         throw new Error("not a git repository");
       },
     });

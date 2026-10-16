@@ -117,19 +117,6 @@ function startsWithPath(
   });
 }
 
-/** Same directory under the platform's comparison rules, after symlinks are resolved. */
-function sameDirectory(path: unknown, directory: string, platform: NodeJS.Platform): boolean {
-  if (typeof path !== "string") return false;
-  const left = absolutePath(canonicalPath(path.trim()));
-  const right = absolutePath(canonicalPath(directory));
-  if (!left || !right) return false;
-  return (
-    left.root === right.root &&
-    left.segments.length === right.segments.length &&
-    startsWithPath(left, right, foldsCase(platform))
-  );
-}
-
 function desktopPathMappers(
   repositoryPath: unknown,
   vaultPath: unknown,
@@ -258,16 +245,19 @@ async function requireGitPathMappers(
   }
   const git = gm.git;
   if (typeof gm.absoluteRepoPath === "string" && typeof git?.revparse === "function") {
-    // obsidian-git sets absoluteRepoPath and its git instance in two steps on a settings reload.
-    // In between the path names the old root, so refuse rather than map against it.
-    let topLevel: unknown;
+    // On a settings reload obsidian-git first points absoluteRepoPath and its git instance at the
+    // base path, then moves both to the repository root found by `--show-cdup`. Status rows are
+    // root-relative, so mapping them before that move would read them against the wrong folder.
+    // A non-empty cdup means the instance does not sit at the root yet. It is relative, so it
+    // works when git runs in another filesystem (WSL), where an absolute toplevel would not.
+    let cdup: unknown;
     try {
-      topLevel = await git.revparse(["--show-toplevel"]);
+      cdup = await git.revparse(["--show-cdup"]);
     } catch (e) {
       fail(res, "git_error", e instanceof Error ? e.message : String(e));
       return null;
     }
-    if (!sameDirectory(topLevel, gm.absoluteRepoPath, platform)) {
+    if (typeof cdup !== "string" || cdup.trim() !== "") {
       fail(res, "git_error", "the repository is being reconfigured in obsidian-git; retry shortly");
       return null;
     }
