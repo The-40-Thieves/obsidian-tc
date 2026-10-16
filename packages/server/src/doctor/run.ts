@@ -71,6 +71,7 @@ import { type SessionLivenessView, sessionLivenessCheck } from "./session-livene
 import { type TelemetryView, telemetryCheck } from "./telemetry";
 import { type ToolFacadeView, toolFacadeCheck } from "./tool-facade";
 import type { Check, DoctorReport } from "./types";
+import { type VaultIoView, vaultIoCheck } from "./vault-io";
 import { type WikiJudgeView, wikiJudgeCheck } from "./wiki-judge";
 
 /**
@@ -150,6 +151,7 @@ export interface DoctorConfigView {
    *  retrieval/snapshots above. */
   citationJudge?: CitationJudgeView;
   plainHttp?: PlainHttpView;
+  vaultIo?: VaultIoView;
   publicUrl?: PublicUrlView;
   /** THE-1073: per-vault notes-on-disk vs notes-indexed counts, only under `--probe` (same
    *  reasoning as every other store-touching view above). */
@@ -269,6 +271,7 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   // actually reachable? Same optional-view reasoning as retrieval/snapshots above.
   if (config.citationJudge) checks.push(citationJudgeCheck(config.citationJudge));
   if (config.plainHttp) checks.push(plainHttpCheck(config.plainHttp));
+  if (config.vaultIo) checks.push(vaultIoCheck(config.vaultIo));
   if (config.publicUrl) checks.push(...publicUrlChecks(config.publicUrl));
   // THE-1073: is every note on disk actually reaching the index? Same optional-view reasoning as
   // retrieval/snapshots above.
