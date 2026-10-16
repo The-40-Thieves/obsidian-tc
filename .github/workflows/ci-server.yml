@@ -40,6 +40,10 @@ on:
   # concurrency group, so letting ad-hoc runs into it would cancel main's pending perf jobs
   # (THE-592). `lint`, `build-test` (3 OS) and `bun-smoke` carry no event guard and do run.
   workflow_dispatch:
+  # Nightly run, so the macOS Intel legs (skipped on pull_request and merge_group, see build-test and
+  # macos-intel-native-server-tests) still run on a schedule.
+  schedule:
+    - cron: '17 6 * * *'
 
 permissions:
   contents: read
@@ -259,13 +263,9 @@ jobs:
         # The Intel legs also carry a 15 s Vitest timeout floor (VITEST_TIMEOUT_FLOOR_MS): tests that
         # spawn `bun` ran past the 5 s default there, e.g. docgen-facts-check "passes on the real repo"
         # at 5931 ms on macos-26-intel. 15 s is about 3x the default. Other legs leave the key unset.
-        include:
-          - os: macos-15-intel
-            node: '26'
-            vitest-timeout-floor-ms: '15000'
-          - os: macos-26-intel
-            node: '26'
-            vitest-timeout-floor-ms: '15000'
+        # The Intel legs run on push to main, on the nightly schedule and on workflow_dispatch, not on
+        # pull_request or merge_group. The first list is used on those two events, the second on all others.
+        include: ${{ fromJSON((github.event_name == 'pull_request' || github.event_name == 'merge_group') && '[]' || '[{"os":"macos-15-intel","node":"26","vitest-timeout-floor-ms":"15000"},{"os":"macos-26-intel","node":"26","vitest-timeout-floor-ms":"15000"}]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -336,6 +336,8 @@ jobs:
   # and runs the native server paths. The load assertion fails the job if the addon silently fell back
   # to the JS path.
   macos-intel-native-server-tests:
+    # Intel only: push to main, the nightly schedule and workflow_dispatch, never pull_request or merge_group.
+    if: github.event_name != 'pull_request' && github.event_name != 'merge_group'
     strategy:
       fail-fast: false
       matrix:
@@ -451,17 +453,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            target: bun-linux-x64
-          - os: windows-latest
-            target: bun-windows-x64
-          - os: macos-15
-            target: bun-darwin-arm64
-          - os: macos-15-intel
-            target: bun-darwin-x64
-          - os: macos-26-intel
-            target: bun-darwin-x64
+        # The Intel entries run on push to main, on the nightly schedule and on workflow_dispatch only (see build-test).
+        include: ${{ fromJSON((github.event_name == 'pull_request' || github.event_name == 'merge_group') && '[{"os":"ubuntu-latest","target":"bun-linux-x64"},{"os":"windows-latest","target":"bun-windows-x64"},{"os":"macos-15","target":"bun-darwin-arm64"}]' || '[{"os":"ubuntu-latest","target":"bun-linux-x64"},{"os":"windows-latest","target":"bun-windows-x64"},{"os":"macos-15","target":"bun-darwin-arm64"},{"os":"macos-15-intel","target":"bun-darwin-x64"},{"os":"macos-26-intel","target":"bun-darwin-x64"}]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

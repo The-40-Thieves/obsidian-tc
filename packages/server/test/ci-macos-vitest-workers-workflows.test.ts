@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
+import { eventGatedList } from "./ci-intel-event-gate";
 
 const WORKFLOWS = join(resolve(import.meta.dirname, "..", "..", ".."), ".github", "workflows");
 // biome-ignore lint/suspicious/noTemplateCurlyInString: a GitHub Actions expression, not a template
@@ -16,7 +17,7 @@ interface Step {
 
 interface Job {
   env?: Record<string, string>;
-  strategy?: { matrix?: { node?: string[]; os?: string[]; include?: Record<string, string>[] } };
+  strategy?: { matrix?: { node?: string[]; os?: string[]; include?: unknown } };
   steps?: Step[];
 }
 
@@ -67,7 +68,7 @@ describe("macOS Intel Vitest timeout floor", () => {
 
   it("sets the floor on both Intel build-test legs through the matrix and on no other leg", () => {
     const include = readWorkflow("ci-server.yml").jobs?.["build-test"]?.strategy?.matrix?.include;
-    const floored = (include ?? [])
+    const floored = (eventGatedList(include).otherEvents as Record<string, string>[])
       .filter((leg) => leg[FLOOR_KEY] !== undefined)
       .map((leg) => [leg.os, leg[FLOOR_KEY]]);
     expect(floored).toEqual([
