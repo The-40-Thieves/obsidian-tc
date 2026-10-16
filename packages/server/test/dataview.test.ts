@@ -120,7 +120,7 @@ describe("eval_dataview_field", () => {
         "POST /obsidian-tc/v1/dataview/eval": {
           body: {
             ok: true,
-            result: { value: { note: { file: ".trash/secret.md" } }, type: "object" },
+            result: { value: { note: { file: { path: ".trash/secret.md" } } }, type: "object" },
           },
         },
       },
