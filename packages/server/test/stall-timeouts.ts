@@ -23,10 +23,15 @@
 //
 // These are correctness tests (report shape, determinism, exit codes), so a larger ceiling weakens
 // nothing: a hung run still fails, just later.
+//
+// Non-Windows budgets are raised to the VITEST_TIMEOUT_FLOOR_MS floor when a CI leg sets one (the
+// macOS Intel legs, which are slower than the 5s default); the floor never lowers a budget.
+import { resolveVitestTimeoutFloorMs } from "./vitest-timeout-floor";
+
 export const WINDOWS_STALL_TIMEOUT_MS = 60_000;
 
 export function stallTimeout(nonWindowsMs: number): number {
   return process.platform === "win32"
     ? Math.max(nonWindowsMs, WINDOWS_STALL_TIMEOUT_MS)
-    : nonWindowsMs;
+    : Math.max(nonWindowsMs, resolveVitestTimeoutFloorMs() ?? 0);
 }

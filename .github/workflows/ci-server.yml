@@ -256,11 +256,16 @@ jobs:
         # on Node 26 only. macos-latest already covers the Node 24 floor on macOS; a second Intel
         # Node column would double the macOS queue for the same ISA. `include` keeps the Node 26 name
         # shape `build-test (<os>)`.
+        # The Intel legs also carry a 15 s Vitest timeout floor (VITEST_TIMEOUT_FLOOR_MS): tests that
+        # spawn `bun` ran past the 5 s default there, e.g. docgen-facts-check "passes on the real repo"
+        # at 5931 ms on macos-26-intel. 15 s is about 3x the default. Other legs leave the key unset.
         include:
           - os: macos-15-intel
             node: '26'
+            vitest-timeout-floor-ms: '15000'
           - os: macos-26-intel
             node: '26'
+            vitest-timeout-floor-ms: '15000'
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -320,6 +325,7 @@ jobs:
       - name: test server (vitest under Node; coverage gate on Linux, Node 26)
         env:
           VITEST_MAX_WORKERS: ${{ matrix.os == 'macos-latest' && '2' || '' }}
+          VITEST_TIMEOUT_FLOOR_MS: ${{ matrix.vitest-timeout-floor-ms }}
         run: node ./node_modules/vitest/vitest.mjs run ${{ matrix.os == 'ubuntu-latest' && matrix.node == '26' && '--coverage' || '' }}
         working-directory: packages/server
 
@@ -378,6 +384,8 @@ jobs:
           '
       - name: server tests under native, Intel macOS (THE-1081 / #946)
         working-directory: packages/server
+        env:
+          VITEST_TIMEOUT_FLOOR_MS: '15000'
         run: node ./node_modules/vitest/vitest.mjs run test/base-tools-branch-coverage.test.ts test/notes-tools.test.ts test/federated-search-security.test.ts test/m5-memory-lifecycle.test.ts test/frontmatter-tools-branch-coverage.test.ts test/vault-root-symlink-registration.test.ts test/native-safe-io.test.ts test/vault-fallback-no-follow.test.ts
 
   # Rate-limit backends against a REAL Redis. The shared conformance suite (ratelimit-conformance),
