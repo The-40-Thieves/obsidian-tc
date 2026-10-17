@@ -290,6 +290,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
         enableDnsRebindingProtection: config.transports.http.enableDnsRebindingProtection,
         allowedHosts: config.transports.http.allowedHosts,
         allowedOrigins: config.transports.http.allowedOrigins,
+        corsOrigins: config.transports.http.cors.allowedOrigins,
         trustedProxies: config.transports.http.trustedProxies,
         forwardedHeader: config.transports.http.forwardedHeader,
         // THE-520: without this the auth_rejections_total counter exists but is never incremented.

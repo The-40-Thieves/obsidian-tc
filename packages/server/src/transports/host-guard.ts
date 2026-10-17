@@ -20,12 +20,16 @@ export function isHostAllowed(rawHost: string, allowedHosts: readonly string[] =
 }
 
 /** Origin half of the same check: same-origin stays allowed (the request's own Host is the origin a
- *  browser would send), plus the operator's `allowedOrigins`. */
+ *  browser would send), plus the operator's `allowedOrigins`. A `corsOrigins` entry passes by EXACT
+ *  match only and is never added to the hostname list, so `https://app.example.com` does not admit
+ *  `http://app.example.com` or a port variant. */
 export function isOriginAllowed(
   origin: string,
   rawHost: string,
   allowedOrigins: readonly string[] = [],
+  corsOrigins: ReadonlySet<string> = new Set(),
 ): boolean {
+  if (corsOrigins.has(origin)) return true;
   const hosts = [
     hostnameOf(rawHost),
     ...bothForms(allowedOrigins).map((o) => hostnameOf(o.replace(/^\w+:\/\//, ""))),

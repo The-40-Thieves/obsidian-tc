@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { createMcpHandler, type ServerNotifier } from "@modelcontextprotocol/server";
 import type {
@@ -13,6 +13,7 @@ import "../auth/as-issuing";
 import { type AsRouteDeps, mountAsMetadata, mountAsRoutes } from "../auth/as-metadata";
 import { type AsOperatorDeps, mountAsOperator } from "../auth/as-operator";
 import { createClientIpResolver, type ForwardedHeader } from "../auth/client-ip";
+import { mountJwksRoute } from "../auth/jwks-route";
 import { AuthRejection, type AuthRejectionReason } from "../auth/jwt";
 import { buildJwtVerifier } from "../auth/jwt-boot";
 import { narrowToTokenScopes, resolvePersona } from "../auth/persona";
@@ -47,6 +48,7 @@ import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
 import { activeSessionFor, DEFAULT_TRACE_FOLDER, openImplicitSession } from "../workspace/sessions";
 import { anonymousGate, carriesNoCredentials, mixedModeScopes } from "./anonymous-discovery";
+import { corsMiddleware, corsOriginSet } from "./cors";
 import { isHostAllowed, isOriginAllowed } from "./host-guard";
 import { type ServerHandle, serveHono } from "./serve";
 
@@ -91,40 +93,6 @@ function reportAuthRejection(d: AuthRejectionDetail, opts: HttpAppOptions): void
           " refused until it is restored. restore auth.db from backup (see the startup log)."
         : "";
   process.stderr.write(`auth: rejected reason=${d.reason}${who}${hint}\n`);
-}
-
-/** The longest a downstream cache may keep the published JWKS (seconds). */
-const JWKS_MAX_AGE_SECONDS = 60;
-
-/**
- * The JWKS document with a cache lifetime that cannot outlive a retiring key. This server stops
- * verifying a retiring key at its `retire_after`, so a cache holding the document past that instant
- * would keep advertising a key this server already refuses: `max-age` is capped at the whole seconds
- * left until the earliest retirement among the published keys, and a retirement under a second away
- * gets `no-cache` (revalidate every time). The ETag is a strong validator over the exact bytes served.
- * It cannot bound a retirement made AFTER a cache fetched (an immediate `rotate-key --grace 0`):
- * that is the residual `JWKS_MAX_AGE_SECONDS` already meant.
- */
-function jwksResponse(
-  c: Context,
-  published: { jwks: { keys: unknown[] }; secondsUntilRetirement: number | null },
-): Response {
-  const body = JSON.stringify(published.jwks);
-  const maxAge = Math.min(JWKS_MAX_AGE_SECONDS, published.secondsUntilRetirement ?? Infinity);
-  const etag = `"${createHash("sha256").update(body).digest("hex")}"`;
-  const headers = {
-    "cache-control": maxAge >= 1 ? `public, max-age=${maxAge}` : "no-cache",
-    etag,
-  };
-  const matches = c.req
-    .header("if-none-match")
-    ?.split(",")
-    .some((v) => {
-      const tag = v.trim().replace(/^W\//, "");
-      return tag === "*" || tag === etag;
-    });
-  if (matches === true) return new Response(null, { status: 304, headers });
-  return c.newResponse(body, 200, { ...headers, "content-type": "application/json" });
 }
 
 export interface HttpAppOptions {
@@ -190,6 +158,8 @@ export interface HttpAppOptions {
   allowedHosts?: string[];
   /** Extra Origin header values accepted beyond the request's same origin. */
   allowedOrigins?: string[];
+  /** `transports.http.cors.allowedOrigins`: exact browser origins allowed to call the CORS routes. */
+  corsOrigins?: string[];
   /** `transports.http.trustedProxies`: proxies whose forwarded client address the per-source limits
    *  believe (auth/client-ip.ts). Absent or empty: the TCP peer is the client, no header is read. */
   trustedProxies?: string[];
@@ -457,6 +427,15 @@ export interface HttpApp {
 
 export function createHttpApp(opts: HttpAppOptions): HttpApp {
   const app = new Hono();
+  // `transports.http.cors.allowedOrigins`: browser origins that may call the CORS routes (cors.ts).
+  // Registered before any route so it wraps them all; empty by default, so it then does nothing.
+  const corsOrigins = corsOriginSet(opts.corsOrigins ?? []);
+  app.use(
+    "*",
+    corsMiddleware(corsOrigins, (host) =>
+      opts.enableDnsRebindingProtection === false ? true : isHostAllowed(host, opts.allowedHosts),
+    ),
+  );
   /** `auth.anonymousDiscovery: "list"` and a complete PRM: see transports/anonymous-discovery.ts. */
   const mixedAuth = mixedModeScopes(opts.auth);
   /**
@@ -569,20 +548,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
   }
   mountAsRoutes(app, opts.auth, asRouteDeps);
 
-  // JWKS of the registry's ES256/EdDSA signing keys, so a verifier that is not this process can
-  // validate the tokens `token mint` issues. Public keys only, active and in-window retiring ones
-  // (a retired key drops out at once). Unauthenticated by design, like the PRM above; nothing here
-  // is secret. Not served for a lost registry: that refuses, it never publishes a partial set.
-  if (opts.auth.mode === "jwt" && opts.authRegistry !== undefined) {
-    const registry = opts.authRegistry;
-    app.get("/.well-known/jwks.json", (c) => {
-      try {
-        return jwksResponse(c, registry.publishedJwks());
-      } catch {
-        return c.json({ error: "signing keys unavailable" }, 503);
-      }
-    });
-  }
+  mountJwksRoute(app, opts.auth, opts.authRegistry);
 
   // `/mcp` is the configured surface; `/mcp/<surface>` (tool-profiles.ts URL_SURFACES) picks one per
   // client URL. The same handler serves both, so the guard, auth and dispatch below are shared.
@@ -609,7 +575,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
         );
 
       const origin = c.req.header("origin");
-      if (origin && !isOriginAllowed(origin, rawHost, opts.allowedOrigins))
+      if (origin && !isOriginAllowed(origin, rawHost, opts.allowedOrigins, corsOrigins))
         return c.json(
           { jsonrpc: "2.0", error: { code: -32000, message: "origin not allowed" }, id: null },
           403,

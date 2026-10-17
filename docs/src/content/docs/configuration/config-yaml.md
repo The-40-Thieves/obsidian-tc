@@ -301,6 +301,7 @@ Derived edges added to the `vault_edges` graph beyond authored wikilinks, so a m
 | `http.host` / `http.port` | `127.0.0.1` / 8765 | Non-loopback hosts require JWT (interlock above). |
 | `http.enableDnsRebindingProtection` | true | Rejects requests whose Host isn't loopback/allowed, or whose Origin isn't same-origin/allowed. Server-to-server clients (no Origin) are unaffected. |
 | `http.allowedHosts` / `http.allowedOrigins` | `[]` | Operator allowlists for the above. |
+| `http.cors.allowedOrigins` | `[]` | Exact browser origins (`https://app.example.com`) allowed to call the MCP endpoint, the OAuth token, registration and revocation endpoints, and the `/.well-known` metadata from a web page. Echoed back exactly, never `*`. Empty: no CORS header. See [From a web page](/security/auth-model/#from-a-web-page). |
 | `http.trustedProxies` | `[]` | IPs and CIDR blocks of the reverse proxies or tunnels whose forwarded client address is believed (for example `["127.0.0.1", "::1"]`). Empty: no header is read. Never list a proxy you do not control; see [Running behind a proxy or tunnel](/security/auth-model/#running-behind-a-proxy-or-tunnel). |
 | `http.forwardedHeader` | `x-forwarded-for` | Header a trusted proxy carries the client address in: `x-forwarded-for` or `cf-connecting-ip` (Cloudflare Tunnel). |
 
