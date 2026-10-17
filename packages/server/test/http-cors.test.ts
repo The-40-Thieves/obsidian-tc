@@ -3,6 +3,7 @@
 // origin match is echoed back (never `*`, and no credentials: the bearer rides in `Authorization`).
 // The pins here are the contract a browser sees, not the middleware that produces it.
 
+import { request } from "node:http";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { SignJWT } from "jose";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -206,6 +207,35 @@ describe("CORS on /mcp for an allowed origin", () => {
 });
 
 describe("CORS and the rebinding guard", () => {
+  it(
+    "a preflight through a Host the rebinding guard refuses gets no CORS answer, like the POST",
+    async () => {
+      const h = await boot({ corsOrigins: [ORIGIN] });
+      const res = await new Promise<{ status: number; headers: Record<string, unknown> }>(
+        (resolve, reject) => {
+          const req = request(
+            {
+              host: "127.0.0.1",
+              port: h.port,
+              path: "/mcp",
+              method: "OPTIONS",
+              headers: { host: "rebound.example", origin: ORIGIN },
+            },
+            (r) => {
+              r.resume();
+              resolve({ status: r.statusCode ?? 0, headers: r.headers });
+            },
+          );
+          req.on("error", reject);
+          req.end();
+        },
+      );
+      expect(res.status).not.toBe(204);
+      expect(Object.keys(res.headers).filter((k) => k.startsWith("access-control-"))).toEqual([]);
+    },
+    stallTimeout(20_000),
+  );
+
   it(
     "a disallowed origin gets no CORS headers and the existing guard still refuses it",
     async () => {

@@ -430,7 +430,12 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
   // `transports.http.cors.allowedOrigins`: browser origins that may call the CORS routes (cors.ts).
   // Registered before any route so it wraps them all; empty by default, so it then does nothing.
   const corsOrigins = corsOriginSet(opts.corsOrigins ?? []);
-  app.use("*", corsMiddleware(corsOrigins));
+  app.use(
+    "*",
+    corsMiddleware(corsOrigins, (host) =>
+      opts.enableDnsRebindingProtection === false ? true : isHostAllowed(host, opts.allowedHosts),
+    ),
+  );
   /** `auth.anonymousDiscovery: "list"` and a complete PRM: see transports/anonymous-discovery.ts. */
   const mixedAuth = mixedModeScopes(opts.auth);
   /**

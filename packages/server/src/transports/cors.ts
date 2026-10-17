@@ -32,11 +32,17 @@ export function corsOriginSet(origins: readonly string[]): ReadonlySet<string> {
 /** Never `*`: an allowed origin is echoed back exactly. No `Access-Control-Allow-Credentials` is
  *  ever sent, because the bearer travels in `Authorization`, not in a cookie, so a page needs no
  *  credentialed request and none is granted. */
-export function corsMiddleware(allowed: ReadonlySet<string>): MiddlewareHandler {
+export function corsMiddleware(
+  allowed: ReadonlySet<string>,
+  /** The rebinding guard's Host check. A preflight answers before any route runs, so it applies the
+   *  check itself: a Host the guard refuses gets no CORS answer, exactly like the POST behind it. */
+  hostAllowed: (rawHost: string) => boolean = () => true,
+): MiddlewareHandler {
   return async (c, next) => {
     if (allowed.size === 0 || !isCorsPath(c.req.path)) return next();
     const origin = c.req.header("origin");
-    const ok = origin !== undefined && allowed.has(origin);
+    const ok =
+      origin !== undefined && allowed.has(origin) && hostAllowed(c.req.header("host") ?? "");
     if (ok && c.req.method === "OPTIONS") {
       return c.body(null, 204, {
         "Access-Control-Allow-Origin": origin,
@@ -49,7 +55,9 @@ export function corsMiddleware(allowed: ReadonlySet<string>): MiddlewareHandler 
     // After `next()` so error responses (401 challenge, 403, 429) carry the headers too: a browser
     // cannot read a `WWW-Authenticate` it is not allowed to see.
     await next();
-    c.header("Vary", "Origin");
+    if (!/(^|,)\s*origin\s*(,|$)/i.test(c.res.headers.get("vary") ?? "")) {
+      c.header("Vary", "Origin", { append: true });
+    }
     if (ok) {
       c.header("Access-Control-Allow-Origin", origin);
       c.header("Access-Control-Expose-Headers", EXPOSE_HEADERS);
