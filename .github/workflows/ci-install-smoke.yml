@@ -15,6 +15,9 @@ on:
       - '.github/workflows/ci-install-smoke.yml'
   push:
     branches: [main]
+  # Nightly run, so the Intel macOS legs (skipped on pull_request, see install-smoke) still run on a schedule.
+  schedule:
+    - cron: '17 6 * * *'
 
 permissions:
   contents: read
@@ -29,7 +32,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, macos-15-intel, macos-26-intel, windows-latest]
+        # The Intel macOS legs run on push to main and on the nightly schedule, not on pull_request or
+        # merge_group. The first list is used on those two events, the second on all others.
+        os: ${{ fromJSON((github.event_name == 'pull_request' || github.event_name == 'merge_group') && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest","macos-latest","macos-15-intel","macos-26-intel","windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:

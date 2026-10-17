@@ -4,13 +4,22 @@ import { runBunSync } from "./spawn-cli";
 import { stallTimeout, WINDOWS_STALL_TIMEOUT_MS } from "./stall-timeouts";
 
 const realPlatform = process.platform;
+const realFloor = process.env.VITEST_TIMEOUT_FLOOR_MS;
 function setPlatform(p: NodeJS.Platform): void {
   Object.defineProperty(process, "platform", { value: p });
 }
-afterEach(() => setPlatform(realPlatform));
+function setFloor(value: string | undefined): void {
+  if (value === undefined) delete process.env.VITEST_TIMEOUT_FLOOR_MS;
+  else process.env.VITEST_TIMEOUT_FLOOR_MS = value;
+}
+afterEach(() => {
+  setPlatform(realPlatform);
+  setFloor(realFloor);
+});
 
 describe("stallTimeout", () => {
   it("keeps the tight budget on linux and darwin", () => {
+    setFloor(undefined);
     for (const p of ["linux", "darwin"] as const) {
       setPlatform(p);
       expect(stallTimeout(5_000)).toBe(5_000);
@@ -29,6 +38,23 @@ describe("stallTimeout", () => {
     setPlatform("win32");
     expect(perfTimeout(15_000)).toBe(stallTimeout(15_000));
     expect(perfTimeout(15_000)).toBe(WINDOWS_STALL_TIMEOUT_MS);
+  });
+});
+
+describe("stallTimeout with the Intel timeout floor", () => {
+  it("raises a tight budget to the floor on linux and darwin and never lowers a larger one", () => {
+    setFloor("15000");
+    for (const p of ["linux", "darwin"] as const) {
+      setPlatform(p);
+      expect(stallTimeout(5_000)).toBe(15_000);
+      expect(stallTimeout(120_000)).toBe(120_000);
+    }
+  });
+
+  it("leaves the Windows ceiling unchanged by the floor", () => {
+    setFloor("15000");
+    setPlatform("win32");
+    expect(stallTimeout(5_000)).toBe(WINDOWS_STALL_TIMEOUT_MS);
   });
 });
 
