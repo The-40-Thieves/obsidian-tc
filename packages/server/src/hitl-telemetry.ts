@@ -22,6 +22,7 @@ import type { CallerContext } from "./mcp/registry/types";
 export const HITL_OUTCOMES = ["accept", "decline", "cancel", "offered"] as const;
 export type HitlOutcome = (typeof HITL_OUTCOMES)[number];
 
+// legacy-era shim: see LEGACY_SHIMS.md
 /** `form`: the server-driven elicitation round trip (stdio legacy shim). `request_state`: the
  *  client-driven 2026-era echo of a minted requestState. `token`: a single-use token redeemed on
  *  the call; `obsidian-tc elicit` is the only in-tree minter, so this is the headless path. */

@@ -20,6 +20,7 @@ export function requestCallerMeta(
   // `extra.mcpReq.envelope` — so `req.params._meta` never carries this key by the time the handler
   // runs; read the lifted location first. `envelope` uses the same reserved keys, so
   // `extractClientInfo` parses either bag identically. The `_meta` read stays as a fallback.
+  // legacy-era shim: see LEGACY_SHIMS.md
   // 3rd fallback `getClientVersion()` (legacy `initialize`), same bound as above.
   const clientInfo =
     extractClientInfo(envelope) ?? extractClientInfo(meta) ?? clientInfoFromFields(legacyClient);
