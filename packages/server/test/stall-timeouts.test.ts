@@ -62,6 +62,8 @@ describe("runBunSync", () => {
   it.skipIf(process.platform === "win32")(
     "reports a killed child as -1 and a normal exit as its status",
     () => {
+      // The Intel legs' floor would stretch the 300ms kill to the test's own timeout.
+      setFloor(undefined);
       const ok = runBunSync(["-e", "process.stdout.write('hi'); process.exit(3)"]);
       expect(ok).toMatchObject({ code: 3, stdout: "hi" });
       const killed = runBunSync(["-e", "setInterval(() => {}, 1000)"], { timeoutMs: 300 });

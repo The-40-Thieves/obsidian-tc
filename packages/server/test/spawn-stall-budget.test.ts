@@ -613,14 +613,20 @@ describe("tests are budgeted against a stalled Windows runner", () => {
     // `vitest/config` pulls in vite -> rollup's native binding, which resolves per platform: load it
     // once under the real one so the stubbed loads below only evaluate vitest.config.ts itself.
     await import("vitest/config");
-    const load = async (os: string) => {
+    // Each load sets the Intel legs' timeout floor explicitly, so the pins hold on those legs too.
+    const floor = process.env.VITEST_TIMEOUT_FLOOR_MS;
+    const load = async (os: string, floorMs?: string) => {
       Object.defineProperty(process, "platform", { ...platform, value: os });
+      if (floorMs === undefined) delete process.env.VITEST_TIMEOUT_FLOOR_MS;
+      else process.env.VITEST_TIMEOUT_FLOOR_MS = floorMs;
       try {
         vi.resetModules();
         return ((await import("../vitest.config")) as { default: { test: UserConfigTest } }).default
           .test;
       } finally {
         Object.defineProperty(process, "platform", platform);
+        if (floor === undefined) delete process.env.VITEST_TIMEOUT_FLOOR_MS;
+        else process.env.VITEST_TIMEOUT_FLOOR_MS = floor;
       }
     };
     // `hookTimeout` is vitest's own 10s on the other two OSes, which was never floored on Windows
@@ -631,6 +637,14 @@ describe("tests are budgeted against a stalled Windows runner", () => {
     });
     for (const os of ["linux", "darwin"]) {
       expect(await load(os), os).toMatchObject({ testTimeout: 5_000, hookTimeout: 10_000 });
+      expect(await load(os, "15000"), os).toMatchObject({
+        testTimeout: 15_000,
+        hookTimeout: 15_000,
+      });
     }
+    expect(await load("win32", "15000")).toMatchObject({
+      testTimeout: WINDOWS_STALL_TIMEOUT_MS,
+      hookTimeout: WINDOWS_STALL_TIMEOUT_MS,
+    });
   });
 });
