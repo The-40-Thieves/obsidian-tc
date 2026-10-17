@@ -44,6 +44,7 @@ describe("auth.as: shape and defaults", () => {
       cimd: { allowedHosts: [] },
       consent: { loopback: "remember" },
       setupTokenEnv: "OBSIDIAN_TC_AS_SETUP_TOKEN",
+      resetTokenEnv: "OBSIDIAN_TC_AS_RESET_TOKEN",
       login: { maxFailuresPerWindow: 5, windowSeconds: 900 },
       clients: [],
     });
@@ -90,8 +91,17 @@ describe("auth.as: shape and defaults", () => {
     ["a signingAlg that is not ES256 or EdDSA", { signingAlg: "HS256" }],
     ["RS256 as the signingAlg", { signingAlg: "RS256" }],
     ["a setupTokenEnv that is not an environment variable name", { setupTokenEnv: "not a name" }],
+    ["a resetTokenEnv that is not an environment variable name", { resetTokenEnv: "not a name" }],
   ])("refuses %s", (_name, as) => {
     expect(issuesOf(jwtAuth({}, as)).length).toBeGreaterThan(0);
+  });
+
+  it("a resetTokenEnv equal to setupTokenEnv is refused at load, naming both", () => {
+    const issues = issuesOf(
+      jwtAuth({}, { setupTokenEnv: "OBSIDIAN_TC_AS_TOKEN", resetTokenEnv: "OBSIDIAN_TC_AS_TOKEN" }),
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatch(/^auth\.as\.resetTokenEnv: .*setupTokenEnv/);
   });
 
   it("accepts EdDSA and the documented bounds", () => {

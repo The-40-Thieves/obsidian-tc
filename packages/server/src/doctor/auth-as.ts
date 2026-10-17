@@ -32,6 +32,10 @@ export interface AuthAsSettingsView {
   setupTokenEnv: string;
   /** Whether that variable is set in this process's environment (its value is never read here). */
   setupTokenSet: boolean;
+  /** The NAME of the environment variable that carries the reset token (`auth.as.resetTokenEnv`). */
+  resetTokenEnv: string;
+  /** Whether that variable is set (its value is never read here). */
+  resetTokenSet: boolean;
 }
 
 export interface AuthAsView {
@@ -156,6 +160,7 @@ export function authAsCheck(view: AuthAsView): Check {
             `clients=${s.clientCount} (${s.clientRedirectUris} redirect URIs)`,
             `cimd.allowedHosts=${s.cimdAllowedHosts.length === 0 ? "(any public https host)" : s.cimdAllowedHosts.join(", ")}`,
             `setupTokenEnv=${s.setupTokenEnv} (${s.setupTokenSet ? "set" : "not set"})`,
+            `resetTokenEnv=${s.resetTokenEnv} (${s.resetTokenSet ? "set" : "not set"})`,
           ],
           backup: BACKUP,
         },

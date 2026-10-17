@@ -58,6 +58,7 @@ describe("oauth.db migration chain", () => {
       [
         "auth_codes",
         "auth_requests",
+        "burned_reset_tokens",
         "cimd_cache",
         "grants",
         "issued_access",

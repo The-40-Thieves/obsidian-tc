@@ -751,6 +751,20 @@ access-token revocations are queued in the durable outbox and paid to the regist
 access to the host and write access to `<cacheDir>` are the credential, exactly as for `set-password`. Then sign in
 with the new password and enrol a new passkey.
 
+**No shell on the host?** (some hosted platforms). Put a random value of at least 24 characters in the variable
+named by `auth.as.resetTokenEnv` (default `OBSIDIAN_TC_AS_RESET_TOKEN`), restart the server, and open
+`<issuer>/oauth/setup`. The page asks for the token, a new password and, if you tick it, "also revoke every grant".
+It needs the sole operator (with more than one account, use the CLI with `--user`), and it works only inside the boot
+window: 24 hours after the server started, so restart again to open it. The token works **once**: its SHA-256 is
+recorded in `oauth.db` in the same transaction as the reset, so a restart cannot reuse it, and a refused or wrong
+token counts against the same ten-guess limit as setup. A wrong password does not use the token up. A reset with
+the revoke box ticked is refused while the revocation registry is lost, and changes nothing. If the registry
+fails only after the reset has committed, the page (and `reset-credentials`, which then exits non-zero) says so:
+the password is reset, and the revoked access tokens are refused once the queued revocations reach the registry,
+at the next boot or maintenance sweep; check `obsidian-tc doctor`. Each value works for one reset per boot, and the
+two token variables must differ. Then **remove the variable**: the server prints a warning at every boot while it
+is set.
+
 **A reset ends what was already running, too.** The operator account carries a *credential generation* that the
 reset (and `set-password`) moves on in that transaction, and every session records the generation it was opened
 under. A passkey registration, an enrolment challenge or a consent that was already underway on an old session

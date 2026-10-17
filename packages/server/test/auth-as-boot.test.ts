@@ -403,6 +403,8 @@ describe("doctor: the `as` section", () => {
       cimdAllowedHosts: ["claude.ai"],
       setupTokenEnv: "OBSIDIAN_TC_AS_SETUP_TOKEN",
       setupTokenSet: false,
+      resetTokenEnv: "OBSIDIAN_TC_AS_RESET_TOKEN",
+      resetTokenSet: false,
     },
     now,
   };
@@ -484,6 +486,13 @@ describe("doctor: the `as` section", () => {
     const text = JSON.stringify(r);
     expect(text).toMatch(/set/);
     expect(text).not.toContain("hunter2");
+  });
+
+  it("reports whether the reset-token variable is set, never its value", async () => {
+    const r = await run({ settings: { ...base.settings, resetTokenSet: true } });
+    expect(JSON.stringify(r)).toContain("resetTokenEnv=OBSIDIAN_TC_AS_RESET_TOKEN (set)");
+    const unset = await run();
+    expect(JSON.stringify(unset)).toContain("resetTokenEnv=OBSIDIAN_TC_AS_RESET_TOKEN (not set)");
   });
 
   it("run_doctor maps `purpose` into the auth.registry key view (S2 gap) and wires the as view", async () => {

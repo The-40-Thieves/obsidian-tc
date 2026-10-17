@@ -26,6 +26,12 @@ import {
 import { makeTempDir, rmTemp } from "./tmp";
 import { VirtualAuthenticator } from "./webauthn-authenticator";
 
+// The revocation registry is opened inside the CLI, so a test reaches it through this seam only.
+vi.mock("../src/auth/registry-open", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/auth/registry-open")>();
+  return { ...actual, openAuthRegistry: vi.fn(actual.openAuthRegistry) };
+});
+
 const NEW_PASSWORD = "a different passphrase, long enough";
 const RP_ID = new URL(ISSUER).hostname;
 const dirs: string[] = [];
@@ -188,6 +194,36 @@ describe("argv", () => {
 });
 
 describe("reset-credentials", () => {
+  it("a revoke failure after the commit exits non-zero and says revocation is pending", async () => {
+    const d = await deployment();
+    try {
+      vi.mocked(openAuthRegistry).mockImplementationOnce(async (cfg, opts) => {
+        const actual = await vi.importActual<typeof import("../src/auth/registry-open")>(
+          "../src/auth/registry-open",
+        );
+        const real = await actual.openAuthRegistry(cfg, opts);
+        return {
+          ...real,
+          registry: {
+            ...real.registry,
+            revoke: () => {
+              throw new Error("auth.db is busy");
+            },
+          },
+        };
+      });
+      await expect(reset(d.configPath, { revokeGrants: true })).rejects.toThrow(
+        /revocation pending/,
+      );
+      expect(out).toContain("revocation pending");
+      expect(count(d.op, "revocation_outbox")).toBe(1);
+      const ok = await login(d.op, new Jar(), { username: "operator", password: NEW_PASSWORD });
+      expect(ok.res.status).toBe(303);
+    } finally {
+      d.close();
+    }
+  });
+
   it("recovers a lost passkey: new password signs in, the old passkey and old password do not, and a new passkey can be enrolled", async () => {
     const d = await deployment();
     try {

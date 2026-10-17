@@ -135,6 +135,24 @@ ${hidden(o.csrf)}
   );
 }
 
+export function resetPage(o: { csrf: string; error?: string }): string {
+  return layout(
+    "Reset the operator password",
+    `${error(o.error)}<p class="note">Set a new password for the operator account. You need the one-time reset token set on the host. Remove the token from the host once the reset is done.</p>
+<form method="post" action="/oauth/setup">
+${hidden(o.csrf)}
+<label for="token">Reset token</label>
+<input id="token" type="password" name="token" autocomplete="off" required>
+<label for="password">New password (at least 12 characters)</label>
+<input id="password" type="password" name="password" autocomplete="new-password" maxlength="1024" required>
+<label for="confirm">Repeat the new password</label>
+<input id="confirm" type="password" name="confirm" autocomplete="new-password" maxlength="1024" required>
+<label><input type="checkbox" name="revoke" value="on"> Also revoke every grant (each connected app must sign in again)</label>
+<button type="submit">Reset password</button>
+</form>`,
+  );
+}
+
 export function signedInPage(o: { username: string; csrf: string }): string {
   return layout(
     "Signed in",

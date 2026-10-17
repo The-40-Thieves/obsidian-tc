@@ -11,8 +11,10 @@ import { drainRevocations, queueGrantRevocation } from "./as-grants";
 import {
   createSession,
   deleteSession,
+  resetTokenBurned,
   type SessionGuard,
   sessionIsCurrent,
+  tokenBurned,
 } from "./as-operator-store";
 import type { AuthRegistry } from "./registry";
 
@@ -242,11 +244,16 @@ export function finalizePasskeyLogin(db: Database, input: PasskeyLogin): string 
   });
 }
 
+/** Raised by the reset transaction when its reset token was already burned: nothing was changed. */
+export class ResetTokenBurnedError extends Error {}
+
 export interface CredentialsReset {
   credentials: number;
   sessions: number;
   /** Present when the reset also revoked the operator's grants. */
   grants?: { revoked: number; families: number; accessTokens: number };
+  /** Set when the reset committed but the registry did not take the revocations (see below). */
+  revocationPending?: true;
 }
 
 /**
@@ -258,7 +265,16 @@ export interface CredentialsReset {
  * (`sessionIsCurrent`), so it either committed before this transaction (and the grant it made is
  * revoked here) or finds the session gone. A login that began before the reset cannot finish after
  * it: it needs the credential row, and the sessions it would join are gone. The outbox is drained
- * into the registry after the commit, as for `revokeGrant`.
+ * into the registry after the commit, as for `revokeGrant`. With `burn` (the reset page), the reset
+ * token's hash is inserted in that same transaction and a token already in the table refuses the
+ * whole reset, so the burn and the reset commit or roll back together: no restart or race can leave
+ * a reset done with its token still usable. A reset committed after this process booted
+ * (`startedAt`) refuses the burn too: the env var only changes with a restart, so one boot completes
+ * at most one reset, and a worker that booted before another's reset is stale by definition. (A
+ * fresh boot with an old unused token is the operator re-arming reset mode, which they control.)
+ * A token equal to the setup token that claimed the server is burned already and refused here too.
+ * A drain that fails after the commit does not undo it: the result says `revocationPending`, and the
+ * outbox keeps the jtis for the next drain (boot and every maintenance sweep).
  */
 export function resetOperatorCredentials(
   db: Database,
@@ -266,9 +282,24 @@ export function resetOperatorCredentials(
   passwordHash: string,
   opts: {
     revoke?: { registry: Pick<AuthRegistry, "revoke">; reason: string; now: number };
+    burn?: { tokenHash: string; now: number; startedAt: number };
   } = {},
 ): CredentialsReset {
   const out = inWriteTransaction(db, "as_passkey", (): CredentialsReset => {
+    if (opts.burn !== undefined) {
+      const { tokenHash, now, startedAt } = opts.burn;
+      if (resetTokenBurned(db, tokenHash) || tokenBurned(db, tokenHash)) {
+        throw new ResetTokenBurnedError();
+      }
+      const doneThisBoot = db
+        .prepare("SELECT 1 AS present FROM burned_reset_tokens WHERE used_at >= ? LIMIT 1")
+        .get(startedAt);
+      if (doneThisBoot !== undefined) throw new ResetTokenBurnedError();
+      db.prepare("INSERT INTO burned_reset_tokens (token_hash, used_at) VALUES (?, ?)").run(
+        tokenHash,
+        now,
+      );
+    }
     db.prepare(
       "UPDATE users SET password_hash = ?, credential_gen = credential_gen + 1 WHERE sub = ?",
     ).run(passwordHash, sub);
@@ -291,6 +322,11 @@ export function resetOperatorCredentials(
     }
     return { credentials, sessions, grants };
   });
-  if (opts.revoke !== undefined) drainRevocations(db, opts.revoke.registry);
+  if (opts.revoke === undefined) return out;
+  try {
+    drainRevocations(db, opts.revoke.registry);
+  } catch {
+    return { ...out, revocationPending: true };
+  }
   return out;
 }
