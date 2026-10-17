@@ -67,3 +67,6 @@ unbuffered streaming) and check it with `obsidian-tc doctor --probe`.
 To connect a particular MCP client (Claude Code, claude.ai, `codex mcp login`, Gemini CLI and others) to the bundled
 authorization server, or to put WorkOS AuthKit or Keycloak in front of the server instead, see
 [Client recipes](/deployment/client-recipes/).
+
+To run the container on Railway, with one volume and environment variables for the deployment
+settings, see [Railway](/deployment/railway/).

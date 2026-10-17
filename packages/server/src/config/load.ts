@@ -23,6 +23,9 @@ import { applySecurityProfile, requestsDynamicRegistration } from "./security-pr
  * hand-written list — the drift this repo keeps finding — so there is one implementation and
  * explain calls it.
  *
+ * Precedence is environment over config file over schema default: each overlay writes into the raw
+ * object before the schema defaults apply. An empty variable is unset and changes nothing.
+ *
  * plur endpoint/token may come from the environment to keep the engram-store bearer off disk (same
  * pattern as the JWT secret). The token is only ever placed in the Authorization header by the
  * bridge transport, never logged.
@@ -36,6 +39,64 @@ export function applyEnvOverlays(
     const auth = (raw.auth as Record<string, unknown> | undefined) ?? {};
     raw.auth = { ...auth, jwtSecret: envSecret };
   }
+  // Deployment overlays (Railway and other container hosts). Order matters: PUBLIC_URL and PORT both
+  // write transports.http, so each re-reads it rather than holding a stale copy.
+  const port = env.PORT;
+  if (port) {
+    const n = Number(port);
+    if (!/^\d+$/.test(port) || n < 1 || n > 65535) {
+      throw err.invalidInput(
+        `PORT must be an integer from 1 to 65535, got ${JSON.stringify(port)}`,
+        {
+          variable: "PORT",
+        },
+      );
+    }
+    const transports = (raw.transports as Record<string, unknown> | undefined) ?? {};
+    const http = (transports.http as Record<string, unknown> | undefined) ?? {};
+    // PORT turns HTTP on, but never overrides a file that turned it off on purpose.
+    raw.transports = {
+      ...transports,
+      http: { ...http, port: n, ...(http.enabled === false ? {} : { enabled: true }) },
+    };
+  }
+  const publicUrl = env.OBSIDIAN_TC_PUBLIC_URL;
+  if (publicUrl) {
+    const url = parsePublicUrl(publicUrl);
+    const auth = (raw.auth as Record<string, unknown> | undefined) ?? {};
+    raw.auth = { ...auth, resource: `${url.origin}/mcp` };
+    const transports = (raw.transports as Record<string, unknown> | undefined) ?? {};
+    const http = (transports.http as Record<string, unknown> | undefined) ?? {};
+    const hosts = Array.isArray(http.allowedHosts) ? (http.allowedHosts as unknown[]) : [];
+    raw.transports = {
+      ...transports,
+      http: { ...http, allowedHosts: hosts.includes(url.host) ? hosts : [...hosts, url.host] },
+    };
+  }
+  const jwksUri = env.OBSIDIAN_TC_JWKS_URI;
+  if (jwksUri) {
+    const auth = (raw.auth as Record<string, unknown> | undefined) ?? {};
+    raw.auth = { ...auth, jwksUri };
+  }
+  const cacheDir = env.OBSIDIAN_TC_CACHE_DIR;
+  if (cacheDir) raw.cacheDir = cacheDir;
+  const vaultPath = env.OBSIDIAN_TC_VAULT_PATH;
+  if (vaultPath) {
+    // Only an unambiguous target is overlaid: no vault, or the one vault. Several vaults would need
+    // a choice of which one this path replaces, and that choice is the operator's to make.
+    const vaults = raw.vaults;
+    if (vaults === undefined || (Array.isArray(vaults) && vaults.length === 0)) {
+      raw.vaults = [{ id: "main", path: vaultPath }];
+    } else if (Array.isArray(vaults) && vaults.length === 1) {
+      raw.vaults = [{ ...(vaults[0] as Record<string, unknown>), path: vaultPath }];
+    } else if (Array.isArray(vaults)) {
+      throw err.invalidInput(
+        `OBSIDIAN_TC_VAULT_PATH cannot pick one of ${vaults.length} configured vaults; ` +
+          "remove the variable and set each vault's path in the config file",
+        { variable: "OBSIDIAN_TC_VAULT_PATH" },
+      );
+    }
+  }
   const plurEndpoint = env.OBSIDIAN_TC_PLUR_ENDPOINT;
   const plurToken = env.OBSIDIAN_TC_PLUR_TOKEN;
   if (plurEndpoint || plurToken) {
@@ -47,6 +108,31 @@ export function applyEnvOverlays(
     };
   }
   return raw;
+}
+
+/** OBSIDIAN_TC_PUBLIC_URL must be the bare origin of the public HTTPS endpoint. Its value is never
+ *  echoed into the error: a mistyped URL can carry credentials, and errors reach logs. */
+function parsePublicUrl(value: string): URL {
+  let url: URL | undefined;
+  try {
+    url = new URL(value);
+  } catch {
+    url = undefined;
+  }
+  const bare =
+    url !== undefined &&
+    (url.pathname === "/" || url.pathname === "") &&
+    url.search === "" &&
+    url.hash === "" &&
+    url.username === "" &&
+    url.password === "";
+  if (url === undefined || url.protocol !== "https:" || !bare) {
+    throw err.invalidInput(
+      "OBSIDIAN_TC_PUBLIC_URL must be an https://host[:port] URL with no path, query or credentials",
+      { variable: "OBSIDIAN_TC_PUBLIC_URL" },
+    );
+  }
+  return url;
 }
 
 /**

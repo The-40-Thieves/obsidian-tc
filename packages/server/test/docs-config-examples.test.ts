@@ -34,6 +34,9 @@ const examples = [
   ...jsonBlocks(sectionAfter("configuration/config-yaml.md", "A minimal example"))
     .slice(0, 1)
     .map((block) => ({ name: "config-yaml minimal example", block })),
+  ...jsonBlocks(sectionAfter("deployment/railway.md", "## Config file"))
+    .slice(0, 1)
+    .map((block) => ({ name: "railway Config file", block })),
 ];
 
 describe("docs config examples", () => {
