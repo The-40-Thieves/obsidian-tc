@@ -232,6 +232,40 @@ dodge any per-source budget. Keep the list to the narrowest addresses that are y
 the server's port unreachable except through them. The address only picks a rate-limit bucket; it is
 not an authentication signal.
 
+## From a web page
+
+A browser page can call the HTTP transport only when you list its origin in
+`transports.http.cors.allowedOrigins`:
+
+```yaml
+transports:
+  http:
+    cors:
+      allowedOrigins: ["https://app.example.com"]
+```
+
+The list is empty by default, and then the server sends no CORS header at all. Each entry is an
+exact origin: scheme, host and port, with no path, no trailing slash, no query and no wildcard.
+Scheme and host are case-insensitive, and a default port is dropped, as a browser sends them.
+`https://app.example.com` does not admit `http://app.example.com`, `https://app.example.com:8443` or
+`https://evil.app.example.com`. A request from an origin that is not listed is refused as before.
+
+The routes that carry CORS are the MCP endpoint (`/mcp` and `/mcp/<surface>`), the `/.well-known/*`
+metadata documents, and the authorization server's token, registration and revocation endpoints
+(`/oauth/token`, `/oauth/register`, `/oauth/revoke`). The browser-navigation pages (`/oauth/authorize`,
+`/oauth/login`, consent, setup and account) never carry CORS: they are top-level navigations, not
+calls a page makes with `fetch`.
+
+The server never sends `Access-Control-Allow-Origin: *`. It echoes back the one listed origin that
+matches, and it never sends `Access-Control-Allow-Credentials`. The bearer token travels in the
+`Authorization` header, not in a cookie, so a page makes no credentialed request and none is granted.
+
+**The threat model.** A token held in a browser is a token any script on that page can read. Cross-site
+scripting on an allowed origin is therefore token theft: the attacker takes the bearer and can use it
+until it expires. Allow only origins you run, keep token lifetimes short, and rely on refresh-token
+rotation so a stolen refresh token is useful once. Keep the token in memory in the page, not in
+`localStorage` or `sessionStorage`: those survive a reload, and any script on the page can read them.
+
 ## Revoking tokens and rotating the signing key
 
 `obsidian-tc token mint` gives every token a `jti` claim and a `kid` header and records

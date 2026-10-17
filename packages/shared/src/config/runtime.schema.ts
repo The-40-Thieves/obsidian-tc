@@ -13,6 +13,22 @@
 import { z } from "zod";
 import { parseIpCidr } from "../net-ip";
 
+/** An exact web origin (`scheme://host[:port]`, http or https), or undefined for anything else: a
+ *  wildcard, a path, a trailing slash, a query, userinfo or another scheme. Returns the form a
+ *  browser sends in `Origin` (scheme and host lowercased, default port dropped). */
+function canonicalCorsOrigin(entry: string): string | undefined {
+  if (entry.endsWith("/") || /[*?#]/.test(entry)) return undefined;
+  let url: URL;
+  try {
+    url = new URL(entry);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
+  if (url.pathname !== "/" || url.username !== "" || url.password !== "") return undefined;
+  return url.origin;
+}
+
 export const HttpConfigSchema = z.object({
   enabled: z.boolean().default(false).describe("Serve the MCP HTTP transport."),
   host: z
@@ -45,6 +61,23 @@ export const HttpConfigSchema = z.object({
     .array(z.string())
     .default([])
     .describe("Additional Origin header values accepted by the rebinding guard."),
+  // Opt-in CORS for browser clients (cors.ts). Empty (the default) sends no Access-Control-* header.
+  cors: z
+    .object({
+      allowedOrigins: z
+        .array(
+          z.string().refine((entry) => canonicalCorsOrigin(entry) !== undefined, {
+            message:
+              "must be an exact web origin: scheme://host[:port], http or https, with no path, no trailing slash, no query and no wildcard (`https://app.example.com`)",
+          }),
+        )
+        .default([])
+        .describe(
+          "Exact web origins (scheme://host[:port]) whose browser pages may call the MCP endpoint, the OAuth token, registration and revocation endpoints, and the /.well-known metadata. Each is echoed back exactly, never as `*`, and no credentials are shared. Empty (the default) sends no CORS headers.",
+        ),
+    })
+    .prefault({})
+    .describe("Cross-origin access for browser clients (CORS). Off unless origins are listed."),
   trustedProxies: z
     .array(
       z.string().refine((entry) => parseIpCidr(entry) !== undefined, {
