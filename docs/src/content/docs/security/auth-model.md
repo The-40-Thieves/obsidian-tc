@@ -758,8 +758,12 @@ It needs the sole operator (with more than one account, use the CLI with `--user
 window: 24 hours after the server started, so restart again to open it. The token works **once**: its SHA-256 is
 recorded in `oauth.db` in the same transaction as the reset, so a restart cannot reuse it, and a refused or wrong
 token counts against the same ten-guess limit as setup. A wrong password does not use the token up. A reset with
-the revoke box ticked is refused while the revocation registry is lost, and changes nothing. Then **remove the
-variable**: the server prints a warning at every boot while it is set.
+the revoke box ticked is refused while the revocation registry is lost, and changes nothing. If the registry
+fails only after the reset has committed, the page (and `reset-credentials`, which then exits non-zero) says so:
+the password is reset, and the revoked access tokens are refused once the queued revocations reach the registry,
+at the next boot or maintenance sweep; check `obsidian-tc doctor`. Each value works for one reset per boot, and the
+two token variables must differ. Then **remove the variable**: the server prints a warning at every boot while it
+is set.
 
 **A reset ends what was already running, too.** The operator account carries a *credential generation* that the
 reset (and `set-password`) moves on in that transaction, and every session records the generation it was opened
