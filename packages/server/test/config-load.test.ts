@@ -1,7 +1,13 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { isEmbeddingsModelExplicit, isPlaneEnabledExplicit, loadConfig } from "../src/config/load";
+import {
+  applyEnvOverlays,
+  finalizeConfig,
+  isEmbeddingsModelExplicit,
+  isPlaneEnabledExplicit,
+  loadConfig,
+} from "../src/config/load";
 import { configureProviderPlainHttp, providerPlainHttpHosts } from "../src/gateway/provider-fetch";
 import { makeTempDir, rmTemp } from "./tmp";
 
@@ -251,6 +257,167 @@ describe("cacheDir requirement for provider 'local' (THE-1122 review round 3)", 
 // THE-825: `isPlaneEnabledExplicit` is the signal that distinguishes "the raw config never
 // mentioned plane.enabled" (defaulted) from "the raw config set plane.enabled: false on purpose"
 // (deliberate opt-out) -- the two are indistinguishable once ServerConfigSchema.parse has run.
+// Deployment overlays (PORT, OBSIDIAN_TC_PUBLIC_URL, ...). Each one is a single env->path mapping in
+// applyEnvOverlays, the one overlay both boot and `config explain` run. Precedence is env > file >
+// default: the overlay writes into the raw file object before the schema defaults apply.
+describe("deployment env overlays (applyEnvOverlays / finalizeConfig)", () => {
+  const VAULT = { id: "main", path: "/data/vault" };
+  const SECRET = "s".repeat(40);
+  type Http = { transports: { http: Record<string, unknown> } };
+
+  it("PORT sets transports.http.port and enables the HTTP transport when unset", () => {
+    expect(applyEnvOverlays({}, { PORT: "8080" }) as Http).toMatchObject({
+      transports: { http: { port: 8080, enabled: true } },
+    });
+  });
+
+  it("PORT leaves transports.http.enabled alone when the file explicitly disabled it", () => {
+    expect(
+      applyEnvOverlays({ transports: { http: { enabled: false } } }, { PORT: "8080" }) as Http,
+    ).toMatchObject({ transports: { http: { enabled: false, port: 8080 } } });
+  });
+
+  it("ignores empty overlay variables and leaves the raw object untouched", () => {
+    const raw = { vaults: [VAULT], cacheDir: "/c", transports: { http: { port: 9000 } } };
+    const before = structuredClone(raw);
+    applyEnvOverlays(raw, {
+      PORT: "",
+      OBSIDIAN_TC_PUBLIC_URL: "",
+      OBSIDIAN_TC_JWKS_URI: "",
+      OBSIDIAN_TC_VAULT_PATH: "",
+      OBSIDIAN_TC_CACHE_DIR: "",
+    });
+    expect(raw).toEqual(before);
+  });
+
+  it.each(["0", "65536", "-1", "80.5", "8080x", "http"])(
+    "refuses PORT=%s with an error naming PORT",
+    (port) => {
+      expect(() => applyEnvOverlays({}, { PORT: port })).toThrow(/PORT/);
+    },
+  );
+
+  it("OBSIDIAN_TC_PUBLIC_URL sets auth.resource to the /mcp URL and allows its host", () => {
+    expect(
+      applyEnvOverlays({}, { OBSIDIAN_TC_PUBLIC_URL: "https://vault.example.com" }),
+    ).toMatchObject({
+      auth: { resource: "https://vault.example.com/mcp" },
+      transports: { http: { allowedHosts: ["vault.example.com"] } },
+    });
+  });
+
+  it("OBSIDIAN_TC_PUBLIC_URL keeps an explicit port in the allowed host and never duplicates one", () => {
+    expect(
+      applyEnvOverlays(
+        { transports: { http: { allowedHosts: ["vault.example.com"] } } },
+        { OBSIDIAN_TC_PUBLIC_URL: "https://vault.example.com:8443/" },
+      ),
+    ).toMatchObject({
+      auth: { resource: "https://vault.example.com:8443/mcp" },
+      transports: { http: { allowedHosts: ["vault.example.com", "vault.example.com:8443"] } },
+    });
+    const again = applyEnvOverlays(
+      { transports: { http: { allowedHosts: ["vault.example.com"] } } },
+      { OBSIDIAN_TC_PUBLIC_URL: "https://vault.example.com" },
+    ) as Http;
+    expect(again.transports.http.allowedHosts).toEqual(["vault.example.com"]);
+  });
+
+  it.each([
+    "http://vault.example.com",
+    "vault.example.com",
+    "https://vault.example.com/mcp",
+    "https://vault.example.com?x=1",
+    "not a url",
+  ])("refuses OBSIDIAN_TC_PUBLIC_URL=%s with an error naming the variable", (url) => {
+    expect(() => applyEnvOverlays({}, { OBSIDIAN_TC_PUBLIC_URL: url })).toThrow(
+      /OBSIDIAN_TC_PUBLIC_URL/,
+    );
+  });
+
+  it("OBSIDIAN_TC_JWKS_URI sets auth.jwksUri", () => {
+    expect(
+      applyEnvOverlays({}, { OBSIDIAN_TC_JWKS_URI: "https://as.example.com/jwks" }),
+    ).toMatchObject({ auth: { jwksUri: "https://as.example.com/jwks" } });
+  });
+
+  it("OBSIDIAN_TC_VAULT_PATH creates the one vault when the config has none", () => {
+    expect(applyEnvOverlays({}, { OBSIDIAN_TC_VAULT_PATH: "/data/vault" })).toMatchObject({
+      vaults: [{ id: "main", path: "/data/vault" }],
+    });
+  });
+
+  it("OBSIDIAN_TC_VAULT_PATH replaces the path of the one configured vault and keeps its id", () => {
+    expect(
+      applyEnvOverlays(
+        { vaults: [{ id: "notes", path: "/old", name: "Notes" }] },
+        { OBSIDIAN_TC_VAULT_PATH: "/data/vault" },
+      ),
+    ).toMatchObject({ vaults: [{ id: "notes", path: "/data/vault", name: "Notes" }] });
+  });
+
+  it("OBSIDIAN_TC_VAULT_PATH refuses a config with several vaults rather than guessing", () => {
+    expect(() =>
+      applyEnvOverlays(
+        {
+          vaults: [
+            { id: "a", path: "/a" },
+            { id: "b", path: "/b" },
+          ],
+        },
+        { OBSIDIAN_TC_VAULT_PATH: "/data/vault" },
+      ),
+    ).toThrow(/OBSIDIAN_TC_VAULT_PATH/);
+  });
+
+  it("OBSIDIAN_TC_CACHE_DIR sets cacheDir", () => {
+    expect(
+      applyEnvOverlays({ cacheDir: "/old" }, { OBSIDIAN_TC_CACHE_DIR: "/data/cache" }),
+    ).toMatchObject({ cacheDir: "/data/cache" });
+  });
+
+  it("env wins over the file for every overlay (precedence: env > file > default)", () => {
+    const cfg = finalizeConfig(
+      {
+        vaults: [{ id: "main", path: "/file/vault" }],
+        cacheDir: "/file/cache",
+        transports: { http: { port: 9000, host: "127.0.0.1" } },
+      },
+      { OBSIDIAN_TC_VAULT_PATH: "/env/vault", OBSIDIAN_TC_CACHE_DIR: "/env/cache", PORT: "9100" },
+    );
+    expect(cfg.vaults[0]?.path).toBe("/env/vault");
+    expect(cfg.cacheDir).toBe("/env/cache");
+    expect(cfg.transports.http.port).toBe(9100);
+  });
+
+  it("refuses PORT with a non-loopback host while auth.mode is none", () => {
+    expect(() =>
+      finalizeConfig(
+        { vaults: [VAULT], cacheDir: "/c", transports: { http: { host: "0.0.0.0" } } },
+        { PORT: "8080" },
+      ),
+    ).toThrow(/non-loopback/);
+  });
+
+  it("accepts the container shape: PORT, PUBLIC_URL, a JWT secret and a 0.0.0.0 host", () => {
+    const cfg = finalizeConfig(
+      {
+        vaults: [VAULT],
+        cacheDir: "/c",
+        auth: { mode: "jwt" },
+        transports: { http: { host: "0.0.0.0" } },
+      },
+      {
+        PORT: "8080",
+        OBSIDIAN_TC_PUBLIC_URL: "https://vault.example.com",
+        OBSIDIAN_TC_JWT_SECRET: SECRET,
+      },
+    );
+    expect(cfg.transports.http).toMatchObject({ enabled: true, port: 8080, host: "0.0.0.0" });
+    expect(cfg.auth.resource).toBe("https://vault.example.com/mcp");
+  });
+});
+
 describe("isPlaneEnabledExplicit (THE-825)", () => {
   it("false when the raw config has no plane block at all", () => {
     expect(isPlaneEnabledExplicit({ vaults: [] })).toBe(false);

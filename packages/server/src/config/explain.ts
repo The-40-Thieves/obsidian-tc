@@ -53,6 +53,13 @@ export const ENV_OVERLAYS: ReadonlyArray<readonly [string, string]> = [
   ["auth.jwtSecret", "OBSIDIAN_TC_JWT_SECRET"],
   ["plur.endpoint", "OBSIDIAN_TC_PLUR_ENDPOINT"],
   ["plur.apiKey", "OBSIDIAN_TC_PLUR_TOKEN"],
+  ["transports.http.port", "PORT"],
+  ["transports.http.enabled", "PORT"],
+  ["auth.resource", "OBSIDIAN_TC_PUBLIC_URL"],
+  ["transports.http.allowedHosts", "OBSIDIAN_TC_PUBLIC_URL"],
+  ["auth.jwksUri", "OBSIDIAN_TC_JWKS_URI"],
+  ["vaults", "OBSIDIAN_TC_VAULT_PATH"],
+  ["cacheDir", "OBSIDIAN_TC_CACHE_DIR"],
 ];
 
 // Same rules as cli/args.ts's redactConfig, kept as one regex pair so the two surfaces agree.
@@ -96,16 +103,22 @@ export function explainConfig(
   // Layer 1: what the file itself said, before anything was overlaid onto it.
   const filePaths = leafPaths(rawFile);
 
-  // Layer 2: which paths the env overlay actually supplies on THIS invocation.
+  // Layer 2: which paths the env overlay actually changes on THIS invocation. A variable can be set
+  // and still leave a path alone (PORT does not touch `enabled` when the file turned HTTP off), so
+  // a path counts as env-supplied only when the overlay's value differs from the file's.
+  const withEnv = structuredClone(rawFile);
+  applyEnvOverlays(withEnv, env);
+  const overlaid = leafPaths(withEnv);
+  const fromFile = leafPaths(rawFile);
   const envPaths = new Map<string, string>();
   for (const [path, varName] of ENV_OVERLAYS) {
-    if (env[varName]) envPaths.set(path, varName);
+    if (env[varName] && JSON.stringify(overlaid.get(path)) !== JSON.stringify(fromFile.get(path))) {
+      envPaths.set(path, varName);
+    }
   }
 
   // Layer 3: what the security profile adds. Applied to a file+env clone, exactly as load.ts does,
   // so a field the file already sets is correctly NOT attributed to the profile.
-  const withEnv = structuredClone(rawFile);
-  applyEnvOverlays(withEnv, env);
   const profileName = typeof rawFile.securityProfile === "string" ? rawFile.securityProfile : null;
   const profilePaths = leafPaths(applySecurityProfile(structuredClone(withEnv)));
 

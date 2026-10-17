@@ -4,12 +4,14 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { redactConfig } from "../src/cli/redact-config";
 import {
   type ConfigExplanation,
   ENV_OVERLAYS,
   explainConfig,
   formatConfigError,
 } from "../src/config/explain";
+import { finalizeConfig } from "../src/config/load";
 
 const VAULTS = [{ id: "main", path: "/tmp/vault" }];
 // jwtSecret has a 32-character minimum in the schema — a short fixture fails validation before
@@ -142,6 +144,61 @@ describe("THE-518 ENV_OVERLAYS stays in step with load.ts", () => {
     expect(read.length).toBeGreaterThan(0); // an empty scan must not pass vacuously
     const declared = new Set(ENV_OVERLAYS.map(([, v]) => v));
     expect([...new Set(read)].filter((v) => !declared.has(v))).toEqual([]);
+  });
+});
+
+describe("deployment env overlays in config explain", () => {
+  it("attributes each deployment overlay to the env var that supplied it", () => {
+    const e = explainConfig(base(), {
+      env: {
+        PORT: "8080",
+        OBSIDIAN_TC_PUBLIC_URL: "https://vault.example.com",
+        OBSIDIAN_TC_JWKS_URI: "https://as.example.com/jwks",
+        OBSIDIAN_TC_VAULT_PATH: "/data/vault",
+        OBSIDIAN_TC_CACHE_DIR: "/data/cache",
+      },
+    });
+    expect(find(e, "transports.http.port")).toMatchObject({
+      value: 8080,
+      source: "env",
+      detail: "PORT",
+    });
+    expect(find(e, "auth.resource")).toMatchObject({
+      value: "https://vault.example.com/mcp",
+      source: "env",
+      detail: "OBSIDIAN_TC_PUBLIC_URL",
+    });
+    expect(find(e, "auth.jwksUri")).toMatchObject({
+      source: "env",
+      detail: "OBSIDIAN_TC_JWKS_URI",
+    });
+    expect(find(e, "vaults")).toMatchObject({ source: "env", detail: "OBSIDIAN_TC_VAULT_PATH" });
+    expect(find(e, "cacheDir")).toMatchObject({
+      value: "/data/cache",
+      source: "env",
+      detail: "OBSIDIAN_TC_CACHE_DIR",
+    });
+  });
+
+  it("does not credit PORT with enabling HTTP when the file explicitly disabled it", () => {
+    const e = explainConfig(base({ transports: { http: { enabled: false } } }), {
+      env: { PORT: "8080" },
+    });
+    expect(find(e, "transports.http.enabled")).toMatchObject({ value: false, source: "file" });
+    expect(find(e, "transports.http.port")).toMatchObject({ value: 8080, source: "env" });
+  });
+
+  it("keeps the JWT secret out of both explain and config show output", () => {
+    const env = { OBSIDIAN_TC_JWT_SECRET: SECRET_A };
+    const raw = base({ auth: { mode: "jwt" } });
+    const explained = explainConfig(raw, { env });
+    const shown = redactConfig(finalizeConfig(structuredClone(raw), env));
+    expect(find(explained, "auth.jwtSecret")).toMatchObject({
+      source: "env",
+      detail: "OBSIDIAN_TC_JWT_SECRET",
+    });
+    expect(JSON.stringify(explained)).not.toContain(SECRET_A);
+    expect(JSON.stringify(shown)).not.toContain(SECRET_A);
   });
 });
 
