@@ -70,3 +70,5 @@ authorization server, or to put WorkOS AuthKit or Keycloak in front of the serve
 
 To run the container on Railway, with one volume and environment variables for the deployment
 settings, see [Railway](/deployment/railway/).
+
+For stdio containers and the shared long-lived HTTP Compose bundle, see [Docker](/deployment/docker/).
