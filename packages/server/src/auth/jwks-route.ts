@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
-import type { AuthConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Context, Hono } from "hono";
 import type { AuthRegistry } from "./registry";
+
+type AuthConfig = ServerConfig["auth"];
 
 /** The longest a downstream cache may keep the published JWKS (seconds). */
 const JWKS_MAX_AGE_SECONDS = 60;
