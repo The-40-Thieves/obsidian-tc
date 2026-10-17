@@ -198,7 +198,7 @@ export interface McpServerOptions {
    * clients and out of scope. Only `runtime/server-runtime.ts`'s stdio server sets this true;
    * `transports/http.ts` never does. Requires `elicitCodec` to have any effect.
    */
-  legacyElicitationShim?: boolean;
+  legacyElicitationShim?: boolean; // legacy-era shim: see LEGACY_SHIMS.md
   /**
    * THE-583: durable queue backing TASK-AUGMENTED tool calls.
    *
@@ -263,7 +263,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     surface,
   );
   const server = new ShimGuardedServer(
-    { name: opts.name, version: opts.version },
+    { name: opts.name, version: opts.version }, // legacy-era shim: see LEGACY_SHIMS.md
     // Advertise resources only when a vaultRegistry is present: without it the resource
     // handlers serve an empty list / throw, so declaring the capability would mislead a client
     // that inspects capabilities to enumerate resources or subscribe to change notifications.
@@ -294,8 +294,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
       // THE-583: serve BOTH protocol eras from one server. The SDK ships a frozen 2025-11-25 wire
       // codec alongside the 2026-07-28 one and picks per connection, but the shipped
       // SUPPORTED_PROTOCOL_VERSIONS list is 2025-era ONLY — an unmodified v2 server answers a
-      // 2026-07-28 client with `400 Unsupported protocol version`. Modern is opt-in, and this is
-      // the opt-in.
+      // 2026-07-28 client with `400 Unsupported protocol version`. Modern is the opt-in.
       //
       // It MUST be set here rather than on the transport: Server.connect() overwrites the
       // transport's own supportedProtocolVersions with the server's. Setting it on the transport
@@ -314,7 +313,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
         : {}),
       // THE-1106: assert explicit, never the SDK default — see McpServerOptions.legacyElicitationShim.
       inputRequired: {
-        legacyShim: opts.legacyElicitationShim === true,
+        legacyShim: opts.legacyElicitationShim === true, // legacy-era shim: see LEGACY_SHIMS.md
         // THE-1106 fix round 2 (LOW 1): cap the shim's per-leg timeout to the codec's OWN TTL
         // (ElicitCodec.ttlSeconds's doc comment, elicit-request-state.ts) — the SDK's 600s default
         // otherwise outlives a shorter TTL, so a human answering between the TTL and 600s gets a
@@ -442,6 +441,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     );
   });
 
+  // legacy-era shim: see LEGACY_SHIMS.md
   server.onConfirmLegFailure = (error) => errorToResult(withRoundOutcome(error, "cancelled"));
   // THE-583: tell the client when the byte governor TRUNCATED its answer. This was previously
   // visible only in `meta` (and in server-side metrics), so a caller could act on a silently
@@ -556,7 +556,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     const { clientInfo, ...claimed } = requestCallerMeta(
       req.params._meta,
       extra.mcpReq.envelope,
-      server.getClientVersion(),
+      server.getClientVersion(), // legacy-era shim: see LEGACY_SHIMS.md
     );
     ctx = { ...ctx, ...(clientInfo !== undefined ? { clientInfo } : {}), ...claimed };
     // THE-1123: stamped onto ctx so server_health reads THIS decision, never re-derives its own.
