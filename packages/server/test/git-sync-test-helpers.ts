@@ -13,21 +13,32 @@ export interface GitFixture {
   cache: string;
 }
 
-const isolatedGitHome = makeTempDir("obtc-git-home-");
-const isolatedGitGlobal = join(isolatedGitHome, "global.gitconfig");
-writeFileSync(isolatedGitGlobal, "");
+let isolatedGitState: { home: string; global: string } | undefined;
+
+// Created on first use, never at import: a suite the platform skips (win32) never calls git(), so it
+// makes no directory and the per-file teardown has nothing to leak.
+function isolatedGit(): { home: string; global: string } {
+  if (!isolatedGitState) {
+    const home = makeTempDir("obtc-git-home-");
+    const global = join(home, "global.gitconfig");
+    writeFileSync(global, "");
+    isolatedGitState = { home, global };
+  }
+  return isolatedGitState;
+}
 
 export function git(cwd: string, args: string[]): string {
+  const { home, global: globalConfig } = isolatedGit();
   return execFileSync("git", ["-c", "init.defaultBranch=main", ...args], {
     cwd,
     encoding: "utf8",
     env: {
       ...process.env,
       GIT_CONFIG_NOSYSTEM: "1",
-      GIT_CONFIG_GLOBAL: isolatedGitGlobal,
+      GIT_CONFIG_GLOBAL: globalConfig,
       GIT_TERMINAL_PROMPT: "0",
-      HOME: isolatedGitHome,
-      XDG_CONFIG_HOME: isolatedGitHome,
+      HOME: home,
+      XDG_CONFIG_HOME: home,
     },
     stdio: ["ignore", "pipe", "pipe"],
     timeout: stallTimeout(30_000),
