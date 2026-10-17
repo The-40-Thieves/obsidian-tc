@@ -28,9 +28,7 @@ describe("railway.json", () => {
     expect(railway.deploy?.startCommand).toBeUndefined();
   });
 
-  it("sets no healthcheckPath: the HTTP app has no unauthenticated 200 route to point it at yet", () => {
-    // /mcp answers GET with 405 and the protected-resource documents exist only when the AS is
-    // configured, so neither is a safe probe. Re-add the field when a /healthz route lands.
-    expect(railway.deploy?.healthcheckPath).toBeUndefined();
+  it("uses the unauthenticated liveness route for health checks", () => {
+    expect(railway.deploy?.healthcheckPath).toBe("/healthz");
   });
 });

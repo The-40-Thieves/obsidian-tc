@@ -49,6 +49,7 @@ import type { VaultRegistry } from "../vault/registry";
 import { activeSessionFor, DEFAULT_TRACE_FOLDER, openImplicitSession } from "../workspace/sessions";
 import { anonymousGate, carriesNoCredentials, mixedModeScopes } from "./anonymous-discovery";
 import { corsMiddleware, corsOriginSet } from "./cors";
+import { mountHealthz } from "./healthz";
 import { isHostAllowed, isOriginAllowed } from "./host-guard";
 import { type ServerHandle, serveHono } from "./serve";
 
@@ -436,6 +437,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
       opts.enableDnsRebindingProtection === false ? true : isHostAllowed(host, opts.allowedHosts),
     ),
   );
+  mountHealthz(app, opts);
   /** `auth.anonymousDiscovery: "list"` and a complete PRM: see transports/anonymous-discovery.ts. */
   const mixedAuth = mixedModeScopes(opts.auth);
   /**
