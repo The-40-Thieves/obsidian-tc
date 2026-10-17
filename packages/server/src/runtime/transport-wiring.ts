@@ -182,7 +182,12 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
       oauthDb = await openOauthDb(config);
       const store = oauthDb;
       // Every boot while the reset variable is set (claimed or not): the warning, never the token.
-      const resetNotice = resetBootNotice(process.env, as.resetTokenEnv, as.issuer);
+      const resetNotice = resetBootNotice(
+        process.env,
+        as.resetTokenEnv,
+        as.issuer,
+        as.setupTokenEnv,
+      );
       if (resetNotice !== undefined) process.stderr.write(resetNotice);
       if (!isClaimed(store.db)) {
         const viaPage = (process.env[as.setupTokenEnv] ?? "") !== "";

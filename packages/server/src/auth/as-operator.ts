@@ -107,11 +107,15 @@ export function resetBootNotice(
   env: Record<string, string | undefined>,
   name: string,
   issuer: string,
+  setupName: string,
 ): string | undefined {
   const v = env[name];
   if (v === undefined || v === "") return undefined;
   if (v.length < SETUP_TOKEN_MIN_LENGTH) {
     return `auth: warning: ${name} is set but shorter than ${SETUP_TOKEN_MIN_LENGTH} characters, so it does nothing; remove it\n`;
+  }
+  if (v === env[setupName]) {
+    return `auth: warning: ${name} has the same value as ${setupName}, so reset mode stays off; give it its own token, and remove ${name} once the reset is done.\n`;
   }
   return `auth: warning: ${name} is set: a claimed server takes an operator password reset at ${issuer}/oauth/setup until the boot window closes; remove ${name} once the reset is done.\n`;
 }
@@ -373,9 +377,16 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
   const setupClosed = (c: Context) =>
     html(c, 403, messagePage("Setup closed", "This server cannot be claimed this way now."));
   const setupOpen = (): boolean => now() - startedAt <= SETUP_WINDOW_MS;
-  /** The reset token while reset mode is on: the server is claimed and the boot window is open. */
-  const armedResetToken = (): string | undefined =>
-    claimed() && setupOpen() ? resetToken() : undefined;
+  /**
+   * The reset token while reset mode is on: the server is claimed, the boot window is open, and the
+   * token is not the setup token's value (a token that claimed the server must not reset it again).
+   */
+  const armedResetToken = (): string | undefined => {
+    const token = resetToken();
+    return claimed() && setupOpen() && token !== undefined && token !== setupToken()
+      ? token
+      : undefined;
+  };
   const noSoleOperator = (c: Context) =>
     html(
       c,
@@ -431,8 +442,13 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
     const form = await readForm(c);
     if (form instanceof Response) return form;
     if (!tokenValid(c, "reset", form.get("csrf") ?? "")) return forbidden(c);
-    const refusal = oneTimeToken(c, "reset", expected, form.get("token") ?? "", () =>
-      resetTokenBurned(db, sha256Hex(expected)),
+    const expectedHash = sha256Hex(expected);
+    const refusal = oneTimeToken(
+      c,
+      "reset",
+      expected,
+      form.get("token") ?? "",
+      () => resetTokenBurned(db, expectedHash) || tokenBurned(db, expectedHash),
     );
     if (refusal) return refusal;
 
@@ -470,10 +486,11 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
     }
 
     const passwordHash = await passwords.hash(password);
+    let reset: ReturnType<typeof resetOperatorCredentials>;
     try {
       // The burn is part of the reset's own transaction (as-passkey-store.ts): a token already used
       // refuses the reset here too, so two requests that both passed the gate above cannot both win.
-      resetOperatorCredentials(db, operator.sub, passwordHash, {
+      reset = resetOperatorCredentials(db, operator.sub, passwordHash, {
         ...(revoke && registry !== undefined
           ? {
               revoke: {
@@ -483,14 +500,27 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
               },
             }
           : {}),
-        burn: { tokenHash: sha256Hex(expected), now: now() },
+        burn: { tokenHash: expectedHash, now: now(), startedAt },
       });
     } catch (e) {
       if (e instanceof ResetTokenBurnedError) return setupClosed(c);
       throw e;
     }
+    const pending = reset.revocationPending === true;
     if (deps.audit !== undefined) await deps.audit("auth_credentials_reset");
-    log(`operator credentials reset through the reset page${revoke ? " (grants revoked)" : ""}`);
+    log(
+      `operator credentials reset through the reset page${revoke ? " (grants revoked)" : ""}${pending ? "; grant revocation pending" : ""}`,
+    );
+    if (pending) {
+      return html(
+        c,
+        200,
+        messagePage(
+          "Password reset",
+          "The password was reset. Grant revocation is still pending: the revocation registry did not take it, and it finishes at the next successful drain (the server's next maintenance sweep or a restart). Run `obsidian-tc doctor` to check the revocation outbox.",
+        ),
+      );
+    }
     return c.redirect("/oauth/login", 303);
   };
 

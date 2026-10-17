@@ -300,6 +300,14 @@ type AuthShape = {
  *  4.4). Each reads only `auth`, never another config domain. */
 export function refineAuthAs(auth: AuthShape, ctx: z.RefinementCtx): void {
   const as = auth.as;
+  // One variable, one token: a setup token that claimed the server must not also be a reset token.
+  if (as !== undefined && as.resetTokenEnv === as.setupTokenEnv) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["auth", "as", "resetTokenEnv"],
+      message: `auth.as.resetTokenEnv and auth.as.setupTokenEnv both name ${as.setupTokenEnv}: the setup token that claims the server would also reset the password. Give the reset token its own variable.`,
+    });
+  }
   if (as === undefined || !as.enabled) return;
   const fail = (path: (string | number)[], message: string) =>
     ctx.addIssue({ code: "custom", path: ["auth", ...path], message });

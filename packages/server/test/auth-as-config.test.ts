@@ -96,6 +96,14 @@ describe("auth.as: shape and defaults", () => {
     expect(issuesOf(jwtAuth({}, as)).length).toBeGreaterThan(0);
   });
 
+  it("a resetTokenEnv equal to setupTokenEnv is refused at load, naming both", () => {
+    const issues = issuesOf(
+      jwtAuth({}, { setupTokenEnv: "OBSIDIAN_TC_AS_TOKEN", resetTokenEnv: "OBSIDIAN_TC_AS_TOKEN" }),
+    );
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatch(/^auth\.as\.resetTokenEnv: .*setupTokenEnv/);
+  });
+
   it("accepts EdDSA and the documented bounds", () => {
     expect(
       issuesOf(

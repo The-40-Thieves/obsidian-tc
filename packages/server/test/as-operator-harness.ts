@@ -71,6 +71,8 @@ export async function makeOperator(
     env?: Record<string, string | undefined>;
     verify?: (pw: string, phc: string) => Promise<boolean>;
     maxConcurrentHashes?: number;
+    /** The clock's starting time, which is also the server's boot time (`startedAt`). Default: T0. */
+    at?: number;
     /** An already provisioned oauth.db (for a suite that shares the file with a CLI); default: in memory. */
     db?: ReturnType<typeof openMemoryDb>;
     /** The revocation registry the reset page needs (`AsOperatorDeps.registry`). */
@@ -83,7 +85,7 @@ export async function makeOperator(
   const pw = await import("../src/auth/as-password");
   const db = opts.db ?? openMemoryDb();
   provisionOauthDb(db, { version: "t" });
-  const clock = { t: T0 };
+  const clock = { t: opts.at ?? T0 };
   const logs: string[] = [];
   const env = { OBSIDIAN_TC_AS_SETUP_TOKEN: SETUP_TOKEN, ...opts.env };
   const calls = { hash: 0, verify: 0 };

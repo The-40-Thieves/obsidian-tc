@@ -76,6 +76,9 @@ export async function runAuthAsResetCredentials(
           : {}),
       });
       const revoked = reset.grants ?? { revoked: 0, families: 0, accessTokens: 0 };
+      // The password is already reset when the registry refuses the revocations: that is reported as
+      // a failure (non-zero exit) so a script notices, and the outbox pays them at the next drain.
+      const pending = reset.revocationPending === true;
       await auditAuthEvent(cfg, "auth_credentials_reset");
       const summary = {
         user: operator.username,
@@ -86,6 +89,7 @@ export async function runAuthAsResetCredentials(
               grantsRevoked: revoked.revoked,
               refreshFamilies: revoked.families,
               accessTokens: revoked.accessTokens,
+              revocationPending: pending,
             }
           : {}),
       };
@@ -94,10 +98,15 @@ export async function runAuthAsResetCredentials(
           ? `${JSON.stringify(summary)}\n`
           : `credentials of operator ${operator.username} reset: new password set, ${reset.credentials} passkey${reset.credentials === 1 ? "" : "s"} removed, ${reset.sessions} session${reset.sessions === 1 ? "" : "s"} ended${
               revoking !== undefined
-                ? `; ${revoked.revoked} grant${revoked.revoked === 1 ? "" : "s"} revoked (${revoked.families} refresh families, ${revoked.accessTokens} access tokens)`
+                ? `; ${revoked.revoked} grant${revoked.revoked === 1 ? "" : "s"} revoked (${revoked.families} refresh families, ${revoked.accessTokens} access tokens)${pending ? "; grant revocation pending: the registry did not take it (run `obsidian-tc doctor`)" : ""}`
                 : ""
             }\n`,
       );
+      if (pending) {
+        throw new CliError(
+          "grant revocation pending: the password was reset, but the registry did not take the revocations; they finish at the next successful drain. Run `obsidian-tc doctor`.",
+        );
+      }
     } finally {
       revoking?.close();
     }
