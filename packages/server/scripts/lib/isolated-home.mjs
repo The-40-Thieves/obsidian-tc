@@ -5,6 +5,13 @@
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/** One repo-local cache shared by every Bun child in a server Vitest run and its CI warm-up. */
+export function sharedBunRuntimeTranspilerCachePath() {
+  const repoRoot = fileURLToPath(new URL("../../../..", import.meta.url));
+  return join(repoRoot, "node_modules", ".cache", "obsidian-tc-bun-transpiler");
+}
 
 /** Env overrides that point every home-derived location at `home` (POSIX, XDG and Windows). */
 export function isolatedHomeEnv(home) {

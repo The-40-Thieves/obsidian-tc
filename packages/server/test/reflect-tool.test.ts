@@ -288,6 +288,116 @@ describe("reflect tool — egress exclusion skip-and-report (THE-934 fix round 2
   });
 });
 
+describe("reflect egress: an excluded top-k hit is still returned, but its text is withheld", () => {
+  const rows = [
+    ["pub1", "Public/note.md", "vorplequonk term public content", "hpub"],
+    ["priv1", "Private/secret.md", "vorplequonk term SECRET_MARKER content", "hpriv"],
+  ] as const;
+  const query = { vault: "main", query: "vorplequonk term" };
+
+  function chunkDb(chunkRows: ReadonlyArray<readonly [string, string, string, string]> = rows) {
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    const ins = db.prepare(
+      "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, 'main', ?, 0, '[]', ?, ?, 40, ?, ?)",
+    );
+    for (const [id, path, content, hash] of chunkRows) ins.run(id, path, content, hash, NOW, NOW);
+    stampAclPath(db);
+    ensureChunkFts(db, { now: () => NOW, enrich: false });
+    return db;
+  }
+
+  it("synthesis: the excluded hit keeps its rank in sources and the log; its text never reaches the model", async () => {
+    const baseline = un<ReflectData>(
+      await harness(mockRoles, ["read:notes"], { db: chunkDb() }).registry.dispatch(
+        "reflect",
+        query,
+        harness(mockRoles, ["read:notes"], { db: chunkDb() }).ctx,
+      ),
+    );
+    const sent: string[] = [];
+    const roles: GatewayRoles = {
+      ...mockRoles,
+      synthesize: async (req) => {
+        sent.push(req.messages.map((m) => m.content).join("\n"));
+        return { text: "the grounded answer", model: "mock-synth" };
+      },
+    };
+    const logged: string[] = [];
+    const { registry, ctx } = harness(roles, ["read:notes"], {
+      db: chunkDb(),
+      excludeFilter: compileEgressFilter(["Private/**"]),
+      retrievalLog: (event) => logged.push(...event.hits.map((hit) => hit.chunkId)),
+    });
+    const res = un<ReflectData & { excluded_count?: number }>(
+      await registry.dispatch("reflect", query, ctx),
+    );
+    const ids = res.sources.map((source) => source.chunk_id);
+    expect(ids).toEqual(baseline.sources.map((source) => source.chunk_id));
+    expect(ids).toContain("priv1");
+    expect(logged).toEqual(ids);
+    expect(sent.join("\n")).not.toContain("SECRET_MARKER");
+    expect(sent.join("\n")).toContain("public content");
+    expect(res.excluded_count).toBe(1);
+  });
+
+  it("degraded (no gateway): the excluded hit stays in sources and is counted as withheld", async () => {
+    const logged: string[] = [];
+    const { registry, ctx } = harness(null, ["read:notes"], {
+      db: chunkDb(),
+      excludeFilter: compileEgressFilter(["Private/**"]),
+      retrievalLog: (event) => logged.push(...event.hits.map((hit) => hit.chunkId)),
+    });
+    const res = un<ReflectData & { excluded_count?: number }>(
+      await registry.dispatch("reflect", query, ctx),
+    );
+    expect(res.available).toBe(false);
+    expect(res.sources.map((source) => source.chunk_id)).toContain("priv1");
+    expect(logged).toEqual(res.sources.map((source) => source.chunk_id));
+    expect(res.excluded_count).toBe(1);
+  });
+
+  it("persist: provenance lists exactly the chunks the model was shown", async () => {
+    // SYNTHESIS_EVIDENCE_BUDGET keeps at most 5 chunks per note, so the 6th recalled chunk of
+    // this note is retrieved but never shown to the model.
+    const manyRows = Array.from(
+      { length: 6 },
+      (_, i) =>
+        [
+          `m${i + 1}`,
+          "Public/many.md",
+          `vorplequonk term MANY${i + 1} content`,
+          `hm${i + 1}`,
+        ] as const,
+    );
+    let prompt = "";
+    const roles: GatewayRoles = {
+      ...mockRoles,
+      synthesize: async (req) => {
+        prompt = req.messages.map((m) => m.content).join("\n");
+        return { text: "the grounded answer", model: "mock-synth" };
+      },
+    };
+    const { registry, ctx } = harness(roles, ["read:notes", "write:notes"], {
+      db: chunkDb(manyRows),
+    });
+    // A quoted phrase is an explicit lexical request, so the query never reaches the embedder.
+    const res = un<ReflectData>(
+      await registry.dispatch(
+        "reflect",
+        { vault: "main", query: '"vorplequonk term"', persist: true },
+        ctx,
+      ),
+    );
+    const shownIds = manyRows.filter(([, , content]) => prompt.includes(content)).map(([id]) => id);
+    expect(shownIds).toHaveLength(5);
+    const text = readFileSync(join(root, res.persisted?.path ?? ""), "utf8");
+    const line = text.split("\n").find((l) => l.startsWith("source_chunks: "));
+    const persisted = JSON.parse((line ?? "").slice("source_chunks: ".length)) as string[];
+    expect([...persisted].sort()).toEqual([...shownIds].sort());
+  });
+});
+
 describe("reflect challenge mode: decision filter, coverage, persist and ACL", () => {
   /** A FTS-indexed chunk store; `[id, path, content]` rows. */
   function seedPool(rows: ReadonlyArray<readonly [string, string, string]>) {
@@ -376,7 +486,7 @@ describe("reflect challenge mode: decision filter, coverage, persist and ACL", (
     expect(loggedChunkIds).toEqual(res.sources.map((source) => source.chunk_id));
   });
 
-  it("an egress-excluded chunk from the expanded ranks is neither returned nor credited", async () => {
+  it("an egress-excluded chunk from the expanded ranks is neither returned, credited nor counted", async () => {
     const body = `quorble pattern ${"filler ".repeat(80)}`;
     const rows = [
       ...expandedPoolRows().filter(([id]) => id !== "d1"),
@@ -407,13 +517,16 @@ describe("reflect challenge mode: decision filter, coverage, persist and ACL", (
     expect(sourceIds).toContain("d1");
     expect(sourceIds).not.toContain("d2");
     expect(loggedChunkIds).toEqual(sourceIds);
-    expect(res.excluded_count).toBe(1);
+    // d2 is an expanded-rank judge candidate, not a returned top-k hit, so it is not withheld from
+    // any returned source and excluded_count (returned top-k only) omits it.
+    expect(res.excluded_count).toBeUndefined();
   });
 
-  it("filters egress-excluded top-k sources before returning or logging them", async () => {
+  it("returns egress-excluded top-k sources at their rank, withholding their text from the judge", async () => {
+    const seen: string[] = [];
     const loggedChunkIds: string[] = [];
     const { registry, ctx } = harness(
-      capturingRoles(() => {}),
+      capturingRoles((m) => seen.push(m)),
       ["read:notes"],
       {
         db: seedPool(expandedPoolRows()),
@@ -421,15 +534,21 @@ describe("reflect challenge mode: decision filter, coverage, persist and ACL", (
         retrievalLog: (event) => loggedChunkIds.push(...event.hits.map((hit) => hit.chunkId)),
       },
     );
-    const res = un<ReflectData>(
+    const res = un<ReflectData & { excluded_count?: number }>(
       await registry.dispatch(
         "reflect",
         { vault: "main", query: '"quorble pattern"', mode: "challenge" },
         ctx,
       ),
     );
-    expect(res.sources.map((source) => source.chunk_id)).toEqual(["d1"]);
-    expect(loggedChunkIds).toEqual(["d1"]);
+    const sourceIds = res.sources.map((source) => source.chunk_id);
+    expect(sourceIds).toContain("p0");
+    expect(seen.join("\n")).not.toContain("notes/plain-");
+    expect(seen.join("\n")).toContain("02-projects/decide.md");
+    expect(loggedChunkIds).toEqual(sourceIds);
+    expect(res.excluded_count).toBe(
+      res.sources.filter((source) => source.path.startsWith("notes/plain-")).length,
+    );
   });
 
   it("evidence the egress filter empties refuses instead of calling the judge", async () => {

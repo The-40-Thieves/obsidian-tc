@@ -47,6 +47,18 @@ describe("assertBridgeNestedPathsReadable (opaque field values)", () => {
       assertBridgeNestedPathsReadable(a, tmpdir(), [], [{ path: ".trash/secret.md" }], "t"),
     ).toThrow();
   });
+
+  it("treats a nested root-normalizing path as no path", () => {
+    expect(() =>
+      assertBridgeNestedPathsReadable(
+        acl({ readPaths: ["pages/**"] }),
+        tmpdir(),
+        [],
+        { nested: { path: "." } },
+        "t",
+      ),
+    ).not.toThrow();
+  });
 });
 
 describe("acl-read-filter (D2)", () => {
@@ -68,6 +80,40 @@ describe("acl-read-filter (D2)", () => {
   it("fails closed on an unattributable item when readPaths is defined", () => {
     const a = acl({ readPaths: ["Notes/**"] });
     expect(() => filterBridgeItemsByAcl(a, tmpdir(), [], [{ line: 1 }], { tool: "t" })).toThrow();
+  });
+
+  it.each([".", "./", "./."])(
+    "fails closed on root-normalizing path %j for a path-scope-restricted caller",
+    (path) => {
+      const restricted = acl({ rules: [{ glob: "secret/**", scopes: ["read:secret"] }] });
+      let rootError: unknown;
+      let missingError: unknown;
+
+      try {
+        filterBridgeItemsByAcl(restricted, tmpdir(), [], [{ path, text: "S" }], { tool: "t" });
+      } catch (error) {
+        rootError = error;
+      }
+      try {
+        filterBridgeItemsByAcl(restricted, tmpdir(), [], [{ text: "S" }], { tool: "t" });
+      } catch (error) {
+        missingError = error;
+      }
+
+      expect(rootError).toMatchObject({ code: "acl_denied" });
+      expect(missingError).toMatchObject({ code: "acl_denied" });
+    },
+  );
+
+  it("keeps a root-normalizing path for an unrestricted caller", () => {
+    const rows = [{ path: "." }];
+    expect(filterBridgeItemsByAcl(acl({}), tmpdir(), [], rows, { tool: "t" })).toEqual(rows);
+  });
+
+  it("judges a row with a root-normalizing path by its real path", () => {
+    const restricted = acl({ readPaths: ["Notes/**"] });
+    const rows = [{ path: ".", note_path: "Notes/A.md" }];
+    expect(filterBridgeItemsByAcl(restricted, tmpdir(), [], rows, { tool: "t" })).toEqual(rows);
   });
 
   it("keeps ordinary rows (and rows naming no path) when readPaths undefined and strict off", () => {

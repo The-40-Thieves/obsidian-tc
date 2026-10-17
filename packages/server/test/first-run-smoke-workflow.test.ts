@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 import { parseExpectedFailures } from "../scripts/lib/first-run-smoke-lib.mjs";
+import { eventGatedList } from "./ci-intel-event-gate";
 
 // The first-run matrix workflow records today's failures through an explicit EXPECTED_FAILURES
 // list. These tests keep that list honest: it may only name real matrix cells, and the exemption
@@ -31,8 +32,8 @@ const wf = parse(text) as {
       strategy?: {
         matrix: {
           path: string[];
-          os: string[];
-          include?: { os: string; target: string }[];
+          os: unknown;
+          include?: unknown;
         };
       };
       steps: Step[];
@@ -44,7 +45,7 @@ const job = wf.jobs["first-run"];
 describe("ci-first-run-smoke.yml", () => {
   it("is a 4 paths x 5 operating systems matrix, both Intel macOS labels included", () => {
     expect(job?.strategy?.matrix.path).toEqual(["npm", "npm-local", "mcpb", "binary"]);
-    expect(job?.strategy?.matrix.os).toEqual([
+    expect(eventGatedList(job?.strategy?.matrix.os).otherEvents).toEqual([
       "ubuntu-latest",
       "macos-latest",
       "macos-15-intel",
@@ -74,7 +75,7 @@ describe("ci-first-run-smoke.yml", () => {
   });
 
   it("each Intel macOS label builds its own darwin-x64 standalone binary", () => {
-    const include = job?.strategy?.matrix.include ?? [];
+    const include = eventGatedList(job?.strategy?.matrix.include).otherEvents;
     for (const os of ["macos-15-intel", "macos-26-intel"]) {
       expect(include, os).toContainEqual({ os, target: "bun-darwin-x64" });
     }
@@ -87,7 +88,8 @@ describe("ci-first-run-smoke.yml", () => {
   });
 
   it("EXPECTED_FAILURES names only real matrix cells, each once", () => {
-    const { path, os } = job?.strategy?.matrix ?? { path: [], os: [] };
+    const path = job?.strategy?.matrix.path ?? [];
+    const os = eventGatedList(job?.strategy?.matrix.os).otherEvents as string[];
     const cells = new Set(path.flatMap((p) => os.map((o) => `${p}/${o}`)));
     const listed = wf.env.EXPECTED_FAILURES.split(/\s+/).filter(Boolean);
     expect(new Set(listed).size, "duplicate entry in EXPECTED_FAILURES").toBe(listed.length);
@@ -117,8 +119,11 @@ describe("ci-first-run-smoke.yml", () => {
   });
 
   it("the summary job's path and os lists match the matrix", () => {
-    const { path, os } = job?.strategy?.matrix ?? { path: [], os: [] };
-    expect(text).toContain(`"${path.join(",")}" "${os.join(",")}"`);
+    const path = job?.strategy?.matrix.path ?? [];
+    const { onPullRequest, otherEvents } = eventGatedList(job?.strategy?.matrix.os);
+    expect(text).toContain(`"${path.join(",")}" "$FR_OSES"`);
+    expect(text).toContain(`'${onPullRequest.join(",")}'`);
+    expect(text).toContain(`'${otherEvents.join(",")}'`);
   });
 
   it("the report upload runs even when the smoke step failed", () => {

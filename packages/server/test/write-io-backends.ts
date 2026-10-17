@@ -1,6 +1,6 @@
-// Shared by the write-safety tests: load vault/notes-io on the native backend or the pure-JS one, so
-// every assertion runs against BOTH code paths (the native module closes the TOCTOU the JS path
-// documents as residual; both must hold the same contract).
+// Shared by the read/write safety tests: load vault/notes-io on the native backend or the pure-JS
+// one, so every assertion runs against BOTH code paths (the native module closes the TOCTOU the JS
+// path documents as residual; both must hold the same contract).
 import { vi } from "vitest";
 
 export type Backend = "native" | "js";

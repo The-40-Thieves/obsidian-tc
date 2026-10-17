@@ -11,6 +11,9 @@ on:
       - '.github/actions/setup-rust/**'
   push:
     branches: [main]
+  # Nightly run, so the Intel build legs (skipped on pull_request, see build) still run on a schedule.
+  schedule:
+    - cron: '17 6 * * *'
 
 permissions:
   contents: read
@@ -28,24 +31,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - host: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            triple: linux-x64-gnu
-          - host: macos-15
-            target: aarch64-apple-darwin
-            triple: darwin-arm64
-          # x64 Darwin is built NATIVELY on the Intel labels. publish.yml's darwin-x64 prebuild is only
-          # ever cross-compiled on arm64, so before this the x64 addon was never built or run on x64.
-          - host: macos-15-intel
-            target: x86_64-apple-darwin
-            triple: darwin-x64
-          - host: macos-26-intel
-            target: x86_64-apple-darwin
-            triple: darwin-x64
-          - host: windows-latest
-            target: x86_64-pc-windows-msvc
-            triple: win32-x64-msvc
+        # x64 Darwin is built NATIVELY on the Intel labels. publish.yml's darwin-x64 prebuild is only
+        # ever cross-compiled on arm64, so before this the x64 addon was never built or run on x64.
+        # The Intel entries run on push to main and on the nightly schedule, not on pull_request or
+        # merge_group. The first list is used on those two events, the second on all others.
+        include: ${{ fromJSON((github.event_name == 'pull_request' || github.event_name == 'merge_group') && '[{"host":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","triple":"linux-x64-gnu"},{"host":"macos-15","target":"aarch64-apple-darwin","triple":"darwin-arm64"},{"host":"windows-latest","target":"x86_64-pc-windows-msvc","triple":"win32-x64-msvc"}]' || '[{"host":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","triple":"linux-x64-gnu"},{"host":"macos-15","target":"aarch64-apple-darwin","triple":"darwin-arm64"},{"host":"macos-15-intel","target":"x86_64-apple-darwin","triple":"darwin-x64"},{"host":"macos-26-intel","target":"x86_64-apple-darwin","triple":"darwin-x64"},{"host":"windows-latest","target":"x86_64-pc-windows-msvc","triple":"win32-x64-msvc"}]') }}
     runs-on: ${{ matrix.host }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -194,6 +184,12 @@ jobs:
           restore-keys: bun-${{ runner.os }}-
       - name: install (skip napi build -> no .node)
         run: bun install --frozen-lockfile --ignore-scripts
+      - name: pre-warm shared Bun runtime transpiler cache
+        # Bun #34210 is safe here: the regex Worker imports only builtins; re-check before a Worker imports modules.
+        # An optimisation only: a failed warm-up leaves the tests to fill the cache themselves.
+        continue-on-error: true
+        run: node scripts/warm-bun-cache.mjs
+        working-directory: packages/server
       - name: server tests on pure-JS fallback
         run: node ./node_modules/vitest/vitest.mjs run
         working-directory: packages/server

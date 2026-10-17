@@ -48,6 +48,10 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # Nightly run, so the two Intel macOS images (skipped on pull_request and merge_group, see first-run)
+  # still run on a schedule.
+  schedule:
+    - cron: '17 6 * * *'
 
 permissions:
   contents: read
@@ -133,20 +137,12 @@ jobs:
       fail-fast: false
       matrix:
         path: [npm, npm-local, mcpb, binary]
-        os: [ubuntu-latest, macos-latest, macos-15-intel, macos-26-intel, windows-latest]
-        include:
-          # The bun --compile target for the runner's own arch (a binary must run where it was built).
-          - os: ubuntu-latest
-            target: bun-linux-x64
-          - os: macos-latest
-            target: bun-darwin-arm64
-          # x64 Darwin is built and run natively on the Intel labels, not cross-compiled on arm64.
-          - os: macos-15-intel
-            target: bun-darwin-x64
-          - os: macos-26-intel
-            target: bun-darwin-x64
-          - os: windows-latest
-            target: bun-windows-x64
+        # The Intel labels run on push to main and on the nightly schedule, not on pull_request or
+        # merge_group. Each gated list below is the first on those two events, the second on all others.
+        os: ${{ fromJSON((github.event_name == 'pull_request' || github.event_name == 'merge_group') && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest","macos-latest","macos-15-intel","macos-26-intel","windows-latest"]') }}
+        # The bun --compile target for the runner's own arch (a binary must run where it was built).
+        # x64 Darwin is built and run natively on the Intel labels, not cross-compiled on arm64.
+        include: ${{ fromJSON((github.event_name == 'pull_request' || github.event_name == 'merge_group') && '[{"os":"ubuntu-latest","target":"bun-linux-x64"},{"os":"macos-latest","target":"bun-darwin-arm64"},{"os":"windows-latest","target":"bun-windows-x64"}]' || '[{"os":"ubuntu-latest","target":"bun-linux-x64"},{"os":"macos-latest","target":"bun-darwin-arm64"},{"os":"macos-15-intel","target":"bun-darwin-x64"},{"os":"macos-26-intel","target":"bun-darwin-x64"},{"os":"windows-latest","target":"bun-windows-x64"}]') }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -291,9 +287,12 @@ jobs:
           pattern: first-run-*
           path: ${{ runner.temp }}/reports
       - name: write the 4x5 table to the run summary
+        env:
+          # The OSes the matrix ran on. A missing report renders as NO REPORT, so the table follows the matrix gate.
+          FR_OSES: ${{ (github.event_name == 'pull_request' || github.event_name == 'merge_group') && 'ubuntu-latest,macos-latest,windows-latest' || 'ubuntu-latest,macos-latest,macos-15-intel,macos-26-intel,windows-latest' }}
         run: |
           {
             echo "## first-run matrix"
             echo
-            node packages/server/scripts/first-run-matrix-table.mjs "$RUNNER_TEMP/reports" "npm,npm-local,mcpb,binary" "ubuntu-latest,macos-latest,macos-15-intel,macos-26-intel,windows-latest"
+            node packages/server/scripts/first-run-matrix-table.mjs "$RUNNER_TEMP/reports" "npm,npm-local,mcpb,binary" "$FR_OSES"
           } | tee -a "$GITHUB_STEP_SUMMARY"

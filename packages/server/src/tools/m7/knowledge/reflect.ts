@@ -199,12 +199,18 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
           deps.excludeFilter,
         );
       }
-      const topKResults = results.slice(0, input.k);
-      const sourceExcludeFilter = deps.excludeFilter;
-      const returnedResults =
-        sourceExcludeFilter === undefined
-          ? topKResults
-          : topKResults.filter((result) => !isExcludedPath(sourceExcludeFilter, result.path));
+      // Every top-k hit is returned and logged, egress-excluded ones included. `sources` and the
+      // retrieval log carry ids, paths and scores, never content, so they are not egress: only the
+      // text is withheld from a model (synthesis and challenge filter their evidence below).
+      const returnedResults = results.slice(0, input.k);
+      const excludeFilter = deps.excludeFilter;
+      // excluded_count has one meaning in every arm: the returned top-k sources whose content was
+      // withheld from the model by egress exclusion. Degraded mode makes no model call, so there it
+      // counts the hits that would have been withheld.
+      const excludedCount = returnedResults.filter(
+        (result) => excludeFilter !== undefined && isExcludedPath(excludeFilter, result.path),
+      ).length;
+      const excludedField = excludedCount > 0 ? { excluded_count: excludedCount } : {};
       if (challenged) {
         const returnedIds = new Set(returnedResults.map((result) => result.chunk_id));
         const resultById = new Map(results.map((result) => [result.chunk_id, result]));
@@ -238,6 +244,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
           message: "inference gateway not configured (set OBSIDIAN_TC_GATEWAY_URL)",
           answer: null,
           sources,
+          ...excludedField,
         };
       }
       if (input.mode === "challenge") {
@@ -255,10 +262,11 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
             message: `no decision-bearing chunks matched this proposal (${coverage.recalled} recalled, ${coverage.filtered_out} failed the decision filter)`,
             coverage,
             sources,
+            ...excludedField,
           };
         }
         const run = challenged as NonNullable<typeof challenged>;
-        const { output, model, excludedCount, citations, keptEvidence } = run;
+        const { output, model, citations, keptEvidence } = run;
         const egressCoverage = withEgressCoverage(
           coverage,
           keptEvidence.length,
@@ -271,10 +279,10 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
             mode: "challenge",
             route: route.signals,
             available: true,
-            message: `no decision evidence remained after egress exclusion (${coverage.recalled} recalled, ${excludedCount} excluded)`,
+            message: `no decision evidence remained after egress exclusion (${coverage.recalled} recalled, ${run.excludedCount} excluded)`,
             coverage: egressCoverage,
             sources,
-            excluded_count: excludedCount,
+            ...excludedField,
           };
         }
         return {
@@ -286,19 +294,17 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
           challenge: output,
           coverage: withCitationCheck(egressCoverage, citations),
           sources,
-          ...(excludedCount > 0 ? { excluded_count: excludedCount } : {}),
+          ...excludedField,
         };
       }
       // THE-934 fix round 1 (Blocking-3): an excluded chunk is dropped BEFORE it can become
       // synthesis evidence — reflect retrieves through the ordinary (lexical-inclusive) recall
       // path, so an excluded chunk is a first-class hit here even though semantic_search never
       // surfaces it.
-      const excludeFilter = deps.excludeFilter;
       const notExcludedResults =
         excludeFilter === undefined
           ? results
           : results.filter((r) => !isExcludedPath(excludeFilter, r.path));
-      const synthesisExcludedCount = results.length - notExcludedResults.length;
       // Selection through the shared builder; the RENDER stays this path's terse
       // `[n] path\ncontent` shape rather than adopting challenge's `path:/headings:/tags:/content:`
       // envelope. Unifying the two prompts' wording would change what the synthesis model reads,
@@ -358,11 +364,11 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
           `generated_at: ${new Date(nowMs).toISOString()}`,
           `source_model: ${res.model}`,
           `query: ${JSON.stringify(input.query)}`,
-          // THE-934: provenance reflects what actually informed the answer — notExcludedResults,
-          // not the raw retrieval set — so a persisted reflection never claims an excluded chunk
-          // as one of its sources.
-          `source_chunks: ${JSON.stringify(notExcludedResults.slice(0, 20).map((r) => r.chunk_id))}`,
-          `source_paths: ${JSON.stringify([...new Set(notExcludedResults.slice(0, 20).map((r) => r.path))])}`,
+          // Provenance is exactly what the model was shown (synthesis.items), not everything recalled:
+          // a chunk the evidence budget or the per-note quota dropped informed nothing, and an
+          // excluded chunk never appears in it.
+          `source_chunks: ${JSON.stringify(synthesis.items.flatMap((e) => (e.chunkId === undefined ? [] : [e.chunkId])))}`,
+          `source_paths: ${JSON.stringify([...new Set(synthesis.items.map((e) => e.path))])}`,
           "---",
           "",
           rendered.text,
@@ -394,7 +400,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
         sources,
         ...(persisted ? { persisted } : {}),
         ...(rendered.unresolved.length > 0 ? { unresolved_citations: rendered.unresolved } : {}),
-        ...(synthesisExcludedCount > 0 ? { excluded_count: synthesisExcludedCount } : {}),
+        ...excludedField,
       };
     },
   });

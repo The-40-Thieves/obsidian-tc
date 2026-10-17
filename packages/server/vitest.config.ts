@@ -2,8 +2,12 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { WINDOWS_STALL_TIMEOUT_MS } from "./test/stall-timeouts";
+import { resolveVitestMaxWorkers } from "./test/vitest-max-workers";
+import { resolveVitestTimeoutFloorMs } from "./test/vitest-timeout-floor";
 
 const here = dirname(fileURLToPath(import.meta.url));
+// The macOS Intel legs set VITEST_TIMEOUT_FLOOR_MS (see ci-server.yml); unset leaves 5s / 10s.
+const timeoutFloor = resolveVitestTimeoutFloorMs() ?? 0;
 export default defineConfig({
   // Dev: resolve the shared workspace package to source (not built to dist in dev).
   resolve: {
@@ -38,12 +42,13 @@ export default defineConfig({
     // because latency there is warn-only. Oversubscription corrupts measurements before it fails
     // anything.
     //
-    // CI keeps full parallelism: a GitHub runner is dedicated, and capping there would slow every
-    // PR for no reason. `undefined` restores vitest's own default rather than guessing a number.
+    // CI normally keeps full parallelism: `undefined` restores vitest's own default rather than
+    // guessing a number. Jobs that share a smaller runner with the runner agent can set the
+    // explicit VITEST_MAX_WORKERS knob without silently changing every Mac or every ARM host.
     //
     // This bounds ONE process. It cannot bound two agents each starting a capped run — that needs
     // the lock in scripts/with-host-budget.sh, which is what `bun run test:local` uses.
-    maxWorkers: process.env.CI ? undefined : 2,
+    maxWorkers: resolveVitestMaxWorkers(),
     // Windows-only timeout floor. Vitest's 5s default is right for Linux/macOS, where it catches a
     // genuinely slow test — but windows-latest GitHub runners intermittently stall the whole
     // process under load, and a stall times out every in-flight test at once regardless of what it
@@ -55,13 +60,15 @@ export default defineConfig({
     // higher ceiling weakens nothing — a hung test still fails, just later. The floor was 15s until a
     // spawn test (memory-import-cli) was killed at its 20s child timeout by a stall; it is now the one
     // shared stall ceiling (test/stall-timeouts.ts), the same value the spawn helpers use.
-    testTimeout: process.platform === "win32" ? WINDOWS_STALL_TIMEOUT_MS : 5_000,
+    testTimeout:
+      process.platform === "win32" ? WINDOWS_STALL_TIMEOUT_MS : Math.max(5_000, timeoutFloor),
     // The same floor for hooks. vitest's `hookTimeout` defaults to 10s and was never floored, so a
     // stall that the per-test floor absorbs still killed a hook: response-format-coverage's
     // `beforeAll` (one runtime for the whole file) "Hook timed out in 10000ms" on windows-latest,
     // and the dead hook's temp dir then failed its cleanup with EPERM. Linux/macOS keep vitest's own
     // default (10s) — spelled out so the two timeouts read as the pair they are.
-    hookTimeout: process.platform === "win32" ? WINDOWS_STALL_TIMEOUT_MS : 10_000,
+    hookTimeout:
+      process.platform === "win32" ? WINDOWS_STALL_TIMEOUT_MS : Math.max(10_000, timeoutFloor),
     coverage: {
       provider: "v8",
       reporter: ["text-summary"],
