@@ -113,7 +113,7 @@ See [Embeddings](/configuration/embeddings/) for the other providers.
 - **No published template and no Deploy button.** Publishing one needs the owner's Railway account.
 - **No git-backed vault sync.** The vault on the volume is the only copy this deployment reads. Keeping
   it in step with a repository is a separate design.
-- **No health route.** The HTTP app has no unauthenticated route that answers 200, so `railway.json`
-  sets no `healthcheckPath`. A `/healthz` route would close that gap; it is not built here.
+- **Liveness health check.** `railway.json` sets `healthcheckPath: /healthz`; it is liveness only, and
+  `allowedHosts` must include the Railway hostname or the probe gets 403.
 - **No refusal of public boot for the other modes.** Only the non-loopback, unauthenticated
   combination above is refused.
