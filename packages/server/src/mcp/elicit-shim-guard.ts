@@ -1,3 +1,4 @@
+// legacy-era shim: see LEGACY_SHIMS.md
 // The SDK's default-on legacy input-required shim owns the confirm leg on a 2025-era (stdio)
 // connection. When that leg fails (the client errors, or nothing answers inside the round timeout)
 // the shim returns its OWN "Fulfilling input required ... failed" result and never re-enters our

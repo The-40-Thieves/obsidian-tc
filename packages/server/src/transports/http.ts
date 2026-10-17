@@ -477,7 +477,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
         startTask: opts.startTask,
         experientialLogRetrievals: opts.experientialLogRetrievals,
       }),
-    { legacy: "stateless" },
+    { legacy: "stateless" }, // legacy-era shim: see LEGACY_SHIMS.md
   );
 
   // One HITL codec per server, not per request: a state minted on one request is verified on the

@@ -150,6 +150,7 @@ export function createFacadeModeResolver(
       return (
         extractClientInfo(envelope)?.name ??
         extractClientInfo(meta)?.name ??
+        // legacy-era shim: see LEGACY_SHIMS.md
         clientInfoFromFields(server.getClientVersion())?.name
       );
     },

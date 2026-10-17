@@ -50,6 +50,7 @@ export function negotiatedModern(server: Server, isModern: boolean): boolean {
 /** Confirmation telemetry label (hitl-telemetry.ts): `request_state` for the 2026-era client echo,
  *  `form` for the server-driven legacy round trip. */
 export function hitlFormSource(server: Server, isModern: boolean): "form" | "request_state" {
+  // legacy-era shim: see LEGACY_SHIMS.md
   return negotiatedModern(server, isModern) ? "request_state" : "form";
 }
 
@@ -75,6 +76,7 @@ export function roundTripDeliverable(
   isModern: boolean,
   legacyElicitationShim: boolean | undefined,
 ): boolean {
+  // legacy-era shim: see LEGACY_SHIMS.md
   return negotiatedModern(server, isModern) || legacyElicitationShim === true;
 }
 
@@ -312,14 +314,17 @@ export async function offerInputRequired(
       },
     },
   }) as unknown as CallToolResult;
+  // legacy-era shim: see LEGACY_SHIMS.md
   offeredErrors.set(offer, error);
   return offer;
 }
 
+// legacy-era shim: see LEGACY_SHIMS.md
 /** The `elicit_required` error each offer was minted for, so a failed confirm leg can be turned
  *  back into that refusal (elicit-shim-guard.ts). Keyed by the offer object itself. */
 const offeredErrors = new WeakMap<object, ErrorJSON>();
 
+// legacy-era shim: see LEGACY_SHIMS.md
 /** The error behind `result` when `result` is an offer minted by `offerInputRequired`. */
 export function offeredElicitError(result: unknown): ErrorJSON | undefined {
   return typeof result === "object" && result !== null ? offeredErrors.get(result) : undefined;
