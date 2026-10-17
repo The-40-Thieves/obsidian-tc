@@ -176,6 +176,9 @@ export const OAUTH_MIGRATION_FILES = [
   // 20261009_954 adds users.credential_gen and sessions.credential_gen: a reset or password change
   // bumps the first, and a session-derived write checks the second. See the header.
   "20261009_954_credential_generation.sql",
+  // 20261017_955 adds burned_reset_tokens: the reset tokens the no-shell reset page has used. See the
+  // migration header.
+  "20261017_955_burned_reset_tokens.sql",
 ] as const;
 
 /**

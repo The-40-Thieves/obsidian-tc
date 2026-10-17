@@ -11,6 +11,7 @@ import { drainRevocations, queueGrantRevocation } from "./as-grants";
 import {
   createSession,
   deleteSession,
+  resetTokenBurned,
   type SessionGuard,
   sessionIsCurrent,
 } from "./as-operator-store";
@@ -242,6 +243,9 @@ export function finalizePasskeyLogin(db: Database, input: PasskeyLogin): string 
   });
 }
 
+/** Raised by the reset transaction when its reset token was already burned: nothing was changed. */
+export class ResetTokenBurnedError extends Error {}
+
 export interface CredentialsReset {
   credentials: number;
   sessions: number;
@@ -258,7 +262,10 @@ export interface CredentialsReset {
  * (`sessionIsCurrent`), so it either committed before this transaction (and the grant it made is
  * revoked here) or finds the session gone. A login that began before the reset cannot finish after
  * it: it needs the credential row, and the sessions it would join are gone. The outbox is drained
- * into the registry after the commit, as for `revokeGrant`.
+ * into the registry after the commit, as for `revokeGrant`. With `burn` (the reset page), the reset
+ * token's hash is inserted in that same transaction and a token already in the table refuses the
+ * whole reset, so the burn and the reset commit or roll back together: no restart or race can leave
+ * a reset done with its token still usable.
  */
 export function resetOperatorCredentials(
   db: Database,
@@ -266,9 +273,17 @@ export function resetOperatorCredentials(
   passwordHash: string,
   opts: {
     revoke?: { registry: Pick<AuthRegistry, "revoke">; reason: string; now: number };
+    burn?: { tokenHash: string; now: number };
   } = {},
 ): CredentialsReset {
   const out = inWriteTransaction(db, "as_passkey", (): CredentialsReset => {
+    if (opts.burn !== undefined) {
+      if (resetTokenBurned(db, opts.burn.tokenHash)) throw new ResetTokenBurnedError();
+      db.prepare("INSERT INTO burned_reset_tokens (token_hash, used_at) VALUES (?, ?)").run(
+        opts.burn.tokenHash,
+        opts.burn.now,
+      );
+    }
     db.prepare(
       "UPDATE users SET password_hash = ?, credential_gen = credential_gen + 1 WHERE sub = ?",
     ).run(passwordHash, sub);

@@ -61,6 +61,15 @@ export function claimOperator(db: Database, input: ClaimInput): ClaimResult {
   });
 }
 
+/** Has a reset token with this SHA-256 already reset the password (and so is burned for good)? */
+export function resetTokenBurned(db: Database, tokenHash: string): boolean {
+  return (
+    db
+      .prepare("SELECT 1 AS present FROM burned_reset_tokens WHERE token_hash = ?")
+      .get(tokenHash) !== undefined
+  );
+}
+
 /** Has a setup token with this SHA-256 already claimed the server (and so is burned for good)? */
 export function tokenBurned(db: Database, tokenHash: string): boolean {
   const row = db

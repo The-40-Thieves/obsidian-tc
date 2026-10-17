@@ -4,6 +4,7 @@
 import { createHash } from "node:crypto";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { Hono } from "hono";
+import type { AsOperatorDeps } from "../src/auth/as-operator";
 import { provisionOauthDb } from "../src/db/provision";
 import { openMemoryDb } from "./helpers";
 
@@ -72,6 +73,10 @@ export async function makeOperator(
     maxConcurrentHashes?: number;
     /** An already provisioned oauth.db (for a suite that shares the file with a CLI); default: in memory. */
     db?: ReturnType<typeof openMemoryDb>;
+    /** The revocation registry the reset page needs (`AsOperatorDeps.registry`). */
+    registry?: AsOperatorDeps["registry"];
+    /** The audit sink the reset page writes to (`AsOperatorDeps.audit`). */
+    audit?: AsOperatorDeps["audit"];
   } = {},
 ): Promise<OperatorFixture> {
   const { mountAsOperator } = await import("../src/auth/as-operator");
@@ -106,6 +111,8 @@ export async function makeOperator(
     ...(opts.maxConcurrentHashes !== undefined
       ? { maxConcurrentHashes: opts.maxConcurrentHashes }
       : {}),
+    ...(opts.registry !== undefined ? { registry: opts.registry } : {}),
+    ...(opts.audit !== undefined ? { audit: opts.audit } : {}),
   });
   return { app, db, clock, logs, env, calls, issuer, url: (path) => `${issuer}${path}` };
 }

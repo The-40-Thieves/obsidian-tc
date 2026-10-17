@@ -59,6 +59,9 @@ export async function probeAuthAsView(
       setupTokenEnv: as.setupTokenEnv,
       // Presence only: the token's value is never read into the report.
       setupTokenSet: (process.env[as.setupTokenEnv] ?? "") !== "",
+      resetTokenEnv: as.resetTokenEnv,
+      // Presence only, as for the setup token.
+      resetTokenSet: (process.env[as.resetTokenEnv] ?? "") !== "",
     },
   };
 }

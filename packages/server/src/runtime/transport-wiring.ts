@@ -13,6 +13,7 @@ import type { FolderAcl } from "../acl";
 import { configuredJwksOverlap, ensureAsKey } from "../auth/as-boot";
 import { drainRevocations } from "../auth/as-grants";
 import { enabledAs } from "../auth/as-metadata";
+import { resetBootNotice } from "../auth/as-operator";
 import { assertArgon2Runtime } from "../auth/as-password";
 import { describeJwksTarget, jwksModeLine } from "../auth/jwks-network";
 import { buildJwtVerifier, warnJwksWithoutAudience } from "../auth/jwt-boot";
@@ -21,6 +22,7 @@ import { createOidcVerifier, type OidcVerifier, oidcBootNotice } from "../auth/o
 import type { AuthRegistry } from "../auth/registry";
 import { openAuthRegistry } from "../auth/registry-open";
 import type { TokenVerifier } from "../auth/verifier";
+import { auditAuthEvent } from "../cli/commands/auth-audit";
 import type { Database } from "../db/types";
 import { providerResolveHost } from "../gateway/provider-fetch";
 import { type AdvisoryBus, createAdvisoryBus } from "../mcp/advisories";
@@ -179,6 +181,9 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
       assertArgon2Runtime();
       oauthDb = await openOauthDb(config);
       const store = oauthDb;
+      // Every boot while the reset variable is set (claimed or not): the warning, never the token.
+      const resetNotice = resetBootNotice(process.env, as.resetTokenEnv, as.issuer);
+      if (resetNotice !== undefined) process.stderr.write(resetNotice);
       if (!isClaimed(store.db)) {
         const viaPage = (process.env[as.setupTokenEnv] ?? "") !== "";
         process.stderr.write(
@@ -250,7 +255,15 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
         cacheDir: config.cacheDir,
         db: deps.db,
         authRegistry,
-        ...(oauthDb ? { oauthDb: oauthDb.db } : {}),
+        ...(oauthDb
+          ? {
+              oauthDb: oauthDb.db,
+              operator: {
+                registry: authRegistry,
+                audit: (eventType: string) => auditAuthEvent(config, eventType),
+              },
+            }
+          : {}),
         ...(verifier ? { verifier } : {}),
         vaultId: deps.firstVaultId,
         acl: deps.acl,

@@ -14,6 +14,7 @@ export const AS_ACCESS_TOKEN_SECONDS_MAX = 3600;
 export const AS_DEFAULT_ACCESS_TOKEN_SECONDS = 1800;
 export const AS_SIGNING_ALGS = ["ES256", "EdDSA"] as const;
 export const AS_DEFAULT_SETUP_TOKEN_ENV = "OBSIDIAN_TC_AS_SETUP_TOKEN";
+export const AS_DEFAULT_RESET_TOKEN_ENV = "OBSIDIAN_TC_AS_RESET_TOKEN";
 
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** A bare lowercase DNS hostname: no scheme, port, path or trailing dot. Shared with `auth.oidc`. */
@@ -247,6 +248,13 @@ export const AsConfigSchema = z
       .default(AS_DEFAULT_SETUP_TOKEN_ENV)
       .describe(
         "Name of the environment variable whose value is the one-time setup token that claims the operator account on a host with no terminal (default `OBSIDIAN_TC_AS_SETUP_TOKEN`). The token is never read from the config file.",
+      ),
+    resetTokenEnv: z
+      .string()
+      .regex(ENV_NAME_RE, "must be an environment variable NAME (letters, digits, underscore)")
+      .default(AS_DEFAULT_RESET_TOKEN_ENV)
+      .describe(
+        "Name of the environment variable whose value is the one-time reset token that lets the operator set a new password on a host with no shell (default `OBSIDIAN_TC_AS_RESET_TOKEN`). While it is set, a claimed server shows a reset form at `/oauth/setup` until the boot window closes; the token works once, and it is refused after that. Remove the variable once the reset is done. The token is never read from the config file.",
       ),
     login: z
       .strictObject({

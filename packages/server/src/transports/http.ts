@@ -11,7 +11,7 @@ import { type Context, Hono } from "hono";
 import type { FolderAcl } from "../acl";
 import "../auth/as-issuing";
 import { type AsRouteDeps, mountAsMetadata, mountAsRoutes } from "../auth/as-metadata";
-import { mountAsOperator } from "../auth/as-operator";
+import { type AsOperatorDeps, mountAsOperator } from "../auth/as-operator";
 import { createClientIpResolver, type ForwardedHeader } from "../auth/client-ip";
 import { AuthRejection, type AuthRejectionReason } from "../auth/jwt";
 import { buildJwtVerifier } from "../auth/jwt-boot";
@@ -152,6 +152,8 @@ export interface HttpAppOptions {
   /** oauth.db, the bundled authorization server's store (`auth.as`). Absent -> the operator routes
    *  (`/oauth/login`, `/oauth/setup`, ...) are not mounted. `wireTransports` supplies it. */
   oauthDb?: Database;
+  /** The operator routes' revocation registry and reset audit (`auth.as`); `wireTransports` supplies both. */
+  operator?: Pick<AsOperatorDeps, "registry" | "audit">;
   /** The server's cache directory: where the per-server secret that keys the HITL codec lives
    *  (`auth/server-secret.ts`). `wireTransports` always supplies it; absent -> a per-process random
    *  secret, so confirmations do not survive a restart or cross processes. */
@@ -554,7 +556,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
     const secret = opts.cacheDir
       ? serverSecret(opts.cacheDir)
       : randomBytes(32).toString("base64url");
-    mountAsOperator(app, { auth: opts.auth, db: opts.oauthDb, secret, clientIp });
+    mountAsOperator(app, { auth: opts.auth, db: opts.oauthDb, secret, clientIp, ...opts.operator });
     if (opts.authRegistry !== undefined) {
       asRouteDeps = {
         db: opts.oauthDb,

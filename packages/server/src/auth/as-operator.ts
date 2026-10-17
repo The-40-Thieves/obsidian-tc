@@ -24,6 +24,7 @@ import {
   finalizeLogin,
   findOperator,
   normalizeUsername,
+  resetTokenBurned,
   soleOperator,
   tokenBurned,
 } from "./as-operator-store";
@@ -33,10 +34,12 @@ import {
   AS_RESPONSE_HEADERS,
   loginPage,
   messagePage,
+  resetPage,
   setupPage,
   signedInPage,
 } from "./as-pages";
 import { mountAsPasskeys } from "./as-passkey-routes";
+import { ResetTokenBurnedError, resetOperatorCredentials } from "./as-passkey-store";
 import {
   constantTimeEqual,
   hashPassword,
@@ -47,6 +50,7 @@ import {
 } from "./as-password";
 import { type AsBrowser, createAsBrowser, requestHandleOf } from "./as-session";
 import { socketClientIp } from "./client-ip";
+import type { AuthRegistry } from "./registry";
 
 type AuthConfig = ServerConfig["auth"];
 
@@ -83,6 +87,33 @@ export interface AsOperatorDeps {
   maxConcurrentHashes?: number;
   /** The shared browser plumbing (as-session.ts). Default: built from `auth`, `db` and `secret`. */
   browser?: AsBrowser;
+  /** The revocation registry the reset page needs for "also revoke every grant". Absent: that box is refused. */
+  registry?: Pick<AuthRegistry, "health" | "revoke">;
+  /** Writes the audit row of a completed reset. Absent: none is written. */
+  audit?: (eventType: string) => Promise<void>;
+}
+
+/** A one-time token of at least SETUP_TOKEN_MIN_LENGTH characters in `env[name]`, else undefined. */
+const tokenFrom = (env: Record<string, string | undefined>, name: string): string | undefined => {
+  const v = env[name];
+  return v !== undefined && v.length >= SETUP_TOKEN_MIN_LENGTH ? v : undefined;
+};
+
+/**
+ * The boot line for the reset variable: printed on every boot while it is set, claimed or not, and
+ * never the token itself. Undefined when the variable is unset or empty.
+ */
+export function resetBootNotice(
+  env: Record<string, string | undefined>,
+  name: string,
+  issuer: string,
+): string | undefined {
+  const v = env[name];
+  if (v === undefined || v === "") return undefined;
+  if (v.length < SETUP_TOKEN_MIN_LENGTH) {
+    return `auth: warning: ${name} is set but shorter than ${SETUP_TOKEN_MIN_LENGTH} characters, so it does nothing; remove it\n`;
+  }
+  return `auth: warning: ${name} is set: a claimed server takes an operator password reset at ${issuer}/oauth/setup until the boot window closes; remove ${name} once the reset is done.\n`;
 }
 
 const defaultLog = (line: string): void => {
@@ -336,31 +367,41 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
   // ---- setup ---------------------------------------------------------------------------------
 
   /** The configured setup token, or undefined when setup is off (unset, empty or too short). */
-  const setupToken = (): string | undefined => {
-    const v = env[as.setupTokenEnv];
-    return v !== undefined && v.length >= SETUP_TOKEN_MIN_LENGTH ? v : undefined;
-  };
+  const setupToken = (): string | undefined => tokenFrom(env, as.setupTokenEnv);
+  /** The reset token (`auth.as.resetTokenEnv`), or undefined when reset is not configured. */
+  const resetToken = (): string | undefined => tokenFrom(env, as.resetTokenEnv);
   const setupClosed = (c: Context) =>
     html(c, 403, messagePage("Setup closed", "This server cannot be claimed this way now."));
   const setupOpen = (): boolean => now() - startedAt <= SETUP_WINDOW_MS;
+  /** The reset token while reset mode is on: the server is claimed and the boot window is open. */
+  const armedResetToken = (): string | undefined =>
+    claimed() && setupOpen() ? resetToken() : undefined;
+  const noSoleOperator = (c: Context) =>
+    html(
+      c,
+      400,
+      messagePage(
+        "Reset unavailable",
+        "This server has no single operator to reset: run `obsidian-tc auth as reset-credentials --user <name>` on the host.",
+      ),
+    );
 
-  app.get("/oauth/setup", (c) => {
-    if (setupToken() === undefined) return html(c, 404, messagePage("Not found", "Not found."));
-    if (claimed() || !setupOpen()) return setupClosed(c);
-    return html(c, 200, setupPage({ csrf: formToken(c, "setup") }));
-  });
-
-  app.post("/oauth/setup", async (c) => {
-    const expected = setupToken();
-    if (expected === undefined) return html(c, 404, messagePage("Not found", "Not found."));
-    const form = await readForm(c);
-    if (form instanceof Response) return form;
-    if (!tokenValid(c, "setup", form.get("csrf") ?? "")) return forbidden(c);
-    if (claimed() || !setupOpen()) return setupClosed(c);
-
+  /**
+   * The gate both one-time token forms pass (setup and reset share it): admission, the constant-time
+   * comparison, the burn check and the recorded failure share one synchronous stretch (nothing is
+   * awaited between them), and the admission is given back in it. Returns the response to send when
+   * the source is locked out or the token is refused; undefined when the token is right.
+   */
+  const oneTimeToken = (
+    c: Context,
+    scope: "setup" | "reset",
+    expected: string,
+    supplied: string,
+    burned: () => boolean,
+  ): Response | undefined => {
     const ip = clientIp(c);
     const t = now();
-    const keys = ["setup", ...(ip ? [`ip:${ip}`] : [])];
+    const keys = [scope, ...(ip ? [`ip:${ip}`] : [])];
     const admitted: string[] = [];
     for (const key of keys) {
       const lock = setupLimiter.reserve(key, t);
@@ -370,24 +411,123 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
       }
       admitted.push(key);
     }
-    const supplied = form.get("token") ?? "";
-    const suppliedHash = sha256Hex(supplied);
-    // Admission, the comparison and the recorded failure share one synchronous stretch (nothing is
-    // awaited between them), and the reservation is given back in it.
     let refused = false;
     try {
-      // Constant-time, and a token that already claimed the server is refused like a wrong one.
+      // Constant-time, and a token that already did its job is refused like a wrong one.
       const right = constantTimeEqual(supplied, expected);
-      const burned = tokenBurned(db, sha256Hex(expected));
-      refused = !right || burned;
+      const used = burned();
+      refused = !right || used;
       if (refused) for (const key of keys) setupLimiter.fail(key, now());
     } finally {
       for (const key of admitted) setupLimiter.release(key);
     }
-    if (refused) {
-      log(`setup token refused${ip ? ` (${ip})` : ""}`);
-      return setupClosed(c);
+    if (!refused) return undefined;
+    log(`${scope} token refused${ip ? ` (${ip})` : ""}`);
+    return setupClosed(c);
+  };
+
+  /** The reset POST: the CSRF check, the same gate as setup, then the password, then the reset. */
+  const resetSubmit = async (c: Context, expected: string): Promise<Response> => {
+    const form = await readForm(c);
+    if (form instanceof Response) return form;
+    if (!tokenValid(c, "reset", form.get("csrf") ?? "")) return forbidden(c);
+    const refusal = oneTimeToken(c, "reset", expected, form.get("token") ?? "", () =>
+      resetTokenBurned(db, sha256Hex(expected)),
+    );
+    if (refusal) return refusal;
+
+    const operator = soleOperator(db);
+    if (operator === undefined) return noSoleOperator(c);
+    const revoke = form.get("revoke") === "on";
+    const registry = deps.registry;
+    if (revoke && registry === undefined) {
+      return html(
+        c,
+        400,
+        resetPage({
+          csrf: formToken(c, "reset"),
+          error:
+            "Not reset: this server cannot revoke grants from this page. Run `obsidian-tc auth as reset-credentials --revoke-grants` on the host instead.",
+        }),
+      );
     }
+    // The registry is checked BEFORE anything changes, as the CLI does: a reset that stopped half way
+    // because the revocation registry is lost would leave the old grants live behind a new password.
+    if (revoke && registry !== undefined) {
+      const health = registry.health();
+      if (health.state === "lost") return html(c, 503, messagePage("Reset refused", health.detail));
+    }
+    const password = form.get("password") ?? "";
+    const problem =
+      passwordProblem(password) ??
+      (password === (form.get("confirm") ?? "") ? undefined : "the two passwords do not match");
+    if (problem !== undefined) {
+      return html(
+        c,
+        400,
+        resetPage({ csrf: formToken(c, "reset"), error: `Not reset: ${problem}.` }),
+      );
+    }
+
+    const passwordHash = await passwords.hash(password);
+    try {
+      // The burn is part of the reset's own transaction (as-passkey-store.ts): a token already used
+      // refuses the reset here too, so two requests that both passed the gate above cannot both win.
+      resetOperatorCredentials(db, operator.sub, passwordHash, {
+        ...(revoke && registry !== undefined
+          ? {
+              revoke: {
+                registry,
+                reason: "credentials reset through the reset page",
+                now: now(),
+              },
+            }
+          : {}),
+        burn: { tokenHash: sha256Hex(expected), now: now() },
+      });
+    } catch (e) {
+      if (e instanceof ResetTokenBurnedError) return setupClosed(c);
+      throw e;
+    }
+    if (deps.audit !== undefined) await deps.audit("auth_credentials_reset");
+    log(`operator credentials reset through the reset page${revoke ? " (grants revoked)" : ""}`);
+    return c.redirect("/oauth/login", 303);
+  };
+
+  // `/oauth/setup` in two modes, decided per request. Unclaimed: the setup token claims the server,
+  // exactly as before, and the reset token is ignored. Claimed with a reset token of at least 24
+  // characters inside the boot window (the window is the expiry: restart to open it again): the reset
+  // page takes the place of the setup page, and the POST resets the sole operator's password. Any
+  // other claimed request (no reset token, a short one, or the window closed) gets the setup answers
+  // it always got: 404 with no setup token, otherwise 403.
+  app.get("/oauth/setup", (c) => {
+    const reset = armedResetToken();
+    if (reset !== undefined) {
+      if (soleOperator(db) === undefined) return noSoleOperator(c);
+      return html(c, 200, resetPage({ csrf: formToken(c, "reset") }));
+    }
+    if (setupToken() === undefined) return html(c, 404, messagePage("Not found", "Not found."));
+    if (claimed() || !setupOpen()) return setupClosed(c);
+    return html(c, 200, setupPage({ csrf: formToken(c, "setup") }));
+  });
+
+  app.post("/oauth/setup", async (c) => {
+    const reset = armedResetToken();
+    if (reset !== undefined) return resetSubmit(c, reset);
+    const expected = setupToken();
+    if (expected === undefined) return html(c, 404, messagePage("Not found", "Not found."));
+    const form = await readForm(c);
+    if (form instanceof Response) return form;
+    if (!tokenValid(c, "setup", form.get("csrf") ?? "")) return forbidden(c);
+    if (claimed() || !setupOpen()) return setupClosed(c);
+
+    const supplied = form.get("token") ?? "";
+    const suppliedHash = sha256Hex(supplied);
+    // A token that already claimed the server is refused like a wrong one.
+    const refusal = oneTimeToken(c, "setup", expected, supplied, () =>
+      tokenBurned(db, sha256Hex(expected)),
+    );
+    if (refusal) return refusal;
 
     const username = normalizeUsername(form.get("username") ?? "");
     const password = form.get("password") ?? "";
