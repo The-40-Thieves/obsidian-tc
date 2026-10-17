@@ -473,7 +473,7 @@ export async function buildServerRuntime(
       // there are no retrieval rows for feedback to update.
       experientialLogRetrievals: config.experiential.logRetrievals,
       elicitCodec: createStdioElicitCodec(), // THE-1106: see its doc comment (elicit.ts)
-      legacyElicitationShim: true,
+      legacyElicitationShim: true, // legacy-era shim: see LEGACY_SHIMS.md
       ...taskCalls,
       servesTaskMethods: false, // stdio has no tasks/get route
     });

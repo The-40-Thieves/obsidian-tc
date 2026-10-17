@@ -180,6 +180,13 @@ narrative, measurement, and correction-history weight to `docs/` where it can be
 and read on its own, and leaves the comment doing the one job a comment is actually read for in
 the middle of changing code: what has to stay true, and why.
 
+### Modern-first protocol code
+
+The server serves MCP 2026-07-28 (modern) and 2025-11-25 (legacy) from one process. New
+protocol-facing code targets **2026-07-28** semantics. Legacy-only code is a compatibility shim:
+it must carry a `// legacy-era shim: see LEGACY_SHIMS.md` marker (above the block, or at the end of a one-line block) and an entry in
+[`LEGACY_SHIMS.md`](LEGACY_SHIMS.md). `node scripts/check-legacy-shims.mjs` keeps the two in step.
+
 ### Commits
 
 Conventional Commits format.
