@@ -16,6 +16,7 @@ interface DatacoreObject {
 interface DatacoreApi {
   tryQuery?(query: string): unknown;
 }
+const LINK_TYPES = new Set<unknown>(["file", "header", "block"]);
 
 export function buildDatacoreRoutes(app: InternalApp): RouteDef[] {
   return [
@@ -43,30 +44,52 @@ export function buildDatacoreRoutes(app: InternalApp): RouteDef[] {
             : [];
         const limit = typeof b.limit === "number" && b.limit > 0 ? b.limit : undefined;
         const sliced = limit ? rows.slice(0, limit) : rows;
-        const plain = (val: unknown): unknown => {
+        // A Datacore Link becomes the object form of the note it resolves to, so the server's
+        // read-ACL filter judges its path. Datacore's Link fields are getters on a class instance,
+        // so they are read by name, never by own keys. An unresolvable Link names no note and keeps
+        // its string form.
+        const linkOf = (o: Record<string, unknown>, sourcePath: string): unknown => {
+          const path = o.path;
+          if (typeof path !== "string" || !LINK_TYPES.has(o.type)) return undefined;
+          const file = app.metadataCache.getFirstLinkpathDest(path, sourcePath);
+          if (!file) return String(o);
+          return {
+            path: file.path,
+            type: o.type,
+            display: o.display ?? null,
+            subpath: o.subpath ?? null,
+            embed: o.embed === true,
+          };
+        };
+        const plain = (val: unknown, sourcePath: string): unknown => {
           if (val === null || val === undefined) return val;
           const t = typeof val;
           if (t === "string" || t === "number" || t === "boolean") return val;
-          if (Array.isArray(val)) return val.map(plain);
+          if (Array.isArray(val)) return val.map((v) => plain(v, sourcePath));
           if (t === "object") {
             const o = val as Record<string, unknown>;
-            if ("value" in o) return plain(o.value);
+            const link = linkOf(o, sourcePath);
+            if (link !== undefined) return link;
+            if ("value" in o) return plain(o.value, sourcePath);
             return String(val);
           }
           return String(val);
         };
-        const items = sliced.map((o) => ({
-          path: o?.$path,
-          name: o?.$name,
-          tags: o?.$tags ?? [],
-          types: o?.$types ?? [],
-          fields:
-            o?.$frontmatter && typeof o.$frontmatter === "object"
-              ? Object.fromEntries(
-                  Object.entries(o.$frontmatter).map(([k, val]) => [k, plain(val)]),
-                )
-              : {},
-        }));
+        const items = sliced.map((o) => {
+          const sourcePath = o?.$path ?? "";
+          return {
+            path: o?.$path,
+            name: o?.$name,
+            tags: o?.$tags ?? [],
+            types: o?.$types ?? [],
+            fields:
+              o?.$frontmatter && typeof o.$frontmatter === "object"
+                ? Object.fromEntries(
+                    Object.entries(o.$frontmatter).map(([k, val]) => [k, plain(val, sourcePath)]),
+                  )
+                : {},
+          };
+        });
         ok(res, { items, total: items.length, query: q });
       },
     },

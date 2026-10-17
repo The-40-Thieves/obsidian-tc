@@ -658,6 +658,55 @@ describe.skipIf(process.platform === "win32")(
       }
     });
 
+    describe("query_datacore: frontmatter Links in the object form the plugin now sends", () => {
+      const link = (path: string) => ({
+        path,
+        type: "file",
+        display: null,
+        subpath: null,
+        embed: false,
+      });
+      const datacoreVault = (items: unknown[]) => {
+        const v = makeM4Vault({
+          files: { "pages/open.md": "open text", ".trash/secret.md": MARK },
+          acl: { readPaths: ["pages/**"] },
+          installed: ["datacore"],
+          routes: {
+            "POST /obsidian-tc/v1/datacore/query": {
+              body: { ok: true, result: { items, total: items.length } },
+            },
+          },
+        });
+        cleanups.push(v.cleanup);
+        return v;
+      };
+
+      it("drops a row whose Link resolves into an unreadable folder", async () => {
+        const v = datacoreVault([
+          { path: "pages/open.md", fields: { project: link(".trash/secret.md") } },
+        ]);
+
+        const r = await v.call("query_datacore", { vault: "test", query: "@page" });
+
+        expect(r.ok, dump(r)).toBe(true);
+        expect(dump(r)).not.toContain(MARK);
+        if (r.ok) {
+          expect((r.data as { items: unknown[] }).items).toEqual([]);
+          expect((r.data as { total: number }).total).toBe(0);
+        }
+      });
+
+      it("keeps a row whose Link resolves to a readable note, in the object form", async () => {
+        const kept = { path: "pages/open.md", fields: { project: link("pages/open.md") } };
+        const v = datacoreVault([kept]);
+
+        const r = await v.call("query_datacore", { vault: "test", query: "@page" });
+
+        expect(r.ok, dump(r)).toBe(true);
+        if (r.ok) expect((r.data as { items: unknown[] }).items).toEqual([kept]);
+      });
+    });
+
     it("judges a Dataview Link stored directly under a key named fields, not its values", () => {
       const v = vault(["tasks"], {});
       const link = (path: string) => ({ path, type: "file", embed: false });
