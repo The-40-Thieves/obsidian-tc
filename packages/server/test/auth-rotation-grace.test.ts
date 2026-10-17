@@ -2,6 +2,7 @@
 // properties that must hold whether or not the reaper ever ran: a key stops verifying at
 // `retire_after`, and verification and minting need nothing but registry keys once the `config`
 // key is retired.
+import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { decodeProtectedHeader, SignJWT } from "jose";
@@ -18,6 +19,7 @@ import { provisionAuthDb } from "../src/db/provision";
 import { createMetricsApp } from "../src/metrics/endpoint";
 import { MetricsRecorder } from "../src/metrics/registry";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const SECRET = "test-only-secret-not-a-real-credential-0123456789";
@@ -265,16 +267,22 @@ describe("registry keys alone: the configured secret is not needed after the con
 });
 
 describe("grace default from config (auth.rotationGraceSeconds), overridden by --grace", () => {
-  let out = "";
+  // Each call collects the stdout written in its own async context, so a call still in flight
+  // (a timed-out test, or a concurrent call) cannot write into another call's document.
+  const sink = new AsyncLocalStorage<{ text: string }>();
   beforeEach(() => {
-    out = "";
     vi.spyOn(process.stdout, "write").mockImplementation((c) => {
-      out += String(c);
+      const store = sink.getStore();
+      if (store) store.text += String(c);
       return true;
     });
     vi.spyOn(process.stderr, "write").mockImplementation(() => true);
   });
   afterEach(() => vi.restoreAllMocks());
+  const stdoutOf = (call: () => Promise<void>): Promise<string> => {
+    const store = { text: "" };
+    return sink.run(store, call).then(() => store.text);
+  };
 
   function deployment(auth: Record<string, unknown>) {
     const root = makeTempDir("auth-grace-cfg-");
@@ -293,66 +301,109 @@ describe("grace default from config (auth.rotationGraceSeconds), overridden by -
     return { configPath, cacheDir: join(root, "cache") };
   }
   const rotate = async (configPath: string, over: Record<string, unknown> = {}) => {
-    out = "";
-    await run_auth({ kind: "auth", sub: "rotate-key", configPath, json: true, ...over } as never);
-    return JSON.parse(out) as { previous_retire_after: number | null };
+    const text = await stdoutOf(() =>
+      run_auth({ kind: "auth", sub: "rotate-key", configPath, json: true, ...over } as never),
+    );
+    return JSON.parse(text) as { previous_retire_after: number | null };
   };
   const keysOf = async (configPath: string) => {
-    out = "";
-    await run_auth({ kind: "auth", sub: "list", keys: true, configPath, json: true } as never);
-    return JSON.parse(out) as { state: string }[];
+    const text = await stdoutOf(() =>
+      run_auth({ kind: "auth", sub: "list", keys: true, configPath, json: true } as never),
+    );
+    return JSON.parse(text) as { state: string }[];
   };
 
-  it("uses auth.rotationGraceSeconds when --grace is omitted", async () => {
-    const d = deployment({ rotationGraceSeconds: 3600 });
-    const before = Date.now();
-    const r = await rotate(d.configPath);
-    const window = (r.previous_retire_after as number) - before;
-    expect(window).toBeGreaterThanOrEqual(3_600_000);
-    expect(window).toBeLessThan(3_600_000 + 10_000);
-    expect((await keysOf(d.configPath)).map((k) => k.state)).toEqual(["retiring", "active"]);
-  });
+  it(
+    "uses auth.rotationGraceSeconds when --grace is omitted",
+    async () => {
+      const d = deployment({ rotationGraceSeconds: 3600 });
+      const before = Date.now();
+      const r = await rotate(d.configPath);
+      const window = (r.previous_retire_after as number) - before;
+      expect(window).toBeGreaterThanOrEqual(3_600_000);
+      expect(window).toBeLessThan(3_600_000 + 10_000);
+      expect((await keysOf(d.configPath)).map((k) => k.state)).toEqual(["retiring", "active"]);
+    },
+    stallTimeout(30_000),
+  );
 
-  it("lets an explicit --grace 0 override a non-zero config default", async () => {
-    const d = deployment({ rotationGraceSeconds: 3600 });
-    await rotate(d.configPath, { graceSeconds: 0 });
-    expect((await keysOf(d.configPath)).map((k) => k.state)).toEqual(["retired", "active"]);
-  });
+  it(
+    "lets an explicit --grace 0 override a non-zero config default",
+    async () => {
+      const d = deployment({ rotationGraceSeconds: 3600 });
+      await rotate(d.configPath, { graceSeconds: 0 });
+      expect((await keysOf(d.configPath)).map((k) => k.state)).toEqual(["retired", "active"]);
+    },
+    stallTimeout(30_000),
+  );
 
-  it("lets --grace override the config default with a different window", async () => {
-    const d = deployment({ rotationGraceSeconds: 3600 });
-    const before = Date.now();
-    const r = await rotate(d.configPath, { graceSeconds: 60 });
-    expect((r.previous_retire_after as number) - before).toBeLessThan(70_000);
-  });
+  it(
+    "lets --grace override the config default with a different window",
+    async () => {
+      const d = deployment({ rotationGraceSeconds: 3600 });
+      const before = Date.now();
+      const r = await rotate(d.configPath, { graceSeconds: 60 });
+      expect((r.previous_retire_after as number) - before).toBeLessThan(70_000);
+    },
+    stallTimeout(30_000),
+  );
 
-  it("defaults to an immediate retirement when neither is set (behaviour preserved)", async () => {
-    const d = deployment({});
-    await rotate(d.configPath);
-    expect((await keysOf(d.configPath)).map((k) => k.state)).toEqual(["retired", "active"]);
-  });
+  it(
+    "defaults to an immediate retirement when neither is set (behaviour preserved)",
+    async () => {
+      const d = deployment({});
+      await rotate(d.configPath);
+      expect((await keysOf(d.configPath)).map((k) => k.state)).toEqual(["retired", "active"]);
+    },
+    stallTimeout(30_000),
+  );
 
-  it("run_token_mint --kid refuses a retiring key end to end", async () => {
-    const d = deployment({});
-    await rotate(d.configPath, { graceSeconds: 600 });
-    out = "";
-    await run_auth({
-      kind: "auth",
-      sub: "list",
-      keys: true,
-      configPath: d.configPath,
-      json: true,
-    } as never);
-    const keys = JSON.parse(out) as { kid: string; state: string }[];
-    const retiring = keys.find((k) => k.state === "retiring") as { kid: string };
-    await expect(
-      run_token_mint({
-        kind: "token-mint",
+  it(
+    "keeps a concurrent call's stdout out of another call's document",
+    async () => {
+      const d = deployment({});
+      await rotate(d.configPath, { graceSeconds: 600 });
+      // Started first and not awaited: its JSON is written while keysOf is still in flight.
+      const stray = run_auth({
+        kind: "auth",
+        sub: "list",
+        keys: true,
         configPath: d.configPath,
-        sub: "a",
-        kid: retiring.kid,
         json: true,
-      }),
-    ).rejects.toThrow(/retiring/);
-  });
+      } as never);
+      const keys = await keysOf(d.configPath);
+      await stray;
+      expect(keys.map((k) => k.state)).toEqual(["retiring", "active"]);
+    },
+    stallTimeout(30_000),
+  );
+
+  it(
+    "run_token_mint --kid refuses a retiring key end to end",
+    async () => {
+      const d = deployment({});
+      await rotate(d.configPath, { graceSeconds: 600 });
+      const text = await stdoutOf(() =>
+        run_auth({
+          kind: "auth",
+          sub: "list",
+          keys: true,
+          configPath: d.configPath,
+          json: true,
+        } as never),
+      );
+      const keys = JSON.parse(text) as { kid: string; state: string }[];
+      const retiring = keys.find((k) => k.state === "retiring") as { kid: string };
+      await expect(
+        run_token_mint({
+          kind: "token-mint",
+          configPath: d.configPath,
+          sub: "a",
+          kid: retiring.kid,
+          json: true,
+        }),
+      ).rejects.toThrow(/retiring/);
+    },
+    stallTimeout(30_000),
+  );
 });
