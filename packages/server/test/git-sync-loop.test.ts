@@ -33,7 +33,7 @@ async function runUntil(
   }
 }
 
-describe("git-sync batching", () => {
+describe.skipIf(process.platform === "win32")("git-sync batching", () => {
   it("serializes dirty snapshots and commits through one in-flight operation", async () => {
     const fixture = makeGitFixture();
     let active = 0;
@@ -153,7 +153,7 @@ describe("git-sync batching", () => {
   });
 });
 
-describe("git-sync pull triggers and read-only mode", () => {
+describe.skipIf(process.platform === "win32")("git-sync pull triggers and read-only mode", () => {
   it("samples an existing trigger before polling and does not pull redundantly", async () => {
     const fixture = makeGitFixture();
     let fetches = 0;

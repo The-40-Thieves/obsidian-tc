@@ -2,7 +2,13 @@ import { bootGitSync } from "../../git-sync/boot";
 import { loadGitSyncConfig } from "../../git-sync/env";
 import type { Cmd } from "../shared";
 
-export async function run_git_sync(cmd: Cmd<"git-sync">): Promise<void> {
+export async function run_git_sync(
+  cmd: Cmd<"git-sync">,
+  platform: NodeJS.Platform = process.platform,
+): Promise<void> {
+  if (platform === "win32") {
+    throw new Error("git-sync supports Linux and macOS only (it runs in the -git container image)");
+  }
   const controller = new AbortController();
   const stop = () => controller.abort();
   process.once("SIGINT", stop);

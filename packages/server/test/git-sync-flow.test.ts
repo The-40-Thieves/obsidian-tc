@@ -17,7 +17,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-describe("git-sync bidirectional synchronization", () => {
+describe.skipIf(process.platform === "win32")("git-sync bidirectional synchronization", () => {
   it("ignores repository-configured upload-pack and receive-pack commands", async () => {
     const fixture = makeGitFixture();
     git(fixture.root, ["clone", fixture.url, fixture.vault]);
@@ -123,7 +123,7 @@ describe("git-sync bidirectional synchronization", () => {
   });
 });
 
-describe("git-sync conflict and retry policy", () => {
+describe.skipIf(process.platform === "win32")("git-sync conflict and retry policy", () => {
   it("commits an edit made during a rejected push onto the conflict branch", async () => {
     const fixture = makeGitFixture();
     let mainPushes = 0;

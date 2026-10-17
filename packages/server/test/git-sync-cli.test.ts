@@ -4,6 +4,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { userInfo } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { run_git_sync } from "../src/cli/commands/git-sync";
 import { git, makeGitFixture, syncEnv, waitFor } from "./git-sync-test-helpers";
 import { stallTimeout } from "./stall-timeouts";
 
@@ -28,7 +29,13 @@ function bunBinary(): string {
 const BUN = bunBinary();
 const REAL_GIT = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
 
-describe("git-sync CLI", () => {
+it("refuses git-sync on Windows before loading its configuration", async () => {
+  await expect(run_git_sync({ kind: "git-sync", once: true }, "win32")).rejects.toThrow(
+    "git-sync supports Linux and macOS only (it runs in the -git container image)",
+  );
+});
+
+describe.skipIf(process.platform === "win32")("git-sync CLI", () => {
   it("boots, performs one sync, and exits for --once", () => {
     const fixture = makeGitFixture();
     const result = execFileSync(BUN, ["src/cli.ts", "git-sync", "--once"], {

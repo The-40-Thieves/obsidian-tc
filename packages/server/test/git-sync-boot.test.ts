@@ -19,7 +19,7 @@ import { commitAll, git, makeGitFixture, syncEnv } from "./git-sync-test-helpers
 
 const execFileAsync = promisify(execFile);
 
-describe("git-sync boot", () => {
+describe.skipIf(process.platform === "win32")("git-sync boot", () => {
   it("ignores hostile host-global Git configuration in test fixtures", () => {
     const root = mkdtempSync(join(import.meta.dirname, ".git-sync-host-config-"));
     const hostile = join(root, "host.gitconfig");

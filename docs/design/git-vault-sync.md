@@ -14,6 +14,10 @@ same package but never imports the server runtime. It talks to the server only t
 filesystem: the vault directory, which the vault watcher already treats as external edits, and one
 trigger file (see the webhook section below).
 
+The sidecar is POSIX only (Linux, macOS) and refuses to run on Windows. It depends on POSIX file
+modes for credential files, `/bin/sh` for Git's SSH and askpass commands, and SIGTERM shutdown
+semantics. Its deployment target is the `-git` container image described below.
+
 It runs in the same container because single-container hosts give a volume to exactly one service.
 Railway, Render and Fly all work this way. A second service could not see the vault.
 

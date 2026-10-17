@@ -11,7 +11,7 @@ import { makeTempDir } from "./tmp";
 
 const execFileAsync = promisify(execFile);
 
-describe("git-sync secret handling", () => {
+describe.skipIf(process.platform === "win32")("git-sync secret handling", () => {
   it("redacts a newline-terminated HTTPS token before trimming command output", async () => {
     const fixture = makeGitFixture();
     const token = "tkn-SECRET-with-newline\n";

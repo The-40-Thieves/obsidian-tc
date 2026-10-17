@@ -12,7 +12,7 @@ const base = {
   OBSIDIAN_TC_CACHE_DIR: "/tmp/cache",
 };
 
-describe("git-sync environment", () => {
+describe.skipIf(process.platform === "win32")("git-sync environment", () => {
   it.each([
     ["OBSIDIAN_TC_VAULT_GIT_URL", { OBSIDIAN_TC_VAULT_GIT_URL: undefined }, "missing"],
     [
@@ -156,11 +156,12 @@ describe("git-sync environment", () => {
   });
 });
 
-describe("git-sync CLI parsing", () => {
-  it("parses the long-running and once forms and advertises both", () => {
+describe.skipIf(process.platform === "win32")("git-sync CLI parsing", () => {
+  it("parses the long-running and once forms and advertises their POSIX support", () => {
     expect(parseCliArgs(["git-sync"])).toEqual({ kind: "git-sync", once: false });
     expect(parseCliArgs(["git-sync", "--once"])).toEqual({ kind: "git-sync", once: true });
     expect(USAGE).toContain("obsidian-tc git-sync [--once]");
+    expect(USAGE).toContain("POSIX only (Linux, macOS)");
   });
 
   it("refuses unknown git-sync flags including out-of-scope supervise", () => {
