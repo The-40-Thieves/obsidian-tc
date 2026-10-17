@@ -272,9 +272,14 @@ Server runs on a remote host (with the vault co-located); clients connect over C
 ## Docker
 
 ```bash
-docker run -v /path/to/vault:/vault \
-  ghcr.io/the-40-thieves/obsidian-tc:1.7.0 /vault
+docker run -i --rm -v /path/to/vault:/vault \
+  ghcr.io/the-40-thieves/obsidian-tc:latest /vault
 ```
+
+Use `:latest` for the current release or pin `:<version>` for a reproducible deployment. The
+[Docker deployment page](https://obsidian-tc.the40thieves.io/deployment/docker/) covers stdio, the
+long-lived HTTP Compose bundle, persistent data, authentication, token minting, and image health
+behavior.
 
 The native module is built into the image; the vault is bind-mounted. Obsidian (a GUI app with the companion + REST API plugins) runs on the **host**, not in the container, so the container must reach Obsidian's REST API port: `--network host` on Linux, or explicit port mapping on macOS/Windows.
 

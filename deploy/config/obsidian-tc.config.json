@@ -1,0 +1,11 @@
+{
+  "vaults": [{ "id": "main", "path": "/data/vault" }],
+  "transports": {
+    "stdio": false,
+    "http": { "host": "0.0.0.0" }
+  },
+  "auth": {
+    "mode": "jwt",
+    "requireJti": true
+  }
+}

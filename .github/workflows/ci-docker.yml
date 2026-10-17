@@ -12,6 +12,7 @@ on:
       - "packages/server/**"
       - "packages/shared/**"
       - "packages/native/**"
+      - "deploy/**"
       - "scripts/docker-boot-smoke.mjs"
       - "package.json"
       - "bun.lock"
@@ -83,6 +84,8 @@ jobs:
       # auto-install (which a present node_modules switches off anyway).
       - name: smoke — the image boots offline with native=on and vec=on
         run: node scripts/docker-boot-smoke.mjs obsidian-tc:ci
+      - name: smoke — the image serves authenticated MCP over HTTP
+        run: node scripts/docker-boot-smoke.mjs obsidian-tc:ci --mode http
       # The image is already built and loaded above; scanning it here costs one extra step and
       # closes a real gap — cargo-audit/bun-audit/osv-scanner all read LOCKFILES, so none of them
       # sees the OS packages the base image ships. A vulnerable libssl in the runtime layer was

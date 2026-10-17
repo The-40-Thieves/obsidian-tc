@@ -86,7 +86,8 @@ WORKDIR /app
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
- && chown bun:bun /app
+ && mkdir -p /data/vault /data/cache \
+ && chown -R bun:bun /app /data
 # Copy the built server bundle + its runtime assets (dist/migrations, dist/schema.sql,
 # dist/plugin from scripts/copy-assets.mjs). No source; node_modules only as staged above
 # (packages/server/node_modules) plus packages/embedder-local below, which needs its own dist AND
@@ -114,9 +115,18 @@ COPY --from=build --chown=bun:bun /app/packages/embedder-local /app/packages/emb
 # dependencies), copied to packages/server/node_modules so the bare specifiers resolve from dist/ by
 # the ordinary walk up. A few tens of MB; the rest of the tree stays out.
 COPY --from=build --chown=bun:bun /out/node_modules /app/packages/server/node_modules
+# The HTTP server defaults to 8765. /data is the stable vault/cache mount; a child image cannot
+# undeclare an inherited VOLUME, so downstream images should treat this path as part of the image API.
+EXPOSE 8765
+VOLUME ["/data"]
 # Run unprivileged. The `bun` user (uid 1000) owns /app, so the default cache dir
 # (<cwd>/.obsidian-tc) stays writable; mount any external cache/vault dir writable by uid 1000.
+# The pinned oven/bun base defines this fixed uid; keep its readable account name in image metadata.
+# hadolint ignore=DL3066
 USER bun
+# A refused listener is healthy only for stdio sessions (PORT unset). Once PORT declares HTTP,
+# anything except /healthz 200 is unhealthy; timeouts and non-200 responses always fail.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 CMD ["bun", "-e", "function classifyHealthcheckError(error){const code=error?.cause?.code??error?.code;return code===\"ConnectionRefused\"||code===\"ECONNREFUSED\"?\"refused\":error?.name===\"AbortError\"?\"timeout\":\"error\";}const portSet=Boolean(process.env.PORT);const port=process.env.PORT||\"8765\";const c=new AbortController();const t=setTimeout(()=>c.abort(),8000);let outcome=\"timeout\";try{const r=await fetch(\"http://127.0.0.1:\"+port+\"/healthz\",{signal:c.signal});outcome=r.status===200?\"ok\":\"http-\"+r.status}catch(e){outcome=classifyHealthcheckError(e)}finally{clearTimeout(t)}process.exit(outcome===\"ok\"||(!portSet&&outcome===\"refused\")?0:1)"]
 # The CLI takes a vault folder (zero-config) or a config path (OBSIDIAN_TC_CONFIG / argv); the
 # serve / config / plugin-install subcommands are available. Pass a vault or config when running.
 ENTRYPOINT ["bun", "/app/packages/server/dist/cli.js"]
