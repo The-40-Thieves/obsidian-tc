@@ -108,19 +108,29 @@ export function serveHono(app: Hono, opts: { host: string; port: number }): Prom
   });
 }
 
+/** Bytes of an unread request body the wrapper drains before it gives up and closes. */
+export const UNREAD_BODY_DRAIN_MAX_BYTES = 1_048_576;
+/** Time the wrapper spends draining an unread request body before it gives up and closes. */
+export const UNREAD_BODY_DRAIN_MS = 250;
+
 /**
  * Close the connection when a response leaves the request body unread. Bun keeps such a socket
  * open for the whole idle timeout (120 s here), so a caller that declares a body and never sends it
- * can hold a connection. Only that case closes: a body the handler read keeps its connection, which
- * `/mcp` depends on for pooled clients. A body read in part and then abandoned is not visible here
- * (`bodyUsed` is true), so the webhook keeps its own per-route `Connection: close`.
+ * can hold a connection. The leftover body is drained first, within a byte cap and a deadline: a
+ * body the caller sent in full keeps its connection, which pooled `/mcp` clients depend on (their
+ * handler reads a clone, so the original stays unread). A body still arriving at the bound closes.
+ * A body the handler read directly is left alone (`bodyUsed`). A body read in part and then
+ * abandoned is not visible here, so the webhook keeps its own per-route `Connection: close`.
+ * Every argument after the request is forwarded: Hono reads the runtime's second argument as
+ * `c.env`, which the client-IP helper needs.
  */
-export function closeIfBodyUnread(
-  fetch: (req: Request) => Response | Promise<Response>,
-): (req: Request) => Promise<Response> {
-  return async (req) => {
-    const res = await fetch(req);
+export function closeIfBodyUnread<A extends unknown[]>(
+  fetch: (req: Request, ...rest: A) => Response | Promise<Response>,
+): (req: Request, ...rest: A) => Promise<Response> {
+  return async (req, ...rest) => {
+    const res = await fetch(req, ...rest);
     if (!declaresBody(req) || req.bodyUsed || res.headers.has("connection")) return res;
+    if (await drainUnreadBody(req)) return res;
     try {
       res.headers.set("connection", "close");
       return res;
@@ -132,6 +142,40 @@ export function closeIfBodyUnread(
       return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
     }
   };
+}
+
+/**
+ * Read and discard the request body the handler left unread. True when it ended within both bounds;
+ * false when the cap or the deadline was hit or the read failed, and the body is cancelled.
+ */
+async function drainUnreadBody(req: Request): Promise<boolean> {
+  if (req.body === null) return true;
+  const reader = req.body.getReader();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), UNREAD_BODY_DRAIN_MS);
+  });
+  // Never rejects: a failed read is a `false`, so no rejection outlives a deadline that won the race.
+  const read = (async () => {
+    try {
+      let total = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) return true;
+        total += value.byteLength;
+        if (total > UNREAD_BODY_DRAIN_MAX_BYTES) return false;
+      }
+    } catch {
+      return false;
+    }
+  })();
+  try {
+    const drained = await Promise.race([read, deadline]);
+    if (!drained) await reader.cancel().catch(() => {});
+    return drained;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function declaresBody(req: Request): boolean {
