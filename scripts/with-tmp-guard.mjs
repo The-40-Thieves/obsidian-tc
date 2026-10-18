@@ -10,6 +10,8 @@
 // leftover is attributable to this run even on a shared host, whatever os.tmpdir() is on the OS.
 //
 // The root is deleted before the report is printed, so a leak costs a failed run, not disk.
+// Git auto maintenance is switched off for the child: a detached `git maintenance` left by a commit
+// outlives the command and can recreate a fixture directory after its test has removed it.
 import { spawn } from "node:child_process";
 import { mkdtempSync, readdirSync, realpathSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -41,10 +43,24 @@ function describeEntry(root, name) {
   return `${name}  (${bytes >= 1048576 ? `${Math.round(bytes / 1048576)} MB` : `${Math.ceil(bytes / 1024)} KB`})`;
 }
 
+/**
+ * Returns `env` with git auto maintenance disabled, appended to any config git already gets from
+ * GIT_CONFIG_COUNT so an existing entry survives. The new entry goes last, so it wins.
+ */
+export function withGitMaintenanceOff(env) {
+  const count = /^\d+$/.test(env.GIT_CONFIG_COUNT ?? "") ? Number(env.GIT_CONFIG_COUNT) : 0;
+  return {
+    ...env,
+    GIT_CONFIG_COUNT: String(count + 1),
+    [`GIT_CONFIG_KEY_${count}`]: "maintenance.auto",
+    [`GIT_CONFIG_VALUE_${count}`]: "false",
+  };
+}
+
 /** Spawn `argv` under a private temp root. Resolves to `{ code, leaks }`; the root is gone. */
 export async function runWithTmpGuard(argv, { baseDir = tmpdir(), env = process.env } = {}) {
   const root = mkdtempSync(join(realpathSync(baseDir), "obtc-guard-"));
-  const childEnv = { ...env, TMPDIR: root };
+  const childEnv = withGitMaintenanceOff({ ...env, TMPDIR: root });
   if (process.platform === "win32") {
     childEnv.TMP = root;
     childEnv.TEMP = root;
