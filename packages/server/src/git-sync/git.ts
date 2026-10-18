@@ -84,7 +84,7 @@ async function prepareCredentialFiles(config: GitSyncConfig): Promise<void> {
   }
 }
 
-async function atomicWrite(path: string, contents: string, mode: number): Promise<void> {
+export async function atomicWrite(path: string, contents: string, mode: number): Promise<void> {
   const temporary = `${path}.tmp-${process.pid}-${randomUUID()}`;
   let handle: Awaited<ReturnType<typeof open>> | undefined;
   try {
@@ -123,6 +123,7 @@ function errorParts(error: unknown): {
 export async function createGitRunner(
   config: GitSyncConfig,
   executor: GitExecutor = execFileAsync as GitExecutor,
+  signal?: AbortSignal,
 ): Promise<GitRunner> {
   await prepareCredentialFiles(config);
   const env = fixedEnvironment(config);
@@ -164,6 +165,7 @@ export async function createGitRunner(
         maxBuffer: 16 * 1024 * 1024,
         timeout: GIT_TIMEOUT_MS,
         windowsHide: true,
+        signal,
       });
       return String(result.stdout);
     } catch (error) {

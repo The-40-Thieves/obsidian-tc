@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
@@ -107,6 +108,111 @@ describe.skipIf(process.platform === "win32")("git-sync boot", () => {
     expect(readFileSync(join(fixture.vault, "pending.bin"))).toEqual(untrackedBytes);
     const status = JSON.parse(readFileSync(join(fixture.cache, "git-sync", "status.json"), "utf8"));
     expect(status.lastError).toMatch(/main.*other/);
+  });
+
+  it("refuses a dirty detached HEAD when a branch is configured and leaves it detached", async () => {
+    const fixture = makeGitFixture();
+    git(fixture.root, ["clone", fixture.url, fixture.vault]);
+    git(fixture.vault, ["checkout", "--detach"]);
+    const dirtyBytes = Buffer.from("dirty detached bytes\n", "utf8");
+    writeFileSync(join(fixture.vault, "a.md"), dirtyBytes);
+    const headBefore = git(fixture.vault, ["rev-parse", "HEAD"]);
+
+    await expect(bootGitSync(loadGitSyncConfig(syncEnv(fixture)))).rejects.toThrow(
+      "git-sync refuses to switch dirty detached HEAD to main",
+    );
+
+    expect(git(fixture.vault, ["branch", "--show-current"])).toBe("");
+    expect(git(fixture.vault, ["rev-parse", "HEAD"])).toBe(headBefore);
+    expect(readFileSync(join(fixture.vault, "a.md"))).toEqual(dirtyBytes);
+    const status = JSON.parse(readFileSync(join(fixture.cache, "git-sync", "status.json"), "utf8"));
+    expect(status.lastError).toBe("git-sync refuses to switch dirty detached HEAD to main");
+  });
+
+  it("boots a clean detached HEAD onto the configured branch", async () => {
+    const fixture = makeGitFixture();
+    git(fixture.root, ["clone", fixture.url, fixture.vault]);
+    git(fixture.vault, ["checkout", "--detach"]);
+    const sync = await bootGitSync(loadGitSyncConfig(syncEnv(fixture)));
+    expect(sync.branch).toBe("main");
+    expect(git(fixture.vault, ["branch", "--show-current"])).toBe("main");
+  });
+
+  it("aborting boot rejects promptly and passes its signal to the git command it runs", async () => {
+    const fixture = makeGitFixture();
+    const controller = new AbortController();
+    const signals: AbortSignal[] = [];
+    let cloneStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      cloneStarted = resolve;
+    });
+    const executor: GitExecutor = (_file, _args, options) => {
+      if (options.signal) signals.push(options.signal);
+      cloneStarted();
+      return new Promise((_resolve, reject) => {
+        options.signal?.addEventListener(
+          "abort",
+          () => reject(new Error("The operation was aborted")),
+          { once: true },
+        );
+      });
+    };
+    const boot = bootGitSync(loadGitSyncConfig(syncEnv(fixture)), {
+      executor,
+      signal: controller.signal,
+    });
+    await started;
+    controller.abort();
+    await expect(boot).rejects.toThrow(/aborted/);
+    expect(signals).toEqual([controller.signal]);
+  });
+
+  it("aborting a clone leaves the vault empty and removes its staging directory", async () => {
+    const fixture = makeGitFixture();
+    mkdirSync(fixture.vault);
+    const controller = new AbortController();
+    let staging: string | undefined;
+    let cloneStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      cloneStarted = resolve;
+    });
+    const executor: GitExecutor = (_file, args, options) => {
+      const destination = args[args.length - 1] ?? "";
+      writeFileSync(join(destination, "partial.md"), "half cloned\n");
+      cloneStarted();
+      return new Promise((_resolve, reject) => {
+        options.signal?.addEventListener(
+          "abort",
+          () => reject(new Error("The operation was aborted")),
+          { once: true },
+        );
+      });
+    };
+    const boot = bootGitSync(loadGitSyncConfig(syncEnv(fixture)), {
+      executor,
+      signal: controller.signal,
+      createCloneStagingDirectory: async (prefix) => {
+        staging = mkdtempSync(prefix);
+        return staging;
+      },
+    });
+    await started;
+    controller.abort();
+    await expect(boot).rejects.toThrow(/aborted/);
+    expect(staging).toBeDefined();
+    expect(existsSync(staging ?? "")).toBe(false);
+    expect(readdirSync(fixture.vault)).toEqual([]);
+  });
+
+  it("an already-aborted boot rejects against real git and changes nothing", async () => {
+    const fixture = makeGitFixture();
+    mkdirSync(fixture.vault);
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      bootGitSync(loadGitSyncConfig(syncEnv(fixture)), { signal: controller.signal }),
+    ).rejects.toThrow();
+    expect(readdirSync(fixture.vault)).toEqual([]);
   });
 
   it("uses the remote HEAD when no branch is configured", async () => {

@@ -21,6 +21,8 @@ export interface GitSyncOptions extends Partial<GitSyncTimings> {
   executor?: GitExecutor;
   logger?: SyncLogger;
   createCloneStagingDirectory?: (prefix: string) => Promise<string>;
+  /** Aborts every git command the boot runs; an aborted boot rejects and leaves no staging directory. */
+  signal?: AbortSignal;
 }
 
 async function containsFile(path: string): Promise<boolean> {
@@ -269,7 +271,7 @@ export async function bootGitSync(
     throw new Error(`git-sync refuses invalid repository in ${config.vaultDir}`);
   }
 
-  const runner = await createGitRunner(config, options.executor);
+  const runner = await createGitRunner(config, options.executor, options.signal);
   const status = new StatusStore(config.stateDir);
   await status.initialize();
   let newlyCloned = false;
@@ -299,7 +301,9 @@ export async function bootGitSync(
 
   if (!newlyCloned && config.branch) {
     const current = (await runner.run(["branch", "--show-current"])).trim();
-    if (current && current !== config.branch) {
+    // A detached HEAD (current is "") is not the requested branch either: checking it out would
+    // overwrite a dirty tree just the same.
+    if (current !== config.branch) {
       const dirty = await runner.run([
         "status",
         "--porcelain=v1",
@@ -308,7 +312,9 @@ export async function bootGitSync(
         "--",
       ]);
       if (dirty) {
-        const message = `git-sync refuses to switch dirty branch ${current} to ${config.branch}`;
+        const message = current
+          ? `git-sync refuses to switch dirty branch ${current} to ${config.branch}`
+          : `git-sync refuses to switch dirty detached HEAD to ${config.branch}`;
         await status.update({ lastError: message });
         logger(`[git-sync] error ${message}`);
         throw new Error(message);
@@ -319,7 +325,10 @@ export async function bootGitSync(
   const head = (await runner.run(["rev-parse", "HEAD"])).trim();
   await status.update({ head, lastError: null });
   const timings: GitSyncTimings = { ...DEFAULT_GIT_SYNC_TIMINGS, ...options };
-  const sync = new GitSync(config, runner, status, branch, logger);
+  // Only boot's own git commands abort with the signal. The sync loop keeps a runner without it, so a
+  // SIGTERM lets an in-flight pull or push finish (the loop stops at its next tick instead).
+  const loopRunner = options.signal ? await createGitRunner(config, options.executor) : runner;
+  const sync = new GitSync(config, loopRunner, status, branch, logger);
   if (!newlyCloned) await sync.syncOnce();
   return Object.assign(sync, {
     run(signal: AbortSignal) {

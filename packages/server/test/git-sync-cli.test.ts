@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { run_git_sync } from "../src/cli/commands/git-sync";
 import { git, makeGitFixture, syncEnv, waitFor } from "./git-sync-test-helpers";
 import { stallTimeout } from "./stall-timeouts";
@@ -126,5 +126,45 @@ describe.skipIf(process.platform === "win32")("git-sync CLI", () => {
       }
     },
     stallTimeout(15_000),
+  );
+});
+
+describe("git-sync signal handling", () => {
+  it.each(["SIGINT", "SIGTERM"] as const)(
+    "maps the first %s to shutdown and still handles a second one",
+    async (signal) => {
+      // test/tmp.ts registers a once-handler that re-raises the signal for real (process.kill on
+      // this pid). Take the existing listeners out for the test, so process.emit only reaches the
+      // command's own handler, and put them back exactly (rawListeners keeps once-wrappers).
+      const saved = process.rawListeners(signal);
+      process.removeAllListeners(signal);
+      try {
+        let shutdownSeen: AbortSignal | undefined;
+        const supervise = vi.fn(
+          ({ shutdown }: { shutdown: AbortSignal }) =>
+            new Promise<number>((resolve) => {
+              shutdownSeen = shutdown;
+              shutdown.addEventListener("abort", () => resolve(0), { once: true });
+            }),
+        );
+        const running = run_git_sync({ kind: "git-sync", once: false, supervise: true }, "linux", {
+          supervise,
+        });
+        expect(supervise).toHaveBeenCalledTimes(1);
+        expect(process.listenerCount(signal)).toBe(1);
+
+        process.emit(signal);
+        expect(shutdownSeen?.aborted).toBe(true);
+        // Still listening after the first signal: a second one must reach the handler.
+        expect(process.listenerCount(signal)).toBe(1);
+        expect(() => process.emit(signal)).not.toThrow();
+
+        await running;
+        expect(process.listenerCount(signal)).toBe(0);
+      } finally {
+        process.removeAllListeners(signal);
+        for (const listener of saved) process.on(signal, listener);
+      }
+    },
   );
 });
