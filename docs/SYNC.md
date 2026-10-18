@@ -135,7 +135,9 @@ each device, and the sidecar is the server's side of that loop.
 #### Webhook (optional)
 
 Set `OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET` to mount `POST /hooks/vault-sync` behind the same Host
-check as `/mcp`. The secret must be at least 32 characters, or the server refuses to start.
+check as `/mcp`. The secret must be at least 32 characters, or the server refuses to start. Like the
+sidecar, the webhook is Linux and macOS only: on Windows the server refuses to start while the
+secret is set.
 
 Configure the forge to sign each request. The route accepts GitHub or Gitea/Forgejo
 `X-Hub-Signature-256` (HMAC-SHA256 of the raw body) and GitLab `X-Gitlab-Token` (the secret itself);
