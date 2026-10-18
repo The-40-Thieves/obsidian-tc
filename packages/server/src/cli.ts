@@ -32,6 +32,7 @@ import { run_elicit_mint } from "./cli/commands/elicit-mint";
 import { run_error } from "./cli/commands/error";
 import { run_forget } from "./cli/commands/forget";
 import { run_gaps } from "./cli/commands/gaps";
+import { run_git_sync } from "./cli/commands/git-sync";
 import { run_help } from "./cli/commands/help";
 import { run_import_ambient } from "./cli/commands/import-ambient";
 import { run_import_highlights } from "./cli/commands/import-highlights";
@@ -151,6 +152,8 @@ async function main(): Promise<void> {
       return run_provenance(cmd);
     case "version":
       return run_version(cmd);
+    case "git-sync":
+      return run_git_sync(cmd);
     case "help":
       return run_help(cmd);
     case "error":

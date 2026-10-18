@@ -7,6 +7,10 @@ export const USAGE = `obsidian-tc — MCP server for Obsidian
 Usage:
   obsidian-tc <vault-dir | config.json>   Start the server (zero-config from a vault folder, or a config file)
   obsidian-tc serve [path]                Same as above; path may be a vault folder or a config file
+  obsidian-tc git-sync [--once]           Clone or verify the configured Git-backed vault, then
+                                          synchronize it continuously. --once performs one sync
+                                          and exits; configuration comes from environment variables.
+                                          POSIX only (Linux, macOS); intended for the -git image.
   obsidian-tc config show [path]          Print the effective config with secrets redacted
   obsidian-tc config validate [path]      Validate the config (exit non-zero on error)
   obsidian-tc setup [--yes] [--dry-run] [--force] [--replace-invalid-config] [--config <path>] [--vault <path>]

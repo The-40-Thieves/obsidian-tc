@@ -34,6 +34,7 @@ export type CliCommand =
   | ElicitMintCommand // THE-826: HITL token mint. Parser: ./parse-elicit.ts.
   | { kind: "version" }
   | { kind: "help" }
+  | { kind: "git-sync"; once: boolean }
   | { kind: "plugin-install"; vaultPath: string }
   | { kind: "cluster"; input?: string; k?: number }
   | { kind: "activation-recompute"; input?: string }
@@ -134,6 +135,11 @@ export function parseCliArgs(argv: string[]): CliCommand {
     if (first === undefined) return { kind: "serve" };
     if (first === "version" || first === "--version" || first === "-v") return { kind: "version" };
     if (first === "help" || first === "--help" || first === "-h") return { kind: "help" };
+    if (first === "git-sync") {
+      const unknown = rest.find((arg) => arg !== "--once");
+      if (unknown) return { kind: "error", message: `unknown option to git-sync: ${unknown}` };
+      return { kind: "git-sync", once: rest.includes("--once") };
+    }
     if (first === "serve") {
       // Finding 2 (fix round, cross-vendor review): `--help`/`-h` anywhere in `serve`'s own argv
       // used to be silently dropped by `positional` (it only matches a non-dash token) — `serve
