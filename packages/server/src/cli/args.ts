@@ -34,7 +34,7 @@ export type CliCommand =
   | ElicitMintCommand // THE-826: HITL token mint. Parser: ./parse-elicit.ts.
   | { kind: "version" }
   | { kind: "help" }
-  | { kind: "git-sync"; once: boolean }
+  | { kind: "git-sync"; once: boolean; supervise?: boolean; serverArgs?: readonly string[] }
   | { kind: "plugin-install"; vaultPath: string }
   | { kind: "cluster"; input?: string; k?: number }
   | { kind: "activation-recompute"; input?: string }
@@ -136,9 +136,24 @@ export function parseCliArgs(argv: string[]): CliCommand {
     if (first === "version" || first === "--version" || first === "-v") return { kind: "version" };
     if (first === "help" || first === "--help" || first === "-h") return { kind: "help" };
     if (first === "git-sync") {
-      const unknown = rest.find((arg) => arg !== "--once");
+      // Arguments after `--` belong to the server child that --supervise starts, not to git-sync.
+      const separator = rest.indexOf("--");
+      const own = separator === -1 ? rest : rest.slice(0, separator);
+      const serverArgs = separator === -1 ? [] : rest.slice(separator + 1);
+      const unknown = own.find((arg) => arg !== "--once" && arg !== "--supervise");
       if (unknown) return { kind: "error", message: `unknown option to git-sync: ${unknown}` };
-      return { kind: "git-sync", once: rest.includes("--once") };
+      const once = own.includes("--once");
+      const supervise = own.includes("--supervise");
+      if (once && supervise) {
+        return { kind: "error", message: "git-sync --once and --supervise cannot be combined" };
+      }
+      if (separator !== -1 && !supervise) {
+        return {
+          kind: "error",
+          message: "arguments after -- are passed to the server and need --supervise",
+        };
+      }
+      return { kind: "git-sync", once, supervise, serverArgs };
     }
     if (first === "serve") {
       // Finding 2 (fix round, cross-vendor review): `--help`/`-h` anywhere in `serve`'s own argv
