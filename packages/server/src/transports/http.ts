@@ -52,6 +52,7 @@ import { corsMiddleware, corsOriginSet } from "./cors";
 import { mountHealthz } from "./healthz";
 import { isHostAllowed, isOriginAllowed } from "./host-guard";
 import { type ServerHandle, serveHono } from "./serve";
+import { mountVaultSyncWebhook, type VaultSyncWebhookOptions } from "./vault-sync-webhook";
 
 type AuthConfig = ServerConfig["auth"];
 
@@ -157,6 +158,8 @@ export interface HttpAppOptions {
   enableDnsRebindingProtection?: boolean;
   /** Extra Host header values accepted beyond loopback (e.g. a reverse-proxy domain). */
   allowedHosts?: string[];
+  /** The git-sync webhook route (`POST /hooks/vault-sync`). Absent -> the path is not routed. */
+  vaultSyncWebhook?: VaultSyncWebhookOptions;
   /** Extra Origin header values accepted beyond the request's same origin. */
   allowedOrigins?: string[];
   /** `transports.http.cors.allowedOrigins`: exact browser origins allowed to call the CORS routes. */
@@ -438,6 +441,12 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
     ),
   );
   mountHealthz(app, opts);
+  if (opts.vaultSyncWebhook)
+    mountVaultSyncWebhook(app, {
+      ...opts.vaultSyncWebhook,
+      enableDnsRebindingProtection: opts.enableDnsRebindingProtection,
+      allowedHosts: opts.allowedHosts,
+    });
   /** `auth.anonymousDiscovery: "list"` and a complete PRM: see transports/anonymous-discovery.ts. */
   const mixedAuth = mixedModeScopes(opts.auth);
   /**
