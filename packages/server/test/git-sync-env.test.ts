@@ -158,14 +158,17 @@ describe.skipIf(process.platform === "win32")("git-sync environment", () => {
 
 describe.skipIf(process.platform === "win32")("git-sync CLI parsing", () => {
   it("parses the long-running and once forms and advertises their POSIX support", () => {
-    expect(parseCliArgs(["git-sync"])).toEqual({ kind: "git-sync", once: false });
-    expect(parseCliArgs(["git-sync", "--once"])).toEqual({ kind: "git-sync", once: true });
-    expect(USAGE).toContain("obsidian-tc git-sync [--once]");
+    expect(parseCliArgs(["git-sync"])).toMatchObject({ kind: "git-sync", once: false });
+    expect(parseCliArgs(["git-sync", "--once"])).toMatchObject({ kind: "git-sync", once: true });
+    expect(USAGE).toContain("obsidian-tc git-sync [--once | --supervise");
     expect(USAGE).toContain("POSIX only (Linux, macOS)");
   });
 
-  it("refuses unknown git-sync flags including out-of-scope supervise", () => {
-    expect(parseCliArgs(["git-sync", "--supervise"]).kind).toBe("error");
+  it("parses --supervise and refuses unknown git-sync flags", () => {
+    expect(parseCliArgs(["git-sync", "--supervise"])).toMatchObject({
+      kind: "git-sync",
+      supervise: true,
+    });
     expect(parseCliArgs(["git-sync", "--wat"]).kind).toBe("error");
   });
 });
