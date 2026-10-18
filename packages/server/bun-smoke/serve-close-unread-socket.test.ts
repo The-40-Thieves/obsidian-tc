@@ -28,6 +28,7 @@ const MCP_HEADERS =
 function app(): Hono {
   const app = new Hono();
   app.post("/refuse", (c) => c.text("nope", 401));
+  app.get("/refuse", (c) => c.text("nope", 401));
   app.post("/read", async (c) => {
     await c.req.text();
     return c.text("ok");
@@ -39,30 +40,54 @@ function app(): Hono {
   return app;
 }
 
-/** Writes raw request bytes on a real socket. Resolves with the status line, whether the server
- *  closed the connection within `withinMs`, and how long the first response bytes took to arrive.
- *  The declared body is never completed unless `head` carries it, so only the server's response
- *  decides whether the socket stays open. */
+/** Writes raw request bytes on a real socket. Resolves with the response head, whether the server
+ *  closed the socket in time, and when the first response bytes and the close arrived, in ms from
+ *  the start (`closedMs` stays Infinity without a close). The declared body is never completed
+ *  unless `head` carries it, so only the server's response decides whether the socket stays open.
+ *  `trickle` writes one more byte of the body every `everyMs` until the response starts. */
 function exchange(
   port: number,
   head: string,
   withinMs: number,
-): Promise<{ statusLine: string; closed: boolean; statusMs: number }> {
+  trickle?: { everyMs: number },
+): Promise<{
+  statusLine: string;
+  head: string;
+  closed: boolean;
+  statusMs: number;
+  closedMs: number;
+}> {
   return new Promise((resolve) => {
     let received = "";
     let statusMs = -1;
+    let closedMs = Number.POSITIVE_INFINITY;
+    let drip: ReturnType<typeof setInterval> | undefined;
     const started = performance.now();
     const socket: Socket = connect(port, "127.0.0.1");
     const finish = (closed: boolean) => {
       clearTimeout(timer);
+      clearInterval(drip);
+      if (closed) closedMs = performance.now() - started;
       socket.destroy();
-      resolve({ statusLine: received.split("\r\n")[0] ?? "", closed, statusMs });
+      resolve({
+        statusLine: received.split("\r\n")[0] ?? "",
+        head: received.split("\r\n\r\n")[0] ?? "",
+        closed,
+        statusMs,
+        closedMs,
+      });
     };
     const timer = setTimeout(() => finish(false), withinMs);
     socket.setEncoding("utf8");
-    socket.on("connect", () => socket.write(head));
+    socket.on("connect", () => {
+      socket.write(head);
+      if (trickle) drip = setInterval(() => socket.write("{"), trickle.everyMs);
+    });
     socket.on("data", (chunk: string) => {
-      if (statusMs < 0) statusMs = performance.now() - started;
+      if (statusMs < 0) {
+        statusMs = performance.now() - started;
+        clearInterval(drip);
+      }
       received += chunk;
     });
     socket.on("end", () => finish(true));
@@ -117,7 +142,23 @@ const stop = async () => {
   server = undefined;
 };
 
-test("the real socket closes after a 401 that left the body unread, within 1 s", async () => {
+test("the real socket closes a GET with a declared body that is still arriving, within 1 s", async () => {
+  server = await serveHono(app(), { host: "127.0.0.1", port: 0 });
+  try {
+    const result = await exchange(
+      server.port,
+      `GET /refuse HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: ${ONE_MIB}\r\n\r\n{`,
+      CLOSE_WITHIN_MS,
+    );
+    expect(result.statusLine).toContain(" 401 ");
+    expect(result.head.toLowerCase()).toContain("connection: close");
+    expect(result.closed).toBe(true);
+  } finally {
+    await stop();
+  }
+});
+
+test("the real socket closes after a 401 that left the body unread, with Connection: close in its headers, within 300 ms", async () => {
   server = await serveHono(app(), { host: "127.0.0.1", port: 0 });
   try {
     const result = await exchange(
@@ -126,7 +167,9 @@ test("the real socket closes after a 401 that left the body unread, within 1 s",
       CLOSE_WITHIN_MS,
     );
     expect(result.statusLine).toContain(" 401 ");
+    expect(result.head.toLowerCase()).toContain("connection: close");
     expect(result.closed).toBe(true);
+    expect(result.closedMs - result.statusMs).toBeLessThan(300);
   } finally {
     await stop();
   }
@@ -139,6 +182,7 @@ test("a trickled unread body gets its 401 within the drain deadline, and the soc
       server.port,
       `POST /refuse HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: ${ONE_MIB}\r\n\r\n{`,
       CLOSE_WITHIN_MS,
+      { everyMs: 50 },
     );
     expect(result.statusLine).toContain(" 401 ");
     expect(result.statusMs).toBeLessThan(UNREAD_BODY_DRAIN_MS + 200);

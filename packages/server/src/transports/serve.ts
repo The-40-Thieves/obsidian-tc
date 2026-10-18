@@ -108,8 +108,12 @@ export function serveHono(app: Hono, opts: { host: string; port: number }): Prom
   });
 }
 
-/** Bytes of an unread request body the wrapper drains before it gives up and closes. */
-export const UNREAD_BODY_DRAIN_MAX_BYTES = 1_048_576;
+/**
+ * Bytes of an unread request body the wrapper drains before it gives up and closes. 4 MiB is the
+ * MCP SDK's request limit: `/mcp` reads a clone, so a valid body it accepted is still unread here
+ * and must drain in full, or the connection closes on a request the server served.
+ */
+export const UNREAD_BODY_DRAIN_MAX_BYTES = 4 * 1024 * 1024;
 /** Time the wrapper spends draining an unread request body before it gives up and closes. */
 export const UNREAD_BODY_DRAIN_MS = 250;
 
@@ -129,14 +133,22 @@ export function closeIfBodyUnread<A extends unknown[]>(
 ): (req: Request, ...rest: A) => Promise<Response> {
   return async (req, ...rest) => {
     const res = await fetch(req, ...rest);
-    if (!declaresBody(req) || req.bodyUsed || res.headers.has("connection")) return res;
+    if (!declaresBody(req) || req.bodyUsed) return res;
+    if (res.headers.has("connection")) {
+      // The handler chose its own Connection (an SSE stream keeps alive). The unread original is
+      // cancelled, not drained, so a tee branch the handler read through a clone is not held open.
+      void req.body?.cancel().catch(() => {});
+      return res;
+    }
     if (await drainUnreadBody(req)) return res;
     try {
       res.headers.set("connection", "close");
       return res;
     } catch {
       // Immutable headers (a fetch or redirect Response): copy them onto a mutable Response. The
-      // body stays a stream, so an SSE response is still never buffered.
+      // body stays a stream, so an SSE response is still never buffered. A status outside 200-599
+      // cannot be rebuilt (the Response constructor refuses it), so it goes back unchanged.
+      if (res.status < 200 || res.status > 599) return res;
       const headers = new Headers(res.headers);
       headers.set("connection", "close");
       return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
@@ -149,8 +161,12 @@ export function closeIfBodyUnread<A extends unknown[]>(
  * false when the cap or the deadline was hit or the read failed, and the body is cancelled.
  */
 async function drainUnreadBody(req: Request): Promise<boolean> {
-  if (req.body === null) return true;
-  const reader = req.body.getReader();
+  const length = req.headers.get("content-length");
+  if (length !== null && Number(length) > UNREAD_BODY_DRAIN_MAX_BYTES) return false;
+  // No stream for a declared body (a GET the runtime gave no body), or a body the handler locked:
+  // neither can be drained, so the caller closes.
+  const reader = lockBody(req.body);
+  if (!reader) return false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<false>((resolve) => {
     timer = setTimeout(() => resolve(false), UNREAD_BODY_DRAIN_MS);
@@ -171,14 +187,28 @@ async function drainUnreadBody(req: Request): Promise<boolean> {
   })();
   try {
     const drained = await Promise.race([read, deadline]);
-    if (!drained) await reader.cancel().catch(() => {});
+    // Not awaited: on a tee branch the cancel settles only once the other branch is cancelled too.
+    if (!drained) void reader.cancel().catch(() => {});
     return drained;
   } finally {
     clearTimeout(timer);
   }
 }
 
+function lockBody(body: ReadableStream<Uint8Array> | null) {
+  try {
+    return body?.getReader();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Only an absent Content-Length, or the exact "0", with no Transfer-Encoding, declares no body. A
+ * malformed length counts as one, and the drain bounds it like any other.
+ */
 function declaresBody(req: Request): boolean {
+  if (req.headers.has("transfer-encoding")) return true;
   const length = req.headers.get("content-length");
-  return (length !== null && Number(length) > 0) || req.headers.has("transfer-encoding");
+  return length !== null && length !== "0";
 }

@@ -2,7 +2,7 @@
 // otherwise stays open for the whole idle timeout (120 s in production) when the caller declared a
 // body and never sent it. The rule lives in `closeIfBodyUnread`, wrapped around `app.fetch` in
 // `serveHono`, the one place every listener goes through.
-import { connect } from "node:net";
+import { type AddressInfo, connect, createServer as createNetServer } from "node:net";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { Hono } from "hono";
 import { SignJWT } from "jose";
@@ -101,7 +101,7 @@ describe("closeIfBodyUnread (unit)", () => {
       (() =>
         new Response("nope", { status: 401, headers: { connection: "keep-alive" } })) as Handler,
     );
-    const res = await fetch(post("/x", { headers: { "content-length": "5" }, body: "hello" }));
+    const res = await fetch(streamed("/x", ["hello"], { "content-length": "5" }, true));
     expect(res.headers.get("connection")).toBe("keep-alive");
   });
 
@@ -160,22 +160,156 @@ describe("closeIfBodyUnread (unit)", () => {
   });
 
   it("streams the response body through unbuffered", async () => {
+    // An upstream fetch Response has immutable headers, so the wrapper re-wraps it. The upstream
+    // writes a raw chunked response with no Connection header: node:http adds one, and the wrapper
+    // leaves a response that has one alone, so it would never reach the re-wrap. The upstream holds
+    // its second chunk until the client has read the first, so a re-wrap that buffered would hang
+    // the read below.
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const upstream = createNetServer((socket) => {
+      socket.once("data", () => {
+        socket.write(
+          "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ntransfer-encoding: chunked\r\n\r\n" +
+            "d\r\ndata: first\n\n\r\n",
+        );
+        void held.then(() => socket.end("e\r\ndata: second\n\n\r\n0\r\n\r\n"));
+      });
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+    const { port } = upstream.address() as AddressInfo;
+    try {
+      const wrapped = closeIfBodyUnread((() =>
+        globalThis.fetch(`http://127.0.0.1:${port}/`)) as Handler);
+      const res = await wrapped(streamed("/x", ["hello"], { "content-length": "5" }, true));
+      // The open request body makes the wrapper set Connection: close on the re-wrapped copy.
+      expect(res.headers.get("connection")).toBe("close");
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("the re-wrapped response has no body");
+      const decoder = new TextDecoder();
+      const first = await reader.read();
+      expect(decoder.decode(first.value)).toBe("data: first\n\n");
+      release();
+      let rest = "";
+      for (let next = await reader.read(); !next.done; next = await reader.read()) {
+        rest += decoder.decode(next.value);
+      }
+      expect(rest).toBe("data: second\n\n");
+    } finally {
+      release();
+      upstream.close();
+    }
+  });
+
+  it("closes a GET with a declared body that is still arriving (req.body is null)", async () => {
+    const fetch = closeIfBodyUnread((() => new Response("nope", { status: 401 })) as Handler);
+    const req = new Request("http://localhost/x", {
+      headers: { "content-length": String(ONE_MIB) },
+    });
+    expect(req.body).toBeNull();
+    const res = await fetch(req);
+    expect(res.headers.get("connection")).toBe("close");
+  });
+
+  it("a locked body the handler never reads gets Connection: close, not a 500", async () => {
+    const fetch = closeIfBodyUnread(((req: Request) => {
+      req.body?.getReader();
+      return new Response("nope", { status: 401 });
+    }) as Handler);
+    const res = await fetch(streamed("/x", ["hello"], { "content-length": "5" }, true));
+    expect(res.status).toBe(401);
+    expect(res.headers.get("connection")).toBe("close");
+  });
+
+  it("keeps the connection for a 1.5 MiB body the handler read through a clone", async () => {
+    const fetch = closeIfBodyUnread((async (req: Request) => {
+      await req.clone().text();
+      return new Response("ok");
+    }) as Handler);
+    const big = new Uint8Array(1.5 * ONE_MIB);
+    const res = await fetch(streamed("/x", [big], { "content-length": String(big.byteLength) }));
+    expect(res.headers.get("connection")).toBeNull();
+  });
+
+  it("closes a declared length over the cap before the drain deadline", async () => {
+    const fetch = closeIfBodyUnread((() => new Response("nope", { status: 401 })) as Handler);
+    const started = performance.now();
+    const res = await fetch(streamed("/x", ["{"], { "content-length": "5000000" }, true));
+    expect(res.headers.get("connection")).toBe("close");
+    expect(performance.now() - started).toBeLessThan(150);
+  });
+
+  it.each(["100, 100", "abc", "-1"])(
+    "a malformed Content-Length (%j) counts as a declared body",
+    async (value) => {
+      const fetch = closeIfBodyUnread((() => new Response("nope", { status: 401 })) as Handler);
+      const res = await fetch(streamed("/x", ["hello"], { "content-length": value }, true));
+      expect(res.headers.get("connection")).toBe("close");
+    },
+  );
+
+  it("does not wait for cancel() on an unread body whose cancel never settles", async () => {
     const encoder = new TextEncoder();
-    const stream = new ReadableStream<Uint8Array>({
+    const body = new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(encoder.encode("data: first\n\n"));
-        controller.close();
+        controller.enqueue(encoder.encode("{"));
+      },
+      cancel() {
+        return new Promise<void>(() => {});
+      },
+    });
+    const fetch = closeIfBodyUnread((() => new Response("nope", { status: 401 })) as Handler);
+    const started = performance.now();
+    const res = await fetch(
+      new Request("http://localhost/x", {
+        method: "POST",
+        headers: { "content-length": String(ONE_MIB) },
+        body,
+        duplex: "half",
+      } as RequestInit),
+    );
+    expect(res.headers.get("connection")).toBe("close");
+    expect(performance.now() - started).toBeLessThan(UNREAD_BODY_DRAIN_MS + 100);
+  });
+
+  it("cancels the original body when the handler set Connection and the body is unread", async () => {
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("hello"));
+      },
+      cancel() {
+        cancelled = true;
       },
     });
     const fetch = closeIfBodyUnread(
       (() =>
-        new Response(stream, {
-          headers: { "content-type": "text/event-stream" },
+        new Response("stream", {
+          status: 200,
+          headers: { connection: "keep-alive" },
         })) as Handler,
     );
-    const res = await fetch(new Request("http://localhost/x"));
-    expect(res.body).not.toBeNull();
-    expect(await res.text()).toBe("data: first\n\n");
+    const res = await fetch(
+      new Request("http://localhost/x", {
+        method: "POST",
+        headers: { "content-length": "5" },
+        body,
+        duplex: "half",
+      } as RequestInit),
+    );
+    expect(res.headers.get("connection")).toBe("keep-alive");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(cancelled).toBe(true);
+  });
+
+  it("returns a 101 response unchanged when its headers are immutable", async () => {
+    const original = Response.redirect("https://example.com/next", 302);
+    Object.defineProperty(original, "status", { value: 101 });
+    const fetch = closeIfBodyUnread((() => original) as Handler);
+    const res = await fetch(streamed("/x", ["hello"], { "content-length": "5" }, true));
+    expect(res).toBe(original);
   });
 });
 
@@ -268,27 +402,53 @@ describe("/mcp through the wrapper", () => {
   });
 });
 
-/** Writes raw request bytes on a real socket and reports whether the server closed it in time. */
+/** Writes raw request bytes on a real socket. Resolves with the response head, whether the server
+ *  closed the socket in time, and when the first response bytes and the close arrived, in ms from
+ *  the start (`closedMs` stays Infinity without a close). `trickle` writes one more byte of the body
+ *  every `everyMs` until the response starts. */
 function exchange(
   port: number,
   head: string,
   withinMs: number,
-): Promise<{ statusLine: string; closed: boolean; statusMs: number }> {
+  trickle?: { everyMs: number },
+): Promise<{
+  statusLine: string;
+  head: string;
+  closed: boolean;
+  statusMs: number;
+  closedMs: number;
+}> {
   return new Promise((resolve) => {
     let received = "";
     let statusMs = -1;
+    let closedMs = Number.POSITIVE_INFINITY;
+    let drip: ReturnType<typeof setInterval> | undefined;
     const started = performance.now();
     const socket = connect(port, "127.0.0.1");
     const finish = (closed: boolean) => {
       clearTimeout(timer);
+      clearInterval(drip);
+      if (closed) closedMs = performance.now() - started;
       socket.destroy();
-      resolve({ statusLine: received.split("\r\n")[0] ?? "", closed, statusMs });
+      resolve({
+        statusLine: received.split("\r\n")[0] ?? "",
+        head: received.split("\r\n\r\n")[0] ?? "",
+        closed,
+        statusMs,
+        closedMs,
+      });
     };
     const timer = setTimeout(() => finish(false), withinMs);
     socket.setEncoding("utf8");
-    socket.on("connect", () => socket.write(head));
+    socket.on("connect", () => {
+      socket.write(head);
+      if (trickle) drip = setInterval(() => socket.write("{"), trickle.everyMs);
+    });
     socket.on("data", (chunk: string) => {
-      if (statusMs < 0) statusMs = performance.now() - started;
+      if (statusMs < 0) {
+        statusMs = performance.now() - started;
+        clearInterval(drip);
+      }
       received += chunk;
     });
     socket.on("end", () => finish(true));
@@ -347,6 +507,7 @@ describe("serveHono on a real Node socket", () => {
   function app(): Hono {
     const app = new Hono();
     app.post("/refuse", (c) => c.text("nope", 401));
+    app.get("/refuse", (c) => c.text("nope", 401));
     app.post("/read", async (c) => {
       await c.req.text();
       return c.text("ok");
@@ -358,7 +519,19 @@ describe("serveHono on a real Node socket", () => {
     return app;
   }
 
-  it("closes after a 401 that left the body unread, within 1 s", async () => {
+  it("closes a GET with a declared body that is still arriving, within 1 s", async () => {
+    server = await serveHono(app(), { host: "127.0.0.1", port: 0 });
+    const result = await exchange(
+      server.port,
+      `GET /refuse HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: ${ONE_MIB}\r\n\r\n{`,
+      1_000,
+    );
+    expect(result.statusLine).toContain(" 401 ");
+    expect(result.head.toLowerCase()).toContain("connection: close");
+    expect(result.closed).toBe(true);
+  });
+
+  it("closes after a 401 that left the body unread, with Connection: close in its headers, within 300 ms", async () => {
     server = await serveHono(app(), { host: "127.0.0.1", port: 0 });
     const result = await exchange(
       server.port,
@@ -366,7 +539,9 @@ describe("serveHono on a real Node socket", () => {
       1_000,
     );
     expect(result.statusLine).toContain(" 401 ");
+    expect(result.head.toLowerCase()).toContain("connection: close");
     expect(result.closed).toBe(true);
+    expect(result.closedMs - result.statusMs).toBeLessThan(300);
   });
 
   it("a trickled unread body gets its 401 within the drain deadline, and the socket closes within 1 s", async () => {
@@ -375,6 +550,7 @@ describe("serveHono on a real Node socket", () => {
       server.port,
       `POST /refuse HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: ${ONE_MIB}\r\n\r\n{`,
       1_000,
+      { everyMs: 50 },
     );
     expect(result.statusLine).toContain(" 401 ");
     expect(result.statusMs).toBeLessThan(UNREAD_BODY_DRAIN_MS + 200);
@@ -383,7 +559,7 @@ describe("serveHono on a real Node socket", () => {
 
   it("an unread body over the byte cap, sent at once, closes the socket", async () => {
     server = await serveHono(app(), { host: "127.0.0.1", port: 0 });
-    const body = "x".repeat(2 * ONE_MIB);
+    const body = "x".repeat(UNREAD_BODY_DRAIN_MAX_BYTES * 2);
     const result = await exchange(
       server.port,
       `POST /refuse HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: ${body.length}\r\n\r\n${body}`,

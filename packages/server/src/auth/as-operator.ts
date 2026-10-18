@@ -195,7 +195,14 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
   });
   app.use(
     "/oauth/*",
-    bodyLimit({ maxSize: FORM_MAX_BYTES, onError: (c) => c.text("Payload Too Large", 413) }),
+    bodyLimit({
+      maxSize: FORM_MAX_BYTES,
+      // bodyLimit reads part of a chunked body before the cap trips, so the socket cannot be reused.
+      onError: (c) => {
+        c.header("connection", "close");
+        return c.text("Payload Too Large", 413);
+      },
+    }),
   );
 
   // Until the operator exists nothing that issues or registers may answer. S5 and later mount their
