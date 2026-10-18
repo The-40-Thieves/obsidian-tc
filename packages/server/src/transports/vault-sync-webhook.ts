@@ -47,6 +47,10 @@ export function mountVaultSyncWebhook(
 ): void {
   app.post(VAULT_SYNC_WEBHOOK_PATH, async (c) => {
     c.header("Cache-Control", "no-store");
+    // Closed by default, so no path can miss it: a response that leaves the request body unread
+    // would otherwise hold the socket for the server's idle timeout (120 s under Bun). Only a body
+    // that was read in full and verified keeps the connection alive, in `accept`.
+    c.header("Connection", "close");
     if (
       opts.enableDnsRebindingProtection !== false &&
       !isHostAllowed(c.req.header("host") ?? "", opts.allowedHosts)
@@ -57,18 +61,18 @@ export function mountVaultSyncWebhook(
       );
 
     // Credentials are checked before any body is read, so an unauthenticated caller cannot hold
-    // a connection open. A matching GitLab token needs no body at all.
+    // a connection open. A matching GitLab token needs no body at all, but it is still capped by
+    // the declared length, so an oversized call is refused the same way a signed one is.
     const gitlab = c.req.header("x-gitlab-token") || undefined;
     const hub = c.req.header("x-hub-signature-256") || undefined;
     if (gitlab === undefined && hub === undefined) return refuse(c, "missing");
     if (gitlab !== undefined && tokenMatches(gitlab, opts.secret)) {
-      return accept(c, opts.triggerPath);
+      if (declaredTooLarge(c)) return refuse(c, "too-large");
+      return accept(c, opts.triggerPath, { bodyRead: false });
     }
     if (hub === undefined) return refuse(c, "mismatch");
     if (!HUB_SIGNATURE.test(hub)) return refuse(c, "malformed");
-
-    const declared = c.req.header("content-length");
-    if (declared !== undefined && Number(declared) > MAX_BODY_BYTES) return refuse(c, "too-large");
+    if (declaredTooLarge(c)) return refuse(c, "too-large");
 
     const read = await readCapped(c.req.raw, opts.bodyDeadlineMs ?? DEFAULT_BODY_DEADLINE_MS);
     if (!read.ok) {
@@ -80,8 +84,13 @@ export function mountVaultSyncWebhook(
       return refuse(c, "aborted");
     }
     if (!hubMatches(hub, read.body, opts.secret)) return refuse(c, "mismatch");
-    return accept(c, opts.triggerPath);
+    return accept(c, opts.triggerPath, { bodyRead: true });
   });
+}
+
+function declaredTooLarge(c: Context): boolean {
+  const declared = c.req.header("content-length");
+  return declared !== undefined && Number(declared) > MAX_BODY_BYTES;
 }
 
 function logRejection(reason: RejectionReason): void {
@@ -95,7 +104,7 @@ function refuse(c: Context, reason: RejectionReason) {
   return c.body(null, 401);
 }
 
-async function accept(c: Context, triggerPath: string) {
+async function accept(c: Context, triggerPath: string, { bodyRead }: { bodyRead: boolean }) {
   try {
     await touchTrigger(triggerPath);
   } catch (error) {
@@ -103,6 +112,8 @@ async function accept(c: Context, triggerPath: string) {
     process.stderr.write(`vault-sync webhook: trigger touch failed (${code})\n`);
     return c.body(null, 503);
   }
+  // Only a fully read, verified body may keep the connection; the GitLab 202 leaves its body unread.
+  if (bodyRead) c.header("Connection", undefined);
   return c.body(null, 202);
 }
 

@@ -510,6 +510,106 @@ describe("POST /hooks/vault-sync: request shape and host", () => {
   });
 });
 
+describe("POST /hooks/vault-sync: connection lifetime", () => {
+  it("answers 401 with Connection: close", async () => {
+    const handle = app({ secret: SECRET });
+
+    const response = await post(handle, {});
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("connection")).toBe("close");
+  });
+
+  it("answers 403 with Connection: close", async () => {
+    const handle = app({ secret: SECRET });
+
+    const response = await handle.app.request(URL, {
+      method: "POST",
+      headers: { host: "evil.example", "x-hub-signature-256": sign(BODY) },
+      body: BODY,
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get("connection")).toBe("close");
+  });
+
+  it("answers 413 with Connection: close", async () => {
+    const handle = app({ secret: SECRET });
+    const oversized = new Uint8Array(ONE_MIB + 1).fill(0x61);
+
+    const response = await post(
+      handle,
+      { "x-hub-signature-256": sign(oversized), "content-length": String(oversized.byteLength) },
+      oversized,
+    );
+
+    expect(response.status).toBe(413);
+    expect(response.headers.get("connection")).toBe("close");
+  });
+
+  it("answers the GitLab 202 with Connection: close, since its body is never read", async () => {
+    const handle = app({ secret: TOKEN_OK });
+
+    const response = await post(handle, { "x-gitlab-token": TOKEN_OK });
+
+    expect(response.status).toBe(202);
+    expect(response.headers.get("connection")).toBe("close");
+  });
+
+  it("leaves the HMAC 202 keep-alive, with no Connection: close header", async () => {
+    const handle = app({ secret: SECRET });
+
+    const response = await post(handle, { "x-hub-signature-256": sign(BODY) });
+
+    expect(response.status).toBe(202);
+    expect(response.headers.get("connection")).toBeNull();
+  });
+});
+
+describe("POST /hooks/vault-sync: GitLab path and boundaries", () => {
+  it("GitLab token with Content-Length over 1 MiB answers 413 and leaves the trigger untouched", async () => {
+    const handle = app({ secret: TOKEN_OK });
+    const oversized = new Uint8Array(ONE_MIB + 1).fill(0x61);
+
+    const response = await post(
+      handle,
+      { "x-gitlab-token": TOKEN_OK, "content-length": String(oversized.byteLength) },
+      oversized,
+    );
+
+    expect(response.status).toBe(413);
+    expect(existsSync(triggerPathOf(handle))).toBe(false);
+  });
+
+  it("accepts a signed body of exactly 1 MiB (202 at the boundary)", async () => {
+    const handle = app({ secret: SECRET });
+    const exact = new Uint8Array(ONE_MIB).fill(0x61);
+
+    const response = await post(
+      handle,
+      { "x-hub-signature-256": sign(exact), "content-length": String(exact.byteLength) },
+      exact,
+    );
+
+    expect(response.status).toBe(202);
+    expect(existsSync(triggerPathOf(handle))).toBe(true);
+  });
+
+  it("refuses duplicate GitLab token headers as one value, with the identical 401", async () => {
+    const handle = app({ secret: TOKEN_OK });
+    const baseline = await observable(await post(app({ secret: TOKEN_OK }), {}));
+
+    const response = await postPairs(handle, [
+      ["x-gitlab-token", TOKEN_OK],
+      ["x-gitlab-token", TOKEN_OK],
+    ]);
+
+    expect(baseline.status).toBe(401);
+    expect(await observable(response)).toEqual(baseline);
+    expect(existsSync(triggerPathOf(handle))).toBe(false);
+  });
+});
+
 describe("vault-sync webhook: secrecy and isolation", () => {
   it("never logs the secret, a digest, the body, or an unrelated header", async () => {
     const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
