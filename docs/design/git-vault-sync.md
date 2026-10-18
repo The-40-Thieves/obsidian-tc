@@ -21,8 +21,9 @@ semantics. Its deployment target is the `-git` container image described below.
 It runs in the same container because single-container hosts give a volume to exactly one service.
 Railway, Render and Fly all work this way. A second service could not see the vault.
 
-The `git` and `openssh-client` packages add 112 MB to the runtime image. Measured on
-`oven/bun:1.4.2-slim` (git 2.47.3, OpenSSH 10.0p2): git pulls in perl. So they ship only in a
+The `git` and `openssh-client` packages add 112 MB to bare `oven/bun:1.4.2-slim` (git 2.47.3,
+OpenSSH 10.0p2; git pulls in perl), and 165 MB (157 MiB) to the built runtime image, measured with
+`docker image inspect` on the first `-git` build (2026-10-18). So they ship only in a
 `:<version>-git` image variant, whose entrypoint runs `git-sync --supervise`. That launcher:
 1. clones or verifies the vault;
 2. finishes one pull;
@@ -32,7 +33,7 @@ The `git` and `openssh-client` packages add 112 MB to the runtime image. Measure
 The default image is unchanged.
 
 The two rejected options:
-- **In-server, system git:** every image would grow by 112 MB, and the SYNC.md contract would be
+- **In-server, system git:** every image would grow by about 165 MB, and the SYNC.md contract would be
   reversed.
 - **In-server, isomorphic-git:** HTTPS only (no SSH deploy keys) and no rebase. It also reverses the
   contract.

@@ -132,7 +132,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 CMD ["bu
 ENTRYPOINT ["bun", "/app/packages/server/dist/cli.js"]
 
 # ---- git: the -git variant, which syncs the vault from a Git remote (git-sync --supervise) ----
-# git and openssh-client add ~112 MB (git pulls in perl), so they live in this stage alone: the
+# git and openssh-client add ~165 MB to this image (git pulls in perl), so they live in this stage alone: the
 # default image stays free of them, and a Git-backed deployment opts in with the :<version>-git tag.
 # The launcher clones or verifies the vault, starts the server as a child, and exits when either
 # process exits. Everything else (EXPOSE, VOLUME, HEALTHCHECK) is inherited from the runtime stage.
