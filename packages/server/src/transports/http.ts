@@ -1,6 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
-import { createMcpHandler, type ServerNotifier } from "@modelcontextprotocol/server";
+import {
+  createMcpHandler,
+  DEFAULT_MAX_REQUEST_BODY_SIZE,
+  type ServerNotifier,
+} from "@modelcontextprotocol/server";
 import type {
   PersonasConfig,
   ResponseFormat,
@@ -48,6 +52,7 @@ import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
 import { activeSessionFor, DEFAULT_TRACE_FOLDER, openImplicitSession } from "../workspace/sessions";
 import { anonymousGate, carriesNoCredentials, mixedModeScopes } from "./anonymous-discovery";
+import { readBoundedBody } from "./bounded-body";
 import { corsMiddleware, corsOriginSet } from "./cors";
 import { mountHealthz } from "./healthz";
 import { isHostAllowed, isOriginAllowed } from "./host-guard";
@@ -619,12 +624,22 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
       );
     }
 
-    // Early malformed-JSON guard so a parse failure is a clean JSON-RPC -32700 rather than
-    // whatever the handler would surface. The parsed value is not needed: createMcpHandler reads
-    // the request itself.
+    // Early malformed-JSON guard: a parse failure is a JSON-RPC -32700, not the handler's error. The
+    // body is read here under the SDK's 4 MiB limit and a 30 s deadline, since the handler is given
+    // `parsedBody` and never bounds the read itself.
+    const read = await readBoundedBody(c.req.raw, {
+      maxBytes: DEFAULT_MAX_REQUEST_BODY_SIZE,
+      deadlineMs: 30_000,
+    });
+    if (!read.ok && read.status !== 400) {
+      c.header("Connection", "close");
+      const message = read.status === 413 ? "request body too large" : "request body timeout";
+      return c.json({ jsonrpc: "2.0", error: { code: -32000, message }, id: null }, read.status);
+    }
     let body: unknown;
     try {
-      body = await c.req.raw.clone().json();
+      // An unreadable body (400) is empty here, so it fails the parse like any other bad body.
+      body = JSON.parse(new TextDecoder().decode(read.ok ? read.bytes : new Uint8Array()));
     } catch {
       return c.json(
         { jsonrpc: "2.0", error: { code: -32700, message: "parse error" }, id: null },
@@ -681,8 +696,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
     return await handler.fetch(c.req.raw, {
       // The body we already parsed above (for the Tasks extension checks). Without this the SDK
       // parses the same bytes a SECOND time on every request — `createMcpHandler` only parses when
-      // `parsedBody` is undefined. The clone stays: the SDK is handed the untouched request, and
-      // this is purely about not re-doing the JSON work.
+      // `parsedBody` is undefined. The guard read the original already (`bodyUsed`); the SDK never reads it.
       ...(body !== undefined ? { parsedBody: body } : {}),
       authInfo: {
         token: bearer(c.req.header("authorization")) ?? "",
