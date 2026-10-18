@@ -1,5 +1,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { gitSyncStateDir } from "./state-dir";
+import { assertWebhookSecret } from "./webhook-secret";
 
 export type GitUrlKind = "ssh" | "https" | "file" | "local";
 export type GitPushMode = "batched" | "off";
@@ -166,13 +168,16 @@ export function loadGitSyncConfig(env: NodeJS.ProcessEnv = process.env): GitSync
   const cacheDir = resolve(required(env, "OBSIDIAN_TC_CACHE_DIR"));
   refuseControls(vaultDir, "OBSIDIAN_TC_VAULT_PATH");
   refuseControls(cacheDir, "OBSIDIAN_TC_CACHE_DIR");
-  const stateDir = join(cacheDir, "git-sync");
+  const stateDir = gitSyncStateDir(cacheDir);
   const physicalVault = physicalPath(vaultDir);
   const physicalState = physicalPath(stateDir);
   if (containsPath(physicalVault, physicalState) || containsPath(physicalState, physicalVault)) {
     throw new Error(
       "OBSIDIAN_TC_CACHE_DIR and OBSIDIAN_TC_VAULT_PATH must not contain one another",
     );
+  }
+  if (env.OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET) {
+    assertWebhookSecret(env.OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET);
   }
   const branch = env.OBSIDIAN_TC_VAULT_GIT_BRANCH;
   if (branch) refuseControls(branch, "OBSIDIAN_TC_VAULT_GIT_BRANCH");
