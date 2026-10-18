@@ -9,6 +9,7 @@ import { makeTempDir, rmTemp } from "./tmp";
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const configPath = join(repoRoot, "deploy/config/obsidian-tc.config.json");
 const composePath = join(repoRoot, "deploy/compose.http.yml");
+const gitComposePath = join(repoRoot, "deploy/compose.git.yml");
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -79,5 +80,40 @@ describe("shared HTTP Docker deployment", () => {
     } finally {
       rmTemp(dir);
     }
+  });
+});
+
+describe("git-backed Docker deployment (-git image)", () => {
+  it("pins the -git image, guards the git URL and SSH key, and never mounts a key file", () => {
+    const compose = parse(readFileSync(gitComposePath, "utf8")) as {
+      services?: Record<
+        string,
+        {
+          image?: string;
+          restart?: string;
+          volumes?: string[];
+          environment?: Record<string, string>;
+        }
+      >;
+      volumes?: Record<string, unknown>;
+    };
+    const service = compose.services?.["obsidian-tc"];
+    expect(service?.image).toBe("ghcr.io/the-40-thieves/obsidian-tc:latest-git");
+    expect(service?.restart).toBe("unless-stopped");
+    expect(service?.volumes).toContain("obsidian-tc-data:/data");
+    expect(service?.volumes).toContain("./config:/config:ro");
+    expect(service?.volumes?.some((volume) => /key|known_hosts|ssh/i.test(volume))).toBe(false);
+    expect(service?.environment?.OBSIDIAN_TC_VAULT_GIT_URL).toMatch(
+      /^\$\{OBSIDIAN_TC_VAULT_GIT_URL:\?/,
+    );
+    expect(service?.environment?.OBSIDIAN_TC_VAULT_GIT_SSH_KEY).toMatch(
+      /^\$\{OBSIDIAN_TC_VAULT_GIT_SSH_KEY:\?/,
+    );
+    expect(service?.environment?.OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET).toBe(
+      ["$", "{OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET:-}"].join(""),
+    );
+    expect(service?.environment?.OBSIDIAN_TC_PUBLIC_URL).toMatch(/^\$\{OBSIDIAN_TC_PUBLIC_URL:\?/);
+    expect(service?.environment?.OBSIDIAN_TC_JWT_SECRET).toMatch(/^\$\{OBSIDIAN_TC_JWT_SECRET:\?/);
+    expect(compose.volumes).toHaveProperty("obsidian-tc-data");
   });
 });
