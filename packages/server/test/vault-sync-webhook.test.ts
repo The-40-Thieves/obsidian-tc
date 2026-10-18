@@ -149,58 +149,61 @@ async function observable(response: Response) {
   };
 }
 
-describe("vault-sync webhook: mounting and configuration", () => {
-  it("is not routed at all when the secret is unset, and creates nothing", async () => {
-    const cacheDir = tempCache();
-    const handle = app({ cacheDir });
+describe.skipIf(process.platform === "win32")(
+  "vault-sync webhook: mounting and configuration",
+  () => {
+    it("is not routed at all when the secret is unset, and creates nothing", async () => {
+      const cacheDir = tempCache();
+      const handle = app({ cacheDir });
 
-    const response = await post(handle, { "x-hub-signature-256": sign(BODY) });
+      const response = await post(handle, { "x-hub-signature-256": sign(BODY) });
 
-    expect(response.status).toBe(404);
-    expect(existsSync(join(cacheDir, "git-sync"))).toBe(false);
-  });
+      expect(response.status).toBe(404);
+      expect(existsSync(join(cacheDir, "git-sync"))).toBe(false);
+    });
 
-  it("is not routed when the secret is the empty string", async () => {
-    const handle = app({ secret: "" });
+    it("is not routed when the secret is the empty string", async () => {
+      const handle = app({ secret: "" });
 
-    const response = await post(handle, { "x-hub-signature-256": sign(BODY) });
+      const response = await post(handle, { "x-hub-signature-256": sign(BODY) });
 
-    expect(response.status).toBe(404);
-  });
+      expect(response.status).toBe(404);
+    });
 
-  it("refuses to start for a secret under 32 characters, naming the variable and not the value", () => {
-    const short = "short-secret-value-0123";
-    expect(short.length).toBeLessThan(32);
+    it("refuses to start for a secret under 32 characters, naming the variable and not the value", () => {
+      const short = "short-secret-value-0123";
+      expect(short.length).toBeLessThan(32);
 
-    let message = "";
-    try {
-      vaultSyncWebhookFromEnv({ OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET: short }, tempCache());
-    } catch (error) {
-      message = (error as Error).message;
-    }
+      let message = "";
+      try {
+        vaultSyncWebhookFromEnv({ OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET: short }, tempCache());
+      } catch (error) {
+        message = (error as Error).message;
+      }
 
-    expect(message).toContain("OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET");
-    expect(message).not.toContain(short);
-  });
+      expect(message).toContain("OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET");
+      expect(message).not.toContain(short);
+    });
 
-  it("derives the trigger path from the same state-dir rule loadGitSyncConfig uses", () => {
-    const cacheDir = tempCache();
-    const env = {
-      OBSIDIAN_TC_VAULT_GIT_URL: "file:///tmp/origin.git",
-      OBSIDIAN_TC_VAULT_PATH: join(cacheDir, "..", "vault"),
-      OBSIDIAN_TC_CACHE_DIR: cacheDir,
-    };
+    it("derives the trigger path from the same state-dir rule loadGitSyncConfig uses", () => {
+      const cacheDir = tempCache();
+      const env = {
+        OBSIDIAN_TC_VAULT_GIT_URL: "file:///tmp/origin.git",
+        OBSIDIAN_TC_VAULT_PATH: join(cacheDir, "..", "vault"),
+        OBSIDIAN_TC_CACHE_DIR: cacheDir,
+      };
 
-    const webhook = vaultSyncWebhookFromEnv(
-      { ...env, OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET: SECRET },
-      cacheDir,
-    );
+      const webhook = vaultSyncWebhookFromEnv(
+        { ...env, OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET: SECRET },
+        cacheDir,
+      );
 
-    expect(webhook?.triggerPath).toBe(join(loadGitSyncConfig(env).stateDir, "trigger"));
-  });
-});
+      expect(webhook?.triggerPath).toBe(join(loadGitSyncConfig(env).stateDir, "trigger"));
+    });
+  },
+);
 
-describe("POST /hooks/vault-sync: accepted signatures", () => {
+describe.skipIf(process.platform === "win32")("POST /hooks/vault-sync: accepted signatures", () => {
   it("returns 202 with an empty body for a valid GitHub signature and creates the trigger 0600", async () => {
     const handle = app({ secret: SECRET });
     const trigger = triggerPathOf(handle);
@@ -296,7 +299,7 @@ describe("POST /hooks/vault-sync: accepted signatures", () => {
   });
 });
 
-describe("POST /hooks/vault-sync: rejected auth", () => {
+describe.skipIf(process.platform === "win32")("POST /hooks/vault-sync: rejected auth", () => {
   const rejected: Array<[string, Record<string, string>]> = [
     ["missing headers", {}],
     ["sha256= with a wrong digest", { "x-hub-signature-256": `sha256=${"0".repeat(64)}` }],
@@ -375,59 +378,63 @@ describe("POST /hooks/vault-sync: rejected auth", () => {
   });
 });
 
-describe("POST /hooks/vault-sync: body limits and deadline", () => {
-  const oversized = new Uint8Array(ONE_MIB + 1).fill(0x61);
+describe.skipIf(process.platform === "win32")(
+  "POST /hooks/vault-sync: body limits and deadline",
+  () => {
+    const oversized = new Uint8Array(ONE_MIB + 1).fill(0x61);
 
-  it("answers 413 for a body of 1 MiB + 1 byte with Content-Length, leaving the trigger untouched", async () => {
-    const handle = app({ secret: SECRET });
+    it("answers 413 for a body of 1 MiB + 1 byte with Content-Length, leaving the trigger untouched", async () => {
+      const handle = app({ secret: SECRET });
 
-    const response = await post(
-      handle,
-      { "x-hub-signature-256": sign(oversized), "content-length": String(oversized.byteLength) },
-      oversized,
-    );
+      const response = await post(
+        handle,
+        { "x-hub-signature-256": sign(oversized), "content-length": String(oversized.byteLength) },
+        oversized,
+      );
 
-    expect(response.status).toBe(413);
-    expect(existsSync(triggerPathOf(handle))).toBe(false);
-  });
-
-  it("answers 413 for a streamed oversized body with no Content-Length", async () => {
-    const handle = app({ secret: SECRET });
-    const chunk = new Uint8Array(64 * 1024).fill(0x61);
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        for (let sent = 0; sent < ONE_MIB + 1; sent += chunk.byteLength) controller.enqueue(chunk);
-        controller.close();
-      },
+      expect(response.status).toBe(413);
+      expect(existsSync(triggerPathOf(handle))).toBe(false);
     });
 
-    const response = await handle.app.request(URL, {
-      method: "POST",
-      headers: { ...HOST, "x-hub-signature-256": sign(BODY) },
-      body: stream,
-      duplex: "half",
-    } as RequestInit);
+    it("answers 413 for a streamed oversized body with no Content-Length", async () => {
+      const handle = app({ secret: SECRET });
+      const chunk = new Uint8Array(64 * 1024).fill(0x61);
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (let sent = 0; sent < ONE_MIB + 1; sent += chunk.byteLength)
+            controller.enqueue(chunk);
+          controller.close();
+        },
+      });
 
-    expect(response.status).toBe(413);
-    expect(existsSync(triggerPathOf(handle))).toBe(false);
-  });
+      const response = await handle.app.request(URL, {
+        method: "POST",
+        headers: { ...HOST, "x-hub-signature-256": sign(BODY) },
+        body: stream,
+        duplex: "half",
+      } as RequestInit);
 
-  it("answers 408 when a signed body stalls past the deadline, leaving the trigger untouched", async () => {
-    const handle = app({ secret: SECRET, bodyDeadlineMs: 50 });
+      expect(response.status).toBe(413);
+      expect(existsSync(triggerPathOf(handle))).toBe(false);
+    });
 
-    const response = await handle.app.request(URL, {
-      method: "POST",
-      headers: { ...HOST, "x-hub-signature-256": sign("{") },
-      body: stalledBody("{"),
-      duplex: "half",
-    } as RequestInit);
+    it("answers 408 when a signed body stalls past the deadline, leaving the trigger untouched", async () => {
+      const handle = app({ secret: SECRET, bodyDeadlineMs: 50 });
 
-    expect(response.status).toBe(408);
-    expect(existsSync(triggerPathOf(handle))).toBe(false);
-  });
-});
+      const response = await handle.app.request(URL, {
+        method: "POST",
+        headers: { ...HOST, "x-hub-signature-256": sign("{") },
+        body: stalledBody("{"),
+        duplex: "half",
+      } as RequestInit);
 
-describe("POST /hooks/vault-sync: filesystem refusals", () => {
+      expect(response.status).toBe(408);
+      expect(existsSync(triggerPathOf(handle))).toBe(false);
+    });
+  },
+);
+
+describe.skipIf(process.platform === "win32")("POST /hooks/vault-sync: filesystem refusals", () => {
   it("refuses a trigger symlink with 503 and leaves the file it points at untouched", async () => {
     const cacheDir = tempCache();
     const root = dirname(cacheDir);
@@ -483,34 +490,37 @@ describe("POST /hooks/vault-sync: filesystem refusals", () => {
   });
 });
 
-describe("POST /hooks/vault-sync: request shape and host", () => {
-  it("answers 403 for a disallowed Host and leaves the trigger untouched", async () => {
-    const handle = app({ secret: SECRET });
+describe.skipIf(process.platform === "win32")(
+  "POST /hooks/vault-sync: request shape and host",
+  () => {
+    it("answers 403 for a disallowed Host and leaves the trigger untouched", async () => {
+      const handle = app({ secret: SECRET });
 
-    const response = await handle.app.request(URL, {
-      method: "POST",
-      headers: { host: "evil.example", "x-hub-signature-256": sign(BODY) },
-      body: BODY,
+      const response = await handle.app.request(URL, {
+        method: "POST",
+        headers: { host: "evil.example", "x-hub-signature-256": sign(BODY) },
+        body: BODY,
+      });
+
+      expect(response.status).toBe(403);
+      expect(existsSync(triggerPathOf(handle))).toBe(false);
     });
 
-    expect(response.status).toBe(403);
-    expect(existsSync(triggerPathOf(handle))).toBe(false);
-  });
+    it("is never 202 for GET", async () => {
+      const handle = app({ secret: SECRET });
 
-  it("is never 202 for GET", async () => {
-    const handle = app({ secret: SECRET });
+      const response = await handle.app.request(URL, {
+        method: "GET",
+        headers: { ...HOST, "x-hub-signature-256": sign("") },
+      });
 
-    const response = await handle.app.request(URL, {
-      method: "GET",
-      headers: { ...HOST, "x-hub-signature-256": sign("") },
+      expect(response.status).not.toBe(202);
+      expect(existsSync(triggerPathOf(handle))).toBe(false);
     });
+  },
+);
 
-    expect(response.status).not.toBe(202);
-    expect(existsSync(triggerPathOf(handle))).toBe(false);
-  });
-});
-
-describe("POST /hooks/vault-sync: connection lifetime", () => {
+describe.skipIf(process.platform === "win32")("POST /hooks/vault-sync: connection lifetime", () => {
   it("answers 401 with Connection: close", async () => {
     const handle = app({ secret: SECRET });
 
@@ -566,51 +576,54 @@ describe("POST /hooks/vault-sync: connection lifetime", () => {
   });
 });
 
-describe("POST /hooks/vault-sync: GitLab path and boundaries", () => {
-  it("GitLab token with Content-Length over 1 MiB answers 413 and leaves the trigger untouched", async () => {
-    const handle = app({ secret: TOKEN_OK });
-    const oversized = new Uint8Array(ONE_MIB + 1).fill(0x61);
+describe.skipIf(process.platform === "win32")(
+  "POST /hooks/vault-sync: GitLab path and boundaries",
+  () => {
+    it("GitLab token with Content-Length over 1 MiB answers 413 and leaves the trigger untouched", async () => {
+      const handle = app({ secret: TOKEN_OK });
+      const oversized = new Uint8Array(ONE_MIB + 1).fill(0x61);
 
-    const response = await post(
-      handle,
-      { "x-gitlab-token": TOKEN_OK, "content-length": String(oversized.byteLength) },
-      oversized,
-    );
+      const response = await post(
+        handle,
+        { "x-gitlab-token": TOKEN_OK, "content-length": String(oversized.byteLength) },
+        oversized,
+      );
 
-    expect(response.status).toBe(413);
-    expect(existsSync(triggerPathOf(handle))).toBe(false);
-  });
+      expect(response.status).toBe(413);
+      expect(existsSync(triggerPathOf(handle))).toBe(false);
+    });
 
-  it("accepts a signed body of exactly 1 MiB (202 at the boundary)", async () => {
-    const handle = app({ secret: SECRET });
-    const exact = new Uint8Array(ONE_MIB).fill(0x61);
+    it("accepts a signed body of exactly 1 MiB (202 at the boundary)", async () => {
+      const handle = app({ secret: SECRET });
+      const exact = new Uint8Array(ONE_MIB).fill(0x61);
 
-    const response = await post(
-      handle,
-      { "x-hub-signature-256": sign(exact), "content-length": String(exact.byteLength) },
-      exact,
-    );
+      const response = await post(
+        handle,
+        { "x-hub-signature-256": sign(exact), "content-length": String(exact.byteLength) },
+        exact,
+      );
 
-    expect(response.status).toBe(202);
-    expect(existsSync(triggerPathOf(handle))).toBe(true);
-  });
+      expect(response.status).toBe(202);
+      expect(existsSync(triggerPathOf(handle))).toBe(true);
+    });
 
-  it("refuses duplicate GitLab token headers as one value, with the identical 401", async () => {
-    const handle = app({ secret: TOKEN_OK });
-    const baseline = await observable(await post(app({ secret: TOKEN_OK }), {}));
+    it("refuses duplicate GitLab token headers as one value, with the identical 401", async () => {
+      const handle = app({ secret: TOKEN_OK });
+      const baseline = await observable(await post(app({ secret: TOKEN_OK }), {}));
 
-    const response = await postPairs(handle, [
-      ["x-gitlab-token", TOKEN_OK],
-      ["x-gitlab-token", TOKEN_OK],
-    ]);
+      const response = await postPairs(handle, [
+        ["x-gitlab-token", TOKEN_OK],
+        ["x-gitlab-token", TOKEN_OK],
+      ]);
 
-    expect(baseline.status).toBe(401);
-    expect(await observable(response)).toEqual(baseline);
-    expect(existsSync(triggerPathOf(handle))).toBe(false);
-  });
-});
+      expect(baseline.status).toBe(401);
+      expect(await observable(response)).toEqual(baseline);
+      expect(existsSync(triggerPathOf(handle))).toBe(false);
+    });
+  },
+);
 
-describe("vault-sync webhook: secrecy and isolation", () => {
+describe.skipIf(process.platform === "win32")("vault-sync webhook: secrecy and isolation", () => {
   it("never logs the secret, a digest, the body, or an unrelated header", async () => {
     const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const handle = app({ secret: TOKEN_OK });

@@ -6,6 +6,7 @@ import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { loadGitSyncConfig } from "../src/git-sync/env";
+import { assertWebhookSecret } from "../src/git-sync/webhook-secret";
 import { ToolRegistry } from "../src/mcp/registry";
 import { MetricsRecorder } from "../src/metrics/registry";
 import { wireTransports } from "../src/runtime/transport-wiring";
@@ -69,6 +70,16 @@ async function freePort(): Promise<number> {
   return port;
 }
 
+describe("vault-sync webhook: platform", () => {
+  it("refuses a valid secret on Windows, where the trigger cannot be opened without following links", () => {
+    const secret = "w".repeat(40);
+    expect(() => assertWebhookSecret(secret, "win32")).toThrow(SECRET_VARIABLE);
+    expect(() => assertWebhookSecret(secret, "win32")).toThrow(/Linux and macOS/);
+    expect(() => assertWebhookSecret(secret, "win32")).not.toThrow(secret);
+    expect(() => assertWebhookSecret(secret, "linux")).not.toThrow();
+  });
+});
+
 describe("vault-sync webhook: startup validation", () => {
   it("refuses to start with a short secret even when HTTP is disabled", async () => {
     process.env[SECRET_VARIABLE] = SHORT;
@@ -97,7 +108,7 @@ describe("vault-sync webhook: startup validation", () => {
   });
 });
 
-describe("vault-sync webhook: production wiring", () => {
+describe.skipIf(process.platform === "win32")("vault-sync webhook: production wiring", () => {
   it("routes POST /hooks/vault-sync through wireTransports when the secret is set", async () => {
     process.env[SECRET_VARIABLE] = SECRET;
     const port = await freePort();
