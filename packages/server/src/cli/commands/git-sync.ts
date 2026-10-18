@@ -1,5 +1,6 @@
 import { bootGitSync } from "../../git-sync/boot";
 import { loadGitSyncConfig } from "../../git-sync/env";
+import { startServer, superviseGitSync } from "../../git-sync/supervise";
 import type { Cmd } from "../shared";
 
 export async function run_git_sync(
@@ -14,6 +15,15 @@ export async function run_git_sync(
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   try {
+    if (cmd.supervise) {
+      const status = await superviseGitSync({
+        shutdown: controller.signal,
+        boot: () => bootGitSync(loadGitSyncConfig()),
+        spawnServer: () => startServer(cmd.serverArgs ?? [], process.argv[1] ?? ""),
+      });
+      if (status !== 0) process.exitCode = status;
+      return;
+    }
     try {
       const sync = await bootGitSync(loadGitSyncConfig());
       if (cmd.once || controller.signal.aborted) return;

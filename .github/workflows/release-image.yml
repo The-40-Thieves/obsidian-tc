@@ -160,6 +160,24 @@ jobs:
             org.opencontainers.image.revision=${{ steps.source.outputs.revision }}
             org.opencontainers.image.created=${{ steps.buildmeta.outputs.created }}
             org.opencontainers.image.title=obsidian-tc
+      # The -git variant (git-sync --supervise): the same staged build, target git, under its own staging
+      # tag. It is smoked (git mode) and promoted by its own smoke-and-promote call below.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        id: push-git
+        with:
+          context: src
+          file: src/Dockerfile
+          target: git
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/the-40-thieves/obsidian-tc:smoke-${{ inputs.version }}-git
+          labels: |
+            org.opencontainers.image.source=https://github.com/the-40-thieves/obsidian-tc
+            org.opencontainers.image.version=${{ inputs.version }}
+            org.opencontainers.image.licenses=AGPL-3.0-only
+            org.opencontainers.image.revision=${{ steps.source.outputs.revision }}
+            org.opencontainers.image.created=${{ steps.buildmeta.outputs.created }}
+            org.opencontainers.image.title=obsidian-tc
       - name: boot-smoke both platforms, then promote the smoked digest to the public tags
         uses: ./trusted/.github/actions/smoke-and-promote-image
         with:
@@ -168,3 +186,12 @@ jobs:
           tags: |
             ghcr.io/the-40-thieves/obsidian-tc:${{ inputs.version }}
             ${{ inputs.latest && 'ghcr.io/the-40-thieves/obsidian-tc:latest' || '' }}
+      - name: boot-smoke (git sync), then promote the -git digest
+        uses: ./trusted/.github/actions/smoke-and-promote-image
+        with:
+          image: ghcr.io/the-40-thieves/obsidian-tc
+          digest: ${{ steps.push-git.outputs.digest }}
+          smoke-mode: git
+          tags: |
+            ghcr.io/the-40-thieves/obsidian-tc:${{ inputs.version }}-git
+            ${{ inputs.latest && 'ghcr.io/the-40-thieves/obsidian-tc:latest-git' || '' }}
