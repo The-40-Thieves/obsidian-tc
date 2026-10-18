@@ -129,6 +129,15 @@ describe.skipIf(process.platform === "win32")("git-sync boot", () => {
     expect(status.lastError).toBe("git-sync refuses to switch dirty detached HEAD to main");
   });
 
+  it("still refuses a detached HEAD when no branch is configured", async () => {
+    const fixture = makeGitFixture();
+    git(fixture.root, ["clone", fixture.url, fixture.vault]);
+    git(fixture.vault, ["checkout", "--detach"]);
+    await expect(
+      bootGitSync(loadGitSyncConfig(syncEnv(fixture, { OBSIDIAN_TC_VAULT_GIT_BRANCH: undefined }))),
+    ).rejects.toThrow("git-sync refuses detached repository");
+  });
+
   it("boots a clean detached HEAD onto the configured branch", async () => {
     const fixture = makeGitFixture();
     git(fixture.root, ["clone", fixture.url, fixture.vault]);
