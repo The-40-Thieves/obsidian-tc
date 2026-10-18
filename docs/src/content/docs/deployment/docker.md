@@ -81,6 +81,53 @@ listener; timeouts and non-200 responses still fail. `/healthz` is unauthenticat
 
 The Compose file inherits this image healthcheck and does not duplicate it.
 
+## Git-backed vault (`-git` image)
+
+The `-git` variant keeps the vault in step with a Git remote. It is the default image plus `git` and
+`openssh-client`, about 165 MB (157 MiB) larger, measured on the first `-git` build. The default image
+is unchanged and has neither tool.
+
+Its tags follow the same scheme with a suffix: `ghcr.io/the-40-thieves/obsidian-tc:<version>-git`,
+and `:latest-git` for the current release. **The `-git` tags are first published with the next
+release.** Before that, build the image from a checkout with `docker build --target git -t obsidian-tc:git .`.
+
+The entrypoint is `obsidian-tc git-sync --supervise`. It clones the remote into `/data/vault` (or
+verifies an existing clone), runs one pull, and starts the server as a child process. Arguments
+after `--` go to the server, as in `git-sync --supervise -- <server args>`. With no arguments, the
+server reads its configuration from the environment, as in the HTTP example above.
+
+```sh
+docker run -d --name obsidian-tc --restart unless-stopped \
+  -p 8765:8765 \
+  -v obsidian-tc-data:/data \
+  -v /absolute/path/to/deploy/config:/config:ro \
+  -e OBSIDIAN_TC_CONFIG=/config/obsidian-tc.config.json \
+  -e OBSIDIAN_TC_VAULT_PATH=/data/vault \
+  -e OBSIDIAN_TC_CACHE_DIR=/data/cache \
+  -e PORT=8765 \
+  -e OBSIDIAN_TC_PUBLIC_URL=https://vault.example.com \
+  -e OBSIDIAN_TC_JWT_SECRET \
+  -e OBSIDIAN_TC_VAULT_GIT_URL=git@github.com:org/vault.git \
+  -e OBSIDIAN_TC_VAULT_GIT_SSH_KEY \
+  ghcr.io/the-40-thieves/obsidian-tc:latest-git
+```
+
+A bare `-e NAME` passes the variable from the calling shell, so the SSH key and the JWT secret stay
+off the command line. `OBSIDIAN_TC_VAULT_GIT_SSH_KEY` holds the private key contents. For an HTTPS
+remote, pass `OBSIDIAN_TC_VAULT_GIT_TOKEN` instead. The variables and their defaults are in
+[docs/SYNC.md](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/SYNC.md#git-kept-in-sync-by-the-server-the--git-image).
+
+For Compose, [`deploy/compose.git.yml`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/deploy/compose.git.yml)
+is the `-git` sibling of `compose.http.yml`. It has the same volume and config layout and reads the
+SSH key from the environment.
+
+**Health and restart.** The image healthcheck described above probes only the server's `/healthz`.
+A sync failure does not fail it: the sidecar records the error in `status.json` under the state
+directory, `/data/cache/git-sync`, writes it to stderr, and retries on the next tick. The container
+exits when either process exits: the server, or the sync loop if it stops with an error. A boot
+refusal, such as a directory that holds files but is not a clone of the remote, exits before the
+server starts. The restart policy then restarts the container, so set `--restart unless-stopped` as above.
+
 ## Platform bundles
 
 - [Railway](/deployment/railway/) — repository Dockerfile, volume, environment, and Railway health
