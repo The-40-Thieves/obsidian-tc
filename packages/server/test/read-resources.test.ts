@@ -297,7 +297,11 @@ describe("read_resources: byte-budget pagination", () => {
     const foreign = await readPage(v, uris, cursor, { caller: "someone-else" });
     expect(foreign.ok).toBe(false);
     if (!foreign.ok) expect(foreign.error.details?.reason).toBe("foreign");
-    const forged = await readPage(v, uris, `${cursor.slice(0, -2)}xx`);
+    // Change the last character to a different base64url one, so the forgery always differs.
+    const last = cursor.slice(-1);
+    const forgedCursor = `${cursor.slice(0, -1)}${last === "A" ? "B" : "A"}`;
+    expect(forgedCursor).not.toBe(cursor);
+    const forged = await readPage(v, uris, forgedCursor);
     expect(forged.ok).toBe(false);
   });
 });
