@@ -223,6 +223,28 @@ describe("login brute force (per account, per IP, no enumeration)", () => {
     const json = await post(op, "/oauth/login", GOOD, jar, { contentType: "application/json" });
     expect(json.res.status).toBe(415);
   });
+
+  it("a chunked POST /oauth/login over 16 KiB gets 413 with Connection: close", async () => {
+    const op = await claimed();
+    const form = `username=a&password=${"x".repeat(20_000)}`;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(form));
+        controller.close();
+      },
+    });
+    const res = await op.app.request(op.url("/oauth/login"), {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "transfer-encoding": "chunked",
+      },
+      body,
+      duplex: "half",
+    } as RequestInit);
+    expect(res.status).toBe(413);
+    expect(res.headers.get("connection")).toBe("close");
+  });
 });
 
 describe("session cookie and server-side session store", () => {

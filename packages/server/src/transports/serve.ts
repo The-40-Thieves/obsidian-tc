@@ -73,13 +73,14 @@ export const BUN_IDLE_TIMEOUT_SECONDS = 120;
  */
 export function serveHono(app: Hono, opts: { host: string; port: number }): Promise<ServerHandle> {
   const hostname = normalizeHostForBind(opts.host);
+  const fetch = closeIfBodyUnread(app.fetch);
 
   const bun = (globalThis as unknown as { Bun?: BunGlobal }).Bun;
   if (bun) {
     const server = bun.serve({
       port: opts.port,
       hostname,
-      fetch: app.fetch,
+      fetch,
       idleTimeout: BUN_IDLE_TIMEOUT_SECONDS,
     });
     return Promise.resolve({
@@ -91,7 +92,7 @@ export function serveHono(app: Hono, opts: { host: string; port: number }): Prom
   }
 
   return new Promise((resolve) => {
-    const server = serve({ fetch: app.fetch, hostname, port: opts.port }, (info) => {
+    const server = serve({ fetch, hostname, port: opts.port }, (info) => {
       resolve({
         port: info.port,
         close: () =>
@@ -105,4 +106,109 @@ export function serveHono(app: Hono, opts: { host: string; port: number }): Prom
       });
     });
   });
+}
+
+/**
+ * Bytes of an unread request body the wrapper drains before it gives up and closes. 4 MiB is the
+ * MCP SDK's request limit: `/mcp` reads a clone, so a valid body it accepted is still unread here
+ * and must drain in full, or the connection closes on a request the server served.
+ */
+export const UNREAD_BODY_DRAIN_MAX_BYTES = 4 * 1024 * 1024;
+/** Time the wrapper spends draining an unread request body before it gives up and closes. */
+export const UNREAD_BODY_DRAIN_MS = 250;
+
+/**
+ * Close the connection when a response leaves the request body unread. Bun keeps such a socket
+ * open for the whole idle timeout (120 s here), so a caller that declares a body and never sends it
+ * can hold a connection. The leftover body is drained first, within a byte cap and a deadline: a
+ * body the caller sent in full keeps its connection, which pooled `/mcp` clients depend on (their
+ * handler reads a clone, so the original stays unread). A body still arriving at the bound closes.
+ * A body the handler read directly is left alone (`bodyUsed`). A body read in part and then
+ * abandoned is not visible here, so the webhook keeps its own per-route `Connection: close`.
+ * Every argument after the request is forwarded: Hono reads the runtime's second argument as
+ * `c.env`, which the client-IP helper needs.
+ */
+export function closeIfBodyUnread<A extends unknown[]>(
+  handler: (req: Request, ...rest: A) => Response | Promise<Response>,
+): (req: Request, ...rest: A) => Promise<Response> {
+  return async (req, ...rest) => {
+    const res = await handler(req, ...rest);
+    if (!declaresBody(req) || req.bodyUsed) return res;
+    if (res.headers.has("connection")) {
+      // The handler chose its own Connection (an SSE stream keeps alive). The unread original is
+      // cancelled, not drained, so a tee branch the handler read through a clone is not held open.
+      void req.body?.cancel().catch(() => {});
+      return res;
+    }
+    if (await drainUnreadBody(req)) return res;
+    try {
+      res.headers.set("connection", "close");
+      return res;
+    } catch {
+      // Immutable headers (a fetch or redirect Response): copy them onto a mutable Response. The
+      // body stays a stream, so an SSE response is still never buffered. A status outside 200-599
+      // cannot be rebuilt (the Response constructor refuses it), so it goes back unchanged.
+      if (res.status < 200 || res.status > 599) return res;
+      const headers = new Headers(res.headers);
+      headers.set("connection", "close");
+      return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+    }
+  };
+}
+
+/**
+ * Read and discard the request body the handler left unread. True when it ended within both bounds;
+ * false when the cap or the deadline was hit or the read failed, and the body is cancelled.
+ */
+async function drainUnreadBody(req: Request): Promise<boolean> {
+  const length = req.headers.get("content-length");
+  if (length !== null && Number(length) > UNREAD_BODY_DRAIN_MAX_BYTES) return false;
+  // No stream for a declared body (a GET the runtime gave no body), or a body the handler locked:
+  // neither can be drained, so the caller closes.
+  const reader = lockBody(req.body);
+  if (!reader) return false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), UNREAD_BODY_DRAIN_MS);
+  });
+  // Never rejects: a failed read is a `false`, so no rejection outlives a deadline that won the race.
+  const read = (async () => {
+    try {
+      let total = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) return true;
+        total += value.byteLength;
+        if (total > UNREAD_BODY_DRAIN_MAX_BYTES) return false;
+      }
+    } catch {
+      return false;
+    }
+  })();
+  try {
+    const drained = await Promise.race([read, deadline]);
+    // Not awaited: on a tee branch the cancel settles only once the other branch is cancelled too.
+    if (!drained) void reader.cancel().catch(() => {});
+    return drained;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function lockBody(body: ReadableStream<Uint8Array> | null) {
+  try {
+    return body?.getReader();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Only an absent Content-Length, or the exact "0", with no Transfer-Encoding, declares no body. A
+ * malformed length counts as one, and the drain bounds it like any other.
+ */
+function declaresBody(req: Request): boolean {
+  if (req.headers.has("transfer-encoding")) return true;
+  const length = req.headers.get("content-length");
+  return length !== null && length !== "0";
 }
