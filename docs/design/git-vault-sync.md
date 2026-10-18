@@ -23,8 +23,10 @@ Railway, Render and Fly all work this way. A second service could not see the va
 
 The `git` and `openssh-client` packages add 112 MB to bare `oven/bun:1.4.2-slim` (git 2.47.3,
 OpenSSH 10.0p2; git pulls in perl), and 165 MB (157 MiB) to the built runtime image, measured with
-`docker image inspect` on the first `-git` build (2026-10-18). So they ship only in a
-`:<version>-git` image variant, whose entrypoint runs `git-sync --supervise`. That launcher:
+`docker image inspect` on the first `-git` build (2026-10-18). `tini` adds 1.08 MB (1.03 MiB) on top:
+the same build with and without it differs by that much. So they ship only in a
+`:<version>-git` image variant, whose entrypoint runs `git-sync --supervise` under `tini` (PID 1, so
+orphaned git and ssh children are reaped). That launcher:
 1. clones or verifies the vault;
 2. finishes one pull;
 3. starts the server as a child;

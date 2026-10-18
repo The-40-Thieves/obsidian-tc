@@ -136,15 +136,18 @@ ENTRYPOINT ["bun", "/app/packages/server/dist/cli.js"]
 # default image stays free of them, and a Git-backed deployment opts in with the :<version>-git tag.
 # The launcher clones or verifies the vault, starts the server as a child, and exits when either
 # process exits. Everything else (EXPOSE, VOLUME, HEALTHCHECK) is inherited from the runtime stage.
+# tini is PID 1 here. Without an init, a git or ssh process orphaned by a killed fetch or push
+# reparents to the launcher, which never waits on it, so it stays a zombie until the container exits.
+# tini reaps those and forwards the container's signals to the launcher.
 FROM runtime AS git
 # hadolint ignore=DL3066
 USER root
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git openssh-client \
+ && apt-get install -y --no-install-recommends git openssh-client tini \
  && rm -rf /var/lib/apt/lists/*
 # hadolint ignore=DL3066
 USER bun
-ENTRYPOINT ["bun", "/app/packages/server/dist/cli.js", "git-sync", "--supervise"]
+ENTRYPOINT ["/usr/bin/tini", "--", "bun", "/app/packages/server/dist/cli.js", "git-sync", "--supervise"]
 
 # The default build target: the last stage is the runtime image itself, so an untargeted
 # `docker build` (and every existing build site) still produces the default image with no -git tools.

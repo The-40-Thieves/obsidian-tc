@@ -1,5 +1,6 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { atomicWrite } from "./git";
 
 export interface GitSyncConflict {
   at: string;
@@ -67,8 +68,6 @@ export class StatusStore {
   }
 
   private async write(): Promise<void> {
-    const temporary = `${this.path}.tmp-${process.pid}`;
-    await writeFile(temporary, `${JSON.stringify(this.value, null, 2)}\n`, { mode: 0o600 });
-    await rename(temporary, this.path);
+    await atomicWrite(this.path, `${JSON.stringify(this.value, null, 2)}\n`, 0o600);
   }
 }
