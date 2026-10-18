@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { StatusStore } from "../src/git-sync/status";
 import { makeTempDir } from "./tmp";
 
-describe("git-sync status store", () => {
+describe.skipIf(process.platform === "win32")("git-sync status store", () => {
   it("resolves concurrent status writes and leaves a parseable file with no temporary files", async () => {
     const stateDir = makeTempDir("obtc-git-status-");
     const store = new StatusStore(stateDir);

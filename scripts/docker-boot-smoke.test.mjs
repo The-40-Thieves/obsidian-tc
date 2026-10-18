@@ -364,10 +364,11 @@ test("Dockerfile -git target derives from the runtime stage; the untargeted buil
   assert.equal(fromLines.at(-1), "FROM runtime");
   const git = dockerfile.slice(dockerfile.indexOf("FROM runtime AS git"));
   assert.match(git, /^USER root$/m);
-  assert.match(git, /apt-get install -y --no-install-recommends git openssh-client/);
+  assert.match(git, /apt-get install -y --no-install-recommends git openssh-client tini/);
   assert.match(git, /^USER bun$/m);
+  // tini is PID 1 so orphaned git and ssh children are reaped.
   assert.match(
     git,
-    /^ENTRYPOINT \["bun", "\/app\/packages\/server\/dist\/cli\.js", "git-sync", "--supervise"\]$/m,
+    /^ENTRYPOINT \["\/usr\/bin\/tini", "--", "bun", "\/app\/packages\/server\/dist\/cli\.js", "git-sync", "--supervise"\]$/m,
   );
 });
