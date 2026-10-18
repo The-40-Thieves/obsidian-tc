@@ -73,13 +73,14 @@ export const BUN_IDLE_TIMEOUT_SECONDS = 120;
  */
 export function serveHono(app: Hono, opts: { host: string; port: number }): Promise<ServerHandle> {
   const hostname = normalizeHostForBind(opts.host);
+  const fetch = closeIfBodyUnread(app.fetch);
 
   const bun = (globalThis as unknown as { Bun?: BunGlobal }).Bun;
   if (bun) {
     const server = bun.serve({
       port: opts.port,
       hostname,
-      fetch: app.fetch,
+      fetch,
       idleTimeout: BUN_IDLE_TIMEOUT_SECONDS,
     });
     return Promise.resolve({
@@ -91,7 +92,7 @@ export function serveHono(app: Hono, opts: { host: string; port: number }): Prom
   }
 
   return new Promise((resolve) => {
-    const server = serve({ fetch: app.fetch, hostname, port: opts.port }, (info) => {
+    const server = serve({ fetch, hostname, port: opts.port }, (info) => {
       resolve({
         port: info.port,
         close: () =>
@@ -105,4 +106,35 @@ export function serveHono(app: Hono, opts: { host: string; port: number }): Prom
       });
     });
   });
+}
+
+/**
+ * Close the connection when a response leaves the request body unread. Bun keeps such a socket
+ * open for the whole idle timeout (120 s here), so a caller that declares a body and never sends it
+ * can hold a connection. Only that case closes: a body the handler read keeps its connection, which
+ * `/mcp` depends on for pooled clients. A body read in part and then abandoned is not visible here
+ * (`bodyUsed` is true), so the webhook keeps its own per-route `Connection: close`.
+ */
+export function closeIfBodyUnread(
+  fetch: (req: Request) => Response | Promise<Response>,
+): (req: Request) => Promise<Response> {
+  return async (req) => {
+    const res = await fetch(req);
+    if (!declaresBody(req) || req.bodyUsed || res.headers.has("connection")) return res;
+    try {
+      res.headers.set("connection", "close");
+      return res;
+    } catch {
+      // Immutable headers (a fetch or redirect Response): copy them onto a mutable Response. The
+      // body stays a stream, so an SSE response is still never buffered.
+      const headers = new Headers(res.headers);
+      headers.set("connection", "close");
+      return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+    }
+  };
+}
+
+function declaresBody(req: Request): boolean {
+  const length = req.headers.get("content-length");
+  return (length !== null && Number(length) > 0) || req.headers.has("transfer-encoding");
 }
