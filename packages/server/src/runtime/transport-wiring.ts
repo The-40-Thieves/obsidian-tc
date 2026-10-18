@@ -33,6 +33,7 @@ import type { ProvenanceRecorder } from "../provenance/recorder";
 import { registryKeyResolver, registrySignerSource } from "../provenance/signer";
 import type { JobQueue } from "../scheduler/job-queue";
 import { type HttpHandle, startHttp } from "../transports/http";
+import { vaultSyncWebhookFromEnv } from "../transports/vault-sync-webhook";
 import type { VaultRegistry } from "../vault/registry";
 import { DEFAULT_TRACE_FOLDER } from "../workspace/sessions";
 
@@ -251,7 +252,10 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
     if (config.transports.http.enabled) {
       // THE-585 (#11): time the transport's construction + bind.
       const httpT0 = performance.now();
+      // Throws (naming the variable, not its value) for a secret under the minimum length.
+      const vaultSyncWebhook = vaultSyncWebhookFromEnv(process.env, config.cacheDir);
       const http = await startHttp({
+        ...(vaultSyncWebhook ? { vaultSyncWebhook } : {}),
         name: "obsidian-tc",
         version: deps.version,
         registry: deps.registry,
