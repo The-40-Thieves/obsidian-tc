@@ -33,6 +33,10 @@ inputs:
   tags:
     description: Newline-separated public references to promote the smoked digest to. Blank lines are ignored.
     required: true
+  smoke-mode:
+    description: How to boot-smoke the digest - stdio (the default image) or git (the -git image, which syncs from a bare repository).
+    required: false
+    default: stdio
 
 runs:
   using: composite
@@ -43,6 +47,7 @@ runs:
       env:
         IMAGE: ${{ inputs.image }}
         DIGEST: ${{ inputs.digest }}
+        SMOKE_MODE: ${{ inputs.smoke-mode }}
       run: |
         set -euo pipefail
         [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no staged image digest to smoke (got '$DIGEST')"; exit 1; }
@@ -53,7 +58,7 @@ runs:
           want="${platform#linux/}"
           got=$(docker image inspect --format '{{.Architecture}}' "$ref")
           [ "$got" = "$want" ] || { echo "::error::pulled $ref for $platform but the image is $got"; exit 1; }
-          node scripts/docker-boot-smoke.mjs "$ref" --platform "$platform"
+          node scripts/docker-boot-smoke.mjs "$ref" --platform "$platform" --mode "$SMOKE_MODE"
           # The classic image store keeps one image per digest ref: pulling the next platform of the same
           # ref fails "cannot overwrite digest" (v1.33.0's first tag run) unless this one is removed first.
           docker image rm -f "$ref"

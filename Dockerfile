@@ -81,7 +81,7 @@ RUN set -eu; \
     fi
 
 # ---- runtime: bun + ca-certs + the server dist only ----
-FROM oven/bun:1.4.2-slim
+FROM oven/bun:1.4.2-slim AS runtime
 WORKDIR /app
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \
@@ -130,3 +130,22 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 CMD ["bu
 # The CLI takes a vault folder (zero-config) or a config path (OBSIDIAN_TC_CONFIG / argv); the
 # serve / config / plugin-install subcommands are available. Pass a vault or config when running.
 ENTRYPOINT ["bun", "/app/packages/server/dist/cli.js"]
+
+# ---- git: the -git variant, which syncs the vault from a Git remote (git-sync --supervise) ----
+# git and openssh-client add ~112 MB (git pulls in perl), so they live in this stage alone: the
+# default image stays free of them, and a Git-backed deployment opts in with the :<version>-git tag.
+# The launcher clones or verifies the vault, starts the server as a child, and exits when either
+# process exits. Everything else (EXPOSE, VOLUME, HEALTHCHECK) is inherited from the runtime stage.
+FROM runtime AS git
+# hadolint ignore=DL3066
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git openssh-client \
+ && rm -rf /var/lib/apt/lists/*
+# hadolint ignore=DL3066
+USER bun
+ENTRYPOINT ["bun", "/app/packages/server/dist/cli.js", "git-sync", "--supervise"]
+
+# The default build target: the last stage is the runtime image itself, so an untargeted
+# `docker build` (and every existing build site) still produces the default image with no -git tools.
+FROM runtime

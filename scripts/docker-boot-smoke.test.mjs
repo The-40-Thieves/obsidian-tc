@@ -354,3 +354,20 @@ test("Dockerfile publishes the HTTP/data contract and pins the shared health rul
   assert.ok(execForm[2].replace(/\s+/g, "").includes(normalizedClassifier));
   assert.match(dockerfile, /^ENTRYPOINT \["bun", "\/app\/packages\/server\/dist\/cli\.js"\]$/m);
 });
+
+test("Dockerfile -git target derives from the runtime stage; the untargeted build stays the runtime", () => {
+  const dockerfile = readFileSync(fileURLToPath(new URL("../Dockerfile", import.meta.url)), "utf8");
+  assert.match(dockerfile, /^FROM oven\/bun:1\.4\.2-slim AS runtime$/m);
+  assert.match(dockerfile, /^FROM runtime AS git$/m);
+  // The last stage is the default build target: it must be the runtime image, not the -git variant.
+  const fromLines = dockerfile.split("\n").filter((line) => /^FROM\s/.test(line));
+  assert.equal(fromLines.at(-1), "FROM runtime");
+  const git = dockerfile.slice(dockerfile.indexOf("FROM runtime AS git"));
+  assert.match(git, /^USER root$/m);
+  assert.match(git, /apt-get install -y --no-install-recommends git openssh-client/);
+  assert.match(git, /^USER bun$/m);
+  assert.match(
+    git,
+    /^ENTRYPOINT \["bun", "\/app\/packages\/server\/dist\/cli\.js", "git-sync", "--supervise"\]$/m,
+  );
+});
