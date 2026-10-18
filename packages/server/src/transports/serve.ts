@@ -129,10 +129,10 @@ export const UNREAD_BODY_DRAIN_MS = 250;
  * `c.env`, which the client-IP helper needs.
  */
 export function closeIfBodyUnread<A extends unknown[]>(
-  fetch: (req: Request, ...rest: A) => Response | Promise<Response>,
+  handler: (req: Request, ...rest: A) => Response | Promise<Response>,
 ): (req: Request, ...rest: A) => Promise<Response> {
   return async (req, ...rest) => {
-    const res = await fetch(req, ...rest);
+    const res = await handler(req, ...rest);
     if (!declaresBody(req) || req.bodyUsed) return res;
     if (res.headers.has("connection")) {
       // The handler chose its own Connection (an SSE stream keeps alive). The unread original is
