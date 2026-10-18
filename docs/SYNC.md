@@ -138,10 +138,13 @@ Set `OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET` to mount `POST /hooks/vault-sync` beh
 check as `/mcp`. The secret must be at least 32 characters, or the server refuses to start.
 
 Configure the forge to sign each request. The route accepts GitHub or Gitea/Forgejo
-`X-Hub-Signature-256` (HMAC-SHA256 of the raw body) and GitLab `X-Gitlab-Token` (the secret itself).
-A valid request gets `202` and triggers an immediate pull. A bad signature gets `401`, with no
-detail either way. The body is capped at 1 MB and never parsed. The route cannot run git, choose a
-ref or pass input to the sidecar, so a forged trigger can cause at most an early pull.
+`X-Hub-Signature-256` (HMAC-SHA256 of the raw body) and GitLab `X-Gitlab-Token` (the secret itself);
+either valid credential is enough. A valid request gets `202` and triggers an immediate pull. A
+missing or bad credential gets `401`, with no detail either way. The body is capped at 1 MiB (`413`
+above it), must arrive within 10 seconds (`408`), and is never parsed. If the trigger file cannot be
+touched safely (for example, it or the `git-sync` directory is a symlink), the route answers `503`.
+It cannot run git, choose a ref or pass input to the sidecar, so a forged trigger can cause at most
+an early pull.
 
 ## Reindex
 
