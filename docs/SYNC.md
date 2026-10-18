@@ -23,7 +23,7 @@ directory; none of them are part of the server.
 | ---- | ---- | --------- | ---- | -------- |
 | 1 | Obsidian Sync (headless) | Obsidian's servers, zero-knowledge E2E | Paid Sync subscription | Already on Sync; least setup |
 | 2 | Self-hosted LiveSync | Your own CouchDB | Self-hosted | Whole path on infrastructure you own |
-| 3 | git / Syncthing / bind mount | Your own or peer-to-peer | Free | No subscription, no CouchDB |
+| 3 | git (server-run `-git` image, or manual) / Syncthing / bind mount | Your own or peer-to-peer | Free | No subscription, no CouchDB |
 
 All three end the same way: Markdown lands in `vaultPath`, the server indexes it.
 
@@ -59,12 +59,94 @@ Keep the server's databases outside the LiveSync vault directory.
 
 No subscription, no CouchDB.
 
-- **git** — commit from your editing machine, pull on the server (cron or webhook), then
-  call the reindex entrypoint in a post-merge step. Versioned and auditable; not real-time.
+- **git** — the `-git` image keeps the vault in step with a Git remote on its own, see
+  [git, kept in sync by the server](#git-kept-in-sync-by-the-server-the--git-image). Without it,
+  commit from your editing machine, pull on the server (cron or webhook), then call the reindex
+  entrypoint in a post-merge step. Versioned and auditable; not real-time.
 - **Syncthing** — run the daemon on both ends and share the vault folder. Continuous,
   headless, peer-to-peer. Exclude the server's database directory from the shared folder.
 - **bind mount / network share** — if the vault already lives on the host or a mount, point
   `vaultPath` at it directly. No sync tool needed.
+
+### git, kept in sync by the server (the `-git` image)
+
+The `-git` image runs `obsidian-tc git-sync --supervise`. It starts the server as a child process
+and keeps `vaultPath` in step with a Git remote beside it. The sidecar is POSIX only (Linux and
+macOS) and refuses to run on Windows. Container first: the `-git` image is the supported way to run it.
+
+The `-git` tags are first published with the next release. Until then, build the image from a
+checkout with `docker build --target git -t obsidian-tc:git .`. The Docker deployment page covers
+the image and its run command.
+
+**What it does**
+
+- **Boot.** Clones the remote into an empty vault directory, or verifies an existing clone whose
+  `origin` matches the configured URL and pulls once before the server starts. It refuses, exits
+  non-zero and names the directory when the directory holds files that are not a clone of that
+  remote. It never deletes or overwrites a file it did not write.
+- **Pull** on `OBSIDIAN_TC_VAULT_GIT_PULL_INTERVAL` (default 30 seconds, minimum 10), and at once
+  when a webhook arrives. A dirty tree is committed first, then the remote is fetched and local
+  commits are rebased onto it.
+- **Commit** local changes in batches. A batch is committed after 10 seconds without further
+  changes, or 60 seconds after the tree first went dirty, whichever comes first. Each batch is one
+  commit, `obsidian-tc: update N notes`, listing up to 20 changed paths.
+- **Push** after the rebase, when the local branch is ahead of the remote.
+- **Mirror.** `OBSIDIAN_TC_VAULT_GIT_PUSH=off` makes the vault a read-only mirror: no commits and no
+  push, and the pull only fast-forwards. A dirty tree that blocks a pull is reported, not discarded.
+  Pair it with `acl.readOnly`.
+
+The server's filesystem watch picks up the sidecar's writes, so no reindex call is needed.
+
+**Conflicts.** A rebase conflict, or a push still rejected after three rounds of re-fetch and
+re-rebase, is never merged or discarded. The sidecar:
+
+1. aborts the rebase;
+2. pushes the local commits to a rescue branch, `obsidian-tc/conflict/<UTC timestamp>`;
+3. resets the vault to the upstream branch;
+4. records the conflict in `status.json`.
+
+Merge the rescue branch from a device to resolve it. Agent writes have their own guard: a write
+based on a stale read is refused by the `prev_hash` compare-and-swap, not merged blind.
+
+One race remains, and the design accepts it. The sidecar cannot lock the server's writes, so an MCP
+write that lands between the pre-fetch commit and the rebase checkout can be overwritten, but only
+when upstream changed the same file in that pull. Committing right before the fetch keeps that
+window small.
+
+**Credentials.** Give the sidecar one of two secrets:
+
+- `OBSIDIAN_TC_VAULT_GIT_SSH_KEY`, the private key contents, for a `git@host:org/repo.git` or
+  `ssh://` URL. The server pushes, so use a deploy key with write access. Optionally pin the host
+  with `OBSIDIAN_TC_VAULT_GIT_KNOWN_HOSTS`; without it the first host key seen is trusted.
+- `OBSIDIAN_TC_VAULT_GIT_TOKEN`, for an `https://` URL.
+
+The key is written with mode 0600 under the state directory and used through `GIT_SSH_COMMAND` with
+`IdentitiesOnly=yes`. The token reaches Git through `GIT_ASKPASS`. Neither appears in argv, in
+`.git/config`, in the remote URL or in logs, and a URL that carries a password or token is refused.
+
+**State.** The state lives in `<OBSIDIAN_TC_CACHE_DIR>/git-sync/`, outside the vault:
+
+- `status.json` holds `lastPullAt`, `lastPushAt`, `head`, `lastError` and `conflicts`.
+- One line per sync event goes to stderr. It never contains a secret.
+
+**The other half is obsidian-git.** obsidian-git keeps the vault in step with the same remote on
+each device, and the sidecar is the server's side of that loop.
+
+#### Webhook (optional)
+
+Set `OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET` to mount `POST /hooks/vault-sync` behind the same Host
+check as `/mcp`. The secret must be at least 32 characters, or the server refuses to start. Like the
+sidecar, the webhook is Linux and macOS only: on Windows the server refuses to start while the
+secret is set.
+
+Configure the forge to sign each request. The route accepts GitHub or Gitea/Forgejo
+`X-Hub-Signature-256` (HMAC-SHA256 of the raw body) and GitLab `X-Gitlab-Token` (the secret itself);
+either valid credential is enough. A valid request gets `202` and triggers an immediate pull. A
+missing or bad credential gets `401`, with no detail either way. The body is capped at 1 MiB (`413`
+above it), must arrive within 10 seconds (`408`), and is never parsed. If the trigger file cannot be
+touched safely (for example, it or the `git-sync` directory is a symlink), the route answers `503`.
+It cannot run git, choose a ref or pass input to the sidecar, so a forged trigger can cause at most
+an early pull.
 
 ## Reindex
 

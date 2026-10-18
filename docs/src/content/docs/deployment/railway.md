@@ -108,11 +108,35 @@ environment variable with `apiKeyEnv` and store the key itself in Railway:
 
 See [Embeddings](/configuration/embeddings/) for the other providers.
 
+## Git-backed vault (`-git` image)
+
+To keep the vault on the volume in step with a Git repository, run the `-git` image instead of the
+repository's Dockerfile. A build from the Dockerfile produces the default image, which has no git
+tools. Create the service from the Docker image `ghcr.io/the-40-thieves/obsidian-tc:latest-git`
+(or pin `:<version>-git`). **The `-git` tags are first published with the next release.**
+
+The image's entrypoint runs `git-sync --supervise`, which clones the remote into `/data/vault` on the
+first boot, pulls on an interval, and starts the server. The rest of this page still applies: the
+same volume at `/data`, the same config file, and the same `PORT` and public URL. Add these:
+
+- `OBSIDIAN_TC_VAULT_GIT_URL` (required): `git@host:org/repo.git`, `ssh://`, or `https://host/org/repo.git`.
+- `OBSIDIAN_TC_VAULT_GIT_SSH_KEY` (secret, required for SSH URLs): the private key contents, a deploy key
+  with write access.
+- `OBSIDIAN_TC_VAULT_GIT_TOKEN` (secret, required for HTTPS URLs): the token for the remote.
+- `OBSIDIAN_TC_VAULT_GIT_KNOWN_HOSTS` (optional): `known_hosts` lines that pin the remote's host key.
+- `OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET` (optional, secret, at least 32 characters): enables the webhook.
+
+Keep the vault path in the config file at `/data/vault`, and the cache at `/data/cache`. The sync state
+lives in `/data/cache/git-sync`. The volume must be writable by the `bun` user, as above.
+
+The webhook is `https://<railway host>/hooks/vault-sync`, where `<railway host>` is the service's public
+domain. Its host must be in `allowedHosts`: set `OBSIDIAN_TC_PUBLIC_URL` to the public origin, or list
+the host in the file, as the health check above also requires. Configure the forge to sign
+requests with the webhook secret. Details are in [docs/SYNC.md](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/SYNC.md#webhook-optional).
+
 ## What this does not do yet
 
 - **No published template and no Deploy button.** Publishing one needs the owner's Railway account.
-- **No git-backed vault sync.** The vault on the volume is the only copy this deployment reads. Keeping
-  it in step with a repository is a separate design.
 - **Liveness health check.** `railway.json` sets `healthcheckPath: /healthz`; it is liveness only, and
   `allowedHosts` must include the Railway hostname or the probe gets 403.
 - **No refusal of public boot for the other modes.** Only the non-loopback, unauthenticated
