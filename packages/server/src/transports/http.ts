@@ -12,7 +12,7 @@ import type { FolderAcl } from "../acl";
 import "../auth/as-issuing";
 import { type AsRouteDeps, mountAsMetadata, mountAsRoutes } from "../auth/as-metadata";
 import { type AsOperatorDeps, mountAsOperator } from "../auth/as-operator";
-import { createClientIpResolver, type ForwardedHeader } from "../auth/client-ip";
+import { captureClientPeer, createClientIpResolver, type ForwardedHeader } from "../auth/client-ip";
 import { mountJwksRoute } from "../auth/jwks-route";
 import { AuthRejection, type AuthRejectionReason } from "../auth/jwt";
 import { buildJwtVerifier } from "../auth/jwt-boot";
@@ -431,6 +431,9 @@ export interface HttpApp {
 
 export function createHttpApp(opts: HttpAppOptions): HttpApp {
   const app = new Hono();
+  // The client address is read from the TCP peer before any middleware below can replace the request
+  // (hono's bodyLimit does, on /oauth/*): see auth/client-ip.ts. Keep this the first middleware.
+  app.use("*", captureClientPeer);
   // `transports.http.cors.allowedOrigins`: browser origins that may call the CORS routes (cors.ts).
   // Registered before any route so it wraps them all; empty by default, so it then does nothing.
   const corsOrigins = corsOriginSet(opts.corsOrigins ?? []);
