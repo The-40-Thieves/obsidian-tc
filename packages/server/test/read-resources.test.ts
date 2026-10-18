@@ -297,9 +297,11 @@ describe("read_resources: byte-budget pagination", () => {
     const foreign = await readPage(v, uris, cursor, { caller: "someone-else" });
     expect(foreign.ok).toBe(false);
     if (!foreign.ok) expect(foreign.error.details?.reason).toBe("foreign");
-    // Change the last character to a different base64url one, so the forgery always differs.
-    const last = cursor.slice(-1);
-    const forgedCursor = `${cursor.slice(0, -1)}${last === "A" ? "B" : "A"}`;
+    // Tamper the first character of the signature segment (after the last "."). A base64url
+    // segment's LAST character can carry unused padding bits, so changing it may decode to the
+    // same bytes and still verify; the first character always carries six significant bits.
+    const sig = cursor.lastIndexOf(".") + 1;
+    const forgedCursor = `${cursor.slice(0, sig)}${cursor[sig] === "A" ? "B" : "A"}${cursor.slice(sig + 1)}`;
     expect(forgedCursor).not.toBe(cursor);
     const forged = await readPage(v, uris, forgedCursor);
     expect(forged.ok).toBe(false);
