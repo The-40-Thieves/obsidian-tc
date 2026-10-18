@@ -80,6 +80,9 @@ export interface TransportsWiring {
  */
 export async function wireTransports(deps: TransportWiringDeps): Promise<TransportsWiring> {
   const { config } = deps;
+  // Checked before anything binds, whether or not HTTP is on: a short secret stops the boot. It
+  // throws naming the variable, never its value.
+  const vaultSyncWebhook = vaultSyncWebhookFromEnv(process.env, config.cacheDir);
   let httpConstructSeconds: number | null = null;
   let httpHandle: HttpHandle | undefined;
   let metricsHandle: MetricsHandle | undefined;
@@ -252,8 +255,6 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
     if (config.transports.http.enabled) {
       // THE-585 (#11): time the transport's construction + bind.
       const httpT0 = performance.now();
-      // Throws (naming the variable, not its value) for a secret under the minimum length.
-      const vaultSyncWebhook = vaultSyncWebhookFromEnv(process.env, config.cacheDir);
       const http = await startHttp({
         ...(vaultSyncWebhook ? { vaultSyncWebhook } : {}),
         name: "obsidian-tc",

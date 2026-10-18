@@ -1,6 +1,15 @@
 import { createHmac, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, statSync, utimesSync } from "node:fs";
-import { join } from "node:path";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -18,6 +27,8 @@ const URL = "http://127.0.0.1:8765/hooks/vault-sync";
 const HOST = { host: "127.0.0.1:8765" };
 const BODY = '{"ref":"refs/heads/main"}';
 const ONE_MIB = 1_048_576;
+const BODY_MARKER = "body-marker-7f3a9c";
+const HEADER_MARKER = "header-marker-b81e04";
 
 const handles: HttpApp[] = [];
 const roots: string[] = [];
@@ -38,6 +49,7 @@ function app(
   options: {
     secret?: string | undefined;
     cacheDir?: string;
+    bodyDeadlineMs?: number;
     enableDnsRebindingProtection?: boolean;
     allowedHosts?: string[];
   } = {},
@@ -49,7 +61,7 @@ function app(
     auth: { mode: "jwt", jwtSecret: "test-only-secret-not-a-real-credential-0123456789" },
   }).auth;
   const cacheDir = options.cacheDir ?? tempCache();
-  const vaultSyncWebhook =
+  const webhook =
     options.secret === undefined
       ? undefined
       : vaultSyncWebhookFromEnv({ OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET: options.secret }, cacheDir);
@@ -62,7 +74,16 @@ function app(
     vaultId: "v1",
     acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
     cacheDir,
-    ...(vaultSyncWebhook ? { vaultSyncWebhook } : {}),
+    ...(webhook
+      ? {
+          vaultSyncWebhook: {
+            ...webhook,
+            ...(options.bodyDeadlineMs === undefined
+              ? {}
+              : { bodyDeadlineMs: options.bodyDeadlineMs }),
+          },
+        }
+      : {}),
     ...(options.enableDnsRebindingProtection === undefined
       ? {}
       : { enableDnsRebindingProtection: options.enableDnsRebindingProtection }),
@@ -73,8 +94,12 @@ function app(
   return handle;
 }
 
+function stateDirOf(handle: HttpApp): string {
+  return join(cacheDirs.get(handle) ?? "", "git-sync");
+}
+
 function triggerPathOf(handle: HttpApp): string {
-  return join(cacheDirs.get(handle) ?? "", "git-sync", "trigger");
+  return join(stateDirOf(handle), "trigger");
 }
 
 function sign(body: string | Uint8Array, secret = SECRET): string {
@@ -91,12 +116,36 @@ function post(
   );
 }
 
-/** Everything a caller can observe about a response, so failures can be compared byte for byte. */
+/** Same POST with header pairs, so a header may appear twice. */
+function postPairs(
+  handle: HttpApp,
+  pairs: Array<[string, string]>,
+  body: string | Uint8Array = BODY,
+): Promise<Response> {
+  return Promise.resolve(
+    handle.app.request(URL, {
+      method: "POST",
+      headers: [["host", HOST.host], ...pairs],
+      body,
+    }),
+  );
+}
+
+/** A body that yields one chunk and then never ends, so only a deadline can finish the request. */
+function stalledBody(first: string): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(first));
+    },
+  });
+}
+
+/** Everything a caller can observe about a response, so failures compare byte for byte. */
 async function observable(response: Response) {
   return {
     status: response.status,
     body: await response.text(),
-    cacheControl: response.headers.get("cache-control"),
+    headers: [...response.headers.entries()].sort(([a], [b]) => a.localeCompare(b)),
   };
 }
 
@@ -162,7 +211,19 @@ describe("POST /hooks/vault-sync: accepted signatures", () => {
     expect(await response.text()).toBe("");
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(statSync(trigger).mode & 0o777).toBe(0o600);
-    expect(statSync(join(trigger, ".."), { throwIfNoEntry: true }).mode & 0o777).toBe(0o700);
+    expect(statSync(stateDirOf(handle)).mode & 0o777).toBe(0o700);
+  });
+
+  it("tightens a pre-existing permissive state directory to 0700", async () => {
+    const cacheDir = tempCache();
+    mkdirSync(join(cacheDir, "git-sync"), { recursive: true });
+    chmodSync(join(cacheDir, "git-sync"), 0o755);
+    const handle = app({ secret: SECRET, cacheDir });
+
+    const response = await post(handle, { "x-hub-signature-256": sign(BODY) });
+
+    expect(response.status).toBe(202);
+    expect(statSync(stateDirOf(handle)).mode & 0o777).toBe(0o700);
   });
 
   it("advances the trigger mtime on a second valid call", async () => {
@@ -186,6 +247,53 @@ describe("POST /hooks/vault-sync: accepted signatures", () => {
     expect(response.status).toBe(202);
     expect(existsSync(trigger)).toBe(true);
   });
+
+  it("accepts a GitLab token without reading the body at all", async () => {
+    const handle = app({ secret: TOKEN_OK, bodyDeadlineMs: 50 });
+
+    const response = await handle.app.request(URL, {
+      method: "POST",
+      headers: { ...HOST, "x-gitlab-token": TOKEN_OK },
+      body: stalledBody("{"),
+      duplex: "half",
+    } as RequestInit);
+
+    expect(response.status).toBe(202);
+  });
+
+  it("accepts a valid GitLab token alongside a malformed signature header", async () => {
+    const handle = app({ secret: TOKEN_OK });
+
+    const response = await post(handle, {
+      "x-hub-signature-256": "sha256=NOT-HEX",
+      "x-gitlab-token": TOKEN_OK,
+    });
+
+    expect(response.status).toBe(202);
+  });
+
+  it("accepts a valid GitLab token alongside duplicate signature headers", async () => {
+    const handle = app({ secret: TOKEN_OK });
+
+    const response = await postPairs(handle, [
+      ["x-hub-signature-256", sign(BODY)],
+      ["x-hub-signature-256", sign(BODY)],
+      ["x-gitlab-token", TOKEN_OK],
+    ]);
+
+    expect(response.status).toBe(202);
+  });
+
+  it("accepts a valid GitHub signature alongside a wrong GitLab token", async () => {
+    const handle = app({ secret: SECRET });
+
+    const response = await post(handle, {
+      "x-hub-signature-256": sign(BODY),
+      "x-gitlab-token": "wrong-token-0123456789abcdef0123456789",
+    });
+
+    expect(response.status).toBe(202);
+  });
 });
 
 describe("POST /hooks/vault-sync: rejected auth", () => {
@@ -201,6 +309,11 @@ describe("POST /hooks/vault-sync: rejected auth", () => {
     ["no sha256= prefix", { "x-hub-signature-256": sign(BODY).slice("sha256=".length) }],
     ["wrong GitLab token", { "x-gitlab-token": "wrong-token-0123456789abcdef0123456789" }],
     ["GitLab token with extra characters", { "x-gitlab-token": `${TOKEN_OK}x` }],
+    ["malformed signature alone", { "x-hub-signature-256": "malformed" }],
+    [
+      "duplicate valid signature headers alone",
+      { "x-hub-signature-256": `${sign(BODY)}, ${sign(BODY)}` },
+    ],
   ];
 
   it.each(rejected)(
@@ -218,6 +331,23 @@ describe("POST /hooks/vault-sync: rejected auth", () => {
     },
   );
 
+  it("refuses an unauthenticated stalled body at once, without waiting for it", async () => {
+    const handle = app({ secret: SECRET, bodyDeadlineMs: 60_000 });
+
+    const response = await Promise.race([
+      handle.app.request(URL, {
+        method: "POST",
+        headers: HOST,
+        body: new ReadableStream<Uint8Array>({}),
+        duplex: "half",
+      } as RequestInit),
+      new Promise<"hung">((resolve) => setTimeout(() => resolve("hung"), 2_000)),
+    ]);
+
+    expect(response).not.toBe("hung");
+    expect((response as Response).status).toBe(401);
+  });
+
   it("leaves an existing trigger's mtime unchanged on a rejected call", async () => {
     const handle = app({ secret: SECRET });
     const trigger = triggerPathOf(handle);
@@ -231,9 +361,21 @@ describe("POST /hooks/vault-sync: rejected auth", () => {
     expect(response.status).toBe(401);
     expect(statSync(trigger).mtimeMs).toBe(1_000_000);
   });
+
+  it("verifies the raw bytes, not a re-encoding of the parsed JSON", async () => {
+    const handle = app({ secret: SECRET });
+    const raw = new TextEncoder().encode('{ "b" :  2,\n"a":1 }\u0000ÿ');
+    const reencoded = JSON.stringify({ a: 1, b: 2 });
+
+    const accepted = await post(handle, { "x-hub-signature-256": sign(raw) }, raw);
+    const rejected = await post(handle, { "x-hub-signature-256": sign(reencoded) }, raw);
+
+    expect(accepted.status).toBe(202);
+    expect(rejected.status).toBe(401);
+  });
 });
 
-describe("POST /hooks/vault-sync: body cap", () => {
+describe("POST /hooks/vault-sync: body limits and deadline", () => {
   const oversized = new Uint8Array(ONE_MIB + 1).fill(0x61);
 
   it("answers 413 for a body of 1 MiB + 1 byte with Content-Length, leaving the trigger untouched", async () => {
@@ -269,6 +411,76 @@ describe("POST /hooks/vault-sync: body cap", () => {
     expect(response.status).toBe(413);
     expect(existsSync(triggerPathOf(handle))).toBe(false);
   });
+
+  it("answers 408 when a signed body stalls past the deadline, leaving the trigger untouched", async () => {
+    const handle = app({ secret: SECRET, bodyDeadlineMs: 50 });
+
+    const response = await handle.app.request(URL, {
+      method: "POST",
+      headers: { ...HOST, "x-hub-signature-256": sign("{") },
+      body: stalledBody("{"),
+      duplex: "half",
+    } as RequestInit);
+
+    expect(response.status).toBe(408);
+    expect(existsSync(triggerPathOf(handle))).toBe(false);
+  });
+});
+
+describe("POST /hooks/vault-sync: filesystem refusals", () => {
+  it("refuses a trigger symlink with 503 and leaves the file it points at untouched", async () => {
+    const cacheDir = tempCache();
+    const root = dirname(cacheDir);
+    const outside = join(root, "outside-file");
+    writeFileSync(outside, "keep");
+    utimesSync(outside, 1_000, 1_000);
+    mkdirSync(join(cacheDir, "git-sync"), { recursive: true });
+    symlinkSync(outside, join(cacheDir, "git-sync", "trigger"));
+    const handle = app({ secret: SECRET, cacheDir });
+
+    const response = await post(handle, { "x-hub-signature-256": sign(BODY) });
+
+    expect(response.status).toBe(503);
+    expect(statSync(outside).mtimeMs).toBe(1_000_000);
+    expect(readFileSync(outside, "utf8")).toBe("keep");
+  });
+
+  it("refuses a state-directory symlink with 503 and creates nothing in its target", async () => {
+    const cacheDir = tempCache();
+    const outsideDir = join(dirname(cacheDir), "outside-dir");
+    mkdirSync(outsideDir);
+    mkdirSync(cacheDir, { recursive: true });
+    symlinkSync(outsideDir, join(cacheDir, "git-sync"));
+    const handle = app({ secret: SECRET, cacheDir });
+
+    const response = await post(handle, { "x-hub-signature-256": sign(BODY) });
+
+    expect(response.status).toBe(503);
+    expect(existsSync(join(outsideDir, "trigger"))).toBe(false);
+  });
+
+  it("answers 503 when the state path is a regular file, leaving that file untouched", async () => {
+    const cacheDir = tempCache();
+    mkdirSync(cacheDir, { recursive: true });
+    writeFileSync(join(cacheDir, "git-sync"), "keep");
+    const handle = app({ secret: SECRET, cacheDir });
+
+    const response = await post(handle, { "x-hub-signature-256": sign(BODY) });
+
+    expect(response.status).toBe(503);
+    expect(readFileSync(join(cacheDir, "git-sync"), "utf8")).toBe("keep");
+  });
+
+  it("answers 503 when the trigger path is a directory", async () => {
+    const cacheDir = tempCache();
+    mkdirSync(join(cacheDir, "git-sync", "trigger"), { recursive: true });
+    const handle = app({ secret: SECRET, cacheDir });
+
+    const response = await post(handle, { "x-hub-signature-256": sign(BODY) });
+
+    expect(response.status).toBe(503);
+    expect(statSync(join(cacheDir, "git-sync", "trigger")).isDirectory()).toBe(true);
+  });
 });
 
 describe("POST /hooks/vault-sync: request shape and host", () => {
@@ -299,26 +511,38 @@ describe("POST /hooks/vault-sync: request shape and host", () => {
 });
 
 describe("vault-sync webhook: secrecy and isolation", () => {
-  it("never writes the secret or a header value to stderr or a response", async () => {
+  it("never logs the secret, a digest, the body, or an unrelated header", async () => {
     const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const handle = app({ secret: TOKEN_OK });
     const digest = sign(BODY, TOKEN_OK);
     const responses: string[] = [];
-    const probes: Array<Record<string, string>> = [
-      {},
-      { "x-hub-signature-256": `sha256=${"f".repeat(64)}` },
-      { "x-gitlab-token": `${TOKEN_OK}x` },
-      { "x-gitlab-token": TOKEN_OK },
+    const probes: Array<[Record<string, string>, string]> = [
+      [{ "x-unrelated": HEADER_MARKER }, `${BODY_MARKER} ${BODY}`],
+      [{ "x-hub-signature-256": `sha256=${"f".repeat(64)}` }, BODY],
+      [{ "x-gitlab-token": `${TOKEN_OK}x` }, BODY],
+      [{ "x-gitlab-token": TOKEN_OK, "x-unrelated": HEADER_MARKER }, BODY_MARKER],
     ];
-    for (const headers of probes) {
-      const response = await post(handle, headers);
+    for (const [headers, body] of probes) {
+      const response = await post(handle, headers, body);
       responses.push(await response.text());
     }
+    const oversized = `${BODY_MARKER}${"a".repeat(ONE_MIB)}`;
+    responses.push(
+      await (
+        await post(
+          handle,
+          { "x-hub-signature-256": sign(oversized), "content-length": String(oversized.length) },
+          oversized,
+        )
+      ).text(),
+    );
 
     const logged = write.mock.calls.map(([chunk]) => String(chunk)).join("");
     for (const text of [logged, ...responses]) {
       expect(text).not.toContain(TOKEN_OK);
       expect(text).not.toContain(digest);
+      expect(text).not.toContain(BODY_MARKER);
+      expect(text).not.toContain(HEADER_MARKER);
     }
     expect(logged).toContain("reason=");
   });
