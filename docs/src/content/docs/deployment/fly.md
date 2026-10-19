@@ -3,6 +3,10 @@ title: Fly.io
 description: Deploy obsidian-tc on Fly.io from fly.toml, with one volume at /data, generated secrets and a health check.
 ---
 
+:::caution
+This app config needs obsidian-tc v1.34.0 or later. Until v1.34.0 is published, `:latest` is v1.33.1, which has no health route (`/healthz`) and does not read the environment settings the template relies on, so the deploy will not become healthy. Once v1.34.0 is out, `:latest` works; pin the exact version for production.
+:::
+
 The repository's `fly.toml` is a Fly.io app config. `fly launch --from` creates an app from it: one
 Machine runs the published image `ghcr.io/the-40-thieves/obsidian-tc:latest` with a volume mounted at
 `/data`. The image's ENTRYPOINT boots the server from `OBSIDIAN_TC_CONFIG`, which the deploy copies in
@@ -123,10 +127,16 @@ the next release, so the `-git` image is not yet available for `[build] image`.
 
 - **Not yet verified on a live Fly app.** The fields were checked against Fly's documentation, not by
   creating an app. A live deploy check is still needed.
-- **Volume ownership (unverified).** The image creates `/data/vault` and `/data/cache` owned by `bun`,
-  but a new Fly volume is mounted over `/data`. If the first boot fails with a permission error on
-  `/data`, the volume is not writable by uid 1000. That is an open point, not a known fact about Fly.
-  Report it; do not work around it without a fix from the maintainers.
+- **First boot on a fresh volume fails (open).** A new Fly volume is mounted over `/data`, which hides the
+  `/data/vault` directory the image creates. The server then exits at first boot with
+  `fatal: vault root could not be resolved`. The planned server fix creates a missing vault root on the
+  env-configured data volume. Until it ships, a first deploy on a fresh volume does not start. This page
+  has no verified workaround: Fly's docs describe `fly machine run --volume` and
+  `fly machine clone --attach-volume` for attaching a volume, but neither has been tested here to create
+  the vault directory before the server starts.
+- **Volume ownership (likely fine, unverified).** A reviewer found that Fly chowns a new volume's mount to
+  the image's USER, so a permission error on `/data` is not the expected failure. No live app has confirmed
+  this.
 - **Health check Host header (unverified).** The `Host: localhost` override is set in `fly.toml`, and the
   server's guard accepts `localhost`, but no live check has been observed sending that header or passing.
 - **`[[files]]` under `fly launch --from` (unverified).** `fly launch --from` clones the repository, and
