@@ -13,7 +13,6 @@
 import { randomBytes } from "node:crypto";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Context, Hono } from "hono";
-import { bodyLimit } from "hono/body-limit";
 import type { Database } from "../db/types";
 import { sha256Hex } from "../provenance/store";
 import { FailureLimiter } from "./as-login-limiter";
@@ -50,6 +49,7 @@ import {
 } from "./as-password";
 import { type AsBrowser, createAsBrowser, requestHandleOf } from "./as-session";
 import { socketClientIp } from "./client-ip";
+import { oauthBodyGuard } from "./oauth-body";
 import type { AuthRegistry } from "./registry";
 
 type AuthConfig = ServerConfig["auth"];
@@ -57,7 +57,6 @@ type AuthConfig = ServerConfig["auth"];
 const SETUP_WINDOW_MS = 24 * 3_600_000;
 /** A setup token shorter than this is refused outright: it would not survive being guessed. */
 const SETUP_TOKEN_MIN_LENGTH = 24;
-const FORM_MAX_BYTES = 16 * 1024;
 const SETUP_MAX_FAILURES = 10;
 const SETUP_WINDOW_FAILURE_MS = 15 * 60_000;
 /** Failures one source address may cause across every account, as a multiple of the per-account
@@ -193,17 +192,7 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
       }
     }
   });
-  app.use(
-    "/oauth/*",
-    bodyLimit({
-      maxSize: FORM_MAX_BYTES,
-      // bodyLimit reads part of a chunked body before the cap trips, so the socket cannot be reused.
-      onError: (c) => {
-        c.header("connection", "close");
-        return c.text("Payload Too Large", 413);
-      },
-    }),
-  );
+  app.use("/oauth/*", oauthBodyGuard());
 
   // Until the operator exists nothing that issues or registers may answer. S5 and later mount their
   // real routes after this guard, so it keeps refusing for them too.
