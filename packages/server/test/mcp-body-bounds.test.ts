@@ -11,6 +11,7 @@ import { provisionCacheDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
 import { createHttpApp, type HttpApp } from "../src/transports/http";
 import { openMemoryDb } from "./helpers";
+import { stallTimeout } from "./stall-timeouts";
 
 const JWT_SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const RESOURCE = "https://vault.example.com/mcp";
@@ -243,6 +244,6 @@ describe("POST /mcp body bounds", () => {
       expect(elapsed).toBeGreaterThanOrEqual(ANONYMOUS_DEADLINE_MS - 50);
       expect(elapsed).toBeLessThan(ANONYMOUS_DEADLINE_MS + 200);
     },
-    ANONYMOUS_DEADLINE_MS + 5_000,
+    stallTimeout(ANONYMOUS_DEADLINE_MS + 5_000),
   );
 });
