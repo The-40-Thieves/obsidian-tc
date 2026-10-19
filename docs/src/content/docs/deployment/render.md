@@ -33,11 +33,16 @@ here unchanged.
 
 ## Cost
 
-Render bills a web service by its plan and the disk by its size. The plan `1c-2g` is the Standard
-instance, and the disk is billed per GB per month on top of it. The exact prices are on
-[Render's pricing page](https://render.com/pricing). This page does not copy them, because they
-change, and it was not checked against a live price list when it was written. Check the pricing page
-and the plan you choose in the Blueprint review before you create the service.
+Render bills a web service by its plan and the disk by its size. As listed on
+[Render's pricing page](https://render.com/pricing) on 2026-10-19:
+
+| item | price |
+|---|---|
+| Standard instance (`1c-2g`, 1 CPU, 2 GB) | $25 per month |
+| Persistent disk | $0.25 per GB per month (the Blueprint's 10 GB: $2.50 per month) |
+
+That is about $27.50 per month for the Blueprint as written. Prices change, so check the pricing page
+and the plan in the Blueprint review before you create the service.
 
 ## Create the service
 
@@ -90,4 +95,3 @@ mount at `/data`.
 - **Not yet verified on a live Render service.** The Blueprint fields were checked against Render's
   documentation, not by creating a service. A live deploy check is still needed.
 - **The config file is not created for you.** The Blueprint ships no template, as Railway does not.
-- **The prices are not in this page.** See [Cost](#cost).

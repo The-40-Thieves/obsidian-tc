@@ -131,5 +131,6 @@ server starts. The restart policy then restarts the container, so set `--restart
 ## Platform bundles
 
 - [Render](/deployment/render/) — Blueprint, persistent disk, generated setup token, and Render health
+  check configuration.
 - [Railway](/deployment/railway/) — repository Dockerfile, volume, environment, and Railway health
   check configuration.
