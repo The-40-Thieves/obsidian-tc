@@ -73,7 +73,9 @@ Facts only. Each gap names its evidence path. None of these is fixed in this cha
   scripts ship the ORT native libraries and WASM (`scripts/lib/embedder-bundle.mjs`,
   `ORT_PLATFORMS`, `ortWasmFiles`). A grep of `scripts/bundle-mcpb.ts`,
   `scripts/lib/mcpb-staging.mjs` and `scripts/lib/embedder-bundle.mjs` for `LICENSE`, `licenses/`
-  and `notice` returned no matches. MIT requires the notice in copies or substantial portions. Whether
+  and `notice` returned no matches. The npm per-platform runtime packages do carry it:
+  `scripts/pack-embedder-local.ts:57` packs `licenses/onnxruntime-LICENSE` into each one. MIT
+  requires the notice in copies or substantial portions. Whether
   the binaries satisfy this is UNVERIFIED: ORT's notice may be carried by a file this grep did not
   reach.
 - **G3. `sqlite-vec` licence text is not in its npm tarball.** `npm pack sqlite-vec@0.1.9` contains
