@@ -136,3 +136,5 @@ server starts. The restart policy then restarts the container, so set `--restart
   check configuration.
 - [Fly.io](/deployment/fly/) — `fly.toml` with the published image, one volume, and a `/healthz` check.
 - [VPS (cloud-init)](/deployment/vps/) — Ubuntu 24.04 user data with Docker, Caddy and a generated JWT secret.
+- [Self-hosted PaaS](/deployment/self-hosted-paas/) — Coolify, Dokploy and CapRover templates derived
+  from the HTTP Compose bundle.

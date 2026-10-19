@@ -1,0 +1,34 @@
+# documentation: https://obsidian-tc.the40thieves.io/deployment/self-hosted-paas/
+# slogan: An MCP server over an Obsidian vault, for AI clients over HTTP.
+# category: productivity
+# tags: obsidian,mcp,notes,knowledge,ai
+# logo: svgs/obsidian-tc.svg
+# port: 8765
+#
+# Paste into Coolify as a Docker Compose resource. Derived from deploy/compose.http.yml; the image
+# HEALTHCHECK (/healthz) is inherited. Attach an https domain: OBSIDIAN_TC_PUBLIC_URL must be https.
+services:
+  obsidian-tc:
+    image: ghcr.io/the-40-thieves/obsidian-tc:latest
+    environment:
+      - SERVICE_URL_OBSIDIAN_TC_8765
+      - OBSIDIAN_TC_CONFIG=/config/obsidian-tc.config.json
+      - OBSIDIAN_TC_VAULT_PATH=/data/vault
+      - OBSIDIAN_TC_CACHE_DIR=/data/cache
+      - PORT=8765
+      - OBSIDIAN_TC_PUBLIC_URL=${SERVICE_URL_OBSIDIAN_TC}
+      - OBSIDIAN_TC_JWT_SECRET=${SERVICE_PASSWORD_64_OBSIDIANTC}
+    volumes:
+      - obsidian-tc-data:/data
+      - type: bind
+        source: ./config/obsidian-tc.config.json
+        target: /config/obsidian-tc.config.json
+        content: |
+          {
+            "vaults": [{ "id": "main", "path": "/data/vault" }],
+            "transports": { "stdio": false, "http": { "host": "0.0.0.0" } },
+            "auth": { "mode": "jwt", "requireJti": true }
+          }
+
+volumes:
+  obsidian-tc-data:
