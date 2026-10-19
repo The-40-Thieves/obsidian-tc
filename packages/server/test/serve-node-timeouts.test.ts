@@ -23,13 +23,12 @@ describe("Node server options", () => {
       const handle = await serveHono(app, {
         host: "127.0.0.1",
         port: 0,
-        nodeServerOptions: {
-          requestTimeout: 3_000,
-          headersTimeout: 2_000,
-          connectionsCheckingInterval: 500,
-        },
+        // Only the timeouts are overridden: the 1 s checking interval must come from the production
+        // options, so this fails if serveHono stops merging them in (Node's default tick is 30 s).
+        nodeServerOptions: { requestTimeout: 3_000, headersTimeout: 2_000 },
       });
       try {
+        const started = Date.now();
         const reply = await new Promise<string>((resolve, reject) => {
           const socket = connect(handle.port, "127.0.0.1");
           let data = "";
@@ -44,6 +43,7 @@ describe("Node server options", () => {
           );
         });
         expect(reply.startsWith("HTTP/1.1 408")).toBe(true);
+        expect(Date.now() - started).toBeLessThan(stallTimeout(6_000));
       } finally {
         await handle.close();
       }
