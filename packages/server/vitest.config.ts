@@ -28,6 +28,7 @@ export default defineConfig({
       resolve(here, "test/tmp-guard-setup.ts"),
       resolve(here, "test/tmpdir-realpath-setup.ts"),
       resolve(here, "test/home-isolation-setup.ts"),
+      resolve(here, "test/git-maintenance-setup.ts"),
       resolve(here, "test/hardware-probe-stub-setup.ts"),
     ],
     environment: "node",

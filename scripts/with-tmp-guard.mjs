@@ -17,6 +17,9 @@ import { mkdtempSync, readdirSync, realpathSync, rmSync, statSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { withGitMaintenanceOff } from "./lib/git-maintenance.mjs";
+
+export { withGitMaintenanceOff };
 
 /** Entries a command may leave behind. Each needs a reason; empty on purpose. */
 export const ALLOWED_LEFTOVERS = [];
@@ -41,20 +44,6 @@ function describeEntry(root, name) {
     }
   }
   return `${name}  (${bytes >= 1048576 ? `${Math.round(bytes / 1048576)} MB` : `${Math.ceil(bytes / 1024)} KB`})`;
-}
-
-/**
- * Returns `env` with git auto maintenance disabled, appended to any config git already gets from
- * GIT_CONFIG_COUNT so an existing entry survives. The new entry goes last, so it wins.
- */
-export function withGitMaintenanceOff(env) {
-  const count = /^\d+$/.test(env.GIT_CONFIG_COUNT ?? "") ? Number(env.GIT_CONFIG_COUNT) : 0;
-  return {
-    ...env,
-    GIT_CONFIG_COUNT: String(count + 1),
-    [`GIT_CONFIG_KEY_${count}`]: "maintenance.auto",
-    [`GIT_CONFIG_VALUE_${count}`]: "false",
-  };
 }
 
 /** Spawn `argv` under a private temp root. Resolves to `{ code, leaks }`; the root is gone. */

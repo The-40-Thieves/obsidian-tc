@@ -81,6 +81,13 @@ describe("with-tmp-guard", () => {
     );
   });
 
+  it("applying the maintenance setting twice leaves exactly one maintenance.auto entry", async () => {
+    const { withGitMaintenanceOff } = await import("./with-tmp-guard.mjs");
+    const once = withGitMaintenanceOff({});
+    assert.deepEqual(withGitMaintenanceOff(once), once);
+    assert.deepEqual(withGitMaintenanceOff({ ...once }), once);
+  });
+
   it("a child git commit runs no maintenance run (the detached child that outlived the fixture)", () => {
     const r = guard(
       `const {spawnSync}=require("node:child_process");const {mkdtempSync,writeFileSync}=require("node:fs");const {tmpdir}=require("node:os");const {join}=require("node:path");` +
