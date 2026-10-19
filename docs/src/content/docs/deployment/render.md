@@ -80,7 +80,7 @@ every boot. The full authorization-server flow is in
 
 The vault on the disk is the only copy the server reads. Seeding it from a laptop is not part of the
 Blueprint. To keep the vault in step with a Git repository, use the `-git` image and the variables
-in [Git-backed vault](/deployment/railway/#git-backed-vault-git-image). Those tags are first
+in [Git-backed vault](/deployment/railway/#git-backed-vault--git-image). Those tags are first
 published with the next release, so the `-git` image is not yet available for the Blueprint's
 `image.url`.
 

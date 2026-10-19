@@ -16,6 +16,7 @@ const doc = YAML.parse(cloudInitText) as {
   packages?: string[];
   write_files?: { path: string; permissions?: string; content: string }[];
   runcmd?: unknown[];
+  apt?: { sources?: Record<string, { source?: string; key?: string }> };
 };
 
 const file = (pathSuffix: string) => {
@@ -44,6 +45,9 @@ describe("deploy/cloud-init.yaml", () => {
     expect(env.permissions).toBe("0600");
     expect(env.content).toContain("OBSIDIAN_TC_PUBLIC_URL=");
     expect(env.content).not.toContain("OBSIDIAN_TC_JWT_SECRET");
+    expect(env.content, "PORT is fixed at 8765 in the Caddyfile and the loopback bind").not.toMatch(
+      /^PORT=/m,
+    );
   });
 
   it("binds the published port to loopback in the VPS override, with !override", () => {
@@ -65,10 +69,25 @@ describe("deploy/cloud-init.yaml", () => {
     }
   });
 
-  it("installs Docker, Compose and Caddy from the Ubuntu archive", () => {
+  it("refuses an IP address as the public URL, because Caddy cannot get a public certificate for one", () => {
+    const script = file("/opt/obsidian-tc/bootstrap.sh").content;
+    expect(script).toContain("needs a domain name, not an IP address");
+  });
+
+  it("never turns on shell tracing, which would log the expanded secret line", () => {
+    const script = file("/opt/obsidian-tc/bootstrap.sh").content;
+    expect(script).not.toMatch(/^\s*set -[a-zA-Z]*x/m);
+    expect(script).not.toMatch(/xtrace|\b(ba)?sh -x\b/);
+  });
+
+  it("installs Docker and Compose from the Ubuntu archive and Caddy from Caddy's own repository", () => {
     expect(doc.packages).toEqual(
       expect.arrayContaining(["docker.io", "docker-compose-v2", "caddy"]),
     );
+    const caddy = doc.apt?.sources?.caddy;
+    expect(caddy?.source).toContain("https://dl.cloudsmith.io/public/caddy/stable/deb/debian");
+    expect(caddy?.source).toContain("signed-by=$KEY_FILE");
+    expect(caddy?.key).toContain("-----BEGIN PGP PUBLIC KEY BLOCK-----");
   });
 
   it("runs the bootstrap script from runcmd", () => {

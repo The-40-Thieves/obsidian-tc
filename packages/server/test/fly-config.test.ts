@@ -84,10 +84,12 @@ describe("fly.toml", () => {
     const file = fly.files?.[0];
     expect(file?.guest_path).toBe(env.OBSIDIAN_TC_CONFIG);
     expect(file?.local_path).toBe("deploy/config/obsidian-tc.config.json");
-    const shared = readFileSync(join(repoRoot, file?.local_path ?? ""), "utf8");
-    expect(shared).toBe(
-      readFileSync(join(repoRoot, "deploy/config/obsidian-tc.config.json"), "utf8"),
-    );
+    const shared = JSON.parse(readFileSync(join(repoRoot, file?.local_path ?? ""), "utf8")) as {
+      vaults?: { path?: string }[];
+      transports?: { http?: { host?: string } };
+    };
+    expect(shared.vaults?.[0]?.path).toBe(env.OBSIDIAN_TC_VAULT_PATH);
+    expect(shared.transports?.http?.host).toBe("0.0.0.0");
   });
 
   it("keeps secrets and the public URL out of [env]", () => {

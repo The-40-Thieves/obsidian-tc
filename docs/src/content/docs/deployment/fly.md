@@ -116,7 +116,7 @@ can be set with `snapshot_retention` in `[mounts]`.
 
 The volume is the only copy of the vault that the server reads. To keep the vault in step with a Git
 repository, use the `-git` image and the variables in
-[Git-backed vault](/deployment/railway/#git-backed-vault-git-image). Those tags are first published with
+[Git-backed vault](/deployment/railway/#git-backed-vault--git-image). Those tags are first published with
 the next release, so the `-git` image is not yet available for `[build] image`.
 
 ## What this does not do yet
