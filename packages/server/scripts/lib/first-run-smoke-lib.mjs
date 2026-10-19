@@ -159,3 +159,28 @@ export function renderMatrix({ paths, oses, reports, expected }) {
   }
   return rows.join("\n");
 }
+
+const EMBEDDER_PACKAGE = "@the-40-thieves/obsidian-tc-embedder-local";
+
+/** Embedder packages npm was asked for on a host with a native ONNX runtime but did not install.
+ *  npm skips an optional dependency silently, so `obsidian-tc` can install "successfully" without
+ *  them. What is required is read from what npm installed, not from the repo's runtime matrix: the
+ *  embedder when `obsidian-tc` declares it, and the host runtime only when the installed embedder
+ *  (`embedderDeclared`) declares it. With the embedder missing the runtime it would have declared is
+ *  unknown, so only the embedder is named. `runtimePlatforms` is the repo's per-platform runtime
+ *  matrix: a WASM-backed platform has no native binary to lose, and musl cannot take the glibc
+ *  runtime, so both keep passing. */
+export function skippedEmbedderPackages({
+  declared,
+  embedderDeclared,
+  platformKey,
+  runtimePlatforms,
+  musl,
+  installed,
+}) {
+  if (musl || runtimePlatforms[platformKey]?.backend !== "native") return [];
+  if (!declared.includes(EMBEDDER_PACKAGE)) return [];
+  if (!installed(EMBEDDER_PACKAGE)) return [EMBEDDER_PACKAGE];
+  const runtime = `${EMBEDDER_PACKAGE}-${platformKey}`;
+  return embedderDeclared.includes(runtime) && !installed(runtime) ? [runtime] : [];
+}
