@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>obsidian-tc web client</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 52rem; padding: 0 1rem; }
+      input[type="text"], input[type="url"], textarea { width: 100%; box-sizing: border-box; }
+      pre { white-space: pre-wrap; background: #f4f4f4; padding: 0.75rem; overflow: auto; }
+      [hidden] { display: none; }
+      #status { color: #444; min-height: 1.2em; }
+    </style>
+  </head>
+  <body>
+    <h1>obsidian-tc web client</h1>
+    <p id="status" role="status"></p>
+
+    <section>
+      <label for="mcp-url">MCP endpoint</label>
+      <input id="mcp-url" type="url" value="http://127.0.0.1:8765/mcp" />
+      <button id="signin" type="button">Sign in</button>
+    </section>
+
+    <section id="search-form" hidden>
+      <h2>Search</h2>
+      <form id="search">
+        <label for="vault">Vault</label>
+        <select id="vault"></select>
+        <label for="query">Text</label>
+        <input id="query" type="text" required />
+        <button type="submit">Search</button>
+      </form>
+      <ul id="results"></ul>
+      <h3 id="note-path">No note open</h3>
+      <pre id="note-body"></pre>
+    </section>
+
+    <section id="hitl" hidden>
+      <h2>The server asks for input</h2>
+      <p id="hitl-message"></p>
+      <label for="hitl-content">Answer (JSON, sent as <code>content</code>)</label>
+      <textarea id="hitl-content" rows="4">{}</textarea>
+      <pre id="hitl-schema"></pre>
+      <button id="hitl-accept" type="button">Accept</button>
+      <button id="hitl-decline" type="button">Decline</button>
+    </section>
+
+    <script type="module" src="./app.mjs"></script>
+  </body>
+</html>
