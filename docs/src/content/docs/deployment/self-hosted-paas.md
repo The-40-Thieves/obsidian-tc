@@ -3,6 +3,10 @@ title: Self-hosted PaaS
 description: Deploy obsidian-tc on Coolify, Dokploy or CapRover from the templates in deploy/paas, with a persistent volume, a generated JWT secret and HTTPS.
 ---
 
+:::caution
+These templates need obsidian-tc v1.34.0 or later. Until v1.34.0 is published, `:latest` is v1.33.1, which has no health route (`/healthz`) and does not read the environment settings the template relies on, so the deploy will not become healthy. Once v1.34.0 is out, `:latest` works; pin the exact version for production.
+:::
+
 The repository ships three templates under `deploy/paas/`: a Coolify compose resource, a Dokploy
 template and a CapRover one-click app. All three are derived from `deploy/compose.http.yml`, so each
 runs the same published image, keeps its data on a volume at `/data`, reads the same config file and
