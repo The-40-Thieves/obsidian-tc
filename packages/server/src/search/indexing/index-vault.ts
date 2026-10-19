@@ -63,7 +63,7 @@ import {
 } from "./note-plan";
 import { logPassSkips } from "./pass-skip-log";
 import { applyNoteWrites, fireIndexHook } from "./persist-note-plan";
-import { readIndexableNote, recordReadRefusal, refusedIdentities } from "./read-refusal";
+import { readIndexableNote, recordReadRefusal } from "./read-refusal";
 import { createStaleSkipLog } from "./stale-skip";
 import { sweepUnindexedNotes } from "./sweep-notes";
 import type { DedupCache, IndexStats, IndexVaultArgs, NoteWritePlan } from "./types";
@@ -433,7 +433,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     await yieldToLoop();
     const read = readIndexableNote(args.root, rel);
     if ("refused" in read)
-      return recordReadRefusal(stats, walkedSet, readableWalked, rel, read.refused);
+      return recordReadRefusal(args, stats, walkedSet, readableWalked, rel, read.refused);
     const raw = read.raw;
     // THE-1073: probe-parse ONCE, here, before anything else touches this note's frontmatter
     // (buildNoteRecord/noteTags below both call parseNote themselves and would throw on the SAME
@@ -532,14 +532,14 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       notes.push(e.relPath);
       await processNote(e.relPath, { mtime: e.mtime, size: e.size });
     }
-    syncAclPaths(args.db, args.vaultId, walkedSet, args.sql);
   } else {
-    syncAclPaths(args.db, args.vaultId, walkedSet, args.sql);
     for (const rel of notes) {
       await processNote(rel, statByPath.get(rel) ?? null);
     }
-    syncAclPaths(args.db, args.vaultId, refusedIdentities(stats.read_refusals), args.sql);
   }
+  // After the walk, never before it: a pre-walk sync would give a note this pass then refuses its walk
+  // identity for as long as the pass runs. A refusal is already persisted by recordReadRefusal.
+  syncAclPaths(args.db, args.vaultId, walkedSet, args.sql);
   stats.notes_seen = notes.length; // THE-490: notes is only fully known once the walk above completes
   // THE-1073 / THE-390: one sampled stderr line per skip class (pass-skip-log.ts).
   logPassSkips(args.vaultId, stats);

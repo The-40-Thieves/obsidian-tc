@@ -5,6 +5,7 @@
 // refusal escaped processNote and rejected the whole pass. Now the note is skipped, counted and
 // reported, its identity is left UNRESOLVED (fail closed), and the pass continues.
 import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+// (symlinkSync above: the symlinkOk probe below is the Windows guard, see acl-symlink-canonical.test.ts)
 import { dirname, join } from "node:path";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 import { afterEach, describe, expect, it } from "vitest";
@@ -27,6 +28,16 @@ import { makeTempDir, rmTemp } from "./tmp";
 const VAULT = "v";
 const REFUSED = 'safe open refused the path: refusing symlinked or missing path component: "wiki"';
 const OPEN_ACL = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
+
+let symlinkOk = true;
+try {
+  const probe = makeTempDir("sl-probe-");
+  symlinkSync(join(probe, "t"), join(probe, "l"), "dir");
+  rmTemp(probe);
+} catch {
+  symlinkOk = false; // Windows without the privilege to create symlinks
+}
+
 const provider = fakeEmbeddingProvider({ dimensions: 32 });
 const representation = buildRepresentationManifest(provider, {});
 
@@ -52,8 +63,8 @@ function makeRoot(): { root: string; elsewhere: string } {
   write(root, "pages/a.md", "# A\n\nzebra alpha\n");
   write(root, "top.md", "# Top\n\nzebra top\n");
   write(elsewhere, "o.md", "# O\n\nzebra outside\n");
-  symlinkSync(join(root, "pages"), join(root, "wiki"));
-  symlinkSync(elsewhere, join(root, "outside"));
+  symlinkSync(join(root, "pages"), join(root, "wiki"), "dir");
+  symlinkSync(elsewhere, join(root, "outside"), "dir");
   return { root, elsewhere };
 }
 
@@ -90,7 +101,7 @@ const chunkPaths = (db: Database, prefix: string): string[] =>
     }>
   ).map((r) => r.path);
 
-describe.each([false, true])(
+describe.skipIf(!symlinkOk).each([false, true])(
   "a refused read is skipped and reported (streaming walk: %s)",
   (streaming) => {
     it("a sub-folder that is an unconfigured symlink is skipped and reported, not an aborted pass", async () => {
@@ -122,40 +133,43 @@ describe.each([false, true])(
   },
 );
 
-describe.skipIf(!nativeVaultIo)(
-  "a stored alias row goes unresolved when its read is later refused",
-  () => {
-    it("re-indexing the alias with no pins leaves no row under its old identity", async () => {
-      const { root } = makeRoot();
-      const db = freshDb();
-      await withFolderPins(new FolderPins([{ root, wikiFolder: "wiki" }]), () =>
-        indexVault({
-          db,
-          provider,
-          representation,
-          vaultId: VAULT,
-          root,
-          sub: "wiki",
-          isReadable: (rel) => readableByFolder(OPEN_ACL, rel),
-        }),
-      );
-      const before = db
-        .prepare("SELECT DISTINCT acl_path FROM chunks WHERE path = 'wiki/a.md'")
-        .all() as Array<{ acl_path: string | null }>;
-      expect(before).toEqual([{ acl_path: "pages/a.md" }]);
+describe.each([false, true])(
+  "a stored alias row goes unresolved when its read is later refused (streaming walk: %s)",
+  (streaming) => {
+    it.skipIf(!nativeVaultIo || !symlinkOk)(
+      "re-indexing the alias with no pins leaves no row under its old identity",
+      async () => {
+        const { root } = makeRoot();
+        const db = freshDb();
+        await withFolderPins(new FolderPins([{ root, wikiFolder: "wiki" }]), () =>
+          indexVault({
+            db,
+            provider,
+            representation,
+            vaultId: VAULT,
+            root,
+            sub: "wiki",
+            isReadable: (rel) => readableByFolder(OPEN_ACL, rel),
+          }),
+        );
+        const before = db
+          .prepare("SELECT DISTINCT acl_path FROM chunks WHERE path = 'wiki/a.md'")
+          .all() as Array<{ acl_path: string | null }>;
+        expect(before).toEqual([{ acl_path: "pages/a.md" }]);
 
-      const stats = await index(db, root, "wiki");
-      expect(stats.notes_read_refused).toBe(1);
-      const after = db
-        .prepare("SELECT DISTINCT acl_path FROM chunks WHERE path = 'wiki/a.md'")
-        .all() as Array<{ acl_path: string | null }>;
-      expect(after.every((r) => r.acl_path === "" || r.acl_path === null)).toBe(true);
-      expect(after.length).toBeGreaterThan(0);
-    });
+        const stats = await index(db, root, "wiki", streaming);
+        expect(stats.notes_read_refused).toBe(1);
+        const after = db
+          .prepare("SELECT DISTINCT acl_path FROM chunks WHERE path = 'wiki/a.md'")
+          .all() as Array<{ acl_path: string | null }>;
+        expect(after.every((r) => r.acl_path === "" || r.acl_path === null)).toBe(true);
+        expect(after.length).toBeGreaterThan(0);
+      },
+    );
   },
 );
 
-describe("index_vault through the tool registry", () => {
+describe.skipIf(!symlinkOk)("index_vault through the tool registry", () => {
   function registry(root: string, db: Database): ToolRegistry {
     const vaultRegistry = new VaultRegistry([{ id: VAULT, path: root }]);
     const reg = new ToolRegistry({

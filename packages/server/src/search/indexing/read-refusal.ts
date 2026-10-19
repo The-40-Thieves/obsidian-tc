@@ -9,7 +9,8 @@ import type { AclPath } from "../../vault/acl-identity";
 import { readNote } from "../../vault/notes-io";
 import { resolveVaultPath } from "../../vault/paths";
 import { ACL_PATH_UNRESOLVED } from "../../vault/stored-acl-path";
-import type { IndexStats } from "./types";
+import { syncAclPaths } from "./acl-path-sync";
+import type { IndexStats, IndexVaultArgs } from "./types";
 
 /** The note's raw text, or the refusal message when the safe open refused the read. */
 export function readIndexableNote(
@@ -26,8 +27,11 @@ export function readIndexableNote(
 }
 
 /** Records one refused read: counted and named by the pass, its identity UNRESOLVED (fail closed), and
- *  no longer readable. The name stays in walkedSet, so the sweep does not treat the note as deleted. */
+ *  no longer readable. The name stays in walkedSet, so the sweep does not treat the note as deleted.
+ *  The stored row is synced NOW, not after the walk: a later error in this pass must not leave the
+ *  note's old resolved identity in place (search reads that row, not the walk). */
 export function recordReadRefusal(
+  pass: Pick<IndexVaultArgs, "db" | "vaultId" | "sql">,
   stats: IndexStats,
   walkedSet: Map<string, AclPath | typeof ACL_PATH_UNRESOLVED>,
   readableWalked: Set<string>,
@@ -38,11 +42,5 @@ export function recordReadRefusal(
   stats.read_refusals.push({ path: rel, error });
   walkedSet.set(rel, ACL_PATH_UNRESOLVED);
   readableWalked.delete(rel);
-}
-
-/** The refused notes as the identity map syncAclPaths writes: a stored row under the name fails closed. */
-export function refusedIdentities(
-  failures: Array<{ path: string; error: string }>,
-): ReadonlyMap<string, string> {
-  return new Map(failures.map((f) => [f.path, ACL_PATH_UNRESOLVED]));
+  syncAclPaths(pass.db, pass.vaultId, new Map([[rel, ACL_PATH_UNRESOLVED]]), pass.sql);
 }
