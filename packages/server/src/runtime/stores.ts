@@ -14,6 +14,7 @@ import { makeActivationLookup } from "../experiential/activation";
 import { createEpisodeCapture, type EpisodeSink } from "../experiential/episodes";
 import { createRetrievalLogger, type RetrievalLogger } from "../experiential/log";
 import { stderrOnError } from "../util/errors";
+import { ensureEnvVaultRoot } from "../vault/ensure-root";
 import { formatVaultRenameNotice, resolveAndApplyVaultIdentity } from "../vault/identity";
 import { withBootstrapBarrier } from "./vault-lock";
 
@@ -124,5 +125,7 @@ export async function wireStores(deps: StoresDeps): Promise<Stores> {
  * `withBootstrapBarrier`'s own doc comment (vault-lock.ts) for the migration race this closes.
  */
 export async function wireStoresBehindBootstrapBarrier(deps: StoresDeps): Promise<Stores> {
+  // Before the barrier: the vault root must exist before wireStores registers the vault identity.
+  ensureEnvVaultRoot(deps.vaults);
   return withBootstrapBarrier(deps.cacheDir, () => wireStores(deps));
 }
