@@ -42,6 +42,24 @@ describe("client address captured before the request is replaced", () => {
   });
 });
 
+describe("a peer already captured by a parent is not overwritten", () => {
+  it("RED: a second capture keeps the peer the first one recorded, once the runtime no longer reports it", async () => {
+    // A parent app registers the capture, then a body-rebuilding middleware, then a child that
+    // registers the capture again (what createHttpApp does when mounted under the parent).
+    const app = new Hono();
+    app.use("*", captureClientPeer);
+    app.use("*", async (c, next) => {
+      c.req.raw = new Request(c.req.raw);
+      await next();
+    });
+    app.use("*", captureClientPeer);
+    app.post("/oauth/login", (c) => c.text(socketClientIp(c) ?? "unattributed"));
+    const original = new Request("https://x.test/oauth/login", { method: "POST", body: "x" });
+    const res = await app.fetch(original, bunEnv(original));
+    expect(await res.text()).toBe(PEER);
+  });
+});
+
 describe("fallback without the capture middleware", () => {
   it("a bare app still reads the peer from the runtime's request object", async () => {
     const app = new Hono();

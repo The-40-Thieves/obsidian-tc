@@ -10,7 +10,10 @@
 // client address: the resolver then names that client when the peer is read, and nothing when it is not.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { FolderAcl } from "../src/acl";
+import { captureClientPeer } from "../src/auth/client-ip";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb, provisionOauthDb } from "../src/db/provision";
 import { ToolRegistry } from "../src/mcp/registry";
@@ -41,7 +44,7 @@ afterEach(async () => {
   else process.env[ENV_KEY] = savedToken;
 });
 
-async function startClaimedServer(): Promise<string> {
+async function startClaimedServer(parented = false): Promise<string> {
   const db = await openDatabase(":memory:");
   provisionCacheDb(db);
   const oauthDb = await openDatabase(":memory:");
@@ -67,7 +70,13 @@ async function startClaimedServer(): Promise<string> {
     trustedProxies: ["127.0.0.0/8"],
     forwardedHeader: "x-forwarded-for",
   });
-  server = await serveHono(handle.app, { host: "127.0.0.1", port: 0 });
+  // An embedder mounts the app under its own Hono app. The parent registers the capture first, then
+  // a body-rebuilding middleware, so the request is replaced after the peer was recorded.
+  const parent = new Hono();
+  parent.use("*", captureClientPeer);
+  parent.use("/oauth/*", bodyLimit({ maxSize: 1024 * 1024 }));
+  parent.route("/", handle.app);
+  server = await serveHono(parented ? parent : handle.app, { host: "127.0.0.1", port: 0 });
   const base = `http://127.0.0.1:${server.port}`;
 
   // Claim the operator through the setup page, as an operator would.
@@ -142,8 +151,8 @@ async function failedLogin(
 
 /** Failed logins, each for a different account (so the per-account limit never trips), until the
  *  per-IP limit refuses one. Returns the status of every attempt. */
-async function attemptsUntilRefused(chunked: boolean): Promise<number[]> {
-  const base = await startClaimedServer();
+async function attemptsUntilRefused(chunked: boolean, parented = false): Promise<number[]> {
+  const base = await startClaimedServer(parented);
   const login = await page(base, "/oauth/login");
   const statuses: number[] = [];
   for (let i = 0; i <= IP_LIMIT; i++) {
@@ -160,6 +169,12 @@ test("a Content-Length POST to /oauth/login counts against the per-IP limit (con
 
 test("a chunked POST to /oauth/login counts against the per-IP limit, the same way", async () => {
   const statuses = await attemptsUntilRefused(true);
+  expect(statuses.slice(0, IP_LIMIT).every((s) => s !== 429)).toBe(true);
+  expect(statuses[IP_LIMIT]).toBe(429);
+}, 60_000);
+
+test("a chunked POST counts against the per-IP limit when a parent app mounts the capture first and rebuilds the body", async () => {
+  const statuses = await attemptsUntilRefused(true, true);
   expect(statuses.slice(0, IP_LIMIT).every((s) => s !== 429)).toBe(true);
   expect(statuses[IP_LIMIT]).toBe(429);
 }, 60_000);

@@ -71,7 +71,9 @@ function rawPeerOf(c: Context): string | undefined {
  * only for the request it created, so a peer read after the replacement is lost.
  */
 export const captureClientPeer: MiddlewareHandler = async (c, next) => {
-  c.set("clientPeer", rawPeerOf(c));
+  // A peer already recorded by a parent app is kept: a routed child runs its middleware after the
+  // parent's, on the same context, and the parent's body-rebuilding middleware may have replaced the request.
+  if (c.get("clientPeer") === undefined) c.set("clientPeer", rawPeerOf(c));
   await next();
 };
 

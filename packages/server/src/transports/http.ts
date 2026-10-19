@@ -429,6 +429,10 @@ export interface HttpApp {
   close: () => Promise<void>;
 }
 
+/**
+ * An embedder that mounts this app under its own Hono app (`parent.route("/", app)`) must register
+ * `captureClientPeer` first in the parent, before any middleware that can rebuild the request.
+ */
 export function createHttpApp(opts: HttpAppOptions): HttpApp {
   const app = new Hono();
   // The client address is read from the TCP peer before any middleware below can replace the request
