@@ -55,6 +55,20 @@ export function carriesNoCredentials(header: string | undefined): boolean {
   return !value || value.toLowerCase() === "bearer";
 }
 
+/**
+ * Could this request be an anonymous discovery call, so that its body is read under the anonymous
+ * bound? It must carry no credentials, and must not DECLARE a body over that bound: a declared
+ * oversize body is not a discovery request and keeps the plain 401, unread. An oversize body that
+ * arrives without a declared length is read, and refused 413 once it passes the bound.
+ */
+export function isAnonymousCandidate(req: Request): boolean {
+  const declared = Number(req.headers.get("content-length"));
+  return (
+    carriesNoCredentials(req.headers.get("authorization") ?? undefined) &&
+    !(declared > MAX_ANONYMOUS_BODY_BYTES)
+  );
+}
+
 export type AnonymousVerdict =
   | { kind: "admit" }
   | { kind: "tool-error"; id: string | number }
@@ -105,45 +119,26 @@ export function anonymousToolError(
 }
 
 /** A discovery or sign-in-trigger request is a few hundred bytes; an unauthenticated body is never
- *  buffered beyond this (the SDK's own size guard runs only after the edge has parsed it). */
-const MAX_ANONYMOUS_BODY_BYTES = 64 * 1024;
+ *  buffered beyond this (the HTTP edge reads it under this cap, before the gate runs). */
+export const MAX_ANONYMOUS_BODY_BYTES = 64 * 1024;
 
-async function readSmallJson(req: Request): Promise<unknown> {
-  const declared = Number(req.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_ANONYMOUS_BODY_BYTES) return undefined;
-  const reader = req.clone().body?.getReader();
-  if (!reader) return undefined;
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_ANONYMOUS_BODY_BYTES) {
-      // Not awaited: on a cloned (tee) body the cancel settles only once the other branch is cancelled too.
-      void reader.cancel().catch(() => undefined);
-      return undefined;
-    }
-    chunks.push(value);
-  }
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  } catch {
-    return undefined;
-  }
-}
+/** How long an unauthenticated caller may take to send that body. Tighter than the 30 s the
+ *  authenticated path allows, because nothing identifies the caller yet. */
+export const ANONYMOUS_BODY_DEADLINE_MS = 10_000;
 
 /**
- * The gate for a request that carried no bearer token (mixed mode only). Returns the scopes to admit
- * it with (discovery), a ready Response (an anonymous `tools/call`), or undefined to let the 401
- * stand: an unparsable body, a batch, or any method outside the allowed set.
+ * The gate for a request that carried no bearer token (mixed mode only). `body` is the request's
+ * parsed JSON, or undefined when it did not parse; the edge has already read it under
+ * MAX_ANONYMOUS_BODY_BYTES. Returns the scopes to admit it with (discovery), a ready Response (an
+ * anonymous `tools/call`), or undefined to let the 401 stand: an unparsable body, a batch, or any
+ * method outside the allowed set.
  */
-export async function anonymousGate(
+export function anonymousGate(
   req: Request,
   auth: AuthConfig,
   surface: string | undefined,
-): Promise<Response | { scopes: Set<string> } | undefined> {
-  const body = await readSmallJson(req);
+  body: unknown,
+): Response | { scopes: Set<string> } | undefined {
   const verdict = classifyAnonymous(body);
   if (verdict.kind === "admit") return { scopes: new Set(anonymousScopes(auth)) };
   if (verdict.kind === "tool-error") {

@@ -47,10 +47,11 @@ import type { MetricsRecorder } from "../metrics/registry";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
 import { activeSessionFor, DEFAULT_TRACE_FOLDER, openImplicitSession } from "../workspace/sessions";
-import { anonymousGate, carriesNoCredentials, mixedModeScopes } from "./anonymous-discovery";
+import { anonymousGate, isAnonymousCandidate, mixedModeScopes } from "./anonymous-discovery";
 import { corsMiddleware, corsOriginSet } from "./cors";
 import { mountHealthz } from "./healthz";
 import { isHostAllowed, isOriginAllowed } from "./host-guard";
+import { ANONYMOUS_BODY_BOUNDS, AUTHENTICATED_BODY_BOUNDS, readMcpBody } from "./mcp-body";
 import { type ServerHandle, serveHono } from "./serve";
 import { mountVaultSyncWebhook, type VaultSyncWebhookOptions } from "./vault-sync-webhook";
 
@@ -608,8 +609,20 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
     // `auth.anonymousDiscovery: "list"`: ONLY a request that carried no bearer token at all can be
     // admitted for discovery (a bad token keeps its 401, so an expired one still triggers a refresh),
     // and only for the methods `classifyAnonymous` names. Anything else falls through to the 401.
-    if (!authz.ok && mixedAuth && carriesNoCredentials(c.req.header("authorization"))) {
-      const gate = await anonymousGate(c.req.raw, opts.auth, surfaceName);
+    // The body is read once, here, for a request that may proceed: an authenticated one, or an anonymous
+    // discovery candidate (tighter bounds). A bad token keeps its 401 without its body being read.
+    const anonymousCandidate = mixedAuth && !authz.ok && isAnonymousCandidate(c.req.raw);
+    let body: unknown;
+    if (authz.ok || anonymousCandidate) {
+      const read = await readMcpBody(
+        c,
+        anonymousCandidate ? ANONYMOUS_BODY_BOUNDS : AUTHENTICATED_BODY_BOUNDS,
+      );
+      if (!read.ok) return read.response;
+      body = read.parsed;
+    }
+    if (anonymousCandidate) {
+      const gate = anonymousGate(c.req.raw, opts.auth, surfaceName, body);
       if (gate instanceof Response) return gate;
       if (gate)
         authz = { ok: true, caller: null, scopes: gate.scopes, verified: false, anonymous: true };
@@ -626,13 +639,8 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
       );
     }
 
-    // Early malformed-JSON guard so a parse failure is a clean JSON-RPC -32700 rather than
-    // whatever the handler would surface. The parsed value is not needed: createMcpHandler reads
-    // the request itself.
-    let body: unknown;
-    try {
-      body = await c.req.raw.clone().json();
-    } catch {
+    // Early malformed-JSON guard: a parse failure is a JSON-RPC -32700, not the handler's error.
+    if (body === undefined) {
       return c.json(
         { jsonrpc: "2.0", error: { code: -32700, message: "parse error" }, id: null },
         400,
@@ -688,8 +696,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
     return await handler.fetch(c.req.raw, {
       // The body we already parsed above (for the Tasks extension checks). Without this the SDK
       // parses the same bytes a SECOND time on every request — `createMcpHandler` only parses when
-      // `parsedBody` is undefined. The clone stays: the SDK is handed the untouched request, and
-      // this is purely about not re-doing the JSON work.
+      // `parsedBody` is undefined. The guard read the original already (`bodyUsed`); the SDK never reads it.
       ...(body !== undefined ? { parsedBody: body } : {}),
       authInfo: {
         token: bearer(c.req.header("authorization")) ?? "",
