@@ -1,10 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
-import {
-  createMcpHandler,
-  DEFAULT_MAX_REQUEST_BODY_SIZE,
-  type ServerNotifier,
-} from "@modelcontextprotocol/server";
+import { createMcpHandler, type ServerNotifier } from "@modelcontextprotocol/server";
 import type {
   PersonasConfig,
   ResponseFormat,
@@ -51,11 +47,11 @@ import type { MetricsRecorder } from "../metrics/registry";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
 import { activeSessionFor, DEFAULT_TRACE_FOLDER, openImplicitSession } from "../workspace/sessions";
-import { anonymousGate, carriesNoCredentials, mixedModeScopes } from "./anonymous-discovery";
-import { readBoundedBody } from "./bounded-body";
+import { anonymousGate, isAnonymousCandidate, mixedModeScopes } from "./anonymous-discovery";
 import { corsMiddleware, corsOriginSet } from "./cors";
 import { mountHealthz } from "./healthz";
 import { isHostAllowed, isOriginAllowed } from "./host-guard";
+import { ANONYMOUS_BODY_BOUNDS, AUTHENTICATED_BODY_BOUNDS, readMcpBody } from "./mcp-body";
 import { type ServerHandle, serveHono } from "./serve";
 import { mountVaultSyncWebhook, type VaultSyncWebhookOptions } from "./vault-sync-webhook";
 
@@ -606,8 +602,20 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
     // `auth.anonymousDiscovery: "list"`: ONLY a request that carried no bearer token at all can be
     // admitted for discovery (a bad token keeps its 401, so an expired one still triggers a refresh),
     // and only for the methods `classifyAnonymous` names. Anything else falls through to the 401.
-    if (!authz.ok && mixedAuth && carriesNoCredentials(c.req.header("authorization"))) {
-      const gate = await anonymousGate(c.req.raw, opts.auth, surfaceName);
+    // The body is read once, here, for a request that may proceed: an authenticated one, or an anonymous
+    // discovery candidate (tighter bounds). A bad token keeps its 401 without its body being read.
+    const anonymousCandidate = mixedAuth && !authz.ok && isAnonymousCandidate(c.req.raw);
+    let body: unknown;
+    if (authz.ok || anonymousCandidate) {
+      const read = await readMcpBody(
+        c,
+        anonymousCandidate ? ANONYMOUS_BODY_BOUNDS : AUTHENTICATED_BODY_BOUNDS,
+      );
+      if (!read.ok) return read.response;
+      body = read.parsed;
+    }
+    if (anonymousCandidate) {
+      const gate = anonymousGate(c.req.raw, opts.auth, surfaceName, body);
       if (gate instanceof Response) return gate;
       if (gate)
         authz = { ok: true, caller: null, scopes: gate.scopes, verified: false, anonymous: true };
@@ -624,23 +632,8 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
       );
     }
 
-    // Early malformed-JSON guard: a parse failure is a JSON-RPC -32700, not the handler's error. The
-    // body is read here under the SDK's 4 MiB limit and a 30 s deadline, since the handler is given
-    // `parsedBody` and never bounds the read itself.
-    const read = await readBoundedBody(c.req.raw, {
-      maxBytes: DEFAULT_MAX_REQUEST_BODY_SIZE,
-      deadlineMs: 30_000,
-    });
-    if (!read.ok && read.status !== 400) {
-      c.header("Connection", "close");
-      const message = read.status === 413 ? "request body too large" : "request body timeout";
-      return c.json({ jsonrpc: "2.0", error: { code: -32000, message }, id: null }, read.status);
-    }
-    let body: unknown;
-    try {
-      // An unreadable body (400) is empty here, so it fails the parse like any other bad body.
-      body = JSON.parse(new TextDecoder().decode(read.ok ? read.bytes : new Uint8Array()));
-    } catch {
+    // Early malformed-JSON guard: a parse failure is a JSON-RPC -32700, not the handler's error.
+    if (body === undefined) {
       return c.json(
         { jsonrpc: "2.0", error: { code: -32700, message: "parse error" }, id: null },
         400,

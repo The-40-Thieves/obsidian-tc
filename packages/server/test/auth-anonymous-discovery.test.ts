@@ -283,7 +283,10 @@ describe("anonymousDiscovery: list (ChatGPT mixed auth)", () => {
   it.each(PATHS)("%s: an oversized anonymous body is refused unparsed", async (path) => {
     const flow = await makeFlow({ anonymousDiscovery: "list" });
     const big = { ...legacy("tools/list"), padding: "x".repeat(200 * 1024) };
-    const r = await rpc(flow, path, big);
+    // A declared length over the anonymous bound is not a discovery request: it keeps the plain 401,
+    // unread. An undeclared oversize body is answered 413 (mcp-body-bounds.test.ts).
+    const declared = { "content-length": String(Buffer.byteLength(JSON.stringify(big))) };
+    const r = await rpc(flow, path, big, undefined, declared);
     expect(r.status).toBe(401);
     expect(r.www).toBe(challengeFor(path));
   });

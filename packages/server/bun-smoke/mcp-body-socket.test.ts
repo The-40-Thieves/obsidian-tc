@@ -2,8 +2,11 @@
 // 4 MiB limit is refused before the body is read, so the client sends only the head and one byte,
 // and the socket must close on the 413 instead of waiting out Bun's idle timeout. Bun-only because
 // the idle-timeout behaviour exists only under Bun.serve.
+
 import { expect, test } from "bun:test";
 import { connect, type Socket } from "node:net";
+import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { SignJWT } from "jose";
 import { FolderAcl } from "../src/acl";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
@@ -12,6 +15,8 @@ import { startHttp } from "../src/transports/http";
 
 const FIVE_MIB = 5 * 1024 * 1024;
 const CLOSE_WITHIN_MS = 1_000;
+const JWT_SECRET = "test-only-secret-not-a-real-credential-0123456789";
+const RESOURCE = "https://vault.example.com/mcp";
 
 /** Writes a raw head on a real socket and resolves with the status line and whether it closed. */
 function exchange(port: number, head: string): Promise<{ statusLine: string; closed: boolean }> {
@@ -38,11 +43,20 @@ function exchange(port: number, head: string): Promise<{ statusLine: string; clo
 test("an oversize authenticated POST /mcp gets 413 on a real socket, and the socket closes", async () => {
   const db = await openDatabase(":memory:");
   provisionCacheDb(db);
+  const auth = ServerConfigSchema.parse({
+    vaults: [{ id: "v1", path: "/tmp/v1" }],
+    auth: { mode: "jwt", jwtSecret: JWT_SECRET, resource: RESOURCE },
+  }).auth;
+  const token = await new SignJWT({ sub: "agent", scopes: ["read:notes"] })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("10m")
+    .sign(new TextEncoder().encode(JWT_SECRET));
   const handle = await startHttp({
     name: "obsidian-tc",
     version: "0.0.0-test",
     registry: new ToolRegistry(),
-    auth: { mode: "none" } as never,
+    auth,
     db,
     vaultId: "v1",
     acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
@@ -52,7 +66,7 @@ test("an oversize authenticated POST /mcp gets 413 on a real socket, and the soc
   try {
     const result = await exchange(
       handle.port,
-      `POST /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nContent-Length: ${FIVE_MIB}\r\n\r\n{`,
+      `POST /mcp HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer ${token}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nContent-Length: ${FIVE_MIB}\r\n\r\n{`,
     );
     expect(result.statusLine).toContain(" 413 ");
     expect(result.closed).toBe(true);
