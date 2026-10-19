@@ -33,7 +33,10 @@ repos:
       - id: typos
         name: typos (spelling)
         # Config is _typos.toml at the repo root; residual is 0 repo-wide, so any hit is real.
-        entry: typos
+        # --force-exclude: prek passes filenames explicitly, and typos checks an explicitly named
+        # file even when _typos.toml excludes it (`**/*.json`), so editing an eval corpus failed here
+        # on Chinese text that CI never sees.
+        entry: typos --force-exclude
         language: system
         pass_filenames: true
 

@@ -29,6 +29,9 @@ extend-exclude = [
 # files and change nothing.
 unparseable = "unparseable"
 browseable = "browseable"
+# Regex stem, not a word: `vulnerabilit(y|ies)` in .github/actions/bun-audit/run.sh. CI's bare
+# `typos` never sees it (it skips hidden dirs like .github); prek names the file explicitly.
+vulnerabilit = "vulnerabilit"
 # Real names typos mistakes for near-misses.
 evalite = "evalite" # the eval tool
 morg = "morg"       # MORGIANA abbreviation
