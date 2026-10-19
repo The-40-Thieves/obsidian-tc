@@ -16,9 +16,9 @@ services:
                 - FROM ghcr.io/the-40-thieves/obsidian-tc:$$cap_obsidian_tc_version
                 - USER root
                 - >-
-                  RUN mkdir -p /config && printf '%s\n'
-                  '{"vaults":[{"id":"main","path":"/data/vault"}],"transports":{"stdio":false,"http":{"host":"0.0.0.0"}},"auth":{"mode":"jwt","requireJti":true}}'
-                  > /config/obsidian-tc.config.json
+                    RUN mkdir -p /config && printf '%s\n'
+                    '{"vaults":[{"id":"main","path":"/data/vault"}],"transports":{"stdio":false,"http":{"host":"0.0.0.0"}},"auth":{"mode":"jwt","requireJti":true}}'
+                    > /config/obsidian-tc.config.json
                 - USER bun
 caproverOneClickApp:
     variables:

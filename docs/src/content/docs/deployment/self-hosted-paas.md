@@ -6,8 +6,10 @@ description: Deploy obsidian-tc on Coolify, Dokploy or CapRover from the templat
 The repository ships three templates under `deploy/paas/`: a Coolify compose resource, a Dokploy
 template and a CapRover one-click app. All three are derived from `deploy/compose.http.yml`, so each
 runs the same published image, keeps its data on a volume at `/data`, reads the same config file and
-listens on port 8765. A drift test (`packages/server/test/deploy-paas-templates.test.ts`) fails when a
-template stops matching the compose bundle.
+listens on port 8765. A drift test (`packages/server/test/deploy-paas-templates.test.ts`) checks each template against the
+compose bundle: the image, the environment, a read-write `/data` mount, the config file, the port, the
+absence of a healthcheck, and how each platform fills the public URL and the JWT secret. It does not
+deploy anything.
 
 ## What every template sets
 
@@ -62,13 +64,21 @@ server reads the file at boot.
    and the config file.
 2. Dokploy generates the domain and a 64-character password. The config file is mounted from
    `../files/obsidian-tc.config.json`, which the template writes.
-3. Deploy, then check that the service answers on its https domain.
+3. Before the first deploy, open the domain's settings and set its certificate to Let's Encrypt with
+   HTTPS on. Dokploy creates the generated domain without a certificate, so until you do this the
+   service answers only over plain HTTP, while `OBSIDIAN_TC_PUBLIC_URL` is an `https://` address.
+4. Deploy, then check that the service answers on its https domain.
+5. To use your own domain instead, point the domain's host at it, set `OBSIDIAN_TC_PUBLIC_URL` to
+   `https://<your domain>`, and redeploy. The generated URL is written at import, so it does not follow
+   a domain change. If the server refuses the new Host header, add the domain to
+   `transports.http.allowedHosts` in the config file.
 
 ## CapRover
 
 1. Add `deploy/paas/caprover/obsidian-tc.yml` as a one-click app. The file is a CapRover template, so
    use the template entry for pasting a YAML definition.
-2. Enable HTTPS for the app after the first deploy. `OBSIDIAN_TC_PUBLIC_URL` is
+2. Enable HTTPS for the app after the first deploy, and tick Force HTTPS by redirecting all HTTP traffic
+   to HTTPS. Without it the plain-HTTP endpoint stays open beside the https one. `OBSIDIAN_TC_PUBLIC_URL` is
    `https://<app name>.<root domain>`, so the app must answer on that name.
 3. CapRover's compose subset has no file mount, so the config file is baked into an image layer that
    CapRover builds on your host. A config change means editing the `dockerfileLines` in the app and
@@ -105,7 +115,7 @@ Set `OBSIDIAN_TC_AS_SETUP_TOKEN` to a random value on the platform, then claim t
 The vault on the volume is the only copy the server reads. Copy your notes into `/data/vault` on the
 volume, for example with the platform's file manager or a one-off container. To keep the vault in step
 with a Git repository, use the `-git` image and the variables in
-[Git-backed vault](/deployment/railway/#git-backed-vault-git-image). The `-git` image is not part of
+[Git-backed vault](/deployment/railway/#git-backed-vault--git-image). The `-git` image is not part of
 these templates.
 
 ## Submitting upstream

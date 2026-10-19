@@ -21,6 +21,7 @@ interface VolumeObject {
   source?: string;
   target?: string;
   content?: string;
+  read_only?: boolean;
 }
 
 interface ComposeService {
@@ -44,6 +45,7 @@ interface Normalized {
   image: string | undefined;
   env: Record<string, string>;
   volumeTargets: string[];
+  dataReadOnly: boolean;
   configJson: unknown;
   httpPort: number;
   healthcheck: unknown;
@@ -70,6 +72,20 @@ function envOf(environment: ComposeService["environment"]): Record<string, strin
 // `name:/target[:mode]` or a long-form bind object.
 function volumeTarget(volume: string | VolumeObject): string | undefined {
   return typeof volume === "string" ? volume.split(":")[1] : volume.target;
+}
+
+// True when the /data mount is read-only: `name:/data:ro` or a long-form `read_only: true`.
+function dataReadOnly(volumes: Array<string | VolumeObject> = []): boolean {
+  return volumes.some((volume) =>
+    typeof volume === "string"
+      ? volumeTarget(volume) === "/data" && volume.split(":")[2] === "ro"
+      : volume.target === "/data" && volume.read_only === true,
+  );
+}
+
+// Compose resolves a bare `${KEY}` from the platform's environment, which is template.toml's list.
+function resolveRefs(value: string, vars: Record<string, string>): string {
+  return value.replace(/^\$\{(\w+)\}$/, (ref, key: string) => vars[key] ?? ref);
 }
 
 const base = (() => {
@@ -105,10 +121,20 @@ function loadCoolify(): Normalized {
     image: service?.image,
     env,
     volumeTargets: (service?.volumes ?? []).map(volumeTarget).filter((t) => t !== undefined),
+    dataReadOnly: dataReadOnly(service?.volumes),
     configJson: configVolume?.content === undefined ? undefined : JSON.parse(configVolume.content),
     httpPort: Number(routed),
     healthcheck: service?.healthcheck,
   };
+}
+
+// The Environment entries of template.toml: `env = ["KEY=value", ...]`.
+function dokployTomlEnv(toml: string): Record<string, string> {
+  return envOf(
+    [...(/^env = \[([\s\S]*?)\]/m.exec(toml)?.[1] ?? "").matchAll(/"([^"]*)"/g)].map(
+      (m) => m[1] ?? "",
+    ),
+  );
 }
 
 function loadDokploy(): Normalized {
@@ -116,11 +142,7 @@ function loadDokploy(): Normalized {
   const compose = parse(readText(join(dir, "docker-compose.yml"))) as ComposeFile;
   const toml = readText(join(dir, "template.toml"));
   const service = compose.services?.[serviceName];
-  const tomlEnv = envOf(
-    [...(/^env = \[([\s\S]*?)\]/m.exec(toml)?.[1] ?? "").matchAll(/"([^"]*)"/g)].map(
-      (m) => m[1] ?? "",
-    ),
-  );
+  const tomlEnv = dokployTomlEnv(toml);
   const mount = /\[\[config\.mounts\]\]\s*filePath = "([^"]+)"\s*content = """\n([\s\S]*?)"""/.exec(
     toml,
   );
@@ -132,8 +154,14 @@ function loadDokploy(): Normalized {
   const bindSource = bind?.split(":")[0];
   return {
     image: service?.image,
-    env: { ...envOf(service?.environment), ...tomlEnv },
+    env: Object.fromEntries(
+      Object.entries(envOf(service?.environment)).map(([key, value]) => [
+        key,
+        resolveRefs(value, tomlEnv),
+      ]),
+    ),
     volumeTargets: (service?.volumes ?? []).map(volumeTarget).filter((t) => t !== undefined),
+    dataReadOnly: dataReadOnly(service?.volumes),
     configJson:
       mount && bindSource === `../files/${mount[1] ?? ""}` ? JSON.parse(mount[2] ?? "") : undefined,
     httpPort: Number(domain?.[2]),
@@ -162,10 +190,18 @@ function loadCaprover(): Normalized {
         : undefined,
     env: envOf(service?.environment),
     volumeTargets: (service?.volumes ?? []).map(volumeTarget).filter((t) => t !== undefined),
+    dataReadOnly: dataReadOnly(service?.volumes),
     configJson: json === undefined ? undefined : JSON.parse(json),
     httpPort: Number(service?.caproverExtra?.containerHttpPort),
     healthcheck: service?.healthcheck,
   };
+}
+
+function caproverLines(): string[] {
+  const doc = parse(readText(join(paasRoot, "caprover/obsidian-tc.yml"))) as {
+    services: Record<string, { caproverExtra: { dockerfileLines: string[] } }>;
+  };
+  return doc.services.$$cap_appname?.caproverExtra.dockerfileLines ?? [];
 }
 
 const templates = [
@@ -207,6 +243,10 @@ describe("deploy/paas templates", () => {
 
   it.each(templates)("$name: mounts a volume at /data", ({ load }) => {
     expect(load().volumeTargets).toContain("/data");
+  });
+
+  it.each(templates)("$name: mounts /data read-write, so the vault can be written", ({ load }) => {
+    expect(load().dataReadOnly).toBe(false);
   });
 
   it.each(templates)("$name: delivers the shared config JSON at the config path", ({ load }) => {
@@ -275,6 +315,19 @@ describe("Dokploy template", () => {
     expect(toml).toMatch(new RegExp(`serviceName = "${serviceName}"`));
   });
 
+  it("passes every template.toml env key into the container as a compose variable reference", () => {
+    const toml = readText(join(dir, "template.toml"));
+    const doc = parse(readText(join(dir, "docker-compose.yml"))) as {
+      services: Record<string, ComposeService>;
+    };
+    const environment = envOf(doc.services[serviceName]?.environment);
+    const tomlEnv = dokployTomlEnv(toml);
+    expect(Object.keys(tomlEnv)).toContain("OBSIDIAN_TC_JWT_SECRET");
+    for (const key of Object.keys(tomlEnv)) {
+      expect(environment[key]).toBe(`\${${key}}`);
+    }
+  });
+
   it("omits ports, container_name and networks", () => {
     const doc = parse(readText(join(dir, "docker-compose.yml"))) as {
       services: Record<string, ComposeService>;
@@ -326,7 +379,8 @@ describe("CapRover template", () => {
       caproverOneClickApp: { variables: Array<{ id: string; defaultValue?: string }> };
     };
     const secret = doc.caproverOneClickApp.variables.find((v) => v.id === "$$cap_jwt_secret");
-    expect(secret?.defaultValue).toMatch(/^\$\$cap_gen_random_hex\((\d+)\)$/);
+    const hexLength = /^\$\$cap_gen_random_hex\((\d+)\)$/.exec(secret?.defaultValue ?? "")?.[1];
+    expect(Number(hexLength)).toBeGreaterThanOrEqual(32);
   });
 
   it("ends the Dockerfile lines as the non-root bun user, like the runtime stage", () => {
@@ -335,6 +389,23 @@ describe("CapRover template", () => {
     };
     const lines = doc.services.$$cap_appname?.caproverExtra.dockerfileLines ?? [];
     expect(lines.at(-1)).toBe("USER bun");
+  });
+
+  it("writes the config JSON to configTarget as root, before the USER bun switch", () => {
+    const lines = caproverLines();
+    const run = lines.findIndex((l) => l.startsWith("RUN "));
+    const redirect = /> (\S+)$/.exec(lines[run]?.trimEnd() ?? "")?.[1];
+    expect(redirect).toBe(configTarget);
+    expect(
+      lines
+        .slice(0, run)
+        .filter((l) => l.startsWith("USER "))
+        .at(-1),
+    ).toBe("USER root");
+  });
+
+  it("adds no HEALTHCHECK line, so the image HEALTHCHECK stays in force", () => {
+    expect(caproverLines().filter((l) => /^HEALTHCHECK\b/i.test(l))).toEqual([]);
   });
 
   it("keeps the one-click description within 200 characters", () => {
