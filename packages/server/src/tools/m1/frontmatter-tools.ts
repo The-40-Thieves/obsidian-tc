@@ -28,6 +28,7 @@ import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { captureSnapshot } from "../../vault/snapshots";
 import { readableStoredRow } from "../../vault/stored-acl-path";
+import { noteKeys, ToolHint, unknownPropertyHint } from "../hints";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import { defineTool } from "./define";
@@ -162,6 +163,8 @@ const FindNotesByPropertyOutput = z.object({
   // `value` entirely rather
   // than nulling it — a conditional omission, so `value` is .optional(), not .nullable().
   matches: z.array(z.object({ path: z.string(), value: z.unknown().optional() })),
+  // Set only when `matches` is empty and no readable note has the key (or nested path).
+  hint: ToolHint.optional(),
 });
 
 // ── schemas ──────────────────────────────────────────────────────────────────
@@ -534,12 +537,17 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         let truncated = false;
         const skip = offsetOf(input.cursor);
         let seen = 0;
+        // Whether any readable note has the key (or nested path), and its top-level keys for a hint.
+        let keyFound = false;
+        const knownKeys = new Set<string>();
         const consider = (path: string, fm: Record<string, unknown> | null): boolean => {
           if (!fm) return true;
+          noteKeys(knownKeys, fm);
           const g = input.nested
             ? getByPath(fm, input.key.split("."))
             : { found: Object.hasOwn(fm, input.key), value: fm[input.key] };
           if (!g.found) return true;
+          keyFound = true;
           const stored = g.value;
           if (input.value !== undefined && !valueMatches(stored, input.value)) return true;
           if (seen++ < skip) return true;
@@ -578,6 +586,10 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
             if (!consider(e.relPath, fm)) break;
           }
         }
+        const hint =
+          matches.length === 0 && !keyFound
+            ? unknownPropertyHint(input.key, knownKeys, input.nested)
+            : undefined;
         return {
           ...warnings.out(),
           vault: v.id,
@@ -589,6 +601,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
             resolveResponseFormat(input, deps.responseFormat) === "concise"
               ? matches.map((m) => ({ path: m.path }))
               : matches,
+          ...(hint ? { hint } : {}),
         };
       },
     }),

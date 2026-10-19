@@ -67,6 +67,9 @@ export interface TestVaultOptions {
   wikiFolder?: string;
   /** `vaults[].wiki.rawFolder`; unset, a wiki vault gets the default (`raw` beside the wiki folder). */
   rawFolder?: string;
+  /** Metadata-index readiness (`M1Deps.metadataIndex`). Unset: the disk walk serves frontmatter
+   *  reads. Set: they read the notes table, which the test must have populated (indexVault). */
+  metadataIndex?: { hasFts: boolean; ready: () => boolean };
   /** Extra registry options (metrics, emit, rateLimiter, toolVisibility...). */
   registryOpts?: Partial<RegistryOptions>;
 }
@@ -167,6 +170,7 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
       ? { memoryDefense: () => opts.memoryDefense as VaultMemoryDefenseConfig }
       : {}),
     ...(opts.metrics ? { metrics: opts.metrics } : {}),
+    ...(opts.metadataIndex ? { metadataIndex: opts.metadataIndex } : {}),
     ...(opts.provenanceKeys ? { provenanceKeys: opts.provenanceKeys } : {}),
     ...(opts.provenanceMaxScanRows !== undefined
       ? { provenanceMaxScanRows: opts.provenanceMaxScanRows }

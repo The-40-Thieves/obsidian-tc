@@ -152,7 +152,7 @@ function acceptedKeysAt(
 
 /** Iterative Levenshtein edit distance — schema key names are short, so the plain O(n*m) DP table
  *  needs nothing cleverer. */
-function editDistance(a: string, b: string): number {
+export function editDistance(a: string, b: string): number {
   if (a === b) return 0;
   let prevRow = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i++) {
