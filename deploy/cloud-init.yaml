@@ -1,0 +1,98 @@
+#cloud-config
+# obsidian-tc on a fresh Ubuntu 24.04 server. Edit OBSIDIAN_TC_PUBLIC_URL below, point the domain's DNS
+# A record at the server, then paste this file as the server's user data. The steps are explained in
+# docs/src/content/docs/deployment/vps.md.
+package_update: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - caddy
+write_files:
+  - path: /opt/obsidian-tc/deploy/.env
+    permissions: "0600"
+    content: |
+      OBSIDIAN_TC_PUBLIC_URL=https://vault.example.com
+      PORT=8765
+  - path: /opt/obsidian-tc/deploy/compose.http.yml
+    permissions: "0644"
+    content: |
+      # Long-lived HTTP deployment. Run this file from deploy/ so ./config resolves beside it:
+      #   export OBSIDIAN_TC_PUBLIC_URL=https://vault.example.com
+      #   export OBSIDIAN_TC_JWT_SECRET='a random secret of at least 32 characters'
+      #   docker compose -f compose.http.yml up -d
+      #
+      # A new named volume inherits writable /data/vault and /data/cache directories from the image.
+      # After `up`, seed notes with:
+      #   docker compose -f compose.http.yml cp /path/to/vault/. obsidian-tc:/data/vault
+      #
+      # The image HEALTHCHECK is inherited, so no Compose healthcheck is duplicated here.
+      # Bundled-AS alternative: enable auth.as in the config and use OBSIDIAN_TC_AS_SETUP_TOKEN instead
+      # of OBSIDIAN_TC_JWT_SECRET for the one-time operator claim; remove the setup token afterwards.
+      services:
+        obsidian-tc:
+          image: ghcr.io/the-40-thieves/obsidian-tc:latest
+          restart: unless-stopped
+          environment:
+            OBSIDIAN_TC_CONFIG: /config/obsidian-tc.config.json
+            OBSIDIAN_TC_VAULT_PATH: /data/vault
+            OBSIDIAN_TC_CACHE_DIR: /data/cache
+            PORT: "${PORT:-8765}"
+            OBSIDIAN_TC_PUBLIC_URL: "${OBSIDIAN_TC_PUBLIC_URL:?Set OBSIDIAN_TC_PUBLIC_URL to the public HTTPS origin}"
+            OBSIDIAN_TC_JWT_SECRET: "${OBSIDIAN_TC_JWT_SECRET:?Set OBSIDIAN_TC_JWT_SECRET to a random secret of at least 32 characters}"
+          ports:
+            - "${PORT:-8765}:${PORT:-8765}"
+          volumes:
+            - obsidian-tc-data:/data
+            - ./config:/config:ro
+
+      volumes:
+        obsidian-tc-data:
+  - path: /opt/obsidian-tc/deploy/config/obsidian-tc.config.json
+    permissions: "0644"
+    content: |
+      {
+        "vaults": [{ "id": "main", "path": "/data/vault" }],
+        "transports": {
+          "stdio": false,
+          "http": { "host": "0.0.0.0" }
+        },
+        "auth": {
+          "mode": "jwt",
+          "requireJti": true
+        }
+      }
+  - path: /opt/obsidian-tc/deploy/compose.vps.yml
+    permissions: "0644"
+    content: |
+      # Binds the published port to loopback so only Caddy on this host reaches it. Merged over
+      # compose.http.yml by bootstrap.sh; !override replaces the base file's ports list.
+      services:
+        obsidian-tc:
+          ports: !override
+            - "127.0.0.1:8765:8765"
+  - path: /opt/obsidian-tc/bootstrap.sh
+    permissions: "0755"
+    content: |
+      #!/bin/sh
+      # Idempotent: safe to re-run after editing .env.
+      set -eu
+      cd /opt/obsidian-tc/deploy
+      url=$(sed -n 's/^OBSIDIAN_TC_PUBLIC_URL=//p' .env)
+      case "$url" in
+        "" | https://vault.example.com)
+          echo "obsidian-tc: set OBSIDIAN_TC_PUBLIC_URL in /opt/obsidian-tc/deploy/.env, then run /opt/obsidian-tc/bootstrap.sh" >&2
+          exit 1 ;;
+      esac
+      umask 077
+      if ! grep -q '^OBSIDIAN_TC_JWT_SECRET=' .env; then
+        printf 'OBSIDIAN_TC_JWT_SECRET=%s\n' "$(openssl rand -hex 32)" >> .env
+      fi
+      chmod 600 .env
+      printf '%s {\n\treverse_proxy 127.0.0.1:8765 {\n\t\tflush_interval -1\n\t}\n}\n' "${url#https://}" > /etc/caddy/Caddyfile
+      chmod 644 /etc/caddy/Caddyfile
+      systemctl reload-or-restart caddy
+      docker compose -p obsidian-tc -f compose.http.yml -f compose.vps.yml up -d
+      echo "obsidian-tc: started behind $url. Mint a client token with:"
+      echo "  cd /opt/obsidian-tc/deploy && docker compose -p obsidian-tc -f compose.http.yml -f compose.vps.yml exec obsidian-tc bun /app/packages/server/dist/cli.js token mint /config/obsidian-tc.config.json --sub my-client --vault main --scopes read:vault"
+runcmd:
+  - [/opt/obsidian-tc/bootstrap.sh]
