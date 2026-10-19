@@ -50,6 +50,10 @@ export interface IndexStats {
   notes_epoch_stale_skipped: number;
   notes_frontmatter_failed: number;
   frontmatter_failures: Array<{ path: string; error: string }>;
+  /** Notes whose read the safe open refused (acl_denied): skipped this pass, left unresolved. */
+  notes_read_refused: number;
+  /** The refused notes, by walked path, with the refusal message (see read-refusal.ts). */
+  read_refusals: Array<{ path: string; error: string }>;
   model: string;
   dimensions: number;
 }

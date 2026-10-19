@@ -10,8 +10,7 @@ import { errorMessage } from "../../util/errors";
 import { createSliceYielder, drainYielding } from "../../util/scan-steps";
 import { isFrontmatterYamlError, parseNote, splitFrontmatterBody } from "../../vault/frontmatter";
 import { type ExtractedLink, extractLinks, extractNoteLinks } from "../../vault/links";
-import { readNote } from "../../vault/notes-io";
-import { resolveVaultPath, walkVault, walkVaultSteps, walkVaultStream } from "../../vault/paths";
+import { walkVault, walkVaultSteps, walkVaultStream } from "../../vault/paths";
 import { ACL_PATH_UNRESOLVED } from "../../vault/stored-acl-path";
 import { noteTags } from "../../vault/tags";
 import { ensureChunkColbert } from "../chunk_colbert";
@@ -61,7 +60,9 @@ import {
   readExistingChunkRows,
   readNoteTags,
 } from "./note-plan";
+import { logPassSkips } from "./pass-skip-log";
 import { applyNoteWrites, fireIndexHook } from "./persist-note-plan";
+import { readIndexableNote, recordReadRefusal, refusedIdentities } from "./read-refusal";
 import { createStaleSkipLog } from "./stale-skip";
 import { sweepUnindexedNotes } from "./sweep-notes";
 import type { DedupCache, IndexStats, IndexVaultArgs, NoteWritePlan } from "./types";
@@ -189,6 +190,8 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     notes_epoch_stale_skipped: 0,
     notes_frontmatter_failed: 0,
     frontmatter_failures: [],
+    notes_read_refused: 0,
+    read_refusals: [],
     model: args.provider.id,
     dimensions: args.provider.dimensions,
   };
@@ -423,7 +426,10 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     stat: { mtime: number; size: number } | null,
   ): Promise<void> => {
     await yieldToLoop();
-    const raw = readNote(resolveVaultPath(args.root, rel)).raw;
+    // An acl_denied read skips this note only (read-refusal.ts): no chunks, note row or edges.
+    const read = readIndexableNote(args.root, rel);
+    if ("refused" in read) return recordReadRefusal(stats, walkedSet, rel, read.refused);
+    const raw = read.raw;
     // THE-1073: probe-parse ONCE, here, before anything else touches this note's frontmatter
     // (buildNoteRecord/noteTags below both call parseNote themselves and would throw on the SAME
     // note otherwise). A YAML failure quarantines just this note — counted, listed, and named in
@@ -527,21 +533,14 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     for (const rel of notes) {
       await processNote(rel, statByPath.get(rel) ?? null);
     }
+    // A row an earlier pass stored under a name refused this pass must now fail closed too.
+    syncAclPaths(args.db, args.vaultId, refusedIdentities(stats.read_refusals), args.sql);
   }
   stats.notes_seen = notes.length; // THE-490: notes is only fully known once the walk above completes
   // THE-1073: ONE sampled stderr line for the whole pass, same shape as THE-390's embed-rejection
   // warning above — every failing path is still in stats.frontmatter_failures (not just the
   // sample), which is what feeds plane-wiring.ts's per-path health mapping.
-  if (stats.notes_frontmatter_failed > 0) {
-    const sample = stats.frontmatter_failures
-      .slice(0, 3)
-      .map((f) => f.path)
-      .join(", ");
-    process.stderr.write(
-      `[index] vault "${args.vaultId}": ${stats.notes_frontmatter_failed} note(s) skipped: ` +
-        `frontmatter is not valid YAML (${sample}${stats.notes_frontmatter_failed > 3 ? ", ..." : ""})\n`,
-    );
-  }
+  logPassSkips(args.vaultId, stats);
   flushNotes();
   // THE-934 fix round 4 (2): the note_summaries sweep for EVERY excluded note this pass walked,
   // not only the ones whose exclusion status just changed. A note_summaries row is model-generated
@@ -594,7 +593,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       // layer omits them, like Obsidian's Graph view: desiredEdges drops every edge touching one.
       desiredEdges(
         noteLinks,
-        [...notes, ...excludedWalked.filter(isReadableNote)],
+        [...notes.filter(isReadableNote), ...excludedWalked.filter(isReadableNote)],
         new Set(excludedWalked),
       ),
       now,

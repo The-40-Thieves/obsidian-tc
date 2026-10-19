@@ -44,6 +44,8 @@ function stats(over: Partial<IndexStats> = {}): IndexStats {
     notes_epoch_stale_skipped: 0,
     notes_frontmatter_failed: 0,
     frontmatter_failures: [],
+    notes_read_refused: 0,
+    read_refusals: [],
     model: "fake",
     dimensions: 8,
     ...over,
