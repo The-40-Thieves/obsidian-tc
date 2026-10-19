@@ -108,6 +108,8 @@ published price list or standard contract — each case is evaluated on its own 
   As of this writing it declares `"license": "AGPL-3.0-only"`, the same as the rest of the
   repository; there is currently no separate license for the plugin package.
 
+For a per-artifact table of what may be bundled, fetched or user-installed for the vendor inference runtimes and models, see [Vendor runtime and model licensing](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/VENDOR-RUNTIME-LICENSING.md).
+
 ## See also
 
 - [LICENSE](https://github.com/The-40-Thieves/obsidian-tc/blob/main/LICENSE) — the full AGPL-3.0
