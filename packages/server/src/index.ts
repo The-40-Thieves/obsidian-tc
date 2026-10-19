@@ -17,6 +17,7 @@ export type { AclConfigT, AclRuleT } from "./acl";
 export { FolderAcl } from "./acl";
 export type { AuditEvent } from "./audit";
 export { writeEvent } from "./audit";
+export { captureClientPeer } from "./auth/client-ip";
 export { loadConfig } from "./config/load";
 export type { MigrateOptions, Migration } from "./db/migrate";
 export { runMigrations } from "./db/migrate";

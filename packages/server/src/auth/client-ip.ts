@@ -15,7 +15,14 @@ import {
   parseIpAddress,
   parseIpCidr,
 } from "@the-40-thieves/obsidian-tc-shared";
-import type { Context } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
+
+declare module "hono" {
+  interface ContextVariableMap {
+    /** The TCP peer address captured by `captureClientPeer`, before any middleware replaces the request. */
+    clientPeer: string | undefined;
+  }
+}
 
 export type ForwardedHeader = "x-forwarded-for" | "cf-connecting-ip";
 
@@ -43,8 +50,8 @@ function sourceAddress(addr: bigint): string {
   return formatIpAddress(addr >> 32n === 0xffffn ? addr : addr & ~LOW_64_BITS);
 }
 
-/** The TCP peer of the request, or undefined when the runtime does not say. */
-function peerOf(c: Context): bigint | undefined {
+/** The TCP peer address the runtime reports for this request, or undefined when it does not say. */
+function rawPeerOf(c: Context): string | undefined {
   const env = c.env as
     | {
         incoming?: { socket?: { remoteAddress?: string } };
@@ -55,6 +62,26 @@ function peerOf(c: Context): bigint | undefined {
   if (addr === undefined && typeof env?.requestIP === "function") {
     addr = env.requestIP(c.req.raw)?.address;
   }
+  return addr;
+}
+
+/**
+ * Records the TCP peer on the context. Mount it on the app before any middleware that can replace
+ * `c.req.raw` (hono's bodyLimit does, for a chunked request): under Bun the runtime reports the peer
+ * only for the request it created, so a peer read after the replacement is lost.
+ */
+export const captureClientPeer: MiddlewareHandler = async (c, next) => {
+  // A peer already recorded by a parent app is kept: a routed child runs its middleware after the
+  // parent's, on the same context, and the parent's body-rebuilding middleware may have replaced the request.
+  if (c.get("clientPeer") === undefined) c.set("clientPeer", rawPeerOf(c));
+  await next();
+};
+
+/** The TCP peer of the request, or undefined when the runtime does not say. */
+function peerOf(c: Context): bigint | undefined {
+  // A bare context (a test double with no Hono store) has nothing captured: read the runtime directly.
+  const captured = typeof c.get === "function" ? c.get("clientPeer") : undefined;
+  const addr = captured ?? rawPeerOf(c);
   if (!addr) return undefined;
   // A link-local peer may carry a zone id (fe80::1%eth0); it names the interface, not the host.
   return parseIpAddress(addr.replace(/%.*$/, ""));
