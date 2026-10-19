@@ -511,8 +511,12 @@ describe("attachment references", () => {
       },
     });
     try {
-      expect(findAttachmentReferences(v.root, "hero.png")).toEqual(["post.md"]);
-      expect(findAttachmentReferences(v.root, "other.png")).toEqual(["broken.md"]);
+      expect(findAttachmentReferences(v.root, "hero.png").map((e) => e.relPath)).toEqual([
+        "post.md",
+      ]);
+      expect(findAttachmentReferences(v.root, "other.png").map((e) => e.relPath)).toEqual([
+        "broken.md",
+      ]);
     } finally {
       v.cleanup();
     }

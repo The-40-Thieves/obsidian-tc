@@ -405,7 +405,7 @@ export function resolveAclWalkFilter(
     exclusionDigest,
     generation: readGeneration(db, vaultId),
     allPaths: () => allChunkPaths(db, vaultId),
-    isReadable,
+    isStoredPathReadable: isReadable,
     nowMs: Date.now(),
   });
   if (aclSetId != null) {

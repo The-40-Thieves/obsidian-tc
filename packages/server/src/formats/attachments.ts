@@ -13,7 +13,7 @@ import { parseNoteLenient } from "../vault/frontmatter";
 import { extractNoteLinks } from "../vault/links";
 import { type PlannedRewrite, plannedRewrite, RewriteScan } from "../vault/move-plan";
 import { readNote } from "../vault/notes-io";
-import { normalizeVaultPath, resolveVaultPath, walkVault } from "../vault/paths";
+import { normalizeVaultPath, resolveVaultPath, type WalkEntry, walkVault } from "../vault/paths";
 
 export const DEFAULT_ATTACHMENT_EXTS = [
   ".png",
@@ -107,11 +107,15 @@ function normalizeTarget(targetRaw: string): string {
   return t.replace(/^\.\//, "").trim().toLowerCase();
 }
 
-/** List the vault-relative paths of every note that references an attachment. */
-export function findAttachmentReferences(root: string, attachmentRel: string): string[] {
+/** Every note that references an attachment: its display path (`relPath`) to show, and its ACL identity
+ *  (`aclRel`) for a caller to judge (readableEntry). For a root walk the two are equal. */
+export function findAttachmentReferences(
+  root: string,
+  attachmentRel: string,
+): Array<Pick<WalkEntry, "relPath" | "aclRel">> {
   const targetPath = attachmentRel.toLowerCase();
   const targetBase = baseOf(attachmentRel).toLowerCase();
-  const out: string[] = [];
+  const out: Array<Pick<WalkEntry, "relPath" | "aclRel">> = [];
   for (const e of walkVault(root, { extensions: [".md"] })) {
     // A property link counts (`cover: "[[img.png]]"`): an image used only there is still referenced.
     // Lenient: a note whose YAML does not parse still has its body links counted.
@@ -124,7 +128,7 @@ export function findAttachmentReferences(root: string, attachmentRel: string): s
       const lb = t.includes("/") ? t.slice(t.lastIndexOf("/") + 1) : t;
       return lb === targetBase;
     });
-    if (hit) out.push(e.relPath);
+    if (hit) out.push({ relPath: e.relPath, aclRel: e.aclRel });
   }
   return out;
 }

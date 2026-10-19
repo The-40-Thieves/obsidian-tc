@@ -266,7 +266,7 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
             exclusionDigest: "x",
             generation: readGeneration(w.db, VAULT),
             allPaths: () => allChunkPaths(w.db, VAULT),
-            isReadable: decide(acl),
+            isStoredPathReadable: decide(acl),
             nowMs: 0,
           });
           expect(id).not.toBeNull();

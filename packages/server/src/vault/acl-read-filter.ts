@@ -5,6 +5,7 @@
 // that cannot be attributed FAILS CLOSED (acl_denied) rather than leaking.
 import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
 import { type FolderAcl, isDefaultDenied } from "../acl";
+import type { AclPath } from "./acl-identity";
 import { callerCanReadVaultPath, pathScopesSatisfied } from "./acl-path";
 import { normalizeVaultPath, type WalkEntry } from "./paths";
 
@@ -106,7 +107,7 @@ export function readableRel(
 /** A readability predicate a walk-driven scan is handed. The second argument is the entry's ACL
  *  identity (`WalkEntry.aclRel`); a predicate that decides on the path judges THAT, and falls back to
  *  `rel` when it is called with one argument (a stored row's path, where the two are the same). */
-export type WalkReadable = (rel: string, aclRel?: string) => boolean;
+export type WalkReadable = (rel: string, aclRel?: AclPath) => boolean;
 
 /**
  * The read predicate for an entry a vault WALK produced. It is judged on `aclRel`, the entry's

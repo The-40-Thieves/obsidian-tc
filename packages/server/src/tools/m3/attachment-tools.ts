@@ -40,7 +40,7 @@ import {
 import type { ToolDefinition } from "../../mcp/registry";
 import { DEFAULT_SCAN_LIMIT } from "../../util/paginate";
 import { enforcePathAcl, ImmutableRewriteSkips } from "../../vault/acl-path";
-import { readableEntry, readableRel } from "../../vault/acl-read-filter";
+import { readableEntry } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
 import { commitPlanned, PreImageSnapshots, planFingerprint } from "../../vault/move-plan";
 import {
@@ -245,8 +245,8 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           ...(concise ? {} : { size: e.size, mtime: e.mtime, mime: mimeOf(e.relPath) }),
           ...(input.include_reference_count
             ? {
-                reference_count: findAttachmentReferences(v.root, e.relPath).filter((p) =>
-                  readableRel(ctx.acl, p, ctx.grantedScopes),
+                reference_count: findAttachmentReferences(v.root, e.relPath).filter((r) =>
+                  readableEntry(ctx.acl, r, ctx.grantedScopes),
                 ).length,
               }
             : {}),
@@ -307,12 +307,13 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           description: describeAttachment({ path: rel, mime, size, bytes }),
           ...(input.include_content ? { content: bytes.toString("base64") } : {}),
           // N-2: only reveal referencing notes the caller may read (findAttachmentReferences walks
-          // the whole vault ACL-free), so this cannot enumerate out-of-ACL note paths.
+          // the whole vault ACL-free), so the filter judges each referrer's ACL identity and this cannot
+          // enumerate out-of-ACL note paths.
           ...(input.include_references
             ? {
-                references: findAttachmentReferences(v.root, rel).filter((p) =>
-                  readableRel(ctx.acl, p, ctx.grantedScopes),
-                ),
+                references: findAttachmentReferences(v.root, rel)
+                  .filter((r) => readableEntry(ctx.acl, r, ctx.grantedScopes))
+                  .map((r) => r.relPath),
               }
             : {}),
         };
@@ -606,9 +607,9 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("attachment not found", { path: rel });
-        const references = findAttachmentReferences(v.root, rel).filter((p) =>
-          readableRel(ctx.acl, p, ctx.grantedScopes),
-        );
+        const references = findAttachmentReferences(v.root, rel)
+          .filter((r) => readableEntry(ctx.acl, r, ctx.grantedScopes))
+          .map((r) => r.relPath);
         const st = statNote(abs);
         let trashedTo: string | null = null;
         if (input.permanent) hardDelete(abs);

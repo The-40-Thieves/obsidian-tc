@@ -5,6 +5,7 @@
 // (ENOENT for a note deleted mid-pass, I/O, a non-regular file) propagates unchanged.
 import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { errorMessage } from "../../util/errors";
+import type { AclPath } from "../../vault/acl-identity";
 import { readNote } from "../../vault/notes-io";
 import { resolveVaultPath } from "../../vault/paths";
 import { ACL_PATH_UNRESOLVED } from "../../vault/stored-acl-path";
@@ -24,17 +25,19 @@ export function readIndexableNote(
   }
 }
 
-/** Records one refused read: counted and named by the pass, and its identity becomes UNRESOLVED. The name
- *  stays in walkedSet, so the sweep does not treat the note as deleted, and it fails closed. */
+/** Records one refused read: counted and named by the pass, its identity UNRESOLVED (fail closed), and
+ *  no longer readable. The name stays in walkedSet, so the sweep does not treat the note as deleted. */
 export function recordReadRefusal(
   stats: IndexStats,
-  walkedSet: Map<string, string>,
+  walkedSet: Map<string, AclPath | typeof ACL_PATH_UNRESOLVED>,
+  readableWalked: Set<string>,
   rel: string,
   error: string,
 ): void {
   stats.notes_read_refused += 1;
   stats.read_refusals.push({ path: rel, error });
   walkedSet.set(rel, ACL_PATH_UNRESOLVED);
+  readableWalked.delete(rel);
 }
 
 /** The refused notes as the identity map syncAclPaths writes: a stored row under the name fails closed. */

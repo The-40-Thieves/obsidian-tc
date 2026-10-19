@@ -67,39 +67,12 @@ export const SINKS = new Map([
  * canonical. `file`, enclosing function, sink and the exact number of sites (`count`) must match, so
  * a new site in the same function is a new finding rather than silently covered; each needs a
  * `reason` a reviewer can re-check against the code.
+ *
+ * Empty since the ACL identity became a branded type (AclPath, vault/acl-identity.ts): every former
+ * exemption is now a compile-time error. A new entry needs review and must change
+ * scripts/check-acl-canonical-identity.test.mjs too.
  */
-export const ALLOWLIST = [
-  {
-    file: "packages/server/src/tools/m3/attachment-tools.ts",
-    fn: "handler",
-    sink: "readableRel",
-    count: 3,
-    reason:
-      "findAttachmentReferences walks the vault ROOT (no `sub`). walkVault does not descend a " +
-      "symlinked directory (Dirent.isDirectory is false for a link), and a root walk cannot start " +
-      "through one, so every referrer path it returns has relPath === aclRel by construction.",
-  },
-  {
-    file: "packages/server/src/search/indexing/index-vault.ts",
-    fn: "indexVault",
-    sink: "isReadableNote",
-    count: 1,
-    reason:
-      "isReadableNote maps the walked display path to its ACL identity through walkedSet (set " +
-      "from walkIdentity(e) just before) and only falls back to the name for a path the walk did " +
-      "not produce; args.isReadable is handed the identity, never the alias.",
-  },
-  {
-    file: "packages/server/src/search/acl_path_set.ts",
-    fn: "ensureAclPathSet",
-    sink: "isReadable",
-    count: 1,
-    reason:
-      "opts.isReadable here is the retrieval predicate (readableStoredRow: it judges each stored " +
-      "path's acl_path identity). The name-keyed callback registry conflates it with " +
-      "index_vault's identity-fed `isReadable: (rel) => readableByFolder(...)`.",
-  },
-];
+export const ALLOWLIST = [];
 
 /**
  * Functions that ARE the canonical decision (or the canonicalizer feeding it): they resolve the

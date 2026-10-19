@@ -17,6 +17,7 @@ import { existsNoFollow } from "../auth/key-files";
 import { redactSecrets } from "../experiential/redact";
 import { drainSteps, type ScanSteps } from "../util/scan-steps";
 import { recordPathUse } from "./acl-audit";
+import { type AclPath, mintAclPath } from "./acl-identity";
 import { folderPinVerdict } from "./folder-links";
 
 /** Full SHA-256 hex of UTF-8 content. Used for content_hash / CAS (prev_hash). */
@@ -131,11 +132,11 @@ export interface ResolvedVaultPath {
   /** Absolute filesystem path (lexical resolve; symlinks NOT collapsed) for fs operations. */
   abs: string;
   /** Vault-relative form of the REAL (symlink-resolved) target, forward-slashed, for ACL checks. */
-  aclRel: string;
+  aclRel: AclPath;
 }
 
 /**
- * resolveVaultPath + the ACL-relative path. `aclRel` is the vault-relative form of the REAL
+ * resolveVaultPath + the ACL-relative path. `aclRel` (an AclPath) is the vault-relative form of the REAL
  * (symlink-resolved) target: the folder ACL must gate THIS, not the lexical request path, or an
  * in-vault symlink under an allowed folder pointing at a denied folder would pass the ACL
  * (THE-269). For a non-symlink path aclRel equals the lexical rel, so callers that thread the
@@ -207,7 +208,7 @@ export function resolveVaultPathChecked(vaultRoot: string, relPath: string): Res
   const realRel = relative(realRoot, realAbs);
   if (escapesBase(realRel))
     throw err.pathInvalid("path escapes the vault root", { path: redactedRelPath });
-  return { abs, aclRel: realRel.split(sep).join("/") };
+  return { abs, aclRel: mintAclPath(realRel.split(sep).join("/")) };
 }
 
 export function resolveVaultPath(vaultRoot: string, relPath: string): string {
@@ -232,9 +233,9 @@ function statSafe(
 export interface WalkEntry {
   /** The path as walked (display): `wiki/a.md` when `wiki` is a symlink to `pages`. */
   relPath: string;
-  /** The ACL identity (`pages/a.md`), as `resolveVaultPathChecked` computes it. Read-ACL decisions
+  /** The ACL identity (`pages/a.md`, an AclPath), as `resolveVaultPathChecked` computes it. Read-ACL decisions
    *  on a walked entry use this, never `relPath`; they differ only below a symlinked start. */
-  aclRel: string;
+  aclRel: AclPath;
   type: "file" | "folder";
   size: number;
   mtime: number;
@@ -284,7 +285,7 @@ export function* walkVaultSteps(
       const name = e.name;
       if (name.startsWith(".")) continue;
       const rel = prefix ? `${prefix}/${name}` : name;
-      const aclRel = aclPrefix ? `${aclPrefix}/${name}` : name;
+      const aclRel = mintAclPath(aclPrefix ? `${aclPrefix}/${name}` : name);
       const abs = join(dir, name);
       if (e.isDirectory()) {
         if (opts.includeFolders)
@@ -358,7 +359,7 @@ export async function* walkVaultStream(
       const name = e.name;
       if (name.startsWith(".")) continue;
       const rel = prefix ? `${prefix}/${name}` : name;
-      const aclRel = aclPrefix ? `${aclPrefix}/${name}` : name;
+      const aclRel = mintAclPath(aclPrefix ? `${aclPrefix}/${name}` : name);
       const abs = join(dir, name);
       if (e.isDirectory()) {
         if (opts.includeFolders)

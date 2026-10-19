@@ -26,6 +26,7 @@ import {
   pageRank,
 } from "../../graph/analytics";
 import type { ToolDefinition } from "../../mcp/registry";
+import type { AclPath } from "../../vault/acl-identity";
 import { readableRel } from "../../vault/acl-read-filter";
 import { normalizeVaultPath } from "../../vault/paths";
 import { readableStoredRow } from "../../vault/stored-acl-path";
@@ -103,7 +104,7 @@ interface EdgeRow {
 function readEdges(
   db: Database,
   vaultId: string,
-  decide: (aclRel: string) => boolean,
+  decide: (aclRel: AclPath) => boolean,
 ): { edges: GraphEdge[]; types: Map<string, string[]> } {
   if (!tableExists(db, "vault_edges")) return { edges: [], types: new Map() };
   const isReadable = readableStoredRow(db, vaultId, decide);

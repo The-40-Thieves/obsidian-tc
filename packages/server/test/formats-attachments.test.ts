@@ -84,9 +84,11 @@ describe("formats/attachments", () => {
       "code.md": "```\n![[diagram.png]]\n```\n",
     });
     try {
-      expect(findAttachmentReferences(root, "diagram.png")).toEqual(["a.md"]);
-      expect(findAttachmentReferences(root, "docs/spec.pdf")).toEqual(["a.md"]);
-      expect(findAttachmentReferences(root, "absent.png")).toEqual([]);
+      expect(findAttachmentReferences(root, "diagram.png").map((e) => e.relPath)).toEqual(["a.md"]);
+      expect(findAttachmentReferences(root, "docs/spec.pdf").map((e) => e.relPath)).toEqual([
+        "a.md",
+      ]);
+      expect(findAttachmentReferences(root, "absent.png").map((e) => e.relPath)).toEqual([]);
     } finally {
       rmTemp(root);
     }

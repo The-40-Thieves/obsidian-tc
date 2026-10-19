@@ -8,9 +8,10 @@ import { tableExists } from "../../db/introspect";
 import { inWriteTransaction } from "../../db/txn";
 import { errorMessage } from "../../util/errors";
 import { createSliceYielder, drainYielding } from "../../util/scan-steps";
+import type { AclPath } from "../../vault/acl-identity";
 import { isFrontmatterYamlError, parseNote, splitFrontmatterBody } from "../../vault/frontmatter";
 import { type ExtractedLink, extractLinks, extractNoteLinks } from "../../vault/links";
-import { walkVault, walkVaultSteps, walkVaultStream } from "../../vault/paths";
+import { type WalkEntry, walkVault, walkVaultSteps, walkVaultStream } from "../../vault/paths";
 import { ACL_PATH_UNRESOLVED } from "../../vault/stored-acl-path";
 import { noteTags } from "../../vault/tags";
 import { ensureChunkColbert } from "../chunk_colbert";
@@ -140,11 +141,15 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   }
   const yieldToLoop = createSliceYielder(args.signal); // boot reconcile only: lets SIGTERM/tools/call in
   const streamWalk = args.walk?.streaming === true;
-  // Every walked path -> its ACL identity (walkIdentity: the symlink-resolved path, none for a hard
-  // link). `args.isReadable` decides on the identity, never on the alias name the walk showed.
-  const walkedSet = new Map<string, string>();
-  const isReadableNote = (rel: string): boolean =>
-    walkedSet.get(rel) !== ACL_PATH_UNRESOLVED && args.isReadable(walkedSet.get(rel) ?? rel);
+  // Every walked path -> its ACL identity (walkIdentity); `args.isReadable` judges only that.
+  const walkedSet = new Map<string, AclPath | typeof ACL_PATH_UNRESOLVED>();
+  const readableWalked = new Set<string>();
+  const admit = (e: WalkEntry): void => {
+    const id = walkIdentity(e);
+    walkedSet.set(e.relPath, id);
+    if (id !== ACL_PATH_UNRESOLVED && args.isReadable(id)) readableWalked.add(e.relPath);
+  };
+  const isReadableNote = (rel: string): boolean => readableWalked.has(rel);
   let statByPath = new Map<string, { mtime: number; size: number }>();
   let notes: string[] = [];
   // Obsidian's Excluded files (search/index-exclusion.ts): walked, present, link targets — but
@@ -155,7 +160,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     const walked = args.signal // signaled (boot reconcile): the same walk, across loop turns
       ? await drainYielding(walkVaultSteps(args.root, walkOpts), undefined)
       : walkVault(args.root, walkOpts);
-    for (const e of walked) walkedSet.set(e.relPath, walkIdentity(e));
+    for (const e of walked) admit(e);
     statByPath = new Map(walked.map((e) => [e.relPath, { mtime: e.mtime, size: e.size }]));
     const indexable: string[] = [];
     for (const e of walked)
@@ -426,9 +431,9 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     stat: { mtime: number; size: number } | null,
   ): Promise<void> => {
     await yieldToLoop();
-    // An acl_denied read skips this note only (read-refusal.ts): no chunks, note row or edges.
     const read = readIndexableNote(args.root, rel);
-    if ("refused" in read) return recordReadRefusal(stats, walkedSet, rel, read.refused);
+    if ("refused" in read)
+      return recordReadRefusal(stats, walkedSet, readableWalked, rel, read.refused);
     const raw = read.raw;
     // THE-1073: probe-parse ONCE, here, before anything else touches this note's frontmatter
     // (buildNoteRecord/noteTags below both call parseNote themselves and would throw on the SAME
@@ -518,7 +523,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     // THE-490: walk lazily, processing (and thus starting to embed) each readable note as soon as
     // its directory has been read, instead of waiting for the entire tree to be walked first.
     for await (const e of walkVaultStream(args.root, { sub: args.sub, extensions: [".md"] })) {
-      walkedSet.set(e.relPath, walkIdentity(e));
+      admit(e);
       if (isIndexExcluded(e.relPath)) {
         excludedWalked.push(e.relPath);
         continue;
@@ -533,13 +538,10 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     for (const rel of notes) {
       await processNote(rel, statByPath.get(rel) ?? null);
     }
-    // A row an earlier pass stored under a name refused this pass must now fail closed too.
     syncAclPaths(args.db, args.vaultId, refusedIdentities(stats.read_refusals), args.sql);
   }
   stats.notes_seen = notes.length; // THE-490: notes is only fully known once the walk above completes
-  // THE-1073: ONE sampled stderr line for the whole pass, same shape as THE-390's embed-rejection
-  // warning above — every failing path is still in stats.frontmatter_failures (not just the
-  // sample), which is what feeds plane-wiring.ts's per-path health mapping.
+  // THE-1073 / THE-390: one sampled stderr line per skip class (pass-skip-log.ts).
   logPassSkips(args.vaultId, stats);
   flushNotes();
   // THE-934 fix round 4 (2): the note_summaries sweep for EVERY excluded note this pass walked,

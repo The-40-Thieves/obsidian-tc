@@ -10,6 +10,7 @@
 import { statSync } from "node:fs";
 import { inWriteTransaction, type WriteTxnHooks } from "../../db/txn";
 import type { Database } from "../../db/types";
+import type { AclPath } from "../../vault/acl-identity";
 import { resolveVaultPathChecked } from "../../vault/paths";
 import {
   ACL_PATH_TABLES,
@@ -20,8 +21,10 @@ import { bumpGeneration } from "../generation";
 
 /** The ACL identity a walk entry is stored under: its symlink-resolved path, or none (UNRESOLVED) for
  *  a hard-linked file, which read_note refuses (st_nlink > 1, WalkEntry.hardLinked). */
-export const walkIdentity = (e: { aclRel: string; hardLinked?: true }): string =>
-  e.hardLinked ? ACL_PATH_UNRESOLVED : e.aclRel;
+export const walkIdentity = (e: {
+  aclRel: AclPath;
+  hardLinked?: true;
+}): AclPath | typeof ACL_PATH_UNRESOLVED => (e.hardLinked ? ACL_PATH_UNRESOLVED : e.aclRel);
 
 /** Is `abs` a regular file with a second directory entry (st_nlink > 1)? read_note refuses one, since
  *  realpath cannot see through a hard link (`allowed/x.md` may be `private/y.md`). Not statable: no. */
@@ -38,7 +41,7 @@ export function isHardLinkedFile(abs: string): boolean {
  *  it differs from the path through a symlinked folder, and the gate and the stored row both judge
  *  THAT, never the name. null = none: an unknown root, a path that escapes, or a hard-linked file.
  *  The row is then stored unresolved, which no reader returns until a pass resolves it. */
-export function indexAclIdentity(root: string | undefined, path: string): string | null {
+export function indexAclIdentity(root: string | undefined, path: string): AclPath | null {
   if (root === undefined) return null;
   try {
     const resolved = resolveVaultPathChecked(root, path);
