@@ -7,6 +7,8 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 ![Status: Shipped v1.33.1](https://img.shields.io/badge/Status-Shipped_v1.33.1-success)
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/The-40-Thieves/obsidian-tc)
+
 ## What it is
 
 obsidian-tc is a governed, agent-ready [Model Context Protocol](https://modelcontextprotocol.io)

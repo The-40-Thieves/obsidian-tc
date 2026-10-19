@@ -137,6 +137,7 @@ requests with the webhook secret. Details are in [docs/SYNC.md](https://github.c
 ## What this does not do yet
 
 - **No published template and no Deploy button.** Publishing one needs the owner's Railway account.
+  Render has a Blueprint, see [Render](/deployment/render/).
 - **Liveness health check.** `railway.json` sets `healthcheckPath: /healthz`; it is liveness only, and
   `allowedHosts` must include the Railway hostname or the probe gets 403.
 - **No refusal of public boot for the other modes.** Only the non-loopback, unauthenticated

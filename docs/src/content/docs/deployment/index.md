@@ -69,6 +69,7 @@ authorization server, or to put WorkOS AuthKit or Keycloak in front of the serve
 [Client recipes](/deployment/client-recipes/).
 
 To run the container on Railway, with one volume and environment variables for the deployment
-settings, see [Railway](/deployment/railway/).
+settings, see [Railway](/deployment/railway/). To run it on Render from a Blueprint, with a
+persistent disk at `/data` and a generated setup token, see [Render](/deployment/render/).
 
 For stdio containers and the shared long-lived HTTP Compose bundle, see [Docker](/deployment/docker/).

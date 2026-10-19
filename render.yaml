@@ -1,0 +1,36 @@
+# Render Blueprint. Create the service from the Deploy to Render button in README.md, or from
+# https://render.com/deploy?repo=https://github.com/The-40-Thieves/obsidian-tc. The fields are
+# explained in docs/src/content/docs/deployment/render.md.
+services:
+  - type: web
+    name: obsidian-tc
+    # The published image, not a build of the repository Dockerfile: the Blueprint then ships the
+    # release that CI tested, and no build runs on Render. The -git image is not used here.
+    runtime: image
+    image:
+      url: ghcr.io/the-40-thieves/obsidian-tc:latest
+    # Standard (2 GB). A persistent disk needs a paid plan, and the Starter plan (512 MB) is below
+    # the ~430 MB idle footprint plus indexing peaks. Starter is 0.5c-512mb.
+    plan: 1c-2g
+    healthCheckPath: /healthz
+    disk:
+      name: obsidian-tc-data
+      mountPath: /data
+      sizeGB: 10
+    envVars:
+      # The config file lives on the disk and is written by the operator, as on Railway.
+      - key: OBSIDIAN_TC_CONFIG
+        value: /data/config.json
+      - key: OBSIDIAN_TC_VAULT_PATH
+        value: /data/vault
+      - key: OBSIDIAN_TC_CACHE_DIR
+        value: /data/cache
+      # Prompted at Blueprint creation: the public origin, for example https://vault.example.com.
+      - key: OBSIDIAN_TC_PUBLIC_URL
+        sync: false
+      # Generated; claims the bundled authorization server once. Remove it after the claim.
+      - key: OBSIDIAN_TC_AS_SETUP_TOKEN
+        generateValue: true
+      # Used only when the config file selects the openai embeddings provider; leave blank otherwise.
+      - key: OPENAI_API_KEY
+        sync: false
