@@ -268,6 +268,7 @@ describe("first-run-smoke.ts against the stub server (watched red AND green)", (
 
 describe("skippedEmbedderPackages: npm skipped the optional embedder", () => {
   const EMBEDDER = "@the-40-thieves/obsidian-tc-embedder-local";
+  const RUNTIME = `${EMBEDDER}-linux-x64`;
   const RUNTIME_PLATFORMS = {
     "linux-x64": { backend: "native" },
     "darwin-x64": { backend: "wasm" },
@@ -275,11 +276,13 @@ describe("skippedEmbedderPackages: npm skipped the optional embedder", () => {
   const declared = [EMBEDDER];
   const installedNone = () => false;
   const installedAll = () => true;
+  const embedderOnly = (name: string) => name === EMBEDDER;
 
   it("passes when the embedder and the host runtime both installed", () => {
     expect(
       skippedEmbedderPackages({
         declared,
+        embedderDeclared: [RUNTIME],
         platformKey: "linux-x64",
         runtimePlatforms: RUNTIME_PLATFORMS,
         musl: false,
@@ -288,38 +291,54 @@ describe("skippedEmbedderPackages: npm skipped the optional embedder", () => {
     ).toEqual([]);
   });
 
-  it("names the embedder and the runtime when npm skipped both on a native host", () => {
+  it("names only the embedder when npm skipped it, since the runtime it would declare is unknown", () => {
     expect(
       skippedEmbedderPackages({
         declared,
+        embedderDeclared: [],
         platformKey: "linux-x64",
         runtimePlatforms: RUNTIME_PLATFORMS,
         musl: false,
         installed: installedNone,
       }),
-    ).toEqual([EMBEDDER, `${EMBEDDER}-linux-x64`]);
+    ).toEqual([EMBEDDER]);
   });
 
-  it("names only the runtime when only that one was skipped", () => {
+  it("names the host runtime when the installed embedder declares it and npm skipped it", () => {
     expect(
       skippedEmbedderPackages({
         declared,
+        embedderDeclared: [RUNTIME],
         platformKey: "linux-x64",
         runtimePlatforms: RUNTIME_PLATFORMS,
         musl: false,
-        installed: (name) => name === EMBEDDER,
+        installed: embedderOnly,
       }),
-    ).toEqual([`${EMBEDDER}-linux-x64`]);
+    ).toEqual([RUNTIME]);
+  });
+
+  it("passes on the published-release shape: the installed embedder declares no per-platform runtime", () => {
+    expect(
+      skippedEmbedderPackages({
+        declared,
+        embedderDeclared: [],
+        platformKey: "linux-x64",
+        runtimePlatforms: RUNTIME_PLATFORMS,
+        musl: false,
+        installed: embedderOnly,
+      }),
+    ).toEqual([]);
   });
 
   it("keeps passing on a WASM-backed host (Intel mac) with no native runtime", () => {
     expect(
       skippedEmbedderPackages({
         declared,
+        embedderDeclared: [RUNTIME],
         platformKey: "darwin-x64",
         runtimePlatforms: RUNTIME_PLATFORMS,
         musl: false,
-        installed: installedNone,
+        installed: embedderOnly,
       }),
     ).toEqual([]);
   });
@@ -328,10 +347,11 @@ describe("skippedEmbedderPackages: npm skipped the optional embedder", () => {
     expect(
       skippedEmbedderPackages({
         declared,
+        embedderDeclared: [RUNTIME],
         platformKey: "linux-x64",
         runtimePlatforms: RUNTIME_PLATFORMS,
         musl: true,
-        installed: installedNone,
+        installed: embedderOnly,
       }),
     ).toEqual([]);
   });
@@ -340,6 +360,7 @@ describe("skippedEmbedderPackages: npm skipped the optional embedder", () => {
     expect(
       skippedEmbedderPackages({
         declared: [],
+        embedderDeclared: [],
         platformKey: "linux-x64",
         runtimePlatforms: RUNTIME_PLATFORMS,
         musl: false,
@@ -349,9 +370,10 @@ describe("skippedEmbedderPackages: npm skipped the optional embedder", () => {
   });
 });
 
-// npm stand-in: installs obsidian-tc whose optionalDependencies declare the embedder, and
-// installs the embedder and host runtime only when the test asks, which is what a skipped
-// optional dependency looks like from the outside.
+// npm stand-in: installs obsidian-tc, whose optionalDependencies declare the embedder. It installs
+// the embedder only when the test asks (FAKE_NPM_EMBEDDER), and the embedder's package.json declares
+// the host runtime only when FAKE_NPM_DECLARE_RUNTIME is set, which is what a skipped optional
+// dependency looks like from the outside. The host runtime package is installed on FAKE_NPM_RUNTIME.
 const FAKE_NPM = `#!${process.execPath}
 const { chmodSync, mkdirSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
@@ -371,9 +393,17 @@ for (const name of ["obsidian-tc", "obsidian-tc.cmd"]) {
   writeFileSync(join(bin, name), "#!/bin/sh\\nexit 1\\n");
   chmodSync(join(bin, name), 0o755);
 }
-if (process.env.FAKE_NPM_EMBEDDER === "1") mkdirSync(join(nm, ...EMBEDDER.split("/")), { recursive: true });
-if (process.env.FAKE_NPM_RUNTIME === "1")
-  mkdirSync(join(nm, ...\`\${EMBEDDER}-\${process.platform}-\${process.arch}\`.split("/")), { recursive: true });
+const runtime = EMBEDDER + "-" + process.platform + "-" + process.arch;
+if (process.env.FAKE_NPM_EMBEDDER === "1") {
+  const embedderDir = join(nm, ...EMBEDDER.split("/"));
+  mkdirSync(embedderDir, { recursive: true });
+  const optionalDependencies = process.env.FAKE_NPM_DECLARE_RUNTIME === "1" ? { [runtime]: "1.33.1" } : {};
+  writeFileSync(
+    join(embedderDir, "package.json"),
+    JSON.stringify({ name: EMBEDDER, version: "1.33.1", optionalDependencies }),
+  );
+}
+if (process.env.FAKE_NPM_RUNTIME === "1") mkdirSync(join(nm, ...runtime.split("/")), { recursive: true });
 `;
 
 // Only hosts whose npm install carries a native ONNX runtime package reach the embedder check.
@@ -424,21 +454,31 @@ describe.skipIf(!NATIVE_HOST || process.platform === "win32")(
     const prepare = (report: ReturnType<typeof buildReport>) =>
       report.stages.find((s: { stage: string }) => s.stage === "prepare");
 
-    it("fails prepare, naming the skipped packages, when npm installed neither", () => {
-      const { r, report } = runNpmPrepare({ FAKE_NPM_EMBEDDER: "0", FAKE_NPM_RUNTIME: "0" });
+    it("fails prepare, naming only the embedder, when npm installed neither", () => {
+      const { r, report } = runNpmPrepare({
+        FAKE_NPM_EMBEDDER: "0",
+        FAKE_NPM_RUNTIME: "0",
+        FAKE_NPM_DECLARE_RUNTIME: "1",
+      });
       expect(r.code, r.stderr).toBe(1);
       expect(prepare(report)).toMatchObject({ status: "fail" });
       expect(prepare(report)?.detail).toContain(
         "npm skipped the optional embedder for this platform, so semantic search cannot work",
       );
-      expect(prepare(report)?.detail).toContain("@the-40-thieves/obsidian-tc-embedder-local");
+      expect(prepare(report)?.detail).toMatch(
+        /: @the-40-thieves\/obsidian-tc-embedder-local not installed$/,
+      );
       expect(report.firstFailure).toMatch(/^prepare: /);
       const reconcile = report.stages.find((s: { stage: string }) => s.stage === "reconcile");
       expect(reconcile?.detail ?? "").not.toMatch(/degraded/);
     });
 
-    it("fails prepare when only the host runtime package was skipped", () => {
-      const { r, report } = runNpmPrepare({ FAKE_NPM_EMBEDDER: "1", FAKE_NPM_RUNTIME: "0" });
+    it("fails prepare when the embedder declares the host runtime and only that was skipped", () => {
+      const { r, report } = runNpmPrepare({
+        FAKE_NPM_EMBEDDER: "1",
+        FAKE_NPM_RUNTIME: "0",
+        FAKE_NPM_DECLARE_RUNTIME: "1",
+      });
       expect(r.code, r.stderr).toBe(1);
       expect(prepare(report)).toMatchObject({ status: "fail" });
       expect(prepare(report)?.detail).toMatch(
@@ -446,8 +486,21 @@ describe.skipIf(!NATIVE_HOST || process.platform === "win32")(
       );
     });
 
-    it("passes prepare when the embedder and the host runtime were both installed", () => {
-      const { report } = runNpmPrepare({ FAKE_NPM_EMBEDDER: "1", FAKE_NPM_RUNTIME: "1" });
+    it("passes prepare when the embedder and the declared host runtime were both installed", () => {
+      const { report } = runNpmPrepare({
+        FAKE_NPM_EMBEDDER: "1",
+        FAKE_NPM_RUNTIME: "1",
+        FAKE_NPM_DECLARE_RUNTIME: "1",
+      });
+      expect(prepare(report)).toMatchObject({ status: "pass" });
+    });
+
+    it("passes prepare on the published-release shape: the embedder declares no per-platform runtime", () => {
+      const { report } = runNpmPrepare({
+        FAKE_NPM_EMBEDDER: "1",
+        FAKE_NPM_RUNTIME: "0",
+        FAKE_NPM_DECLARE_RUNTIME: "0",
+      });
       expect(prepare(report)).toMatchObject({ status: "pass" });
     });
   },

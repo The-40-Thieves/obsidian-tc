@@ -177,6 +177,14 @@ function isMuslHost(): boolean {
   return header !== undefined && header.glibcVersionRuntime === undefined;
 }
 
+/** The names a package.json declares as dependencies or optional dependencies. */
+function declaredNames(pkg: {
+  dependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
+}): string[] {
+  return Object.keys({ ...pkg.dependencies, ...pkg.optionalDependencies });
+}
+
 function prepareNpm(vault: string): Launch | null {
   const prefix = mkdtempSync(join(tmpdir(), "obtc-first-run-npm-"));
   process.once("exit", () => removeTree(prefix));
@@ -219,6 +227,17 @@ function prepareNpm(vault: string): Launch | null {
       `obsidian-tc-embedder-local-${process.platform}-${process.arch}`,
     ),
   );
+  // What the installed embedder declares decides whether its host runtime was owed at all.
+  const embedderJson = join(
+    prefix,
+    "node_modules",
+    "@the-40-thieves",
+    "obsidian-tc-embedder-local",
+    "package.json",
+  );
+  const embedderDeclared = existsSync(embedderJson)
+    ? declaredNames(JSON.parse(readFileSync(embedderJson, "utf8")))
+    : [];
   const onnxruntimeNode = existsSync(join(prefix, "node_modules", "onnxruntime-node"));
   const transformers = existsSync(join(prefix, "node_modules", "@huggingface", "transformers"));
   const installDetail =
@@ -229,7 +248,8 @@ function prepareNpm(vault: string): Launch | null {
   // npm skips an optional embedder without a word; left unchecked, the failure surfaces later as a
   // vague `reconcile=degraded`. The declared names come from what npm resolved for this install.
   const skipped = skippedEmbedderPackages({
-    declared: Object.keys({ ...pkgJson.dependencies, ...pkgJson.optionalDependencies }),
+    declared: declaredNames(pkgJson),
+    embedderDeclared,
     platformKey: `${process.platform}-${process.arch}`,
     runtimePlatforms: RUNTIME_PACKAGE_PLATFORMS,
     musl: isMuslHost(),

@@ -56,6 +56,7 @@ export function renderMatrix(input: {
 }): string;
 export function skippedEmbedderPackages(input: {
   declared: string[];
+  embedderDeclared: string[];
   platformKey: string;
   runtimePlatforms: Record<string, { backend: string }>;
   musl: boolean;
