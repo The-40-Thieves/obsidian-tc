@@ -159,3 +159,23 @@ export function renderMatrix({ paths, oses, reports, expected }) {
   }
   return rows.join("\n");
 }
+
+const EMBEDDER_PACKAGE = "@the-40-thieves/obsidian-tc-embedder-local";
+
+/** Embedder packages npm was asked for on a host with a native ONNX runtime but did not install.
+ *  npm skips an optional dependency silently, so `obsidian-tc` can install "successfully" without
+ *  them. `runtimePlatforms` is the repo's per-platform runtime matrix; a WASM-backed platform has
+ *  no native binary to lose, and musl cannot take the glibc runtime, so both keep passing. */
+export function skippedEmbedderPackages({
+  declared,
+  platformKey,
+  runtimePlatforms,
+  musl,
+  installed,
+}) {
+  if (musl || runtimePlatforms[platformKey]?.backend !== "native") return [];
+  if (!declared.includes(EMBEDDER_PACKAGE)) return [];
+  return [EMBEDDER_PACKAGE, `${EMBEDDER_PACKAGE}-${platformKey}`].filter(
+    (name) => !installed(name),
+  );
+}

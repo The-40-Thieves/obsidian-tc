@@ -54,3 +54,10 @@ export function renderMatrix(input: {
   reports: Map<string, Report>;
   expected: Set<string>;
 }): string;
+export function skippedEmbedderPackages(input: {
+  declared: string[];
+  platformKey: string;
+  runtimePlatforms: Record<string, { backend: string }>;
+  musl: boolean;
+  installed: (name: string) => boolean;
+}): string[];
