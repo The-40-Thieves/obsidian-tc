@@ -26,6 +26,39 @@ export const walkIdentity = (e: {
   hardLinked?: true;
 }): AclPath | typeof ACL_PATH_UNRESOLVED => (e.hardLinked ? ACL_PATH_UNRESOLVED : e.aclRel);
 
+/** The walk identity of `e`, after demoting its stored rows when they name a DIFFERENT identity. The pass
+ *  demotes first because a pass that ends early (any non-ACL error) never reaches the end-of-pass sync,
+ *  and the old identity would keep authorizing the name. An unchanged name is left alone, so its results
+ *  stay visible for the whole pass. */
+export function walkIdentityDemotingChanged(
+  db: Database,
+  vaultId: string,
+  e: { relPath: string; aclRel: AclPath; hardLinked?: true },
+  hooks?: WriteTxnHooks,
+): AclPath | typeof ACL_PATH_UNRESOLVED {
+  const id = walkIdentity(e);
+  if (storedIdentityDiffers(db, vaultId, e.relPath, id))
+    syncAclPaths(db, vaultId, new Map([[e.relPath, ACL_PATH_UNRESOLVED]]), hooks);
+  return id;
+}
+
+/** Does any stored row of `rel` name an identity other than `id`? A NULL row is UNRESOLVED. */
+function storedIdentityDiffers(
+  db: Database,
+  vaultId: string,
+  rel: string,
+  id: AclPath | typeof ACL_PATH_UNRESOLVED,
+): boolean {
+  for (const table of ACL_PATH_TABLES) {
+    if (!hasAclPathColumn(db, table)) continue;
+    const rows = db
+      .prepare(`SELECT DISTINCT acl_path FROM ${table} WHERE vault_id = ? AND path = ?`)
+      .all(vaultId, rel) as Array<{ acl_path: string | null }>;
+    if (rows.some((r) => (r.acl_path ?? ACL_PATH_UNRESOLVED) !== id)) return true;
+  }
+  return false;
+}
+
 /** Is `abs` a regular file with a second directory entry (st_nlink > 1)? read_note refuses one, since
  *  realpath cannot see through a hard link (`allowed/x.md` may be `private/y.md`). Not statable: no. */
 export function isHardLinkedFile(abs: string): boolean {

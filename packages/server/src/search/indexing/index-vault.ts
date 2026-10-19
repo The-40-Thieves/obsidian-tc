@@ -43,7 +43,7 @@ import { deleteNoteSummary } from "../note-summaries";
 import { resolveRetrievalDefaults } from "../retrieval-defaults";
 import { ensureChunkSparse } from "../sparse";
 import { ensureVecChunks } from "../vec";
-import { syncAclPaths, walkIdentity } from "./acl-path-sync";
+import { syncAclPaths, walkIdentityDemotingChanged } from "./acl-path-sync";
 import {
   EMBED_BATCH,
   EMBED_CONCURRENCY,
@@ -145,7 +145,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const walkedSet = new Map<string, AclPath | typeof ACL_PATH_UNRESOLVED>();
   const readableWalked = new Set<string>();
   const admit = (e: WalkEntry): void => {
-    const id = walkIdentity(e);
+    const id = walkIdentityDemotingChanged(args.db, args.vaultId, e, args.sql);
     walkedSet.set(e.relPath, id);
     if (id !== ACL_PATH_UNRESOLVED && args.isReadable(id)) readableWalked.add(e.relPath);
   };
