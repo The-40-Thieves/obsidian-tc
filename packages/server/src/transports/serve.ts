@@ -1,3 +1,4 @@
+import type { ServerOptions } from "node:http";
 import { serve } from "@hono/node-server";
 import { normalizeHostForBind } from "@the-40-thieves/obsidian-tc-shared";
 import type { Hono } from "hono";
@@ -67,11 +68,32 @@ interface BunGlobal {
  */
 export const BUN_IDLE_TIMEOUT_SECONDS = 120;
 
+const NODE_REQUEST_TIMEOUT_MS = BUN_IDLE_TIMEOUT_SECONDS * 1000;
+const NODE_HEADERS_TIMEOUT_MS = 60_000;
+/**
+ * Node checks `requestTimeout` only on each `connectionsCheckingInterval` tick, and the default tick
+ * is 30 s. At that default a stalled request is cut anywhere between the timeout and timeout + 30 s,
+ * and the 300 s default timeout held a body that stopped mid-way for minutes. A 1 s tick keeps the
+ * enforcement close to the number it is set to.
+ */
+const NODE_CONNECTIONS_CHECKING_INTERVAL_MS = 1_000;
+
+/** The Node branch's server options: the same request ceiling Bun applies, and a tick that enforces it. */
+export const NODE_SERVER_OPTIONS: ServerOptions = {
+  requestTimeout: NODE_REQUEST_TIMEOUT_MS,
+  headersTimeout: NODE_HEADERS_TIMEOUT_MS,
+  connectionsCheckingInterval: NODE_CONNECTIONS_CHECKING_INTERVAL_MS,
+};
+
 /**
  * Serve `app` on host:port with the runtime's native server. Pass port 0 for an ephemeral port;
- * the resolved handle reports the actual one.
+ * the resolved handle reports the actual one. `nodeServerOptions` overrides {@linkcode NODE_SERVER_OPTIONS}
+ * on the Node branch; only the tests pass it, to see a request timeout fire within a test's budget.
  */
-export function serveHono(app: Hono, opts: { host: string; port: number }): Promise<ServerHandle> {
+export function serveHono(
+  app: Hono,
+  opts: { host: string; port: number; nodeServerOptions?: ServerOptions },
+): Promise<ServerHandle> {
   const hostname = normalizeHostForBind(opts.host);
   const fetch = closeIfBodyUnread(app.fetch);
 
@@ -92,7 +114,8 @@ export function serveHono(app: Hono, opts: { host: string; port: number }): Prom
   }
 
   return new Promise((resolve) => {
-    const server = serve({ fetch, hostname, port: opts.port }, (info) => {
+    const serverOptions = { ...NODE_SERVER_OPTIONS, ...opts.nodeServerOptions };
+    const server = serve({ fetch, hostname, port: opts.port, serverOptions }, (info) => {
       resolve({
         port: info.port,
         close: () =>
