@@ -134,3 +134,5 @@ server starts. The restart policy then restarts the container, so set `--restart
   check configuration.
 - [Railway](/deployment/railway/) — repository Dockerfile, volume, environment, and Railway health
   check configuration.
+- [Self-hosted PaaS](/deployment/self-hosted-paas/) — Coolify, Dokploy and CapRover templates derived
+  from the HTTP Compose bundle.

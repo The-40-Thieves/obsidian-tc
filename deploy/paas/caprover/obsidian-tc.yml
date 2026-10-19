@@ -1,0 +1,45 @@
+captainVersion: 4
+services:
+    $$cap_appname:
+        environment:
+            OBSIDIAN_TC_CONFIG: /config/obsidian-tc.config.json
+            OBSIDIAN_TC_VAULT_PATH: /data/vault
+            OBSIDIAN_TC_CACHE_DIR: /data/cache
+            PORT: '8765'
+            OBSIDIAN_TC_PUBLIC_URL: https://$$cap_appname.$$cap_root_domain
+            OBSIDIAN_TC_JWT_SECRET: $$cap_jwt_secret
+        volumes:
+            - $$cap_appname-data:/data
+        caproverExtra:
+            containerHttpPort: '8765'
+            dockerfileLines:
+                - FROM ghcr.io/the-40-thieves/obsidian-tc:$$cap_obsidian_tc_version
+                - USER root
+                - >-
+                  RUN mkdir -p /config && printf '%s\n'
+                  '{"vaults":[{"id":"main","path":"/data/vault"}],"transports":{"stdio":false,"http":{"host":"0.0.0.0"}},"auth":{"mode":"jwt","requireJti":true}}'
+                  > /config/obsidian-tc.config.json
+                - USER bun
+caproverOneClickApp:
+    variables:
+        - id: $$cap_obsidian_tc_version
+          label: Image tag
+          defaultValue: latest
+          description: A tag of ghcr.io/the-40-thieves/obsidian-tc, for example latest or a release version.
+          validRegex: /^[A-Za-z0-9._-]+$/
+        - id: $$cap_jwt_secret
+          label: JWT secret
+          defaultValue: $$cap_gen_random_hex(64)
+          description: Signs the bearer tokens clients present. At least 32 characters; mint tokens with the same secret.
+          validRegex: /^.{32,}$/
+    instructions:
+        start: |-
+            obsidian-tc serves an Obsidian vault to MCP clients over HTTP. Enable HTTPS for the app after deploy:
+            OBSIDIAN_TC_PUBLIC_URL is https://$$cap_appname.$$cap_root_domain.
+        end: |-
+            Enable HTTPS for $$cap_appname, then copy your notes into the /data/vault volume.
+            Mint a client token with the JWT secret, as described at https://obsidian-tc.the40thieves.io/deployment/self-hosted-paas/
+    displayName: obsidian-tc
+    isOfficial: false
+    description: An MCP server over an Obsidian vault, for AI clients over HTTP.
+    documentation: https://obsidian-tc.the40thieves.io/deployment/self-hosted-paas/
