@@ -1,0 +1,13 @@
+{
+  "id": "obsidian-tc",
+  "name": "obsidian-tc",
+  "version": "latest",
+  "description": "An MCP server over an Obsidian vault: search, read and write notes from AI clients over HTTP.",
+  "logo": "obsidian-tc.svg",
+  "links": {
+    "github": "https://github.com/The-40-Thieves/obsidian-tc",
+    "website": "https://obsidian-tc.the40thieves.io",
+    "docs": "https://obsidian-tc.the40thieves.io/deployment/self-hosted-paas/"
+  },
+  "tags": ["productivity", "ai", "notes"]
+}

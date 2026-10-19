@@ -3,6 +3,10 @@ title: Render
 description: Deploy obsidian-tc on Render from a Blueprint, with a persistent disk, generated secrets and a health check.
 ---
 
+:::caution
+These templates need obsidian-tc v1.34.0 or later. Until v1.34.0 is published, `:latest` is v1.33.1, which has no health route (`/healthz`) and does not read the environment settings the template relies on, so the deploy will not become healthy. Once v1.34.0 is out, `:latest` works; pin the exact version for production.
+:::
+
 The repository's `render.yaml` is a Render Blueprint. It creates one web service from the published
 image `ghcr.io/the-40-thieves/obsidian-tc:latest` with a persistent disk at `/data`. The image's
 ENTRYPOINT boots the server from `OBSIDIAN_TC_CONFIG`, and the server serves HTTP on the port Render
@@ -80,7 +84,7 @@ every boot. The full authorization-server flow is in
 
 The vault on the disk is the only copy the server reads. Seeding it from a laptop is not part of the
 Blueprint. To keep the vault in step with a Git repository, use the `-git` image and the variables
-in [Git-backed vault](/deployment/railway/#git-backed-vault-git-image). Those tags are first
+in [Git-backed vault](/deployment/railway/#git-backed-vault--git-image). Those tags are first
 published with the next release, so the `-git` image is not yet available for the Blueprint's
 `image.url`.
 
