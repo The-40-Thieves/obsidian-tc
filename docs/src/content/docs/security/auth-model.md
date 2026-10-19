@@ -266,6 +266,9 @@ until it expires. Allow only origins you run, keep token lifetimes short, and re
 rotation so a stolen refresh token is useful once. Keep the token in memory in the page, not in
 `localStorage` or `sessionStorage`: those survive a reload, and any script on the page can read them.
 
+A working example of this pattern, a static page that signs in with PKCE and reads a vault, is in
+[`examples/web-client/`](https://github.com/The-40-Thieves/obsidian-tc/tree/main/examples/web-client).
+
 ## Revoking tokens and rotating the signing key
 
 `obsidian-tc token mint` gives every token a `jti` claim and a `kid` header and records
