@@ -4,7 +4,7 @@
 // that is never a literal value, and no public URL. Umbrel and CasaOS are YAML and are parsed as
 // such. Unraid is XML and is read with a small reader, because the repo has no XML parser.
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -296,7 +296,7 @@ describe("Umbrel template", () => {
     expect(store.id).toMatch(/^[a-z-]+$/);
     expect(manifest.id).toBe("thieves-obsidian-tc");
     expect(manifest.id.startsWith(`${store.id}-`)).toBe(true);
-    expect(manifest.id).toBe(umbrelAppDir.split("/").at(-1));
+    expect(manifest.id).toBe(basename(umbrelAppDir));
   });
 
   it("declares the app port, the 2.0 storage root and the picked vault folder", () => {
