@@ -26,6 +26,9 @@ const flagged = (source, more = []) =>
 
 // --- required RED shapes -----------------------------------------------------------------------
 
+// A same-file normalizer that passes its argument through (the real one is normalizeVaultPath).
+const NORMALIZE = `export function normalizeVaultPath(relPath) { return relPath.split("/").filter(Boolean).join("/"); }`;
+
 const RED = {
   "alias via a local": `
     export function f(acl, entry, scopes) {
@@ -139,6 +142,28 @@ const RED = {
     export function f(db, acl, scopes) {
       return load(db).filter((r) => readableRel(acl, r.path, scopes));
     }`,
+  // A caller-named path is a source now: `input` is the tool input (the brief's §5.2).
+  "a caller-named path": `
+    export const f = (acl, scopes, input) => readableRel(acl, input.path, scopes);`,
+  "destructured tool input path": `
+    export const tool = { handler: (input, ctx) => {
+      const { path } = input;
+      return readableRel(ctx.acl, path, ctx.grantedScopes);
+    } };`,
+  "tool input passed to a helper as args": `
+    export function helper(acl, args, scopes) { return readableRel(acl, args.folder, scopes); }`,
+  "tool input path through a normalizer (same file)": `
+    ${NORMALIZE}
+    export const tool = { handler: (input, ctx) => {
+      const rel = normalizeVaultPath(input.path);
+      return readableRel(ctx.acl, rel, ctx.grantedScopes);
+    } };`,
+  "inspect_acl shape: tool input path to scopesForPath": `
+    ${NORMALIZE}
+    export const tool = { handler: (input, ctx) => {
+      const rel = normalizeVaultPath(input.path);
+      return ctx.acl.scopesForPath(rel);
+    } };`,
 };
 
 for (const [name, source] of Object.entries(RED)) {
@@ -146,6 +171,27 @@ for (const [name, source] of Object.entries(RED)) {
     assert.ok(flagged(source).length >= 1, `expected a violation for: ${name}`);
   });
 }
+
+test("RED: the provenance incident (get_provenance handler, normalizer in another file) is flagged", () => {
+  // provenance-tools.ts:240-257 in shape. The normalizer is a pass-through in ANOTHER file, so the
+  // flag depends on the cross-file return substitution, not on a local binding.
+  const incident = `
+    export const tools = [defineTool({
+      handler: async (input, ctx) => {
+        const v = deps.vaultRegistry.resolve(input.vault);
+        const rel = normalizeVaultPath(input.path);
+        const acl = aclFor(v.id) ?? ctx.acl;
+        const readable = (p: string): boolean => readableRel(acl, p, ctx.grantedScopes);
+        const result = readable(rel) ? queryNoteProvenance(ctx.db, { path: rel, readable }) : EMPTY;
+        return result;
+      },
+    })];`;
+  const normalizer = {
+    file: "packages/server/src/paths.ts",
+    source: NORMALIZE,
+  };
+  assert.ok(flagged(incident, [normalizer]).length >= 1);
+});
 
 test("OLD_GUARD (the retired per-file regex) is blind to every required shape but a literal one", () => {
   // It matched only `readableRel(... .relPath` spelled out inside one call; no alias, destructure,
@@ -208,10 +254,32 @@ const GREEN = {
     export function f(acl, root, scopes, entry) {
       return readableRel(acl, resolveVaultPathChecked(root, entry.relPath).aclRel, scopes);
     }`,
-  "a caller-named path": `
-    export const f = (acl, scopes, input) => readableRel(acl, input.path, scopes);`,
   "a non-DB .path": `
     export const f = (acl, scopes, config) => readableRel(acl, config.path, scopes);`,
+  "handler input judged via readableResolved": `
+    export const tool = { handler: (input, ctx) => readableResolved(ctx.acl, ctx.root, normalizeVaultPath(input.path), ctx.grantedScopes) };
+    ${NORMALIZE}`,
+  "handler input judged via memoizedReadableResolved": `
+    export const tool = { handler: (input, ctx) => {
+      const rel = normalizeVaultPath(input.path);
+      return memoizedReadableResolved(ctx.acl, ctx.root, ctx.grantedScopes)(rel);
+    } };
+    ${NORMALIZE}`,
+  "handler input judged on the resolved target's aclRel": `
+    export const tool = { handler: (input, ctx) => {
+      const rel = normalizeVaultPath(input.path);
+      return readableRel(ctx.acl, resolveVaultPathChecked(ctx.root, rel).aclRel, ctx.grantedScopes);
+    } };
+    ${NORMALIZE}`,
+  "handler input judged via defaultDeniedUnderEitherName": `
+    export const tool = { handler: (input, ctx) => defaultDeniedUnderEitherName(ctx.root, normalizeVaultPath(input.path)) };
+    export function defaultDeniedUnderEitherName(root, rel) {
+      return isDefaultDenied(normalizeVaultPath(rel)) || isDefaultDenied(resolveVaultPathChecked(root, rel).aclRel);
+    }
+    ${NORMALIZE}`,
+  "a clean value through a normalizer stays clean": `
+    export const f = (acl, cfg, scopes) => readableRel(acl, normalizeVaultPath(cfg.name), scopes);
+    ${NORMALIZE}`,
   "a wrapper fed an aclRel": `
     export function f(acl, entry, scopes) {
       const ok = (p: string) => readableRel(acl, p, scopes);
@@ -314,7 +382,13 @@ test("every allowlist entry, if one is added, carries a reason and a positive co
 test("the sink and canonical-entrypoint tables hold the deciders this gate is built around", () => {
   for (const s of ["readableRel", "readableByFolder", "pathScopesSatisfied", "isDefaultDenied"])
     assert.ok(SINKS.has(s), s);
-  for (const s of ["resolveVaultPath", "enforcePathAcl", "readableStoredRow", "storedAclPathOf"])
+  for (const s of [
+    "resolveVaultPath",
+    "enforcePathAcl",
+    "readableStoredRow",
+    "storedAclPathOf",
+    "defaultDeniedUnderEitherName",
+  ])
     assert.ok(CANONICAL_ENTRYPOINTS.has(s), s);
   // A sink must never also be an exempt entrypoint, or the exemption would blind the sink.
   for (const s of SINKS.keys()) assert.ok(!CANONICAL_ENTRYPOINTS.has(s), s);

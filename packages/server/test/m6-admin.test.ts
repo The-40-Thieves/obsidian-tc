@@ -1,6 +1,9 @@
 // M6 Domain 28 admin tools through real dispatch (THE-182): get_server_config,
 // inspect_acl, get_metrics. Proves the admin surface is complete, leaks no secrets,
 // faithfully mirrors ACL enforcement, and snapshots real event_log + limiter data.
+
+import { symlinkSync } from "node:fs";
+import { join } from "node:path";
 import { ServerConfigSchema, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ToolRegistry } from "../src/mcp/registry";
@@ -247,6 +250,33 @@ describe("inspect_acl", () => {
     );
     expect(out.effective_scopes).toEqual(["admin:config"]);
   });
+
+  // Not on Windows: the resolver answers path_invalid for an in-vault symlink there, before the ACL.
+  it.skipIf(process.platform === "win32")(
+    "judges a symlinked alias on its resolved target, as read_note does",
+    async () => {
+      v = makeM6Vault({
+        files: { "private/x.md": "secret", "pub/a.md": "public" },
+        acl: { readPaths: ["wiki/**", "pub/**"] },
+        register,
+      });
+      const vault = v;
+      symlinkSync(join(vault.root, "private"), join(vault.root, "wiki"));
+      const inspect = async (path: string) =>
+        data<{ allowed: boolean; denied_by: string | null }>(
+          await vault.call("inspect_acl", {
+            vault: "test",
+            path,
+            op: "read",
+            scopes: ["read:notes"],
+          }),
+        );
+      const alias = await inspect("wiki/x.md");
+      expect(alias.allowed).toBe(false);
+      expect(alias.denied_by).toBe("read_paths");
+      expect((await inspect("pub/a.md")).allowed).toBe(true);
+    },
+  );
 
   it("denies when the caller lacks a path-required rule scope (P1.4 Require)", async () => {
     v = makeM6Vault({

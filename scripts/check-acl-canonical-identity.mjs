@@ -17,28 +17,26 @@
  *   D  a display path:  `<x>.relPath`, a `{ relPath }` destructure, or `<row>.path` / `{ path }` of a
  *      database ROW (R: the result of `.all()/.get()/.iterate()` on a `prepare()/query()` statement,
  *      or of a function that returns one).
+ *   I  a tool input: the `input` / `args` parameter, or a handler's first parameter. Its `path`-shaped
+ *      fields are D, so a path the caller named is judged on its canonical identity like any other.
  *   P  a parameter of the function being analysed, so a helper that forwards its parameter to a
  *      lexical ACL predicate is itself a SINK for its callers (a wrapper), however many layers deep,
  *      whether it is a local const, a function declaration, an imported function, an object-property
  *      callback (`isReadable: (p) => readableRel(...)`) or a class method.
  *
- * D flows through aliases, destructuring, for-of, array callbacks (`filter/map/find/...`), template
- * literals, string methods, ternaries and unknown calls; it is dropped by a member read of anything
- * but those two names (`.aclRel`, `.abs`) and by calling a `storedAclPathOf(...)` result. A violation
- * is D reaching a lexical decider: `readableRel` / `readableByFolder` / `pathScopesSatisfied`
- * (path argument), `isDefaultDenied`, `.matchedPathGlob` / `.scopesForPath` / `.immutableGlobFor`, or
- * a wrapper that forwards to one. The sanctioned roads are untouched: `readableEntry` (typed
- * `aclRel`), `readableStoredRow`, `readableResolved`, `callerCanReadVaultPath`, `enforcePathAcl`.
+ * D flows through aliases, destructuring, for-of, array callbacks, template literals, string methods,
+ * ternaries and unknown calls; a member read other than `.aclRel` / `.abs`, or a `storedAclPathOf(...)`
+ * result, drops it. A violation is D reaching a lexical decider (see SINKS) or a wrapper forwarding to
+ * one. The sanctioned roads are untouched: `readableEntry`, `readableStoredRow`, `readableResolved`,
+ * `callerCanReadVaultPath`, `enforcePathAcl`.
  *
- * Known limits, stated so nobody mistakes the gate for a proof: row-ness does not survive an
- * unannotated helper in another file's return type, a path stored in an object field and read back
- * later is invisible, and the wrapper registry is keyed by name (imports for functions, property name
- * for callbacks and methods), so two unrelated callbacks sharing a property name share a verdict.
- * Those fail toward a false POSITIVE, which the reviewed ALLOWLIST below resolves with a reason.
+ * Known limits (not a proof): row-ness does not survive an unannotated helper in another file's return
+ * type, a path stored in an object field and read back later is invisible, and the wrapper registry is
+ * keyed by name, so unrelated callbacks sharing a property name share a verdict (false POSITIVES, which
+ * the reviewed ALLOWLIST below resolves with a reason).
  *
- * Floors (a scan that finds nothing is not a pass): enough files, enough direct ACL call sites,
- * wrappers, and DB-row sources; and every ALLOWLIST entry must still match a real finding, so a stale
- * exemption cannot sit there covering a later regression.
+ * Floors (a scan that finds nothing is not a pass): enough files, ACL call sites, wrappers and DB-row
+ * sources; and every ALLOWLIST entry must still match a finding, so a stale exemption cannot linger.
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -63,14 +61,9 @@ export const SINKS = new Map([
 ]);
 
 /**
- * Reviewed exemptions: a lexical decision on a display-shaped value that is nonetheless already
- * canonical. `file`, enclosing function, sink and the exact number of sites (`count`) must match, so
- * a new site in the same function is a new finding rather than silently covered; each needs a
- * `reason` a reviewer can re-check against the code.
- *
- * Empty since the ACL identity became a branded type (AclPath, vault/acl-identity.ts): every former
- * exemption is now a compile-time error. A new entry needs review and must change
- * scripts/check-acl-canonical-identity.test.mjs too.
+ * Reviewed exemptions: a lexical decision on a display-shaped value that is already canonical. `file`,
+ * function, sink and `count` must match; each needs a `reason`. Empty: the identity is a branded type
+ * (AclPath), so a former exemption is a compile-time error. A new entry needs review and a test change.
  */
 export const ALLOWLIST = [];
 
@@ -88,15 +81,19 @@ export const CANONICAL_ENTRYPOINTS = new Set([
   "normalizeVaultPath",
   "readableStoredRow",
   "storedAclPathOf",
+  "defaultDeniedUnderEitherName",
 ]);
 
 /** A database column that holds a vault path: `path`, `source_path`, `targetPath`, ... */
 const ROW_PATH_COLUMN = /(^|_)path$|[a-z]Path$/;
+/** A tool input field that names a vault path. */
+const INPUT_PATH_KEY = /(^|_)path$|[a-z]Path$|^(paths|from|to|folder|sub)$/;
 
 const D = "D";
 const R = "R";
 const S = "S";
 const C = "C";
+const I = "I";
 const ARRAY_PASS = new Set([
   "filter",
   "slice",
@@ -255,7 +252,11 @@ function analyzeFile(file, source, reg, out) {
           }
           const k = !prop.computed && prop.key.type === "Identifier" ? prop.key.name : undefined;
           let l = EMPTY;
-          if (k === "relPath" || (k !== undefined && ROW_PATH_COLUMN.test(k) && labels.has(R)))
+          if (
+            k === "relPath" ||
+            (k !== undefined && ROW_PATH_COLUMN.test(k) && labels.has(R)) ||
+            (k !== undefined && INPUT_PATH_KEY.test(k) && labels.has(I))
+          )
             l = new Set([D]);
           else if (labels.has(R)) l = EMPTY;
           bindPattern(prop.value, l, scope);
@@ -272,6 +273,7 @@ function analyzeFile(file, source, reg, out) {
     const inner = new Scope(scope);
     node.params.forEach((p, i) => {
       const own = new Set([`${id}:${i}`]);
+      if (p.type === "Identifier" && /^(input|args)$/.test(p.name)) own.add(I);
       bindPattern(p, i === 0 && elem0 ? union(own, elem0) : own, inner);
     });
     if (key && name) reg.register(`${key}:${name}`, id);
@@ -483,7 +485,14 @@ function analyzeFile(file, source, reg, out) {
       return keep(argLabels[0] ?? EMPTY, D, R);
     if (c.ids.length > 0) {
       const r = reg.returnsOf(c.ids);
-      if (r.size > 0) return r;
+      // A returned parameter i is the CALLER's argument i, so a pass-through keeps its taint.
+      if (r.size > 0)
+        return new Set(
+          [...r].flatMap((l) => {
+            const m = /^(.*):(\d+)$/.exec(l);
+            return m && c.ids.includes(m[1]) ? [...keep(argLabels[+m[2]] ?? EMPTY, D, R)] : [l];
+          }),
+        );
     }
     return keep(union(objLabels, ...argLabels), D);
   }
@@ -504,6 +513,7 @@ function analyzeFile(file, source, reg, out) {
         const nm = propName(n);
         if (nm === "relPath") return new Set([D]);
         if (nm !== undefined && ROW_PATH_COLUMN.test(nm) && obj.has(R)) return new Set([D]);
+        if (nm !== undefined && INPUT_PATH_KEY.test(nm) && obj.has(I)) return new Set([D]);
         if (n.computed && typeof n.property.value === "number") return keep(obj, D, R);
         return EMPTY;
       }
@@ -550,7 +560,8 @@ function analyzeFile(file, source, reg, out) {
           }
           const k = !p.computed && p.key.type === "Identifier" ? p.key.name : undefined;
           const v = unwrap(p.value);
-          if (v && FN_TYPES.has(v.type)) fn(v, scope, k, "prop");
+          if (v && FN_TYPES.has(v.type))
+            fn(v, scope, k, "prop", k === "handler" ? new Set([I]) : undefined);
           else ev(p.value, scope);
         }
         return EMPTY;
@@ -675,9 +686,10 @@ function main() {
   if (failing.length > 0 || stale.length > 0 || problems.length > 0) {
     console.error(
       "\nacl-canonical-identity gate: a path that is a DISPLAY name (a walked entry's relPath, a stored " +
-        "row's path) reached a lexical ACL decision. Judge the canonical identity instead: " +
-        "`readableEntry` / `entry.aclRel` for walker output, `readableStoredRow` for DB rows, " +
-        "`readableResolved` for bridge rows. A genuinely canonical, reviewed use goes in ALLOWLIST " +
+        "row's path) or a caller's input path reached a lexical ACL decision. Judge the canonical " +
+        "identity instead: `readableEntry` / `entry.aclRel` for walker output, `readableStoredRow` " +
+        "for DB rows, `readableResolved` (or `memoizedReadableResolved`) for a path a caller named. " +
+        "A genuinely canonical, reviewed use goes in ALLOWLIST " +
         "in scripts/check-acl-canonical-identity.mjs with a reason; a stale entry or a floor miss means " +
         "the scan itself broke.",
     );
