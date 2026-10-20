@@ -1,0 +1,48 @@
+# Fly.io app config. Create the app from it with
+#   fly launch --from https://github.com/The-40-Thieves/obsidian-tc --copy-config --no-deploy
+# then set the secrets and deploy. The fields are explained in
+# docs/src/content/docs/deployment/fly.md. fly launch adds the app name.
+primary_region = "iad"
+
+# The published image, not a build of the repository Dockerfile: the release CI tested is what runs.
+[build]
+  image = "ghcr.io/the-40-thieves/obsidian-tc:latest"
+
+[env]
+  OBSIDIAN_TC_CONFIG = "/config/obsidian-tc.config.json"
+  OBSIDIAN_TC_VAULT_PATH = "/data/vault"
+  OBSIDIAN_TC_CACHE_DIR = "/data/cache"
+  PORT = "8765"
+
+# The shared HTTP config (0.0.0.0, stdio off, JWT), copied into the Machine at deploy time.
+[[files]]
+  guest_path = "/config/obsidian-tc.config.json"
+  local_path = "deploy/config/obsidian-tc.config.json"
+
+[mounts]
+  source = "obsidian_tc_data"
+  destination = "/data"
+  initial_size = "10gb"
+
+# SQLite on one volume: one Machine, never stopped by the proxy.
+[http_service]
+  internal_port = 8765
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[http_service.checks]]
+  grace_period = "60s"
+  interval = "30s"
+  timeout = "10s"
+  method = "GET"
+  path = "/healthz"
+  # The check reaches the Machine over the private network, not the public hostname; a loopback
+  # Host passes the server's DNS-rebinding guard.
+  [http_service.checks.headers]
+    Host = "localhost"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "2gb"

@@ -223,7 +223,7 @@ every write. Caddy already flushes at once for `text/event-stream` responses and
 length is unknown, but the explicit setting removes any doubt. Its upstream `read_timeout` and
 `response_header_timeout` default to no timeout, so a long-idle stream is only cut by whatever sits
 in front of Caddy (do not add a short `read_timeout` to the `transport http` block). Caddy overwrites `X-Forwarded-For` for a client it does not trust, so
-list `127.0.0.1` and `::1` in `transports.http.trustedProxies` with the default
+list the address its connections reach the server from in `transports.http.trustedProxies` (in Docker that is the Compose network's gateway, not `127.0.0.1`; see [VPS](/deployment/vps/#tls-and-client-ip-addresses)) with the default
 `forwardedHeader: x-forwarded-for`.
 
 ## Check it

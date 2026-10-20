@@ -73,6 +73,11 @@ Mount one volume at `/data`, then point the variables at it:
 - `OBSIDIAN_TC_CACHE_DIR=/data/cache`
 - `OBSIDIAN_TC_CONFIG=/data/config.json`
 
+On a volume that holds the config file and nothing else, the first boot creates `/data/vault` itself,
+since `OBSIDIAN_TC_VAULT_PATH` names it. A truly empty volume has no `/data/config.json`, so the first
+boot still fails at config resolution: the config file has to be on the volume first. A vault path
+written only there is never created.
+
 The container runs as the unprivileged `bun` user (uid 1000). The volume must be writable by that
 user, or the first boot cannot create the cache.
 
