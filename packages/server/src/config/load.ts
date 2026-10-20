@@ -73,10 +73,36 @@ export function applyEnvOverlays(
       http: { ...http, allowedHosts: hosts.includes(url.host) ? hosts : [...hosts, url.host] },
     };
   }
+  // Merged after PUBLIC_URL so its host is already in the list: a Set keeps the first occurrence,
+  // so file entries keep their place and the PUBLIC_URL host is not repeated.
+  const allowedHostsEnv = env.OBSIDIAN_TC_ALLOWED_HOSTS;
+  if (allowedHostsEnv) {
+    const entries = allowedHostsEnv.split(",").map((h) => h.trim().toLowerCase());
+    if (!entries.every(isAllowedHostEntry)) {
+      throw err.invalidInput(
+        "OBSIDIAN_TC_ALLOWED_HOSTS must be a comma-separated list of host or host:port entries, with no wildcard, scheme, path, query, fragment, credentials or whitespace",
+        { variable: "OBSIDIAN_TC_ALLOWED_HOSTS" },
+      );
+    }
+    const transports = (raw.transports as Record<string, unknown> | undefined) ?? {};
+    const http = (transports.http as Record<string, unknown> | undefined) ?? {};
+    const hosts = Array.isArray(http.allowedHosts) ? (http.allowedHosts as unknown[]) : [];
+    raw.transports = {
+      ...transports,
+      http: { ...http, allowedHosts: [...new Set([...hosts, ...entries])] },
+    };
+  }
   const jwksUri = env.OBSIDIAN_TC_JWKS_URI;
   if (jwksUri) {
     const auth = (raw.auth as Record<string, unknown> | undefined) ?? {};
     raw.auth = { ...auth, jwksUri };
+  }
+  // The single `aud` a token must carry. A LAN install has no PUBLIC_URL to derive it from, and a
+  // non-loopback JWT server refuses to start without one (THE-456, server.schema.ts).
+  const audience = env.OBSIDIAN_TC_AUDIENCE;
+  if (audience) {
+    const auth = (raw.auth as Record<string, unknown> | undefined) ?? {};
+    raw.auth = { ...auth, audience };
   }
   const cacheDir = env.OBSIDIAN_TC_CACHE_DIR;
   if (cacheDir) raw.cacheDir = cacheDir;
@@ -108,6 +134,30 @@ export function applyEnvOverlays(
     };
   }
   return raw;
+}
+
+/** One OBSIDIAN_TC_ALLOWED_HOSTS entry: `host`, `host:port`, an IPv4 address or `[ipv6]:port`. The
+ *  WHATWG URL parser reads it as the authority of an http URL, and the entry is valid only when that
+ *  authority is the whole thing. `*`, whitespace and a trailing colon are refused explicitly, because
+ *  the URL parser drops or accepts them silently. Like parsePublicUrl, never echoes the entry. */
+function isAllowedHostEntry(entry: string): boolean {
+  if (entry === "" || /[\s*]|:$/.test(entry)) return false;
+  let url: URL;
+  try {
+    url = new URL(`http://${entry}`);
+  } catch {
+    return false;
+  }
+  const port = /:(\d+)$/.exec(entry)?.[1];
+  return (
+    url.hostname !== "" &&
+    url.username === "" &&
+    url.password === "" &&
+    url.pathname === "/" &&
+    url.search === "" &&
+    url.hash === "" &&
+    (port === undefined || (Number(port) >= 1 && Number(port) <= 65535))
+  );
 }
 
 /** OBSIDIAN_TC_PUBLIC_URL must be the bare origin of the public HTTPS endpoint. Its value is never

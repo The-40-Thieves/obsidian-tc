@@ -57,7 +57,9 @@ export const ENV_OVERLAYS: ReadonlyArray<readonly [string, string]> = [
   ["transports.http.enabled", "PORT"],
   ["auth.resource", "OBSIDIAN_TC_PUBLIC_URL"],
   ["transports.http.allowedHosts", "OBSIDIAN_TC_PUBLIC_URL"],
+  ["transports.http.allowedHosts", "OBSIDIAN_TC_ALLOWED_HOSTS"],
   ["auth.jwksUri", "OBSIDIAN_TC_JWKS_URI"],
+  ["auth.audience", "OBSIDIAN_TC_AUDIENCE"],
   ["vaults", "OBSIDIAN_TC_VAULT_PATH"],
   ["cacheDir", "OBSIDIAN_TC_CACHE_DIR"],
 ];
@@ -108,12 +110,16 @@ export function explainConfig(
   // a path counts as env-supplied only when the overlay's value differs from the file's.
   const withEnv = structuredClone(rawFile);
   applyEnvOverlays(withEnv, env);
-  const overlaid = leafPaths(withEnv);
+  // A path can have two env sources (allowedHosts: PUBLIC_URL and ALLOWED_HOSTS), so each variable
+  // is tested ALONE: it is credited only when it changes the path by itself. A PUBLIC_URL host the
+  // file already lists therefore does not get credited with an allowedHosts entry it did not add.
   const fromFile = leafPaths(rawFile);
-  const envPaths = new Map<string, string>();
+  const envPaths = new Map<string, string[]>();
   for (const [path, varName] of ENV_OVERLAYS) {
-    if (env[varName] && JSON.stringify(overlaid.get(path)) !== JSON.stringify(fromFile.get(path))) {
-      envPaths.set(path, varName);
+    if (!env[varName]) continue;
+    const alone = applyEnvOverlays(structuredClone(rawFile), { [varName]: env[varName] });
+    if (JSON.stringify(leafPaths(alone).get(path)) !== JSON.stringify(fromFile.get(path))) {
+      envPaths.set(path, [...(envPaths.get(path) ?? []), varName]);
     }
   }
 
@@ -140,7 +146,7 @@ export function explainConfig(
 
     if (envPaths.has(path)) {
       source = "env";
-      detail = envPaths.get(path);
+      detail = envPaths.get(path)?.join(", ");
     } else if (path === "cacheDir" && !isAbsolute(preAnchorCacheDir)) {
       // Checked BEFORE `file`: a file that sets a RELATIVE cacheDir still does not explain the
       // absolute path that comes out, so attributing it to the file would send the reader looking
