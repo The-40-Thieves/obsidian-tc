@@ -300,8 +300,11 @@ test("allowlist: file, function and sink must all match", () => {
     assert.equal(applyAllowlist([V(over)], list).failing.length, 1);
 });
 
-test("every committed allowlist entry carries a reason and a positive count", () => {
-  assert.ok(ALLOWLIST.length > 0);
+test("the committed allowlist is empty: every former exemption is now type-checked", () => {
+  assert.deepEqual(ALLOWLIST, []);
+});
+
+test("every allowlist entry, if one is added, carries a reason and a positive count", () => {
   for (const a of ALLOWLIST) {
     assert.ok(a.reason.length > 40, `${a.file}: reason too thin`);
     assert.ok(Number.isInteger(a.count) && a.count > 0);

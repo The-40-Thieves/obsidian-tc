@@ -47,6 +47,8 @@ function statsWithFrontmatterFailure(): IndexStats {
     frontmatter_failures: [
       { path: "a.md", error: 'frontmatter is not valid YAML in "a.md": bad indentation' },
     ],
+    notes_read_refused: 0,
+    read_refusals: [],
     model: "fake",
     dimensions: 8,
   };

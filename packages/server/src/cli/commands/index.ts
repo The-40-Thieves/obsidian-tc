@@ -162,7 +162,8 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
       process.stdout.write(
         `indexed ${v.id}: ${stats.notes_indexed} note(s), ${stats.chunks_upserted} chunk(s) upserted, ` +
           `${stats.chunks_deleted} deleted, ${stats.secrets_skipped} secret-gated, ` +
-          `${stats.notes_embed_failed} embed-failed, ${stats.notes_frontmatter_failed} frontmatter-failed\n`,
+          `${stats.notes_embed_failed} embed-failed, ${stats.notes_frontmatter_failed} frontmatter-failed, ` +
+          `${stats.notes_read_refused} read-refused\n`,
       );
       // THE-628 (first PR): note-level summary pass, DARK behind retrieval.summaries.enabled
       // (default false). Runs HERE — after the reindex has committed, not inside indexVault — and

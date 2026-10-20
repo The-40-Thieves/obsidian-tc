@@ -17,6 +17,7 @@
 //                 returned to nobody until the indexer resolves it. A missing identity is never read
 //                 as "trusted".
 import type { Database } from "../db/types";
+import { type AclPath, mintAclPath } from "./acl-identity";
 
 /** What a writer stores for a row whose identity it could not resolve (NULL means the same, and is
  *  what every row has before a pass resolves it). Both are UNRESOLVED: no reader returns the row.
@@ -58,7 +59,7 @@ export function hasAclPathColumn(db: Database, table: AclPathTable): boolean {
 export function storedAclPathOf(
   db: Database,
   vaultId: string,
-): (storedPath: string) => string | null {
+): (storedPath: string) => AclPath | null {
   return currentIdentityOf(db, vaultId);
 }
 
@@ -69,7 +70,7 @@ export function storedAclPathOf(
 export function readableStoredRow(
   db: Database,
   vaultId: string,
-  decide: (aclRel: string) => boolean,
+  decide: (aclRel: AclPath) => boolean,
 ): (storedPath: string) => boolean {
   const identityOf = currentIdentityOf(db, vaultId);
   return (storedPath) => {
@@ -84,12 +85,12 @@ export function readableStoredRow(
  * unresolved row, or chunks and notes naming different identities. Only a connection with no
  * `acl_path` column at all keeps the old rule that a name is its own identity.
  */
-function currentIdentityOf(db: Database, vaultId: string): (storedPath: string) => string | null {
+function currentIdentityOf(db: Database, vaultId: string): (storedPath: string) => AclPath | null {
   let tables: AclPathTable[] | undefined;
-  const cache = new Map<string, string | null>();
+  const cache = new Map<string, AclPath | null>();
   return (storedPath) => {
     tables ??= ACL_PATH_TABLES.filter((t) => hasAclPathColumn(db, t));
-    if (tables.length === 0) return storedPath;
+    if (tables.length === 0) return mintAclPath(storedPath);
     if (cache.has(storedPath)) return cache.get(storedPath) ?? null;
     const identities = new Set<string | null>();
     for (const table of tables) {
@@ -102,7 +103,8 @@ function currentIdentityOf(db: Database, vaultId: string): (storedPath: string) 
         );
     }
     const only = identities.size === 1 ? [...identities][0] : null;
-    cache.set(storedPath, only ?? null);
-    return only ?? null;
+    const aclRel = typeof only === "string" ? mintAclPath(only) : null;
+    cache.set(storedPath, aclRel);
+    return aclRel;
   };
 }

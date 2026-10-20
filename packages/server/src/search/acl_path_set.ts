@@ -49,10 +49,10 @@ export interface EnsureAclPathSetOpts {
   generation: number;
   /** The path universe. Injected so this module never guesses which table defines it. */
   allPaths: () => string[];
-  /** `readableRel` bound to this caller. MUST be passed the path exactly as the DB stores it: 35
+  /** A `readableStoredRow` product bound to this caller. MUST be passed the path exactly as the DB stores it: 35
    *  live paths contain non-ASCII, and `readableRel` NFC-normalizes internally to DECIDE, so the
    *  stored join key has to stay byte-identical to `chunks.path` or the join silently misses. */
-  isReadable: (rel: string) => boolean;
+  isStoredPathReadable: (storedPath: string) => boolean;
   nowMs: number;
   maxSets?: number;
 }
@@ -88,7 +88,7 @@ export function ensureAclPathSet(db: Database, opts: EnsureAclPathSetOpts): numb
 
     const universe = opts.allPaths();
     if (universe.length === 0) return null;
-    const readable = universe.filter((p) => opts.isReadable(p));
+    const readable = universe.filter((p) => opts.isStoredPathReadable(p));
     // EMPTY-SET FLOOR. A broken universe query — or a caller who genuinely reads nothing — must not
     // persist a set that silently filters every query to zero while looking healthy. Same shape as
     // this repo's rule that a gate scanning zero files reports success rather than failing.

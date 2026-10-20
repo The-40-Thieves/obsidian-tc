@@ -266,7 +266,7 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
             exclusionDigest: "x",
             generation: readGeneration(w.db, VAULT),
             allPaths: () => allChunkPaths(w.db, VAULT),
-            isReadable: decide(acl),
+            isStoredPathReadable: decide(acl),
             nowMs: 0,
           });
           expect(id).not.toBeNull();
@@ -666,9 +666,14 @@ describe.skipIf(process.platform === "win32")("a stored row is authorized on its
       );
       symlinkSync(join(w.root, ".obsidian"), join(w.root, "oalias"));
       const DEFAULT_ACL = cfg({});
-      await expect(
-        w.index("oalias", undefined as unknown as FolderAcl, freshDb()),
-      ).rejects.toMatchObject({ code: "acl_denied" });
+      // The safe open refuses every alias read: the pass skips those notes and resolves (it no
+      // longer aborts), so nothing under the alias is stored in the db it indexed into.
+      const aliasDb = freshDb();
+      await w.index("oalias", undefined as unknown as FolderAcl, aliasDb);
+      expect(
+        (aliasDb.prepare("SELECT path FROM chunks WHERE path LIKE 'oalias%'").all() as unknown[])
+          .length,
+      ).toBe(0);
       await w.index(undefined, DEFAULT_ACL);
       expect(
         (w.db.prepare("SELECT path FROM chunks WHERE path LIKE 'oalias%'").all() as unknown[])

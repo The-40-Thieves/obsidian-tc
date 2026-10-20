@@ -71,7 +71,7 @@ const build = (db: Database, over: Partial<EnsureAclPathSetOpts> = {}): number |
     exclusionDigest: "exclusion-a",
     generation: 1,
     allPaths: () => ["02-projects/a.md", "09-secret/b.md", "02-projects/c.md"],
-    isReadable: (p) => p.startsWith("02-projects/"),
+    isStoredPathReadable: (p) => p.startsWith("02-projects/"),
     nowMs: 1000,
     ...over,
   });
@@ -106,7 +106,7 @@ describe("ensureAclPathSet", () => {
     const second = build(db, {
       generation: 2,
       allPaths: () => ["02-projects/a.md", "02-projects/new.md"],
-      isReadable: () => true,
+      isStoredPathReadable: () => true,
     });
     expect(second).toBe(first); // same surrogate id — members replaced, not accumulated
     expect(members(db, second as number)).toStrictEqual(["02-projects/a.md", "02-projects/new.md"]);
@@ -118,7 +118,7 @@ describe("ensureAclPathSet", () => {
     const first = build(db);
     const second = build(db, {
       exclusionDigest: "exclusion-b",
-      isReadable: (path) => path !== "09-secret/b.md",
+      isStoredPathReadable: (path) => path !== "09-secret/b.md",
     });
     expect(second).not.toBe(first);
     expect(members(db, second as number)).toStrictEqual(["02-projects/a.md", "02-projects/c.md"]);
@@ -129,7 +129,7 @@ describe("ensureAclPathSet", () => {
     const db = cacheDb();
     // The trap this guards: a broken universe query materializes an empty set, every query then
     // filters to nothing, and the system looks perfectly healthy while returning zero results.
-    const id = build(db, { isReadable: () => false });
+    const id = build(db, { isStoredPathReadable: () => false });
     expect(id).toBeNull();
     expect(db.prepare("SELECT COUNT(*) AS n FROM acl_path_sets").get()).toMatchObject({ n: 0 });
     db.close?.();
@@ -145,9 +145,12 @@ describe("ensureAclPathSet", () => {
     const db = cacheDb();
     const a = build(db, {
       aclFingerprint: "fp-a",
-      isReadable: (p) => p.startsWith("02-projects/"),
+      isStoredPathReadable: (p) => p.startsWith("02-projects/"),
     });
-    const b = build(db, { aclFingerprint: "fp-b", isReadable: (p) => p.startsWith("09-secret/") });
+    const b = build(db, {
+      aclFingerprint: "fp-b",
+      isStoredPathReadable: (p) => p.startsWith("09-secret/"),
+    });
     expect(a).not.toBe(b);
     expect(members(db, a as number)).toStrictEqual(["02-projects/a.md", "02-projects/c.md"]);
     expect(members(db, b as number)).toStrictEqual(["09-secret/b.md"]);
@@ -169,7 +172,7 @@ describe("evictAclPathSets — the rowid-reuse leak", () => {
       aclFingerprint: "fp-b",
       nowMs: 1000,
       allPaths: () => ["09-secret/b.md"],
-      isReadable: () => true,
+      isStoredPathReadable: () => true,
     }) as number;
     const a = build(db, { aclFingerprint: "fp-a", nowMs: 2000 }) as number;
     expect(b).toBeLessThan(a);
@@ -198,7 +201,7 @@ describe("evictAclPathSets — the rowid-reuse leak", () => {
           aclFingerprint: `fp-${i}`,
           nowMs: 1000 + i,
           allPaths: () => [`02-projects/${i}.md`],
-          isReadable: () => true,
+          isStoredPathReadable: () => true,
         }) as number,
       );
     }

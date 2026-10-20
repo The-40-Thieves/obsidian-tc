@@ -1,9 +1,11 @@
 // WP3 slice 1 (docs/plans/2026-07-30-codebase-refactor-map.md): types only — no runtime code
 // belongs here, and nothing here may import indexer.ts (the facade), note-plan.ts, or
 // embed-batches.ts. Moved verbatim out of indexer.ts.
+
 import type { WriteTxnHooks } from "../../db/txn";
 import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings";
+import type { AclPath } from "../../vault/acl-identity";
 import type { chunkNote } from "../chunk";
 import type { ColbertMatrix } from "../colbert";
 import type { RepresentationManifest } from "../representation";
@@ -50,6 +52,8 @@ export interface IndexStats {
   notes_epoch_stale_skipped: number;
   notes_frontmatter_failed: number;
   frontmatter_failures: Array<{ path: string; error: string }>;
+  notes_read_refused: number;
+  read_refusals: Array<{ path: string; error: string }>;
   model: string;
   dimensions: number;
 }
@@ -163,7 +167,7 @@ export interface IndexVaultArgs {
   vaultId: string;
   root: string;
   sub?: string;
-  isReadable: (rel: string) => boolean;
+  isReadable: (aclRel: AclPath) => boolean;
   /** THE-934: egress.excludePaths, as a per-path predicate — parallels `isReadable` (a read-ACL
    *  concern) but decides a DIFFERENT question: whether this note's chunks may be embedded at all.
    *  Absent -> nothing excluded (back-compat). See note-plan.ts's computeNotePlan, which is the

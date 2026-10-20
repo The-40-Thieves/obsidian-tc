@@ -41,6 +41,8 @@ const IndexVaultResult = z.object({
   notes_epoch_stale_skipped: z.number(),
   notes_frontmatter_failed: z.number(),
   frontmatter_failures: z.array(z.object({ path: z.string(), error: z.string() })),
+  notes_read_refused: z.number(),
+  read_refusals: z.array(z.object({ path: z.string(), error: z.string() })),
   model: z.string().optional(),
   dimensions: z.number().optional(),
 });
@@ -136,9 +138,15 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
           const frontmatterFailures = stats.frontmatter_failures.filter((f) =>
             readableResolved(ctx.acl, v.root, f.path, ctx.grantedScopes),
           );
+          // A refused read is named by its walked path too, so it is filtered the same way.
+          const readRefusals = stats.read_refusals.filter((f) =>
+            readableResolved(ctx.acl, v.root, f.path, ctx.grantedScopes),
+          );
           const failures = {
             notes_frontmatter_failed: frontmatterFailures.length,
             frontmatter_failures: frontmatterFailures,
+            notes_read_refused: readRefusals.length,
+            read_refusals: readRefusals,
           };
           if (resolveResponseFormat(input, deps.responseFormat) === "concise")
             return {

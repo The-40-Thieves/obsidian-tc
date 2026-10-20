@@ -8,10 +8,10 @@ import { tableExists } from "../../db/introspect";
 import { inWriteTransaction } from "../../db/txn";
 import { errorMessage } from "../../util/errors";
 import { createSliceYielder, drainYielding } from "../../util/scan-steps";
+import type { AclPath } from "../../vault/acl-identity";
 import { isFrontmatterYamlError, parseNote, splitFrontmatterBody } from "../../vault/frontmatter";
 import { type ExtractedLink, extractLinks, extractNoteLinks } from "../../vault/links";
-import { readNote } from "../../vault/notes-io";
-import { resolveVaultPath, walkVault, walkVaultSteps, walkVaultStream } from "../../vault/paths";
+import { type WalkEntry, walkVault, walkVaultSteps, walkVaultStream } from "../../vault/paths";
 import { ACL_PATH_UNRESOLVED } from "../../vault/stored-acl-path";
 import { noteTags } from "../../vault/tags";
 import { ensureChunkColbert } from "../chunk_colbert";
@@ -43,7 +43,7 @@ import { deleteNoteSummary } from "../note-summaries";
 import { resolveRetrievalDefaults } from "../retrieval-defaults";
 import { ensureChunkSparse } from "../sparse";
 import { ensureVecChunks } from "../vec";
-import { syncAclPaths, walkIdentity } from "./acl-path-sync";
+import { promoteReadIdentity, walkIdentityDemotingChanged } from "./acl-path-sync";
 import {
   EMBED_BATCH,
   EMBED_CONCURRENCY,
@@ -61,7 +61,9 @@ import {
   readExistingChunkRows,
   readNoteTags,
 } from "./note-plan";
+import { logPassSkips } from "./pass-skip-log";
 import { applyNoteWrites, fireIndexHook } from "./persist-note-plan";
+import { readIndexableNote, recordReadRefusal } from "./read-refusal";
 import { createStaleSkipLog } from "./stale-skip";
 import { sweepUnindexedNotes } from "./sweep-notes";
 import type { DedupCache, IndexStats, IndexVaultArgs, NoteWritePlan } from "./types";
@@ -139,11 +141,16 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   }
   const yieldToLoop = createSliceYielder(args.signal); // boot reconcile only: lets SIGTERM/tools/call in
   const streamWalk = args.walk?.streaming === true;
-  // Every walked path -> its ACL identity (walkIdentity: the symlink-resolved path, none for a hard
-  // link). `args.isReadable` decides on the identity, never on the alias name the walk showed.
-  const walkedSet = new Map<string, string>();
-  const isReadableNote = (rel: string): boolean =>
-    walkedSet.get(rel) !== ACL_PATH_UNRESOLVED && args.isReadable(walkedSet.get(rel) ?? rel);
+  // Every walked path -> its ACL identity (walkIdentity); `args.isReadable` judges only that.
+  const walkedSet = new Map<string, AclPath | typeof ACL_PATH_UNRESOLVED>();
+  const readableWalked = new Set<string>();
+  const demoted = new Set<string>(); // UNRESOLVED until promoted with content read this pass
+  const admit = (e: WalkEntry): void => {
+    const id = walkIdentityDemotingChanged(args.db, args.vaultId, e, args.sql, demoted);
+    walkedSet.set(e.relPath, id);
+    if (id !== ACL_PATH_UNRESOLVED && args.isReadable(id)) readableWalked.add(e.relPath);
+  };
+  const isReadableNote = (rel: string): boolean => readableWalked.has(rel);
   let statByPath = new Map<string, { mtime: number; size: number }>();
   let notes: string[] = [];
   // Obsidian's Excluded files (search/index-exclusion.ts): walked, present, link targets — but
@@ -154,7 +161,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     const walked = args.signal // signaled (boot reconcile): the same walk, across loop turns
       ? await drainYielding(walkVaultSteps(args.root, walkOpts), undefined)
       : walkVault(args.root, walkOpts);
-    for (const e of walked) walkedSet.set(e.relPath, walkIdentity(e));
+    for (const e of walked) admit(e);
     statByPath = new Map(walked.map((e) => [e.relPath, { mtime: e.mtime, size: e.size }]));
     const indexable: string[] = [];
     for (const e of walked)
@@ -189,6 +196,8 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     notes_epoch_stale_skipped: 0,
     notes_frontmatter_failed: 0,
     frontmatter_failures: [],
+    notes_read_refused: 0,
+    read_refusals: [],
     model: args.provider.id,
     dimensions: args.provider.dimensions,
   };
@@ -409,6 +418,8 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
           upsertNoteRow(args.db, args.vaultId, rec, hasFts, now());
           landed += 1;
         }
+        // A promoted identity moves the permitted-path sets, as syncAclPaths' own writes do.
+        if (rows.some((r) => demoted.has(r.path))) bumpGeneration(args.db, args.vaultId);
         return landed;
       },
       args.sql,
@@ -416,14 +427,16 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     stats.notes_upserted += upserted;
     stats.notes_stale_skipped += rows.length - upserted;
   };
-  // THE-490: the per-note body, shared by the eager (default) and streaming (opt-in) walks so it
-  // exists ONCE. `stat` is the note's {mtime,size} from whichever WalkEntry produced `rel`.
+  // THE-490: the per-note body of both walks. `stat` is {mtime,size} from the WalkEntry for `rel`.
   const processNote = async (
     rel: string,
     stat: { mtime: number; size: number } | null,
   ): Promise<void> => {
     await yieldToLoop();
-    const raw = readNote(resolveVaultPath(args.root, rel)).raw;
+    const read = readIndexableNote(args.root, rel);
+    if ("refused" in read)
+      return recordReadRefusal(args, stats, walkedSet, readableWalked, rel, read.refused);
+    const raw = read.raw;
     // THE-1073: probe-parse ONCE, here, before anything else touches this note's frontmatter
     // (buildNoteRecord/noteTags below both call parseNote themselves and would throw on the SAME
     // note otherwise). A YAML failure quarantines just this note — counted, listed, and named in
@@ -486,20 +499,22 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     stats.chunks_dedup_reused += dedupSkipped; // THE-499: aggregate, not per-chunk stderr
     const aclPath = walkedSet.get(rel) ?? ACL_PATH_UNRESOLVED; // the identity the walk resolved
     if (plan) plan.aclPath = aclPath;
+    let notesCurrent = false; // the stored notes row already holds what this read produced
     if (hasNotes && notesRowExpectedForSize(Buffer.byteLength(raw))) {
       const rec = { ...buildNoteRecord(rel, raw, flagged, stat, now()), aclPath };
-      if (noteRowHash(args.db, args.vaultId, rel) !== rec.contentHash) {
-        // Fix round (cross-vendor review): the SAME preloaded fence baseline the chunk plan above
-        // captured for this path — flushNotes re-checks it with commitFence inside its own write
-        // transaction, so a notes-row-ONLY backfill (no accompanying chunk plan this pass) can no
-        // longer land after a fresher commit or a deindex tombstone for this path. A note WITH a
-        // plan this pass is fenced by applyNoteWrites instead (see NoteRecord.fenceCheckRequired).
+      notesCurrent = noteRowHash(args.db, args.vaultId, rel) === rec.contentHash;
+      if (!notesCurrent) {
+        // Fenced by flushNotes with the SAME preloaded baseline the chunk plan captured, so a
+        // notes-row-only backfill cannot land after a fresher commit or a deindex tombstone. A note
+        // WITH a plan is fenced by applyNoteWrites instead (see NoteRecord.fenceCheckRequired).
         rec.fenceGeneration = preloadedFenceGenerations.get(rel) ?? 0;
         rec.fenceCheckRequired = plan === null;
         notesBatch.push(rec);
         if (notesBatch.length >= BATCH) flushNotes();
       }
     }
+    if (demoted.has(rel))
+      promoteReadIdentity(args, rel, aclPath, { chunks: plan === null, notes: notesCurrent });
     if (plan) {
       batch.push(plan);
       // THE-500: flush on EITHER the note-count or the byte budget, so a run of large notes commits
@@ -512,7 +527,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     // THE-490: walk lazily, processing (and thus starting to embed) each readable note as soon as
     // its directory has been read, instead of waiting for the entire tree to be walked first.
     for await (const e of walkVaultStream(args.root, { sub: args.sub, extensions: [".md"] })) {
-      walkedSet.set(e.relPath, walkIdentity(e));
+      admit(e);
       if (isIndexExcluded(e.relPath)) {
         excludedWalked.push(e.relPath);
         continue;
@@ -521,27 +536,14 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       notes.push(e.relPath);
       await processNote(e.relPath, { mtime: e.mtime, size: e.size });
     }
-    syncAclPaths(args.db, args.vaultId, walkedSet, args.sql);
   } else {
-    syncAclPaths(args.db, args.vaultId, walkedSet, args.sql);
     for (const rel of notes) {
       await processNote(rel, statByPath.get(rel) ?? null);
     }
   }
   stats.notes_seen = notes.length; // THE-490: notes is only fully known once the walk above completes
-  // THE-1073: ONE sampled stderr line for the whole pass, same shape as THE-390's embed-rejection
-  // warning above — every failing path is still in stats.frontmatter_failures (not just the
-  // sample), which is what feeds plane-wiring.ts's per-path health mapping.
-  if (stats.notes_frontmatter_failed > 0) {
-    const sample = stats.frontmatter_failures
-      .slice(0, 3)
-      .map((f) => f.path)
-      .join(", ");
-    process.stderr.write(
-      `[index] vault "${args.vaultId}": ${stats.notes_frontmatter_failed} note(s) skipped: ` +
-        `frontmatter is not valid YAML (${sample}${stats.notes_frontmatter_failed > 3 ? ", ..." : ""})\n`,
-    );
-  }
+  // THE-1073 / THE-390: one sampled stderr line per skip class (pass-skip-log.ts).
+  logPassSkips(args.vaultId, stats);
   flushNotes();
   // THE-934 fix round 4 (2): the note_summaries sweep for EVERY excluded note this pass walked,
   // not only the ones whose exclusion status just changed. A note_summaries row is model-generated
@@ -594,7 +596,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       // layer omits them, like Obsidian's Graph view: desiredEdges drops every edge touching one.
       desiredEdges(
         noteLinks,
-        [...notes, ...excludedWalked.filter(isReadableNote)],
+        [...notes.filter(isReadableNote), ...excludedWalked.filter(isReadableNote)],
         new Set(excludedWalked),
       ),
       now,
@@ -688,8 +690,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       args.sql,
     );
   }
-  // THE-499: one aggregate dedup line per pass (was ~1 stderr line per duplicate chunk). Individual
-  // paths are available behind OBSIDIAN_TC_DEBUG_DEDUP (emitted inline in computeNotePlan).
+  // THE-499: one aggregate dedup line per pass; per-path lines behind OBSIDIAN_TC_DEBUG_DEDUP.
   if (stats.chunks_dedup_reused > 0) {
     process.stderr.write(
       `[index] vault "${args.vaultId}": dedup reused ${stats.chunks_dedup_reused} chunk embedding(s) from identical-body siblings (copied, not recomputed)\n`,
