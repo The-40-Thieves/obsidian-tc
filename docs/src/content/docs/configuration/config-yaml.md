@@ -504,7 +504,7 @@ https-only, and the optional local embedder and reranker download their model fi
 | `PORT` | HTTP port: `transports.http.port`, and turns the HTTP transport on unless the file sets it to `false`. Refused unless an integer from 1 to 65535. See [Railway](/deployment/railway/). |
 | `OBSIDIAN_TC_PUBLIC_URL` | Public `https://host[:port]`: sets `auth.resource` to its `/mcp` URL and adds its host to `transports.http.allowedHosts`. |
 | `OBSIDIAN_TC_JWKS_URI` | `auth.jwksUri`, the key set of an external authorization server. |
-| `OBSIDIAN_TC_VAULT_PATH` | Path of the one vault (`vaults`). Refused when the config names several vaults. When the folder is missing and its parent exists, the server creates it at boot, with the process's default permissions; a path set only in the config file is never created. |
+| `OBSIDIAN_TC_VAULT_PATH` | Path of the one vault (`vaults`). Refused when the config names several vaults. When the folder is missing and its parent exists, the server creates it at boot, with the process's default permissions; a path set only in the config file is never created. A parent that is a symlink is refused. Only server boot creates the root: one-shot commands such as `index` do not. |
 | `OBSIDIAN_TC_CACHE_DIR` | `cacheDir`. |
 | `OBSIDIAN_TC_GATEWAY_URL` | Inference-gateway base URL — enables the generative tier ([setup](/configuration/inference-gateway/)). |
 | `OBSIDIAN_TC_GATEWAY_TOKEN` | Optional gateway bearer (e.g. a LiteLLM key). Never logged. |

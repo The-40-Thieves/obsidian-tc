@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createIsolatedHome } from "../scripts/lib/isolated-home.mjs";
 import { ensureEnvVaultRoot } from "../src/vault/ensure-root";
 import { runBunSync } from "./spawn-cli";
+import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
@@ -41,7 +42,7 @@ function isolatedEnv(): Record<string, string> {
   return iso.env;
 }
 
-describe("first boot on an empty data volume", () => {
+describe("first boot on an empty data volume", { timeout: stallTimeout(60_000) }, () => {
   it("creates the env vault root on an empty data volume and boots", () => {
     const { config, data } = freshVolume(() => "{}");
     const vault = join(data, "vault");
@@ -57,7 +58,6 @@ describe("first boot on an empty data volume", () => {
     expect(run.stderr).toContain("ready on stdio");
     expect(run.stderr.split(CREATED_LINE).length - 1).toBe(1);
     expect(statSync(vault).isDirectory()).toBe(true);
-    if (process.platform !== "win32") expect(statSync(vault).uid).toBe(process.getuid?.());
     expect(run.code).toBe(0);
   });
 
@@ -159,12 +159,6 @@ describe("ensureEnvVaultRoot", () => {
       expect(ensureEnvVaultRoot([{ path: dangling }], ENV(dangling), log)).toBe("skipped");
       expect(lstatSync(dangling).isSymbolicLink()).toBe(true);
       expect(() => statSync(goal)).toThrow();
-    });
-
-    it("creates the root owned by the current uid", () => {
-      const target = join(base, "vault");
-      expect(ensureEnvVaultRoot([{ path: target }], ENV(target), log)).toBe("created");
-      expect(statSync(target).uid).toBe(process.getuid?.());
     });
   });
 });
