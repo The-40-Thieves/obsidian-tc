@@ -145,4 +145,5 @@ own rules, and none of these submissions has been made.
   inside a folded `dockerfileLines` entry.
 - **The templates track `:latest`.** Pin a version before submitting upstream.
 - **No logo is shipped.** Catalogue submissions need one.
-- **No home-server stores.** Umbrel, CasaOS and Unraid are not covered here.
+- **No home-server stores.** Umbrel, CasaOS and Unraid are covered by [Home server](/deployment/home-server/),
+  not here.

@@ -1,0 +1,46 @@
+# Umbrel community app. Runs the image deploy/compose.http.yml runs, with the same config file and
+# port 8765. Umbrel's proxy serves the app, the vault is the folder picked in app Settings, and the
+# JWT secret is derived per install by exports.sh. There is no public URL: the LAN default is http.
+services:
+  app_proxy:
+    environment:
+      APP_HOST: thieves-obsidian-tc_main_1
+      APP_PORT: 8765
+      # MCP clients send a bearer token, not the Umbrel login cookie, so these paths skip the Umbrel
+      # login. The server's own JWT check guards them. Every other path stays behind the login.
+      PROXY_AUTH_WHITELIST: "/mcp,/mcp/*,/.well-known/*"
+
+  main:
+    image: ghcr.io/the-40-thieves/obsidian-tc:latest
+    restart: on-failure
+    stop_grace_period: 1m
+    environment:
+      OBSIDIAN_TC_CONFIG: /config/obsidian-tc.config.json
+      OBSIDIAN_TC_VAULT_PATH: /vault
+      OBSIDIAN_TC_CACHE_DIR: /data/cache
+      PORT: "8765"
+      OBSIDIAN_TC_JWT_SECRET: ${APP_THIEVES_OBSIDIAN_TC_JWT_SECRET}
+      OBSIDIAN_TC_AUDIENCE: http://${DEVICE_DOMAIN_NAME}:8765
+      OBSIDIAN_TC_ALLOWED_HOSTS: ${DEVICE_DOMAIN_NAME}:8765,${DEVICE_HOSTNAME}:8765
+    configs:
+      - source: obsidian_tc_config
+        target: /config/obsidian-tc.config.json
+    volumes:
+      - ${APP_DATA_DIR}/data:/data
+      # The default vault until a folder is picked in Settings (folderAccess), which replaces it.
+      - ${APP_DATA_DIR}/data/vault:/vault
+
+configs:
+  obsidian_tc_config:
+    content: |
+      {
+        "vaults": [{ "id": "main", "path": "/data/vault" }],
+        "transports": {
+          "stdio": false,
+          "http": { "host": "0.0.0.0" }
+        },
+        "auth": {
+          "mode": "jwt",
+          "requireJti": true
+        }
+      }

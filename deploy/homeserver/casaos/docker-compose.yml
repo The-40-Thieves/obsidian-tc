@@ -1,0 +1,88 @@
+# CasaOS / ZimaOS app. Runs the image deploy/compose.http.yml runs, with the same config file and
+# port 8765. There is no proxy: the app is reached at http://<host>:8765, so OBSIDIAN_TC_ALLOWED_HOSTS
+# and OBSIDIAN_TC_AUDIENCE must name the address you type. Set the JWT secret at install time.
+name: obsidian-tc
+services:
+  obsidian-tc:
+    image: ghcr.io/the-40-thieves/obsidian-tc:latest
+    restart: unless-stopped
+    ports:
+      - target: 8765
+        published: "8765"
+        protocol: tcp
+    environment:
+      OBSIDIAN_TC_CONFIG: /config/obsidian-tc.config.json
+      OBSIDIAN_TC_VAULT_PATH: /vault
+      OBSIDIAN_TC_CACHE_DIR: /data/cache
+      PORT: "8765"
+      OBSIDIAN_TC_JWT_SECRET: ""
+      OBSIDIAN_TC_AUDIENCE: http://tower.local:8765
+      OBSIDIAN_TC_ALLOWED_HOSTS: tower.local:8765
+    volumes:
+      - type: bind
+        source: /DATA/AppData/$AppID/data
+        target: /data
+      - type: bind
+        source: /DATA/Documents/ObsidianVault
+        target: /vault
+    configs:
+      - source: obsidian_tc_config
+        target: /config/obsidian-tc.config.json
+    x-casaos:
+      envs:
+        - container: OBSIDIAN_TC_JWT_SECRET
+          description:
+            en_US: Required. Generate one with `openssl rand -hex 32` and paste it here. Keep it secret.
+        - container: OBSIDIAN_TC_ALLOWED_HOSTS
+          description:
+            en_US: The host name or IP and port you type in the browser, for example tower.local:8765. Exact entries only, no wildcard.
+        - container: OBSIDIAN_TC_AUDIENCE
+          description:
+            en_US: The address above as an http:// URL, for example http://tower.local:8765.
+      volumes:
+        - container: /vault
+          description:
+            en_US: Your Obsidian vault folder. Change the host path to the folder that holds your vault.
+      ports:
+        - container: "8765"
+          description:
+            en_US: obsidian-tc HTTP port
+x-casaos:
+  id: com.the40thieves.obsidian-tc
+  main: obsidian-tc
+  index: /
+  port_map: "8765"
+  scheme: http
+  title:
+    en_US: obsidian-tc
+  tagline:
+    en_US: MCP server for your Obsidian vault
+  description:
+    en_US: Lets MCP clients read and write the notes in your vault over your local network. Clients connect with a bearer token minted from the app's console.
+  author: The 40 Thieves
+  developer: The 40 Thieves
+  category: AI
+  architectures:
+    - amd64
+    - arm64
+  version: "1.34.0"
+  update_at: "2026-10-19"
+  release_notes:
+    en_US: Home-server template.
+  website: https://github.com/The-40-Thieves/obsidian-tc
+  repo: https://github.com/The-40-Thieves/obsidian-tc
+  support: https://github.com/The-40-Thieves/obsidian-tc/issues
+configs:
+  obsidian_tc_config:
+    content: |
+      {
+        "vaults": [{ "id": "main", "path": "/data/vault" }],
+        "transports": {
+          "stdio": false,
+          "http": { "host": "0.0.0.0" }
+        },
+        "auth": {
+          "mode": "jwt",
+          "requireJti": true
+        }
+      }
