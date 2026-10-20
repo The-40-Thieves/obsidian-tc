@@ -169,67 +169,72 @@ describe.each([false, true])(
   },
 );
 
-describe.skipIf(!symlinkOk)("index_vault through the tool registry", () => {
-  function registry(root: string, db: Database): ToolRegistry {
-    const vaultRegistry = new VaultRegistry([{ id: VAULT, path: root }]);
-    const reg = new ToolRegistry({
-      aclResolver: () => OPEN_ACL,
-      folderPins: new FolderPins([]),
-      rootResolver: (id) => vaultRegistry.resolve(id).root,
-    });
-    registerM2Tools(reg, {
-      vaultRegistry,
-      embeddingProvider: provider,
-      representation,
-      metadataIndex: { hasFts: true, ready: () => true },
-    });
-    void db;
-    return reg;
-  }
+// Not on Windows: the tool's path resolver answers path_invalid for the in-vault "wiki" symlink
+// there, before the safe open runs (the wiki-symlinked-folders suites skip win32 for the same reason).
+describe.skipIf(!symlinkOk || process.platform === "win32")(
+  "index_vault through the tool registry",
+  () => {
+    function registry(root: string, db: Database): ToolRegistry {
+      const vaultRegistry = new VaultRegistry([{ id: VAULT, path: root }]);
+      const reg = new ToolRegistry({
+        aclResolver: () => OPEN_ACL,
+        folderPins: new FolderPins([]),
+        rootResolver: (id) => vaultRegistry.resolve(id).root,
+      });
+      registerM2Tools(reg, {
+        vaultRegistry,
+        embeddingProvider: provider,
+        representation,
+        metadataIndex: { hasFts: true, ready: () => true },
+      });
+      void db;
+      return reg;
+    }
 
-  const ctxFor = (db: Database): CallerContext => ({
-    caller: "tester",
-    authenticated: true,
-    grantedScopes: new Set(["admin:vault", "read:notes", "read:vault"]),
-    vaultId: VAULT,
-    db,
-    acl: OPEN_ACL,
-  });
+    const ctxFor = (db: Database): CallerContext => ({
+      caller: "tester",
+      authenticated: true,
+      grantedScopes: new Set(["admin:vault", "read:notes", "read:vault"]),
+      vaultId: VAULT,
+      db,
+      acl: OPEN_ACL,
+    });
 
-  for (const response_format of ["concise", undefined] as const) {
-    it(`index_vault { folder: "wiki" } returns ok with notes_read_refused: 1 (response_format: ${response_format ?? "default"})`, async () => {
+    for (const response_format of ["concise", undefined] as const) {
+      it(`index_vault { folder: "wiki" } returns ok with notes_read_refused: 1 (response_format: ${response_format ?? "default"})`, async () => {
+        const { root } = makeRoot();
+        const db = freshDb();
+        const reg = registry(root, db);
+        const r = (await reg.dispatch(
+          "index_vault",
+          { vault: VAULT, folder: "wiki", ...(response_format ? { response_format } : {}) },
+          ctxFor(db),
+        )) as {
+          ok: boolean;
+          data?: Record<string, unknown>;
+          error?: { code: string; message?: string };
+        };
+        expect(r.ok, JSON.stringify(r)).toBe(true);
+        expect(r.data?.notes_read_refused).toBe(1);
+        expect(r.data?.read_refusals).toEqual([expect.objectContaining({ path: "wiki/a.md" })]);
+      });
+    }
+
+    it("the advertised output schema (ajv, the SDK validator) accepts the refusal fields", async () => {
       const { root } = makeRoot();
       const db = freshDb();
       const reg = registry(root, db);
       const r = (await reg.dispatch(
         "index_vault",
-        { vault: VAULT, folder: "wiki", ...(response_format ? { response_format } : {}) },
+        { vault: VAULT, folder: "wiki", response_format: "concise" },
         ctxFor(db),
-      )) as {
-        ok: boolean;
-        data?: Record<string, unknown>;
-        error?: { code: string; message?: string };
-      };
-      expect(r.ok, JSON.stringify(r)).toBe(true);
-      expect(r.data?.notes_read_refused).toBe(1);
-      expect(r.data?.read_refusals).toEqual([expect.objectContaining({ path: "wiki/a.md" })]);
+      )) as { ok: boolean; data?: unknown };
+      expect(r.ok).toBe(true);
+      const def = reg.list().find((t) => t.name === "index_vault");
+      if (!def?.outputSchema) throw new Error("index_vault advertises no outputSchema");
+      const validate = new AjvJsonSchemaValidator().getValidator(toJson(def.outputSchema) as never);
+      const result = validate(JSON.parse(JSON.stringify(r.data)));
+      expect(result.valid, JSON.stringify(result)).toBe(true);
     });
-  }
-
-  it("the advertised output schema (ajv, the SDK validator) accepts the refusal fields", async () => {
-    const { root } = makeRoot();
-    const db = freshDb();
-    const reg = registry(root, db);
-    const r = (await reg.dispatch(
-      "index_vault",
-      { vault: VAULT, folder: "wiki", response_format: "concise" },
-      ctxFor(db),
-    )) as { ok: boolean; data?: unknown };
-    expect(r.ok).toBe(true);
-    const def = reg.list().find((t) => t.name === "index_vault");
-    if (!def?.outputSchema) throw new Error("index_vault advertises no outputSchema");
-    const validate = new AjvJsonSchemaValidator().getValidator(toJson(def.outputSchema) as never);
-    const result = validate(JSON.parse(JSON.stringify(r.data)));
-    expect(result.valid, JSON.stringify(result)).toBe(true);
-  });
-});
+  },
+);

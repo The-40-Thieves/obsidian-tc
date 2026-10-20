@@ -26,7 +26,8 @@ vi.mock("../src/vault/notes-io", async (importOriginal) => {
   return {
     ...actual,
     readNote: (abs: string) => {
-      const fail = fault.next?.(abs);
+      // Forward slashes, so the "/a.md" suffix checks below also match a Windows path.
+      const fail = fault.next?.(abs.replaceAll("\\", "/"));
       if (fail) throw fail;
       return actual.readNote(abs);
     },
