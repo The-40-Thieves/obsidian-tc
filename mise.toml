@@ -5,8 +5,8 @@
 # Each pin below matches something already authoritative elsewhere in the repo; none were chosen
 # freely. Change one of these and change its counterpart in the same commit.
 [tools]
-# Matches BOTH .github/actions/setup-repo (bun-version default '1.4.2') and package.json's
-# `packageManager: "bun@1.4.2"`. Bumped from 1.3.14 (THE-946): the root `bun audit` (509
+# Matches BOTH .github/actions/setup-repo (bun-version default '1.4.3') and package.json's
+# `packageManager: "bun@1.4.3"`. Bumped from 1.3.14 (THE-946): the root `bun audit` (509
 # packages) hung on 1.3.14 until the client's five-minute timeout — 1.3.14's fetch idle timer
 # did not cover the TLS handshake phase, so a stalled handshake to the npm advisory endpoint
 # blocked forever instead of failing fast. 1.4.0 arms the idle timer in `on_open`, covering the
@@ -15,7 +15,9 @@
 # Bumped to 1.4.2 (THE-1118, 2026-09-24 stack-update review): keeps the pin current on a
 # routine patch bump; also the version the Dockerfile's two `FROM oven/bun:` stages must match
 # per check-bun-version-coherence.mjs.
-bun = "1.4.2"
+#
+# Bumped to 1.4.3 (2026-10-20): routine patch bump, same agreement rule as above.
+bun = "1.4.3"
 
 # Node 26 is the TARGET runtime and this pin is the exact version developed against. Every package
 # still declares `engines.node: ">=24"`: 24 is the supported FLOOR, and CI still validates it — the
@@ -28,7 +30,7 @@ bun = "1.4.2"
 #
 # `perf:node-parity` is the job that actually executes under Node, so a dev/CI major mismatch
 # would surface there first.
-node = "26.11.1"
+node = "26.12.0"
 
 # Both Python services declare `requires-python = ">=3.10"` (services/bge-m3-service,
 # services/docs-ingest) as their SUPPORTED range; 3.14 is what they are built and tested against
@@ -42,6 +44,10 @@ node = "26.11.1"
 # and the hash-locked requirements*.txt resolve for 3.14 with their pins unchanged. Neither service
 # depends on onnxruntime. torch comes from the CPU index on aarch64: the PyPI aarch64 wheel pulls
 # the CUDA stack, which has no place on a GPU-less box.
+#
+# Checked 2026-10-20 for 3.15: not adopted. `uv pip install --dry-run --only-binary :all:` on 3.15.0
+# finds no cp315 wheel for cuda-bindings (requirements.txt) or pydantic-core (requirements-ci.txt),
+# so the hash-locked service requirements do not resolve there.
 #
 # Pinned to the minor, matching CI's specificity exactly. A patch pin here would be MORE specific
 # than the thing it is meant to agree with, which just relocates the divergence.

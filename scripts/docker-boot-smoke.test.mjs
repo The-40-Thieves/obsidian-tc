@@ -357,7 +357,7 @@ test("Dockerfile publishes the HTTP/data contract and pins the shared health rul
 
 test("Dockerfile -git target derives from the runtime stage; the untargeted build stays the runtime", () => {
   const dockerfile = readFileSync(fileURLToPath(new URL("../Dockerfile", import.meta.url)), "utf8");
-  assert.match(dockerfile, /^FROM oven\/bun:1\.4\.2-slim AS runtime$/m);
+  assert.match(dockerfile, /^FROM oven\/bun:1\.4\.3-slim AS runtime$/m);
   assert.match(dockerfile, /^FROM runtime AS git$/m);
   // The last stage is the default build target: it must be the runtime image, not the -git variant.
   const fromLines = dockerfile.split("\n").filter((line) => /^FROM\s/.test(line));
