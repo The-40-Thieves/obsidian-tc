@@ -7,13 +7,15 @@ import {
 /** The SDK matches on the HOSTNAME, while our config schema documents `allowedHosts` as "Host header
  *  VALUES" (which may include a port). Canonicalize the way the SDK does (`new URL(...).hostname`):
  *  IPv6 keeps its brackets, IDN is punycoded, IPv4 shorthand is expanded. A value the URL parser
- *  rejects keeps the port-and-bracket strip it always had. */
+ *  rejects, or that is more than an authority (a path, query, fragment or userinfo), keeps the
+ *  port-and-bracket strip it always had, so a malformed entry still matches nothing. */
 export const hostnameOf = (v: string): string => {
-  try {
-    return new URL(`http://${v}`).hostname;
-  } catch {
-    return v.replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
+  if (!/[/?#@\\]/.test(v)) {
+    try {
+      return new URL(`http://${v}`).hostname;
+    } catch {}
   }
+  return v.replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
 };
 export const bothForms = (vs: readonly string[]): string[] => vs.flatMap((v) => [v, hostnameOf(v)]);
 
