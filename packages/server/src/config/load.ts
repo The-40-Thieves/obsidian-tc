@@ -77,8 +77,8 @@ export function applyEnvOverlays(
   // so file entries keep their place and the PUBLIC_URL host is not repeated.
   const allowedHostsEnv = env.OBSIDIAN_TC_ALLOWED_HOSTS;
   if (allowedHostsEnv) {
-    const entries = allowedHostsEnv.split(",").map((h) => h.trim().toLowerCase());
-    if (!entries.every(isAllowedHostEntry)) {
+    const entries = allowedHostsEnv.split(",").map(allowedHostEntry);
+    if (entries.includes(undefined)) {
       throw err.invalidInput(
         "OBSIDIAN_TC_ALLOWED_HOSTS must be a comma-separated list of host or host:port entries, with no wildcard, scheme, path, query, fragment, credentials or whitespace",
         { variable: "OBSIDIAN_TC_ALLOWED_HOSTS" },
@@ -139,25 +139,26 @@ export function applyEnvOverlays(
 /** One OBSIDIAN_TC_ALLOWED_HOSTS entry: `host`, `host:port`, an IPv4 address or `[ipv6]:port`. The
  *  WHATWG URL parser reads it as the authority of an http URL, and the entry is valid only when that
  *  authority is the whole thing. `*`, whitespace and a trailing colon are refused explicitly, because
- *  the URL parser drops or accepts them silently. Like parsePublicUrl, never echoes the entry. */
-function isAllowedHostEntry(entry: string): boolean {
-  if (entry === "" || /[\s*]|:$/.test(entry)) return false;
+ *  the URL parser drops or accepts them silently. Returns the canonical `url.host`, or undefined. */
+function allowedHostEntry(raw: string): string | undefined {
+  const entry = raw.trim();
+  if (entry === "" || /[\s*]|:$/.test(entry)) return undefined;
   let url: URL;
   try {
     url = new URL(`http://${entry}`);
   } catch {
-    return false;
+    return undefined;
   }
   const port = /:(\d+)$/.exec(entry)?.[1];
-  return (
+  const valid =
     url.hostname !== "" &&
     url.username === "" &&
     url.password === "" &&
     url.pathname === "/" &&
     url.search === "" &&
     url.hash === "" &&
-    (port === undefined || (Number(port) >= 1 && Number(port) <= 65535))
-  );
+    (port === undefined || (Number(port) >= 1 && Number(port) <= 65535));
+  return valid ? url.host : undefined;
 }
 
 /** OBSIDIAN_TC_PUBLIC_URL must be the bare origin of the public HTTPS endpoint. Its value is never

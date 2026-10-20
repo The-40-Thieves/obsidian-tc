@@ -500,6 +500,17 @@ describe("deployment env overlays (applyEnvOverlays / finalizeConfig)", () => {
     expect(cfg.auth.audience).toBe("nas-vault");
   });
 
+  it("OBSIDIAN_TC_ALLOWED_HOSTS stores the canonical host, which is the form the guard compares", () => {
+    const allowed = (
+      applyEnvOverlays(
+        {},
+        { OBSIDIAN_TC_ALLOWED_HOSTS: "Bücher.example,192.168.1,[FD00::1]:8765" },
+      ) as Http
+    ).transports.http.allowedHosts as string[];
+    expect(allowed).toEqual(["xn--bcher-kva.example", "192.168.0.1", "[fd00::1]:8765"]);
+    expect(isHostAllowed("[fd00::1]:8765", allowed)).toBe(true);
+  });
+
   it("the merged allow-list admits the LAN Host and still refuses a foreign one", () => {
     const allowed = (
       applyEnvOverlays(
