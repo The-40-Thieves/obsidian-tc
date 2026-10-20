@@ -503,7 +503,9 @@ https-only, and the optional local embedder and reranker download their model fi
 | `OBSIDIAN_TC_JWT_SECRET` | HS256 signing secret (keeps it off disk). |
 | `PORT` | HTTP port: `transports.http.port`, and turns the HTTP transport on unless the file sets it to `false`. Refused unless an integer from 1 to 65535. See [Railway](/deployment/railway/). |
 | `OBSIDIAN_TC_PUBLIC_URL` | Public `https://host[:port]`: sets `auth.resource` to its `/mcp` URL and adds its host to `transports.http.allowedHosts`. |
+| `OBSIDIAN_TC_ALLOWED_HOSTS` | Comma-separated Host values (`host`, `host:port`, IPv4 or `[ipv6]:port`) added to the DNS-rebinding allow-list, `transports.http.allowedHosts`. Exact entries only: no wildcards, scheme, path or whitespace. Matching is by host name: a port in an entry is accepted but not enforced, since the DNS-rebinding check is about the name. Merged with the file list and the `OBSIDIAN_TC_PUBLIC_URL` host. |
 | `OBSIDIAN_TC_JWKS_URI` | `auth.jwksUri`, the key set of an external authorization server. |
+| `OBSIDIAN_TC_AUDIENCE` | `auth.audience`: the `aud` claim JWT tokens must carry. Required for a non-loopback JWT server when `OBSIDIAN_TC_PUBLIC_URL` is not set. |
 | `OBSIDIAN_TC_VAULT_PATH` | Path of the one vault (`vaults`). Refused when the config names several vaults. When the folder is missing and its parent exists, the server creates it at boot with mode `0750` (or tighter under a stricter umask); a path set only in the config file is never created. A parent that is a symlink is refused. Only server boot creates the root: one-shot commands such as `index` do not. |
 | `OBSIDIAN_TC_CACHE_DIR` | `cacheDir`. |
 | `OBSIDIAN_TC_GATEWAY_URL` | Inference-gateway base URL — enables the generative tier ([setup](/configuration/inference-gateway/)). |

@@ -180,6 +180,31 @@ describe("deployment env overlays in config explain", () => {
     });
   });
 
+  it("attributes allowedHosts to whichever of PUBLIC_URL and ALLOWED_HOSTS supplied it, naming both when both did", () => {
+    const allowedHosts = (env: Record<string, string>) =>
+      find(explainConfig(base(), { env }), "transports.http.allowedHosts");
+    expect(allowedHosts({ OBSIDIAN_TC_ALLOWED_HOSTS: "umbrel.local:8765" })).toMatchObject({
+      source: "env",
+      detail: "OBSIDIAN_TC_ALLOWED_HOSTS",
+    });
+    expect(allowedHosts({ OBSIDIAN_TC_PUBLIC_URL: "https://vault.example.com" })).toMatchObject({
+      source: "env",
+      detail: "OBSIDIAN_TC_PUBLIC_URL",
+    });
+    expect(
+      allowedHosts({
+        OBSIDIAN_TC_PUBLIC_URL: "https://vault.example.com",
+        OBSIDIAN_TC_ALLOWED_HOSTS: "umbrel.local:8765",
+      }),
+    ).toMatchObject({ source: "env", detail: "OBSIDIAN_TC_PUBLIC_URL, OBSIDIAN_TC_ALLOWED_HOSTS" });
+  });
+
+  it("attributes auth.audience to OBSIDIAN_TC_AUDIENCE", () => {
+    expect(
+      find(explainConfig(base(), { env: { OBSIDIAN_TC_AUDIENCE: "nas-vault" } }), "auth.audience"),
+    ).toMatchObject({ value: "nas-vault", source: "env", detail: "OBSIDIAN_TC_AUDIENCE" });
+  });
+
   it("does not credit PORT with enabling HTTP when the file explicitly disabled it", () => {
     const e = explainConfig(base({ transports: { http: { enabled: false } } }), {
       env: { PORT: "8080" },
