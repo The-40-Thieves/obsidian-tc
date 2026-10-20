@@ -9,6 +9,7 @@ import {
   loadConfig,
 } from "../src/config/load";
 import { configureProviderPlainHttp, providerPlainHttpHosts } from "../src/gateway/provider-fetch";
+import { isHostAllowed } from "../src/transports/host-guard";
 import { makeTempDir, rmTemp } from "./tmp";
 
 let dir: string;
@@ -415,6 +416,110 @@ describe("deployment env overlays (applyEnvOverlays / finalizeConfig)", () => {
     );
     expect(cfg.transports.http).toMatchObject({ enabled: true, port: 8080, host: "0.0.0.0" });
     expect(cfg.auth.resource).toBe("https://vault.example.com/mcp");
+  });
+
+  it("OBSIDIAN_TC_ALLOWED_HOSTS merges with the file list and PUBLIC_URL's host, de-duplicated, existing first", () => {
+    const raw = applyEnvOverlays(
+      { transports: { http: { allowedHosts: ["nas.local", "umbrel.local:8765"] } } },
+      {
+        OBSIDIAN_TC_PUBLIC_URL: "https://vault.example.com",
+        OBSIDIAN_TC_ALLOWED_HOSTS: "umbrel.local:8765, 192.168.1.20:8765,nas.local",
+      },
+    ) as Http;
+    expect(raw.transports.http.allowedHosts).toEqual([
+      "nas.local",
+      "umbrel.local:8765",
+      "vault.example.com",
+      "192.168.1.20:8765",
+    ]);
+  });
+
+  it("OBSIDIAN_TC_ALLOWED_HOSTS accepts host, host:port, IPv4 and bracketed IPv6 entries", () => {
+    expect(
+      (
+        applyEnvOverlays(
+          {},
+          { OBSIDIAN_TC_ALLOWED_HOSTS: "umbrel.local:8765,192.168.1.20:8765,[fd00::1]:8765,nas" },
+        ) as Http
+      ).transports.http.allowedHosts,
+    ).toEqual(["umbrel.local:8765", "192.168.1.20:8765", "[fd00::1]:8765", "nas"]);
+  });
+
+  it.each(["*", "*.local", "a,,b", "a,", "http://x", "x/y", "u@x", "x:0", "x:70000", "a b"])(
+    "refuses OBSIDIAN_TC_ALLOWED_HOSTS=%s with an error naming the variable, not the value",
+    (hosts) => {
+      let message = "";
+      try {
+        applyEnvOverlays({}, { OBSIDIAN_TC_ALLOWED_HOSTS: hosts });
+      } catch (e) {
+        message = (e as Error).message;
+      }
+      expect(message).toMatch(/OBSIDIAN_TC_ALLOWED_HOSTS/);
+      expect(message).not.toContain(hosts);
+    },
+  );
+
+  it("an empty OBSIDIAN_TC_ALLOWED_HOSTS or OBSIDIAN_TC_AUDIENCE changes nothing", () => {
+    const raw = {
+      vaults: [VAULT],
+      cacheDir: "/c",
+      auth: { audience: "file-audience" },
+      transports: { http: { allowedHosts: ["nas"] } },
+    };
+    const before = structuredClone(raw);
+    applyEnvOverlays(raw, { OBSIDIAN_TC_ALLOWED_HOSTS: "", OBSIDIAN_TC_AUDIENCE: "" });
+    expect(raw).toEqual(before);
+  });
+
+  it("OBSIDIAN_TC_AUDIENCE sets auth.audience and overrides a file value", () => {
+    expect(applyEnvOverlays({}, { OBSIDIAN_TC_AUDIENCE: "nas-vault" })).toMatchObject({
+      auth: { audience: "nas-vault" },
+    });
+    expect(
+      applyEnvOverlays(
+        { auth: { audience: "file-audience" } },
+        { OBSIDIAN_TC_AUDIENCE: "nas-vault" },
+      ),
+    ).toMatchObject({ auth: { audience: "nas-vault" } });
+  });
+
+  it("a non-loopback JWT server needs an audience, and OBSIDIAN_TC_AUDIENCE supplies it (THE-456)", () => {
+    const file = {
+      vaults: [VAULT],
+      cacheDir: "/c",
+      auth: { mode: "jwt" },
+      transports: { http: { host: "0.0.0.0", enabled: true } },
+    };
+    expect(() => finalizeConfig(structuredClone(file), { OBSIDIAN_TC_JWT_SECRET: SECRET })).toThrow(
+      /audience/,
+    );
+    const cfg = finalizeConfig(structuredClone(file), {
+      OBSIDIAN_TC_JWT_SECRET: SECRET,
+      OBSIDIAN_TC_AUDIENCE: "nas-vault",
+    });
+    expect(cfg.auth.audience).toBe("nas-vault");
+  });
+
+  it("OBSIDIAN_TC_ALLOWED_HOSTS stores the canonical host, which is the form the guard compares", () => {
+    const allowed = (
+      applyEnvOverlays(
+        {},
+        { OBSIDIAN_TC_ALLOWED_HOSTS: "Bücher.example,192.168.1,[FD00::1]:8765" },
+      ) as Http
+    ).transports.http.allowedHosts as string[];
+    expect(allowed).toEqual(["xn--bcher-kva.example", "192.168.0.1", "[fd00::1]:8765"]);
+    expect(isHostAllowed("[fd00::1]:8765", allowed)).toBe(true);
+  });
+
+  it("the merged allow-list admits the LAN Host and still refuses a foreign one", () => {
+    const allowed = (
+      applyEnvOverlays(
+        {},
+        { OBSIDIAN_TC_ALLOWED_HOSTS: "umbrel.local:8765,192.168.1.20:8765" },
+      ) as Http
+    ).transports.http.allowedHosts as string[];
+    expect(isHostAllowed("umbrel.local:8765", allowed)).toBe(true);
+    expect(isHostAllowed("evil.example:8765", allowed)).toBe(false);
   });
 });
 
