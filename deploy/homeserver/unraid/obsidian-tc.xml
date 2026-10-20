@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>obsidian-tc</Name>
+  <Repository>ghcr.io/the-40-thieves/obsidian-tc:latest</Repository>
+  <Registry>https://github.com/The-40-Thieves/obsidian-tc/pkgs/container/obsidian-tc</Registry>
+  <Network>bridge</Network>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/The-40-Thieves/obsidian-tc/issues</Support>
+  <Project>https://github.com/The-40-Thieves/obsidian-tc</Project>
+  <Category>Productivity:</Category>
+  <TemplateURL>https://raw.githubusercontent.com/The-40-Thieves/obsidian-tc/main/deploy/homeserver/unraid/obsidian-tc.xml</TemplateURL>
+  <Overview>
+  MCP server for your Obsidian vault, for use on your local network. Clients connect with a bearer token minted from the container console. [br][br]
+  [b]Before you start:[/b] create the config folder and copy deploy/config/obsidian-tc.config.json from the repository into it as obsidian-tc.config.json. Generate the JWT secret with openssl rand -hex 32 and paste it into the secret field. [br][br]
+  [b]Address:[/b] set the allowed host and audience fields to the host name or IP and port you type in the browser, for example tower.local:8765. Never use a wildcard. [br][br]
+  [b]Remote access:[/b] not configured by this template. See the home-server guide in the repository docs.
+  </Overview>
+  <Config Name="Vault folder" Target="/vault" Default="" Mode="rw" Description="Your Obsidian vault folder on the host." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Config folder" Target="/config" Default="/mnt/user/appdata/obsidian-tc/config" Mode="ro" Description="Holds obsidian-tc.config.json. Copy the config file here before the first start." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Cache folder" Target="/data" Default="/mnt/user/appdata/obsidian-tc/data" Mode="rw" Description="Search index and cache. Keep it on appdata." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="HTTP port" Target="8765" Default="8765" Mode="tcp" Description="Container Port: 8765" Type="Port" Display="always" Required="true" Mask="false"/>
+  <Config Name="JWT secret" Target="OBSIDIAN_TC_JWT_SECRET" Default="" Mode="" Description="Required. Generate with openssl rand -hex 32." Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="Allowed hosts" Target="OBSIDIAN_TC_ALLOWED_HOSTS" Default="tower.local:8765" Mode="" Description="Host and port you type in the browser, exact entries, comma separated. No wildcard." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="Audience" Target="OBSIDIAN_TC_AUDIENCE" Default="http://tower.local:8765" Mode="" Description="The same address as an http:// URL." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="Config file path" Target="OBSIDIAN_TC_CONFIG" Default="/config/obsidian-tc.config.json" Mode="" Description="Path of the config file inside the container." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Vault path" Target="OBSIDIAN_TC_VAULT_PATH" Default="/vault" Mode="" Description="Vault path inside the container. Keep the default." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Cache path" Target="OBSIDIAN_TC_CACHE_DIR" Default="/data/cache" Mode="" Description="Cache path inside the container. Keep the default." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Container port" Target="PORT" Default="8765" Mode="" Description="Port the server listens on inside the container. Keep the default." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+</Container>

@@ -1,0 +1,4 @@
+# Umbrel community app store. umbrelOS reads this file from the root of a git repository, so publish
+# this directory as its own repo (or a subtree split) before adding it in Settings > App Store.
+id: "thieves"
+name: "The 40 Thieves"

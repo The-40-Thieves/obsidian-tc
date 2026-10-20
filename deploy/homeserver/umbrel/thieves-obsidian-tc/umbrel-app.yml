@@ -1,0 +1,32 @@
+manifestVersion: 2.0
+id: thieves-obsidian-tc
+storage:
+  dataRoot: data
+folderAccess:
+  - id: vault
+    name: Obsidian vault
+    note: Pick the folder that holds your Obsidian vault. It is mounted read-write at /vault.
+    mounts:
+      - service: main
+        targetPath: /vault
+category: ai
+name: obsidian-tc
+version: "1.34.0"
+tagline: MCP server for your Obsidian vault
+description: >-
+  Lets MCP clients read and write the notes in the vault you pick, on your local network. Clients
+  connect with a bearer token minted from the app's console. Remote access needs an https tunnel;
+  see the home-server guide in the obsidian-tc docs.
+releaseNotes: ""
+developer: The 40 Thieves
+website: https://github.com/The-40-Thieves/obsidian-tc
+dependencies: []
+repo: https://github.com/The-40-Thieves/obsidian-tc
+support: https://github.com/The-40-Thieves/obsidian-tc/issues
+port: 8765
+gallery: []
+path: ""
+defaultUsername: ""
+defaultPassword: ""
+submitter: Suavecito585
+submission: https://github.com/The-40-Thieves/obsidian-tc

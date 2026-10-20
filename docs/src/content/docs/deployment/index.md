@@ -72,6 +72,7 @@ To run the container on Railway, with one volume and environment variables for t
 settings, see [Railway](/deployment/railway/). To run it on Render from a Blueprint, with a
 persistent disk at `/data` and a generated setup token, see [Render](/deployment/render/). For [Fly.io](/deployment/fly/) and a [VPS set up from cloud-init user data](/deployment/vps/), see those pages. To run it on
 Coolify, Dokploy or CapRover from the templates in `deploy/paas/`, see
-[Self-hosted PaaS](/deployment/self-hosted-paas/).
+[Self-hosted PaaS](/deployment/self-hosted-paas/). To run it on a home server, with Umbrel, CasaOS /
+ZimaOS or Unraid, on your local network, see [Home server](/deployment/home-server/).
 
 For stdio containers and the shared long-lived HTTP Compose bundle, see [Docker](/deployment/docker/).
