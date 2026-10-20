@@ -4,6 +4,7 @@
 // leaves an UNCHANGED note's rows alone, and that is exactly the population that needs this:
 //   * every row that existed when migration 20261009_001 ran (marked unresolved, fail closed);
 //   * a row whose symlink was re-pointed since it was indexed.
+// A pass demotes such a name before reading it and promotes it only on rows holding what it read.
 // A metadata-only write: no parsing, no embedding. The vault generation moves when anything changed,
 // because the permitted-path sets and the query cache are keyed on it and both are derived from
 // these identities.
@@ -15,9 +16,11 @@ import { resolveVaultPathChecked } from "../../vault/paths";
 import {
   ACL_PATH_TABLES,
   ACL_PATH_UNRESOLVED,
+  type AclPathTable,
   hasAclPathColumn,
 } from "../../vault/stored-acl-path";
 import { bumpGeneration } from "../generation";
+import type { IndexVaultArgs } from "./types";
 
 /** The ACL identity a walk entry is stored under: its symlink-resolved path, or none (UNRESOLVED) for
  *  a hard-linked file, which read_note refuses (st_nlink > 1, WalkEntry.hardLinked). */
@@ -26,20 +29,39 @@ export const walkIdentity = (e: {
   hardLinked?: true;
 }): AclPath | typeof ACL_PATH_UNRESOLVED => (e.hardLinked ? ACL_PATH_UNRESOLVED : e.aclRel);
 
-/** The walk identity of `e`, after demoting its stored rows when they name a DIFFERENT identity. The pass
- *  demotes first because a pass that ends early (any non-ACL error) never reaches the end-of-pass sync,
- *  and the old identity would keep authorizing the name. An unchanged name is left alone, so its results
- *  stay visible for the whole pass. */
+/** The walk identity of `e`, after demoting its stored rows when they name a DIFFERENT identity (the name
+ *  is then added to `demoted`). The demotion is durable before anything reads the note, so a pass that
+ *  ends early cannot leave the old identity authorizing the name. A demoted name takes its walk identity
+ *  only through promoteReadIdentity or a write of content read this pass. An unchanged name is left
+ *  alone, so its results stay visible for the whole pass. */
 export function walkIdentityDemotingChanged(
   db: Database,
   vaultId: string,
   e: { relPath: string; aclRel: AclPath; hardLinked?: true },
-  hooks?: WriteTxnHooks,
+  hooks: WriteTxnHooks | undefined,
+  demoted: Set<string>,
 ): AclPath | typeof ACL_PATH_UNRESOLVED {
   const id = walkIdentity(e);
-  if (storedIdentityDiffers(db, vaultId, e.relPath, id))
+  if (storedIdentityDiffers(db, vaultId, e.relPath, id)) {
+    demoted.add(e.relPath);
     syncAclPaths(db, vaultId, new Map([[e.relPath, ACL_PATH_UNRESOLVED]]), hooks);
+  }
   return id;
+}
+
+/** Promote a demoted name to `id` on the stored rows that already hold what this pass read from it:
+ *  the chunks when the plan left them unchanged, the notes row when its hash matches the read. A table
+ *  the pass rewrites takes `id` from that write, in the transaction that commits it (applyNoteWrites,
+ *  upsertNoteRow); one whose write never commits stays UNRESOLVED, so old content never carries `id`. */
+export function promoteReadIdentity(
+  pass: Pick<IndexVaultArgs, "db" | "vaultId" | "sql">,
+  rel: string,
+  id: AclPath | typeof ACL_PATH_UNRESOLVED,
+  current: Readonly<Record<AclPathTable, boolean>>,
+): void {
+  const tables = ACL_PATH_TABLES.filter((t) => current[t]);
+  if (tables.length > 0)
+    syncAclPaths(pass.db, pass.vaultId, new Map([[rel, id]]), pass.sql, tables);
 }
 
 /** Does any stored row of `rel` name an identity other than `id`? A NULL row is UNRESOLVED. */
@@ -87,18 +109,18 @@ export function indexAclIdentity(root: string | undefined, path: string): AclPat
 /** At or below this many names, read each by seek instead of scanning the vault's rows. */
 const SEEK_LIMIT = 8;
 
-/** Set the identity of every stored row whose name is a key of `identities`. Returns how many
- *  (table, name) pairs changed. */
+/** Set the identity of every stored row (in `tables`) whose name is a key of `identities`. Returns how
+ *  many (table, name) pairs changed. */
 export function syncAclPaths(
   db: Database,
   vaultId: string,
   identities: ReadonlyMap<string, string>,
   hooks?: WriteTxnHooks,
+  tables: readonly AclPathTable[] = ACL_PATH_TABLES,
 ): number {
   if (identities.size === 0) return 0;
-  const stale: Array<{ table: (typeof ACL_PATH_TABLES)[number]; path: string; aclPath: string }> =
-    [];
-  for (const table of ACL_PATH_TABLES) {
+  const stale: Array<{ table: AclPathTable; path: string; aclPath: string }> = [];
+  for (const table of tables) {
     if (!hasAclPathColumn(db, table)) continue;
     // One note (index-on-write) is a seek per table; a whole pass is one scan, not a seek per note.
     const rows =

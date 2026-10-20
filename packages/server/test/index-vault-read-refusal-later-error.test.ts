@@ -123,8 +123,9 @@ describe.each([false, true])("only acl_denied is swallowed (streaming walk: %s)"
 
 // A changed identity is demoted before anything reads it. The stored row names the identity the note
 // had on an earlier pass; this pass's walk resolves the name to a different one (a retargeted folder
-// pin does this on native I/O). A later error ends the pass before the end-of-pass sync, so the old
-// identity must not survive: it would keep authorizing the name for as long as nothing re-syncs it.
+// pin does this on native I/O). The note's content changed too, so its replacement is still pending
+// when a later error ends the pass: the old identity must not survive (it would keep authorizing the
+// name), and the new one must not land on the old content.
 describe.each([false, true])(
   "a changed identity is demoted before the pass can end early (streaming walk: %s)",
   (streaming) => {
@@ -134,6 +135,7 @@ describe.each([false, true])(
       await index(db, root, streaming);
       db.prepare("UPDATE chunks SET acl_path = ? WHERE path = ?").run("pages/old.md", "pages/a.md");
       db.prepare("UPDATE notes SET acl_path = ? WHERE path = ?").run("pages/old.md", "pages/a.md");
+      writeFileSync(join(root, "pages/a.md"), "# pages/a.md\n\nzebra changed\n");
 
       fault.next = (abs) => (abs.endsWith("/z.md") ? enoent() : undefined);
       await expect(index(db, root, streaming)).rejects.toMatchObject({ code: "ENOENT" });

@@ -43,7 +43,7 @@ import { deleteNoteSummary } from "../note-summaries";
 import { resolveRetrievalDefaults } from "../retrieval-defaults";
 import { ensureChunkSparse } from "../sparse";
 import { ensureVecChunks } from "../vec";
-import { syncAclPaths, walkIdentityDemotingChanged } from "./acl-path-sync";
+import { promoteReadIdentity, walkIdentityDemotingChanged } from "./acl-path-sync";
 import {
   EMBED_BATCH,
   EMBED_CONCURRENCY,
@@ -144,8 +144,9 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   // Every walked path -> its ACL identity (walkIdentity); `args.isReadable` judges only that.
   const walkedSet = new Map<string, AclPath | typeof ACL_PATH_UNRESOLVED>();
   const readableWalked = new Set<string>();
+  const demoted = new Set<string>(); // UNRESOLVED until promoted with content read this pass
   const admit = (e: WalkEntry): void => {
-    const id = walkIdentityDemotingChanged(args.db, args.vaultId, e, args.sql);
+    const id = walkIdentityDemotingChanged(args.db, args.vaultId, e, args.sql, demoted);
     walkedSet.set(e.relPath, id);
     if (id !== ACL_PATH_UNRESOLVED && args.isReadable(id)) readableWalked.add(e.relPath);
   };
@@ -417,6 +418,8 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
           upsertNoteRow(args.db, args.vaultId, rec, hasFts, now());
           landed += 1;
         }
+        // A promoted identity moves the permitted-path sets, as syncAclPaths' own writes do.
+        if (rows.some((r) => demoted.has(r.path))) bumpGeneration(args.db, args.vaultId);
         return landed;
       },
       args.sql,
@@ -424,8 +427,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     stats.notes_upserted += upserted;
     stats.notes_stale_skipped += rows.length - upserted;
   };
-  // THE-490: the per-note body, shared by the eager (default) and streaming (opt-in) walks so it
-  // exists ONCE. `stat` is the note's {mtime,size} from whichever WalkEntry produced `rel`.
+  // THE-490: the per-note body of both walks. `stat` is {mtime,size} from the WalkEntry for `rel`.
   const processNote = async (
     rel: string,
     stat: { mtime: number; size: number } | null,
@@ -497,20 +499,22 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     stats.chunks_dedup_reused += dedupSkipped; // THE-499: aggregate, not per-chunk stderr
     const aclPath = walkedSet.get(rel) ?? ACL_PATH_UNRESOLVED; // the identity the walk resolved
     if (plan) plan.aclPath = aclPath;
+    let notesCurrent = false; // the stored notes row already holds what this read produced
     if (hasNotes && notesRowExpectedForSize(Buffer.byteLength(raw))) {
       const rec = { ...buildNoteRecord(rel, raw, flagged, stat, now()), aclPath };
-      if (noteRowHash(args.db, args.vaultId, rel) !== rec.contentHash) {
-        // Fix round (cross-vendor review): the SAME preloaded fence baseline the chunk plan above
-        // captured for this path — flushNotes re-checks it with commitFence inside its own write
-        // transaction, so a notes-row-ONLY backfill (no accompanying chunk plan this pass) can no
-        // longer land after a fresher commit or a deindex tombstone for this path. A note WITH a
-        // plan this pass is fenced by applyNoteWrites instead (see NoteRecord.fenceCheckRequired).
+      notesCurrent = noteRowHash(args.db, args.vaultId, rel) === rec.contentHash;
+      if (!notesCurrent) {
+        // Fenced by flushNotes with the SAME preloaded baseline the chunk plan captured, so a
+        // notes-row-only backfill cannot land after a fresher commit or a deindex tombstone. A note
+        // WITH a plan is fenced by applyNoteWrites instead (see NoteRecord.fenceCheckRequired).
         rec.fenceGeneration = preloadedFenceGenerations.get(rel) ?? 0;
         rec.fenceCheckRequired = plan === null;
         notesBatch.push(rec);
         if (notesBatch.length >= BATCH) flushNotes();
       }
     }
+    if (demoted.has(rel))
+      promoteReadIdentity(args, rel, aclPath, { chunks: plan === null, notes: notesCurrent });
     if (plan) {
       batch.push(plan);
       // THE-500: flush on EITHER the note-count or the byte budget, so a run of large notes commits
@@ -537,9 +541,6 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       await processNote(rel, statByPath.get(rel) ?? null);
     }
   }
-  // After the walk, never before it: a pre-walk sync would give a note this pass then refuses its walk
-  // identity for as long as the pass runs. A refusal is already persisted by recordReadRefusal.
-  syncAclPaths(args.db, args.vaultId, walkedSet, args.sql);
   stats.notes_seen = notes.length; // THE-490: notes is only fully known once the walk above completes
   // THE-1073 / THE-390: one sampled stderr line per skip class (pass-skip-log.ts).
   logPassSkips(args.vaultId, stats);
@@ -689,8 +690,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       args.sql,
     );
   }
-  // THE-499: one aggregate dedup line per pass (was ~1 stderr line per duplicate chunk). Individual
-  // paths are available behind OBSIDIAN_TC_DEBUG_DEDUP (emitted inline in computeNotePlan).
+  // THE-499: one aggregate dedup line per pass; per-path lines behind OBSIDIAN_TC_DEBUG_DEDUP.
   if (stats.chunks_dedup_reused > 0) {
     process.stderr.write(
       `[index] vault "${args.vaultId}": dedup reused ${stats.chunks_dedup_reused} chunk embedding(s) from identical-body siblings (copied, not recomputed)\n`,
