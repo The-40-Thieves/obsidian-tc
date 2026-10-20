@@ -101,6 +101,15 @@ describe("ensureEnvVaultRoot", () => {
     expect(logged[0]).toContain(target);
   });
 
+  it.skipIf(process.platform === "win32")(
+    "creates the root with no group-write and no other bits (0750 or tighter)",
+    () => {
+      const target = join(base, "vault");
+      expect(ensureEnvVaultRoot([{ path: target }], ENV(target), log)).toBe("created");
+      expect(statSync(target).mode & 0o777 & ~0o750).toBe(0);
+    },
+  );
+
   it("skips when the variable is unset or empty, creating nothing", () => {
     const target = join(base, "vault");
     expect(ensureEnvVaultRoot([{ path: target }], ENV(undefined), log)).toBe("skipped");

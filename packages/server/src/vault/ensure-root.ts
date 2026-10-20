@@ -45,7 +45,7 @@ export function ensureEnvVaultRoot(
   if (!parentStat.isDirectory()) return "skipped";
 
   try {
-    mkdirSync(target);
+    mkdirSync(target, { mode: 0o750 });
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "EEXIST") return "skipped";
