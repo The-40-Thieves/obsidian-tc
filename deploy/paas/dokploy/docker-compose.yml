@@ -1,0 +1,21 @@
+# Dokploy Compose template for obsidian-tc. Derived from deploy/compose.http.yml; the variables and
+# the mounted config come from template.toml. The image HEALTHCHECK (/healthz) is inherited.
+services:
+  obsidian-tc:
+    image: ghcr.io/the-40-thieves/obsidian-tc:latest
+    restart: unless-stopped
+    expose:
+      - 8765
+    environment:
+      OBSIDIAN_TC_CONFIG: /config/obsidian-tc.config.json
+      OBSIDIAN_TC_VAULT_PATH: /data/vault
+      OBSIDIAN_TC_CACHE_DIR: /data/cache
+      PORT: "8765"
+      OBSIDIAN_TC_PUBLIC_URL: ${OBSIDIAN_TC_PUBLIC_URL}
+      OBSIDIAN_TC_JWT_SECRET: ${OBSIDIAN_TC_JWT_SECRET}
+    volumes:
+      - obsidian-tc-data:/data
+      - ../files/obsidian-tc.config.json:/config/obsidian-tc.config.json:ro
+
+volumes:
+  obsidian-tc-data: {}
