@@ -24,6 +24,10 @@ extend-exclude = [
   "**/node_modules/**",
 ]
 
+[default]
+# The Caddy repository key pinned in deploy/cloud-init.yaml: base64 armor lines, not prose.
+extend-ignore-re = ["(?m)^ +[A-Za-z0-9+/=]{40,}$"]
+
 [default.extend-words]
 # Accepted English variants this codebase uses consistently. Rewriting them would touch dozens of
 # files and change nothing.
