@@ -18,7 +18,6 @@ import {
   WriteOptions,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import { isDefaultDenied } from "../../acl";
 import {
   enforceMemoryDefenseOnNoteWrite,
   MEMORY_DEFENSE_OFF,
@@ -39,7 +38,11 @@ import {
 } from "../../formats/attachments";
 import type { ToolDefinition } from "../../mcp/registry";
 import { DEFAULT_SCAN_LIMIT } from "../../util/paginate";
-import { enforcePathAcl, ImmutableRewriteSkips } from "../../vault/acl-path";
+import {
+  defaultDeniedUnderEitherName,
+  enforcePathAcl,
+  ImmutableRewriteSkips,
+} from "../../vault/acl-path";
 import { readableEntry } from "../../vault/acl-read-filter";
 import { requireConfirmation } from "../../vault/hitl";
 import { commitPlanned, PreImageSnapshots, planFingerprint } from "../../vault/move-plan";
@@ -52,12 +55,7 @@ import {
   trashNote,
   writeFileAtomic,
 } from "../../vault/notes-io";
-import {
-  normalizeVaultPath,
-  resolveVaultPath,
-  resolveVaultPathChecked,
-  walkVault,
-} from "../../vault/paths";
+import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { applyWriteBatch, isIncompleteRollback } from "../../vault/write-batch";
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
@@ -370,7 +368,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         // never an attachment destination, ACL or not. Judged on the REAL (symlink-resolved) path:
         // an in-vault `pics -> .obsidian` symlink must not turn a lexically innocent destination
         // into a write under a control directory when no ACL is there to catch it.
-        if (isDefaultDenied(rel) || isDefaultDenied(resolveVaultPathChecked(v.root, rel).aclRel))
+        if (defaultDeniedUnderEitherName(v.root, rel))
           throw err.aclDenied("path is in a protected vault directory", {
             path: redactSecrets(rel).text,
             op: "write",

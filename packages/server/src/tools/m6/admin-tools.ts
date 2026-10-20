@@ -17,7 +17,7 @@ import { explainVisibility } from "../../mcp/visibility";
 import { deriveRrfK, resolveRetrievalDefaults } from "../../search/retrieval-defaults";
 import { readVaultIndexStats } from "../../search/vault-index-stats";
 import { evaluatePathAcl, pathScopesSatisfied } from "../../vault/acl-path";
-import { normalizeVaultPath } from "../../vault/paths";
+import { normalizeVaultPath, resolveVaultPathChecked } from "../../vault/paths";
 import { intersectReplayScopes } from "../../workspace/rerun";
 import { getSession } from "../../workspace/sessions";
 import { defineTool } from "../m1/define";
@@ -344,8 +344,9 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
       outputSchema: InspectAclOutput,
       requiredScopes: ["admin:acl"],
       handler: (input, ctx) => {
-        deps.vaultRegistry.resolve(input.vault); // vault_not_found if unknown
-        const rel = normalizeVaultPath(input.path);
+        const v = deps.vaultRegistry.resolve(input.vault); // vault_not_found if unknown
+        // Judged on the symlink-resolved path, as enforcePathAcl judges it.
+        const rel = resolveVaultPathChecked(v.root, normalizeVaultPath(input.path)).aclRel;
         const acl = ctx.acl;
         const effective_scopes = acl?.scopesForPath(rel) ?? [];
 

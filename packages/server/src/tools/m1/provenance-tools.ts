@@ -7,9 +7,9 @@
 //     of whoever wrote, which is audit data and not part of reading a note's content, so it is its
 //     own grant. `read:*` and `*` include it.
 //   * NO central `pathAcl`: that stage would answer an unreadable path with `acl_denied`, which
-//     says "this note exists". The handler runs the one read predicate the search and link tools
-//     use (`readableRel`) itself, and an unreadable path gets exactly the answer a path with no
-//     records gets.
+//     says "this note exists". The handler judges every path (the queried one, each record's, each
+//     lineage hop) with read_note's own decision (`readableResolved`: the symlink-resolved target),
+//     so an unreadable path gets exactly the answer a path with no records gets.
 //   * a record naming several paths (move, copy, bulk) lists only the paths the caller may read,
 //     and nothing derived from a dropped path leaves: not its name, not a count, not the stored
 //     record hash (which covers it) and not a truncation flag.
@@ -31,7 +31,7 @@ import {
 import type { ProvenanceRecorder } from "../../provenance/recorder";
 import type { KeyResolver } from "../../provenance/signer";
 import { verifyRecordAt } from "../../provenance/verify";
-import { readableRel } from "../../vault/acl-read-filter";
+import { memoizedReadableResolved } from "../../vault/acl-read-filter";
 import { normalizeVaultPath } from "../../vault/paths";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { defineTool } from "./define";
@@ -243,7 +243,7 @@ export function buildProvenanceTools(deps: M1Deps, aclFor: VaultAclResolver): To
         // The ACL of the vault being queried, not the caller's default: a vault with its own ACL
         // must not be judged by another's.
         const acl = aclFor(v.id) ?? ctx.acl;
-        const readable = (p: string): boolean => readableRel(acl, p, ctx.grantedScopes);
+        const readable = memoizedReadableResolved(acl, v.root, ctx.grantedScopes);
         // A cursor is one this server issued to this caller for this exact request (the signed
         // codec of the other paged reads); checked before anything touches the path, so a bad
         // cursor answers the same whether or not the path is readable.
