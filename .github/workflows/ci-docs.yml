@@ -47,7 +47,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # bun + the ROOT install: the build's first step generates the per-tool pages from the live
       # tool registry, which needs the server package's dependencies. bun-version is the action's
-      # default (1.4.2), the value this job pinned before.
+      # default (1.4.3).
       - uses: ./.github/actions/setup-repo
       - name: Install
         working-directory: docs
