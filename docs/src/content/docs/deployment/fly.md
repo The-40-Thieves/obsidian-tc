@@ -118,6 +118,10 @@ A volume lives on one server in one region, so the Machine stays in that region.
 your clients. Fly takes daily snapshots of a volume and keeps them for 5 days by default; the retention
 can be set with `snapshot_retention` in `[mounts]`.
 
+A new volume mounted over `/data` hides the `/data/vault` directory the image creates. Because
+`OBSIDIAN_TC_VAULT_PATH` names it, the server creates the empty vault directory (mode `0750`) at first
+boot instead of exiting.
+
 The volume is the only copy of the vault that the server reads. To keep the vault in step with a Git
 repository, use the `-git` image and the variables in
 [Git-backed vault](/deployment/railway/#git-backed-vault--git-image). Those tags are first published with
@@ -127,13 +131,6 @@ the next release, so the `-git` image is not yet available for `[build] image`.
 
 - **Not yet verified on a live Fly app.** The fields were checked against Fly's documentation, not by
   creating an app. A live deploy check is still needed.
-- **First boot on a fresh volume fails (open).** A new Fly volume is mounted over `/data`, which hides the
-  `/data/vault` directory the image creates. The server then exits at first boot with
-  `fatal: vault root could not be resolved`. The planned server fix creates a missing vault root on the
-  env-configured data volume. Until it ships, a first deploy on a fresh volume does not start. This page
-  has no verified workaround: Fly's docs describe `fly machine run --volume` and
-  `fly machine clone --attach-volume` for attaching a volume, but neither has been tested here to create
-  the vault directory before the server starts.
 - **Volume ownership (likely fine, unverified).** A reviewer found that Fly chowns a new volume's mount to
   the image's USER, so a permission error on `/data` is not the expected failure. No live app has confirmed
   this.
