@@ -142,7 +142,8 @@ export function readableResolved(
   return callerCanReadVaultPath(acl, grantedScopes, root, rel);
 }
 
-function memoizedReadableResolved(
+/** The memoized form of `readableResolved`, for a caller that judges many paths against one ACL. */
+export function memoizedReadableResolved(
   acl: FolderAcl | undefined,
   root: string,
   grantedScopes: Iterable<string>,

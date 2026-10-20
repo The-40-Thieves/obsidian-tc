@@ -22,7 +22,7 @@
 // real, older history was not looked at.
 //
 // The read predicate is injected rather than imported: this layer knows records, not ACLs, and the
-// tool passes the one choke point the search and link tools filter through (`readableRel`).
+// tool passes read_note's own decision (`readableResolved`, the symlink-resolved target).
 import type { Database } from "../db/types";
 import { canonicalJson } from "../hash";
 import { normalizeVaultPath } from "../vault/paths";
@@ -54,6 +54,7 @@ export interface QueryOptions {
   vaultId: string;
   /** Normalized vault-relative path (the caller already proved it readable). */
   path: string;
+  /** Judges a path as read_note would: the canonical target, and unresolvable is unreadable. */
   readable: (rel: string) => boolean;
   /** The registry's public keys. Absent (no registry: stdio-only) means no signature can be
    *  checked, which makes a SIGNED move unverifiable and an unsigned one the norm. */

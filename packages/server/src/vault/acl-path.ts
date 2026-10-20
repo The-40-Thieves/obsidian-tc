@@ -217,6 +217,17 @@ export function callerCanReadVaultPath(
 }
 
 /**
+ * Is `rel` default-denied under EITHER name: as written, or as the symlink-resolved target it reaches
+ * (a `pics -> .obsidian` alias must not turn a lexically innocent path into a control directory).
+ */
+export function defaultDeniedUnderEitherName(root: string, rel: string): boolean {
+  return (
+    isDefaultDenied(normalizeVaultPath(rel)) ||
+    isDefaultDenied(resolveVaultPathChecked(root, rel).aclRel)
+  );
+}
+
+/**
  * The guard every SECONDARY rewrite goes through: backlink and reference maintenance (move_note,
  * bulk_move_notes, move_attachment) repoints links in every note that links the moved target, outside
  * the caller's write whitelist, and that carve-out must never write an immutable path (a vault's raw
