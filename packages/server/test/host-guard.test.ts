@@ -31,6 +31,8 @@ describe("isHostAllowed matches the SDK's canonical hostname (THE-271)", () => {
       "trusted.example/path",
       "https://trusted.example/path",
       "u@trusted.example",
+      "trusted.example ",
+      " trusted.example",
     ]) {
       expect(isHostAllowed("trusted.example", [bad])).toBe(false);
     }
