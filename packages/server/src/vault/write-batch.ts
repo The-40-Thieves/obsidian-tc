@@ -24,15 +24,15 @@
 // has the mirror-image residual: while a note is moved aside its name is empty, and a note another
 // process writes there in that gap is kept, so the pre-image then lives only in the snapshot.
 import { randomBytes } from "node:crypto";
-import { existsSync, lstatSync } from "node:fs";
+import { existsSync, rmdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { nativeIo, nativeOpen, refuseJsThroughPin } from "./native-io";
 import {
   hardDelete,
   moveNoReplace,
   readFileChecked,
   readNote,
-  removeEmptyDir,
   type StagedWrite,
   stageNoteWrite,
   writeNoteAtomic,
@@ -81,10 +81,26 @@ export interface BatchHooks {
   removals?: readonly BatchRemoval[];
 }
 
-/** Directories above `abs` that do not exist yet, outermost first. */
+/** Remove the empty directory at `abs`, which a batch made. Native: `rmdir` on a parent opened by the
+ *  native walk, through the pinned directory under a pinned folder. Without that primitive a path
+ *  through a pinned folder is refused (vault/native-io.ts). */
+function removeEmptyDir(abs: string): void {
+  if (nativeIo?.pinnedDirs && nativeIo.safeRmdir) {
+    const { path, pinned } = nativeOpen(abs);
+    nativeIo.safeRmdir(path, pinned);
+    return;
+  }
+  refuseJsThroughPin(abs);
+  rmdirSync(abs);
+}
+
+/** Directories above `abs` that do not exist yet, outermost first, spelled as the native open takes
+ *  them: under a pin, the pinned folder's real name, so a rollback removes them there and nowhere else. */
 function missingDirs(abs: string): string[] {
   const out: string[] = [];
-  for (let d = dirname(abs); !existsSync(d) && dirname(d) !== d; d = dirname(d)) out.unshift(d);
+  const canonical = nativeOpen(abs).path;
+  for (let d = dirname(canonical); !existsSync(d) && dirname(d) !== d; d = dirname(d))
+    out.unshift(d);
   return out;
 }
 
@@ -153,7 +169,7 @@ function undoWrittenNote(abs: string, writtenHash: string, prevRaw: string | nul
   };
   let held: string | null = null;
   try {
-    if (lstatSync(aside).isFile()) held = readNote(aside).hash;
+    held = readNote(aside).hash;
   } catch {
     // unreadable aside file: `held` stays null, so the put-back path below runs
   }

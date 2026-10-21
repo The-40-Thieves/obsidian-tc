@@ -20,7 +20,6 @@ import {
   readlinkSync,
   readSync,
   renameSync,
-  rmdirSync,
   rmSync,
   type Stats,
   statSync,
@@ -42,10 +41,15 @@ import {
   nativeIo,
   nativeOpen,
   nativeVaultIo,
+  pinnedWritesAvailable,
   probePath,
   refuseJsThroughPin,
 } from "./native-io";
-import { verifyWalkedDirectories, walkDirectoriesNoFollow } from "./no-follow-walk";
+import {
+  assertPinnedFolderNames,
+  verifyWalkedDirectories,
+  walkDirectoriesNoFollow,
+} from "./no-follow-walk";
 import { assertCreatableName, contentHash } from "./paths";
 
 // O_NOFOLLOW and O_NONBLOCK are POSIX-only (undefined on Windows Node): 0 is a no-op there, and the
@@ -375,20 +379,24 @@ export function writeFileAtomic(
   const nativeWrite = opts.exclusive
     ? nativeIo?.safeWriteNoteExclusive
     : nativeIo?.safeWriteNoteAtomic;
-  if (!nativeWrite) refuseJsThroughPin(abs);
-  if (!opts.replacesExisting && !existsNoFollow(abs))
+  // Refuse a pinned path unless the addon verifies pins on writes; else reroute it through the pin.
+  if (!nativeWrite || !pinnedWritesAvailable()) refuseJsThroughPin(abs);
+  const { path, pinned } = nativeWrite ? nativeOpen(abs) : { path: abs, pinned: undefined };
+  if (!opts.replacesExisting && !existsNoFollow(path))
     assertCreatableName(basename(abs), basename(abs));
-  if (createDirs) ensureDirNoFollow(dirname(abs));
+  const nativeMkdirs = pinned !== undefined && createDirs;
+  if (nativeMkdirs) assertPinnedFolderNames(path, pinned, nativeIo?.pinnedMkdir === true);
+  else if (createDirs) ensureDirNoFollow(dirname(path));
   if (nativeIo && nativeWrite) {
     try {
-      nativeWrite(abs, data);
+      nativeWrite(path, data, pinned, nativeMkdirs);
       return;
     } catch (e) {
       if (isNativeExists(e)) throw noteExistsConcurrently();
       // A safe-write rejection (a symlinked path component, or the target itself a symlink) is
-      // acl_denied. A genuinely-missing parent (createDirs=false on a not-yet-created dir) keeps
-      // ENOENT semantics, matching the JS temp-open below.
-      if (!existsSync(dirname(abs))) {
+      // acl_denied. An unpinned path with a missing parent (createDirs=false) keeps ENOENT semantics,
+      // matching the JS temp-open below. A pinned refusal is never remapped, as hardDelete does.
+      if (pinned === undefined && !existsSync(dirname(path))) {
         const enoent = new Error(
           `ENOENT: no such file or directory, open '${abs}'`,
         ) as NodeJS.ErrnoException;
@@ -450,6 +458,7 @@ export function stageNoteWrite(
   opts: WriteFileOpts = {},
 ): StagedWrite {
   const data = Buffer.from(content, "utf8");
+  if (nativeIo && !pinnedWritesAvailable()) refuseJsThroughPin(abs);
   if (nativeIo) return { commit: () => writeFileAtomic(abs, data, createDirs, opts), discard() {} };
   refuseJsThroughPin(abs);
   if (!opts.replacesExisting && !existsNoFollow(abs))
@@ -739,11 +748,4 @@ export function hardDelete(abs: string): void {
   }
   refuseJsThroughPin(abs);
   rmSync(abs, { force: true });
-}
-
-/** Remove the empty directory at `abs`, which a batch made. Never through a pinned folder: a pin is
- *  opened only by the native walk, which has no directory removal, so that is refused. */
-export function removeEmptyDir(abs: string): void {
-  refuseJsThroughPin(abs);
-  rmdirSync(abs);
 }

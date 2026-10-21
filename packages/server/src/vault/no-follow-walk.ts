@@ -1,6 +1,9 @@
 import { lstatSync, mkdirSync, type Stats } from "node:fs";
-import { join, normalize, parse, sep } from "node:path";
+import { dirname, join, normalize, parse, relative, sep } from "node:path";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { existsNoFollow } from "../auth/key-files";
 import { folderRootForSink } from "./folder-links";
+import { assertCreatableName } from "./paths";
 
 export interface WalkedDirectory {
   path: string;
@@ -77,5 +80,24 @@ export function verifyWalkedDirectories(
     ) {
       onChanged(expected.component);
     }
+  }
+}
+
+/** The folders a write under a pinned folder would create below `pinned.dir`, each checked as
+ *  `ensureDirNoFollow` checks a new folder (a Windows-hostile name is refused). The native write makes
+ *  them; this check only refuses a name before it is attempted. */
+export function assertPinnedFolderNames(
+  path: string,
+  pinned: { readonly dir: string },
+  capable: boolean,
+): void {
+  if (!capable)
+    throw err.aclDenied("this native module predates creating folders under a pinned folder", {
+      path,
+    });
+  let prefix = pinned.dir;
+  for (const segment of relative(pinned.dir, dirname(path)).split(sep).filter(Boolean)) {
+    prefix = join(prefix, segment);
+    if (!existsNoFollow(prefix)) assertCreatableName(segment, segment);
   }
 }
