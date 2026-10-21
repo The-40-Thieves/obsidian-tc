@@ -223,7 +223,7 @@ export const WritesConfigSchema = z
       .boolean()
       .default(false)
       .describe(
-        "Require a prev_hash (compare-and-swap) on overwriting writes and on appends to an existing note, failing closed with invalid_input when absent so a stale hash cannot silently clobber.",
+        "Require a prev_hash (compare-and-swap) on write_note overwrites of an existing note and on append_note and patch_note (including patch_active_file) to an existing note, failing closed with invalid_input when absent so a stale hash cannot silently clobber.",
       ),
     // write_attachment carries its bytes inline as base64 (4/3 of the decoded size) in one request,
     // so this is also the knob that keeps a call under an MCP client's or proxy's message limit.

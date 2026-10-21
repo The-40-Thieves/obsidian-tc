@@ -12,7 +12,7 @@ import { z } from "zod";
 import { readJsonFile, writeJsonFile } from "../../formats/json-config";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { checkCas } from "../../vault/cas";
+import { checkCas, requireContentRead } from "../../vault/cas";
 import { requireConfirmation } from "../../vault/hitl";
 import { resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
@@ -165,6 +165,8 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         enforcePathAcl(ctx.acl, "write", WORKSPACES_PATH, v.root, ctx.grantedScopes);
+        // Whether the name exists, the active name and the count are read from the file: gate first.
+        requireContentRead(ctx, v.root, WORKSPACES_PATH, "read:workspaces");
         const abs = resolveVaultPath(v.root, WORKSPACES_PATH);
         const file = readJsonFile<WorkspacesDoc>(abs, { workspaces: {} });
         checkCas({

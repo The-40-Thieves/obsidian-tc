@@ -14,6 +14,7 @@ import {
   readableEntry,
   readableResolved,
 } from "../../vault/acl-read-filter";
+import { requireContentRead } from "../../vault/cas";
 import { requireConfirmation } from "../../vault/hitl";
 import { readNote, writeNoteAtomicGuarded } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -202,6 +203,9 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
+        // The task line's text and the whole-note hash are read data: a caller who may not read the note
+        // gets the fixed refusal, whichever line it names.
+        requireContentRead(ctx, v.root, rel, "read:tasks");
         const abs = resolveVaultPath(v.root, rel);
         let raw: string;
         try {

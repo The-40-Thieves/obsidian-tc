@@ -12,10 +12,10 @@ import { describe, expect, it } from "vitest";
 const SRC = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
 const HELPER = join("vault", "cas.ts");
 /** Call sites that route through the helper today; a smaller count means the scan lost ground. */
-const FLOOR = 25;
+const FLOOR = 21;
 
 /** Any mention of the error's name outside the helper, however it is reached. */
-const BYPASS = /\bconcurrentModification\b/;
+const BYPASS = /\bconcurrentModification\b|new ObsidianTcError\(\s*["']concurrent_modification["']/;
 
 function bypassLines(text: string): string[] {
   return text
@@ -56,6 +56,7 @@ describe("CAS source gate", () => {
       "const cm = err.concurrentModification;",
       "const { concurrentModification: cm } = err;",
       "throw err['concurrentModification'](msg);",
+      'throw new ObsidianTcError("concurrent_modification", { path });',
     ];
     for (const line of aliases) expect(bypassLines(line), line).toEqual([line]);
   });

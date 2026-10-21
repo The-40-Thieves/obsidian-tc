@@ -116,22 +116,19 @@ describe("write-only caller: CAS detail is read-gated", () => {
 
   it("ack: successful writes carry no prev_hash or quality_warning and no whole-note hash", async () => {
     v = writeOnlyVault();
-    const patched = dataOf(
-      await v.call(
-        "patch_note",
-        {
-          vault: "test",
-          path: "Private/p.md",
-          operation: "append",
-          anchor: { type: "frontmatter" },
-          content: "tail\n",
-        },
-        SCOPES,
-      ),
+    // patch_note has no content-blind form for a non-reader: even a frontmatter-preamble append is refused.
+    const patched = await v.call(
+      "patch_note",
+      {
+        vault: "test",
+        path: "Private/p.md",
+        operation: "append",
+        anchor: { type: "frontmatter" },
+        content: "tail\n",
+      },
+      SCOPES,
     );
-    expect(patched).not.toHaveProperty("prev_hash");
-    expect(patched).not.toHaveProperty("quality_warning");
-    expect(patched.content_hash).toBeNull();
+    expect(errOf(patched)?.message).toBe(FIXED_REFUSAL);
 
     const appended = dataOf(
       await v.call(

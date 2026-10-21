@@ -27,7 +27,7 @@ import {
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import {
-  enforceMemoryDefenseOnNoteWrite,
+  enforceMemoryDefenseOnMovedBytes,
   MEMORY_DEFENSE_OFF,
   redactedEcho,
   refusePathIfSecretShaped,
@@ -38,7 +38,7 @@ import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl, ImmutableRewriteSkips } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import { runBulk } from "../../vault/bulk";
-import { requireContentRead } from "../../vault/cas";
+import { callerMayReadNote, requireContentRead } from "../../vault/cas";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
 import {
   commitPlanned,
@@ -519,7 +519,10 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           if (!r.ok || !r.fromRel || !r.toRel) continue;
           try {
             const { raw } = readNote(resolveVaultPath(v.root, r.fromRel));
-            enforceMemoryDefenseOnNoteWrite(mdConfig, r.toRel, raw, { metrics: deps.metrics });
+            enforceMemoryDefenseOnMovedBytes(mdConfig, r.toRel, raw, {
+              metrics: deps.metrics,
+              mayRead: callerMayReadNote(ctx, v.root, r.fromRel),
+            });
           } catch (e) {
             r.ok = false;
             r.error = (

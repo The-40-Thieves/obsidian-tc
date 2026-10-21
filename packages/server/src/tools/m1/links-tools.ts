@@ -19,7 +19,7 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { DEFAULT_SCAN_LIMIT, nextOffsetCursor, offsetOf } from "../../util/paginate";
 import { drainYielding } from "../../util/scan-steps";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { checkCas, requireContentRead } from "../../vault/cas";
+import { callerMayReadNote, checkCas, requireContentRead } from "../../vault/cas";
 import { requireConfirmation } from "../../vault/hitl";
 import { buildVaultIndex, normalizeLinkTarget, resolveTarget } from "../../vault/links";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
@@ -219,8 +219,10 @@ function planLinkRewrite(
   warnings: RewriteWarning[];
 } {
   const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
-  const paths = readableNotes(root, acl, grantedScopes, sub);
-  const index = buildVaultIndex(readableNotes(root, acl, grantedScopes));
+  // A note the caller may not read is neither scanned nor named, so a match in it is never reported.
+  const readable = (rel: string): boolean => callerMayReadNote({ acl, grantedScopes }, root, rel);
+  const paths = readableNotes(root, acl, grantedScopes, sub).filter(readable);
+  const index = buildVaultIndex(readableNotes(root, acl, grantedScopes).filter(readable));
   const fromRes = resolveTarget(index, input.from_target);
   const fromPath = fromRes.resolved ? fromRes.target_path : null;
   const fromLiteral = normTarget(input.from_target);
@@ -489,7 +491,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         "Repoint every link to `from_target` at `to_target` across the vault. Defaults to dry_run; a real run requires confirmation. response_format=concise drops the from_target/to_target echo (to_target stays when the memoryDefense scan redacted it) and, on a real run, the per-note changes list; notes_changed and links_rewritten stay.",
       inputSchema: RewriteInput,
       outputSchema: RewriteLinkOutput,
-      requiredScopes: ["write:notes"],
+      requiredScopes: ["read:notes", "write:notes"],
       // THE-824: display-only — see ToolDefinition.conditionallyDestructive. The real gate stays
       // the requireConfirmation call below (any non-dry_run); this only stops the wire annotation
       // from advertising destructive: false for a tool that CAN demand confirmation.

@@ -6,6 +6,7 @@
 // to move_note; copy_note does not rewrite links (see its description).
 import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import {
+  enforceMemoryDefenseOnMovedBytes,
   enforceMemoryDefenseOnNoteWrite,
   MEMORY_DEFENSE_OFF,
   refusePathIfSecretShaped,
@@ -187,8 +188,9 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
         // The relocated CONTENT can carry a pre-existing secret that predates memoryDefense (the
         // note may have been written before the vault opted in), so scan the bytes about to land at
         // the new path, same guard write_note/append_note/patch_note get.
-        const scannedRaw = enforceMemoryDefenseOnNoteWrite(mdConfig, toRel, raw, {
+        const scannedRaw = enforceMemoryDefenseOnMovedBytes(mdConfig, toRel, raw, {
           ...(metrics ? { metrics } : {}),
+          mayRead: callerMayReadNote(ctx, v.root, fromRel),
         }).content;
         const backlinks = input.update_backlinks
           ? planBacklinks(v.root, fromRel, toRel, readable, skips, mdConfig, metrics)

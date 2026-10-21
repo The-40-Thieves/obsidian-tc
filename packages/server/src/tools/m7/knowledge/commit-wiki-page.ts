@@ -360,7 +360,11 @@ export function createCommitWikiPageTool(
 
       // Read every existing note the changeset touches, and check them all before judging any one.
       const stale: Array<{ path: string; expected: string; actual?: string }> = [];
-      const checkCas = (path: string, expected: string | undefined, actual: string): void => {
+      const checkStalePages = (
+        path: string,
+        expected: string | undefined,
+        actual: string,
+      ): void => {
         if (expected === undefined || expected === actual) return;
         // The current hash is echoed only to a caller that may read the page (vault/cas.ts).
         const mayRead = callerMayReadNote(ctx, v.root, path);
@@ -370,7 +374,7 @@ export function createCommitWikiPageTool(
       let pagePrev: { raw: string; hash: string } | null = null;
       if (input.page.mode === "overwrite") {
         pagePrev = readNote(pageAbs);
-        checkCas(pageRel, input.page.prev_hash, pagePrev.hash);
+        checkStalePages(pageRel, input.page.prev_hash, pagePrev.hash);
       }
       const targets = input.patches.map((spec, i) => {
         const rel = patchRels[i] as string;
@@ -379,7 +383,7 @@ export function createCommitWikiPageTool(
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note to patch not found", { path: rel });
         const cur = readNote(abs);
-        checkCas(rel, spec.prev_hash, cur.hash);
+        checkStalePages(rel, spec.prev_hash, cur.hash);
         return { spec, rel, abs, cur };
       });
       if (stale.length > 0) {

@@ -34,6 +34,7 @@ import type { ToolDefinition } from "../../mcp/registry";
 import type { MetricsRecorder } from "../../metrics/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableResolved } from "../../vault/acl-read-filter";
+import { requireContentRead } from "../../vault/cas";
 import { parseNote } from "../../vault/frontmatter";
 import {
   hardDelete,
@@ -563,6 +564,9 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         const ex = noteExists(abs);
         if (ex.exists && ex.type === "folder")
           throw err.invalidInput("path is a folder", { path: resolved.path });
+        // A heading places the content by the note's bytes, so a caller who may not read the note is refused.
+        if (input.heading !== undefined)
+          requireContentRead(ctx, v.root, resolved.path, "read:periodic");
         const existing = ex.exists ? readNote(abs).raw : "";
         const next = appendContent(existing, input.content, input.ensure_newline, input.heading);
         // THE-572: appending is the one effect here that CANNOT be made idempotent — re-running it

@@ -72,7 +72,7 @@ function resolveWriteAnchor<T>(resolve: () => T, canReadNote: boolean, path: str
 
 /** writes.requireCas refusal for an append-shaped write to an existing note (append_note, patch_note). */
 const CAS_REQUIRED_APPEND =
-  "prev_hash is required to append to an existing note when writes.requireCas is enabled; read the note first";
+  "prev_hash is required to change an existing note when writes.requireCas is enabled; read the note first";
 
 // ── tools ────────────────────────────────────────────────────────────────────
 
@@ -248,6 +248,7 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
       let prevHash: string | null = null;
       let prevRaw: string | null = null;
       let next: string;
+      let head = "";
       if (ex.exists) {
         if (deps.requireCas && input.prev_hash === undefined)
           throw err.invalidInput(CAS_REQUIRED_APPEND, { path: rel });
@@ -264,7 +265,8 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
         });
         const sep =
           input.ensure_newline && cur.raw.length > 0 && !cur.raw.endsWith("\n") ? "\n" : "";
-        next = cur.raw + sep + input.content;
+        head = cur.raw + sep;
+        next = head + input.content;
       } else {
         if (!input.create_if_missing)
           throw err.noteNotFound("note not found; set create_if_missing to create it", {
@@ -275,10 +277,14 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
 
       // GH #994 follow-up: scan the RESULTING note body (existing bytes + appended content), not
       // just `input.content` — a secret split across the join is still caught. Runs before every
-      // durable effect below (nothing has committed yet), so `block` mode refuses cleanly.
+      // durable effect below (nothing has committed yet), so `block` mode refuses cleanly. A caller who
+      // may not read the note is scanned on its own bytes only: a refusal over the existing bytes would
+      // tell it what they hold, so those bytes are kept as they are.
       const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
-      const scan = enforceMemoryDefenseOnNoteWrite(mdConfig, rel, next, { metrics: deps.metrics });
-      next = scan.content;
+      const scan = enforceMemoryDefenseOnNoteWrite(mdConfig, rel, mayRead ? next : input.content, {
+        metrics: deps.metrics,
+      });
+      next = mayRead ? scan.content : head + scan.content;
 
       // THE-572: append is the one write in this file that is NOT idempotent — re-running it
       // concatenates the content a second time — and it is keyed through the nested
@@ -332,15 +338,9 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
       const rel = normalizeVaultPath(input.path);
       const abs = resolveVaultPath(v.root, rel);
       enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
-      // Only a frontmatter-preamble append or prepend is content-blind; every other patch depends on the
-      // note's bytes (a heading, block or line anchor, replace, replace_text, or an insert_before match),
-      // so a caller who may not read the note is refused before anything is looked up.
-      const contentBlind =
-        (input.operation === "append" || input.operation === "prepend") &&
-        input.anchor?.type === "frontmatter" &&
-        input.target_heading === undefined &&
-        input.insert_before === undefined;
-      if (!contentBlind) requireContentRead(ctx, v.root, rel);
+      // Every patch depends on the note's bytes (an anchor, a match, a replace), so a caller who may not
+      // read the note is refused before anything is looked up. A write-only caller gets no patch at all.
+      requireContentRead(ctx, v.root, rel);
       const ex = noteExists(abs);
       if (!ex.exists || ex.type === "folder")
         throw err.noteNotFound("note not found", { path: rel });
