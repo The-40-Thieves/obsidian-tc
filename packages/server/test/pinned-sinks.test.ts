@@ -246,15 +246,34 @@ describe.skipIf(process.platform === "win32")(
       throw new Error("expected the operation through the pinned folder to be refused");
     };
 
-    it("writes and staged writes are refused (native or not)", () => {
-      const root = openAndRawVault();
-      const reg = wikiRegistry(root);
-      const x = join(root, "wiki", "x.md");
-      refused(() => under(reg, () => writeNoteAtomic(x, "new\n", false)));
-      refused(() => under(reg, () => writeNoteAtomic(join(root, "wiki", "n.md"), "new\n", true)));
-      refused(() => under(reg, () => stageNoteWrite(x, "new\n", false).commit()));
-      expect(text(root, "open/x.md")).toBe("open note\n");
-    });
+    it.skipIf(!nativeVaultIo)(
+      "a write and a staged write through a pin land in the pinned folder",
+      () => {
+        expect(nativeVaultIo).toBe(true);
+        const root = openAndRawVault();
+        const reg = wikiRegistry(root);
+        const x = join(root, "wiki", "x.md");
+        under(reg, () => writeNoteAtomic(x, "new\n", false));
+        expect(text(root, "open/x.md")).toBe("new\n");
+        under(reg, () => stageNoteWrite(x, "staged\n", false).commit());
+        expect(text(root, "open/x.md")).toBe("staged\n");
+        under(reg, () => writeNoteAtomic(join(root, "wiki", "n.md"), "new\n", true));
+        expect(text(root, "open/n.md")).toBe("new\n");
+      },
+    );
+
+    it.skipIf(nativeVaultIo)(
+      "writes and staged writes are refused without the native module",
+      () => {
+        const root = openAndRawVault();
+        const reg = wikiRegistry(root);
+        const x = join(root, "wiki", "x.md");
+        refused(() => under(reg, () => writeNoteAtomic(x, "new\n", false)));
+        refused(() => under(reg, () => writeNoteAtomic(join(root, "wiki", "n.md"), "new\n", true)));
+        refused(() => under(reg, () => stageNoteWrite(x, "new\n", false).commit()));
+        expect(text(root, "open/x.md")).toBe("open note\n");
+      },
+    );
 
     it.skipIf(nativeVaultIo)("reads, moves and deletes are refused, naming why", () => {
       const root = openAndRawVault();

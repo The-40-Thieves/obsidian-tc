@@ -15,10 +15,11 @@ import { type PinnedDir, pinnedOpenPath } from "./folder-links";
 
 export interface NativeVaultIo {
   safeReadNote(abs: string, pinned?: PinnedDir): Buffer;
-  safeWriteNoteAtomic(abs: string, data: Buffer): void;
+  /** The write primitives take the pinned directory `abs` runs through (`pinnedWrites`). */
+  safeWriteNoteAtomic(abs: string, data: Buffer, pinned?: PinnedDir): void;
   /** No-replace write / rename / unlink. Optional: an older .node predates them and the JS path is
    *  used (an extra argument to safeWriteNoteAtomic would be silently ignored by such a binary). */
-  safeWriteNoteExclusive?(abs: string, data: Buffer): void;
+  safeWriteNoteExclusive?(abs: string, data: Buffer, pinned?: PinnedDir): void;
   safeRenameNoReplace?(
     fromAbs: string,
     toAbs: string,
@@ -30,6 +31,10 @@ export interface NativeVaultIo {
   /** The binary verifies a PinnedDir (`SAFE_IO_PINNED_DIR`). An older one would ignore the pin, so
    *  without it no path is translated to a pinned directory (the walk refuses the symlink). */
   pinnedDirs: boolean;
+  /** The binary verifies a PinnedDir on the write primitives (`SAFE_IO_PINNED_WRITE`). Without it a
+   *  write through a pinned folder is refused: the pin would be silently ignored and the alias
+   *  spelling written. */
+  pinnedWrites: boolean;
 }
 
 const NATIVE_PKG = ["@the-40-thieves", "obsidian-tc-native"].join("/");
@@ -40,6 +45,7 @@ function loadNativeIo(): NativeVaultIo | null {
     const mod = createRequire(import.meta.url)(NATIVE_PKG) as Partial<NativeVaultIo> & {
       nativeLoaded?: boolean;
       SAFE_IO_PINNED_DIR?: boolean;
+      SAFE_IO_PINNED_WRITE?: boolean;
     };
     if (
       mod.nativeLoaded === true &&
@@ -50,6 +56,7 @@ function loadNativeIo(): NativeVaultIo | null {
         safeReadNote: mod.safeReadNote,
         safeWriteNoteAtomic: mod.safeWriteNoteAtomic,
         pinnedDirs: mod.SAFE_IO_PINNED_DIR === true,
+        pinnedWrites: mod.SAFE_IO_PINNED_WRITE === true,
         ...(typeof mod.safeWriteNoteExclusive === "function"
           ? { safeWriteNoteExclusive: mod.safeWriteNoteExclusive }
           : {}),

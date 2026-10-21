@@ -161,6 +161,9 @@ module.exports.safeUnlink = impl.safeUnlink;
 // True on a binary whose safeReadNote / safeRenameNoReplace check a PinnedDir; undefined on an older
 // .node (which would ignore the extra argument) and on the fallback.
 module.exports.SAFE_IO_PINNED_DIR = impl.SAFE_IO_PINNED_DIR;
+// True on a binary whose safeWriteNoteAtomic / safeWriteNoteExclusive check a PinnedDir; undefined on
+// an older .node (which would write the alias spelling) and on the fallback.
+module.exports.SAFE_IO_PINNED_WRITE = impl.SAFE_IO_PINNED_WRITE;
 // Exported for the loader unit test (packages/server/test/native-triple.test.ts).
 module.exports.hostTriple = hostTriple;
 module.exports.isMusl = isMusl;

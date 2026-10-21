@@ -375,20 +375,22 @@ export function writeFileAtomic(
   const nativeWrite = opts.exclusive
     ? nativeIo?.safeWriteNoteExclusive
     : nativeIo?.safeWriteNoteAtomic;
-  if (!nativeWrite) refuseJsThroughPin(abs);
+  // Refuse a pinned path unless the addon verifies pins on writes; else reroute it through the pin.
+  if (!nativeWrite || !nativeIo?.pinnedWrites) refuseJsThroughPin(abs);
+  const { path, pinned } = nativeWrite ? nativeOpen(abs) : { path: abs, pinned: undefined };
   if (!opts.replacesExisting && !existsNoFollow(abs))
     assertCreatableName(basename(abs), basename(abs));
-  if (createDirs) ensureDirNoFollow(dirname(abs));
+  if (createDirs) ensureDirNoFollow(dirname(path));
   if (nativeIo && nativeWrite) {
     try {
-      nativeWrite(abs, data);
+      nativeWrite(path, data, pinned);
       return;
     } catch (e) {
       if (isNativeExists(e)) throw noteExistsConcurrently();
       // A safe-write rejection (a symlinked path component, or the target itself a symlink) is
       // acl_denied. A genuinely-missing parent (createDirs=false on a not-yet-created dir) keeps
       // ENOENT semantics, matching the JS temp-open below.
-      if (!existsSync(dirname(abs))) {
+      if (!existsSync(dirname(path))) {
         const enoent = new Error(
           `ENOENT: no such file or directory, open '${abs}'`,
         ) as NodeJS.ErrnoException;

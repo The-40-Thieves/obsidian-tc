@@ -229,6 +229,13 @@ pub struct PinnedDir {
 #[napi]
 pub const SAFE_IO_PINNED_DIR: bool = true;
 
+/// True on a module whose safe write primitives take a `PinnedDir` (`safe_write_note_*`). Separate
+/// from `SAFE_IO_PINNED_DIR`: a module with only that one ignores the pin on a write, so the server
+/// refuses every write through a pinned folder unless this is set.
+#[cfg(unix)]
+#[napi]
+pub const SAFE_IO_PINNED_WRITE: bool = true;
+
 #[cfg(unix)]
 fn pin_of(pinned: Option<PinnedDir>) -> napi::Result<Option<safe_io::Pin>> {
     let Some(p) = pinned else { return Ok(None) };
@@ -256,22 +263,32 @@ pub fn safe_read_note(abs: String, pinned: Option<PinnedDir>) -> napi::Result<Bu
 
 /// Symlink-safe atomic write: walks to the parent following no symlink, writes a randomized
 /// O_EXCL|O_NOFOLLOW temp, then renames it onto the target. The parent directory must already exist.
+/// With `pinned`, the pinned directory must still be the directory it was pinned as (see `PinnedDir`).
 /// Unix-only (see safe_read_note).
 #[cfg(unix)]
 #[napi]
-pub fn safe_write_note_atomic(abs: String, data: Buffer) -> napi::Result<()> {
-    safe_io::write_atomic(&abs, data.as_ref())
+pub fn safe_write_note_atomic(
+    abs: String,
+    data: Buffer,
+    pinned: Option<PinnedDir>,
+) -> napi::Result<()> {
+    safe_io::write_atomic(&abs, data.as_ref(), pin_of(pinned)?.as_ref())
 }
 
 /// Symlink-safe atomic write that REFUSES to replace: same as `safe_write_note_atomic`, but the
 /// final step is a no-replace rename (Linux `renameat2(RENAME_NOREPLACE)`, macOS
 /// `renameatx_np(RENAME_EXCL)`, else `linkat` + `unlinkat`), so an `overwrite: false` caller cannot
 /// lose a race to a concurrent creator of the same path (a check-then-rename leaves that window
-/// open). An existing target is an error whose message starts with `exists:`. Unix-only.
+/// open). An existing target is an error whose message starts with `exists:`. With `pinned` the
+/// pinned directory is verified as for `safe_write_note_atomic`. Unix-only.
 #[cfg(unix)]
 #[napi]
-pub fn safe_write_note_exclusive(abs: String, data: Buffer) -> napi::Result<()> {
-    safe_io::write_exclusive(&abs, data.as_ref())
+pub fn safe_write_note_exclusive(
+    abs: String,
+    data: Buffer,
+    pinned: Option<PinnedDir>,
+) -> napi::Result<()> {
+    safe_io::write_exclusive(&abs, data.as_ref(), pin_of(pinned)?.as_ref())
 }
 
 /// Symlink-safe no-replace rename of `from_abs` onto `to_abs`: each parent is opened following no
@@ -511,17 +528,22 @@ mod safe_io {
         }
     }
 
-    pub fn write_atomic(abs: &str, data: &[u8]) -> Result<(), Error> {
-        write_impl(abs, data, false)
+    pub fn write_atomic(abs: &str, data: &[u8], pin: Option<&Pin>) -> Result<(), Error> {
+        write_impl(abs, data, false, pin)
     }
 
-    pub fn write_exclusive(abs: &str, data: &[u8]) -> Result<(), Error> {
-        write_impl(abs, data, true)
+    pub fn write_exclusive(abs: &str, data: &[u8], pin: Option<&Pin>) -> Result<(), Error> {
+        write_impl(abs, data, true, pin)
     }
 
-    fn write_impl(abs: &str, data: &[u8], no_replace: bool) -> Result<(), Error> {
+    fn write_impl(
+        abs: &str,
+        data: &[u8],
+        no_replace: bool,
+        pin: Option<&Pin>,
+    ) -> Result<(), Error> {
         let comps = components(abs)?;
-        let parent = open_parent(&comps, None)?;
+        let parent = open_parent(&comps, pin)?;
         let leaf = comps[comps.len() - 1];
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -827,7 +849,7 @@ mod safe_io_tests {
     #[test]
     fn write_exclusive_creates_a_missing_target() {
         let d = scratch();
-        safe_io::write_exclusive(&s(&d.join("a.md")), b"one").unwrap();
+        safe_io::write_exclusive(&s(&d.join("a.md")), b"one", None).unwrap();
         assert_eq!(fs::read(d.join("a.md")).unwrap(), b"one");
         fs::remove_dir_all(&d).unwrap();
     }
@@ -836,7 +858,7 @@ mod safe_io_tests {
     fn write_exclusive_never_replaces_and_leaves_no_temp() {
         let d = scratch();
         fs::write(d.join("a.md"), b"original").unwrap();
-        let e = safe_io::write_exclusive(&s(&d.join("a.md")), b"clobber").unwrap_err();
+        let e = safe_io::write_exclusive(&s(&d.join("a.md")), b"clobber", None).unwrap_err();
         assert!(e.reason.starts_with("exists:"), "got {}", e.reason);
         assert_eq!(fs::read(d.join("a.md")).unwrap(), b"original");
         let names: Vec<_> = fs::read_dir(&d)
@@ -851,7 +873,7 @@ mod safe_io_tests {
     fn write_atomic_still_replaces() {
         let d = scratch();
         fs::write(d.join("a.md"), b"original").unwrap();
-        safe_io::write_atomic(&s(&d.join("a.md")), b"new").unwrap();
+        safe_io::write_atomic(&s(&d.join("a.md")), b"new", None).unwrap();
         assert_eq!(fs::read(d.join("a.md")).unwrap(), b"new");
         fs::remove_dir_all(&d).unwrap();
     }
@@ -901,7 +923,7 @@ mod safe_io_tests {
         let d = scratch();
         let outside = scratch();
         symlink(&outside, d.join("sub")).unwrap();
-        let r = safe_io::write_exclusive(&s(&d.join("sub/n.md")), b"x");
+        let r = safe_io::write_exclusive(&s(&d.join("sub/n.md")), b"x", None);
         assert!(r.is_err());
         assert!(!outside.join("n.md").exists());
         fs::remove_dir_all(&d).unwrap();
@@ -1079,6 +1101,42 @@ mod safe_io_tests {
         assert!(!d.join("gone/x.md").exists());
         let now = pin(&d.join("open"));
         assert!(safe_io::unlink(&x, Some(&now)).unwrap());
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// `open` pinned, then renamed away and `raw` renamed into its name: a write named through the
+    /// pinned directory must refuse (both the atomic and the exclusive form) and leave both
+    /// directories alone; with the identity intact the same write lands in the pinned directory.
+    #[test]
+    fn writes_through_a_replaced_pinned_directory_are_refused() {
+        let d = scratch();
+        for (dir, body) in [("open", b"open note"), ("raw", b"RAW SRC!!")] {
+            fs::create_dir(d.join(dir)).unwrap();
+            fs::write(d.join(dir).join("x.md"), body).unwrap();
+        }
+        let open = pin(&d.join("open"));
+        let x = s(&d.join("open/x.md"));
+        fs::rename(d.join("open"), d.join("gone")).unwrap();
+        fs::rename(d.join("raw"), d.join("open")).unwrap();
+        let Err(e) = safe_io::write_atomic(&x, b"OVERWRITE", Some(&open)) else {
+            panic!("atomic write through a replaced pinned folder");
+        };
+        assert!(
+            e.reason.contains("no longer the directory"),
+            "got {}",
+            e.reason
+        );
+        let planted = s(&d.join("open/planted.md"));
+        assert!(safe_io::write_exclusive(&planted, b"planted", Some(&open)).is_err());
+        assert_eq!(fs::read(d.join("open/x.md")).unwrap(), b"RAW SRC!!");
+        assert!(!d.join("open/planted.md").exists());
+        assert!(!d.join("gone/planted.md").exists());
+        let gone = pin(&d.join("gone"));
+        safe_io::write_exclusive(&s(&d.join("gone/planted.md")), b"planted", Some(&gone)).unwrap();
+        assert_eq!(fs::read(d.join("gone/planted.md")).unwrap(), b"planted");
+        let now = pin(&d.join("open"));
+        safe_io::write_atomic(&x, b"new", Some(&now)).unwrap();
+        assert_eq!(fs::read(d.join("open/x.md")).unwrap(), b"new");
         fs::remove_dir_all(&d).unwrap();
     }
 }
