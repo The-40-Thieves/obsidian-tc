@@ -311,7 +311,7 @@ Derived edges added to the `vault_edges` graph beyond authored wikilinks, so a m
 | --- | --- | --- |
 | `governor.maxResponseBytes` | 1000000 | Response size ceiling for both tool calls and `resources/read` — page with cursors rather than raising it. |
 | `governor.regexTimeoutMs` | 2000 | Worker-time budget for one regex search (ReDoS guard; file I/O doesn't count). |
-| `writes.requireCas` | false | When true, `write_note` (overwrite) and `append_note` to an existing note **require** `prev_hash` and fail closed without it — no stale-hash clobbering. |
+| `writes.requireCas` | false | When true, `write_note` (overwrite), `append_note` and `patch_note` (also `patch_active_file`) to an existing note **require** `prev_hash` and fail closed without it — no stale-hash clobbering. |
 | `snapshots.enabled` | true | Point-in-time snapshots: destructive writes capture prior state (content-addressed) so `restore_note` can roll back. On by default; retention is pruned inline so growth is bounded. |
 | `snapshots.retention` | 10 | Versions kept per note (max 1000). |
 | `toolFacade.mode` | `triad` | What `tools/list` advertises: `triad` (3 meta-tools plus the standard `search`/`fetch` pair), `domain` (~a dozen domain meta-tools), `flat` (everything), `auto` (**deprecated**: resolves to `triad` for every client, removal planned for the next major; set an explicit mode). All tools stay callable by name in every mode. |

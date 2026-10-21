@@ -289,10 +289,13 @@ sharing is a per-key opt-in, reviewed at registration, not a fallback.
 
 Every note write exposes a **`prev_hash`** (compare-and-swap): pass the hash you last read, and the
 write is rejected with `concurrent_modification` if the note changed underneath you. This covers
-`write_note` (overwrite), `append_note`, and `update_frontmatter` — defense-in-depth for multi-writer
-setups (e.g. several agents writing one vault). It is optional by default; set **`writes.requireCas: true`**
-to make it **mandatory** on the destructive paths (`write_note` overwrite, `append_note` to an existing
-note), which then fail closed with `invalid_input` when `prev_hash` is absent. Making it the
+`write_note` (overwrite), `append_note`, `patch_note` (and `patch_active_file`), and `update_frontmatter` —
+defense-in-depth for multi-writer setups (e.g. several agents writing one vault). It is optional by default;
+set **`writes.requireCas: true`** to make it **mandatory** on the destructive paths (`write_note` overwrite,
+`append_note` and `patch_note` to an existing note), which then fail closed with `invalid_input` when
+`prev_hash` is absent. The CAS detail is read-gated: a caller that may write a note but not read it gets
+`concurrent_modification` and acks without the note's current hash, so the hash cannot be used to guess its
+content. Making it the
 non-configurable hard default remains deferred to a future major (a breaking API change).
 
 When `execute_template` creates a note and provenance frontmatter stamping is enabled, the

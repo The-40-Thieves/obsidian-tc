@@ -141,7 +141,9 @@ async function delegate(
   return def.handler(def.inputSchema.parse(args), ctx);
 }
 
-const { path: _path, ...ActivePatchShape } = PatchInputShape;
+// The active-file tools take no idempotency key: patch_note's `options` is not forwarded here, and
+// this tool does not declare acceptsIdempotencyKey.
+const { path: _path, options: _options, ...ActivePatchShape } = PatchInputShape;
 const PatchActiveInput = z.object(ActivePatchShape).strict().superRefine(refinePatchInput);
 
 const ReadActiveInput = z

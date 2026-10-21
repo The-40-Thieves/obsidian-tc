@@ -12,6 +12,7 @@ import { z } from "zod";
 import { readJsonFile, writeJsonFile } from "../../formats/json-config";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { casConflict } from "../../vault/cas";
 import { requireConfirmation } from "../../vault/hitl";
 import { resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
@@ -111,7 +112,7 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
         const abs = resolveVaultPath(v.root, WORKSPACES_PATH);
         const file = readJsonFile<WorkspacesDoc>(abs, { workspaces: {} });
         if (input.prev_hash !== undefined && input.prev_hash !== file.hash)
-          throw err.concurrentModification("workspaces.json changed since prev_hash", {
+          throw casConflict("workspaces.json changed since prev_hash", {
             path: WORKSPACES_PATH,
           });
         const ws = workspacesOf(file.data);
@@ -161,7 +162,7 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
         const abs = resolveVaultPath(v.root, WORKSPACES_PATH);
         const file = readJsonFile<WorkspacesDoc>(abs, { workspaces: {} });
         if (input.prev_hash !== undefined && input.prev_hash !== file.hash)
-          throw err.concurrentModification("workspaces.json changed since prev_hash", {
+          throw casConflict("workspaces.json changed since prev_hash", {
             path: WORKSPACES_PATH,
           });
         const data = file.data;

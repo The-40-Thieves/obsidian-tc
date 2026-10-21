@@ -11,6 +11,7 @@ import { z } from "zod";
 import { readJsonFile, writeJsonFile } from "../../formats/json-config";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { casConflict } from "../../vault/cas";
 import { resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import type { M3Deps } from "./shared";
@@ -196,7 +197,7 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
         const abs = resolveVaultPath(v.root, BOOKMARKS_PATH);
         const file = readJsonFile<BookmarksDoc>(abs, { items: [] });
         if (input.prev_hash !== undefined && input.prev_hash !== file.hash)
-          throw err.concurrentModification("bookmarks.json changed since prev_hash", {
+          throw casConflict("bookmarks.json changed since prev_hash", {
             path: BOOKMARKS_PATH,
           });
         const data = file.data;
@@ -259,7 +260,7 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
         const abs = resolveVaultPath(v.root, BOOKMARKS_PATH);
         const file = readJsonFile<BookmarksDoc>(abs, { items: [] });
         if (input.prev_hash !== undefined && input.prev_hash !== file.hash)
-          throw err.concurrentModification("bookmarks.json changed since prev_hash", {
+          throw casConflict("bookmarks.json changed since prev_hash", {
             path: BOOKMARKS_PATH,
           });
         const data = file.data;

@@ -229,6 +229,7 @@ const EXPECTED: ToolSnapshot[] = [
       "new_string",
       "old_string",
       "operation",
+      "options",
       "path",
       "prev_hash",
       "response_format",

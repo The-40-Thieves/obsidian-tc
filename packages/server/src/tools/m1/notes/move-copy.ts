@@ -14,6 +14,7 @@ import type { ToolDefinition } from "../../../mcp/registry";
 import type { MetricsRecorder } from "../../../metrics/registry";
 import { enforcePathAcl, ImmutableRewriteSkips } from "../../../vault/acl-path";
 import { readableRel } from "../../../vault/acl-read-filter";
+import { callerMayReadNote, casConflict } from "../../../vault/cas";
 import { requireConfirmation } from "../../../vault/hitl";
 import { buildVaultIndex, resolveTarget } from "../../../vault/links";
 import {
@@ -175,11 +176,11 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
       const planMove = (record: boolean): MovePlan => {
         const { raw, hash } = readNote(fromAbs);
         if (input.prev_hash !== undefined && input.prev_hash !== hash)
-          throw err.concurrentModification("note changed since prev_hash", {
-            path: fromRel,
-            expected: input.prev_hash,
-            actual: hash,
-          });
+          throw casConflict(
+            "note changed since prev_hash",
+            { path: fromRel, expected: input.prev_hash },
+            { hash: hash, mayRead: callerMayReadNote(ctx, v.root, fromRel) },
+          );
         const metrics = record ? deps.metrics : undefined;
         // The relocated CONTENT can carry a pre-existing secret that predates memoryDefense (the
         // note may have been written before the vault opted in), so scan the bytes about to land at

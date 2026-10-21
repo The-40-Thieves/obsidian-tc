@@ -16,6 +16,7 @@ import { frontmatterFallbackSink } from "../../util/errors";
 import { DEFAULT_SCAN_LIMIT, nextOffsetCursor, offsetOf } from "../../util/paginate";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableEntry, readableRel } from "../../vault/acl-read-filter";
+import { callerMayReadNote, casConflict } from "../../vault/cas";
 import { type Frontmatter, parseNote, serializeNote } from "../../vault/frontmatter";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -238,11 +239,11 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
           throw err.noteNotFound("note not found", { path: rel });
         const { raw, hash } = readNote(abs);
         if (input.prev_hash !== undefined && input.prev_hash !== hash)
-          throw err.concurrentModification("note changed since prev_hash", {
-            path: rel,
-            expected: input.prev_hash,
-            actual: hash,
-          });
+          throw casConflict(
+            "note changed since prev_hash",
+            { path: rel, expected: input.prev_hash },
+            { hash: hash, mayRead: callerMayReadNote(ctx, v.root, rel) },
+          );
 
         const parsed = parseNote(raw, rel);
         let fm: Frontmatter | null = parsed.frontmatter;
@@ -318,11 +319,11 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
           throw err.noteNotFound("note not found", { path: rel });
         const { raw, hash } = readNote(abs);
         if (input.prev_hash !== undefined && input.prev_hash !== hash)
-          throw err.concurrentModification("note changed since prev_hash", {
-            path: rel,
-            expected: input.prev_hash,
-            actual: hash,
-          });
+          throw casConflict(
+            "note changed since prev_hash",
+            { path: rel, expected: input.prev_hash },
+            { hash: hash, mayRead: callerMayReadNote(ctx, v.root, rel) },
+          );
 
         const parsed = parseNote(raw, rel);
         let fm: Frontmatter = { ...(parsed.frontmatter ?? {}) };

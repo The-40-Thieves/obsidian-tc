@@ -216,7 +216,7 @@ export type ThrottleConfig = z.infer<typeof ThrottleConfigSchema>;
 // THE-252: write-safety policy. requireCas gates compare-and-swap on the destructive write paths.
 export const WritesConfigSchema = z
   .object({
-    // When true, write_note (overwrite) and append_note to an existing note REQUIRE a prev_hash
+    // When true, write_note (overwrite), append_note and patch_note to an existing note REQUIRE a prev_hash
     // (compare-and-swap) and fail closed with invalid_input when it is absent, so a stale or absent
     // hash cannot silently clobber. Default off; the non-configurable hard default is deferred to a major.
     requireCas: z

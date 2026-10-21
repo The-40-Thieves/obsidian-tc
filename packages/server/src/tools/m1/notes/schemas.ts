@@ -199,7 +199,8 @@ export const AppendNoteOutput = z.object({
   vault: z.string(),
   path: z.string(),
   created: z.boolean().optional(),
-  content_hash: z.string(),
+  // Null for a caller that may not read the note: the whole-note hash covers bytes it cannot see.
+  content_hash: z.string().nullable(),
   prev_hash: z.string().nullable().optional(),
   bytes_written: z.number().optional(),
   quality_warning: QualityWarningOut.optional(),
@@ -224,7 +225,8 @@ export const PatchNoteOutput = z.object({
   // Present only when anchor.type === "heading" (legacy target_heading echo) — omitted, not
   // null, for the block/frontmatter arms.
   target_heading: z.string().optional(),
-  content_hash: z.string(),
+  // Null for a caller that may not read the note (see AppendNoteOutput).
+  content_hash: z.string().nullable(),
   // Not nullable: reached only after readNote() on a note whose existence was already confirmed.
   prev_hash: z.string().optional(),
   // THE-603: the blast radius of this write. 0 for append/prepend, which only insert; a
@@ -243,8 +245,8 @@ export const DeleteNoteOutput = z.object({
   deleted: z.literal(true),
   permanent: z.boolean(),
   trashed_to: z.string().nullable(),
-  // Not nullable: same reasoning as patch_note's prev_hash.
-  prev_hash: z.string(),
+  // Null for a caller that may not read the note (vault/cas.ts): the hash would be an oracle.
+  prev_hash: z.string().nullable(),
 });
 
 export const MoveNoteOutput = z.object({
@@ -388,6 +390,8 @@ export const PatchInputShape = {
       "Required for replace_text, refused for append, prepend and replace: the text that takes old_string's place (may be empty to delete).",
     ),
   prev_hash: z.string().optional(),
+  // Same idempotency-key surface as append_note: a retry with the same key must not re-apply the edit.
+  options: WriteOptions.prefault({}),
   // THE-603: required (set true) only when operation:"replace" on a heading anchor would discard
   // more than 20 lines AND over half of the note's body — e.g. replacing a note's only H1, which
   // has no same-or-higher-level heading to bound it and so consumes the entire document below

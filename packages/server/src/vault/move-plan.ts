@@ -19,6 +19,7 @@ import { enforceMemoryDefenseOnNoteWrite } from "../experiential/memory-defense"
 import { redactSecrets } from "../experiential/redact";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { ImmutableRewriteSkips } from "./acl-path";
+import { casConflict } from "./cas";
 import { readNote } from "./notes-io";
 import { contentHash } from "./paths";
 import { type LinkRewrite, rewriteLinks } from "./rewrite";
@@ -258,7 +259,7 @@ export function commitPlanned<P>(args: {
       }
       if (!(e instanceof StalePlan) && !isCasMiss(e)) throw e;
       if (attempt >= 1)
-        throw err.concurrentModification(
+        throw casConflict(
           "the vault changed while this move was being committed, twice; nothing was moved. Retry",
           { reason: "plan_stale" },
         );

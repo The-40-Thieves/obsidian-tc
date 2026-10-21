@@ -7,6 +7,7 @@ import { z } from "zod";
 import { MEMORY_DEFENSE_OFF } from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { callerMayReadNote, casConflict } from "../../vault/cas";
 import { requireConfirmation } from "../../vault/hitl";
 import { noteExists, readNote, writeNoteAtomicGuarded } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
@@ -199,11 +200,11 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
           prevHash = cur.hash;
           prevRaw = cur.raw;
           if (input.prev_hash !== undefined && input.prev_hash !== cur.hash)
-            throw err.concurrentModification("note changed since prev_hash", {
-              path: rel,
-              expected: input.prev_hash,
-              actual: cur.hash,
-            });
+            throw casConflict(
+              "note changed since prev_hash",
+              { path: rel, expected: input.prev_hash },
+              { hash: cur.hash, mayRead: callerMayReadNote(ctx, v.root, rel) },
+            );
         }
         // Validate first (bad snapshot/path -> invalid_input) THEN gate the destructive overwrite.
         requireConfirmation(ctx, "restore_note", input, true, {

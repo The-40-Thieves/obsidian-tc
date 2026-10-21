@@ -16,6 +16,7 @@ import { frontmatterFallbackSink } from "../../util/errors";
 import { DEFAULT_SCAN_LIMIT, nextOffsetCursor, offsetOf } from "../../util/paginate";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableEntry, readableRel } from "../../vault/acl-read-filter";
+import { callerMayReadNote, casConflict } from "../../vault/cas";
 import type { Frontmatter } from "../../vault/frontmatter";
 import {
   checkFrontmatterYaml,
@@ -329,11 +330,11 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           prevHash = cur.hash;
           prevRaw = cur.raw;
           if (input.prev_hash !== undefined && input.prev_hash !== cur.hash)
-            throw err.concurrentModification("note changed since prev_hash", {
-              path: rel,
-              expected: input.prev_hash,
-              actual: cur.hash,
-            });
+            throw casConflict(
+              "note changed since prev_hash",
+              { path: rel, expected: input.prev_hash },
+              { hash: cur.hash, mayRead: callerMayReadNote(ctx, v.root, rel) },
+            );
           const { yamlError, ...parsed } = parseNoteLenient(cur.raw, rel);
           if (yamlError) {
             if (input.operation !== "replace") throw yamlError;

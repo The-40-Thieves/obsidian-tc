@@ -9,6 +9,7 @@ import { z } from "zod";
 import { MEMORY_DEFENSE_OFF } from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { callerMayReadNote, casConflict } from "../../vault/cas";
 import { noteExists, readNote, writeNoteAtomicGuarded } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
@@ -145,11 +146,11 @@ function withTable(
   if (!ex.exists || ex.type === "folder") throw err.noteNotFound("note not found", { path: rel });
   const { raw, hash } = readNote(abs);
   if (prevHash !== undefined && prevHash !== hash)
-    throw err.concurrentModification("note changed since prev_hash", {
-      path: rel,
-      expected: prevHash,
-      actual: hash,
-    });
+    throw casConflict(
+      "note changed since prev_hash",
+      { path: rel, expected: prevHash },
+      { hash: hash, mayRead: callerMayReadNote(ctx, v.root, rel) },
+    );
   const { lines, tables } = parseTables(raw);
   const t = tables[index];
   if (!t) throw err.invalidInput("no GFM table at that index", { path: rel, table_index: index });

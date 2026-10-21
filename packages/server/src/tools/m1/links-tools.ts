@@ -19,6 +19,7 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { DEFAULT_SCAN_LIMIT, nextOffsetCursor, offsetOf } from "../../util/paginate";
 import { drainYielding } from "../../util/scan-steps";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { callerMayReadNote, casConflict } from "../../vault/cas";
 import { requireConfirmation } from "../../vault/hitl";
 import { buildVaultIndex, normalizeLinkTarget, resolveTarget } from "../../vault/links";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
@@ -581,11 +582,11 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
 
         const { raw, hash } = readNote(abs);
         if (input.prev_hash !== undefined && input.prev_hash !== hash)
-          throw err.concurrentModification("note changed since prev_hash", {
-            path: rel,
-            expected: input.prev_hash,
-            actual: hash,
-          });
+          throw casConflict(
+            "note changed since prev_hash",
+            { path: rel, expected: input.prev_hash },
+            { hash: hash, mayRead: callerMayReadNote(ctx, v.root, rel) },
+          );
 
         const index = buildVaultIndex(readableNotes(v.root, ctx.acl, ctx.grantedScopes));
         const { text, removed } = pruneHubLinks(raw, index, {
