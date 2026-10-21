@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "obsidian-tc-docs-ingest"
 version = "0.1.0"
 description = "Vendor/external-docs ingestion for obsidian-tc: a Docling/crawl4ai parse-router + LangExtract, writing md+frontmatter into a corpus vault (THE-444)"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.13",
 ]
