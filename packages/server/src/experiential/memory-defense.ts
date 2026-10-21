@@ -1,7 +1,11 @@
 // GH #994 — Memory Defense: the ONE enforcement point every memory-writing tool calls before
 // persistence (see SECURITY.md's "Memory defense"). Uses the shared redactSecrets/scanPii
 // (./redact) that the episode log, trace capture, and import-ambient already share.
-import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  err,
+  ObsidianTcError,
+  type VaultMemoryDefenseConfig,
+} from "@the-40-thieves/obsidian-tc-shared";
 import type { MetricsRecorder } from "../metrics/registry";
 import { redactSecrets, scanPii } from "./redact";
 
@@ -361,6 +365,22 @@ export function enforceMemoryDefenseOnNoteWrite(
   refusePathIfSecretShaped(config, "path", path, opts);
   const scan = enforceMemoryDefense(config, { content }, opts);
   return { content: scan.fields.content as string, redactions: scan.redactions };
+}
+
+export function enforceMemoryDefenseOnMovedBytes(
+  config: VaultMemoryDefenseConfig | undefined,
+  path: string,
+  content: string,
+  opts: { metrics?: MetricsRecorder; mayRead: boolean },
+): { content: string; redactions: number } {
+  if (opts.mayRead) return enforceMemoryDefenseOnNoteWrite(config, path, content, opts);
+  try {
+    return enforceMemoryDefenseOnNoteWrite(config, path, content, opts);
+  } catch (e) {
+    if (e instanceof ObsidianTcError && e.code === "secret_detected")
+      throw err.secretDetected("secret-shaped content refused");
+    throw e;
+  }
 }
 
 /**

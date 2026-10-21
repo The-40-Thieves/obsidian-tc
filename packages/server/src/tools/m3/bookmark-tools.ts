@@ -11,6 +11,7 @@ import { z } from "zod";
 import { readJsonFile, writeJsonFile } from "../../formats/json-config";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { checkCas, requireContentRead } from "../../vault/cas";
 import { resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import type { M3Deps } from "./shared";
@@ -193,12 +194,20 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         enforcePathAcl(ctx.acl, "write", BOOKMARKS_PATH, v.root, ctx.grantedScopes);
+        // The duplicate flag, count and hash all describe the file's content: read-gate it first.
+        requireContentRead(ctx, v.root, BOOKMARKS_PATH, "read:bookmarks");
         const abs = resolveVaultPath(v.root, BOOKMARKS_PATH);
         const file = readJsonFile<BookmarksDoc>(abs, { items: [] });
-        if (input.prev_hash !== undefined && input.prev_hash !== file.hash)
-          throw err.concurrentModification("bookmarks.json changed since prev_hash", {
-            path: BOOKMARKS_PATH,
-          });
+        checkCas({
+          ctx,
+          root: v.root,
+          rel: BOOKMARKS_PATH,
+          readScope: "read:bookmarks",
+          prevHash: input.prev_hash,
+          currentHash: file.hash,
+          message: "bookmarks.json changed since prev_hash",
+          echoCurrent: false,
+        });
         const data = file.data;
         if (!Array.isArray(data.items)) data.items = [];
         const items = data.items;
@@ -256,12 +265,19 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         enforcePathAcl(ctx.acl, "delete", BOOKMARKS_PATH, v.root, ctx.grantedScopes);
+        requireContentRead(ctx, v.root, BOOKMARKS_PATH, "read:bookmarks");
         const abs = resolveVaultPath(v.root, BOOKMARKS_PATH);
         const file = readJsonFile<BookmarksDoc>(abs, { items: [] });
-        if (input.prev_hash !== undefined && input.prev_hash !== file.hash)
-          throw err.concurrentModification("bookmarks.json changed since prev_hash", {
-            path: BOOKMARKS_PATH,
-          });
+        checkCas({
+          ctx,
+          root: v.root,
+          rel: BOOKMARKS_PATH,
+          readScope: "read:bookmarks",
+          prevHash: input.prev_hash,
+          currentHash: file.hash,
+          message: "bookmarks.json changed since prev_hash",
+          echoCurrent: false,
+        });
         const data = file.data;
         const items = Array.isArray(data.items) ? data.items : [];
 

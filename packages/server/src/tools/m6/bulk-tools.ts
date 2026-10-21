@@ -27,7 +27,7 @@ import {
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import {
-  enforceMemoryDefenseOnNoteWrite,
+  enforceMemoryDefenseOnMovedBytes,
   MEMORY_DEFENSE_OFF,
   redactedEcho,
   refusePathIfSecretShaped,
@@ -38,6 +38,7 @@ import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl, ImmutableRewriteSkips } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import { runBulk } from "../../vault/bulk";
+import { callerMayReadNote, requireContentRead } from "../../vault/cas";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
 import {
   commitPlanned,
@@ -321,6 +322,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             const rel = normalizeVaultPath(path);
             const abs = resolveVaultPath(v.root, rel);
             enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
+            requireContentRead(ctx, v.root, rel);
             const ex = noteExists(abs);
             if (!ex.exists || ex.type === "folder")
               throw err.noteNotFound("note not found", { path: rel });
@@ -486,6 +488,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             defense,
             metrics,
             visible,
+            mayRead: (rel) => callerMayReadNote(ctx, v.root, rel),
             skips,
           });
 
@@ -517,7 +520,10 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           if (!r.ok || !r.fromRel || !r.toRel) continue;
           try {
             const { raw } = readNote(resolveVaultPath(v.root, r.fromRel));
-            enforceMemoryDefenseOnNoteWrite(mdConfig, r.toRel, raw, { metrics: deps.metrics });
+            enforceMemoryDefenseOnMovedBytes(mdConfig, r.toRel, raw, {
+              metrics: deps.metrics,
+              mayRead: callerMayReadNote(ctx, v.root, r.fromRel),
+            });
           } catch (e) {
             r.ok = false;
             r.error = (

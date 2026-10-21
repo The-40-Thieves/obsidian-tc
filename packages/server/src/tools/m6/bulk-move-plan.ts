@@ -2,7 +2,7 @@
 // moves. Split out of bulk-tools.ts so that file stays under the line ceiling; see planMoves.
 import { existsSync } from "node:fs";
 import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
-import { enforceMemoryDefenseOnNoteWrite } from "../../experiential/memory-defense";
+import { enforceMemoryDefenseOnMovedBytes } from "../../experiential/memory-defense";
 import type { MetricsRecorder } from "../../metrics/registry";
 import type { ImmutableRewriteSkips } from "../../vault/acl-path";
 import { buildVaultIndex, resolveTarget, type VaultIndex } from "../../vault/links";
@@ -71,9 +71,11 @@ export function planMoves(args: {
   defense: VaultMemoryDefenseConfig;
   metrics: MetricsRecorder | undefined;
   visible: (relPath: string) => boolean;
+  /** The caller's read decision (read scope AND path ACL) for a note whose backlink is rewritten. */
+  mayRead: (relPath: string) => boolean;
   skips: ImmutableRewriteSkips;
 }): MovesPlan {
-  const { root, moveMap, prePaths, replacing, defense, metrics, visible, skips } = args;
+  const { root, moveMap, prePaths, replacing, defense, metrics, visible, mayRead, skips } = args;
   const oldIndex = buildVaultIndex(prePaths);
   const postPaths = [
     ...new Set(prePaths.filter((p) => !replacing.has(p)).map((p) => moveMap.get(p) ?? p)),
@@ -127,11 +129,9 @@ export function planMoves(args: {
     if (toRel !== undefined) {
       // The relocated note's own bytes were scanned for its row before the plan (metrics counted
       // once there); this scan is of the final text, which only differs by its repointed links.
-      const content = enforceMemoryDefenseOnNoteWrite(
-        defense,
-        toRel,
-        rewritten?.text ?? raw,
-      ).content;
+      const content = enforceMemoryDefenseOnMovedBytes(defense, toRel, rewritten?.text ?? raw, {
+        mayRead: mayRead(p),
+      }).content;
       moved.push({
         fromRel: p,
         toRel,
@@ -141,7 +141,8 @@ export function planMoves(args: {
         raw,
         content,
       });
-    } else if (rewritten) rewrites.push(plannedRewrite(abs, p, raw, rewritten, defense, metrics));
+    } else if (rewritten)
+      rewrites.push(plannedRewrite(abs, p, raw, rewritten, defense, metrics, mayRead(p)));
   }
   scan.refuseIfFailed();
   return { perMove, total, hidden, unreadable: scan.unreadableSkipped, moved, rewrites };

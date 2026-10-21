@@ -10,16 +10,17 @@
 // patchByPreamble and their shared PatchResult/removedSpan/escapeRegExp) used to be
 // private to this file — nothing else in the notes domain called them. read_note's section read
 // needs the same resolution, so they moved to ./anchors.ts; read.ts imports from there too.
-import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import {
   enforceMemoryDefenseOnNoteWrite,
   MEMORY_DEFENSE_OFF,
 } from "../../../experiential/memory-defense";
 import { noteQualityWarningFor } from "../../../experiential/note-quality";
 import { assessPoison } from "../../../experiential/poison";
-import type { CallerContext, ToolDefinition } from "../../../mcp/registry";
+import type { ToolDefinition } from "../../../mcp/registry";
 import { frontmatterFallbackSink } from "../../../util/errors";
-import { callerCanReadVaultPath, enforcePathAcl } from "../../../vault/acl-path";
+import { enforcePathAcl } from "../../../vault/acl-path";
+import { callerMayReadNote, checkCas, readGatedAck, requireContentRead } from "../../../vault/cas";
 import { parseNote, serializeNote } from "../../../vault/frontmatter";
 import { requireConfirmation } from "../../../vault/hitl";
 import { noteExists, readNote, writeNoteAtomic } from "../../../vault/notes-io";
@@ -57,18 +58,6 @@ import {
   WriteNoteOutput,
 } from "./schemas";
 
-/** One authorization decision for every diagnostic derived from an existing note's bytes. */
-function callerMayReadNote(
-  ctx: Pick<CallerContext, "acl" | "grantedScopes">,
-  root: string,
-  rel: string,
-): boolean {
-  return (
-    grantsAll(ctx.grantedScopes, ["read:notes"]) &&
-    callerCanReadVaultPath(ctx.acl, ctx.grantedScopes, root, rel)
-  );
-}
-
 /** Anchor helpers stay context-free and detailed for read_note. This is patch_note's single
  *  boundary: a caller who cannot read the target gets the same refusal for every resolution
  *  failure, including any new detailed failure an anchor helper may add later. */
@@ -80,6 +69,10 @@ function resolveWriteAnchor<T>(resolve: () => T, canReadNote: boolean, path: str
     throw err.invalidInput("anchor could not be resolved", { path });
   }
 }
+
+/** writes.requireCas refusal for an append-shaped write to an existing note (append_note, patch_note). */
+const CAS_REQUIRED_APPEND =
+  "prev_hash is required to change an existing note when writes.requireCas is enabled; read the note first";
 
 // ── tools ────────────────────────────────────────────────────────────────────
 
@@ -139,19 +132,25 @@ export function createWriteNoteTool(deps: M1Deps): ToolDefinition {
         const cur = readNote(abs);
         prevHash = cur.hash;
         prevEmpty = cur.raw.length === 0;
-        if (input.prev_hash !== undefined && input.prev_hash !== cur.hash)
-          throw err.concurrentModification("note changed since prev_hash", {
-            path: rel,
-            expected: input.prev_hash,
-            actual: cur.hash,
-          });
+        checkCas({
+          ctx,
+          root: v.root,
+          rel: rel,
+          prevHash: input.prev_hash,
+          currentHash: cur.hash,
+          message: "note changed since prev_hash",
+        });
       }
 
-      const needsConfirm = ex.exists && !prevEmpty;
+      const mayRead = callerMayReadNote(ctx, v.root, rel);
+      // A caller who may not read the note cannot tell an empty note from a full one, so it always
+      // confirms an overwrite of an existing note.
+      const needsConfirm = ex.exists && (!prevEmpty || !mayRead);
       requireConfirmation(ctx, "write_note", input, needsConfirm, {
         path: rel,
         mode: input.mode,
-        prev_hash: prevHash,
+        // A hash of the note is a guessing oracle for a caller that may write but not read it.
+        ...(mayRead ? { prev_hash: prevHash } : {}),
       });
 
       // GH #994 follow-up: scan the note's FINAL body before it reaches disk — the same guard
@@ -187,24 +186,27 @@ export function createWriteNoteTool(deps: M1Deps): ToolDefinition {
         },
       );
       return shapeWriteAck(
-        {
-          vault: v.id,
-          path: rel,
-          created: !ex.exists,
-          mode_used: ex.exists ? ("overwrite" as const) : ("create" as const),
-          content_hash: contentHash(scan.content),
-          prev_hash: prevHash,
-          bytes_written: Buffer.byteLength(scan.content, "utf8"),
-          // THE-643 item 1: never recomputed here — a point read of whatever the offline/scheduled
-          // note-quality pass last wrote. null (not deps.edb) means "rollup never ran for this note".
-          quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
-          // THE-639: null when provenance !== "agent_synthesis" (assessPoison never ran) — not a
-          // false all-clear, same convention as quality_warning above.
-          poison_assessment: poisonAssessment,
-          // GH #994 follow-up: present only when memoryDefense.mode is "redact" and something in
-          // this write matched — same convention as commit_capture's own `redactions` field.
-          ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
-        },
+        readGatedAck(
+          {
+            vault: v.id,
+            path: rel,
+            created: !ex.exists,
+            mode_used: ex.exists ? ("overwrite" as const) : ("create" as const),
+            content_hash: contentHash(scan.content),
+            prev_hash: prevHash,
+            bytes_written: Buffer.byteLength(scan.content, "utf8"),
+            // THE-643 item 1: never recomputed here — a point read of whatever the offline/scheduled
+            // note-quality pass last wrote. null (not deps.edb) means "rollup never ran for this note".
+            quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
+            // THE-639: null when provenance !== "agent_synthesis" (assessPoison never ran) — not a
+            // false all-clear, same convention as quality_warning above.
+            poison_assessment: poisonAssessment,
+            // GH #994 follow-up: present only when memoryDefense.mode is "redact" and something in
+            // this write matched — same convention as commit_capture's own `redactions` field.
+            ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
+          },
+          mayRead,
+        ),
         resolveResponseFormat(input, deps.responseFormat),
       );
     },
@@ -232,6 +234,7 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
       if (ex.exists && ex.type === "folder")
         throw err.invalidInput("path is a folder", { path: rel });
 
+      const mayRead = callerMayReadNote(ctx, v.root, rel);
       // THE-639: see write_note's identical comment above. Scans only the content being
       // appended (input.content), not the resulting whole-file body.
       const poisonAssessment =
@@ -245,24 +248,25 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
       let prevHash: string | null = null;
       let prevRaw: string | null = null;
       let next: string;
+      let head = "";
       if (ex.exists) {
         if (deps.requireCas && input.prev_hash === undefined)
-          throw err.invalidInput(
-            "prev_hash is required to append to an existing note when writes.requireCas is enabled; read the note first",
-            { path: rel },
-          );
+          throw err.invalidInput(CAS_REQUIRED_APPEND, { path: rel });
         const cur = readNote(abs);
         prevHash = cur.hash;
         prevRaw = cur.raw;
-        if (input.prev_hash !== undefined && input.prev_hash !== cur.hash)
-          throw err.concurrentModification("note changed since prev_hash", {
-            path: rel,
-            expected: input.prev_hash,
-            actual: cur.hash,
-          });
+        checkCas({
+          ctx,
+          root: v.root,
+          rel: rel,
+          prevHash: input.prev_hash,
+          currentHash: cur.hash,
+          message: "note changed since prev_hash",
+        });
         const sep =
           input.ensure_newline && cur.raw.length > 0 && !cur.raw.endsWith("\n") ? "\n" : "";
-        next = cur.raw + sep + input.content;
+        head = cur.raw + sep;
+        next = head + input.content;
       } else {
         if (!input.create_if_missing)
           throw err.noteNotFound("note not found; set create_if_missing to create it", {
@@ -273,10 +277,14 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
 
       // GH #994 follow-up: scan the RESULTING note body (existing bytes + appended content), not
       // just `input.content` — a secret split across the join is still caught. Runs before every
-      // durable effect below (nothing has committed yet), so `block` mode refuses cleanly.
+      // durable effect below (nothing has committed yet), so `block` mode refuses cleanly. A caller who
+      // may not read the note is scanned on its own bytes only: a refusal over the existing bytes would
+      // tell it what they hold, so those bytes are kept as they are.
       const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
-      const scan = enforceMemoryDefenseOnNoteWrite(mdConfig, rel, next, { metrics: deps.metrics });
-      next = scan.content;
+      const scan = enforceMemoryDefenseOnNoteWrite(mdConfig, rel, mayRead ? next : input.content, {
+        metrics: deps.metrics,
+      });
+      next = mayRead ? scan.content : head + scan.content;
 
       // THE-572: append is the one write in this file that is NOT idempotent — re-running it
       // concatenates the content a second time — and it is keyed through the nested
@@ -290,20 +298,23 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
       writeNoteAtomic(abs, next, input.options.create_dirs);
       deps.reindex?.(v.id, rel, next);
       return shapeWriteAck(
-        {
-          vault: v.id,
-          path: rel,
-          created: !ex.exists,
-          content_hash: contentHash(next),
-          prev_hash: prevHash,
-          bytes_written: Buffer.byteLength(next, "utf8"),
-          // THE-643 item 1: see write_note's identical comment above.
-          quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
-          // THE-639: see write_note's identical comment above.
-          poison_assessment: poisonAssessment,
-          // GH #994 follow-up: see write_note's identical comment above.
-          ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
-        },
+        readGatedAck(
+          {
+            vault: v.id,
+            path: rel,
+            created: !ex.exists,
+            content_hash: mayRead ? contentHash(next) : null,
+            prev_hash: prevHash,
+            bytes_written: Buffer.byteLength(next, "utf8"),
+            // THE-643 item 1: see write_note's identical comment above.
+            quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
+            // THE-639: see write_note's identical comment above.
+            poison_assessment: poisonAssessment,
+            // GH #994 follow-up: see write_note's identical comment above.
+            ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
+          },
+          mayRead,
+        ),
         resolveResponseFormat(input, deps.responseFormat),
       );
     },
@@ -315,6 +326,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
     name: "patch_note",
     domain: "notes",
     vaultArg: "vault",
+    acceptsIdempotencyKey: true,
     pathAcl: (input) => [{ op: "write", path: input.path }],
     description:
       'Edit part of an existing note in place. Name an anchor: a heading section (anchor:{type:"heading",heading:"Notes"}), a block reference (anchor:{type:"block",block_id}), or the preamble above the first heading (anchor:{type:"frontmatter"}); then an operation: append/prepend/replace content, or replace_text (old_string/new_string). Required fields per operation (anchor or target_heading on append, prepend and replace only): append, prepend, replace: content; replace_text: old_string + new_string. Refused: old_string/new_string on append, prepend, replace; content on replace_text. Frontmatter is preserved. Examples: add a line to the end of a section = operation append + heading anchor + content. insert_before is append-only: it inserts content above a unique matching line within the resolved section, useful for keeping signatures, Parent links and footnote blocks at the end. Move, reorder or duplicate sections = ONE replace_text anchored on an enclosing heading (the note\'s top-level H1 spans every section below it): old_string is those sections as they are now, new_string the same text rearranged; the anchor heading line itself is never touched. To add at the very end of a note use append_note, which needs no anchor. A heading that appears more than once needs anchor.occurrence (1-based, document order) or a path (heading:"Parent > Child"); without either the call is refused with every matching line number, never silently bound to the first match (same for a block id on more than one line). On a heading anchor, replace preserves the anchor heading line itself; if content\'s first non-blank line repeats it (same level and text), that line is dropped so the two calling conventions do not double the heading. replace_text takes old_string/new_string instead of content and substitutes an exact match scoped to the resolved anchor\'s section; with neither anchor nor target_heading it is note-wide (the whole note body, frontmatter excluded, heading lines included), so a heading typo can be fixed in one call. 0 or 2+ matches is refused (with the count for 2+); confirm_replace is ignored for it. A replace on a heading anchor that would discard more than 20 lines AND over half of the note\'s body (e.g. the note\'s only H1, which no lower-or-equal heading bounds) is refused unless confirm_replace is set. Snapshots (restore_note\'s undo) are captured only when the server\'s snapshots.enabled config is on; the default "trusted-local" posture leaves it on, so such a write is rollback-able via restore_note unless snapshots have been explicitly disabled. response_format=concise acknowledges with {vault, path, content_hash} only (plus quality_warning, redactions, and lines_removed/bytes_removed when non-zero).',
@@ -326,17 +338,24 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
       const rel = normalizeVaultPath(input.path);
       const abs = resolveVaultPath(v.root, rel);
       enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
+      // Every patch depends on the note's bytes (an anchor, a match, a replace), so a caller who may not
+      // read the note is refused before anything is looked up. A write-only caller gets no patch at all.
+      requireContentRead(ctx, v.root, rel);
       const ex = noteExists(abs);
       if (!ex.exists || ex.type === "folder")
         throw err.noteNotFound("note not found", { path: rel });
 
       const { raw, hash } = readNote(abs);
-      if (input.prev_hash !== undefined && input.prev_hash !== hash)
-        throw err.concurrentModification("note changed since prev_hash", {
-          path: rel,
-          expected: input.prev_hash,
-          actual: hash,
-        });
+      if (deps.requireCas && input.prev_hash === undefined)
+        throw err.invalidInput(CAS_REQUIRED_APPEND, { path: rel });
+      checkCas({
+        ctx,
+        root: v.root,
+        rel: rel,
+        prevHash: input.prev_hash,
+        currentHash: hash,
+        message: "note changed since prev_hash",
+      });
       const eol = raw.includes("\r\n") ? "\r\n" : "\n";
       const parsed = parseNote(raw, rel);
       const canReadNote = callerMayReadNote(ctx, v.root, rel);
@@ -594,24 +613,30 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
         !deps.snapshots?.enabled
       )
         deps.onSnapshotSkipped?.(v.id, rel, "patch_note");
+      // Marked write-ahead of the first durable effect, as append_note does: a retry with the same
+      // options.idempotency_key must not re-apply this edit on top of one already on disk.
+      ctx.markEffectCommitted?.();
       captureSnapshot(ctx.db, deps.snapshots, v.id, rel, raw, "patch_note", ctx.now);
       writeNoteAtomic(abs, next, false);
       deps.reindex?.(v.id, rel, next);
       return shapeWriteAck(
-        {
-          vault: v.id,
-          path: rel,
-          operation: input.operation,
-          ...(anchor === undefined ? {} : { anchor }),
-          ...(anchor?.type === "heading" ? { target_heading: anchor.heading } : {}),
-          content_hash: contentHash(next),
-          ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
-          prev_hash: hash,
-          lines_removed: patched.removedLines,
-          bytes_removed: patched.removedBytes,
-          // THE-643 item 1: see write_note's identical comment above.
-          quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
-        },
+        readGatedAck(
+          {
+            vault: v.id,
+            path: rel,
+            operation: input.operation,
+            ...(anchor === undefined ? {} : { anchor }),
+            ...(anchor?.type === "heading" ? { target_heading: anchor.heading } : {}),
+            content_hash: canReadNote ? contentHash(next) : null,
+            ...(scan.redactions > 0 ? { redactions: scan.redactions } : {}),
+            prev_hash: hash,
+            lines_removed: patched.removedLines,
+            bytes_removed: patched.removedBytes,
+            // THE-643 item 1: see write_note's identical comment above.
+            quality_warning: deps.edb ? noteQualityWarningFor(deps.edb, v.id, rel) : null,
+          },
+          canReadNote,
+        ),
         resolveResponseFormat(input, deps.responseFormat),
       );
     },

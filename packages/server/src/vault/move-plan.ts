@@ -15,10 +15,11 @@ import {
   type VaultMemoryDefenseConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
-import { enforceMemoryDefenseOnNoteWrite } from "../experiential/memory-defense";
+import { enforceMemoryDefenseOnMovedBytes } from "../experiential/memory-defense";
 import { redactSecrets } from "../experiential/redact";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { ImmutableRewriteSkips } from "./acl-path";
+import { casConflict } from "./cas";
 import { readNote } from "./notes-io";
 import { contentHash } from "./paths";
 import { type LinkRewrite, rewriteLinks } from "./rewrite";
@@ -190,9 +191,13 @@ export function plannedRewrite(
   rewrite: Pick<LinkRewrite, "text" | "count">,
   defense: VaultMemoryDefenseConfig | undefined,
   metrics: MetricsRecorder | undefined,
+  mayRead: boolean,
 ): PlannedRewrite {
-  const scanned = enforceMemoryDefenseOnNoteWrite(defense, rel, rewrite.text, {
+  // `mayRead` is the caller's read decision for `rel`: a non-reader gets the generic refusal, not
+  // the pattern ids and fields of a secret already in the note.
+  const scanned = enforceMemoryDefenseOnMovedBytes(defense, rel, rewrite.text, {
     ...(metrics ? { metrics } : {}),
+    mayRead,
   });
   return { abs, rel, raw, text: scanned.content, count: rewrite.count };
 }
@@ -258,7 +263,7 @@ export function commitPlanned<P>(args: {
       }
       if (!(e instanceof StalePlan) && !isCasMiss(e)) throw e;
       if (attempt >= 1)
-        throw err.concurrentModification(
+        throw casConflict(
           "the vault changed while this move was being committed, twice; nothing was moved. Retry",
           { reason: "plan_stale" },
         );

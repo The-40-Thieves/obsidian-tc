@@ -171,6 +171,7 @@ export function planAttachmentReferences(
   skips: ImmutableRewriteSkips,
   defense: VaultMemoryDefenseConfig | undefined,
   metrics: MetricsRecorder | undefined,
+  readable: (rel: string) => boolean,
 ): AttachmentReferencePlan {
   const fromPathLower = fromRel.toLowerCase();
   const toBase = baseOf(toRel);
@@ -235,7 +236,9 @@ export function planAttachmentReferences(
       e.relPath,
     );
     if (rewrite && rewrite.count > 0)
-      pending.push(plannedRewrite(abs, e.relPath, raw, rewrite, defense, metrics));
+      pending.push(
+        plannedRewrite(abs, e.relPath, raw, rewrite, defense, metrics, readable(e.relPath)),
+      );
   }
   scan.refuseIfFailed();
   return { pending };

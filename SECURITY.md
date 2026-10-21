@@ -289,11 +289,40 @@ sharing is a per-key opt-in, reviewed at registration, not a fallback.
 
 Every note write exposes a **`prev_hash`** (compare-and-swap): pass the hash you last read, and the
 write is rejected with `concurrent_modification` if the note changed underneath you. This covers
-`write_note` (overwrite), `append_note`, and `update_frontmatter` — defense-in-depth for multi-writer
-setups (e.g. several agents writing one vault). It is optional by default; set **`writes.requireCas: true`**
-to make it **mandatory** on the destructive paths (`write_note` overwrite, `append_note` to an existing
-note), which then fail closed with `invalid_input` when `prev_hash` is absent. Making it the
-non-configurable hard default remains deferred to a future major (a breaking API change).
+`write_note` (overwrite), `append_note`, `patch_note` (and `patch_active_file`), and `update_frontmatter` —
+defense-in-depth for multi-writer setups (e.g. several agents writing one vault). It is optional by default;
+set **`writes.requireCas: true`** to make it **mandatory** on the destructive paths (`write_note` overwrite,
+`append_note` and `patch_note` to an existing note), which then fail closed with `invalid_input` when
+`prev_hash` is absent.
+
+The CAS detail is read-gated. A caller that may write a note but not read it gets only content-blind writes:
+create, overwrite (always confirmed, empty or not), `append_note`, `move_note` and `delete_note`. Every other
+write depends on the note's bytes, so it is refused whatever those bytes hold. A caller the read ACL refuses gets `acl_denied`, which depends only on the ACL and leaks nothing; a caller that passes the ACL but lacks the read scope gets one fixed `invalid_input`:
+any `prev_hash` the caller supplies (the refusal comes before the hashes are compared, so under
+`writes.requireCas` such a caller cannot append to or patch an existing note), every `patch_note` operation
+(a frontmatter-preamble append or prepend included), `add_tag`, `remove_tag`, `update_frontmatter`,
+`update_task`, `bulk_set_property` (per note), the table, Kanban, canvas and base tools, `restore_note`,
+`prune_hub_links`, `copy_note` (which also needs `read:notes` on its source), the bookmark and workspace
+writes, `append_to_periodic_note` with a `heading`, and `update_excalidraw`. `rewrite_link` needs `read:notes`,
+and it only scans and names notes the caller may read.
+
+The acks a write-only caller gets carry no `prev_hash` or `quality_warning`, and no whole-note `content_hash`
+(`move_note` and `append_note` return `null` for it). `write_note`'s `content_hash` is the hash of the bytes the
+caller sent, not of the note it replaced.
+
+Known residuals, accepted for now:
+
+- Size and count fields: `bytes_written`, `appended_bytes`, lines and bytes removed, row counts and redaction
+  counts.
+- `open_workspace` answers differently for a workspace name that exists and one that does not.
+- Batch-commit drift errors withhold `expected` and `actual` from every caller, readers included.
+- In `block` mode, `move_note` and `bulk_move` refuse a note that holds a secret-shaped string and move one that
+  does not, so a write-only caller learns that one bit. The refusal names no pattern and no field.
+- In `block` mode, an append by a write-only caller is judged on its own bytes only. A secret that the existing
+  bytes and the appended text form together across the join is not caught, and in `redact` mode the existing
+  bytes are not redacted.
+
+Making it the non-configurable hard default remains deferred to a future major (a breaking API change).
 
 When `execute_template` creates a note and provenance frontmatter stamping is enabled, the
 post-plugin stamp is also a compare-and-swap against the exact bytes read from the new note. If a

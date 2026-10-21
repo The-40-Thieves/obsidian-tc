@@ -14,7 +14,7 @@ import type { ResponseFormat } from "../../response-format";
 interface WriteAckFields {
   vault: string;
   path: string;
-  content_hash: string;
+  content_hash: string | null;
   quality_warning?: { flags: string[]; computed_at: number } | null;
   poison_assessment?: PoisonAssessment | null;
   redactions?: number;
@@ -22,14 +22,30 @@ interface WriteAckFields {
   bytes_removed?: number;
 }
 
+/** The concise ack. Named so the return type can keep T's own content_hash: an inferred return widens
+ *  it to WriteAckFields' `string | null`, which every tool's output schema then rejects. */
+interface ConciseWriteAck<T extends WriteAckFields> {
+  vault: string;
+  path: string;
+  content_hash: T["content_hash"];
+  quality_warning?: NonNullable<T["quality_warning"]>;
+  poison_assessment?: NonNullable<T["poison_assessment"]>;
+  redactions?: number;
+  lines_removed?: number;
+  bytes_removed?: number;
+}
+
 /** The ack for `format`: `full` unchanged for "detailed", the trimmed shape for "concise". */
-export function shapeWriteAck<T extends WriteAckFields>(full: T, format: ResponseFormat) {
+export function shapeWriteAck<T extends WriteAckFields>(
+  full: T,
+  format: ResponseFormat,
+): T | ConciseWriteAck<T> {
   if (format === "detailed") return full;
-  const { vault, path, content_hash, quality_warning, poison_assessment } = full;
+  const { vault, path, quality_warning, poison_assessment } = full;
   return {
     vault,
     path,
-    content_hash,
+    content_hash: full.content_hash,
     ...(quality_warning && quality_warning.flags.length > 0 ? { quality_warning } : {}),
     ...(poison_assessment &&
     (poison_assessment.risk !== "none" || poison_assessment.signals.length > 0)

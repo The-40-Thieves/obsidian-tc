@@ -348,7 +348,7 @@ The complete option surface (every field, default, env var, and CLI command) is 
 | `acl.readPaths` / `writePaths` / `deletePaths` | read `**`, write `02-projects/**` | Scope what the agent may touch. |
 | `acl.strictReadDefault` | false | Fail closed on unlisted reads. |
 | `acl.readOnly` | false | The kill switch. |
-| `writes.requireCas` | false | Force `prev_hash` on overwrite/append. |
+| `writes.requireCas` | false | Force `prev_hash` on overwrite, append and `patch_note`. |
 | `auth.mode` | `none` | `jwt` for anything non-loopback (required by the interlock). |
 | `toolFacade.mode` | `triad` | `flat` if your client prefers the full list; `auto` to pick per client (provisional). |
 | `transports.http.enabled` | false | Many-client / remote (then set auth). |

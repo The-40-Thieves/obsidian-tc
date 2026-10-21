@@ -24,7 +24,15 @@ function rewriteAttachmentReferences(
   toRel: string,
   skips: ImmutableRewriteSkips,
 ): { notes: number; refs: number } {
-  const { pending } = planAttachmentReferences(root, fromRel, toRel, skips, undefined, undefined);
+  const { pending } = planAttachmentReferences(
+    root,
+    fromRel,
+    toRel,
+    skips,
+    undefined,
+    undefined,
+    () => true,
+  );
   applyWriteBatch(
     pending.map((r) => ({
       abs: r.abs,

@@ -9,6 +9,7 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableEntry } from "../../vault/acl-read-filter";
+import { checkCas, requireContentRead } from "../../vault/cas";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -216,16 +217,19 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
         enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
+        requireContentRead(ctx, v.root, rel);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
         const { raw, hash } = readNote(abs);
-        if (input.prev_hash !== undefined && input.prev_hash !== hash)
-          throw err.concurrentModification("board changed since prev_hash", {
-            path: rel,
-            expected: input.prev_hash,
-            actual: hash,
-          });
+        checkCas({
+          ctx,
+          root: v.root,
+          rel: rel,
+          prevHash: input.prev_hash,
+          currentHash: hash,
+          message: "board changed since prev_hash",
+        });
         const parsed = parseNote(raw, rel);
         if (!isBoard(parsed.frontmatter))
           throw err.invalidInput("not a Kanban board (missing kanban-plugin: board)", {
@@ -281,16 +285,19 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
         enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
+        requireContentRead(ctx, v.root, rel);
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
         const { raw, hash } = readNote(abs);
-        if (input.prev_hash !== undefined && input.prev_hash !== hash)
-          throw err.concurrentModification("board changed since prev_hash", {
-            path: rel,
-            expected: input.prev_hash,
-            actual: hash,
-          });
+        checkCas({
+          ctx,
+          root: v.root,
+          rel: rel,
+          prevHash: input.prev_hash,
+          currentHash: hash,
+          message: "board changed since prev_hash",
+        });
         const parsed = parseNote(raw, rel);
         if (!isBoard(parsed.frontmatter))
           throw err.invalidInput("not a Kanban board (missing kanban-plugin: board)", {

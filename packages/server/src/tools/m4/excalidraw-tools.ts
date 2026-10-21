@@ -14,6 +14,7 @@ import {
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { requireContentRead } from "../../vault/cas";
 import { requireConfirmation } from "../../vault/hitl";
 import { noteExists, readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
@@ -310,6 +311,8 @@ export function buildExcalidrawTools(deps: M4Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
+        // The `unchanged` flag says whether the edit's element ids already exist: read data, so gate first.
+        requireContentRead(ctx, v.root, rel, "read:excalidraw");
         const { client } = openBridge(deps, v.id, "excalidraw");
         const result = await client.request<Record<string, unknown>>({
           method: "POST",

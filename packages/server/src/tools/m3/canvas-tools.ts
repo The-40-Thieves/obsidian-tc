@@ -29,6 +29,7 @@ import { detectJsonIndent } from "../../formats/json-config";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableEntry, readableResolved } from "../../vault/acl-read-filter";
+import { checkCas, requireContentRead } from "../../vault/cas";
 import { requireConfirmation } from "../../vault/hitl";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -308,16 +309,20 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
         requireCanvasExt(rel);
         const abs = resolveVaultPath(v.root, rel);
         enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
+        requireContentRead(ctx, v.root, rel, "read:canvas");
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("canvas not found", { path: rel });
         const { raw: text, hash } = readNote(abs);
-        if (input.prev_hash !== undefined && input.prev_hash !== hash)
-          throw err.concurrentModification("canvas changed since prev_hash", {
-            path: rel,
-            expected: input.prev_hash,
-            actual: hash,
-          });
+        checkCas({
+          ctx,
+          root: v.root,
+          rel: rel,
+          readScope: "read:canvas",
+          prevHash: input.prev_hash,
+          currentHash: hash,
+          message: "canvas changed since prev_hash",
+        });
         const removeNodeCount = input.remove_node_ids?.length ?? 0;
         requireConfirmation(ctx, "update_canvas", input, removeNodeCount > 10, {
           path: rel,

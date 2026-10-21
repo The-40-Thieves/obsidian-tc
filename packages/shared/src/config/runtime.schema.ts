@@ -216,14 +216,14 @@ export type ThrottleConfig = z.infer<typeof ThrottleConfigSchema>;
 // THE-252: write-safety policy. requireCas gates compare-and-swap on the destructive write paths.
 export const WritesConfigSchema = z
   .object({
-    // When true, write_note (overwrite) and append_note to an existing note REQUIRE a prev_hash
+    // When true, write_note (overwrite), append_note and patch_note to an existing note REQUIRE a prev_hash
     // (compare-and-swap) and fail closed with invalid_input when it is absent, so a stale or absent
     // hash cannot silently clobber. Default off; the non-configurable hard default is deferred to a major.
     requireCas: z
       .boolean()
       .default(false)
       .describe(
-        "Require a prev_hash (compare-and-swap) on overwriting writes and on appends to an existing note, failing closed with invalid_input when absent so a stale hash cannot silently clobber.",
+        "Require a prev_hash (compare-and-swap) on write_note overwrites of an existing note and on append_note and patch_note (including patch_active_file) to an existing note, failing closed with invalid_input when absent so a stale hash cannot silently clobber.",
       ),
     // write_attachment carries its bytes inline as base64 (4/3 of the decoded size) in one request,
     // so this is also the knob that keeps a call under an MCP client's or proxy's message limit.

@@ -51,7 +51,7 @@ These conditions are **hardcoded floors — a client cannot configure them away*
 
 ## Write safety (compare-and-swap)
 
-Every note write exposes a `prev_hash` (compare-and-swap): pass the hash you last read, and the write is rejected with `concurrent_modification` if the note changed underneath you. This covers `write_note` (overwrite), `append_note`, and `update_frontmatter` — defense-in-depth for multi-writer setups. Optional by default; set `writes.requireCas: true` to make it mandatory on the destructive paths, which then fail closed when `prev_hash` is absent.
+Every note write exposes a `prev_hash` (compare-and-swap): pass the hash you last read, and the write is rejected with `concurrent_modification` if the note changed underneath you. This covers `write_note` (overwrite), `append_note`, `patch_note`, and `update_frontmatter` — defense-in-depth for multi-writer setups. Optional by default; set `writes.requireCas: true` to make it mandatory on the destructive paths, which then fail closed when `prev_hash` is absent. A caller that may write a note but not read it gets only content-blind writes (create, overwrite, `append_note`, `move_note`, `delete_note`): a `prev_hash` it supplies, and any edit that depends on the note's content, is refused with one fixed `invalid_input`. See SECURITY.md.
 
 ## Idempotency
 

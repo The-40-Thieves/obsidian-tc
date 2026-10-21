@@ -234,13 +234,8 @@ describe("patch_note insert_before miss detail read authorization", () => {
         });
         expect(result.ok).toBe(false);
         if (result.ok) continue;
-        expect(result.error.message).toBe(
-          "insert_before must match exactly one line in the section",
-        );
-        expect(result.error.details).toEqual({
-          path: "a.md",
-          anchor: { type: "heading", heading: "Notes" },
-        });
+        expect(result.error.message).toBe("this operation needs read access to the target");
+        expect(result.error.details).toEqual({ path: "a.md" });
         const wire = JSON.stringify(result.error);
         for (const secret of [
           "count",
@@ -271,11 +266,8 @@ describe("patch_note insert_before miss detail read authorization", () => {
       });
       expect(result.ok).toBe(false);
       if (result.ok) return;
-      expect(result.error.message).toBe("insert_before must match exactly one line in the section");
-      expect(result.error.details).toEqual({
-        path: "a.md",
-        anchor: { type: "heading", heading: "Notes" },
-      });
+      expect(result.error.message).toBe("this operation needs read access to the target");
+      expect(result.error.details).toEqual({ path: "a.md" });
       expect(JSON.stringify(result.error)).not.toContain("start_line");
     } finally {
       v.cleanup();

@@ -33,6 +33,7 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { applyLogic, evaluatesTruthy } from "../../search/jsonlogic";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableEntry } from "../../vault/acl-read-filter";
+import { checkCas, requireContentRead } from "../../vault/cas";
 import { requireConfirmation } from "../../vault/hitl";
 import {
   buildVaultIndex,
@@ -296,16 +297,20 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         requireBaseExt(rel);
         const abs = resolveVaultPath(v.root, rel);
         enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
+        requireContentRead(ctx, v.root, rel, "read:bases");
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("base not found", { path: rel });
         const { raw: text, hash } = readNote(abs);
-        if (input.prev_hash !== undefined && input.prev_hash !== hash)
-          throw err.concurrentModification("base changed since prev_hash", {
-            path: rel,
-            expected: input.prev_hash,
-            actual: hash,
-          });
+        checkCas({
+          ctx,
+          root: v.root,
+          rel: rel,
+          readScope: "read:bases",
+          prevHash: input.prev_hash,
+          currentHash: hash,
+          message: "base changed since prev_hash",
+        });
         const patch = input.patch;
         requireConfirmation(
           ctx,

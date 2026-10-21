@@ -9,6 +9,7 @@ import { z } from "zod";
 import { MEMORY_DEFENSE_OFF } from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
+import { checkCas, requireContentRead } from "../../vault/cas";
 import { noteExists, readNote, writeNoteAtomicGuarded } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
@@ -141,15 +142,18 @@ function withTable(
   const rel = normalizeVaultPath(path);
   const abs = resolveVaultPath(v.root, rel);
   enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
+  requireContentRead(ctx, v.root, rel);
   const ex = noteExists(abs);
   if (!ex.exists || ex.type === "folder") throw err.noteNotFound("note not found", { path: rel });
   const { raw, hash } = readNote(abs);
-  if (prevHash !== undefined && prevHash !== hash)
-    throw err.concurrentModification("note changed since prev_hash", {
-      path: rel,
-      expected: prevHash,
-      actual: hash,
-    });
+  checkCas({
+    ctx,
+    root: v.root,
+    rel: rel,
+    prevHash: prevHash,
+    currentHash: hash,
+    message: "note changed since prev_hash",
+  });
   const { lines, tables } = parseTables(raw);
   const t = tables[index];
   if (!t) throw err.invalidInput("no GFM table at that index", { path: rel, table_index: index });

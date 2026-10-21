@@ -2064,7 +2064,7 @@
       "properties": {
         "requireCas": {
           "default": false,
-          "description": "Require a prev_hash (compare-and-swap) on overwriting writes and on appends to an existing note, failing closed with invalid_input when absent so a stale hash cannot silently clobber.",
+          "description": "Require a prev_hash (compare-and-swap) on write_note overwrites of an existing note and on append_note and patch_note (including patch_active_file) to an existing note, failing closed with invalid_input when absent so a stale hash cannot silently clobber.",
           "type": "boolean"
         },
         "maxAttachmentBytes": {

@@ -26,32 +26,29 @@ function errorOf(result: ToolResult) {
   return result.error;
 }
 
-function expectGenericMismatch(error: { code: string; message: string; details?: unknown }): void {
+/** A caller who may not read the note is refused before any match is tried: one fixed error,
+ *  with the path as its only detail. */
+function expectContentRefusal(error: { code: string; message: string; details?: unknown }): void {
   expect(error.code).toBe("invalid_input");
-  expect(error.message).toBe("old_string must occur exactly once in the section");
-  expect(error.details).toEqual({ path: PATH, anchor: ANCHOR });
-
-  const wire = JSON.stringify(error);
-  expect(wire).not.toContain("ClassifiedHeading");
-  expect(wire).not.toContain("draft task");
-  expect(wire).not.toContain("ultra-secret-phrase");
+  expect(error.message).toBe("this operation needs read access to the target");
+  expect(error.details).toEqual({ path: PATH });
 }
 
 describe("patch_note replace_text miss detail read authorization", () => {
-  it("returns only the generic miss to a caller without read:notes", async () => {
+  it("refuses a caller without read:notes before any match is tried", async () => {
     const v = makeTestVault({ files: { [PATH]: NOTE } });
     try {
       const result = await v.call("patch_note", PATCH, {
         grantedScopes: new Set(["write:notes"]),
       });
       expect(result.ok).toBe(false);
-      if (!result.ok) expectGenericMismatch(result.error);
+      if (!result.ok) expectContentRefusal(result.error);
     } finally {
       v.cleanup();
     }
   });
 
-  it("returns only the generic miss when readPaths excludes the note", async () => {
+  it("refuses a caller whose read ACL excludes the note before any match is tried", async () => {
     const v = makeTestVault({
       files: { [PATH]: NOTE },
       acl: { readPaths: ["Public/**"] },
@@ -61,7 +58,7 @@ describe("patch_note replace_text miss detail read authorization", () => {
         grantedScopes: new Set(["read:notes", "write:notes"]),
       });
       expect(result.ok).toBe(false);
-      if (!result.ok) expectGenericMismatch(result.error);
+      if (!result.ok) expectContentRefusal(result.error);
     } finally {
       v.cleanup();
     }
@@ -150,8 +147,7 @@ describe("patch_note replace_text mismatch count disclosure", () => {
               await v.call("patch_note", scope.patch, { grantedScopes: auth.scopes }),
             );
             expect(error.code).toBe("invalid_input");
-            expect(error.message).toBe("old_string must occur exactly once in the section");
-            expect(error.details).toEqual(scope.details);
+            expectContentRefusal(error);
             expect(JSON.stringify(error)).not.toContain("count");
             errors.push(error);
           } finally {
@@ -164,9 +160,9 @@ describe("patch_note replace_text mismatch count disclosure", () => {
     }
   }
 
-  // A successful write still reveals that a unique match existed. That is inherent in performing
-  // the requested mutation and is outside this refusal-only disclosure fix.
-  it("still permits a unique match for a write-only caller", async () => {
+  // A caller who may not read the note gets no content-dependent edit at all, so a unique match is
+  // refused too: a success would reveal that the match existed.
+  it("refuses a unique match for a write-only caller", async () => {
     const v = makeTestVault({
       files: { [PATH]: ["## Goals", "ultra-secret-phrase"].join("\n") },
     });
@@ -174,7 +170,9 @@ describe("patch_note replace_text mismatch count disclosure", () => {
       const result = await v.call("patch_note", PATCH, {
         grantedScopes: new Set(["write:notes"]),
       });
-      expect(result.ok).toBe(true);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expectContentRefusal(result.error);
+      expect(v.read(PATH)).toBe(["## Goals", "ultra-secret-phrase"].join("\n"));
     } finally {
       v.cleanup();
     }
@@ -220,11 +218,7 @@ describe("patch_note anchor-resolution disclosure", () => {
           const error = errorOf(
             await v.call("patch_note", testCase.patch, { grantedScopes: auth.scopes }),
           );
-          expect(error).toMatchObject({
-            code: "invalid_input",
-            message: "anchor could not be resolved",
-            details: { path: PATH },
-          });
+          expectContentRefusal(error);
           errors.push(error);
         } finally {
           v.cleanup();
@@ -249,11 +243,7 @@ describe("patch_note anchor-resolution disclosure", () => {
           const error = errorOf(
             await v.call("patch_note", blockPatch, { grantedScopes: auth.scopes }),
           );
-          expect(error).toMatchObject({
-            code: "invalid_input",
-            message: "anchor could not be resolved",
-            details: { path: PATH },
-          });
+          expectContentRefusal(error);
           errors.push(error);
         } finally {
           v.cleanup();
@@ -377,11 +367,7 @@ describe("patch_note large-replace line-count disclosure", () => {
           const error = errorOf(
             await v.call("patch_note", replace, { grantedScopes: auth.scopes }),
           );
-          expect(error.code).toBe("invalid_input");
-          expect(error.message).toBe(
-            "replace requires confirm_replace: true to proceed, or a narrower anchor",
-          );
-          expect(error.details).toEqual({ path: PATH, anchor: ANCHOR });
+          expectContentRefusal(error);
           const wire = JSON.stringify(error);
           expect(wire).not.toContain("lines_removed");
           expect(wire).not.toContain("body_line_count");

@@ -16,6 +16,7 @@ import { frontmatterFallbackSink } from "../../util/errors";
 import { DEFAULT_SCAN_LIMIT, nextOffsetCursor, offsetOf } from "../../util/paginate";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableEntry, readableRel } from "../../vault/acl-read-filter";
+import { checkCas, requireContentRead } from "../../vault/cas";
 import type { Frontmatter } from "../../vault/frontmatter";
 import {
   checkFrontmatterYaml,
@@ -312,6 +313,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
         enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
+        requireContentRead(ctx, v.root, rel);
 
         const ex = noteExists(abs);
         let body = "";
@@ -328,12 +330,14 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           const cur = readNote(abs);
           prevHash = cur.hash;
           prevRaw = cur.raw;
-          if (input.prev_hash !== undefined && input.prev_hash !== cur.hash)
-            throw err.concurrentModification("note changed since prev_hash", {
-              path: rel,
-              expected: input.prev_hash,
-              actual: cur.hash,
-            });
+          checkCas({
+            ctx,
+            root: v.root,
+            rel: rel,
+            prevHash: input.prev_hash,
+            currentHash: cur.hash,
+            message: "note changed since prev_hash",
+          });
           const { yamlError, ...parsed } = parseNoteLenient(cur.raw, rel);
           if (yamlError) {
             if (input.operation !== "replace") throw yamlError;

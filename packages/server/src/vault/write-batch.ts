@@ -27,6 +27,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, rmdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { casConflict } from "./cas";
 import { nativeIo, nativeOpen, refuseJsThroughPin } from "./native-io";
 import {
   hardDelete,
@@ -258,7 +259,7 @@ function removeUnchanged(removals: readonly BatchRemoval[]): void {
       { reason: ROLLBACK_INCOMPLETE, paths: kept },
     );
   if (failure !== undefined) throw failure;
-  throw err.concurrentModification(
+  throw casConflict(
     `${changed} changed since it was read; it was kept and nothing was moved. Re-read and move again`,
     { path: changed },
   );
@@ -299,9 +300,10 @@ export function applyWriteBatch(writes: readonly BatchWrite[], hooks: BatchHooks
         const expected = contentHash(s.w.prevRaw);
         const actual = currentHash(s.w.abs);
         if (actual !== expected)
-          throw err.concurrentModification(
+          // No caller context here: the pre-image hash and the current one are withheld (vault/cas.ts).
+          throw casConflict(
             `${s.w.rel} changed since it was read; nothing was kept. Re-read, re-draft and commit again`,
-            { path: s.w.rel, expected, actual: actual ?? "missing" },
+            { path: s.w.rel },
           );
       }
       s.staged.commit();
