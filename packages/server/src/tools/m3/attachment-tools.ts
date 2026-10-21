@@ -44,6 +44,7 @@ import {
   ImmutableRewriteSkips,
 } from "../../vault/acl-path";
 import { readableEntry } from "../../vault/acl-read-filter";
+import { callerMayReadNote } from "../../vault/cas";
 import { requireConfirmation } from "../../vault/hitl";
 import { commitPlanned, PreImageSnapshots, planFingerprint } from "../../vault/move-plan";
 import {
@@ -491,6 +492,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
                 skips,
                 mdConfig,
                 record ? deps.metrics : undefined,
+                (rel) => callerMayReadNote(ctx, v.root, rel),
               )
             : { pending: [] };
         const first = planReferences(true);

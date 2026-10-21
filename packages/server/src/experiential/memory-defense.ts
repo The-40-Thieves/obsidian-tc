@@ -378,7 +378,7 @@ export function enforceMemoryDefenseOnMovedBytes(
     return enforceMemoryDefenseOnNoteWrite(config, path, content, opts);
   } catch (e) {
     if (e instanceof ObsidianTcError && e.code === "secret_detected")
-      throw err.secretDetected("secret-shaped content refused", { path });
+      throw err.secretDetected("secret-shaped content refused");
     throw e;
   }
 }

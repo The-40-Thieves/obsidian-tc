@@ -15,7 +15,7 @@ import {
   type VaultMemoryDefenseConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
-import { enforceMemoryDefenseOnNoteWrite } from "../experiential/memory-defense";
+import { enforceMemoryDefenseOnMovedBytes } from "../experiential/memory-defense";
 import { redactSecrets } from "../experiential/redact";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { ImmutableRewriteSkips } from "./acl-path";
@@ -191,9 +191,13 @@ export function plannedRewrite(
   rewrite: Pick<LinkRewrite, "text" | "count">,
   defense: VaultMemoryDefenseConfig | undefined,
   metrics: MetricsRecorder | undefined,
+  mayRead: boolean,
 ): PlannedRewrite {
-  const scanned = enforceMemoryDefenseOnNoteWrite(defense, rel, rewrite.text, {
+  // `mayRead` is the caller's read decision for `rel`: a non-reader gets the generic refusal, not
+  // the pattern ids and fields of a secret already in the note.
+  const scanned = enforceMemoryDefenseOnMovedBytes(defense, rel, rewrite.text, {
     ...(metrics ? { metrics } : {}),
+    mayRead,
   });
   return { abs, rel, raw, text: scanned.content, count: rewrite.count };
 }

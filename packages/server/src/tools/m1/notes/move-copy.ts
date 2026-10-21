@@ -79,6 +79,7 @@ function planBacklinks(
   fromRel: string,
   toRel: string,
   readable: (rel: string) => boolean,
+  mayRead: (rel: string) => boolean,
   skips: ImmutableRewriteSkips,
   defense: VaultMemoryDefenseConfig,
   metrics: MetricsRecorder | undefined,
@@ -114,7 +115,8 @@ function planBacklinks(
     if (!rewrite) continue;
     // a warning names its note, and the rewrite is vault-wide: only name notes the caller may read
     if (readable(p)) for (const w of rewrite.warnings) warnings.push({ path: p, ...w });
-    if (rewrite.count > 0) pending.push(plannedRewrite(abs, p, raw, rewrite, defense, metrics));
+    if (rewrite.count > 0)
+      pending.push(plannedRewrite(abs, p, raw, rewrite, defense, metrics, mayRead(p)));
   }
   scan.refuseIfFailed();
   return { pending, warnings };
@@ -193,7 +195,16 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
           mayRead: callerMayReadNote(ctx, v.root, fromRel),
         }).content;
         const backlinks = input.update_backlinks
-          ? planBacklinks(v.root, fromRel, toRel, readable, skips, mdConfig, metrics)
+          ? planBacklinks(
+              v.root,
+              fromRel,
+              toRel,
+              readable,
+              (rel) => callerMayReadNote(ctx, v.root, rel),
+              skips,
+              mdConfig,
+              metrics,
+            )
           : { pending: [], warnings: [] };
         return { raw, hash, scannedRaw, backlinks };
       };

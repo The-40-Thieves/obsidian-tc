@@ -27,6 +27,8 @@ export interface M3VaultOptions {
   reindex?: M3Deps["reindex"];
   /** GH #1027: the operator default (`tools.defaults.responseFormat`) a call naming no format gets. */
   responseFormat?: ResponseFormat;
+  /** memoryDefense policy per vault, for the writers that scan (append_to_periodic_note). */
+  memoryDefense?: M3Deps["memoryDefense"];
   /** Runs after `files` are written and before the registry is built (lay out a symlinked folder). */
   setup?: (root: string) => void;
   /** `vaults[].wiki.folder`: the registry then pins it when it is a symlink, and dispatch runs in its frame. */
@@ -92,6 +94,7 @@ export function makeM3Vault(opts: M3VaultOptions = {}): M3Vault {
     ...(opts.templaterBridge ? { templaterBridge: opts.templaterBridge } : {}),
     ...(opts.reindex ? { reindex: opts.reindex } : {}),
     ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
+    ...(opts.memoryDefense ? { memoryDefense: opts.memoryDefense } : {}),
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({

@@ -488,6 +488,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             defense,
             metrics,
             visible,
+            mayRead: (rel) => callerMayReadNote(ctx, v.root, rel),
             skips,
           });
 

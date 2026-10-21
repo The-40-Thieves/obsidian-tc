@@ -5,9 +5,11 @@
 // patch_note's frontmatter preamble, and move_note's secret refusal.
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
+import { registerM6Tools } from "../src/tools/m6";
 import { makeTestVault, type TestVault } from "./m1-helpers";
 import { type M3Vault, makeM3Vault } from "./m3-helpers";
 import { type M4Vault, makeM4Vault } from "./m4-helpers";
+import { type M6Vault, makeM6Vault } from "./m6-helpers";
 
 const FIXED_REFUSAL = "this operation needs read access to the target";
 const WRITE_ONLY_ACL = { readPaths: ["Public/**"], writePaths: ["**"], deletePaths: ["**"] };
@@ -22,13 +24,16 @@ const errOf = (r: ToolResult): { code: string; message: string } | null =>
 let m1: TestVault | undefined;
 let m3: M3Vault | undefined;
 let m4: M4Vault | undefined;
+let m6: M6Vault | undefined;
 afterEach(() => {
   m1?.cleanup();
   m3?.cleanup();
   m4?.cleanup();
+  m6?.cleanup();
   m1 = undefined;
   m3 = undefined;
   m4 = undefined;
+  m6 = undefined;
 });
 
 describe("update_task: a non-reader gets one refusal whatever line it names", () => {
@@ -278,8 +283,87 @@ describe("move_note in block mode: a non-reader gets a refusal that names nothin
       { grantedScopes: new Set(["write:notes", "delete:notes"]) },
     );
     expect(r.ok).toBe(false);
-    // The refusal's details name the path only. (The recovery hint is a fixed template that mentions
-    // the field names in general; it does not depend on the note.)
-    expect(r.ok ? null : r.error.details).toEqual({ path: "Private/t.md" });
+    // The refusal has no details at all: a path would name a note the caller may not read when the
+    // scan is a backlink's. (The recovery hint is a fixed template; it does not depend on the note.)
+    expect(r.ok ? null : r.error.details).toBeUndefined();
+  });
+});
+
+// Private/b.md links the note being moved and holds a secret. The caller reads the moved note
+// (Public/**) but not Private/b.md, so the backlink rewrite's memoryDefense scan is a non-reader's.
+describe("move_note and bulk_move_notes: an unreadable backlink's secret is not named", () => {
+  const BACKLINK = (): string => `token: ${fakeGithubToken()}\nsee [[s]]\n`;
+  const FILES = { "Public/s.md": "clean\n", "Private/b.md": BACKLINK() };
+  const MOVER = { grantedScopes: new Set(["write:notes", "delete:notes"]) };
+  const BLOCK = { mode: "block" as const, pii: false };
+
+  it("move_note: a non-reader's refusal carries no pattern_ids and no fields", async () => {
+    m1 = makeTestVault({
+      files: FILES,
+      acl: WRITE_ONLY_ACL,
+      centralAcl: true,
+      memoryDefense: BLOCK,
+    });
+    const r = await m1.call(
+      "move_note",
+      { vault: "test", from: "Public/s.md", to: "Public/t.md" },
+      MOVER,
+    );
+    expect(r.ok).toBe(false);
+    // The fixed recovery text names these keys in prose, so match the JSON key form only.
+    expect(JSON.stringify(r)).not.toContain('"pattern_ids":');
+    expect(JSON.stringify(r)).not.toContain('"fields":');
+  });
+
+  it("move_note: a reader of the backlink keeps the detailed refusal", async () => {
+    m1 = makeTestVault({ files: FILES, acl: READER_ACL, centralAcl: true, memoryDefense: BLOCK });
+    const r = await m1.call(
+      "move_note",
+      { vault: "test", from: "Public/s.md", to: "Public/t.md" },
+      { grantedScopes: new Set([...MOVER.grantedScopes, "read:notes"]) },
+    );
+    expect(JSON.stringify(r)).toContain('"pattern_ids":');
+  });
+
+  it("bulk_move_notes: a non-reader's refusal carries no pattern_ids and no fields", async () => {
+    m6 = makeM6Vault({
+      files: FILES,
+      acl: WRITE_ONLY_ACL,
+      register: (registry, deps) => {
+        deps.memoryDefense = () => BLOCK;
+        registerM6Tools(registry, deps);
+      },
+    });
+    const r = await m6.callConfirmed(
+      "bulk_move_notes",
+      { vault: "test", moves: [{ from: "Public/s.md", to: "Public/t.md" }], dry_run: false },
+      { grantedScopes: new Set([...MOVER.grantedScopes, "bulk:notes"]) },
+    );
+    // The fixed recovery text names these keys in prose, so match the JSON key form only.
+    expect(JSON.stringify(r)).not.toContain('"pattern_ids":');
+    expect(JSON.stringify(r)).not.toContain('"fields":');
+  });
+});
+
+describe("append_to_periodic_note with no heading: a non-reader's outcome depends only on the caller's bytes", () => {
+  it("a note holding a pre-existing secret and a clean note get the same outcome", async () => {
+    m3 = makeM3Vault({
+      files: { "2026-06-18.md": `token: ${fakeGithubToken()}\n`, "2026-06-19.md": "clean\n" },
+      acl: WRITE_ONLY_ACL,
+      memoryDefense: () => ({ mode: "block", pii: false }),
+    });
+    const writer = { grantedScopes: new Set(["write:periodic"]) };
+    const dirty = await m3.call(
+      "append_to_periodic_note",
+      { vault: "test", period: "daily", date: "2026-06-18", content: "hello\n" },
+      writer,
+    );
+    const clean = await m3.call(
+      "append_to_periodic_note",
+      { vault: "test", period: "daily", date: "2026-06-19", content: "hello\n" },
+      writer,
+    );
+    expect(dirty.ok).toBe(clean.ok);
+    expect(JSON.stringify(dirty)).not.toContain("secret_detected");
   });
 });

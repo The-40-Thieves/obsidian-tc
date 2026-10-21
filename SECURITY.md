@@ -297,7 +297,7 @@ set **`writes.requireCas: true`** to make it **mandatory** on the destructive pa
 
 The CAS detail is read-gated. A caller that may write a note but not read it gets only content-blind writes:
 create, overwrite (always confirmed, empty or not), `append_note`, `move_note` and `delete_note`. Every other
-write depends on the note's bytes, so it is refused with one fixed `invalid_input` whatever those bytes hold:
+write depends on the note's bytes, so it is refused whatever those bytes hold. A caller the read ACL refuses gets `acl_denied`, which depends only on the ACL and leaks nothing; a caller that passes the ACL but lacks the read scope gets one fixed `invalid_input`:
 any `prev_hash` the caller supplies (the refusal comes before the hashes are compared, so under
 `writes.requireCas` such a caller cannot append to or patch an existing note), every `patch_note` operation
 (a frontmatter-preamble append or prepend included), `add_tag`, `remove_tag`, `update_frontmatter`,

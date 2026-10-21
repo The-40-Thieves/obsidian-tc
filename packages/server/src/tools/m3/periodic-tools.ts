@@ -34,7 +34,7 @@ import type { ToolDefinition } from "../../mcp/registry";
 import type { MetricsRecorder } from "../../metrics/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableResolved } from "../../vault/acl-read-filter";
-import { requireContentRead } from "../../vault/cas";
+import { callerMayReadNote, requireContentRead } from "../../vault/cas";
 import { parseNote } from "../../vault/frontmatter";
 import {
   hardDelete,
@@ -568,7 +568,6 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         if (input.heading !== undefined)
           requireContentRead(ctx, v.root, resolved.path, "read:periodic");
         const existing = ex.exists ? readNote(abs).raw : "";
-        const next = appendContent(existing, input.content, input.ensure_newline, input.heading);
         // THE-572: appending is the one effect here that CANNOT be made idempotent — re-running it
         // appends the content a second time — and `deps.reindex` below is fallible (the index
         // coordinator rejects under backpressure). Without this signal a reindex throw deleted the
@@ -578,29 +577,49 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         // scan the RESULTING note body (existing bytes + appended content) — same guard
         // append_note applies — before it reaches disk.
         const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
+        // A caller who may not read the note is scanned on its own bytes only, as append_note is: a
+        // refusal over the existing bytes would tell it what they hold, so those bytes are kept as
+        // they are. (A heading always needs the read, so only a headless append gets here.)
+        const mayRead = callerMayReadNote(ctx, v.root, resolved.path);
+        const persist = (
+          base: string,
+          exclusive: boolean,
+        ): { content: string; redactions: number } => {
+          if (mayRead)
+            return writeNoteAtomicGuarded(
+              abs,
+              resolved.path,
+              appendContent(base, input.content, input.ensure_newline, input.heading),
+              true,
+              mdConfig,
+              { metrics: deps.metrics, exclusive },
+            );
+          const own = enforceMemoryDefenseOnNoteWrite(mdConfig, resolved.path, input.content, {
+            metrics: deps.metrics,
+          });
+          const written = writeNoteAtomicGuarded(
+            abs,
+            resolved.path,
+            appendContent(base, own.content, input.ensure_newline, input.heading),
+            true,
+            MEMORY_DEFENSE_OFF,
+            { exclusive },
+          );
+          return { content: written.content, redactions: own.redactions };
+        };
         let base = existing;
         let created = !ex.exists;
         let scan: { content: string; redactions: number };
         try {
           // A create is exclusive: a note another process made after the noteExists check is never
           // replaced by the appended text alone.
-          scan = writeNoteAtomicGuarded(abs, resolved.path, next, true, mdConfig, {
-            metrics: deps.metrics,
-            exclusive: created,
-          });
+          scan = persist(existing, created);
         } catch (e) {
           if (!created || !(e instanceof ObsidianTcError && e.code === "note_exists")) throw e;
           // Lost the create race: append to the winner's note instead (a normal update).
           base = readNote(abs).raw;
           created = false;
-          scan = writeNoteAtomicGuarded(
-            abs,
-            resolved.path,
-            appendContent(base, input.content, input.ensure_newline, input.heading),
-            true,
-            mdConfig,
-            { metrics: deps.metrics },
-          );
+          scan = persist(base, false);
         }
         deps.reindex?.(v.id, resolved.path, scan.content);
         return {
