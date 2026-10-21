@@ -16,10 +16,20 @@ import { type PinnedDir, pinnedOpenPath } from "./folder-links";
 export interface NativeVaultIo {
   safeReadNote(abs: string, pinned?: PinnedDir): Buffer;
   /** The write primitives take the pinned directory `abs` runs through (`pinnedWrites`). */
-  safeWriteNoteAtomic(abs: string, data: Buffer, pinned?: PinnedDir): void;
+  safeWriteNoteAtomic(
+    abs: string,
+    data: Buffer,
+    pinned: PinnedDir | undefined,
+    createDirs: boolean,
+  ): void;
   /** No-replace write / rename / unlink. Optional: an older .node predates them and the JS path is
    *  used (an extra argument to safeWriteNoteAtomic would be silently ignored by such a binary). */
-  safeWriteNoteExclusive?(abs: string, data: Buffer, pinned?: PinnedDir): void;
+  safeWriteNoteExclusive?(
+    abs: string,
+    data: Buffer,
+    pinned: PinnedDir | undefined,
+    createDirs: boolean,
+  ): void;
   safeRenameNoReplace?(
     fromAbs: string,
     toAbs: string,
@@ -28,13 +38,19 @@ export interface NativeVaultIo {
   ): void;
   /** Unlink on the verified parent; false: the leaf was already absent. */
   safeUnlink?(abs: string, pinned?: PinnedDir): boolean;
+  /** Remove an empty directory on the verified parent; a non-empty or missing one throws. */
+  safeRmdir?(abs: string, pinned?: PinnedDir): void;
   /** The binary verifies a PinnedDir (`SAFE_IO_PINNED_DIR`). An older one would ignore the pin, so
    *  without it no path is translated to a pinned directory (the walk refuses the symlink). */
   pinnedDirs: boolean;
   /** The binary verifies a PinnedDir on the write primitives (`SAFE_IO_PINNED_WRITE`). Without it a
-   *  write through a pinned folder is refused: the pin would be silently ignored and the alias
-   *  spelling written. */
+   *  write through a pinned folder is refused: the pin would be silently ignored and the rerouted
+   *  pinned path written with no identity check. */
   pinnedWrites: boolean;
+  /** The write primitives make the missing folders below a pin, inside the verified walk
+   *  (`SAFE_IO_PINNED_MKDIR`). Without it a write that creates folders under a pin is refused: the
+   *  server never makes them through the pin in JS. */
+  pinnedMkdir: boolean;
 }
 
 const NATIVE_PKG = ["@the-40-thieves", "obsidian-tc-native"].join("/");
@@ -46,6 +62,7 @@ function loadNativeIo(): NativeVaultIo | null {
       nativeLoaded?: boolean;
       SAFE_IO_PINNED_DIR?: boolean;
       SAFE_IO_PINNED_WRITE?: boolean;
+      SAFE_IO_PINNED_MKDIR?: boolean;
     };
     if (
       mod.nativeLoaded === true &&
@@ -57,6 +74,7 @@ function loadNativeIo(): NativeVaultIo | null {
         safeWriteNoteAtomic: mod.safeWriteNoteAtomic,
         pinnedDirs: mod.SAFE_IO_PINNED_DIR === true,
         pinnedWrites: mod.SAFE_IO_PINNED_WRITE === true,
+        pinnedMkdir: mod.SAFE_IO_PINNED_MKDIR === true,
         ...(typeof mod.safeWriteNoteExclusive === "function"
           ? { safeWriteNoteExclusive: mod.safeWriteNoteExclusive }
           : {}),
@@ -64,6 +82,7 @@ function loadNativeIo(): NativeVaultIo | null {
           ? { safeRenameNoReplace: mod.safeRenameNoReplace }
           : {}),
         ...(typeof mod.safeUnlink === "function" ? { safeUnlink: mod.safeUnlink } : {}),
+        ...(typeof mod.safeRmdir === "function" ? { safeRmdir: mod.safeRmdir } : {}),
       };
     }
     return null;
@@ -87,6 +106,10 @@ export function nativeOpen(abs: string): { path: string; pinned?: PinnedDir } {
  *  `safeUnlink`. Otherwise it refuses such a path (see below). */
 export const pinnedUnlinkAvailable = (): boolean =>
   nativeIo?.pinnedDirs === true && nativeIo.safeUnlink !== undefined;
+
+/** True when the write primitives verify a pinned folder: `pinnedDirs` and `pinnedWrites` both. */
+export const pinnedWritesAvailable = (): boolean =>
+  nativeIo?.pinnedDirs === true && nativeIo.pinnedWrites === true;
 
 /** Called by every pure-JS path before it touches `abs`: a path through a pinned folder is refused,
  *  because only the native walk can open it without a window for the symlink to move. */

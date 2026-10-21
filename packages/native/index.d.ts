@@ -46,8 +46,13 @@ export declare const SAFE_IO_PINNED_DIR: true | undefined;
 
 /** True on a native module whose safe write primitives (`safeWriteNoteAtomic`, `safeWriteNoteExclusive`)
  *  check a {@link PinnedDir}; undefined on an older binary, which would ignore the pin and write the
- *  alias spelling, and on the pure-JS fallback. The server refuses a write through a pin without it. */
+ *  rerouted pinned path with no identity check, and on the pure-JS fallback. The server refuses a write through a pin without it. */
 export declare const SAFE_IO_PINNED_WRITE: true | undefined;
+
+/** True on a native module whose safe write primitives create the missing folders below a pinned folder
+ *  (the `createDirs` argument) inside the verified walk. Undefined on an older binary, which would ignore
+ *  the argument, and on the pure-JS fallback. The server refuses a write that creates folders under a pin without it. */
+export declare const SAFE_IO_PINNED_MKDIR: true | undefined;
 
 /** THE-272: symlink-safe, TOCTOU-free note read — opens following no symlink in any path component,
  *  rejects a non-regular or hard-linked file, returns the bytes. With `pinned`, also refuses a pinned
@@ -58,7 +63,12 @@ export declare function safeReadNote(abs: string, pinned?: PinnedDir): Buffer;
 /** THE-272: symlink-safe atomic note write (randomized O_EXCL|O_NOFOLLOW temp + rename, no symlink
  *  followed in any component). The parent directory must exist. With `pinned`, the pinned directory
  *  must still be the directory it was pinned as. Native module only. */
-export declare function safeWriteNoteAtomic(abs: string, data: Buffer, pinned?: PinnedDir): void;
+export declare function safeWriteNoteAtomic(
+  abs: string,
+  data: Buffer,
+  pinned: PinnedDir | undefined,
+  createDirs?: boolean,
+): void;
 
 /** Symlink-safe atomic note write that REFUSES to replace an existing target: the same safe open and
  *  randomized temp as {@link safeWriteNoteAtomic}, with a no-replace final rename (Linux
@@ -66,7 +76,12 @@ export declare function safeWriteNoteAtomic(abs: string, data: Buffer, pinned?: 
  *  closing the check-then-rename race an `overwrite: false` caller otherwise loses. An existing
  *  target throws an error whose message starts with `exists:`. With `pinned`, the pinned directory is
  *  verified as for {@link safeWriteNoteAtomic}. Unix native module only. */
-export declare function safeWriteNoteExclusive(abs: string, data: Buffer, pinned?: PinnedDir): void;
+export declare function safeWriteNoteExclusive(
+  abs: string,
+  data: Buffer,
+  pinned: PinnedDir | undefined,
+  createDirs?: boolean,
+): void;
 
 /** Symlink-safe no-replace rename of `fromAbs` onto `toAbs` (each parent opened following no symlink
  *  in any component). Moves a note into `.trash/` and back without a planted symlink redirecting
@@ -85,6 +100,11 @@ export declare function safeRenameNoReplace(
  *  Resolves true when the leaf was removed, false when it was already absent; a directory is an
  *  error. Unix native module only (undefined on an older binary and on the pure-JS fallback). */
 export declare function safeUnlink(abs: string, pinned?: PinnedDir): boolean;
+
+/** Symlink-safe removal of the EMPTY directory `abs`: the parent is opened as for `safeUnlink`, then the
+ *  directory is removed on that verified fd. A non-empty or missing directory throws. Unix native module
+ *  only (undefined on an older binary and on the pure-JS fallback). */
+export declare function safeRmdir(abs: string, pinned?: PinnedDir): void;
 
 /** True when the compiled native binary is active; false when on the pure-JS fallback. */
 export declare const nativeLoaded: boolean;

@@ -232,83 +232,77 @@ describe.skipIf(process.platform === "win32")(
   },
 );
 
-describe.skipIf(process.platform === "win32")(
-  "through a pinned folder, without the native module",
-  () => {
-    const refused = (fn: () => unknown): void => {
-      try {
-        fn();
-      } catch (e) {
-        expect((e as { code?: string }).code).toBe("acl_denied");
-        if (!nativeVaultIo) expect((e as Error).message).toMatch(WHY);
-        return;
-      }
-      throw new Error("expected the operation through the pinned folder to be refused");
-    };
+describe.skipIf(process.platform === "win32")("through a pinned folder", () => {
+  const refused = (fn: () => unknown): void => {
+    try {
+      fn();
+    } catch (e) {
+      expect((e as { code?: string }).code).toBe("acl_denied");
+      if (!nativeVaultIo) expect((e as Error).message).toMatch(WHY);
+      return;
+    }
+    throw new Error("expected the operation through the pinned folder to be refused");
+  };
 
-    it.skipIf(!nativeVaultIo)(
-      "a write and a staged write through a pin land in the pinned folder",
-      () => {
-        expect(nativeVaultIo).toBe(true);
-        const root = openAndRawVault();
-        const reg = wikiRegistry(root);
-        const x = join(root, "wiki", "x.md");
-        under(reg, () => writeNoteAtomic(x, "new\n", false));
-        expect(text(root, "open/x.md")).toBe("new\n");
-        under(reg, () => stageNoteWrite(x, "staged\n", false).commit());
-        expect(text(root, "open/x.md")).toBe("staged\n");
-        under(reg, () => writeNoteAtomic(join(root, "wiki", "n.md"), "new\n", true));
-        expect(text(root, "open/n.md")).toBe("new\n");
-      },
-    );
-
-    it.skipIf(nativeVaultIo)(
-      "writes and staged writes are refused without the native module",
-      () => {
-        const root = openAndRawVault();
-        const reg = wikiRegistry(root);
-        const x = join(root, "wiki", "x.md");
-        refused(() => under(reg, () => writeNoteAtomic(x, "new\n", false)));
-        refused(() => under(reg, () => writeNoteAtomic(join(root, "wiki", "n.md"), "new\n", true)));
-        refused(() => under(reg, () => stageNoteWrite(x, "new\n", false).commit()));
-        expect(text(root, "open/x.md")).toBe("open note\n");
-      },
-    );
-
-    it.skipIf(nativeVaultIo)("reads, moves and deletes are refused, naming why", () => {
+  it.skipIf(!nativeVaultIo)(
+    "a write and a staged write through a pin land in the pinned folder",
+    () => {
+      expect(nativeVaultIo).toBe(true);
       const root = openAndRawVault();
       const reg = wikiRegistry(root);
       const x = join(root, "wiki", "x.md");
-      refused(() => under(reg, () => readNote(x)));
-      refused(() => under(reg, () => moveNoReplace(x, join(root, "moved.md"))));
-      refused(() =>
-        under(reg, () => moveNoReplace(join(root, "open", "x.md"), join(root, "wiki", "y.md"))),
-      );
-      refused(() => under(reg, () => hardDelete(x)));
-      expect(text(root, "open/x.md")).toBe("open note\n");
-      expect(existsSync(join(root, "moved.md"))).toBe(false);
-    });
+      under(reg, () => writeNoteAtomic(x, "new\n", false));
+      expect(text(root, "open/x.md")).toBe("new\n");
+      under(reg, () => stageNoteWrite(x, "staged\n", false).commit());
+      expect(text(root, "open/x.md")).toBe("staged\n");
+      under(reg, () => writeNoteAtomic(join(root, "wiki", "n.md"), "new\n", true));
+      expect(text(root, "open/n.md")).toBe("new\n");
+    },
+  );
 
-    it("a configured folder that is NOT a symlink keeps working: read, write, move, delete", () => {
-      const base = makeTempDir("obtc-pinned-sinks-plain-");
-      temps.push(base);
-      const root = join(base, "vault");
-      mkdirSync(join(root, "wiki"), { recursive: true });
-      writeFileSync(join(root, "wiki", "x.md"), "plain wiki note\n");
-      const reg = wikiRegistry(root);
-      under(reg, () => {
-        expect(readNote(join(root, "wiki", "x.md")).raw).toBe("plain wiki note\n");
-        writeNoteAtomic(join(root, "wiki", "y.md"), "written\n", false);
-        moveNoReplace(join(root, "wiki", "y.md"), join(root, "wiki", "z.md"));
-        hardDelete(join(root, "wiki", "z.md"));
-        hardDelete(join(root, "wiki", "never-existed.md"));
-      });
-      expect(text(root, "wiki/x.md")).toBe("plain wiki note\n");
-      expect(existsSync(join(root, "wiki", "y.md"))).toBe(false);
-      expect(existsSync(join(root, "wiki", "z.md"))).toBe(false);
+  it.skipIf(nativeVaultIo)("writes and staged writes are refused without the native module", () => {
+    const root = openAndRawVault();
+    const reg = wikiRegistry(root);
+    const x = join(root, "wiki", "x.md");
+    refused(() => under(reg, () => writeNoteAtomic(x, "new\n", false)));
+    refused(() => under(reg, () => writeNoteAtomic(join(root, "wiki", "n.md"), "new\n", true)));
+    refused(() => under(reg, () => stageNoteWrite(x, "new\n", false).commit()));
+    expect(text(root, "open/x.md")).toBe("open note\n");
+  });
+
+  it.skipIf(nativeVaultIo)("reads, moves and deletes are refused, naming why", () => {
+    const root = openAndRawVault();
+    const reg = wikiRegistry(root);
+    const x = join(root, "wiki", "x.md");
+    refused(() => under(reg, () => readNote(x)));
+    refused(() => under(reg, () => moveNoReplace(x, join(root, "moved.md"))));
+    refused(() =>
+      under(reg, () => moveNoReplace(join(root, "open", "x.md"), join(root, "wiki", "y.md"))),
+    );
+    refused(() => under(reg, () => hardDelete(x)));
+    expect(text(root, "open/x.md")).toBe("open note\n");
+    expect(existsSync(join(root, "moved.md"))).toBe(false);
+  });
+
+  it("a configured folder that is NOT a symlink keeps working: read, write, move, delete", () => {
+    const base = makeTempDir("obtc-pinned-sinks-plain-");
+    temps.push(base);
+    const root = join(base, "vault");
+    mkdirSync(join(root, "wiki"), { recursive: true });
+    writeFileSync(join(root, "wiki", "x.md"), "plain wiki note\n");
+    const reg = wikiRegistry(root);
+    under(reg, () => {
+      expect(readNote(join(root, "wiki", "x.md")).raw).toBe("plain wiki note\n");
+      writeNoteAtomic(join(root, "wiki", "y.md"), "written\n", false);
+      moveNoReplace(join(root, "wiki", "y.md"), join(root, "wiki", "z.md"));
+      hardDelete(join(root, "wiki", "z.md"));
+      hardDelete(join(root, "wiki", "never-existed.md"));
     });
-  },
-);
+    expect(text(root, "wiki/x.md")).toBe("plain wiki note\n");
+    expect(existsSync(join(root, "wiki", "y.md"))).toBe(false);
+    expect(existsSync(join(root, "wiki", "z.md"))).toBe(false);
+  });
+});
 
 // An older .node has no safeUnlink and would ignore a pin: the delete must refuse, never fall back
 // to rmSync on the alias.

@@ -158,12 +158,16 @@ module.exports.safeRenameNoReplace = impl.safeRenameNoReplace;
 // Symlink-safe unlink (takes a PinnedDir too): undefined on an older .node and on the fallback, where
 // the server refuses a delete through a pinned folder rather than removing it by its live path.
 module.exports.safeUnlink = impl.safeUnlink;
+module.exports.safeRmdir = impl.safeRmdir;
 // True on a binary whose safeReadNote / safeRenameNoReplace check a PinnedDir; undefined on an older
 // .node (which would ignore the extra argument) and on the fallback.
 module.exports.SAFE_IO_PINNED_DIR = impl.SAFE_IO_PINNED_DIR;
 // True on a binary whose safeWriteNoteAtomic / safeWriteNoteExclusive check a PinnedDir; undefined on
-// an older .node (which would write the alias spelling) and on the fallback.
+// an older .node (which would write the rerouted pinned path with no identity check) and on the fallback.
 module.exports.SAFE_IO_PINNED_WRITE = impl.SAFE_IO_PINNED_WRITE;
+// True on a binary whose safeWriteNoteAtomic / safeWriteNoteExclusive create the missing folders below a pin
+// inside the verified walk; undefined on an older .node and on the fallback.
+module.exports.SAFE_IO_PINNED_MKDIR = impl.SAFE_IO_PINNED_MKDIR;
 // Exported for the loader unit test (packages/server/test/native-triple.test.ts).
 module.exports.hostTriple = hostTriple;
 module.exports.isMusl = isMusl;
