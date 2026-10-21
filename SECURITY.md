@@ -382,10 +382,13 @@ each pinned by a test (`wiki-generated.test.ts`):
   write or delete inside a vault run under the registry's pins as a tool call does: the trace-retention
   sweep enumerates the pinned name, skips (with a warning) a trace folder whose live target no longer
   matches the pin, and deletes through the same pinned unlink, and the scheduled wiki-page
-  regeneration writes under them. **Configured symlinked folders require the native module.** Node has
+  regeneration writes under them. A note write through a pin (`write_note`, `commit_wiki_page`, every other
+  sink) is verified the same way, and the folders it creates below the pin are made inside that verified
+  walk, so a folder swapped in after the access decision gets none. A `.node` without the pinned-write
+  primitives refuses such a write rather than writing the alias spelling unpinned. **Configured symlinked folders require the native module.** Node has
   no `openat`, so the
   pure-JS path (Windows, `OBSIDIAN_TC_FORCE_JS_FALLBACK=1`, an addon-less install, or a `.node` that
-  predates the unlink primitive) cannot open a pinned directory without a window for the symlink to
+  predates the unlink or pinned-write primitive) cannot open a pinned directory without a window for the symlink to
   move: there every read, write, move, delete and existence or stat probe of a path that runs through a
   pinned folder, under either spelling, is refused
   with `acl_denied`, and folders that are not symlinks are unaffected. (With the native module the

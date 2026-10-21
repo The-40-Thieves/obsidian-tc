@@ -229,6 +229,21 @@ pub struct PinnedDir {
 #[napi]
 pub const SAFE_IO_PINNED_DIR: bool = true;
 
+/// True on a module whose safe write primitives take a `PinnedDir` (`safe_write_note_*`). Separate
+/// from `SAFE_IO_PINNED_DIR`: a module with only that one ignores the pin on a write, so the server
+/// refuses every write through a pinned folder unless this is set.
+#[cfg(unix)]
+#[napi]
+pub const SAFE_IO_PINNED_WRITE: bool = true;
+
+/// True on a module whose safe write primitives create the missing folders below a pinned folder (the
+/// `create_dirs` argument of `safe_write_note_*`). Separate from `SAFE_IO_PINNED_WRITE`: a module with
+/// only that one ignores the argument, so the server refuses a write that would create folders under a
+/// pin unless this is set, and never makes them itself through the pin.
+#[cfg(unix)]
+#[napi]
+pub const SAFE_IO_PINNED_MKDIR: bool = true;
+
 #[cfg(unix)]
 fn pin_of(pinned: Option<PinnedDir>) -> napi::Result<Option<safe_io::Pin>> {
     let Some(p) = pinned else { return Ok(None) };
@@ -256,22 +271,45 @@ pub fn safe_read_note(abs: String, pinned: Option<PinnedDir>) -> napi::Result<Bu
 
 /// Symlink-safe atomic write: walks to the parent following no symlink, writes a randomized
 /// O_EXCL|O_NOFOLLOW temp, then renames it onto the target. The parent directory must already exist.
-/// Unix-only (see safe_read_note).
+/// With `pinned`, the pinned directory must still be the directory it was pinned as (see `PinnedDir`).
+/// With `create_dirs` (default false) the missing folders below the parent are made inside the verified
+/// walk, never the pinned folder itself (see `SAFE_IO_PINNED_MKDIR`). Unix-only (see safe_read_note).
 #[cfg(unix)]
 #[napi]
-pub fn safe_write_note_atomic(abs: String, data: Buffer) -> napi::Result<()> {
-    safe_io::write_atomic(&abs, data.as_ref())
+pub fn safe_write_note_atomic(
+    abs: String,
+    data: Buffer,
+    pinned: Option<PinnedDir>,
+    create_dirs: Option<bool>,
+) -> napi::Result<()> {
+    safe_io::write_atomic(
+        &abs,
+        data.as_ref(),
+        pin_of(pinned)?.as_ref(),
+        create_dirs.unwrap_or(false),
+    )
 }
 
 /// Symlink-safe atomic write that REFUSES to replace: same as `safe_write_note_atomic`, but the
 /// final step is a no-replace rename (Linux `renameat2(RENAME_NOREPLACE)`, macOS
 /// `renameatx_np(RENAME_EXCL)`, else `linkat` + `unlinkat`), so an `overwrite: false` caller cannot
 /// lose a race to a concurrent creator of the same path (a check-then-rename leaves that window
-/// open). An existing target is an error whose message starts with `exists:`. Unix-only.
+/// open). An existing target is an error whose message starts with `exists:`. With `pinned` the
+/// pinned directory is verified as for `safe_write_note_atomic`. Unix-only.
 #[cfg(unix)]
 #[napi]
-pub fn safe_write_note_exclusive(abs: String, data: Buffer) -> napi::Result<()> {
-    safe_io::write_exclusive(&abs, data.as_ref())
+pub fn safe_write_note_exclusive(
+    abs: String,
+    data: Buffer,
+    pinned: Option<PinnedDir>,
+    create_dirs: Option<bool>,
+) -> napi::Result<()> {
+    safe_io::write_exclusive(
+        &abs,
+        data.as_ref(),
+        pin_of(pinned)?.as_ref(),
+        create_dirs.unwrap_or(false),
+    )
 }
 
 /// Symlink-safe no-replace rename of `from_abs` onto `to_abs`: each parent is opened following no
@@ -306,12 +344,21 @@ pub fn safe_unlink(abs: String, pinned: Option<PinnedDir>) -> napi::Result<bool>
     safe_io::unlink(&abs, pin_of(pinned)?.as_ref())
 }
 
+/// Symlink-safe removal of the EMPTY directory `abs`: the parent is opened as for `safe_unlink`, then
+/// the leaf is removed with `unlinkat(AT_REMOVEDIR)` on that verified fd. A non-empty or missing
+/// directory is an error. Unix-only (see the module note above).
+#[cfg(unix)]
+#[napi]
+pub fn safe_rmdir(abs: String, pinned: Option<PinnedDir>) -> napi::Result<()> {
+    safe_io::rmdir(&abs, pin_of(pinned)?.as_ref())
+}
+
 #[cfg(unix)]
 mod safe_io {
     use napi::Error;
     use napi::bindgen_prelude::Buffer;
     use rustix::fd::OwnedFd;
-    use rustix::fs::{AtFlags, CWD, Mode, OFlags, linkat, openat, renameat, unlinkat};
+    use rustix::fs::{AtFlags, CWD, Mode, OFlags, linkat, mkdirat, openat, renameat, unlinkat};
     use rustix::io::Errno;
     use std::io::{Read, Write};
     use std::os::unix::fs::MetadataExt;
@@ -372,6 +419,13 @@ mod safe_io {
     /// component fails (ELOOP) rather than redirecting resolution. With `pin`, the component that
     /// completes the pinned directory is checked against its identity right after it is opened.
     fn open_parent(comps: &[&str], pin: Option<&Pin>) -> Result<OwnedFd, Error> {
+        open_parent_with(comps, pin, false)
+    }
+
+    /// `open_parent`, and with `create` each missing folder BELOW the pin is made with `mkdirat` on the
+    /// verified parent fd. The component that completes the pinned folder is identity-checked before
+    /// anything beneath it is created; the pinned folder itself is never created.
+    fn open_parent_with(comps: &[&str], pin: Option<&Pin>, create: bool) -> Result<OwnedFd, Error> {
         let depth = pin.map(|p| pinned_depth(comps, p)).transpose()?;
         let mut dir = openat(
             CWD,
@@ -381,13 +435,26 @@ mod safe_io {
         )
         .map_err(|e| denied(format!("open root: {e}")))?;
         for (i, comp) in comps[..comps.len() - 1].iter().enumerate() {
-            dir = openat(
-                &dir,
-                *comp,
-                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
-                Mode::empty(),
-            )
-            .map_err(|_| {
+            let open_comp = |dir: &OwnedFd| {
+                openat(
+                    dir,
+                    *comp,
+                    OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                    Mode::empty(),
+                )
+            };
+            let below_pin = depth.is_none_or(|d| i >= d);
+            let opened = match open_comp(&dir) {
+                Err(Errno::NOENT) if create && below_pin => {
+                    match mkdirat(&dir, *comp, Mode::from_raw_mode(0o777)) {
+                        Ok(()) | Err(Errno::EXIST) => {}
+                        Err(e) => return Err(denied(format!("create folder {comp:?}: {e}"))),
+                    }
+                    open_comp(&dir)
+                }
+                other => other,
+            };
+            dir = opened.map_err(|_| {
                 denied(format!(
                     "refusing symlinked or missing path component: {comp:?}"
                 ))
@@ -511,17 +578,41 @@ mod safe_io {
         }
     }
 
-    pub fn write_atomic(abs: &str, data: &[u8]) -> Result<(), Error> {
-        write_impl(abs, data, false)
-    }
-
-    pub fn write_exclusive(abs: &str, data: &[u8]) -> Result<(), Error> {
-        write_impl(abs, data, true)
-    }
-
-    fn write_impl(abs: &str, data: &[u8], no_replace: bool) -> Result<(), Error> {
+    /// Remove the empty directory `abs` with `unlinkat(AT_REMOVEDIR)` on its verified parent.
+    pub fn rmdir(abs: &str, pin: Option<&Pin>) -> Result<(), Error> {
         let comps = components(abs)?;
-        let parent = open_parent(&comps, None)?;
+        let parent = open_parent(&comps, pin)?;
+        unlinkat(&parent, comps[comps.len() - 1], AtFlags::REMOVEDIR)
+            .map_err(|e| denied(format!("rmdir: {e}")))
+    }
+
+    pub fn write_atomic(
+        abs: &str,
+        data: &[u8],
+        pin: Option<&Pin>,
+        create_dirs: bool,
+    ) -> Result<(), Error> {
+        write_impl(abs, data, false, pin, create_dirs)
+    }
+
+    pub fn write_exclusive(
+        abs: &str,
+        data: &[u8],
+        pin: Option<&Pin>,
+        create_dirs: bool,
+    ) -> Result<(), Error> {
+        write_impl(abs, data, true, pin, create_dirs)
+    }
+
+    fn write_impl(
+        abs: &str,
+        data: &[u8],
+        no_replace: bool,
+        pin: Option<&Pin>,
+        create_dirs: bool,
+    ) -> Result<(), Error> {
+        let comps = components(abs)?;
+        let parent = open_parent_with(&comps, pin, create_dirs)?;
         let leaf = comps[comps.len() - 1];
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -827,7 +918,7 @@ mod safe_io_tests {
     #[test]
     fn write_exclusive_creates_a_missing_target() {
         let d = scratch();
-        safe_io::write_exclusive(&s(&d.join("a.md")), b"one").unwrap();
+        safe_io::write_exclusive(&s(&d.join("a.md")), b"one", None, false).unwrap();
         assert_eq!(fs::read(d.join("a.md")).unwrap(), b"one");
         fs::remove_dir_all(&d).unwrap();
     }
@@ -836,7 +927,7 @@ mod safe_io_tests {
     fn write_exclusive_never_replaces_and_leaves_no_temp() {
         let d = scratch();
         fs::write(d.join("a.md"), b"original").unwrap();
-        let e = safe_io::write_exclusive(&s(&d.join("a.md")), b"clobber").unwrap_err();
+        let e = safe_io::write_exclusive(&s(&d.join("a.md")), b"clobber", None, false).unwrap_err();
         assert!(e.reason.starts_with("exists:"), "got {}", e.reason);
         assert_eq!(fs::read(d.join("a.md")).unwrap(), b"original");
         let names: Vec<_> = fs::read_dir(&d)
@@ -851,7 +942,7 @@ mod safe_io_tests {
     fn write_atomic_still_replaces() {
         let d = scratch();
         fs::write(d.join("a.md"), b"original").unwrap();
-        safe_io::write_atomic(&s(&d.join("a.md")), b"new").unwrap();
+        safe_io::write_atomic(&s(&d.join("a.md")), b"new", None, false).unwrap();
         assert_eq!(fs::read(d.join("a.md")).unwrap(), b"new");
         fs::remove_dir_all(&d).unwrap();
     }
@@ -901,7 +992,7 @@ mod safe_io_tests {
         let d = scratch();
         let outside = scratch();
         symlink(&outside, d.join("sub")).unwrap();
-        let r = safe_io::write_exclusive(&s(&d.join("sub/n.md")), b"x");
+        let r = safe_io::write_exclusive(&s(&d.join("sub/n.md")), b"x", None, false);
         assert!(r.is_err());
         assert!(!outside.join("n.md").exists());
         fs::remove_dir_all(&d).unwrap();
@@ -1079,6 +1170,129 @@ mod safe_io_tests {
         assert!(!d.join("gone/x.md").exists());
         let now = pin(&d.join("open"));
         assert!(safe_io::unlink(&x, Some(&now)).unwrap());
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// `open` pinned, then renamed away and `raw` renamed into its name: a write named through the
+    /// pinned directory must refuse (both the atomic and the exclusive form) and leave both
+    /// directories alone; with the identity intact the same write lands in the pinned directory.
+    #[test]
+    fn writes_through_a_replaced_pinned_directory_are_refused() {
+        let d = scratch();
+        for (dir, body) in [("open", b"open note"), ("raw", b"RAW SRC!!")] {
+            fs::create_dir(d.join(dir)).unwrap();
+            fs::write(d.join(dir).join("x.md"), body).unwrap();
+        }
+        let open = pin(&d.join("open"));
+        let x = s(&d.join("open/x.md"));
+        fs::rename(d.join("open"), d.join("gone")).unwrap();
+        fs::rename(d.join("raw"), d.join("open")).unwrap();
+        let Err(e) = safe_io::write_atomic(&x, b"OVERWRITE", Some(&open), false) else {
+            panic!("atomic write through a replaced pinned folder");
+        };
+        assert!(
+            e.reason.contains("no longer the directory"),
+            "got {}",
+            e.reason
+        );
+        let planted = s(&d.join("open/planted.md"));
+        assert!(safe_io::write_exclusive(&planted, b"planted", Some(&open), false).is_err());
+        assert_eq!(fs::read(d.join("open/x.md")).unwrap(), b"RAW SRC!!");
+        assert!(!d.join("open/planted.md").exists());
+        assert!(!d.join("gone/planted.md").exists());
+        let gone = pin(&d.join("gone"));
+        safe_io::write_exclusive(
+            &s(&d.join("gone/planted.md")),
+            b"planted",
+            Some(&gone),
+            false,
+        )
+        .unwrap();
+        assert_eq!(fs::read(d.join("gone/planted.md")).unwrap(), b"planted");
+        let now = pin(&d.join("open"));
+        safe_io::write_atomic(&x, b"new", Some(&now), false).unwrap();
+        assert_eq!(fs::read(d.join("open/x.md")).unwrap(), b"new");
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// `open` pinned, then renamed away and `raw` renamed into its name: a write that creates folders
+    /// below the pin is refused, and the swapped-in directory gets no new folder.
+    #[test]
+    fn create_dirs_through_a_replaced_pinned_directory_creates_nothing() {
+        let d = scratch();
+        for (dir, body) in [("open", b"open note"), ("raw", b"RAW SRC!!")] {
+            fs::create_dir(d.join(dir)).unwrap();
+            fs::write(d.join(dir).join("x.md"), body).unwrap();
+        }
+        let open = pin(&d.join("open"));
+        fs::rename(d.join("open"), d.join("gone")).unwrap();
+        fs::rename(d.join("raw"), d.join("open")).unwrap();
+        let nested = s(&d.join("open/newsub/deep/p.md"));
+        let Err(e) = safe_io::write_atomic(&nested, b"planted", Some(&open), true) else {
+            panic!("nested write through a replaced pinned folder");
+        };
+        assert!(
+            e.reason.contains("no longer the directory"),
+            "got {}",
+            e.reason
+        );
+        assert_eq!(fs::read_dir(d.join("open")).unwrap().count(), 1);
+        assert!(!d.join("open/newsub").exists());
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// A pinned folder moved away with nothing in its place is not created again by a nested write.
+    #[test]
+    fn create_dirs_never_re_creates_a_pinned_folder_moved_away() {
+        let d = scratch();
+        fs::create_dir(d.join("open")).unwrap();
+        let open = pin(&d.join("open"));
+        fs::rename(d.join("open"), d.join("gone")).unwrap();
+        assert!(
+            safe_io::write_atomic(&s(&d.join("open/n/p.md")), b"x", Some(&open), true).is_err()
+        );
+        assert!(!d.join("open").exists());
+        assert!(!d.join("gone/n").exists());
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// With the identity intact, the missing folders below the pin are made and the file lands; a
+    /// symlink planted below the pin is refused, and nothing is created through it.
+    #[test]
+    fn create_dirs_below_a_pin_makes_the_missing_folders_and_follows_no_symlink() {
+        use std::os::unix::fs::symlink;
+        let d = scratch();
+        let outside = scratch();
+        fs::create_dir(d.join("open")).unwrap();
+        let open = pin(&d.join("open"));
+        safe_io::write_atomic(&s(&d.join("open/a/b/n.md")), b"deep", Some(&open), true).unwrap();
+        assert_eq!(fs::read(d.join("open/a/b/n.md")).unwrap(), b"deep");
+        symlink(&outside, d.join("open/evil")).unwrap();
+        assert!(
+            safe_io::write_atomic(&s(&d.join("open/evil/q/p.md")), b"x", Some(&open), true)
+                .is_err()
+        );
+        assert!(!outside.join("q").exists());
+        fs::remove_dir_all(&d).unwrap();
+        fs::remove_dir_all(&outside).unwrap();
+    }
+
+    /// An empty folder below the pin is removed; a non-empty one is kept, and a replaced pin is refused.
+    #[test]
+    fn rmdir_removes_an_empty_folder_below_a_pin_and_refuses_a_replaced_one() {
+        let d = scratch();
+        fs::create_dir_all(d.join("open/made")).unwrap();
+        fs::create_dir_all(d.join("open/full")).unwrap();
+        fs::write(d.join("open/full/x.md"), b"x").unwrap();
+        let open = pin(&d.join("open"));
+        assert!(safe_io::rmdir(&s(&d.join("open/full")), Some(&open)).is_err());
+        assert!(d.join("open/full/x.md").exists());
+        safe_io::rmdir(&s(&d.join("open/made")), Some(&open)).unwrap();
+        assert!(!d.join("open/made").exists());
+        fs::rename(d.join("open"), d.join("gone")).unwrap();
+        fs::create_dir_all(d.join("open/victim")).unwrap();
+        assert!(safe_io::rmdir(&s(&d.join("open/victim")), Some(&open)).is_err());
+        assert!(d.join("open/victim").exists());
         fs::remove_dir_all(&d).unwrap();
     }
 }
