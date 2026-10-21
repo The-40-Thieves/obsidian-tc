@@ -38,6 +38,7 @@ import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl, ImmutableRewriteSkips } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import { runBulk } from "../../vault/bulk";
+import { requireContentRead } from "../../vault/cas";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
 import {
   commitPlanned,
@@ -321,6 +322,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             const rel = normalizeVaultPath(path);
             const abs = resolveVaultPath(v.root, rel);
             enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
+            requireContentRead(ctx, v.root, rel);
             const ex = noteExists(abs);
             if (!ex.exists || ex.type === "folder")
               throw err.noteNotFound("note not found", { path: rel });

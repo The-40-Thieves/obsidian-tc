@@ -256,7 +256,7 @@ export const MoveNoteOutput = z.object({
   moved: z.literal(true),
   overwritten: z.boolean(),
   trashed_dest_to: z.string().nullable(),
-  content_hash: z.string(),
+  content_hash: z.string().nullable(),
   backlinks_updated: z.object({ notes: z.number(), links: z.number() }),
   ...rewriteWarningsShape,
   ...immutableSkipShape,

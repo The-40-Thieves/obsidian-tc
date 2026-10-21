@@ -16,7 +16,7 @@ import { frontmatterFallbackSink } from "../../util/errors";
 import { DEFAULT_SCAN_LIMIT, nextOffsetCursor, offsetOf } from "../../util/paginate";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableEntry, readableRel } from "../../vault/acl-read-filter";
-import { callerMayReadNote, casConflict } from "../../vault/cas";
+import { checkCas, requireContentRead } from "../../vault/cas";
 import { type Frontmatter, parseNote, serializeNote } from "../../vault/frontmatter";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
@@ -231,6 +231,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
         enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
+        requireContentRead(ctx, v.root, rel);
         const tag = normalizeTag(input.tag);
         if (!isValidTag(tag)) throw err.invalidInput("invalid tag", { tag: input.tag });
 
@@ -238,12 +239,14 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
         const { raw, hash } = readNote(abs);
-        if (input.prev_hash !== undefined && input.prev_hash !== hash)
-          throw casConflict(
-            "note changed since prev_hash",
-            { path: rel, expected: input.prev_hash },
-            { hash: hash, mayRead: callerMayReadNote(ctx, v.root, rel) },
-          );
+        checkCas({
+          ctx,
+          root: v.root,
+          rel: rel,
+          prevHash: input.prev_hash,
+          currentHash: hash,
+          message: "note changed since prev_hash",
+        });
 
         const parsed = parseNote(raw, rel);
         let fm: Frontmatter | null = parsed.frontmatter;
@@ -311,6 +314,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
         enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
+        requireContentRead(ctx, v.root, rel);
         const tag = normalizeTag(input.tag);
         if (!isValidTag(tag)) throw err.invalidInput("invalid tag", { tag: input.tag });
 
@@ -318,12 +322,14 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("note not found", { path: rel });
         const { raw, hash } = readNote(abs);
-        if (input.prev_hash !== undefined && input.prev_hash !== hash)
-          throw casConflict(
-            "note changed since prev_hash",
-            { path: rel, expected: input.prev_hash },
-            { hash: hash, mayRead: callerMayReadNote(ctx, v.root, rel) },
-          );
+        checkCas({
+          ctx,
+          root: v.root,
+          rel: rel,
+          prevHash: input.prev_hash,
+          currentHash: hash,
+          message: "note changed since prev_hash",
+        });
 
         const parsed = parseNote(raw, rel);
         let fm: Frontmatter = { ...(parsed.frontmatter ?? {}) };

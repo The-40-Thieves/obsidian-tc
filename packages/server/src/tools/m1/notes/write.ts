@@ -20,7 +20,7 @@ import { assessPoison } from "../../../experiential/poison";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { frontmatterFallbackSink } from "../../../util/errors";
 import { enforcePathAcl } from "../../../vault/acl-path";
-import { callerMayReadNote, casConflict, readGatedAck } from "../../../vault/cas";
+import { callerMayReadNote, checkCas, readGatedAck, requireContentRead } from "../../../vault/cas";
 import { parseNote, serializeNote } from "../../../vault/frontmatter";
 import { requireConfirmation } from "../../../vault/hitl";
 import { noteExists, readNote, writeNoteAtomic } from "../../../vault/notes-io";
@@ -132,16 +132,20 @@ export function createWriteNoteTool(deps: M1Deps): ToolDefinition {
         const cur = readNote(abs);
         prevHash = cur.hash;
         prevEmpty = cur.raw.length === 0;
-        if (input.prev_hash !== undefined && input.prev_hash !== cur.hash)
-          throw casConflict(
-            "note changed since prev_hash",
-            { path: rel, expected: input.prev_hash },
-            { hash: cur.hash, mayRead: callerMayReadNote(ctx, v.root, rel) },
-          );
+        checkCas({
+          ctx,
+          root: v.root,
+          rel: rel,
+          prevHash: input.prev_hash,
+          currentHash: cur.hash,
+          message: "note changed since prev_hash",
+        });
       }
 
-      const needsConfirm = ex.exists && !prevEmpty;
       const mayRead = callerMayReadNote(ctx, v.root, rel);
+      // A caller who may not read the note cannot tell an empty note from a full one, so it always
+      // confirms an overwrite of an existing note.
+      const needsConfirm = ex.exists && (!prevEmpty || !mayRead);
       requireConfirmation(ctx, "write_note", input, needsConfirm, {
         path: rel,
         mode: input.mode,
@@ -250,12 +254,14 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
         const cur = readNote(abs);
         prevHash = cur.hash;
         prevRaw = cur.raw;
-        if (input.prev_hash !== undefined && input.prev_hash !== cur.hash)
-          throw casConflict(
-            "note changed since prev_hash",
-            { path: rel, expected: input.prev_hash },
-            { hash: cur.hash, mayRead: callerMayReadNote(ctx, v.root, rel) },
-          );
+        checkCas({
+          ctx,
+          root: v.root,
+          rel: rel,
+          prevHash: input.prev_hash,
+          currentHash: cur.hash,
+          message: "note changed since prev_hash",
+        });
         const sep =
           input.ensure_newline && cur.raw.length > 0 && !cur.raw.endsWith("\n") ? "\n" : "";
         next = cur.raw + sep + input.content;
@@ -326,6 +332,15 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
       const rel = normalizeVaultPath(input.path);
       const abs = resolveVaultPath(v.root, rel);
       enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
+      // Only a frontmatter-preamble append or prepend is content-blind; every other patch depends on the
+      // note's bytes (a heading, block or line anchor, replace, replace_text, or an insert_before match),
+      // so a caller who may not read the note is refused before anything is looked up.
+      const contentBlind =
+        (input.operation === "append" || input.operation === "prepend") &&
+        input.anchor?.type === "frontmatter" &&
+        input.target_heading === undefined &&
+        input.insert_before === undefined;
+      if (!contentBlind) requireContentRead(ctx, v.root, rel);
       const ex = noteExists(abs);
       if (!ex.exists || ex.type === "folder")
         throw err.noteNotFound("note not found", { path: rel });
@@ -333,12 +348,14 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
       const { raw, hash } = readNote(abs);
       if (deps.requireCas && input.prev_hash === undefined)
         throw err.invalidInput(CAS_REQUIRED_APPEND, { path: rel });
-      if (input.prev_hash !== undefined && input.prev_hash !== hash)
-        throw casConflict(
-          "note changed since prev_hash",
-          { path: rel, expected: input.prev_hash },
-          { hash: hash, mayRead: callerMayReadNote(ctx, v.root, rel) },
-        );
+      checkCas({
+        ctx,
+        root: v.root,
+        rel: rel,
+        prevHash: input.prev_hash,
+        currentHash: hash,
+        message: "note changed since prev_hash",
+      });
       const eol = raw.includes("\r\n") ? "\r\n" : "\n";
       const parsed = parseNote(raw, rel);
       const canReadNote = callerMayReadNote(ctx, v.root, rel);

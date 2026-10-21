@@ -11,7 +11,7 @@ import { z } from "zod";
 import { readJsonFile, writeJsonFile } from "../../formats/json-config";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { casConflict } from "../../vault/cas";
+import { checkCas } from "../../vault/cas";
 import { resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import type { M3Deps } from "./shared";
@@ -196,10 +196,16 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
         enforcePathAcl(ctx.acl, "write", BOOKMARKS_PATH, v.root, ctx.grantedScopes);
         const abs = resolveVaultPath(v.root, BOOKMARKS_PATH);
         const file = readJsonFile<BookmarksDoc>(abs, { items: [] });
-        if (input.prev_hash !== undefined && input.prev_hash !== file.hash)
-          throw casConflict("bookmarks.json changed since prev_hash", {
-            path: BOOKMARKS_PATH,
-          });
+        checkCas({
+          ctx,
+          root: v.root,
+          rel: BOOKMARKS_PATH,
+          readScope: "read:bookmarks",
+          prevHash: input.prev_hash,
+          currentHash: file.hash,
+          message: "bookmarks.json changed since prev_hash",
+          echoCurrent: false,
+        });
         const data = file.data;
         if (!Array.isArray(data.items)) data.items = [];
         const items = data.items;
@@ -259,10 +265,16 @@ export function buildBookmarkTools(deps: M3Deps): ToolDefinition[] {
         enforcePathAcl(ctx.acl, "delete", BOOKMARKS_PATH, v.root, ctx.grantedScopes);
         const abs = resolveVaultPath(v.root, BOOKMARKS_PATH);
         const file = readJsonFile<BookmarksDoc>(abs, { items: [] });
-        if (input.prev_hash !== undefined && input.prev_hash !== file.hash)
-          throw casConflict("bookmarks.json changed since prev_hash", {
-            path: BOOKMARKS_PATH,
-          });
+        checkCas({
+          ctx,
+          root: v.root,
+          rel: BOOKMARKS_PATH,
+          readScope: "read:bookmarks",
+          prevHash: input.prev_hash,
+          currentHash: file.hash,
+          message: "bookmarks.json changed since prev_hash",
+          echoCurrent: false,
+        });
         const data = file.data;
         const items = Array.isArray(data.items) ? data.items : [];
 

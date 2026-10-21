@@ -507,7 +507,7 @@ describe("append_active_file / patch_active_file", () => {
     expect(e.details).toMatchObject({ found_elsewhere: { count: 1, headings: ["A"] } });
   });
 
-  it("a replace_text miss hides patch_note's detail without read:notes", async () => {
+  it("a replace_text edit is refused to a caller without read:notes", async () => {
     const note = "# PublicHeading\n\nbody-secret\n\n## Todo\n\n- one\n";
     const h = harness({ files: { "Notes/a.md": note } });
     h.focus("Notes/a.md");
@@ -525,18 +525,15 @@ describe("append_active_file / patch_active_file", () => {
       ),
     );
     expect(e.code).toBe("invalid_input");
-    expect(e.message).toBe("old_string must occur exactly once in the section");
-    expect(e.details).toEqual({
-      path: "Notes/a.md",
-      anchor: { type: "heading", heading: "Todo" },
-    });
+    expect(e.message).toBe("this operation needs read access to the target");
+    expect(e.details).toEqual({ path: "Notes/a.md" });
     const wire = JSON.stringify(e);
     expect(wire).not.toContain("PublicHeading");
     expect(wire).not.toContain("body-secret");
     expect(wire).not.toContain("- one");
   });
 
-  it("a replace_text miss hides patch_note's detail when readPaths excludes the active note", async () => {
+  it("a replace_text edit is refused when readPaths excludes the active note", async () => {
     const note = "# PublicHeading\n\nbody-secret\n\n## Todo\n\n- one\n";
     const h = harness({ files: { "Notes/a.md": note }, acl: { readPaths: ["Public/**"] } });
     h.focus("Notes/a.md");
@@ -554,11 +551,8 @@ describe("append_active_file / patch_active_file", () => {
       ),
     );
     expect(e.code).toBe("invalid_input");
-    expect(e.message).toBe("old_string must occur exactly once in the section");
-    expect(e.details).toEqual({
-      path: "Notes/a.md",
-      anchor: { type: "heading", heading: "Todo" },
-    });
+    expect(e.message).toBe("this operation needs read access to the target");
+    expect(e.details).toEqual({ path: "Notes/a.md" });
     const wire = JSON.stringify(e);
     expect(wire).not.toContain("PublicHeading");
     expect(wire).not.toContain("body-secret");
@@ -597,11 +591,8 @@ describe("append_active_file / patch_active_file", () => {
         );
         expect(error).toMatchObject({
           code: "invalid_input",
-          message: "old_string must occur exactly once in the section",
-          details: {
-            path: "Notes/a.md",
-            anchor: { type: "heading", heading: "Todo" },
-          },
+          message: "this operation needs read access to the target",
+          details: { path: "Notes/a.md" },
         });
         errors.push(error);
       }
@@ -642,7 +633,7 @@ describe("append_active_file / patch_active_file", () => {
         );
         expect(error).toMatchObject({
           code: "invalid_input",
-          message: "anchor could not be resolved",
+          message: "this operation needs read access to the target",
           details: { path: "Notes/a.md" },
         });
         errors.push(error);
@@ -670,7 +661,7 @@ describe("append_active_file / patch_active_file", () => {
         );
         expect(error).toMatchObject({
           code: "invalid_input",
-          message: "anchor could not be resolved",
+          message: "this operation needs read access to the target",
           details: { path: "Notes/a.md" },
         });
         errors.push(error);

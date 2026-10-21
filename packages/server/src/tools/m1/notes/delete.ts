@@ -4,7 +4,7 @@
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { enforcePathAcl } from "../../../vault/acl-path";
-import { callerMayReadNote, casConflict } from "../../../vault/cas";
+import { callerMayReadNote, checkCas } from "../../../vault/cas";
 import { hardDelete, noteExists, readNote, trashNote } from "../../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../../../vault/paths";
 import { captureSnapshot } from "../../../vault/snapshots";
@@ -33,12 +33,14 @@ export function createDeleteNoteTool(deps: M1Deps): ToolDefinition {
       if (!ex.exists || ex.type === "folder")
         throw err.noteNotFound("note not found", { path: rel });
       const { raw, hash } = readNote(abs);
-      if (input.prev_hash !== undefined && input.prev_hash !== hash)
-        throw casConflict(
-          "note changed since prev_hash",
-          { path: rel, expected: input.prev_hash },
-          { hash: hash, mayRead: callerMayReadNote(ctx, v.root, rel) },
-        );
+      checkCas({
+        ctx,
+        root: v.root,
+        rel: rel,
+        prevHash: input.prev_hash,
+        currentHash: hash,
+        message: "note changed since prev_hash",
+      });
       // THE-603: delete_note is unconditionally destructive (destructive:true, gated in
       // dispatch) — the sharpest case for a silently inert snapshot no-op, since restore_note
       // is the documented undo and a permanent delete leaves no other recovery path at all.

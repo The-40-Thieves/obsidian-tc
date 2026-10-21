@@ -7,7 +7,7 @@ import { z } from "zod";
 import { MEMORY_DEFENSE_OFF } from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { callerMayReadNote, casConflict } from "../../vault/cas";
+import { checkCas, requireContentRead } from "../../vault/cas";
 import { requireConfirmation } from "../../vault/hitl";
 import { noteExists, readNote, writeNoteAtomicGuarded } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
@@ -182,6 +182,7 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
         const rel = normalizeVaultPath(input.path);
         const abs = resolveVaultPath(v.root, rel);
         enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
+        requireContentRead(ctx, v.root, rel);
         const snap = readSnapshot(ctx.db, v.id, input.snapshot_id);
         if (!snap) throw err.notFound("snapshot not found", { snapshot_id: input.snapshot_id });
         if (snap.path !== rel)
@@ -199,12 +200,14 @@ export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {
           const cur = readNote(abs);
           prevHash = cur.hash;
           prevRaw = cur.raw;
-          if (input.prev_hash !== undefined && input.prev_hash !== cur.hash)
-            throw casConflict(
-              "note changed since prev_hash",
-              { path: rel, expected: input.prev_hash },
-              { hash: cur.hash, mayRead: callerMayReadNote(ctx, v.root, rel) },
-            );
+          checkCas({
+            ctx,
+            root: v.root,
+            rel: rel,
+            prevHash: input.prev_hash,
+            currentHash: cur.hash,
+            message: "note changed since prev_hash",
+          });
         }
         // Validate first (bad snapshot/path -> invalid_input) THEN gate the destructive overwrite.
         requireConfirmation(ctx, "restore_note", input, true, {

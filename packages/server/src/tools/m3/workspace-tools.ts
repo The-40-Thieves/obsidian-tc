@@ -12,7 +12,7 @@ import { z } from "zod";
 import { readJsonFile, writeJsonFile } from "../../formats/json-config";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { casConflict } from "../../vault/cas";
+import { checkCas } from "../../vault/cas";
 import { requireConfirmation } from "../../vault/hitl";
 import { resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
@@ -111,10 +111,16 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
         enforcePathAcl(ctx.acl, "write", WORKSPACES_PATH, v.root, ctx.grantedScopes);
         const abs = resolveVaultPath(v.root, WORKSPACES_PATH);
         const file = readJsonFile<WorkspacesDoc>(abs, { workspaces: {} });
-        if (input.prev_hash !== undefined && input.prev_hash !== file.hash)
-          throw casConflict("workspaces.json changed since prev_hash", {
-            path: WORKSPACES_PATH,
-          });
+        checkCas({
+          ctx,
+          root: v.root,
+          rel: WORKSPACES_PATH,
+          readScope: "read:workspaces",
+          prevHash: input.prev_hash,
+          currentHash: file.hash,
+          message: "workspaces.json changed since prev_hash",
+          echoCurrent: false,
+        });
         const ws = workspacesOf(file.data);
         if (!(input.name in ws))
           throw err.noteNotFound("workspace not found", { name: input.name });
@@ -161,10 +167,16 @@ export function buildWorkspaceTools(deps: M3Deps): ToolDefinition[] {
         enforcePathAcl(ctx.acl, "write", WORKSPACES_PATH, v.root, ctx.grantedScopes);
         const abs = resolveVaultPath(v.root, WORKSPACES_PATH);
         const file = readJsonFile<WorkspacesDoc>(abs, { workspaces: {} });
-        if (input.prev_hash !== undefined && input.prev_hash !== file.hash)
-          throw casConflict("workspaces.json changed since prev_hash", {
-            path: WORKSPACES_PATH,
-          });
+        checkCas({
+          ctx,
+          root: v.root,
+          rel: WORKSPACES_PATH,
+          readScope: "read:workspaces",
+          prevHash: input.prev_hash,
+          currentHash: file.hash,
+          message: "workspaces.json changed since prev_hash",
+          echoCurrent: false,
+        });
         const data = file.data;
         if (
           !data.workspaces ||

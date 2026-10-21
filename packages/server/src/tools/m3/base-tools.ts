@@ -33,7 +33,7 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { applyLogic, evaluatesTruthy } from "../../search/jsonlogic";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableEntry } from "../../vault/acl-read-filter";
-import { callerMayReadFile, casConflict } from "../../vault/cas";
+import { checkCas, requireContentRead } from "../../vault/cas";
 import { requireConfirmation } from "../../vault/hitl";
 import {
   buildVaultIndex,
@@ -297,16 +297,20 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         requireBaseExt(rel);
         const abs = resolveVaultPath(v.root, rel);
         enforcePathAcl(ctx.acl, "write", rel, v.root, ctx.grantedScopes);
+        requireContentRead(ctx, v.root, rel, "read:bases");
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("base not found", { path: rel });
         const { raw: text, hash } = readNote(abs);
-        if (input.prev_hash !== undefined && input.prev_hash !== hash)
-          throw casConflict(
-            "base changed since prev_hash",
-            { path: rel, expected: input.prev_hash },
-            { hash: hash, mayRead: callerMayReadFile(ctx, v.root, rel, "read:bases") },
-          );
+        checkCas({
+          ctx,
+          root: v.root,
+          rel: rel,
+          readScope: "read:bases",
+          prevHash: input.prev_hash,
+          currentHash: hash,
+          message: "base changed since prev_hash",
+        });
         const patch = input.patch;
         requireConfirmation(
           ctx,

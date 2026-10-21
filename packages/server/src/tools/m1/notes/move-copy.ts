@@ -14,7 +14,7 @@ import type { ToolDefinition } from "../../../mcp/registry";
 import type { MetricsRecorder } from "../../../metrics/registry";
 import { enforcePathAcl, ImmutableRewriteSkips } from "../../../vault/acl-path";
 import { readableRel } from "../../../vault/acl-read-filter";
-import { callerMayReadNote, casConflict } from "../../../vault/cas";
+import { callerMayReadNote, checkCas, requireContentRead } from "../../../vault/cas";
 import { requireConfirmation } from "../../../vault/hitl";
 import { buildVaultIndex, resolveTarget } from "../../../vault/links";
 import {
@@ -175,12 +175,14 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
       const readable = (rel: string): boolean => readableRel(ctx.acl, rel, ctx.grantedScopes);
       const planMove = (record: boolean): MovePlan => {
         const { raw, hash } = readNote(fromAbs);
-        if (input.prev_hash !== undefined && input.prev_hash !== hash)
-          throw casConflict(
-            "note changed since prev_hash",
-            { path: fromRel, expected: input.prev_hash },
-            { hash: hash, mayRead: callerMayReadNote(ctx, v.root, fromRel) },
-          );
+        checkCas({
+          ctx,
+          root: v.root,
+          rel: fromRel,
+          prevHash: input.prev_hash,
+          currentHash: hash,
+          message: "note changed since prev_hash",
+        });
         const metrics = record ? deps.metrics : undefined;
         // The relocated CONTENT can carry a pre-existing secret that predates memoryDefense (the
         // note may have been written before the vault opted in), so scan the bytes about to land at
@@ -267,6 +269,7 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
       deps.deindex?.(v.id, fromRel);
       deps.reindex?.(v.id, toRel, plan.scannedRaw);
       for (const r of plan.backlinks.pending) deps.reindex?.(v.id, r.rel, r.text);
+      const mayRead = callerMayReadNote(ctx, v.root, fromRel);
       return {
         vault: v.id,
         from: fromRel,
@@ -274,7 +277,7 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
         moved: true,
         overwritten: toEx.exists,
         trashed_dest_to: trashedDestTo,
-        content_hash: contentHash(plan.scannedRaw),
+        content_hash: mayRead ? contentHash(plan.scannedRaw) : null,
         backlinks_updated: {
           notes: plan.backlinks.pending.length,
           links: plan.backlinks.pending.reduce((n, r) => n + r.count, 0),
@@ -309,6 +312,7 @@ export function createCopyNoteTool(deps: M1Deps): ToolDefinition {
       const fromAbs = resolveVaultPath(v.root, fromRel);
       const toAbs = resolveVaultPath(v.root, toRel);
       enforcePathAcl(ctx.acl, "read", fromRel, v.root, ctx.grantedScopes);
+      requireContentRead(ctx, v.root, fromRel);
       enforcePathAcl(ctx.acl, "write", toRel, v.root, ctx.grantedScopes);
       const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
       // item 1 sibling writer: see move_note's identical comment above.

@@ -293,9 +293,18 @@ write is rejected with `concurrent_modification` if the note changed underneath 
 defense-in-depth for multi-writer setups (e.g. several agents writing one vault). It is optional by default;
 set **`writes.requireCas: true`** to make it **mandatory** on the destructive paths (`write_note` overwrite,
 `append_note` and `patch_note` to an existing note), which then fail closed with `invalid_input` when
-`prev_hash` is absent. The CAS detail is read-gated: a caller that may write a note but not read it gets
-`concurrent_modification` and acks without the note's current hash, so the hash cannot be used to guess its
-content. Making it the
+`prev_hash` is absent. The CAS detail is read-gated, and a caller that may write a note but not read it gets only
+content-blind writes. Those are: create, overwrite (always confirmed), `append_note`, a `patch_note`
+append or prepend under the frontmatter preamble, `move_note`, and `delete_note`. Anything whose
+outcome depends on the note's bytes is refused with one fixed `invalid_input`, before anything is
+compared or read: any `prev_hash` the caller supplies (so under `writes.requireCas` such a caller
+cannot append to or patch an existing note), `patch_note` `replace`/`replace_text` and heading, block
+or line anchors, `add_tag`, `remove_tag`, `update_frontmatter`, `bulk_set_property` (per note), the
+table, Kanban, canvas and base tools, `restore_note`, `prune_hub_links`, and `copy_note` (which also
+needs `read:notes` on its source). A write ack for such a caller carries no `prev_hash`,
+`quality_warning` or whole-note `content_hash`. The size and count fields of those acks (bytes
+written, lines and bytes removed, row and redaction counts) are a known residual, tracked separately.
+Making it the
 non-configurable hard default remains deferred to a future major (a breaking API change).
 
 When `execute_template` creates a note and provenance frontmatter stamping is enabled, the
