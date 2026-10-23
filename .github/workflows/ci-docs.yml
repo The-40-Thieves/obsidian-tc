@@ -47,8 +47,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # bun + the ROOT install: the build's first step generates the per-tool pages from the live
       # tool registry, which needs the server package's dependencies. bun-version is the action's
-      # default (1.4.3).
+      # default (1.4.3). Node too: astro 7.4 refuses the runner's preinstalled Node 22.23.3
+      # (engines >=22.23.4), so the build runs on the setup-repo target.
       - uses: ./.github/actions/setup-repo
+        with:
+          node-required: 'true'
       - name: Install
         working-directory: docs
         run: bun install --frozen-lockfile
