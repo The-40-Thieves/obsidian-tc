@@ -14,12 +14,14 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "mutate": "node ./node_modules/@stryker-mutator/core/bin/stryker.js run"
   },
   "dependencies": {
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "10.0.0",
     "@types/node": "^26.6.4",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
