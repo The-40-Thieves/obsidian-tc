@@ -71,6 +71,15 @@ function stampCreatedNote(
   }
 }
 
+/** The vault-relative file Templater writes for a `target`. The companion route appends `.md` unless
+ *  the target already ends in it (case-sensitive, as there). Every judgment and the bridge request
+ *  name this path, never the raw target, so the ACL, the approval fingerprint and the existence check
+ *  bind the file that is actually written. */
+function templaterOutputPath(rawTarget: string): string {
+  const target = normalizeVaultPath(rawTarget);
+  return target.endsWith(".md") ? target : `${target}.md`;
+}
+
 export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
   return [
     defineTool({
@@ -117,7 +126,7 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
       vaultArg: "vault",
       pathAcl: (input) => [
         { op: "read", path: input.template },
-        { op: "write", path: input.target },
+        { op: "write", path: templaterOutputPath(input.target) },
       ],
       description:
         "Run a Templater template and write the expanded output to a target path. Returns the vault-relative path Templater actually created. Always requires human confirmation (write:templater is a HITL floor) because templates can execute arbitrary user JavaScript. Domain: automation.",
@@ -135,13 +144,13 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const template = normalizeVaultPath(input.template);
-        const target = normalizeVaultPath(input.target);
+        const requested = normalizeVaultPath(input.target);
+        const targetFile = templaterOutputPath(input.target);
         enforcePathAcl(ctx.acl, "read", template, v.root, ctx.grantedScopes);
-        enforcePathAcl(ctx.acl, "write", target, v.root, ctx.grantedScopes);
+        enforcePathAcl(ctx.acl, "write", targetFile, v.root, ctx.grantedScopes);
         // THE-289: Templater writes <target>.md and its create API silently clobbers/dups an
         // existing file, so honor overwrite server-side (authoritative, independent of the
         // companion version): refuse when the resolved target already exists and overwrite is off.
-        const targetFile = target.endsWith(".md") ? target : `${target}.md`;
         const existed = noteExists(resolveVaultPath(v.root, targetFile)).exists;
         if (!input.overwrite && existed)
           throw err.noteExists("target already exists; set overwrite to replace it", {
@@ -153,7 +162,7 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
           path: "/templater/execute",
           body: {
             template,
-            target,
+            target: targetFile,
             overwrite: input.overwrite,
             ...(input.args ? { args: input.args } : {}),
           },
@@ -181,7 +190,7 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
         }
         if (reported === "") throw unusableAck("companion reported an empty created path");
         // Older companions echo the requested target back without the `.md` Templater appended.
-        const createdTarget = reported === target ? targetFile : reported;
+        const createdTarget = reported === requested ? targetFile : reported;
         // The requested target was write-checked before the call; a caller may write a folder it
         // cannot read, and must not see a successful run reported as a denial.
         if (createdTarget !== targetFile)
