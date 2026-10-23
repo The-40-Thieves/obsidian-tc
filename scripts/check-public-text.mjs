@@ -158,6 +158,61 @@ export function findPublicTextViolations(fileContents) {
 // count). The floor sits a little below that so ordinary deletions do not trip it.
 const MIN_EXPECTED_FILES = 240;
 
+// Tracker-id ratchet: the zero-tolerance scan above covers user-facing text only. Code comments
+// still carry bare ids, so this counts them across every tracked file and fails only when the
+// total rises. CHANGELOG.md and changes/ come out via isAllowlisted; the gate's own source and
+// tests spell the pattern out (a regex, fixtures), so they are excluded here too.
+const BASELINE_PATH = resolve(ROOT, "scripts/public-text-baseline.json");
+const TRACKER_ID_RE = /\bTHE-\d+\b/g;
+const RATCHET_EXCLUDED = new Set([
+  "scripts/public-text-baseline.json",
+  "scripts/check-public-text.mjs",
+  "scripts/check-public-text.test.mjs",
+]);
+// Floor: a few thousand files are tracked; a broken enumeration must fail, not count zero.
+const MIN_RATCHET_FILES = 1000;
+
+export function loadBaseline() {
+  return JSON.parse(readFileSync(BASELINE_PATH, "utf8"));
+}
+
+/** Pure: is this tracked path counted by the tracker-id ratchet? */
+export function isRatchetCountedPath(path) {
+  return !isAllowlisted(path) && !RATCHET_EXCLUDED.has(path);
+}
+
+/** Pure: bare ticket-id count in one file's bytes. A NUL byte marks a binary file, which git
+ *  itself treats as non-text, so it contributes nothing. */
+export function trackerIdCount(buffer) {
+  if (buffer.includes(0)) return 0;
+  return (buffer.toString("utf8").match(TRACKER_ID_RE) || []).length;
+}
+
+/** Pure ratchet decision: `count` against `baseline.maxTrackerIds`. */
+export function evaluateTrackerRatchet(count, baseline) {
+  if (count > baseline.maxTrackerIds) return { status: "over", failed: true };
+  if (count < baseline.maxTrackerIds) return { status: "under", failed: false };
+  return { status: "at", failed: false };
+}
+
+function trackerIdTotal() {
+  const files = run("git", ["ls-files", "-z"])
+    .split("\0")
+    .filter(Boolean)
+    .filter(isRatchetCountedPath);
+  let count = 0;
+  for (const path of files) {
+    let buffer;
+    try {
+      buffer = readFileSync(resolve(ROOT, path));
+    } catch {
+      continue; // deleted since ls-files
+    }
+    count += trackerIdCount(buffer);
+  }
+  return { fileCount: files.length, count };
+}
+
 function main() {
   const files = listScannedFiles();
   if (files.length < MIN_EXPECTED_FILES) {
@@ -189,7 +244,37 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`check-public-text: OK — ${files.length} file(s) scanned, 0 findings.`);
+  const { fileCount, count } = trackerIdTotal();
+  if (fileCount < MIN_RATCHET_FILES) {
+    console.error(
+      `check-public-text: FAIL — only ${fileCount} tracked file(s) counted by the tracker-id ` +
+        `ratchet (expected >= ${MIN_RATCHET_FILES}). The git enumeration is broken, not clean.`,
+    );
+    process.exit(1);
+  }
+  const baseline = loadBaseline();
+  const ratchet = evaluateTrackerRatchet(count, baseline);
+  if (ratchet.failed) {
+    console.error(
+      `check-public-text: FAIL — ${count} bare ticket id(s) in tracked text, ` +
+        `${count - baseline.maxTrackerIds} above the baseline of ${baseline.maxTrackerIds} ` +
+        "(scripts/public-text-baseline.json). The count may only go down: remove the id you " +
+        "added and describe the behaviour in words. Never raise maxTrackerIds to admit one.",
+    );
+    process.exit(1);
+  }
+  if (ratchet.status === "under") {
+    console.log(
+      `check-public-text: ${count} bare ticket id(s), ${baseline.maxTrackerIds - count} below ` +
+        `the baseline of ${baseline.maxTrackerIds} -- lower maxTrackerIds in ` +
+        "scripts/public-text-baseline.json to lock in the improvement.",
+    );
+  }
+
+  console.log(
+    `check-public-text: OK — ${files.length} file(s) scanned, 0 findings; ${count} bare ticket ` +
+      `id(s) in tracked text (baseline ${baseline.maxTrackerIds}).`,
+  );
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
