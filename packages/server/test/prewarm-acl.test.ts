@@ -375,12 +375,14 @@ describe("prewarm cache ACL leak (THE-543)", () => {
         // than silently pass.
         return;
       }
+      // The spawn budget sits strictly inside the test timeout (below). Equal budgets let a slow
+      // cold `bun` start on Windows surface as a bare "Test timed out" with no subprocess output.
       const r = spawnSync("bun", [CLI, "prefetch", configPath], {
         encoding: "utf8",
-        timeout: 60_000,
+        timeout: 90_000,
         env: { ...process.env, NO_COLOR: "1" },
       });
-      expect(r.status).toBe(0);
+      expect(r.status, `${r.error?.message ?? ""}\n${r.stderr}`).toBe(0);
 
       // The CLI's writer used the trusted, unbound (no-ACL) context — its cache identity must
       // be the same "no-acl" sentinel the live path uses for an unbound caller, and its file
@@ -409,5 +411,5 @@ describe("prewarm cache ACL leak (THE-543)", () => {
     } finally {
       rmTemp(cliDir);
     }
-  }, 60_000);
+  }, 120_000);
 });
