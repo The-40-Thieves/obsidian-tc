@@ -34,6 +34,30 @@ describe("query_base with the Bases DSL subset (THE-281)", () => {
     }
   });
 
+  it("an oversized string override_filters is refused before parsing, without echoing it", async () => {
+    const v = makeM3Vault({
+      files: {
+        "real.base": REAL_BASE,
+        "t1.md": "---\ntags: [project]\nstatus: active\n---\nx",
+      },
+    });
+    try {
+      const huge = `PAYLOAD${" ".repeat(16_384 + 1 - "PAYLOAD".length)}`;
+      const bad = await v.call("query_base", {
+        vault: "test",
+        path: "real.base",
+        override_filters: huge,
+      });
+      expect(bad.ok).toBe(false);
+      if (!bad.ok) {
+        expect(bad.error.code).toBe("unsupported_base_filter");
+        expect(JSON.stringify(bad)).not.toContain("PAYLOAD");
+      }
+    } finally {
+      v.cleanup();
+    }
+  });
+
   it("string override_filters narrow further; unsupported constructs refuse typed", async () => {
     const v = makeM3Vault({
       files: {

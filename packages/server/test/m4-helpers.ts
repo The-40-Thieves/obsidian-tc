@@ -41,6 +41,8 @@ export interface M4VaultOptions {
   installed?: string[];
   /** When true, no bridge client is wired (bridgeFor returns undefined). */
   noBridge?: boolean;
+  /** Wire the vault root into the registry so a confirmation binds the state it names (replay_drift). */
+  bindState?: boolean;
   /** Per-vault command-palette execution policy (deny-by-default when omitted). */
   commandPolicy?: (vaultId: string) => { enabled: boolean; allowlist: string[] };
   vaultId?: string;
@@ -117,7 +119,12 @@ export function makeM4Vault(opts: M4VaultOptions = {}): M4Vault {
     ? undefined
     : createBridgeClient({ baseUrl: BASE, apiKey: "test-key", fetchFn });
 
-  const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
+  const registry = new ToolRegistry({
+    verifyElicit: elicitVerifier,
+    ...(opts.bindState
+      ? { rootResolver: (vaultId: string) => (vaultId === id ? root : undefined) }
+      : {}),
+  });
   registerM4Tools(registry, {
     vaultRegistry,
     capabilities,
