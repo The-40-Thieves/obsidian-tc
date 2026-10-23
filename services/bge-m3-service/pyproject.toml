@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "obsidian-tc-bge-m3-service"
 version = "0.1.0"
 description = "BGE-M3 multi-vector (dense/sparse/ColBERT) model service behind the obsidian-tc ModelClient seam"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.139",
     "uvicorn[standard]>=0.51",

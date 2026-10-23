@@ -235,3 +235,75 @@ test("the scan set is every tracked .md, the two manifests and CLI .ts, and noth
   assert.equal(isScannedPath("packages/server/src/db/schema.ts"), false);
   assert.equal(isScannedPath("packages/server/src/cli/commands/compact.ts"), true);
 });
+
+// ---- tracker-id ratchet -----------------------------------------------------------------------
+// The ratchet counts bare THE-<digits> ids across every tracked text file, so the total can only
+// go down. RED until the gate exports these: each helper asserts the export exists first.
+const trackerExports = {
+  evaluateTrackerRatchet: gate.evaluateTrackerRatchet,
+  isRatchetCountedPath: gate.isRatchetCountedPath,
+  trackerIdCount: gate.trackerIdCount,
+};
+function exported(name) {
+  assert.equal(typeof trackerExports[name], "function", `check-public-text must export ${name}`);
+  return trackerExports[name];
+}
+
+test("evaluateTrackerRatchet: over the baseline fails, at it passes, under it passes with a hint", () => {
+  const evaluate = exported("evaluateTrackerRatchet");
+  const baseline = { maxTrackerIds: 10 };
+  assert.deepEqual(evaluate(11, baseline), { status: "over", failed: true });
+  assert.deepEqual(evaluate(10, baseline), { status: "at", failed: false });
+  assert.deepEqual(evaluate(9, baseline), { status: "under", failed: false });
+});
+
+test("isRatchetCountedPath excludes CHANGELOG.md, changes/, the baseline and this gate's own files", () => {
+  const counted = exported("isRatchetCountedPath");
+  for (const path of [
+    "CHANGELOG.md",
+    "changes/some-change.md",
+    "scripts/public-text-baseline.json",
+    "scripts/check-public-text.mjs",
+    "scripts/check-public-text.test.mjs",
+  ]) {
+    assert.equal(counted(path), false, path);
+  }
+  for (const path of [
+    "README.md",
+    ".github/workflows/publish.yml",
+    "services/bge-m3-service/requirements-ci.in",
+    "packages/server/src/db/schema.ts",
+  ]) {
+    assert.equal(counted(path), true, path);
+  }
+});
+
+test("trackerIdCount counts each bare ticket id, and only bare ones", () => {
+  const count = exported("trackerIdCount");
+  assert.equal(count(Buffer.from("fixed in THE-1, see THE-22\n")), 2);
+  assert.equal(count(Buffer.from("https://github.com/The-40-Thieves/obsidian-tc\n")), 0);
+  assert.equal(count(Buffer.from("NOTTHE-1 and THE-12a\n")), 0);
+});
+
+test("trackerIdCount reports 0 for a binary buffer (a NUL byte), so it is never scored", () => {
+  const count = exported("trackerIdCount");
+  assert.equal(count(Buffer.from("\0THE-1")), 0);
+});
+
+// Incident RED cases (verbatim lines from the scrub brief, digits intact): both must be counted.
+test("trackerIdCount counts the publish.yml incident line", () => {
+  const count = exported("trackerIdCount");
+  assert.equal(
+    count(
+      Buffer.from(
+        "      # THE-542: ci-native's musl-cross-build job pre-installs cargo-zigbuild explicitly, but this job\n",
+      ),
+    ),
+    1,
+  );
+});
+
+test("trackerIdCount counts the bge-m3 requirements-ci.in incident line", () => {
+  const count = exported("trackerIdCount");
+  assert.equal(count(Buffer.from("# CI test dependencies for the model service (THE-528).\n")), 1);
+});

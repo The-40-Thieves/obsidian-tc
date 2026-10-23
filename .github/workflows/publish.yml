@@ -2,7 +2,7 @@ name: publish
 on:
   push:
     tags: ['v*']
-  # THE-542: three of the eight native targets (aarch64-unknown-linux-gnu, x86_64-apple-darwin,
+  # three of the eight native targets (aarch64-unknown-linux-gnu, x86_64-apple-darwin,
   # aarch64-pc-windows-msvc) are built ONLY here, so nothing on a PR ever proves they compile — the
   # first time anyone finds out is mid-release. Do NOT "just push a throwaway tag" to test: the push
   # trigger above matches any v*, the preflight only checks that the version is UNpublished, so a
@@ -27,20 +27,20 @@ on:
 permissions:
   contents: read
 
-# M7 (THE-183) shipped a 4-platform native matrix with linux-arm64 deferred (G3 amendment,
-# THE-141); it is now an 8-platform matrix — linux/darwin/win each x64 + arm64, plus linux x64 +
+# M7 shipped a 4-platform native matrix with linux-arm64 deferred (G3 amendment);
+# it is now an 8-platform matrix — linux/darwin/win each x64 + arm64, plus linux x64 +
 # arm64 musl. linux-arm64-gnu cross-compiles on the x64 ubuntu runner (gcc-aarch64-linux-gnu step
 # below); win-arm64 via the bundled MSVC ARM64 tools; the two musl targets via `napi build -x`
 # (cargo-zigbuild + setup-zig, gated to the musl rows). CycloneDX SBOMs
 # generated per package below (non-blocking); every release artifact is keyless-signed with cosign by
 # the sign-artifacts job (Sigstore bundle per file, attached to the GitHub Release); text bun.lock. Fires only on a
-# human-pushed v* tag — it is config-verified here, not executed. R5/THE-214: the sub-packages
+# human-pushed v* tag — it is config-verified here, not executed. R5: the sub-packages
 # now publish under the owned @the-40-thieves scope (obsidian-tc-shared / obsidian-tc-native);
 # the server stays the owned unscoped obsidian-tc. The pin-workspace-deps step below rewrites
 # workspace:* to concrete versions (npm publish does not), so the published obsidian-tc carries
 # real dep versions. The npm-publish jobs still require the NPM_TOKEN secret before a tag.
 jobs:
-  # THE-528: the v* tag triggers this entire release — ghcr image, npm publishes, SBOMs and
+  # the v* tag triggers this entire release — ghcr image, npm publishes, SBOMs and
   # provenance all hang off it — so it is the one input nothing currently authenticates. Actions
   # are SHA-pinned, the scanner is digest-pinned and packages carry provenance; an unsigned trigger
   # is the weakest link in that chain.
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       REQUIRE_SIGNED_TAG: "true"
-    # THE-957: classify the version ONCE here rather than in every downstream job. Before this,
+    # classify the version ONCE here rather than in every downstream job. Before this,
     # publish-npm, publish-reranker-local, build-docker's "is pre-release" step, and the
     # mirror-plugin-release / publish-smithery skip guards each independently re-derived
     # "does the version contain a hyphen" from packages/server/package.json -- and draft-release
@@ -123,11 +123,11 @@ jobs:
             [ "$REQUIRE_SIGNED_TAG" = "true" ] && exit 1
           fi
           exit 0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           check-latest: true
-      - name: classify the release version (THE-957)
+      - name: classify the release version
         id: version-info
         env:
           TAG_REF: ${{ github.ref_name }}
@@ -152,7 +152,7 @@ jobs:
         shell: bash
 
   build-native:
-    # THE-528: gate the entire release on the tag check. Without this `needs:`, verify-tag was an
+    # gate the entire release on the tag check. Without this `needs:`, verify-tag was an
     # island — nothing depended on it, so it ran in parallel and a FAILING signature check could not
     # stop anything. build-native is the root of the DAG (publish-npm needs it, and everything else
     # needs publish-npm), so one edge here is what makes the check load-bearing rather than
@@ -193,9 +193,9 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          # THE-542: every OTHER call site sets this; without it the release job caches the repo root
+          # every OTHER call site sets this; without it the release job caches the repo root
           # instead of the crate, so the one build that matters most runs permanently cold.
           workspaces: packages/native
       - run: bun install --frozen-lockfile
@@ -206,7 +206,7 @@ jobs:
         uses: goto-bus-stop/setup-zig@abea47f85e598557f500fa1fd2ab7464fcb39406 # v2
         with:
           version: 0.13.0
-      # THE-542: ci-native's musl-cross-build job pre-installs cargo-zigbuild explicitly, but this job
+      # ci-native's musl-cross-build job pre-installs cargo-zigbuild explicitly, but this job
       # relied on napi auto-installing it on first use — so the musl path CI validates and the musl
       # path a release actually takes were not the same path. Compiling cargo-zigbuild from source
       # inside a release, on a target no PR can reach, is where you least want a surprise.
@@ -235,20 +235,20 @@ jobs:
         working-directory: packages/native
         run: bun run build -- --target ${{ matrix.target }} ${{ endsWith(matrix.target, '-musl') && '-x' || '' }}
         shell: bash
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.triple }}
           path: packages/native/*.node
           if-no-files-found: error
 
   publish-npm:
-    # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
+    # dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
     # A real release is a tag push, where github.event_name == 'push' and this is always true.
     if: github.event_name == 'push' || (github.ref_type == 'tag' && !inputs.dry_run)
-    # verify-tag added directly (THE-957) to read needs.verify-tag.outputs.prerelease below --
+    # verify-tag added directly to read needs.verify-tag.outputs.prerelease below --
     # build-native already needs verify-tag, so this changes no scheduling, only visibility.
-    # THE-1122 review round 3: publish-embedder-local added. packages/server now declares
+    # review round 3: publish-embedder-local added. packages/server now declares
     # @the-40-thieves/obsidian-tc-embedder-local as an EXACT-pinned optionalDependency (see
     # check-version-coherence.mjs's own comment on that field) — without this ordering, `npm
     # publish` of `obsidian-tc` here could complete before publish-embedder-local's own npm
@@ -271,7 +271,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           check-latest: true
@@ -284,7 +284,7 @@ jobs:
       # jobs had passed. This job consumes only the napi `.node` artifacts; the binaries, mcpb and
       # plugin bundles are draft-release's business. Filtering by what we NEED also stops any
       # future job's artifacts from breaking the publish the same way.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: native-*
           path: packages/native/artifacts
@@ -307,17 +307,17 @@ jobs:
         run: bun run build
       # npm publish does NOT rewrite the workspace: protocol, so pin workspace:* deps to concrete
       # versions before publishing — otherwise the published obsidian-tc would ship
-      # "@the-40-thieves/obsidian-tc-shared": "workspace:*" and fail to install (THE-214).
+      # "@the-40-thieves/obsidian-tc-shared": "workspace:*" and fail to install.
       - name: pin workspace deps to concrete versions
         run: bun scripts/pin-workspace-deps.mjs
       # F3 preflight: npm publish is immutable and this job publishes 3 packages (+ napi
       # sub-packages) sequentially with no rollback. If any target version is already on npm,
       # fail BEFORE the first publish so a re-run cannot half-publish a version-skewed release.
       # (Checks the umbrella packages; platform sub-packages track the native version.)
-      # THE-575: this used to fail unconditionally the moment ANY target version existed on npm,
+      # this used to fail unconditionally the moment ANY target version existed on npm,
       # which made a partially-failed release unrecoverable — npm versions are immutable, so the
       # publish could not be retried, and every downstream job gated on this one could never run.
-      # v1.11.0 hit exactly that: the publishes succeeded, the dist-tag promote failed (THE-574),
+      # v1.11.0 hit exactly that: the publishes succeeded, the dist-tag promote failed,
       # and the image/binaries/bundle/release-notes became unreachable for that tag.
       #
       # It now CLASSIFIES instead of asserting, on the only distinction that is safe to draw:
@@ -335,7 +335,7 @@ jobs:
       # version now rebuilds its artifacts rather than erroring. That is a deliberate trade — the
       # failure it prevents (an unrecoverable release) is far more expensive than the one it allows
       # (a harmless artifact rebuild), and npm itself still refuses a duplicate publish regardless.
-      - name: preflight — classify target versions (F3, THE-575)
+      - name: preflight — classify target versions (F3)
         id: preflight
         run: |
           set -euo pipefail
@@ -356,7 +356,7 @@ jobs:
           check packages/native
           check packages/shared
           check packages/server
-          # platform sub-packages generated by napi create-npm-dirs (THE-224)
+          # platform sub-packages generated by napi create-npm-dirs
           for d in packages/native/npm/*/; do
             check "${d%/}"
           done
@@ -398,12 +398,12 @@ jobs:
         run: bunx napi pre-publish -t npm --no-gh-release
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      # THE-574: publish straight to the release dist-tag, in dependency order, with the
-      # user-facing `obsidian-tc` LAST. This replaces THE-224's publish-to-`pending`-then-promote
+      # publish straight to the release dist-tag, in dependency order, with the
+      # user-facing `obsidian-tc` LAST. This replaces the earlier publish-to-`pending`-then-promote
       # design, which cannot work under trusted publishing: OIDC authorises `npm publish` only, so
       # the `npm dist-tag add` promote fell back to token auth and failed EOTP on every release.
       #
-      # Dropping `pending` costs no safety, because THE-224's actual property is preserved by two
+      # Dropping `pending` costs no safety, because the property `pending` protected is preserved by two
       # facts rather than by the holding tag:
       #
       #   1. Every inter-package dependency is EXACT-pinned, never ranged. pin-workspace-deps.mjs
@@ -418,7 +418,7 @@ jobs:
       #      `pending` existed to provide.
       #
       # Prereleases go to `next`, never `latest`: bare `npm publish` defaults to `latest` regardless
-      # of semver, which would otherwise drag the stable tag onto a prerelease. THE-957: the
+      # of semver, which would otherwise drag the stable tag onto a prerelease. The
       # prerelease/dist-tag classification comes from verify-tag's single computation now, not a
       # local recompute -- $version is still read locally for the log lines below.
       - name: publish umbrellas to the release dist-tag (obsidian-tc last)
@@ -437,7 +437,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           PRERELEASE: ${{ needs.verify-tag.outputs.prerelease }}
-      # THE-299: CycloneDX SBOMs (npm >=9.5 built-in) uploaded as workflow artifacts beside the
+      # CycloneDX SBOMs (npm >=9.5 built-in) uploaded as workflow artifacts beside the
       # npm provenance attestations. Non-blocking BY DESIGN: a release must not brick on SBOM
       # generation, but a skip is surfaced as an explicit workflow warning, never silently.
       - name: generate SBOMs (CycloneDX)
@@ -453,14 +453,14 @@ jobs:
           ls -la sboms/
         shell: bash
       - name: upload SBOM artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sboms
           path: sboms/
           if-no-files-found: warn
 
-  # THE-940: publish server.json to the official MCP Registry (registry.modelcontextprotocol.io).
-  # THE-220 committed server.json to the repo root, but nothing ever published it — the registry
+  # publish server.json to the official MCP Registry (registry.modelcontextprotocol.io).
+  # committed server.json to the repo root, but nothing ever published it — the registry
   # entry has been missing since. mcp-publisher's own ownership check reads the LIVE npm package
   # description (via the `mcpName` marker in packages/server/package.json, asserted equal to
   # server.json's `name` by ci-version.yml's check-mcp-name gate), so this job must run only after
@@ -556,7 +556,7 @@ jobs:
       # every npm entry in `packages[]` (today: just `obsidian-tc`; see the `needs:` comment above
       # for what changes if a second one is ever added).
       #
-      # THE-1135: the old budget (10 attempts x 10s = 100s) was measured too short on two real
+      # the old budget (10 attempts x 10s = 100s) was measured too short on two real
       # releases (2026-09-26) — the version document turned 200 after ~2 minutes, so every release
       # needed a manual `gh run rerun --failed`. Replaced with a ~5 minute budget, backing off from
       # 10s and doubling to a 60s cap, so a genuinely slow-but-real propagation is covered without
@@ -676,7 +676,7 @@ jobs:
         id: install-mcp-publisher
         if: steps.preflight.outputs.already_published != 'true'
       # No secret exchanged here: this trades the job's own GitHub OIDC token for a short-lived MCP
-      # Registry credential. `env:` per THE-541 (check-workflow-injection.mjs's own rule) rather
+      # Registry credential. `env:` per check-workflow-injection.mjs's own rule rather
       # than inlining `${{ }}` directly into the script text.
       - name: authenticate to the MCP Registry (GitHub OIDC)
         if: steps.preflight.outputs.already_published != 'true'
@@ -693,7 +693,7 @@ jobs:
           MCP_PUBLISHER_BIN: ${{ steps.install-mcp-publisher.outputs.bin }}
         run: |
           "$MCP_PUBLISHER_BIN" publish
-  # THE-944: @the-40-thieves/obsidian-tc-reranker-local. Deliberately its OWN job rather than a step
+  # @the-40-thieves/obsidian-tc-reranker-local. Deliberately its OWN job rather than a step
   # folded into publish-npm above: packages/reranker-local is NOT a root workspace member (see its
   # own README — its ~230 MB unpacked @huggingface/transformers dependency would otherwise be
   # downloaded by every `bun install --frozen-lockfile` at the repo root, whether or not anyone uses
@@ -722,7 +722,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           check-latest: true
@@ -734,7 +734,7 @@ jobs:
           bun install --frozen-lockfile
           bun run build
         shell: bash
-      # F3-style preflight (THE-575), scoped to this one package: npm publish is immutable, so check
+      # F3-style preflight, scoped to this one package: npm publish is immutable, so check
       # BEFORE publishing rather than let a re-run of this job on an already-published tag attempt a
       # duplicate publish and fail the whole workflow run.
       - name: preflight — is this version already published?
@@ -752,7 +752,7 @@ jobs:
             echo "already_published=false" >> "$GITHUB_OUTPUT"
           fi
         shell: bash
-      # THE-957: prerelease classification comes from verify-tag's single computation now, not a
+      # prerelease classification comes from verify-tag's single computation now, not a
       # local recompute. Reranker-local's own version stays in lockstep with the repo version
       # (docs/RELEASING.md), so verify-tag's server-package.json-derived flag applies here too.
       - name: publish (trusted publishing / OIDC — requires the one-time manual first publish, see report)
@@ -780,7 +780,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           check-latest: true
@@ -858,11 +858,11 @@ jobs:
         shell: bash
 
   build-binaries:
-    # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
+    # dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
     # A real release is a tag push, where github.event_name == 'push' and this is always true.
     if: github.event_name == 'push' || (github.ref_type == 'tag' && !inputs.dry_run)
-    # THE-575: was `needs: publish-npm`. This job builds from the TAG and consumes no
+    # was `needs: publish-npm`. This job builds from the TAG and consumes no
     # npm-published package, so gating it on the publish only meant that a publish failure made it
     # unreachable — which is how v1.11.0 shipped without its standalone binaries. Depends on
     # verify-tag ONLY: checked with a grep for download-artifact and this job consumes no native
@@ -875,7 +875,7 @@ jobs:
       matrix:
         include:
           # `smoke: true` where the host can EXECUTE its own output (host arch == target arch).
-          # THE-578: this job used to compile and upload without ever running the result, so every
+          # this job used to compile and upload without ever running the result, so every
           # release shipped standalone binaries that died at module load — for v1.10.0 and v1.11.0
           # alike — and CI stayed green throughout. Compiling is not evidence that it runs.
           # The two cross-compiled rows (linux-arm64 on x64, darwin-x64 on an arm64 runner) cannot
@@ -903,7 +903,7 @@ jobs:
       - name: build shared
         working-directory: packages/shared
         run: bun run build
-      # THE-663: bake this target's sqlite-vec vec0 binary into vec-embedded.ts BEFORE compiling.
+      # bake this target's sqlite-vec vec0 binary into vec-embedded.ts BEFORE compiling.
       # `bun build --compile` freezes import.meta.url to this runner's path, so the npm-resolved
       # sqlite-vec (packages/server/src/search/vec.ts's first-choice path) cannot be found by the
       # shipped binary on any other machine — silently losing dense retrieval to the brute-force
@@ -935,7 +935,7 @@ jobs:
           bun install --frozen-lockfile
           bun run build
         shell: bash
-      # THE-705: the local RERANKER package stays --external (scripts/build-binary.ts): it is never
+      # the local RERANKER package stays --external (scripts/build-binary.ts): it is never
       # installed here (not a dependency of packages/server; see packages/reranker-local/README.md)
       # and its onnxruntime-node dlopen cannot survive being embedded without the same bundling the
       # embedder gets, so "local" reranking remains unreachable from a compiled binary (documented).
@@ -945,7 +945,7 @@ jobs:
       - name: compile standalone binary
         run: bun scripts/build-binary.ts --target ${{ matrix.target }} --outfile packages/server/dist/obsidian-tc-${{ matrix.target }}
         shell: bash
-      # THE-578: RUN the thing we are about to ship. Two assertions, because the first alone is not
+      # RUN the thing we are about to ship. Two assertions, because the first alone is not
       # enough: `version` proves the module graph loads (the old failure was at load time, in
       # db/provision.ts's top-level migration chain, so even --version died), and the stdio smoke
       # proves it can actually PROVISION — which is what the embedded SQL exists for and what the
@@ -965,7 +965,7 @@ jobs:
           echo "smoking: $bin"
           chmod +x "$bin" || true
 
-          # THE-663: this smoke test runs in the SAME checkout that just compiled the binary, so
+          # this smoke test runs in the SAME checkout that just compiled the binary, so
           # packages/server/node_modules/sqlite-vec still sits at the exact absolute path
           # import.meta.url got frozen to — the compiled binary's npm-require path would resolve
           # here even on the OLD, unfixed code (that is exactly why this shipped unnoticed for two
@@ -986,16 +986,16 @@ jobs:
           out=$("$bin" "$tmp/config.json" < /dev/null 2>&1) || true
           echo "$out"
           echo "$out" | grep -q "ready on stdio" || {
-            echo "::error::compiled binary did not reach stdio-ready — it cannot provision (THE-578)"
+            echo "::error::compiled binary did not reach stdio-ready — it cannot provision"
             exit 1
           }
-          # THE-663: `ready on stdio` alone is not enough — it was already true for a binary that
+          # `ready on stdio` alone is not enough — it was already true for a binary that
           # had silently lost dense retrieval. This binary's own startup banner (cli.ts) reports
           # native=on/off and vec=on/off; assert vec actually loaded rather than having quietly
           # fallen back to the brute-force cosine scan, which is exactly what shipped, unnoticed,
           # in v1.10.0 and v1.11.0.
           echo "$out" | grep -q "vec=on" || {
-            echo "::error::compiled binary reports vec=off — sqlite-vec did not load (THE-663); it silently fell back to the brute-force scan"
+            echo "::error::compiled binary reports vec=off — sqlite-vec did not load; it silently fell back to the brute-force scan"
             exit 1
           }
           # Both migration chains must have produced a database, not just cache.db: the experiential
@@ -1004,20 +1004,20 @@ jobs:
             [ -f "$tmp/cache/$db" ] || { echo "::error::$db was not provisioned"; exit 1; }
           done
           echo "ok: $bin reports $want, reaches stdio-ready, and provisions both chains"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: binary-${{ matrix.target }}
           path: packages/server/dist/obsidian-tc-*
 
   build-plugin:
-    # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
+    # dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
     # A real release is a tag push, where github.event_name == 'push' and this is always true.
     if: github.event_name == 'push' || (github.ref_type == 'tag' && !inputs.dry_run)
-    # THE-958: this was the one build job with no `needs:` at all, so it started in parallel with
+    # this was the one build job with no `needs:` at all, so it started in parallel with
     # verify-tag and built the plugin artifact even when the signature check failed. Nothing it
     # produced could publish (draft-release and mirror-plugin-release need verify-tag), but
-    # THE-528's rule is to gate the ENTIRE release on the tag check, and every sibling build job
+    # The release rule is to gate the ENTIRE release on the tag check, and every sibling build job
     # carries this edge.
     needs: verify-tag
     runs-on: ubuntu-latest
@@ -1034,7 +1034,7 @@ jobs:
       - name: build plugin
         working-directory: packages/plugin
         run: bun run build
-      # THE-963: the community-directory review recommends attestations for the plugin's three
+      # the community-directory review recommends attestations for the plugin's three
       # release assets; nothing here produced them (this job's `attestations: write` above is what
       # allows it). Tag-only
       # `if:` is policy, not a mechanical need: `gh attestation verify` resolves by file digest and
@@ -1073,7 +1073,7 @@ jobs:
           cd packages/plugin/dist
           zip -r "../obsidian-tc-plugin-${version}.zip" main.js manifest.json styles.css
         shell: bash
-      # THE-943: obsidian-tc was renamed to tc-bridge/"TC Bridge" (the community directory bans
+      # obsidian-tc was renamed to tc-bridge/"TC Bridge" (the community directory bans
       # "obsidian" in a plugin id). Existing users on the OLD id get exactly one more release: a
       # sunset build (packages/plugin/legacy/) that only shows a notice pointing them at TC
       # Bridge — its manifest version was bumped once by hand and it is NOT part of the repo's
@@ -1093,13 +1093,13 @@ jobs:
           zip -r "../../obsidian-tc-legacy-final-notice-${legacy_version}.zip" main.js manifest.json styles.css
         shell: bash
       # Upload the zips AND the loose 3-file set (manifest.json + main.js + styles.css) so the release
-      # attaches them as individual assets for BRAT sideloading (THE-206), not only the zip.
+      # attaches them as individual assets for BRAT sideloading, not only the zip.
       # `if-no-files-found: error`, not the default `warn` (fix round 1, review finding 7): this
       # upload's own layout is what keeps `mirror-plugin-release`'s `--assets-dir
       # plugin-artifact/dist` pointing at the right subdirectory (see that job's comment) — a
       # silent zero-file upload here would only surface as a missing-asset failure in a DIFFERENT
       # job, with no clue that this step is where it actually went wrong.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: plugin
           path: |
@@ -1111,11 +1111,11 @@ jobs:
           if-no-files-found: error
 
   build-docker:
-    # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
+    # dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
     # A real release is a tag push, where github.event_name == 'push' and this is always true.
     if: github.event_name == 'push' || (github.ref_type == 'tag' && !inputs.dry_run)
-    # THE-575: was `needs: publish-npm`. This job builds from the TAG and consumes no
+    # was `needs: publish-npm`. This job builds from the TAG and consumes no
     # npm-published package, so gating it on the publish only meant that a publish failure made it
     # unreachable — which is how v1.11.0 shipped without its ghcr image. It still needs no
     # npm-published package (it must not wait for publish-npm), but it now consumes the two linux
@@ -1140,7 +1140,7 @@ jobs:
       # run's build-native matrix next to the loader, where packages/native/index.js looks first.
       # This job already waits for build-native transitively (sign-artifacts needs it), so the
       # artifacts exist; a missing one fails here, loudly, instead of shipping native=js-fallback.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: native-linux-*-gnu
           path: packages/native
@@ -1160,11 +1160,11 @@ jobs:
       # Same reasoning as the plugin zip: on a non-tag ref the old form produced the docker tag
       # "ghcr.io/the-40-thieves/obsidian-tc:release/v1.11.0-artifacts", which buildx rejected as an
       # "invalid reference format" because a docker tag cannot contain a slash. Deriving from the
-      # version also makes the prerelease test agree with publish-npm's (THE-574), which already
+      # version also makes the prerelease test agree with publish-npm's, which already
       # classifies from the version string rather than the ref: a tag named v1.12.0-beta.1 was
       # previously detected as a prerelease only because its NAME contained a hyphen.
       #
-      # THE-957 fix round 1: was its own "extract version" step re-reading
+      # fix round 1: was its own "extract version" step re-reading
       # packages/server/package.json here, and a separate "is pre-release" step doing the same for
       # the hyphen check. Both are now needs.verify-tag.outputs.* (version, prerelease) directly —
       # verify-tag already reads the identical file via scripts/release-version-info.mjs, so this
@@ -1243,7 +1243,7 @@ jobs:
           tags: |
             ghcr.io/the-40-thieves/obsidian-tc:${{ needs.verify-tag.outputs.version }}-git
             ${{ needs.verify-tag.outputs.prerelease != 'true' && 'ghcr.io/the-40-thieves/obsidian-tc:latest-git' || '' }}
-      # An SBOM of the IMAGE, which nothing else produces. The THE-299 step in publish-npm runs
+      # An SBOM of the IMAGE, which nothing else produces. The SBOM step in publish-npm runs
       # `npm sbom` over the three packages — npm dependency trees only. It cannot see what actually
       # ships in the container: the Debian base packages, the bun runtime, or the compiled native
       # binary. So the artefact users pull had no bill of materials at all.
@@ -1271,17 +1271,17 @@ jobs:
           ls -la sboms/
       - name: upload image SBOM
         if: hashFiles('sboms/obsidian-tc-image.spdx.json') != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom-image
           path: sboms/
 
   build-mcpb:
-    # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
+    # dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
     # A real release is a tag push, where github.event_name == 'push' and this is always true.
     if: github.event_name == 'push' || (github.ref_type == 'tag' && !inputs.dry_run)
-    # THE-575: was `needs: publish-npm`. This job builds from the TAG and consumes no
+    # was `needs: publish-npm`. This job builds from the TAG and consumes no
     # npm-published package, so gating it on the publish only meant that a publish failure made it
     # unreachable — which is how v1.11.0 shipped without its MCPB bundle. Depends on
     # verify-tag ONLY: checked with a grep for download-artifact and this job consumes no native
@@ -1307,7 +1307,7 @@ jobs:
           bun run build
       - name: pack the .mcpb bundle
         run: bun run bundle
-      # THE-966: the Smithery server card (real tool/prompt/resource definitions, WITH inputSchema
+      # the Smithery server card (real tool/prompt/resource definitions, WITH inputSchema
       # — see scripts/publish-smithery.mjs's header for why the old CLI-publish path could never
       # carry one). Generated here, not in the publish-smithery job, because that job's runner is
       # Node-only (least-privilege — see its own comment block) and this generator needs bun to
@@ -1315,7 +1315,7 @@ jobs:
       # upload-artifact ship them together for publish-smithery to download as `mcpb-artifact/`.
       - name: generate the Smithery server card
         run: bun run gen:smithery-card
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mcpb
           path: |
@@ -1350,7 +1350,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
           # the same set draft-release attaches, plus the native prebuilds; skip the .dockerbuild record
@@ -1406,18 +1406,18 @@ jobs:
           sign_family plugin-styles artifacts/plugin/**/styles.css
           sign_family mcpb artifacts/mcpb/**/*.mcpb
           ls -la signatures/
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: signatures
           path: signatures/
           if-no-files-found: error
 
   draft-release:
-    # THE-542 dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
+    # dry-run guard: on a workflow_dispatch with dry_run, everything downstream of
     # build-native is skipped so the 8-target matrix can be proven without shipping anything.
     # A real release is a tag push, where github.event_name == 'push' and this is always true.
     if: github.event_name == 'push' || (github.ref_type == 'tag' && !inputs.dry_run)
-    # verify-tag added directly (THE-957) to read needs.verify-tag.outputs.prerelease below --
+    # verify-tag added directly to read needs.verify-tag.outputs.prerelease below --
     # publish-npm, build-binaries, build-docker and build-mcpb each already need verify-tag, so
     # this changes no scheduling, only which outputs this job can see.
     needs: [publish-npm, build-binaries, build-plugin, build-docker, build-mcpb, sign-artifacts, verify-tag]
@@ -1427,7 +1427,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
           # only the assets the release attaches; skip native-* and the .dockerbuild record
@@ -1437,7 +1437,7 @@ jobs:
       # pattern below AND its own `signatures/` pattern — the double-match that queues an asset
       # twice and fails the upload (see the note above `files:`). It also keeps the bundles out of
       # SHASUMS256.txt, which lists the signed files, not their signatures.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: signatures
           path: signatures
@@ -1459,7 +1459,7 @@ jobs:
         with:
           draft: true
           generate_release_notes: true
-          # THE-957: without these, an RC tag (e.g. v1.28.0-rc.1) published as a normal, Latest
+          # without these, an RC tag (e.g. v1.28.0-rc.1) published as a normal, Latest
           # GitHub release -- which /releases/latest, BRAT and the Obsidian directory all read --
           # because this step derived neither flag from the version at all, unlike every sibling
           # job (publish-npm's dist-tag, build-docker's ghcr :latest tag, mirror-plugin-release
@@ -1472,7 +1472,7 @@ jobs:
           # release marked prerelease AND off Latest together.
           prerelease: ${{ needs.verify-tag.outputs.prerelease == 'true' }}
           make_latest: ${{ needs.verify-tag.outputs.prerelease != 'true' }}
-          # THE-731: `artifacts/**/*.zip` used to sit between the .mcpb and manifest.json lines and
+          # `artifacts/**/*.zip` used to sit between the .mcpb and manifest.json lines and
           # was REDUNDANT — build-plugin emits exactly one zip, obsidian-tc-plugin-<version>.zip,
           # which already matches `obsidian-tc-*`. Being matched by two patterns queued it for
           # upload TWICE, and with overwrite_files the second copy takes the *update* path: it looks
@@ -1489,7 +1489,7 @@ jobs:
             artifacts/SHASUMS256.txt
             signatures/*.sigstore.json
 
-      # THE-731: the upload step's exit code is NOT sufficient evidence that the release is whole.
+      # the upload step's exit code is NOT sufficient evidence that the release is whole.
       # On v1.19.0 it exited non-zero having shipped 10 of 11 assets, and on v1.18.0 the same defect
       # exited ZERO because the race happened to fall the other way. Assert by name instead: the
       # script compares the draft's assets against the generated checksum manifest AND against the
@@ -1517,7 +1517,7 @@ jobs:
           gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
             -F draft=false -F prerelease="$PRERELEASE" -f make_latest="$latest"
 
-  # THE-955: Obsidian's community-directory validator (and the community.obsidian.md self-service
+  # Obsidian's community-directory validator (and the community.obsidian.md self-service
   # submission form) reads the release whose TAG EQUALS manifest.json's version, not this repo's
   # own `v<version>` convention — every obsidian-tc release is tagged `v<version>`, so the
   # plugin's manifest version never had a matching release until this job was added (fixed by hand
@@ -1551,7 +1551,7 @@ jobs:
   # carries the identical check as a second, independent gate — see its header.
   mirror-plugin-release:
     if: github.event_name == 'push'
-    # verify-tag added directly (THE-957) to read needs.verify-tag.outputs.prerelease below --
+    # verify-tag added directly to read needs.verify-tag.outputs.prerelease below --
     # draft-release already needs verify-tag (both directly and transitively via publish-npm /
     # build-binaries / build-docker / build-mcpb), so this changes no scheduling, only visibility.
     needs: [draft-release, verify-tag]
@@ -1560,7 +1560,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # THE-957: was its own "is pre-release" step recomputing this from the version string; now
+      # was its own "is pre-release" step recomputing this from the version string; now
       # reads verify-tag's single classification directly.
       - name: skip (prerelease — the un-prefixed tag is reserved for stable releases)
         if: needs.verify-tag.outputs.prerelease == 'true'
@@ -1573,19 +1573,19 @@ jobs:
       # collapse of that shared ancestor (e.g. the zip steps ever stop producing files) fails
       # loudly there, in the job that would actually cause it, rather than surfacing here as an
       # opaque "required asset missing on disk" (fix round 1, review finding 7).
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.verify-tag.outputs.prerelease != 'true'
         with:
           name: plugin
           path: plugin-artifact
       # The mirror carries the same three files as v<version>, so it carries their cosign bundles
       # too (the bytes are re-uploaded, never rebuilt, so the bundles stay valid).
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.verify-tag.outputs.prerelease != 'true'
         with:
           name: signatures
           path: signatures
-      - name: mirror the un-prefixed plugin release (THE-955)
+      - name: mirror the un-prefixed plugin release
         if: needs.verify-tag.outputs.prerelease != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1600,7 +1600,7 @@ jobs:
             --sha "$MIRROR_SHA"
         shell: bash
 
-  # THE-956: the last directory listing still needing a human hand on every tag. Gated exactly
+  # the last directory listing still needing a human hand on every tag. Gated exactly
   # like `publish-registry` above (tag-only, no workflow_dispatch/dry_run path at all) — a
   # dispatched dry run never has a real .mcpb bundle worth publishing to a live registry, and
   # `github.event_name == 'push'` is already scoped to `on.push.tags: ['v*']` by the trigger at
@@ -1611,7 +1611,7 @@ jobs:
   # DAG sense — kept anyway because it documents this job's own real dependency, not just an
   # inherited one, review finding 9.)
   #
-  # HISTORY (THE-966): this job used to `npm install -g @smithery/cli@4.11.1 --ignore-scripts` and
+  # HISTORY: this job used to `npm install -g @smithery/cli@4.11.1 --ignore-scripts` and
   # shell out to `smithery mcp publish`. That CLI forwards only the MCPB manifest's `tools` array
   # into the release, and MCPB manifests cannot carry a tool's `inputSchema` (upstream
   # smithery-cli#787, open since July 2026) while the registry requires one per tool to build a
@@ -1624,7 +1624,7 @@ jobs:
   # `--ignore-scripts` fallback needed, because there is no longer a third-party dependency tree to
   # skip lifecycle scripts on.
   #
-  # Least-privilege (fix round 1, review finding 1; still true after THE-966's rewrite): this job
+  # Least-privilege (fix round 1, review finding 1; still true after the Smithery rewrite): this job
   # is the only one in the file that talks to a live external registry with this repo's own
   # `SMITHERY_API_KEY`, so it declares its own `permissions:` rather than relying on the
   # workflow default (`contents: read`, now the only scope granted at workflow level) —
@@ -1653,7 +1653,7 @@ jobs:
   # second, independent gate — see its header.
   publish-smithery:
     if: github.event_name == 'push'
-    # verify-tag added directly (THE-957) to read needs.verify-tag.outputs.prerelease below --
+    # verify-tag added directly to read needs.verify-tag.outputs.prerelease below --
     # build-mcpb needs verify-tag directly, and draft-release needs it transitively, so this
     # changes no scheduling, only visibility.
     needs: [build-mcpb, draft-release, verify-tag]
@@ -1664,23 +1664,23 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # THE-957: was its own "is pre-release" step recomputing this from the version string; now
+      # was its own "is pre-release" step recomputing this from the version string; now
       # reads verify-tag's single classification directly.
       - name: skip (prerelease — the live Smithery listing is reserved for stable releases)
         if: needs.verify-tag.outputs.prerelease == 'true'
         run: echo "::notice::publish-smithery skipped — this is a prerelease; nothing is published to the live listing for it."
         shell: bash
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.verify-tag.outputs.prerelease != 'true'
         with:
           name: mcpb
           path: mcpb-artifact
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: needs.verify-tag.outputs.prerelease != 'true'
         with:
           node-version: '24'
           check-latest: true
-      - name: publish the server card + .mcpb bundle to Smithery (THE-956, THE-966)
+      - name: publish the server card + .mcpb bundle to Smithery
         if: needs.verify-tag.outputs.prerelease != 'true'
         env:
           SMITHERY_API_KEY: ${{ secrets.SMITHERY_API_KEY }}
