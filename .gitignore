@@ -140,6 +140,11 @@ open-tickets.json
 # Local agent planning artifacts (never publish)
 .superpowers/
 
+# StrykerJS mutation testing (nightly, non-gating): in-place backups and the HTML/incremental reports.
+# `**/` because the report lives under packages/shared/, and a pattern with a middle slash is anchored.
+.stryker-tmp/
+**/reports/mutation/
+
 # Structural map + dependency graph (scripts/gen-tree-map.mjs, `bun run map`). Derived from the whole
 # tree, so committing it made any two PRs conflict; regenerated on demand.
 generated/
