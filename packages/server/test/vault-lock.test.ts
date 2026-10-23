@@ -7,7 +7,7 @@
 // runtime-agnostic (runs under vitest/Node) and exercises the SAME production module, which
 // itself routes to bun:sqlite/better-sqlite3/node:sqlite via db/open.ts's existing adapter split.
 import { spawn, spawnSync } from "node:child_process";
-import { statSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -709,5 +709,27 @@ describe("gateReconcileByLeader — self-review: single-flight across callers", 
     resolveRun();
     await call;
     expect(gated.currentRun()).toBeUndefined();
+  });
+});
+
+// An empty cacheDir reaches the lock as "", and `join("", "vault-lock.db")` is a CWD-relative path:
+// the election then opened (and leaked) a lock file in whatever directory the process started from.
+describe("empty cacheDir", () => {
+  it("is refused, and no vault-lock.db is created in the process cwd", async () => {
+    const cwdLock = join(process.cwd(), LOCK_FILE_NAME);
+    expect(existsSync(cwdLock)).toBe(false);
+    try {
+      await expect(startVaultLeaderElection({ cacheDir: "" })).rejects.toThrow(/cacheDir/);
+      expect(existsSync(cwdLock)).toBe(false);
+    } finally {
+      for (const name of [
+        LOCK_FILE_NAME,
+        `${LOCK_FILE_NAME}-wal`,
+        `${LOCK_FILE_NAME}-shm`,
+        "vault-lock.status.json",
+      ]) {
+        rmSync(join(process.cwd(), name), { force: true });
+      }
+    }
   });
 });
