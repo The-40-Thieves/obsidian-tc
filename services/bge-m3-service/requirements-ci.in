@@ -1,4 +1,4 @@
-# CI test dependencies for the model service (THE-528).
+# CI test dependencies for the model service.
 #
 # The CI job installs the package with --no-deps and adds only these light deps: the heavy ML
 # stack (torch, FlagEmbedding, sentence-transformers) is deliberately NOT installed in CI, so this

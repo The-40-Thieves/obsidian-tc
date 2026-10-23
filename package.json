@@ -77,10 +77,10 @@
     "db:pages": "node scripts/db-page-report.mjs"
   },
   "devDependencies": {
-    "@ast-grep/cli": "0.45.3",
-    "@biomejs/biome": "^2.5.15",
-    "dependency-cruiser": "18.5.0",
-    "jscpd": "^5.4.0",
+    "@ast-grep/cli": "0.51.0",
+    "@biomejs/biome": "2.6.2",
+    "dependency-cruiser": "18.7.0",
+    "jscpd": "^5.4.2",
     "knip": "6.42.1",
     "oxc-parser": "0.154.0",
     "recheck": "4.5.0",
@@ -96,7 +96,7 @@
     "brace-expansion": ">=5.0.8 <6",
     "fast-uri": ">=3.1.8 <4",
     "hono": ">=4.13.13 <5",
-    "ip-address": ">=10.5.1 <11",
+    "ip-address": ">=10.7.4 <11",
     "js-yaml": ">=4.3.1 <5",
     "minimatch": ">=10.2.5 <11",
     "moment": ">=2.31.0 <3",
