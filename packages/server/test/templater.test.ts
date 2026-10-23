@@ -2,6 +2,8 @@
 // execute_template carries write:templater, a HITL floor, so dispatch ALWAYS
 // demands an elicit token before the handler runs (no silent template execution).
 import { afterEach, describe, expect, it } from "vitest";
+import { issueElicitToken } from "../src/elicit";
+import { withWikiLogScope } from "../src/tools/m7/knowledge/wiki-log-acl";
 import { type M4Vault, makeM4Vault } from "./m4-helpers";
 
 describe("list_templates", () => {
@@ -210,5 +212,108 @@ describe("execute_template", () => {
     if (!req) throw new Error("expected a bridge request");
     const body = JSON.parse(req.body ?? "{}") as Record<string, unknown>;
     expect(body.overwrite).toBe(true);
+  });
+
+  // The companion writes `<target>.md` whenever the target does not already end in `.md`
+  // (companion templater route). Every server-side judgment must name that file.
+  describe("the .md file Templater writes is the one judged", () => {
+    const createdRoutes = {
+      "POST /obsidian-tc/v1/templater/execute": {
+        body: { ok: true, result: { target: "Exports/report.md", created_at: "t" } },
+      },
+    };
+    const exec = (target: string, overwrite = false) => ({
+      vault: "test",
+      template: "Templates/plain.md",
+      target,
+      overwrite,
+    });
+
+    it("write-checks Exports/report.md, not the extensionless whitelist entry Exports/report", async () => {
+      v = makeM4Vault({
+        installed: ["templater"],
+        routes: createdRoutes,
+        acl: { readPaths: ["Templates/**"], writePaths: ["Exports/report"] },
+      });
+      const res = await v.callConfirmed("execute_template", exec("Exports/report"));
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error.code).toBe("acl_denied");
+      expect(v.bridgeRequests).toHaveLength(0);
+    });
+
+    it("derives the suffix case-sensitively, as the companion does (report.MD -> report.MD.md)", async () => {
+      v = makeM4Vault({
+        installed: ["templater"],
+        routes: createdRoutes,
+        acl: { readPaths: ["Templates/**"], writePaths: ["Exports/report.MD"] },
+      });
+      const res = await v.callConfirmed("execute_template", exec("Exports/report.MD"));
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error.code).toBe("acl_denied");
+      expect(v.bridgeRequests).toHaveLength(0);
+    });
+
+    it.each(["wiki/log", "wiki/./log", "wiki/log.md"])(
+      "hits the implicit wiki/log.md rule for target %s (no read:provenance)",
+      async (target) => {
+        v = makeM4Vault({
+          installed: ["templater"],
+          routes: createdRoutes,
+          acl: {
+            rules: withWikiLogScope({ readOnly: false, defaultScopes: [], rules: [] }, "wiki")
+              .rules,
+          },
+        });
+        const res = await v.callConfirmed("execute_template", exec(target, true), {
+          grantedScopes: new Set(["write:templater"]),
+        });
+        expect(res.ok).toBe(false);
+        if (!res.ok) expect(res.error.code).toBe("acl_denied");
+        expect(v.bridgeRequests).toHaveLength(0);
+      },
+    );
+
+    it("binds the approval to the real .md file: a rewrite after the request is replay_drift", async () => {
+      v = makeM4Vault({
+        installed: ["templater"],
+        routes: createdRoutes,
+        files: { "Exports/report.md": "original" },
+        bindState: true,
+      });
+      const input = exec("Exports/report", true);
+      const need = await v.call("execute_template", input);
+      expect(need.ok).toBe(false);
+      if (need.ok) return;
+      expect(need.error.code).toBe("elicit_required");
+      const argsHash = (need.error.details as { args_hash: string }).args_hash;
+      const token = issueElicitToken(v.db, {
+        vaultId: "test",
+        toolName: "execute_template",
+        argsHash,
+        caller: "test",
+      });
+
+      v.write("Exports/report.md", "rewritten after the request");
+      const res = await v.call("execute_template", input, { elicitToken: token });
+      expect(res.ok).toBe(false);
+      if (!res.ok) expect(res.error.code).toBe("replay_drift");
+      expect(v.bridgeRequests).toHaveLength(0);
+      expect(v.read("Exports/report.md")).toBe("rewritten after the request");
+    });
+
+    it("control: an extensionless target permitted as X.md runs, and the bridge gets the canonical path", async () => {
+      v = makeM4Vault({
+        installed: ["templater"],
+        routes: createdRoutes,
+        acl: { readPaths: ["Templates/**"], writePaths: ["Exports/**"] },
+      });
+      const res = await v.callConfirmed("execute_template", exec("Exports/report"));
+      expect(res.ok).toBe(true);
+      if (res.ok) expect((res.data as Record<string, unknown>).target).toBe("Exports/report.md");
+      const req = v.bridgeRequests[0];
+      if (!req) throw new Error("expected a bridge request");
+      const body = JSON.parse(req.body ?? "{}") as Record<string, unknown>;
+      expect(body.target).toBe("Exports/report.md");
+    });
   });
 });
