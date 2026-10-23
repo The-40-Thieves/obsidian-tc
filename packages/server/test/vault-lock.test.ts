@@ -10,7 +10,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { openDatabase } from "../src/db/open";
 import { DEFAULT_BUSY_TIMEOUT_MS } from "../src/db/pragmas";
 import type { Database } from "../src/db/types";
@@ -487,12 +487,26 @@ describe("vault leader lock (src/runtime/vault-lock.ts)", () => {
     // Ordinary busy contention alone (the state right now: `a` holds the lock) must never
     // populate this — it is reserved for a genuinely unexpected, non-busy failure.
     expect(b.getLastFollowerError()).toBeUndefined();
-    failOpen = true;
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    const err = b.getLastFollowerError();
-    expect(err).toBeDefined();
-    expect(err?.count).toBeGreaterThanOrEqual(1);
-    expect(err?.message.length).toBeGreaterThan(0);
+    // Capture the retry loop's stderr line instead of letting it reach the suite log, where the
+    // injected ENOENT read as a real lock failure; asserting on it also proves the failure is logged.
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      failOpen = true;
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const err = b.getLastFollowerError();
+      expect(err).toBeDefined();
+      expect(err?.count).toBeGreaterThanOrEqual(1);
+      expect(err?.message.length).toBeGreaterThan(0);
+      expect(
+        stderr.mock.calls.some(([chunk]) =>
+          String(chunk).startsWith("[leader] follower retry failed (non-busy"),
+        ),
+      ).toBe(true);
+    } finally {
+      // Stop the retry loop before restoring stderr, so no line lands after the spy is gone.
+      await b.close();
+      stderr.mockRestore();
+    }
   });
 
   it("F1: demote() aborts + joins the in-flight reconcile BEFORE releasing the lock — no more writes from the old leader, no overlap with the successor", {
