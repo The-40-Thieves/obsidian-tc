@@ -231,11 +231,11 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
-      - name: install checkov 3.3.26 (version-pinned)
+      - name: install checkov 3.3.30 (version-pinned)
         # Pinned, not floating: checkov ships new CHECKS in minor releases, so "latest" means an
         # unrelated PR turns red the week a rule is added. The same reasoning pins it in the host
         # mise config. Bump deliberately, and re-run the baseline when doing so.
-        run: pip install --disable-pip-version-check checkov==3.3.26
+        run: pip install --disable-pip-version-check checkov==3.3.30
       # TWO invocations, one per target. A single run with both `-f Dockerfile` and
       # `-d .github/workflows` printed only the github_actions block: the dockerfile framework
       # result never appeared, so the Dockerfile had no checkov coverage in CI (measured on checkov
@@ -414,12 +414,12 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: install osv-scanner v2.4.0 (pinned binary + checksum)
+      - name: install osv-scanner v2.7.0 (pinned binary + checksum)
         run: |
           mkdir -p "$RUNNER_TEMP/osv-bin"
           curl -sSL --fail -o "$RUNNER_TEMP/osv-bin/osv-scanner" \
-            https://github.com/google/osv-scanner/releases/download/v2.4.0/osv-scanner_linux_amd64
-          echo "15314940c10d26af9c6649f150b8a47c1262e8fc7e17b1d1029b0e479e8ed8a0  $RUNNER_TEMP/osv-bin/osv-scanner" | sha256sum -c -
+            https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_linux_amd64
+          echo "160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b  $RUNNER_TEMP/osv-bin/osv-scanner" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/osv-bin/osv-scanner"
           echo "$RUNNER_TEMP/osv-bin" >> "$GITHUB_PATH"
       - name: osv-scanner (every lockfile in the tree)
