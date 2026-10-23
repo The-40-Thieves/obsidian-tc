@@ -13,8 +13,8 @@
 // Closing handles deliberately is still better where a suite owns them; this is the backstop that
 // makes the whole class self-healing instead of fixing suites one at a time as they flake.
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { afterAll } from "vitest";
 
 // Directories made by `makeTempDir` that nobody has removed yet.
@@ -124,16 +124,27 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 
 /** Points `os.homedir()` at `dir` for the duration of a test. Returns a restore function; call it
  *  in `afterEach` (never a whole `process.env = {...}` reassignment — see setup-e2e.test.ts's own
- *  header on why that breaks `homedir()`'s caching invalidation hook). */
+ *  header on why that breaks `homedir()`'s caching invalidation hook). Throws, with HOME and
+ *  USERPROFILE restored, when `homedir()` does not follow the stub. */
 export function stubHomedir(dir: string): () => void {
   const originalHome = process.env.HOME;
   const originalUserProfile = process.env.USERPROFILE;
-  process.env.HOME = dir;
-  process.env.USERPROFILE = dir;
-  return () => {
+  const restore = () => {
     if (originalHome === undefined) delete process.env.HOME;
     else process.env.HOME = originalHome;
     if (originalUserProfile === undefined) delete process.env.USERPROFILE;
     else process.env.USERPROFILE = originalUserProfile;
   };
+  process.env.HOME = dir;
+  process.env.USERPROFILE = dir;
+  // Bun reads HOME once at startup and its `os.homedir()` ignores a runtime change (Node follows
+  // it). Under Bun the stub would be silently inert and the test would write the real home, so
+  // fail closed instead of carrying on.
+  if (resolve(homedir()) !== resolve(dir)) {
+    restore();
+    throw new Error(
+      `os.homedir() did not follow HOME (wanted ${dir}, got ${homedir()}): the Bun runtime ignores a runtime HOME change, so this test would read or write the real home directory. Run vitest under Node (node ./node_modules/vitest/vitest.mjs), as \`just test\` does.`,
+    );
+  }
+  return restore;
 }

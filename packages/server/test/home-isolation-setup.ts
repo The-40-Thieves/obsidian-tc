@@ -9,7 +9,8 @@
 // (a clean runner home) stayed green. Pinning it once here, as a vitest `setupFiles` entry, covers
 // every test file — present and future — instead of a per-test stub each author has to remember.
 // A test that needs its OWN home still calls `stubHomedir` (tmp.ts); its restore now returns to
-// this pinned directory, never the real one.
+// this pinned directory, never the real one. Under a runtime whose `homedir()` ignores a runtime
+// HOME change (Bun), the stub throws here, so the run fails closed instead of writing the real home.
 // The per-file home also gave every Bun child a cold runtime transpiler cache, forcing each test
 // file to repopulate the same import graph. Concurrent cache writes stalled Windows runners until
 // the 60-second subprocess guard fired, so Bun children share one repo-local cache across the run.
