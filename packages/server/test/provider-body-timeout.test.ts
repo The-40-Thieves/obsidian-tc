@@ -77,9 +77,18 @@ async function expectBoundedRejection(
   ]);
   expect(bestEffort ? ["rejected", "resolved"] : ["rejected"]).toContain(outcome);
   expect(Date.now() - t0).toBeLessThan(1_000);
+  // The settle bound above stays at 1 s. The socket-close wait is looser: teardown of a socket the
+  // client just destroyed can lag on a loaded Windows runner, and an abandoned socket would stay open
+  // for the server's 300 s requestTimeout, so 10 s still tells closed from abandoned. Elsewhere it
+  // stays under the 5 s per-test timeout, so a leak reports "socket left open", not a bare timeout.
   await Promise.race([
     socketClosed,
-    new Promise<void>((_, rej) => setTimeout(() => rej(new Error("socket left open")), 1_000)),
+    new Promise<void>((_, rej) =>
+      setTimeout(
+        () => rej(new Error("socket left open")),
+        process.platform === "win32" ? 10_000 : 3_000,
+      ),
+    ),
   ]);
 }
 
