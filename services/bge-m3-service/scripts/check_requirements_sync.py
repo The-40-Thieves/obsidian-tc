@@ -23,9 +23,8 @@ from __future__ import annotations
 
 import re
 import sys
-from pathlib import Path
-
 import tomllib
+from pathlib import Path
 
 SERVICE = Path(__file__).resolve().parent.parent
 

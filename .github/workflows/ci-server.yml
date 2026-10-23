@@ -275,7 +275,7 @@ jobs:
           bun-version: '1.4.3'
       # vitest forks Node workers; node:sqlite + --experimental-sqlite require
       # Node >=22 on PATH. setup-node provides it for the test step below.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
           check-latest: true
@@ -356,14 +356,14 @@ jobs:
         with:
           bun-version: '1.4.3'
       # vitest forks Node workers; node:sqlite + --experimental-sqlite need Node >=22.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26'
           check-latest: true
       - uses: ./.github/actions/setup-rust
         with:
           targets: x86_64-apple-darwin
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: packages/native
       - name: cache bun install
@@ -743,7 +743,7 @@ jobs:
         working-directory: packages/server/eval
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.14'
       - name: install lint + test deps (pinned)
@@ -832,7 +832,7 @@ jobs:
       - uses: ./.github/actions/setup-repo
         with:
           node-required: 'true'
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: packages/native
       - name: build native addon (release; host platform)
@@ -928,7 +928,7 @@ jobs:
         working-directory: packages/server
       - name: upload perf report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: perf-report
           # Both reports: the densify run writes its own file, and dropping it would leave a failed
@@ -947,7 +947,7 @@ jobs:
       #
       # Run on the target (26) and the floor (24); the script writes a fixed filename, so each run
       # is renamed before the next one overwrites it.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26'
           check-latest: true
@@ -955,7 +955,7 @@ jobs:
         continue-on-error: true
         run: bun run perf:node-parity && mv perf-node-parity.json perf-node-parity-node26.json
         working-directory: packages/server
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           check-latest: true
@@ -965,7 +965,7 @@ jobs:
         working-directory: packages/server
       - name: upload node parity report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: perf-node-parity
           path: packages/server/perf-node-parity-node*.json
