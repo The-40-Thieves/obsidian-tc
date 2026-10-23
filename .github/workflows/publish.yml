@@ -205,7 +205,7 @@ jobs:
         if: endsWith(matrix.target, '-musl')
         uses: goto-bus-stop/setup-zig@abea47f85e598557f500fa1fd2ab7464fcb39406 # v2
         with:
-          version: 0.13.0
+          version: 0.17.0
       # THE-542: ci-native's musl-cross-build job pre-installs cargo-zigbuild explicitly, but this job
       # relied on napi auto-installing it on first use — so the musl path CI validates and the musl
       # path a release actually takes were not the same path. Compiling cargo-zigbuild from source

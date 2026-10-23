@@ -138,7 +138,7 @@ jobs:
       # targets), which is not a change to make casually. Tracked rather than silently carried.
       - uses: goto-bus-stop/setup-zig@abea47f85e598557f500fa1fd2ab7464fcb39406 # v2
         with:
-          version: 0.13.0
+          version: 0.17.0
       - uses: taiki-e/install-action@ed67fa35ac944f3a9b33f12c4dd43b6f31a47e20 # v2
         with:
           tool: cargo-zigbuild
