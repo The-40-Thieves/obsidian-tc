@@ -8,7 +8,7 @@ Python model services.
 | | pin | source of truth |
 |---|---|---|
 | Bun | **1.4.3** | `mise.toml` + `packageManager` in `package.json` — must agree |
-| Node | **26.12.0** target / **24** supported floor | `mise.toml`; `engines.node: ">=24"`. CI runs the full server suite on **both** 26 and 24 (`build-test`, `fallback-test`) — the 24 legs catch a 26-only API |
+| Node | **26.12.1** target / **24** supported floor | `mise.toml`; `engines.node: ">=24"`. CI runs the full server suite on **both** 26 and 24 (`build-test`, `fallback-test`) — the 24 legs catch a 26-only API |
 | Python | **3.14** | `mise.toml`; `bge-m3-service` declares `requires-python = ">=3.10"` and `docs-ingest` `">=3.11"` (a supported range, not the tested version; Pillow 13, the only release with its security fixes, needs 3.11) |
 | Rust | **1.99.1** exact | `packages/native/rust-toolchain.toml` |
 | TypeScript | **7.0.2** | root + `packages/*`. `docs/` is a *separate install root* held on 6.0.3: `astro check` refuses TS 7 ("does not currently support TypeScript 7.0") and `@astrojs/check` peers `^5 || ^6`; revisit when TS 7.1 stable + `@astrojs/ts-content-mapper` land |

@@ -20,7 +20,8 @@ dependencies = [
 # LangExtract's OpenAI provider imports the `openai` package lazily, and it is not a hard
 # dependency of langextract itself -- pull it in via langextract's own `openai` extra so the
 # provider that talks to Cave's LiteLLM gateway (OpenAI-compatible) actually has a client.
-parse = ["docling>=2"]
+# pillow>=13: 12.x carries nine advisories fixed in 13.0.0; the docling family now allows pillow<14.
+parse = ["docling>=2", "pillow>=13"]
 extract = ["langextract[openai]>=1.5"]
 test = ["pytest>=8"]
 
