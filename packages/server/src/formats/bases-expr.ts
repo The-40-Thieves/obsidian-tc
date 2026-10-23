@@ -123,10 +123,47 @@ const BIN_PREC: Record<string, number> = {
   "%": 6,
 };
 
+/** Longest expression accepted, in characters. Longer ones are refused before tokenizing. */
+export const BASES_EXPR_MAX_CHARS = 16_384;
+/** Parse-cache bounds: at most this many entries, and this many total source characters. */
+export const BASES_EXPR_CACHE_MAX_ENTRIES = 128;
+export const BASES_EXPR_CACHE_MAX_SOURCE_CHARS = 262_144;
+
+// Insertion order is recency order: a hit is re-inserted, so the first key is always the oldest.
 const parseCache = new Map<string, Ast>();
+let parseCacheChars = 0;
+
+function parseCacheGet(src: string): Ast | undefined {
+  const ast = parseCache.get(src);
+  if (ast) {
+    parseCache.delete(src);
+    parseCache.set(src, ast);
+  }
+  return ast;
+}
+
+function parseCachePut(src: string, ast: Ast): void {
+  parseCache.set(src, ast);
+  parseCacheChars += src.length;
+  for (const [key] of parseCache) {
+    if (
+      parseCache.size <= BASES_EXPR_CACHE_MAX_ENTRIES &&
+      parseCacheChars <= BASES_EXPR_CACHE_MAX_SOURCE_CHARS
+    ) {
+      break;
+    }
+    parseCache.delete(key);
+    parseCacheChars -= key.length;
+  }
+}
 
 export function parseBasesExpr(src: string): Ast {
-  const cached = parseCache.get(src);
+  if (src.length > BASES_EXPR_MAX_CHARS) {
+    throw err.unsupportedBaseFilter(
+      `expression is longer than ${BASES_EXPR_MAX_CHARS} characters (Bases DSL subset)`,
+    );
+  }
+  const cached = parseCacheGet(src);
   if (cached) return cached;
   const toks = tokenize(src);
   let pos = 0;
@@ -212,7 +249,7 @@ export function parseBasesExpr(src: string): Ast {
   }
   const ast = parseExpr(0);
   if (peek().t !== "eof") unsup("unexpected trailing tokens", src);
-  parseCache.set(src, ast);
+  parseCachePut(src, ast);
   return ast;
 }
 
