@@ -79,8 +79,8 @@
   "devDependencies": {
     "@ast-grep/cli": "0.45.3",
     "@biomejs/biome": "^2.5.15",
-    "dependency-cruiser": "18.5.0",
-    "jscpd": "^5.4.0",
+    "dependency-cruiser": "18.7.0",
+    "jscpd": "^5.4.2",
     "knip": "6.40.0",
     "oxc-parser": "0.150.0",
     "recheck": "4.5.0",
