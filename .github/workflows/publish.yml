@@ -123,7 +123,7 @@ jobs:
             [ "$REQUIRE_SIGNED_TAG" = "true" ] && exit 1
           fi
           exit 0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           check-latest: true
@@ -193,7 +193,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           # THE-542: every OTHER call site sets this; without it the release job caches the repo root
           # instead of the crate, so the one build that matters most runs permanently cold.
@@ -235,7 +235,7 @@ jobs:
         working-directory: packages/native
         run: bun run build -- --target ${{ matrix.target }} ${{ endsWith(matrix.target, '-musl') && '-x' || '' }}
         shell: bash
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-${{ matrix.triple }}
           path: packages/native/*.node
@@ -271,7 +271,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           check-latest: true
@@ -284,7 +284,7 @@ jobs:
       # jobs had passed. This job consumes only the napi `.node` artifacts; the binaries, mcpb and
       # plugin bundles are draft-release's business. Filtering by what we NEED also stops any
       # future job's artifacts from breaking the publish the same way.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: native-*
           path: packages/native/artifacts
@@ -453,7 +453,7 @@ jobs:
           ls -la sboms/
         shell: bash
       - name: upload SBOM artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sboms
           path: sboms/
@@ -722,7 +722,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           check-latest: true
@@ -780,7 +780,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           check-latest: true
@@ -1004,7 +1004,7 @@ jobs:
             [ -f "$tmp/cache/$db" ] || { echo "::error::$db was not provisioned"; exit 1; }
           done
           echo "ok: $bin reports $want, reaches stdio-ready, and provisions both chains"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: binary-${{ matrix.target }}
           path: packages/server/dist/obsidian-tc-*
@@ -1099,7 +1099,7 @@ jobs:
       # plugin-artifact/dist` pointing at the right subdirectory (see that job's comment) — a
       # silent zero-file upload here would only surface as a missing-asset failure in a DIFFERENT
       # job, with no clue that this step is where it actually went wrong.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: plugin
           path: |
@@ -1140,7 +1140,7 @@ jobs:
       # run's build-native matrix next to the loader, where packages/native/index.js looks first.
       # This job already waits for build-native transitively (sign-artifacts needs it), so the
       # artifacts exist; a missing one fails here, loudly, instead of shipping native=js-fallback.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: native-linux-*-gnu
           path: packages/native
@@ -1271,7 +1271,7 @@ jobs:
           ls -la sboms/
       - name: upload image SBOM
         if: hashFiles('sboms/obsidian-tc-image.spdx.json') != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom-image
           path: sboms/
@@ -1315,7 +1315,7 @@ jobs:
       # upload-artifact ship them together for publish-smithery to download as `mcpb-artifact/`.
       - name: generate the Smithery server card
         run: bun run gen:smithery-card
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mcpb
           path: |
@@ -1350,7 +1350,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
           # the same set draft-release attaches, plus the native prebuilds; skip the .dockerbuild record
@@ -1406,7 +1406,7 @@ jobs:
           sign_family plugin-styles artifacts/plugin/**/styles.css
           sign_family mcpb artifacts/mcpb/**/*.mcpb
           ls -la signatures/
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: signatures
           path: signatures/
@@ -1427,7 +1427,7 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: artifacts
           # only the assets the release attaches; skip native-* and the .dockerbuild record
@@ -1437,7 +1437,7 @@ jobs:
       # pattern below AND its own `signatures/` pattern — the double-match that queues an asset
       # twice and fails the upload (see the note above `files:`). It also keeps the bundles out of
       # SHASUMS256.txt, which lists the signed files, not their signatures.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: signatures
           path: signatures
@@ -1573,14 +1573,14 @@ jobs:
       # collapse of that shared ancestor (e.g. the zip steps ever stop producing files) fails
       # loudly there, in the job that would actually cause it, rather than surfacing here as an
       # opaque "required asset missing on disk" (fix round 1, review finding 7).
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.verify-tag.outputs.prerelease != 'true'
         with:
           name: plugin
           path: plugin-artifact
       # The mirror carries the same three files as v<version>, so it carries their cosign bundles
       # too (the bytes are re-uploaded, never rebuilt, so the bundles stay valid).
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.verify-tag.outputs.prerelease != 'true'
         with:
           name: signatures
@@ -1670,12 +1670,12 @@ jobs:
         if: needs.verify-tag.outputs.prerelease == 'true'
         run: echo "::notice::publish-smithery skipped — this is a prerelease; nothing is published to the live listing for it."
         shell: bash
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: needs.verify-tag.outputs.prerelease != 'true'
         with:
           name: mcpb
           path: mcpb-artifact
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: needs.verify-tag.outputs.prerelease != 'true'
         with:
           node-version: '24'
