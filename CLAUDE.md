@@ -13,7 +13,7 @@ Python model services.
 | Rust | **1.99.1** exact | `packages/native/rust-toolchain.toml` |
 | TypeScript | **7.0.2** | root + `packages/*`. `docs/` is a *separate install root* held on 6.0.3: `astro check` refuses TS 7 ("does not currently support TypeScript 7.0") and `@astrojs/check` peers `^5 || ^6`; revisit when TS 7.1 stable + `@astrojs/ts-content-mapper` land |
 | Vitest | **5** | AST-aware coverage remapping is mandatory in v4 — numbers are not comparable to v3 |
-| Biome | **2.5.x** | format + lint; there is no ESLint/Prettier here |
+| Biome | **2.6.2** | format + lint; there is no ESLint/Prettier here. 2.6 formats and lints Markdown and YAML by default: `biome.json` turns both off so the scope matches 2.5 |
 
 `@types/node` is on **^26** (owner decision 2026-10): types target Node 26, the runtime floor stays
 `engines.node: ">=24"` and is enforced by CI running on 24. The cost is deliberate and known — a
