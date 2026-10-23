@@ -81,8 +81,8 @@
     "@biomejs/biome": "2.6.2",
     "dependency-cruiser": "18.7.0",
     "jscpd": "^5.4.2",
-    "knip": "6.40.0",
-    "oxc-parser": "0.150.0",
+    "knip": "6.42.1",
+    "oxc-parser": "0.154.0",
     "recheck": "4.5.0",
     "typescript": "^7.0.2"
   },
