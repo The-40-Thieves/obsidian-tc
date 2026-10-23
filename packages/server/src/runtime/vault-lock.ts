@@ -181,7 +181,7 @@ export async function startVaultLeaderElection(
   opts: VaultLeaderElectionOptions,
 ): Promise<VaultLeaderElection> {
   // `join("", LOCK_FILE_NAME)` is cwd-relative: refuse it before any file is touched.
-  if (opts.cacheDir === "") {
+  if (opts.cacheDir.trim() === "") {
     throw new Error("startVaultLeaderElection: cacheDir must be a non-empty directory path");
   }
   const retryMinMs = opts.retryMinMs ?? DEFAULT_RETRY_MIN_MS;
