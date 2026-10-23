@@ -12,6 +12,15 @@ import {
 const base = { vaults: [{ id: "main", path: "/v" }] };
 
 describe("ServerConfigSchema", () => {
+  // An empty cacheDir resolves cache.db, auth.db and the leader lock against the process cwd.
+  it("refuses an empty cacheDir and keeps the default when the key is absent", () => {
+    const r = ServerConfigSchema.safeParse({ ...base, cacheDir: "" });
+    expect(r.success).toBe(false);
+    expect(r.error?.issues[0]?.path).toEqual(["cacheDir"]);
+    expect(ServerConfigSchema.parse(base).cacheDir).toBe(".obsidian-tc");
+    expect(ServerConfigSchema.parse({ ...base, cacheDir: "/c" }).cacheDir).toBe("/c");
+  });
+
   // reranker.passageFormat: the text each candidate is sent to the reranker as. The default must
   // stay "chunk" until ADR 0007's evidence bar is met.
   it("leaves reranker.passageFormat unset by default (= chunk) and accepts title+chunk", () => {
