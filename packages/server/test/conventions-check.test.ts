@@ -215,3 +215,85 @@ describe("checkNote: review fixes", () => {
     ]);
   });
 });
+
+describe("checkNote: level from severity", () => {
+  const withSeverity = (body: string) =>
+    effectiveFor(
+      `---\nconventions:\n  frontmatter:\n    required: [type]\n    values:\n      status: [draft]\n${body}---\n`,
+    );
+
+  it("missing_required takes the level of its property", () => {
+    const [w] = checkNote(
+      withSeverity("    severity: { type: block }\n"),
+      "n.md",
+      fmOf("---\nstatus: draft\n---\n"),
+    );
+    expect(w).toMatchObject({ code: "missing_required", property: "type", level: "block" });
+  });
+
+  it("value_not_allowed takes the level of its property", () => {
+    const w = checkNote(
+      withSeverity("    severity: { status: block }\n"),
+      "n.md",
+      fmOf("---\nstatus: stale\n---\n"),
+    ).find((x) => x.code === "value_not_allowed");
+    expect(w).toMatchObject({ code: "value_not_allowed", property: "status", level: "block" });
+  });
+
+  it("value_not_scalar takes the level of its property", () => {
+    const w = checkNote(
+      withSeverity("    severity: { status: block }\n"),
+      "n.md",
+      fmOf("---\nstatus: { a: 1 }\n---\n"),
+    ).find((x) => x.code === "value_not_scalar");
+    expect(w).toMatchObject({ code: "value_not_scalar", property: "status", level: "block" });
+  });
+
+  it("type_not_scalar is keyed on the type key", () => {
+    const ws = checkNote(
+      withSeverity("    severity: { type: block }\n"),
+      "n.md",
+      fmOf("---\ntype: [meeting, research]\n---\n"),
+    );
+    expect(ws.find((w) => w.code === "type_not_scalar")).toMatchObject({
+      property: "type",
+      level: "block",
+    });
+  });
+
+  it("precedence: type property > global property > type '*' > global '*' > warn", () => {
+    const meeting = "---\ntype: meeting\nstatus: stale\n---\n";
+    const research = "---\ntype: research\nstatus: stale\n---\n";
+    const level = (schema: string, fm: string) => {
+      const ws = checkNote(effectiveFor(schema), "n.md", fmOf(fm));
+      return ws.find((w) => w.code === "value_not_allowed")?.level;
+    };
+    const base = "---\nconventions:\n  frontmatter:\n    values:\n      status: [draft]\n";
+    expect(
+      level(
+        `${base}    severity: { status: warn }\n    types:\n      meeting:\n        severity: { status: block }\n---\n`,
+        meeting,
+      ),
+    ).toBe("block");
+    expect(
+      level(
+        `${base}    severity: { status: warn }\n    types:\n      meeting:\n        severity: { "*": block }\n---\n`,
+        meeting,
+      ),
+    ).toBe("warn");
+    expect(
+      level(
+        `${base}    severity: { "*": warn }\n    types:\n      meeting:\n        severity: { "*": block }\n---\n`,
+        meeting,
+      ),
+    ).toBe("block");
+    expect(
+      level(
+        `${base}    severity: { "*": warn }\n    types:\n      meeting:\n        severity: { "*": block }\n---\n`,
+        research,
+      ),
+    ).toBe("warn");
+    expect(level(`${base}    severity: { "*": block }\n---\n`, research)).toBe("block");
+    expect(level(`${base}---\n`, research)).toBe("warn");
+  });
+});

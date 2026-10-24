@@ -205,3 +205,26 @@ describe("get_conventions", () => {
     },
   );
 });
+
+describe("get_conventions: severity", () => {
+  it("reports each severity with its source; concise keeps the level and drops the source", async () => {
+    const v = makeTestVault({
+      files: {
+        "SCHEMA.md": layer("  frontmatter:\n    severity:\n      status: block"),
+        "a/SCHEMA.md": layer("  frontmatter:\n    severity:\n      status: warn"),
+        "a/b/c.md": "---\ntype: note\n---\nbody",
+      },
+    });
+    try {
+      const d = await getConventions(v, { path: "a/b/c.md" });
+      expect(d.effective).toMatchObject({
+        severity: { status: { value: "warn", source: "a/SCHEMA.md" } },
+      });
+      const c = await getConventions(v, { path: "a/b/c.md", response_format: "concise" });
+      expect(c.effective).toMatchObject({ severity: { status: { value: "warn" } } });
+      expect(JSON.stringify(c)).not.toContain('"source"');
+    } finally {
+      v.cleanup();
+    }
+  });
+});

@@ -13,10 +13,16 @@ export const CONVENTIONS_VERSION = 1;
 /** A note larger than this is not parsed for conventions (the bound the write check and lint_wiki share). */
 export const NOTE_MAX_BYTES = 1024 * 1024;
 
+/** How a violation is reported: `warn` only, or `block` a write that adds it (the gate is PR 3). */
+export const SEVERITIES = ["warn", "block"] as const;
+export type Severity = (typeof SEVERITIES)[number];
+
 /** Per-type rules a layer sets. `undefined` = not set here; `[]` = removes the inherited rule. */
 export interface ConventionsTypeLayer {
   required?: string[];
   values: Record<string, string[]>;
+  /** Severity per property (`"*"` = default). `null` removes the inherited leaf. */
+  severity: Record<string, Severity | null>;
 }
 
 /** One parsed SCHEMA.md layer. Keys are null-prototype maps: a property may be named `__proto__`. */
@@ -31,6 +37,8 @@ export interface ConventionsLayer {
   required?: string[];
   /** Global allowed values per property; `[]` removes the inherited rule for that property. */
   values: Record<string, string[]>;
+  /** Global severity per property (`"*"` = default); `null` removes the inherited leaf. */
+  severity: Record<string, Severity | null>;
   types: Record<string, ConventionsTypeLayer>;
 }
 
@@ -49,9 +57,16 @@ export interface SourcedValues {
   source: string;
 }
 
+/** A merged severity and the layer that set it. */
+export interface SourcedSeverity {
+  value: Severity;
+  source: string;
+}
+
 export interface EffectiveTypeRules {
   required?: SourcedValues;
   values: Record<string, SourcedValues>;
+  severity: Record<string, SourcedSeverity>;
 }
 
 export interface ConventionsFileWarning {
@@ -65,6 +80,8 @@ export interface EffectiveConventions {
   typeKeySource: string;
   required?: SourcedValues;
   values: Record<string, SourcedValues>;
+  /** Severity per property (`"*"` = default), nearest layer wins. */
+  severity: Record<string, SourcedSeverity>;
   types: Record<string, EffectiveTypeRules>;
   wikiFolders: WikiFolders;
   rawFolders: RawFolders;
@@ -91,7 +108,7 @@ export const ConventionWarningSchema = z.object({
   allowed: z.array(z.string()).optional(),
   type: z.string().optional(),
   source: z.string(),
-  level: z.literal("warn"),
+  level: z.enum(SEVERITIES),
 });
 
 export type ConventionWarning = z.infer<typeof ConventionWarningSchema>;

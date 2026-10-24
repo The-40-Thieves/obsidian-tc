@@ -92,3 +92,24 @@ describe("start_session conventions", () => {
     }
   });
 });
+
+describe("start_session severity", () => {
+  it("carries the root layer's severity in concise form, without a source", async () => {
+    const v = makeM5Vault({
+      files: {
+        "SCHEMA.md":
+          "---\nconventions:\n  frontmatter:\n    severity:\n      status: block\n---\n# rules\n",
+      },
+    });
+    try {
+      const r = await v.call("start_session", { vault: "test", caller: "agent-x" });
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      const d = r.data as Record<string, unknown>;
+      expect(d.conventions).toMatchObject({ severity: { status: { value: "block" } } });
+      expect(JSON.stringify(d.conventions)).not.toContain('"source"');
+    } finally {
+      v.cleanup();
+    }
+  });
+});
