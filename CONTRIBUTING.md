@@ -272,6 +272,7 @@ fragments; `scripts/release.mjs` folds them into the release section and deletes
 ### Testing Expectations
 
 - **Server**: tests live under `packages/server/test/` as `*.test.ts`, run with [Vitest](https://vitest.dev) under Node — `bun run test`, or `node ./node_modules/vitest/vitest.mjs run` to match CI (the suite needs Node's `node:sqlite`, which Bun does not provide).
+- **Test copy-paste gate** (`bun run check:duplication:tests`): jscpd scans `packages/server/test` and fails when the working tree has more than 3 clones that are absent from `origin/main`. There is no baseline file: the reference is computed from `origin/main` on every run, so run `git fetch origin main` first if the ref is missing (CI fetches it in the lint job; a missing ref fails the gate rather than passing). Each PR may add up to 3 small clones. When the gate fails on an intentional clone, either factor the shared code into a helper (preferred), or wrap the copy in `// jscpd:ignore-start` and `// jscpd:ignore-end` comments.
 - **Native**: Rust unit tests live in `#[cfg(test)]` modules — `cargo test`.
 - **Plugin**: exercised through the server integration suite; document manual test steps in PRs that touch plugin behavior.
 - **Pure-JS fallback parity**: any new Rust function must ship a TypeScript fallback that passes the same tests. See the performance budget in `docs/G2.5-release-engineering.md` §4.

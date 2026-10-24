@@ -1,0 +1,12 @@
+{
+  "path": ["packages/server/test"],
+  "pattern": "**/*.ts",
+  "format": ["typescript"],
+  "minTokens": 50,
+  "reporters": ["ai"],
+  "absolute": false,
+  "gitignore": true,
+  "baselineFromRef": "origin/main",
+  "failOnNewClones": 3,
+  "failOnEmpty": true
+}
