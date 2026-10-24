@@ -156,6 +156,26 @@ describe("resolveConventions", () => {
     },
   );
 
+  it("layers lists exactly the layers merged, root first, and none cut off by inherit:false", () => {
+    v = makeTestVault({
+      files: {
+        "SCHEMA.md": layer("  version: 1\n  frontmatter:\n    required: [type]"),
+        "a/SCHEMA.md": layer(
+          "  version: 1\n  inherit: false\n  frontmatter:\n    values:\n      status: [draft]",
+        ),
+        "a/b/SCHEMA.md": layer(
+          "  version: 1\n  frontmatter:\n    values:\n      status: [current]",
+        ),
+        "a/b/n.md": "x",
+      },
+    });
+    const eff = resolveConventions(scopeOf(v), "a/b/n.md");
+    expect(eff.layers).toEqual([
+      { path: "a/SCHEMA.md", inherit: false, version: 1 },
+      { path: "a/b/SCHEMA.md", inherit: true, version: 1 },
+    ]);
+  });
+
   it("a list whose entries are all dropped does not remove the inherited rule", () => {
     v = makeTestVault({
       files: {

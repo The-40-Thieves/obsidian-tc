@@ -1,5 +1,7 @@
 // get_conventions: the caller-readable SCHEMA.md layers, the merged rules with a source per entry,
 // concise form, the no-layer hint, folder inheritance, path rejection and legacy-only layers.
+import { symlinkSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { makeTestVault, type TestVault } from "./m1-helpers";
@@ -132,4 +134,74 @@ describe("get_conventions", () => {
       v.cleanup();
     }
   });
+
+  it("a folder path lists and merges its own SCHEMA.md, and has no hint when layers exist", async () => {
+    const v = makeTestVault({ files: FILES });
+    try {
+      const d = await getConventions(v, { path: "a" });
+      expect(d.layers).toEqual([
+        { path: "SCHEMA.md", inherit: true, version: 1 },
+        { path: "a/SCHEMA.md", inherit: true, version: 1 },
+      ]);
+      expect(d.effective).toMatchObject({
+        values: { status: { values: ["draft"], source: "a/SCHEMA.md" } },
+      });
+      expect(d).not.toHaveProperty("hint");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("layers lists only the layers that merged: inherit:false cuts off the ancestors above it", async () => {
+    const v = makeTestVault({
+      files: {
+        "SCHEMA.md": layer("  version: 1\n  frontmatter:\n    required: [type]"),
+        "a/SCHEMA.md": layer(
+          "  version: 1\n  inherit: false\n  frontmatter:\n    values:\n      status: [draft]",
+        ),
+        "a/b/c.md": "x",
+      },
+    });
+    try {
+      const d = await getConventions(v, { path: "a/b/c.md" });
+      expect(d.layers).toEqual([{ path: "a/SCHEMA.md", inherit: false, version: 1 }]);
+      expect(d.effective).not.toHaveProperty("required");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "a layer reached through a symlink the caller may not read is absent, with no file warning",
+    async () => {
+      const v = makeTestVault({
+        files: {
+          "pub/SCHEMA.md": layer("  version: 1\n  frontmatter:\n    required: [TOPSECRET]"),
+          "pub/n.md": "x",
+          "secret/n.md": "x",
+        },
+      });
+      try {
+        const narrow = new FolderAcl({
+          readOnly: false,
+          defaultScopes: [],
+          rules: [],
+          readPaths: ["pub/**"],
+        });
+        symlinkSync("../pub/SCHEMA.md", join(v.root, "secret", "SCHEMA.md"));
+        const file = await getConventions(v, { path: "secret/n.md" }, { acl: narrow });
+        expect(file.layers).toEqual([]);
+        expect(file).not.toHaveProperty("file_warnings");
+        expect(JSON.stringify(file)).not.toContain("TOPSECRET");
+
+        symlinkSync("pub", join(v.root, "alias"));
+        const folder = await getConventions(v, { path: "alias/n.md" }, { acl: narrow });
+        expect(folder.layers).toEqual([]);
+        expect(folder).not.toHaveProperty("file_warnings");
+        expect(JSON.stringify(folder)).not.toContain("TOPSECRET");
+      } finally {
+        v.cleanup();
+      }
+    },
+  );
 });

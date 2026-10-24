@@ -123,9 +123,13 @@ export function readConventionsLayer(
     layerCache.set(key, { sig, parsed });
     return parsed;
   } catch (e) {
+    // A refusal says the caller may not see this layer (it leaves what the caller reads, or the vault):
+    // absent, with no warning that would reveal that it exists.
+    const reason = readFailureReason(e);
+    if (reason === "acl_denied" || reason === "path_invalid") return null;
     return {
       layer: null,
-      warnings: [`conventions not read: ${readFailureReason(e)}`],
+      warnings: [`conventions not read: ${reason}`],
       legacyOnly: false,
     };
   }
@@ -142,6 +146,7 @@ function emptyEffective(scope: ConventionsScope): EffectiveConventions {
     rawFolders: scope.rawFolders,
     fileWarnings: [],
     fileWarningsOmitted: 0,
+    layers: [],
   };
 }
 
@@ -215,7 +220,10 @@ export function resolveConventions(
       start = i;
       break;
     }
-  for (const layer of loaded.slice(start)) mergeLayer(eff, layer);
+  for (const layer of loaded.slice(start)) {
+    mergeLayer(eff, layer);
+    eff.layers.push({ path: layer.path, inherit: layer.inherit, version: layer.version });
+  }
   if (eff.typeKeySource === "" && loaded.length > 0)
     eff.typeKeySource = loaded[loaded.length - 1]?.path ?? "";
   return eff;

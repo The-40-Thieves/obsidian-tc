@@ -68,6 +68,8 @@ export interface EffectiveConventions {
   fileWarnings: ConventionsFileWarning[];
   /** File warnings past the scan cap: counted, not kept. */
   fileWarningsOmitted: number;
+  /** The layers merged into `effective`, root first: a layer cut off by inherit:false is not one. */
+  layers: Pick<ConventionsLayer, "path" | "inherit" | "version">[];
 }
 
 export const CONVENTION_CODES = [

@@ -2,6 +2,7 @@
 // form, only for a caller that holds read:notes and only when the root SCHEMA.md is readable. Its
 // description is unchanged (owner decision), and with no root layer the output is exactly today's.
 import { describe, expect, it } from "vitest";
+import { FolderAcl } from "../src/acl";
 import { makeM5Vault } from "./m5-helpers";
 
 const ROOT_LAYER =
@@ -37,6 +38,28 @@ describe("start_session conventions", () => {
         "start_session",
         { vault: "test", caller: "agent-x" },
         { grantedScopes: new Set(["write:workspace"]) },
+      );
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      expect(r.data).not.toHaveProperty("conventions");
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("is absent when the caller's ACL denies the root SCHEMA.md, even with read:notes", async () => {
+    const v = makeM5Vault({ files: { "SCHEMA.md": ROOT_LAYER, "a/n.md": "x" } });
+    try {
+      const narrow = new FolderAcl({
+        readOnly: false,
+        defaultScopes: [],
+        rules: [],
+        readPaths: ["a/**"],
+      });
+      const r = await v.call(
+        "start_session",
+        { vault: "test", caller: "agent-x" },
+        { acl: narrow },
       );
       expect(r.ok).toBe(true);
       if (!r.ok) return;

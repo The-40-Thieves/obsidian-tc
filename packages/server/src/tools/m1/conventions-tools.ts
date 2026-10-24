@@ -4,12 +4,7 @@
 // reported as denied. start_session reuses the root layer through rootConventionsFor.
 import { grantsAll, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import {
-  type ConventionsScope,
-  conventionsLayerPaths,
-  readConventionsLayer,
-  resolveConventions,
-} from "../../conventions/resolve";
+import { type ConventionsScope, resolveConventions } from "../../conventions/resolve";
 import type { EffectiveConventions, SourcedValues } from "../../conventions/schema";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { normalizeVaultPath } from "../../vault/paths";
@@ -97,9 +92,9 @@ export function rootConventionsFor(
   ctx: Pick<CallerContext, "acl" | "grantedScopes">,
 ): z.infer<typeof EffectiveConventionsOutput> | undefined {
   if (!grantsAll(ctx.grantedScopes, ["read:notes"])) return undefined;
-  const scope = conventionsScopeOf(v, ctx);
-  if (readConventionsLayer(scope, WIKI_SCHEMA_FILE)?.layer == null) return undefined;
-  return effectiveOf(resolveConventions(scope, "_.md"), false);
+  const eff = resolveConventions(conventionsScopeOf(v, ctx), "_.md");
+  if (!eff.layers.some((l) => l.path === WIKI_SCHEMA_FILE)) return undefined;
+  return effectiveOf(eff, false);
 }
 
 export function buildConventionsTools(deps: M1Deps): ToolDefinition[] {
@@ -121,16 +116,12 @@ export function buildConventionsTools(deps: M1Deps): ToolDefinition[] {
         const scope = conventionsScopeOf(v, ctx);
         const eff = resolveConventions(scope, probe);
         const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
-        const layers = conventionsLayerPaths(probe).flatMap((path) => {
-          const layer = readConventionsLayer(scope, path)?.layer;
-          return layer ? [{ path, inherit: layer.inherit, version: layer.version }] : [];
-        });
         return {
           vault: v.id,
           path: rel,
-          ...(concise ? {} : { layers }),
+          ...(concise ? {} : { layers: eff.layers }),
           effective: effectiveOf(eff, !concise),
-          ...(layers.length === 0
+          ...(eff.layers.length === 0
             ? {
                 hint: "No conventions apply here. To add them, put a conventions: block (version: 1) in a SCHEMA.md at the vault root or in this folder.",
               }
