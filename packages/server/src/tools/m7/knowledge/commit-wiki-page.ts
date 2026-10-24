@@ -20,6 +20,7 @@
 // renames can leave a partial batch; vault/write-batch.ts says how that is bounded and recorded.
 import { ElicitToken, err, ObsidianTcError, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { conventionsResultShape } from "../../../conventions/schema";
 import {
   enforceMemoryDefenseOnNoteWrite,
   MEMORY_DEFENSE_OFF,
@@ -129,6 +130,7 @@ export const CommitWikiPageOutput = z.object({
   /** Matches replaced by memoryDefense (mode redact) across everything written. */
   redactions: z.number().int().optional(),
   next: z.array(z.string()),
+  ...conventionsResultShape,
 });
 
 const basename = (rel: string): string => (rel.split("/").pop() ?? rel).replace(/\.md$/i, "");

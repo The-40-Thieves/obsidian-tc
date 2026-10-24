@@ -24,15 +24,9 @@ import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
-// A write tool that is not wired yet. PR 4 of the conventions slice empties this set.
-const CONVENTIONS_PENDING = new Set<string>([
-  "execute_template",
-  "commit_capture",
-  "bulk_create_notes",
-  "bulk_set_property",
-  "bulk_move_notes",
-  "commit_wiki_page",
-]);
+// A write tool that is not wired yet: empty now that every note writer reports conventions. A new writer
+// either declares the field or lands here (or in CONVENTIONS_EXEMPT with a reason).
+const CONVENTIONS_PENDING = new Set<string>([]);
 
 // Mutating tools with no pathAcl that write Markdown notes, found by reading each mutating tool that names
 // no path. Listing one makes the coverage check treat it as a writer, so it must declare conventions or sit
