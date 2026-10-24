@@ -5,14 +5,12 @@
 // link). Writes are atomic (O_EXCL temp + rename) so a crash never leaves a half-written
 // note and Obsidian's watcher sees a single replace, and the temp open is exclusive +
 // no-follow on a randomized name so a planted symlink cannot hijack the write (H-4).
-import { randomBytes } from "node:crypto";
 import {
   type BigIntStats,
   closeSync,
   constants,
   existsSync,
   fstatSync,
-  fsyncSync,
   linkSync,
   lstatSync,
   openSync,
@@ -24,7 +22,6 @@ import {
   type Stats,
   statSync,
   unlinkSync,
-  writeSync,
 } from "node:fs";
 import { basename, dirname, join, normalize, relative, sep } from "node:path";
 import {
@@ -51,10 +48,11 @@ import {
   walkDirectoriesNoFollow,
 } from "./no-follow-walk";
 import { assertCreatableName, contentHash } from "./paths";
+import { O_NOFOLLOW, removeTemp, writeAll, writeTempFile } from "./temp-write";
+import { gateNoteWrite } from "./write-gate";
 
 // O_NOFOLLOW and O_NONBLOCK are POSIX-only (undefined on Windows Node): 0 is a no-op there, and the
 // st_nlink inode check is the cross-platform guard.
-const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 const O_NONBLOCK = constants.O_NONBLOCK ?? 0;
 
 // Prefer the native, symlink-safe, TOCTOU-free open when the compiled module is loaded: it follows
@@ -352,17 +350,15 @@ function commitNoReplace(tmp: string, abs: string): void {
   }
 }
 
-/** Write every byte of `data` (writeSync may write fewer than asked). */
-function writeAll(fd: number, data: Buffer): void {
-  for (let off = 0; off < data.length; ) off += writeSync(fd, data, off, data.length - off, null);
-}
-
 export interface WriteFileOpts {
   /** No-replace commit: an existing target throws note_exists. */
   exclusive?: boolean;
   /** The leaf existed and replaceDestination just trashed it: re-creating it mints no NEW name, so
    *  the hostile-name refusal is skipped. Set only by replaceDestination. */
   replacesExisting?: boolean;
+  /** Skip the write gate (write-gate.ts): only where the bytes were already checked at staging, or
+   *  on an internal undo. */
+  ungated?: true;
 }
 
 /** Atomic binary write: the note writer's temp + rename and symlink-safe open, for raw bytes.
@@ -374,6 +370,7 @@ export function writeFileAtomic(
   createDirs = true,
   opts: WriteFileOpts = {},
 ): void {
+  if (!opts.ungated) gateNoteWrite(abs, data);
   // Backstop for writers that skipped enforcePathAcl("write"): creating a Windows-hostile leaf name
   // is refused here too (an existing file stays updatable in place).
   const nativeWrite = opts.exclusive
@@ -416,36 +413,6 @@ export function writeFileAtomic(
   }
 }
 
-/** O_EXCL + O_NOFOLLOW on a RANDOM temp name (H-4); unlinked if the write fails. */
-function writeTempFile(abs: string, data: Buffer, sync: boolean): string {
-  const tmp = `${abs}.tmp-${process.pid}-${randomBytes(8).toString("hex")}`;
-  const fd = openSync(
-    tmp,
-    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | O_NOFOLLOW,
-    0o600,
-  );
-  try {
-    try {
-      writeAll(fd, data);
-      if (sync) fsyncSync(fd);
-    } finally {
-      closeSync(fd);
-    }
-  } catch (e) {
-    removeTemp(tmp);
-    throw e;
-  }
-  return tmp;
-}
-
-function removeTemp(tmp: string): void {
-  try {
-    unlinkSync(tmp);
-  } catch {
-    // best-effort cleanup: nothing more to do if the removal fails
-  }
-}
-
 export interface StagedWrite {
   commit(): void;
   discard(): void;
@@ -458,8 +425,14 @@ export function stageNoteWrite(
   opts: WriteFileOpts = {},
 ): StagedWrite {
   const data = Buffer.from(content, "utf8");
+  if (!opts.ungated) gateNoteWrite(abs, data);
   if (nativeIo && !pinnedWritesAvailable()) refuseJsThroughPin(abs);
-  if (nativeIo) return { commit: () => writeFileAtomic(abs, data, createDirs, opts), discard() {} };
+  if (nativeIo)
+    return {
+      // Already checked above: the commit must not be checked a second time.
+      commit: () => writeFileAtomic(abs, data, createDirs, { ...opts, ungated: true }),
+      discard() {},
+    };
   refuseJsThroughPin(abs);
   if (!opts.replacesExisting && !existsNoFollow(abs))
     assertCreatableName(basename(abs), basename(abs));

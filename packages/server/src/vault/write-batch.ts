@@ -180,7 +180,7 @@ function undoWrittenNote(abs: string, writtenHash: string, prevRaw: string | nul
     return "undone";
   }
   try {
-    writeNoteAtomic(abs, prevRaw, false, { exclusive: true });
+    writeNoteAtomic(abs, prevRaw, false, { exclusive: true, ungated: true });
   } catch (e) {
     // Someone created a note at the name while ours was aside: theirs wins. Anything else: put
     // ours back so the batch's own write is at least still there.

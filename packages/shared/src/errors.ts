@@ -74,7 +74,9 @@ export type ErrorCode =
   // (fail-closed). Never retryable — same shape as content_rejected: the caller must revise the
   // argument, not blindly resend it. details names pattern ids and field NAMES only, never the
   // matched value or the name/path that carried it.
-  | "secret_detected";
+  | "secret_detected"
+  // GH #1331 — a folder convention marked `block` would be broken by this write. Never retryable.
+  | "convention_blocked";
 
 const RETRYABLE: ReadonlySet<ErrorCode> = new Set<ErrorCode>([
   "idempotency_in_flight",
@@ -213,6 +215,8 @@ const RECOVERY: Record<ErrorCode, string | null> = {
   // GH #994 — memoryDefense block mode / fail-closed scanner error.
   secret_detected:
     'details.pattern_ids and details.fields name what matched, never the value. Remove the secret-shaped text from those fields and retry, or set memoryDefense.mode to "redact" to scrub silently instead of refusing.',
+  convention_blocked:
+    "Blocked by a folder convention marked block in SCHEMA.md; nothing was written. details.violations lists each rule. Fix the content (get_conventions(path) shows the rules) and resend. Fixing a note that already broke the rules is never blocked.",
 };
 
 /** THE-512: the recovery hint for a code, or undefined when none is useful. */
@@ -364,4 +368,5 @@ export const err = {
   contentRejected: mk("content_rejected", "content rejected by poison scan"),
   // GH #994 — memoryDefense block mode / fail-closed scanner error.
   secretDetected: mk("secret_detected", "secret-shaped content refused"),
+  conventionBlocked: mk("convention_blocked", "write blocked by a folder convention"),
 } as const;
