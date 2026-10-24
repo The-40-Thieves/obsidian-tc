@@ -12,7 +12,7 @@ import {
   evictConventionsLayer,
   resolveConventions,
 } from "../../conventions/resolve";
-import { CONVENTIONS_KEY } from "../../conventions/schema";
+import { CONVENTIONS_KEY, NOTE_MAX_BYTES } from "../../conventions/schema";
 import { WIKI_SCHEMA_FILE } from "../../tools/m7/knowledge/wiki-schema";
 import { capWarningsOut, MAX_SCAN_WARNINGS } from "../../tools/scan-warnings";
 import { createSliceYielder } from "../../util/scan-steps";
@@ -28,8 +28,6 @@ import type { CallerContext, ConventionsSink, RegistryOptions, ToolDefinition } 
 
 /** Notes a single call may name: the rest are not stat'd, so a bulk call cannot make begin unbounded. */
 const MAX_NAMED_NOTES = 500;
-/** A note larger than this is not parsed for conventions (the same bound the layer reader uses). */
-const NOTE_MAX_BYTES = 1024 * 1024;
 
 export interface ConventionsDispatch {
   begin(def: ToolDefinition, input: unknown, ctx: CallerContext): Promise<void>;
