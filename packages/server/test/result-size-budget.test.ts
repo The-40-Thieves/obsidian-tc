@@ -194,7 +194,8 @@ describe("default pages stay under the inline limit", { timeout: 60_000 }, () =>
   }, 180_000);
 
   it("find_link_cycles: bounded cycle length, and it reports what it skipped", async () => {
-    const data = await call("find_link_cycles", {});
+    // min_length 2: this vault's loops are two-note ones, which the default (3) skips.
+    const data = await call("find_link_cycles", { min_length: 2 });
     const cycles = data.cycles as string[][];
     expect(cycles.length).toBeGreaterThan(0);
     for (const c of cycles) expect(c.length - 1).toBeLessThanOrEqual(10);

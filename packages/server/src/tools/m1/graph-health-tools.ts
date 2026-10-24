@@ -15,6 +15,7 @@ import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import { isExternal, linksOf, readableNotesSteps, scanProvenanceSteps } from "../wiki-scan";
 import { defineTool } from "./define";
+import { CYCLE_SCAN_WORK_CAP, findLinkCyclesSteps, restrictToFolder } from "./link-cycles";
 import type { M1Deps } from "./shared";
 
 interface Graph {
@@ -63,55 +64,6 @@ function* buildLinkGraphSteps(
   return { notes, out, inn, unresolved, links, warnings };
 }
 
-/** Directed-cycle enumeration (DFS back-edges). Bounded by `limit` cycles reported; a cycle of more
- *  than `maxLength` links is not reported (a dense vault's DFS closes cycles hundreds of notes long,
- *  which is a page-sized answer to a question nobody asked) and is counted in `skippedLonger`.
- *  Iterative (an explicit stack of neighbour iterators) with a step per node, so a drain can hand the
- *  event loop back during the walk, and a 20 000-deep chain cannot overflow the call stack. */
-function* findCyclesSteps(
-  out: Map<string, Set<string>>,
-  limit: number,
-  maxLength: number,
-): ScanSteps<{ cycles: string[][]; skippedLonger: number }> {
-  let skippedLonger = 0;
-  const state = new Map<string, number>(); // 0 unseen, 1 on-stack, 2 done
-  const stack: string[] = [];
-  const nexts: Iterator<string>[] = [];
-  const cycles: string[][] = [];
-  const enter = (u: string): void => {
-    state.set(u, 1);
-    stack.push(u);
-    nexts.push((out.get(u) ?? new Set<string>()).values());
-  };
-  for (const n of out.keys()) {
-    if (cycles.length >= limit) break;
-    if ((state.get(n) ?? 0) !== 0) continue;
-    enter(n);
-    while (stack.length > 0 && cycles.length < limit) {
-      const nx = (nexts[nexts.length - 1] as Iterator<string>).next();
-      if (nx.done) {
-        nexts.pop();
-        state.set(stack.pop() as string, 2);
-        yield;
-        continue;
-      }
-      const w = nx.value;
-      const s = state.get(w) ?? 0;
-      if (s === 1) {
-        const i = stack.lastIndexOf(w);
-        if (i >= 0) {
-          if (stack.length - i > maxLength) skippedLonger++;
-          else cycles.push([...stack.slice(i), w]);
-        }
-      } else if (s === 0) {
-        enter(w);
-        yield;
-      }
-    }
-  }
-  return { cycles, skippedLonger };
-}
-
 function intersectSize(a: Set<string> | undefined, b: Set<string> | undefined): number {
   if (!a || !b) return 0;
   let n = 0;
@@ -155,10 +107,15 @@ const ConciseableVaultHealthScoreOutput = VaultHealthScoreOutput.partial({
 const FindLinkCyclesOutput = z.object({
   ...scanWarningsShape,
   vault: z.string(),
+  /** Distinct cycles within [min_length, max_length]. A lower bound when `truncated` is true. */
   total: z.number(),
+  /** True when the scan's work cap stopped it before every cycle was counted. */
+  truncated: z.boolean(),
   cycles: z.array(z.array(z.string())),
   /** Cycles found but not reported because they run longer than `max_length` links. */
   skipped_longer: z.number().int(),
+  /** Cycles found but not reported because they run shorter than `min_length` links. */
+  skipped_shorter: z.number().int(),
 });
 
 const GetLinkStrengthOutput = z.object({
@@ -270,7 +227,16 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         const orphans = g.notes.filter((p) => (g.inn.get(p)?.size ?? 0) === 0).length;
         const hubs = g.notes.filter((p) => (g.inn.get(p)?.size ?? 0) >= input.hub_threshold).length;
         const cycles = (
-          await drainYielding(findCyclesSteps(g.out, 100, Number.POSITIVE_INFINITY), ctx.signal)
+          await drainYielding(
+            findLinkCyclesSteps(g.out, {
+              limit: 100,
+              minLength: 2,
+              maxLength: Number.POSITIVE_INFINITY,
+              maxWork: CYCLE_SCAN_WORK_CAP,
+              countPastLimit: false,
+            }),
+            ctx.signal,
+          )
         ).cycles.length;
         const orphanRatio = total ? orphans / total : 0;
         const unresolvedRatio = g.links ? g.unresolved / g.links : 0;
@@ -314,12 +280,14 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
       name: "find_link_cycles",
       domain: "links",
       description:
-        "Detect circular internal-link chains (a -> b -> ... -> a) in the readable note graph. Returns up to `limit` cycles as ordered path lists.",
+        "Detect circular internal-link chains (a -> b -> ... -> a) in the readable note graph. Returns up to `limit` cycles as ordered path lists. Loops shorter than `min_length` links (default 3, which skips a note and the index it links back to) are skipped, as are loops longer than `max_length`. `folder` limits the cycle members to one folder.",
       inputSchema: z
         .object({
           vault: VaultId,
           limit: z.number().int().positive().max(1000).default(10),
+          min_length: z.number().int().min(2).max(1000).default(3),
           max_length: z.number().int().min(2).max(1000).default(10),
+          folder: VaultPath.optional(),
         })
         .strict(),
       outputSchema: FindLinkCyclesOutput,
@@ -330,16 +298,26 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
           buildLinkGraphSteps(v.root, ctx.acl, ctx.grantedScopes),
           ctx.signal,
         );
-        const { cycles, skippedLonger } = await drainYielding(
-          findCyclesSteps(g.out, input.limit, input.max_length),
+        const folder = input.folder ? normalizeVaultPath(input.folder) : undefined;
+        const out = folder ? restrictToFolder(g.out, folder) : g.out;
+        const scan = await drainYielding(
+          findLinkCyclesSteps(out, {
+            limit: input.limit,
+            minLength: input.min_length,
+            maxLength: input.max_length,
+            maxWork: CYCLE_SCAN_WORK_CAP,
+            countPastLimit: true,
+          }),
           ctx.signal,
         );
         return {
           ...g.warnings.out(),
           vault: v.id,
-          total: cycles.length,
-          cycles,
-          skipped_longer: skippedLonger,
+          total: scan.total,
+          truncated: scan.truncated,
+          cycles: scan.cycles,
+          skipped_longer: scan.skippedLonger,
+          skipped_shorter: scan.skippedShorter,
         };
       },
     }),
