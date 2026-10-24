@@ -60,17 +60,22 @@ function pageType(raw: unknown): { type?: string; several: boolean } {
   return { type: scalarText(raw), several: false };
 }
 
+/** True when `checkNote` judges this path: the effective set has rules and the path is not skipped. */
+export function judges(eff: EffectiveConventions, path: string): boolean {
+  const hasRules =
+    eff.required !== undefined ||
+    Object.keys(eff.values).length > 0 ||
+    Object.keys(eff.types).length > 0;
+  return hasRules && !skipped(eff, path);
+}
+
 /** Warnings for one note. An effective set with no rules, or a skipped path, yields none. */
 export function checkNote(
   eff: EffectiveConventions,
   path: string,
   fm: Frontmatter | null,
 ): ConventionWarning[] {
-  const hasRules =
-    eff.required !== undefined ||
-    Object.keys(eff.values).length > 0 ||
-    Object.keys(eff.types).length > 0;
-  if (!hasRules || skipped(eff, path)) return [];
+  if (!judges(eff, path)) return [];
   const out: ConventionWarning[] = [];
   const raw = fm?.[eff.typeKey];
   const { type, several } = pageType(raw);

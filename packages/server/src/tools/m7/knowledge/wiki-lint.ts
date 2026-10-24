@@ -35,6 +35,7 @@ import {
 import { openContradictionsForPaths } from "./retrieval-runtime";
 import { isGeneratedWikiPath, rawPathFilter, WIKI_INDEX_FILE, WIKI_LOG_FILE } from "./wiki-folder";
 import { inspectGenerated } from "./wiki-generated-seal";
+import { type ConventionsScan, conventionsScanSteps } from "./wiki-lint-conventions";
 
 export const LINT_CHECKS = [
   "generated_pages",
@@ -45,6 +46,8 @@ export const LINT_CHECKS = [
   "missing_sources",
   "coverage_gaps",
   "near_duplicates",
+  "conventions",
+  "conventions_file",
 ] as const;
 export type LintCheck = (typeof LINT_CHECKS)[number];
 
@@ -57,7 +60,9 @@ export type ProposalKind =
   | "duplicate_chunks"
   | "missing_sources"
   | "coverage_gap"
-  | "near_duplicate";
+  | "near_duplicate"
+  | "conventions"
+  | "conventions_file";
 
 export interface Proposal {
   kind: ProposalKind;
@@ -128,6 +133,8 @@ const ORDER: ProposalKind[] = [
   "missing_sources",
   "stale",
   "coverage_gap",
+  "conventions",
+  "conventions_file",
 ];
 
 const CONTRADICTION_NOTE =
@@ -457,6 +464,35 @@ export async function runWikiLint(
         evidence: { score: Number(p.score.toFixed(3)), min },
       })),
     );
+    return undefined;
+  });
+
+  // The SCHEMA.md conventions: one scan serves both kinds, run once however many of them are asked for.
+  let conventions: ConventionsScan | undefined;
+  const scanConventions = async (): Promise<ConventionsScan> => {
+    conventions ??= await drainYielding(
+      conventionsScanSteps(
+        {
+          vaultId: input.vaultId,
+          root: env.root,
+          acl: env.acl,
+          grantedScopes: env.grantedScopes,
+          wikiFolders: env.wikiFolders,
+          rawFolders: env.rawFolders,
+        },
+        subjectOk,
+        folder,
+      ),
+      signal,
+    );
+    return conventions;
+  };
+  await run("conventions", async () => {
+    push("conventions", (await scanConventions()).notes);
+    return undefined;
+  });
+  await run("conventions_file", async () => {
+    push("conventions_file", (await scanConventions()).files);
     return undefined;
   });
 
