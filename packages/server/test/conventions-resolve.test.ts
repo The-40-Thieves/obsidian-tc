@@ -297,6 +297,10 @@ describe("layer cache", () => {
     const when = new Date("2026-01-01T00:00:00Z");
     utimesSync(file, when, when);
     const first = readConventionsLayer(scopeOf(v), "SCHEMA.md");
+    // File times come from a coarse clock (about 15 ms on Windows), so two writes inside one tick share
+    // a ctime and no stat can tell them apart; the cache accepts that. Step past the tick, as any real
+    // edit would be.
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
     writeFileSync(file, layer("  frontmatter:\n    required: [kind]"));
     utimesSync(file, when, when);
     const after = readConventionsLayer(scopeOf(v), "SCHEMA.md");
