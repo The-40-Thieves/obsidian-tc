@@ -1,6 +1,6 @@
 // docgen — metrics extractor (THE-471). Instantiate MetricsRecorder (it registers every Prometheus
 // metric on its private Registry) and read them back: name, type, help, and label names. Uses the
-// prom-client Registry API so it stays accurate as metrics are added/renamed.
+// @prometheus-io/client Registry API so it stays accurate as metrics are added/renamed.
 import { MetricsRecorder } from "../../src/metrics/registry";
 import type { MetricDoc } from "./model";
 

@@ -8,9 +8,9 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
   InMemorySpanExporter,
-  NodeTracerProvider,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-node";
+  TracerProvider,
+} from "@opentelemetry/sdk-trace";
 import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { decodeJwt } from "jose";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -71,7 +71,7 @@ async function boot(reuse?: string) {
   provisionCacheDb(db);
   const vaultRegistry = new VaultRegistry([{ id: "v1", path: dir }]);
   const exporter = new InMemorySpanExporter();
-  const provider = new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
+  const provider = new TracerProvider({ spanProcessors: [new SimpleSpanProcessor({ exporter })] });
   const registry = new ToolRegistry({ tracer: provider.getTracer("as-flow") });
   for (const t of buildRegistryTools(
     {

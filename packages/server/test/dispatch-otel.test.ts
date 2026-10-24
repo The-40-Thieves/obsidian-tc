@@ -1,9 +1,9 @@
 import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import {
   InMemorySpanExporter,
-  NodeTracerProvider,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-node";
+  TracerProvider,
+} from "@opentelemetry/sdk-trace";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { Database } from "../src/db/types";
@@ -31,7 +31,7 @@ const tool = (name: string, requiredScopes: string[], handler: () => unknown) =>
 // A local (unregistered) provider keeps spans in memory — deterministic, no live collector.
 function makeTracer() {
   const exporter = new InMemorySpanExporter();
-  const provider = new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
+  const provider = new TracerProvider({ spanProcessors: [new SimpleSpanProcessor({ exporter })] });
   return { tracer: provider.getTracer("test"), exporter, provider };
 }
 

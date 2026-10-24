@@ -3,7 +3,7 @@
 // observability.otel.endpoint is unset by default (initOtel's first line is a no-op guard).
 // SPAN_ATTR moved to otel/attrs.ts (a leaf module, no SDK imports) specifically so mcp/registry.ts
 // could keep using the attribute keys without pulling in @opentelemetry/exporter-trace-otlp-http,
-// resources, sdk-trace-node or semantic-conventions.
+// resources, sdk-trace or semantic-conventions.
 //
 // This MUST run as a subprocess (otel-lazy-probe.ts), not an in-process check: by the time this
 // test file itself has loaded, vitest's own module graph may already have the OTEL SDK warm from

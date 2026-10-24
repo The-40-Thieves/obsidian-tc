@@ -1,6 +1,6 @@
 // The write-provenance fault counter. Its own module because registry.ts sits at biome's per-file
 // line cap; MetricsRecorder owns one instance and delegates, so callers still see a single recorder.
-import { Counter, type Registry } from "prom-client";
+import { Counter, type Registry } from "@prometheus-io/client";
 
 export class ProvenanceCounters {
   private readonly faults: Counter<string>;

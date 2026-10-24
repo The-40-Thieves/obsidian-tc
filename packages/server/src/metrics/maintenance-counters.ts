@@ -1,7 +1,7 @@
 // Counters for what the periodic maintenance jobs delete. Split out of registry.ts, which sits at
 // biome's per-file line cap; MetricsRecorder owns one instance and delegates, so callers still see
 // a single recorder.
-import { Counter, type Registry } from "prom-client";
+import { Counter, type Registry } from "@prometheus-io/client";
 import type { MemoryOrphanClass } from "../db/memory-orphans";
 
 export class MaintenanceCounters {
