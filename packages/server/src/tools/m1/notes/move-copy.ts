@@ -30,6 +30,7 @@ import { noteExists, readNote, replaceDestination, writeNoteAtomic } from "../..
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../../vault/paths";
 import { captureSnapshot } from "../../../vault/snapshots";
 import { applyWriteBatch } from "../../../vault/write-batch";
+import { preflightNoteWrite } from "../../../vault/write-gate";
 import { capWarningsOut, type RewriteWarning } from "../../scan-warnings";
 import { defineTool } from "../define";
 import type { M1Deps } from "../shared";
@@ -237,6 +238,8 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
         fingerprint: (p) => planFingerprint(p.backlinks.pending, [p.hash]),
         commit: (p, recheck) => {
           try {
+            // The write gate refuses before any snapshot or trash: a refused move leaves no trace.
+            for (const r of p.backlinks.pending) preflightNoteWrite(r.abs, r.text);
             if (overwriteExisting) snapshots.capture(toRel, readNote(toAbs).raw);
             for (const r of p.backlinks.pending) snapshots.capture(r.rel, r.raw);
             ({ trashedTo: trashedDestTo } = replaceDestination({
@@ -244,6 +247,7 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
               toRel,
               toAbs,
               replacing: overwriteExisting,
+              checkText: p.scannedRaw,
               write: (o) =>
                 applyWriteBatch(
                   [

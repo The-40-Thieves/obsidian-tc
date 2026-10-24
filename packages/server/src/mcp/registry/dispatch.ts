@@ -470,7 +470,7 @@ export async function runDispatch(
         checkAborted(ctx.signal);
         const handlerStart = now();
         spans?.stage("tool_impl");
-        const invoke = () => def.handler(inputData, ctx);
+        const invoke = () => conventions.run(def, ctx, () => def.handler(inputData, ctx));
         const r = await withStateProbe(stateProbe, spans ? () => spans.activate(invoke) : invoke);
         handlerMs = Math.max(0, now() - handlerStart);
         handlerReturned = true;

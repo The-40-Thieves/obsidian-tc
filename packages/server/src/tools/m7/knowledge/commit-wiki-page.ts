@@ -50,6 +50,7 @@ import {
 import { captureSnapshot, discardSnapshots, pruneSnapshots } from "../../../vault/snapshots";
 import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { applyWriteBatch, type BatchWrite, isIncompleteRollback } from "../../../vault/write-batch";
+import { preflightNoteWrite } from "../../../vault/write-gate";
 import {
   createModeConflictError,
   overwriteModeMissingError,
@@ -580,6 +581,8 @@ export function createCommitWikiPageTool(
       // A snapshot of every existing note the batch replaces (a new page has nothing to save), taken
       // before the first temp file. Retention pruning waits for the batch to succeed, and a failed
       // batch drops the rows it added, so an aborted commit never evicts an older recovery point.
+      // The write gate (conventions) checks every page first: a refused commit writes nothing and takes no snapshot.
+      for (const w of writes) preflightNoteWrite(w.abs, w.content);
       const snapshotIds: number[] = [];
       try {
         for (const w of writes) {

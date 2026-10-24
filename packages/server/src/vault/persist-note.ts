@@ -9,6 +9,7 @@ import type { MetricsRecorder } from "../metrics/registry";
 import { noteExists, readNote, writeNoteAtomic } from "./notes-io";
 import { resolveVaultPath } from "./paths";
 import { captureSnapshot } from "./snapshots";
+import { preflightNoteWrite } from "./write-gate";
 
 export interface GovernedWriteDeps {
   snapshots?: { enabled: boolean; retention: number };
@@ -56,6 +57,8 @@ export function persistGovernedNote(
   });
   const content = scan.content;
   const abs = resolveVaultPath(params.root, params.rel);
+  // The write gate runs before the claim is marked and before the snapshot below: a refusal leaves no trace.
+  preflightNoteWrite(abs, content);
   const ex = noteExists(abs);
   // THE-572: everything above is a read; the snapshot below is the first durable effect.
   deps.markEffectCommitted?.();
