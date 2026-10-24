@@ -255,15 +255,21 @@ function prepareNpm(vault: string): Launch | null {
     musl: isMuslHost(),
     installed: (name) => existsSync(join(prefix, "node_modules", ...name.split("/"))),
   });
-  if (skipped.length > 0) {
+  // The embedder is an explicit install on this path (--npm-extra), so its absence fails prepare
+  // whatever obsidian-tc declares. A release that no longer lists it would otherwise pass here and
+  // only surface later as reconcile=degraded.
+  const missing = [
+    ...new Set([...(embedder ? [] : ["@the-40-thieves/obsidian-tc-embedder-local"]), ...skipped]),
+  ];
+  if (missing.length > 0) {
     rec(
       "prepare",
       "fail",
-      `${installDetail}; npm skipped the optional embedder for this platform, so semantic search cannot work: ${skipped.join(", ")} not installed`,
+      `${installDetail}; npm did not install the embedder packages semantic search needs: ${missing.join(", ")} not installed`,
     );
     return null;
   }
-  if (npmExtra.length > 0 && (!runtime || onnxruntimeNode || transformers)) {
+  if (npmExtra.some((e) => e.endsWith(".tgz")) && (!runtime || onnxruntimeNode || transformers)) {
     rec("prepare", "fail", `${installDetail}; generated package split check failed`);
     return null;
   }

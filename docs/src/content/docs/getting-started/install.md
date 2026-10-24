@@ -9,8 +9,9 @@ The fastest way to try it, no install step and no config file:
 npx obsidian-tc /path/to/vault
 ```
 
-Every note tool and lexical search work immediately. Semantic search works out of the
-box too: a bundled, fully offline embedder handles indexing with no config file, no
+Every note tool and lexical search work immediately. Semantic search needs an embedder. The default `local` embedder is a separate, fully offline
+package (`@the-40-thieves/obsidian-tc-embedder-local`) that `npm install` does not include;
+`obsidian-tc setup` offers to install it, and once it is installed it needs no config file, no
 Ollama, and no API key (one-time model download on first use). The table below says
 which install methods carry it; [Embeddings](/configuration/embeddings/) has the detail.
 Ollama and every hosted provider (OpenAI, Voyage, Cohere, …) are opt-in either way — a
@@ -31,14 +32,14 @@ fits your environment.
 
 Measured, not assumed: CI installs each path on a clean Ubuntu, macOS and Windows machine,
 points it at a vault with no config file, and runs a real semantic search
-(`ci-first-run-smoke`). Every cell passes on Ubuntu, on Apple Silicon macOS and on Windows. On Intel
+(`ci-first-run-smoke`). The npm cell requests the embedder by name, because npm does not install it by default. Every cell passes on Ubuntu, on Apple Silicon macOS and on Windows. On Intel
 macOS (`macos-15-intel`, `macos-26-intel`) ONNX Runtime publishes no native build, so npm, `.mcpb`,
 and the standalone binary run the local embedder on ONNX Runtime's WASM backend instead, with the
 same models. WASM embedding is roughly 4x slower than native in the measured two-text probe.
 
 | Method | Default semantic search (no config) | Dense index (`sqlite-vec`) | Native addon | Size |
 | --- | --- | --- | --- | --- |
-| **npm** | Yes. The generated embedder base installs with only the host's optional ONNX runtime package. On Intel macOS it runs on the WASM backend. | Yes | Yes (prebuilds); pure-JS fallback elsewhere | About 15-46 MB of ONNX runtime files plus the bundled base, down from about 585 MB |
+| **npm** | No by default. Install the embedder at the same version (`npm install -g @the-40-thieves/obsidian-tc-embedder-local@<same version>`, or let `obsidian-tc setup` offer to); it then installs the generated base with only the host's optional ONNX runtime package. On Intel macOS it runs on the WASM backend. | Yes | Yes (prebuilds); pure-JS fallback elsewhere | About 15-46 MB of ONNX runtime files plus the bundled base, down from about 585 MB |
 | **Standalone binary** | Yes on Linux x64 and arm64, macOS arm64 and x64, and Windows x64: the embedder and its selected native/WASM ONNX runtime are inside the one file. | Yes (embedded) | Pure-JS fallback | About 14 MB larger than a binary without the embedder |
 | **One-click `.mcpb`** | Yes on Linux x64 and arm64, macOS arm64 and x64, and Windows x64 | Yes | Pure-JS fallback (one universal bundle) | About 66 MB, up from about 2 MB; it carries all native runtimes plus the macOS x64 WASM assets |
 | **Docker** | Not part of the matrix; see [Docker](#docker) below. | | | |

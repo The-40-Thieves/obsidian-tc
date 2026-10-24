@@ -4,8 +4,10 @@
 // picked it" branch to report — `denseProvider === "local"` is either declared explicitly or IS
 // the resolved default, and either way this check probes the SAME thing: can the optional
 // @the-40-thieves/obsidian-tc-embedder-local package actually resolve on this deployment.
-import { version as OWN_VERSION } from "../../package.json";
-import { LOCAL_EMBEDDER_PACKAGE } from "../providers/local-embedder-registry";
+import {
+  embedderVersionSkew,
+  localEmbedderInstallHint,
+} from "../providers/local-embedder-registry";
 import { onnxNativePrebuildStatus } from "../providers/reranker-preflight";
 import type { Check, CheckResult, CheckStatus } from "./types";
 
@@ -18,6 +20,8 @@ export interface LocalEmbedderProbeResult {
    *  local-embedder-registry.ts's LocalEmbedderResolution.inSourceCheckout doc comment. Governs
    *  WARN vs FAIL below on an unsuccessful resolution. */
   inSourceCheckout: boolean;
+  /** The resolved embedder's own version, when it resolved. Compared with obsidian-tc's version. */
+  embedderVersion?: string;
 }
 
 export interface EmbeddingsBuildableView {
@@ -68,13 +72,20 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
         // default run stays offline), so on a supported platform a resolved "local" is not a pass
         // until `doctor --probe` has run the dense probe.
         const notProbed = platform.supported && view.probeRequested !== true;
+        // A stale pair loads, but it is not the build that was tested alongside this obsidian-tc.
+        const skew = embedderVersionSkew(probe.embedderVersion);
         return {
-          status: (platform.supported && !notProbed ? "ok" : "warning") as CheckStatus,
-          summary: notProbed
-            ? `embeddings: "local" resolved via ${probe.route ?? "an unknown route"}; dense search not probed; run \`doctor --probe\``
-            : platform.supported
-              ? `embeddings: "local" resolved via ${probe.route ?? "an unknown route"}`
-              : `embeddings: "local" resolved via ${probe.route ?? "an unknown route"} but cannot run on this platform — ${platform.note}`,
+          status: (skew === undefined && platform.supported && !notProbed
+            ? "ok"
+            : "warning") as CheckStatus,
+          summary:
+            skew !== undefined
+              ? `embeddings: "local" resolved, but ${skew}`
+              : notProbed
+                ? `embeddings: "local" resolved via ${probe.route ?? "an unknown route"}; dense search not probed; run \`doctor --probe\``
+                : platform.supported
+                  ? `embeddings: "local" resolved via ${probe.route ?? "an unknown route"}`
+                  : `embeddings: "local" resolved via ${probe.route ?? "an unknown route"} but cannot run on this platform — ${platform.note}`,
           details: {
             provider: "local",
             route: probe.route ?? "unknown",
@@ -85,12 +96,16 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
             ...(view.modelsCachePath ? { modelsCachePath: view.modelsCachePath } : {}),
             ...platformDetails(view),
           },
-          ...(notProbed
+          ...(skew !== undefined
             ? {
-                remediation:
-                  'Run "obsidian-tc doctor --probe" to embed one probe string through the configured dense provider. Until then a resolved "local" embedder is unverified.',
+                remediation: `Install the embedder that matches this obsidian-tc: ${localEmbedderInstallHint()}`,
               }
-            : {}),
+            : notProbed
+              ? {
+                  remediation:
+                    'Run "obsidian-tc doctor --probe" to embed one probe string through the configured dense provider. Until then a resolved "local" embedder is unverified.',
+                }
+              : {}),
         };
       }
       // THE-1122 review round 3: three-way status, not two.
@@ -132,7 +147,7 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
             ? 'embeddings.provider "local" (the default) is not built in this checkout yet — run "bun run build" in packages/embedder-local, or the boot reconcile will degrade to FTS-only, same as an unreachable hosted provider'
             : 'embeddings.provider "local" is configured (or is the unconfigured default) but the optional package does not resolve — dense retrieval and indexing will fail until this is fixed',
         ],
-        remediation: `In a source checkout, run "bun run build" inside packages/embedder-local. For an npm install, run \`npm i ${LOCAL_EMBEDDER_PACKAGE}@${OWN_VERSION}\` (add -g if obsidian-tc is installed globally); otherwise pick ollama or a hosted provider.`,
+        remediation: `In a source checkout, run "bun run build" inside packages/embedder-local. For an npm install, run ${localEmbedderInstallHint()}; otherwise pick ollama or a hosted provider.`,
       };
     },
   };

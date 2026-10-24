@@ -20,7 +20,10 @@ import { baselineOnlyEnrichment } from "../../capability/hardware";
 import { resolveCapabilityProfile } from "../../capability/profile";
 import { ConfigRootTypeError, finalizeConfig, readConfigFile } from "../../config/load";
 import { DEFAULT_BUSY_TIMEOUT_MS } from "../../db/pragmas";
-import { probeLocalEmbedderResolution } from "../../providers/local-embedder-registry";
+import {
+  localEmbedderInstallHint,
+  probeLocalEmbedderResolution,
+} from "../../providers/local-embedder-registry";
 import { onnxNativePrebuildStatus } from "../../providers/reranker-preflight";
 import { redactConfig } from "../redact-config";
 import { configIssueLines, defaultSetupConfigPath } from "../resolve-config";
@@ -35,7 +38,6 @@ import {
 import {
   EMBEDDER_PACKAGE,
   embedderInstallOffer,
-  manualEmbedderInstallCommand,
   type SetupEmbedderInstallDeps,
 } from "../setup/embedder-install";
 import { buildSetupConfig, writeSetupConfig } from "../setup/write";
@@ -306,8 +308,10 @@ export async function detect(
       : undefined;
 
   const ollama = await probeOllama();
-  const probeLocal = async () => {
-    const localProbe = await probeLocalEmbedderResolution({ cacheDir });
+  const probeLocal = async (installVerified = false) => {
+    const localProbe = installVerified
+      ? { ok: true, inSourceCheckout: false }
+      : await probeLocalEmbedderResolution({ cacheDir });
     const platform = onnxNativePrebuildStatus();
     const localEmbedderAvailable = localProbe.ok && platform.supported;
     const localUnavailableReason = localEmbedderAvailable
@@ -316,7 +320,7 @@ export async function detect(
         ? platform.note
         : localProbe.inSourceCheckout
           ? "not yet built in this source checkout — run `bun run build` in packages/embedder-local"
-          : `${EMBEDDER_PACKAGE} is not installed — install it with \`${manualEmbedderInstallCommand()}\``;
+          : `${EMBEDDER_PACKAGE} is not installed — install it with ${localEmbedderInstallHint()}`;
     const canInstall = !localProbe.ok && platform.supported && !localProbe.inSourceCheckout;
     return { localEmbedderAvailable, localUnavailableReason, canInstall };
   };
@@ -333,14 +337,19 @@ export async function detect(
     env: process.env,
   });
 
+  const refused =
+    vaults.length === 0 ||
+    vaultIdCollisions.length > 0 ||
+    (!!existing?.invalid && !cmd.replaceInvalidConfig);
   let local = await probeLocal();
   if (
     offerEmbedderInstall &&
+    !refused &&
     local.canInstall &&
     decideSetup(inputsFor(local)).embeddings?.provider === "local" &&
     (await offerEmbedderInstall())
   ) {
-    local = await probeLocal();
+    local = await probeLocal(true);
   }
   const inputs = inputsFor(local);
   return {

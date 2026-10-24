@@ -273,7 +273,7 @@ describe("buildLocalEmbeddingProvider", () => {
       const details = (error as { details?: { hint?: string } }).details;
       expect(details?.hint).toContain(runtimePackage);
       expect(details?.hint).toContain(
-        `npm i @the-40-thieves/obsidian-tc-embedder-local@${version}`,
+        `npm install --save-exact @the-40-thieves/obsidian-tc-embedder-local@${version}`,
       );
       expect(details?.hint).toMatch(/ollama|hosted provider/);
     }

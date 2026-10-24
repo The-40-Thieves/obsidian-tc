@@ -25,9 +25,47 @@ describe("embeddings.buildable (THE-1122 review round 3: three-way status)", () 
       platformOverride: { platform: "linux", arch: "x64", isMuslRuntime: () => false },
     }).run(ctx);
     expect(String(r.remediation)).toContain(
-      `npm i @the-40-thieves/obsidian-tc-embedder-local@${version}`,
+      `npm install --save-exact @the-40-thieves/obsidian-tc-embedder-local@${version}`,
     );
     expect(String(r.remediation)).not.toContain("--omit=optional");
+  });
+
+  it("a resolved embedder at a different version than obsidian-tc is a WARN naming the matching install", async () => {
+    const r = await embeddingsBuildableCheck({
+      denseProvider: "local",
+      probeLocalEmbedder: () =>
+        Promise.resolve({
+          ok: true,
+          route: "bare-specifier",
+          attempts: [],
+          inSourceCheckout: false,
+          embedderVersion: "0.0.1",
+        }),
+      probeRequested: true,
+      platformOverride: { platform: "linux", arch: "x64", isMuslRuntime: () => false },
+    }).run(ctx);
+    expect(r.status).toBe("warning");
+    expect(String(r.summary)).toContain(`is installed, but this obsidian-tc is ${version}`);
+    expect(String(r.remediation)).toContain(
+      `npm install --save-exact @the-40-thieves/obsidian-tc-embedder-local@${version}`,
+    );
+  });
+
+  it("a resolved embedder at obsidian-tc's own version is OK once probed", async () => {
+    const r = await embeddingsBuildableCheck({
+      denseProvider: "local",
+      probeLocalEmbedder: () =>
+        Promise.resolve({
+          ok: true,
+          route: "bare-specifier",
+          attempts: [],
+          inSourceCheckout: false,
+          embedderVersion: version,
+        }),
+      probeRequested: true,
+      platformOverride: { platform: "linux", arch: "x64", isMuslRuntime: () => false },
+    }).run(ctx);
+    expect(r.status).toBe("ok");
   });
 
   it("not 'local' — nothing to resolve, always ok", async () => {
