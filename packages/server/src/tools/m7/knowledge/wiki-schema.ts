@@ -16,6 +16,7 @@ import { readableRel } from "../../../vault/acl-read-filter";
 import { parseNoteLenient } from "../../../vault/frontmatter";
 import { noteExists, readNoteBounded } from "../../../vault/notes-io";
 import { resolveVaultPath } from "../../../vault/paths";
+import { readFailureReason } from "../../../vault/read-failure";
 import { fmHas, type ScanScope } from "../../wiki-scan";
 
 export const WIKI_SCHEMA_FILE = "SCHEMA.md";
@@ -264,7 +265,7 @@ export function loadWikiSchema(scope: ScanScope, folder: string | undefined): Wi
       path,
       found: true,
       schema: null,
-      warnings: [`${path} could not be read: ${e instanceof Error ? e.message : String(e)}`],
+      warnings: [`${path} could not be read: ${readFailureReason(e)}`],
     };
   }
 }

@@ -29,8 +29,8 @@ import { pruneHubLinks } from "../../vault/prune";
 import { rewriteLinks } from "../../vault/rewrite";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import {
+  capWarningsOut,
   type RewriteWarning,
-  rewriteWarningsOut,
   rewriteWarningsShape,
   ScanWarnings,
   scanWarningsShape,
@@ -496,7 +496,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
           notes_changed: edits.length,
           links_rewritten: totalLinks,
           ...(concise && !input.dry_run ? {} : { changes }),
-          ...rewriteWarningsOut(warnings),
+          ...capWarningsOut(warnings),
         };
       },
     }),

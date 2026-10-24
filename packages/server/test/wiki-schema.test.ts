@@ -1,7 +1,7 @@
 // SCHEMA.md: parsing is forgiving (a malformed file is a warning, never an error), checking a page
 // against it returns problems for the caller to fix, and `vaults[].wiki.folder` reaches the registry.
 
-import { symlinkSync } from "node:fs";
+import { chmodSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { VaultConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
@@ -355,4 +355,27 @@ describe("wiki.folder config", () => {
     expect(wf("notes/wiki")).toBe("notes/wiki");
     expect(new VaultRegistry([{ id: "a", path: "/tmp" }]).resolve("a").wikiFolder).toBeUndefined();
   });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "a read error names at most an errno code, never the vault's absolute path",
+    () => {
+      const t = makeTestVault({
+        files: { "wiki/SCHEMA.md": "---\ntypes:\n  concept:\n    required: [summary]\n---\n" },
+      });
+      const file = join(t.root, "wiki", "SCHEMA.md");
+      chmodSync(file, 0o000);
+      try {
+        const warnings = loadWikiSchema(
+          { root: t.root, acl: t.acl, grantedScopes: ["*"] },
+          "wiki",
+        ).warnings;
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0]).toMatch(/^wiki\/SCHEMA\.md could not be read: [A-Za-z_]+$/);
+        expect(warnings.join(" ")).not.toContain(t.root);
+      } finally {
+        chmodSync(file, 0o644);
+        t.cleanup();
+      }
+    },
+  );
 });

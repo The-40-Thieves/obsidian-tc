@@ -30,7 +30,7 @@ import { noteExists, readNote, replaceDestination, writeNoteAtomic } from "../..
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../../vault/paths";
 import { captureSnapshot } from "../../../vault/snapshots";
 import { applyWriteBatch } from "../../../vault/write-batch";
-import { type RewriteWarning, rewriteWarningsOut } from "../../scan-warnings";
+import { capWarningsOut, type RewriteWarning } from "../../scan-warnings";
 import { defineTool } from "../define";
 import type { M1Deps } from "../shared";
 import { CopyInput, CopyNoteOutput, MoveInput, MoveNoteOutput } from "./schemas";
@@ -295,7 +295,7 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
           notes: plan.backlinks.pending.length,
           links: plan.backlinks.pending.reduce((n, r) => n + r.count, 0),
         },
-        ...rewriteWarningsOut(plan.backlinks.warnings),
+        ...capWarningsOut(plan.backlinks.warnings),
         ...skips.out(),
       };
     },
