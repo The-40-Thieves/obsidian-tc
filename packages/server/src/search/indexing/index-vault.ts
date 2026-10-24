@@ -73,6 +73,7 @@ import { commitFence, preloadFenceGenerations } from "./write-fence";
 const DEFAULT_BATCH_MAX_NOTES = 100;
 const DEFAULT_BATCH_MAX_BYTES = 8 * 1024 * 1024;
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 78); split when next modified
 export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const now = args.now ?? Date.now;
   // THE-645: captured once, up front, so onProgress reports a stable start time for the whole pass
@@ -648,7 +649,6 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
           );
         }
       }
-
       // ADR-0007: the floor's constant lives in retrieval-defaults.ts. No stat derives it (the index
       // records no neighbour-similarity distribution), so this resolves config > constant only.
       const knnOpts = {

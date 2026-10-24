@@ -413,6 +413,7 @@ export function rerankerBuildableCheck(view: RerankerBuildableView): Check {
     // (with `details` typed as the index-signature `Record<string, string | string[]>`) produces a
     // confusing, misattributed excess-property error instead of one pointing at the real branch.
     // Annotating forces each `return` to be checked against `CheckResult` on its own.
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 55); split when next modified
     run: async (): Promise<CheckResult> => {
       if (view.rerankerProvider === undefined) {
         // THE-944: the registry's own default precedence is model-tier ?? gateway ?? local — this

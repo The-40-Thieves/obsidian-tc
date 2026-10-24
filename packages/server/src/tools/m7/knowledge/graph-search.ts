@@ -245,6 +245,7 @@ export function createGraphSearchTool(deps: M7Deps, retrieval: RetrievalRuntime)
     outputSchema: VaultGraphSearchOutput,
     requiredScopes: ["read:notes"],
     tags: ["knowledge", "search", "external-network"],
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 73); split when next modified
     handler: async (input, ctx) => {
       // THE-635: validate before any DB/embedding work — a clean error, never a silently-ignored
       // or silently-clamped input.

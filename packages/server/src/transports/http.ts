@@ -571,6 +571,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
 
   // `/mcp` is the configured surface; `/mcp/<surface>` (tool-profiles.ts URL_SURFACES) picks one per
   // client URL. The same handler serves both, so the guard, auth and dispatch below are shared.
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 63); split when next modified
   const mcpPost = async (c: Context) => {
     const surfaceName = c.req.param("surface" as never) as string | undefined;
     if (surfaceName !== undefined && urlSurfaceFor(surfaceName) === undefined)

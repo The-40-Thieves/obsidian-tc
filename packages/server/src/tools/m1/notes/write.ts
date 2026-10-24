@@ -333,6 +333,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
     inputSchema: PatchInput,
     outputSchema: PatchNoteOutput,
     requiredScopes: ["write:notes"],
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 91); split when next modified
     handler: (input, ctx) => {
       const v = deps.vaultRegistry.resolve(input.vault);
       const rel = normalizeVaultPath(input.path);

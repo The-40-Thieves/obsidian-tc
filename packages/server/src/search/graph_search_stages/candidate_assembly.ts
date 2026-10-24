@@ -47,6 +47,7 @@ export interface CandidateAssemblyResult {
   temporalRankById: Map<string, number>;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 66); split when next modified
 export function assembleCandidates(input: CandidateAssemblyInput): CandidateAssemblyResult {
   const {
     db,

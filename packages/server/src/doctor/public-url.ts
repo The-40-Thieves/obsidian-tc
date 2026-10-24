@@ -219,6 +219,7 @@ const parseObject = (res: PublicUrlResponse): Record<string, unknown> | undefine
   }
 };
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 70); split when next modified
 async function probe(resource: string, d: PublicUrlDeps): Promise<Findings> {
   const u = new URL(resource);
   const host = u.hostname.toLowerCase();

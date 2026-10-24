@@ -440,6 +440,7 @@ export interface ApplyImportOptions {
   now?: () => string;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 52); split when next modified
 export async function applyImport(
   parsed: { entities: ParsedEntity[]; skipped: SkippedFile[] },
   opts: ApplyImportOptions,

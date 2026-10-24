@@ -78,6 +78,7 @@ export interface TransportsWiring {
  * Bind the MCP HTTP transport (config.transports.http.enabled) and the Prometheus /metrics
  * endpoint (config.observability.prometheus.enabled), each only when configured.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 63); split when next modified
 export async function wireTransports(deps: TransportWiringDeps): Promise<TransportsWiring> {
   const { config } = deps;
   // Checked before anything binds, whether or not HTTP is on: a short secret stops the boot. It

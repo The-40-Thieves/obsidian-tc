@@ -317,6 +317,7 @@ const KNOWN_METHODS = new Set([
   "hasLink",
 ]);
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 128); split when next modified
 function evalAst(a: Ast, ctx: BasesNoteCtx, src: string): unknown {
   switch (a.k) {
     case "lit":

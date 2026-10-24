@@ -50,6 +50,7 @@ export interface KmeansResult {
  * clusters are re-seeded to the point farthest from its centroid, so no returned cluster is empty
  * (matters for the diversification cap).
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 53); split when next modified
 export function kmeans(
   vectors: number[][],
   k: number,

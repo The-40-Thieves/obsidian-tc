@@ -129,6 +129,7 @@ export { USAGE } from "./usage";
 // see that file for the `--flag=value` support this file's usage relies on unchanged.
 
 /** Parse argv already sliced past the node binary + script path into a command. */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 255); split when next modified
 export function parseCliArgs(argv: string[]): CliCommand {
   try {
     const [first, ...rest] = argv;

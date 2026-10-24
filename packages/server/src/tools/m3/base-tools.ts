@@ -387,6 +387,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
       inputSchema: QueryInput,
       outputSchema: QueryBaseOutput,
       requiredScopes: ["read:bases"],
+      // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 163); split when next modified
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
