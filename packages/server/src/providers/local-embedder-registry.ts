@@ -14,13 +14,14 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { version as OWN_VERSION } from "../../package.json";
 import { embeddedEmbedder } from "../embeddings/embedded-embedder";
 import { extractEmbeddedRuntime } from "../embeddings/embedded-runtime";
 import type { EmbeddingProvider } from "../embeddings/provider";
 import { isUnderNodeModules, type SourceCheckoutResolution } from "./local-package-resolution";
 import type { EmbeddingsConfigLike, ResolveContext } from "./types";
 
-const LOCAL_EMBEDDER_PACKAGE = "@the-40-thieves/obsidian-tc-embedder-local";
+export const LOCAL_EMBEDDER_PACKAGE = "@the-40-thieves/obsidian-tc-embedder-local";
 
 function isEmbedderLocalAnchor(packageJsonPath: string): boolean {
   try {
@@ -334,13 +335,14 @@ export function buildLocalEmbeddingProvider(
             (attempt) => attempt.code === "OBTC_EMBEDDER_RUNTIME_MISSING",
           );
           const runtimePackage = `${LOCAL_EMBEDDER_PACKAGE}-${process.platform}-${process.arch}`;
+          const installCommand = `npm i ${LOCAL_EMBEDDER_PACKAGE}@${OWN_VERSION}`;
           throw err.embeddingProviderError(
             `embeddings.provider "local" could not resolve the optional ${LOCAL_EMBEDDER_PACKAGE} package`,
             {
               attempts: resolution.attempts,
               hint: runtimeMissing
-                ? `reinstall obsidian-tc without --omit=optional/--no-optional so ${runtimePackage} is installed; if this platform has no published runtime, pick ollama or a hosted provider instead.`
-                : 'run "bun run build" in packages/embedder-local (source checkouts), or reinstall obsidian-tc with optional dependencies enabled — see "obsidian-tc doctor" for the full attempt list.',
+                ? `run \`${installCommand}\` (npm installs ${runtimePackage} for this host); if this platform has no published runtime, pick ollama or a hosted provider instead.`
+                : `run "bun run build" in packages/embedder-local (source checkouts), or install the package with \`${installCommand}\` (obsidian-tc does not install it by default) — see "obsidian-tc doctor" for the full attempt list.`,
             },
           );
         }

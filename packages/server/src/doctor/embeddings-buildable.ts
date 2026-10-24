@@ -4,6 +4,8 @@
 // picked it" branch to report — `denseProvider === "local"` is either declared explicitly or IS
 // the resolved default, and either way this check probes the SAME thing: can the optional
 // @the-40-thieves/obsidian-tc-embedder-local package actually resolve on this deployment.
+import { version as OWN_VERSION } from "../../package.json";
+import { LOCAL_EMBEDDER_PACKAGE } from "../providers/local-embedder-registry";
 import { onnxNativePrebuildStatus } from "../providers/reranker-preflight";
 import type { Check, CheckResult, CheckStatus } from "./types";
 
@@ -130,7 +132,7 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
             ? 'embeddings.provider "local" (the default) is not built in this checkout yet — run "bun run build" in packages/embedder-local, or the boot reconcile will degrade to FTS-only, same as an unreachable hosted provider'
             : 'embeddings.provider "local" is configured (or is the unconfigured default) but the optional package does not resolve — dense retrieval and indexing will fail until this is fixed',
         ],
-        remediation: `In a source checkout, run "bun run build" inside packages/embedder-local. For an npm install, reinstall without --omit=optional/--no-optional so @the-40-thieves/obsidian-tc-embedder-local-${process.platform}-${process.arch} is installed; otherwise pick ollama or a hosted provider.`,
+        remediation: `In a source checkout, run "bun run build" inside packages/embedder-local. For an npm install, run \`npm i ${LOCAL_EMBEDDER_PACKAGE}@${OWN_VERSION}\` (add -g if obsidian-tc is installed globally); otherwise pick ollama or a hosted provider.`,
       };
     },
   };

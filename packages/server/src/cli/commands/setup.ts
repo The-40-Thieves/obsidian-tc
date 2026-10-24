@@ -32,6 +32,12 @@ import {
   type SetupOllamaProbe,
   type SetupVaultInput,
 } from "../setup/decide";
+import {
+  EMBEDDER_PACKAGE,
+  embedderInstallOffer,
+  manualEmbedderInstallCommand,
+  type SetupEmbedderInstallDeps,
+} from "../setup/embedder-install";
 import { buildSetupConfig, writeSetupConfig } from "../setup/write";
 import type { Cmd } from "../shared";
 import { probeEmbeddingsProviderSource } from "./doctor-probes";
@@ -229,7 +235,10 @@ function findVaultIdCollisions(
  *  own first-run fallback reuses this SAME detection pass — never a second, drifting
  *  re-implementation — non-interactively, when there is no config to boot from at all. See that
  *  module's own header for the safety conditions it applies to the result. */
-export async function detect(cmd: Cmd<"setup">): Promise<
+export async function detect(
+  cmd: Cmd<"setup">,
+  offerEmbedderInstall?: () => Promise<boolean>,
+): Promise<
   SetupDecision & {
     targetPath: string;
     existingRaw?: Record<string, unknown>;
@@ -296,29 +305,44 @@ export async function detect(cmd: Cmd<"setup">): Promise<
         })
       : undefined;
 
-  const localProbe = await probeLocalEmbedderResolution({ cacheDir });
-  const platform = onnxNativePrebuildStatus();
-  const localEmbedderAvailable = localProbe.ok && platform.supported;
-  const localUnavailableReason = localEmbedderAvailable
-    ? undefined
-    : !platform.supported
-      ? platform.note
-      : localProbe.inSourceCheckout
-        ? "not yet built in this source checkout — run `bun run build` in packages/embedder-local"
-        : "the optional @the-40-thieves/obsidian-tc-embedder-local package did not resolve";
-
   const ollama = await probeOllama();
-
-  const inputs: SetupInputs = {
+  const probeLocal = async () => {
+    const localProbe = await probeLocalEmbedderResolution({ cacheDir });
+    const platform = onnxNativePrebuildStatus();
+    const localEmbedderAvailable = localProbe.ok && platform.supported;
+    const localUnavailableReason = localEmbedderAvailable
+      ? undefined
+      : !platform.supported
+        ? platform.note
+        : localProbe.inSourceCheckout
+          ? "not yet built in this source checkout — run `bun run build` in packages/embedder-local"
+          : `${EMBEDDER_PACKAGE} is not installed — install it with \`${manualEmbedderInstallCommand()}\``;
+    const canInstall = !localProbe.ok && platform.supported && !localProbe.inSourceCheckout;
+    return { localEmbedderAvailable, localUnavailableReason, canInstall };
+  };
+  const inputsFor = (local: Awaited<ReturnType<typeof probeLocal>>): SetupInputs => ({
     vaults,
     cacheDir,
     totalMemMb: profile.hardware.totalMemMb,
     ...(existingIndex ? { existingIndex } : {}),
-    localEmbedderAvailable,
-    ...(localUnavailableReason ? { localUnavailableReason } : {}),
+    localEmbedderAvailable: local.localEmbedderAvailable,
+    ...(local.localUnavailableReason
+      ? { localUnavailableReason: local.localUnavailableReason }
+      : {}),
     ollama,
     env: process.env,
-  };
+  });
+
+  let local = await probeLocal();
+  if (
+    offerEmbedderInstall &&
+    local.canInstall &&
+    decideSetup(inputsFor(local)).embeddings?.provider === "local" &&
+    (await offerEmbedderInstall())
+  ) {
+    local = await probeLocal();
+  }
+  const inputs = inputsFor(local);
   return {
     ...decideSetup(inputs),
     targetPath,
@@ -395,7 +419,10 @@ async function confirmWrite(targetPath: string): Promise<boolean> {
   }
 }
 
-export async function run_setup(cmd: Cmd<"setup">): Promise<void> {
+export async function run_setup(
+  cmd: Cmd<"setup">,
+  embedderInstall: SetupEmbedderInstallDeps = {},
+): Promise<void> {
   // PR B of GH #995's two-part follow-up: `--install-client` is a SEPARATE action from the normal
   // detect/decide/write flow below — it never runs vault detection at all, only wires an
   // `obsidian-tc` entry into the named client's own MCP config. See
@@ -421,7 +448,7 @@ export async function run_setup(cmd: Cmd<"setup">): Promise<void> {
     return;
   }
 
-  const decision = await detect(cmd);
+  const decision = await detect(cmd, embedderInstallOffer(cmd, embedderInstall));
   // Never rewritten by --force/--yes/--dry-run: rebuilding from defaults can loosen the rule the
   // file carried. Only `--replace-invalid-config` (never implied by --force) may, loudly.
   if (decision.existingInvalid) {

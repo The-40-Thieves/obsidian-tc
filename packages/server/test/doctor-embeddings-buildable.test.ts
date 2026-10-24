@@ -2,6 +2,7 @@
 // see that function's own comment for the reasoning. Mirrors doctor-reranker-buildable.test.ts's
 // shape for the sibling `reranker.buildable` check.
 import { describe, expect, it } from "vitest";
+import { version } from "../package.json";
 import { embeddingsBuildableCheck } from "../src/doctor/embeddings-buildable";
 import type { DoctorContext } from "../src/doctor/types";
 
@@ -17,6 +18,18 @@ function unresolvedProbe(inSourceCheckout: boolean) {
 }
 
 describe("embeddings.buildable (THE-1122 review round 3: three-way status)", () => {
+  it("FAILS with remediation naming the explicit install command (not --omit=optional)", async () => {
+    const r = await embeddingsBuildableCheck({
+      denseProvider: "local",
+      probeLocalEmbedder: unresolvedProbe(false),
+      platformOverride: { platform: "linux", arch: "x64", isMuslRuntime: () => false },
+    }).run(ctx);
+    expect(String(r.remediation)).toContain(
+      `npm i @the-40-thieves/obsidian-tc-embedder-local@${version}`,
+    );
+    expect(String(r.remediation)).not.toContain("--omit=optional");
+  });
+
   it("not 'local' — nothing to resolve, always ok", async () => {
     const r = await embeddingsBuildableCheck({ denseProvider: "openai" }).run(ctx);
     expect(r.status).toBe("ok");

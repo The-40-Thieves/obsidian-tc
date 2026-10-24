@@ -11,25 +11,16 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const text = (path: string) => readFileSync(join(ROOT, path), "utf8");
 
 describe("THE-1122 adversarial release contracts", () => {
-  it("ships embedder-local in a real, shipped dependency section (optionalDependencies)", () => {
+  it("does NOT ship embedder-local as a dependency: setup installs it on opt-in", () => {
     const pkg = JSON.parse(text("packages/server/package.json")) as Record<
       string,
       Record<string, string> | undefined
     >;
     const sections = ["dependencies", "optionalDependencies", "peerDependencies"];
-    const sectionFor = (name: string) =>
-      sections.find((section) => pkg[section]?.[name] !== undefined);
     const embedder = "@the-40-thieves/obsidian-tc-embedder-local";
-    // NOT compared against reranker-local's own section (the verifier's original assertion did,
-    // and this repo's own review round explicitly rejected that premise): a missing reranker
-    // degrades gracefully to RRF-only, so reranker-local staying undeclared is fine and
-    // deliberately out of this ticket's scope; a missing DEFAULT embedder makes every
-    // search_semantic reject, which is why embedder-local specifically needs a REAL section.
-    expect(
-      sectionFor(embedder),
-      "embedder-local must be declared in a shipped dependency section",
-    ).toBeTruthy();
-    expect(sectionFor(embedder)).toBe("optionalDependencies");
+    // Owner decision (2026-10): a plain `npm i obsidian-tc` no longer pulls the local embedder.
+    // The sibling reranker-local was never a dependency; the embedder now follows that precedent.
+    expect(sections.find((section) => pkg[section]?.[embedder] !== undefined)).toBeUndefined();
   });
 
   it("copies embedder-local into the Docker runtime image", () => {

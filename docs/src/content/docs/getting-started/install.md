@@ -60,11 +60,18 @@ native module ships prebuilds for eight targets — `linux-x64-gnu`,
 `darwin-arm64`, `win32-x64-msvc`, and `win32-arm64-msvc`; on any other platform it
 transparently falls back to a pure-JS implementation.
 
-The local embedder is also platform-filtered: npm installs its generated base package plus only
-`@the-40-thieves/obsidian-tc-embedder-local-<os>-<arch>`. It does not install
-`@huggingface/transformers` or the other platforms' ONNX binaries. Do not use `--omit=optional` or
-`--no-optional` if you want the default local embedder; otherwise configure Ollama or a hosted
-embeddings provider.
+The local embedder is opt-in: `npm install -g obsidian-tc` does not install it. If you use Ollama
+or a hosted embeddings provider, you do not need it. For the default local embedder, install the
+same version as obsidian-tc (`obsidian-tc --version`):
+
+```sh
+npm install -g @the-40-thieves/obsidian-tc-embedder-local@<same version>
+```
+
+`obsidian-tc setup` offers to run this install for you. npm then installs the embedder's generated
+base package plus only `@the-40-thieves/obsidian-tc-embedder-local-<os>-<arch>` for the host. It
+does not install `@huggingface/transformers` or the other platforms' ONNX binaries. Installing it
+with `--omit=optional` or `--no-optional` leaves out that host runtime.
 
 ## Standalone binary
 

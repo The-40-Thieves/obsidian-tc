@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { version } from "../package.json";
 import {
   buildLocalEmbeddingProvider,
   resolveLocalEmbedderModule,
@@ -249,7 +250,7 @@ describe("buildLocalEmbeddingProvider", () => {
     ]);
   });
 
-  it("embed() rejects with the missing runtime package and optional-dependency remedy", async () => {
+  it("embed() rejects with the missing runtime package and the explicit install remedy", async () => {
     const runtimePackage = `@the-40-thieves/obsidian-tc-embedder-local-${process.platform}-${process.arch}`;
     const resolveModule = async () => ({
       ok: false as const,
@@ -271,7 +272,9 @@ describe("buildLocalEmbeddingProvider", () => {
     } catch (error) {
       const details = (error as { details?: { hint?: string } }).details;
       expect(details?.hint).toContain(runtimePackage);
-      expect(details?.hint).toContain("--omit=optional");
+      expect(details?.hint).toContain(
+        `npm i @the-40-thieves/obsidian-tc-embedder-local@${version}`,
+      );
       expect(details?.hint).toMatch(/ollama|hosted provider/);
     }
   });
