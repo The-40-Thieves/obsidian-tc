@@ -53,11 +53,18 @@ function gatingFrame(abs: string): Frame | undefined {
 /** A note by its file name. Windows resolves `note.md.`, `note.md ` and `note.md::$DATA` to
  *  `note.md`, so trailing dots and spaces and any `:stream` suffix are allowed after `.md`. A name
  *  that merely contains a colon is gated too: the check is conservative on purpose. */
-const NOTE_NAME = /\.md[. ]*(?::.*)?$/i;
-
 /** True when the last segment of `path` names a note (`.md`, case-insensitive, NTFS aliases included). */
 export function isNotePath(path: string): boolean {
-  return NOTE_NAME.test(path.split(/[\\/]/).pop() ?? "");
+  const name = path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1);
+  // A plain scan, not a regex: each end (the name's end, or a `:` that starts a stream suffix) is
+  // tried with its trailing dots and spaces stepped over. File names are short, so this stays cheap.
+  for (let end = 0; end <= name.length; end++) {
+    if (end < name.length && name[end] !== ":") continue;
+    let j = end - 1;
+    while (j >= 0 && (name[j] === "." || name[j] === " ")) j--;
+    if (j >= 2 && name.slice(j - 2, j + 1).toLowerCase() === ".md") return true;
+  }
+  return false;
 }
 
 function contentKey(abs: string, text: string | Buffer): { key: string; utf8: string } {
