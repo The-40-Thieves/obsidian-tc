@@ -4,8 +4,8 @@
 // `annotate` (after the handler succeeded) re-stats them and judges only the notes that changed, plus any
 // the handler reported through `ctx.noteWritten`. Advisory and fail-open: a check that throws is reported
 // through onInternalError and the write stands without a `conventions` key.
-import { statSync } from "node:fs";
-import { basename, isAbsolute, relative, sep } from "node:path";
+import { realpathSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { blockingDelta, checkNote, judges } from "../../conventions/check";
 import {
@@ -266,10 +266,35 @@ function gatedFrontmatter(
   return callerMayReadNote(ctx, root, rel) ? { fm: seen.fm } : undefined;
 }
 
-/** The vault-relative posix path of `abs` under `root`, or undefined when it is outside the root. */
+/** `abs` relative to `base`, or undefined when it is not strictly inside it. */
+function insideOf(base: string, abs: string): string | undefined {
+  const r = relative(base, abs);
+  return r === "" || r === ".." || r.startsWith(`..${sep}`) || isAbsolute(r) ? undefined : r;
+}
+
+/** `p` with its nearest existing ancestor resolved by the OS (symlinks and Windows short names
+ *  expanded) and the not-yet-existing tail kept as written. */
+function canonical(p: string): string {
+  let head = p;
+  let tail = "";
+  for (;;) {
+    try {
+      return join(realpathSync.native(head), tail);
+    } catch {
+      const up = dirname(head);
+      if (up === head) return p;
+      tail = join(basename(head), tail);
+      head = up;
+    }
+  }
+}
+
+/** The vault-relative posix path of `abs` under `root`, or undefined when it is outside the root.
+ *  The sinks hand over the path they write, which may be the resolved form of a root spelled through
+ *  a symlink or a Windows 8.3 short name (C:\Users\RUNNER~1), so the root's real path is tried too. */
 function vaultRelOf(root: string, abs: string): string | undefined {
-  const r = relative(root, abs);
-  if (r === "" || r === ".." || r.startsWith(`..${sep}`) || isAbsolute(r)) return undefined;
+  const r = insideOf(root, abs) ?? insideOf(canonical(root), canonical(abs));
+  if (r === undefined) return undefined;
   try {
     return normalizeVaultPath(r.split(sep).join("/"));
   } catch {
