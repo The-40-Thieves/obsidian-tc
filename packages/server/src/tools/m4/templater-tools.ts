@@ -212,8 +212,9 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
               });
             throw e;
           }
-        // The path Templater created is the note this call wrote: the convention check judges it.
-        ctx.noteWritten?.(createdTarget);
+        // The requested target is already in pathAcl, so the convention check sees it only if it
+        // changed. A note Templater put elsewhere is not, so name it.
+        if (createdTarget !== targetFile) ctx.noteWritten?.(createdTarget);
         // The stamp's hash and skip reason describe the requested path; report them only for it.
         const reportedStamp = createdTarget === targetFile ? stampResult : undefined;
         return {

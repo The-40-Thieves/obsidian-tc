@@ -36,6 +36,8 @@ export interface M4VaultOptions {
   acl?: Partial<AclConfigT>;
   /** Programmable fake bridge routes, keyed "METHOD /obsidian-tc/v1/...". */
   routes?: Record<string, FakeRoute>;
+  /** Runs on every fake bridge request with the vault root, so a test can play the plugin's write. */
+  onBridge?: (info: FakeRequestInfo, root: string) => void;
   /** Wires the folder conventions sink over this vault (execute_template runs the write check). */
   conventions?: boolean;
   /** Full capability snapshot; takes precedence over `installed`. */
@@ -116,7 +118,10 @@ export function makeM4Vault(opts: M4VaultOptions = {}): M4Vault {
   const bridgeRequests: FakeRequestInfo[] = [];
   const fetchFn = fakeBridgeTransport({
     routes: opts.routes ?? {},
-    onRequest: (i) => bridgeRequests.push(i),
+    onRequest: (i) => {
+      bridgeRequests.push(i);
+      opts.onBridge?.(i, root);
+    },
   });
   const client = opts.noBridge
     ? undefined

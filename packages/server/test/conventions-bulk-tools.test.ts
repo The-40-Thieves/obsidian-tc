@@ -2,6 +2,8 @@
 // `missing_required` warning for every note it wrote that breaks the SCHEMA.md layer, a move reports
 // at its destination, a clean write carries no `conventions` key, and the write stands either way:
 // the check is advisory.
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { registerM6Tools } from "../src/tools/m6";
@@ -180,16 +182,22 @@ describe("commit_capture conventions", () => {
 });
 
 describe("execute_template conventions", () => {
-  const templateVault = (note: string) =>
+  // The fake companion plays Templater: it reports `reported` as the created note and, unless
+  // `written` is null, writes that content there first (null = the template failed, nothing written).
+  const templateVault = (existing: string, reported: string, written: string | null) =>
     track(
       makeM4Vault({
         installed: ["templater"],
         conventions: true,
-        files: { "Meetings/SCHEMA.md": REQUIRE_TYPE, "Meetings/t.md": note },
+        files: { "Meetings/SCHEMA.md": REQUIRE_TYPE, "Meetings/t.md": existing },
         routes: {
           "POST /obsidian-tc/v1/templater/execute": {
-            body: { ok: true, result: { target: "Meetings/t.md", created_at: "t" } },
+            body: { ok: true, result: { target: reported, created_at: "t" } },
           },
+        },
+        onBridge: (i, root) => {
+          if (written !== null && i.url.endsWith("/templater/execute"))
+            writeFileSync(join(root, reported), written);
         },
       }),
     );
@@ -201,13 +209,25 @@ describe("execute_template conventions", () => {
   };
 
   it("reports missing_required for the note Templater wrote", async () => {
-    const v = templateVault("x\n");
+    const v = templateVault(TYPED, "Meetings/t.md", "x\n");
     const r = await v.callConfirmed("execute_template", input);
     expect(pathsOf(conventionsOf(r))).toEqual(["Meetings/t.md"]);
   });
 
+  it("reports at the path Templater renamed the note to", async () => {
+    const v = templateVault(TYPED, "Meetings/renamed.md", "x\n");
+    const r = await v.callConfirmed("execute_template", input);
+    expect(pathsOf(conventionsOf(r))).toEqual(["Meetings/renamed.md"]);
+  });
+
+  it("a template that wrote nothing does not judge the untouched note", async () => {
+    const v = templateVault("x\n", "Meetings/t.md", null);
+    const r = await v.callConfirmed("execute_template", input);
+    expect(hasNoConventionsKey(r)).toBe(true);
+  });
+
   it("a clean write carries no conventions key", async () => {
-    const v = templateVault(TYPED);
+    const v = templateVault("x\n", "Meetings/t.md", TYPED);
     const r = await v.callConfirmed("execute_template", input);
     expect(hasNoConventionsKey(r)).toBe(true);
   });
