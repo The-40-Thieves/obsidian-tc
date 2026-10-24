@@ -35,7 +35,7 @@ outage." Losing the modern era is separately guarded because the opt-in that ser
 regress silently (moving it to the wrong object leaves every *existing* test green).
 
 The SDK that makes the modern-era assertions below possible is
-**`@modelcontextprotocol/server`**, pinned to **2.3.1** (`packages/server/package.json`; the
+**`@modelcontextprotocol/server`**, pinned to **2.4.0** (`packages/server/package.json`; the
 `docgen:facts-check` gate compares this number with `bun.lock`, so it cannot drift). It is the only one of the v2 packages this repo imports — 13
 import sites across 12 files.
 
