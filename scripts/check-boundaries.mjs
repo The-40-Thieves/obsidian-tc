@@ -75,12 +75,9 @@ const UNREACHABLE_ALLOWLIST = new Map([
   // is reachable now — this comment is the historical note the gate's own header asks for; the
   // entry itself is gone. Same acl_path_set.ts precedent.
   //
-  // Refs #1331, slice 1 of the vault conventions work: the engine (parse, resolve, check) lands dark.
-  // Its consumer, the get_conventions tool, arrives in the next slice; each entry goes when it does.
-  ["packages/server/src/conventions/schema.ts", "Refs #1331: engine, no tool consumer yet"],
-  ["packages/server/src/conventions/parse.ts", "Refs #1331: engine, no tool consumer yet"],
-  ["packages/server/src/conventions/resolve.ts", "Refs #1331: engine, no tool consumer yet"],
-  ["packages/server/src/conventions/check.ts", "Refs #1331: engine, no tool consumer yet"],
+  // Refs #1331: the conventions engine's checkNote has no tool consumer until the write-tool slice;
+  // the entry goes when it does. schema, parse and resolve are reached through get_conventions.
+  ["packages/server/src/conventions/check.ts", "Refs #1331: checkNote, no tool consumer yet"],
 ]);
 
 function run(cmd, args) {

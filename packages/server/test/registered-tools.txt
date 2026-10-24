@@ -49,6 +49,7 @@ generate_uri
 get_active_file
 get_attachment
 get_backlinks
+get_conventions
 get_entity
 get_index_status
 get_link_strength
