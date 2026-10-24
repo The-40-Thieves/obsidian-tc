@@ -185,6 +185,13 @@ jobs:
       - name: copy-paste detection
         run: bun run check:duplication
 
+      # Test files are outside .jscpd.json's scan, so a copied test block passed the gate above
+      # (SonarCloud reported 9.7% duplication on new code). This gate fails on any clone absent from
+      # scripts/jscpd-tests-baseline.json; refresh that file with `--update-baseline` only when a
+      # clone is intentional. --fail-on-empty stops a scan of zero files from passing.
+      - name: copy-paste detection (tests, new clones vs baseline)
+        run: bun run check:duplication:tests
+
 
       # These two shipped as committed, unit-tested scripts but were never invoked by any workflow,
       # so across the whole schema/M7/indexer refactor they only ever ran when someone remembered to
