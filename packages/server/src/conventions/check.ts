@@ -90,12 +90,15 @@ function pageType(raw: unknown): { type?: string; several: boolean } {
   return { type: scalarText(raw), several: false };
 }
 
-/** True when `checkNote` judges this path: the effective set has rules and the path is not skipped. */
+/** True when `checkNote` judges this path: the effective set has rules and the path is not skipped. A type
+ *  that sets only severity is not a rule: it changes how a violation is levelled, never whether one exists. */
 export function judges(eff: EffectiveConventions, path: string): boolean {
   const hasRules =
     eff.required !== undefined ||
     Object.keys(eff.values).length > 0 ||
-    Object.keys(eff.types).length > 0;
+    Object.values(eff.types).some(
+      (t) => t.required !== undefined || Object.keys(t.values).length > 0,
+    );
   return hasRules && !skipped(eff, path);
 }
 
