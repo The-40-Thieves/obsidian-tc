@@ -5,6 +5,7 @@
 // path; ordinary edits are not gated.
 import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { conventionsResultShape } from "../../conventions/schema";
 import { MEMORY_DEFENSE_OFF } from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import { paginate } from "../../util/paginate";
@@ -193,6 +194,7 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
         // present only when memoryDefense.mode is "redact" and something in the
         // rewritten task line matched — same convention as write_note's own `redactions` field.
         redactions: z.number().optional(),
+        ...conventionsResultShape,
       }),
       requiredScopes: ["write:tasks"],
       // THE-824: display-only — see ToolDefinition.conditionallyDestructive. The real gate stays

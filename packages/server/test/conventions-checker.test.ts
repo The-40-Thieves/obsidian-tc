@@ -8,6 +8,7 @@ import type { CallerContext, ToolDefinition } from "../src/mcp/registry/types";
 import { buildAcls } from "../src/runtime/acl-build";
 import { contentHash } from "../src/vault/paths";
 import { VaultRegistry } from "../src/vault/registry";
+import { REQUIRE_TYPE } from "./conventions-helpers";
 import { makeTestVault } from "./m1-helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
@@ -24,7 +25,6 @@ vi.mock("../src/conventions/resolve", async (importOriginal) => {
   };
 });
 
-const REQUIRE_TYPE = "---\nconventions:\n  frontmatter:\n    required: [type]\n---\n# rules\n";
 const roots: string[] = [];
 afterEach(() => {
   for (const r of roots.splice(0)) rmTemp(r);

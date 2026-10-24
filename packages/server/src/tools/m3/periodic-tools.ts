@@ -18,6 +18,7 @@ import {
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { FolderAcl } from "../../acl";
+import { conventionsResultShape } from "../../conventions/schema";
 import {
   enforceMemoryDefenseOnNoteWrite,
   MEMORY_DEFENSE_OFF,
@@ -238,6 +239,7 @@ const CreatePeriodicNoteOutput = z.object({
   template_used: z.string().nullable(),
   template_expanded: z.boolean(),
   ...RedactionsField,
+  ...conventionsResultShape,
 });
 
 const FindOrCreatePeriodicNoteOutput = z.object({
@@ -247,6 +249,7 @@ const FindOrCreatePeriodicNoteOutput = z.object({
   created: z.boolean(),
   ...PeriodicContentFields,
   ...RedactionsField,
+  ...conventionsResultShape,
 });
 
 const AppendToPeriodicNoteOutput = z.object({
@@ -257,6 +260,7 @@ const AppendToPeriodicNoteOutput = z.object({
   appended_bytes: z.number().int(),
   created: z.boolean(),
   ...RedactionsField,
+  ...conventionsResultShape,
 });
 
 // GH #1027: response_format=concise returns {date, path} per item (period echoes the input, mtime
@@ -404,6 +408,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
             exclusive: true,
           });
           deps.reindex?.(v.id, resolved.path, scan.content);
+          ctx.noteWritten?.(resolved.path);
           return {
             period: input.period,
             date: toISODate(date),
@@ -423,6 +428,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           deps.metrics,
         );
         if (templaterScan) deps.reindex?.(v.id, resolved.path, templaterScan.content);
+        ctx.noteWritten?.(resolved.path);
         return {
           period: input.period,
           date: toISODate(date),
@@ -518,6 +524,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         } else {
           enforcePathAcl(ctx.acl, "read", resolved.path, v.root, ctx.grantedScopes);
         }
+        if (created) ctx.noteWritten?.(resolved.path);
         const { raw } = readNote(abs);
         const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         return {
@@ -622,6 +629,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           scan = persist(base, false);
         }
         deps.reindex?.(v.id, resolved.path, scan.content);
+        ctx.noteWritten?.(resolved.path);
         return {
           period: input.period,
           date: toISODate(date),

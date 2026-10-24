@@ -27,6 +27,8 @@ import { makeTempDir, rmTemp } from "./tmp";
 
 export interface TestVaultOptions {
   files?: Record<string, string>;
+  /** Registers further tool families on the vault's registry, after the M1 tools (the M3/M4 writers). */
+  registerTools?: (registry: ToolRegistry, vaultRegistry: VaultRegistry) => void;
   /** Wires the folder conventions sink over this vault's own registry (wiki config included). */
   conventions?: boolean;
   /** Runs after `files` are written and BEFORE the ACLs are built: the one place to lay out
@@ -184,6 +186,7 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
       budgetBytes: () => registry.maxResponseBytes,
     }),
   });
+  opts.registerTools?.(registry, vaultRegistry);
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({
     caller: "test",

@@ -26,25 +26,12 @@ import { makeTempDir, rmTemp } from "./tmp";
 
 // A write tool that is not wired yet. PR 4 of the conventions slice empties this set.
 const CONVENTIONS_PENDING = new Set<string>([
-  "add_tag",
-  "remove_tag",
-  "update_frontmatter",
-  "restore_note",
-  "format_table",
-  "insert_table_row",
-  "insert_table_column",
-  "sort_table_by_column",
-  "create_periodic_note",
-  "update_task",
   "execute_template",
   "commit_capture",
   "bulk_create_notes",
   "bulk_set_property",
   "bulk_move_notes",
   "commit_wiki_page",
-  "append_to_periodic_note",
-  "find_or_create_periodic_note",
-  "rewrite_link",
 ]);
 
 // Mutating tools with no pathAcl that still write Markdown notes: found by reading each mutating tool that
@@ -70,6 +57,7 @@ const CONVENTIONS_EXEMPT = new Map<string, string>([
   ["add_kanban_card", "Kanban board, not a Markdown note"],
   ["move_kanban_card", "Kanban board, not a Markdown note"],
   ["prune_hub_links", "rewrites links in place, no note-level conventions judgment"],
+  ["rewrite_link", "rewrites links in place across the vault, no note-level conventions judgment"],
   ["delete_note", "a delete writes no note"],
   ["delete_attachment", "a delete writes no note"],
   ["delete_active_file", "a delete writes no note"],
