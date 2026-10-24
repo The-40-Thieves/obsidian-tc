@@ -10,6 +10,7 @@ import { NO_OUTPUT_TEXT } from "../no-output-text";
 import type { EffectiveToolVisibilityConfig } from "../visibility";
 import { checkAborted } from "./abort";
 import { isToolDisabledFor, runAuthorizationGates } from "./authorization-gates";
+import { conventionsScope } from "./conventions-scope";
 import {
   callStatusForError,
   type DispatchObservability,
@@ -80,6 +81,7 @@ export interface DispatchDeps {
   tracer?: Tracer;
   otelDetail?: OtelDetail;
   provenance?: RegistryOptions["provenance"];
+  conventions?: RegistryOptions["conventions"];
 }
 
 // Full invocation pipeline: validate -> auth -> scope/ACL -> HITL -> execute -> governor -> audit.
@@ -129,6 +131,7 @@ export async function runDispatch(
   // callback THIS dispatch installed.
   let installedMarker: { markEffectCommitted?: () => void } | undefined;
   const provenance = provenanceScope(deps.provenance, deps.rootResolver); // see provenance-scope.ts
+  const conventions = conventionsScope(deps.conventions, deps.rootResolver, deps.onInternalError); // see conventions-scope.ts
 
   // THE-839: episode kind for the audit row. Everything here came through tools/call (resources/*
   // and prompts/* declare `protocol` via dispatchResource instead); a `verdict`-tagged tool is the
@@ -365,6 +368,7 @@ export async function runDispatch(
     // named path actually changed.
     if (mutating) {
       await provenance.begin(def, inputData, ctx);
+      await conventions.begin(def, inputData, ctx);
       checkAborted(ctx.signal);
     }
 
@@ -473,6 +477,7 @@ export async function runDispatch(
         return r;
       },
     );
+    await conventions.annotate(def, out, ctx);
     await provenance.settle("ok", out);
     spans?.stage("output_serialize");
     // WP4.3: output-schema validation (warn vs strict) — see registry/result-governance.ts's

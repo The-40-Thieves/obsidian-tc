@@ -93,6 +93,7 @@ export const CALLER_CONTEXT_DISPOSITION: Record<keyof CallerContext, Disposition
   callerVaultId: rebuilt("set by dispatch's withEffectiveVault during the worker's own call"),
   markEffectCommitted: dropped(BY_DISPATCH),
   recordPendingWrite: dropped(BY_DISPATCH),
+  noteWritten: dropped(BY_DISPATCH),
   elicitToken: guarded(HITL_NEVER_REACHED),
   elicitState: guarded(HITL_NEVER_REACHED),
   relayElicitConsumed: guarded(HITL_NEVER_REACHED),

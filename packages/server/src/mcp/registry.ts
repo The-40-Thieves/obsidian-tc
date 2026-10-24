@@ -162,6 +162,7 @@ export class ToolRegistry {
       tracer: this.tracer,
       otelDetail: opts.otelDetail,
       provenance: opts.provenance,
+      conventions: opts.conventions,
     };
   }
 

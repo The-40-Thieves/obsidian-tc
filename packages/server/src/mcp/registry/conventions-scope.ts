@@ -1,0 +1,195 @@
+// Dispatch's side of the folder conventions check, kept out of dispatch.ts (which sits at biome's line cap).
+// A tool whose output schema declares `conventions` gets its written notes checked against the SCHEMA.md
+// rules that apply to them. `begin` (a mutating call, before the handler) stats the notes the call names;
+// `annotate` (after the handler succeeded) re-stats them and judges only the notes that changed, plus any
+// the handler reported through `ctx.noteWritten`. Advisory and fail-open: a check that throws is reported
+// through onInternalError and the write stands without a `conventions` key.
+import { statSync } from "node:fs";
+import { basename } from "node:path";
+import { checkNote } from "../../conventions/check";
+import { evictConventionsLayer, resolveConventions } from "../../conventions/resolve";
+import { CONVENTIONS_KEY } from "../../conventions/schema";
+import { WIKI_SCHEMA_FILE } from "../../tools/m7/knowledge/wiki-schema";
+import { capWarningsOut, MAX_SCAN_WARNINGS } from "../../tools/scan-warnings";
+import { createSliceYielder } from "../../util/scan-steps";
+import { enforcePathAcl } from "../../vault/acl-path";
+import { callerMayReadNote } from "../../vault/cas";
+import { parseNoteLenient } from "../../vault/frontmatter";
+import { readNoteBounded } from "../../vault/notes-io";
+import { contentHash, resolveVaultPath } from "../../vault/paths";
+import { vaultArgOf } from "./input-binding";
+import type { CallerContext, ConventionsSink, RegistryOptions, ToolDefinition } from "./types";
+
+/** Notes a single call may name: the rest are not stat'd, so a bulk call cannot make begin unbounded. */
+const MAX_NAMED_NOTES = 500;
+/** A note larger than this is not parsed for conventions (the same bound the layer reader uses). */
+const NOTE_MAX_BYTES = 1024 * 1024;
+
+export interface ConventionsDispatch {
+  begin(def: ToolDefinition, input: unknown, ctx: CallerContext): Promise<void>;
+  annotate(def: ToolDefinition, out: unknown, ctx: CallerContext): Promise<void>;
+}
+
+interface PendingCheck {
+  def: ToolDefinition;
+  vault: string;
+  root: string;
+  state: object;
+  noted: Set<string>;
+}
+
+/** True when the tool's advertised output schema has a `conventions` key: only those pay for the check. */
+function declaresConventions(def: ToolDefinition): boolean {
+  const shape = (def.outputSchema as { shape?: Record<string, unknown> } | undefined)?.shape;
+  return shape !== undefined && Object.hasOwn(shape, CONVENTIONS_KEY);
+}
+
+export function conventionsScope(
+  sink: ConventionsSink | undefined,
+  rootResolver: RegistryOptions["rootResolver"],
+  onInternalError: RegistryOptions["onInternalError"],
+): ConventionsDispatch {
+  let pending: PendingCheck | undefined;
+  return {
+    async begin(def, input, ctx) {
+      pending = undefined;
+      if (sink === undefined || !declaresConventions(def)) return;
+      const vault = vaultArgOf(def, input) ?? ctx.vaultId;
+      const root = rootResolver?.(vault);
+      if (root === undefined) return;
+      const noted = new Set<string>();
+      ctx.noteWritten = (rel) => {
+        noted.add(rel);
+      };
+      try {
+        pending = { def, vault, root, noted, state: await sink.begin(def, input, ctx, root) };
+      } catch (e) {
+        onInternalError?.(`conventions:${def.name}`, vault, e);
+      }
+    },
+    async annotate(def, out, ctx) {
+      const p = pending;
+      pending = undefined;
+      delete ctx.noteWritten;
+      if (p === undefined || p.def !== def || sink === undefined) return;
+      if (typeof out !== "object" || out === null) return;
+      try {
+        const field = await sink.check(p.state, out, ctx, p.root, p.noted);
+        if (field !== undefined) (out as { conventions?: object }).conventions = field;
+      } catch (e) {
+        onInternalError?.(`conventions:${def.name}`, p.vault, e);
+      }
+    },
+  };
+}
+
+/** The write-op `.md` paths a call names that the caller may write, in pathAcl order, capped. */
+function namedWriteNotes(
+  def: ToolDefinition,
+  input: unknown,
+  ctx: CallerContext,
+  root: string,
+): string[] {
+  if (!def.pathAcl) return [];
+  let named: ReturnType<NonNullable<ToolDefinition["pathAcl"]>>;
+  try {
+    named = def.pathAcl(input, { root });
+  } catch {
+    return [];
+  }
+  const out = new Set<string>();
+  for (const { op, path } of named) {
+    if (op !== "write" || !path.endsWith(".md") || out.size >= MAX_NAMED_NOTES) continue;
+    try {
+      enforcePathAcl(ctx.acl, "write", path, root, ctx.grantedScopes);
+    } catch {
+      continue;
+    }
+    out.add(path);
+  }
+  return [...out];
+}
+
+/** A note's identity on disk: changes on any rewrite, so an untouched pre-existing note keeps its key. */
+function stampOf(root: string, rel: string): string | null {
+  try {
+    const s = statSync(resolveVaultPath(root, rel), { bigint: true });
+    return s.isFile() ? `${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}` : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The content hash the write itself reported for `rel`, when the result names that note. */
+function reportedHash(result: unknown, rel: string): string | undefined {
+  const r = result as { path?: unknown; content_hash?: unknown };
+  return r.path === rel && typeof r.content_hash === "string" ? r.content_hash : undefined;
+}
+
+/** The note's frontmatter (null when it has none) as the caller may see it; undefined to skip the note. */
+function frontmatterOf(
+  ctx: CallerContext,
+  root: string,
+  rel: string,
+  result: unknown,
+): ReturnType<typeof parseNoteLenient>["frontmatter"] | undefined {
+  if (!callerMayReadNote(ctx, root, rel)) return undefined;
+  try {
+    const { raw } = readNoteBounded(resolveVaultPath(root, rel), NOTE_MAX_BYTES);
+    if (raw === null) return undefined;
+    const hash = reportedHash(result, rel);
+    if (hash !== undefined && contentHash(raw) !== hash) return undefined; // changed again since the write
+    return parseNoteLenient(raw, rel).frontmatter;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The sink dispatch wires: stats at begin, checks the changed notes at annotate. Pure over the disk. */
+export function conventionsChecker(): ConventionsSink {
+  return {
+    async begin(def, input, ctx, root) {
+      const stamps = new Map<string, string | null>();
+      for (const rel of namedWriteNotes(def, input, ctx, root)) stamps.set(rel, stampOf(root, rel));
+      return { stamps };
+    },
+    async check(pending, result, ctx, root, noted) {
+      const { stamps } = pending as { stamps: ReadonlyMap<string, string | null> };
+      if (ctx.signal?.aborted) return undefined;
+      const candidates = new Set<string>();
+      for (const [rel, before] of stamps) if (stampOf(root, rel) !== before) candidates.add(rel);
+      for (const rel of noted) candidates.add(rel);
+      // A SCHEMA.md this call wrote is re-read before any note in its folder is judged against it.
+      for (const rel of candidates)
+        if (basename(rel) === WIKI_SCHEMA_FILE) evictConventionsLayer(ctx.vaultId, rel);
+
+      const yieldSlice = createSliceYielder(ctx.signal);
+      const warnings: ReturnType<typeof checkNote> = [];
+      const files = new Map<string, { path: string; message: string }>();
+      let filesOmitted = 0;
+      for (const rel of candidates) {
+        await yieldSlice();
+        if (ctx.signal?.aborted) return undefined;
+        const fm = frontmatterOf(ctx, root, rel, result);
+        if (fm === undefined) continue;
+        const eff = resolveConventions(
+          { vaultId: ctx.vaultId, root, acl: ctx.acl, grantedScopes: ctx.grantedScopes },
+          rel,
+        );
+        warnings.push(...checkNote(eff, rel, fm));
+        for (const f of eff.fileWarnings) files.set(`${f.path}\0${f.message}`, f);
+        filesOmitted = Math.max(filesOmitted, eff.fileWarningsOmitted);
+      }
+      if (warnings.length === 0 && files.size === 0) return undefined;
+      const fileList = [...files.values()];
+      const fileOverflow = Math.max(0, fileList.length - MAX_SCAN_WARNINGS);
+      return {
+        ...capWarningsOut(warnings),
+        ...(fileList.length > 0 ? { file_warnings: fileList.slice(0, MAX_SCAN_WARNINGS) } : {}),
+        ...(filesOmitted + fileOverflow > 0
+          ? { file_warnings_omitted: filesOmitted + fileOverflow }
+          : {}),
+      };
+    },
+  };
+}
