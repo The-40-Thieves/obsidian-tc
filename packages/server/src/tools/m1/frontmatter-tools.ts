@@ -310,6 +310,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
       // the requireConfirmation call below (operation === "replace"); this only stops the wire
       // annotation from advertising destructive: false for a tool that CAN demand confirmation.
       conditionallyDestructive: true,
+      // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 58); split when next modified
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);

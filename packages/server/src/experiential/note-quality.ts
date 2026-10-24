@@ -142,6 +142,7 @@ export function flagsFor(
  * Recompute the rollup for one vault. Idempotent: running twice produces identical rows except
  * `computed_at` (upsert on the (vault_id, path) primary key, never an append).
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 68); split when next modified
 export function recomputeNoteQuality(
   cacheDb: Database,
   edb: Database,

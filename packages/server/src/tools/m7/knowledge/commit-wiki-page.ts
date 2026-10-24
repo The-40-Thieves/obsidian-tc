@@ -254,6 +254,7 @@ export function createCommitWikiPageTool(
     requiredScopes: ["write:notes", "read:notes"],
     conditionallyDestructive: true,
     tags: ["knowledge", "external-network"],
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 108); split when next modified
     handler: async (input, ctx) => {
       const v = deps.vaultRegistry.resolve(input.vault);
       const pageRel = normalizeVaultPath(input.page.path);

@@ -52,6 +52,7 @@ export interface OpBudget {
   ops: number;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 74); split when next modified
 export function applyLogic(
   rule: JsonLogic,
   data: Record<string, unknown>,

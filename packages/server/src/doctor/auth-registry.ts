@@ -62,6 +62,7 @@ export function authRegistryCheck(view: AuthRegistryView): Check {
   return {
     id: "auth.registry",
     category: "config",
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 62); split when next modified
     run: (): CheckResult => {
       const now = view.now ?? Date.now();
       const keys = view.keys ?? [];

@@ -85,6 +85,7 @@ export interface DispatchDeps {
 }
 
 // Full invocation pipeline: validate -> auth -> scope/ACL -> HITL -> execute -> governor -> audit.
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 114); split when next modified
 export async function runDispatch(
   deps: DispatchDeps,
   name: string,
