@@ -1,8 +1,10 @@
 // The folder conventions check on the writers that are not write_note: the metadata, table, task, restore
 // and periodic tools. A write that leaves a note untyped warns naming that note and the write stands; a
 // write that leaves it typed carries no `conventions` key; a call that changes no note reports nothing.
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { CapabilityCache } from "../src/bridge";
+import { type BridgeClient, CapabilityCache } from "../src/bridge";
 import type { ToolRegistry } from "../src/mcp/registry";
 import { registerM3Tools } from "../src/tools/m3";
 import { registerM4Tools } from "../src/tools/m4";
@@ -16,6 +18,38 @@ import {
   withVault,
 } from "./conventions-helpers";
 import type { TestVault } from "./m1-helpers";
+
+/** A Templater bridge that writes `expansion` to the target it is asked for, under the vault root. */
+function templaterWriting(expansion: string) {
+  let root = "";
+  const calls: Array<Record<string, unknown>> = [];
+  const templaterBridge = () => ({
+    client: {
+      request: async (req: { body?: Record<string, unknown> }) => {
+        calls.push(req.body ?? {});
+        const target = String(req.body?.target);
+        mkdirSync(join(root, target, ".."), { recursive: true });
+        writeFileSync(join(root, target), expansion);
+        return {};
+      },
+    } as unknown as BridgeClient,
+    timeoutMs: 1000,
+  });
+  return {
+    setup: (r: string) => {
+      root = r;
+    },
+    registerTools: (registry: ToolRegistry, vaultRegistry: VaultRegistry) => {
+      registerM3Tools(registry, { vaultRegistry, templaterBridge });
+      registerM4Tools(registry, {
+        vaultRegistry,
+        capabilities: new CapabilityCache(),
+        bridgeFor: () => undefined,
+      });
+    },
+    calls,
+  };
+}
 
 /** The M3 (table, periodic) and M4 (task) writers, registered beside the M1 tools makeTestVault wires. */
 const WRITERS = {
@@ -164,6 +198,8 @@ describe("restore_note and the folder conventions check", () => {
 describe("periodic writers and the folder conventions check", () => {
   // The root SCHEMA.md governs the daily note, which the default periodic config places at the vault root.
   const ROOT_SCHEMA = { "SCHEMA.md": REQUIRE_TYPE };
+  const TEMPLATE = { "templates/daily.md": "# <% tp.date.now() %>\n" };
+  const DAILY_NOTES_CONFIG = JSON.stringify({ template: "templates/daily.md" });
 
   it("create_periodic_note warns naming the computed periodic note path", async () => {
     await withVault({ ...CHECKED, ...WRITERS, files: ROOT_SCHEMA }, async (v) => {
@@ -201,6 +237,76 @@ describe("periodic writers and the folder conventions check", () => {
     });
   });
 
+  it("create_periodic_note warns on a Templater expansion that leaves the note untyped", async () => {
+    const templater = templaterWriting("# expanded\n");
+    await withVault(
+      {
+        ...CHECKED,
+        registerTools: templater.registerTools,
+        setup: templater.setup,
+        files: { ...ROOT_SCHEMA, ...TEMPLATE },
+      },
+      async (v) => {
+        const r = await v.call("create_periodic_note", {
+          vault: "test",
+          period: "daily",
+          date: "2026-06-18",
+          template_override: "templates/daily.md",
+          expand_template: true,
+        });
+        expectMissingRequired(r, DAILY, "SCHEMA.md");
+        expect(r.ok && (r.data as { template_expanded: boolean }).template_expanded).toBe(true);
+        expect(v.read(DAILY)).toBe("# expanded\n");
+      },
+    );
+  });
+
+  it("create_periodic_note stays clean and the expansion stands when Templater leaves the note typed", async () => {
+    const expansion = "---\ntype: meeting\n---\n# expanded\n";
+    const templater = templaterWriting(expansion);
+    await withVault(
+      {
+        ...CHECKED,
+        registerTools: templater.registerTools,
+        setup: templater.setup,
+        files: { ...ROOT_SCHEMA, ...TEMPLATE },
+      },
+      async (v) => {
+        const r = await v.call("create_periodic_note", {
+          vault: "test",
+          period: "daily",
+          date: "2026-06-18",
+          template_override: "templates/daily.md",
+          expand_template: true,
+        });
+        expectClean(r);
+        expect(v.read(DAILY)).toBe(expansion);
+      },
+    );
+  });
+
+  it("find_or_create_periodic_note warns when Templater creates the note untyped", async () => {
+    const templater = templaterWriting("# expanded\n");
+    await withVault(
+      {
+        ...CHECKED,
+        registerTools: templater.registerTools,
+        setup: templater.setup,
+        files: { ...ROOT_SCHEMA, ...TEMPLATE, ".obsidian/daily-notes.json": DAILY_NOTES_CONFIG },
+      },
+      async (v) => {
+        const r = await v.call("find_or_create_periodic_note", {
+          vault: "test",
+          period: "daily",
+          date: "2026-06-18",
+          expand_template: true,
+        });
+        expectMissingRequired(r, DAILY, "SCHEMA.md");
+        expect(r.ok && (r.data as { created: boolean }).created).toBe(true);
+      },
+    );
+  });
+
   it("find_or_create_periodic_note stays silent when it finds the existing note", async () => {
     await withVault(
       { ...CHECKED, ...WRITERS, files: { ...ROOT_SCHEMA, [DAILY]: "found\n" } },
@@ -230,6 +336,68 @@ describe("unchanged notes and the folder conventions check", () => {
         const r = await v.call("remove_tag", { vault: "test", path: NOTE, tag: "absent" });
         expectClean(r);
         expect(v.read(NOTE)).toBe(before);
+      },
+    );
+  });
+
+  // Each call names the note it leaves byte-for-byte as it was. The write may still rewrite the file, so
+  // the check must judge the bytes, not the file's stat: an untyped note under a required-type layer
+  // carries no warning for a call that changed nothing.
+  const NO_OP_CASES = [
+    { tool: "add_tag", frontmatter: ["tags: [wip]"], body: "body\n", input: { tag: "wip" } },
+    {
+      tool: "update_frontmatter",
+      frontmatter: ["status: open"],
+      body: "body\n",
+      input: { operation: "set", key: "status", value: "open" },
+    },
+    { tool: "update_task", frontmatter: [], body: "- [ ] write the report\n", input: { line: 1 } },
+    // format_table re-renders a table, so its first call settles the table into the form it writes back.
+    { tool: "format_table", frontmatter: [], body: MISALIGNED, input: {}, settle: true },
+  ];
+  it.each(NO_OP_CASES)(
+    "$tool that leaves an untyped note's bytes unchanged carries no conventions key",
+    async (c) => {
+      await withVault(
+        {
+          ...CHECKED,
+          ...WRITERS,
+          files: { [SCHEMA]: REQUIRE_TYPE, [NOTE]: noteText(false, c.frontmatter, c.body) },
+        },
+        async (v) => {
+          if (c.settle) await v.call(c.tool, { vault: "test", path: NOTE, ...c.input });
+          const before = v.read(NOTE);
+          const r = await v.call(c.tool, { vault: "test", path: NOTE, ...c.input });
+          expectClean(r);
+          expect(v.read(NOTE)).toBe(before);
+        },
+      );
+    },
+  );
+});
+
+describe("a write-only caller and a noteWritten writer", () => {
+  it("append_to_periodic_note never shows a caller the frontmatter it may not read", async () => {
+    await withVault(
+      {
+        ...CHECKED,
+        ...WRITERS,
+        acl: { readPaths: ["SCHEMA.md"], writePaths: ["**"] },
+        files: {
+          "SCHEMA.md":
+            "---\nconventions:\n  frontmatter:\n    values:\n      status: [a, b]\n---\n",
+          [DAILY]: "---\nstatus: TOPSECRET\n---\nbody\n",
+        },
+      },
+      async (v) => {
+        const r = await v.call("append_to_periodic_note", {
+          vault: "test",
+          period: "daily",
+          date: "2026-06-18",
+          content: "entry\n",
+        });
+        expectClean(r);
+        expect(JSON.stringify(r)).not.toContain("TOPSECRET");
       },
     );
   });

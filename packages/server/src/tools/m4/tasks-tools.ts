@@ -236,15 +236,20 @@ export function buildTasksTools(deps: M4Deps): ToolDefinition[] {
         });
 
         const updated = applyTaskSet(parsed, set);
-        lines[idx] = serializeTask(updated);
-        const content = lines.join(eol);
+        const nextLine = serializeTask(updated);
+        // A call that leaves the line as it is writes nothing, as remove_tag does: the note keeps its bytes.
+        const unchanged = nextLine === original;
+        lines[idx] = nextLine;
+        const content = unchanged ? raw : lines.join(eol);
         // `set.description` (or any other caller-supplied task field) can be
         // secret-shaped — scan the RESULTING note body before it reaches disk, same guard
         // write_note/append_note apply to their own final bytes.
         const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
-        const scan = writeNoteAtomicGuarded(abs, rel, content, true, mdConfig, {
-          metrics: deps.metrics,
-        });
+        const scan = unchanged
+          ? { content, redactions: 0 }
+          : writeNoteAtomicGuarded(abs, rel, content, true, mdConfig, {
+              metrics: deps.metrics,
+            });
         deps.reindex?.(v.id, rel, scan.content);
         // Review finding (memoryDefense follow-up round): in "redact" mode, `updated` still
         // carries the raw caller-supplied field(s) — only `scan.content` (the persisted bytes)
