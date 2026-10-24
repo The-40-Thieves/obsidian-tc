@@ -49,10 +49,15 @@ function skipped(eff: EffectiveConventions, path: string): boolean {
   return rawPathFilter(eff.rawFolders)(path);
 }
 
+/** A tag as the tag rules match it: NFC, normalised, lower-case. */
+const tagKey = (tag: string): string => normalizeTag(tag.normalize("NFC")).toLowerCase();
+
+const isTagProp = (prop: string | undefined): boolean => prop === "tags" || prop === "tag";
+
 /** Tag rules: `x` matches exactly, `x/*` matches any tag nested under x but not x itself; rules and
  *  tags are normalised like the vault's tags (`#` and trailing slashes dropped), case-insensitive. */
 function tagAllowed(tag: string, allowed: string[]): boolean {
-  const t = normalizeTag(tag.normalize("NFC")).toLowerCase();
+  const t = tagKey(tag);
   return allowed.some((a) => {
     const p = normalizeTag(a).toLowerCase();
     if (p.endsWith("/*")) {
@@ -148,7 +153,7 @@ export function checkNote(
       const rule: SourcedValues | undefined = typeRules?.values[prop] ?? eff.values[prop];
       const keys = fieldKeys(prop).filter((k) => Object.hasOwn(fm, k));
       if (!rule || keys.length === 0) continue;
-      const isTags = prop === "tags" || prop === "tag";
+      const isTags = isTagProp(prop);
       const texts: string[] = [];
       if (isTags) {
         texts.push(...frontmatterTags(fm));
@@ -205,7 +210,7 @@ const valuesOf = (w: ConventionWarning): string[] =>
 /** Identity of a violation for the write check: (code, property, value). The type is not part of it: a
  *  type change must not relabel a violation that was already there. */
 const keyOf = (w: ConventionWarning, value: string): string =>
-  [w.code, w.property ?? "", value].join("\u0000");
+  [w.code, w.property ?? "", isTagProp(w.property) ? tagKey(value) : value].join("\u0000");
 
 /**
  * The blocking violations a write ADDS to a note: those `afterFm` has at level block that `beforeFm`
