@@ -6,6 +6,7 @@
 // executable. Uses the longer templater timeout (expansion can be slow).
 import { err, ObsidianTcError, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { conventionsResultShape } from "../../conventions/schema";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import {
@@ -41,6 +42,7 @@ const ExecuteTemplateOutput = z
     provenance_stamp: z
       .object({ applied: z.literal(false), reason: z.literal("concurrent_modification") })
       .optional(),
+    ...conventionsResultShape,
   })
   .strict();
 
@@ -210,6 +212,8 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
               });
             throw e;
           }
+        // The path Templater created is the note this call wrote: the convention check judges it.
+        ctx.noteWritten?.(createdTarget);
         // The stamp's hash and skip reason describe the requested path; report them only for it.
         const reportedStamp = createdTarget === targetFile ? stampResult : undefined;
         return {

@@ -23,6 +23,7 @@ import type { Database } from "../src/db/types";
 import { elicitVerifier, issueElicitToken } from "../src/elicit";
 import { argsHash } from "../src/hash";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import { conventionsChecker } from "../src/mcp/registry/conventions-scope";
 import { type M4Deps, registerM4Tools } from "../src/tools/m4";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
@@ -35,6 +36,8 @@ export interface M4VaultOptions {
   acl?: Partial<AclConfigT>;
   /** Programmable fake bridge routes, keyed "METHOD /obsidian-tc/v1/...". */
   routes?: Record<string, FakeRoute>;
+  /** Wires the folder conventions sink over this vault (execute_template runs the write check). */
+  conventions?: boolean;
   /** Full capability snapshot; takes precedence over `installed`. */
   snapshot?: CapabilitySnapshot;
   /** Convenience: companion reachable with these community plugins installed. */
@@ -123,6 +126,9 @@ export function makeM4Vault(opts: M4VaultOptions = {}): M4Vault {
     verifyElicit: elicitVerifier,
     ...(opts.bindState
       ? { rootResolver: (vaultId: string) => (vaultId === id ? root : undefined) }
+      : {}),
+    ...(opts.conventions
+      ? { conventions: conventionsChecker(vaultRegistry), rootResolver: () => root }
       : {}),
   });
   registerM4Tools(registry, {

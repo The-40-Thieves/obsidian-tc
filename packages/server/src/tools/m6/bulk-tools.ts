@@ -26,6 +26,7 @@ import {
   VaultPath,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { conventionsResultShape } from "../../conventions/schema";
 import {
   enforceMemoryDefenseOnMovedBytes,
   MEMORY_DEFENSE_OFF,
@@ -153,6 +154,7 @@ const BulkCreateOutput = z.object({
   failed: z.number(),
   results: z.array(BulkCreateResultItem),
   duration_ms: z.number().optional(),
+  ...conventionsResultShape,
 });
 
 const BulkSetPropertyResultItem = z.object({
@@ -174,6 +176,7 @@ const BulkSetPropertyOutput = z.object({
   failed: z.number(),
   results: z.array(BulkSetPropertyResultItem),
   duration_ms: z.number().optional(),
+  ...conventionsResultShape,
 });
 
 /** bulk_move_notes does not use runBulk — it hand-rolls validation + an all-or-nothing rewrite
@@ -205,6 +208,7 @@ const BulkMoveOutput = z.object({
   unreadable_skipped: z.number().optional(),
   unreadable_warning: z.string().optional(),
   results: z.array(BulkMoveResultItem),
+  ...conventionsResultShape,
 });
 
 /** The report of notes the plan could not read: a count and a warning, never a path. */
