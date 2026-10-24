@@ -74,7 +74,6 @@
       },
       "optionalDependencies": {
         "@redis/client": "6.3.0",
-        "@the-40-thieves/obsidian-tc-embedder-local": "1.33.1",
       },
     },
     "packages/shared": {

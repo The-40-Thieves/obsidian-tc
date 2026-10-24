@@ -40,6 +40,11 @@ npm install -g obsidian-tc
 obsidian-tc ./obsidian-tc.config.json   # Node >= 24 or Bun >= 1.1
 ```
 
+The default `local` embedder is an opt-in install, so `npm install -g obsidian-tc` leaves it out. To use it,
+install the same version: `npm install -g @the-40-thieves/obsidian-tc-embedder-local@<same version>` (drop `-g`
+for a project install), or let `obsidian-tc setup` offer to. Ollama and hosted embedding providers need no
+local embedder; without any embedder, semantic search is off and everything else still works.
+
 Also ships as a Docker image, `.mcpb` bundle, and standalone binaries. More:
 [docs/QUICKSTART.md](./docs/QUICKSTART.md).
 
