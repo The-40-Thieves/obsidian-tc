@@ -91,6 +91,8 @@ describe("deriveWindowVerdict: the read-family list (THE-726)", () => {
     "get_periodic_note",
     // Audit history of one note (write provenance), not a content read that the search found.
     "get_provenance",
+    // The SCHEMA.md rules for a folder, not a note's content: no note the search found was read.
+    "get_conventions",
     "get_server_config",
     "get_session_traces",
     // Polls a background tool call's status: no note was looked at.
