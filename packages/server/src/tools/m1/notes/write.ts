@@ -288,6 +288,7 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
         metrics: deps.metrics,
       });
       next = mayRead ? scan.content : head + scan.content;
+      preflightNoteWrite(abs, next);
 
       // THE-572: append is the one write in this file that is NOT idempotent — re-running it
       // concatenates the content a second time — and it is keyed through the nested
@@ -608,6 +609,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
       const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
       const scan = enforceMemoryDefenseOnNoteWrite(mdConfig, rel, next, { metrics: deps.metrics });
       next = scan.content;
+      preflightNoteWrite(abs, next);
       // THE-603/THE-648: captureSnapshot silently no-ops when config.snapshots.enabled is false
       // (opt-out from the now-on-by-default "trusted-local" posture) — surface that gap for a
       // destructive replace (GH #928: replace_text is the same shape — it discards content too)

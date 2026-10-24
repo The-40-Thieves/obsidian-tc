@@ -225,6 +225,17 @@ describe("write gate: memo", () => {
     });
   });
 
+  it("two preflights of the same content check once; the sink then consumes the one verdict", () => {
+    const { gate, seen } = recorder(() => false);
+    withWriteGate(gate, () => {
+      preflightNoteWrite(abs("m.md"), "same");
+      preflightNoteWrite(abs("m.md"), "same");
+      expect(seen).toHaveLength(1);
+      gateNoteWrite(abs("m.md"), "same");
+      expect(seen).toHaveLength(1);
+    });
+  });
+
   it("a verdict is consumed once: a later write of the same content is checked again", () => {
     put("P.md", "BAD old");
     const seen: string[] = [];

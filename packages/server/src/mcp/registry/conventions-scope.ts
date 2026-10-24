@@ -29,6 +29,9 @@ import { vaultArgOf } from "./input-binding";
 import { isOverflow } from "./result-governance";
 import type { CallerContext, ConventionsSink, RegistryOptions, ToolDefinition } from "./types";
 
+/** Tools that move or copy a note to a named destination: the destination is warn-only in this slice. */
+const MOVE_COPY_TOOLS = new Set<string>(["move_note", "copy_note", "bulk_move_notes"]);
+
 /** Notes a single call may name: the rest are not stat'd, so a bulk call cannot make begin unbounded. */
 const MAX_NAMED_NOTES = 500;
 
@@ -169,7 +172,7 @@ function namedWriteNotes(
     let rel: string;
     try {
       rel = normalizeVaultPath(path);
-      if (!rel.endsWith(".md")) continue;
+      if (!/\.md$/i.test(rel)) continue;
       enforcePathAcl(ctx.acl, "write", rel, root, ctx.grantedScopes);
     } catch {
       continue;
@@ -244,6 +247,23 @@ interface CheckState {
   stamps: ReadonlyMap<string, string | null>;
   tool: string;
   effs: Map<string, ReturnType<typeof resolveConventions>>;
+  /** The frontmatter the gate parsed for each note it judged, with the hash of the bytes it parsed. */
+  parsed: Map<string, { hash: string; fm: ReturnType<typeof parseNoteLenient>["frontmatter"] }>;
+}
+
+/** The frontmatter the gate already parsed for `rel`, when the write reported those same bytes: the
+ *  annotate reuses it instead of reading and parsing the note again. Undefined otherwise. */
+function gatedFrontmatter(
+  st: CheckState,
+  ctx: CallerContext,
+  root: string,
+  rel: string,
+  result: unknown,
+): { fm: ReturnType<typeof parseNoteLenient>["frontmatter"] } | undefined {
+  const seen = st.parsed.get(rel);
+  if (seen === undefined || reportedHash(result, rel, "content_hash") !== seen.hash)
+    return undefined;
+  return callerMayReadNote(ctx, root, rel) ? { fm: seen.fm } : undefined;
 }
 
 /** The vault-relative posix path of `abs` under `root`, or undefined when it is outside the root. */
@@ -318,14 +338,15 @@ function judgeWrite(
   // Warn-only (design decision 7): a restore, and a backlink rewrite of a note the call did not name.
   if (st.tool === "restore_note") return;
   if (CROSS_NOTE_REWRITE_TOOLS.has(st.tool) && !st.stamps.has(rel)) return;
+  // Warn-only in this slice: a move or copy names its destination, but no origin is recorded, so the
+  // destination is judged as a NEW note and a rename of an already non-compliant note would be refused.
+  // PR 4 adds origin-aware judging (noteWriteOrigin) and lifts this.
+  if (MOVE_COPY_TOOLS.has(st.tool) && st.stamps.has(rel)) return;
   const eff = effOf(st, registry, ctx, root, rel);
   if (!judges(eff, rel) || !hasBlockRule(eff)) return;
-  const delta = blockingDelta(
-    eff,
-    rel,
-    beforeFrontmatter(ctx, root, rel),
-    parseNoteLenient(text, rel).frontmatter,
-  );
+  const fm = parseNoteLenient(text, rel).frontmatter;
+  st.parsed.set(rel, { hash: contentHash(text), fm });
+  const delta = blockingDelta(eff, rel, beforeFrontmatter(ctx, root, rel), fm);
   if (delta.length === 0) return;
   throw err.conventionBlocked(
     `this write would add ${delta.length} folder convention violation(s) marked block; nothing was written`,
@@ -342,7 +363,7 @@ export function conventionsChecker(registry: Pick<VaultRegistry, "resolve">): Co
     async begin(def, input, ctx, root) {
       const stamps = new Map<string, string | null>();
       for (const rel of namedWriteNotes(def, input, ctx, root)) stamps.set(rel, stampOf(root, rel));
-      const state: CheckState = { stamps, tool: def.name, effs: new Map() };
+      const state: CheckState = { stamps, tool: def.name, effs: new Map(), parsed: new Map() };
       return state;
     },
     gate(pending, ctx, root) {
@@ -372,7 +393,8 @@ export function conventionsChecker(registry: Pick<VaultRegistry, "resolve">): Co
       for (const rel of candidates) {
         await yieldSlice();
         if (ctx.signal?.aborted) return undefined;
-        const fm = frontmatterOf(ctx, root, rel, result);
+        const gated = gatedFrontmatter(st, ctx, root, rel, result);
+        const fm = gated !== undefined ? gated.fm : frontmatterOf(ctx, root, rel, result);
         if (fm === undefined) continue;
         const eff = effOf(st, registry, ctx, root, rel);
         warnings.push(...checkNote(eff, rel, fm));

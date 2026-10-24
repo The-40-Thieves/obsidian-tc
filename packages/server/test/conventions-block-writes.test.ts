@@ -6,7 +6,13 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { resolveConventions } from "../src/conventions/resolve";
 import { registerM6Tools } from "../src/tools/m6";
-import { CHECKED, confirmedCall, expectClean, withVault } from "./conventions-helpers";
+import {
+  CHECKED,
+  confirmedCall,
+  expectClean,
+  snapshotTotal,
+  withVault,
+} from "./conventions-helpers";
 import { makeM6Vault } from "./m6-helpers";
 
 vi.mock("../src/conventions/resolve", async (orig) => {
@@ -246,8 +252,7 @@ describe("write_note under a block rule", () => {
         if (r.ok) return;
         expect(r.error.code).toBe("convention_blocked");
         expect(r.error.retryable).toBe(false);
-        const snaps = await v.call("list_snapshots", { vault: "test", path: "meetings/m.md" });
-        expect(snaps.ok && (snaps.data as { total: number }).total).toBe(0);
+        expect(await snapshotTotal(v, "meetings/m.md")).toBe(0);
       },
     );
   });

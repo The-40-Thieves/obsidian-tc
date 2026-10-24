@@ -83,12 +83,14 @@ export function gateNoteWrite(abs: string, text: string | Buffer): void {
   current.gate.check(abs, utf8);
 }
 
-/** The same check, run early by a sequence with side effects before its final write. It always
- *  checks, and records the pass so the sink's own gateNoteWrite for the same content skips one check. */
+/** The same check, run early by a sequence with side effects before its final write. It records the
+ *  pass so the sink's own gateNoteWrite for the same content skips one check. A pass already recorded for
+ *  this exact content (an earlier preflight, not yet consumed) is not checked again: one judge per write. */
 export function preflightNoteWrite(abs: string, text: string | Buffer): void {
   const current = gatingFrame(abs);
   if (current === undefined) return;
   const { key, utf8 } = contentKey(abs, text);
+  if (current.passed.has(key)) return;
   current.gate.check(abs, utf8);
   current.passed.add(key);
 }

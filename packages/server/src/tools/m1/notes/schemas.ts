@@ -271,6 +271,7 @@ export const CopyNoteOutput = z.object({
   vault: z.string(),
   from: z.string(),
   to: z.string(),
+  ...conventionsResultShape,
   copied: z.literal(true),
   overwritten: z.boolean(),
   trashed_dest_to: z.string().nullable(),

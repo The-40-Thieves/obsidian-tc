@@ -46,6 +46,7 @@ import {
   writeNoteAtomicGuarded,
 } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
+import { preflightNoteWrite } from "../../vault/write-gate";
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import type { M3Deps } from "./shared";
@@ -400,13 +401,15 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           // `note_exists` — telling the caller someone ELSE holds the path, when in fact their own
           // prior attempt created it. Marking here makes that retry the accurate
           // `indeterminate_outcome` instead.
-          ctx.markEffectCommitted?.();
           // a template (default or override) can carry a pre-existing secret — scan the
           // content actually about to be persisted, same guard every note-content writer gets.
-          const scan = writeNoteAtomicGuarded(abs, resolved.path, content, true, mdConfig, {
+          const scan = enforceMemoryDefenseOnNoteWrite(mdConfig, resolved.path, content, {
             metrics: deps.metrics,
-            exclusive: true,
           });
+          // The write gate judges the scanned bytes before the claim is marked (the same bytes the sink writes).
+          preflightNoteWrite(abs, scan.content);
+          ctx.markEffectCommitted?.();
+          writeNoteAtomic(abs, scan.content, true, { exclusive: true });
           deps.reindex?.(v.id, resolved.path, scan.content);
           ctx.noteWritten?.(resolved.path);
           return {

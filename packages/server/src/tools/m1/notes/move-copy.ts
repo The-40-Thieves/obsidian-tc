@@ -213,6 +213,10 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
 
       const crossFolder = dirOf(fromRel) !== dirOf(toRel);
       const overwriteExisting = toEx.exists && input.overwrite;
+      // The write gate judges the final bytes (the moved note and each backlink rewrite) before the
+      // confirmation is spent and before any snapshot or trash; the commit below reuses the verdicts.
+      preflightNoteWrite(toAbs, first.scannedRaw);
+      for (const r of first.backlinks.pending) preflightNoteWrite(r.abs, r.text);
       requireConfirmation(ctx, "move_note", input, crossFolder || overwriteExisting, {
         from: fromRel,
         to: toRel,
@@ -342,6 +346,13 @@ export function createCopyNoteTool(deps: M1Deps): ToolDefinition {
       if (toEx.exists && !input.overwrite)
         throw err.noteExists("destination already exists; set overwrite", { path: toRel });
 
+      const { raw } = readNote(fromAbs);
+      // Every refusal before the destination is touched (see move_note).
+      const scannedRaw = enforceMemoryDefenseOnNoteWrite(mdConfig, toRel, raw, {
+        metrics: deps.metrics,
+      }).content;
+      // The write gate judges the final bytes before the confirmation is spent and before any trash.
+      preflightNoteWrite(toAbs, scannedRaw);
       // Overwriting an existing destination is a conditional-HITL, recoverable op — mirror
       // move_note: require confirmation, then soft-delete the destination first so its prior
       // content survives in .trash. Without this, copy_note --overwrite clobbered the target
@@ -352,12 +363,6 @@ export function createCopyNoteTool(deps: M1Deps): ToolDefinition {
         to: toRel,
         overwrite: overwriteExisting,
       });
-
-      const { raw } = readNote(fromAbs);
-      // Every refusal before the destination is touched (see move_note).
-      const scannedRaw = enforceMemoryDefenseOnNoteWrite(mdConfig, toRel, raw, {
-        metrics: deps.metrics,
-      }).content;
       // THE-572: unlike move_note this leaves the source in place, so a retry re-runs the WHOLE
       // sequence — under overwrite that means a second .trash entry and a second snapshot row for
       // content that never changed. replaceDestination marks the effect committed once it is not
@@ -379,6 +384,7 @@ export function createCopyNoteTool(deps: M1Deps): ToolDefinition {
         replacing: overwriteExisting,
         write: (o) => writeNoteAtomic(toAbs, scannedRaw, input.options.create_dirs, o),
         markEffectCommitted: ctx.markEffectCommitted,
+        checkText: scannedRaw,
       });
       deps.reindex?.(v.id, toRel, scannedRaw);
       return {
