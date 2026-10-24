@@ -12,11 +12,36 @@ import type {
   ConventionWarning,
   EffectiveConventions,
   EffectiveTypeRules,
+  Severity,
   SourcedValues,
 } from "./schema";
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** The level a violation of `prop` reports at: the first of types[t].severity[prop], severity[prop],
+ *  types[t].severity["*"], severity["*"] that is set, else warn. `prop` is looked up under its alias
+ *  too (tags/tag, aliases/alias), as the rule itself is. */
+function severityOf(
+  eff: EffectiveConventions,
+  typeRules: EffectiveTypeRules | undefined,
+  prop: string,
+): Severity {
+  const at = (sev: Record<string, { value: Severity }> | undefined): Severity | undefined =>
+    fieldKeys(prop)
+      .map((k) => sev?.[k]?.value)
+      .find((v) => v !== undefined);
+  return (
+    at(typeRules?.severity) ??
+    at(eff.severity) ??
+    typeRules?.severity["*"]?.value ??
+    eff.severity["*"]?.value ??
+    "warn"
+  );
+}
+
+const notAllowedMessage = (prop: string, bad: string[], allowed: string[]): string =>
+  `\`${prop}\` has ${bad.map((b) => `"${b}"`).join(", ")}; allowed: ${allowed.join(", ")}`;
 
 /** Notes the checks never judge: the schema files themselves, non-Markdown, dot-folders, the wiki's
  *  generated index/log pages and the raw-sources folder. */
@@ -29,10 +54,15 @@ function skipped(eff: EffectiveConventions, path: string): boolean {
   return rawPathFilter(eff.rawFolders)(path);
 }
 
+/** A tag as the tag rules match it: NFC, normalised, lower-case. */
+const tagKey = (tag: string): string => normalizeTag(tag.normalize("NFC")).toLowerCase();
+
+const isTagProp = (prop: string | undefined): boolean => prop === "tags" || prop === "tag";
+
 /** Tag rules: `x` matches exactly, `x/*` matches any tag nested under x but not x itself; rules and
  *  tags are normalised like the vault's tags (`#` and trailing slashes dropped), case-insensitive. */
 function tagAllowed(tag: string, allowed: string[]): boolean {
-  const t = normalizeTag(tag.normalize("NFC")).toLowerCase();
+  const t = tagKey(tag);
   return allowed.some((a) => {
     const p = normalizeTag(a).toLowerCase();
     if (p.endsWith("/*")) {
@@ -60,12 +90,15 @@ function pageType(raw: unknown): { type?: string; several: boolean } {
   return { type: scalarText(raw), several: false };
 }
 
-/** True when `checkNote` judges this path: the effective set has rules and the path is not skipped. */
+/** True when `checkNote` judges this path: the effective set has rules and the path is not skipped. A type
+ *  that sets only severity is not a rule: it changes how a violation is levelled, never whether one exists. */
 export function judges(eff: EffectiveConventions, path: string): boolean {
   const hasRules =
     eff.required !== undefined ||
     Object.keys(eff.values).length > 0 ||
-    Object.keys(eff.types).length > 0;
+    Object.values(eff.types).some(
+      (t) => t.required !== undefined || Object.keys(t.values).length > 0,
+    );
   return hasRules && !skipped(eff, path);
 }
 
@@ -83,7 +116,7 @@ export function checkNote(
   const typeRules: EffectiveTypeRules | undefined =
     type !== undefined ? eff.types[type] : undefined;
   const warn = (w: Omit<ConventionWarning, "path" | "level">): void => {
-    out.push({ path, level: "warn", ...w });
+    out.push({ path, level: severityOf(eff, typeRules, w.property ?? ""), ...w });
   };
   const typeLabel = type !== undefined ? { type } : {};
 
@@ -128,7 +161,7 @@ export function checkNote(
       const rule: SourcedValues | undefined = typeRules?.values[prop] ?? eff.values[prop];
       const keys = fieldKeys(prop).filter((k) => Object.hasOwn(fm, k));
       if (!rule || keys.length === 0) continue;
-      const isTags = prop === "tags" || prop === "tag";
+      const isTags = isTagProp(prop);
       const texts: string[] = [];
       if (isTags) {
         texts.push(...frontmatterTags(fm));
@@ -137,7 +170,9 @@ export function checkNote(
           const value = fm[k];
           return Array.isArray(value) ? value : [value];
         });
-        if (items.some((x) => isRecord(x) || Array.isArray(x))) {
+        // A non-scalar item is reported, and the scalar items beside it are still judged: a fix that
+        // removes only the map item must not reveal a bad value the before-note already had.
+        if (items.some((x) => isRecord(x) || Array.isArray(x)))
           warn({
             code: "value_not_scalar",
             property: prop,
@@ -145,8 +180,6 @@ export function checkNote(
             source: rule.source,
             ...typeLabel,
           });
-          continue;
-        }
         for (const x of items) {
           const s = scalarText(x);
           if (s !== undefined) texts.push(s);
@@ -159,13 +192,64 @@ export function checkNote(
         warn({
           code: "value_not_allowed",
           property: prop,
-          message: `\`${prop}\` has ${bad.map((b) => `"${b}"`).join(", ")}; allowed: ${rule.values.join(", ")}`,
+          message: notAllowedMessage(prop, bad, rule.values),
           values: bad,
           allowed: rule.values.slice(0, MAX_SCAN_WARNINGS),
           source: rule.source,
           ...typeLabel,
         });
     }
+  }
+  return out;
+}
+
+/** The whole allowed list a warning's property is judged against. `w.allowed` is capped at the scan limit,
+ *  so a message rebuilt from it would name fewer values than the rule holds. */
+function allowedOf(eff: EffectiveConventions, w: ConventionWarning): string[] {
+  const prop = w.property ?? "";
+  const typeRules = w.type !== undefined ? eff.types[w.type] : undefined;
+  return typeRules?.values[prop]?.values ?? eff.values[prop]?.values ?? w.allowed ?? [];
+}
+
+/** The values a warning names, one per key: value_not_allowed names several, the others one. */
+const valuesOf = (w: ConventionWarning): string[] =>
+  w.code === "value_not_allowed" ? (w.values ?? []) : [""];
+
+/** Identity of a violation for the write check: (code, property, value). The type is not part of it: a
+ *  type change must not relabel a violation that was already there. */
+const keyOf = (w: ConventionWarning, value: string): string =>
+  [w.code, w.property ?? "", isTagProp(w.property) ? tagKey(value) : value].join("\u0000");
+
+/**
+ * The blocking violations a write ADDS to a note: those `afterFm` has at level block that `beforeFm`
+ * does not. Keyed per offending value, so a second bad value on a property that already had one
+ * counts. `undefined` beforeFm is a new note (every blocking violation counts); `null` is a note whose
+ * YAML is broken, judged as checkNote(eff, path, null). A partial fix, or an edit that adds nothing,
+ * returns none. Pure: nothing calls it yet (the write gate is a later PR).
+ */
+export function blockingDelta(
+  eff: EffectiveConventions,
+  path: string,
+  beforeFm: Frontmatter | null | undefined,
+  afterFm: Frontmatter | null,
+): ConventionWarning[] {
+  const blocking = (fm: Frontmatter | null) =>
+    checkNote(eff, path, fm).filter((w) => w.level === "block");
+  const after = blocking(afterFm);
+  if (beforeFm === undefined) return after;
+  const before = new Set(blocking(beforeFm).flatMap((w) => valuesOf(w).map((v) => keyOf(w, v))));
+  const out: ConventionWarning[] = [];
+  for (const w of after) {
+    const all = valuesOf(w);
+    const fresh = all.filter((v) => !before.has(keyOf(w, v)));
+    if (fresh.length === 0) continue;
+    if (fresh.length === all.length) out.push(w);
+    else
+      out.push({
+        ...w,
+        values: fresh,
+        message: notAllowedMessage(w.property ?? "", fresh, allowedOf(eff, w)),
+      });
   }
   return out;
 }

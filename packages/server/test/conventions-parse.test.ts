@@ -190,3 +190,77 @@ describe("parseConventionsLayer: review fixes", () => {
     expect(Object.keys(r.layer?.types ?? {}).sort()).toEqual(["café", "meeting"]);
   });
 });
+
+describe("parseConventionsLayer: severity", () => {
+  it("reads severity per property and per type, trimmed and lower-cased", () => {
+    const r = parseConventionsLayer(
+      '---\nconventions:\n  frontmatter:\n    severity: { status: " Block ", "*": warn }\n    types:\n      meeting:\n        severity: { date: BLOCK }\n---\n',
+      S,
+    );
+    expect(r.warnings).toEqual([]);
+    expect(r.layer?.severity).toEqual({ status: "block", "*": "warn" });
+    expect(r.layer?.types.meeting?.severity).toEqual({ date: "block" });
+  });
+
+  it("a value other than warn or block warns and is dropped; the rest of the map counts", () => {
+    const r = parseConventionsLayer(
+      "---\nconventions:\n  frontmatter:\n    severity: { status: critical, date: block }\n---\n",
+      S,
+    );
+    expect(r.warnings).toEqual([expect.stringMatching(/status.*warn or block/)]);
+    expect(r.layer?.severity).toEqual({ date: "block" });
+  });
+
+  it("null is kept as the removal marker for an inherited leaf", () => {
+    const r = parseConventionsLayer(
+      "---\nconventions:\n  frontmatter:\n    severity: { status: null }\n---\n",
+      S,
+    );
+    expect(r.warnings).toEqual([]);
+    expect(r.layer?.severity).toEqual({ status: null });
+  });
+
+  it("an unknown key beside severity warns, and the severity still counts", () => {
+    const r = parseConventionsLayer(
+      "---\nconventions:\n  frontmatter:\n    severty: { status: block }\n    severity: { date: block }\n---\n",
+      S,
+    );
+    expect(r.warnings).toEqual([expect.stringMatching(/frontmatter\.severty.*not supported/)]);
+    expect(r.layer?.severity).toEqual({ date: "block" });
+  });
+
+  it("an unknown key under a type warns, and the type's severity still counts", () => {
+    const r = parseConventionsLayer(
+      "---\nconventions:\n  frontmatter:\n    types:\n      meeting:\n        severty: { date: block }\n        severity: { date: block }\n---\n",
+      S,
+    );
+    expect(r.warnings).toEqual([expect.stringMatching(/severty.*not supported/)]);
+    expect(r.layer?.types.meeting?.severity).toEqual({ date: "block" });
+  });
+
+  it("a severity that is not a map, or whose value is not text, warns and never throws", () => {
+    for (const bad of [
+      "severity: block",
+      "severity: 3",
+      "severity: { status: [block] }",
+      "severity: { status: { a: 1 } }",
+    ]) {
+      const text = `---\nconventions:\n  frontmatter:\n    ${bad}\n---\n`;
+      expect(() => parseConventionsLayer(text, S)).not.toThrow();
+      expect(parseConventionsLayer(text, S).warnings.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("caps the properties it reads at SCHEMA_LIMITS.properties", () => {
+    const entries = Array.from(
+      { length: SCHEMA_LIMITS.properties + 1 },
+      (_, i) => `      p${i}: block`,
+    ).join("\n");
+    const r = parseConventionsLayer(
+      `---\nconventions:\n  frontmatter:\n    severity:\n${entries}\n---\n`,
+      S,
+    );
+    expect(Object.keys(r.layer?.severity ?? {})).toHaveLength(SCHEMA_LIMITS.properties);
+    expect(r.warnings).toEqual([expect.stringMatching(/only the first/)]);
+  });
+});

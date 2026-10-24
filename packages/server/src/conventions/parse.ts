@@ -9,11 +9,13 @@ import {
   type ConventionsLayer,
   type ConventionsTypeLayer,
   type ParsedConventionsLayer,
+  SEVERITIES,
+  type Severity,
 } from "./schema";
 
 const KNOWN_TOP = new Set(["version", "inherit", "frontmatter"]);
-const KNOWN_FRONTMATTER = new Set(["type_key", "required", "values", "types"]);
-const KNOWN_TYPE = new Set(["required", "values"]);
+const KNOWN_FRONTMATTER = new Set(["type_key", "required", "values", "severity", "types"]);
+const KNOWN_TYPE = new Set(["required", "values", "severity"]);
 /** Top-level keys of the legacy wiki schema (commit_wiki_page only). */
 const LEGACY_KEYS = ["types", "properties"];
 export const LEGACY_HINT =
@@ -98,6 +100,40 @@ function parseValues(
   }
 }
 
+/** `severity:` map of property -> warn | block | null. Text is trimmed and lower-cased; null is the
+ *  removal marker. Anything else is dropped with a warning. */
+function parseSeverity(
+  raw: unknown,
+  where: string,
+  out: Record<string, Severity | null>,
+  warnings: string[],
+): void {
+  if (raw === undefined || raw === null) return;
+  if (!isRecord(raw)) {
+    warnings.push(`${where} must be a map of property -> warn or block; ignored`);
+    return;
+  }
+  const entries = Object.entries(raw);
+  if (entries.length > SCHEMA_LIMITS.properties)
+    warnings.push(`${where}: only the first ${SCHEMA_LIMITS.properties} properties were read`);
+  for (const [name, level] of entries.slice(0, SCHEMA_LIMITS.properties)) {
+    if (name.length > SCHEMA_LIMITS.textChars) {
+      warnings.push(
+        `${where}: ignored a property name longer than ${SCHEMA_LIMITS.textChars} characters`,
+      );
+      continue;
+    }
+    if (level === null) {
+      out[name] = null;
+      continue;
+    }
+    const text = scalarText(level)?.toLowerCase();
+    const known = SEVERITIES.find((s) => s === text);
+    if (known === undefined) warnings.push(`${where}.${name}: must be warn or block; dropped`);
+    else out[name] = known;
+  }
+}
+
 function parseTypes(raw: unknown, layer: ConventionsLayer, warnings: string[]): void {
   if (raw === undefined || raw === null) return;
   if (!isRecord(raw)) {
@@ -127,7 +163,7 @@ function parseTypes(raw: unknown, layer: ConventionsLayer, warnings: string[]): 
     for (const key of Object.keys(def))
       if (!KNOWN_TYPE.has(key))
         warnings.push(`type "${name}": \`${key}\` is not supported yet; ignored`);
-    const t: ConventionsTypeLayer = { values: nullMap() };
+    const t: ConventionsTypeLayer = { values: nullMap(), severity: nullMap() };
     const required = textList(
       def.required,
       `type "${name}" required`,
@@ -136,6 +172,7 @@ function parseTypes(raw: unknown, layer: ConventionsLayer, warnings: string[]): 
     );
     if (required !== undefined) t.required = required;
     parseValues(def.values, `type "${name}" values`, t.values, warnings);
+    parseSeverity(def.severity, `type "${name}" severity`, t.severity, warnings);
     layer.types[name] = t;
   }
 }
@@ -194,6 +231,7 @@ function parseLayer(text: string, path: string): ParsedConventionsLayer {
     version,
     inherit: typeof block.inherit === "boolean" ? block.inherit : true,
     values: nullMap(),
+    severity: nullMap(),
     types: nullMap(),
   };
   const frontmatter = block.frontmatter;
@@ -217,6 +255,12 @@ function parseLayer(text: string, path: string): ParsedConventionsLayer {
     );
     if (required !== undefined) layer.required = required;
     parseValues(frontmatter.values, "`conventions.frontmatter.values`", layer.values, warnings);
+    parseSeverity(
+      frontmatter.severity,
+      "`conventions.frontmatter.severity`",
+      layer.severity,
+      warnings,
+    );
     parseTypes(frontmatter.types, layer, warnings);
   }
   return { layer, warnings, legacyOnly: false };

@@ -338,3 +338,54 @@ describe("layer cache", () => {
     expect(readConventionsLayer(scope, "d0/SCHEMA.md")).not.toBe(first);
   });
 });
+
+describe("resolveConventions: severity", () => {
+  it("a child relaxes a parent's block, recording the layer that set it", () => {
+    v = makeTestVault({
+      files: {
+        "SCHEMA.md": layer("  frontmatter:\n    severity:\n      status: block"),
+        "a/SCHEMA.md": layer("  frontmatter:\n    severity:\n      status: warn"),
+      },
+    });
+    const eff = resolveConventions(scopeOf(v), "a/n.md");
+    expect(eff.severity.status).toEqual({ value: "warn", source: "a/SCHEMA.md" });
+  });
+
+  it("a child's null removes the parent's leaf, so the '*' default applies", () => {
+    v = makeTestVault({
+      files: {
+        "SCHEMA.md": layer('  frontmatter:\n    severity:\n      status: block\n      "*": block'),
+        "a/SCHEMA.md": layer("  frontmatter:\n    severity:\n      status: null"),
+      },
+    });
+    const eff = resolveConventions(scopeOf(v), "a/n.md");
+    expect(eff.severity.status).toBeUndefined();
+    expect(eff.severity["*"]).toEqual({ value: "block", source: "SCHEMA.md" });
+  });
+
+  it("inherit:false cuts the parent's severity", () => {
+    v = makeTestVault({
+      files: {
+        "SCHEMA.md": layer("  frontmatter:\n    severity:\n      status: block"),
+        "a/SCHEMA.md": layer("  inherit: false\n  frontmatter:\n    severity:\n      date: block"),
+      },
+    });
+    const eff = resolveConventions(scopeOf(v), "a/n.md");
+    expect(eff.severity).toEqual({ date: { value: "block", source: "a/SCHEMA.md" } });
+  });
+
+  it("type-level severity merges per property, nearest layer wins", () => {
+    v = makeTestVault({
+      files: {
+        "SCHEMA.md": layer(
+          "  frontmatter:\n    types:\n      meeting:\n        severity:\n          status: block",
+        ),
+        "a/SCHEMA.md": layer(
+          "  frontmatter:\n    types:\n      meeting:\n        severity:\n          status: warn",
+        ),
+      },
+    });
+    const eff = resolveConventions(scopeOf(v), "a/n.md");
+    expect(eff.types.meeting?.severity.status).toEqual({ value: "warn", source: "a/SCHEMA.md" });
+  });
+});
