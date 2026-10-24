@@ -14,6 +14,7 @@ import { stageNoteWrite, writeFileAtomic, writeNoteAtomic } from "../src/vault/n
 import { applyWriteBatch, type BatchWrite } from "../src/vault/write-batch";
 import {
   gateNoteWrite,
+  isNotePath,
   type NoteWriteGate,
   noteWriteOrigin,
   preflightNoteWrite,
@@ -113,11 +114,9 @@ describe("write gate: blocking", () => {
   });
 
   it("a write checked at staging is not checked again at commit", () => {
-    const { seen } = recorder(() => false);
     let blockNow = false;
-    const later = recorder(() => blockNow);
-    const gated = { check: (p: string, t: string) => later.gate.check(p, t) };
-    withWriteGate(gated, () =>
+    const { gate, seen } = recorder(() => blockNow);
+    withWriteGate(gate, () =>
       applyWriteBatch([w("one.md", "1", null), w("two.md", "2", null)], {
         beforeCommit: () => {
           blockNow = true;
@@ -126,8 +125,8 @@ describe("write gate: blocking", () => {
     );
     expect(read("one.md")).toBe("1");
     expect(read("two.md")).toBe("2");
-    expect(later.seen).toEqual([abs("one.md"), abs("two.md")]);
-    expect(seen).toEqual([]);
+    // One check per note across stage and commit: the commit must not check again.
+    expect(seen).toEqual([abs("one.md"), abs("two.md")]);
   });
 
   it("an undo of a rolled-back batch is ungated", () => {
@@ -168,18 +167,83 @@ describe("write gate: blocking", () => {
     thrown(() => withWriteGate(gate, () => stageNoteWrite(abs("s.md"), "x", true)));
     expect(readdirSync(dir)).toEqual([]);
   });
+
+  it("a blocked writeFileAtomic into a missing folder creates no folder", () => {
+    const { gate } = recorder();
+    thrown(() =>
+      withWriteGate(gate, () => writeFileAtomic(abs("missing/n.md"), Buffer.from("x"), true)),
+    );
+    expect(existsSync(abs("missing"))).toBe(false);
+  });
+
+  it("a blocked stageNoteWrite into a missing folder creates no folder", () => {
+    const { gate } = recorder();
+    thrown(() => withWriteGate(gate, () => stageNoteWrite(abs("missing/s.md"), "x", true)));
+    expect(existsSync(abs("missing"))).toBe(false);
+  });
+});
+
+describe("write gate: note names", () => {
+  it.each([
+    "note.md",
+    "NOTE.MD",
+    "note.md ",
+    "note.md.",
+    "note.md. ",
+    "note.md::$DATA",
+    "note.md:stream",
+    "a:b.md",
+  ])("%j is a note", (name) => {
+    expect(isNotePath(name)).toBe(true);
+  });
+
+  it.each(["note.txt", "data.json", "board.canvas", "note.md.txt", "note.mdx", "dir.md/file"])(
+    "%j is not a note",
+    (name) => {
+      expect(isNotePath(name)).toBe(false);
+    },
+  );
+
+  it.each(["note.md ", "note.md.", "note.md::$DATA"])("gates the NTFS alias %j", (name) => {
+    const { gate, seen } = recorder();
+    thrown(() => withWriteGate(gate, () => gateNoteWrite(abs(name), "x")));
+    expect(seen).toEqual([abs(name)]);
+  });
 });
 
 describe("write gate: memo", () => {
-  it("preflight then gate checks once for the same content; new content checks again", () => {
+  it("preflight then gate checks once for the same content; gate then gate checks twice", () => {
     const { gate, seen } = recorder(() => false);
     withWriteGate(gate, () => {
       preflightNoteWrite(abs("m.md"), "same");
       gateNoteWrite(abs("m.md"), "same");
       expect(seen).toHaveLength(1);
-      gateNoteWrite(abs("m.md"), "other");
+      gateNoteWrite(abs("m.md"), "same");
       expect(seen).toHaveLength(2);
+      gateNoteWrite(abs("m.md"), "other");
+      expect(seen).toHaveLength(3);
     });
+  });
+
+  it("a verdict is consumed once: a later write of the same content is checked again", () => {
+    put("P.md", "BAD old");
+    const seen: string[] = [];
+    // Blocks a write of "BAD v" once the note on disk reads "clean": the verdict depends on disk.
+    const gate: NoteWriteGate = {
+      check(p, text) {
+        seen.push(text);
+        if (text === "BAD v" && read("P.md") === "clean")
+          throw err.conventionBlocked("write blocked", { path: p, violations: [] });
+      },
+    };
+    const e = withWriteGate(gate, () => {
+      writeFileAtomic(abs("P.md"), Buffer.from("BAD v", "utf8"));
+      writeFileAtomic(abs("P.md"), Buffer.from("clean", "utf8"));
+      return thrown(() => writeFileAtomic(abs("P.md"), Buffer.from("BAD v", "utf8")));
+    });
+    expect(e.code).toBe("convention_blocked");
+    expect(seen).toEqual(["BAD v", "clean", "BAD v"]);
+    expect(read("P.md")).toBe("clean");
   });
 });
 
@@ -195,6 +259,27 @@ describe("write gate: frame lifetime", () => {
     writeFileAtomic(abs("after.md"), Buffer.from("y"));
     expect(seen).toEqual([]);
     expect(read("after.md")).toBe("y");
+  });
+
+  it("a setTimeout write scheduled inside a frame is ungated", async () => {
+    const { gate, seen } = recorder();
+    withWriteGate(gate, () => {
+      setTimeout(() => writeFileAtomic(abs("late.md"), Buffer.from("t")), 0);
+    });
+    await new Promise((done) => setTimeout(done, 20));
+    expect(seen).toEqual([]);
+    expect(read("late.md")).toBe("t");
+  });
+
+  it("a promise chain that continues after withWriteGate resolves is ungated", async () => {
+    const { gate, seen } = recorder();
+    let chain: Promise<void> = Promise.resolve();
+    await withWriteGate(gate, async () => {
+      chain = tick().then(() => writeFileAtomic(abs("chain.md"), Buffer.from("c")));
+    });
+    await chain;
+    expect(seen).toEqual([]);
+    expect(read("chain.md")).toBe("c");
   });
 
   it("concurrent frames each see only their own gate", async () => {
