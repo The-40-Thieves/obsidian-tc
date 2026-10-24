@@ -6,6 +6,7 @@
 // frontmatter `tags` list or the body, per the `location` argument.
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { conventionsResultShape } from "../../conventions/schema";
 import {
   enforceMemoryDefenseOnNoteWrite,
   MEMORY_DEFENSE_OFF,
@@ -94,6 +95,7 @@ const AddTagOutput = z.object({
   added: z.boolean(),
   content_hash: z.string(),
   prev_hash: z.string(),
+  ...conventionsResultShape,
 });
 
 const RemoveTagOutput = z.object({
@@ -104,6 +106,7 @@ const RemoveTagOutput = z.object({
   removed: z.number().int(),
   content_hash: z.string(),
   prev_hash: z.string(),
+  ...conventionsResultShape,
 });
 
 // GH #1027: response_format=concise returns paths only per match and omits `total` (the match

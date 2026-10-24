@@ -4,6 +4,7 @@
 // these tools are always available (list/read/restore operate on whatever snapshots exist).
 import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { conventionsResultShape } from "../../conventions/schema";
 import { MEMORY_DEFENSE_OFF } from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
@@ -69,6 +70,7 @@ const RestoreNoteOutput = z.object({
   // present only when memoryDefense.mode is "redact" and the restored snapshot content
   // matched — same convention as write_note/move_note's own `redactions` field.
   redactions: z.number().optional(),
+  ...conventionsResultShape,
 });
 
 export function buildSnapshotTools(deps: M1Deps): ToolDefinition[] {

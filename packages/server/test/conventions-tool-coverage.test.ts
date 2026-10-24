@@ -24,25 +24,13 @@ import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
-// A write tool that is not wired yet. PR 4 of the conventions slice empties this set.
-const CONVENTIONS_PENDING = new Set<string>([
-  "add_tag",
-  "remove_tag",
-  "update_frontmatter",
-  "restore_note",
-  "format_table",
-  "insert_table_row",
-  "insert_table_column",
-  "sort_table_by_column",
-  "create_periodic_note",
-  "update_task",
-  "append_to_periodic_note",
-  "find_or_create_periodic_note",
-  "rewrite_link",
-]);
+// A write tool that is not wired yet: empty now that every note writer reports conventions. A new writer
+// either declares the field or lands here (or in CONVENTIONS_EXEMPT with a reason).
+const CONVENTIONS_PENDING = new Set<string>([]);
 
-// Mutating tools with no pathAcl that still write Markdown notes: found by reading each mutating tool that
-// names no path. They are writers, so the pending check below sees them; none declares conventions yet.
+// Mutating tools with no pathAcl that write Markdown notes, found by reading each mutating tool that names
+// no path. Listing one makes the coverage check treat it as a writer, so it must declare conventions or sit
+// in CONVENTIONS_PENDING / CONVENTIONS_EXEMPT like any other writer.
 const NOTE_WRITERS_WITHOUT_PATH_ACL = new Set<string>([
   "append_to_periodic_note",
   "find_or_create_periodic_note",
@@ -64,6 +52,7 @@ const CONVENTIONS_EXEMPT = new Map<string, string>([
   ["add_kanban_card", "Kanban board, not a Markdown note"],
   ["move_kanban_card", "Kanban board, not a Markdown note"],
   ["prune_hub_links", "rewrites links in place, no note-level conventions judgment"],
+  ["rewrite_link", "rewrites links in place across the vault, no note-level conventions judgment"],
   ["delete_note", "a delete writes no note"],
   ["delete_attachment", "a delete writes no note"],
   ["delete_active_file", "a delete writes no note"],
@@ -203,13 +192,25 @@ describe("conventions tool coverage", () => {
         );
       })
       .map((t) => t.name);
-    // A listed name that is no longer a mutating note writer is stale: it would hide a real gap later.
-    const stale = [...CONVENTIONS_PENDING, ...CONVENTIONS_EXEMPT.keys()].filter(
-      (n) => !writers.includes(n),
+    // A stale entry would hide a real gap later. A pending tool must still be a note writer; an
+    // exemption needs only a registered mutating tool, since a pathless one (rewrite_link) is never
+    // in `writers` and must not be listed as a writer just to keep its exemption alive.
+    const mutating = new Set(defs.filter(isMutatingCall).map((t) => t.name));
+    const pathless = new Set(
+      defs.filter((t) => isMutatingCall(t) && t.pathAcl === undefined).map((t) => t.name),
     );
-    // A tool both pending and declaring is wired: it belongs in neither list any more.
+    const stale = [
+      ...[...CONVENTIONS_PENDING].filter((n) => !writers.includes(n)),
+      ...[...CONVENTIONS_EXEMPT.keys()].filter((n) => !mutating.has(n)),
+      ...[...NOTE_WRITERS_WITHOUT_PATH_ACL].filter((n) => !pathless.has(n)),
+    ];
+    // A tool listed pending or exempt that declares conventions is wired: it belongs in neither list.
     const both = defs
-      .filter((t) => CONVENTIONS_PENDING.has(t.name) && declaresConventions(t))
+      .filter(
+        (t) =>
+          (CONVENTIONS_PENDING.has(t.name) || CONVENTIONS_EXEMPT.has(t.name)) &&
+          declaresConventions(t),
+      )
       .map((t) => t.name)
       .sort();
     expect({ uncovered, stale, both }).toEqual({ uncovered: [], stale: [], both: [] });

@@ -158,10 +158,20 @@ function stampOf(root: string, rel: string): string | null {
   }
 }
 
-/** The content hash the write itself reported for `rel`, when the result names that note. */
-function reportedHash(result: unknown, rel: string): string | undefined {
-  const r = result as { path?: unknown; content_hash?: unknown };
-  return r.path === rel && typeof r.content_hash === "string" ? r.content_hash : undefined;
+/** The hash of `rel` the write itself reported under `key`, when the result names that note. */
+function reportedHash(
+  result: unknown,
+  rel: string,
+  key: "content_hash" | "prev_hash",
+): string | undefined {
+  const r = result as { path?: unknown } & Record<string, unknown>;
+  return r.path === rel && typeof r[key] === "string" ? (r[key] as string) : undefined;
+}
+
+/** True when the write reported the note's bytes before it as the bytes after it: a rewrite that changed nothing. */
+function rewroteSameBytes(result: unknown, rel: string): boolean {
+  const before = reportedHash(result, rel, "prev_hash");
+  return before !== undefined && before === reportedHash(result, rel, "content_hash");
 }
 
 /** The note's frontmatter (null when it has none) as the caller may see it; undefined to skip the note. */
@@ -175,7 +185,7 @@ function frontmatterOf(
   try {
     const { raw } = readNoteBounded(resolveVaultPath(root, rel), NOTE_MAX_BYTES);
     if (raw === null) return undefined;
-    const hash = reportedHash(result, rel);
+    const hash = reportedHash(result, rel, "content_hash");
     if (hash !== undefined && contentHash(raw) !== hash) return undefined; // changed again since the write
     return parseNoteLenient(raw, rel).frontmatter;
   } catch {
@@ -210,6 +220,8 @@ export function conventionsChecker(registry: Pick<VaultRegistry, "resolve">): Co
       const candidates = new Set<string>();
       for (const [rel, before] of stamps) if (stampOf(root, rel) !== before) candidates.add(rel);
       for (const rel of noted) candidates.add(rel);
+      // A stat that moved on a rewrite of identical bytes is not a change to the note.
+      for (const rel of candidates) if (rewroteSameBytes(result, rel)) candidates.delete(rel);
       // A SCHEMA.md this call wrote is re-read before any note in its folder is judged against it.
       for (const rel of candidates)
         if (basename(rel) === WIKI_SCHEMA_FILE) evictConventionsLayer(ctx.vaultId, rel);

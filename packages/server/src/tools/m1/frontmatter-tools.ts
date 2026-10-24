@@ -7,6 +7,7 @@
 // merge do not. Property keys are top-level by default; pass nested=true for dotted-path access (THE-198).
 import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { conventionsResultShape } from "../../conventions/schema";
 import {
   enforceMemoryDefenseOnNoteWrite,
   MEMORY_DEFENSE_OFF,
@@ -142,6 +143,7 @@ const UpdateFrontmatterOutput = z.object({
   content_hash: z.string(),
   // null on a create (no prior note, so there is no previous hash to report).
   prev_hash: z.string().nullable().optional(),
+  ...conventionsResultShape,
 });
 
 const ListPropertiesOutput = z.object({
