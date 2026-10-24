@@ -185,6 +185,13 @@ jobs:
       - name: copy-paste detection
         run: bun run check:duplication
 
+      # Test files are outside .jscpd.json's scan, so a copied test block passed the gate above
+      # (SonarCloud reported 9.7% duplication on new code). This gate fails when a PR adds more than 3
+      # clones absent from origin/main. The reference is computed from that ref on every run, so it
+      # reads the ref the fetch above created (depth 1 is enough). A missing ref fails the gate.
+      - name: copy-paste detection (tests, new clones vs origin/main)
+        run: bun run check:duplication:tests
+
 
       # These two shipped as committed, unit-tested scripts but were never invoked by any workflow,
       # so across the whole schema/M7/indexer refactor they only ever ran when someone remembered to
