@@ -9,7 +9,6 @@ import type { RawFolders, WikiFolders } from "../tools/m7/knowledge/wiki-folder"
 import { SCHEMA_LIMITS, WIKI_SCHEMA_FILE } from "../tools/m7/knowledge/wiki-schema";
 import { MAX_SCAN_WARNINGS } from "../tools/scan-warnings";
 import { enforcePathAcl } from "../vault/acl-path";
-import { readableRel } from "../vault/acl-read-filter";
 import { readNoteBounded } from "../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../vault/paths";
 import { readFailureReason } from "../vault/read-failure";
@@ -86,7 +85,6 @@ export function readConventionsLayer(
   scope: ConventionsScope,
   path: string,
 ): ParsedConventionsLayer | null {
-  if (!readableRel(scope.acl, path, scope.grantedScopes)) return null;
   // A missing layer is the common case: one lexical stat answers it before any ACL or realpath work.
   // Missing and denied both return null, so this reveals nothing the check below would not.
   if (!isLexicalFile(resolve(scope.root, path))) return null;
