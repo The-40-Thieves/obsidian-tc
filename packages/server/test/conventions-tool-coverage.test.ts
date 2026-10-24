@@ -34,11 +34,13 @@ const CONVENTIONS_PENDING = new Set<string>([
   "commit_wiki_page",
 ]);
 
-// Mutating tools with no pathAcl that still write Markdown notes: found by reading each mutating tool that
-// names no path. They are writers, so the pending check below sees them; none declares conventions yet.
+// Mutating tools with no pathAcl that write Markdown notes, found by reading each mutating tool that names
+// no path. Listing one makes the coverage check treat it as a writer, so it must declare conventions or sit
+// in CONVENTIONS_PENDING / CONVENTIONS_EXEMPT like any other writer.
 const NOTE_WRITERS_WITHOUT_PATH_ACL = new Set<string>([
   "append_to_periodic_note",
   "find_or_create_periodic_note",
+  "rewrite_link",
 ]);
 
 // Mutating tools that write no Markdown note the conventions check can judge.
@@ -200,9 +202,13 @@ describe("conventions tool coverage", () => {
     // exemption needs only a registered mutating tool, since a pathless one (rewrite_link) is never
     // in `writers` and must not be listed as a writer just to keep its exemption alive.
     const mutating = new Set(defs.filter(isMutatingCall).map((t) => t.name));
+    const pathless = new Set(
+      defs.filter((t) => isMutatingCall(t) && t.pathAcl === undefined).map((t) => t.name),
+    );
     const stale = [
       ...[...CONVENTIONS_PENDING].filter((n) => !writers.includes(n)),
       ...[...CONVENTIONS_EXEMPT.keys()].filter((n) => !mutating.has(n)),
+      ...[...NOTE_WRITERS_WITHOUT_PATH_ACL].filter((n) => !pathless.has(n)),
     ];
     // A tool listed pending or exempt that declares conventions is wired: it belongs in neither list.
     const both = defs
