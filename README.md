@@ -60,8 +60,8 @@ Honest guidance — this is a heavier product than most:
   published — see [Embeddings](https://obsidian-tc.the40thieves.io/configuration/embeddings/).
 - **Zero-config trades away auth/ACLs.** `obsidian-tc /path/to/vault` boots with auth off, no
   folder ACL — fine only because it's local-only; governance is opt-in. Detail: [SECURITY.md](./SECURITY.md).
-- **AGPL-3.0's network-copyleft terms.** Not permissive; a commercial license may exist — see
-  [License](#license).
+- **AGPL-3.0's network-copyleft terms.** Not permissive, and no commercial license is offered.
+  See [License](#license).
 - **Single-maintainer project.**
 - **Everything inside Obsidian, or vault-independent memory.** See the
   [comparison](https://obsidian-tc.the40thieves.io/getting-started/compare/) above.
@@ -196,8 +196,8 @@ Official app: [obsidian.md](https://obsidian.md).
 ### License
 
 AGPL-3.0-only. See [LICENSE](./LICENSE) and the
-[licensing FAQ](https://obsidian-tc.the40thieves.io/licensing/); a commercial exception may
-exist — open a [discussion](https://github.com/The-40-Thieves/obsidian-tc/discussions).
+[licensing FAQ](https://obsidian-tc.the40thieves.io/licensing/). This is the only license:
+there is no commercial, dual or proprietary license.
 Contributions under the [DCO](https://developercertificate.org/); sign-off in
 [CONTRIBUTING.md](./CONTRIBUTING.md#license-and-sign-off-dco).
 
