@@ -30,6 +30,7 @@ import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { captureSnapshot } from "../../vault/snapshots";
 import { readableStoredRow } from "../../vault/stored-acl-path";
+import { preflightNoteWrite } from "../../vault/write-gate";
 import { noteKeys, ToolHint, unknownPropertyHint } from "../hints";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
@@ -409,24 +410,6 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
         if (input.frontmatter_yaml !== undefined && input.operation !== "replace")
           throw err.invalidInput("frontmatter_yaml is only valid with operation replace");
 
-        requireConfirmation(
-          ctx,
-          "update_frontmatter",
-          input,
-          input.operation === "replace" && !unparseable,
-          { path: rel, operation: input.operation },
-        );
-        if (prevRaw !== null)
-          captureSnapshot(
-            ctx.db,
-            deps.snapshots,
-            v.id,
-            rel,
-            prevRaw,
-            "update_frontmatter",
-            ctx.now,
-          );
-
         const hasKeys = Object.keys(next).length > 0;
         const rawContent = serializeNote(hasKeys ? next : null, body, rawFm, {
           frontmatterEol: fmEol,
@@ -445,6 +428,27 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           metrics: deps.metrics,
         });
         const content = scan.content;
+        // The write gate (conventions) refuses before the HITL token is spent and before any snapshot.
+        preflightNoteWrite(abs, content);
+
+        requireConfirmation(
+          ctx,
+          "update_frontmatter",
+          input,
+          input.operation === "replace" && !unparseable,
+          { path: rel, operation: input.operation },
+        );
+        if (prevRaw !== null)
+          captureSnapshot(
+            ctx.db,
+            deps.snapshots,
+            v.id,
+            rel,
+            prevRaw,
+            "update_frontmatter",
+            ctx.now,
+          );
+
         writeNoteAtomic(abs, content, true);
         deps.reindex?.(v.id, rel, content);
         // A match redacted the persisted bytes above — the RESPONSE's own `frontmatter` echo must

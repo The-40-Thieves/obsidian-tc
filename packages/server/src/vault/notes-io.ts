@@ -49,7 +49,7 @@ import {
 } from "./no-follow-walk";
 import { assertCreatableName, contentHash } from "./paths";
 import { O_NOFOLLOW, removeTemp, writeAll, writeTempFile } from "./temp-write";
-import { gateNoteWrite } from "./write-gate";
+import { gateNoteWrite, preflightNoteWrite } from "./write-gate";
 
 // O_NOFOLLOW and O_NONBLOCK are POSIX-only (undefined on Windows Node): 0 is a no-op there, and the
 // st_nlink inode check is the cross-platform guard.
@@ -682,7 +682,10 @@ export function replaceDestination<T = void>(args: {
   replacing: boolean;
   write: (opts: ReplaceWriteOpts) => T;
   markEffectCommitted?: () => void;
+  /** The bytes `write` will land at toAbs, when known: the write gate checks them before the trash. */
+  checkText?: string;
 }): { trashedTo: string | null; value: T } {
+  if (args.checkText !== undefined) preflightNoteWrite(args.toAbs, args.checkText);
   const trashedTo = args.replacing ? trashNote(args.root, args.toRel) : null;
   let value: T;
   try {

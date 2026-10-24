@@ -46,7 +46,7 @@ const notAllowedMessage = (prop: string, bad: string[], allowed: string[]): stri
 /** Notes the checks never judge: the schema files themselves, non-Markdown, dot-folders, the wiki's
  *  generated index/log pages and the raw-sources folder. */
 function skipped(eff: EffectiveConventions, path: string): boolean {
-  if (!path.endsWith(".md")) return true;
+  if (!/\.md$/i.test(path)) return true;
   const parts = path.split("/");
   if (parts.some((p) => p.startsWith("."))) return true;
   if (parts[parts.length - 1] === WIKI_SCHEMA_FILE) return true;

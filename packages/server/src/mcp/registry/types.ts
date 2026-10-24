@@ -17,6 +17,7 @@ import type { ClaimedProvenance } from "../../provenance/types";
 import type { RateLimiter } from "../../throttle";
 import type { AclOp } from "../../vault/acl-path";
 import type { FolderPins } from "../../vault/folder-links";
+import type { NoteWriteGate } from "../../vault/write-gate";
 import type { TraceRecord } from "../../workspace/sessions";
 import type { ClientInfo } from "../client-info";
 import type { AutoFacadeExplanation, FacadeMode } from "../facade-mode";
@@ -511,8 +512,9 @@ export interface RegistryOptions {
    *  false`) means nothing is recorded. */
   provenance?: ProvenanceSink;
   /** Note conventions: when wired, a mutating call whose output schema declares `conventions` reports
-   *  the folder SCHEMA.md rules its written notes break (conventions-scope.ts). Advisory: never fails
-   *  or rolls back a write. */
+   *  the folder SCHEMA.md rules its written notes break (conventions-scope.ts). A rule levelled `block`
+   *  refuses a write that adds its violation before any byte is written; every other fault is
+   *  fail-open, so a failed check never fails or rolls back a write. */
   conventions?: ConventionsSink;
 }
 
@@ -542,9 +544,11 @@ export interface ProvenanceSink {
 }
 
 /** What dispatch needs from the conventions check (conventions-scope.ts implements it). `begin` runs
- *  before a mutating handler and snapshots the notes the call names; `check` runs once the handler
- *  succeeded and judges the notes that changed, returning the `conventions` field, or undefined when
- *  there is nothing to report. A throw from either is reported and never fails the call. */
+ *  before a mutating handler and snapshots the notes the call names; `gate` returns the write gate the
+ *  handler runs under, which refuses a write that adds a `block` violation (the refusal is the only
+ *  error it throws); `check` runs once the handler succeeded and judges the notes that changed,
+ *  returning the `conventions` field, or undefined when there is nothing to report. Any other throw
+ *  from `begin`, `gate` or `check` is reported and never fails the call. */
 export interface ConventionsSink {
   begin(def: ToolDefinition, input: unknown, ctx: CallerContext, root: string): Promise<object>;
   check(
@@ -554,4 +558,5 @@ export interface ConventionsSink {
     root: string,
     noted: ReadonlySet<string>,
   ): Promise<object | undefined>;
+  gate?(pending: object, ctx: CallerContext, root: string): NoteWriteGate;
 }

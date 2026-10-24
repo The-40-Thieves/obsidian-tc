@@ -16,6 +16,18 @@ export const CHECKED = { centralAcl: true, conventions: true };
 
 export type CallResult = Awaited<ReturnType<TestVault["call"]>>;
 
+/** A SCHEMA.md layer that requires `type` and `status`, accepts only draft or current as status, and
+ *  levels both at `severity`. */
+export const STATUS_RULES = (severity: "block" | "warn"): string =>
+  "---\nconventions:\n  frontmatter:\n    required: [type, status]\n    values: { status: [draft, current] }\n" +
+  `    severity: { type: ${severity}, status: ${severity} }\n---\n# rules\n`;
+
+/** The number of snapshot rows the vault holds for `path`. */
+export async function snapshotTotal(v: TestVault, path: string): Promise<number> {
+  const r = await v.call("list_snapshots", { vault: "test", path });
+  return r.ok ? (r.data as { total: number }).total : -1;
+}
+
 /** Runs `body` on a fresh test vault and removes the vault afterwards, even when `body` throws. */
 export async function withVault<T>(
   opts: TestVaultOptions,

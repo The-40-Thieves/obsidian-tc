@@ -50,6 +50,7 @@ import {
 import { captureSnapshot, discardSnapshots, pruneSnapshots } from "../../../vault/snapshots";
 import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { applyWriteBatch, type BatchWrite, isIncompleteRollback } from "../../../vault/write-batch";
+import { preflightNoteWrite } from "../../../vault/write-gate";
 import {
   createModeConflictError,
   overwriteModeMissingError,
@@ -534,6 +535,14 @@ export function createCommitWikiPageTool(
         readableStoredRow(ctx.db, v.id, (a) => readableRel(ctx.acl, a, ctx.grantedScopes)),
       );
 
+      const writes: BatchWrite[] = [
+        { abs: pageAbs, rel: pageRel, content: pageContent, prevRaw: pagePrev?.raw ?? null },
+        ...outcomes
+          .filter((o) => o.r.applied)
+          .map((o) => ({ abs: o.t.abs, rel: o.t.rel, content: o.content, prevRaw: o.t.cur.raw })),
+      ];
+      // The write gate judges every page's final bytes before the confirmation is spent and before any snapshot.
+      for (const w of writes) preflightNoteWrite(w.abs, w.content);
       // The same rule write_note applies to an overwrite of a non-empty note, unchanged.
       requireConfirmation(
         ctx,
@@ -542,13 +551,6 @@ export function createCommitWikiPageTool(
         pagePrev !== null && pagePrev.raw.length > 0,
         { path: pageRel, mode: "overwrite", prev_hash: pagePrev?.hash ?? null },
       );
-
-      const writes: BatchWrite[] = [
-        { abs: pageAbs, rel: pageRel, content: pageContent, prevRaw: pagePrev?.raw ?? null },
-        ...outcomes
-          .filter((o) => o.r.applied)
-          .map((o) => ({ abs: o.t.abs, rel: o.t.rel, content: o.content, prevRaw: o.t.cur.raw })),
-      ];
       const settledDigests = new Map<string, string>([
         [pageRel, contentHash(pageContent)],
         ...outcomes
@@ -580,6 +582,8 @@ export function createCommitWikiPageTool(
       // A snapshot of every existing note the batch replaces (a new page has nothing to save), taken
       // before the first temp file. Retention pruning waits for the batch to succeed, and a failed
       // batch drops the rows it added, so an aborted commit never evicts an older recovery point.
+      // The write gate (conventions) checks every page first: a refused commit writes nothing and takes no snapshot.
+      for (const w of writes) preflightNoteWrite(w.abs, w.content);
       const snapshotIds: number[] = [];
       try {
         for (const w of writes) {

@@ -12,6 +12,7 @@ import type { Database } from "../src/db/types";
 import { elicitVerifier, issueElicitToken } from "../src/elicit";
 import { argsHash } from "../src/hash";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import { conventionsChecker } from "../src/mcp/registry/conventions-scope";
 import { type M3Deps, registerM3Tools } from "../src/tools/m3";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
@@ -29,6 +30,8 @@ export interface M3VaultOptions {
   responseFormat?: ResponseFormat;
   /** memoryDefense policy per vault, for the writers that scan (append_to_periodic_note). */
   memoryDefense?: M3Deps["memoryDefense"];
+  /** Wires the folder conventions sink over this vault (the periodic writers run the write check). */
+  conventions?: boolean;
   /** Runs after `files` are written and before the registry is built (lay out a symlinked folder). */
   setup?: (root: string) => void;
   /** `vaults[].wiki.folder`: the registry then pins it when it is a symlink, and dispatch runs in its frame. */
@@ -88,6 +91,9 @@ export function makeM3Vault(opts: M3VaultOptions = {}): M3Vault {
   const registry = new ToolRegistry({
     verifyElicit: elicitVerifier,
     folderPins: vaultRegistry.folderPins,
+    ...(opts.conventions
+      ? { conventions: conventionsChecker(vaultRegistry), rootResolver: () => root }
+      : {}),
   });
   registerM3Tools(registry, {
     vaultRegistry,

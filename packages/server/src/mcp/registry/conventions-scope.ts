@@ -4,9 +4,10 @@
 // `annotate` (after the handler succeeded) re-stats them and judges only the notes that changed, plus any
 // the handler reported through `ctx.noteWritten`. Advisory and fail-open: a check that throws is reported
 // through onInternalError and the write stands without a `conventions` key.
-import { statSync } from "node:fs";
-import { basename } from "node:path";
-import { checkNote } from "../../conventions/check";
+import { realpathSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { blockingDelta, checkNote, judges } from "../../conventions/check";
 import {
   type ConventionsScope,
   evictConventionsLayer,
@@ -16,21 +17,29 @@ import { CONVENTIONS_KEY, NOTE_MAX_BYTES } from "../../conventions/schema";
 import { WIKI_SCHEMA_FILE } from "../../tools/m7/knowledge/wiki-schema";
 import { capWarningsOut, MAX_SCAN_WARNINGS } from "../../tools/scan-warnings";
 import { createSliceYielder } from "../../util/scan-steps";
+import { CROSS_NOTE_REWRITE_TOOLS } from "../../vault/acl-audit";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { callerMayReadNote } from "../../vault/cas";
 import { parseNoteLenient } from "../../vault/frontmatter";
 import { readNoteBounded } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import type { VaultRegistry } from "../../vault/registry";
+import { type NoteWriteGate, withWriteGate } from "../../vault/write-gate";
 import { vaultArgOf } from "./input-binding";
 import { isOverflow } from "./result-governance";
 import type { CallerContext, ConventionsSink, RegistryOptions, ToolDefinition } from "./types";
+
+/** Tools that move or copy a note to a named destination: the destination is warn-only in this slice. */
+const MOVE_COPY_TOOLS = new Set<string>(["move_note", "copy_note", "bulk_move_notes"]);
 
 /** Notes a single call may name: the rest are not stat'd, so a bulk call cannot make begin unbounded. */
 const MAX_NAMED_NOTES = 500;
 
 export interface ConventionsDispatch {
   begin(def: ToolDefinition, input: unknown, ctx: CallerContext): Promise<void>;
+  /** Runs a mutating handler with the write gate installed (see conventions/write-gate.ts). A call that
+   *  took no pending check runs `fn` as is. */
+  run<T>(def: ToolDefinition, ctx: CallerContext, fn: () => T): T;
   annotate(def: ToolDefinition, out: unknown, ctx: CallerContext): Promise<void>;
   /** A mutating call that failed before it settled: drop the pending check and the noteWritten hook. */
   abandon(ctx: CallerContext): void;
@@ -43,6 +52,10 @@ interface PendingCheck {
   state: object;
   noted: Set<string>;
 }
+
+/** The gate's verdict is a convention refusal only when the error carries this code. */
+const isConventionBlocked = (e: unknown): boolean =>
+  (e as { code?: unknown } | null)?.code === "convention_blocked";
 
 /** True when the tool's advertised output schema has a `conventions` key: only those pay for the check. */
 function declaresConventions(def: ToolDefinition): boolean {
@@ -88,6 +101,29 @@ export function conventionsScope(
       } catch (e) {
         report(onInternalError, `conventions:${def.name}`, p.vault, e);
       }
+    },
+    run(def, ctx, fn) {
+      const p = pending;
+      if (sink?.gate === undefined || p === undefined || p.def !== def) return fn();
+      let gate: NoteWriteGate;
+      try {
+        gate = sink.gate(p.state, ctx, p.root);
+      } catch (e) {
+        report(onInternalError, `conventions:${def.name}`, p.vault, e);
+        return fn();
+      }
+      // Fail-open: a refusal stops the write; any other fault is reported and the write goes ahead.
+      const guarded: NoteWriteGate = {
+        check(abs, text) {
+          try {
+            gate.check(abs, text);
+          } catch (e) {
+            if (isConventionBlocked(e)) throw e;
+            report(onInternalError, `conventions:${def.name}`, p.vault, e);
+          }
+        },
+      };
+      return withWriteGate(guarded, fn);
     },
     abandon(ctx) {
       pending = undefined;
@@ -136,7 +172,7 @@ function namedWriteNotes(
     let rel: string;
     try {
       rel = normalizeVaultPath(path);
-      if (!rel.endsWith(".md")) continue;
+      if (!/\.md$/i.test(rel)) continue;
       enforcePathAcl(ctx.acl, "write", rel, root, ctx.grantedScopes);
     } catch {
       continue;
@@ -205,15 +241,163 @@ function foldersOf(
   }
 }
 
+/** One mutating call's check state: the named write notes (their stat at begin), the tool, and the
+ *  per-path rules resolved once, shared by the write gate and the post-write annotate. */
+interface CheckState {
+  stamps: ReadonlyMap<string, string | null>;
+  tool: string;
+  effs: Map<string, ReturnType<typeof resolveConventions>>;
+  /** The frontmatter the gate parsed for each note it judged, with the hash of the bytes it parsed. */
+  parsed: Map<string, { hash: string; fm: ReturnType<typeof parseNoteLenient>["frontmatter"] }>;
+}
+
+/** The frontmatter the gate already parsed for `rel`, when the write reported those same bytes: the
+ *  annotate reuses it instead of reading and parsing the note again. Undefined otherwise. */
+function gatedFrontmatter(
+  st: CheckState,
+  ctx: CallerContext,
+  root: string,
+  rel: string,
+  result: unknown,
+): { fm: ReturnType<typeof parseNoteLenient>["frontmatter"] } | undefined {
+  const seen = st.parsed.get(rel);
+  if (seen === undefined || reportedHash(result, rel, "content_hash") !== seen.hash)
+    return undefined;
+  return callerMayReadNote(ctx, root, rel) ? { fm: seen.fm } : undefined;
+}
+
+/** `abs` relative to `base`, or undefined when it is not strictly inside it. */
+function insideOf(base: string, abs: string): string | undefined {
+  const r = relative(base, abs);
+  return r === "" || r === ".." || r.startsWith(`..${sep}`) || isAbsolute(r) ? undefined : r;
+}
+
+/** `p` with its nearest existing ancestor resolved by the OS (symlinks and Windows short names
+ *  expanded) and the not-yet-existing tail kept as written. */
+function canonical(p: string): string {
+  let head = p;
+  let tail = "";
+  for (;;) {
+    try {
+      return join(realpathSync.native(head), tail);
+    } catch {
+      const up = dirname(head);
+      if (up === head) return p;
+      tail = join(basename(head), tail);
+      head = up;
+    }
+  }
+}
+
+/** The vault-relative posix path of `abs` under `root`, or undefined when it is outside the root.
+ *  The sinks hand over the path they write, which may be the resolved form of a root spelled through
+ *  a symlink or a Windows 8.3 short name (C:\Users\RUNNER~1), so the root's real path is tried too. */
+function vaultRelOf(root: string, abs: string): string | undefined {
+  const r = insideOf(root, abs) ?? insideOf(canonical(root), canonical(abs));
+  if (r === undefined) return undefined;
+  try {
+    return normalizeVaultPath(r.split(sep).join("/"));
+  } catch {
+    return undefined;
+  }
+}
+
+/** Rules for `rel` as the caller sees them, resolved once per call and path. */
+function effOf(
+  st: CheckState,
+  registry: Pick<VaultRegistry, "resolve">,
+  ctx: CallerContext,
+  root: string,
+  rel: string,
+): ReturnType<typeof resolveConventions> {
+  const memo = st.effs.get(rel);
+  if (memo !== undefined) return memo;
+  const eff = resolveConventions(
+    {
+      vaultId: ctx.vaultId,
+      root,
+      acl: ctx.acl,
+      grantedScopes: ctx.grantedScopes,
+      ...foldersOf(registry, ctx.vaultId),
+    },
+    rel,
+  );
+  st.effs.set(rel, eff);
+  return eff;
+}
+
+/** True when some rule in the effective set is levelled `block`. */
+function hasBlockRule(eff: ReturnType<typeof resolveConventions>): boolean {
+  const blocks = (m: Record<string, { value: string }>): boolean =>
+    Object.values(m).some((l) => l.value === "block");
+  return blocks(eff.severity) || Object.values(eff.types).some((t) => blocks(t.severity));
+}
+
+/** The note's frontmatter before the write, as the caller may see it: undefined when there is no such
+ *  note or the caller may not read it (judged as new, so nothing of it leaks); null when its YAML is broken. */
+function beforeFrontmatter(
+  ctx: CallerContext,
+  root: string,
+  rel: string,
+): ReturnType<typeof parseNoteLenient>["frontmatter"] | undefined {
+  if (!callerMayReadNote(ctx, root, rel)) return undefined;
+  try {
+    const { raw } = readNoteBounded(resolveVaultPath(root, rel), NOTE_MAX_BYTES);
+    return raw === null ? undefined : parseNoteLenient(raw, rel).frontmatter;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Throws the convention_blocked refusal when the write at `abs` would add a blocking violation. */
+function judgeWrite(
+  st: CheckState,
+  registry: Pick<VaultRegistry, "resolve">,
+  ctx: CallerContext,
+  root: string,
+  abs: string,
+  text: string,
+): void {
+  const rel = vaultRelOf(root, abs);
+  if (rel === undefined) return;
+  // Warn-only (design decision 7): a restore, and a backlink rewrite of a note the call did not name.
+  if (st.tool === "restore_note") return;
+  if (CROSS_NOTE_REWRITE_TOOLS.has(st.tool) && !st.stamps.has(rel)) return;
+  // Warn-only in this slice: a move or copy names its destination, but no origin is recorded, so the
+  // destination is judged as a NEW note and a rename of an already non-compliant note would be refused.
+  // PR 4 adds origin-aware judging (noteWriteOrigin) and lifts this.
+  if (MOVE_COPY_TOOLS.has(st.tool) && st.stamps.has(rel)) return;
+  const eff = effOf(st, registry, ctx, root, rel);
+  if (!judges(eff, rel) || !hasBlockRule(eff)) return;
+  const fm = parseNoteLenient(text, rel).frontmatter;
+  st.parsed.set(rel, { hash: contentHash(text), fm });
+  const delta = blockingDelta(eff, rel, beforeFrontmatter(ctx, root, rel), fm);
+  if (delta.length === 0) return;
+  throw err.conventionBlocked(
+    `this write would add ${delta.length} folder convention violation(s) marked block; nothing was written`,
+    {
+      path: rel,
+      violations: delta.slice(0, MAX_SCAN_WARNINGS),
+      violations_omitted: Math.max(0, delta.length - MAX_SCAN_WARNINGS),
+    },
+  );
+}
+
 export function conventionsChecker(registry: Pick<VaultRegistry, "resolve">): ConventionsSink {
   return {
     async begin(def, input, ctx, root) {
       const stamps = new Map<string, string | null>();
       for (const rel of namedWriteNotes(def, input, ctx, root)) stamps.set(rel, stampOf(root, rel));
-      return { stamps };
+      const state: CheckState = { stamps, tool: def.name, effs: new Map(), parsed: new Map() };
+      return state;
+    },
+    gate(pending, ctx, root) {
+      const st = pending as CheckState;
+      return { check: (abs, text) => judgeWrite(st, registry, ctx, root, abs, text) };
     },
     async check(pending, result, ctx, root, noted) {
-      const { stamps } = pending as { stamps: ReadonlyMap<string, string | null> };
+      const st = pending as CheckState;
+      const { stamps } = st;
       if (ctx.signal?.aborted) return undefined;
       const candidates = new Set<string>();
       for (const [rel, before] of stamps) if (stampOf(root, rel) !== before) candidates.add(rel);
@@ -222,28 +406,22 @@ export function conventionsChecker(registry: Pick<VaultRegistry, "resolve">): Co
       for (const rel of candidates) if (rewroteSameBytes(result, rel)) candidates.delete(rel);
       // A SCHEMA.md this call wrote is re-read before any note in its folder is judged against it.
       for (const rel of candidates)
-        if (basename(rel) === WIKI_SCHEMA_FILE) evictConventionsLayer(ctx.vaultId, rel);
+        if (basename(rel) === WIKI_SCHEMA_FILE) {
+          evictConventionsLayer(ctx.vaultId, rel);
+          st.effs.clear();
+        }
 
       const yieldSlice = createSliceYielder(ctx.signal);
       const warnings: ReturnType<typeof checkNote> = [];
       const files = new Map<string, { path: string; message: string }>();
       let filesOmitted = 0;
-      const folders = foldersOf(registry, ctx.vaultId);
       for (const rel of candidates) {
         await yieldSlice();
         if (ctx.signal?.aborted) return undefined;
-        const fm = frontmatterOf(ctx, root, rel, result);
+        const gated = gatedFrontmatter(st, ctx, root, rel, result);
+        const fm = gated !== undefined ? gated.fm : frontmatterOf(ctx, root, rel, result);
         if (fm === undefined) continue;
-        const eff = resolveConventions(
-          {
-            vaultId: ctx.vaultId,
-            root,
-            acl: ctx.acl,
-            grantedScopes: ctx.grantedScopes,
-            ...folders,
-          },
-          rel,
-        );
+        const eff = effOf(st, registry, ctx, root, rel);
         warnings.push(...checkNote(eff, rel, fm));
         for (const f of eff.fileWarnings) files.set(`${f.path}\0${f.message}`, f);
         filesOmitted = Math.max(filesOmitted, eff.fileWarningsOmitted);

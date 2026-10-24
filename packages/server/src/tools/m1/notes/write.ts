@@ -27,6 +27,7 @@ import { noteExists, readNote, writeNoteAtomic } from "../../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../../vault/paths";
 import { persistGovernedNote } from "../../../vault/persist-note";
 import { captureSnapshot } from "../../../vault/snapshots";
+import { preflightNoteWrite } from "../../../vault/write-gate";
 import {
   createModeConflictError,
   overwriteModeMissingError,
@@ -146,13 +147,6 @@ export function createWriteNoteTool(deps: M1Deps): ToolDefinition {
       // A caller who may not read the note cannot tell an empty note from a full one, so it always
       // confirms an overwrite of an existing note.
       const needsConfirm = ex.exists && (!prevEmpty || !mayRead);
-      requireConfirmation(ctx, "write_note", input, needsConfirm, {
-        path: rel,
-        mode: input.mode,
-        // A hash of the note is a guessing oracle for a caller that may write but not read it.
-        ...(mayRead ? { prev_hash: prevHash } : {}),
-      });
-
       // GH #994 follow-up: scan the note's FINAL body before it reaches disk — the same guard
       // the structured M5/M8 writers already run on their own fields. See
       // memory-defense.ts's enforceMemoryDefenseOnNoteWrite for why this is vault-wide rather
@@ -166,6 +160,15 @@ export function createWriteNoteTool(deps: M1Deps): ToolDefinition {
         : (deps.provenanceStamp?.stampNewNote(input.content, v.id, ctx) ?? input.content);
       const scan = enforceMemoryDefenseOnNoteWrite(mdConfig, rel, body, {
         metrics: deps.metrics,
+      });
+
+      preflightNoteWrite(abs, scan.content);
+
+      requireConfirmation(ctx, "write_note", input, needsConfirm, {
+        path: rel,
+        mode: input.mode,
+        // A hash of the note is a guessing oracle for a caller that may write but not read it.
+        ...(mayRead ? { prev_hash: prevHash } : {}),
       });
 
       persistGovernedNote(
@@ -285,6 +288,7 @@ export function createAppendNoteTool(deps: M1Deps): ToolDefinition {
         metrics: deps.metrics,
       });
       next = mayRead ? scan.content : head + scan.content;
+      preflightNoteWrite(abs, next);
 
       // THE-572: append is the one write in this file that is NOT idempotent — re-running it
       // concatenates the content a second time — and it is keyed through the nested
@@ -605,6 +609,7 @@ export function createPatchNoteTool(deps: M1Deps): ToolDefinition {
       const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
       const scan = enforceMemoryDefenseOnNoteWrite(mdConfig, rel, next, { metrics: deps.metrics });
       next = scan.content;
+      preflightNoteWrite(abs, next);
       // THE-603/THE-648: captureSnapshot silently no-ops when config.snapshots.enabled is false
       // (opt-out from the now-on-by-default "trusted-local" posture) — surface that gap for a
       // destructive replace (GH #928: replace_text is the same shape — it discards content too)
