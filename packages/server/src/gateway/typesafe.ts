@@ -239,6 +239,7 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
 
   /** One question per call; `read` returns the typed value of a well-formed answer of `type`, or
    *  undefined when the answer is malformed (a `kind: "shape"` error). */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 92); split when next modified
   async function ask<T>(
     req: { state: Record<string, unknown>; model: string; signal?: AbortSignal | undefined },
     question: Record<string, unknown>,

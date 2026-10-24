@@ -220,10 +220,9 @@ function recordLowConfidenceHit(ctx: WalkCtx, matches: Record<string, number>): 
   for (const [id, n] of Object.entries(matches)) ctx.hitCounts[id] = (ctx.hitCounts[id] ?? 0) + n;
 }
 
-/** Recursively scans every string LEAF, number/bigint LEAF, and object KEY under `value`,
- *  tagging `path` (dotted for keys, `[i]` for array indices) on anything that matches. A matched
- *  KEY is represented only by its OWN scanned (redacted) form, never its raw text — closing the
- *  case where the secret is used AS a key. Booleans/null/undefined pass through unscanned. */
+/** Recursively scans every string LEAF, number/bigint LEAF, and object KEY under `value`, tagging `path` (dotted for keys,
+ *  `[i]` for array indices) on anything that matches. A matched KEY is represented only by its OWN scanned (redacted) form,
+ *  never its raw text — closing the case where the secret is used AS a key. Booleans/null/undefined pass through unscanned. */
 // A matched leaf's `text` is already the redacted form whether high or low confidence, so using
 // it whenever something matched is correct either way: in `block` mode a HIGH-confidence match
 // throws below anyway (value discarded); a LOW-confidence-only match proceeds redacted.
@@ -231,6 +230,7 @@ function leafOutput<T>(scanned: { text: T; redactions: number }, original: T): T
   return scanned.redactions > 0 ? scanned.text : original;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 53); split when next modified
 function walk(value: unknown, path: string, ctx: WalkCtx): unknown {
   if (typeof value === "string") {
     const scanned = scanLeafString(value, ctx.pii);

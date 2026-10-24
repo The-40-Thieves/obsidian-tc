@@ -463,7 +463,6 @@ export function createMcpServer(opts: McpServerOptions): Server {
     }
     return toolDataResult(result.data);
   };
-
   const dispatchToResult = async (
     name: string,
     args: Record<string, unknown>,
@@ -540,6 +539,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     return toCallToolResult(result, name, log);
   };
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 56); split when next modified
   server.setRequestHandler("tools/call", async (req, extra): Promise<CallToolResult> => {
     // Refuse a pathologically large argument tree before anything walks it (tool-input-cap.ts).
     const oversized = oversizedToolInput(req.params.name, req.params.arguments);

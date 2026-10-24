@@ -121,6 +121,7 @@ export interface IdentityScan {
  * notes may be REPORTED, not which notes are read: a link from outside the folder still counts as
  * evidence for a page inside it.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 82); split when next modified
 export function collectIdentityEvidence(
   scope: ScanScope,
   topicRaw: string,

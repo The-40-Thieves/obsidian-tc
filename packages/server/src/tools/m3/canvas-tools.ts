@@ -417,6 +417,7 @@ export function buildCanvasTools(deps: M3Deps): ToolDefinition[] {
       inputSchema: QueryInput,
       outputSchema: QueryCanvasOutput,
       requiredScopes: ["read:canvas"],
+      // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 65); split when next modified
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.root ? normalizeVaultPath(input.root) : undefined;

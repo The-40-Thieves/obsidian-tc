@@ -101,6 +101,7 @@ async function embedSubBatch(
 // reconcile's K serial per-note embed round-trips into ceil(total_chunks / batchSize) requests with
 // a few in flight. Order is preserved: sub-batch i lands at results[i], concatenated in index order
 // and sliced back to each plan by its toEmbed length. The write lock is never held across this.
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 55); split when next modified
 export async function embedPlans(
   provider: EmbeddingProvider,
   plans: NoteWritePlan[],

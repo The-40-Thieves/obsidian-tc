@@ -65,6 +65,7 @@ export function mountTokenRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps)
     return c.json({ error, error_description: description }, status);
   };
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 64); split when next modified
   app.post("/oauth/token", async (c) => {
     if (!isFormRequest(c)) {
       return fail(c, 415, "invalid_request", "the body must be application/x-www-form-urlencoded");
