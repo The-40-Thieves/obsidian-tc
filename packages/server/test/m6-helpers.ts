@@ -16,6 +16,7 @@ import type { Database } from "../src/db/types";
 import { elicitVerifier, issueElicitToken } from "../src/elicit";
 import { argsHash } from "../src/hash";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import { conventionsChecker } from "../src/mcp/registry/conventions-scope";
 import { RateLimiter, type ThrottleTiers } from "../src/throttle";
 import { registerM1Tools } from "../src/tools/m1";
 import type { M6Deps } from "../src/tools/m6/shared";
@@ -47,6 +48,8 @@ export interface M6VaultOptions {
   observability?: { otel: boolean; prometheus: boolean; morgiana: boolean };
   /** Overrides the parsed default throttle config that get_server_config reports. */
   throttle?: M6Deps["throttle"];
+  /** Wires the folder conventions sink over this vault (the bulk writers run the write check). */
+  conventions?: boolean;
   /** Which M6 tools to register; receives the registry and the built deps. */
   register: (registry: ToolRegistry, deps: M6Deps) => void;
 }
@@ -100,7 +103,13 @@ export function makeM6Vault(opts: M6VaultOptions): M6Vault {
   const vaultRegistry = new VaultRegistry([{ id, name: id, path: root }]);
   const rateLimiter = opts.rateLimiter ?? new RateLimiter(NO_THROTTLE);
 
-  const registry = new ToolRegistry({ verifyElicit: elicitVerifier, rateLimiter });
+  const registry = new ToolRegistry({
+    verifyElicit: elicitVerifier,
+    rateLimiter,
+    ...(opts.conventions
+      ? { conventions: conventionsChecker(vaultRegistry), rootResolver: () => root }
+      : {}),
+  });
   const deps: M6Deps = {
     vaultRegistry,
     rateLimiter,
