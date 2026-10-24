@@ -1,11 +1,11 @@
-// Prometheus metric catalog (G2.4 §Prometheus — THE-211 / THE-183) on a PRIVATE prom-client
+// Prometheus metric catalog (G2.4 §Prometheus — THE-211 / THE-183) on a PRIVATE @prometheus-io/client
 // Registry — never the global default, so multiple recorders (e.g. in tests) never collide.
 // Cardinality stays bounded per G2.4: labels use `scope_class`, never full scope strings or the
 // caller hash — caller-dimension breakdowns belong in OTEL spans / MORGIANA events instead.
 // `idempotency_hits_total`, `idempotency_cache_skipped_total`, and `idempotency_cache_bytes`
 // are registered but have no V1 emission source (THE-197) and expose as registered-zero.
 // See docs/design/metrics-registry.md.
-import { Counter, Gauge, Histogram, Registry } from "prom-client";
+import { Counter, Gauge, Histogram, Registry } from "@prometheus-io/client";
 // Type-only: the label unions are DEFINED at the write-transaction seam that produces them, so a
 // new transaction site cannot add a Prometheus series without widening the union there first.
 import type { MemoryOrphanClass } from "../db/memory-orphans";
@@ -100,7 +100,7 @@ const RESPONSE_BYTE_BUCKETS = [1_000, 10_000, 100_000, 1_000_000, 10_000_000];
 const SQL_LOCK_WAIT_BUCKETS = [0.001, 0.01, 0.1, 0.5, 1, 5, 10];
 
 // THE-585 (#6): retrieval stages are sub-millisecond to low-tens-of-ms individually, so the
-// default prom-client buckets (which start at 5ms) would put almost every stage in the first
+// default Prometheus client buckets (which start at 5ms) would put almost every stage in the first
 // bucket and report nothing useful. Log-spaced from 0.5ms.
 const RETRIEVAL_STAGE_BUCKETS = [0.0005, 0.002, 0.01, 0.05, 0.25, 1];
 

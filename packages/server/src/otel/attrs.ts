@@ -1,6 +1,6 @@
 // THE-515: pure span-attribute-key constants, split out of otel/tracing.ts so that importing
 // the attribute names (as mcp/registry.ts does, for `span.setAttribute` calls) does not drag the
-// OTEL SDK (@opentelemetry/exporter-trace-otlp-http, resources, sdk-trace-node,
+// OTEL SDK (@opentelemetry/exporter-trace-otlp-http, resources, sdk-trace,
 // semantic-conventions) into the import graph of every process — including the 16 non-`serve`
 // CLI subcommands and the published `index.ts` barrel, where OTEL is default-off and the SDK
 // value-imports were pure dead weight.

@@ -5,7 +5,7 @@ Extracted from inline commentary, 2026-08-21. The code carries the invariants; t
 ## registry.ts — module overview (G2.4 §Prometheus)
 
 The catalog is the exact 8 counters, 2 histograms, and 4 gauges from the observability spec,
-registered on a private `prom-client` `Registry` (never the global default, so multiple
+registered on a private `@prometheus-io/client` `Registry` (never the global default, so multiple
 recorders — e.g. in tests — never collide).
 
 The recorder is always live: counters are cheap in-memory adds and back both `get_metrics` and

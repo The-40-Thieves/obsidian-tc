@@ -1,15 +1,15 @@
 // observability.otel.detail: the child-span hierarchy under the per-request root span.
 //
-// Every test runs against a REGISTERED NodeTracerProvider (the exact call initOtel makes), because
+// Every test runs against a REGISTERED TracerProvider (the exact call initOtel makes), because
 // verbose mode parents handler-side spans through the OTel context manager and that only exists
 // once a provider is registered. Spans are read back from an in-memory exporter, never a collector.
 import { context, propagation, type Tracer, trace } from "@opentelemetry/api";
 import {
   InMemorySpanExporter,
-  NodeTracerProvider,
   type ReadableSpan,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-node";
+  TracerProvider,
+} from "@opentelemetry/sdk-trace";
 import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -17,19 +17,20 @@ import { inSavepoint, inTransaction } from "../src/db/txn";
 import { paginateByBytes, pagingOf } from "../src/mcp/byte-page";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { MAX_SPANS_PER_REQUEST, type OtelDetail, traceItem } from "../src/otel/dispatch-spans";
+import { registerTracerProvider } from "../src/otel/register-provider";
 
 const SECRET = "sk-abcdefghijklmnopqrstuvwxyz0123456789";
 const NOTE_BODY = "the-private-note-body-marker-7731";
 const DENIED_PATH = "Private/denied-folder/secret-plans.md";
 
 let exporter: InMemorySpanExporter;
-let provider: NodeTracerProvider;
+let provider: TracerProvider;
 let tracer: Tracer;
 
 beforeEach(() => {
   exporter = new InMemorySpanExporter();
-  provider = new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
-  provider.register();
+  provider = new TracerProvider({ spanProcessors: [new SimpleSpanProcessor({ exporter })] });
+  registerTracerProvider(provider);
   tracer = provider.getTracer("test");
 });
 afterEach(async () => {

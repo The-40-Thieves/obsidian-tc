@@ -32,7 +32,7 @@ export async function runOtelLazyProbe(): Promise<OtelLazyProbeResult> {
   const index_import_ms = performance.now() - t0;
 
   const t1 = performance.now();
-  await import("@opentelemetry/sdk-trace-node");
+  await import("@opentelemetry/sdk-trace");
   const otel_sdk_after_index_ms = performance.now() - t1;
 
   return { index_import_ms, otel_sdk_after_index_ms };

@@ -1,4 +1,4 @@
-// docgen metrics/errors extractors (THE-471). Runtime introspection: the prom-client registry and
+// docgen metrics/errors extractors (THE-471). Runtime introspection: the @prometheus-io/client registry and
 // the err factory map. Pins representative entries.
 import { beforeAll, describe, expect, it } from "vitest";
 import { extractErrors } from "../scripts/docgen/extract-errors";

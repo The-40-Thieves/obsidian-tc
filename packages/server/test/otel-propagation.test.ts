@@ -8,20 +8,17 @@
 // whether a trace actually continues — that is the [[feedback-registered-is-not-emitting]] shape, and
 // the assertion has to be on the resulting span's traceId.
 import { trace } from "@opentelemetry/api";
-// Only `@opentelemetry/sdk-trace-node` is imported, and only because it is a real dependency of this
-// package — `@opentelemetry/core` (where the propagators live) is transitive, and importing it here
-// would be a phantom dependency the THE-593 dev-dep gate exists to catch.
-//
-// That constraint turned out to improve the test: using NodeTracerProvider.register() exercises the
-// SAME call initOtel makes, so the propagator under test is the one production actually installs
-// rather than a hand-built replica of it that could drift.
+// The provider is registered through `registerTracerProvider`, the same helper initOtel calls, so the
+// propagator under test is the one production actually installs rather than a hand-built replica of
+// it that could drift.
 import {
   InMemorySpanExporter,
-  NodeTracerProvider,
   SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-node";
+  TracerProvider,
+} from "@opentelemetry/sdk-trace";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { extractTraceCarrier, TRACE_CARRIER_KEYS, withTraceCarrier } from "../src/otel/propagation";
+import { registerTracerProvider } from "../src/otel/register-provider";
 
 // A real, syntactically valid traceparent: version-traceId-spanId-flags (sampled).
 const TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
@@ -91,15 +88,14 @@ describe("extractTraceCarrier — untrusted `_meta` parsing", () => {
 
 describe("withTraceCarrier — the span is actually re-parented", () => {
   const exporter = new InMemorySpanExporter();
-  let provider: NodeTracerProvider;
+  let provider: TracerProvider;
 
   beforeAll(() => {
-    provider = new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
-    // register() with NO propagator argument — the exact call initOtel makes. NodeTracerProvider
-    // then installs a CompositePropagator of W3CTraceContextPropagator + W3CBaggagePropagator as the
-    // global propagator, which is why propagation.ts registers nothing of its own. If that default
-    // ever changes upstream, these tests fail rather than propagation.ts silently going inert.
-    provider.register();
+    provider = new TracerProvider({ spanProcessors: [new SimpleSpanProcessor({ exporter })] });
+    // The same call initOtel makes. It installs a CompositePropagator of W3CTraceContextPropagator +
+    // W3CBaggagePropagator as the global propagator, which is why propagation.ts registers nothing of
+    // its own. If that default ever changes, these tests fail rather than propagation.ts going inert.
+    registerTracerProvider(provider);
   });
   afterAll(async () => {
     await provider.shutdown();

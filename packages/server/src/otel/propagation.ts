@@ -10,11 +10,11 @@
 // correlated across implementations. SEP-414 fixes `traceparent`, `tracestate` and `baggage`, which
 // are precisely the keys OTEL's own W3C propagators already read.
 //
-// Which is why this file registers nothing. `initOtel` calls `provider.register()` with no
-// propagator argument, and NodeTracerProvider then installs a CompositePropagator of
-// W3CTraceContextPropagator + W3CBaggagePropagator as the global propagator (verified against the
-// SDK source, not recalled). So `propagation.extract` already understands all three keys — the only
-// thing missing was handing it the carrier.
+// Which is why this file registers nothing. `initOtel` installs the provider through
+// `registerTracerProvider` (./register-provider.ts), which sets a CompositePropagator of
+// W3CTraceContextPropagator + W3CBaggagePropagator as the global propagator. So
+// `propagation.extract` already understands all three keys; the only thing missing was handing it
+// the carrier.
 //
 // This is forward-compatible on purpose: `_meta` passthrough exists in the CURRENT spec too, so
 // this works under `2025-11-25` today and under `2026-07-28` after the SDK migration (THE-583),

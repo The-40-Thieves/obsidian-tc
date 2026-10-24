@@ -6,7 +6,7 @@
 
 **Architecture:** A self-contained `packages/server/eval/perf/` tree drives the real `better-sqlite3 + sqlite-vec` storage path over a seeded synthetic vault built with the deterministic `fake` embedding provider. Collectors (one module per metric group) return typed `MetricSample[]`; a pure `gate.ts` compares the report against a committed `baseline.json` and exits non-zero only on hard-class violations. Two source seams are added additively: a counting-provider wrapper and an `onStage` observer on `graphSearch`.
 
-**Tech Stack:** TypeScript, bun runtime, `better-sqlite3`, `sqlite-vec`, `perf_hooks`, vitest (harness self-tests), prom-client (`MetricsRecorder`, already present).
+**Tech Stack:** TypeScript, bun runtime, `better-sqlite3`, `sqlite-vec`, `perf_hooks`, vitest (harness self-tests), @prometheus-io/client (`MetricsRecorder`, already present).
 
 ## Global Constraints
 
