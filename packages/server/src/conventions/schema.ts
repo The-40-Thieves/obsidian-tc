@@ -10,6 +10,9 @@ export const CONVENTIONS_KEY = "conventions";
 /** The only `conventions.version` this server reads; a higher one is ignored with a warning. */
 export const CONVENTIONS_VERSION = 1;
 
+/** A note larger than this is not parsed for conventions (the bound the write check and lint_wiki share). */
+export const NOTE_MAX_BYTES = 1024 * 1024;
+
 /** Per-type rules a layer sets. `undefined` = not set here; `[]` = removes the inherited rule. */
 export interface ConventionsTypeLayer {
   required?: string[];

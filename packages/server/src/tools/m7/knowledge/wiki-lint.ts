@@ -477,7 +477,7 @@ export async function runWikiLint(
           root: env.root,
           acl: env.acl,
           grantedScopes: env.grantedScopes,
-          wikiFolders: env.wikiFolders,
+          wikiFolders: env.wikiFolders ?? env.wikiFolder,
           rawFolders: env.rawFolders,
         },
         subjectOk,

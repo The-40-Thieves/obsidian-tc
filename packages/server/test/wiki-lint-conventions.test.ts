@@ -2,6 +2,8 @@
 // (one proposal per note, tool_args only for an unambiguous fix) and the layers with file warnings (one
 // proposal per layer). Both are caller-scoped, skip the generated wiki pages and raw notes, and leave the
 // existing kinds' output as it was.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { LINT_CHECKS } from "../src/tools/m7/knowledge/wiki-lint";
 import { conventionsScanSteps } from "../src/tools/m7/knowledge/wiki-lint-conventions";
@@ -76,6 +78,30 @@ describe("lint_wiki conventions", () => {
     });
   });
 
+  it("a tag remove_tag refuses gets no tool_args; a valid tag, mixed case included, is fixed by its proposal and the next lint is clean", async () => {
+    const hh = fixture({
+      "wiki/SCHEMA.md": RULES,
+      "wiki/MixedCase.md": '---\ntype: research\ntags: [project, "#NoPe"]\n---\nx\n',
+      "wiki/Numeric.md": '---\ntype: research\ntags: [project, "2024"]\n---\nx\n',
+      "wiki/Unicode.md": "---\ntype: research\ntags: [project, über]\n---\nx\n",
+      "wiki/Spaced.md": '---\ntype: research\ntags: [project, "my tag"]\n---\nx\n',
+    });
+    const d = await lint(hh, { checks: ["conventions"] });
+    for (const subject of ["wiki/Numeric.md", "wiki/Unicode.md", "wiki/Spaced.md"]) {
+      expect(one(d, "conventions", subject).tool_args).toBeUndefined();
+    }
+    const mixed = one(d, "conventions", "wiki/MixedCase.md");
+    expect(mixed.tool_args).toEqual({
+      vault: "test",
+      path: "wiki/MixedCase.md",
+      tag: "NoPe",
+      location: "frontmatter",
+    });
+    expect((await hh.call(mixed.tool, mixed.tool_args)).ok).toBe(true);
+    const after = await lint(hh, { checks: ["conventions"] });
+    expect(ofKind(after, "conventions").map((p) => p.subject)).not.toContain("wiki/MixedCase.md");
+  });
+
   it("a scalar with one allowed value gets update_frontmatter set to it; several allowed values get no tool_args", async () => {
     const d = await lint(fixture(), { checks: ["conventions"] });
     const status = one(d, "conventions", "wiki/BadStatus.md");
@@ -89,6 +115,34 @@ describe("lint_wiki conventions", () => {
     });
     const kind = one(d, "conventions", "wiki/BadKind.md");
     expect(kind.tool_args).toBeUndefined();
+  });
+
+  it("a value that is not a string (boolean, number, list) gets no update_frontmatter tool_args, so the fix keeps the property's type", async () => {
+    const hh = fixture({
+      "wiki/SCHEMA.md": layer(
+        "  frontmatter:\n    values:\n      status: [draft]\n      published: [true]\n      prio: [1]\n      cats: [a]",
+      ),
+      "wiki/Stale.md": "---\nstatus: stale\n---\nx\n",
+      "wiki/Checkbox.md": "---\npublished: false\n---\nx\n",
+      "wiki/Number.md": "---\nprio: 2\n---\nx\n",
+      "wiki/List.md": "---\ncats: [a, z]\n---\nx\n",
+    });
+    const d = await lint(hh, { checks: ["conventions"] });
+    for (const subject of ["wiki/Checkbox.md", "wiki/Number.md", "wiki/List.md"]) {
+      expect(one(d, "conventions", subject).tool_args).toBeUndefined();
+    }
+    const stale = one(d, "conventions", "wiki/Stale.md");
+    expect(stale.tool_args).toEqual({
+      vault: "test",
+      path: "wiki/Stale.md",
+      operation: "set",
+      key: "status",
+      value: "draft",
+    });
+    expect((await hh.call(stale.tool, stale.tool_args)).ok).toBe(true);
+    const after = await lint(hh, { checks: ["conventions"] });
+    expect(ofKind(after, "conventions").map((p) => p.subject)).not.toContain("wiki/Stale.md");
+    expect(readFileSync(join(hh.v.root, "wiki/Stale.md"), "utf8")).toMatch(/^status: draft$/m);
   });
 
   it("a clean vault and a vault with no SCHEMA.md get no conventions proposals, and the existing kinds are unchanged", async () => {
@@ -115,25 +169,72 @@ describe("lint_wiki conventions", () => {
     expect(files[0]?.tool).toBe("read_note");
   });
 
-  it("a layer the caller cannot read gives no proposals from it and no conventions_file, while a caller who can read it gets both", async () => {
+  it("a layer the caller cannot read gives no conventions_file and no rules from it, while a caller who can read it gets the report", async () => {
     const files = {
-      "SCHEMA.md": layer("  version: 1\n  frontmatter:\n    required: [owner]"),
-      "wiki/SCHEMA.md": "---\nconventions: [unclosed\n---\n",
+      "SCHEMA.md": "---\nconventions: [unclosed\n---\n",
+      "wiki/SCHEMA.md": layer("  version: 1\n  frontmatter:\n    required: [owner]"),
       "wiki/Note.md": "---\ntype: research\n---\nno owner\n",
     };
     const reader = await lint(fixture(files, { readPaths: ["**"] }), {
       checks: ["conventions", "conventions_file"],
     });
-    expect(ofKind(reader, "conventions_file").map((p) => p.subject)).toEqual(["wiki/SCHEMA.md"]);
+    expect(ofKind(reader, "conventions_file").map((p) => p.subject)).toEqual(["SCHEMA.md"]);
     expect(ofKind(reader, "conventions").map((p) => p.subject)).toEqual(["wiki/Note.md"]);
 
     const limited = await lint(fixture(files, { readPaths: ["wiki/**"] }), {
       checks: ["conventions", "conventions_file"],
     });
-    // The root layer is unreadable to this caller: no rule from it, and no report of it. The wiki
-    // layer is readable, so its own file warning still stands.
-    expect(ofKind(limited, "conventions")).toEqual([]);
-    expect(ofKind(limited, "conventions_file").map((p) => p.subject)).toEqual(["wiki/SCHEMA.md"]);
+    // The root layer is unreadable to this caller: its warning is not reported. The wiki layer is
+    // readable, so its rule still applies to the note it sits over.
+    expect(ofKind(limited, "conventions_file")).toEqual([]);
+    expect(ofKind(limited, "conventions").map((p) => p.subject)).toEqual(["wiki/Note.md"]);
+  });
+
+  it("with folder set, a broken SCHEMA.md above that folder is not reported, one inside it is", async () => {
+    const files = {
+      "SCHEMA.md": "---\nconventions: [unclosed\n---\n",
+      "proj/SCHEMA.md": "---\nconventions: [unclosed\n---\n",
+      "proj/sub/SCHEMA.md": layer("  version: 1\n  frontmatter:\n    required: [owner]"),
+      "proj/sub/Note.md": "---\ntype: research\n---\nno owner\n",
+    };
+    const input = { checks: ["conventions", "conventions_file"], folder: "proj/sub" };
+    const scoped = await lint(fixture(files, { readPaths: ["**"] }), input);
+    expect(ofKind(scoped, "conventions_file")).toEqual([]);
+    expect(ofKind(scoped, "conventions").map((p) => p.subject)).toEqual(["proj/sub/Note.md"]);
+
+    const inside = await lint(
+      fixture(
+        { ...files, "proj/sub/SCHEMA.md": "---\nconventions: [unclosed\n---\n" },
+        {
+          readPaths: ["**"],
+        },
+      ),
+      input,
+    );
+    expect(ofKind(inside, "conventions_file").map((p) => p.subject)).toEqual([
+      "proj/sub/SCHEMA.md",
+    ]);
+  });
+
+  it("a scan that drops file warnings past the cap says how many on each conventions_file proposal", async () => {
+    // 52 broken layers on one chain (root plus 51 folders): one warning each, the cap keeps 50.
+    const depth = 51;
+    const files: Record<string, string> = {};
+    let dir = "";
+    for (let i = 0; i <= depth; i++) {
+      files[`${dir}SCHEMA.md`] = "---\nconventions: [unclosed\n---\n";
+      dir = `${dir}d${i}/`;
+    }
+    files[`${dir}Note.md`] = "---\ntype: research\n---\nx\n";
+    const d = await lint(fixture(files, { readPaths: ["**"] }), {
+      checks: ["conventions_file"],
+      limit_per_check: 100,
+    });
+    const layers = ofKind(d, "conventions_file");
+    expect(layers).toHaveLength(50);
+    expect(layers.map((p) => p.evidence.file_warnings_omitted)).toEqual(
+      layers.map(() => depth + 1 - 50),
+    );
   });
 
   it("checks: ['conventions'] runs only that kind", async () => {
@@ -167,8 +268,15 @@ describe("lint_wiki conventions", () => {
     expect(ofKind(d, "conventions").map((p) => p.subject)).toEqual(["wiki/Page.md"]);
   });
 
-  it("an abort between two steps of the scan stops it early", async () => {
-    const hh = fixture();
+  it("an abort between two notes of one folder stops the scan inside the per-note loop", async () => {
+    const hh = fixture({
+      "wiki/SCHEMA.md": RULES,
+      "wiki/N1.md": "x\n",
+      "wiki/N2.md": "x\n",
+      "wiki/N3.md": "x\n",
+      "wiki/N4.md": "x\n",
+      "wiki/N5.md": "x\n",
+    });
     const ctx = hh.v.ctx();
     const scope = {
       vaultId: "test",
@@ -177,22 +285,35 @@ describe("lint_wiki conventions", () => {
       grantedScopes: ctx.grantedScopes,
     };
     const ac = new AbortController();
-    let steps = 0;
+    const judged: string[] = [];
+    // keep() runs once per note of the walk, after that note's step: aborting on the second one lands
+    // the abort inside the per-note loop, with four notes still to go.
+    const keep = (p: string): boolean => {
+      judged.push(p);
+      if (judged.length === 2) ac.abort();
+      return true;
+    };
     let finished = false;
     function* tapped() {
-      const g = conventionsScanSteps(scope, () => true);
-      for (let r = g.next(); ; r = g.next()) {
-        if (r.done) {
-          finished = true;
-          return r.value;
-        }
-        steps += 1;
-        if (steps === 2) ac.abort();
-        yield;
-      }
+      const r = yield* conventionsScanSteps(scope, keep);
+      finished = true;
+      return r;
     }
     await expect(drainYielding(tapped(), ac.signal, 0)).rejects.toThrow();
     expect(finished).toBe(false);
-    expect(steps).toBe(2);
+    expect(judged).toHaveLength(2);
+  });
+
+  it("a legacy-only wiki SCHEMA.md is not hinted at inside the configured wiki folder", async () => {
+    const hh = makeWikiHarness({
+      files: {
+        "wiki/SCHEMA.md": "---\ntypes:\n  research: {}\n---\n# legacy\n",
+        "wiki/Note.md": "---\ntype: research\n---\nx\n",
+      },
+      wikiFolder: "wiki",
+      acl: { readPaths: ["wiki/**"] },
+    });
+    const d = await lint(hh, { checks: ["conventions_file"] });
+    expect(ofKind(d, "conventions_file")).toEqual([]);
   });
 });

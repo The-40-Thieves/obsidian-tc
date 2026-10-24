@@ -4,16 +4,18 @@
 // it.
 import { checkNote, judges } from "../../../conventions/check";
 import { type ConventionsScope, resolveConventions } from "../../../conventions/resolve";
-import type { ConventionWarning, EffectiveConventions } from "../../../conventions/schema";
+import {
+  type ConventionWarning,
+  type EffectiveConventions,
+  NOTE_MAX_BYTES,
+} from "../../../conventions/schema";
 import type { ScanSteps } from "../../../util/scan-steps";
-import { parseNoteLenient } from "../../../vault/frontmatter";
+import { type Frontmatter, parseNoteLenient } from "../../../vault/frontmatter";
 import { readNoteBounded } from "../../../vault/notes-io";
 import { resolveVaultPath } from "../../../vault/paths";
+import { isValidTag } from "../../../vault/tags";
 import { capWarningsOut, MAX_SCAN_WARNINGS } from "../../scan-warnings";
 import { readableNotesSteps } from "../../wiki-scan";
-
-/** A note larger than this is not parsed for conventions (the bound the write check uses too). */
-const NOTE_MAX_BYTES = 1024 * 1024;
 
 /** Structurally a `Proposal` of wiki-lint.ts. */
 export interface ConventionProposal {
@@ -31,23 +33,29 @@ export interface ConventionsScan {
   files: ConventionProposal[];
 }
 
-/** The one fix that needs no invented value: a tag to remove, or a scalar with a single allowed value. */
+/**
+ * The one fix that needs no invented value: a tag to remove, or a scalar with a single allowed value.
+ * `current` is the note's value for the property: only a string keeps its type when it is set.
+ */
 function fixOf(
   vault: string,
   path: string,
   w: ConventionWarning,
+  fm: Frontmatter | null,
 ): { tool: string; tool_args: Record<string, unknown> } | undefined {
   if (w.code !== "value_not_allowed" || w.property === undefined) return undefined;
   if (w.values?.length !== 1) return undefined;
   const value = w.values[0] as string;
+  // remove_tag refuses a tag isValidTag rejects, so a proposal for one would never clear the warning.
   if (w.property === "tags" || w.property === "tag")
-    return {
-      tool: "remove_tag",
-      tool_args: { vault, path, tag: value, location: "frontmatter" },
-    };
+    return isValidTag(value)
+      ? { tool: "remove_tag", tool_args: { vault, path, tag: value, location: "frontmatter" } }
+      : undefined;
   // An alias list is not a scalar: setting it to one value would drop the others.
   if (w.property === "aliases" || w.property === "alias") return undefined;
   if (w.allowed?.length !== 1) return undefined;
+  // A boolean, number or list set to a text value changes its type: only a string is fixed this way.
+  if (typeof fm?.[w.property] !== "string") return undefined;
   return {
     tool: "update_frontmatter",
     tool_args: { vault, path, operation: "set", key: w.property, value: w.allowed[0] },
@@ -58,10 +66,12 @@ function noteProposal(
   vault: string,
   path: string,
   warnings: ConventionWarning[],
+  fm: Frontmatter | null,
 ): ConventionProposal {
   const { warnings: kept = [], warnings_omitted } = capWarningsOut(warnings);
   // tool_args only when ONE call fixes the whole proposal: a single warning with an unambiguous fix.
-  const fix = warnings.length === 1 && warnings[0] ? fixOf(vault, path, warnings[0]) : undefined;
+  const fix =
+    warnings.length === 1 && warnings[0] ? fixOf(vault, path, warnings[0], fm) : undefined;
   return {
     kind: "conventions",
     subject: path,
@@ -74,7 +84,12 @@ function noteProposal(
   };
 }
 
-function fileProposal(vault: string, path: string, messages: string[]): ConventionProposal {
+function fileProposal(
+  vault: string,
+  path: string,
+  messages: string[],
+  omitted: number,
+): ConventionProposal {
   return {
     kind: "conventions_file",
     subject: path,
@@ -83,7 +98,10 @@ function fileProposal(vault: string, path: string, messages: string[]): Conventi
       "Fix the conventions block of this SCHEMA.md: the messages name the bad entries. A layer that is ignored applies no rules.",
     tool: "read_note",
     tool_args: { vault, path },
-    evidence: { messages: messages.slice(0, MAX_SCAN_WARNINGS) },
+    evidence: {
+      messages: messages.slice(0, MAX_SCAN_WARNINGS),
+      ...(omitted > 0 ? { file_warnings_omitted: omitted } : {}),
+    },
   };
 }
 
@@ -104,6 +122,12 @@ export function* conventionsScanSteps(
   const notes: ConventionProposal[] = [];
   const files = new Map<string, string[]>();
   const byFolder = new Map<string, EffectiveConventions>();
+  // The chains of different folders share their ancestor layers, so the largest drop is the figure to
+  // report: a lower bound on the distinct file warnings that were not kept.
+  let filesOmitted = 0;
+  // Only layers inside the linted folder are this lint's to report: an ancestor above it is not.
+  const inScope = (p: string): boolean =>
+    folder === undefined || folder === "" || p.startsWith(`${folder}/`);
   const paths = yield* readableNotesSteps(scope.root, scope.acl, scope.grantedScopes, folder);
   for (const rel of paths) {
     yield;
@@ -114,24 +138,28 @@ export function* conventionsScanSteps(
       if (eff === undefined) {
         eff = resolveConventions(scope, rel);
         byFolder.set(dir, eff);
-      }
-      for (const f of eff.fileWarnings) {
-        if (!keep(f.path)) continue;
-        const messages = files.get(f.path) ?? [];
-        if (!messages.includes(f.message)) messages.push(f.message);
-        files.set(f.path, messages);
+        for (const f of eff.fileWarnings) {
+          if (!keep(f.path) || !inScope(f.path)) continue;
+          const messages = files.get(f.path) ?? [];
+          if (!messages.includes(f.message)) messages.push(f.message);
+          files.set(f.path, messages);
+        }
+        filesOmitted = Math.max(filesOmitted, eff.fileWarningsOmitted);
       }
       if (!judges(eff, rel)) continue;
       const { raw } = readNoteBounded(resolveVaultPath(scope.root, rel), NOTE_MAX_BYTES);
       if (raw === null) continue;
-      const warnings = checkNote(eff, rel, parseNoteLenient(raw, rel).frontmatter);
-      if (warnings.length > 0) notes.push(noteProposal(scope.vaultId, rel, warnings));
+      const fm = parseNoteLenient(raw, rel).frontmatter;
+      const warnings = checkNote(eff, rel, fm);
+      if (warnings.length > 0) notes.push(noteProposal(scope.vaultId, rel, warnings, fm));
     } catch {
       // A note or layer that cannot be read is absent from the scan, as the other checks treat it.
     }
   }
   return {
     notes,
-    files: [...files].map(([path, messages]) => fileProposal(scope.vaultId, path, messages)),
+    files: [...files].map(([path, messages]) =>
+      fileProposal(scope.vaultId, path, messages, filesOmitted),
+    ),
   };
 }
