@@ -1,6 +1,7 @@
 // Parse one SCHEMA.md layer's `conventions:` block. Never throws: a bad block is a warning and no
 // layer, a bad entry is dropped with a warning and the rest of the block still counts.
 import { SCHEMA_LIMITS } from "../tools/m7/knowledge/wiki-schema";
+import { MAX_SCAN_WARNINGS } from "../tools/scan-warnings";
 import { parseNoteLenient } from "../vault/frontmatter";
 import {
   CONVENTIONS_KEY,
@@ -47,6 +48,8 @@ function textList(
     return undefined;
   }
   const items = Array.isArray(v) ? v : [v];
+  // A literal empty list is the removal marker; a non-empty list is never one (see below).
+  if (items.length === 0) return [];
   if (items.length > max) warnings.push(`${where}: only the first ${max} entries were read`);
   const out = new Set<string>();
   for (const item of items.slice(0, max)) {
@@ -55,14 +58,18 @@ function textList(
       continue;
     }
     const s = scalarText(item);
-    if (s === undefined) continue;
+    if (s === undefined) {
+      warnings.push(`${where}: ignored an empty value`);
+      continue;
+    }
     if (s.length > SCHEMA_LIMITS.textChars) {
       warnings.push(`${where}: ignored a value longer than ${SCHEMA_LIMITS.textChars} characters`);
       continue;
     }
     out.add(s);
   }
-  return [...out];
+  // Every entry was dropped: the list sets no rule, so an inherited rule stays (undefined, not []).
+  return out.size > 0 ? [...out] : undefined;
 }
 
 function parseValues(
@@ -100,7 +107,12 @@ function parseTypes(raw: unknown, layer: ConventionsLayer, warnings: string[]): 
   const entries = Object.entries(raw);
   if (entries.length > SCHEMA_LIMITS.types)
     warnings.push(`\`frontmatter.types\`: only the first ${SCHEMA_LIMITS.types} types were read`);
-  for (const [name, def] of entries.slice(0, SCHEMA_LIMITS.types)) {
+  for (const [rawName, def] of entries.slice(0, SCHEMA_LIMITS.types)) {
+    const name = scalarText(rawName);
+    if (name === undefined) {
+      warnings.push("`frontmatter.types`: ignored a type name that is empty");
+      continue;
+    }
     if (name.length > SCHEMA_LIMITS.textChars) {
       warnings.push(
         `\`frontmatter.types\`: ignored a type name longer than ${SCHEMA_LIMITS.textChars} characters`,
@@ -128,8 +140,19 @@ function parseTypes(raw: unknown, layer: ConventionsLayer, warnings: string[]): 
   }
 }
 
-/** Parse one SCHEMA.md's text. `path` is recorded on the layer and is diagnostic-only. */
+/** Parse one SCHEMA.md's text. `path` is recorded on the layer and is diagnostic-only. Warnings are
+ *  capped at the scan cap, so a cached layer stays small whatever the file holds. */
 export function parseConventionsLayer(text: string, path: string): ParsedConventionsLayer {
+  const parsed = parseLayer(text, path);
+  if (parsed.warnings.length <= MAX_SCAN_WARNINGS) return parsed;
+  return {
+    ...parsed,
+    warnings: parsed.warnings.slice(0, MAX_SCAN_WARNINGS),
+    warningsOmitted: parsed.warnings.length - MAX_SCAN_WARNINGS,
+  };
+}
+
+function parseLayer(text: string, path: string): ParsedConventionsLayer {
   const none = (warnings: string[] = [], legacyOnly = false): ParsedConventionsLayer => ({
     layer: null,
     warnings,

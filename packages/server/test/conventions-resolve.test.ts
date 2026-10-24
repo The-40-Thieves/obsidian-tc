@@ -1,7 +1,8 @@
 // Layer chain resolution: root -> nearest SCHEMA.md, nearest leaf wins, [] / null remove, inherit:false
 // cuts the chain, a layer the caller may not read is absent for that caller, and parsed layers are
 // cached on their stat signature (never on the ACL).
-import { symlinkSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -11,7 +12,10 @@ import {
   readConventionsLayer,
   resolveConventions,
 } from "../src/conventions/resolve";
+import { MAX_SCAN_WARNINGS } from "../src/tools/scan-warnings";
 import { makeTestVault, type TestVault } from "./m1-helpers";
+
+const ROOT_IS_ROOT = process.getuid?.() === 0;
 
 let v: TestVault | undefined;
 afterEach(() => {
@@ -117,7 +121,7 @@ describe("resolveConventions", () => {
   });
 
   it.skipIf(process.platform === "win32")(
-    "a symlinked layer that escapes the vault is absent",
+    "a symlinked layer whose in-vault target the caller may not read is absent, with no warning",
     () => {
       v = makeTestVault({
         files: { "a/x.md": "x", "secret.md": layer("  frontmatter:\n    required: [TOPSECRET]") },
@@ -126,9 +130,80 @@ describe("resolveConventions", () => {
       symlinkSync("../secret.md", join(v.root, "a", "SCHEMA.md"));
       const eff = resolveConventions(scopeOf(v), "a/n.md");
       expect(eff.values).toEqual({});
+      expect(eff.fileWarnings).toEqual([]);
       expect(JSON.stringify(eff)).not.toContain("TOPSECRET");
     },
   );
+
+  it.skipIf(process.platform === "win32")(
+    "a symlinked layer that escapes the vault is absent, and no warning names its target",
+    () => {
+      const outside = mkdtempSync(join(tmpdir(), "conv-outside-"));
+      try {
+        writeFileSync(
+          join(outside, "SCHEMA.md"),
+          layer("  frontmatter:\n    required: [TOPSECRET]"),
+        );
+        v = makeTestVault({ files: { "a/x.md": "x" }, acl: { readPaths: ["a/**"] } });
+        symlinkSync(join(outside, "SCHEMA.md"), join(v.root, "a", "SCHEMA.md"));
+        const eff = resolveConventions(scopeOf(v), "a/n.md");
+        expect(eff.values).toEqual({});
+        expect(JSON.stringify(eff)).not.toContain("TOPSECRET");
+        expect(JSON.stringify(eff)).not.toContain(outside);
+      } finally {
+        rmSync(outside, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("a list whose entries are all dropped does not remove the inherited rule", () => {
+    v = makeTestVault({
+      files: {
+        "SCHEMA.md": layer(
+          "  frontmatter:\n    required: [type]\n    values:\n      status: [draft]",
+        ),
+        "a/SCHEMA.md": layer(
+          '  frontmatter:\n    required: [""]\n    values:\n      status: ["  "]',
+        ),
+        "a/n.md": "x",
+      },
+    });
+    const eff = resolveConventions(scopeOf(v), "a/n.md");
+    expect(eff.required?.values).toEqual(["type"]);
+    expect(eff.values.status?.values).toEqual(["draft"]);
+    expect(eff.fileWarnings.map((w) => w.path)).toContain("a/SCHEMA.md");
+  });
+
+  it.skipIf(process.platform === "win32" || ROOT_IS_ROOT)(
+    "a read error names at most an errno code, never the vault's absolute path",
+    () => {
+      v = makeTestVault({
+        files: { "a/SCHEMA.md": layer("  frontmatter:\n    required: [type]"), "a/n.md": "x" },
+      });
+      const file = join(v.root, "a", "SCHEMA.md");
+      chmodSync(file, 0o000);
+      try {
+        const eff = resolveConventions(scopeOf(v), "a/n.md");
+        expect(eff.fileWarnings).toHaveLength(1);
+        expect(eff.fileWarnings[0]?.message).toMatch(/^conventions not read: [A-Za-z_]+$/);
+        expect(JSON.stringify(eff)).not.toContain(v.root);
+      } finally {
+        chmodSync(file, 0o644);
+      }
+    },
+  );
+
+  it("caps the file warnings of one resolve at the scan cap and counts the rest", () => {
+    const files: Record<string, string> = {};
+    for (let k = 0; k < 60; k++)
+      files[`${"d/".repeat(k)}SCHEMA.md`] = layer(
+        "  future: 1\n  frontmatter:\n    required: [type]",
+      );
+    v = makeTestVault({ files });
+    const eff = resolveConventions(scopeOf(v), `${"d/".repeat(60)}n.md`);
+    expect(eff.fileWarnings).toHaveLength(MAX_SCAN_WARNINGS);
+    expect(eff.fileWarningsOmitted).toBe(60 - MAX_SCAN_WARNINGS);
+  });
 
   it("records a file warning for a legacy-only SCHEMA.md outside the wiki folder", () => {
     v = makeTestVault({
@@ -194,5 +269,48 @@ describe("layer cache", () => {
       readPaths: ["other/**"],
     });
     expect(readConventionsLayer({ ...scopeOf(v), acl: denied }, "SCHEMA.md")).toBeNull();
+  });
+
+  it("misses after a same-size content edit that keeps the mtime", () => {
+    v = makeTestVault({ files: { "SCHEMA.md": layer("  frontmatter:\n    required: [type]") } });
+    const file = join(v.root, "SCHEMA.md");
+    const when = new Date("2026-01-01T00:00:00Z");
+    utimesSync(file, when, when);
+    const first = readConventionsLayer(scopeOf(v), "SCHEMA.md");
+    writeFileSync(file, layer("  frontmatter:\n    required: [kind]"));
+    utimesSync(file, when, when);
+    const after = readConventionsLayer(scopeOf(v), "SCHEMA.md");
+    expect(after).not.toBe(first);
+    expect(after?.layer?.required).toEqual(["kind"]);
+  });
+
+  it("evicts under the normalised path, so ./a/SCHEMA.md drops the cached layer", () => {
+    v = makeTestVault({ files: { "a/SCHEMA.md": layer("  frontmatter:\n    required: [type]") } });
+    const first = readConventionsLayer(scopeOf(v), "a/SCHEMA.md");
+    evictConventionsLayer(v.id, "./a/SCHEMA.md");
+    expect(readConventionsLayer(scopeOf(v), "a/SCHEMA.md")).not.toBe(first);
+  });
+
+  it("caps the warnings a cached layer keeps at the scan cap", () => {
+    const lines = Array.from({ length: 2000 }, (_, i) => `      p${i}: [{}, {}]`).join("\n");
+    v = makeTestVault({
+      files: { "SCHEMA.md": `---\nconventions:\n  frontmatter:\n    values:\n${lines}\n---\n` },
+    });
+    const cached = readConventionsLayer(scopeOf(v), "SCHEMA.md");
+    expect(cached?.warnings).toHaveLength(MAX_SCAN_WARNINGS);
+    expect(cached?.warningsOmitted).toBeGreaterThan(0);
+  });
+
+  it("evicts the least recently used layer once more than 512 distinct layers are read", () => {
+    const files: Record<string, string> = {};
+    for (let k = 0; k <= 512; k++)
+      files[`d${k}/SCHEMA.md`] = layer("  frontmatter:\n    required: [type]");
+    v = makeTestVault({ files, vaultId: "lru-bound" });
+    const scope = scopeOf(v);
+    const first = readConventionsLayer(scope, "d0/SCHEMA.md");
+    let last = null as ReturnType<typeof readConventionsLayer>;
+    for (let k = 1; k <= 512; k++) last = readConventionsLayer(scope, `d${k}/SCHEMA.md`);
+    expect(readConventionsLayer(scope, "d512/SCHEMA.md")).toBe(last);
+    expect(readConventionsLayer(scope, "d0/SCHEMA.md")).not.toBe(first);
   });
 });

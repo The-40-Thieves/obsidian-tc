@@ -51,9 +51,9 @@ export const immutableSkipShape = {
   immutable_warning: z.string().optional(),
 };
 
-/** The `warnings` / `warnings_omitted` keys for a rewrite result (absent when there are none). */
-export function rewriteWarningsOut(items: RewriteWarning[]): {
-  warnings?: RewriteWarning[];
+/** The `warnings` / `warnings_omitted` keys for a list of warnings (absent when there are none). */
+export function capWarningsOut<T>(items: readonly T[]): {
+  warnings?: T[];
   warnings_omitted?: number;
 } {
   return {

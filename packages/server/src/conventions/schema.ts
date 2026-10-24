@@ -34,6 +34,8 @@ export interface ConventionsLayer {
 export interface ParsedConventionsLayer {
   layer: ConventionsLayer | null;
   warnings: string[];
+  /** Warnings past the scan cap, counted and not kept. Absent when none were dropped. */
+  warningsOmitted?: number;
   /** The file has legacy wiki `types`/`properties` and no `conventions:` block. */
   legacyOnly: boolean;
 }
@@ -64,6 +66,8 @@ export interface EffectiveConventions {
   wikiFolders: WikiFolders;
   rawFolders: RawFolders;
   fileWarnings: ConventionsFileWarning[];
+  /** File warnings past the scan cap: counted, not kept. */
+  fileWarningsOmitted: number;
 }
 
 export const CONVENTION_CODES = [
@@ -94,6 +98,7 @@ export const conventionsResultShape = {
       warnings: z.array(ConventionWarningSchema).optional(),
       warnings_omitted: z.number().int().optional(),
       file_warnings: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
+      file_warnings_omitted: z.number().int().optional(),
     })
     .optional(),
 };

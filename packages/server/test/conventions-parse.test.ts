@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { parseConventionsLayer } from "../src/conventions/parse";
 import { SCHEMA_LIMITS } from "../src/tools/m7/knowledge/wiki-schema";
+import { MAX_SCAN_WARNINGS } from "../src/tools/scan-warnings";
 
 const BLOCK = `---
 conventions:
@@ -148,5 +149,44 @@ describe("parseConventionsLayer", () => {
       S,
     );
     expect(r.layer?.values.due).toEqual(["2026-10-24"]);
+  });
+});
+
+describe("parseConventionsLayer: review fixes", () => {
+  it("caps one layer's warnings at the scan cap and counts the rest", () => {
+    const lines = Array.from({ length: 2000 }, (_, i) => `      p${i}: [{}, {}]`).join("\n");
+    const r = parseConventionsLayer(
+      `---\nconventions:\n  frontmatter:\n    values:\n${lines}\n---\n`,
+      S,
+    );
+    expect(r.warnings).toHaveLength(MAX_SCAN_WARNINGS);
+    expect(r.warningsOmitted).toBeGreaterThan(0);
+  });
+
+  it("a non-empty list whose entries are all dropped sets no rule: the key is absent and warned", () => {
+    const r = parseConventionsLayer(
+      '---\nconventions:\n  frontmatter:\n    required: [""]\n    values:\n      status: ["  "]\n      kind: [{a: 1}]\n---\n',
+      S,
+    );
+    expect(r.layer?.required).toBeUndefined();
+    expect(Object.keys(r.layer?.values ?? {})).toEqual([]);
+    expect(r.warnings.length).toBeGreaterThan(0);
+  });
+
+  it("an empty or whitespace entry gets a warning, even when another entry is kept", () => {
+    const r = parseConventionsLayer(
+      '---\nconventions:\n  frontmatter:\n    values:\n      status: ["", draft]\n---\n',
+      S,
+    );
+    expect(r.layer?.values.status).toEqual(["draft"]);
+    expect(r.warnings).toHaveLength(1);
+  });
+
+  it("a type name is trimmed and NFC-normalised like a value, so it matches the page's type", () => {
+    const r = parseConventionsLayer(
+      '---\nconventions:\n  frontmatter:\n    types:\n      "meeting ":\n        required: [date]\n      "café":\n        required: [x]\n---\n',
+      S,
+    );
+    expect(Object.keys(r.layer?.types ?? {}).sort()).toEqual(["café", "meeting"]);
   });
 });

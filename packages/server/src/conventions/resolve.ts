@@ -3,15 +3,19 @@
 // their stat signature; the ACL decision is never cached, so a layer a caller may not read is absent
 // for that caller whatever another caller has already parsed.
 import { statSync } from "node:fs";
+import { resolve } from "node:path";
 import type { FolderAcl } from "../acl";
 import type { RawFolders, WikiFolders } from "../tools/m7/knowledge/wiki-folder";
 import { SCHEMA_LIMITS, WIKI_SCHEMA_FILE } from "../tools/m7/knowledge/wiki-schema";
+import { MAX_SCAN_WARNINGS } from "../tools/scan-warnings";
 import { enforcePathAcl } from "../vault/acl-path";
 import { readableRel } from "../vault/acl-read-filter";
 import { readNoteBounded } from "../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../vault/paths";
+import { readFailureReason } from "../vault/read-failure";
 import { LEGACY_HINT, parseConventionsLayer } from "./parse";
 import type {
+  ConventionsFileWarning,
   ConventionsLayer,
   EffectiveConventions,
   ParsedConventionsLayer,
@@ -35,7 +39,22 @@ const cacheKey = (vaultId: string, path: string): string => `${vaultId}\u0000${p
 
 /** Drop one vault's cached layer, so the next lookup re-reads it. For a tool that writes a SCHEMA.md. */
 export function evictConventionsLayer(vaultId: string, path: string): void {
-  layerCache.delete(cacheKey(vaultId, path));
+  let clean: string;
+  try {
+    clean = normalizeVaultPath(path);
+  } catch {
+    return; // a path that cannot be normalised was never cached
+  }
+  layerCache.delete(cacheKey(vaultId, clean));
+}
+
+/** True when a regular file sits at this lexical path. Any failure is "no" (absent, not an error). */
+function isLexicalFile(abs: string): boolean {
+  try {
+    return statSync(abs, { throwIfNoEntry: false })?.isFile() === true;
+  } catch {
+    return false;
+  }
 }
 
 /** The SCHEMA.md paths that apply to `notePath`, root first, nearest last. */
@@ -68,6 +87,9 @@ export function readConventionsLayer(
   path: string,
 ): ParsedConventionsLayer | null {
   if (!readableRel(scope.acl, path, scope.grantedScopes)) return null;
+  // A missing layer is the common case: one lexical stat answers it before any ACL or realpath work.
+  // Missing and denied both return null, so this reveals nothing the check below would not.
+  if (!isLexicalFile(resolve(scope.root, path))) return null;
   // The ACL is enforced on the REAL path: a layer that is a symlink out of the readable tree is absent.
   try {
     enforcePathAcl(scope.acl, "read", path, scope.root, scope.grantedScopes);
@@ -105,7 +127,7 @@ export function readConventionsLayer(
   } catch (e) {
     return {
       layer: null,
-      warnings: [`conventions not read: ${e instanceof Error ? e.message : String(e)}`],
+      warnings: [`conventions not read: ${readFailureReason(e)}`],
       legacyOnly: false,
     };
   }
@@ -121,7 +143,14 @@ function emptyEffective(scope: ConventionsScope): EffectiveConventions {
     wikiFolders: scope.wikiFolders,
     rawFolders: scope.rawFolders,
     fileWarnings: [],
+    fileWarningsOmitted: 0,
   };
+}
+
+/** Keep at most the scan cap of file warnings for one resolve; the rest are counted. */
+function pushFileWarning(eff: EffectiveConventions, w: ConventionsFileWarning): void {
+  if (eff.fileWarnings.length < MAX_SCAN_WARNINGS) eff.fileWarnings.push(w);
+  else eff.fileWarningsOmitted++;
 }
 
 /** Set a leaf: a non-empty list replaces what was inherited; an empty one removes it. */
@@ -175,9 +204,10 @@ export function resolveConventions(
   for (const path of conventionsLayerPaths(notePath)) {
     const read = readConventionsLayer(scope, path);
     if (!read) continue;
-    for (const message of read.warnings) eff.fileWarnings.push({ path, message });
+    for (const message of read.warnings) pushFileWarning(eff, { path, message });
+    eff.fileWarningsOmitted += read.warningsOmitted ?? 0;
     const inWiki = wikiFolders.some((w) => path === (w === "" ? "" : `${w}/`) + WIKI_SCHEMA_FILE);
-    if (read.legacyOnly && !inWiki) eff.fileWarnings.push({ path, message: LEGACY_HINT });
+    if (read.legacyOnly && !inWiki) pushFileWarning(eff, { path, message: LEGACY_HINT });
     if (read.layer) loaded.push(read.layer);
   }
   // A layer with inherit:false cuts off every ancestor above it; the nearest such layer starts the chain.

@@ -6,7 +6,7 @@ import { WIKI_SCHEMA_FILE } from "../tools/m7/knowledge/wiki-schema";
 import { MAX_SCAN_WARNINGS } from "../tools/scan-warnings";
 import { fmHas } from "../tools/wiki-scan";
 import type { Frontmatter } from "../vault/frontmatter";
-import { frontmatterTags } from "../vault/tags";
+import { frontmatterTags, normalizeTag, tagMatches } from "../vault/tags";
 import { scalarText } from "./parse";
 import type {
   ConventionWarning,
@@ -17,19 +17,6 @@ import type {
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
-
-/** The `warnings` / `warnings_omitted` keys for a list of warnings (absent when there are none). */
-export function capConventionWarnings<T>(items: readonly T[]): {
-  warnings?: T[];
-  warnings_omitted?: number;
-} {
-  return {
-    ...(items.length > 0 ? { warnings: items.slice(0, MAX_SCAN_WARNINGS) } : {}),
-    ...(items.length > MAX_SCAN_WARNINGS
-      ? { warnings_omitted: items.length - MAX_SCAN_WARNINGS }
-      : {}),
-  };
-}
 
 /** Notes the checks never judge: the schema files themselves, non-Markdown, dot-folders, the wiki's
  *  generated index/log pages and the raw-sources folder. */
@@ -42,17 +29,25 @@ function skipped(eff: EffectiveConventions, path: string): boolean {
   return rawPathFilter(eff.rawFolders)(path);
 }
 
-/** Tag rules: `x` matches exactly, `x/*` matches any tag nested under x; case-insensitive. */
+/** Tag rules: `x` matches exactly, `x/*` matches any tag nested under x but not x itself; rules and
+ *  tags are normalised like the vault's tags (`#` and trailing slashes dropped), case-insensitive. */
 function tagAllowed(tag: string, allowed: string[]): boolean {
-  const t = tag.normalize("NFC").toLowerCase();
+  const t = normalizeTag(tag.normalize("NFC")).toLowerCase();
   return allowed.some((a) => {
-    const p = a.normalize("NFC").toLowerCase();
+    const p = normalizeTag(a).toLowerCase();
     if (p.endsWith("/*")) {
       const base = p.slice(0, -2);
-      return base !== "" && t.startsWith(`${base}/`);
+      return base !== "" && t !== base && tagMatches(base, t);
     }
     return t === p;
   });
+}
+
+/** The frontmatter keys a rule on `prop` reads: the plural and singular forms are one field. */
+function fieldKeys(prop: string): string[] {
+  if (prop === "tags" || prop === "tag") return ["tags", "tag"];
+  if (prop === "aliases" || prop === "alias") return ["aliases", "alias"];
+  return [prop];
 }
 
 /** The page's type: a scalar, or a one-element list of one. Several types: undefined, flagged by the caller. */
@@ -125,14 +120,17 @@ export function checkNote(
     const props = new Set([...Object.keys(eff.values), ...Object.keys(typeRules?.values ?? {})]);
     for (const prop of props) {
       const rule: SourcedValues | undefined = typeRules?.values[prop] ?? eff.values[prop];
-      if (!rule || !Object.hasOwn(fm, prop)) continue;
+      const keys = fieldKeys(prop).filter((k) => Object.hasOwn(fm, k));
+      if (!rule || keys.length === 0) continue;
       const isTags = prop === "tags" || prop === "tag";
       const texts: string[] = [];
       if (isTags) {
         texts.push(...frontmatterTags(fm));
       } else {
-        const value = fm[prop];
-        const items = Array.isArray(value) ? value : [value];
+        const items = keys.flatMap((k) => {
+          const value = fm[k];
+          return Array.isArray(value) ? value : [value];
+        });
         if (items.some((x) => isRecord(x) || Array.isArray(x))) {
           warn({
             code: "value_not_scalar",

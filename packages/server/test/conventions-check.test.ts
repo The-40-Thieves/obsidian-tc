@@ -1,9 +1,10 @@
 // checkNote: pure rules over a resolved effective set. Every warning code, the type list rules, tag
 // matching (case-insensitive, `x/*` nested, `x` exact), exact aliases, the skip list and the cap.
 import { afterEach, describe, expect, it } from "vitest";
-import { capConventionWarnings, checkNote } from "../src/conventions/check";
+import { checkNote } from "../src/conventions/check";
 import { resolveConventions } from "../src/conventions/resolve";
 import type { ConventionWarning } from "../src/conventions/schema";
+import { capWarningsOut } from "../src/tools/scan-warnings";
 import { parseNoteLenient } from "../src/vault/frontmatter";
 import { makeTestVault, type TestVault } from "./m1-helpers";
 
@@ -182,9 +183,35 @@ describe("checkNote: skip list and cap", () => {
       source: "SCHEMA.md",
       level: "warn",
     }));
-    const out = capConventionWarnings(many);
+    const out = capWarningsOut(many);
     expect(out.warnings).toHaveLength(50);
     expect(out.warnings_omitted).toBe(10);
-    expect(capConventionWarnings(many.slice(0, 3))).toEqual({ warnings: many.slice(0, 3) });
+    expect(capWarningsOut(many.slice(0, 3))).toEqual({ warnings: many.slice(0, 3) });
+  });
+});
+
+describe("checkNote: review fixes", () => {
+  it("a rule written as #project or area/ is normalised, so the tags project and area match", () => {
+    const eff = effectiveFor(
+      '---\nconventions:\n  frontmatter:\n    values:\n      tags: ["#project", "area/"]\n---\n',
+    );
+    expect(checkNote(eff, "n.md", fmOf("---\ntags: [project, area]\n---\n"))).toEqual([]);
+    expect(codes(checkNote(eff, "n.md", fmOf("---\ntags: [other]\n---\n")))).toEqual([
+      "value_not_allowed:tags",
+    ]);
+  });
+
+  it("a note with only `tag: secret` is checked against the tags rule", () => {
+    const eff = effectiveFor(RULES);
+    expect(codes(checkNote(eff, "n.md", fmOf("---\ntype: research\ntag: secret\n---\n")))).toEqual([
+      "value_not_allowed:tags",
+    ]);
+  });
+
+  it("a note with only `alias: home` is checked against the aliases rule", () => {
+    const eff = effectiveFor(RULES);
+    expect(codes(checkNote(eff, "n.md", fmOf("---\ntype: research\nalias: home\n---\n")))).toEqual([
+      "value_not_allowed:aliases",
+    ]);
   });
 });
