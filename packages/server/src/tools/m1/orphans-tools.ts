@@ -6,11 +6,47 @@ import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { DEFAULT_SCAN_LIMIT, nextOffsetCursor, offsetOf } from "../../util/paginate";
 import { drainYielding } from "../../util/scan-steps";
-import { normalizeVaultPath } from "../../vault/paths";
+import { statNote } from "../../vault/notes-io";
+import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import { scanOrphansSteps } from "../wiki-scan";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
+
+/** group_by=folder: one entry per top-level folder ("/" for notes at the vault root). `oldest` and
+ *  `newest` are the min and max filesystem mtime (ISO 8601) of its orphans; null only when no note
+ *  in the group could be stat'd (deleted since the scan). */
+const FolderGroups = z.array(
+  z.object({
+    folder: z.string(),
+    count: z.number().int(),
+    oldest: z.string().nullable(),
+    newest: z.string().nullable(),
+  }),
+);
+
+type FolderGroup = z.infer<typeof FolderGroups>[number];
+
+/** Orphans grouped by top-level folder, biggest group first. Computed over the whole result, not the
+ *  page. ISO 8601 UTC strings compare in time order, so min and max are plain string comparisons. */
+function groupByFolder(root: string, orphans: string[]): FolderGroup[] {
+  const groups = new Map<string, Omit<FolderGroup, "folder">>();
+  for (const p of orphans) {
+    const slash = p.indexOf("/");
+    const folder = slash < 0 ? "/" : p.slice(0, slash);
+    const mtime = statNote(resolveVaultPath(root, p))?.mtime ?? null;
+    const g = groups.get(folder) ?? { count: 0, oldest: null, newest: null };
+    g.count += 1;
+    if (mtime !== null) {
+      if (g.oldest === null || mtime < g.oldest) g.oldest = mtime;
+      if (g.newest === null || mtime > g.newest) g.newest = mtime;
+    }
+    groups.set(folder, g);
+  }
+  return [...groups]
+    .map(([folder, g]) => ({ folder, ...g }))
+    .sort((a, b) => b.count - a.count || (a.folder < b.folder ? -1 : a.folder > b.folder ? 1 : 0));
+}
 
 const FindOrphansOutput = z.object({
   ...scanWarningsShape,
@@ -19,6 +55,7 @@ const FindOrphansOutput = z.object({
   truncated: z.boolean(),
   next_cursor: z.string().nullable(),
   orphans: z.array(z.string()),
+  groups: FolderGroups.optional(),
 });
 
 export function buildOrphansTools(deps: M1Deps): ToolDefinition[] {
@@ -27,7 +64,7 @@ export function buildOrphansTools(deps: M1Deps): ToolDefinition[] {
       name: "find_orphans",
       domain: "links",
       description:
-        "Find notes that nothing else links to (optionally also requiring no outgoing links); a link in a property counts. A note whose frontmatter is not valid YAML does not fail the scan: its body is still read and it is named in `warnings`.",
+        "Find notes that nothing else links to (optionally also requiring no outgoing links); a link in a property counts. A note whose frontmatter is not valid YAML does not fail the scan: its body is still read and it is named in `warnings`. group_by=folder adds `groups`: the orphan count and oldest/newest mtime per top-level folder, over the whole result.",
       inputSchema: z
         .object({
           vault: VaultId,
@@ -35,6 +72,7 @@ export function buildOrphansTools(deps: M1Deps): ToolDefinition[] {
           limit: z.number().int().positive().max(5000).default(DEFAULT_SCAN_LIMIT),
           cursor: z.string().optional(),
           require_no_outgoing: z.boolean().default(false),
+          group_by: z.enum(["folder"]).optional(),
         })
         .strict(),
       outputSchema: FindOrphansOutput,
@@ -68,6 +106,7 @@ export function buildOrphansTools(deps: M1Deps): ToolDefinition[] {
           truncated,
           next_cursor: nextOffsetCursor(skip, page.length, truncated),
           orphans: page,
+          ...(input.group_by === "folder" ? { groups: groupByFolder(v.root, orphans) } : {}),
         };
       },
     }),
