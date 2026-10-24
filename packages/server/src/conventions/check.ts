@@ -194,9 +194,10 @@ export function checkNote(
 const valuesOf = (w: ConventionWarning): string[] =>
   w.code === "value_not_allowed" ? (w.values ?? []) : [""];
 
-/** Identity of a violation for the write check: (code, property, type, value). */
+/** Identity of a violation for the write check: (code, property, value). The type is not part of it: a
+ *  type change must not relabel a violation that was already there. */
 const keyOf = (w: ConventionWarning, value: string): string =>
-  [w.code, w.property ?? "", w.type ?? "", value].join("\u0000");
+  [w.code, w.property ?? "", value].join("\u0000");
 
 /**
  * The blocking violations a write ADDS to a note: those `afterFm` has at level block that `beforeFm`
