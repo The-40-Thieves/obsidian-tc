@@ -1,4 +1,4 @@
-# obsidian-tc server image (G2.5 §2.4, THE-276). Multi-stage on glibc oven/bun:1.4.3-slim
+# obsidian-tc server image (G2.5 §2.4, THE-276). Multi-stage on glibc oven/bun:1.4.4-slim
 # (Debian trixie-slim), pinned to the same Bun version as mise.toml (THE-1118) — a floating
 # `1-slim` tag would silently drift the image's Bun off the pin everything else agrees on;
 # check-bun-version-coherence.mjs enforces both `FROM oven/bun:` lines below stay in sync.
@@ -22,7 +22,7 @@
 # does a build + `version` smoke + the offline boot smoke.
 
 # ---- builder: install deps, build shared then server (this whole stage is discarded) ----
-FROM oven/bun:1.4.3-slim AS build
+FROM oven/bun:1.4.4-slim AS build
 WORKDIR /app
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \
@@ -81,7 +81,7 @@ RUN set -eu; \
     fi
 
 # ---- runtime: bun + ca-certs + the server dist only ----
-FROM oven/bun:1.4.3-slim AS runtime
+FROM oven/bun:1.4.4-slim AS runtime
 WORKDIR /app
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \

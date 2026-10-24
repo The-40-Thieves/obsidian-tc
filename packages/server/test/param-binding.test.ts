@@ -228,11 +228,12 @@ describe.skipIf(!bunAvailable)("THE-665: parameter-binding conformance (bun:sqli
     result = runProbe();
   });
 
-  it("characterizes the bug: a bare-key object bound to a named-param statement is silently NULLed", () => {
-    // This is the actual THE-665 defect, pinned so a future Bun upgrade that fixes it (or changes
-    // it) is noticed rather than assumed. It is NOT what this repo's code does anymore — see the
-    // next two tests — but it is why named bare-key binds must never come back.
-    expect(result.rawBareKey).toEqual({ id: null, name: null });
+  it("characterizes the pinned Bun: a bare-key object bound to a named-param statement stores its values", () => {
+    // Bun 1.4.3 and earlier silently NULLed this bind (the THE-665 defect); Bun 1.4.4 binds it
+    // correctly. Pinned to the CURRENT Bun so a future change is noticed rather than assumed. The
+    // repo's code still uses positional `?` binds (next two tests): the `engines` range admits
+    // older Bun, where the bare-key form loses data without an error.
+    expect(result.rawBareKey).toEqual({ id: "bare-key", name: "bare-key-name" });
   });
 
   it("positional `?` binds store correct, non-null values", () => {

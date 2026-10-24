@@ -7,7 +7,7 @@ Python model services.
 
 | | pin | source of truth |
 |---|---|---|
-| Bun | **1.4.3** | `mise.toml` + `packageManager` in `package.json` — must agree |
+| Bun | **1.4.4** | `mise.toml` + `packageManager` in `package.json` — must agree |
 | Node | **26.12.1** target / **24** supported floor | `mise.toml`; `engines.node: ">=24"`. CI runs the full server suite on **both** 26 and 24 (`build-test`, `fallback-test`) — the 24 legs catch a 26-only API |
 | Python | **3.14** | `mise.toml`; `bge-m3-service` declares `requires-python = ">=3.12"` (its runtime lock pins numpy 2.5 and scipy 1.18, which need 3.12) and `docs-ingest` `">=3.11"` (a supported range, not the tested version; Pillow 13, the only release with its security fixes, needs 3.11) |
 | Rust | **1.99.1** exact | `packages/native/rust-toolchain.toml` |

@@ -1,0 +1,11 @@
+# osv-scanner reads this for the root bun.lock (ci-security.yml: `osv-scanner scan source
+# --recursive .`). bun.lock lists this repo's own server workspace as `obsidian-tc` at version
+# `workspace:packages/server`, which osv cannot parse as semver, so every advisory published
+# against obsidian-tc ITSELF matches the source tree that already carries its fix. Those findings
+# describe released npm versions, not this checkout. Scoped to the one package name in the npm
+# ecosystem: every third-party dependency is still scanned.
+[[PackageOverrides]]
+name = "obsidian-tc"
+ecosystem = "npm"
+ignore = true
+reason = "This repo's own workspace package; its advisories target published versions, not the source tree"
