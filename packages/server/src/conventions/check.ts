@@ -20,15 +20,20 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
 /** The level a violation of `prop` reports at: the first of types[t].severity[prop], severity[prop],
- *  types[t].severity["*"], severity["*"] that is set, else warn. */
+ *  types[t].severity["*"], severity["*"] that is set, else warn. `prop` is looked up under its alias
+ *  too (tags/tag, aliases/alias), as the rule itself is. */
 function severityOf(
   eff: EffectiveConventions,
   typeRules: EffectiveTypeRules | undefined,
   prop: string,
 ): Severity {
+  const at = (sev: Record<string, { value: Severity }> | undefined): Severity | undefined =>
+    fieldKeys(prop)
+      .map((k) => sev?.[k]?.value)
+      .find((v) => v !== undefined);
   return (
-    typeRules?.severity[prop]?.value ??
-    eff.severity[prop]?.value ??
+    at(typeRules?.severity) ??
+    at(eff.severity) ??
     typeRules?.severity["*"]?.value ??
     eff.severity["*"]?.value ??
     "warn"
