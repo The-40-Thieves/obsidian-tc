@@ -190,6 +190,14 @@ export function checkNote(
   return out;
 }
 
+/** The whole allowed list a warning's property is judged against. `w.allowed` is capped at the scan limit,
+ *  so a message rebuilt from it would name fewer values than the rule holds. */
+function allowedOf(eff: EffectiveConventions, w: ConventionWarning): string[] {
+  const prop = w.property ?? "";
+  const typeRules = w.type !== undefined ? eff.types[w.type] : undefined;
+  return typeRules?.values[prop]?.values ?? eff.values[prop]?.values ?? w.allowed ?? [];
+}
+
 /** The values a warning names, one per key: value_not_allowed names several, the others one. */
 const valuesOf = (w: ConventionWarning): string[] =>
   w.code === "value_not_allowed" ? (w.values ?? []) : [""];
@@ -227,7 +235,7 @@ export function blockingDelta(
       out.push({
         ...w,
         values: fresh,
-        message: notAllowedMessage(w.property ?? "", fresh, w.allowed ?? []),
+        message: notAllowedMessage(w.property ?? "", fresh, allowedOf(eff, w)),
       });
   }
   return out;
