@@ -29,9 +29,6 @@ import { vaultArgOf } from "./input-binding";
 import { isOverflow } from "./result-governance";
 import type { CallerContext, ConventionsSink, RegistryOptions, ToolDefinition } from "./types";
 
-/** Tools that move or copy a note to a named destination: the destination is warn-only in this slice. */
-const MOVE_COPY_TOOLS = new Set<string>(["move_note", "copy_note", "bulk_move_notes"]);
-
 /** Notes a single call may name: the rest are not stat'd, so a bulk call cannot make begin unbounded. */
 const MAX_NAMED_NOTES = 500;
 
@@ -121,6 +118,9 @@ export function conventionsScope(
             if (isConventionBlocked(e)) throw e;
             report(onInternalError, `conventions:${def.name}`, p.vault, e);
           }
+        },
+        origin(destRel, srcRel) {
+          gate.origin?.(destRel, srcRel);
         },
       };
       return withWriteGate(guarded, fn);
@@ -249,6 +249,8 @@ interface CheckState {
   effs: Map<string, ReturnType<typeof resolveConventions>>;
   /** The frontmatter the gate parsed for each note it judged, with the hash of the bytes it parsed. */
   parsed: Map<string, { hash: string; fm: ReturnType<typeof parseNoteLenient>["frontmatter"] }>;
+  /** The source note each move or copy destination announced (noteWriteOrigin), keyed by destination. */
+  origins: Map<string, string>;
 }
 
 /** The frontmatter the gate already parsed for `rel`, when the write reported those same bytes: the
@@ -363,15 +365,19 @@ function judgeWrite(
   // Warn-only (design decision 7): a restore, and a backlink rewrite of a note the call did not name.
   if (st.tool === "restore_note") return;
   if (CROSS_NOTE_REWRITE_TOOLS.has(st.tool) && !st.stamps.has(rel)) return;
-  // Warn-only in this slice: a move or copy names its destination, but no origin is recorded, so the
-  // destination is judged as a NEW note and a rename of an already non-compliant note would be refused.
-  // PR 4 adds origin-aware judging (noteWriteOrigin) and lifts this.
-  if (MOVE_COPY_TOOLS.has(st.tool) && st.stamps.has(rel)) return;
   const eff = effOf(st, registry, ctx, root, rel);
   if (!judges(eff, rel) || !hasBlockRule(eff)) return;
   const fm = parseNoteLenient(text, rel).frontmatter;
   st.parsed.set(rel, { hash: contentHash(text), fm });
-  const delta = blockingDelta(eff, rel, beforeFrontmatter(ctx, root, rel), fm);
+  // A move or copy is judged against its source: the source's violations under the source's rules are the baseline.
+  const src = st.origins.get(rel);
+  const delta =
+    src === undefined
+      ? blockingDelta(eff, rel, beforeFrontmatter(ctx, root, rel), fm)
+      : blockingDelta(eff, rel, beforeFrontmatter(ctx, root, src), fm, {
+          eff: effOf(st, registry, ctx, root, src),
+          path: src,
+        });
   if (delta.length === 0) return;
   throw err.conventionBlocked(
     `this write would add ${delta.length} folder convention violation(s) marked block; nothing was written`,
@@ -388,12 +394,23 @@ export function conventionsChecker(registry: Pick<VaultRegistry, "resolve">): Co
     async begin(def, input, ctx, root) {
       const stamps = new Map<string, string | null>();
       for (const rel of namedWriteNotes(def, input, ctx, root)) stamps.set(rel, stampOf(root, rel));
-      const state: CheckState = { stamps, tool: def.name, effs: new Map(), parsed: new Map() };
+      const state: CheckState = {
+        stamps,
+        tool: def.name,
+        effs: new Map(),
+        parsed: new Map(),
+        origins: new Map(),
+      };
       return state;
     },
     gate(pending, ctx, root) {
       const st = pending as CheckState;
-      return { check: (abs, text) => judgeWrite(st, registry, ctx, root, abs, text) };
+      return {
+        check: (abs, text) => judgeWrite(st, registry, ctx, root, abs, text),
+        origin: (destRel, srcRel) => {
+          st.origins.set(destRel, srcRel);
+        },
+      };
     },
     async check(pending, result, ctx, root, noted) {
       const st = pending as CheckState;

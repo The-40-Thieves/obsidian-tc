@@ -225,19 +225,23 @@ const keyOf = (w: ConventionWarning, value: string): string =>
  * does not. Keyed per offending value, so a second bad value on a property that already had one
  * counts. `undefined` beforeFm is a new note (every blocking violation counts); `null` is a note whose
  * YAML is broken, judged as checkNote(eff, path, null). A partial fix, or an edit that adds nothing,
- * returns none. Pure: nothing calls it yet (the write gate is a later PR).
+ * returns none. `origin` is the note a move or copy came from: `beforeFm` is judged under its own rules
+ * (origin.eff, origin.path), and the keys of the two sets are compared across the two. Pure.
  */
 export function blockingDelta(
   eff: EffectiveConventions,
   path: string,
   beforeFm: Frontmatter | null | undefined,
   afterFm: Frontmatter | null,
+  origin: { eff: EffectiveConventions; path: string } = { eff, path },
 ): ConventionWarning[] {
-  const blocking = (fm: Frontmatter | null) =>
-    checkNote(eff, path, fm).filter((w) => w.level === "block");
-  const after = blocking(afterFm);
+  const blocking = (e: EffectiveConventions, p: string, fm: Frontmatter | null) =>
+    checkNote(e, p, fm).filter((w) => w.level === "block");
+  const after = blocking(eff, path, afterFm);
   if (beforeFm === undefined) return after;
-  const before = new Set(blocking(beforeFm).flatMap((w) => valuesOf(w).map((v) => keyOf(w, v))));
+  const before = new Set(
+    blocking(origin.eff, origin.path, beforeFm).flatMap((w) => valuesOf(w).map((v) => keyOf(w, v))),
+  );
   const out: ConventionWarning[] = [];
   for (const w of after) {
     const all = valuesOf(w);

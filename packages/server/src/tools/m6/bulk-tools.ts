@@ -56,11 +56,12 @@ import {
 } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { applyWriteBatch, isIncompleteRollback } from "../../vault/write-batch";
+import { noteWriteOrigin } from "../../vault/write-gate";
 import { createModeConflictError, overwriteModeMissingError } from "../../vault/write-mode-errors";
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { immutableSkipShape } from "../scan-warnings";
-import { planMoves } from "./bulk-move-plan";
+import { markWouldBlock, planMoves } from "./bulk-move-plan";
 import type { M6Deps } from "./shared";
 
 // ── schemas ────────────────────────────────────────────────────────────────────
@@ -190,6 +191,9 @@ const BulkMoveResultItem = z.object({
   ok: z.boolean(),
   backlinks_updated: z.number().optional(),
   error: ErrorJson.optional(),
+  /** dry_run only: the convention_blocked refusal the real run would hit on this row. Optional, and
+   *  absent from every row the write gate would accept. */
+  would_block: ErrorJson.optional(),
 });
 
 const BulkMoveOutput = z.object({
@@ -394,6 +398,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           destExists?: boolean;
           ok: boolean;
           error?: ReturnType<ObsidianTcError["toJSON"]>;
+          would_block?: ReturnType<ObsidianTcError["toJSON"]>;
         }
 
         // Review finding: a refused row (secret_detected on `to`) must not echo the raw
@@ -499,6 +504,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
         if (input.dry_run) {
           // The same plan the real run commits, minus the memoryDefense scan (a preview, not a write).
           const { perMove, total, hidden, unreadable } = plan(MEMORY_DEFENSE_OFF, undefined);
+          markWouldBlock(v.root, rows);
           return {
             vault: v.id,
             processed: rows.length,
@@ -513,6 +519,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
               ...(r.ok
                 ? { backlinks_updated: perMove.get(r.fromRel ?? "") ?? 0 }
                 : { error: r.error }),
+              ...(r.would_block ? { would_block: r.would_block } : {}),
             })),
           };
         }
@@ -569,6 +576,8 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             const trashed: Array<{ trashedTo: string; abs: string }> = [];
             const overwriting = replacing();
             try {
+              // The write gate judges each moved note against its source (before the batch removes it).
+              for (const m of p.moved) noteWriteOrigin(m.toRel, m.fromRel);
               for (const r of p.rewrites) snapshots.capture(r.rel, r.raw);
               // On overwrite, soft-delete each clobbered destination first (recoverable, restored
               // if the batch fails); the create is exclusive.

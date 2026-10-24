@@ -30,7 +30,7 @@ import { noteExists, readNote, replaceDestination, writeNoteAtomic } from "../..
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../../vault/paths";
 import { captureSnapshot } from "../../../vault/snapshots";
 import { applyWriteBatch } from "../../../vault/write-batch";
-import { preflightNoteWrite } from "../../../vault/write-gate";
+import { noteWriteOrigin, preflightNoteWrite } from "../../../vault/write-gate";
 import { capWarningsOut, type RewriteWarning } from "../../scan-warnings";
 import { defineTool } from "../define";
 import type { M1Deps } from "../shared";
@@ -215,6 +215,8 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
       const overwriteExisting = toEx.exists && input.overwrite;
       // The write gate judges the final bytes (the moved note and each backlink rewrite) before the
       // confirmation is spent and before any snapshot or trash; the commit below reuses the verdicts.
+      // The origin is recorded before the first preflight: the gate reads the source (still in place) when it judges.
+      noteWriteOrigin(toRel, fromRel);
       preflightNoteWrite(toAbs, first.scannedRaw);
       for (const r of first.backlinks.pending) preflightNoteWrite(r.abs, r.text);
       requireConfirmation(ctx, "move_note", input, crossFolder || overwriteExisting, {
@@ -352,6 +354,7 @@ export function createCopyNoteTool(deps: M1Deps): ToolDefinition {
         metrics: deps.metrics,
       }).content;
       // The write gate judges the final bytes before the confirmation is spent and before any trash.
+      noteWriteOrigin(toRel, fromRel);
       preflightNoteWrite(toAbs, scannedRaw);
       // Overwriting an existing destination is a conditional-HITL, recoverable op — mirror
       // move_note: require confirmation, then soft-delete the destination first so its prior

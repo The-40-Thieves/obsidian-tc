@@ -1,13 +1,19 @@
 // bulk_move_notes' PLAN: every note a batch of moves rewrites, proven and scanned, before anything
 // moves. Split out of bulk-tools.ts so that file stays under the line ceiling; see planMoves.
 import { existsSync } from "node:fs";
-import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  err,
+  ObsidianTcError,
+  type VaultMemoryDefenseConfig,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { enforceMemoryDefenseOnMovedBytes } from "../../experiential/memory-defense";
 import type { MetricsRecorder } from "../../metrics/registry";
 import type { ImmutableRewriteSkips } from "../../vault/acl-path";
 import { buildVaultIndex, resolveTarget, type VaultIndex } from "../../vault/links";
 import { type PlannedRewrite, plannedRewrite, RewriteScan } from "../../vault/move-plan";
+import { readNote } from "../../vault/notes-io";
 import { resolveVaultPath } from "../../vault/paths";
+import { noteWriteOrigin, preflightNoteWrite } from "../../vault/write-gate";
 
 function basenameNoExt(p: string): string {
   const b = p.includes("/") ? p.slice(p.lastIndexOf("/") + 1) : p;
@@ -62,6 +68,31 @@ export interface MovesPlan {
 // The REPORT is not part of that carve-out: `perMove`/`total` count only links in notes the caller
 // may read (`visible`), and `hidden` says a note the caller cannot see also held links — a flag, never
 // a number or a path, so the difference cannot be used to probe a hidden note's links.
+/** dry_run's write-gate verdict per row, with nothing written: each row the gate would refuse gets
+ *  `would_block`, the convention_blocked error the real run raises on it. The real run judges the same
+ *  rows against the same source baselines and refuses the batch whole. */
+export function markWouldBlock(
+  root: string,
+  rows: {
+    ok: boolean;
+    fromRel?: string;
+    toRel?: string;
+    would_block?: ReturnType<ObsidianTcError["toJSON"]>;
+  }[],
+): void {
+  for (const r of rows) {
+    if (!r.ok || !r.fromRel || !r.toRel) continue;
+    try {
+      const { raw } = readNote(resolveVaultPath(root, r.fromRel));
+      noteWriteOrigin(r.toRel, r.fromRel);
+      preflightNoteWrite(resolveVaultPath(root, r.toRel), raw);
+    } catch (e) {
+      if (e instanceof ObsidianTcError && e.code === "convention_blocked")
+        r.would_block = e.toJSON();
+    }
+  }
+}
+
 export function planMoves(args: {
   root: string;
   moveMap: Map<string, string>;
