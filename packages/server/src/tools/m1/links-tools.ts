@@ -1,5 +1,6 @@
 // Domain 5 — Links / backlinks / graph (G2.1 r2). Six tools: get_outgoing_links,
-// get_backlinks, find_orphans, find_unresolved_links, rewrite_link, prune_hub_links.
+// get_backlinks, find_unresolved_links, rewrite_link, prune_hub_links (find_orphans lives in
+// orphans-tools.ts).
 // Resolution follows Obsidian (exact path, then basename shortest-path-wins) over
 // the read-ACL-visible note set, so notes outside the caller's read scope are
 // invisible to the graph. rewrite_link and prune_hub_links default to dry_run
@@ -39,7 +40,6 @@ import {
   originOf,
   readableNotes,
   scanBacklinksSteps,
-  scanOrphansSteps,
   scanUnresolvedSteps,
 } from "../wiki-scan";
 import { defineTool } from "./define";
@@ -114,15 +114,6 @@ const GetBacklinksOutput = z.object({
       ...originShape,
     }),
   ),
-});
-
-const FindOrphansOutput = z.object({
-  ...scanWarningsShape,
-  vault: z.string(),
-  total: z.number().int(),
-  truncated: z.boolean(),
-  next_cursor: z.string().nullable(),
-  orphans: z.array(z.string()),
 });
 
 const FindUnresolvedLinksOutput = z.object({
@@ -388,55 +379,6 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
                 ...(b.source === "property" ? { source: b.source, property: b.property } : {}),
               }))
             : backlinks,
-        };
-      },
-    }),
-
-    defineTool({
-      name: "find_orphans",
-      domain: "links",
-      description:
-        "Find notes that nothing else links to (optionally also requiring no outgoing links); a link in a property counts. A note whose frontmatter is not valid YAML does not fail the scan: its body is still read and it is named in `warnings`.",
-      inputSchema: z
-        .object({
-          vault: VaultId,
-          folder: VaultPath.optional(),
-          limit: z.number().int().positive().max(5000).default(DEFAULT_SCAN_LIMIT),
-          cursor: z.string().optional(),
-          require_no_outgoing: z.boolean().default(false),
-        })
-        .strict(),
-      outputSchema: FindOrphansOutput,
-      requiredScopes: ["read:notes"],
-      handler: async (input, ctx) => {
-        const v = deps.vaultRegistry.resolve(input.vault);
-        const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
-        const warnings = new ScanWarnings();
-        const orphans = await drainYielding(
-          scanOrphansSteps(
-            {
-              root: v.root,
-              acl: ctx.acl,
-              grantedScopes: ctx.grantedScopes,
-              wikiFolder: v.wikiFolder,
-              wikiFolders: v.wikiFolders,
-              rawFolders: v.rawFolders,
-            },
-            warnings,
-            { folder: sub, requireNoOutgoing: input.require_no_outgoing },
-          ),
-          ctx.signal,
-        );
-        const skip = offsetOf(input.cursor);
-        const page = orphans.slice(skip, skip + input.limit);
-        const truncated = orphans.length > skip + input.limit;
-        return {
-          ...warnings.out(),
-          vault: v.id,
-          total: orphans.length,
-          truncated,
-          next_cursor: nextOffsetCursor(skip, page.length, truncated),
-          orphans: page,
         };
       },
     }),

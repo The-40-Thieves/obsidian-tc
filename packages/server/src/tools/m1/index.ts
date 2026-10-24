@@ -7,6 +7,7 @@ import { buildGraphAnalyticsTools } from "./graph-analytics-tools";
 import { buildGraphHealthTools } from "./graph-health-tools";
 import { buildLinksTools } from "./links-tools";
 import { buildNotesTools } from "./notes-tools";
+import { buildOrphansTools } from "./orphans-tools";
 import { buildProvenanceTools } from "./provenance-tools";
 import { buildRegistryTools } from "./registry-tools";
 import type { M1Deps } from "./shared";
@@ -25,6 +26,7 @@ export function registerM1Tools(registry: ToolRegistry, deps: M1Deps): void {
   for (const tool of buildFrontmatterTools(deps)) registry.register(tool);
   for (const tool of buildTagsTools(deps)) registry.register(tool);
   for (const tool of buildLinksTools(deps)) registry.register(tool);
+  for (const tool of buildOrphansTools(deps)) registry.register(tool);
   // THE-452: graph analytics over the persisted vault_edges graph (read-only, never ranking).
   for (const tool of buildGraphAnalyticsTools()) registry.register(tool);
   for (const tool of buildGraphHealthTools(deps)) registry.register(tool);

@@ -9,7 +9,7 @@
 //    answers neither question: a reference note edited once and read weekly is not stale, and a
 //    draft edited yesterday and never read is not fresh in the sense a reader cares about.
 //
-// 2. "ORPHAN" HAS NO PERSISTED FORM. `find_orphans` (tools/m1/links-tools.ts) walks the filesystem;
+// 2. "ORPHAN" HAS NO PERSISTED FORM. `find_orphans` (tools/m1/orphans-tools.ts) walks the filesystem;
 //    it is accurate but slow and needs vault FS access. This pass uses vault_edges DEGREE instead:
 //    DB-only, cheap, and available offline. The difference matters and is not hidden — a note whose
 //    only inbound links are UNRESOLVED (pointing at a path that does not exist, so no edge row was
