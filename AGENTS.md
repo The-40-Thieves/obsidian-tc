@@ -24,13 +24,13 @@ workspaces. See `docs/agents/domain.md`.
 
 Cloud agent VMs (Google Jules, Codex cloud and similar) do not preinstall Bun. Install the pinned
 version first; the pin lives in `mise.toml` and `packageManager` in `package.json`, which must
-agree (currently `1.4.3`):
+agree (currently `1.4.4`):
 
 ```bash
 export BUN_INSTALL="$HOME/.bun"   # some VMs can't write the installer's default location
-curl -fsSL https://bun.sh/install | bash -s "bun-v1.4.3"
+curl -fsSL https://bun.sh/install | bash -s "bun-v1.4.4"
 export PATH="$BUN_INSTALL/bin:$PATH"
-bun --version   # must print 1.4.3
+bun --version   # must print 1.4.4
 bun install --frozen-lockfile
 ```
 
