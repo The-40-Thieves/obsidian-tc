@@ -3,13 +3,8 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  CHECKED,
-  expectMissingRequired,
-  STATUS_RULES,
-  type TestVault,
-  withVault,
-} from "./conventions-helpers";
+import { CHECKED, expectMissingRequired, STATUS_RULES, withVault } from "./conventions-helpers";
+import type { TestVault } from "./m1-helpers";
 import { makeWikiHarness } from "./wiki-test-helpers";
 
 const MEETING = "meetings/SCHEMA.md";
