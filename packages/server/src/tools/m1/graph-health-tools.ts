@@ -166,6 +166,15 @@ const AuditProvenanceOutput = z.object({
   // Keyed by top-level folder name — dynamic, hence z.record rather than a fixed shape.
   by_folder: z.record(z.string(), z.object({ scanned: z.number(), missing: z.number() })),
   missing: z.array(z.string()),
+  // GH #1334: notes without the field whose body cites evidence (URL, footnote, Sources section).
+  body_only: z.array(
+    z.object({
+      path: z.string(),
+      evidence: z.array(z.enum(["url", "footnote", "sources_section"])),
+    }),
+  ),
+  body_only_count: z.number(),
+  skipped_by_type: z.number(),
   truncated: z.boolean(),
 });
 
@@ -437,13 +446,14 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
       name: "audit_provenance",
       domain: "knowledge",
       description:
-        "Provenance audit: flag claim-bearing notes that lack a 'sources' frontmatter field (the evidence a note's claims rest on), and report coverage of sources/confidence/verified across the readable note set. Read-only. Excludes daily notes, templates, and index files by default; tune scope with include/exclude globs and the field name. response_format=concise drops the field echo, with_provenance and the by_folder breakdown.",
+        "Provenance audit: flag claim-bearing notes that lack a 'sources' frontmatter field and cite nothing in the body. A note with no sources field but a URL, a footnote definition or a Sources/References section with a list or link is reported as cited in body only (body_only), not missing. Reports coverage of sources/confidence/verified across the readable note set. Read-only. Excludes daily notes, templates, and index files by default; tune scope with include/exclude globs, the field name, and types (only notes whose frontmatter type matches are claim-bearing; the rest are counted in skipped_by_type). response_format=concise drops the field echo, with_provenance and the by_folder breakdown.",
       inputSchema: z
         .object({
           vault: VaultId,
           field: z.string().min(1).default("sources"),
           include: z.array(z.string()).max(64).optional(),
           exclude: z.array(z.string()).max(64).optional(),
+          types: z.array(z.string().min(1)).min(1).max(64).optional(),
           limit: z.number().int().positive().max(2000).default(100),
           ...ResponseFormatInput,
         })
@@ -464,13 +474,24 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
               rawFolders: v.rawFolders,
             },
             warnings,
-            { field: input.field, include: input.include, exclude: input.exclude },
+            {
+              field: input.field,
+              include: input.include,
+              exclude: input.exclude,
+              types: input.types,
+            },
           ),
           ctx.signal,
         );
-        const { scanned, withField, withConfidence, withVerified, missing, byFolder } = scan;
+        const { scanned, withField, withConfidence, withVerified, missing, bodyOnly } = scan;
+        const { byFolder, skippedByType } = scan;
         const field = input.field;
         const round = (n: number): number => Number(n.toFixed(3));
+        const bodyFields = {
+          body_only: bodyOnly.slice(0, input.limit),
+          body_only_count: bodyOnly.length,
+          skipped_by_type: skippedByType,
+        };
         if (resolveResponseFormat(input, deps.responseFormat) === "concise")
           return {
             ...warnings.out(),
@@ -481,6 +502,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
             confidence_coverage: scanned ? round(withConfidence / scanned) : 0,
             verified_coverage: scanned ? round(withVerified / scanned) : 0,
             missing: missing.slice(0, input.limit),
+            ...bodyFields,
             truncated: missing.length > input.limit,
           };
         return {
@@ -499,6 +521,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
               .map(([k, s]) => [k, s]),
           ),
           missing: missing.slice(0, input.limit),
+          ...bodyFields,
           truncated: missing.length > input.limit,
         };
       },

@@ -38,20 +38,41 @@ export function stripAsciiIndent(line: string): { col: number; rest: string } {
 export function matchHeadingBoundary(line: string): { level: number; title: string } | null {
   const { col, rest } = stripAsciiIndent(line);
   if (col > 3) return null;
+  // Written as plain scans, not one regex: `(.*?)[ \t]*$` and `[ \t]+#+[ \t]*$` are quadratic on a
+  // long space run inside a title (about 5 s for 50k spaces), and a note body is attacker-written.
+  // A line break inside the line is never a heading (`.` in the old pattern did not match it).
+  if (/[\n\r\u2028\u2029]/.test(rest)) return null;
+  let level = 0;
+  while (rest[level] === "#") level++;
+  if (level < 1 || level > 6) return null;
   // Pre-merge U2: the separator after the hashes is ASCII space/tab or end of line — `\s` also
   // accepted NBSP and friends, which turned a non-heading into a section boundary.
-  const m = /^(#{1,6})(?:[ \t]+(.*?))?[ \t]*$/.exec(rest);
-  if (!m) return null;
+  const after = rest.slice(level);
+  if (after !== "" && after[0] !== " " && after[0] !== "\t") return null;
+  const body = trimEndAsciiSpace(after.replace(/^[ \t]+/, ""));
+  // Pre-merge U4: a remainder that is NOTHING BUT a hash run is the closing sequence of an EMPTY
+  // heading (CommonMark: `### ###` is an empty h3); untreated, the title would read `"##"`.
+  if (/^#+$/.test(body)) return { level, title: "" };
   // Pre-merge U3: an ATX closing sequence (`## A ##`) is syntax, not title text — it must be
   // preceded by a space or tab, so a trailing hash run written flush against the text (`## A#`)
   // stays part of the title. Stripped here, in the ONE shared matcher, so every consumer agrees:
   // boundary scan, anchor target, ambiguity count, and the duplicate-heading drop.
-  // Pre-merge U4: a remainder that is NOTHING BUT a hash run is the closing sequence of an EMPTY
-  // heading (CommonMark: `### ###` is an empty h3); the strip above cannot see it, its separator
-  // having been consumed by this regex's own `[ \t]+` — untreated, the title reads `"##"`.
-  const rest2 = m[2] ?? "";
-  const title = /^#+[ \t]*$/.test(rest2) ? "" : rest2.replace(/[ \t]+#+[ \t]*$/, "");
-  return { level: (m[1] ?? "").length, title: title.trim() };
+  let hashStart = body.length;
+  while (hashStart > 0 && body[hashStart - 1] === "#") hashStart--;
+  let title = body;
+  if (hashStart < body.length) {
+    let wsStart = hashStart;
+    while (wsStart > 0 && (body[wsStart - 1] === " " || body[wsStart - 1] === "\t")) wsStart--;
+    if (wsStart < hashStart) title = body.slice(0, wsStart);
+  }
+  return { level, title: title.trim() };
+}
+
+/** `s` without trailing ASCII space and tab (a plain scan: no regex backtracking). */
+function trimEndAsciiSpace(s: string): string {
+  let end = s.length;
+  while (end > 0 && (s[end - 1] === " " || s[end - 1] === "\t")) end--;
+  return s.slice(0, end);
 }
 
 export interface HeadingHit {
