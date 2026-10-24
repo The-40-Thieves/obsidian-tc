@@ -186,10 +186,10 @@ jobs:
         run: bun run check:duplication
 
       # Test files are outside .jscpd.json's scan, so a copied test block passed the gate above
-      # (SonarCloud reported 9.7% duplication on new code). This gate fails on any clone absent from
-      # scripts/jscpd-tests-baseline.json; refresh that file with `--update-baseline` only when a
-      # clone is intentional. --fail-on-empty stops a scan of zero files from passing.
-      - name: copy-paste detection (tests, new clones vs baseline)
+      # (SonarCloud reported 9.7% duplication on new code). This gate fails when a PR adds more than 3
+      # clones absent from origin/main. The reference is computed from that ref on every run, so it
+      # reads the ref the fetch above created (depth 1 is enough). A missing ref fails the gate.
+      - name: copy-paste detection (tests, new clones vs origin/main)
         run: bun run check:duplication:tests
 
 

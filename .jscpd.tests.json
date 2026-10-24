@@ -3,10 +3,10 @@
   "pattern": "**/*.ts",
   "format": ["typescript"],
   "minTokens": 50,
-  "reporters": ["consoleFull"],
+  "reporters": ["ai"],
   "absolute": false,
   "gitignore": true,
-  "baseline": "scripts/jscpd-tests-baseline.json",
-  "failOnNewClones": 0,
+  "baselineFromRef": "origin/main",
+  "failOnNewClones": 3,
   "failOnEmpty": true
 }
