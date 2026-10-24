@@ -708,7 +708,7 @@ is unchanged: it is the hard ceiling that refuses an oversized response, not a p
 | `list_notes`, `list_attachments` | 100 | `next_cursor` |
 | `find_notes_by_tag`, `find_notes_by_property`, `get_backlinks`, `find_orphans`, `find_unresolved_links` | 100 | `next_cursor` (an offset; pass it as `cursor` with the same arguments) |
 | `search_text`, `search_regex`, `search_jsonlogic`, `search_vault`, `list_tasks` | 25 | `next_cursor` |
-| `find_link_cycles` | 10 cycles of at most `max_length` (10) links; `skipped_longer` counts the rest | raise `limit` or `max_length` |
+| `find_link_cycles` | 10 cycles of at least `min_length` (3) and at most `max_length` (10) links; `skipped_shorter` and `skipped_longer` count the rest, and `total` counts every cycle found (`truncated` marks a lower bound) | raise `limit`, lower `min_length`, or raise `max_length` |
 | `vault_graph_search`, `knowledge_search`, `diagnose_retrieval` | `final_top_k` 10 | raise `final_top_k` |
 | `list_commands`, `makemd_query`, `query_datacore`, `search_omnisearch`, `knowledge_get_critical`, `list_capture_queue`, `get_session_traces`, `query_base` | 50 to 100 | `cursor` where the tool has one, else a larger `limit` |
 

@@ -34,9 +34,10 @@ describe("THE-375 vault health + link recommendation", () => {
   });
 
   it("find_link_cycles detects a circular chain", async () => {
+    // A two-note loop is structural and skipped by default (min_length 3); min_length 2 keeps it.
     const v = makeTestVault({ files: { "a.md": "[[b]]", "b.md": "[[a]]" } });
     try {
-      const r = await v.call("find_link_cycles", { vault: "test" });
+      const r = await v.call("find_link_cycles", { vault: "test", min_length: 2 });
       if (r.ok) expect((r.data as { total: number }).total).toBeGreaterThanOrEqual(1);
     } finally {
       v.cleanup();

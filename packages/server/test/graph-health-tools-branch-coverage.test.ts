@@ -140,7 +140,7 @@ describe("THE-602 graph-health-tools branch coverage", () => {
   });
 
   describe("findCycles bound (lines 84/88/101, branches 13.0/15.0/20.0)", () => {
-    it("stops enumerating once `limit` cycles are found even when more cycles exist", async () => {
+    it("returns one page of `limit` cycles but counts every cycle in `total`", async () => {
       const v = makeTestVault({
         files: {
           // Two independent 2-cycles: a<->b and c<->d.
@@ -151,12 +151,13 @@ describe("THE-602 graph-health-tools branch coverage", () => {
         },
       });
       try {
-        const r = await v.call("find_link_cycles", { vault: "test", limit: 1 });
+        const r = await v.call("find_link_cycles", { vault: "test", limit: 1, min_length: 2 });
         expect(r.ok).toBe(true);
         if (r.ok) {
-          const d = r.data as { total: number; cycles: string[][] };
-          expect(d.total).toBe(1);
+          const d = r.data as { total: number; cycles: string[][]; truncated: boolean };
+          expect(d.total).toBe(2);
           expect(d.cycles.length).toBe(1);
+          expect(d.truncated).toBe(false);
         }
       } finally {
         v.cleanup();
