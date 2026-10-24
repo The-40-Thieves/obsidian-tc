@@ -370,7 +370,9 @@ describe("skippedEmbedderPackages: npm skipped the optional embedder", () => {
   });
 });
 
-// npm stand-in: installs obsidian-tc, whose optionalDependencies declare the embedder. It installs
+// npm stand-in: installs obsidian-tc. It declares the embedder as an optional dependency only when
+// FAKE_NPM_OBSIDIAN_DECLARES is 1 (the 1.33.1 shape); the next release does not, and the embedder then
+// arrives only from the explicit --npm-extra spec. It installs
 // the embedder only when the test asks (FAKE_NPM_EMBEDDER), and the embedder's package.json declares
 // the host runtime only when FAKE_NPM_DECLARE_RUNTIME is set, which is what a skipped optional
 // dependency looks like from the outside. The host runtime package is installed on FAKE_NPM_RUNTIME.
@@ -385,7 +387,11 @@ const pkg = join(nm, "obsidian-tc");
 mkdirSync(pkg, { recursive: true });
 writeFileSync(
   join(pkg, "package.json"),
-  JSON.stringify({ name: "obsidian-tc", version: "1.33.1", optionalDependencies: { [EMBEDDER]: "1.33.1" } }),
+  JSON.stringify({
+    name: "obsidian-tc",
+    version: "1.33.1",
+    ...(process.env.FAKE_NPM_OBSIDIAN_DECLARES === "1" ? { optionalDependencies: { [EMBEDDER]: "1.33.1" } } : {}),
+  }),
 );
 const bin = join(nm, ".bin");
 mkdirSync(bin, { recursive: true });
@@ -440,7 +446,11 @@ describe.skipIf(!NATIVE_HOST || process.platform === "win32")(
           {
             cwd: PACKAGE_ROOT,
             timeoutMs: 120_000,
-            env: { PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`, ...env },
+            env: {
+              PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`,
+              FAKE_NPM_OBSIDIAN_DECLARES: "1",
+              ...env,
+            },
           },
         );
         const report = JSON.parse(readFileSync(reportFile, "utf8")) as ReturnType<
@@ -463,7 +473,7 @@ describe.skipIf(!NATIVE_HOST || process.platform === "win32")(
       expect(r.code, r.stderr).toBe(1);
       expect(prepare(report)).toMatchObject({ status: "fail" });
       expect(prepare(report)?.detail).toContain(
-        "npm skipped the optional embedder for this platform, so semantic search cannot work",
+        "npm did not install the embedder packages semantic search needs",
       );
       expect(prepare(report)?.detail).toMatch(
         /: @the-40-thieves\/obsidian-tc-embedder-local not installed$/,
@@ -482,7 +492,7 @@ describe.skipIf(!NATIVE_HOST || process.platform === "win32")(
       expect(r.code, r.stderr).toBe(1);
       expect(prepare(report)).toMatchObject({ status: "fail" });
       expect(prepare(report)?.detail).toMatch(
-        /npm skipped the optional embedder.*-\w+-\w+ not installed/,
+        /npm did not install the embedder packages.*-\w+-\w+ not installed/,
       );
     });
 
@@ -500,6 +510,30 @@ describe.skipIf(!NATIVE_HOST || process.platform === "win32")(
         FAKE_NPM_EMBEDDER: "1",
         FAKE_NPM_RUNTIME: "0",
         FAKE_NPM_DECLARE_RUNTIME: "0",
+      });
+      expect(prepare(report)).toMatchObject({ status: "pass" });
+    });
+
+    it("the next release (no declared embedder) fails prepare when the explicit embedder was not installed", () => {
+      const { r, report } = runNpmPrepare({
+        FAKE_NPM_OBSIDIAN_DECLARES: "0",
+        FAKE_NPM_EMBEDDER: "0",
+        FAKE_NPM_RUNTIME: "0",
+        FAKE_NPM_DECLARE_RUNTIME: "0",
+      });
+      expect(r.code, r.stderr).toBe(1);
+      expect(prepare(report)).toMatchObject({ status: "fail" });
+      expect(prepare(report)?.detail).toMatch(
+        /: @the-40-thieves\/obsidian-tc-embedder-local not installed$/,
+      );
+    });
+
+    it("the next release passes prepare when the explicit embedder spec installed it", () => {
+      const { report } = runNpmPrepare({
+        FAKE_NPM_OBSIDIAN_DECLARES: "0",
+        FAKE_NPM_EMBEDDER: "1",
+        FAKE_NPM_RUNTIME: "1",
+        FAKE_NPM_DECLARE_RUNTIME: "1",
       });
       expect(prepare(report)).toMatchObject({ status: "pass" });
     });

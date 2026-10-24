@@ -6,10 +6,10 @@ description: The embeddings provider — zero-config local by default, or point 
 Semantic search and graph-seeded retrieval both need vectors, produced by an **embeddings
 provider**. `embeddings` is absent from a minimal config on purpose: the default provider is
 `local`, a bundled, fully offline dense embedder — no Ollama, no API key, no network call after
-the first run. **This works today for a source checkout of this monorepo** (`git clone` +
-`bun install`) and the Docker image; on the published npm package it is not yet reachable pending
-the package's first npm publish (a deferred owner action — see [Availability by install
-method](#availability-by-install-method) below for the exact current state and the workaround).
+the first run. **On npm it is an explicit install:** `obsidian-tc` does not install the embedder package,
+so run `npm install -g @the-40-thieves/obsidian-tc-embedder-local@<same version>` (or let `obsidian-tc setup`
+offer to). A source checkout and the Docker image need nothing extra; see [Availability by install
+method](#availability-by-install-method) below for the exact current state.
 
 ## Zero configuration: `local`
 
@@ -21,7 +21,7 @@ method](#availability-by-install-method) below for the exact current state and t
 
 With no `embeddings` block at all, indexing and semantic search work immediately, PROVIDED the
 `local` provider resolves on this install (see [Availability by install
-method](#availability-by-install-method) below — today, that means a source checkout). On its
+method](#availability-by-install-method) below — on npm that means the embedder package is installed alongside it). On its
 first embed call, the server downloads a quantized ONNX model (~137 MB)
 ([`nomic-embed-text-v1.5`](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5), Apache-2.0
 licensed, 768 dimensions) from Hugging Face, checksum-verifies it file-by-file, and caches it
@@ -34,7 +34,7 @@ Runtime: [`@huggingface/transformers`](https://www.npmjs.com/package/@huggingfac
 v4 (Transformers.js) running on CPU, via the optional
 `@the-40-thieves/obsidian-tc-embedder-local` package — the same "small optional package, resolved
 at runtime, never a hard dependency of the server" shape as the [local
-reranker](/configuration/config-yaml/#reranker). It is reachable from the npm install, the
+reranker](/configuration/config-yaml/#reranker). It is reachable from the npm install (once the embedder is installed), the
 standalone `bun --compile` binary (compiled in) and the one-click `.mcpb` bundle (bundled), with the
 one exception of the macOS x64 binary (see [Availability by install
 method](#availability-by-install-method) below).
@@ -85,8 +85,8 @@ and a model2vec/potion static-embedding model has no Transformers.js-loadable ON
 
 `local` resolves the optional `@the-40-thieves/obsidian-tc-embedder-local` package the same way
 the local reranker resolves its own package — a published-npm route, a source-checkout route (for
-anyone developing inside the monorepo), and an explicit-path escape hatch. The package is published to npm, so a
-normal install resolves it. The published embedder is generated: Transformers.js and the ORT
+anyone developing inside the monorepo), and an explicit-path escape hatch. The package is published to npm, but `npm install obsidian-tc` does not install it: install it at the same
+version, and the resolution below then finds it. The published embedder is generated: Transformers.js and the ORT
 JavaScript shim are bundled into the base package, which has no runtime dependencies, and six
 exact-pinned optional packages carry the platform runtimes. npm's `os`/`cpu` filters install only
 the host package (Linux packages also require glibc). Those native files cannot be loaded from
@@ -102,7 +102,7 @@ reranker has no such packaging, so it stays unreachable there. Practically, toda
 | --- | --- |
 | A source checkout of this monorepo (`git clone` + `bun install`) | Works — resolves via the source-checkout route once `packages/embedder-local` is built. A root `bun install` + `bun run build` does not build it, so run `(cd packages/embedder-local && bun install && bun run build)`; the root build warns with these commands when it is missing. CI does this automatically. |
 | Docker (GHCR) | **Works** — the image builds `packages/embedder-local` from source in the same stage as the server and copies its built package (dist + `node_modules`) into the same relative path the source-checkout resolution route walks for, so the identical route resolves inside the container. |
-| npm (`npm install -g obsidian-tc`) | **Works.** A fresh install pulls the generated embedder base and only `@the-40-thieves/obsidian-tc-embedder-local-<os>-<arch>` for the host. The first-run matrix (`ci-first-run-smoke`) runs a real semantic search on the published package on Linux, macOS and Windows. Installs with `--omit=optional`/`--no-optional` omit the local embedder runtime. |
+| npm (`npm install -g obsidian-tc`) | **Works once the embedder is installed.** `obsidian-tc` does not install `@the-40-thieves/obsidian-tc-embedder-local` by default. Install it with `npm install -g @the-40-thieves/obsidian-tc-embedder-local@<same version>`, or let `obsidian-tc setup` offer to. Then it pulls the generated embedder base and only `@the-40-thieves/obsidian-tc-embedder-local-<os>-<arch>` for the host. The first-run matrix (`ci-first-run-smoke`) runs a real semantic search on the published package on Linux, macOS and Windows. Installing the embedder with `--omit=optional`/`--no-optional` omits its host runtime. |
 | Standalone binary (`bun --compile`) | **Works** on Linux x64 and arm64, macOS arm64, macOS x64 and Windows x64: compiled in, about 14 MB larger. macOS x64 uses WASM. |
 | One-click `.mcpb` bundle | **Works** on Linux x64 and arm64, macOS arm64, macOS x64 and Windows x64 (the bundle carries every required ONNX runtime; it is about 66 MB). |
 
@@ -112,7 +112,7 @@ search stays fully functional). `obsidian-tc doctor`'s check (a doctor check id,
 from a source checkout where the package simply hasn't been built yet (a one-command fix) or when
 the platform genuinely has no `onnxruntime-node` prebuild AND another provider is already
 configured, and **FAIL** — with remediation naming the exact fix — when the platform IS supported
-but the package still cannot resolve (for example an npm install that skipped optional dependencies). A `local` embedder that resolves is still a WARN in a plain run: resolving it never loads the model. `obsidian-tc doctor --probe` embeds one probe string through the configured provider and reports whether it answered.
+but the package still cannot resolve (for example an embedder package that was never installed alongside obsidian-tc). A `local` embedder that resolves is still a WARN in a plain run: resolving it never loads the model. `obsidian-tc doctor --probe` embeds one probe string through the configured provider and reports whether it answered.
 
 ### Known gaps
 
