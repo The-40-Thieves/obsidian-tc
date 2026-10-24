@@ -39,7 +39,6 @@ const CONVENTIONS_PENDING = new Set<string>([
 const NOTE_WRITERS_WITHOUT_PATH_ACL = new Set<string>([
   "append_to_periodic_note",
   "find_or_create_periodic_note",
-  "rewrite_link",
 ]);
 
 // Mutating tools that write no Markdown note the conventions check can judge.
@@ -197,13 +196,21 @@ describe("conventions tool coverage", () => {
         );
       })
       .map((t) => t.name);
-    // A listed name that is no longer a mutating note writer is stale: it would hide a real gap later.
-    const stale = [...CONVENTIONS_PENDING, ...CONVENTIONS_EXEMPT.keys()].filter(
-      (n) => !writers.includes(n),
-    );
-    // A tool both pending and declaring is wired: it belongs in neither list any more.
+    // A stale entry would hide a real gap later. A pending tool must still be a note writer; an
+    // exemption needs only a registered mutating tool, since a pathless one (rewrite_link) is never
+    // in `writers` and must not be listed as a writer just to keep its exemption alive.
+    const mutating = new Set(defs.filter(isMutatingCall).map((t) => t.name));
+    const stale = [
+      ...[...CONVENTIONS_PENDING].filter((n) => !writers.includes(n)),
+      ...[...CONVENTIONS_EXEMPT.keys()].filter((n) => !mutating.has(n)),
+    ];
+    // A tool listed pending or exempt that declares conventions is wired: it belongs in neither list.
     const both = defs
-      .filter((t) => CONVENTIONS_PENDING.has(t.name) && declaresConventions(t))
+      .filter(
+        (t) =>
+          (CONVENTIONS_PENDING.has(t.name) || CONVENTIONS_EXEMPT.has(t.name)) &&
+          declaresConventions(t),
+      )
       .map((t) => t.name)
       .sort();
     expect({ uncovered, stale, both }).toEqual({ uncovered: [], stale: [], both: [] });
