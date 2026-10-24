@@ -36,6 +36,7 @@ export interface GraphExpansionResult {
 
 /** 3. Literal graph expansion (skipped when the router fires). Score each expansion chunk by
  *  cosine to the query and gate at similarityThreshold (KMS semantic_chunks). */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 75); split when next modified
 export function expandGraph(input: GraphExpansionInput): GraphExpansionResult {
   const {
     db,

@@ -108,6 +108,7 @@ export interface IngestHighlightsResult {
  * marker; `block` — the highlight is skipped entirely rather than staged with a redacted
  * stand-in.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 88); split when next modified
 export function ingestHighlights(
   db: Database,
   vaultId: string,

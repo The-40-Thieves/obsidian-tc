@@ -337,6 +337,7 @@ function normalizeSlice(text: string, eol: string): string {
 
 /** Build the frontmatter YAML body: the LINE LIST rewrite this file opens with when `original`
  *  (the verbatim source) is given, a plain stringify of the caller's mapping when it is not. */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 70); split when next modified
 function emitFrontmatter(
   next: Frontmatter,
   original: string | null | undefined,

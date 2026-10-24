@@ -223,6 +223,7 @@ export function formatSetupOriginNotice(setupOrigin: string | undefined): string
   );
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 68); split when next modified
 export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
   const { config, embeddingsProviderExplicit } = resolveOrUsageExitWithProvenance(cmd.configPath);
   const busyTimeoutMs = config.db.busyTimeoutMs; // THE-935: short alias for every probe call below
@@ -330,8 +331,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
           (config.embeddings.provider === "model-tier" &&
             config.embeddings.modelTier?.full !== undefined),
         experiential: experientialEnabled,
-        // ACL-configured only when a rule/defaultScope actually exists, not merely declared — see
-        // hasAclRules above.
+        // ACL-configured only when a rule/defaultScope actually exists, not merely declared — see hasAclRules above.
         aclConfigured: hasAclRules(config.acl) || config.vaults.some((v) => hasAclRules(v.acl)),
         snapshots: config.snapshots.enabled,
         // The SCHEDULER's own predicate, mirrored. scheduler-wiring registers the sweep on exactly

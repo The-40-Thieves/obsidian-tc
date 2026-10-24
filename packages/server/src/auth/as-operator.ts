@@ -251,6 +251,7 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
     );
   });
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 56); split when next modified
   app.post("/oauth/login", async (c) => {
     if (!claimed()) return notClaimed(c);
     const form = await readForm(c);

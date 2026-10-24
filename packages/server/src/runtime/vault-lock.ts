@@ -2,7 +2,6 @@
 // Several MCP stdio processes against the same vault config previously all ran boot reconcile/
 // embed and watcher-driven index writes concurrently — an N-times CPU storm and a real
 // multi-writer race on one shared cache.db.
-//
 // Exactly one process becomes "leader": the one holding an UNCOMMITTED `BEGIN EXCLUSIVE`
 // transaction on a side SQLite file next to cache.db (`vault-lock.db`). Followers retry on a
 // jittered timer and promote when the leader's transaction releases — automatic on ANY holder
@@ -320,6 +319,7 @@ export async function startVaultLeaderElection(
     if (closed) return;
     retryTimer = setTimeout(
       () => {
+        // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 56); split when next modified
         void (async () => {
           if (closed) return;
           let acquired: Database | undefined;

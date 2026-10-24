@@ -224,6 +224,7 @@ function visible(
  * is not returned. Every returned window's path is readable, so a returned record always lists at
  * least the path it matched.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 53); split when next modified
 export function queryNoteProvenance(db: Database, opts: QueryOptions): QueryResult {
   const budget = opts.maxScanRows ?? DEFAULT_MAX_SCAN_ROWS;
   const bounds = db

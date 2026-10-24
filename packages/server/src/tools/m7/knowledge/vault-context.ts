@@ -77,6 +77,7 @@ export function createVaultContextTool(deps: M7Deps, retrieval: RetrievalRuntime
     outputSchema: ConciseableVaultContextOutput,
     requiredScopes: ["read:notes"],
     tags: ["knowledge", "search", "external-network"],
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 111); split when next modified
     handler: async (input, ctx) => {
       // The one owner-partitioned leg of an otherwise caller-independent tool (`caller IS ?` over
       // agent_episodes below). Not `principalOwned`: a sub-less credential keeps the rest of it.

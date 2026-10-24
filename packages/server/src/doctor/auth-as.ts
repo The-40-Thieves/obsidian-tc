@@ -67,6 +67,7 @@ export function authAsCheck(view: AuthAsView): Check {
   return {
     id: "auth.as",
     category: "config",
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 64); split when next modified
     run: (): CheckResult => {
       if (!view.enabled) {
         return {

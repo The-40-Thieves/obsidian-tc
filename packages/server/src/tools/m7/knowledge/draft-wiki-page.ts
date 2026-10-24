@@ -235,6 +235,7 @@ export function createDraftWikiPageTool(deps: M7Deps, retrieval: RetrievalRuntim
     outputSchema: DraftWikiPageOutput,
     requiredScopes: ["read:notes"],
     tags: ["knowledge", "search", "external-network"],
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 53); split when next modified
     handler: async (input, ctx) => {
       const v = deps.vaultRegistry.resolve(input.vault);
       const scope = { root: v.root, acl: ctx.acl, grantedScopes: ctx.grantedScopes };

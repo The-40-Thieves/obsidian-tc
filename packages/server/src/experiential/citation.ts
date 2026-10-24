@@ -292,6 +292,7 @@ export function countCitationCandidates(
   return count;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 99); split when next modified
 export async function inferCitations(opts: InferCitationsOptions): Promise<InferCitationsStats> {
   const th = {
     rouge: opts.thresholds?.rouge ?? 0.05,

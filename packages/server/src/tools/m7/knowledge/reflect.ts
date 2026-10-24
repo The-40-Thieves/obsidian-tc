@@ -77,6 +77,7 @@ export function createReflectTool(deps: M7Deps, retrieval: RetrievalRuntime): To
     outputSchema: ReflectOutput,
     requiredScopes: ["read:notes"],
     tags: ["knowledge", "external-network"],
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 63); split when next modified
     handler: async (input, ctx) => {
       // Persist is written only by the synthesis branch. Rejecting the combination here, before any
       // recall, is what stops it being silently ignored.

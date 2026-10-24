@@ -70,6 +70,7 @@ export function judges(eff: EffectiveConventions, path: string): boolean {
 }
 
 /** Warnings for one note. An effective set with no rules, or a skipped path, yields none. */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 52); split when next modified
 export function checkNote(
   eff: EffectiveConventions,
   path: string,
