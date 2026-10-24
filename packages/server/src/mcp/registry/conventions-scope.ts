@@ -249,7 +249,7 @@ interface CheckState {
 /** The vault-relative posix path of `abs` under `root`, or undefined when it is outside the root. */
 function vaultRelOf(root: string, abs: string): string | undefined {
   const r = relative(root, abs);
-  if (r === "" || r.startsWith("..") || isAbsolute(r)) return undefined;
+  if (r === "" || r === ".." || r.startsWith(`..${sep}`) || isAbsolute(r)) return undefined;
   try {
     return normalizeVaultPath(r.split(sep).join("/"));
   } catch {

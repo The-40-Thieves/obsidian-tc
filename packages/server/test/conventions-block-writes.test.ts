@@ -182,6 +182,23 @@ describe("write_note under a block rule", () => {
     );
   });
 
+  it("a name that starts with .. inside the vault is not treated as outside it (skipped as a dot-segment)", async () => {
+    await withVault(
+      { ...CHECKED, files: { [MEETING]: rules("block"), "SCHEMA.md": rules("block") } },
+      async (v) => {
+        // `..notes` is an ordinary folder name inside the vault. The gate must not read it as a parent
+        // segment; the engine then skips it for its leading dot, not for being outside the root.
+        const r = await v.call("write_note", {
+          vault: "test",
+          path: "..notes/m.md",
+          content: "x\n",
+        });
+        expect(r.ok ? "ok" : r.error.code).toBe("ok");
+        expect(v.read("..notes/m.md")).toBe("x\n");
+      },
+    );
+  });
+
   it("fails open when the check throws: the write lands and the fault is reported", async () => {
     const real = await vi.importActual<typeof import("../src/conventions/resolve")>(
       "../src/conventions/resolve",
