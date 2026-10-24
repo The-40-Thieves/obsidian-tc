@@ -2,6 +2,8 @@
 import { utimesSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { groupByFolderSteps } from "../src/tools/m1/orphans-tools";
+import { drainSteps } from "../src/util/scan-steps";
 import { makeTestVault } from "./m1-helpers";
 
 const day = (d: string): Date => new Date(`${d}T00:00:00.000Z`);
@@ -115,6 +117,30 @@ describe("find_orphans", () => {
       });
       expect(r.ok).toBe(true);
       if (r.ok) expect((r.data as { groups: unknown }).groups).toEqual([DAILY]);
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+describe("group_by=folder grouping yields between notes", () => {
+  // The grouping stats every orphan; on a large result a plain loop would hold the event loop after
+  // the scan had already handed it back. It is a step generator like the scan, yielding per note.
+  it("yields once per orphan and drains to the same groups", () => {
+    const v = vaultWithMtimes();
+    try {
+      const orphans = ["index.md", "loose.md", "daily/2026-01-01.md", "archive/old.md"];
+      const steps = groupByFolderSteps(v.root, orphans);
+      let yields = 0;
+      let r = steps.next();
+      for (; !r.done; r = steps.next()) yields += 1;
+      expect(yields).toBe(orphans.length);
+      expect(r.value.map((g) => [g.folder, g.count])).toEqual([
+        ["/", 2],
+        ["archive", 1],
+        ["daily", 1],
+      ]);
+      expect(drainSteps(groupByFolderSteps(v.root, orphans))).toEqual(r.value);
     } finally {
       v.cleanup();
     }

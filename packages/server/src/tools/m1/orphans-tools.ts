@@ -5,7 +5,7 @@ import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { DEFAULT_SCAN_LIMIT, nextOffsetCursor, offsetOf } from "../../util/paginate";
-import { drainYielding } from "../../util/scan-steps";
+import { drainYielding, type ScanSteps } from "../../util/scan-steps";
 import { statNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
@@ -28,10 +28,12 @@ const FolderGroups = z.array(
 type FolderGroup = z.infer<typeof FolderGroups>[number];
 
 /** Orphans grouped by top-level folder, biggest group first. Computed over the whole result, not the
- *  page. ISO 8601 UTC strings compare in time order, so min and max are plain string comparisons. */
-function groupByFolder(root: string, orphans: string[]): FolderGroup[] {
+ *  page. ISO 8601 UTC strings compare in time order, so min and max are plain string comparisons.
+ *  A step generator (one stat per step) so drainYielding hands the event loop back on large results. */
+export function* groupByFolderSteps(root: string, orphans: string[]): ScanSteps<FolderGroup[]> {
   const groups = new Map<string, Omit<FolderGroup, "folder">>();
   for (const p of orphans) {
+    yield;
     const slash = p.indexOf("/");
     const folder = slash < 0 ? "/" : p.slice(0, slash);
     const mtime = statNote(resolveVaultPath(root, p))?.mtime ?? null;
@@ -96,6 +98,10 @@ export function buildOrphansTools(deps: M1Deps): ToolDefinition[] {
           ),
           ctx.signal,
         );
+        const groups =
+          input.group_by === "folder"
+            ? await drainYielding(groupByFolderSteps(v.root, orphans), ctx.signal)
+            : undefined;
         const skip = offsetOf(input.cursor);
         const page = orphans.slice(skip, skip + input.limit);
         const truncated = orphans.length > skip + input.limit;
@@ -106,7 +112,7 @@ export function buildOrphansTools(deps: M1Deps): ToolDefinition[] {
           truncated,
           next_cursor: nextOffsetCursor(skip, page.length, truncated),
           orphans: page,
-          ...(input.group_by === "folder" ? { groups: groupByFolder(v.root, orphans) } : {}),
+          ...(groups !== undefined ? { groups } : {}),
         };
       },
     }),
