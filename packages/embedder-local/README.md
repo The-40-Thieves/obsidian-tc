@@ -39,7 +39,7 @@ omits the runtime and makes the local embedder unavailable; use Ollama or a host
 case. The committed `package.json` remains the source-build manifest and is not the published
 manifest.
 
-`packages/server` declares this package only as an exact-pinned optional dependency, and reaches it via a
+`packages/server` does not declare this package at all; it reaches it via a
 three-route resolution ladder of runtime `import()` calls (see "Resolution ladder" below and
 `packages/server/src/providers/registry.ts`'s `resolveLocalEmbedderModule`), and resolution failure
 degrades gracefully (the same behaviour an unreachable hosted embeddings provider has always had)
@@ -69,7 +69,7 @@ routes, in order, and never throws:
 | Route | When it applies |
 |---|---|
 | (i) explicit path | An absolute path to this package's built `dist/index.js`, for an npm-installed server pointed at a checkout of this package elsewhere. |
-| (ii) bare specifier (`@the-40-thieves/obsidian-tc-embedder-local`) | A normal `npm install obsidian-tc` installs the generated base plus the host's optional runtime package. A direct `bun link` remains useful while developing. |
+| (ii) bare specifier (`@the-40-thieves/obsidian-tc-embedder-local`) | Installing this package (`npm install @the-40-thieves/obsidian-tc-embedder-local@<same version>`) installs the generated base plus the host's optional runtime package. `npm install obsidian-tc` does not install it; `obsidian-tc setup` offers to. A direct `bun link` remains useful while developing. |
 | (iii) automatic source-checkout fallback | Works out of the box for a SOURCE CHECKOUT of the `obsidian-tc` monorepo, once step (1) above has run — `providers/registry.ts` resolves `packages/embedder-local/dist/index.js` relative to itself. |
 
 Every failed attempt is logged (`console.error`, one line per route) and surfaced by `obsidian-tc

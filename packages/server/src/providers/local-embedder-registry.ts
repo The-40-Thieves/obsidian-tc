@@ -10,17 +10,57 @@
 // never-throws-on-resolution-failure, why the source-checkout walk is bounded and
 // node_modules-aware) is identical and already spelled out there.
 import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { version as OWN_VERSION } from "../../package.json";
 import { embeddedEmbedder } from "../embeddings/embedded-embedder";
 import { extractEmbeddedRuntime } from "../embeddings/embedded-runtime";
 import type { EmbeddingProvider } from "../embeddings/provider";
+import {
+  currentInstallSite,
+  type EmbedderInstallSite,
+  embedderInstallHint,
+  LOCAL_EMBEDDER_PACKAGE,
+  planEmbedderInstall,
+} from "./embedder-install-plan";
 import { isUnderNodeModules, type SourceCheckoutResolution } from "./local-package-resolution";
 import type { EmbeddingsConfigLike, ResolveContext } from "./types";
 
-const LOCAL_EMBEDDER_PACKAGE = "@the-40-thieves/obsidian-tc-embedder-local";
+export { LOCAL_EMBEDDER_PACKAGE };
+
+/** The install command every "not installed" message prints (setup, doctor, boot): the one planned
+ *  for this obsidian-tc's install layout (embedder-install-plan.ts). Only a layout the planner refuses
+ *  gets both forms, because no message can tell which one is right there. */
+export function localEmbedderInstallHint(site: EmbedderInstallSite = currentInstallSite()): string {
+  const plan = planEmbedderInstall(site);
+  if (plan !== undefined) return embedderInstallHint(plan);
+  const spec = `${LOCAL_EMBEDDER_PACKAGE}@${OWN_VERSION}`;
+  return `npm install --save-exact ${spec} in your project, or npm install --global ${spec} if obsidian-tc is installed globally`;
+}
+
+/** The version of the embedder that resolves from this module's location, or undefined when it
+ *  does not resolve. The embedder is released in lockstep, so a different version is a stale pair. */
+export function installedEmbedderVersion(): string | undefined {
+  try {
+    const requireFn = createRequire(import.meta.url);
+    return (requireFn(`${LOCAL_EMBEDDER_PACKAGE}/package.json`) as { version?: string }).version;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The warning for an installed embedder whose version is not obsidian-tc's own; undefined when they
+ *  match or no embedder was found. Shared by boot (a log line) and doctor (a warning). */
+export function embedderVersionSkew(
+  found: string | undefined,
+  site?: EmbedderInstallSite,
+): string | undefined {
+  if (found === undefined || found === OWN_VERSION) return undefined;
+  return `${LOCAL_EMBEDDER_PACKAGE}@${found} is installed, but this obsidian-tc is ${OWN_VERSION}. Install the matching embedder: ${localEmbedderInstallHint(site)}`;
+}
 
 function isEmbedderLocalAnchor(packageJsonPath: string): boolean {
   try {
@@ -236,10 +276,15 @@ export async function resolveLocalEmbedderModule(
  *  embeddings is the schema DEFAULT, so the same unresolvable outcome needs to read very
  *  differently on a developer's own not-yet-built checkout vs. a genuinely broken shipped
  *  install — see embeddings-buildable.ts's own use of this field). */
-export async function probeLocalEmbedderResolution(
-  ctx: ResolveContext = {},
-): Promise<{ ok: boolean; route?: string; attempts: string[]; inSourceCheckout: boolean }> {
+export async function probeLocalEmbedderResolution(ctx: ResolveContext = {}): Promise<{
+  ok: boolean;
+  route?: string;
+  attempts: string[];
+  inSourceCheckout: boolean;
+  embedderVersion?: string;
+}> {
   const r = await resolveLocalEmbedderModule({}, ctx);
+  const embedderVersion = r.ok ? installedEmbedderVersion() : undefined;
   return {
     ok: r.ok,
     route: r.attempts.find((a) => a.ok)?.route,
@@ -247,6 +292,7 @@ export async function probeLocalEmbedderResolution(
       a.ok ? `${a.route}: ${a.target} — resolved` : `${a.route}: ${a.target} — ${a.error}`,
     ),
     inSourceCheckout: r.inSourceCheckout,
+    ...(embedderVersion !== undefined ? { embedderVersion } : {}),
   };
 }
 
@@ -334,16 +380,20 @@ export function buildLocalEmbeddingProvider(
             (attempt) => attempt.code === "OBTC_EMBEDDER_RUNTIME_MISSING",
           );
           const runtimePackage = `${LOCAL_EMBEDDER_PACKAGE}-${process.platform}-${process.arch}`;
+          const installCommand = localEmbedderInstallHint();
           throw err.embeddingProviderError(
             `embeddings.provider "local" could not resolve the optional ${LOCAL_EMBEDDER_PACKAGE} package`,
             {
               attempts: resolution.attempts,
               hint: runtimeMissing
-                ? `reinstall obsidian-tc without --omit=optional/--no-optional so ${runtimePackage} is installed; if this platform has no published runtime, pick ollama or a hosted provider instead.`
-                : 'run "bun run build" in packages/embedder-local (source checkouts), or reinstall obsidian-tc with optional dependencies enabled — see "obsidian-tc doctor" for the full attempt list.',
+                ? `run ${installCommand} (npm installs ${runtimePackage} for this host); if this platform has no published runtime, pick ollama or a hosted provider instead.`
+                : `run "bun run build" in packages/embedder-local (source checkouts), or install the package with ${installCommand} (obsidian-tc does not install it by default) — see "obsidian-tc doctor" for the full attempt list.`,
             },
           );
         }
+        // A stale pair (obsidian-tc upgraded, embedder left behind) still loads; say so once at boot.
+        const skew = embedderVersionSkew(installedEmbedderVersion());
+        if (skew) console.error(`embeddings "local": ${skew}`);
         return resolution.mod?.createEmbeddingProvider({
           model: c.model,
           quantized: c.quantized,

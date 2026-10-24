@@ -7,6 +7,9 @@ name: ci-first-run-smoke
 #           `npx obsidian-tc` and a global install both run). Installs the PUBLISHED package, latest by
 #           default: part 2 needs the published truth, and the unpublished tarball cannot be
 #           installed alone (its workspace deps are pinned to registry versions by publish.yml).
+#           obsidian-tc no longer lists the embedder as an optional dependency, so this cell also asks npm
+#           for `@the-40-thieves/obsidian-tc-embedder-local@<same version>` explicitly (the install the docs
+#           tell users to run), and fails prepare when that embedder is missing.
 #   npm-local installs that same published server plus the generated embedder base and matching
 #           platform runtime tarballs, proving the next package layout before it is published.
 #   mcpb    the .mcpb built once on ubuntu (as publish.yml's build-mcpb does), unpacked on each OS
@@ -230,6 +233,12 @@ jobs:
           mkdir -p "$RUNNER_TEMP/first-run-report"
           args=(--path "$FR_PATH")
           case "$FR_PATH" in
+            npm)
+              # obsidian-tc no longer lists the embedder as an optional dependency: the embedder is an
+              # explicit install (docs/install.md), so this cell requests the same-version build by name.
+              v=$(npm view obsidian-tc@latest version)
+              args+=(--npm-spec "obsidian-tc@$v" --npm-extra "@the-40-thieves/obsidian-tc-embedder-local@$v")
+              ;;
             npm-local)
               v=$(npm view obsidian-tc@latest version)
               host_key=$(node -p 'process.platform+"-"+process.arch')
