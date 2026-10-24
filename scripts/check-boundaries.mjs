@@ -77,10 +77,6 @@ const UNREACHABLE_ALLOWLIST = new Map([
   //
   // Refs #1331, slice 1 of the vault conventions work: the engine (parse, resolve, check) lands dark.
   // Its consumer, the get_conventions tool, arrives in the next slice; each entry goes when it does.
-  ["packages/server/src/conventions/schema.ts", "Refs #1331: engine, no tool consumer yet"],
-  ["packages/server/src/conventions/parse.ts", "Refs #1331: engine, no tool consumer yet"],
-  ["packages/server/src/conventions/resolve.ts", "Refs #1331: engine, no tool consumer yet"],
-  ["packages/server/src/conventions/check.ts", "Refs #1331: engine, no tool consumer yet"],
 ]);
 
 function run(cmd, args) {

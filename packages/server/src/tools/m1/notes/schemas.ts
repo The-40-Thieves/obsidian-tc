@@ -12,6 +12,7 @@ import {
   WriteOptions,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
+import { conventionsResultShape } from "../../../conventions/schema";
 import { ResponseFormatInput } from "../../response-format";
 import { immutableSkipShape, rewriteWarningsShape } from "../../scan-warnings";
 
@@ -193,6 +194,7 @@ export const WriteNoteOutput = z.object({
   // GH #994 follow-up: present only when memoryDefense.mode is "redact" and something in this
   // write matched — same convention as commit_capture's own `redactions` field.
   redactions: z.number().int().nonnegative().optional(),
+  ...conventionsResultShape,
 });
 
 export const AppendNoteOutput = z.object({
@@ -206,6 +208,7 @@ export const AppendNoteOutput = z.object({
   quality_warning: QualityWarningOut.optional(),
   poison_assessment: PoisonAssessmentOut.optional(),
   redactions: z.number().int().nonnegative().optional(),
+  ...conventionsResultShape,
 });
 
 /** Mirrors the PatchAnchor input union verbatim — patch_note echoes the resolved anchor back. */
@@ -237,6 +240,7 @@ export const PatchNoteOutput = z.object({
   bytes_removed: z.number().optional(),
   quality_warning: QualityWarningOut.optional(),
   redactions: z.number().int().nonnegative().optional(),
+  ...conventionsResultShape,
 });
 
 export const DeleteNoteOutput = z.object({
@@ -260,6 +264,7 @@ export const MoveNoteOutput = z.object({
   backlinks_updated: z.object({ notes: z.number(), links: z.number() }),
   ...rewriteWarningsShape,
   ...immutableSkipShape,
+  ...conventionsResultShape,
 });
 
 export const CopyNoteOutput = z.object({
@@ -270,6 +275,7 @@ export const CopyNoteOutput = z.object({
   overwritten: z.boolean(),
   trashed_dest_to: z.string().nullable(),
   content_hash: z.string(),
+  ...conventionsResultShape,
 });
 
 // ── input schemas ────────────────────────────────────────────────────────────
