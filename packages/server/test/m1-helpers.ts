@@ -16,6 +16,7 @@ import type { Database } from "../src/db/types";
 import { elicitVerifier } from "../src/elicit";
 import { createPagingDeps } from "../src/mcp/byte-page";
 import { type CallerContext, type RegistryOptions, ToolRegistry } from "../src/mcp/registry";
+import { conventionsChecker } from "../src/mcp/registry/conventions-scope";
 import type { MetricsRecorder } from "../src/metrics/registry";
 import type { KeyResolver } from "../src/provenance/signer";
 import { buildAcls } from "../src/runtime/acl-build";
@@ -26,6 +27,8 @@ import { makeTempDir, rmTemp } from "./tmp";
 
 export interface TestVaultOptions {
   files?: Record<string, string>;
+  /** Wires the folder conventions sink over this vault's own registry (wiki config included). */
+  conventions?: boolean;
   /** Runs after `files` are written and BEFORE the ACLs are built: the one place to lay out
    *  symlinks the per-vault ACL is derived from (a raw folder that is itself a symlink). */
   setup?: (root: string) => void;
@@ -151,6 +154,7 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
     verifyElicit: elicitVerifier,
     folderPins: vaultRegistry.folderPins,
     ...(overrides.size > 0 ? { aclResolver: (vid: string) => overrides.get(vid) ?? rootAcl } : {}),
+    ...(opts.conventions ? { conventions: conventionsChecker(vaultRegistry) } : {}),
     ...opts.registryOpts,
     ...(opts.centralAcl ? { rootResolver: () => root } : {}),
     ...(opts.maxResponseBytes !== undefined ? { maxResponseBytes: opts.maxResponseBytes } : {}),

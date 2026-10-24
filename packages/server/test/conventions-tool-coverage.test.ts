@@ -42,9 +42,17 @@ const CONVENTIONS_PENDING = new Set<string>([
   "bulk_set_property",
   "bulk_move_notes",
   "commit_wiki_page",
-  "append_active_file",
-  "patch_active_file",
-  "update_active_file",
+  "append_to_periodic_note",
+  "find_or_create_periodic_note",
+  "rewrite_link",
+]);
+
+// Mutating tools with no pathAcl that still write Markdown notes: found by reading each mutating tool that
+// names no path. They are writers, so the pending check below sees them; none declares conventions yet.
+const NOTE_WRITERS_WITHOUT_PATH_ACL = new Set<string>([
+  "append_to_periodic_note",
+  "find_or_create_periodic_note",
+  "rewrite_link",
 ]);
 
 // Mutating tools that write no Markdown note the conventions check can judge.
@@ -177,24 +185,39 @@ describe("conventions tool coverage", () => {
     });
     registerM8Tools(registry, {});
 
-    // A mutating tool that names a path (pathAcl) may write a note; the rest cannot be judged here.
+    // A mutating tool that names a path (pathAcl) may write a note, as may the known pathless writers.
     const defs = registry.list();
+    const declaresConventions = (t: { outputSchema?: unknown }): boolean => {
+      const shape = (t.outputSchema as { shape?: Record<string, unknown> } | undefined)?.shape;
+      return shape !== undefined && Object.hasOwn(shape, "conventions");
+    };
     const writers = defs
-      .filter((t) => isMutatingCall(t) && t.pathAcl !== undefined)
+      .filter(
+        (t) =>
+          isMutatingCall(t) &&
+          (t.pathAcl !== undefined || NOTE_WRITERS_WITHOUT_PATH_ACL.has(t.name)),
+      )
       .map((t) => t.name)
       .sort();
     const uncovered = defs
       .filter((t) => writers.includes(t.name))
       .filter((t) => {
-        const shape = (t.outputSchema as { shape?: Record<string, unknown> } | undefined)?.shape;
-        const declares = shape !== undefined && Object.hasOwn(shape, "conventions");
-        return !declares && !CONVENTIONS_PENDING.has(t.name) && !CONVENTIONS_EXEMPT.has(t.name);
+        return (
+          !declaresConventions(t) &&
+          !CONVENTIONS_PENDING.has(t.name) &&
+          !CONVENTIONS_EXEMPT.has(t.name)
+        );
       })
       .map((t) => t.name);
     // A listed name that is no longer a mutating note writer is stale: it would hide a real gap later.
     const stale = [...CONVENTIONS_PENDING, ...CONVENTIONS_EXEMPT.keys()].filter(
       (n) => !writers.includes(n),
     );
-    expect({ uncovered, stale }).toEqual({ uncovered: [], stale: [] });
+    // A tool both pending and declaring is wired: it belongs in neither list any more.
+    const both = defs
+      .filter((t) => CONVENTIONS_PENDING.has(t.name) && declaresConventions(t))
+      .map((t) => t.name)
+      .sort();
+    expect({ uncovered, stale, both }).toEqual({ uncovered: [], stale: [], both: [] });
   });
 });

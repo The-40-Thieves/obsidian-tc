@@ -131,7 +131,12 @@ export async function runDispatch(
   // callback THIS dispatch installed.
   let installedMarker: { markEffectCommitted?: () => void } | undefined;
   const provenance = provenanceScope(deps.provenance, deps.rootResolver); // see provenance-scope.ts
-  const conventions = conventionsScope(deps.conventions, deps.rootResolver, deps.onInternalError); // see conventions-scope.ts
+  const conventions = conventionsScope(
+    deps.conventions,
+    deps.rootResolver,
+    deps.onInternalError,
+    deps.maxResponseBytes,
+  ); // see conventions-scope.ts
 
   // THE-839: episode kind for the audit row. Everything here came through tools/call (resources/*
   // and prompts/* declare `protocol` via dispatchResource instead); a `verdict`-tagged tool is the
@@ -585,6 +590,7 @@ export async function runDispatch(
     return { ok: true, data: out, meta: { duration_ms: duration, result_size: resultSize } };
   } catch (e) {
     await provenance.settle("error");
+    conventions.abandon(ctx);
     if (idemClaimed && idemKey) {
       // THE-572: a handler may signal mid-execution INSIDE its own transaction. If that
       // transaction rolls back, the marker rolls back with it and NOTHING committed — so the

@@ -7,7 +7,11 @@
 import { statSync } from "node:fs";
 import { basename } from "node:path";
 import { checkNote } from "../../conventions/check";
-import { evictConventionsLayer, resolveConventions } from "../../conventions/resolve";
+import {
+  type ConventionsScope,
+  evictConventionsLayer,
+  resolveConventions,
+} from "../../conventions/resolve";
 import { CONVENTIONS_KEY } from "../../conventions/schema";
 import { WIKI_SCHEMA_FILE } from "../../tools/m7/knowledge/wiki-schema";
 import { capWarningsOut, MAX_SCAN_WARNINGS } from "../../tools/scan-warnings";
@@ -16,8 +20,10 @@ import { enforcePathAcl } from "../../vault/acl-path";
 import { callerMayReadNote } from "../../vault/cas";
 import { parseNoteLenient } from "../../vault/frontmatter";
 import { readNoteBounded } from "../../vault/notes-io";
-import { contentHash, resolveVaultPath } from "../../vault/paths";
+import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
+import type { VaultRegistry } from "../../vault/registry";
 import { vaultArgOf } from "./input-binding";
+import { isOverflow } from "./result-governance";
 import type { CallerContext, ConventionsSink, RegistryOptions, ToolDefinition } from "./types";
 
 /** Notes a single call may name: the rest are not stat'd, so a bulk call cannot make begin unbounded. */
@@ -28,6 +34,8 @@ const NOTE_MAX_BYTES = 1024 * 1024;
 export interface ConventionsDispatch {
   begin(def: ToolDefinition, input: unknown, ctx: CallerContext): Promise<void>;
   annotate(def: ToolDefinition, out: unknown, ctx: CallerContext): Promise<void>;
+  /** A mutating call that failed before it settled: drop the pending check and the noteWritten hook. */
+  abandon(ctx: CallerContext): void;
 }
 
 interface PendingCheck {
@@ -48,6 +56,7 @@ export function conventionsScope(
   sink: ConventionsSink | undefined,
   rootResolver: RegistryOptions["rootResolver"],
   onInternalError: RegistryOptions["onInternalError"],
+  maxResponseBytes: number,
 ): ConventionsDispatch {
   let pending: PendingCheck | undefined;
   return {
@@ -64,7 +73,7 @@ export function conventionsScope(
       try {
         pending = { def, vault, root, noted, state: await sink.begin(def, input, ctx, root) };
       } catch (e) {
-        onInternalError?.(`conventions:${def.name}`, vault, e);
+        report(onInternalError, `conventions:${def.name}`, vault, e);
       }
     },
     async annotate(def, out, ctx) {
@@ -75,12 +84,37 @@ export function conventionsScope(
       if (typeof out !== "object" || out === null) return;
       try {
         const field = await sink.check(p.state, out, ctx, p.root, p.noted);
-        if (field !== undefined) (out as { conventions?: object }).conventions = field;
+        // Advisory: a field that would push the committed response over the byte budget is dropped, not raised.
+        if (field !== undefined && !isOverflow(sizeWith(out, field), maxResponseBytes))
+          (out as { conventions?: object }).conventions = field;
       } catch (e) {
-        onInternalError?.(`conventions:${def.name}`, p.vault, e);
+        report(onInternalError, `conventions:${def.name}`, p.vault, e);
       }
     },
+    abandon(ctx) {
+      pending = undefined;
+      delete ctx.noteWritten;
+    },
   };
+}
+
+/** The serialized size of the response were `field` added: what dispatch's overflow check will measure. */
+function sizeWith(out: object, field: object): number {
+  return Buffer.byteLength(JSON.stringify({ ...out, [CONVENTIONS_KEY]: field }), "utf8");
+}
+
+/** Reports an internal fault; a reporter that itself throws must not turn a committed write into an error. */
+function report(
+  onInternalError: RegistryOptions["onInternalError"],
+  name: string,
+  vault: string,
+  e: unknown,
+): void {
+  try {
+    onInternalError?.(name, vault, e);
+  } catch {
+    // best-effort: the write stands
+  }
 }
 
 /** The write-op `.md` paths a call names that the caller may write, in pathAcl order, capped. */
@@ -99,13 +133,17 @@ function namedWriteNotes(
   }
   const out = new Set<string>();
   for (const { op, path } of named) {
-    if (op !== "write" || !path.endsWith(".md") || out.size >= MAX_NAMED_NOTES) continue;
+    if (op !== "write" || out.size >= MAX_NAMED_NOTES) continue;
+    // Normalised as the handler normalises its own path, so the stat keys and the result's path agree.
+    let rel: string;
     try {
-      enforcePathAcl(ctx.acl, "write", path, root, ctx.grantedScopes);
+      rel = normalizeVaultPath(path);
+      if (!rel.endsWith(".md")) continue;
+      enforcePathAcl(ctx.acl, "write", rel, root, ctx.grantedScopes);
     } catch {
       continue;
     }
-    out.add(path);
+    out.add(rel);
   }
   return [...out];
 }
@@ -146,7 +184,20 @@ function frontmatterOf(
 }
 
 /** The sink dispatch wires: stats at begin, checks the changed notes at annotate. Pure over the disk. */
-export function conventionsChecker(): ConventionsSink {
+/** The vault's wiki and raw folder names, read at check time so a vault added at runtime is covered. */
+function foldersOf(
+  registry: Pick<VaultRegistry, "resolve">,
+  vaultId: string,
+): Pick<ConventionsScope, "wikiFolders" | "rawFolders"> {
+  try {
+    const v = registry.resolve(vaultId);
+    return { wikiFolders: v.wikiFolders, rawFolders: v.rawFolders };
+  } catch {
+    return {};
+  }
+}
+
+export function conventionsChecker(registry: Pick<VaultRegistry, "resolve">): ConventionsSink {
   return {
     async begin(def, input, ctx, root) {
       const stamps = new Map<string, string | null>();
@@ -167,26 +218,37 @@ export function conventionsChecker(): ConventionsSink {
       const warnings: ReturnType<typeof checkNote> = [];
       const files = new Map<string, { path: string; message: string }>();
       let filesOmitted = 0;
+      const folders = foldersOf(registry, ctx.vaultId);
       for (const rel of candidates) {
         await yieldSlice();
         if (ctx.signal?.aborted) return undefined;
         const fm = frontmatterOf(ctx, root, rel, result);
         if (fm === undefined) continue;
         const eff = resolveConventions(
-          { vaultId: ctx.vaultId, root, acl: ctx.acl, grantedScopes: ctx.grantedScopes },
+          {
+            vaultId: ctx.vaultId,
+            root,
+            acl: ctx.acl,
+            grantedScopes: ctx.grantedScopes,
+            ...folders,
+          },
           rel,
         );
         warnings.push(...checkNote(eff, rel, fm));
         for (const f of eff.fileWarnings) files.set(`${f.path}\0${f.message}`, f);
         filesOmitted = Math.max(filesOmitted, eff.fileWarningsOmitted);
       }
-      if (warnings.length === 0 && files.size === 0) return undefined;
-      const fileList = [...files.values()];
+      // A layer's file warnings are reported only for a SCHEMA.md this call wrote, or for a layer that a
+      // note this call judged broke: an unrelated SCHEMA.md problem does not make a clean write noisy.
+      const wrote = new Set([...candidates].filter((rel) => basename(rel) === WIKI_SCHEMA_FILE));
+      const broke = new Set(warnings.map((w) => w.source));
+      const fileList = [...files.values()].filter((f) => wrote.has(f.path) || broke.has(f.path));
+      if (warnings.length === 0 && fileList.length === 0) return undefined;
       const fileOverflow = Math.max(0, fileList.length - MAX_SCAN_WARNINGS);
       return {
         ...capWarningsOut(warnings),
         ...(fileList.length > 0 ? { file_warnings: fileList.slice(0, MAX_SCAN_WARNINGS) } : {}),
-        ...(filesOmitted + fileOverflow > 0
+        ...(fileList.length > 0 && filesOmitted + fileOverflow > 0
           ? { file_warnings_omitted: filesOmitted + fileOverflow }
           : {}),
       };

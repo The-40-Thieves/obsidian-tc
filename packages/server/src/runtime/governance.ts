@@ -155,7 +155,7 @@ export function wireGovernance(deps: GovernanceDeps): Governance {
       : undefined;
   const registry = new ToolRegistry({
     ...(provenance ? { provenance } : {}),
-    conventions: conventionsChecker(),
+    conventions: conventionsChecker(vaultRegistry),
     maxResponseBytes: deps.maxResponseBytes,
     idempotencyTtlSeconds: deps.idempotencyTtlSeconds,
     idempotencyReclaimSeconds: deps.idempotencyReclaimSeconds,
