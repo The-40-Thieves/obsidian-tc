@@ -118,6 +118,10 @@ export interface CallerContext {
    *  mid-commit leaves a `pending` record behind. Installed by dispatch for a mutating call when
    *  provenance is wired; absent otherwise, so call it as `ctx.recordPendingWrite?.(...)`. */
   recordPendingWrite?: (after: ReadonlyMap<string, string>) => void;
+  /** Conventions: a handler that writes a note whose path only it knows (not named by `pathAcl`)
+   *  reports the vault-relative path here. Installed by dispatch for a call whose output schema
+   *  declares `conventions`; absent otherwise, so call it as `ctx.noteWritten?.(rel)`. */
+  noteWritten?: (rel: string) => void;
   now?: () => number;
   /** THE-514: the transport's per-request AbortSignal (MCP SDK `extra.signal`, an HTTP request's
    *  abort, or a stdio caller's own cancellation), threaded in by the context factory. runDispatch
@@ -506,6 +510,10 @@ export interface RegistryOptions {
    *  committed mutating call (provenance/recorder.ts). Absent (unit tests, `provenance.enabled:
    *  false`) means nothing is recorded. */
   provenance?: ProvenanceSink;
+  /** Note conventions: when wired, a mutating call whose output schema declares `conventions` reports
+   *  the folder SCHEMA.md rules its written notes break (conventions-scope.ts). Advisory: never fails
+   *  or rolls back a write. */
+  conventions?: ConventionsSink;
 }
 
 /** What dispatch needs from write provenance (provenance/recorder.ts implements it): hash the
@@ -531,4 +539,19 @@ export interface ProvenanceSink {
    *  `after` maps each named path to the sha256 it is about to hold. Synchronous; throws when the
    *  durable pending row cannot be recorded, before the batch is allowed to rename anything. */
   recordPending?(pending: object, after: ReadonlyMap<string, string>): void;
+}
+
+/** What dispatch needs from the conventions check (conventions-scope.ts implements it). `begin` runs
+ *  before a mutating handler and snapshots the notes the call names; `check` runs once the handler
+ *  succeeded and judges the notes that changed, returning the `conventions` field, or undefined when
+ *  there is nothing to report. A throw from either is reported and never fails the call. */
+export interface ConventionsSink {
+  begin(def: ToolDefinition, input: unknown, ctx: CallerContext, root: string): Promise<object>;
+  check(
+    pending: object,
+    result: unknown,
+    ctx: CallerContext,
+    root: string,
+    noted: ReadonlySet<string>,
+  ): Promise<object | undefined>;
 }

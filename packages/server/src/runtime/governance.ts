@@ -11,6 +11,7 @@ import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import { elicitVerifier, setDefaultElicitTtlSeconds } from "../elicit";
 import { ToolRegistry } from "../mcp/registry";
+import { conventionsChecker } from "../mcp/registry/conventions-scope";
 import type { RegistryOptions } from "../mcp/registry/types";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { MorgianaEmitter } from "../morgiana/emitter";
@@ -154,6 +155,7 @@ export function wireGovernance(deps: GovernanceDeps): Governance {
       : undefined;
   const registry = new ToolRegistry({
     ...(provenance ? { provenance } : {}),
+    conventions: conventionsChecker(vaultRegistry),
     maxResponseBytes: deps.maxResponseBytes,
     idempotencyTtlSeconds: deps.idempotencyTtlSeconds,
     idempotencyReclaimSeconds: deps.idempotencyReclaimSeconds,

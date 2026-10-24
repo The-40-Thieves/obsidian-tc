@@ -75,9 +75,9 @@ const UNREACHABLE_ALLOWLIST = new Map([
   // is reachable now — this comment is the historical note the gate's own header asks for; the
   // entry itself is gone. Same acl_path_set.ts precedent.
   //
-  // Refs #1331: the conventions engine's checkNote has no tool consumer until the write-tool slice;
-  // the entry goes when it does. schema, parse and resolve are reached through get_conventions.
-  ["packages/server/src/conventions/check.ts", "Refs #1331: checkNote, no tool consumer yet"],
+  // Refs #1331: the conventions engine (src/conventions/) landed dark and held four entries here. The
+  // note-write check (mcp/registry/conventions-scope.ts) and get_conventions now reach every module,
+  // so the entries are gone.
 ]);
 
 function run(cmd, args) {

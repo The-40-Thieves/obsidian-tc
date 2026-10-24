@@ -169,6 +169,7 @@ const EXPECTED: ToolSnapshot[] = [
     outputKeys: [
       "bytes_written",
       "content_hash",
+      "conventions",
       "created",
       "mode_used",
       "path",
@@ -203,6 +204,7 @@ const EXPECTED: ToolSnapshot[] = [
     outputKeys: [
       "bytes_written",
       "content_hash",
+      "conventions",
       "created",
       "path",
       "poison_assessment",
@@ -241,6 +243,7 @@ const EXPECTED: ToolSnapshot[] = [
       "anchor",
       "bytes_removed",
       "content_hash",
+      "conventions",
       "lines_removed",
       "operation",
       "path",
@@ -286,6 +289,7 @@ const EXPECTED: ToolSnapshot[] = [
     outputKeys: [
       "backlinks_updated",
       "content_hash",
+      "conventions",
       "from",
       "immutable_not_updated",
       "immutable_not_updated_hidden",
@@ -309,7 +313,16 @@ const EXPECTED: ToolSnapshot[] = [
     destructive: false,
     // THE-824: see write_note's elicit_token comment above.
     inputKeys: ["elicit_token", "from", "options", "overwrite", "to", "vault"],
-    outputKeys: ["content_hash", "copied", "from", "overwritten", "to", "trashed_dest_to", "vault"],
+    outputKeys: [
+      "content_hash",
+      "conventions",
+      "copied",
+      "from",
+      "overwritten",
+      "to",
+      "trashed_dest_to",
+      "vault",
+    ],
   },
 ];
 
