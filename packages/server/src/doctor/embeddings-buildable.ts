@@ -4,6 +4,7 @@
 // picked it" branch to report — `denseProvider === "local"` is either declared explicitly or IS
 // the resolved default, and either way this check probes the SAME thing: can the optional
 // @the-40-thieves/obsidian-tc-embedder-local package actually resolve on this deployment.
+import type { EmbedderInstallSite } from "../providers/embedder-install-plan";
 import {
   embedderVersionSkew,
   localEmbedderInstallHint,
@@ -37,6 +38,9 @@ export interface EmbeddingsBuildableView {
    *  probing "local" by default — "no known build blocker" would otherwise be a lie for the
    *  provider this whole ticket makes the default). */
   probeLocalEmbedder?: () => Promise<LocalEmbedderProbeResult>;
+  /** Where this obsidian-tc is installed, for the skew remediation's install command. Default: the
+   *  running process's own layout (currentInstallSite). */
+  installSite?: EmbedderInstallSite;
   /** #1231: true under `doctor --probe`, which runs the dense execution probe (retrieval.heads).
    *  Without it a resolved "local" has only been resolved, never run, so it is not a pass. */
   probeRequested?: boolean;
@@ -73,7 +77,7 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
         // until `doctor --probe` has run the dense probe.
         const notProbed = platform.supported && view.probeRequested !== true;
         // A stale pair loads, but it is not the build that was tested alongside this obsidian-tc.
-        const skew = embedderVersionSkew(probe.embedderVersion);
+        const skew = embedderVersionSkew(probe.embedderVersion, view.installSite);
         return {
           status: (skew === undefined && platform.supported && !notProbed
             ? "ok"
@@ -98,7 +102,7 @@ export function embeddingsBuildableCheck(view: EmbeddingsBuildableView): Check {
           },
           ...(skew !== undefined
             ? {
-                remediation: `Install the embedder that matches this obsidian-tc: ${localEmbedderInstallHint()}`,
+                remediation: `Install the embedder that matches this obsidian-tc: ${localEmbedderInstallHint(view.installSite)}`,
               }
             : notProbed
               ? {

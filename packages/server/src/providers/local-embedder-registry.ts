@@ -19,16 +19,25 @@ import { version as OWN_VERSION } from "../../package.json";
 import { embeddedEmbedder } from "../embeddings/embedded-embedder";
 import { extractEmbeddedRuntime } from "../embeddings/embedded-runtime";
 import type { EmbeddingProvider } from "../embeddings/provider";
+import {
+  currentInstallSite,
+  type EmbedderInstallSite,
+  embedderInstallHint,
+  LOCAL_EMBEDDER_PACKAGE,
+  planEmbedderInstall,
+} from "./embedder-install-plan";
 import { isUnderNodeModules, type SourceCheckoutResolution } from "./local-package-resolution";
 import type { EmbeddingsConfigLike, ResolveContext } from "./types";
 
-export const LOCAL_EMBEDDER_PACKAGE = "@the-40-thieves/obsidian-tc-embedder-local";
+export { LOCAL_EMBEDDER_PACKAGE };
 
-/** The install command every "not installed" message prints (setup, doctor, boot). Both forms: which
- *  one is right depends on whether obsidian-tc itself is a global install, which no message can see.
- *  A global user who ran only the local form from ~ would get a stray ~/package.json. */
-export function localEmbedderInstallHint(version: string = OWN_VERSION): string {
-  const spec = `${LOCAL_EMBEDDER_PACKAGE}@${version}`;
+/** The install command every "not installed" message prints (setup, doctor, boot): the one planned
+ *  for this obsidian-tc's install layout (embedder-install-plan.ts). Only a layout the planner refuses
+ *  gets both forms, because no message can tell which one is right there. */
+export function localEmbedderInstallHint(site: EmbedderInstallSite = currentInstallSite()): string {
+  const plan = planEmbedderInstall(site);
+  if (plan !== undefined) return embedderInstallHint(plan);
+  const spec = `${LOCAL_EMBEDDER_PACKAGE}@${OWN_VERSION}`;
   return `npm install --save-exact ${spec} in your project, or npm install --global ${spec} if obsidian-tc is installed globally`;
 }
 
@@ -45,9 +54,12 @@ export function installedEmbedderVersion(): string | undefined {
 
 /** The warning for an installed embedder whose version is not obsidian-tc's own; undefined when they
  *  match or no embedder was found. Shared by boot (a log line) and doctor (a warning). */
-export function embedderVersionSkew(found: string | undefined): string | undefined {
+export function embedderVersionSkew(
+  found: string | undefined,
+  site?: EmbedderInstallSite,
+): string | undefined {
   if (found === undefined || found === OWN_VERSION) return undefined;
-  return `${LOCAL_EMBEDDER_PACKAGE}@${found} is installed, but this obsidian-tc is ${OWN_VERSION}. Install the matching embedder: ${localEmbedderInstallHint()}`;
+  return `${LOCAL_EMBEDDER_PACKAGE}@${found} is installed, but this obsidian-tc is ${OWN_VERSION}. Install the matching embedder: ${localEmbedderInstallHint(site)}`;
 }
 
 function isEmbedderLocalAnchor(packageJsonPath: string): boolean {

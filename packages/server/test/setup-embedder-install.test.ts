@@ -12,16 +12,18 @@ import { version } from "../package.json";
 import { run_setup } from "../src/cli/commands/setup";
 import {
   EMBEDDER_PACKAGE,
-  type EmbedderInstallPlan,
-  embedderInstallCommand,
   INSTALL_TIMEOUT_MS,
-  invocationFor,
   isYesAnswer,
-  ownPackageDir,
-  planEmbedderInstall,
   runEmbedderInstall,
   type SpawnFn,
 } from "../src/cli/setup/embedder-install";
+import {
+  type EmbedderInstallPlan,
+  embedderInstallCommand,
+  invocationFor,
+  ownPackageDir,
+  planEmbedderInstall,
+} from "../src/providers/embedder-install-plan";
 import { probeLocalEmbedderResolution } from "../src/providers/local-embedder-registry";
 import { makeTempDir, rmTemp, stubHomedir } from "./tmp";
 
@@ -460,6 +462,35 @@ describe("obsidian-tc setup offers to install the local embedder", () => {
     expect(out()).not.toContain("NOTICE");
   });
 
+  it("the prompt has no directory clause for a global plan, and names the directory for a local one", async () => {
+    const { configPath, vaultPath } = sandbox();
+    vi.mocked(probeLocalEmbedderResolution).mockResolvedValue(missing);
+    const asks: string[] = [];
+    const ask = async (question: string) => {
+      asks.push(question);
+      return false;
+    };
+    const run = vi.fn((_plan: EmbedderInstallPlan) => ({ ok: true as const }));
+
+    await run_setup(cmd(vaultPath, configPath), {
+      interactive: true,
+      ask,
+      plan: () => globalPlan,
+      run,
+    });
+    await run_setup(cmd(vaultPath, configPath), {
+      interactive: true,
+      ask,
+      plan: () => npmPlan,
+      run,
+    });
+
+    expect(asks[0]).toBe(`Install ${SPEC} now by running \`npm install --global ${SPEC}\`? [Y/n] `);
+    expect(asks[1]).toBe(
+      `Install ${SPEC} now by running \`npm install --save-exact ${SPEC}\` in /home/u/proj? [Y/n] `,
+    );
+  });
+
   it("accepted under bun: the bun add argv is what runs", async () => {
     const { configPath, vaultPath } = sandbox();
     vi.mocked(probeLocalEmbedderResolution).mockResolvedValue(missing);
@@ -531,7 +562,22 @@ describe("obsidian-tc setup offers to install the local embedder", () => {
     expect(ask).not.toHaveBeenCalled();
     expect(run).not.toHaveBeenCalled();
     expect(out()).toContain(`obsidian-tc setup: ${EMBEDDER_PACKAGE} is not installed.`);
-    expect(out()).toContain(`Install it with: npm install --save-exact ${SPEC}`);
+    expect(out()).toContain(`Install it with: npm install --save-exact ${SPEC} in /home/u/proj`);
+  });
+
+  it("non-interactive, global: the printed command is the global one, never --save-exact", async () => {
+    const { configPath, vaultPath } = sandbox();
+    vi.mocked(probeLocalEmbedderResolution).mockResolvedValue(missing);
+
+    await run_setup(cmd(vaultPath, configPath), {
+      interactive: false,
+      ask: async () => true,
+      plan: () => globalPlan,
+      run: () => ({ ok: true as const }),
+    });
+
+    expect(out()).toContain(`Install it with: npm install --global ${SPEC}\n`);
+    expect(out()).not.toMatch(/Install it with: npm install --save-exact/);
   });
 
   it.each([

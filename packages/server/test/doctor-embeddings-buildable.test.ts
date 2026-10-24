@@ -51,6 +51,53 @@ describe("embeddings.buildable (THE-1122 review round 3: three-way status)", () 
     );
   });
 
+  it("a global install's skew remediation names npm install --global at this version, never --save-exact", async () => {
+    const r = await embeddingsBuildableCheck({
+      denseProvider: "local",
+      probeLocalEmbedder: () =>
+        Promise.resolve({
+          ok: true,
+          route: "bare-specifier",
+          attempts: [],
+          inSourceCheckout: false,
+          embedderVersion: "0.0.1",
+        }),
+      probeRequested: true,
+      platformOverride: { platform: "linux", arch: "x64", isMuslRuntime: () => false },
+      installSite: {
+        pkgDir: "/usr/lib/node_modules/obsidian-tc",
+        globalRoot: "/usr/lib/node_modules",
+        userAgent: "npm/10.9.0 node/v24.0.0 linux x64",
+      },
+    }).run(ctx);
+    expect(r.remediation).toBe(
+      `Install the embedder that matches this obsidian-tc: npm install --global @the-40-thieves/obsidian-tc-embedder-local@${version}`,
+    );
+  });
+
+  it("a project install's skew remediation names --save-exact run in that project", async () => {
+    const r = await embeddingsBuildableCheck({
+      denseProvider: "local",
+      probeLocalEmbedder: () =>
+        Promise.resolve({
+          ok: true,
+          route: "bare-specifier",
+          attempts: [],
+          inSourceCheckout: false,
+          embedderVersion: "0.0.1",
+        }),
+      probeRequested: true,
+      platformOverride: { platform: "linux", arch: "x64", isMuslRuntime: () => false },
+      installSite: {
+        pkgDir: "/home/u/proj/node_modules/obsidian-tc",
+        exists: (p) => p === "/home/u/proj/package.json",
+      },
+    }).run(ctx);
+    expect(r.remediation).toBe(
+      `Install the embedder that matches this obsidian-tc: npm install --save-exact @the-40-thieves/obsidian-tc-embedder-local@${version} in /home/u/proj`,
+    );
+  });
+
   it("a resolved embedder at obsidian-tc's own version is OK once probed", async () => {
     const r = await embeddingsBuildableCheck({
       denseProvider: "local",
