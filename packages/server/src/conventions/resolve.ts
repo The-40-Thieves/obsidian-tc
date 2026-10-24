@@ -18,6 +18,8 @@ import type {
   ConventionsLayer,
   EffectiveConventions,
   ParsedConventionsLayer,
+  Severity,
+  SourcedSeverity,
   SourcedValues,
 } from "./schema";
 
@@ -141,6 +143,7 @@ function emptyEffective(scope: ConventionsScope): EffectiveConventions {
     typeKey: "type",
     typeKeySource: "",
     values: nullMap(),
+    severity: nullMap(),
     types: nullMap(),
     wikiFolders: scope.wikiFolders,
     rawFolders: scope.rawFolders,
@@ -167,6 +170,17 @@ function setLeaf(
   else target[key] = { values, source };
 }
 
+/** Set a severity leaf: a level replaces what was inherited; `null` removes it. */
+function setSeverity(
+  target: Record<string, SourcedSeverity>,
+  key: string,
+  level: Severity | null,
+  source: string,
+) {
+  if (level === null) delete target[key];
+  else target[key] = { value: level, source };
+}
+
 function mergeLayer(eff: EffectiveConventions, layer: ConventionsLayer): void {
   const source = layer.path;
   if (layer.typeKey !== undefined) {
@@ -179,12 +193,17 @@ function mergeLayer(eff: EffectiveConventions, layer: ConventionsLayer): void {
   }
   for (const [prop, values] of Object.entries(layer.values))
     setLeaf(eff.values, prop, values, source);
+  for (const [prop, level] of Object.entries(layer.severity))
+    setSeverity(eff.severity, prop, level, source);
   for (const [type, rules] of Object.entries(layer.types)) {
-    const leaves = Object.keys(rules.values).length > 0 || rules.required !== undefined;
+    const leaves =
+      Object.keys(rules.values).length > 0 ||
+      Object.keys(rules.severity).length > 0 ||
+      rules.required !== undefined;
     if (!leaves) continue;
     let target = eff.types[type];
     if (!target) {
-      target = { values: Object.create(null) };
+      target = { values: Object.create(null), severity: Object.create(null) };
       eff.types[type] = target;
     }
     if (rules.required !== undefined) {
@@ -193,6 +212,8 @@ function mergeLayer(eff: EffectiveConventions, layer: ConventionsLayer): void {
     }
     for (const [prop, values] of Object.entries(rules.values))
       setLeaf(target.values, prop, values, source);
+    for (const [prop, level] of Object.entries(rules.severity))
+      setSeverity(target.severity, prop, level, source);
   }
 }
 

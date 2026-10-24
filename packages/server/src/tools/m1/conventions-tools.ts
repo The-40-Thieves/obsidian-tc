@@ -5,7 +5,12 @@
 import { grantsAll, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { type ConventionsScope, resolveConventions } from "../../conventions/resolve";
-import type { EffectiveConventions, SourcedValues } from "../../conventions/schema";
+import {
+  type EffectiveConventions,
+  SEVERITIES,
+  type SourcedSeverity,
+  type SourcedValues,
+} from "../../conventions/schema";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { normalizeVaultPath } from "../../vault/paths";
 import { WIKI_SCHEMA_FILE } from "../m7/knowledge/wiki-schema";
@@ -39,9 +44,12 @@ function probeOf(rel: string): string {
 
 const SourcedList = z.object({ values: z.array(z.string()), source: z.string().optional() });
 
+const SourcedLevel = z.object({ value: z.enum(SEVERITIES), source: z.string().optional() });
+
 const Rules = z.object({
   required: SourcedList.optional(),
   values: z.record(z.string(), SourcedList),
+  severity: z.record(z.string(), SourcedLevel).optional(),
 });
 
 /** The merged rules. `source` is present in the detailed form only; concise keeps the values. */
@@ -65,9 +73,18 @@ const GetConventionsOutput = z.object({
 /** The effective rules in the wire shape. `withSource` false drops every `source` (concise). */
 function effectiveOf(eff: EffectiveConventions, withSource: boolean) {
   const list = (s: SourcedValues) => (withSource ? s : { values: s.values });
-  const rules = (values: Record<string, SourcedValues>, required?: SourcedValues) => ({
+  const level = (s: SourcedSeverity) => (withSource ? s : { value: s.value });
+  const rules = (
+    values: Record<string, SourcedValues>,
+    required: SourcedValues | undefined,
+    severity: Record<string, SourcedSeverity>,
+  ) => ({
     ...(required ? { required: list(required) } : {}),
     values: Object.fromEntries(Object.entries(values).map(([k, s]) => [k, list(s)])),
+    // Only when set, so a vault with no severity keeps today's exact output.
+    ...(Object.keys(severity).length > 0
+      ? { severity: Object.fromEntries(Object.entries(severity).map(([k, s]) => [k, level(s)])) }
+      : {}),
   });
   return {
     ...(eff.typeKeySource !== ""
@@ -78,9 +95,9 @@ function effectiveOf(eff: EffectiveConventions, withSource: boolean) {
           },
         }
       : {}),
-    ...rules(eff.values, eff.required),
+    ...rules(eff.values, eff.required, eff.severity),
     types: Object.fromEntries(
-      Object.entries(eff.types).map(([t, r]) => [t, rules(r.values, r.required)]),
+      Object.entries(eff.types).map(([t, r]) => [t, rules(r.values, r.required, r.severity)]),
     ),
   };
 }

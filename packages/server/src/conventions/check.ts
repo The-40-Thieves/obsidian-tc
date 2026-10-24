@@ -12,11 +12,31 @@ import type {
   ConventionWarning,
   EffectiveConventions,
   EffectiveTypeRules,
+  Severity,
   SourcedValues,
 } from "./schema";
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** The level a violation of `prop` reports at: the first of types[t].severity[prop], severity[prop],
+ *  types[t].severity["*"], severity["*"] that is set, else warn. */
+function severityOf(
+  eff: EffectiveConventions,
+  typeRules: EffectiveTypeRules | undefined,
+  prop: string,
+): Severity {
+  return (
+    typeRules?.severity[prop]?.value ??
+    eff.severity[prop]?.value ??
+    typeRules?.severity["*"]?.value ??
+    eff.severity["*"]?.value ??
+    "warn"
+  );
+}
+
+const notAllowedMessage = (prop: string, bad: string[], allowed: string[]): string =>
+  `\`${prop}\` has ${bad.map((b) => `"${b}"`).join(", ")}; allowed: ${allowed.join(", ")}`;
 
 /** Notes the checks never judge: the schema files themselves, non-Markdown, dot-folders, the wiki's
  *  generated index/log pages and the raw-sources folder. */
@@ -82,7 +102,7 @@ export function checkNote(
   const typeRules: EffectiveTypeRules | undefined =
     type !== undefined ? eff.types[type] : undefined;
   const warn = (w: Omit<ConventionWarning, "path" | "level">): void => {
-    out.push({ path, level: "warn", ...w });
+    out.push({ path, level: severityOf(eff, typeRules, w.property ?? ""), ...w });
   };
   const typeLabel = type !== undefined ? { type } : {};
 
@@ -158,13 +178,55 @@ export function checkNote(
         warn({
           code: "value_not_allowed",
           property: prop,
-          message: `\`${prop}\` has ${bad.map((b) => `"${b}"`).join(", ")}; allowed: ${rule.values.join(", ")}`,
+          message: notAllowedMessage(prop, bad, rule.values),
           values: bad,
           allowed: rule.values.slice(0, MAX_SCAN_WARNINGS),
           source: rule.source,
           ...typeLabel,
         });
     }
+  }
+  return out;
+}
+
+/** The values a warning names, one per key: value_not_allowed names several, the others one. */
+const valuesOf = (w: ConventionWarning): string[] =>
+  w.code === "value_not_allowed" ? (w.values ?? []) : [""];
+
+/** Identity of a violation for the write check: (code, property, type, value). */
+const keyOf = (w: ConventionWarning, value: string): string =>
+  [w.code, w.property ?? "", w.type ?? "", value].join("\u0000");
+
+/**
+ * The blocking violations a write ADDS to a note: those `afterFm` has at level block that `beforeFm`
+ * does not. Keyed per offending value, so a second bad value on a property that already had one
+ * counts. `undefined` beforeFm is a new note (every blocking violation counts); `null` is a note whose
+ * YAML is broken, judged as checkNote(eff, path, null). A partial fix, or an edit that adds nothing,
+ * returns none. Pure: nothing calls it yet (the write gate is a later PR).
+ */
+export function blockingDelta(
+  eff: EffectiveConventions,
+  path: string,
+  beforeFm: Frontmatter | null | undefined,
+  afterFm: Frontmatter | null,
+): ConventionWarning[] {
+  const blocking = (fm: Frontmatter | null) =>
+    checkNote(eff, path, fm).filter((w) => w.level === "block");
+  const after = blocking(afterFm);
+  if (beforeFm === undefined) return after;
+  const before = new Set(blocking(beforeFm).flatMap((w) => valuesOf(w).map((v) => keyOf(w, v))));
+  const out: ConventionWarning[] = [];
+  for (const w of after) {
+    const all = valuesOf(w);
+    const fresh = all.filter((v) => !before.has(keyOf(w, v)));
+    if (fresh.length === 0) continue;
+    if (fresh.length === all.length) out.push(w);
+    else
+      out.push({
+        ...w,
+        values: fresh,
+        message: notAllowedMessage(w.property ?? "", fresh, w.allowed ?? []),
+      });
   }
   return out;
 }
