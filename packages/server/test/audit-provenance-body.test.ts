@@ -3,6 +3,7 @@
 // "cited in body only", not missing. `types` limits the claim-bearing set by frontmatter `type`.
 // The scan reads only notes the caller's read ACL admits, so a denied body is never counted.
 import { describe, expect, it } from "vitest";
+import { matchHeadingBoundary } from "../src/tools/m1/notes/heading-syntax";
 import { makeTestVault } from "./m1-helpers";
 import { makeWikiHarness } from "./wiki-test-helpers";
 
@@ -39,8 +40,8 @@ async function audit(files: Record<string, string>, input: Record<string, unknow
 describe("audit_provenance: body citations", () => {
   it("a note whose body cites a URL is cited in body only, not missing", async () => {
     const d = await audit({
-      "url-note.md": fm("type: research") + NL + "Claim, see https://example.com/paper for it.",
-      "bare.md": fm("type: research") + NL + "Claim with no evidence at all.",
+      "url-note.md": `${fm("type: research") + NL}Claim, see https://example.com/paper for it.`,
+      "bare.md": `${fm("type: research") + NL}Claim with no evidence at all.`,
     });
     expect(d.body_only).toEqual([{ path: "url-note.md", evidence: ["url"] }]);
     expect(d.body_only_count).toBe(1);
@@ -50,7 +51,7 @@ describe("audit_provenance: body citations", () => {
 
   it("a footnote definition counts as a footnote citation", async () => {
     const d = await audit({
-      "fn.md": "A claim.[^1]" + NL + NL + "[^1]: Smith 2024, a journal article.",
+      "fn.md": `A claim.[^1]${NL}${NL}[^1]: Smith 2024, a journal article.`,
     });
     expect(d.body_only).toEqual([{ path: "fn.md", evidence: ["footnote"] }]);
     expect(d.missing).toEqual([]);
@@ -58,8 +59,8 @@ describe("audit_provenance: body citations", () => {
 
   it("a Sources section with a list item counts; a Sources section of plain prose does not", async () => {
     const d = await audit({
-      "listed.md": "Claim." + NL + NL + "## Sources" + NL + NL + "- Smith 2024" + NL,
-      "prose.md": "Claim." + NL + NL + "## References" + NL + NL + "See the literature.",
+      "listed.md": `Claim.${NL}${NL}## Sources${NL}${NL}- Smith 2024${NL}`,
+      "prose.md": `Claim.${NL}${NL}## References${NL}${NL}See the literature.`,
     });
     expect(d.body_only).toEqual([{ path: "listed.md", evidence: ["sources_section"] }]);
     expect(d.missing).toEqual(["prose.md"]);
@@ -67,7 +68,7 @@ describe("audit_provenance: body citations", () => {
 
   it("a Sources heading matches at any level, case-insensitively, and a link under it counts", async () => {
     const d = await audit({
-      "deep.md": "Claim." + NL + NL + "#### sOuRcEs" + NL + NL + "[[some-note]]" + NL,
+      "deep.md": `Claim.${NL}${NL}#### sOuRcEs${NL}${NL}[[some-note]]${NL}`,
     });
     expect(d.body_only).toEqual([{ path: "deep.md", evidence: ["sources_section"] }]);
   });
@@ -94,7 +95,7 @@ describe("audit_provenance: body citations", () => {
 
   it("frontmatter sources still wins over body evidence", async () => {
     const d = await audit({
-      "both.md": fm("sources:", "  - '[[ref]]'") + NL + "Claim, see https://example.com.",
+      "both.md": `${fm("sources:", "  - '[[ref]]'") + NL}Claim, see https://example.com.`,
     });
     expect(d.with_provenance).toBe(1);
     expect(d.body_only).toEqual([]);
@@ -103,7 +104,7 @@ describe("audit_provenance: body citations", () => {
 
   it("a `source:` key is not a sources field, and a body citation still counts", async () => {
     const d = await audit({
-      "alias.md": fm("source: https://example.com") + NL + "Claim.",
+      "alias.md": `${fm("source: https://example.com") + NL}Claim.`,
     });
     expect(d.with_provenance).toBe(0);
     expect(d.body_only).toEqual([]);
@@ -112,7 +113,7 @@ describe("audit_provenance: body citations", () => {
 
   it("evidence kinds are reported together when a note has more than one", async () => {
     const d = await audit({
-      "many.md": "See https://example.com[^a]" + NL + NL + "[^a]: note",
+      "many.md": `See https://example.com[^a]${NL}${NL}[^a]: note`,
     });
     expect(d.body_only).toEqual([{ path: "many.md", evidence: ["url", "footnote"] }]);
   });
@@ -142,9 +143,9 @@ describe("audit_provenance: body citations", () => {
 
 describe("audit_provenance: types filter", () => {
   const files = {
-    "r1.md": fm("type: research") + NL + "Claim.",
-    "r2.md": fm("type: [reference, draft]") + NL + "Claim, see https://example.com.",
-    "log.md": fm("type: log") + NL + "Did a thing.",
+    "r1.md": `${fm("type: research") + NL}Claim.`,
+    "r2.md": `${fm("type: [reference, draft]") + NL}Claim, see https://example.com.`,
+    "log.md": `${fm("type: log") + NL}Did a thing.`,
     "untyped.md": "No frontmatter at all.",
   };
 
@@ -188,5 +189,47 @@ describe("lint_wiki missing_sources inherits the body citations", () => {
     } finally {
       h.v.cleanup();
     }
+  });
+});
+
+describe("heading recognition stays linear on long runs (ReDoS guard)", () => {
+  const timed = (fn: () => unknown): { ms: number; out: unknown } => {
+    const t0 = performance.now();
+    const out = fn();
+    return { ms: performance.now() - t0, out };
+  };
+
+  it("a long run of spaces inside the title parses fast and keeps the title", () => {
+    const gap = " ".repeat(50000);
+    const { ms, out } = timed(() => matchHeadingBoundary(`# a${gap}x`));
+    expect(out).toEqual({ level: 1, title: `a${gap}x` });
+    expect(ms).toBeLessThan(100);
+  });
+
+  it("a long run of spaces before a bare word parses fast", () => {
+    const { ms, out } = timed(() => matchHeadingBoundary(`# ${" ".repeat(50000)}x`));
+    expect(out).toEqual({ level: 1, title: "x" });
+    expect(ms).toBeLessThan(100);
+  });
+
+  it("a long space run before a closing sequence parses fast", () => {
+    const gap = " ".repeat(50000);
+    const { ms, out } = timed(() => matchHeadingBoundary(`# a${gap}x #`));
+    expect(out).toEqual({ level: 1, title: `a${gap}x` });
+    expect(ms).toBeLessThan(100);
+  });
+
+  it("a long run of closing-sequence fragments parses fast and keeps the title text", () => {
+    const { ms, out } = timed(() => matchHeadingBoundary(`#${" #".repeat(20000)}`));
+    expect(out).toEqual({ level: 1, title: `#${" #".repeat(19998)}` });
+    expect(ms).toBeLessThan(100);
+  });
+
+  it("a Sources heading behind a long space run still opens its section", async () => {
+    const body = `## ${" ".repeat(50000)}Sources${NL}${NL}- Smith 2024${NL}`;
+    const t0 = performance.now();
+    const d = await audit({ "long.md": `Claim.${NL}${NL}${body}` });
+    expect(performance.now() - t0).toBeLessThan(2000);
+    expect(d.body_only).toEqual([{ path: "long.md", evidence: ["sources_section"] }]);
   });
 });

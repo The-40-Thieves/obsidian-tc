@@ -17,6 +17,7 @@ import { readableEntry } from "../vault/acl-read-filter";
 import { buildVaultIndex, type ExtractedLink, resolveTarget } from "../vault/links";
 import { readNote } from "../vault/notes-io";
 import { resolveVaultPath, walkVaultSteps } from "../vault/paths";
+import { matchHeadingBoundary } from "./m1/notes/heading-syntax";
 import { isGeneratedWikiPath, rawPathFilter } from "./m7/knowledge/wiki-folder";
 import { isGeneratedPage } from "./m7/knowledge/wiki-generated-seal";
 import type { ScanWarnings } from "./scan-warnings";
@@ -233,9 +234,8 @@ export interface ProvenanceScan {
 }
 
 const URL_IN_TEXT = /\bhttps?:\/\/\S/i;
-const LINK_IN_TEXT = /\[\[[^\]]+\]\]|\]\(|https?:\/\//i;
+const LINK_IN_TEXT = /\[\[|\]\(|https?:\/\//i;
 const FOOTNOTE_DEFINITION = /^\s{0,3}\[\^[^\]\s]+\]:/;
-const HEADING = /^(#{1,6})\s+(.*?)\s*#*\s*$/;
 const SOURCES_HEADING = /^(sources|references)$/i;
 const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])\s+\S/;
 
@@ -255,11 +255,11 @@ export function bodyEvidence(body: string): BodyEvidence[] {
   const kinds = new Set<BodyEvidence>();
   let sectionLevel: number | null = null;
   for (const line of prose) {
-    const heading = HEADING.exec(line);
+    const heading = matchHeadingBoundary(line);
     if (heading) {
-      const level = heading[1]?.length ?? 0;
-      if (sectionLevel !== null && level <= sectionLevel) sectionLevel = null;
-      if (sectionLevel === null && SOURCES_HEADING.test(heading[2] ?? "")) sectionLevel = level;
+      if (sectionLevel !== null && heading.level <= sectionLevel) sectionLevel = null;
+      if (sectionLevel === null && SOURCES_HEADING.test(heading.title))
+        sectionLevel = heading.level;
       continue;
     }
     const text = line.replace(/`[^`]*`/g, "");
