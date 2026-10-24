@@ -9,7 +9,6 @@ import type { RawFolders, WikiFolders } from "../tools/m7/knowledge/wiki-folder"
 import { SCHEMA_LIMITS, WIKI_SCHEMA_FILE } from "../tools/m7/knowledge/wiki-schema";
 import { MAX_SCAN_WARNINGS } from "../tools/scan-warnings";
 import { enforcePathAcl } from "../vault/acl-path";
-import { readableRel } from "../vault/acl-read-filter";
 import { readNoteBounded } from "../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../vault/paths";
 import { readFailureReason } from "../vault/read-failure";
@@ -86,7 +85,6 @@ export function readConventionsLayer(
   scope: ConventionsScope,
   path: string,
 ): ParsedConventionsLayer | null {
-  if (!readableRel(scope.acl, path, scope.grantedScopes)) return null;
   // A missing layer is the common case: one lexical stat answers it before any ACL or realpath work.
   // Missing and denied both return null, so this reveals nothing the check below would not.
   if (!isLexicalFile(resolve(scope.root, path))) return null;
@@ -125,9 +123,13 @@ export function readConventionsLayer(
     layerCache.set(key, { sig, parsed });
     return parsed;
   } catch (e) {
+    // A refusal says the caller may not see this layer (it leaves what the caller reads, or the vault):
+    // absent, with no warning that would reveal that it exists.
+    const reason = readFailureReason(e);
+    if (reason === "acl_denied" || reason === "path_invalid") return null;
     return {
       layer: null,
-      warnings: [`conventions not read: ${readFailureReason(e)}`],
+      warnings: [`conventions not read: ${reason}`],
       legacyOnly: false,
     };
   }
@@ -144,6 +146,7 @@ function emptyEffective(scope: ConventionsScope): EffectiveConventions {
     rawFolders: scope.rawFolders,
     fileWarnings: [],
     fileWarningsOmitted: 0,
+    layers: [],
   };
 }
 
@@ -217,7 +220,10 @@ export function resolveConventions(
       start = i;
       break;
     }
-  for (const layer of loaded.slice(start)) mergeLayer(eff, layer);
+  for (const layer of loaded.slice(start)) {
+    mergeLayer(eff, layer);
+    eff.layers.push({ path: layer.path, inherit: layer.inherit, version: layer.version });
+  }
   if (eff.typeKeySource === "" && loaded.length > 0)
     eff.typeKeySource = loaded[loaded.length - 1]?.path ?? "";
   return eff;

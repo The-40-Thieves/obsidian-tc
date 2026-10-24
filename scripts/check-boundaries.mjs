@@ -75,8 +75,9 @@ const UNREACHABLE_ALLOWLIST = new Map([
   // is reachable now — this comment is the historical note the gate's own header asks for; the
   // entry itself is gone. Same acl_path_set.ts precedent.
   //
-  // Refs #1331, slice 1 of the vault conventions work: the engine (parse, resolve, check) lands dark.
-  // Its consumer, the get_conventions tool, arrives in the next slice; each entry goes when it does.
+  // Refs #1331: the conventions engine (src/conventions/) landed dark and held four entries here. The
+  // note-write check (mcp/registry/conventions-scope.ts) and get_conventions now reach every module,
+  // so the entries are gone.
 ]);
 
 function run(cmd, args) {

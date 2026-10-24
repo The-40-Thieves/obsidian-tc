@@ -31,6 +31,7 @@ import {
   sessionsInWindow,
   type TraceRecord,
 } from "../../workspace/sessions";
+import { EffectiveConventionsOutput, rootConventionsFor } from "../m1/conventions-tools";
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { type M5Deps, memoryDefenseFor, parseIso } from "./shared";
@@ -72,6 +73,8 @@ const StartSessionOutput = z.object({
   // GH #994 follow-up: present only when memoryDefense.mode is "redact" and something in
   // session_metadata matched.
   redactions: z.number().int().nonnegative().optional(),
+  // The root layer's effective rules (concise), for a caller holding read:notes. Absent otherwise.
+  conventions: EffectiveConventionsOutput.optional(),
 });
 
 const EndSessionOutput = z.object({
@@ -196,8 +199,10 @@ export function buildSessionTools(deps: M5Deps): ToolDefinition[] {
           });
         });
         deps.activeSessions?.set(ctx.caller, id, v.id);
+        const conventions = rootConventionsFor(v, ctx);
         return {
           session_id: id,
+          ...(conventions !== undefined ? { conventions } : {}),
           vault: v.id,
           started_at: now,
           trace_path: tracePath,

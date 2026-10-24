@@ -152,6 +152,11 @@ const M1_SAMPLING_CONSUMERS = ["suggest_tags"] as const;
 // structural criterion; it stays registered and discoverable under `"core"`.
 const M1_PROVENANCE = ["get_provenance"] as const;
 
+// `get_conventions` (the SCHEMA.md rules for a folder): a read agents call before writing, but the
+// `core` profile is pinned at 105 tools (tool-facade-profile.test.ts, docgen-stats.test.ts), so it
+// stays extended-only until that cap is re-decided. It stays registered and discoverable.
+const M1_CONVENTIONS = ["get_conventions"] as const;
+
 // The wiki family (`find_existing_page`, `lint_wiki`, `draft_wiki_page`, `commit_wiki_page`): checks
 // and a drafting/commit path for agents that maintain a wiki, and `core` is capped at 100 tools
 // (docgen-stats.test.ts). Curated out on the same structural criterion; all stay registered and
@@ -172,6 +177,7 @@ export const NON_CORE_TOOL_NAMES: readonly string[] = Object.freeze([
   ...M1_GRAPH_ANALYSIS,
   ...M1_SAMPLING_CONSUMERS,
   ...M1_PROVENANCE,
+  ...M1_CONVENTIONS,
   ...M7_WIKI_UPKEEP,
 ]);
 

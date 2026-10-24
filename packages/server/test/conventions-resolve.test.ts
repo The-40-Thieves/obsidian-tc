@@ -156,6 +156,26 @@ describe("resolveConventions", () => {
     },
   );
 
+  it("layers lists exactly the layers merged, root first, and none cut off by inherit:false", () => {
+    v = makeTestVault({
+      files: {
+        "SCHEMA.md": layer("  version: 1\n  frontmatter:\n    required: [type]"),
+        "a/SCHEMA.md": layer(
+          "  version: 1\n  inherit: false\n  frontmatter:\n    values:\n      status: [draft]",
+        ),
+        "a/b/SCHEMA.md": layer(
+          "  version: 1\n  frontmatter:\n    values:\n      status: [current]",
+        ),
+        "a/b/n.md": "x",
+      },
+    });
+    const eff = resolveConventions(scopeOf(v), "a/b/n.md");
+    expect(eff.layers).toEqual([
+      { path: "a/SCHEMA.md", inherit: false, version: 1 },
+      { path: "a/b/SCHEMA.md", inherit: true, version: 1 },
+    ]);
+  });
+
   it("a list whose entries are all dropped does not remove the inherited rule", () => {
     v = makeTestVault({
       files: {
@@ -277,6 +297,10 @@ describe("layer cache", () => {
     const when = new Date("2026-01-01T00:00:00Z");
     utimesSync(file, when, when);
     const first = readConventionsLayer(scopeOf(v), "SCHEMA.md");
+    // File times come from a coarse clock (about 15 ms on Windows), so two writes inside one tick share
+    // a ctime and no stat can tell them apart; the cache accepts that. Step past the tick, as any real
+    // edit would be.
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
     writeFileSync(file, layer("  frontmatter:\n    required: [kind]"));
     utimesSync(file, when, when);
     const after = readConventionsLayer(scopeOf(v), "SCHEMA.md");

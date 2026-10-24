@@ -82,6 +82,8 @@ describe("deriveWindowVerdict: the read-family list (THE-726)", () => {
     "get_active_file",
     "get_attachment",
     "get_backlinks",
+    // The SCHEMA.md rules for a folder, not a note's content: no note the search found was read.
+    "get_conventions",
     "get_entity",
     "get_index_status",
     "get_link_strength",
