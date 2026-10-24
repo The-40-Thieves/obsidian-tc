@@ -157,7 +157,9 @@ export function checkNote(
           const value = fm[k];
           return Array.isArray(value) ? value : [value];
         });
-        if (items.some((x) => isRecord(x) || Array.isArray(x))) {
+        // A non-scalar item is reported, and the scalar items beside it are still judged: a fix that
+        // removes only the map item must not reveal a bad value the before-note already had.
+        if (items.some((x) => isRecord(x) || Array.isArray(x)))
           warn({
             code: "value_not_scalar",
             property: prop,
@@ -165,8 +167,6 @@ export function checkNote(
             source: rule.source,
             ...typeLabel,
           });
-          continue;
-        }
         for (const x of items) {
           const s = scalarText(x);
           if (s !== undefined) texts.push(s);
