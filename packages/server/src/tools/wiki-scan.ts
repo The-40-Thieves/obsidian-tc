@@ -17,6 +17,7 @@ import { readableEntry } from "../vault/acl-read-filter";
 import { buildVaultIndex, type ExtractedLink, resolveTarget } from "../vault/links";
 import { readNote } from "../vault/notes-io";
 import { resolveVaultPath, walkVaultSteps } from "../vault/paths";
+import { matchHeadingBoundary } from "./m1/notes/heading-syntax";
 import { isGeneratedWikiPath, rawPathFilter } from "./m7/knowledge/wiki-folder";
 import { isGeneratedPage } from "./m7/knowledge/wiki-generated-seal";
 import type { ScanWarnings } from "./scan-warnings";
@@ -212,21 +213,77 @@ interface ProvenanceScanOpts {
   include?: string[] | undefined;
   exclude?: string[] | undefined;
   folder?: string | undefined;
+  /** Only notes whose frontmatter `type` (a string, or an array) matches one of these are claim-bearing. */
+  types?: string[] | undefined;
 }
+
+/** How a note's body cites evidence when its frontmatter has no sources field. */
+export type BodyEvidence = "url" | "footnote" | "sources_section";
 
 export interface ProvenanceScan {
   scanned: number;
   withField: number;
   withConfidence: number;
   withVerified: number;
+  /** Claim-bearing notes with neither the field nor any body evidence. */
   missing: string[];
+  /** Claim-bearing notes without the field whose body cites evidence. */
+  bodyOnly: Array<{ path: string; evidence: BodyEvidence[] }>;
+  skippedByType: number;
   byFolder: Map<string, { scanned: number; missing: number }>;
+}
+
+const URL_IN_TEXT = /\bhttps?:\/\/\S/i;
+const LINK_IN_TEXT = /\[\[|\]\(|https?:\/\//i;
+const FOOTNOTE_DEFINITION = /^\s{0,3}\[\^[^\]\s]+\]:/;
+const SOURCES_HEADING = /^(sources|references)$/i;
+const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])\s+\S/;
+
+/** The evidence a note body carries: URLs, footnote definitions, and a Sources/References section
+ *  (any heading level) holding a list item or a link. Fenced code blocks and inline code spans are
+ *  left out, so a sample URL in code is not a citation. */
+export function bodyEvidence(body: string): BodyEvidence[] {
+  const prose: string[] = [];
+  let fenced = false;
+  for (const line of body.split(/\r?\n/)) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (!fenced) prose.push(line);
+  }
+  const kinds = new Set<BodyEvidence>();
+  let sectionLevel: number | null = null;
+  for (const line of prose) {
+    const heading = matchHeadingBoundary(line);
+    if (heading) {
+      if (sectionLevel !== null && heading.level <= sectionLevel) sectionLevel = null;
+      if (sectionLevel === null && SOURCES_HEADING.test(heading.title))
+        sectionLevel = heading.level;
+      continue;
+    }
+    const text = line.replace(/`[^`]*`/g, "");
+    if (URL_IN_TEXT.test(text)) kinds.add("url");
+    if (FOOTNOTE_DEFINITION.test(line)) kinds.add("footnote");
+    if (sectionLevel !== null && (LIST_ITEM.test(line) || LINK_IN_TEXT.test(text))) {
+      kinds.add("sources_section");
+    }
+  }
+  return [...kinds];
+}
+
+/** Frontmatter `type` is a string equal to one of `types`, or an array containing one. */
+function typeMatches(fm: Record<string, unknown> | null, types: ReadonlySet<string>): boolean {
+  const t = fm?.type;
+  if (typeof t === "string") return types.has(t);
+  return Array.isArray(t) && t.some((x) => typeof x === "string" && types.has(x));
 }
 
 /** Claim-bearing notes that lack the `field` frontmatter key, plus coverage of
  *  sources/confidence/verified over the readable set. The include/exclude globs are compiled ONCE
  *  for the whole scan (THE-618): an over-long glob fails up front as `glob too long`, and not
- *  only on whichever note happened to be scanned first. */
+ *  only on whichever note happened to be scanned first. A note without the field whose body cites
+ *  evidence is `bodyOnly`, not `missing`. */
 export function* scanProvenanceSteps(
   scope: ScanScope,
   warnings: ScanWarnings,
@@ -250,25 +307,49 @@ export function* scanProvenanceSteps(
     (p) =>
       inScope(p) && !isGeneratedWikiPath(p, scope.wikiFolders ?? scope.wikiFolder) && !isRaw(p),
   );
+  const types = opts.types ? new Set(opts.types) : undefined;
   const byFolder = new Map<string, { scanned: number; missing: number }>();
   const missing: string[] = [];
+  const bodyOnly: Array<{ path: string; evidence: BodyEvidence[] }> = [];
+  let scanned = 0;
+  let skippedByType = 0;
   let withField = 0;
   let withConfidence = 0;
   let withVerified = 0;
   for (const rel of notes) {
-    const fm = warnings.parse(readNote(resolveVaultPath(scope.root, rel)).raw, rel).frontmatter;
+    const parsed = warnings.parse(readNote(resolveVaultPath(scope.root, rel)).raw, rel);
+    const fm = parsed.frontmatter;
+    if (types && !typeMatches(fm, types)) {
+      skippedByType++;
+      yield;
+      continue;
+    }
+    scanned++;
     const top = rel.split("/")[0] ?? "";
     const folder = byFolder.get(top) ?? { scanned: 0, missing: 0 };
     folder.scanned++;
     if (fmHas(fm, opts.field)) withField++;
     else {
-      folder.missing++;
-      missing.push(rel);
+      const evidence = bodyEvidence(parsed.body);
+      if (evidence.length) bodyOnly.push({ path: rel, evidence });
+      else {
+        folder.missing++;
+        missing.push(rel);
+      }
     }
     if (fmHas(fm, "confidence")) withConfidence++;
     if (fm != null && "verified" in fm) withVerified++;
     byFolder.set(top, folder);
     yield;
   }
-  return { scanned: notes.length, withField, withConfidence, withVerified, missing, byFolder };
+  return {
+    scanned,
+    withField,
+    withConfidence,
+    withVerified,
+    missing,
+    bodyOnly,
+    skippedByType,
+    byFolder,
+  };
 }

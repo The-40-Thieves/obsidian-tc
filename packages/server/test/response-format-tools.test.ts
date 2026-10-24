@@ -982,11 +982,14 @@ describe("part 4a concise shapes", () => {
     const full = await call(s, {});
     const d = await call(s, { response_format: "concise" });
     expect(keys(d)).toEqual([
+      "body_only",
+      "body_only_count",
       "confidence_coverage",
       "coverage",
       "missing",
       "missing_provenance",
       "scanned",
+      "skipped_by_type",
       "truncated",
       "vault",
       "verified_coverage",
