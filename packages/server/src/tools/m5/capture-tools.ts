@@ -13,6 +13,7 @@ import { z } from "zod";
 import { AMBIENT_DEDUPE_TAG_PREFIX } from "../../capture/ambient-import";
 import { IMPORT_DEDUPE_TAG_PREFIX } from "../../capture/highlight-import";
 import { type CaptureRow, deleteCapture, enqueueCapture, markCommitted } from "../../capture/queue";
+import { conventionsResultShape } from "../../conventions/schema";
 import { inTransaction } from "../../db/txn";
 import {
   enforceMemoryDefense,
@@ -115,6 +116,7 @@ const CommitCaptureOutput = z.object({
   removed_from_queue: z.boolean(),
   // GH #994: present only when memoryDefense.mode is "redact" and something in this call matched.
   redactions: z.number().int().nonnegative().optional(),
+  ...conventionsResultShape,
 });
 
 /** Build a note's frontmatter for commit: capture-derived title/tags, then any

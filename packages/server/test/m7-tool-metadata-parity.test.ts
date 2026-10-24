@@ -377,6 +377,7 @@ const EXPECTED: ToolSnapshot[] = [
     outputKeys: [
       "committed",
       "contradictions",
+      "conventions",
       "dedupe",
       "next",
       "page",

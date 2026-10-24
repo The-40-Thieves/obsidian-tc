@@ -19,6 +19,7 @@ import type { Database } from "../src/db/types";
 import { elicitVerifier, issueElicitToken } from "../src/elicit";
 import { argsHash } from "../src/hash";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
+import { conventionsChecker } from "../src/mcp/registry/conventions-scope";
 import type { MetricsRecorder } from "../src/metrics/registry";
 import { createPlurClient } from "../src/plur/client";
 import { registerM5Tools } from "../src/tools/m5";
@@ -31,6 +32,8 @@ export const PLUR_TOKEN = "plur-secret";
 
 export interface M5VaultOptions {
   files?: Record<string, string>;
+  /** Wires the folder conventions sink over this vault (commit_capture runs the write check). */
+  conventions?: boolean;
   acl?: Partial<AclConfigT>;
   memoryFolder?: string;
   traceFolder?: string;
@@ -121,7 +124,12 @@ export function makeM5Vault(opts: M5VaultOptions = {}): M5Vault {
       })
     : undefined;
 
-  const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
+  const registry = new ToolRegistry({
+    verifyElicit: elicitVerifier,
+    ...(opts.conventions
+      ? { conventions: conventionsChecker(vaultRegistry), rootResolver: () => root }
+      : {}),
+  });
   registerM5Tools(registry, {
     cacheDir,
     vaultRegistry,
