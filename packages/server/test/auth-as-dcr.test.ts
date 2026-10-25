@@ -259,11 +259,11 @@ describe("registration response (RFC 7591)", () => {
     const flow = await dcrFlow();
     const r = await register(
       flow,
-      nativeMeta({ client_name: `Evil‮gnp.exe​${"x".repeat(300)}\n<b>` }),
+      nativeMeta({ client_name: `Evil\u202Egnp.exe\u200B${"x".repeat(300)}\n<b>` }),
     );
     expect(r.res.status).toBe(201);
     const name = r.body.client_name as string;
-    expect(name).not.toMatch(/[‮​\n]/);
+    expect(name).not.toMatch(/[\u202E\u200B\n]/);
     expect(name.length).toBeLessThanOrEqual(100);
   });
 

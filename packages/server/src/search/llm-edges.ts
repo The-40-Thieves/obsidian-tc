@@ -40,7 +40,7 @@ const SENTINELS = [
 export function defangSentinels(text: string): string {
   let out = text;
   for (const s of SENTINELS) {
-    out = out.split(s).join(`${s[0]}​${s.slice(1)}`);
+    out = out.split(s).join(`${s[0]}\u200B${s.slice(1)}`);
   }
   return out;
 }

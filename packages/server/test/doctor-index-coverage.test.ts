@@ -178,7 +178,7 @@ describe("probeIndexCoverage (THE-1073)", () => {
       // "looks empty" when trimmed). All three are non-zero BYTE LENGTH, so all three get a `notes`
       // row, same as indexVault.
       writeFileSync(join(vaultRoot, "fm-only.md"), "---\ntitle: X\n---\n");
-      writeFileSync(join(vaultRoot, "bom.md"), "﻿");
+      writeFileSync(join(vaultRoot, "bom.md"), "\uFEFF");
       writeFileSync(join(vaultRoot, "ws.md"), "\n");
 
       const db = await openDatabase(join(cacheDir, "cache.db"), 5_000);

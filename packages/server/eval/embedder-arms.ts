@@ -75,7 +75,7 @@ const corpusFlag = (): Corpus => {
 };
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const GEMINI = "https://generativelanguage.googleapis.com/v1beta";
-const GATEWAY = process.env.EMBEDDER_ARMS_GATEWAY ?? "http://100.78.123.100:4001/v1";
+const GATEWAY = process.env.EMBEDDER_ARMS_GATEWAY ?? "http://localhost:4001/v1";
 
 interface CallStat {
   n: number;

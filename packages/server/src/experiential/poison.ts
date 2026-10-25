@@ -82,8 +82,10 @@ const PERSISTENCE = [
 
 // Family: hidden-text vectors (zero-width smuggling, bidi override, directive-bearing HTML
 // comments, large opaque blobs — '=' allowed inside so chained base64 segments still match).
-const ZERO_WIDTH = /[​-‏⁠﻿]/;
-const BIDI_OVERRIDE = /[‪-‮⁦-⁩]/;
+// Escapes, not literal characters (check-bidi.mjs): \u200B-\u200F zero-width space to RLM, \u2060
+// word joiner, \uFEFF BOM; \u202A-\u202E bidi embeddings and overrides, \u2066-\u2069 isolates.
+const ZERO_WIDTH = /[\u200B-\u200F\u2060\uFEFF]/;
+const BIDI_OVERRIDE = /[\u202A-\u202E\u2066-\u2069]/;
 const HTML_COMMENT_DIRECTIVE =
   /<!--[\s\S]{0,400}?(?:instruction|ignore|system|prompt|always|remember)[\s\S]{0,400}?-->/i;
 const OPAQUE_BLOB = /[A-Za-z0-9+/=]{160,}/;
@@ -112,12 +114,12 @@ const EXFIL = [
 // Invisible/spacing controls used to smuggle directives past a literal scan: zero-width
 // (ZWSP..RLM, word-joiner, BOM/ZWNBSP) + bidi embeddings/overrides/isolates. Mirrors the
 // ZERO_WIDTH + BIDI_OVERRIDE detection ranges, in explicit code points for the strip step.
-const INVISIBLE_CONTROLS = /[​-‏⁠﻿‪-‮⁦-⁩]/gu;
+const INVISIBLE_CONTROLS = /[\u200B-\u200F\u2060\uFEFF\u202A-\u202E\u2066-\u2069]/gu;
 
 /**
  * Canonicalize before content matching so trivial evasions collapse to their visible form:
  * NFKC folds compatibility homoglyphs (fullwidth "ｉｇｎｏｒｅ", ligatures) to ASCII, and stripping
- * the invisible controls defeats interleaved-zero-width smuggling ("i​gnore previous
+ * the invisible controls defeats interleaved-zero-width smuggling ("i\u200Bgnore previous
  * instructions"). ASCII payloads are unchanged by NFKC + strip, so everything the raw patterns
  * already caught stays caught — this only ADDS detections (THE-238 layer-1 hardening).
  */
