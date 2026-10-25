@@ -196,8 +196,8 @@ describe("write-only caller: CAS detail is read-gated", () => {
       { vault: "test", from: "Private/p.md", to: "Public/c.md" },
       { grantedScopes: new Set(["write:notes"]) },
     );
-    expect(errOf(r)?.code).toBe("invalid_input");
-    expect(errOf(r)?.message).toBe(FIXED_REFUSAL);
+    // copy_note lists read:notes in requiredScopes, so the scope gate refuses before the handler.
+    expect(errOf(r)?.code).toBe("forbidden");
     expect(() => v?.read("Public/c.md")).toThrow();
   });
 

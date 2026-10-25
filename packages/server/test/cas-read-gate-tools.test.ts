@@ -282,11 +282,11 @@ describe("move_note in block mode: a non-reader gets a refusal that names nothin
       { vault: "test", from: "Private/s.md", to: "Private/t.md" },
       { grantedScopes: new Set(["write:notes", "delete:notes"]) },
     );
-    // A move needs read on its source, so this scope-only caller is refused before the scan runs: the
-    // refusal is the fixed read message, and no scan result (pattern ids, a matched field) reaches it.
+    // A move needs read:notes on its source, so this scope-only caller is refused by the scope gate
+    // before the scan runs: no scan result (pattern ids, a matched field) reaches it.
     expect(r.ok).toBe(false);
     expect(JSON.stringify(r)).not.toContain("pattern_ids");
-    expect(r.ok ? null : r.error.code).toBe("acl_denied");
+    expect(r.ok ? null : r.error.code).toBe("forbidden");
   });
 });
 
@@ -295,7 +295,7 @@ describe("move_note in block mode: a non-reader gets a refusal that names nothin
 describe("move_note and bulk_move_notes: an unreadable backlink's secret is not named", () => {
   const BACKLINK = (): string => `token: ${fakeGithubToken()}\nsee [[s]]\n`;
   const FILES = { "Public/s.md": "clean\n", "Private/b.md": BACKLINK() };
-  const MOVER = { grantedScopes: new Set(["write:notes", "delete:notes"]) };
+  const MOVER = { grantedScopes: new Set(["read:notes", "write:notes", "delete:notes"]) };
   const BLOCK = { mode: "block" as const, pii: false };
 
   it("move_note: a non-reader's refusal carries no pattern_ids and no fields", async () => {

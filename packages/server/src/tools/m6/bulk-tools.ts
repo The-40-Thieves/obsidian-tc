@@ -28,7 +28,7 @@ import {
 import { z } from "zod";
 import { conventionsResultShape } from "../../conventions/schema";
 import {
-  enforceMemoryDefenseOnMovedBytes,
+  enforceMemoryDefenseOnNoteWrite,
   MEMORY_DEFENSE_OFF,
   redactedEcho,
   refusePathIfSecretShaped,
@@ -39,7 +39,12 @@ import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl, ImmutableRewriteSkips } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import { runBulk } from "../../vault/bulk";
-import { callerMayReadNote, requireContentRead } from "../../vault/cas";
+import {
+  callerMayReadNote,
+  refuseUnreadableBatch,
+  requireContentRead,
+  unreadableSourceOf,
+} from "../../vault/cas";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
 import {
   commitPlanned,
@@ -387,7 +392,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
         "Batch-move notes and rewrite backlinks across the whole link graph (rewrite phase is all-or-nothing). dry_run (default true) previews predicted backlink updates without touching disk. Set overwrite to clobber existing destinations (each is soft-deleted to .trash, recoverable). HITL-floored (bulk) and throttled.",
       inputSchema: BulkMoveInput,
       outputSchema: BulkMoveOutput,
-      requiredScopes: ["write:notes", "delete:notes", "bulk:notes"],
+      requiredScopes: ["read:notes", "write:notes", "delete:notes", "bulk:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
@@ -408,7 +413,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             const toRel = normalizeVaultPath(m.to);
             if (fromRel === toRel)
               throw err.invalidInput("from and to are identical", { path: fromRel });
-            if (!callerMayReadNote(ctx, v.root, fromRel)) unreadableSource ??= fromRel;
+            unreadableSource ??= unreadableSourceOf(ctx, v.root, fromRel);
             enforcePathAcl(ctx.acl, "read", fromRel, v.root, ctx.grantedScopes);
             requireContentRead(ctx, v.root, fromRel);
             enforcePathAcl(ctx.acl, "delete", fromRel, v.root, ctx.grantedScopes);
@@ -436,8 +441,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           }
         });
 
-        if (!input.dry_run && unreadableSource !== undefined)
-          requireContentRead(ctx, v.root, unreadableSource);
+        refuseUnreadableBatch(ctx, v.root, unreadableSource, input.dry_run);
 
         // In-batch hazards the per-row pass cannot see: a destination claimed by
         // two moves (the 2nd clobbers the 1st, whose source is already hardDeleted
@@ -537,10 +541,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           if (!r.ok || !r.fromRel || !r.toRel) continue;
           try {
             const { raw } = readNote(resolveVaultPath(v.root, r.fromRel));
-            enforceMemoryDefenseOnMovedBytes(mdConfig, r.toRel, raw, {
-              metrics: deps.metrics,
-              mayRead: callerMayReadNote(ctx, v.root, r.fromRel),
-            });
+            enforceMemoryDefenseOnNoteWrite(mdConfig, r.toRel, raw, { metrics: deps.metrics });
           } catch (e) {
             r.ok = false;
             r.error = (

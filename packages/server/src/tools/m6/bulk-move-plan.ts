@@ -6,7 +6,7 @@ import {
   ObsidianTcError,
   type VaultMemoryDefenseConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
-import { enforceMemoryDefenseOnMovedBytes } from "../../experiential/memory-defense";
+import { enforceMemoryDefenseOnNoteWrite } from "../../experiential/memory-defense";
 import type { MetricsRecorder } from "../../metrics/registry";
 import type { ImmutableRewriteSkips } from "../../vault/acl-path";
 import { buildVaultIndex, resolveTarget, type VaultIndex } from "../../vault/links";
@@ -134,8 +134,8 @@ export function planMoves(args: {
     if (toRel !== undefined) {
       // The relocated note's own bytes were scanned for its row before the plan (metrics counted
       // once there); this scan is of the final text, which only differs by its repointed links.
-      const content = enforceMemoryDefenseOnMovedBytes(defense, toRel, rewritten?.text ?? raw, {
-        mayRead: mayRead(p),
+      const content = enforceMemoryDefenseOnNoteWrite(defense, toRel, rewritten?.text ?? raw, {
+        metrics,
       }).content;
       moved.push({
         fromRel: p,

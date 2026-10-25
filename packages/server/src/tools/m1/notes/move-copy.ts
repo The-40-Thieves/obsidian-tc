@@ -143,7 +143,7 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
       "Move/rename a note and update backlinks. Crossing a folder boundary OR overwriting an existing destination requires confirmation; an overwritten destination is soft-deleted to .trash (recoverable).",
     inputSchema: MoveInput,
     outputSchema: MoveNoteOutput,
-    requiredScopes: ["write:notes", "delete:notes"],
+    requiredScopes: ["read:notes", "write:notes", "delete:notes"],
     // THE-824: display-only — see ToolDefinition.conditionallyDestructive. The real gate stays the
     // requireConfirmation call below (crossFolder || overwriteExisting); this only stops the wire
     // annotation from advertising destructive: false for a tool that CAN demand confirmation.
@@ -328,7 +328,7 @@ export function createCopyNoteTool(deps: M1Deps): ToolDefinition {
     description: "Copy a note to a new path (backlinks are not rewritten for copies).",
     inputSchema: CopyInput,
     outputSchema: CopyNoteOutput,
-    requiredScopes: ["write:notes"],
+    requiredScopes: ["read:notes", "write:notes"],
     // THE-824: see move_note above.
     conditionallyDestructive: true,
     handler: (input, ctx) => {

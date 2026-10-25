@@ -211,10 +211,11 @@ describe("move and copy destinations are judged against their source", () => {
         v.cleanup();
       }
     };
-    // The source is unreadable to this caller, so every move is refused by the read ACL before the
-    // conventions judge reads the destination's rule.
+    // The source is unreadable to this caller. A move_note caller without read:notes is refused by the
+    // scope gate, and a bulk caller is refused by the read ACL, both before the conventions judge
+    // reads the destination's rule.
     const into = await outcome("oneA/a.md");
-    expect(into).toBe("invalid_input");
+    expect(into).toBe("forbidden");
     expect(await outcome("oneB/a.md")).toBe(into);
     for (const dryRun of [true, false]) {
       const bulkInto = await bulkOutcome("oneA/a.md", dryRun);

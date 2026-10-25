@@ -50,6 +50,21 @@ export function requireContentRead(
     throw err.invalidInput(CONTENT_READ_REQUIRED, { path: rel });
 }
 
+/** The source when the caller may not read it, else undefined: a real move refuses the batch on the first. */
+export function unreadableSourceOf(ctx: ReadCaller, root: string, rel: string): string | undefined {
+  return callerMayReadNote(ctx, root, rel) ? undefined : rel;
+}
+
+/** Refuses the whole batch on an unreadable source. A dry run reports it on its own row instead. */
+export function refuseUnreadableBatch(
+  ctx: ReadCaller,
+  root: string,
+  rel: string | undefined,
+  dryRun: boolean,
+): void {
+  if (!dryRun && rel !== undefined) requireContentRead(ctx, root, rel);
+}
+
 /** One prev_hash check: the read decision first (a non-reader is refused before anything is
  *  compared, so the outcome cannot tell a match from a miss), then the compare. */
 export interface CasCheck {
