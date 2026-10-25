@@ -38,6 +38,11 @@ export const escapeGlob = (name: string): string => name.replace(/[*?\\[]/g, "\\
 // docs/design/acl-folder-rules.md.
 export const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform === "darwin";
 
+export const foldPath = (path: string, ci: boolean = CASE_INSENSITIVE_FS): string => {
+  const nfc = path.normalize("NFC");
+  return ci ? nfc.toLowerCase() : nfc;
+};
+
 // Upper bound on a single glob. Every path check compiles its globs, so an unbounded pattern is
 // wasted work on the hot path at best; the limit also keeps a malformed or generated config from
 // producing a pathological regex. Real vault globs are far below this — the hardened example's

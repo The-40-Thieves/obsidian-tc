@@ -60,7 +60,7 @@ import { noteWriteOrigin, preflightNoteWrite } from "../../vault/write-gate";
 import { createModeConflictError, overwriteModeMissingError } from "../../vault/write-mode-errors";
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
-import { immutableSkipShape } from "../scan-warnings";
+import { immutableSkipShape, schemaSkipShape } from "../scan-warnings";
 import { type MoveRow, markWouldBlock, planMoves } from "./bulk-move-plan";
 import type { M6Deps } from "./shared";
 
@@ -207,6 +207,7 @@ const BulkMoveOutput = z.object({
    *  note. A flag, deliberately: no count and no path of the hidden notes is ever reported. */
   hidden_backlinks: z.boolean().optional(),
   ...immutableSkipShape,
+  ...schemaSkipShape,
   /** Notes that are not moving and could not be read (a hard-linked file, an I/O error): their
    *  links to a moved note were NOT updated. A bare count, never a path. */
   unreadable_skipped: z.number().optional(),

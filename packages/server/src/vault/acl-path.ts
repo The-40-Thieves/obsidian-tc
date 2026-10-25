@@ -8,7 +8,7 @@ import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
 // tool's declarative pathAcl extractor, runDispatch calls enforcePathAcl before the
 // handler) AND here at the handler level as defense-in-depth. The M0 dispatch
 // read-only kill switch (forbidden) fires first for scope-mutating tools.
-import { CASE_INSENSITIVE_FS, type FolderAcl, isDefaultDenied } from "../acl";
+import { type FolderAcl, foldPath, isDefaultDenied } from "../acl";
 // GH #994 second security review, M1: `path` here is the caller-controlled (resolved but
 // unscanned) target of the op — memoryDefense has not run yet at this point in dispatch, and for
 // a hard-denied or whitelist-miss path this function is what throws. Sharing the same scanner
@@ -43,45 +43,42 @@ export function evaluatePathAcl(
   path: string,
   // Fail closed: a caller that omits the scopes holds no admin scope.
   grantedScopes: Iterable<string> = [],
+  // The name as the caller wrote it, before symlinks are resolved (GH #1384). Defaults to `path`.
+  written: string = path,
 ): PathAclDecision {
   const decision = whitelistDecision(acl, op, path);
-  if (decision.allowed && schemaFileRefused(acl, op, path, grantedScopes))
+  if (decision.allowed && schemaLayerRefused(acl, op, written, path, grantedScopes))
     return { allowed: false, deniedBy: "schema_file", matchedGlob: decision.matchedGlob };
   return decision;
 }
 
-/** The admin scope (granted by `*`, `admin:*` and `admin`) that may change a SCHEMA.md layer when the
- *  vault protects them (conventions.protectSchemaFiles). */
-const ADMIN_SCOPE = "admin:*";
+/** The admin scope that may change a SCHEMA.md layer when the vault protects them
+ *  (conventions.protectSchemaFiles). `admin:*`, `*` and `admin` grant it, as they grant any admin scope. */
+const CONVENTIONS_SCOPE = "admin:conventions";
 
 /** The name a SCHEMA.md convention layer is loaded by (tools/m7/knowledge/wiki-schema.ts's
  *  WIKI_SCHEMA_FILE). Repeated here, not imported: that module imports this one. The test suite pins
  *  the two equal. */
 export const SCHEMA_LAYER_NAME = "SCHEMA.md";
 
-/** GH #1384: is this path a SCHEMA.md convention layer? The basename is matched the way the layer
- *  loader's lookup resolves: verbatim, or case-insensitively where the filesystem is. */
+/** GH #1384: is this path's basename a SCHEMA.md convention layer? Folded the way the filesystem folds
+ *  names (foldPath), which is the way the layer loader's lookup resolves them. */
 export function isSchemaLayerPath(path: string): boolean {
-  const base = path.slice(path.lastIndexOf("/") + 1).normalize("NFC");
-  return CASE_INSENSITIVE_FS
-    ? base.toLowerCase() === SCHEMA_LAYER_NAME.toLowerCase()
-    : base === SCHEMA_LAYER_NAME;
+  return foldPath(path.slice(path.lastIndexOf("/") + 1)) === foldPath(SCHEMA_LAYER_NAME);
 }
 
-/** Would this op on a SCHEMA.md layer need the admin scope? Only a write, move or delete of one, in a
- *  vault that protects them, from a caller without admin. Reads are never refused here. */
-function schemaFileRefused(
+/** Would this op on a SCHEMA.md layer need admin:conventions? `written` is the name as the caller wrote
+ *  it, `real` the resolved path; either naming a layer counts. Reads and unprotected vaults never do. */
+function schemaLayerRefused(
   acl: FolderAcl | undefined,
   op: AclOp,
-  path: string,
+  written: string,
+  real: string,
   grantedScopes: Iterable<string>,
 ): boolean {
-  return (
-    op !== "read" &&
-    acl?.protectsSchemaFiles === true &&
-    isSchemaLayerPath(path) &&
-    !grantsAll(grantedScopes, [ADMIN_SCOPE])
-  );
+  if (op === "read" || acl?.protectsSchemaFiles !== true) return false;
+  if (grantsAll(grantedScopes, [CONVENTIONS_SCOPE])) return false;
+  return isSchemaLayerPath(normalizeVaultPath(written)) || isSchemaLayerPath(real);
 }
 
 function whitelistDecision(acl: FolderAcl | undefined, op: AclOp, path: string): PathAclDecision {
@@ -179,7 +176,7 @@ export function enforcePathAcl(
   const redactedPath = redactSecrets(path).text;
   const schemaDenied = (): never => {
     throw err.aclDenied(
-      `SCHEMA.md is a protected convention layer; ${op} needs the admin:* scope`,
+      `SCHEMA.md is a protected convention layer; ${op} needs the admin:conventions scope`,
       {
         path: redactedPath,
         op,
@@ -197,10 +194,9 @@ export function enforcePathAcl(
   // An immutable folder is judged on the name as written AND on the real path: a symlink under it
   // that leads out (or one leading in) must not make a raw source writable.
   if (op !== "read" && acl?.immutableGlobFor(normalizeVaultPath(rel)) != null) immutableDenied();
-  // GH #1384: a SCHEMA.md layer is judged on the name as written too, so a link named SCHEMA.md
-  // (deleted or moved as a link) is refused like the layer it stands for; the decision judges the real path.
-  if (schemaFileRefused(acl, op, normalizeVaultPath(rel), grantedScopes)) schemaDenied();
-  const decision = evaluatePathAcl(acl, op, path, grantedScopes);
+  // GH #1384: the schema-layer check judges the name as written too, so a link named SCHEMA.md is
+  // refused like the layer it stands for. It runs after the whitelist (see evaluatePathAcl).
+  const decision = evaluatePathAcl(acl, op, path, grantedScopes, rel);
   if (!decision.allowed) {
     if (decision.immutable) immutableDenied();
     if (decision.deniedBy === "schema_file") schemaDenied();
@@ -284,6 +280,9 @@ export function defaultDeniedUnderEitherName(root: string, rel: string): boolean
   );
 }
 
+/** Why a secondary rewrite leaves a note alone: an immutable raw source or a protected layer (GH #1384). */
+export type RewriteSkipKind = "immutable" | "schema_file";
+
 /**
  * The guard every SECONDARY rewrite goes through: backlink and reference maintenance (move_note,
  * bulk_move_notes, move_attachment) repoints links in every note that links the moved target, outside
@@ -295,8 +294,14 @@ export function defaultDeniedUnderEitherName(root: string, rel: string): boolean
  * old name.
  */
 export class ImmutableRewriteSkips {
-  private readonly named = new Set<string>();
-  private readonly hidden = new Set<string>();
+  private readonly named: Record<RewriteSkipKind, Set<string>> = {
+    immutable: new Set(),
+    schema_file: new Set(),
+  };
+  private readonly hidden: Record<RewriteSkipKind, Set<string>> = {
+    immutable: new Set(),
+    schema_file: new Set(),
+  };
 
   constructor(
     private readonly acl: FolderAcl | undefined,
@@ -323,15 +328,39 @@ export class ImmutableRewriteSkips {
     return callerCanReadVaultPath(this.acl, this.grantedScopes, this.root, rel);
   }
 
-  /** Report `rel` as left alone: named when the caller can read it, counted when not. */
-  note(rel: string): void {
-    if (this.canRead(rel)) this.named.add(rel);
-    else this.hidden.add(rel);
+  /** Is `rel` a protected SCHEMA.md layer for this caller (as written AND real path; fails closed). */
+  isProtectedSchema(rel: string): boolean {
+    if (!this.acl?.protectsSchemaFiles) return false;
+    try {
+      return schemaLayerRefused(
+        this.acl,
+        "write",
+        rel,
+        resolveVaultPathChecked(this.root, rel).aclRel,
+        this.grantedScopes,
+      );
+    } catch {
+      return true;
+    }
+  }
+
+  /** Why a secondary rewrite must leave `rel` alone, or null when it may rewrite it. */
+  skipKind(rel: string): RewriteSkipKind | null {
+    if (this.isImmutable(rel)) return "immutable";
+    if (this.isProtectedSchema(rel)) return "schema_file";
+    return null;
+  }
+
+  /** Report `rel` as left alone for `kind`: named when the caller can read it, counted when not. */
+  note(rel: string, kind: RewriteSkipKind = "immutable"): void {
+    if (this.canRead(rel)) this.named[kind].add(rel);
+    else this.hidden[kind].add(rel);
   }
 
   blocks(rel: string): boolean {
-    if (!this.isImmutable(rel)) return false;
-    this.note(rel);
+    const kind = this.skipKind(rel);
+    if (kind === null) return false;
+    this.note(rel, kind);
     return true;
   }
 
@@ -339,13 +368,31 @@ export class ImmutableRewriteSkips {
     immutable_not_updated?: string[];
     immutable_not_updated_hidden?: number;
     immutable_warning?: string;
+    schema_not_updated?: string[];
+    schema_not_updated_hidden?: number;
+    schema_warning?: string;
   } {
-    const total = this.named.size + this.hidden.size;
-    if (total === 0) return {};
+    const imm = this.named.immutable;
+    const immHidden = this.hidden.immutable;
+    const sch = this.named.schema_file;
+    const schHidden = this.hidden.schema_file;
+    const immTotal = imm.size + immHidden.size;
+    const schTotal = sch.size + schHidden.size;
     return {
-      ...(this.named.size > 0 ? { immutable_not_updated: [...this.named].sort() } : {}),
-      ...(this.hidden.size > 0 ? { immutable_not_updated_hidden: this.hidden.size } : {}),
-      immutable_warning: `${total} immutable (raw source) note${total === 1 ? "" : "s"} link${total === 1 ? "s" : ""} the moved target and ${total === 1 ? "was" : "were"} not rewritten: those links still point at the old name`,
+      ...(imm.size > 0 ? { immutable_not_updated: [...imm].sort() } : {}),
+      ...(immHidden.size > 0 ? { immutable_not_updated_hidden: immHidden.size } : {}),
+      ...(immTotal > 0
+        ? {
+            immutable_warning: `${immTotal} immutable (raw source) note${immTotal === 1 ? "" : "s"} link${immTotal === 1 ? "s" : ""} the moved target and ${immTotal === 1 ? "was" : "were"} not rewritten: those links still point at the old name`,
+          }
+        : {}),
+      ...(sch.size > 0 ? { schema_not_updated: [...sch].sort() } : {}),
+      ...(schHidden.size > 0 ? { schema_not_updated_hidden: schHidden.size } : {}),
+      ...(schTotal > 0
+        ? {
+            schema_warning: `${schTotal} protected SCHEMA.md layer${schTotal === 1 ? "" : "s"} link${schTotal === 1 ? "s" : ""} the moved target and ${schTotal === 1 ? "was" : "were"} not rewritten: a caller without admin:conventions cannot change a layer, so those links still point at the old name`,
+          }
+        : {}),
     };
   }
 }

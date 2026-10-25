@@ -374,7 +374,13 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
         //        is not path-scoped, so only the scope grant below applies.
         let matchedRule: string | null = null;
         if (input.op !== "execute") {
-          const decision = evaluatePathAcl(acl, input.op, rel, input.scopes);
+          const decision = evaluatePathAcl(
+            acl,
+            input.op,
+            rel,
+            input.scopes,
+            normalizeVaultPath(input.path),
+          );
           matchedRule = decision.matchedGlob;
           if (!decision.allowed) {
             const killSwitch = decision.deniedBy === "read_only";

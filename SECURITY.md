@@ -338,16 +338,16 @@ path).
 
 A SCHEMA.md `conventions:` block can mark a rule `block` (see [Vault conventions](docs/src/content/docs/guides/vault-conventions.md)).
 A `block` refuses a write that adds the violation. This is an integrity aid against honest mistakes, not a
-security boundary, and it is not a control against a caller with write access.
+security boundary, and it is not a control against a caller with write access, without `conventions.protectSchemaFiles`.
 
 - **Without `conventions.protectSchemaFiles`, no ACL keeps a caller who can write notes from writing a `SCHEMA.md` there.** A caller who can write `F/**`
   can create `F/SCHEMA.md` with `conventions: {inherit: false}` or a relaxing `severity`, and escape every block
   rule for `F`. Globs support only `**`, `*`, `?` and `\`, with no negation. `rules` scopes apply to reads too, so
   a scoped rule hides the layer, and an unread layer is not applied. `immutablePaths` is not configurable.
 - `conventions.protectSchemaFiles: true` is the way to make blocking hold against callers who write notes. It
-  requires the admin scope (`admin:*`, also granted by `*` or `admin`) to create, edit, delete, move or rename any
+  requires the `admin:conventions` scope (also granted by `admin:*`, `*` or `admin`) to create, edit, delete, move or rename any
   file named `SCHEMA.md`, the root one included, and the check runs on the real path, so a symlink or a `./` or `..`
-  spelling does not get past it. Reads are unchanged. The remaining caveat still applies: a caller whose read ACL
+  spelling does not get past it. The key binds only callers whose token lacks `admin:conventions`: a stdio caller or an `auth.mode: none` caller holds `*`, so it does nothing for them. Callers with the Templater, QuickAdd or `execute_command` scopes run inside Obsidian, outside this path ACL, and can still change a `SCHEMA.md` (see [Companion plugin trust boundary](#companion-plugin-trust-boundary)). Reads are unchanged. The remaining caveat still applies: a caller whose read ACL
   hides a layer is not held to it.
 - `writePaths` plus `deletePaths` protect only the operator's own existing layers from edit, delete and move. A
   move's source operation is a delete.
@@ -370,7 +370,7 @@ separately, and out of every folder it does not name:
 ```
 
 A `SCHEMA.md` inside a listed folder stays writable by a caller who writes notes there, because a glob cannot
-exclude one file name. No configuration in this section closes that gap.
+exclude one file name. Without `conventions.protectSchemaFiles`, no configuration in this section closes that gap.
 
 ## Server-generated wiki pages
 

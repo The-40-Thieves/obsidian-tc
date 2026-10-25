@@ -347,7 +347,7 @@
             "properties": {
               "protectSchemaFiles": {
                 "default": false,
-                "description": "When true, creating, editing, deleting, moving or renaming any file named SCHEMA.md in this vault (the root one included) requires the admin scope (`admin:*`). Without it the caller gets acl_denied. Reads are unchanged: the caller still reads the layer, is still held to its rules, and get_conventions still lists it.",
+                "description": "When true, creating, editing, deleting, moving or renaming any file named SCHEMA.md in this vault (the root one included) requires the `admin:conventions` scope (also granted by `admin:*`, `*` or `admin`). Without it the caller gets acl_denied. Reads are unchanged: the caller still reads the layer, is still held to its rules, and get_conventions still lists it. The key binds only callers whose token lacks admin:conventions: a stdio caller or an auth.mode none caller holds `*`, so it does nothing for them.",
                 "type": "boolean"
               }
             }

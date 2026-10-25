@@ -60,7 +60,7 @@ import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/pat
 import { applyWriteBatch, isIncompleteRollback } from "../../vault/write-batch";
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
-import { immutableSkipShape } from "../scan-warnings";
+import { immutableSkipShape, schemaSkipShape } from "../scan-warnings";
 import type { M3Deps } from "./shared";
 
 function dirOf(rel: string): string {
@@ -202,6 +202,7 @@ const MoveAttachmentOutput = z.object({
   trashed_dest_to: z.string().nullable(),
   references_updated: z.object({ notes: z.number().int(), refs: z.number().int() }),
   ...immutableSkipShape,
+  ...schemaSkipShape,
 });
 
 const DeleteAttachmentOutput = z.object({

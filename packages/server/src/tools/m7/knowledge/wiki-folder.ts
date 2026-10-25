@@ -11,14 +11,8 @@
 import { lstatSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
-import { CASE_INSENSITIVE_FS } from "../../../acl";
+import { CASE_INSENSITIVE_FS, foldPath } from "../../../acl";
 import { resolveVaultPath, resolveVaultPathChecked } from "../../../vault/paths";
-
-/** A path in the form two names for one file share: NFC, and lower-cased when `ci`. */
-export const foldPath = (path: string, ci: boolean = CASE_INSENSITIVE_FS): string => {
-  const nfc = path.normalize("NFC");
-  return ci ? nfc.toLowerCase() : nfc;
-};
 
 /** Whether `path` is strictly inside `folder` (both vault-relative, normalised, no trailing slash). */
 export function pathInFolder(
