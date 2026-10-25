@@ -102,7 +102,7 @@ envelope after the request was sent (the companion may already have run the acti
 the handler returned, or any other throw from inside the handler. The confirmed bridge handlers also
 mark their effect write-ahead, before the request, as a second layer.
 
-The release goes through `VerifyElicit.release`, the implementation that consumed the token
+A token dispatch's HITL gate spends is released through `VerifyElicit.release`, the implementation that consumed it. A token a handler consumes itself (`requireConfirmation`, vault/hitl.ts) is reported to its dispatch through a spend slot and released through the built-in `elicitVerifier.release`, the implementation that consumed it, whatever `verifyElicit` hook is configured. The same rule applies to both: the handler-side case is released only on the write gate's `convention_blocked` before any write, and every other throw keeps it spent. A dispatch makes at most one token spend, since the built-in consume is single-use and a call carries one token. Both paths release through the verifier that consumed the token
 (`elicitVerifier` clears only `consumed_at`, so expiry, bindings and any state fingerprint stay as
 issued). A custom verifier without `release` never releases. A release that fails leaves the token
 spent and is reported to the operator sink, which may itself throw without breaking dispatch. Each
