@@ -159,6 +159,8 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
             path: targetFile,
           });
         const { client } = openBridge(deps, v.id, "templater");
+        // Write-ahead: Templater may run the template even when its response is lost.
+        ctx.markEffectCommitted?.();
         const result = await client.request<Record<string, unknown>>({
           method: "POST",
           path: "/templater/execute",
@@ -171,7 +173,6 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
           plugin: "templater",
           timeoutMs: bridgeTimeouts(deps, v.id).templaterTimeoutMs,
         });
-        ctx.markEffectCommitted?.();
         // The effect has happened whatever the acknowledgement says, so stamp before reading it.
         // Only the REQUESTED path is stamped: it is the one this call write-checked and saw absent,
         // so it is the only one known to be a note this call created. The companion-reported path

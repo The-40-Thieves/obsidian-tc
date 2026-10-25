@@ -54,7 +54,8 @@ mirrors the paths the handler touches on the real filesystem.
 
 This step installs the `ctx.markEffectCommitted` callback at this same point in the pipeline — after
 every gate that can still reject-and-release the idempotency claim (throttle, HITL), so the callback
-can never outlive the claim it points at. It is a plain property mutation on the per-dispatch `ctx`
+can never outlive the claim it points at. It is installed for a call that owns an idempotency claim or
+spent a confirmation token; any other call leaves it undefined. It is a plain property mutation on the per-dispatch `ctx`
 object, the same pattern the per-vault ACL swap earlier in the pipeline uses. The underlying UPDATE
 is guarded on `completed_at IS NULL`, so calling it twice — or calling it and then having the
 handler return normally (which fires the `#13` default marker call site again) — is harmless.
@@ -77,7 +78,35 @@ triggers this has a real bug worth seeing immediately.
 
 The guard is keyed on a **live overlapping** dispatch (`slot.markEffectCommitted !== undefined`),
 not on "this ctx object was ever used before" — the callback is removed in the `finally` block, so
-sequential reuse of one `CallerContext` across separate, non-overlapping calls is unaffected.
+sequential reuse of one `CallerContext` across separate, non-overlapping calls is unaffected. It
+applies to a keyless confirmed call too: chaining the two callbacks instead would let one call's
+commit land on the other's claim or token, and a removal that restored the previous callback out of
+order would strand a stale one on the context. The removal clears only the callback this dispatch
+installed.
+
+## dispatch.ts — releasing a spent confirmation token
+
+The HITL gate spends a single-use token before the handler runs. A call refused after that point
+hands the token back **only on a positive pre-effect fact**, never because no commit was signalled:
+
+- the refusal was thrown before the handler was entered, by a stage after the HITL gate (the marker
+  install above, the central path ACL, the last abort check); or
+- the error is the very `convention_blocked` the vault write gate raised in this call, before any
+  write was let through at a gated chokepoint (a note or not), and before or after it nothing else
+  was written. `conventions-scope.ts` records that fact; a handler that throws its own
+  `convention_blocked`, or replaces the gate's, does not qualify.
+
+In both cases no effect may have been signalled (`markEffectCommitted`) and the handler must not have
+returned. Everything else keeps the token spent: a bridge timeout, a 5xx or an `operation_timeout`
+envelope after the request was sent (the companion may already have run the action), a fault after
+the handler returned, or any other throw from inside the handler. The confirmed bridge handlers also
+mark their effect write-ahead, before the request, as a second layer.
+
+The release goes through `VerifyElicit.release`, the implementation that consumed the token
+(`elicitVerifier` clears only `consumed_at`, so expiry, bindings and any state fingerprint stay as
+issued). A custom verifier without `release` never releases. A release that fails leaves the token
+spent and is reported to the operator sink, which may itself throw without breaking dispatch. Each
+release is recorded as an `hitl_released` event, so one approval redeemed twice is visible.
 
 ## dispatch.ts — the #13 effect-commit marker and its residual window
 

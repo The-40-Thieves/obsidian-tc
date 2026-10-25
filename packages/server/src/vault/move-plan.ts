@@ -105,7 +105,8 @@ export class RewriteScan {
 
   /** The note's rewrite, or null when it is skipped (immutable) or could not be proven (recorded). */
   note(raw: string, map: TargetMapper, rel: string): LinkRewrite | null {
-    if (this.skips.isImmutable(rel)) {
+    const kind = this.skips.skipKind(rel);
+    if (kind !== null) {
       let mapped = false;
       try {
         rewriteLinks(
@@ -120,7 +121,7 @@ export class RewriteScan {
       } catch (e) {
         if (!(e instanceof ObsidianTcError && e.code === "invalid_input")) throw e;
       }
-      if (mapped) this.skips.note(rel);
+      if (mapped) this.skips.note(rel, kind);
       return null;
     }
     let last: string | null = null;

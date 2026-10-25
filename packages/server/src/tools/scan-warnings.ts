@@ -51,6 +51,14 @@ export const immutableSkipShape = {
   immutable_warning: z.string().optional(),
 };
 
+/** Spread into the output schema of a tool whose rewrite leaves a protected SCHEMA.md layer alone
+ *  (ImmutableRewriteSkips, GH #1384). All three keys are absent when no layer was skipped. */
+export const schemaSkipShape = {
+  schema_not_updated: z.array(z.string()).optional(),
+  schema_not_updated_hidden: z.number().int().optional(),
+  schema_warning: z.string().optional(),
+};
+
 /** The `warnings` / `warnings_omitted` keys for a list of warnings (absent when there are none). */
 export function capWarningsOut<T>(items: readonly T[]): {
   warnings?: T[];

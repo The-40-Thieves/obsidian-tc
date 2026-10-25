@@ -65,8 +65,8 @@ import { noteWriteOrigin, preflightNoteWrite } from "../../vault/write-gate";
 import { createModeConflictError, overwriteModeMissingError } from "../../vault/write-mode-errors";
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
-import { immutableSkipShape } from "../scan-warnings";
-import { type MoveRow, markWouldBlock, planMoves } from "./bulk-move-plan";
+import { immutableSkipShape, schemaSkipShape } from "../scan-warnings";
+import { type MoveRow, markWouldBlock, planMoves, preflightRewrites } from "./bulk-move-plan";
 import type { M6Deps } from "./shared";
 
 // ── schemas ────────────────────────────────────────────────────────────────────
@@ -212,6 +212,7 @@ const BulkMoveOutput = z.object({
    *  note. A flag, deliberately: no count and no path of the hidden notes is ever reported. */
   hidden_backlinks: z.boolean().optional(),
   ...immutableSkipShape,
+  ...schemaSkipShape,
   /** Notes that are not moving and could not be read (a hard-linked file, an I/O error): their
    *  links to a moved note were NOT updated. A bare count, never a path. */
   unreadable_skipped: z.number().optional(),
@@ -584,11 +585,13 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             const overwriting = replacing();
             try {
               // The write gate judges each moved note against its source (before the batch removes it), and
-              // before any trash or snapshot, so a refused batch touches nothing on disk.
+              // each planned rewrite as the batch will write it, before any trash or snapshot, so a refused
+              // batch touches nothing on disk.
               for (const m of p.moved) {
                 noteWriteOrigin(m.toRel, m.fromRel);
                 preflightNoteWrite(m.toAbs, m.content);
               }
+              preflightRewrites(p.rewrites);
               for (const r of p.rewrites) snapshots.capture(r.rel, r.raw);
               // On overwrite, soft-delete each clobbered destination first (recoverable, restored
               // if the batch fails); the create is exclusive.

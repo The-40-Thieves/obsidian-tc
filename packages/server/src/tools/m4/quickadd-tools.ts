@@ -64,6 +64,8 @@ export function buildQuickAddTools(deps: M4Deps): ToolDefinition[] {
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const { client } = openBridge(deps, v.id, "quickadd");
+        // Write-ahead: the companion may run the action even when its response is lost.
+        ctx.markEffectCommitted?.();
         const result = await client.request<Record<string, unknown>>({
           method: "POST",
           path: "/quickadd/trigger",
@@ -71,7 +73,6 @@ export function buildQuickAddTools(deps: M4Deps): ToolDefinition[] {
           plugin: "quickadd",
           timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
         });
-        ctx.markEffectCommitted?.();
         const payload = parseBridgePayload(TriggerQuickAddBridge, result, "quickadd", {
           effectCommitted: true,
         });

@@ -30,12 +30,15 @@ export function buildAcls(
     path?: string;
     acl?: unknown;
     wiki?: { folder: string; rawFolder?: string | undefined } | undefined;
+    conventions?: { protectSchemaFiles?: boolean } | undefined;
   }>,
 ): { acl: FolderAcl; aclByVault: Map<string, FolderAcl> } {
   const aclByVault = new Map<string, FolderAcl>();
   for (const v of vaults) {
     const raw = rawFolderOf(v.id, v.wiki);
-    if (v.acl === undefined && v.wiki?.folder === undefined && raw === undefined) continue;
+    const protect = v.conventions?.protectSchemaFiles === true;
+    if (v.acl === undefined && v.wiki?.folder === undefined && raw === undefined && !protect)
+      continue;
     const operator = (v.acl as FolderAclConfig | undefined) ?? aclConfig;
     const placed = canonicalWikiFolder(v);
     const base = withWikiLogScope(operator, v.wiki?.folder, placed.folder);
@@ -51,18 +54,14 @@ export function buildAcls(
             if (!later.known) return undefined;
             return later.folder === undefined ? [] : wikiLogRules(operator, [later.folder]);
           };
-    aclByVault.set(
-      v.id,
-      new FolderAcl(
-        locked.length === 0
-          ? base
-          : {
-              ...base,
-              immutablePaths: [...(base.immutablePaths ?? []), ...immutableGlobsFor(...locked)],
-            },
-        late,
-      ),
-    );
+    const cfg: FolderAclConfig =
+      locked.length === 0
+        ? base
+        : {
+            ...base,
+            immutablePaths: [...(base.immutablePaths ?? []), ...immutableGlobsFor(...locked)],
+          };
+    aclByVault.set(v.id, new FolderAcl(protect ? { ...cfg, protectSchemaFiles: true } : cfg, late));
   }
   return { acl: new FolderAcl(aclConfig), aclByVault };
 }

@@ -82,21 +82,31 @@ describe.each(CASES)("$tool malformed post-effect acknowledgement", (testCase) =
       routes: { [testCase.route]: { body: { ok: true, result: {} } } },
     });
     let marked = 0;
-    const context: Partial<CallerContext> = { markEffectCommitted: () => marked++ };
+    // A confirmed call gets its marker from dispatch, which refuses a context that already carries
+    // one: its commit is observed through the token row instead of a preset spy.
+    const context: Partial<CallerContext> = testCase.confirmed
+      ? {}
+      : { markEffectCommitted: () => marked++ };
     const input = { vault: "test", ...testCase.input };
 
     const result = testCase.confirmed
       ? await v.callConfirmed(testCase.tool, input, context)
       : await v.call(testCase.tool, input, context);
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe("plugin_incompatible");
-      expect(result.error.retryable).toBe(false);
-      expect(result.error.message).toMatch(/action may already have taken effect/i);
-      expect(result.error.details).toMatchObject({ effect_committed: true });
+    expect(result.ok ? undefined : result.error).toMatchObject({
+      code: "plugin_incompatible",
+      retryable: false,
+      message: expect.stringMatching(/action may already have taken effect/i),
+      details: { effect_committed: true },
+    });
+    if (testCase.confirmed) {
+      const unspent = v.db
+        .prepare("SELECT COUNT(*) AS n FROM elicit_tokens WHERE consumed_at IS NULL")
+        .get() as { n: number };
+      expect(unspent.n).toBe(0);
+    } else {
+      expect(marked).toBe(1);
     }
-    expect(marked).toBe(1);
     expect(v.bridgeRequests).toHaveLength(1);
   });
 });

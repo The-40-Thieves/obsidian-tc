@@ -14,7 +14,7 @@ import {
 import { z } from "zod";
 import { conventionsResultShape } from "../../../conventions/schema";
 import { ResponseFormatInput } from "../../response-format";
-import { immutableSkipShape, rewriteWarningsShape } from "../../scan-warnings";
+import { immutableSkipShape, rewriteWarningsShape, schemaSkipShape } from "../../scan-warnings";
 
 // ── output schemas ───────────────────────────────────────────────────────────
 
@@ -264,6 +264,7 @@ export const MoveNoteOutput = z.object({
   backlinks_updated: z.object({ notes: z.number(), links: z.number() }),
   ...rewriteWarningsShape,
   ...immutableSkipShape,
+  ...schemaSkipShape,
   ...conventionsResultShape,
 });
 

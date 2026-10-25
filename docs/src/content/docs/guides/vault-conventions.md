@@ -10,8 +10,9 @@ as a warning on the write's result.
 
 :::note
 Severity is an integrity aid for a well-behaved vault. It is not a security boundary: any caller who can
-write a `SCHEMA.md` can change or remove its rules, and no folder ACL stops a caller who writes notes in a folder
-from creating a `SCHEMA.md` there. Blocking stops callers who cannot write a `SCHEMA.md`. The folder convention
+write a `SCHEMA.md` can change or remove its rules, and a folder ACL alone does not stop a caller who writes notes in a folder
+from creating a `SCHEMA.md` there. Set `conventions.protectSchemaFiles: true` on the vault to require the `admin:conventions` scope (also granted by `admin:*`, `*` or `admin`)
+for every create, edit, delete, move or rename of a `SCHEMA.md`. Blocking stops callers who cannot write a `SCHEMA.md`. The key binds only callers whose token lacks `admin:conventions`; a stdio caller or an `auth.mode: none` caller holds `*`, so it does nothing for them. The folder convention
 section of `SECURITY.md` in the repository has the ACL details.
 :::
 
@@ -30,7 +31,7 @@ Call it before you write to a folder.
 
 ## The rule keys
 
-All rules sit under `conventions.frontmatter`:
+All rules sit under `conventions.frontmatter`: <!-- config-path:ignore -->
 
 | Key | What it does |
 | --- | --- |
@@ -188,7 +189,7 @@ The check is advisory when something goes wrong. A write is never refused becaus
 
 ## Reading the results
 
-A successful write's result can carry `conventions.warnings`. Each warning has a `level` of `warn` or `block`.
+A successful write's result can carry `conventions.warnings`. <!-- config-path:ignore --> Each warning has a `level` of `warn` or `block`.
 A `block` entry on a write that succeeded means the violation is marked `block` but the write was allowed. That
 happens when the note already had the violation and the write did not add it; when a move's source is a note the
 caller cannot read; for `restore_note`; and when a gate fault failed open.

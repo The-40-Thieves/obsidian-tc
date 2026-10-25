@@ -35,6 +35,8 @@ export interface TestVaultOptions {
    *  symlinks the per-vault ACL is derived from (a raw folder that is itself a symlink). */
   setup?: (root: string) => void;
   acl?: Partial<AclConfigT>;
+  /** `conventions.protectSchemaFiles` for the vault (GH #1384): a SCHEMA.md write needs admin. */
+  protectSchemaFiles?: boolean;
   vaultId?: string;
   snapshots?: { enabled: boolean; retention: number };
   requireCas?: boolean;
@@ -144,6 +146,7 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
       path: root,
       wiki,
       ...(opts.aclByVault?.[id] ? { acl: withDefaults(opts.aclByVault[id]) } : {}),
+      ...(opts.protectSchemaFiles ? { conventions: { protectSchemaFiles: true } } : {}),
     },
     ...overrideIds
       .filter((vid) => vid !== id)
