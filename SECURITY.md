@@ -302,7 +302,7 @@ any `prev_hash` the caller supplies (the refusal comes before the hashes are com
 `writes.requireCas` such a caller cannot append to or patch an existing note), every `patch_note` operation
 (a frontmatter-preamble append or prepend included), `add_tag`, `remove_tag`, `update_frontmatter`,
 `update_task`, `bulk_set_property` (per note), the table, Kanban, canvas and base tools, `restore_note`,
-`prune_hub_links`, `copy_note` (which also needs `read:notes` on its source), `move_note` and `bulk_move_notes` (a move needs `read:notes` and read ACL on each source, since its bytes land at the destination), `move_attachment` (a move needs `read:attachments` and read ACL on its source), `rename_entity` (a rename moves the entity's note and needs `read:memory` and the read ACL on the entity, as `get_entity` does), the bookmark and workspace
+`prune_hub_links`, `copy_note` (which also needs `read:notes` on its source), `move_note` and `bulk_move_notes` (a move needs `read:notes` and read ACL on each source, since its bytes land at the destination), `move_attachment` (a move needs `read:attachments` and read ACL on its source), `rename_entity` (a rename moves the entity's note and needs `read:memory` and the read ACL on the entity, as `get_entity` does), `commit_capture` (a commit writes the capture's body into a note and needs `read:capture` and the read ACL on the capture's notes, as `list_capture_queue` does), the bookmark and workspace
 writes, `append_to_periodic_note` with a `heading`, and `update_excalidraw`. `rewrite_link` needs `read:notes`,
 and it only scans and names notes the caller may read.
 
