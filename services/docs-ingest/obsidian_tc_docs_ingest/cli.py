@@ -12,6 +12,7 @@ import getpass
 import http.client
 import ipaddress
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -23,6 +24,13 @@ from urllib.parse import urlsplit
 from . import config, transport
 
 PROBE_TIMEOUT = 5
+# Off a terminal, a required prompt gives up after this many unusable answers in a row.
+_MAX_FAILED_ANSWERS = 3
+
+
+class _NoAnswer(Exception):
+    """A required prompt got no usable answer, from a stdin that is not a terminal."""
+
 
 # The credential each URL setting is probed with; named in the plain-http warning.
 _CREDENTIAL_FOR = {
@@ -37,6 +45,8 @@ def _check_url(value: str) -> str | None:
         if parts.scheme in ("http", "https") and parts.hostname:
             if "@" in parts.netloc:
                 return "must not contain a username or password; use the token or key setting"
+            if any(c.isspace() for c in parts.netloc):
+                return "must not contain whitespace in the host"
             return None
     except ValueError:
         pass
@@ -76,6 +86,24 @@ def _mask(value: str) -> str:
     return f"****{value[-4:]}" if len(value) >= 12 else "****"
 
 
+def _display(value: str) -> str:
+    """A saved value as a prompt label shows it: any userinfo is masked, never printed."""
+    try:
+        netloc = urlsplit(value).netloc
+    except ValueError:
+        return value
+    if "@" not in netloc:
+        return value
+    return value.replace(netloc, "****@" + netloc.rpartition("@")[2], 1)
+
+
+def _is_tty() -> bool:
+    try:
+        return sys.stdin.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
 def _is_loopback(url: str) -> bool:
     host = urlsplit(url).hostname or ""
     if host == "localhost":
@@ -99,20 +127,27 @@ def _prompt(
     input_fn: Callable[[str], str],
     getpass_fn: Callable[[str], str],
 ) -> str:
-    shown = _mask(current) if setting.secret and current else current
+    shown = _mask(current) if setting.secret and current else _display(current)
     label = f"{setting.name} [{shown}]: " if current else f"{setting.name}: "
     ask = getpass_fn if setting.secret else input_fn
+    tty = _is_tty()
+    failures = 0
     while True:
-        value = ask(label).strip() or current
+        try:
+            value = ask(label).strip() or current
+        except EOFError:
+            if tty:
+                raise
+            raise _NoAnswer(setting.name) from None
         if not value and not setting.required:
             return ""
-        if not value:
-            print(f"{setting.name} is required")
-            continue
-        error = _problem(setting, value)
+        error = "is required" if not value else _problem(setting, value)
         if error is None:
             return value
         print(f"{setting.name} {error}")
+        failures += 1
+        if failures == _MAX_FAILED_ANSWERS and not tty:
+            raise _NoAnswer(setting.name)
 
 
 def _redirect_reason(exc: urllib.error.HTTPError) -> str:
@@ -121,6 +156,16 @@ def _redirect_reason(exc: urllib.error.HTTPError) -> str:
     except ValueError:
         host = None
     return f"redirected to {host}" if host else "redirected"
+
+
+def _escaped(text: str) -> str:
+    """``text`` with every non-printable character written as its escape, as a probe reason is."""
+    return "".join(c if c.isprintable() else repr(c)[1:-1] for c in text)
+
+
+def _forms(secrets: Sequence[str]) -> set[str]:
+    """Each secret as a probe reason can show it: as typed, and escaped."""
+    return {form for secret in secrets for form in (secret, _escaped(secret)) if form}
 
 
 def _probe(
@@ -149,11 +194,12 @@ def _probe(
         reason = f"HTTP {status}"
     # The reason can carry server-sent bytes (a malformed status line); escape them so a server
     # cannot drive the terminal. Escape before masking: escaping could otherwise rebuild a
-    # secret's text after the mask missed it. Longest first, so a secret that starts with
-    # another is masked whole.
-    reason = "".join(c if c.isprintable() else repr(c)[1:-1] for c in reason)
-    for secret in sorted(secrets, key=len, reverse=True):
-        reason = reason.replace(secret, "****")
+    # secret's text after the mask missed it. Each secret is masked raw and escaped, ignoring
+    # case (a redirect host is lowercased). Longest first, so a secret that starts with another
+    # is masked whole.
+    reason = _escaped(reason)
+    for secret in sorted(_forms(secrets), key=len, reverse=True):
+        reason = re.sub(re.escape(secret), "****", reason, flags=re.IGNORECASE)
     return f"{label}: FAIL ({url}): {reason}"
 
 
@@ -194,6 +240,8 @@ def _setup(
             file=sys.stderr,
         )
         return 2
+    bad = False
+    given: set[str] = set()
     for setting in _SETTINGS:
         raw = getattr(args, setting.dest)
         if raw is None:
@@ -215,30 +263,47 @@ def _setup(
                 )
                 return 2
         value = raw.strip()
+        given.add(setting.name)
         if not value:
+            # An explicit empty flag clears an optional setting; a required one must keep a value.
+            if setting.required:
+                print(
+                    f"docs-ingest: {setting.name} is required and cannot be cleared",
+                    file=sys.stderr,
+                )
+                bad = True
+            else:
+                values.pop(setting.name, None)
             continue
         error = _problem(setting, value)
         if error is not None:
             print(f"docs-ingest: {setting.name} {error}", file=sys.stderr)
-            return 2
+            bad = True
+            continue
         values[setting.name] = value
 
     if args.non_interactive:
-        missing = [s.name for s in _SETTINGS if s.required and not values.get(s.name)]
+        missing = [
+            s.name
+            for s in _SETTINGS
+            if s.required and s.name not in given and not values.get(s.name)
+        ]
         if missing:
             print(f"docs-ingest: missing required {', '.join(missing)}", file=sys.stderr)
-            return 2
+            bad = True
         # Values kept from a hand-edited file were never checked; hold them to the same rules as
         # a flag (the interactive prompts already re-check each current value).
         for setting in _SETTINGS:
             value = values.get(setting.name)
-            error = _problem(setting, value) if value else None
+            error = _problem(setting, value) if value and setting.name not in given else None
             if error is not None:
                 print(
                     f"docs-ingest: {setting.name} in {config.location()} {error}", file=sys.stderr
                 )
-                return 2
-    else:
+                bad = True
+    if bad:
+        return 2
+    if not args.non_interactive:
         try:
             for setting in _SETTINGS:
                 value = _prompt(setting, values.get(setting.name, ""), input_fn, getpass_fn)
@@ -249,6 +314,9 @@ def _setup(
         except (EOFError, KeyboardInterrupt):
             print("\nsetup cancelled; nothing was written", file=sys.stderr)
             return 1
+        except _NoAnswer as exc:
+            print(f"docs-ingest: {exc} is required; stdin gave no usable answer", file=sys.stderr)
+            return 2
 
     for setting in _SETTINGS:
         url = values.get(setting.name, "")
@@ -265,7 +333,7 @@ def _setup(
             )
 
     try:
-        saved = config.save(values)
+        saved = config.save(values, remove=[s.name for s in _SETTINGS if s.name not in values])
     except (OSError, ValueError) as exc:
         # save()'s ValueError names the setting, never its value; a hand-edited file can hold
         # one setup itself would refuse.
