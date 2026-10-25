@@ -1,0 +1,4 @@
+---
+type: Fixed
+---
+- **A confirmed call refused before it could have had any effect keeps its confirmation.** The single-use token is handed back only on a positive pre-effect fact: the call was refused after the confirmation but before the tool's handler was entered (for example by the folder ACL), or the vault write gate refused it with `convention_blocked` before any write of the call (such as a blocked destination on a real `bulk_move_notes` run). The same token and the same arguments then work once the input is corrected; the token keeps its original expiry and bindings, and each release is recorded as an `hitl_released` event. Every other failure keeps the token spent, including a timeout or companion error after the request was sent, so one approval can never run an action twice. A custom `verifyElicit` hook releases only if it implements the new optional `release`.

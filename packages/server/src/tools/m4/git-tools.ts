@@ -273,6 +273,8 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
           ? await stamp.commitTrailers(v.id, v.root, await stagedPaths(deps, v.id))
           : [];
         const message = stamp?.gitTrailers ? applyTrailers(input.message, trailers) : input.message;
+        // Write-ahead: the commit may land even when the companion's response is lost.
+        ctx.markEffectCommitted?.();
         const result = await client.request<Record<string, unknown>>({
           method: "POST",
           path: "/git/commit",
@@ -281,7 +283,6 @@ export function buildGitTools(deps: M4Deps): ToolDefinition[] {
           // commits can be slow on large repos — reuse the long bridge budget.
           timeoutMs: bridgeTimeouts(deps, v.id).templaterTimeoutMs,
         });
-        ctx.markEffectCommitted?.();
         const payload = parseBridgePayload(GitCommitBridge, result, "git", {
           effectCommitted: true,
         });

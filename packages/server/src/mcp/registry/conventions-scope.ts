@@ -40,6 +40,9 @@ export interface ConventionsDispatch {
   annotate(def: ToolDefinition, out: unknown, ctx: CallerContext): Promise<void>;
   /** A mutating call that failed before it settled: drop the pending check and the noteWritten hook. */
   abandon(ctx: CallerContext): void;
+  /** True only when `e` is the very convention_blocked refusal the write gate raised in this call,
+   *  and no write was let through before it or after it: a positive "refused before any write". */
+  refusedBeforeWrite(e: unknown): boolean;
 }
 
 interface PendingCheck {
@@ -67,9 +70,14 @@ export function conventionsScope(
   maxResponseBytes: number,
 ): ConventionsDispatch {
   let pending: PendingCheck | undefined;
+  // The gate's refusal, kept while no write has been let through in this call.
+  let refusal: unknown;
+  let wrote = false;
   return {
     async begin(def, input, ctx) {
       pending = undefined;
+      refusal = undefined;
+      wrote = false;
       if (sink === undefined || !declaresConventions(def)) return;
       const vault = vaultArgOf(def, input) ?? ctx.vaultId;
       const root = rootResolver?.(vault);
@@ -115,12 +123,19 @@ export function conventionsScope(
           try {
             gate.check(abs, text);
           } catch (e) {
-            if (isConventionBlocked(e)) throw e;
+            if (isConventionBlocked(e)) {
+              if (!wrote) refusal = e;
+              throw e;
+            }
             report(onInternalError, `conventions:${def.name}`, p.vault, e);
           }
         },
         origin(destRel, srcRel) {
           gate.origin?.(destRel, srcRel);
+        },
+        wrote() {
+          wrote = true;
+          refusal = undefined;
         },
       };
       return withWriteGate(guarded, fn);
@@ -128,6 +143,9 @@ export function conventionsScope(
     abandon(ctx) {
       pending = undefined;
       delete ctx.noteWritten;
+    },
+    refusedBeforeWrite(e) {
+      return refusal !== undefined && refusal === e && !wrote;
     },
   };
 }
@@ -138,7 +156,7 @@ function sizeWith(out: object, field: object): number {
 }
 
 /** Reports an internal fault; a reporter that itself throws must not turn a committed write into an error. */
-function report(
+export function report(
   onInternalError: RegistryOptions["onInternalError"],
   name: string,
   vault: string,

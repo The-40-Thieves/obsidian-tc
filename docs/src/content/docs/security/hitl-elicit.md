@@ -24,6 +24,8 @@ authorize the same call more than once until it expires. Either way,
 fresh confirmation (`tc.elicit.requested`) is required for the next sensitive
 call.
 
+**A refused call gives its token back only when nothing could have run.** A CLI token is released (left unspent, with its original expiry and bindings) only when the server positively knows the call had no effect: it was refused after the confirmation gate but before the tool's handler was entered (the central folder ACL, a cancellation), or the vault write gate refused it with `convention_blocked` before any write of the call. The corrected call can then be retried with the same token and the same arguments. Every other failure keeps the token single-use: a timeout, a 5xx or an `operation_timeout` from a companion plugin after the request was sent (the action may already have run), a fault after the handler returned, or any error the handler raised itself. Each release is recorded as an `hitl_released` event. A custom `verifyElicit` hook releases only if it implements `release`.
+
 **Stale confirmations are refused.** An approval covers the state of the target as it was
 when the request was raised, not just the tool and arguments. Every HITL-gated tool declares
 what its confirmation is about, either the target paths it declares for the folder ACL

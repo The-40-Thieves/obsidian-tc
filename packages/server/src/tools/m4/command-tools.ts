@@ -200,6 +200,8 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         try {
           const { client } = openCompanionBridge(deps, v.id);
+          // Write-ahead: the companion may run the command even when its response is lost.
+          ctx.markEffectCommitted?.();
           const result = await client.request<Record<string, unknown>>({
             method: "POST",
             path: "/commands/execute",
@@ -207,7 +209,6 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
             plugin: "obsidian-tc-companion",
             timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
           });
-          ctx.markEffectCommitted?.();
           const payload = parseBridgePayload(
             ExecuteCommandBridge,
             result,
