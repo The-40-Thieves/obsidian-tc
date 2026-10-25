@@ -31,7 +31,7 @@ import {
   resolvePeriodicPath,
   toISODate,
 } from "../../formats/periodic";
-import type { ToolDefinition } from "../../mcp/registry";
+import { assertScopesGranted, type ToolDefinition } from "../../mcp/registry";
 import type { MetricsRecorder } from "../../metrics/registry";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableResolved } from "../../vault/acl-read-filter";
@@ -356,6 +356,13 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
       outputSchema: CreatePeriodicNoteOutput,
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
+        // GH #1391: a caller-named template is copied into the note, so the caller must read it. Checked
+        // first, so a missing and an unreadable template get the same refusal (no existence oracle).
+        if (input.template_override) {
+          assertScopesGranted(ctx, ["read:notes"], "template_override needs read:notes");
+          const named = normalizeVaultPath(input.template_override);
+          requireContentRead(ctx, v.root, named, "read:notes");
+        }
         const date = parseDateInput(input.date);
         const resolved = resolvePeriodicPath(v.root, input.period, date);
         enforcePathAcl(ctx.acl, "write", resolved.path, v.root, ctx.grantedScopes);
@@ -374,6 +381,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           content = t;
           templateUsed = normalizeVaultPath(input.template_override);
         } else if (resolved.template) {
+          // The configured template is the operator's choice of content, so it needs no read:notes.
           const t = loadTemplate(v.root, ctx.acl, resolved.template, ctx.grantedScopes);
           if (t !== null) {
             content = t;

@@ -14,6 +14,7 @@ import {
   filterBridgeResultItems,
   readEnumerationUnrestricted,
 } from "../../vault/acl-read-filter";
+import { requireContentRead } from "../../vault/cas";
 import { noteExists, readNote } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { applyWriteBatch } from "../../vault/write-batch";
@@ -142,13 +143,15 @@ export function buildTemplaterTools(deps: M4Deps): ToolDefinition[] {
         })
         .strict(),
       outputSchema: ExecuteTemplateOutput,
-      requiredScopes: ["write:templater"],
+      // The template's content lands in the output, so a caller who may not read notes may not name one (GH #1391).
+      requiredScopes: ["write:templater", "read:notes"],
       handler: async (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const template = normalizeVaultPath(input.template);
         const requested = normalizeVaultPath(input.target);
         const targetFile = templaterOutputPath(input.target);
         enforcePathAcl(ctx.acl, "read", template, v.root, ctx.grantedScopes);
+        requireContentRead(ctx, v.root, template, "read:notes");
         enforcePathAcl(ctx.acl, "write", targetFile, v.root, ctx.grantedScopes);
         // THE-289: Templater writes <target>.md and its create API silently clobbers/dups an
         // existing file, so honor overwrite server-side (authoritative, independent of the
