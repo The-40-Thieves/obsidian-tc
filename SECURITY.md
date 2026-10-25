@@ -1128,3 +1128,14 @@ so operators can reason about them rather than discover them.
   disposition the `vault_id` fix used above and for the same reason: no row ever recorded a caller,
   so backfilling one would invent an attribution the deterministic extractor can instead reproduce
   correctly from retained episodes.
+- **A memory name clash reveals one bit about a hidden entity (GH #1396).** `create_entity` and
+  `rename_entity` look up a clashing name by name alone. The condition is an entity whose stored note
+  path (`vault_path`) sits in a folder the caller cannot read, while the path derived from its name is
+  readable to the caller. The caller must hold `write:memory` and `read:memory`. What leaks is one bit:
+  the refusal `invalid_input` "entity already exists" says that an exact guessed name is taken. A clash
+  with that hidden entity answers byte for byte as a clash with a visible one, and nothing else about it
+  (its id, path, frontmatter or note) appears. The common case does not leak: a name-derived destination
+  the caller cannot read is refused first, as `acl_denied`, before the name lookup. Neither tool changes
+  or moves the hidden entity or its note. Accepted, not fixed: closing it needs per-view name uniqueness,
+  which would make name-based lookup and `[[Name]]` links ambiguous across callers, a data-model change
+  for a one-bit leak. `test/entity-name-collision-residual.test.ts` pins the behaviour so it cannot widen.
