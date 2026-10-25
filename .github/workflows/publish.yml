@@ -1255,7 +1255,8 @@ jobs:
         env:
           IMAGE: ghcr.io/the-40-thieves/obsidian-tc:${{ needs.verify-tag.outputs.version }}
         run: |
-          set -uo pipefail
+          # errexit: a failed checksum must stop here, not fall through to running the binary.
+          set -euo pipefail
           mkdir -p sboms "$RUNNER_TEMP/syft-bin"
           # Pinned release tarball, checked against its sha256 before anything is extracted or run
           # (the same pattern as the other tool downloads in these workflows). amd64 only: this job

@@ -53,6 +53,11 @@ test("syft: verifies the tarball against the pinned sha256 before extracting it"
   );
 });
 
+test("syft: a failed checksum stops the step before the binary is extracted or run", () => {
+  // Without errexit a failed `sha256sum -c` falls through to tar and runs the unverified binary.
+  assert.match(SYFT_STEP, /\n\s*set -[a-z]*e[a-z]* pipefail/);
+});
+
 test("syft: keeps continue-on-error and the ::warning:: fallback", () => {
   assert.match(SYFT_STEP, /continue-on-error: true/);
   assert.match(SYFT_STEP, /::warning::image SBOM generation failed/);
