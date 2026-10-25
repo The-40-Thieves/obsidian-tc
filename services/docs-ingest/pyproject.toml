@@ -25,6 +25,9 @@ parse = ["docling>=2", "pillow>=13"]
 extract = ["langextract[openai]>=1.5"]
 test = ["pytest>=8"]
 
+[project.scripts]
+docs-ingest = "obsidian_tc_docs_ingest.cli:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["obsidian_tc_docs_ingest"]
 

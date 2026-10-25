@@ -35,8 +35,16 @@ and `source` so results are vendor-attributed.
 
 ## Configuration
 
-Live runs read these from the environment. None has a default: a run that needs an unset variable
-fails with an error naming it. `dry_run=True` needs none of them.
+Live runs read these settings. None has a default: a run that needs an unset setting fails with
+an error naming it and pointing at `docs-ingest setup`. `dry_run=True` needs none of them.
+
+Setup: `docs-ingest setup` (or `uv run docs-ingest setup`) prompts for each setting, shows the
+current value as the default (secrets masked), validates the URLs, probes both endpoints and
+writes `$XDG_CONFIG_HOME/obsidian-tc/docs-ingest.env` (default `~/.config/obsidian-tc/docs-ingest.env`)
+with mode 0600. Use `DOCS_INGEST_CONFIG` to point at another file. Precedence is environment
+first, then that file. An empty value counts as unset. `--non-interactive` takes the flags
+`--crawl4ai-url`, `--crawl4ai-token`, `--langextract-base-url`, `--langextract-api-key` and
+`--langextract-model-id`; `--no-probe` skips the endpoint checks. Probes never block the save.
 
 | Variable | Used for | Points at |
 |---|---|---|
@@ -47,7 +55,7 @@ fails with an error naming it. `dry_run=True` needs none of them.
 | `LANGEXTRACT_MODEL_ID` | optional model id (default `openai/gpt-4o-mini`) | |
 
 Both URLs may be `https://` endpoints, and should be when they are not on localhost: a plain
-`http://` endpoint carries its bearer key in clear.
+`http://` endpoint carries its bearer key in clear. `setup` warns about that and still saves.
 
 ## Status
 
@@ -59,6 +67,7 @@ crawl driver are the next increment.
 
 ```
 uv sync --extra test
-uv run pytest        # router + writer + dry-run pipeline
+uv run pytest        # router + writer + config + setup CLI + dry-run pipeline
+uv run docs-ingest setup   # interactive; or: uv run docs-ingest setup --non-interactive --help
 uvx ruff check .
 ```
