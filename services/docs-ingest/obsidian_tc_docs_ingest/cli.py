@@ -277,15 +277,18 @@ def _setup(
     if args.no_probe:
         return 0
 
-    # Probe with what a live run would send, and mask every secret either source holds.
+    # Probe exactly what a live run would do: the effective URL with the effective key, so an
+    # environment key is only ever sent to the host a live run sends it to (an environment URL
+    # that overrides the saved one is named in the NOTE above). Mask every secret either source
+    # holds.
     secrets = [values[s.name] for s in _SETTINGS if s.secret and values.get(s.name)]
     secrets += [v for s in _SETTINGS if s.secret and (v := _effective(values, s.name))]
-    crawl4ai = values.get("CRAWL4AI_URL")
+    crawl4ai = _effective(values, "CRAWL4AI_URL")
     if crawl4ai:
         token = _effective(values, "CRAWL4AI_API_TOKEN") or None
         url = f"{crawl4ai.rstrip('/')}/health"
         print(_probe("crawl4ai", url, token, secrets, opener))
-    gateway = values.get("LANGEXTRACT_BASE_URL")
+    gateway = _effective(values, "LANGEXTRACT_BASE_URL")
     if gateway:
         key = _effective(values, "LANGEXTRACT_API_KEY") or None
         url = f"{gateway.rstrip('/')}/models"

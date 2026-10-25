@@ -1098,3 +1098,66 @@ def test_plain_http_warning_counts_the_files_litellm_key(
         line for line in capsys.readouterr().out.splitlines() if "LANGEXTRACT_BASE_URL" in line
     ]
     assert gateway_warning and "bearer key travels in clear" in gateway_warning[0]
+
+
+def test_probe_pairs_each_key_with_the_url_a_live_run_uses(
+    config_path: Path, calls: list[Any], opener: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The environment overrides both URLs, so a live run sends the environment keys only to the
+    # environment hosts; the probe must never send them to the URLs just saved.
+    monkeypatch.setenv("CRAWL4AI_URL", "https://crawl.internal.example")
+    monkeypatch.setenv("CRAWL4AI_API_TOKEN", "tok-INTERNAL-only-0001")
+    monkeypatch.setenv("LANGEXTRACT_BASE_URL", "https://gw.internal.example/v1")
+    monkeypatch.setenv("LITELLM_AGENT_KEY", "sk-INTERNAL-gw-key-0002")
+
+    code = main(
+        [
+            "setup",
+            "--non-interactive",
+            "--crawl4ai-url",
+            "https://crawl.thirdparty.example",
+            "--langextract-base-url",
+            "https://api.thirdparty.example/v1",
+        ],
+        input_fn=_no_input,
+        getpass_fn=_no_input,
+        opener=opener,
+    )
+
+    assert code == 0
+    sent = {req.full_url: req.unredirected_hdrs.get("Authorization") for req in calls}
+    assert sent == {
+        "https://crawl.internal.example/health": "Bearer tok-INTERNAL-only-0001",
+        "https://gw.internal.example/v1/models": "Bearer sk-INTERNAL-gw-key-0002",
+    }
+
+
+def test_probe_prefers_an_environment_key_over_the_saved_one(
+    config_path: Path, calls: list[Any], opener: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CRAWL4AI_API_TOKEN", "tok-env-wins-1234")
+
+    code = main(
+        _setup_args("--crawl4ai-token", "tok-saved-loses-5678"),
+        input_fn=_no_input,
+        getpass_fn=_no_input,
+        opener=opener,
+    )
+
+    assert code == 0
+    crawl = [req for req in calls if req.full_url.endswith("/health")]
+    assert crawl[0].unredirected_hdrs.get("Authorization") == "Bearer tok-env-wins-1234"
+
+
+def test_probe_masks_an_environment_secret_the_server_echoes(
+    config_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("LITELLM_AGENT_KEY", "sk-env-echoed-secret-4321")
+
+    def echo(req: Any, timeout: float | None = None) -> None:
+        raise urllib.error.URLError("bad key sk-env-echoed-secret-4321")
+
+    code = main(_setup_args(), input_fn=_no_input, getpass_fn=_no_input, opener=echo)
+
+    assert code == 0
+    assert "sk-env-echoed-secret-4321" not in capsys.readouterr().out
