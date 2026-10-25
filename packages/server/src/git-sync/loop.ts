@@ -71,21 +71,24 @@ export async function runGitSyncLoop(
       if (sync.config.push === "batched") {
         try {
           const snapshot = await sync.dirtySnapshot();
+          // Stamp after the snapshot: a write can land while the status is in flight, and a
+          // stamp taken before the await would place the change earlier than the write.
+          const observedAt = Date.now();
           if (!snapshot.dirty) {
             firstDirtyAt = undefined;
             changedAt = undefined;
             fingerprint = "";
           } else if (firstDirtyAt === undefined) {
-            firstDirtyAt = current;
-            changedAt = current;
+            firstDirtyAt = observedAt;
+            changedAt = observedAt;
             fingerprint = snapshot.fingerprint;
           } else {
             if (snapshot.fingerprint !== fingerprint) {
               fingerprint = snapshot.fingerprint;
-              changedAt = current;
+              changedAt = observedAt;
             }
-            const quiet = current - (changedAt ?? current) >= timings.quietMs;
-            const capped = current - firstDirtyAt >= timings.capMs;
+            const quiet = observedAt - (changedAt ?? observedAt) >= timings.quietMs;
+            const capped = observedAt - firstDirtyAt >= timings.capMs;
             if (quiet || capped) {
               await sync.commitDirty();
               firstDirtyAt = undefined;
