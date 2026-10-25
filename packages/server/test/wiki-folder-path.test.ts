@@ -5,7 +5,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { assertWikiPagePath, foldPath, pathInFolder } from "../src/tools/m7/knowledge/wiki-folder";
+import { foldPath } from "../src/acl";
+import { assertWikiPagePath, pathInFolder } from "../src/tools/m7/knowledge/wiki-folder";
 
 describe("pathInFolder", () => {
   it("is strict: the folder itself and a prefix-sharing sibling are outside", () => {

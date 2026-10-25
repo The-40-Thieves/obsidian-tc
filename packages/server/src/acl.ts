@@ -22,6 +22,8 @@ export interface AclConfigT {
    *  never configured: runtime/acl-build.ts sets it from a vault's `wiki.rawFolder`, which is
    *  immutable. Not part of the config schema, so a config file cannot set it. */
   immutablePaths?: string[];
+  /** DERIVED, never configured: runtime/acl-build.ts sets it from `conventions.protectSchemaFiles`. */
+  protectSchemaFiles?: boolean;
 }
 
 const reEscape = (c: string): string => c.replace(/[.+*?^${}()|[\]\\]/g, "\\$&");
@@ -35,6 +37,11 @@ export const escapeGlob = (name: string): string => name.replace(/[*?\\[]/g, "\\
 // whitelist/deny (THE-272). Detected once from the platform; overridable for tests. See
 // docs/design/acl-folder-rules.md.
 export const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform === "darwin";
+
+export const foldPath = (path: string, ci: boolean = CASE_INSENSITIVE_FS): string => {
+  const nfc = path.normalize("NFC");
+  return ci ? nfc.toLowerCase() : nfc;
+};
 
 // Upper bound on a single glob. Every path check compiles its globs, so an unbounded pattern is
 // wasted work on the hot path at best; the limit also keeps a malformed or generated config from
@@ -247,6 +254,9 @@ export class FolderAcl {
     if (this.compiledImmutable.length === 0) return null;
     const p = path.normalize("NFC");
     return this.compiledImmutable.find((c) => c.re.test(p))?.glob ?? null;
+  }
+  get protectsSchemaFiles(): boolean {
+    return this.cfg.protectSchemaFiles === true;
   }
   /** True when ANY path can declare a required scope (rule-scopes or non-empty defaultScopes). When
    *  false, no caller is ever refused a path for lacking a scope, so per-path scope checks are

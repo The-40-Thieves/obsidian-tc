@@ -145,7 +145,15 @@ function scopeFamilyGranted(scopes: string[], op: string): boolean {
 const InspectAclOutput = z.object({
   allowed: z.boolean(),
   denied_by: z
-    .enum(["read_only", "read_paths", "write_paths", "delete_paths", "scope", "path_scope"])
+    .enum([
+      "read_only",
+      "read_paths",
+      "write_paths",
+      "delete_paths",
+      "schema_file",
+      "scope",
+      "path_scope",
+    ])
     .optional(),
   kill_switch: z.boolean(),
   matched_rule: z.string().nullable(),
@@ -366,13 +374,24 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
         //        is not path-scoped, so only the scope grant below applies.
         let matchedRule: string | null = null;
         if (input.op !== "execute") {
-          const decision = evaluatePathAcl(acl, input.op, rel);
+          const decision = evaluatePathAcl(
+            acl,
+            input.op,
+            rel,
+            input.scopes,
+            normalizeVaultPath(input.path),
+          );
           matchedRule = decision.matchedGlob;
           if (!decision.allowed) {
             const killSwitch = decision.deniedBy === "read_only";
+            const schemaFile = decision.deniedBy === "schema_file";
             return {
               allowed: false,
-              denied_by: killSwitch ? "read_only" : `${input.op}_paths`,
+              denied_by: killSwitch
+                ? "read_only"
+                : schemaFile
+                  ? "schema_file"
+                  : `${input.op}_paths`,
               kill_switch: killSwitch,
               matched_rule: matchedRule,
               effective_scopes,
