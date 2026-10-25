@@ -110,7 +110,8 @@ test("bun install: every install in .github and the Dockerfiles ignores lifecycl
       if (/^(-\s+)?name:/.test(cmd)) continue; // a step title such as "cache bun install"
       for (const seg of segmentsOf(cmd, /\bbun install\b/)) {
         // Prose such as a YAML description that mentions "bun install" is not a command.
-        if (!/^bun install(\s+--?[\w-]+)*$/.test(seg)) continue;
+        // A letter right after the dashes keeps each flag's split unique (no exponential backtracking).
+        if (!/^bun install(?:\s+-{1,2}[a-z][\w-]*)*$/.test(seg)) continue;
         scanned++;
         if (seg.includes("--ignore-scripts")) continue;
         unignored.push(`${file} :: ${normalize(seg)}`);
