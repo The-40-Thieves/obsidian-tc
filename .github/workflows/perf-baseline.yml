@@ -80,8 +80,8 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
-      - name: install (native build for sqlite-vec)
-        run: bun install --frozen-lockfile
+      - name: install (no lifecycle scripts; native addons ship prebuilt)
+        run: bun install --frozen-lockfile --ignore-scripts
 
       # No continue-on-error: a REFUSED recording (host contention detected) must fail the job and
       # publish nothing. Recording a contended baseline is worse than not recording one -- it looks

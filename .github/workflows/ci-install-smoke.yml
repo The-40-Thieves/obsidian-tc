@@ -58,6 +58,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: packages/native
+      # Lifecycle scripts stay on here on purpose: this job exists to exercise the real install path.
       - run: bun install --frozen-lockfile
       # Build the host-triple native addon (.node) + the libraries the CLI bundles.
       - name: build native (host triple)

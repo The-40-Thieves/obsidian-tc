@@ -31,7 +31,7 @@ COPY . .
 RUN bun install --frozen-lockfile --ignore-scripts \
  && (cd packages/shared && bun run build) \
  && (cd packages/server && bun run build) \
- && (cd packages/embedder-local && bun install --frozen-lockfile && bun run build)
+ && (cd packages/embedder-local && bun install --frozen-lockfile --ignore-scripts && bun run build)
 
 # Runtime-only node_modules, staged into /out/node_modules for the runtime stage. Everything the
 # bundle resolves at run time from dist/ rather than inlining:
