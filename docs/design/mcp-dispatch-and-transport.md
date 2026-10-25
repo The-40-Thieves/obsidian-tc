@@ -54,11 +54,12 @@ mirrors the paths the handler touches on the real filesystem.
 
 This step installs the `ctx.markEffectCommitted` callback at this same point in the pipeline — after
 every gate that can still reject-and-release the idempotency claim (throttle, HITL), so the callback
-can never outlive the claim it points at. It is installed for a call that owns an idempotency claim or
-spent a confirmation token; any other call leaves it undefined. It is a plain property mutation on the per-dispatch `ctx`
-object, the same pattern the per-vault ACL swap earlier in the pipeline uses. The underlying UPDATE
-is guarded on `completed_at IS NULL`, so calling it twice — or calling it and then having the
-handler return normally (which fires the `#13` default marker call site again) — is harmless.
+can never outlive the claim it points at. It is installed for a call that owns an idempotency claim
+or carries a confirmation token its handler may spend; any other call leaves it undefined. It is a
+plain property mutation on the per-dispatch `ctx` object, the same pattern the per-vault ACL swap
+earlier in the pipeline uses. The underlying UPDATE is guarded on `completed_at IS NULL`, so calling
+it twice — or calling it and then having the handler return normally (which fires the `#13` default
+marker call site again) — is harmless.
 
 ## dispatch.ts — concurrent CallerContext sharing (item 1)
 
@@ -102,7 +103,14 @@ envelope after the request was sent (the companion may already have run the acti
 the handler returned, or any other throw from inside the handler. The confirmed bridge handlers also
 mark their effect write-ahead, before the request, as a second layer.
 
-The release goes through `VerifyElicit.release`, the implementation that consumed the token
+A token dispatch's HITL gate spends is released through `VerifyElicit.release`, the implementation
+that consumed it. A token a handler consumes itself (`requireConfirmation`, vault/hitl.ts) is
+reported to its dispatch through a spend slot, with the args hash it was bound to, and released
+through the built-in `elicitVerifier.release`, the implementation that consumed it, whatever
+`verifyElicit` hook is configured. The same rule applies to both: the handler-side case is released
+only on the write gate's `convention_blocked` before any write, and every other throw keeps it
+spent. A dispatch makes at most one token spend, since the built-in consume is single-use and a call
+carries one token. Both paths release through the verifier that consumed the token
 (`elicitVerifier` clears only `consumed_at`, so expiry, bindings and any state fingerprint stay as
 issued). A custom verifier without `release` never releases. A release that fails leaves the token
 spent and is reported to the operator sink, which may itself throw without breaking dispatch. Each
