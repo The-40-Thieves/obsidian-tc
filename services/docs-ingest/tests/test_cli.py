@@ -937,3 +937,164 @@ def test_plain_http_warning_counts_a_key_from_the_environment(
         line for line in capsys.readouterr().out.splitlines() if "LANGEXTRACT_BASE_URL" in line
     ]
     assert gateway_warning and "bearer key travels in clear" in gateway_warning[0]
+
+
+def _setup_args(*extra: str) -> list[str]:
+    return [
+        "setup",
+        "--non-interactive",
+        "--crawl4ai-url",
+        CRAWL4AI,
+        "--langextract-base-url",
+        GATEWAY,
+        *extra,
+    ]
+
+
+def test_secret_with_escape_text_is_masked_after_escaping(
+    config_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A printable secret that spells an escape sequence: a server echoing it back with a real ESC
+    # must not have the escaping rebuild the secret's text after the mask missed it.
+    secret = "sk-pa\\x1bss-0123456789"
+
+    def echo(req: Any, timeout: float | None = None) -> None:
+        raise http.client.BadStatusLine("sk-pa\x1bss-0123456789")
+
+    code = main(
+        _setup_args("--langextract-api-key", secret),
+        input_fn=_no_input,
+        getpass_fn=_no_input,
+        opener=echo,
+    )
+
+    assert code == 0
+    assert secret not in capsys.readouterr().out
+
+
+def test_secret_starting_with_another_secret_is_masked_whole(
+    config_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def echo(req: Any, timeout: float | None = None) -> None:
+        raise urllib.error.URLError("tok-abcdefgh-and-much-more-SECRET")
+
+    code = main(
+        _setup_args(
+            "--crawl4ai-token",
+            "tok-abcdefgh",
+            "--langextract-api-key",
+            "tok-abcdefgh-and-much-more-SECRET",
+        ),
+        input_fn=_no_input,
+        getpass_fn=_no_input,
+        opener=echo,
+    )
+
+    assert code == 0
+    assert "much-more-SECRET" not in capsys.readouterr().out
+
+
+def test_ctrl_d_at_the_dash_prompt_exits_2(
+    config_path: Path, opener: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "stdin", _Tty(""))
+
+    def eof(prompt: str) -> str:
+        raise EOFError
+
+    code = main(
+        _setup_args("--no-probe", "--langextract-api-key", "-"),
+        input_fn=_no_input,
+        getpass_fn=eof,
+        opener=opener,
+    )
+
+    assert code == 2
+    assert not config_path.exists()
+
+
+def test_dash_with_no_stdin_exits_2(
+    config_path: Path, opener: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "stdin", None)
+
+    code = main(
+        _setup_args("--no-probe", "--langextract-api-key", "-"),
+        input_fn=_no_input,
+        getpass_fn=_no_input,
+        opener=opener,
+    )
+
+    assert code == 2
+    assert not config_path.exists()
+
+
+def test_probe_survives_an_http_error_whose_body_is_closed(
+    config_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def closed(req: Any, timeout: float | None = None) -> None:
+        body = io.BytesIO(b"")
+        body.close()
+        raise urllib.error.HTTPError(req.full_url, 500, "boom", None, body)  # type: ignore[arg-type]
+
+    code = main(_setup_args(), input_fn=_no_input, getpass_fn=_no_input, opener=closed)
+
+    assert code == 0
+    assert "HTTP 500" in capsys.readouterr().out
+
+
+def test_bad_value_in_the_existing_file_exits_2_without_echo(
+    config_path: Path, opener: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path.parent.mkdir(parents=True)
+    original = b"LANGEXTRACT_MODEL_ID=bad\tmodel-secretish\n"
+    config_path.write_bytes(original)
+
+    code = main(_setup_args("--no-probe"), input_fn=_no_input, getpass_fn=_no_input, opener=opener)
+
+    assert code == 2
+    err = capsys.readouterr().err
+    assert "LANGEXTRACT_MODEL_ID" in err and "secretish" not in err
+    assert config_path.read_bytes() == original
+
+
+def test_gateway_probe_uses_a_key_from_the_environment(
+    config_path: Path, calls: list[Any], opener: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LITELLM_AGENT_KEY", "sk-env-gateway-7777")
+
+    code = main(_setup_args(), input_fn=_no_input, getpass_fn=_no_input, opener=opener)
+
+    assert code == 0
+    gateway = [req for req in calls if req.full_url.endswith("/models")]
+    assert gateway[0].unredirected_hdrs.get("Authorization") == "Bearer sk-env-gateway-7777"
+    crawl = [req for req in calls if req.full_url.endswith("/health")]
+    assert "Authorization" not in crawl[0].unredirected_hdrs
+
+
+def test_plain_http_warning_counts_the_files_litellm_key(
+    config_path: Path, opener: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text("LITELLM_AGENT_KEY=sk-file-litellm-0000\n")
+
+    code = main(
+        [
+            "setup",
+            "--non-interactive",
+            "--no-probe",
+            "--crawl4ai-url",
+            CRAWL4AI,
+            "--langextract-base-url",
+            "http://gateway.example.com:4001/v1",
+        ],
+        input_fn=_no_input,
+        getpass_fn=_no_input,
+        opener=opener,
+    )
+
+    assert code == 0
+    gateway_warning = [
+        line for line in capsys.readouterr().out.splitlines() if "LANGEXTRACT_BASE_URL" in line
+    ]
+    assert gateway_warning and "bearer key travels in clear" in gateway_warning[0]

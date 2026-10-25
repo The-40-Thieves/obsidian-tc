@@ -7,6 +7,7 @@ Stdlib only, like the rest of the package: prompts use ``input``/``getpass`` and
 from __future__ import annotations
 
 import argparse
+import contextlib
 import getpass
 import http.client
 import ipaddress
@@ -137,20 +138,35 @@ def _probe(
         with opener(req, timeout=PROBE_TIMEOUT) as resp:
             status = resp.status
     except urllib.error.HTTPError as exc:
-        with exc:
-            reason = _redirect_reason(exc) if 300 <= exc.code < 400 else f"HTTP {exc.code}"
+        reason = _redirect_reason(exc) if 300 <= exc.code < 400 else f"HTTP {exc.code}"
+        with contextlib.suppress(OSError, ValueError):
+            exc.close()
     except (OSError, ValueError, http.client.HTTPException) as exc:
         reason = str(getattr(exc, "reason", None) or exc)
     else:
         if 200 <= status < 300:
             return f"{label}: OK ({url})"
         reason = f"HTTP {status}"
-    for secret in secrets:
-        reason = reason.replace(secret, _mask(secret))
     # The reason can carry server-sent bytes (a malformed status line); escape them so a server
-    # cannot drive the terminal.
+    # cannot drive the terminal. Escape before masking: escaping could otherwise rebuild a
+    # secret's text after the mask missed it. Longest first, so a secret that starts with
+    # another is masked whole.
     reason = "".join(c if c.isprintable() else repr(c)[1:-1] for c in reason)
+    for secret in sorted(secrets, key=len, reverse=True):
+        reason = reason.replace(secret, _mask(secret))
     return f"{label}: FAIL ({url}): {reason}"
+
+
+def _effective(values: dict[str, str], name: str) -> str:
+    """The value a live run would use: each environment name first, then the same names in the
+    setup file (``config.get``'s order, applied to the values setup is about to save)."""
+    names = config.env_names(name)
+    for source in (os.environ, values):
+        for env_name in names:
+            value = (source.get(env_name) or "").strip()
+            if value:
+                return value
+    return ""
 
 
 def _setup(
@@ -183,7 +199,14 @@ def _setup(
             continue
         if raw == "-" and setting.secret:
             # On a terminal, read it like the prompt does: hidden, with a label.
-            raw = getpass_fn(f"{setting.name}: ") if sys.stdin.isatty() else sys.stdin.readline()
+            try:
+                if sys.stdin.isatty():
+                    raw = getpass_fn(f"{setting.name}: ")
+                else:
+                    raw = sys.stdin.readline()
+            except (EOFError, KeyboardInterrupt, AttributeError, OSError, ValueError):
+                # Ctrl-D/Ctrl-C at the prompt, or no usable stdin at all (closed or None).
+                raw = ""
             if not raw.strip():
                 print(
                     f"docs-ingest: {setting.name} is empty: stdin had no line to read",
@@ -222,10 +245,7 @@ def _setup(
             credential = _CREDENTIAL_FOR.get(setting.name, "")
             consequence = (
                 "its bearer key travels in clear"
-                if any(
-                    values.get(n) or os.environ.get(n, "").strip()
-                    for n in config.env_names(credential)
-                )
+                if _effective(values, credential)
                 else "its traffic is unencrypted"
             )
             print(
@@ -233,7 +253,13 @@ def _setup(
                 f"{consequence}. Prefer https://"
             )
 
-    saved = config.save(values)
+    try:
+        saved = config.save(values)
+    except (OSError, ValueError) as exc:
+        # save()'s ValueError names the setting, never its value; a hand-edited file can hold
+        # one setup itself would refuse.
+        print(f"docs-ingest: cannot save {config.location()}: {exc}", file=sys.stderr)
+        return 2
     print(f"Saved {saved}")
     for setting in _SETTINGS:
         value = values.get(setting.name)
@@ -251,15 +277,17 @@ def _setup(
     if args.no_probe:
         return 0
 
+    # Probe with what a live run would send, and mask every secret either source holds.
     secrets = [values[s.name] for s in _SETTINGS if s.secret and values.get(s.name)]
+    secrets += [v for s in _SETTINGS if s.secret and (v := _effective(values, s.name))]
     crawl4ai = values.get("CRAWL4AI_URL")
     if crawl4ai:
-        token = values.get("CRAWL4AI_API_TOKEN") or None
+        token = _effective(values, "CRAWL4AI_API_TOKEN") or None
         url = f"{crawl4ai.rstrip('/')}/health"
         print(_probe("crawl4ai", url, token, secrets, opener))
     gateway = values.get("LANGEXTRACT_BASE_URL")
     if gateway:
-        key = values.get("LANGEXTRACT_API_KEY") or None
+        key = _effective(values, "LANGEXTRACT_API_KEY") or None
         url = f"{gateway.rstrip('/')}/models"
         print(_probe("gateway", url, key, secrets, opener))
     return 0
