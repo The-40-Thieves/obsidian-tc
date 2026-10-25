@@ -35,8 +35,26 @@ and `source` so results are vendor-attributed.
 
 ## Configuration
 
-Live runs read these from the environment. None has a default: a run that needs an unset variable
-fails with an error naming it. `dry_run=True` needs none of them.
+Live runs read these settings. None has a default: a run that needs an unset setting fails with
+an error naming it and pointing at `docs-ingest setup`. `dry_run=True` needs none of them.
+
+Setup: `docs-ingest setup` (or `uv run docs-ingest setup`) prompts for each setting, shows the
+current value as the default (secrets masked), validates the URLs, probes both endpoints and
+writes `$XDG_CONFIG_HOME/obsidian-tc/docs-ingest.env` (default `~/.config/obsidian-tc/docs-ingest.env`)
+with mode 0600 on POSIX. Use `DOCS_INGEST_CONFIG` to point at another file. The file holds
+`KEY=VALUE` lines; `#` comments go on their own line only (no inline comments, no `export`).
+
+Precedence is the environment first, then that file. For `LANGEXTRACT_API_KEY` the order is:
+environment `LANGEXTRACT_API_KEY`, environment `LITELLM_AGENT_KEY`, file `LANGEXTRACT_API_KEY`,
+file `LITELLM_AGENT_KEY`. An empty value counts as unset. A file that cannot be read or decoded is
+ignored with one warning, and the environment still applies; `setup` refuses it (exit 2, naming the file) instead of overwriting it. Only one secret flag can be `-` per run.
+
+`--non-interactive` takes the flags `--crawl4ai-url`, `--crawl4ai-token`, `--langextract-base-url`,
+`--langextract-api-key` and `--langextract-model-id`. The same flags are the prompt defaults in
+interactive mode. A secret flag given as `-` reads one line from stdin. A value on the command line
+is visible in the process list and shell history, so prefer the prompt or `-`. URLs may not carry a
+username or password. `--no-probe` skips the endpoint checks. Probes never block the save, and a
+redirect is reported as a failure rather than followed, so a key is never sent to another host. A URL the environment overrides is skipped rather than probed.
 
 | Variable | Used for | Points at |
 |---|---|---|
@@ -47,7 +65,7 @@ fails with an error naming it. `dry_run=True` needs none of them.
 | `LANGEXTRACT_MODEL_ID` | optional model id (default `openai/gpt-4o-mini`) | |
 
 Both URLs may be `https://` endpoints, and should be when they are not on localhost: a plain
-`http://` endpoint carries its bearer key in clear.
+`http://` endpoint carries its bearer key in clear. `setup` warns about that and still saves.
 
 ## Status
 
@@ -59,6 +77,7 @@ crawl driver are the next increment.
 
 ```
 uv sync --extra test
-uv run pytest        # router + writer + dry-run pipeline
+uv run pytest        # router + writer + config + setup CLI + dry-run pipeline
+uv run docs-ingest setup   # interactive; or: uv run docs-ingest setup --non-interactive --help
 uvx ruff check .
 ```

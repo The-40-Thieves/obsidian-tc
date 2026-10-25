@@ -17,6 +17,8 @@ regexes = [
 ]
 paths = [
   '''packages/server/test/.*''',
+  # docs-ingest tests: fake tokens and keys that prove masking, redirect and precedence rules.
+  '''services/docs-ingest/tests/.*''',
   # Perf-harness eval code + its committed baseline: metric-key literals like
   # `key: "retrieval.ndcg_at10"` trip the generic-api-key rule (THE-459). No credentials here.
   '''packages/server/eval/.*''',
