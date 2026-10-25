@@ -5,7 +5,7 @@
 // never demand confirmation. The token is bound to argsHash(toolName, input);
 // callers obtain one via issueElicitToken and resubmit. Single-use is enforced
 // by verifyAndConsumeElicit (the UPDATE ... WHERE consumed_at IS NULL).
-import { elicitRequiredError, verifyAndConsumeElicit } from "../elicit";
+import { elicitRequiredError, reportHandlerSpend, verifyAndConsumeElicit } from "../elicit";
 import { activeStateProbe } from "../elicit-drift";
 import { hitlSatisfiedByState } from "../elicit-request-state";
 import { argsHash } from "../hash";
@@ -72,6 +72,9 @@ export function requireConfirmation(
     // accept+approve:true state exists for this connection, so audit now sees a shim/modern
     // approval clearing one of these 16 tools' gates, which it could not see before.
     if (stateOk) ctx.relayElicitConsumed?.(toolName, ctx.vaultId);
+    // The token is spent now. Dispatch hands it back only if this call is refused before any effect
+    // (mcp/registry/elicit-release.ts); the state path spends nothing, so it is not reported.
+    if (tokenOk && ctx.elicitToken) reportHandlerSpend(ctx.elicitToken, hash);
     // A token redemption is recorded here; a form/requestState answer was recorded when it
     // arrived (mcp/server.ts), so the state path adds nothing and cannot double-count.
     if (tokenOk) {

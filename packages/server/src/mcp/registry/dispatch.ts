@@ -432,10 +432,10 @@ export async function runDispatch(
     // extractor mirrors the handler's real fs usage (#280). Skipped when no root resolver is wired.
     // The mid-execution effect-committed signal, installed AFTER every gate that can still
     // reject-and-release the claim, so the callback never outlives the claim it points at. Only for
-    // a call that owns a claim or spent a confirmation token; any other call leaves
+    // a call that owns a claim or carries a confirmation token its handler may spend; any other call leaves
     // ctx.markEffectCommitted undefined. Idempotent: signalling twice, or signalling then returning
     // normally, is harmless. See the design note for the marker-point reasoning.
-    if ((idemClaimed && idemKey) || spent.token() !== undefined) {
+    if ((idemClaimed && idemKey) || ctx.elicitToken) {
       const claimedKey = idemKey;
       restoreMarker = installEffectMarker(callerCtx, ctx, () => {
         if (claimedKey) markEffectCommitted(ctx.db, idemAt(), claimedKey, now());
@@ -461,7 +461,9 @@ export async function runDispatch(
           handlerInvoked = true;
           return conventions.run(def, ctx, () => def.handler(inputData, ctx));
         };
-        const r = await withStateProbe(stateProbe, spans ? () => spans.activate(invoke) : invoke);
+        const r = await spent.scope(() =>
+          withStateProbe(stateProbe, spans ? () => spans.activate(invoke) : invoke),
+        );
         handlerMs = Math.max(0, now() - handlerStart);
         handlerReturned = true;
         // #13: the default marker point — the WHOLE handler returned, so any later fault is
@@ -629,14 +631,7 @@ export async function runDispatch(
     // A spent confirmation goes back only on a positive pre-effect fact (elicit-release.ts).
     const point = { handlerInvoked, handlerReturned, effectCommitted };
     const refusedBeforeWrite = conventions.refusedBeforeWrite(e);
-    releaseSpentElicit(
-      spent,
-      ctx,
-      { ...point, refusedBeforeWrite },
-      deps.onInternalError,
-      name,
-      hash,
-    );
+    releaseSpentElicit(spent, ctx, { ...point, refusedBeforeWrite }, deps.onInternalError, name);
     // An abandoned transaction is an operator-grade fault — the connection may still be
     // INSIDE it, so later reads can observe uncommitted rows and the next BEGIN fails or silently
     // joins it. inTransaction/inSavepoint attach it to the thrown error rather than replacing the

@@ -1,5 +1,5 @@
 // The commit signal a handler sends through ctx.markEffectCommitted, installed on the caller's context
-// for a call that owns an idempotency claim or spent a confirmation token.
+// for a call that owns an idempotency claim or carries a confirmation token its handler may spend.
 import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 
 type Marked = { markEffectCommitted?: () => void };

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
 import { err, type ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "./db/types";
@@ -243,6 +244,25 @@ export function verifyAndConsumeElicit(
   if (res.changes !== 1) return false;
   assertNoReplayDrift(row.state_fp, currentFp, { tool: row.tool_name, args_hash: expectedHash });
   return true;
+}
+
+// The spend slot of the dispatch running a handler (mcp/registry/elicit-release.ts). A handler-side
+// confirmation is consumed here, by verifyAndConsumeElicit, not by dispatch's verifier, so the handler
+// reports the token it spent through this slot. Scoped to the async context, as the state probe is.
+const spendSlot = new AsyncLocalStorage<(token: string, argsHash: string) => void>();
+
+/** Runs `fn` with `report` as the spend slot of the dispatch running it. */
+export function withSpendSlot<T>(
+  report: (token: string, argsHash: string) => void,
+  fn: () => T,
+): T {
+  return spendSlot.run(report, fn);
+}
+
+/** Reports a confirmation token the running handler spent, with the args hash it was bound to, to its
+ *  dispatch; a no-op outside one. */
+export function reportHandlerSpend(token: string, argsHash: string): void {
+  spendSlot.getStore()?.(token, argsHash);
 }
 
 /**

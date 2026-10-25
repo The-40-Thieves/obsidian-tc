@@ -17,6 +17,7 @@ import { elicitVerifier, issueElicitToken } from "../src/elicit";
 import { argsHash } from "../src/hash";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { conventionsChecker } from "../src/mcp/registry/conventions-scope";
+import type { VerifyElicit } from "../src/mcp/registry/types";
 import { RateLimiter, type ThrottleTiers } from "../src/throttle";
 import { registerM1Tools } from "../src/tools/m1";
 import type { M6Deps } from "../src/tools/m6/shared";
@@ -50,6 +51,8 @@ export interface M6VaultOptions {
   throttle?: M6Deps["throttle"];
   /** Wires the folder conventions sink over this vault (the bulk writers run the write check). */
   conventions?: boolean;
+  /** The registry's verifyElicit hook. Absent wires the built-in elicitVerifier; null wires none. */
+  verifyElicit?: VerifyElicit | null;
   /** Which M6 tools to register; receives the registry and the built deps. */
   register: (registry: ToolRegistry, deps: M6Deps) => void;
 }
@@ -104,7 +107,8 @@ export function makeM6Vault(opts: M6VaultOptions): M6Vault {
   const rateLimiter = opts.rateLimiter ?? new RateLimiter(NO_THROTTLE);
 
   const registry = new ToolRegistry({
-    verifyElicit: elicitVerifier,
+    verifyElicit:
+      opts.verifyElicit === undefined ? elicitVerifier : (opts.verifyElicit ?? undefined),
     rateLimiter,
     ...(opts.conventions
       ? { conventions: conventionsChecker(vaultRegistry), rootResolver: () => root }
