@@ -138,7 +138,7 @@ describe("move and copy destinations are judged against their source", () => {
     );
   });
 
-  it("lets a move from a source the caller cannot read pass, and echoes none of its frontmatter", async () => {
+  it("refuses a move from a source the caller cannot read, and echoes none of its frontmatter", async () => {
     await withVault(
       {
         ...CHECKED,
@@ -151,15 +151,15 @@ describe("move and copy destinations are judged against their source", () => {
           from: "locked/a.md",
           to: "meetings/a.md",
         });
-        expect(r.ok ? "ok" : JSON.stringify(r.error)).toBe("ok");
+        expect(r.ok).toBe(false);
         expectNoSecret(r);
-        expect(existsSync(join(v.root, "locked/a.md"))).toBe(false);
-        expect(v.read("meetings/a.md")).toBe(LOCKED);
+        expect(existsSync(join(v.root, "locked/a.md"))).toBe(true);
+        expect(existsSync(join(v.root, "meetings/a.md"))).toBe(false);
       },
     );
   });
 
-  it("lets a scope-only caller (no read:notes) move a note it cannot read, and echoes none of it", async () => {
+  it("refuses a scope-only caller (no read:notes) moving a note it cannot read, and echoes none of it", async () => {
     await withVault({ ...CHECKED, files: { ...FILES, "locked/a.md": LOCKED } }, async (v) => {
       const r = await confirmedCall(
         v,
@@ -167,8 +167,9 @@ describe("move and copy destinations are judged against their source", () => {
         { vault: "test", from: "locked/a.md", to: "meetings/a.md" },
         NO_READ,
       );
-      expect(r.ok ? "ok" : JSON.stringify(r.error)).toBe("ok");
+      expect(r.ok).toBe(false);
       expectNoSecret(r);
+      expect(existsSync(join(v.root, "locked/a.md"))).toBe(true);
     });
   });
 
@@ -202,18 +203,22 @@ describe("move and copy destinations are judged against their source", () => {
         });
         expectNoSecret(r);
         if (!r.ok) return r.error.code;
-        const results = (r.data as { results: { would_block?: { code: string } }[] }).results;
-        return results[0]?.would_block?.code ?? "ok";
+        const results = (
+          r.data as { results: { would_block?: { code: string }; error?: { code: string } }[] }
+        ).results;
+        return results[0]?.would_block?.code ?? results[0]?.error?.code ?? "ok";
       } finally {
         v.cleanup();
       }
     };
+    // The source is unreadable to this caller, so every move is refused by the read ACL before the
+    // conventions judge reads the destination's rule.
     const into = await outcome("oneA/a.md");
-    expect(into).toBe("ok");
+    expect(into).toBe("invalid_input");
     expect(await outcome("oneB/a.md")).toBe(into);
     for (const dryRun of [true, false]) {
       const bulkInto = await bulkOutcome("oneA/a.md", dryRun);
-      expect(bulkInto).toBe("ok");
+      expect(bulkInto).toBe("acl_denied");
       expect(await bulkOutcome("oneB/a.md", dryRun)).toBe(bulkInto);
     }
   });
@@ -384,26 +389,25 @@ describe("bulk_move_notes judges each row against its source", () => {
     }
   });
 
-  it("a bulk move from a source the caller cannot read passes in dry_run and the real run, echoing none of it", async () => {
+  it("a bulk move from a source the caller cannot read is refused in dry_run and the real run, echoing none of it", async () => {
     const acl = { readPaths: ["**/SCHEMA.md"], writePaths: ["**"] };
     const files = { ...FILES, "locked/a.md": LOCKED };
     const moves = [{ from: "locked/a.md", to: "meetings/a.md" }];
     const dry = bulkVault(files, acl);
     try {
       const r = await dry.callConfirmed("bulk_move_notes", { vault: "test", dry_run: true, moves });
-      expect(r.ok ? "ok" : JSON.stringify(r.error)).toBe("ok");
+      expect(r.ok).toBe(false);
       expectNoSecret(r);
-      const results = r.ok ? (r.data as { results: { would_block?: unknown }[] }).results : [];
-      expect(results.map((x) => x.would_block)).toEqual([undefined]);
     } finally {
       dry.cleanup();
     }
     const v = bulkVault(files, acl);
     try {
       const r = await v.callConfirmed("bulk_move_notes", { vault: "test", dry_run: false, moves });
-      expect(r.ok ? "ok" : JSON.stringify(r.error)).toBe("ok");
+      expect(r.ok).toBe(false);
       expectNoSecret(r);
-      expect(v.read("meetings/a.md")).toBe(LOCKED);
+      expect(existsSync(join(v.root, "locked/a.md"))).toBe(true);
+      expect(existsSync(join(v.root, "meetings/a.md"))).toBe(false);
     } finally {
       v.cleanup();
     }

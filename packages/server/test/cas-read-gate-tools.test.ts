@@ -282,10 +282,11 @@ describe("move_note in block mode: a non-reader gets a refusal that names nothin
       { vault: "test", from: "Private/s.md", to: "Private/t.md" },
       { grantedScopes: new Set(["write:notes", "delete:notes"]) },
     );
+    // A move needs read on its source, so this scope-only caller is refused before the scan runs: the
+    // refusal is the fixed read message, and no scan result (pattern ids, a matched field) reaches it.
     expect(r.ok).toBe(false);
-    // The refusal has no details at all: a path would name a note the caller may not read when the
-    // scan is a backlink's. (The recovery hint is a fixed template; it does not depend on the note.)
-    expect(r.ok ? null : r.error.details).toBeUndefined();
+    expect(JSON.stringify(r)).not.toContain("pattern_ids");
+    expect(r.ok ? null : r.error.code).toBe("acl_denied");
   });
 });
 
