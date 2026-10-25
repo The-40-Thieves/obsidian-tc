@@ -335,9 +335,10 @@ function hasBlockRule(eff: ReturnType<typeof resolveConventions>): boolean {
   return blocks(eff.severity) || Object.values(eff.types).some((t) => blocks(t.severity));
 }
 
-/** The note's frontmatter before the write, as the caller may see it: undefined when there is no such
- *  note, the caller may not read it, or it is over NOTE_MAX_BYTES (a note judged as new, so nothing of
- *  it leaks; a move's source gets no verdict instead); null when its YAML is broken. */
+/** The note's frontmatter on disk before the write, as the caller may see it: undefined when there is no
+ *  such note, the caller may not read it, or it is over NOTE_MAX_BYTES (judged as new, so nothing of it
+ *  leaks); null when its YAML is broken. A move or copy does not use it: its source is judged from the
+ *  bytes being written. */
 function beforeFrontmatter(
   ctx: CallerContext,
   root: string,
@@ -375,13 +376,12 @@ function judgeWrite(
   if (src === undefined) {
     delta = blockingDelta(eff, rel, beforeFrontmatter(ctx, root, rel), fm);
   } else {
-    // A move or copy writes the source's own bytes; the text differs only by the links the tool repointed
-    // to moved notes, which is the tool's work and not the caller's. So the verdict is on the source bytes:
-    // its violations under the source's rules are the baseline, and under the destination's rules the write.
-    // A source the caller cannot read, or that is over the read bound, gets no verdict: nothing of it shows.
-    const srcFm = beforeFrontmatter(ctx, root, src);
-    if (srcFm === undefined) return;
-    delta = blockingDelta(eff, rel, srcFm, srcFm, {
+    // A move or copy writes the source's bytes, but for the links the tool repointed to moved notes. The
+    // verdict judges the bytes being written (no size bound, no disk read): each violation they have
+    // under the destination's rules counts only if the source's own bytes did not have it under the
+    // source's rules. A source the caller cannot read gets no verdict, so nothing of it shows.
+    if (!callerMayReadNote(ctx, root, src)) return;
+    delta = blockingDelta(eff, rel, fm, fm, {
       eff: effOf(st, registry, ctx, root, src),
       path: src,
     });

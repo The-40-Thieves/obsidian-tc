@@ -168,7 +168,8 @@ export interface MoveRow {
 
 /** dry_run's write-gate verdict per row, with nothing written: each planned move the gate would refuse
  *  gets `would_block`, the convention_blocked error the real run raises on it. It preflights the plan's
- *  own `content`, the bytes the real run commits, so the two agree row for row. */
+ *  `content` through the same origin-aware gate the real run's commit uses (bulk-tools.ts), so the two
+ *  agree row for row. */
 export function markWouldBlock(rows: MoveRow[], moved: readonly PlannedMove[]): void {
   const byFrom = new Map(moved.map((m) => [m.fromRel, m]));
   for (const r of rows) {

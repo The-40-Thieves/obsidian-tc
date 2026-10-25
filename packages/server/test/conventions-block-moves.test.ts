@@ -25,6 +25,8 @@ const LOCKED = "---\nstatus: zzTOPSECRETVALUE\ntype: zzLABEL\n---\nOLD-BODY-SECR
 const SECRET_MARKERS = ["zzTOPSECRETVALUE", "zzLABEL", "OLD-BODY-SECRET"];
 // A caller with the write and delete scopes of a move, but no read:notes.
 const NO_READ = { grantedScopes: new Set(["write:notes", "delete:notes"]) };
+// A readable note over the 1 MiB read bound, with the same non-compliant frontmatter as BAD.
+const OVER_BOUND = `---\nstatus: bogus\n---\n${"x".repeat(1024 * 1024)}`;
 
 function expectNoSecret(r: unknown): void {
   const echoed = JSON.stringify(r);
@@ -171,45 +173,81 @@ describe("move and copy destinations are judged against their source", () => {
   });
 
   it("gives the same outcome for an unreadable source whichever one-value rule the destination holds", async () => {
+    // oneA allows the source's exact secret value and oneB allows neither value, so an outcome that
+    // differed between the two would show the secret was compared.
     const oneValue = (value: string): string =>
       `---\nconventions:\n  frontmatter:\n    values: { status: [${value}] }\n    severity: { status: block }\n---\n# rules\n`;
+    const files = {
+      "oneA/SCHEMA.md": oneValue("zzTOPSECRETVALUE"),
+      "oneB/SCHEMA.md": oneValue("current"),
+      "locked/a.md": LOCKED,
+    };
     const outcome = (to: string): Promise<string> =>
-      withVault(
-        {
-          ...CHECKED,
-          files: {
-            "oneA/SCHEMA.md": oneValue("draft"),
-            "oneB/SCHEMA.md": oneValue("current"),
-            "locked/a.md": LOCKED,
-          },
-        },
-        async (v) => {
-          const r = await confirmedCall(
-            v,
-            "move_note",
-            { vault: "test", from: "locked/a.md", to },
-            NO_READ,
-          );
-          return r.ok ? "ok" : r.error.code;
-        },
-      );
+      withVault({ ...CHECKED, files }, async (v) => {
+        const r = await confirmedCall(
+          v,
+          "move_note",
+          { vault: "test", from: "locked/a.md", to },
+          NO_READ,
+        );
+        return r.ok ? "ok" : r.error.code;
+      });
+    const bulkOutcome = async (to: string, dryRun: boolean): Promise<string> => {
+      const v = bulkVault(files, { readPaths: ["**/SCHEMA.md"], writePaths: ["**"] });
+      try {
+        const r = await v.callConfirmed("bulk_move_notes", {
+          vault: "test",
+          dry_run: dryRun,
+          moves: [{ from: "locked/a.md", to }],
+        });
+        expectNoSecret(r);
+        if (!r.ok) return r.error.code;
+        const results = (r.data as { results: { would_block?: { code: string } }[] }).results;
+        return results[0]?.would_block?.code ?? "ok";
+      } finally {
+        v.cleanup();
+      }
+    };
     const into = await outcome("oneA/a.md");
     expect(into).toBe("ok");
     expect(await outcome("oneB/a.md")).toBe(into);
+    for (const dryRun of [true, false]) {
+      const bulkInto = await bulkOutcome("oneA/a.md", dryRun);
+      expect(bulkInto).toBe("ok");
+      expect(await bulkOutcome("oneB/a.md", dryRun)).toBe(bulkInto);
+    }
   });
 
   it("renames a note over 1 MiB whose frontmatter is non-compliant, unblocked", async () => {
-    const big = `---\nstatus: bogus\n---\n${"x".repeat(1024 * 1024)}`;
-    await withVault({ ...CHECKED, files: { ...FILES, "meetings/big.md": big } }, async (v) => {
-      const r = await confirmedCall(v, "move_note", {
-        vault: "test",
-        from: "meetings/big.md",
-        to: "meetings/big2.md",
-      });
-      expect(r.ok ? "ok" : JSON.stringify(r.error)).toBe("ok");
-      expect(v.read("meetings/big2.md")).toBe(big);
-    });
+    await withVault(
+      { ...CHECKED, files: { ...FILES, "meetings/big.md": OVER_BOUND } },
+      async (v) => {
+        const r = await confirmedCall(v, "move_note", {
+          vault: "test",
+          from: "meetings/big.md",
+          to: "meetings/big2.md",
+        });
+        expect(r.ok ? "ok" : JSON.stringify(r.error)).toBe("ok");
+        expect(v.read("meetings/big2.md")).toBe(OVER_BOUND);
+      },
+    );
   });
+
+  it.each(["move_note", "copy_note"] as const)(
+    "%s of a readable note over 1 MiB into a stricter folder is refused, and creates nothing",
+    async (tool) => {
+      await withVault({ ...CHECKED, files: { ...FILES, "lax/big.md": OVER_BOUND } }, async (v) => {
+        const r = await confirmedCall(v, tool, {
+          vault: "test",
+          from: "lax/big.md",
+          to: "meetings/big.md",
+        });
+        expect(r.ok ? "ok" : r.error.code).toBe("convention_blocked");
+        expect(existsSync(join(v.root, "lax/big.md"))).toBe(true);
+        expect(existsSync(join(v.root, "meetings/big.md"))).toBe(false);
+      });
+    },
+  );
 });
 
 /** A vault with the M6 bulk writers registered over the same folder rules. */
@@ -302,6 +340,33 @@ describe("bulk_move_notes judges each row against its source", () => {
     }
   });
 
+  it.each([true, false])(
+    "bulk_move_notes (dry_run %s) refuses a readable note over 1 MiB into a stricter folder and writes nothing",
+    async (dry_run) => {
+      const v = bulkVault({ ...FILES, "lax/big.md": OVER_BOUND });
+      try {
+        const r = await v.callConfirmed("bulk_move_notes", {
+          vault: "test",
+          dry_run,
+          moves: [{ from: "lax/big.md", to: "meetings/big.md" }],
+        });
+        if (dry_run) {
+          expect(r.ok ? "ok" : JSON.stringify(r.error)).toBe("ok");
+          const results = r.ok
+            ? (r.data as { results: { would_block?: { code: string } }[] }).results
+            : [];
+          expect(results.map((x) => x.would_block?.code)).toEqual(["convention_blocked"]);
+        } else {
+          expect(r.ok ? "ok" : r.error.code).toBe("convention_blocked");
+        }
+        expect(existsSync(join(v.root, "lax/big.md"))).toBe(true);
+        expect(existsSync(join(v.root, "meetings/big.md"))).toBe(false);
+      } finally {
+        v.cleanup();
+      }
+    },
+  );
+
   it("dry_run shows no would_block for a same-folder rename of a non-compliant note", async () => {
     const v = bulkVault({ ...FILES, "meetings/a.md": BAD });
     try {
@@ -337,6 +402,7 @@ describe("bulk_move_notes judges each row against its source", () => {
     try {
       const r = await v.callConfirmed("bulk_move_notes", { vault: "test", dry_run: false, moves });
       expect(r.ok ? "ok" : JSON.stringify(r.error)).toBe("ok");
+      expectNoSecret(r);
       expect(v.read("meetings/a.md")).toBe(LOCKED);
     } finally {
       v.cleanup();
