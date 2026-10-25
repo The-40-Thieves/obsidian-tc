@@ -265,7 +265,7 @@ describe("execute_template", () => {
           },
         });
         const res = await v.callConfirmed("execute_template", exec(target, true), {
-          grantedScopes: new Set(["write:templater"]),
+          grantedScopes: new Set(["write:templater", "read:notes"]),
         });
         expect(res.ok).toBe(false);
         if (!res.ok) expect(res.error.code).toBe("acl_denied");

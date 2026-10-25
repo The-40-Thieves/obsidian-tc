@@ -86,7 +86,7 @@ describe("THE-567 create_periodic_note: template_override is centrally enforced 
           date: "2026-06-18",
           template_override: "templates/daily.md",
         },
-        ctx(["write:periodic", "read:templates"]),
+        ctx(["write:periodic", "read:templates", "read:notes"]),
       );
       expect(allowed.ok).toBe(true);
       if (allowed.ok)

@@ -310,6 +310,8 @@ The acks a write-only caller gets carry no `prev_hash` or `quality_warning`, and
 (`append_note` returns `null` for it; a move needs read on its source, so `move_note` always returns the hash). `write_note`'s `content_hash` is the hash of the bytes the
 caller sent, not of the note it replaced.
 
+A caller-named template is copied into the output, so it needs `read:notes` as well. `execute_template` requires `read:notes` on top of `write:templater`, and `create_periodic_note` with a `template_override` requires it too (`expand_template` included). The periodic-notes template the operator configured is exempt: the operator chose that content, so no read scope is needed to copy it.
+
 Known residuals, accepted for now:
 
 - Size and count fields: `bytes_written`, `appended_bytes`, lines and bytes removed, row counts and redaction
