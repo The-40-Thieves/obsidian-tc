@@ -436,17 +436,24 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
         // real run share outcomes (the all-or-nothing contract).
         const okFrom = new Set<string>();
         const okTo = new Set<string>();
-        for (const r of rows) {
+        const sourceRows = new Map<string, number[]>();
+        for (const [i, r] of rows.entries()) {
           if (r.ok && r.fromRel && r.toRel) {
             okFrom.add(r.fromRel);
             okTo.add(r.toRel);
+            sourceRows.set(r.fromRel, [...(sourceRows.get(r.fromRel) ?? []), i]);
           }
         }
         const claimed = new Set<string>();
-        for (const r of rows) {
+        for (const [i, r] of rows.entries()) {
           if (!r.ok || !r.fromRel || !r.toRel) continue;
           let reason: string | null = null;
-          if (okFrom.has(r.toRel))
+          // Two rows naming one source leave the destination ambiguous, so both are refused (the
+          // note moves nowhere), and each names the other.
+          const other = (sourceRows.get(r.fromRel) ?? []).find((j) => j !== i);
+          if (other !== undefined)
+            reason = `source is also claimed by row ${other + 1} of this batch`;
+          else if (okFrom.has(r.toRel))
             reason = "destination is also a source of another move in this batch (chained move)";
           else if (okTo.has(r.fromRel))
             reason = "source is also a destination of another move in this batch (chained move)";
