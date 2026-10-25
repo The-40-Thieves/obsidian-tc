@@ -138,16 +138,22 @@ function isAbortOrTimeout(err) {
 }
 
 /**
- * Replaces every occurrence of the real `SMITHERY_API_KEY` with `[redacted]`. Applied to every
- * string built from a server RESPONSE (a failed request's body, a poll log line, a release's error
- * log) before it is logged or put in an Error — see the module header for why a response, not just
- * this script's own output, needs this. A no-op when the key is unset/empty (dry-run, or a test
- * with no key), and safe on non-string input (returned unchanged).
+ * Makes a string built from a server RESPONSE (a failed request's body, a poll log line, a
+ * release's error log) safe to log or put in an Error — see the module header for why a response,
+ * not just this script's own output, needs this. Two steps, both ALWAYS applied:
+ *   1. every occurrence of the real `SMITHERY_API_KEY` becomes `[redacted]` (skipped when the key
+ *      is unset/empty, e.g. dry-run or a test with no key);
+ *   2. line breaks are escaped and a leading `::` is broken up. GitHub Actions reads a LINE that
+ *      starts with `::` as a workflow command (`::error::`, `::add-mask::`), so a response with a
+ *      line break could forge one even with no key set.
+ * Non-string input is returned unchanged.
  */
 export function redact(text) {
+  if (typeof text !== "string") return text;
   const key = process.env.SMITHERY_API_KEY;
-  if (!key || typeof text !== "string") return text;
-  return text.split(key).join("[redacted]");
+  const keyed = key ? text.split(key).join("[redacted]") : text;
+  const oneLine = keyed.replace(/\r/g, "\\r").replace(/\n/g, "\\n");
+  return oneLine.replace(/^(\s*)::/, "$1: :");
 }
 
 export function parseArgs(argv) {
@@ -358,7 +364,9 @@ export async function pollUntilTerminal(
     }
     if (now() >= deadline) {
       throw new Error(
-        `publish-smithery: release ${deploymentId} did not reach a terminal status within ${pollTimeoutMs}ms (last status "${release.status}")`,
+        redact(
+          `publish-smithery: release ${deploymentId} did not reach a terminal status within ${pollTimeoutMs}ms (last status "${release.status}")`,
+        ),
       );
     }
     await sleep(pollIntervalMs);

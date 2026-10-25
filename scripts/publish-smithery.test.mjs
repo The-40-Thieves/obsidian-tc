@@ -282,6 +282,72 @@ test("redact: passes non-string input through unchanged", () => {
   assert.equal(redact(undefined), undefined);
 });
 
+test("redact: neutralises line breaks with the key unset", () => {
+  delete process.env.SMITHERY_API_KEY;
+  assert.equal(redact("line1\n::error::pwned"), "line1\\n::error::pwned");
+  assert.equal(redact("a\r\nb"), "a\\r\\nb");
+});
+
+test("redact: neutralises a leading :: with the key unset", () => {
+  delete process.env.SMITHERY_API_KEY;
+  assert.ok(!redact("::error::x").startsWith("::"), "a leading :: must not survive");
+});
+
+test("redact: neutralises line breaks and still redacts the key when it is set", () => {
+  process.env.SMITHERY_API_KEY = "sk-abc123";
+  assert.equal(redact("sk-abc123\r\n::error::x"), "[redacted]\\r\\n::error::x");
+});
+
+test("log injection: a deploy error body with a line break and ::error:: is one line in the thrown message", async () => {
+  process.env.SMITHERY_API_KEY = "sk-test-key-xyz";
+  const fetchImpl = async () => ({
+    ok: false,
+    status: 400,
+    statusText: "Bad Request",
+    text: async () => "line1\n::error::pwned",
+  });
+  let caught;
+  const lines = await withCapturedConsole(async () => {
+    try {
+      await publishToSmithery(args({ fetchImpl }));
+    } catch (err) {
+      caught = err;
+    }
+  });
+  assert.ok(caught, "publishToSmithery should have rejected");
+  assert.ok(!/[\r\n]/.test(caught.message), "the thrown message must be a single line");
+  assert.ok(!lines.some((l) => l.startsWith("::")), "no console line may start with ::");
+});
+
+test("log injection: a poll log line with a line break and ::error:: is one console line", async () => {
+  process.env.SMITHERY_API_KEY = "sk-test-key-xyz";
+  let call = 0;
+  const fetchImpl = async (_url, init) => {
+    call++;
+    if (init?.method === "PUT") {
+      return { ok: true, json: async () => ({ deploymentId: "d1", status: "WORKING" }) };
+    }
+    if (call === 2) {
+      return {
+        ok: true,
+        json: async () => ({
+          status: "WORKING",
+          logs: [{ stage: "scan", message: "line1\n::error::pwned" }],
+        }),
+      };
+    }
+    return { ok: true, json: async () => ({ status: "SUCCESS", logs: [] }) };
+  };
+  const lines = await withCapturedConsole(async () => {
+    await publishToSmithery(args({ fetchImpl, sleep: async () => {} }));
+  });
+  assert.ok(!lines.some((l) => l.startsWith("::")), "no console line may start with ::");
+  assert.ok(
+    lines.some((l) => l.includes("line1\\n::error::pwned")),
+    "the poll log line should still be printed, with its line break escaped",
+  );
+});
+
 // ---- pollUntilTerminal --------------------------------------------------------------------------
 
 test("pollUntilTerminal: polls until SUCCESS, logging new lines as they appear", async () => {
