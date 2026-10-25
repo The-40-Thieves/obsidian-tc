@@ -1,11 +1,12 @@
 // The folder conventions write gate: a `severity: block` rule refuses a write that ADDS a blocking
 // violation, before any byte reaches disk. A partial fix, an unrelated edit and a warn rule all pass;
 // a caller who cannot read the old note is judged on its own content; a check that throws fails open.
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { resolveConventions } from "../src/conventions/resolve";
 import { registerM6Tools } from "../src/tools/m6";
+import * as notesIo from "../src/vault/notes-io";
 import {
   CHECKED,
   confirmedCall,
@@ -14,6 +15,11 @@ import {
   withVault,
 } from "./conventions-helpers";
 import { makeM6Vault } from "./m6-helpers";
+
+vi.mock("../src/vault/notes-io", async (orig) => {
+  const actual = await orig<typeof import("../src/vault/notes-io")>();
+  return { ...actual, trashNote: vi.fn(actual.trashNote) };
+});
 
 vi.mock("../src/conventions/resolve", async (orig) => {
   const actual = await orig<typeof import("../src/conventions/resolve")>();
@@ -326,6 +332,58 @@ describe("write gate exemptions and batches", () => {
         : retry.error.code;
       expect(retryCode).toBeUndefined();
       expect(v.read("meetings/m.md")).toBe("---\ntype: meeting\nstatus: draft\n---\n");
+    } finally {
+      v.cleanup();
+    }
+  });
+});
+
+const { trashNote } = notesIo;
+
+describe("bulk_move_notes rewrites under a block rule", () => {
+  it("refuses a rewrite the gate blocks before anything is trashed: nothing moves, nothing snapshotted, notes unchanged", async () => {
+    // meetings/X.md is the destination of a refused row (its source is missing), so it is not replaced,
+    // and it is a backlink-rewrite target of the moved B.md. The rewrite moves X's `link` off its one
+    // allowed value, so the gate blocks it. The plan names X as a write, so it is judged, not exempt.
+    // The overwrite of meetings/Y.md (an ok row) is trashed before the batch is written: the refusal
+    // must come before that trash, and the trash must not be left behind.
+    const linkRule =
+      '---\nconventions:\n  frontmatter:\n    values: { link: ["[[B]]"] }\n    severity: { link: block }\n---\n# rules\n';
+    const v = bulkVault({
+      [MEETING]: linkRule,
+      "B.md": "body\n",
+      "D.md": "---\ntype: meeting\n---\nD\n",
+      "meetings/Y.md": "old\n",
+      "meetings/X.md": '---\nlink: "[[B]]"\n---\nsee [[B]]\n',
+    });
+    try {
+      const before = { b: v.read("B.md"), x: v.read("meetings/X.md"), y: v.read("meetings/Y.md") };
+      const r = await v.callConfirmed("bulk_move_notes", {
+        vault: "test",
+        dry_run: false,
+        overwrite: true,
+        moves: [
+          { from: "D.md", to: "meetings/Y.md" },
+          { from: "B.md", to: "C.md" },
+          { from: "Q.md", to: "meetings/X.md" },
+        ],
+      });
+      expect(r.ok).toBe(false);
+      if (r.ok) return;
+      expect(r.error.code).toBe("convention_blocked");
+      expect(trashNote).not.toHaveBeenCalled();
+      expect(v.exists("C.md")).toBe(false);
+      expect(v.read("B.md")).toBe(before.b);
+      expect(v.read("meetings/X.md")).toBe(before.x);
+      expect(v.read("meetings/Y.md")).toBe(before.y);
+      expect(v.exists("D.md")).toBe(true);
+      const snaps = (await v.call("list_snapshots", { vault: "test", path: "meetings/X.md" })) as {
+        ok: boolean;
+        data?: { total: number };
+      };
+      expect(snaps.data?.total).toBe(0);
+      const trash = join(v.root, ".trash");
+      expect(existsSync(trash) ? readdirSync(trash, { recursive: true }) : []).toEqual([]);
     } finally {
       v.cleanup();
     }
