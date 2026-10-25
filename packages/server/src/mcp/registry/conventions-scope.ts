@@ -29,9 +29,6 @@ import { vaultArgOf } from "./input-binding";
 import { isOverflow } from "./result-governance";
 import type { CallerContext, ConventionsSink, RegistryOptions, ToolDefinition } from "./types";
 
-/** Tools that move or copy a note to a named destination: the destination is warn-only in this slice. */
-const MOVE_COPY_TOOLS = new Set<string>(["move_note", "copy_note", "bulk_move_notes"]);
-
 /** Notes a single call may name: the rest are not stat'd, so a bulk call cannot make begin unbounded. */
 const MAX_NAMED_NOTES = 500;
 
@@ -121,6 +118,9 @@ export function conventionsScope(
             if (isConventionBlocked(e)) throw e;
             report(onInternalError, `conventions:${def.name}`, p.vault, e);
           }
+        },
+        origin(destRel, srcRel) {
+          gate.origin?.(destRel, srcRel);
         },
       };
       return withWriteGate(guarded, fn);
@@ -249,6 +249,8 @@ interface CheckState {
   effs: Map<string, ReturnType<typeof resolveConventions>>;
   /** The frontmatter the gate parsed for each note it judged, with the hash of the bytes it parsed. */
   parsed: Map<string, { hash: string; fm: ReturnType<typeof parseNoteLenient>["frontmatter"] }>;
+  /** The source note each move or copy destination announced (noteWriteOrigin), keyed by destination. */
+  origins: Map<string, string>;
 }
 
 /** The frontmatter the gate already parsed for `rel`, when the write reported those same bytes: the
@@ -333,8 +335,10 @@ function hasBlockRule(eff: ReturnType<typeof resolveConventions>): boolean {
   return blocks(eff.severity) || Object.values(eff.types).some((t) => blocks(t.severity));
 }
 
-/** The note's frontmatter before the write, as the caller may see it: undefined when there is no such
- *  note or the caller may not read it (judged as new, so nothing of it leaks); null when its YAML is broken. */
+/** The note's frontmatter on disk before the write, as the caller may see it: undefined when there is no
+ *  such note, the caller may not read it, or it is over NOTE_MAX_BYTES (judged as new, so nothing of it
+ *  leaks); null when its YAML is broken. A move or copy does not use it: its source is judged from the
+ *  bytes being written. */
 function beforeFrontmatter(
   ctx: CallerContext,
   root: string,
@@ -363,15 +367,25 @@ function judgeWrite(
   // Warn-only (design decision 7): a restore, and a backlink rewrite of a note the call did not name.
   if (st.tool === "restore_note") return;
   if (CROSS_NOTE_REWRITE_TOOLS.has(st.tool) && !st.stamps.has(rel)) return;
-  // Warn-only in this slice: a move or copy names its destination, but no origin is recorded, so the
-  // destination is judged as a NEW note and a rename of an already non-compliant note would be refused.
-  // PR 4 adds origin-aware judging (noteWriteOrigin) and lifts this.
-  if (MOVE_COPY_TOOLS.has(st.tool) && st.stamps.has(rel)) return;
   const eff = effOf(st, registry, ctx, root, rel);
   if (!judges(eff, rel) || !hasBlockRule(eff)) return;
   const fm = parseNoteLenient(text, rel).frontmatter;
   st.parsed.set(rel, { hash: contentHash(text), fm });
-  const delta = blockingDelta(eff, rel, beforeFrontmatter(ctx, root, rel), fm);
+  const src = st.origins.get(rel);
+  let delta: ReturnType<typeof blockingDelta>;
+  if (src === undefined) {
+    delta = blockingDelta(eff, rel, beforeFrontmatter(ctx, root, rel), fm);
+  } else {
+    // A move or copy writes the source's bytes, but for the links the tool repointed to moved notes. The
+    // verdict judges the bytes being written (no size bound, no disk read): each violation they have
+    // under the destination's rules counts only if the source's own bytes did not have it under the
+    // source's rules. A source the caller cannot read gets no verdict, so nothing of it shows.
+    if (!callerMayReadNote(ctx, root, src)) return;
+    delta = blockingDelta(eff, rel, fm, fm, {
+      eff: effOf(st, registry, ctx, root, src),
+      path: src,
+    });
+  }
   if (delta.length === 0) return;
   throw err.conventionBlocked(
     `this write would add ${delta.length} folder convention violation(s) marked block; nothing was written`,
@@ -388,12 +402,23 @@ export function conventionsChecker(registry: Pick<VaultRegistry, "resolve">): Co
     async begin(def, input, ctx, root) {
       const stamps = new Map<string, string | null>();
       for (const rel of namedWriteNotes(def, input, ctx, root)) stamps.set(rel, stampOf(root, rel));
-      const state: CheckState = { stamps, tool: def.name, effs: new Map(), parsed: new Map() };
+      const state: CheckState = {
+        stamps,
+        tool: def.name,
+        effs: new Map(),
+        parsed: new Map(),
+        origins: new Map(),
+      };
       return state;
     },
     gate(pending, ctx, root) {
       const st = pending as CheckState;
-      return { check: (abs, text) => judgeWrite(st, registry, ctx, root, abs, text) };
+      return {
+        check: (abs, text) => judgeWrite(st, registry, ctx, root, abs, text),
+        origin: (destRel, srcRel) => {
+          st.origins.set(destRel, srcRel);
+        },
+      };
     },
     async check(pending, result, ctx, root, noted) {
       const st = pending as CheckState;

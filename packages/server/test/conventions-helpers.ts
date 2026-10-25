@@ -46,8 +46,9 @@ export async function confirmedCall(
   v: TestVault,
   name: string,
   input: Record<string, unknown>,
+  over?: Parameters<TestVault["call"]>[2],
 ): Promise<CallResult> {
-  const first = await v.call(name, input);
+  const first = await v.call(name, input, over);
   if (first.ok || first.error.code !== "elicit_required") return first;
   const argsHash = (first.error.details as { args_hash?: string } | undefined)?.args_hash;
   if (!argsHash) throw new Error("elicit_required with no args_hash");
@@ -57,7 +58,7 @@ export async function confirmedCall(
     argsHash,
     caller: "test",
   });
-  return v.call(name, input, { elicitToken });
+  return v.call(name, input, { ...over, elicitToken });
 }
 
 /** The write succeeded and its result carries no `conventions` key: nothing was judged wrong. */

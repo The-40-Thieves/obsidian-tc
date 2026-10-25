@@ -1,13 +1,18 @@
 // bulk_move_notes' PLAN: every note a batch of moves rewrites, proven and scanned, before anything
 // moves. Split out of bulk-tools.ts so that file stays under the line ceiling; see planMoves.
 import { existsSync } from "node:fs";
-import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  err,
+  ObsidianTcError,
+  type VaultMemoryDefenseConfig,
+} from "@the-40-thieves/obsidian-tc-shared";
 import { enforceMemoryDefenseOnMovedBytes } from "../../experiential/memory-defense";
 import type { MetricsRecorder } from "../../metrics/registry";
 import type { ImmutableRewriteSkips } from "../../vault/acl-path";
 import { buildVaultIndex, resolveTarget, type VaultIndex } from "../../vault/links";
 import { type PlannedRewrite, plannedRewrite, RewriteScan } from "../../vault/move-plan";
 import { resolveVaultPath } from "../../vault/paths";
+import { noteWriteOrigin, preflightNoteWrite } from "../../vault/write-gate";
 
 function basenameNoExt(p: string): string {
   const b = p.includes("/") ? p.slice(p.lastIndexOf("/") + 1) : p;
@@ -146,4 +151,36 @@ export function planMoves(args: {
   }
   scan.refuseIfFailed();
   return { perMove, total, hidden, unreadable: scan.unreadableSkipped, moved, rewrites };
+}
+
+/** One bulk_move_notes row as the handler carries it: the caller's from/to, the resolved paths, and the
+ *  outcome (`would_block` is set by dry_run, see markWouldBlock). */
+export interface MoveRow {
+  from: string;
+  to: string;
+  fromRel?: string;
+  toRel?: string;
+  destExists?: boolean;
+  ok: boolean;
+  error?: ReturnType<ObsidianTcError["toJSON"]>;
+  would_block?: ReturnType<ObsidianTcError["toJSON"]>;
+}
+
+/** dry_run's write-gate verdict per row, with nothing written: each planned move the gate would refuse
+ *  gets `would_block`, the convention_blocked error the real run raises on it. It preflights the plan's
+ *  `content` through the same origin-aware gate the real run's commit uses (bulk-tools.ts), so the two
+ *  agree row for row. */
+export function markWouldBlock(rows: MoveRow[], moved: readonly PlannedMove[]): void {
+  const byFrom = new Map(moved.map((m) => [m.fromRel, m]));
+  for (const r of rows) {
+    const m = r.fromRel === undefined ? undefined : byFrom.get(r.fromRel);
+    if (!r.ok || m === undefined) continue;
+    try {
+      noteWriteOrigin(m.toRel, m.fromRel);
+      preflightNoteWrite(m.toAbs, m.content);
+    } catch (e) {
+      if (e instanceof ObsidianTcError && e.code === "convention_blocked")
+        r.would_block = e.toJSON();
+    }
+  }
 }
