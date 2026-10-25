@@ -105,7 +105,9 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
         })
         .strict(),
       outputSchema: RenameEntityOutput,
-      requiredScopes: ["write:memory"],
+      // A rename re-materializes the entity's note under its new path, so the caller must be able to
+      // read the entity as get_entity does (read:memory, plus the folder read ACL checked in the handler).
+      requiredScopes: ["read:memory", "write:memory"],
       handler: (input, ctx) => {
         if (input.new_name === undefined && input.status === undefined)
           throw err.invalidInput("provide new_name or status");
