@@ -91,7 +91,7 @@ jobs:
       - name: install + build embedder-local
         working-directory: packages/embedder-local
         run: |
-          bun install --frozen-lockfile
+          bun install --frozen-lockfile --ignore-scripts
           bun run build
       - name: pack the .mcpb bundle
         run: bun run bundle
@@ -114,7 +114,7 @@ jobs:
       - name: install + build embedder-local
         working-directory: packages/embedder-local
         run: |
-          bun install --frozen-lockfile
+          bun install --frozen-lockfile --ignore-scripts
           bun run build
       - name: pack generated embedder npm packages
         run: |
@@ -162,8 +162,6 @@ jobs:
       - uses: ./.github/actions/setup-repo
         with:
           node-required: 'true'
-          # Lifecycle scripts on, as publish.yml's build-binaries installs.
-          install-mode: frozen
 
       - id: expect
         name: is this cell on the expected-failure list?
@@ -210,7 +208,7 @@ jobs:
         if: matrix.path == 'binary'
         working-directory: packages/embedder-local
         run: |
-          bun install --frozen-lockfile
+          bun install --frozen-lockfile --ignore-scripts
           bun run build
       - name: compile standalone binary
         if: matrix.path == 'binary'

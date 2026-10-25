@@ -1,3 +1,7 @@
+# Lock: requirements-ci.txt (CI surface) and requirements.txt (full runtime) are hash-verified and
+# are this service's lockfiles. No uv.lock is committed, on purpose: a second lock would be a
+# second source of truth.
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

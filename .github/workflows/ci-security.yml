@@ -134,7 +134,7 @@ jobs:
       - name: install actionlint v1.7.12 (pinned binary + checksum)
         run: |
           mkdir -p "$RUNNER_TEMP/actionlint-bin"
-          curl -sSL --fail -o "$RUNNER_TEMP/actionlint.tar.gz" \
+          curl --proto '=https' --tlsv1.2 -sSL --fail -o "$RUNNER_TEMP/actionlint.tar.gz" \
             https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
           echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP/actionlint-bin" actionlint
@@ -167,7 +167,7 @@ jobs:
       - name: install trufflehog v3.96.0 (pinned binary + checksum)
         run: |
           mkdir -p "$RUNNER_TEMP/th-bin"
-          curl -sSL --fail -o "$RUNNER_TEMP/th.tar.gz" \
+          curl --proto '=https' --tlsv1.2 -sSL --fail -o "$RUNNER_TEMP/th.tar.gz" \
             https://github.com/trufflesecurity/trufflehog/releases/download/v3.96.0/trufflehog_3.96.0_linux_amd64.tar.gz
           echo "7105f1cd6577f058a9e39d0578f1a99c8a1e481e4d3512cd8a09acfe22a0fdc0  $RUNNER_TEMP/th.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/th.tar.gz" -C "$RUNNER_TEMP/th-bin" trufflehog
@@ -410,7 +410,7 @@ jobs:
       - name: install osv-scanner v2.7.0 (pinned binary + checksum)
         run: |
           mkdir -p "$RUNNER_TEMP/osv-bin"
-          curl -sSL --fail -o "$RUNNER_TEMP/osv-bin/osv-scanner" \
+          curl --proto '=https' --tlsv1.2 -sSL --fail -o "$RUNNER_TEMP/osv-bin/osv-scanner" \
             https://github.com/google/osv-scanner/releases/download/v2.7.0/osv-scanner_linux_amd64
           echo "160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b  $RUNNER_TEMP/osv-bin/osv-scanner" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/osv-bin/osv-scanner"
@@ -437,7 +437,7 @@ jobs:
       - name: install opengrep v1.25.0 (pinned binary + checksum)
         run: |
           mkdir -p "$RUNNER_TEMP/opengrep-bin"
-          curl -sSL --fail -o "$RUNNER_TEMP/opengrep-bin/opengrep" \
+          curl --proto '=https' --tlsv1.2 -sSL --fail -o "$RUNNER_TEMP/opengrep-bin/opengrep" \
             https://github.com/opengrep/opengrep/releases/download/v1.25.0/opengrep_manylinux_x86
           echo "9ac4aebb47ba3f7b0d8fc641ac8749cb6c2f253f616131a67d9631e00d4bea33  $RUNNER_TEMP/opengrep-bin/opengrep" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/opengrep-bin/opengrep"

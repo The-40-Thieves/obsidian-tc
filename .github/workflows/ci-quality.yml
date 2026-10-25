@@ -57,7 +57,7 @@ jobs:
       - name: install typos v1.48.0 (pinned binary + checksum)
         run: |
           mkdir -p "$RUNNER_TEMP/typos-bin"
-          curl -sSL --fail -o "$RUNNER_TEMP/typos.tar.gz" \
+          curl --proto '=https' --tlsv1.2 -sSL --fail -o "$RUNNER_TEMP/typos.tar.gz" \
             https://github.com/crate-ci/typos/releases/download/v1.48.0/typos-v1.48.0-x86_64-unknown-linux-musl.tar.gz
           echo "72a930c9a94fc3914aa56835c5b859c892a797d40c1c42638b98d93f16ff519c  $RUNNER_TEMP/typos.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/typos.tar.gz" -C "$RUNNER_TEMP/typos-bin" ./typos
@@ -73,7 +73,7 @@ jobs:
       - name: install lychee v0.24.2 (pinned binary + checksum)
         run: |
           mkdir -p "$RUNNER_TEMP/lychee-bin"
-          curl -sSL --fail -o "$RUNNER_TEMP/lychee.tar.gz" \
+          curl --proto '=https' --tlsv1.2 -sSL --fail -o "$RUNNER_TEMP/lychee.tar.gz" \
             https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-musl.tar.gz
           echo "73657a111819a30c47c08352896796f23d64e4eb2b3ed39b6d32149241566fc5  $RUNNER_TEMP/lychee.tar.gz" | sha256sum -c -
           # The binary is nested under lychee-x86_64-unknown-linux-musl/, unlike typos' bare ./typos
@@ -95,7 +95,7 @@ jobs:
       - name: install ast-grep 0.51.0 (pinned binary + checksum)
         run: |
           mkdir -p "$RUNNER_TEMP/sg-bin"
-          curl -sSL --fail -o "$RUNNER_TEMP/sg.zip" \
+          curl --proto '=https' --tlsv1.2 -sSL --fail -o "$RUNNER_TEMP/sg.zip" \
             https://github.com/ast-grep/ast-grep/releases/download/0.51.0/app-x86_64-unknown-linux-gnu.zip
           echo "a7eead5552d3a8daad70f5d50d935da44bd0c138e946b5b0a96b1d38169fa639  $RUNNER_TEMP/sg.zip" | sha256sum -c -
           unzip -q -o "$RUNNER_TEMP/sg.zip" -d "$RUNNER_TEMP/sg-bin" ast-grep
@@ -175,7 +175,7 @@ jobs:
       - name: install hadolint v2.14.0 (pinned binary + checksum)
         run: |
           mkdir -p "$RUNNER_TEMP/hadolint-bin"
-          curl -sSL --fail -o "$RUNNER_TEMP/hadolint-bin/hadolint" \
+          curl --proto '=https' --tlsv1.2 -sSL --fail -o "$RUNNER_TEMP/hadolint-bin/hadolint" \
             https://github.com/hadolint/hadolint/releases/download/v2.14.0/hadolint-Linux-x86_64
           echo "6bf226944684f56c84dd014e8b979d27425c0148f61b3bd99bcc6f39e9dc5a47  $RUNNER_TEMP/hadolint-bin/hadolint" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/hadolint-bin/hadolint"

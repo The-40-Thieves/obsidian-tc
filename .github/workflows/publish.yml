@@ -198,7 +198,7 @@ jobs:
           # every OTHER call site sets this; without it the release job caches the repo root
           # instead of the crate, so the one build that matters most runs permanently cold.
           workspaces: packages/native
-      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile --ignore-scripts
       # musl targets cross-compile via napi's `-x` (cargo-zigbuild); zig is the linker. Gated to
       # the two musl rows only — the gnu / darwin / win rows are untouched.
       - name: install zig for musl cross-compile
@@ -523,7 +523,7 @@ jobs:
           # gets a chance to run. A DNS/TCP failure that curl detects immediately was already
           # handled (this step aborts on purpose — see the comment above); this closes the gap
           # where curl does NOT fail immediately: a connection that hangs mid-request.
-          status=$(curl -sS --connect-timeout 10 --max-time 20 -o /dev/null -w '%{http_code}' "$url")
+          status=$(curl --proto '=https' --tlsv1.2 -sS --connect-timeout 10 --max-time 20 -o /dev/null -w '%{http_code}' "$url")
           case "$status" in
             200)
               echo "$url -> 200: $name@$version is already registered — resumed release, skipping the publish steps (registry versions are immutable; a second publish would fail with 'cannot publish duplicate version')."
@@ -629,7 +629,7 @@ jobs:
               [ "$req_max" -gt 20 ] && req_max=20
               [ "$req_max" -lt 1 ] && req_max=1
               req_connect=$((req_max < 10 ? req_max : 10))
-              status=$(curl -sS --connect-timeout "$req_connect" --max-time "$req_max" -o /dev/null -w '%{http_code}' "$url") || status="000"
+              status=$(curl --proto '=https' --tlsv1.2 -sS --connect-timeout "$req_connect" --max-time "$req_max" -o /dev/null -w '%{http_code}' "$url") || status="000"
               if [ "$status" = "200" ]; then
                 echo "  attempt $attempt (t=${elapsed}s): $url -> 200, resolved"
                 resolved=true
@@ -641,7 +641,7 @@ jobs:
               [ "$req_max" -gt 20 ] && req_max=20
               [ "$req_max" -lt 1 ] && req_max=1
               req_connect=$((req_max < 10 ? req_max : 10))
-              latest=$(curl -sS --connect-timeout "$req_connect" --max-time "$req_max" "${packument_url}?_cb=${SECONDS}${RANDOM}" \
+              latest=$(curl --proto '=https' --tlsv1.2 -sS --connect-timeout "$req_connect" --max-time "$req_max" "${packument_url}?_cb=${SECONDS}${RANDOM}" \
                 | jq -r '.["dist-tags"].latest // "unknown"') || latest="unknown"
               echo "  attempt $attempt (t=${elapsed}s): $url -> $status (dist-tags.latest=$latest)"
               # Re-read the clock: the polls above took real time, and a stale `elapsed` would
@@ -894,7 +894,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile --ignore-scripts
       - name: build shared
         working-directory: packages/shared
         run: bun run build
@@ -927,7 +927,7 @@ jobs:
       - name: install + build embedder-local
         working-directory: packages/embedder-local
         run: |
-          bun install --frozen-lockfile
+          bun install --frozen-lockfile --ignore-scripts
           bun run build
         shell: bash
       # the local RERANKER package stays --external (scripts/build-binary.ts): it is never
@@ -1294,7 +1294,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile --ignore-scripts
       - name: build shared + server
         run: |
           (cd packages/shared && bun run build)
@@ -1304,7 +1304,7 @@ jobs:
       - name: install + build embedder-local
         working-directory: packages/embedder-local
         run: |
-          bun install --frozen-lockfile
+          bun install --frozen-lockfile --ignore-scripts
           bun run build
       - name: pack the .mcpb bundle
         run: bun run bundle

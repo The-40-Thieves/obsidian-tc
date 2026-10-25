@@ -54,7 +54,7 @@ jobs:
           node-required: 'true'
       - name: Install
         working-directory: docs
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --ignore-scripts
       - name: Build (fill generated regions, decisions index, tool pages; astro check; astro build)
         working-directory: docs
         run: bun run build
@@ -78,7 +78,7 @@ jobs:
       - name: install lychee v0.24.2 (pinned binary + checksum)
         run: |
           mkdir -p "$RUNNER_TEMP/lychee-bin"
-          curl -sSL --fail -o "$RUNNER_TEMP/lychee.tar.gz" \
+          curl --proto '=https' --tlsv1.2 -sSL --fail -o "$RUNNER_TEMP/lychee.tar.gz" \
             https://github.com/lycheeverse/lychee/releases/download/lychee-v0.24.2/lychee-x86_64-unknown-linux-musl.tar.gz
           echo "73657a111819a30c47c08352896796f23d64e4eb2b3ed39b6d32149241566fc5  $RUNNER_TEMP/lychee.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/lychee.tar.gz" -C "$RUNNER_TEMP/lychee-bin" \
