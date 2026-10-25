@@ -184,3 +184,10 @@ export function markWouldBlock(rows: MoveRow[], moved: readonly PlannedMove[]): 
     }
   }
 }
+
+/** The write gate's verdict on each planned backlink rewrite, run before the commit trashes anything: the
+ *  same preflight the batch write makes for that rewrite, so a refusal here is the refusal the batch
+ *  would raise. Throws the first refusal. */
+export function preflightRewrites(rewrites: readonly PlannedRewrite[]): void {
+  for (const r of rewrites) preflightNoteWrite(r.abs, r.text);
+}
