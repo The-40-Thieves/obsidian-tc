@@ -1100,11 +1100,16 @@ def test_plain_http_warning_counts_the_files_litellm_key(
     assert gateway_warning and "bearer key travels in clear" in gateway_warning[0]
 
 
-def test_probe_pairs_each_key_with_the_url_a_live_run_uses(
-    config_path: Path, calls: list[Any], opener: Any, monkeypatch: pytest.MonkeyPatch
+def test_probe_skips_a_url_the_environment_overrides(
+    config_path: Path,
+    calls: list[Any],
+    opener: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # The environment overrides both URLs, so a live run sends the environment keys only to the
-    # environment hosts; the probe must never send them to the URLs just saved.
+    # The environment overrides both URLs: probing the saved URLs would send the environment keys
+    # to hosts a live run never uses, and probing the environment URLs would use values setup
+    # never validated. So neither is probed; the line names the variable, never its value.
     monkeypatch.setenv("CRAWL4AI_URL", "https://crawl.internal.example")
     monkeypatch.setenv("CRAWL4AI_API_TOKEN", "tok-INTERNAL-only-0001")
     monkeypatch.setenv("LANGEXTRACT_BASE_URL", "https://gw.internal.example/v1")
@@ -1125,11 +1130,39 @@ def test_probe_pairs_each_key_with_the_url_a_live_run_uses(
     )
 
     assert code == 0
-    sent = {req.full_url: req.unredirected_hdrs.get("Authorization") for req in calls}
-    assert sent == {
-        "https://crawl.internal.example/health": "Bearer tok-INTERNAL-only-0001",
-        "https://gw.internal.example/v1/models": "Bearer sk-INTERNAL-gw-key-0002",
-    }
+    assert calls == []
+    out = capsys.readouterr().out
+    assert "crawl4ai: skipped" in out and "gateway: skipped" in out
+    assert "internal.example" not in out and "INTERNAL" not in out
+
+
+@pytest.mark.parametrize(
+    "name,url",
+    [
+        ("CRAWL4AI_URL", "crawl4ai"),
+        ("CRAWL4AI_URL", "http://[::1"),
+        ("LANGEXTRACT_BASE_URL", "https://proxyuser:Proxy-Pass-SECRET-99@gw.invalid/v1"),
+    ],
+)
+def test_an_unvalidated_environment_url_is_never_probed_or_printed(
+    config_path: Path,
+    calls: list[Any],
+    opener: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    name: str,
+    url: str,
+) -> None:
+    monkeypatch.setenv(name, url)
+
+    code = main(_setup_args(), input_fn=_no_input, getpass_fn=_no_input, opener=opener)
+
+    assert code == 0
+    assert not any(req.full_url.startswith(url) for req in calls)
+    out = capsys.readouterr().out
+    # The label "crawl4ai" equals one URL, so look for the URL where a probe line would print it.
+    assert f"({url}" not in out and "Proxy-Pass-SECRET-99" not in out
+    assert f"skipped ({name} is set in the environment)" in out
 
 
 def test_probe_prefers_an_environment_key_over_the_saved_one(

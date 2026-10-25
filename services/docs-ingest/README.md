@@ -54,7 +54,7 @@ ignored with one warning, and the environment still applies; `setup` refuses it 
 interactive mode. A secret flag given as `-` reads one line from stdin. A value on the command line
 is visible in the process list and shell history, so prefer the prompt or `-`. URLs may not carry a
 username or password. `--no-probe` skips the endpoint checks. Probes never block the save, and a
-redirect is reported as a failure rather than followed, so a key is never sent to another host.
+redirect is reported as a failure rather than followed, so a key is never sent to another host. A URL the environment overrides is skipped rather than probed.
 
 | Variable | Used for | Points at |
 |---|---|---|

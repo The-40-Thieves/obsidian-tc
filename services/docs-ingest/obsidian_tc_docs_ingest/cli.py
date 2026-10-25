@@ -131,10 +131,10 @@ def _probe(
     opener: Callable[..., Any],
 ) -> str:
     """One OK/FAIL line. Never raises, and no configured secret is ever part of the line."""
-    req = urllib.request.Request(url)
-    if token:
-        req.add_unredirected_header("Authorization", f"Bearer {token}")
     try:
+        req = urllib.request.Request(url)
+        if token:
+            req.add_unredirected_header("Authorization", f"Bearer {token}")
         with opener(req, timeout=PROBE_TIMEOUT) as resp:
             status = resp.status
     except urllib.error.HTTPError as exc:
@@ -277,22 +277,24 @@ def _setup(
     if args.no_probe:
         return 0
 
-    # Probe exactly what a live run would do: the effective URL with the effective key, so an
-    # environment key is only ever sent to the host a live run sends it to (an environment URL
-    # that overrides the saved one is named in the NOTE above). Mask every secret either source
-    # holds.
+    # Probe the saved URLs with the key a live run would send to them. A URL the environment
+    # overrides is skipped, not probed: the saved URL is not what a live run hits, and the
+    # environment URL was never validated (it may be scheme-less or carry a password). The skip
+    # line names the variable only. Mask every secret either source holds.
     secrets = [values[s.name] for s in _SETTINGS if s.secret and values.get(s.name)]
     secrets += [v for s in _SETTINGS if s.secret and (v := _effective(values, s.name))]
-    crawl4ai = _effective(values, "CRAWL4AI_URL")
-    if crawl4ai:
-        token = _effective(values, "CRAWL4AI_API_TOKEN") or None
-        url = f"{crawl4ai.rstrip('/')}/health"
-        print(_probe("crawl4ai", url, token, secrets, opener))
-    gateway = _effective(values, "LANGEXTRACT_BASE_URL")
-    if gateway:
-        key = _effective(values, "LANGEXTRACT_API_KEY") or None
-        url = f"{gateway.rstrip('/')}/models"
-        print(_probe("gateway", url, key, secrets, opener))
+    for label, url_name, key_name, path in (
+        ("crawl4ai", "CRAWL4AI_URL", "CRAWL4AI_API_TOKEN", "health"),
+        ("gateway", "LANGEXTRACT_BASE_URL", "LANGEXTRACT_API_KEY", "models"),
+    ):
+        saved_url = values.get(url_name)
+        if not saved_url:
+            continue
+        if _effective(values, url_name) != saved_url:
+            print(f"{label}: skipped ({url_name} is set in the environment)")
+            continue
+        key = _effective(values, key_name) or None
+        print(_probe(label, f"{saved_url.rstrip('/')}/{path}", key, secrets, opener))
     return 0
 
 
