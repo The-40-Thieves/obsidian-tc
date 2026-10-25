@@ -244,6 +244,77 @@ describe("bulk_move_notes — in-batch hazard detection", () => {
     expect(v.exists("Y.md")).toBe(true); // the rejected move's source is untouched
   });
 
+  it("refuses two rows with the same source on a real run; nothing moves, neither destination exists", async () => {
+    v = makeM6Vault({ files: { "A.md": "AA" }, register });
+    const out = data<{
+      results: { from: string; ok: boolean; error?: { code: string; message: string } }[];
+    }>(
+      await v.callConfirmed("bulk_move_notes", {
+        vault: "test",
+        dry_run: false,
+        moves: [
+          { from: "A.md", to: "X/A.md" },
+          { from: "A.md", to: "Y/A.md" },
+        ],
+      }),
+    );
+    expect(out.results).toHaveLength(2);
+    for (const r of out.results) {
+      expect(r.ok).toBe(false);
+      expect(r.error?.code).toBe("invalid_input");
+      expect(r.error?.message).toContain("claimed by row");
+    }
+    expect(out.results[0]?.error?.message).toContain("row 2");
+    expect(out.results[1]?.error?.message).toContain("row 1");
+    expect(v.exists("A.md")).toBe(true);
+    expect(v.exists("X/A.md")).toBe(false);
+    expect(v.exists("Y/A.md")).toBe(false);
+  });
+
+  it("dry_run refuses both rows with the same source and copies no would_block verdict", async () => {
+    v = makeM6Vault({ files: { "A.md": "AA" }, register });
+    const out = data<{
+      results: { ok: boolean; error?: { code: string }; would_block?: unknown }[];
+    }>(
+      await v.callConfirmed("bulk_move_notes", {
+        vault: "test",
+        dry_run: true,
+        moves: [
+          { from: "A.md", to: "X/A.md" },
+          { from: "A.md", to: "Y/A.md" },
+        ],
+      }),
+    );
+    for (const r of out.results) {
+      expect(r.ok).toBe(false);
+      expect(r.error?.code).toBe("invalid_input");
+      expect(r.would_block).toBeUndefined();
+    }
+    expect(v.exists("A.md")).toBe(true);
+  });
+
+  it("refuses one source spelled two ways (a.md and ./a.md) as a duplicate source", async () => {
+    v = makeM6Vault({ files: { "A.md": "AA" }, register });
+    const out = data<{
+      results: { ok: boolean; error?: { code: string; message: string } }[];
+    }>(
+      await v.callConfirmed("bulk_move_notes", {
+        vault: "test",
+        dry_run: false,
+        moves: [
+          { from: "A.md", to: "X.md" },
+          { from: "./A.md", to: "Y.md" },
+        ],
+      }),
+    );
+    expect(out.results.map((r) => r.ok)).toEqual([false, false]);
+    expect(out.results[1]?.error?.code).toBe("invalid_input");
+    expect(out.results[1]?.error?.message).toContain("claimed by row 1");
+    expect(v.exists("A.md")).toBe(true);
+    expect(v.exists("X.md")).toBe(false);
+    expect(v.exists("Y.md")).toBe(false);
+  });
+
   it("rejects from===to as invalid_input without touching the file", async () => {
     v = makeM6Vault({ files: { "A.md": "AA" }, register });
     const out = data<{ results: { ok: boolean; error?: { code: string } }[] }>(
