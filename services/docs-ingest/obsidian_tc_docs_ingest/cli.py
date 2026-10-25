@@ -153,7 +153,7 @@ def _probe(
     # another is masked whole.
     reason = "".join(c if c.isprintable() else repr(c)[1:-1] for c in reason)
     for secret in sorted(secrets, key=len, reverse=True):
-        reason = reason.replace(secret, _mask(secret))
+        reason = reason.replace(secret, "****")
     return f"{label}: FAIL ({url}): {reason}"
 
 
