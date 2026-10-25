@@ -296,13 +296,13 @@ set **`writes.requireCas: true`** to make it **mandatory** on the destructive pa
 `prev_hash` is absent.
 
 The CAS detail is read-gated. A caller that may write a note but not read it gets only content-blind writes:
-create, overwrite (always confirmed, empty or not), `append_note`, `move_note` and `delete_note`. Every other
+create, overwrite (always confirmed, empty or not), `append_note` and `delete_note`. Every other
 write depends on the note's bytes, so it is refused whatever those bytes hold. A caller the read ACL refuses gets `acl_denied`, which depends only on the ACL and leaks nothing; a caller that passes the ACL but lacks the read scope gets one fixed `invalid_input`:
 any `prev_hash` the caller supplies (the refusal comes before the hashes are compared, so under
 `writes.requireCas` such a caller cannot append to or patch an existing note), every `patch_note` operation
 (a frontmatter-preamble append or prepend included), `add_tag`, `remove_tag`, `update_frontmatter`,
 `update_task`, `bulk_set_property` (per note), the table, Kanban, canvas and base tools, `restore_note`,
-`prune_hub_links`, `copy_note` (which also needs `read:notes` on its source), the bookmark and workspace
+`prune_hub_links`, `copy_note` (which also needs `read:notes` on its source), `move_note` and `bulk_move_notes` (a move needs `read:notes` and read ACL on each source, since its bytes land at the destination), the bookmark and workspace
 writes, `append_to_periodic_note` with a `heading`, and `update_excalidraw`. `rewrite_link` needs `read:notes`,
 and it only scans and names notes the caller may read.
 

@@ -379,6 +379,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
       acceptsIdempotencyKey: true,
       pathAcl: (input) =>
         input.moves.flatMap((m) => [
+          { op: "read" as const, path: m.from },
           { op: "delete" as const, path: m.from },
           { op: "write" as const, path: m.to },
         ]),
@@ -398,12 +399,18 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             ? { from: r.from, to: r.to }
             : { from: redactedEcho(mdConfig, r.from), to: redactedEcho(mdConfig, r.to) };
 
+        // The first source the caller may not read (set in the row pass below). A real run refuses
+        // the whole batch on it before anything moves; a dry run reports it on its own row only.
+        let unreadableSource: string | undefined;
         const rows: MoveRow[] = input.moves.map((m) => {
           try {
             const fromRel = normalizeVaultPath(m.from);
             const toRel = normalizeVaultPath(m.to);
             if (fromRel === toRel)
               throw err.invalidInput("from and to are identical", { path: fromRel });
+            if (!callerMayReadNote(ctx, v.root, fromRel)) unreadableSource ??= fromRel;
+            enforcePathAcl(ctx.acl, "read", fromRel, v.root, ctx.grantedScopes);
+            requireContentRead(ctx, v.root, fromRel);
             enforcePathAcl(ctx.acl, "delete", fromRel, v.root, ctx.grantedScopes);
             enforcePathAcl(ctx.acl, "write", toRel, v.root, ctx.grantedScopes);
             // same as move_note's own destination-path refusal — a caller-chosen
@@ -428,6 +435,9 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             return { from: m.from, to: m.to, ok: false, error };
           }
         });
+
+        if (!input.dry_run && unreadableSource !== undefined)
+          requireContentRead(ctx, v.root, unreadableSource);
 
         // In-batch hazards the per-row pass cannot see: a destination claimed by
         // two moves (the 2nd clobbers the 1st, whose source is already hardDeleted
