@@ -271,7 +271,7 @@ const EXPECTED: ToolSnapshot[] = [
     description:
       "Move/rename a note and update backlinks. Crossing a folder boundary OR overwriting an existing destination requires confirmation; an overwritten destination is soft-deleted to .trash (recoverable).",
     domain: "notes",
-    requiredScopes: ["delete:notes", "write:notes"],
+    requiredScopes: ["delete:notes", "read:notes", "write:notes"],
     tags: [],
     hasPathAcl: true,
     destructive: false,
@@ -307,7 +307,7 @@ const EXPECTED: ToolSnapshot[] = [
     name: "copy_note",
     description: "Copy a note to a new path (backlinks are not rewritten for copies).",
     domain: "notes",
-    requiredScopes: ["write:notes"],
+    requiredScopes: ["read:notes", "write:notes"],
     tags: [],
     hasPathAcl: true,
     destructive: false,

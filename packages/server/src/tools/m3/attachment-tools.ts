@@ -102,14 +102,15 @@ const OWN_TOOL_EXTS = new Set([".md", ".canvas", ".base"]);
 
 /** Refuses a path that is not a binary attachment. A note, canvas or base has its own tools, and an
  *  attachment tool must not write or move one: its bytes would land where the note tools' ACL and
- *  read checks never looked. */
-function requireAttachmentPath(rel: string): void {
+ *  read checks never looked. `existing` is a name that is already there: an in-place overwrite of a
+ *  grandfathered name (one the extension allowlist would not accept now) is not judged as new. */
+function requireAttachmentPath(rel: string, existing = false): void {
   if (OWN_TOOL_EXTS.has(extOf(rel)))
     throw err.invalidInput(
       "notes, canvases and bases have their own tools (write_note, create_canvas, create_base, move_note); attachment tools are for binary attachments",
       { path: rel },
     );
-  if (!isAttachment(rel))
+  if (!existing && !isAttachment(rel))
     throw err.invalidInput("path is not an attachment (extension not in the allowlist)", {
       path: rel,
       extensions: DEFAULT_ATTACHMENT_EXTS,
@@ -472,7 +473,6 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           throw err.invalidInput("from and to are identical", { path: fromRel });
         const fromAbs = resolveVaultPath(v.root, fromRel);
         requireAttachmentPath(fromRel);
-        requireAttachmentPath(toRel);
         const toAbs = resolveVaultPath(v.root, toRel);
         enforcePathAcl(ctx.acl, "read", fromRel, v.root, ctx.grantedScopes);
         requireContentRead(ctx, v.root, fromRel, "read:attachments");
@@ -483,6 +483,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         if (!fromEx.exists || fromEx.type === "folder")
           throw err.noteNotFound("source attachment not found", { path: fromRel });
         const toEx = noteExists(toAbs);
+        requireAttachmentPath(toRel, toEx.exists);
         if (toEx.exists && toEx.type === "folder")
           throw err.invalidInput("destination is a folder", { path: toRel });
         if (toEx.exists && !input.overwrite)
