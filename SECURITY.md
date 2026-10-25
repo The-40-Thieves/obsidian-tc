@@ -337,28 +337,35 @@ path).
 ## Folder convention severity
 
 A SCHEMA.md `conventions:` block can mark a rule `block` (see [Vault conventions](docs/src/content/docs/guides/vault-conventions.md)).
-A `block` refuses a write that adds the violation. This is an integrity aid, not a security boundary: any
-caller who can write a `SCHEMA.md` can relax the severity or remove the rules, so blocking stops only callers
-who cannot write the layer.
+A `block` refuses a write that adds the violation. This is an integrity aid against honest mistakes, not a
+security boundary, and it is not a control against a caller with write access.
 
-- A layer the caller cannot read is not applied, and its messages are not reported to that caller, so a
-  caller never learns the rules of a layer its ACL hides.
+- **No ACL keeps a caller who can write notes from writing a `SCHEMA.md` there.** A caller who can write `F/**`
+  can create `F/SCHEMA.md` with `conventions: {inherit: false}` or a relaxing `severity`, and escape every block
+  rule for `F`. Globs support only `**`, `*`, `?` and `\`, with no negation. `rules` scopes apply to reads too, so
+  a scoped rule hides the layer, and an unread layer is not applied. `immutablePaths` is not configurable.
+- `writePaths` plus `deletePaths` protect only the operator's own existing layers from edit, delete and move. A
+  move's source operation is a delete.
+- A layer the caller cannot read is not applied, and its messages are not reported to that caller. A caller whose
+  read ACL hides a layer is held to none of that layer's rules, and never learns them.
 - The check fails open on an internal error: the write goes ahead, and the fault is reported through
   `onInternalError`.
 
-Operators who rely on blocking should deny writes to `SCHEMA.md` through the folder ACL. `writePaths` is an
-allowlist of globs with no negation, so list only the note folders:
+Operators who want blocking to stop honest mistakes should restrict writes and deletes to the note folders. The
+snippet below keeps callers out of the root `SCHEMA.md`, which `**/SCHEMA.md` does not match, so it is listed
+separately, and out of every folder it does not name:
 
 ```json
 {
   "acl": {
-    "writePaths": ["02-projects/**", "09-reference/**"]
+    "writePaths": ["02-projects/**", "09-reference/**"],
+    "deletePaths": ["02-projects/**", "09-reference/**"]
   }
 }
 ```
 
-This keeps callers out of a root `SCHEMA.md`. A `SCHEMA.md` inside a listed folder stays writable, because a
-glob cannot exclude one file name, so keep schema layers in folders that no ordinary caller's `writePaths` covers.
+A `SCHEMA.md` inside a listed folder stays writable by a caller who writes notes there, because a glob cannot
+exclude one file name. No configuration in this section closes that gap.
 
 ## Server-generated wiki pages
 

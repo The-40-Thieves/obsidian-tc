@@ -159,7 +159,9 @@ describe("lint_wiki conventions", () => {
     expect(ps.map((p) => p.subject)).toEqual(["wiki/Zed.md", "wiki/Alpha.md"]);
     const zed = ps[0] as Record<string, any>;
     expect(zed.detail).toMatch(/^2 folder convention\(s\) broken \(1 blocking\): /);
-    expect(zed.suggested_action).toMatch(/are refused until this note is fixed/);
+    expect(zed.suggested_action).toMatch(
+      /Edits that keep these violations still pass; an edit that adds a violation marked block, including a different disallowed value, is refused \(convention_blocked\)\./,
+    );
     expect(zed.evidence.warnings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ property: "status", level: "block" }),
@@ -197,13 +199,13 @@ describe("lint_wiki conventions", () => {
         "  version: 1\n  frontmatter:\n    types:\n      meeting:\n        required: [date]\n        severity:\n          date: block",
       ),
       "wiki/meetings/SCHEMA.md": layer(
-        '  version: 1\n  frontmatter:\n    severity:\n      "*": warn\n    types:\n      meeting:\n        severity:\n          date: null',
+        '  version: 1\n  frontmatter:\n    severity:\n      "*": block\n    types:\n      meeting:\n        severity:\n          date: null',
       ),
       "wiki/meetings/Standup.md": "---\ntype: meeting\n---\nno date\n",
     });
     const d = await lint(hh, { checks: ["conventions"] });
     expect(one(d, "conventions", "wiki/meetings/Standup.md").evidence.warnings).toEqual([
-      expect.objectContaining({ code: "missing_required", property: "date", level: "warn" }),
+      expect.objectContaining({ code: "missing_required", property: "date", level: "block" }),
     ]);
   });
 

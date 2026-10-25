@@ -81,7 +81,7 @@ function noteProposal(
     detail: `${warnings.length} folder convention(s) broken${blocking > 0 ? ` (${blocking} blocking)` : ""}: ${kept.map((w) => w.message).join("; ")}`,
     suggested_action:
       blocking > 0
-        ? `${fixFirst} Edits that add a violation marked block are refused until this note is fixed.`
+        ? `${fixFirst} Edits that keep these violations still pass; an edit that adds a violation marked block, including a different disallowed value, is refused (convention_blocked).`
         : fixFirst,
     tool: fix?.tool ?? "update_frontmatter",
     ...(fix ? { tool_args: fix.tool_args } : {}),

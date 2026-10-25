@@ -10,8 +10,9 @@ as a warning on the write's result.
 
 :::note
 Severity is an integrity aid for a well-behaved vault. It is not a security boundary: any caller who can
-write a `SCHEMA.md` can change or remove its rules. To rely on blocking, deny writes to `SCHEMA.md` with the
-folder ACLs, as described in [Folder ACLs](/security/acls/).
+write a `SCHEMA.md` can change or remove its rules, and no folder ACL stops a caller who writes notes in a folder
+from creating a `SCHEMA.md` there. Blocking stops callers who cannot write a `SCHEMA.md`. The folder convention
+section of `SECURITY.md` in the repository has the ACL details.
 :::
 
 ## Where the rules live
@@ -101,7 +102,8 @@ because the parent's named key is higher in the list. A child's `"*"` never rela
 
 To relax a block, the child names the same key at the same level, or sets it to `null`. In the example above,
 a child that wants meeting notes without a date to pass writes `types: { meeting: { severity: { date: warn } } }`
-or `types: { meeting: { severity: { date: null } } }`. With `null`, the child's own `"*"` then applies.
+or `types: { meeting: { severity: { date: null } } }`. With `null`, the effective `"*"` applies (type-level first,
+then global, from any layer), falling back to `warn`.
 
 ## What blocks
 
@@ -112,22 +114,25 @@ its value; the note's type is not part of the identity. So:
 - **A new note counts in full.** Every blocking violation on it is a violation the write adds.
 - **An existing note the caller cannot read is judged as new.** The verdict depends only on the bytes the
   caller sends, so it never reveals the old content.
-- **An existing note over the read bound is judged as new** for the same reason: its old bytes are not read.
-- **An existing note with broken YAML** counts every required property as missing, so a fix that adds them passes.
+- **An existing note over the read bound (1 MiB) is judged as new** for the same reason: its old bytes are not read.
+  Any edit to it that leaves a block violation is refused, and `lint_wiki` skips such notes.
+- **An existing note with broken YAML** has only the global `required` list as its baseline, because its type cannot
+  be read, so a fix that adds those properties passes.
 - **A rename in place passes**, even when the note already breaks a rule: its baseline is itself.
 
 ### Moves and copies
 
 A move or copy is judged against its destination. The note's violations in its source folder are the baseline:
-a violation that the source note already had under the source folder's rules does not count again.
+a violation that was already a blocking violation under the source folder's rules does not count again; one that was
+only a warning there does.
 
 - A rename within a folder passes.
 - Moving a note into a stricter folder can be refused, if the note breaks a `block` rule there that it did not break
   where it was.
 - A copy or move that overwrites an existing destination uses the source as the baseline, not the note it replaces.
 - A source the caller cannot read is never blocked, so the verdict never reveals its frontmatter.
-- The source's size does not matter: a large source is not read for the baseline, and the verdict judges the bytes
-  being written against the source's rules.
+- A source the caller can read is judged whatever its size: the bytes being written are judged against the source's
+  rules.
 
 ### Bulk tools
 
@@ -140,17 +145,18 @@ a violation that the source note already had under the source folder's rules doe
 
 ### Warn-only writes
 
-Two kinds of write report violations as warnings and never refuse:
+`restore_note`, which restores a snapshot, reports violations as warnings and never refuses, even when the snapshot
+breaks a `block` rule.
 
-- `restore_note`, which restores a snapshot, even when the snapshot breaks a `block` rule.
-- Backlink rewrites of notes the call did not name. `move_note`, `move_attachment` and `bulk_move_notes` rewrite
-  the links in other notes, and those notes are warn-only. The moved note itself is judged.
+Backlink rewrites are neither checked nor reported. `move_note` and `bulk_move_notes` rewrite the links in other
+notes, and those notes are not judged. The moved note itself is judged.
 
 ### Never gated
 
-These never refuse a write: `rewrite_link`, `prune_hub_links`, the delete tools, memory and reflect notes, and
-writes made outside a tool call, such as background sweeps and the command line. A write is checked only when its
-tool declares the `conventions` field in its output. `rewrite_link`, `prune_hub_links` and `delete_note` do not.
+These never refuse a write: `rewrite_link`, `prune_hub_links`, `move_attachment`, the delete tools, memory and reflect
+notes, and writes made outside a tool call, such as background sweeps and the command line. A write is checked only
+when its tool declares the `conventions` field in its output. `rewrite_link`, `prune_hub_links`, `move_attachment`
+and `delete_note` do not.
 
 Writes that are checked include `write_note`, `append_note`, `patch_note`, `move_note`, `copy_note`,
 `update_frontmatter`, `add_tag`, `remove_tag`, `commit_wiki_page` and the periodic-note and template tools.
@@ -171,17 +177,21 @@ A write that only fixes an existing violation is never refused.
 
 The check is advisory when something goes wrong. A write is never refused because the check itself failed.
 
-- **A broken layer** (a `SCHEMA.md` that does not parse, or sets a bad value) contributes no rules. Its problems are
-  still reported as file warnings.
+- **A bad entry** (a severity that is not `warn` or `block`, or a value the parser cannot use) is dropped, and the rest
+  of the layer still applies. Its problems are reported as file warnings: in `get_conventions` and in `lint_wiki`'s
+  `conventions_file` proposals. On a write result they appear only for a `SCHEMA.md` that the call wrote, or for a
+  layer that a judged note broke.
 - **An unreadable layer** is not applied, and its problems are not reported to the caller.
-- **A check that throws** lets the write go ahead. The fault is reported to the server's internal-error handler, and
-  the write's result has no `conventions` field.
+- **A check that throws** lets the write go ahead. The fault is reported to the server's internal-error handler. If
+  the post-write check throws, the write's result has no `conventions` field. If the gate itself faults, the write
+  fails open and the annotate step still runs, so the result can carry a `block` warning for a write that went ahead.
 
 ## Reading the results
 
 A successful write's result can carry `conventions.warnings`. Each warning has a `level` of `warn` or `block`.
-A `block` entry on a write that succeeded means the note already had that violation and the write did not add it,
-so the write was allowed.
+A `block` entry on a write that succeeded means the violation is marked `block` but the write was allowed. That
+happens when the note already had the violation and the write did not add it; when a move's source is a note the
+caller cannot read; for `restore_note`; and when a gate fault failed open.
 
 To find violations across a folder, run `lint_wiki` with `checks: ["conventions"]`. Each note with a violation gets
 a `conventions` proposal. Proposals for notes with a blocking violation come first, and their `detail` says how many
