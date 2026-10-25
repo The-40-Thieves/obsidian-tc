@@ -94,7 +94,7 @@ describe.skipIf(process.platform === "win32")("git-sync batching", () => {
       ...fastBatch,
       tickMs: 25,
       quietMs,
-      capMs: 2_000,
+      capMs: 30_000,
       executor,
     });
     const before = Number(git(fixture.vault, ["rev-list", "--count", "HEAD"]));
@@ -127,6 +127,46 @@ describe.skipIf(process.platform === "win32")("git-sync batching", () => {
     expect(commitObservedAt - lastWriteAt).toBeGreaterThanOrEqual(quietMs);
     expect(git(fixture.vault, ["show", "HEAD:batched.md"])).toBe("three");
     expect(git(fixture.vault, ["status", "--porcelain"])).toBe("");
+  });
+
+  it("measures the quiet window from when a write is observed, not from a tick that began earlier", async () => {
+    const fixture = makeGitFixture();
+    const quietMs = 200;
+    const note = join(fixture.vault, "in-flight.md");
+    let armed = false;
+    let written = false;
+    let lastWriteAt = 0;
+    let commitObservedAt = 0;
+    const executor: GitExecutor = async (file, args, options) => {
+      if (armed && !written && gitSubcommand(args) === "status") {
+        // The write lands while this status is in flight. Its tick started before the write.
+        written = true;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        lastWriteAt = Date.now();
+        writeFileSync(note, "in flight\n");
+      }
+      return execFileAsync(file, args, options);
+    };
+    const sync = await bootGitSync(loadGitSyncConfig(syncEnv(fixture)), {
+      ...fastBatch,
+      tickMs: 25,
+      quietMs,
+      capMs: 30_000,
+      executor,
+    });
+    const before = Number(git(fixture.vault, ["rev-list", "--count", "HEAD"]));
+    await runUntil(sync, async () => {
+      armed = true;
+      await waitFor(() => {
+        const committed =
+          Number(git(fixture.vault, ["rev-list", "--count", "HEAD"])) === before + 1;
+        if (committed) commitObservedAt = Date.now();
+        return committed;
+      }, 5_000);
+    });
+    expect(written).toBe(true);
+    expect(commitObservedAt - lastWriteAt).toBeGreaterThanOrEqual(quietMs);
+    expect(git(fixture.vault, ["show", "HEAD:in-flight.md"])).toBe("in flight");
   });
 
   it("commits at the cap while writes continue", async () => {
