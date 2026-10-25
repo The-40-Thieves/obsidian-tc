@@ -321,7 +321,9 @@ export function buildCaptureTools(deps: M5Deps): ToolDefinition[] {
         })
         .strict(),
       outputSchema: CommitCaptureOutput,
-      requiredScopes: ["write:capture"],
+      // A commit writes the capture's body into a note, so the caller must be able to read the capture
+      // as list_capture_queue does (read:capture, plus the folder read ACL checked in the handler).
+      requiredScopes: ["read:capture", "write:capture"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         // Checked before "already committed": a capture the caller cannot read is not found.
