@@ -14,13 +14,13 @@
 //   OPENAI_API_KEY=$LITELLM_AGENT_KEY bun eval/gen-fanout-variants.ts \
 //     --golden ~/obsidian-tc-eval/multi-hop-golden-set.yaml \
 //     --out    ~/obsidian-tc-eval/fanout-variants.json \
-//     [--base-url http://100.78.123.100:4001/v1] [--model openai/gpt-5.4-nano] [--n 3]
+//     [--base-url http://localhost:4001/v1] [--model openai/gpt-5.4-nano] [--n 3]
 import { readFileSync, writeFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { runWithConcurrency } from "../src/util/concurrency";
 import { GoldenSetSchema } from "./metrics";
 
-const DEFAULT_BASE_URL = "http://100.78.123.100:4001/v1";
+const DEFAULT_BASE_URL = "http://localhost:4001/v1";
 const DEFAULT_MODEL = "openai/gpt-5.4-nano";
 const DEFAULT_VARIANTS = 3;
 // vault_graph_search caps `queries` at 8; generating more would produce a file whose fan-out the

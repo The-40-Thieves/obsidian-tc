@@ -128,6 +128,20 @@ def _parse_docling(source: SourceRef) -> ParseResult:
     return ParseResult(markdown=md, source=source, parser="docling")
 
 
+def _required_env(name: str, target: str) -> str:
+    """Return a required setting from the environment, or fail naming the variable.
+
+    There is no default on purpose: a hardcoded endpoint would publish a private-network address
+    in a public repo. ``target`` says what the variable should point at, for the error message.
+    """
+    import os
+
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise RuntimeError(f"{name} is not set; point it at {target}")
+    return value
+
+
 def _parse_crawl4ai(source: SourceRef) -> ParseResult:
     """Render a web page to Markdown via a crawl4ai server.
 
@@ -144,7 +158,7 @@ def _parse_crawl4ai(source: SourceRef) -> ParseResult:
     import os
     import urllib.request
 
-    base = os.environ.get("CRAWL4AI_URL", "http://100.78.123.100:11235").rstrip("/")
+    base = _required_env("CRAWL4AI_URL", "your crawl4ai server (http:// or https://)").rstrip("/")
     payload = json.dumps(
         {
             "urls": [source.uri],
@@ -188,6 +202,10 @@ def _call_langextract(text: str) -> typing.Any:
     through LangExtract's OpenAI-compatible provider, the same way ``_parse_crawl4ai`` talks to
     a self-hosted service: no vendor SDK for what is one gateway.
     """
+    base_url = _required_env(
+        "LANGEXTRACT_BASE_URL", "your OpenAI-compatible gateway ending in /v1 (http:// or https://)"
+    )
+
     import os
 
     import langextract as lx
@@ -212,7 +230,6 @@ def _call_langextract(text: str) -> typing.Any:
         for ex in _FEW_SHOT_EXAMPLES
     ]
 
-    base_url = os.environ.get("LANGEXTRACT_BASE_URL", "http://100.78.123.100:4001/v1")
     model_id = os.environ.get("LANGEXTRACT_MODEL_ID", "openai/gpt-4o-mini")
     api_key = os.environ.get("LANGEXTRACT_API_KEY") or os.environ.get("LITELLM_AGENT_KEY", "")
 

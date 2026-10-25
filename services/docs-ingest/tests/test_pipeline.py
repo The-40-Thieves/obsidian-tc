@@ -7,8 +7,11 @@ dependency installed, matching how test_router.py/test_writer.py need none of do
 
 from __future__ import annotations
 
+import sys
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from pydantic import ValidationError
@@ -142,6 +145,35 @@ def test_extract_rejects_invalid_severity_instead_of_coercing(
 
     with pytest.raises(ValidationError):
         extract(_parsed(markdown))
+
+
+def test_crawl4ai_url_unset_fails_naming_the_variable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No private-network default: an unset CRAWL4AI_URL fails before any request is sent."""
+    monkeypatch.delenv("CRAWL4AI_URL", raising=False)
+
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise AssertionError("crawl4ai must not be contacted when CRAWL4AI_URL is unset")
+
+    monkeypatch.setattr(urllib.request, "urlopen", refuse)
+
+    with pytest.raises(RuntimeError, match="CRAWL4AI_URL is not set"):
+        pipeline._parse_crawl4ai(SourceRef(uri="https://docs.example.com/x", vendor="acme"))
+
+
+def test_langextract_base_url_unset_fails_naming_the_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No private-network default: an unset LANGEXTRACT_BASE_URL fails before the model call.
+
+    langextract is stubbed in sys.modules so the test runs without the ``extract`` extra; on a
+    build that still defaults the URL, the stubbed call returns instead of raising.
+    """
+    monkeypatch.delenv("LANGEXTRACT_BASE_URL", raising=False)
+    monkeypatch.setitem(sys.modules, "langextract", mock.MagicMock())
+    monkeypatch.setitem(sys.modules, "langextract.factory", mock.MagicMock())
+
+    with pytest.raises(RuntimeError, match="LANGEXTRACT_BASE_URL is not set"):
+        pipeline._call_langextract("some parsed markdown")
 
 
 def test_dry_run_ingest_unchanged(tmp_path: Path) -> None:

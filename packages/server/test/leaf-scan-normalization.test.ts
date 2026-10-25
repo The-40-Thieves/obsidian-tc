@@ -34,7 +34,7 @@ describe("leaf-scan normalization — zero-width splicing", () => {
   it("block mode: a zero-width-spliced openai-shaped secret is caught (ZWSP inside the sk- prefix defeats the raw regex, not the normalized scan)", () => {
     // Raw text does NOT match `\bsk-[A-Za-z0-9_-]{20,}\b` — a ZERO WIDTH SPACE (U+200B) sits
     // between "sk-" and the body, which is not in the pattern's character class.
-    const zwsp = "​";
+    const zwsp = "\u200B";
     const spliced = ["sk-", zwsp, "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
     expectSecretDetected(() => {
       enforceMemoryDefense({ mode: "block", pii: false }, { text: spliced });
@@ -42,7 +42,7 @@ describe("leaf-scan normalization — zero-width splicing", () => {
   });
 
   it("redact mode: the normalized (zero-width-stripped) form is what gets redacted, never left splice-intact", () => {
-    const zwsp = "​";
+    const zwsp = "\u200B";
     const spliced = ["sk-", zwsp, "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
     const out = enforceMemoryDefense({ mode: "redact", pii: false }, { text: spliced });
     expect(out.redactions).toBeGreaterThan(0);
@@ -149,7 +149,7 @@ describe("leaf-scan normalization — a clean leaf is never rewritten", () => {
     // A zero-width character sitting in ordinary prose with no secret anywhere near it — the
     // normalized (stripped) copy is used ONLY to scan; since nothing matches, the ORIGINAL bytes
     // (zero-width char intact) must be what's returned, never the normalized copy.
-    const zwsp = "​";
+    const zwsp = "\u200B";
     const prose = ["Remember to check the", zwsp, "deploy log tomorrow."].join(" ");
     const out = enforceMemoryDefense({ mode: "redact", pii: true }, { text: prose });
     expect(out.redactions).toBe(0);
@@ -160,7 +160,7 @@ describe("leaf-scan normalization — a clean leaf is never rewritten", () => {
     let v: M5Vault | undefined;
     try {
       v = makeM5Vault({ memoryDefense: { mode: "block", pii: true } });
-      const zwsp = "​";
+      const zwsp = "\u200B";
       const clean = ["Deploy went", zwsp, "fine, no issues to report."].join(" ");
       const r = await v.call("create_entity", {
         vault: "test",
@@ -194,7 +194,7 @@ describe("leaf-scan normalization — a clean leaf is never rewritten", () => {
 // punctuation either) but do not correspond to a bug that ever shipped.
 describe("leaf-scan normalization — widened zero-width coverage (security review round HIGH #1)", () => {
   it("block mode: a secret spliced with U+200E (LTR MARK, outside the OLD narrow set) is caught", () => {
-    const ltrMark = "‎";
+    const ltrMark = "\u200E";
     const spliced = ["sk-", ltrMark, "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
     expectSecretDetected(() => {
       enforceMemoryDefense({ mode: "block", pii: false }, { text: spliced });
@@ -202,7 +202,7 @@ describe("leaf-scan normalization — widened zero-width coverage (security revi
   });
 
   it("block mode: a secret spliced with U+2066 (LEFT-TO-RIGHT ISOLATE, outside the OLD narrow set) is caught", () => {
-    const lri = "⁦";
+    const lri = "\u2066";
     const spliced = ["sk-", lri, "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
     expectSecretDetected(() => {
       enforceMemoryDefense({ mode: "block", pii: false }, { text: spliced });
@@ -210,7 +210,7 @@ describe("leaf-scan normalization — widened zero-width coverage (security revi
   });
 
   it("redact mode: the U+200E-spliced form is what gets redacted, never left splice-intact", () => {
-    const ltrMark = "‎";
+    const ltrMark = "\u200E";
     const spliced = ["sk-", ltrMark, "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
     const out = enforceMemoryDefense({ mode: "redact", pii: false }, { text: spliced });
     expect(out.redactions).toBeGreaterThan(0);
@@ -234,7 +234,7 @@ describe("leaf-scan normalization — widened zero-width coverage (security revi
 
   for (const c of punctuationCases) {
     it(`redact mode: a note containing a real secret AND ${c.label} elsewhere keeps that character in the persisted (redacted) text`, () => {
-      const zwsp = "​";
+      const zwsp = "\u200B";
       const spliced = ["sk-", zwsp, "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
       const prose = `Notes ${c.ch} details ${c.ch} more — key ${spliced} rotated ${c.ch} done`;
       const out = enforceMemoryDefense({ mode: "redact", pii: false }, { text: prose });
@@ -248,7 +248,7 @@ describe("leaf-scan normalization — widened zero-width coverage (security revi
   }
 
   it('redact mode: ellipsis elsewhere in a note with a real secret survives as its NFKC form ("..."), never silently deleted', () => {
-    const zwsp = "​";
+    const zwsp = "\u200B";
     const spliced = ["sk-", zwsp, "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
     const prose = `Notes… details… more — key ${spliced} rotated… done`;
     const out = enforceMemoryDefense({ mode: "redact", pii: false }, { text: prose });
