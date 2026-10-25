@@ -340,10 +340,15 @@ A SCHEMA.md `conventions:` block can mark a rule `block` (see [Vault conventions
 A `block` refuses a write that adds the violation. This is an integrity aid against honest mistakes, not a
 security boundary, and it is not a control against a caller with write access.
 
-- **No ACL keeps a caller who can write notes from writing a `SCHEMA.md` there.** A caller who can write `F/**`
+- **Without `conventions.protectSchemaFiles`, no ACL keeps a caller who can write notes from writing a `SCHEMA.md` there.** A caller who can write `F/**`
   can create `F/SCHEMA.md` with `conventions: {inherit: false}` or a relaxing `severity`, and escape every block
   rule for `F`. Globs support only `**`, `*`, `?` and `\`, with no negation. `rules` scopes apply to reads too, so
   a scoped rule hides the layer, and an unread layer is not applied. `immutablePaths` is not configurable.
+- `conventions.protectSchemaFiles: true` is the way to make blocking hold against callers who write notes. It
+  requires the admin scope (`admin:*`, also granted by `*` or `admin`) to create, edit, delete, move or rename any
+  file named `SCHEMA.md`, the root one included, and the check runs on the real path, so a symlink or a `./` or `..`
+  spelling does not get past it. Reads are unchanged. The remaining caveat still applies: a caller whose read ACL
+  hides a layer is not held to it.
 - `writePaths` plus `deletePaths` protect only the operator's own existing layers from edit, delete and move. A
   move's source operation is a delete.
 - A layer the caller cannot read is not applied, and its messages are not reported to that caller. A caller whose

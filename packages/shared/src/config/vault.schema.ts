@@ -223,6 +223,17 @@ export const VaultWikiConfigSchema = z
       });
   });
 
+/** Per-vault folder convention settings (GH #1384). Off by default: a vault that never sets it keeps
+ *  the path ACL as the only check on who may write a SCHEMA.md layer. */
+export const VaultConventionsConfigSchema = z.object({
+  protectSchemaFiles: z
+    .boolean()
+    .default(false)
+    .describe(
+      "When true, creating, editing, deleting, moving or renaming any file named SCHEMA.md in this vault (the root one included) requires the admin scope (`admin:*`). Without it the caller gets acl_denied. Reads are unchanged: the caller still reads the layer, is still held to its rules, and get_conventions still lists it.",
+    ),
+});
+
 /** `publicUrl` is an https base url we append encoded path segments to. Rejects a scheme other than
  *  https, userinfo (`https://host@evil`), and a query or fragment (a path appended after `?x` would
  *  land inside the query, and after `#x` inside the fragment). */
@@ -335,6 +346,9 @@ export const VaultConfigSchema = z.object({
   ),
   wiki: VaultWikiConfigSchema.optional().describe(
     "Per-vault LLM wiki settings (the wiki folder and its SCHEMA.md). Absent means no wiki folder.",
+  ),
+  conventions: VaultConventionsConfigSchema.optional().describe(
+    "Per-vault folder convention settings (the SCHEMA.md layers). Absent means SCHEMA.md files are writable by any caller the path ACL allows.",
   ),
   index: VaultIndexConfigSchema.optional().describe(
     "Per-vault index controls. Absent means only the Excluded files list in the vault's own `.obsidian/app.json` applies.",

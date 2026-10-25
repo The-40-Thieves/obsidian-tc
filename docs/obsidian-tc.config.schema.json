@@ -341,6 +341,17 @@
               "folder"
             ]
           },
+          "conventions": {
+            "description": "Per-vault folder convention settings (the SCHEMA.md layers). Absent means SCHEMA.md files are writable by any caller the path ACL allows.",
+            "type": "object",
+            "properties": {
+              "protectSchemaFiles": {
+                "default": false,
+                "description": "When true, creating, editing, deleting, moving or renaming any file named SCHEMA.md in this vault (the root one included) requires the admin scope (`admin:*`). Without it the caller gets acl_denied. Reads are unchanged: the caller still reads the layer, is still held to its rules, and get_conventions still lists it.",
+                "type": "boolean"
+              }
+            }
+          },
           "index": {
             "description": "Per-vault index controls. Absent means only the Excluded files list in the vault's own `.obsidian/app.json` applies.",
             "type": "object",

@@ -8,7 +8,7 @@ import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
 // tool's declarative pathAcl extractor, runDispatch calls enforcePathAcl before the
 // handler) AND here at the handler level as defense-in-depth. The M0 dispatch
 // read-only kill switch (forbidden) fires first for scope-mutating tools.
-import { type FolderAcl, isDefaultDenied } from "../acl";
+import { CASE_INSENSITIVE_FS, type FolderAcl, isDefaultDenied } from "../acl";
 // GH #994 second security review, M1: `path` here is the caller-controlled (resolved but
 // unscanned) target of the op — memoryDefense has not run yet at this point in dispatch, and for
 // a hard-denied or whitelist-miss path this function is what throws. Sharing the same scanner
@@ -25,7 +25,7 @@ export type PathAclDecision =
   | { allowed: true; deniedBy: null; matchedGlob: string | null }
   | {
       allowed: false;
-      deniedBy: "read_only" | "read_paths" | "write_paths" | "delete_paths";
+      deniedBy: "read_only" | "read_paths" | "write_paths" | "delete_paths" | "schema_file";
       matchedGlob: string | null;
       /** Set when the path is under an immutable folder (a vault's raw sources), so the caller can
        *  say so instead of blaming a whitelist. */
@@ -41,7 +41,50 @@ export function evaluatePathAcl(
   acl: FolderAcl | undefined,
   op: AclOp,
   path: string,
+  // Fail closed: a caller that omits the scopes holds no admin scope.
+  grantedScopes: Iterable<string> = [],
 ): PathAclDecision {
+  const decision = whitelistDecision(acl, op, path);
+  if (decision.allowed && schemaFileRefused(acl, op, path, grantedScopes))
+    return { allowed: false, deniedBy: "schema_file", matchedGlob: decision.matchedGlob };
+  return decision;
+}
+
+/** The admin scope (granted by `*`, `admin:*` and `admin`) that may change a SCHEMA.md layer when the
+ *  vault protects them (conventions.protectSchemaFiles). */
+const ADMIN_SCOPE = "admin:*";
+
+/** The name a SCHEMA.md convention layer is loaded by (tools/m7/knowledge/wiki-schema.ts's
+ *  WIKI_SCHEMA_FILE). Repeated here, not imported: that module imports this one. The test suite pins
+ *  the two equal. */
+export const SCHEMA_LAYER_NAME = "SCHEMA.md";
+
+/** GH #1384: is this path a SCHEMA.md convention layer? The basename is matched the way the layer
+ *  loader's lookup resolves: verbatim, or case-insensitively where the filesystem is. */
+export function isSchemaLayerPath(path: string): boolean {
+  const base = path.slice(path.lastIndexOf("/") + 1).normalize("NFC");
+  return CASE_INSENSITIVE_FS
+    ? base.toLowerCase() === SCHEMA_LAYER_NAME.toLowerCase()
+    : base === SCHEMA_LAYER_NAME;
+}
+
+/** Would this op on a SCHEMA.md layer need the admin scope? Only a write, move or delete of one, in a
+ *  vault that protects them, from a caller without admin. Reads are never refused here. */
+function schemaFileRefused(
+  acl: FolderAcl | undefined,
+  op: AclOp,
+  path: string,
+  grantedScopes: Iterable<string>,
+): boolean {
+  return (
+    op !== "read" &&
+    acl?.protectsSchemaFiles === true &&
+    isSchemaLayerPath(path) &&
+    !grantsAll(grantedScopes, [ADMIN_SCOPE])
+  );
+}
+
+function whitelistDecision(acl: FolderAcl | undefined, op: AclOp, path: string): PathAclDecision {
   if (!acl) return { allowed: true, deniedBy: null, matchedGlob: null };
   // Hard default-deny baseline (THE-268): .obsidian/.git/.trash are unreachable for every op,
   // regardless of the allowlist (except the M3 config files in the exempt set).
@@ -134,6 +177,16 @@ export function enforcePathAcl(
   // through the error envelope. Redact once, reuse for every throw site in this function; `path`
   // itself stays unredacted for the real ACL/audit logic below (recordAclCheck, scopesForPath).
   const redactedPath = redactSecrets(path).text;
+  const schemaDenied = (): never => {
+    throw err.aclDenied(
+      `SCHEMA.md is a protected convention layer; ${op} needs the admin:* scope`,
+      {
+        path: redactedPath,
+        op,
+        reason: "schema_file",
+      },
+    );
+  };
   const immutableDenied = (): never => {
     throw err.aclDenied(`path is in an immutable folder (raw sources); ${op} denied`, {
       path: redactedPath,
@@ -144,9 +197,13 @@ export function enforcePathAcl(
   // An immutable folder is judged on the name as written AND on the real path: a symlink under it
   // that leads out (or one leading in) must not make a raw source writable.
   if (op !== "read" && acl?.immutableGlobFor(normalizeVaultPath(rel)) != null) immutableDenied();
-  const decision = evaluatePathAcl(acl, op, path);
+  // GH #1384: a SCHEMA.md layer is judged on the name as written too, so a link named SCHEMA.md
+  // (deleted or moved as a link) is refused like the layer it stands for; the decision judges the real path.
+  if (schemaFileRefused(acl, op, normalizeVaultPath(rel), grantedScopes)) schemaDenied();
+  const decision = evaluatePathAcl(acl, op, path, grantedScopes);
   if (!decision.allowed) {
     if (decision.immutable) immutableDenied();
+    if (decision.deniedBy === "schema_file") schemaDenied();
     if (decision.deniedBy === "read_only")
       throw err.readOnlyMode(`vault is read-only; ${op} denied`, { path: redactedPath, op });
     throw err.aclDenied(`path is outside the ${op} whitelist`, { path: redactedPath, op });
