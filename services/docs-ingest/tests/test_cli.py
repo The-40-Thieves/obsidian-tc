@@ -1194,3 +1194,52 @@ def test_probe_masks_an_environment_secret_the_server_echoes(
 
     assert code == 0
     assert "sk-env-echoed-secret-4321" not in capsys.readouterr().out
+
+
+def test_a_padded_saved_url_is_probed_stripped(
+    config_path: Path, calls: list[Any], opener: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        'CRAWL4AI_URL=" https://crawl.file.example "\nLANGEXTRACT_BASE_URL=' + GATEWAY + "\n"
+    )
+
+    code = main(
+        ["setup", "--non-interactive"], input_fn=_no_input, getpass_fn=_no_input, opener=opener
+    )
+
+    assert code == 0
+    assert "skipped" not in capsys.readouterr().out
+    assert "https://crawl.file.example/health" in [req.full_url for req in calls]
+    assert config.load()["CRAWL4AI_URL"] == "https://crawl.file.example"
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "CRAWL4AI_URL=https://u:FilePass-SECRET-7@crawl.file.example",
+        'CRAWL4AI_URL="http://[::1"',
+        "CRAWL4AI_URL=crawl4ai",
+    ],
+)
+def test_an_invalid_value_loaded_from_the_file_exits_2_without_echo(
+    config_path: Path,
+    calls: list[Any],
+    opener: Any,
+    capsys: pytest.CaptureFixture[str],
+    line: str,
+) -> None:
+    config_path.parent.mkdir(parents=True)
+    original = f"{line}\nLANGEXTRACT_BASE_URL={GATEWAY}\n"
+    config_path.write_text(original)
+
+    code = main(
+        ["setup", "--non-interactive"], input_fn=_no_input, getpass_fn=_no_input, opener=opener
+    )
+
+    assert code == 2
+    assert calls == []
+    captured = capsys.readouterr()
+    assert "CRAWL4AI_URL" in captured.err
+    assert "FilePass-SECRET-7" not in captured.out + captured.err
+    assert config_path.read_text() == original

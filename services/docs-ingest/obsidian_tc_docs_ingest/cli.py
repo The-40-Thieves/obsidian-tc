@@ -176,7 +176,8 @@ def _setup(
     opener: Callable[..., Any],
 ) -> int:
     try:
-        values = config.load()
+        # Strip like config.get does, so the saved, probed and live values are the same string.
+        values = {key: value.strip() for key, value in config.load().items()}
     except (OSError, UnicodeDecodeError, RuntimeError, ValueError) as exc:
         print(
             f"docs-ingest: cannot read {config.location()} ({type(exc).__name__}); "
@@ -227,6 +228,16 @@ def _setup(
         if missing:
             print(f"docs-ingest: missing required {', '.join(missing)}", file=sys.stderr)
             return 2
+        # Values kept from a hand-edited file were never checked; hold them to the same rules as
+        # a flag (the interactive prompts already re-check each current value).
+        for setting in _SETTINGS:
+            value = values.get(setting.name)
+            error = _problem(setting, value) if value else None
+            if error is not None:
+                print(
+                    f"docs-ingest: {setting.name} in {config.location()} {error}", file=sys.stderr
+                )
+                return 2
     else:
         try:
             for setting in _SETTINGS:
