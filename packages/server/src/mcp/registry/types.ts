@@ -111,8 +111,8 @@ export interface CallerContext {
    *  the same transaction as that write so a rolled-back effect leaves the claim legitimately
    *  re-runnable and the over-report does not happen at all.
    *
-   *  Idempotent, and absent (undefined) when the call carries no idempotency key — always
-   *  invoke as `ctx.markEffectCommitted?.()`. */
+   *  Idempotent. Installed for a call that owns an idempotency claim or spent a confirmation token,
+   *  absent (undefined) otherwise, so always invoke it as `ctx.markEffectCommitted?.()`. */
   markEffectCommitted?: () => void;
   /** Write provenance: a handler that replaces several notes in one call (commit_wiki_page) calls
    *  this just before its first rename with the sha256 each named path is about to hold, so a crash
@@ -368,12 +368,16 @@ export type ConfirmationTargets<I = unknown> =
   | "none"
   | ((input: I, env: ConfirmationEnv) => string | null);
 
-export type VerifyElicit = (
+export type VerifyElicit = ((
   token: string,
   expectedHash: string,
   ctx: CallerContext,
   currentFp?: StateProbe,
-) => boolean;
+) => boolean) & {
+  /** Hands back a token this verifier spent, for a call refused before it could have had any
+   *  effect. Optional: dispatch never releases through a verifier without it (fail closed). */
+  release?: (token: string, ctx: CallerContext) => void;
+};
 export type Status = "ok" | "error" | "skipped";
 
 /** THE-839: what KIND of operation produced an episode, decided by the registry at the dispatch

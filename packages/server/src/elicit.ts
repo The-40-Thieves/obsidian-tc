@@ -246,9 +246,10 @@ export function verifyAndConsumeElicit(
 }
 
 /**
- * Hands back a token this call spent when the call was refused before any effect (GH #1381). Only
- * consumed_at is cleared: expires_at and the args/caller/vault bindings are untouched, so a release
- * never extends the token's lifetime. Callers release only a token their own verify spent.
+ * Hands back a token a call spent when dispatch knows the call was refused before any effect. Only
+ * consumed_at is cleared: expires_at, state_fp and the args/caller/vault bindings are untouched, so
+ * a release never extends the token's lifetime or rebinds it. Reached through elicitVerifier.release,
+ * the same implementation that consumed the token.
  */
 export function releaseElicitToken(db: Database, token: string): void {
   db.prepare(
@@ -273,3 +274,8 @@ export function elicitVerifier(
     currentFp,
   );
 }
+
+/** The release paired with elicitVerifier's consume (VerifyElicit.release). */
+elicitVerifier.release = (token: string, ctx: CallerContext): void => {
+  releaseElicitToken(ctx.db, token);
+};

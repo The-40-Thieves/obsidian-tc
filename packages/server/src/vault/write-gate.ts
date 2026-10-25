@@ -6,10 +6,12 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { contentHash } from "./paths";
 
 /** A caller's verdict on note writes: `check` throws to block the write. `origin` is told where a
- *  note was moved from, for the gate's own bookkeeping. */
+ *  note was moved from, for the gate's own bookkeeping. `wrote` is told after any write at a gated
+ *  chokepoint (a note or not) is let through, so the gate knows whether the call has written yet. */
 export type NoteWriteGate = {
   check(abs: string, text: string): void;
   origin?(destRel: string, srcRel: string): void;
+  wrote?(abs: string): void;
 };
 
 interface Frame {
@@ -72,15 +74,17 @@ function contentKey(abs: string, text: string | Buffer): { key: string; utf8: st
   return { key: `${abs}\0${contentHash(utf8)}`, utf8 };
 }
 
-/** Gate a note write: throws when the frame's gate blocks it. A no-op with no frame or for a path
- *  that does not name a note. A verdict that a preflight recorded for this exact content is consumed
+/** Gate a note write: throws when the frame's gate blocks it. A no-op with no frame; a path that does
+ *  not name a note is not checked, only reported to `wrote` like every write let through. A verdict that a preflight recorded for this exact content is consumed
  *  here, one-shot: that call skips the check, and every later write is checked again. */
 export function gateNoteWrite(abs: string, text: string | Buffer): void {
-  const current = gatingFrame(abs);
-  if (current === undefined) return;
-  const { key, utf8 } = contentKey(abs, text);
-  if (current.passed.delete(key)) return;
-  current.gate.check(abs, utf8);
+  const current = frame.getStore();
+  if (current === undefined || current.closed) return;
+  if (isNotePath(abs)) {
+    const { key, utf8 } = contentKey(abs, text);
+    if (!current.passed.delete(key)) current.gate.check(abs, utf8);
+  }
+  current.gate.wrote?.(abs);
 }
 
 /** The same check, run early by a sequence with side effects before its final write. It records the

@@ -8,7 +8,8 @@
 // `elicit_required` error row carries — without either store referencing the other.
 //
 // Row shape (no migration; the columns are reused, documented here once):
-//   event_type  `hitl_accept` | `hitl_decline` | `hitl_cancel` | `hitl_offered`
+//   event_type  `hitl_accept` | `hitl_decline` | `hitl_cancel` | `hitl_offered` | `hitl_released`
+//               (`released`: an accepted token handed back by a call refused before any effect)
 //   status      `ok` for an accept, `skipped` for everything else (the call did not proceed)
 //   error_code  `<source>:<route>[:<client>]` — a TELEMETRY code for these rows, not an error
 //   args_hash   the call's hash (a digest, never the arguments)
@@ -19,7 +20,7 @@ import { writeEvent } from "./audit";
 import type { Database } from "./db/types";
 import type { CallerContext } from "./mcp/registry/types";
 
-export const HITL_OUTCOMES = ["accept", "decline", "cancel", "offered"] as const;
+export const HITL_OUTCOMES = ["accept", "decline", "cancel", "offered", "released"] as const;
 export type HitlOutcome = (typeof HITL_OUTCOMES)[number];
 
 // legacy-era shim: see LEGACY_SHIMS.md
