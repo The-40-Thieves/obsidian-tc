@@ -13,7 +13,7 @@ import textwrap
 import typing
 from pathlib import Path
 
-from . import config
+from . import config, transport
 from .contracts import DocChunk, ParseResult, SourceRef
 from .router import select_parser
 from .writer import write_chunk
@@ -147,7 +147,7 @@ def _parse_crawl4ai(source: SourceRef) -> ParseResult:
 
     Replaces the previous Firecrawl backend, which was a hosted, metered API: when its credits
     ran out every web ingest failed with HTTP 402 and there was no local fallback. crawl4ai is
-    Apache-2.0 and self-hosted (Cave runs one on the tailnet), so the same Playwright/Chromium
+    Apache-2.0 and self-hosted (a server you run yourself), so the same Playwright/Chromium
     render costs nothing per page and cannot be cut off.
 
     Deliberately spoken to over plain HTTP with urllib rather than through an SDK: this package
@@ -174,9 +174,9 @@ def _parse_crawl4ai(source: SourceRef) -> ParseResult:
     req.add_header("Content-Type", "application/json")
     token = config.get("CRAWL4AI_API_TOKEN")
     if token:
-        req.add_header("Authorization", f"Bearer {token}")
+        req.add_unredirected_header("Authorization", f"Bearer {token}")
 
-    with urllib.request.urlopen(req, timeout=180) as resp:
+    with transport.open_no_redirect(req, timeout=180) as resp:
         body = json.loads(resp.read().decode())
 
     results = body.get("results") or []
@@ -197,7 +197,7 @@ def _call_langextract(text: str) -> typing.Any:
     (prompt/example wiring, DocChunk mapping, char-interval grounding) without the ``extract``
     optional dependency installed.
 
-    Talks to Cave's LiteLLM gateway (the single AI access point for every agent on the box)
+    Talks to an OpenAI-compatible gateway such as LiteLLM (one AI access point for every agent)
     through LangExtract's OpenAI-compatible provider, the same way ``_parse_crawl4ai`` talks to
     a self-hosted service: no vendor SDK for what is one gateway.
     """
@@ -228,7 +228,7 @@ def _call_langextract(text: str) -> typing.Any:
     ]
 
     model_id = config.get("LANGEXTRACT_MODEL_ID") or "openai/gpt-4o-mini"
-    api_key = config.get("LANGEXTRACT_API_KEY") or config.get("LITELLM_AGENT_KEY") or ""
+    api_key = config.get("LANGEXTRACT_API_KEY") or ""
 
     return lx.extract(
         text_or_documents=text,

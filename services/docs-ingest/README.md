@@ -41,10 +41,20 @@ an error naming it and pointing at `docs-ingest setup`. `dry_run=True` needs non
 Setup: `docs-ingest setup` (or `uv run docs-ingest setup`) prompts for each setting, shows the
 current value as the default (secrets masked), validates the URLs, probes both endpoints and
 writes `$XDG_CONFIG_HOME/obsidian-tc/docs-ingest.env` (default `~/.config/obsidian-tc/docs-ingest.env`)
-with mode 0600. Use `DOCS_INGEST_CONFIG` to point at another file. Precedence is environment
-first, then that file. An empty value counts as unset. `--non-interactive` takes the flags
-`--crawl4ai-url`, `--crawl4ai-token`, `--langextract-base-url`, `--langextract-api-key` and
-`--langextract-model-id`; `--no-probe` skips the endpoint checks. Probes never block the save.
+with mode 0600 on POSIX. Use `DOCS_INGEST_CONFIG` to point at another file. The file holds
+`KEY=VALUE` lines; `#` comments go on their own line only (no inline comments, no `export`).
+
+Precedence is the environment first, then that file. For `LANGEXTRACT_API_KEY` the order is:
+environment `LANGEXTRACT_API_KEY`, environment `LITELLM_AGENT_KEY`, file `LANGEXTRACT_API_KEY`,
+file `LITELLM_AGENT_KEY`. An empty value counts as unset. A file that cannot be read or decoded is
+ignored with one warning, and the environment still applies.
+
+`--non-interactive` takes the flags `--crawl4ai-url`, `--crawl4ai-token`, `--langextract-base-url`,
+`--langextract-api-key` and `--langextract-model-id`. The same flags are the prompt defaults in
+interactive mode. A secret flag given as `-` reads one line from stdin. A value on the command line
+is visible in the process list and shell history, so prefer the prompt or `-`. URLs may not carry a
+username or password. `--no-probe` skips the endpoint checks. Probes never block the save, and a
+redirect is reported as a failure rather than followed, so a key is never sent to another host.
 
 | Variable | Used for | Points at |
 |---|---|---|
