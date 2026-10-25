@@ -40,7 +40,7 @@ export interface RefusalPoint {
 /** The release rule. True only on a positive pre-effect fact: a refusal thrown before the handler was
  *  entered, or the write gate's refusal before any write, with no effect signalled. Never inferred
  *  from a missing commit signal: a timeout or a bridge error after the request may follow an effect. */
-export function refusedBeforeEffect(p: RefusalPoint): boolean {
+function refusedBeforeEffect(p: RefusalPoint): boolean {
   if (p.handlerReturned || p.effectCommitted) return false;
   return !p.handlerInvoked || p.refusedBeforeWrite;
 }

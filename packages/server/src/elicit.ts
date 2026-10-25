@@ -251,7 +251,7 @@ export function verifyAndConsumeElicit(
  * a release never extends the token's lifetime or rebinds it. Reached through elicitVerifier.release,
  * the same implementation that consumed the token.
  */
-export function releaseElicitToken(db: Database, token: string): void {
+function releaseElicitToken(db: Database, token: string): void {
   db.prepare(
     "UPDATE elicit_tokens SET consumed_at = NULL WHERE token = ? AND consumed_at IS NOT NULL",
   ).run(token);
