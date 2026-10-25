@@ -114,6 +114,38 @@ describe("conventions checker on a real vault", () => {
     expect(await sink.check(pending, {}, ctx, root, new Set())).toBeUndefined();
   });
 
+  it("a move from a source the caller cannot read gets no verdict, and echoes none of it", async () => {
+    const SECRET_VALUE = "zzTOPSECRETVALUE";
+    const STRICT = `---\nconventions:\n  frontmatter:\n    values: { status: [current] }\n    severity: { status: block }\n---\n# rules\n`;
+    const { root, sink } = vaultOf({
+      "strict/SCHEMA.md": STRICT,
+      "secret/a.md": `---\nstatus: ${SECRET_VALUE}\n---\nbody\n`,
+    });
+    const text = `---\nstatus: ${SECRET_VALUE}\n---\nbody\n`;
+    const dest = join(root, "strict/a.md");
+    const aclFor = (readPaths: string[]) =>
+      buildAcls({ readOnly: false, defaultScopes: [], rules: [], readPaths, writePaths: ["**"] }, [
+        { id: "t", path: root },
+      ]).acl;
+    // The gate for a move into strict/a.md, with the source the caller may or may not read.
+    const gateFor = async (ctx: CallerContext) => {
+      const gate = sink.gate?.(
+        await sink.begin(namesWrites("strict/a.md"), {}, ctx, root),
+        ctx,
+        root,
+      );
+      if (gate?.origin === undefined) throw new Error("the sink has no origin-aware gate");
+      gate.origin("strict/a.md", "secret/a.md");
+      return gate;
+    };
+    // Control: a caller who reads the source is judged, so the move is blocked by the destination's rule.
+    const reader = await gateFor(ctxOf(aclFor(["**"])));
+    expect(() => reader.check(dest, text)).toThrow();
+    // A caller who cannot read the source gets no verdict: nothing is blocked, and no source bytes show.
+    const blind = await gateFor(ctxOf(aclFor(["strict/**"])));
+    expect(() => blind.check(dest, text)).not.toThrow();
+  });
+
   it("a SCHEMA.md write evicts its cached layer", async () => {
     const v = makeTestVault({
       centralAcl: true,

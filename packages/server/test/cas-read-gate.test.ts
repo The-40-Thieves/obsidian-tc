@@ -196,22 +196,22 @@ describe("write-only caller: CAS detail is read-gated", () => {
       { vault: "test", from: "Private/p.md", to: "Public/c.md" },
       { grantedScopes: new Set(["write:notes"]) },
     );
-    expect(errOf(r)?.code).toBe("invalid_input");
-    expect(errOf(r)?.message).toBe(FIXED_REFUSAL);
+    // copy_note lists read:notes in requiredScopes, so the scope gate refuses before the handler.
+    expect(errOf(r)?.code).toBe("forbidden");
     expect(() => v?.read("Public/c.md")).toThrow();
   });
 
-  it("move_note: a non-reader's ack carries a null content_hash", async () => {
+  it("move_note: a non-reader cannot move a note it cannot read (a move carries its bytes)", async () => {
     v = writeOnlyVault();
-    const moved = dataOf(
-      await v.call(
-        "move_note",
-        { vault: "test", from: "Private/p.md", to: "Private/q.md" },
-        SCOPES,
-      ),
+    const r = await v.call(
+      "move_note",
+      { vault: "test", from: "Private/p.md", to: "Private/q.md" },
+      SCOPES,
     );
-    expect(moved.content_hash).toBeNull();
-    expect(v.read("Private/q.md")).toBe(SECRET);
+    expect(errOf(r)?.code === "acl_denied" || errOf(r)?.message === FIXED_REFUSAL).toBe(true);
+    expect(JSON.stringify(r)).not.toContain(sha(SECRET));
+    expect(v.exists("Private/p.md")).toBe(true);
+    expect(v.exists("Private/q.md")).toBe(false);
   });
 });
 

@@ -28,7 +28,7 @@ import {
 import { z } from "zod";
 import { conventionsResultShape } from "../../conventions/schema";
 import {
-  enforceMemoryDefenseOnMovedBytes,
+  enforceMemoryDefenseOnNoteWrite,
   MEMORY_DEFENSE_OFF,
   redactedEcho,
   refusePathIfSecretShaped,
@@ -39,7 +39,12 @@ import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl, ImmutableRewriteSkips } from "../../vault/acl-path";
 import { readableRel } from "../../vault/acl-read-filter";
 import { runBulk } from "../../vault/bulk";
-import { callerMayReadNote, requireContentRead } from "../../vault/cas";
+import {
+  callerMayReadNote,
+  refuseUnreadableBatch,
+  requireContentRead,
+  unreadableSourceOf,
+} from "../../vault/cas";
 import { parseNote, serializeNote } from "../../vault/frontmatter";
 import {
   commitPlanned,
@@ -61,7 +66,13 @@ import { createModeConflictError, overwriteModeMissingError } from "../../vault/
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { immutableSkipShape, schemaSkipShape } from "../scan-warnings";
-import { type MoveRow, markWouldBlock, planMoves, preflightRewrites } from "./bulk-move-plan";
+import {
+  type MoveRow,
+  markWouldBlock,
+  planMoves,
+  preflightRewrites,
+  unreadableOut,
+} from "./bulk-move-plan";
 import type { M6Deps } from "./shared";
 
 // ── schemas ────────────────────────────────────────────────────────────────────
@@ -180,11 +191,8 @@ const BulkSetPropertyOutput = z.object({
   ...conventionsResultShape,
 });
 
-/** bulk_move_notes does not use runBulk — it hand-rolls validation + an all-or-nothing rewrite
- *  pass — and returns one of two shapes (dry_run:true preview / dry_run:false applied) that share
- *  every field except which of backlinks_updated/error is present per row; TypeScript widens
- *  `dry_run` itself to `boolean` across the two return statements, matching the ONE-object encoding
- *  used elsewhere in this ticket rather than a two-arm union. */
+/** bulk_move_notes does not use runBulk: it hand-rolls validation and an all-or-nothing rewrite pass.
+ *  One shape serves the dry_run preview and the applied run (`dry_run` widens to boolean). */
 const BulkMoveResultItem = z.object({
   from: z.string(),
   to: z.string(),
@@ -215,15 +223,6 @@ const BulkMoveOutput = z.object({
   results: z.array(BulkMoveResultItem),
   ...conventionsResultShape,
 });
-
-/** The report of notes the plan could not read: a count and a warning, never a path. */
-function unreadableOut(n: number): { unreadable_skipped?: number; unreadable_warning?: string } {
-  if (n === 0) return {};
-  return {
-    unreadable_skipped: n,
-    unreadable_warning: `${n} note${n === 1 ? "" : "s"} could not be read, so any links they hold to a moved note were not updated`,
-  };
-}
 
 // ── tools ────────────────────────────────────────────────────────────────────
 
@@ -380,6 +379,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
       acceptsIdempotencyKey: true,
       pathAcl: (input) =>
         input.moves.flatMap((m) => [
+          { op: "read" as const, path: m.from },
           { op: "delete" as const, path: m.from },
           { op: "write" as const, path: m.to },
         ]),
@@ -387,7 +387,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
         "Batch-move notes and rewrite backlinks across the whole link graph (rewrite phase is all-or-nothing). dry_run (default true) previews predicted backlink updates without touching disk. Set overwrite to clobber existing destinations (each is soft-deleted to .trash, recoverable). HITL-floored (bulk) and throttled.",
       inputSchema: BulkMoveInput,
       outputSchema: BulkMoveOutput,
-      requiredScopes: ["write:notes", "delete:notes", "bulk:notes"],
+      requiredScopes: ["read:notes", "write:notes", "delete:notes", "bulk:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
@@ -399,12 +399,16 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             ? { from: r.from, to: r.to }
             : { from: redactedEcho(mdConfig, r.from), to: redactedEcho(mdConfig, r.to) };
 
+        let unreadableSource: string | undefined; // a real run refuses the batch on it; a dry run does not
         const rows: MoveRow[] = input.moves.map((m) => {
           try {
             const fromRel = normalizeVaultPath(m.from);
             const toRel = normalizeVaultPath(m.to);
             if (fromRel === toRel)
               throw err.invalidInput("from and to are identical", { path: fromRel });
+            unreadableSource ??= unreadableSourceOf(ctx, v.root, fromRel);
+            enforcePathAcl(ctx.acl, "read", fromRel, v.root, ctx.grantedScopes);
+            requireContentRead(ctx, v.root, fromRel);
             enforcePathAcl(ctx.acl, "delete", fromRel, v.root, ctx.grantedScopes);
             enforcePathAcl(ctx.acl, "write", toRel, v.root, ctx.grantedScopes);
             // same as move_note's own destination-path refusal — a caller-chosen
@@ -429,6 +433,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             return { from: m.from, to: m.to, ok: false, error };
           }
         });
+        refuseUnreadableBatch(ctx, v.root, unreadableSource, input.dry_run);
 
         // In-batch hazards the per-row pass cannot see: a destination claimed by
         // two moves (the 2nd clobbers the 1st, whose source is already hardDeleted
@@ -528,10 +533,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
           if (!r.ok || !r.fromRel || !r.toRel) continue;
           try {
             const { raw } = readNote(resolveVaultPath(v.root, r.fromRel));
-            enforceMemoryDefenseOnMovedBytes(mdConfig, r.toRel, raw, {
-              metrics: deps.metrics,
-              mayRead: callerMayReadNote(ctx, v.root, r.fromRel),
-            });
+            enforceMemoryDefenseOnNoteWrite(mdConfig, r.toRel, raw, { metrics: deps.metrics });
           } catch (e) {
             r.ok = false;
             r.error = (

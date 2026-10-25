@@ -44,7 +44,7 @@ import {
   ImmutableRewriteSkips,
 } from "../../vault/acl-path";
 import { readableEntry } from "../../vault/acl-read-filter";
-import { callerMayReadNote } from "../../vault/cas";
+import { callerMayReadNote, requireContentRead } from "../../vault/cas";
 import { requireConfirmation } from "../../vault/hitl";
 import { commitPlanned, PreImageSnapshots, planFingerprint } from "../../vault/move-plan";
 import {
@@ -99,6 +99,24 @@ const MAX_WRITE_BASE64_CHARS = Math.ceil(50_000_000 / 3) * 4;
 const DEFAULT_MAX_ATTACHMENT_BYTES = 25_000_000;
 /** Extensions that name a format with its own tools, so the refusal can point at them. */
 const OWN_TOOL_EXTS = new Set([".md", ".canvas", ".base"]);
+
+/** Refuses a path that is not a binary attachment. A note, canvas or base has its own tools, and an
+ *  attachment tool must not write or move one: its bytes would land where the note tools' ACL and
+ *  read checks never looked. The name is judged with trailing dots and spaces removed, as Windows
+ *  reads it (`view.js.` is `view.js`), so a trailing dot cannot pass the allowlist for a script. */
+function requireAttachmentPath(rel: string): void {
+  const judged = rel.replace(/[. ]+$/, "");
+  if (OWN_TOOL_EXTS.has(extOf(judged)))
+    throw err.invalidInput(
+      "notes, canvases and bases have their own tools (write_note, create_canvas, create_base, move_note); attachment tools are for binary attachments",
+      { path: rel },
+    );
+  if (!isAttachment(judged))
+    throw err.invalidInput("path is not an attachment (extension not in the allowlist)", {
+      path: rel,
+      extensions: DEFAULT_ATTACHMENT_EXTS,
+    });
+}
 
 const WriteInput = z
   .object({
@@ -355,17 +373,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = resolveAttachmentWritePath(v.root, input.path);
-        const ext = extOf(rel);
-        if (OWN_TOOL_EXTS.has(ext))
-          throw err.invalidInput(
-            "notes, canvases and bases have their own tools (write_note, create_canvas, create_base); write_attachment is for binary attachments",
-            { path: rel },
-          );
-        if (!isAttachment(rel))
-          throw err.invalidInput("path is not an attachment (extension not in the allowlist)", {
-            path: rel,
-            extensions: DEFAULT_ATTACHMENT_EXTS,
-          });
+        requireAttachmentPath(rel);
         // enforcePathAcl covers this too, but only when an ACL is present; a control directory is
         // never an attachment destination, ACL or not. Judged on the REAL (symlink-resolved) path:
         // an in-vault `pics -> .obsidian` symlink must not turn a lexically innocent destination
@@ -443,8 +451,10 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
       vaultArg: "vault",
       acceptsIdempotencyKey: true,
       // Reference rewrites in linking notes are the deliberate cross-ACL carve-out (N-3, THE-303),
-      // enforced handler-side; the ACL-gated paths are the attachment source (delete) + dest (write).
+      // enforced handler-side; the ACL-gated paths are the attachment source (read, delete) + dest (write).
+      // The move carries the attachment's bytes to the destination, so it needs read on the source.
       pathAcl: (input) => [
+        { op: "read", path: input.from },
         { op: "delete", path: input.from },
         { op: "write", path: input.to },
       ],
@@ -452,7 +462,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         "Move/rename an attachment and repoint note links to it (link style preserved). Crossing a folder boundary or overwriting requires confirmation.",
       inputSchema: MoveInput,
       outputSchema: MoveAttachmentOutput,
-      requiredScopes: ["write:attachments", "delete:attachments"],
+      requiredScopes: ["read:attachments", "write:attachments", "delete:attachments"],
       // THE-824: display-only — see ToolDefinition.conditionallyDestructive. The real gate stays
       // the requireConfirmation call below (crossFolder || overwriteExisting); this only stops the
       // wire annotation from advertising destructive: false for a tool that CAN demand confirmation.
@@ -464,7 +474,10 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         if (fromRel === toRel)
           throw err.invalidInput("from and to are identical", { path: fromRel });
         const fromAbs = resolveVaultPath(v.root, fromRel);
+        requireAttachmentPath(fromRel);
         const toAbs = resolveVaultPath(v.root, toRel);
+        enforcePathAcl(ctx.acl, "read", fromRel, v.root, ctx.grantedScopes);
+        requireContentRead(ctx, v.root, fromRel, "read:attachments");
         enforcePathAcl(ctx.acl, "delete", fromRel, v.root, ctx.grantedScopes);
         enforcePathAcl(ctx.acl, "write", toRel, v.root, ctx.grantedScopes);
 
@@ -472,6 +485,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         if (!fromEx.exists || fromEx.type === "folder")
           throw err.noteNotFound("source attachment not found", { path: fromRel });
         const toEx = noteExists(toAbs);
+        requireAttachmentPath(toRel);
         if (toEx.exists && toEx.type === "folder")
           throw err.invalidInput("destination is a folder", { path: toRel });
         if (toEx.exists && !input.overwrite)

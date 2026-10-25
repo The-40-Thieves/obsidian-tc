@@ -6,7 +6,6 @@
 // to move_note; copy_note does not rewrite links (see its description).
 import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import {
-  enforceMemoryDefenseOnMovedBytes,
   enforceMemoryDefenseOnNoteWrite,
   MEMORY_DEFENSE_OFF,
   refusePathIfSecretShaped,
@@ -133,7 +132,10 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
     acceptsIdempotencyKey: true,
     // Backlink rewrites in other notes are a deliberate integrity carve-out (like move_attachment,
     // N-3) and stay handler-enforced; the ACL-gated paths are the source (delete) + dest (write).
+    // A move carries the source's bytes to the destination, so it needs read on the source too (as
+    // copy_note does, through requireContentRead in the handler).
     pathAcl: (input) => [
+      { op: "read", path: input.from },
       { op: "delete", path: input.from },
       { op: "write", path: input.to },
     ],
@@ -141,7 +143,7 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
       "Move/rename a note and update backlinks. Crossing a folder boundary OR overwriting an existing destination requires confirmation; an overwritten destination is soft-deleted to .trash (recoverable).",
     inputSchema: MoveInput,
     outputSchema: MoveNoteOutput,
-    requiredScopes: ["write:notes", "delete:notes"],
+    requiredScopes: ["read:notes", "write:notes", "delete:notes"],
     // THE-824: display-only — see ToolDefinition.conditionallyDestructive. The real gate stays the
     // requireConfirmation call below (crossFolder || overwriteExisting); this only stops the wire
     // annotation from advertising destructive: false for a tool that CAN demand confirmation.
@@ -153,6 +155,8 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
       if (fromRel === toRel) throw err.invalidInput("from and to are identical", { path: fromRel });
       const fromAbs = resolveVaultPath(v.root, fromRel);
       const toAbs = resolveVaultPath(v.root, toRel);
+      enforcePathAcl(ctx.acl, "read", fromRel, v.root, ctx.grantedScopes);
+      requireContentRead(ctx, v.root, fromRel);
       enforcePathAcl(ctx.acl, "delete", fromRel, v.root, ctx.grantedScopes);
       enforcePathAcl(ctx.acl, "write", toRel, v.root, ctx.grantedScopes);
       const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
@@ -191,9 +195,9 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
         // The relocated CONTENT can carry a pre-existing secret that predates memoryDefense (the
         // note may have been written before the vault opted in), so scan the bytes about to land at
         // the new path, same guard write_note/append_note/patch_note get.
-        const scannedRaw = enforceMemoryDefenseOnMovedBytes(mdConfig, toRel, raw, {
+        // The source was read-gated above, so its bytes are always readable here.
+        const scannedRaw = enforceMemoryDefenseOnNoteWrite(mdConfig, toRel, raw, {
           ...(metrics ? { metrics } : {}),
-          mayRead: callerMayReadNote(ctx, v.root, fromRel),
         }).content;
         const backlinks = input.update_backlinks
           ? planBacklinks(
@@ -292,15 +296,14 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
       deps.deindex?.(v.id, fromRel);
       deps.reindex?.(v.id, toRel, plan.scannedRaw);
       for (const r of plan.backlinks.pending) deps.reindex?.(v.id, r.rel, r.text);
-      const mayRead = callerMayReadNote(ctx, v.root, fromRel);
       return {
         vault: v.id,
         from: fromRel,
         to: toRel,
-        moved: true,
+        moved: true as const,
         overwritten: toEx.exists,
         trashed_dest_to: trashedDestTo,
-        content_hash: mayRead ? contentHash(plan.scannedRaw) : null,
+        content_hash: contentHash(plan.scannedRaw),
         backlinks_updated: {
           notes: plan.backlinks.pending.length,
           links: plan.backlinks.pending.reduce((n, r) => n + r.count, 0),
@@ -325,7 +328,7 @@ export function createCopyNoteTool(deps: M1Deps): ToolDefinition {
     description: "Copy a note to a new path (backlinks are not rewritten for copies).",
     inputSchema: CopyInput,
     outputSchema: CopyNoteOutput,
-    requiredScopes: ["write:notes"],
+    requiredScopes: ["read:notes", "write:notes"],
     // THE-824: see move_note above.
     conditionallyDestructive: true,
     handler: (input, ctx) => {

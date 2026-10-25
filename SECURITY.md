@@ -296,18 +296,18 @@ set **`writes.requireCas: true`** to make it **mandatory** on the destructive pa
 `prev_hash` is absent.
 
 The CAS detail is read-gated. A caller that may write a note but not read it gets only content-blind writes:
-create, overwrite (always confirmed, empty or not), `append_note`, `move_note` and `delete_note`. Every other
+create, overwrite (always confirmed, empty or not), `append_note` and `delete_note`. Every other
 write depends on the note's bytes, so it is refused whatever those bytes hold. A caller the read ACL refuses gets `acl_denied`, which depends only on the ACL and leaks nothing; a caller that passes the ACL but lacks the read scope gets one fixed `invalid_input`:
 any `prev_hash` the caller supplies (the refusal comes before the hashes are compared, so under
 `writes.requireCas` such a caller cannot append to or patch an existing note), every `patch_note` operation
 (a frontmatter-preamble append or prepend included), `add_tag`, `remove_tag`, `update_frontmatter`,
 `update_task`, `bulk_set_property` (per note), the table, Kanban, canvas and base tools, `restore_note`,
-`prune_hub_links`, `copy_note` (which also needs `read:notes` on its source), the bookmark and workspace
+`prune_hub_links`, `copy_note` (which also needs `read:notes` on its source), `move_note` and `bulk_move_notes` (a move needs `read:notes` and read ACL on each source, since its bytes land at the destination), `move_attachment` (a move needs `read:attachments` and read ACL on its source), the bookmark and workspace
 writes, `append_to_periodic_note` with a `heading`, and `update_excalidraw`. `rewrite_link` needs `read:notes`,
 and it only scans and names notes the caller may read.
 
 The acks a write-only caller gets carry no `prev_hash` or `quality_warning`, and no whole-note `content_hash`
-(`move_note` and `append_note` return `null` for it). `write_note`'s `content_hash` is the hash of the bytes the
+(`append_note` returns `null` for it; a move needs read on its source, so `move_note` always returns the hash). `write_note`'s `content_hash` is the hash of the bytes the
 caller sent, not of the note it replaced.
 
 Known residuals, accepted for now:
@@ -316,8 +316,6 @@ Known residuals, accepted for now:
   counts.
 - `open_workspace` answers differently for a workspace name that exists and one that does not.
 - Batch-commit drift errors withhold `expected` and `actual` from every caller, readers included.
-- In `block` mode, `move_note` and `bulk_move` refuse a note that holds a secret-shaped string and move one that
-  does not, so a write-only caller learns that one bit. The refusal names no pattern and no field.
 - In `block` mode, an append by a write-only caller is judged on its own bytes only. A secret that the existing
   bytes and the appended text form together across the join is not caught, and in `redact` mode the existing
   bytes are not redacted.
@@ -1004,9 +1002,11 @@ so operators can reason about them rather than discover them.
   planned OUTPUT as well as its pre-image) the
   batch is abandoned, the plan is rebuilt and re-proved ONCE, and a second change refuses with
   `concurrent_modification` and nothing moved. A new unrepresentable backlink fails the re-proof the
-  same way an old one does. In `bulk_move_notes` a row whose source cannot be read, is refused by a
-  `block`-mode scan, whose destination cannot be moved aside, or whose destination appeared after
-  validation fails alone and the rest are planned again without it. Snapshots are dropped after a clean rollback and kept when the rollback was
+  same way an old one does. In `bulk_move_notes` a real run refuses the whole batch when any source cannot
+  be read (a hard-linked source included), before anything moves; a dry run whose source fails the read ACL is refused as a whole call (`acl_denied`), as a real run is;
+  only a source that is unreadable with no folder ACL in play (a hard-linked file) is reported on its own
+  row by a dry run. A row refused by a `block`-mode scan, whose destination cannot be moved aside, or whose destination
+  appeared after validation fails alone and the rest are planned again without it. Snapshots are dropped after a clean rollback and kept when the rollback was
   incomplete (`rollback_incomplete`: restore those notes with `restore_note`).
   A source edited after the final recheck is therefore kept and the batch rolled back (the move is
   re-planned once around the edit, then refused with `concurrent_modification`).

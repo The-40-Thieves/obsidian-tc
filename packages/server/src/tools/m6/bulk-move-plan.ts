@@ -6,7 +6,7 @@ import {
   ObsidianTcError,
   type VaultMemoryDefenseConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
-import { enforceMemoryDefenseOnMovedBytes } from "../../experiential/memory-defense";
+import { enforceMemoryDefenseOnNoteWrite } from "../../experiential/memory-defense";
 import type { MetricsRecorder } from "../../metrics/registry";
 import type { ImmutableRewriteSkips } from "../../vault/acl-path";
 import { buildVaultIndex, resolveTarget, type VaultIndex } from "../../vault/links";
@@ -134,8 +134,8 @@ export function planMoves(args: {
     if (toRel !== undefined) {
       // The relocated note's own bytes were scanned for its row before the plan (metrics counted
       // once there); this scan is of the final text, which only differs by its repointed links.
-      const content = enforceMemoryDefenseOnMovedBytes(defense, toRel, rewritten?.text ?? raw, {
-        mayRead: mayRead(p),
+      const content = enforceMemoryDefenseOnNoteWrite(defense, toRel, rewritten?.text ?? raw, {
+        metrics,
       }).content;
       moved.push({
         fromRel: p,
@@ -188,6 +188,18 @@ export function markWouldBlock(rows: MoveRow[], moved: readonly PlannedMove[]): 
 /** The write gate's verdict on each planned backlink rewrite, run before the commit trashes anything: the
  *  same preflight the batch write makes for that rewrite, so a refusal here is the refusal the batch
  *  would raise. Throws the first refusal. */
+/** The report of notes the plan could not read: a count and a warning, never a path. */
+export function unreadableOut(n: number): {
+  unreadable_skipped?: number;
+  unreadable_warning?: string;
+} {
+  if (n === 0) return {};
+  return {
+    unreadable_skipped: n,
+    unreadable_warning: `${n} note${n === 1 ? "" : "s"} could not be read, so any links they hold to a moved note were not updated`,
+  };
+}
+
 export function preflightRewrites(rewrites: readonly PlannedRewrite[]): void {
   for (const r of rewrites) preflightNoteWrite(r.abs, r.text);
 }
