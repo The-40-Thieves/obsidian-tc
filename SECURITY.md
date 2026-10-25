@@ -334,6 +334,32 @@ POST endpoint, so it is **not** affected by the upstream Obsidian Local REST API
 overwrite" report (coddingtonbear/obsidian-local-rest-api #237, a metadata-cache miss on that POST
 path).
 
+## Folder convention severity
+
+A SCHEMA.md `conventions:` block can mark a rule `block` (see [Vault conventions](docs/src/content/docs/guides/vault-conventions.md)).
+A `block` refuses a write that adds the violation. This is an integrity aid, not a security boundary: any
+caller who can write a `SCHEMA.md` can relax the severity or remove the rules, so blocking stops only callers
+who cannot write the layer.
+
+- A layer the caller cannot read is not applied, and its messages are not reported to that caller, so a
+  caller never learns the rules of a layer its ACL hides.
+- The check fails open on an internal error: the write goes ahead, and the fault is reported through
+  `onInternalError`.
+
+Operators who rely on blocking should deny writes to `SCHEMA.md` through the folder ACL. `writePaths` is an
+allowlist of globs with no negation, so list only the note folders:
+
+```json
+{
+  "acl": {
+    "writePaths": ["02-projects/**", "09-reference/**"]
+  }
+}
+```
+
+This keeps callers out of a root `SCHEMA.md`. A `SCHEMA.md` inside a listed folder stays writable, because a
+glob cannot exclude one file name, so keep schema layers in folders that no ordinary caller's `writePaths` covers.
+
 ## Server-generated wiki pages
 
 A vault with `vaults[].wiki.folder` gets two files the server writes itself, without a confirmation,

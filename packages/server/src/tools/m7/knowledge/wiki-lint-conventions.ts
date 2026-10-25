@@ -72,12 +72,17 @@ function noteProposal(
   // tool_args only when ONE call fixes the whole proposal: a single warning with an unambiguous fix.
   const fix =
     warnings.length === 1 && warnings[0] ? fixOf(vault, path, warnings[0], fm) : undefined;
+  const blocking = warnings.filter((w) => w.level === "block").length;
+  const fixFirst =
+    "Fix the frontmatter to match the folder's conventions (get_conventions lists them), then re-run lint_wiki.";
   return {
     kind: "conventions",
     subject: path,
-    detail: `${warnings.length} folder convention(s) broken: ${kept.map((w) => w.message).join("; ")}`,
+    detail: `${warnings.length} folder convention(s) broken${blocking > 0 ? ` (${blocking} blocking)` : ""}: ${kept.map((w) => w.message).join("; ")}`,
     suggested_action:
-      "Fix the frontmatter to match the folder's conventions (get_conventions lists them), then re-run lint_wiki.",
+      blocking > 0
+        ? `${fixFirst} Edits that add a violation marked block are refused until this note is fixed.`
+        : fixFirst,
     tool: fix?.tool ?? "update_frontmatter",
     ...(fix ? { tool_args: fix.tool_args } : {}),
     evidence: { warnings: kept, ...(warnings_omitted ? { warnings_omitted } : {}) },
@@ -120,6 +125,7 @@ export function* conventionsScanSteps(
   folder?: string,
 ): ScanSteps<ConventionsScan> {
   const notes: ConventionProposal[] = [];
+  const blockingNotes: ConventionProposal[] = [];
   const files = new Map<string, string[]>();
   const byFolder = new Map<string, EffectiveConventions>();
   // The chains of different folders share their ancestor layers, so the largest drop is the figure to
@@ -151,13 +157,16 @@ export function* conventionsScanSteps(
       if (raw === null) continue;
       const fm = parseNoteLenient(raw, rel).frontmatter;
       const warnings = checkNote(eff, rel, fm);
-      if (warnings.length > 0) notes.push(noteProposal(scope.vaultId, rel, warnings, fm));
+      if (warnings.length === 0) continue;
+      const proposal = noteProposal(scope.vaultId, rel, warnings, fm);
+      // A note with a blocking violation is proposed before the warn-only ones: its fix is the one an edit needs.
+      (warnings.some((w) => w.level === "block") ? blockingNotes : notes).push(proposal);
     } catch {
       // A note or layer that cannot be read is absent from the scan, as the other checks treat it.
     }
   }
   return {
-    notes,
+    notes: [...blockingNotes, ...notes],
     files: [...files].map(([path, messages]) =>
       fileProposal(scope.vaultId, path, messages, filesOmitted),
     ),
