@@ -188,6 +188,18 @@ export function markWouldBlock(rows: MoveRow[], moved: readonly PlannedMove[]): 
 /** The write gate's verdict on each planned backlink rewrite, run before the commit trashes anything: the
  *  same preflight the batch write makes for that rewrite, so a refusal here is the refusal the batch
  *  would raise. Throws the first refusal. */
+/** The report of notes the plan could not read: a count and a warning, never a path. */
+export function unreadableOut(n: number): {
+  unreadable_skipped?: number;
+  unreadable_warning?: string;
+} {
+  if (n === 0) return {};
+  return {
+    unreadable_skipped: n,
+    unreadable_warning: `${n} note${n === 1 ? "" : "s"} could not be read, so any links they hold to a moved note were not updated`,
+  };
+}
+
 export function preflightRewrites(rewrites: readonly PlannedRewrite[]): void {
   for (const r of rewrites) preflightNoteWrite(r.abs, r.text);
 }

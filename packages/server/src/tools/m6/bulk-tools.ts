@@ -66,7 +66,13 @@ import { createModeConflictError, overwriteModeMissingError } from "../../vault/
 import { defineTool } from "../m1/define";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { immutableSkipShape, schemaSkipShape } from "../scan-warnings";
-import { type MoveRow, markWouldBlock, planMoves, preflightRewrites } from "./bulk-move-plan";
+import {
+  type MoveRow,
+  markWouldBlock,
+  planMoves,
+  preflightRewrites,
+  unreadableOut,
+} from "./bulk-move-plan";
 import type { M6Deps } from "./shared";
 
 // ── schemas ────────────────────────────────────────────────────────────────────
@@ -185,11 +191,8 @@ const BulkSetPropertyOutput = z.object({
   ...conventionsResultShape,
 });
 
-/** bulk_move_notes does not use runBulk — it hand-rolls validation + an all-or-nothing rewrite
- *  pass — and returns one of two shapes (dry_run:true preview / dry_run:false applied) that share
- *  every field except which of backlinks_updated/error is present per row; TypeScript widens
- *  `dry_run` itself to `boolean` across the two return statements, matching the ONE-object encoding
- *  used elsewhere in this ticket rather than a two-arm union. */
+/** bulk_move_notes does not use runBulk: it hand-rolls validation and an all-or-nothing rewrite pass.
+ *  One shape serves the dry_run preview and the applied run (`dry_run` widens to boolean). */
 const BulkMoveResultItem = z.object({
   from: z.string(),
   to: z.string(),
@@ -220,15 +223,6 @@ const BulkMoveOutput = z.object({
   results: z.array(BulkMoveResultItem),
   ...conventionsResultShape,
 });
-
-/** The report of notes the plan could not read: a count and a warning, never a path. */
-function unreadableOut(n: number): { unreadable_skipped?: number; unreadable_warning?: string } {
-  if (n === 0) return {};
-  return {
-    unreadable_skipped: n,
-    unreadable_warning: `${n} note${n === 1 ? "" : "s"} could not be read, so any links they hold to a moved note were not updated`,
-  };
-}
 
 // ── tools ────────────────────────────────────────────────────────────────────
 
@@ -405,9 +399,7 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             ? { from: r.from, to: r.to }
             : { from: redactedEcho(mdConfig, r.from), to: redactedEcho(mdConfig, r.to) };
 
-        // The first source the caller may not read (set in the row pass below). A real run refuses
-        // the whole batch on it before anything moves; a dry run reports it on its own row only.
-        let unreadableSource: string | undefined;
+        let unreadableSource: string | undefined; // a real run refuses the batch on it; a dry run does not
         const rows: MoveRow[] = input.moves.map((m) => {
           try {
             const fromRel = normalizeVaultPath(m.from);
@@ -441,7 +433,6 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             return { from: m.from, to: m.to, ok: false, error };
           }
         });
-
         refuseUnreadableBatch(ctx, v.root, unreadableSource, input.dry_run);
 
         // In-batch hazards the per-row pass cannot see: a destination claimed by

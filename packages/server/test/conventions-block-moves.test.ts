@@ -167,7 +167,7 @@ describe("move and copy destinations are judged against their source", () => {
         { vault: "test", from: "locked/a.md", to: "meetings/a.md" },
         NO_READ,
       );
-      expect(r.ok).toBe(false);
+      expect(r).toMatchObject({ ok: false, error: { code: "forbidden" } });
       expectNoSecret(r);
       expect(existsSync(join(v.root, "locked/a.md"))).toBe(true);
     });
@@ -212,8 +212,8 @@ describe("move and copy destinations are judged against their source", () => {
       }
     };
     // The source is unreadable to this caller. A move_note caller without read:notes is refused by the
-    // scope gate, and a bulk caller is refused by the read ACL, both before the conventions judge
-    // reads the destination's rule.
+    // read:notes scope gate, and a bulk caller is refused by the read ACL, both before the conventions
+    // judge reads the destination's rule.
     const into = await outcome("oneA/a.md");
     expect(into).toBe("forbidden");
     expect(await outcome("oneB/a.md")).toBe(into);

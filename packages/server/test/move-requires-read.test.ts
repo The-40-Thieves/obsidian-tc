@@ -1,6 +1,8 @@
 // A move relocates the source's bytes to the destination, so it needs read access to the source as
 // copy_note does. Without it, a caller who may delete under a folder it cannot read could move the
 // note into a folder it can read, and read it there (the read ACL and read:notes are bypassed).
+import { linkSync } from "node:fs";
+import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
@@ -70,10 +72,13 @@ const attachmentVault = (files: Record<string, string>, acl: Record<string, unkn
     centralAcl: true,
     registerTools: (registry, vaultRegistry) => registerM3Tools(registry, { vaultRegistry }),
   });
+// conventions: true is the production wiring (runtime/governance.ts), which also supplies the
+// rootResolver the central ACL stage needs. Without it the ACL refusal below never happens.
 const bulkVault = (files: Record<string, string>, acl: Record<string, unknown>): M6Vault =>
   makeM6Vault({
     files,
     acl,
+    conventions: true,
     register: (r, d) => {
       for (const tool of buildBulkTools(d)) r.register(tool);
     },
@@ -139,7 +144,7 @@ describe("bulk_move_notes needs read on every source", () => {
       },
       { grantedScopes: BULK_SCOPES },
     );
-    expect(r.ok).toBe(false);
+    expect(errOf(r)?.code).toBe("acl_denied");
     expect(b.exists("private/a.md")).toBe(true);
     expect(b.exists("open/c.md")).toBe(true);
     expect(b.exists("open/c2.md")).toBe(false);
@@ -165,21 +170,46 @@ describe("bulk_move_notes needs read on every source", () => {
     expect(b.exists("Public/p.md")).toBe(false);
   });
 
-  it("dry_run: an unreadable source is reported on its own row", async () => {
+  it("dry_run: an ACL-unreadable source refuses the whole call, as a real run does", async () => {
     b = bulkVault(
       { "Private/p.md": SECRET, "Public/c.md": "C" },
       { readPaths: ["Public/**"], writePaths: ["**"], deletePaths: ["**"] },
     );
     const r = await bulkMoves(b, BATCH, true, BULK_SCOPES);
-    expect(r.ok, JSON.stringify(r)).toBe(true);
-    const data = (r.ok ? r.data : {}) as {
+    expect(errOf(r)?.code).toBe("acl_denied");
+    expect(b.exists("Private/p.md")).toBe(true);
+    expect(b.exists("Public/p.md")).toBe(false);
+  });
+
+  it("dry_run: a hard-linked source (no ACL) is reported on its own row; a real run refuses the batch", async () => {
+    b = bulkVault({ "a/p.md": SECRET, "a/c.md": "C" }, {});
+    linkSync(join(b.root, "a/p.md"), join(b.root, "a/p-link.md"));
+    const moves = [
+      { from: "a/p.md", to: "b/p.md" },
+      { from: "a/c.md", to: "b/c.md" },
+    ];
+    // No folder ACL in play: the hard-link refusal is then left to the row pass (an ACL caller is
+    // refused by the central stage before that, as a whole call).
+    const noAcl = { grantedScopes: BULK_SCOPES, acl: undefined };
+    const dry = await b.callConfirmed(
+      "bulk_move_notes",
+      { vault: "test", moves, dry_run: true },
+      noAcl,
+    );
+    expect(dry.ok, JSON.stringify(dry)).toBe(true);
+    const rows = (dry.ok ? dry.data : {}) as {
       results: Array<{ ok: boolean; error?: { code: string } }>;
     };
-    expect(data.results[0]?.ok).toBe(false);
-    expect(data.results[0]?.error?.code).toBe("acl_denied");
-    expect(data.results[1]?.ok).toBe(true);
-    expect(b.exists("Private/p.md")).toBe(true);
-    expect(b.exists("Private/p.md")).toBe(true);
+    expect(rows.results[0]?.error?.code).toBe("invalid_input");
+    expect(rows.results[1]?.ok).toBe(true);
+    const real = await b.callConfirmed(
+      "bulk_move_notes",
+      { vault: "test", moves, dry_run: false },
+      noAcl,
+    );
+    expect(real.ok).toBe(false);
+    expect(b.exists("a/c.md")).toBe(true);
+    expect(b.exists("b/c.md")).toBe(false);
   });
 });
 
@@ -205,6 +235,48 @@ describe("move_attachment refuses a note or non-attachment path", () => {
   });
 });
 
+describe("move_attachment refuses a script or drawing as its destination", () => {
+  it.each([
+    ["an existing Dataview view script", "views/v/view.js"],
+    ["an existing Excalidraw drawing", "drawings/d.excalidraw"],
+    ["a trailing-dot name that Windows reads as a script", "views/v/view.js."],
+  ])("refuses to overwrite %s, and leaves every file unchanged", async (_label, to) => {
+    t = attachmentVault(
+      {
+        "pics/evil.png": "PAYLOAD",
+        "views/v/view.js": "dv.paragraph('original');\n",
+        "drawings/d.excalidraw": "{}",
+      },
+      { readPaths: ["**"], writePaths: ["**"], deletePaths: ["**"] },
+    );
+    const r = await moveAttachment(
+      t,
+      { vault: "test", from: "pics/evil.png", to, overwrite: true },
+      ATTACHMENT_SCOPES,
+    );
+    // A trailing-dot name is refused by path normalisation (path_invalid) before the attachment check.
+    expect(["invalid_input", "path_invalid"]).toContain(errOf(r)?.code);
+    expect(t.read("pics/evil.png")).toBe("PAYLOAD");
+    expect(t.read("views/v/view.js")).toBe("dv.paragraph('original');\n");
+    expect(t.read("drawings/d.excalidraw")).toBe("{}");
+  });
+
+  it("moves a grandfathered trailing-dot attachment to a safe name", async () => {
+    t = attachmentVault(
+      { "pics/img.png.": "PNG" },
+      { readPaths: ["**"], writePaths: ["**"], deletePaths: ["**"] },
+    );
+    const r = await moveAttachment(
+      t,
+      { vault: "test", from: "pics/img.png.", to: "pics/img.png" },
+      ATTACHMENT_SCOPES,
+    );
+    expect(r.ok, JSON.stringify(r)).toBe(true);
+    expect(t.read("pics/img.png")).toBe("PNG");
+    expect(t.exists("pics/img.png.")).toBe(false);
+  });
+});
+
 describe("move_attachment needs read on its source", () => {
   it("ACL: an attachment the caller may not read is refused and moved nowhere", async () => {
     t = attachmentVault(
@@ -216,7 +288,7 @@ describe("move_attachment needs read on its source", () => {
       { vault: "test", from: "private/s.png", to: "open/s.png" },
       ATTACHMENT_SCOPES,
     );
-    expect(r.ok).toBe(false);
+    expect(errOf(r)?.code).toBe("acl_denied");
     expectStays(t, "private/s.png", "open/s.png");
   });
 
@@ -230,7 +302,7 @@ describe("move_attachment needs read on its source", () => {
       { vault: "test", from: "private/s.png", to: "open/s.png" },
       new Set(["write:attachments", "delete:attachments"]),
     );
-    expect(r.ok).toBe(false);
+    expect(errOf(r)?.code).toBe("forbidden");
     expectStays(t, "private/s.png", "open/s.png");
   });
 
