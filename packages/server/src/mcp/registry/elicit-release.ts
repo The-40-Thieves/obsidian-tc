@@ -8,9 +8,11 @@ import { recordHitlOutcome } from "../../hitl-telemetry";
 import { report } from "./conventions-scope";
 import type { CallerContext, RegistryOptions, VerifyElicit } from "./types";
 
-/** A confirmation token this dispatch spent, with the release that undoes the spend. */
+/** A confirmation token this dispatch spent, with the release that undoes the spend. `argsHash` is the
+ *  hash the token was verified against: the key its hitl_accept row carries, so a release pairs with it. */
 interface Spend {
   readonly token: string;
+  readonly argsHash: string;
   readonly release: VerifyElicit["release"];
 }
 
@@ -28,7 +30,7 @@ export function trackElicitSpend(verify: VerifyElicit | undefined): ElicitSpend 
     Object.assign(
       (token: string, expectedHash: string, ctx: CallerContext, currentFp?: StateProbe) => {
         const ok = verify(token, expectedHash, ctx, currentFp);
-        if (ok) spent = { token, release: verify.release };
+        if (ok) spent = { token, argsHash: expectedHash, release: verify.release };
         return ok;
       },
       { release: verify.release },
@@ -39,8 +41,8 @@ export function trackElicitSpend(verify: VerifyElicit | undefined): ElicitSpend 
     // that verifier's release, whichever verifyElicit this registry was given. At most one token is spent per
     // call: a call carries one token and the built-in consume is single-use, so a second spend cannot succeed.
     scope: (run) =>
-      withSpendSlot((token) => {
-        spent = { token, release: elicitVerifier.release };
+      withSpendSlot((token, argsHash) => {
+        spent = { token, argsHash, release: elicitVerifier.release };
       }, run),
     spent: () => spent,
   };
@@ -73,7 +75,6 @@ export function releaseSpentElicit(
   point: RefusalPoint,
   onError: RegistryOptions["onInternalError"],
   tool: string,
-  argsHash: string,
 ): void {
   const spent = spend.spent();
   if (spent === undefined || spent.release === undefined || !refusedBeforeEffect(point)) return;
@@ -83,5 +84,5 @@ export function releaseSpentElicit(
     report(onError, `elicit_release:${tool}`, ctx.vaultId, err);
     return;
   }
-  recordHitlOutcome(ctx, { tool, argsHash, outcome: "released", source: "token" });
+  recordHitlOutcome(ctx, { tool, argsHash: spent.argsHash, outcome: "released", source: "token" });
 }

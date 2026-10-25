@@ -59,7 +59,7 @@ const guarded = (by: string): Disposition => ({ how: "guarded", by });
 const dropped = (why: string): Disposition => ({ how: "dropped", why });
 
 const HITL_NEVER_REACHED =
-  "read only inside the HITL gate; registration refuses a taskAugmentable HITL tool, and a worker call that met the gate anyway is refused elicit_required (fails closed), both pinned by test";
+  "read only by dispatch's HITL gate and its effect-marker install; registration refuses a taskAugmentable HITL tool, and a worker call that met the gate anyway is refused elicit_required (fails closed), both pinned by test";
 const HITL =
   "HITL-gated tools cannot be taskAugmentable (registration refuses them), so no confirmation round exists to carry";
 const BY_DISPATCH = "set by dispatch itself during the worker's own call";
