@@ -11,13 +11,8 @@ import { z } from "zod";
 import { type AclConfigT, FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import { elicitVerifier, issueElicitToken } from "../src/elicit";
-import {
-  type CallerContext,
-  type ConventionsSink,
-  type ToolDefinition,
-  ToolRegistry,
-  type VerifyElicit,
-} from "../src/mcp/registry";
+import { type CallerContext, type ToolDefinition, ToolRegistry } from "../src/mcp/registry";
+import type { ConventionsSink, VerifyElicit } from "../src/mcp/registry/types";
 import { registerM6Tools } from "../src/tools/m6";
 import { gateNoteWrite } from "../src/vault/write-gate";
 import { STATUS_RULES } from "./conventions-helpers";
@@ -209,6 +204,15 @@ const gated =
     return { ok: true };
   };
 
+/** Mints a token for `{ mode: "a" }` and redeems it once; the call must be refused by convention_blocked. */
+async function refuseOnce(behave: Parameters<typeof build>[0], o: BuildOpts = {}) {
+  const b = build(behave, o);
+  const input = { mode: "a" };
+  const token = await b.mint(input);
+  expect(code(await b.call(input, token))).toBe("convention_blocked");
+  return { b, input, token };
+}
+
 describe("the release rule: only a positive pre-effect fact hands the confirmation back", () => {
   it("a write-gate refusal before any write releases it: the same token and the same arguments succeed", async () => {
     const s = { refuse: true, applied: 0 };
@@ -274,54 +278,50 @@ describe("the release rule: only a positive pre-effect fact hands the confirmati
     expect(code(await b.call(input, token, { now: () => expiresAt + 1 }))).toBe("elicit_required");
   });
 
-  it("a convention_blocked the handler throws itself (not the write gate's) keeps the token spent", async () => {
-    const b = build(() => {
-      throw new ObsidianTcError("convention_blocked", "not raised by the write gate");
-    });
-    const input = { mode: "a" };
-    const token = await b.mint(input);
-    expect(code(await b.call(input, token))).toBe("convention_blocked");
+  type Behave = Parameters<typeof build>[0];
+  const SPENT_REFUSALS: Array<[string, Behave]> = [
+    [
+      "a convention_blocked the handler throws itself (not the write gate's)",
+      () => {
+        throw new ObsidianTcError("convention_blocked", "not raised by the write gate");
+      },
+    ],
+    [
+      "a write-gate refusal after an earlier write was let through",
+      (_c, _i, g) => {
+        g.write("fine", "notes/one.md");
+        g.write("BLOCK", "notes/two.md");
+      },
+    ],
+    [
+      "a write-gate refusal after the handler signalled an effect",
+      (ctx, _i, g) => {
+        ctx.markEffectCommitted?.();
+        g.write("BLOCK");
+      },
+    ],
+    [
+      "a write-gate refusal after a non-note write",
+      (_c, _i, g) => {
+        g.write("{}", "boards/plan.canvas");
+        g.write("BLOCK");
+      },
+    ],
+    [
+      "a write-gate refusal the handler replaces with its own error",
+      (_c, _i, g) => {
+        try {
+          g.write("BLOCK");
+        } catch {
+          throw new ObsidianTcError("convention_blocked", "rethrown as a different error");
+        }
+      },
+    ],
+  ];
+  it.each(SPENT_REFUSALS)("%s keeps the token spent", async (_name, behave) => {
+    const { b, input, token } = await refuseOnce(behave);
     expect(b.row(token).consumed_at).not.toBeNull();
     expect(code(await b.call(input, token))).toBe("elicit_required");
-  });
-
-  it("a write-gate refusal after an earlier write was let through keeps the token spent", async () => {
-    const b = build((_c, _i, g) => {
-      g.write("fine", "notes/one.md");
-      g.write("BLOCK", "notes/two.md");
-      return { ok: true };
-    });
-    const input = { mode: "a" };
-    const token = await b.mint(input);
-    expect(code(await b.call(input, token))).toBe("convention_blocked");
-    expect(b.row(token).consumed_at).not.toBeNull();
-  });
-
-  it("a write-gate refusal after a non-note write keeps the token spent", async () => {
-    const b = build((_c, _i, g) => {
-      g.write("{}", "boards/plan.canvas");
-      g.write("BLOCK");
-      return { ok: true };
-    });
-    const input = { mode: "a" };
-    const token = await b.mint(input);
-    expect(code(await b.call(input, token))).toBe("convention_blocked");
-    expect(b.row(token).consumed_at).not.toBeNull();
-  });
-
-  it("a write-gate refusal the handler replaces with its own error keeps the token spent", async () => {
-    const b = build((_c, _i, g) => {
-      try {
-        g.write("BLOCK");
-      } catch {
-        throw new ObsidianTcError("convention_blocked", "rethrown as a different error");
-      }
-      return { ok: true };
-    });
-    const input = { mode: "a" };
-    const token = await b.mint(input);
-    expect(code(await b.call(input, token))).toBe("convention_blocked");
-    expect(b.row(token).consumed_at).not.toBeNull();
   });
 
   it("an output-schema fault after the handler returned keeps the token spent", async () => {
@@ -451,11 +451,7 @@ describe("the release rule: only a positive pre-effect fact hands the confirmati
 
   it("a custom verifier without release never hands a token back", async () => {
     const custom: VerifyElicit = (token, hash, ctx, fp) => elicitVerifier(token, hash, ctx, fp);
-    const s = { refuse: true, applied: 0 };
-    const b = build(gated(s), { verify: custom });
-    const input = { mode: "a" };
-    const token = await b.mint(input);
-    expect(code(await b.call(input, token))).toBe("convention_blocked");
+    const { b, token } = await refuseOnce(gated({ refuse: true, applied: 0 }), { verify: custom });
     expect(b.row(token).consumed_at).not.toBeNull();
     expect(b.released()).toBe(0);
   });

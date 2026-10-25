@@ -93,13 +93,12 @@ describe.each(CASES)("$tool malformed post-effect acknowledgement", (testCase) =
       ? await v.callConfirmed(testCase.tool, input, context)
       : await v.call(testCase.tool, input, context);
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe("plugin_incompatible");
-      expect(result.error.retryable).toBe(false);
-      expect(result.error.message).toMatch(/action may already have taken effect/i);
-      expect(result.error.details).toMatchObject({ effect_committed: true });
-    }
+    expect(result.ok ? undefined : result.error).toMatchObject({
+      code: "plugin_incompatible",
+      retryable: false,
+      message: expect.stringMatching(/action may already have taken effect/i),
+      details: { effect_committed: true },
+    });
     if (testCase.confirmed) {
       const unspent = v.db
         .prepare("SELECT COUNT(*) AS n FROM elicit_tokens WHERE consumed_at IS NULL")
