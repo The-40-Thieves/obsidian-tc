@@ -336,7 +336,8 @@ function hasBlockRule(eff: ReturnType<typeof resolveConventions>): boolean {
 }
 
 /** The note's frontmatter before the write, as the caller may see it: undefined when there is no such
- *  note or the caller may not read it (judged as new, so nothing of it leaks); null when its YAML is broken. */
+ *  note, the caller may not read it, or it is over NOTE_MAX_BYTES (a note judged as new, so nothing of
+ *  it leaks; a move's source gets no verdict instead); null when its YAML is broken. */
 function beforeFrontmatter(
   ctx: CallerContext,
   root: string,
@@ -369,15 +370,22 @@ function judgeWrite(
   if (!judges(eff, rel) || !hasBlockRule(eff)) return;
   const fm = parseNoteLenient(text, rel).frontmatter;
   st.parsed.set(rel, { hash: contentHash(text), fm });
-  // A move or copy is judged against its source: the source's violations under the source's rules are the baseline.
   const src = st.origins.get(rel);
-  const delta =
-    src === undefined
-      ? blockingDelta(eff, rel, beforeFrontmatter(ctx, root, rel), fm)
-      : blockingDelta(eff, rel, beforeFrontmatter(ctx, root, src), fm, {
-          eff: effOf(st, registry, ctx, root, src),
-          path: src,
-        });
+  let delta: ReturnType<typeof blockingDelta>;
+  if (src === undefined) {
+    delta = blockingDelta(eff, rel, beforeFrontmatter(ctx, root, rel), fm);
+  } else {
+    // A move or copy writes the source's own bytes; the text differs only by the links the tool repointed
+    // to moved notes, which is the tool's work and not the caller's. So the verdict is on the source bytes:
+    // its violations under the source's rules are the baseline, and under the destination's rules the write.
+    // A source the caller cannot read, or that is over the read bound, gets no verdict: nothing of it shows.
+    const srcFm = beforeFrontmatter(ctx, root, src);
+    if (srcFm === undefined) return;
+    delta = blockingDelta(eff, rel, srcFm, srcFm, {
+      eff: effOf(st, registry, ctx, root, src),
+      path: src,
+    });
+  }
   if (delta.length === 0) return;
   throw err.conventionBlocked(
     `this write would add ${delta.length} folder convention violation(s) marked block; nothing was written`,

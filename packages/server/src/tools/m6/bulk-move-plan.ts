@@ -11,7 +11,6 @@ import type { MetricsRecorder } from "../../metrics/registry";
 import type { ImmutableRewriteSkips } from "../../vault/acl-path";
 import { buildVaultIndex, resolveTarget, type VaultIndex } from "../../vault/links";
 import { type PlannedRewrite, plannedRewrite, RewriteScan } from "../../vault/move-plan";
-import { readNote } from "../../vault/notes-io";
 import { resolveVaultPath } from "../../vault/paths";
 import { noteWriteOrigin, preflightNoteWrite } from "../../vault/write-gate";
 
@@ -68,31 +67,6 @@ export interface MovesPlan {
 // The REPORT is not part of that carve-out: `perMove`/`total` count only links in notes the caller
 // may read (`visible`), and `hidden` says a note the caller cannot see also held links — a flag, never
 // a number or a path, so the difference cannot be used to probe a hidden note's links.
-/** dry_run's write-gate verdict per row, with nothing written: each row the gate would refuse gets
- *  `would_block`, the convention_blocked error the real run raises on it. The real run judges the same
- *  rows against the same source baselines and refuses the batch whole. */
-export function markWouldBlock(
-  root: string,
-  rows: {
-    ok: boolean;
-    fromRel?: string;
-    toRel?: string;
-    would_block?: ReturnType<ObsidianTcError["toJSON"]>;
-  }[],
-): void {
-  for (const r of rows) {
-    if (!r.ok || !r.fromRel || !r.toRel) continue;
-    try {
-      const { raw } = readNote(resolveVaultPath(root, r.fromRel));
-      noteWriteOrigin(r.toRel, r.fromRel);
-      preflightNoteWrite(resolveVaultPath(root, r.toRel), raw);
-    } catch (e) {
-      if (e instanceof ObsidianTcError && e.code === "convention_blocked")
-        r.would_block = e.toJSON();
-    }
-  }
-}
-
 export function planMoves(args: {
   root: string;
   moveMap: Map<string, string>;
@@ -177,4 +151,35 @@ export function planMoves(args: {
   }
   scan.refuseIfFailed();
   return { perMove, total, hidden, unreadable: scan.unreadableSkipped, moved, rewrites };
+}
+
+/** One bulk_move_notes row as the handler carries it: the caller's from/to, the resolved paths, and the
+ *  outcome (`would_block` is set by dry_run, see markWouldBlock). */
+export interface MoveRow {
+  from: string;
+  to: string;
+  fromRel?: string;
+  toRel?: string;
+  destExists?: boolean;
+  ok: boolean;
+  error?: ReturnType<ObsidianTcError["toJSON"]>;
+  would_block?: ReturnType<ObsidianTcError["toJSON"]>;
+}
+
+/** dry_run's write-gate verdict per row, with nothing written: each planned move the gate would refuse
+ *  gets `would_block`, the convention_blocked error the real run raises on it. It preflights the plan's
+ *  own `content`, the bytes the real run commits, so the two agree row for row. */
+export function markWouldBlock(rows: MoveRow[], moved: readonly PlannedMove[]): void {
+  const byFrom = new Map(moved.map((m) => [m.fromRel, m]));
+  for (const r of rows) {
+    const m = r.fromRel === undefined ? undefined : byFrom.get(r.fromRel);
+    if (!r.ok || m === undefined) continue;
+    try {
+      noteWriteOrigin(m.toRel, m.fromRel);
+      preflightNoteWrite(m.toAbs, m.content);
+    } catch (e) {
+      if (e instanceof ObsidianTcError && e.code === "convention_blocked")
+        r.would_block = e.toJSON();
+    }
+  }
 }
