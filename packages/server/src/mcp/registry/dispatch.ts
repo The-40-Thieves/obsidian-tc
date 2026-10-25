@@ -16,6 +16,8 @@ import {
   type DispatchObservability,
   telemetryDetail,
 } from "./dispatch-observability";
+import { installEffectMarker } from "./effect-marker";
+import { releaseSpentElicit, trackElicitSpend } from "./elicit-release";
 import {
   claimOrReplay,
   deleteIdempotency,
@@ -130,7 +132,8 @@ export async function runDispatch(
   let effectCommitted = false;
   // THE-573 #1: the ctx we installed markEffectCommitted on, so the finally only ever clears a
   // callback THIS dispatch installed.
-  let installedMarker: { markEffectCommitted?: () => void } | undefined;
+  let restoreMarker: (() => void) | undefined;
+  const spent = trackElicitSpend(deps.verifyElicit);
   const provenance = provenanceScope(deps.provenance, deps.rootResolver); // see provenance-scope.ts
   const conventions = conventionsScope(
     deps.conventions,
@@ -388,7 +391,7 @@ export async function runDispatch(
     const stateProbe = confirmationStateProbe(def, inputData, ctx, deps.rootResolver);
     if (needsHitl) {
       spans?.stage("hitl_check");
-      const ok = checkHitl(ctx, hash, name, deps.verifyElicit, stateProbe);
+      const ok = checkHitl(ctx, hash, name, spent.verify, stateProbe);
       if (!ok) {
         deps.observability.meter((m) => m.incHitlElicited(ctx.vaultId, name));
         if (idemClaimed && idemKey) {
@@ -431,29 +434,12 @@ export async function runDispatch(
     // when this dispatch owns a claim — a keyless call leaves ctx.markEffectCommitted undefined.
     // Idempotent: signalling twice, or signalling then returning normally, is harmless. See
     // design note for the #13 marker-point reasoning.
-    if (idemClaimed && idemKey) {
+    if ((idemClaimed && idemKey) || spent.token() !== undefined) {
       const claimedKey = idemKey;
-      // The caller's OWN object carries the marker (it is what an overlapping dispatch would see);
-      // `ctx` may be a per-call copy (withEffectiveVault), which the handler reads it from.
-      const slot = callerCtx as { markEffectCommitted?: () => void };
-      // THE-573 #1: mutating ctx to install this means two CONCURRENT dispatches sharing one
-      // CallerContext would silently overwrite each other's callback and let a retry double-apply
-      // a committed effect. Unreachable through the server today (each context factory builds a
-      // fresh object per call), so this is refused LOUDLY as library-API misuse rather than made
-      // safe. Keyed on a LIVE overlapping dispatch — removed in the finally below, so SEQUENTIAL
-      // reuse of one context is unaffected.
-      if (slot.markEffectCommitted !== undefined) {
-        throw new ObsidianTcError(
-          "internal",
-          "CallerContext is already in use by an in-flight dispatch; a context must not be shared across concurrent dispatches",
-        );
-      }
-      slot.markEffectCommitted = () => {
-        markEffectCommitted(ctx.db, idemAt(), claimedKey, now());
+      restoreMarker = installEffectMarker(callerCtx, ctx, claimedKey, () => {
+        if (claimedKey) markEffectCommitted(ctx.db, idemAt(), claimedKey, now());
         effectCommitted = true;
-      };
-      if (ctx !== callerCtx) (ctx as typeof slot).markEffectCommitted = slot.markEffectCommitted;
-      installedMarker = slot;
+      });
     }
 
     let handlerMs = 0;
@@ -641,6 +627,7 @@ export async function runDispatch(
     // joins it. inTransaction/inSavepoint attach it to the thrown error rather than replacing the
     // caller-facing error; reported here separately so it reaches an OPERATOR (who would otherwise
     // only see err.message). Reported for typed errors too — the transaction is abandoned either way.
+    releaseSpentElicit(spent, ctx, handlerReturned || effectCommitted, deps.onInternalError, name);
     const rollbackErr = (e as { rollbackError?: unknown } | null)?.rollbackError;
     if (rollbackErr !== undefined) {
       try {
@@ -691,7 +678,7 @@ export async function runDispatch(
     // THE-573 #1: remove the callback this dispatch installed. Without this, the "already in
     // use" guard above would fire on the SECOND sequential use of one context — turning a
     // legitimate pattern into an error while still not making concurrent sharing safe.
-    if (installedMarker !== undefined) installedMarker.markEffectCommitted = undefined;
+    restoreMarker?.();
     spans?.close();
   }
 }

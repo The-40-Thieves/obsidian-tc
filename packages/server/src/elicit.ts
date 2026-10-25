@@ -245,6 +245,17 @@ export function verifyAndConsumeElicit(
   return true;
 }
 
+/**
+ * Hands back a token this call spent when the call was refused before any effect (GH #1381). Only
+ * consumed_at is cleared: expires_at and the args/caller/vault bindings are untouched, so a release
+ * never extends the token's lifetime. Callers release only a token their own verify spent.
+ */
+export function releaseElicitToken(db: Database, token: string): void {
+  db.prepare(
+    "UPDATE elicit_tokens SET consumed_at = NULL WHERE token = ? AND consumed_at IS NOT NULL",
+  ).run(token);
+}
+
 /** Adapter matching the registry's VerifyElicit hook; reads db/vault/now from ctx. */
 export function elicitVerifier(
   token: string,
