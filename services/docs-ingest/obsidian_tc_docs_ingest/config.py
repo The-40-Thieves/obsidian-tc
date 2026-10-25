@@ -90,7 +90,8 @@ def save(values: Mapping[str, str], remove: Iterable[str] = ()) -> Path:
         updates[key] = f"{key}={_quote(value)}"
     dropped = set(remove)
 
-    target = path()
+    # A symlink is resolved first, so the swap replaces the real file and the link stays in place.
+    target = Path(os.path.realpath(path()))
     kept: list[str] = []
     written: set[str] = set()
     for raw in _read_lines(target):
@@ -118,19 +119,37 @@ def save(values: Mapping[str, str], remove: Iterable[str] = ()) -> Path:
         with contextlib.suppress(OSError):
             os.unlink(temp)
         raise
+    _sync_directory(target.parent)
     return target
 
 
 def _read_lines(target: Path) -> list[str]:
-    """The setup file's lines as written, without their line ends; none if the file is missing."""
+    """The setup file's lines as written, without their line feeds (a carriage return stays with its
+    line, so a kept line is copied exactly); none if the file is missing."""
     try:
         text = target.read_bytes().decode("utf-8")
     except FileNotFoundError:
         return []
-    lines = [raw.removesuffix("\r") for raw in text.split("\n")]
+    lines = text.split("\n")
     if lines[-1] == "":
         lines.pop()
     return lines
+
+
+def _sync_directory(directory: Path) -> None:
+    """Flush the swap's directory entry to disk. Skipped where a directory cannot be opened."""
+    flag = getattr(os, "O_DIRECTORY", None)
+    if flag is None:
+        return
+    try:
+        fd = os.open(directory, os.O_RDONLY | flag)
+    except OSError:
+        return
+    try:
+        with contextlib.suppress(OSError):
+            os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def _key(line: str) -> str | None:

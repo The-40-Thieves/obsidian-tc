@@ -548,7 +548,7 @@ def test_flag_values_become_the_interactive_defaults(config_path: Path, opener: 
 
     def record(prompt: str) -> str:
         prompts.append(prompt)
-        if len(prompts) > 10:  # a required prompt re-asks forever on an empty answer
+        if len(prompts) > 10:  # a guard: a prompt that keeps asking ends the run, not a hang
             raise EOFError
         return ""
 
@@ -1489,3 +1489,290 @@ def test_resave_keeps_comments_and_unknown_keys_in_their_places(
         f"CRAWL4AI_URL={CRAWL4AI}",
         f"LANGEXTRACT_BASE_URL={GATEWAY}",
     ]
+
+
+@pytest.mark.parametrize(
+    "saved",
+    [
+        "http://user:hunter2@[crawl.example.com:11235",
+        "http://user:hun\tter2@crawl.example.com:11235",
+        "user:hunter2@crawl.example.com:11235",
+        "http:/user:hunter2@crawl.example.com:11235",
+    ],
+)
+def test_malformed_saved_url_shows_no_part_of_its_userinfo(
+    config_path: Path, opener: Any, capsys: pytest.CaptureFixture[str], saved: str
+) -> None:
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        f"CRAWL4AI_URL={saved}\nLANGEXTRACT_BASE_URL={GATEWAY}\n", encoding="utf-8"
+    )
+    prompts: list[str] = []
+    answers = ["", CRAWL4AI]  # keep the bad saved value once, then fix it
+
+    def ask(prompt: str) -> str:
+        prompts.append(prompt)
+        return answers.pop(0) if answers else ""
+
+    code = main(["setup", "--no-probe"], input_fn=ask, getpass_fn=ask, opener=opener)
+
+    captured = capsys.readouterr()
+    shown = "".join(prompts) + captured.out + captured.err
+    assert code == 0
+    assert "hunter2" not in shown
+    assert "hun" not in shown
+
+
+class _EndlessStdin:
+    """A non-terminal stdin that answers an empty line forever, counting each read."""
+
+    def __init__(self) -> None:
+        self.reads = 0
+
+    def readline(self, *args: object) -> str:
+        self.reads += 1
+        if self.reads > 50:  # a regression fails here instead of hanging the run
+            raise AssertionError("the prompt kept asking")
+        return "\n"
+
+    def isatty(self) -> bool:
+        return False
+
+
+class _TerminalStdin(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+def test_endless_empty_non_tty_stdin_exits_2_after_three_answers(
+    config_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    stdin = _EndlessStdin()
+    monkeypatch.setattr(sys, "stdin", stdin)
+
+    code = main(["setup", "--no-probe"], input_fn=input, getpass_fn=input)
+
+    assert code == 2
+    assert stdin.reads == 3
+    assert "CRAWL4AI_URL is required; stdin gave no usable answer" in capsys.readouterr().err
+    assert not config_path.exists()
+
+
+def test_tty_keeps_asking_past_three_empty_answers_until_cancelled(
+    config_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "stdin", _TerminalStdin())
+    prompts: list[str] = []
+
+    def ask(prompt: str) -> str:
+        prompts.append(prompt)
+        if len(prompts) > 6:
+            raise EOFError
+        return ""
+
+    code = main(["setup", "--no-probe"], input_fn=ask, getpass_fn=ask)
+
+    assert code == 1
+    assert len(prompts) == 7
+    assert "setup cancelled; nothing was written" in capsys.readouterr().err
+    assert not config_path.exists()
+
+
+def test_optional_prompt_at_eof_keeps_its_value_and_is_not_an_error(
+    config_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    opener: Any,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        sys, "stdin", io.StringIO("http://localhost:11235\n\nhttp://localhost:4001/v1\n\n")
+    )
+
+    code = main(["setup", "--no-probe"], input_fn=input, getpass_fn=input, opener=opener)
+
+    assert code == 0
+    assert capsys.readouterr().err == ""
+    assert config.load() == {
+        "CRAWL4AI_URL": "http://localhost:11235",
+        "LANGEXTRACT_BASE_URL": "http://localhost:4001/v1",
+    }
+
+
+def test_optional_secret_with_three_unusable_answers_exits_2_naming_it(
+    config_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    opener: Any,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config.save({"CRAWL4AI_URL": CRAWL4AI, "LANGEXTRACT_BASE_URL": GATEWAY})
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+
+    code = main(
+        ["setup", "--no-probe"],
+        input_fn=lambda prompt: "",
+        getpass_fn=lambda prompt: "bad\x01",
+        opener=opener,
+    )
+
+    assert code == 2
+    assert "CRAWL4AI_API_TOKEN: no valid answer after 3 tries" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("secret", ["sk-back\\slash\nSECRETTAIL", "sk-café\nSECRETTAIL"])
+def test_env_secret_that_is_not_one_line_skips_its_probe(
+    config_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    opener: Any,
+    calls: list[Any],
+    capsys: pytest.CaptureFixture[str],
+    secret: str,
+) -> None:
+    monkeypatch.setenv("LANGEXTRACT_API_KEY", secret)
+
+    code = main(
+        [
+            "setup",
+            "--non-interactive",
+            "--crawl4ai-url",
+            CRAWL4AI,
+            "--langextract-base-url",
+            GATEWAY,
+        ],
+        input_fn=_no_input,
+        getpass_fn=_no_input,
+        opener=opener,
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "SECRETTAIL" not in captured.out + captured.err
+    assert "LANGEXTRACT_API_KEY is not one line of printable text; probe skipped" in captured.out
+    assert [req.full_url for req in calls] == [f"{CRAWL4AI}/health"]
+
+
+def test_clearing_the_gateway_key_names_the_file_litellm_key_still_used(
+    config_path: Path, opener: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config.save(
+        {
+            "CRAWL4AI_URL": CRAWL4AI,
+            "LANGEXTRACT_BASE_URL": GATEWAY,
+            "LANGEXTRACT_API_KEY": "sk-old-0001",
+            "LITELLM_AGENT_KEY": "sk-agent-0002",
+        }
+    )
+
+    code = main(
+        ["setup", "--non-interactive", "--no-probe", "--langextract-api-key", ""],
+        input_fn=_no_input,
+        getpass_fn=_no_input,
+        opener=opener,
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert (
+        "LANGEXTRACT_API_KEY cleared; LITELLM_AGENT_KEY from the file is still used"
+        in captured.out.splitlines()
+    )
+    assert "sk-agent-0002" not in captured.out + captured.err
+
+
+def test_clearing_the_gateway_key_names_the_environment_litellm_key_still_used(
+    config_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    opener: Any,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("LITELLM_AGENT_KEY", "sk-env-agent-0003")
+    config.save(
+        {
+            "CRAWL4AI_URL": CRAWL4AI,
+            "LANGEXTRACT_BASE_URL": GATEWAY,
+            "LANGEXTRACT_API_KEY": "sk-old-1",
+        }
+    )
+
+    code = main(
+        ["setup", "--non-interactive", "--no-probe", "--langextract-api-key", ""],
+        input_fn=_no_input,
+        getpass_fn=_no_input,
+        opener=opener,
+    )
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert (
+        "LANGEXTRACT_API_KEY cleared; LITELLM_AGENT_KEY from the environment is still used"
+        in captured.out.splitlines()
+    )
+    assert "sk-env-agent-0003" not in captured.out + captured.err
+
+
+def test_unmanaged_lines_are_copied_byte_for_byte_and_never_validated(
+    config_path: Path, opener: Any
+) -> None:
+    config_path.parent.mkdir(parents=True)
+    unmanaged = b"# header\r\nCUSTOM = 'kept as typed'\r\nNOTE=col1\tcol2\r\n"
+    config_path.write_bytes(
+        unmanaged
+        + b"CRAWL4AI_URL=http://old.example.com:11235\r\nLANGEXTRACT_BASE_URL="
+        + GATEWAY.encode()
+        + b"\r\n"
+    )
+
+    code = main(
+        ["setup", "--non-interactive", "--no-probe", "--crawl4ai-url", CRAWL4AI],
+        input_fn=_no_input,
+        getpass_fn=_no_input,
+        opener=opener,
+    )
+
+    assert code == 0
+    assert config_path.read_bytes().startswith(unmanaged)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="creating symlinks needs privileges on Windows")
+def test_save_through_a_symlink_replaces_the_real_file_and_keeps_the_link(
+    config_path: Path, opener: Any
+) -> None:
+    config_path.parent.mkdir(parents=True)
+    real = config_path.parent / "real-docs-ingest.env"
+    real.write_text(
+        f"CRAWL4AI_URL={CRAWL4AI}\nLANGEXTRACT_BASE_URL={GATEWAY}\nCRAWL4AI_API_TOKEN=tok-stale-1234\n",
+        encoding="utf-8",
+    )
+    config_path.symlink_to(real)
+
+    code = main(
+        ["setup", "--non-interactive", "--no-probe", "--crawl4ai-token", ""],
+        input_fn=_no_input,
+        getpass_fn=_no_input,
+        opener=opener,
+    )
+
+    assert code == 0
+    assert config_path.is_symlink()
+    assert "tok-stale-1234" not in real.read_text(encoding="utf-8")
+
+
+def test_empty_optional_flag_reports_the_clear_on_stdout(
+    config_path: Path, opener: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config.save(
+        {
+            "CRAWL4AI_URL": CRAWL4AI,
+            "LANGEXTRACT_BASE_URL": GATEWAY,
+            "CRAWL4AI_API_TOKEN": "tok-old-1234",
+        }
+    )
+
+    code = main(
+        ["setup", "--non-interactive", "--no-probe", "--crawl4ai-token", ""],
+        input_fn=_no_input,
+        getpass_fn=_no_input,
+        opener=opener,
+    )
+
+    assert code == 0
+    assert "CRAWL4AI_API_TOKEN cleared" in capsys.readouterr().out.splitlines()

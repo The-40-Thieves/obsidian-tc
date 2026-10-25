@@ -29,7 +29,7 @@ _MAX_FAILED_ANSWERS = 3
 
 
 class _NoAnswer(Exception):
-    """A required prompt got no usable answer, from a stdin that is not a terminal."""
+    """A prompt got no usable answer from a stdin that is not a terminal. The message says why."""
 
 
 # The credential each URL setting is probed with; named in the plain-http warning.
@@ -82,19 +82,27 @@ _SETTINGS = (
 )
 
 
+_BY_NAME = {s.name: s for s in _SETTINGS}
+_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
+
+
 def _mask(value: str) -> str:
     return f"****{value[-4:]}" if len(value) >= 12 else "****"
 
 
-def _display(value: str) -> str:
-    """A saved value as a prompt label shows it: any userinfo is masked, never printed."""
-    try:
-        netloc = urlsplit(value).netloc
-    except ValueError:
+def _display(setting: _Setting, value: str) -> str:
+    """A saved value as a prompt label shows it. A URL's userinfo is masked from the start of the
+    authority up to its last ``@``. A URL that is not valid once that userinfo is removed shows no
+    default at all, because malformed text may still carry the password."""
+    if setting.validate is None:
         return value
-    if "@" not in netloc:
-        return value
-    return value.replace(netloc, "****@" + netloc.rpartition("@")[2], 1)
+    if "@" not in value:
+        return value if setting.validate(value) is None else ""
+    start = match.end() if (match := _SCHEME.match(value)) else 0
+    host = value.rpartition("@")[2]
+    if setting.validate(value[:start] + host) is not None:
+        return ""
+    return value[:start] + "****@" + host
 
 
 def _is_tty() -> bool:
@@ -127,8 +135,8 @@ def _prompt(
     input_fn: Callable[[str], str],
     getpass_fn: Callable[[str], str],
 ) -> str:
-    shown = _mask(current) if setting.secret and current else _display(current)
-    label = f"{setting.name} [{shown}]: " if current else f"{setting.name}: "
+    shown = _mask(current) if setting.secret and current else _display(setting, current)
+    label = f"{setting.name} [{shown}]: " if shown else f"{setting.name}: "
     ask = getpass_fn if setting.secret else input_fn
     tty = _is_tty()
     failures = 0
@@ -138,7 +146,9 @@ def _prompt(
         except EOFError:
             if tty:
                 raise
-            raise _NoAnswer(setting.name) from None
+            if not setting.required:
+                return current
+            raise _NoAnswer(f"{setting.name} is required; stdin gave no usable answer") from None
         if not value and not setting.required:
             return ""
         error = "is required" if not value else _problem(setting, value)
@@ -147,7 +157,9 @@ def _prompt(
         print(f"{setting.name} {error}")
         failures += 1
         if failures == _MAX_FAILED_ANSWERS and not tty:
-            raise _NoAnswer(setting.name)
+            if setting.required:
+                raise _NoAnswer(f"{setting.name} is required; stdin gave no usable answer")
+            raise _NoAnswer(f"{setting.name}: no valid answer after {_MAX_FAILED_ANSWERS} tries")
 
 
 def _redirect_reason(exc: urllib.error.HTTPError) -> str:
@@ -175,7 +187,8 @@ def _probe(
     secrets: Sequence[str],
     opener: Callable[..., Any],
 ) -> str:
-    """One OK/FAIL line. Never raises, and no configured secret is ever part of the line."""
+    """One OK/FAIL line; never raises. Each secret is masked in the reason, as typed and escaped.
+    A secret that is not one line of printable text is never sent: the caller skips that probe."""
     try:
         req = urllib.request.Request(url)
         if token:
@@ -242,6 +255,7 @@ def _setup(
         return 2
     bad = False
     given: set[str] = set()
+    cleared: list[str] = []
     for setting in _SETTINGS:
         raw = getattr(args, setting.dest)
         if raw is None:
@@ -274,6 +288,7 @@ def _setup(
                 bad = True
             else:
                 values.pop(setting.name, None)
+                cleared.append(setting.name)
             continue
         error = _problem(setting, value)
         if error is not None:
@@ -315,7 +330,7 @@ def _setup(
             print("\nsetup cancelled; nothing was written", file=sys.stderr)
             return 1
         except _NoAnswer as exc:
-            print(f"docs-ingest: {exc} is required; stdin gave no usable answer", file=sys.stderr)
+            print(f"docs-ingest: {exc}", file=sys.stderr)
             return 2
 
     for setting in _SETTINGS:
@@ -332,14 +347,27 @@ def _setup(
                 f"{consequence}. Prefer https://"
             )
 
+    # Only the managed settings are written back: every other line of the file is kept as it is.
+    managed = {s.name: values[s.name] for s in _SETTINGS if s.name in values}
     try:
-        saved = config.save(values, remove=[s.name for s in _SETTINGS if s.name not in values])
+        saved = config.save(managed, remove=[s.name for s in _SETTINGS if s.name not in values])
     except (OSError, ValueError) as exc:
         # save()'s ValueError names the setting, never its value; a hand-edited file can hold
         # one setup itself would refuse.
         print(f"docs-ingest: cannot save {config.location()}: {exc}", file=sys.stderr)
         return 2
     print(f"Saved {saved}")
+    for name in cleared:
+        print(f"{name} cleared")
+    if "LANGEXTRACT_API_KEY" in cleared and not os.environ.get("LANGEXTRACT_API_KEY", "").strip():
+        if os.environ.get("LITELLM_AGENT_KEY", "").strip():
+            source = "the environment"
+        elif values.get("LITELLM_AGENT_KEY"):
+            source = "the file"
+        else:
+            source = ""
+        if source:
+            print(f"LANGEXTRACT_API_KEY cleared; LITELLM_AGENT_KEY from {source} is still used")
     for setting in _SETTINGS:
         value = values.get(setting.name)
         if not value:
@@ -373,6 +401,9 @@ def _setup(
             print(f"{label}: skipped ({url_name} is set in the environment)")
             continue
         key = _effective(values, key_name) or None
+        if key and _problem(_BY_NAME[key_name], key):
+            print(f"{key_name} is not one line of printable text; probe skipped")
+            continue
         print(_probe(label, f"{saved_url.rstrip('/')}/{path}", key, secrets, opener))
     return 0
 
