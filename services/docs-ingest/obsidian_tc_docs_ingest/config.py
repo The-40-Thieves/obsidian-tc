@@ -111,7 +111,7 @@ def _file_values() -> Mapping[str, str]:
     try:
         return load()
     except (OSError, UnicodeDecodeError, RuntimeError) as exc:
-        where = _location()
+        where = location()
         if where not in _warned:
             _warned.add(where)
             print(
@@ -121,7 +121,7 @@ def _file_values() -> Mapping[str, str]:
         return {}
 
 
-def _location() -> str:
+def location() -> str:
     try:
         return str(path())
     except RuntimeError:

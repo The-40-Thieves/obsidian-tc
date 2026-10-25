@@ -137,10 +137,8 @@ def _probe(
         with opener(req, timeout=PROBE_TIMEOUT) as resp:
             status = resp.status
     except urllib.error.HTTPError as exc:
-        if 300 <= exc.code < 400:
-            reason = _redirect_reason(exc)
-        else:
-            reason = f"HTTP {exc.code}"
+        with exc:
+            reason = _redirect_reason(exc) if 300 <= exc.code < 400 else f"HTTP {exc.code}"
     except (OSError, ValueError, http.client.HTTPException) as exc:
         reason = str(getattr(exc, "reason", None) or exc)
     else:
@@ -149,6 +147,9 @@ def _probe(
         reason = f"HTTP {status}"
     for secret in secrets:
         reason = reason.replace(secret, _mask(secret))
+    # The reason can carry server-sent bytes (a malformed status line); escape them so a server
+    # cannot drive the terminal.
+    reason = "".join(c if c.isprintable() else repr(c)[1:-1] for c in reason)
     return f"{label}: FAIL ({url}): {reason}"
 
 
@@ -158,13 +159,31 @@ def _setup(
     getpass_fn: Callable[[str], str],
     opener: Callable[..., Any],
 ) -> int:
-    values = config.load()
+    try:
+        values = config.load()
+    except (OSError, UnicodeDecodeError, RuntimeError, ValueError) as exc:
+        print(
+            f"docs-ingest: cannot read {config.location()} ({type(exc).__name__}); "
+            "fix or remove it, then run setup again",
+            file=sys.stderr,
+        )
+        return 2
+    # argparse keeps no flag order, so two `-` secrets would be read in this list's order, and a
+    # reversed command line would file each secret under the other's name.
+    dashes = [s.name for s in _SETTINGS if s.secret and getattr(args, s.dest) == "-"]
+    if len(dashes) > 1:
+        print(
+            f"docs-ingest: only one secret can be read from stdin; got - for {', '.join(dashes)}",
+            file=sys.stderr,
+        )
+        return 2
     for setting in _SETTINGS:
         raw = getattr(args, setting.dest)
         if raw is None:
             continue
         if raw == "-" and setting.secret:
-            raw = sys.stdin.readline()
+            # On a terminal, read it like the prompt does: hidden, with a label.
+            raw = getpass_fn(f"{setting.name}: ") if sys.stdin.isatty() else sys.stdin.readline()
             if not raw.strip():
                 print(
                     f"docs-ingest: {setting.name} is empty: stdin had no line to read",
@@ -203,7 +222,10 @@ def _setup(
             credential = _CREDENTIAL_FOR.get(setting.name, "")
             consequence = (
                 "its bearer key travels in clear"
-                if values.get(credential)
+                if any(
+                    values.get(n) or os.environ.get(n, "").strip()
+                    for n in config.env_names(credential)
+                )
                 else "its traffic is unencrypted"
             )
             print(

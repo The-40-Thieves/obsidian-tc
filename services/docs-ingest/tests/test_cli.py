@@ -3,6 +3,7 @@ and the endpoint probes. Prompts, getpass and urlopen are all injected, so no TT
 
 from __future__ import annotations
 
+import http.client
 import io
 import sys
 import urllib.error
@@ -779,3 +780,160 @@ def test_saved_key_overridden_by_litellm_env_is_named_not_printed(
     out = capsys.readouterr().out
     assert "LITELLM_AGENT_KEY" in out
     assert "sk-env-litellm" not in out and "sk-file-key" not in out
+
+
+def test_two_dash_secrets_exit_2_and_write_nothing(
+    config_path: Path,
+    opener: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # argparse keeps no flag order, so two `-` secrets would be read in the settings' order and
+    # a reversed command line would store each secret under the other's name.
+    monkeypatch.setattr(sys, "stdin", io.StringIO("sk-GATEWAY-KEY-0001\ntok-CRAWL-TOKEN-0002\n"))
+
+    code = main(
+        [
+            "setup",
+            "--non-interactive",
+            "--no-probe",
+            "--crawl4ai-url",
+            CRAWL4AI,
+            "--langextract-base-url",
+            GATEWAY,
+            "--langextract-api-key",
+            "-",
+            "--crawl4ai-token",
+            "-",
+        ],
+        input_fn=_no_input,
+        getpass_fn=_no_input,
+        opener=opener,
+    )
+
+    assert code == 2
+    assert not config_path.exists()
+    assert "only one" in capsys.readouterr().err
+
+
+class _Tty(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+def test_dash_secret_on_a_terminal_is_read_without_echo(
+    config_path: Path,
+    opener: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(sys, "stdin", _Tty("sk-echoed-on-tty-9999\n"))
+    prompts: list[str] = []
+
+    def hidden(prompt: str) -> str:
+        prompts.append(prompt)
+        return "sk-typed-hidden-1111"
+
+    code = main(
+        [
+            "setup",
+            "--non-interactive",
+            "--no-probe",
+            "--crawl4ai-url",
+            CRAWL4AI,
+            "--langextract-base-url",
+            GATEWAY,
+            "--langextract-api-key",
+            "-",
+        ],
+        input_fn=_no_input,
+        getpass_fn=hidden,
+        opener=opener,
+    )
+
+    assert code == 0
+    assert prompts and "LANGEXTRACT_API_KEY" in prompts[0]
+    assert config.load()["LANGEXTRACT_API_KEY"] == "sk-typed-hidden-1111"
+
+
+def test_unreadable_existing_file_exits_2_naming_the_path(
+    config_path: Path, opener: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config_path.parent.mkdir(parents=True)
+    config_path.write_bytes(b"LANGEXTRACT_MODEL_ID=\xff\n")
+
+    code = main(
+        [
+            "setup",
+            "--non-interactive",
+            "--no-probe",
+            "--crawl4ai-url",
+            CRAWL4AI,
+            "--langextract-base-url",
+            GATEWAY,
+        ],
+        input_fn=_no_input,
+        getpass_fn=_no_input,
+        opener=opener,
+    )
+
+    assert code == 2
+    err = capsys.readouterr().err
+    assert str(config_path) in err and "UnicodeDecodeError" in err
+    assert config_path.read_bytes() == b"LANGEXTRACT_MODEL_ID=\xff\n"
+
+
+def test_probe_never_prints_server_control_characters(
+    config_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def garbage(req: Any, timeout: float | None = None) -> None:
+        raise http.client.BadStatusLine("\x1b[2J\x1b]0;PWNED\x07 garbage status\r\n")
+
+    code = main(
+        [
+            "setup",
+            "--non-interactive",
+            "--crawl4ai-url",
+            CRAWL4AI,
+            "--langextract-base-url",
+            GATEWAY,
+        ],
+        input_fn=_no_input,
+        getpass_fn=_no_input,
+        opener=garbage,
+    )
+
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "FAIL" in out
+    assert "\x1b" not in out and "\x07" not in out
+
+
+def test_plain_http_warning_counts_a_key_from_the_environment(
+    config_path: Path,
+    opener: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("LITELLM_AGENT_KEY", "sk-env-only-key-0000")
+
+    code = main(
+        [
+            "setup",
+            "--non-interactive",
+            "--no-probe",
+            "--crawl4ai-url",
+            CRAWL4AI,
+            "--langextract-base-url",
+            "http://gateway.example.com:4001/v1",
+        ],
+        input_fn=_no_input,
+        getpass_fn=_no_input,
+        opener=opener,
+    )
+
+    assert code == 0
+    gateway_warning = [
+        line for line in capsys.readouterr().out.splitlines() if "LANGEXTRACT_BASE_URL" in line
+    ]
+    assert gateway_warning and "bearer key travels in clear" in gateway_warning[0]

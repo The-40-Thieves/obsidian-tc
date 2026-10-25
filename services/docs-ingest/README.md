@@ -47,7 +47,7 @@ with mode 0600 on POSIX. Use `DOCS_INGEST_CONFIG` to point at another file. The 
 Precedence is the environment first, then that file. For `LANGEXTRACT_API_KEY` the order is:
 environment `LANGEXTRACT_API_KEY`, environment `LITELLM_AGENT_KEY`, file `LANGEXTRACT_API_KEY`,
 file `LITELLM_AGENT_KEY`. An empty value counts as unset. A file that cannot be read or decoded is
-ignored with one warning, and the environment still applies.
+ignored with one warning, and the environment still applies; `setup` refuses it (exit 2, naming the file) instead of overwriting it. Only one secret flag can be `-` per run.
 
 `--non-interactive` takes the flags `--crawl4ai-url`, `--crawl4ai-token`, `--langextract-base-url`,
 `--langextract-api-key` and `--langextract-model-id`. The same flags are the prompt defaults in
