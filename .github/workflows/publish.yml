@@ -271,7 +271,7 @@ jobs:
           node-version: '24'
           check-latest: true
           registry-url: 'https://registry.npmjs.org'
-      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile --ignore-scripts
       # `pattern` is load-bearing: with no filter this downloads EVERY artifact in the run, and
       # docker/build-push-action auto-uploads a build record (`<owner>~<repo>~XXXXXX.dockerbuild`)
       # that cannot be downloaded here — v1.12.1's publish died on it with
@@ -726,7 +726,7 @@ jobs:
         working-directory: packages/reranker-local
         run: |
           set -euo pipefail
-          bun install --frozen-lockfile
+          bun install --frozen-lockfile --ignore-scripts
           bun run build
         shell: bash
       # F3-style preflight, scoped to this one package: npm publish is immutable, so check
@@ -784,7 +784,7 @@ jobs:
         working-directory: packages/embedder-local
         run: |
           set -euo pipefail
-          bun install --frozen-lockfile
+          bun install --frozen-lockfile --ignore-scripts
           bun run build
         shell: bash
       - name: assemble base + platform runtime packages
@@ -1025,7 +1025,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-      - run: bun install --frozen-lockfile
+      - run: bun install --frozen-lockfile --ignore-scripts
       - name: build plugin
         working-directory: packages/plugin
         run: bun run build
@@ -1256,9 +1256,14 @@ jobs:
           IMAGE: ghcr.io/the-40-thieves/obsidian-tc:${{ needs.verify-tag.outputs.version }}
         run: |
           set -uo pipefail
-          mkdir -p sboms
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/v1.49.0/install.sh \
-            | sh -s -- -b "$RUNNER_TEMP/syft-bin" v1.49.0
+          mkdir -p sboms "$RUNNER_TEMP/syft-bin"
+          # Pinned release tarball, checked against its sha256 before anything is extracted or run
+          # (the same pattern as the other tool downloads in these workflows). amd64 only: this job
+          # runs on ubuntu-latest.
+          curl --proto '=https' --tlsv1.2 -sSfL -o "$RUNNER_TEMP/syft.tar.gz" \
+            https://github.com/anchore/syft/releases/download/v1.49.0/syft_1.49.0_linux_amd64.tar.gz
+          echo "7aa2f03ee92739cf643279ba3990548b9925d4e22cae13f46831ee62821147fe  $RUNNER_TEMP/syft.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/syft.tar.gz" -C "$RUNNER_TEMP/syft-bin" syft
           if ! "$RUNNER_TEMP/syft-bin/syft" "$IMAGE" -o spdx-json > "sboms/obsidian-tc-image.spdx.json"; then
             echo "::warning::image SBOM generation failed for $IMAGE"
             rm -f sboms/obsidian-tc-image.spdx.json
