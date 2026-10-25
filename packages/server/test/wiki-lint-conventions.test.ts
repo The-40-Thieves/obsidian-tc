@@ -145,6 +145,70 @@ describe("lint_wiki conventions", () => {
     expect(readFileSync(join(hh.v.root, "wiki/Stale.md"), "utf8")).toMatch(/^status: draft$/m);
   });
 
+  it("a note that breaks a block rule is proposed first, its detail counts the blocking violations, and a warn-only proposal keeps its text", async () => {
+    const hh = fixture({
+      "wiki/SCHEMA.md": layer(
+        "  version: 1\n  frontmatter:\n    required: [type]\n    values:\n      status: [draft]\n      kind: [a, b]\n    severity:\n      status: block",
+      ),
+      // Zed sorts after Alpha: scan order alone would put the warn-only proposal first.
+      "wiki/Zed.md": "---\ntype: research\nstatus: stale\nkind: z\n---\nblocking\n",
+      "wiki/Alpha.md": "---\ntype: research\nkind: z\n---\nwarn only\n",
+    });
+    const d = await lint(hh, { checks: ["conventions"] });
+    const ps = ofKind(d, "conventions");
+    expect(ps.map((p) => p.subject)).toEqual(["wiki/Zed.md", "wiki/Alpha.md"]);
+    const zed = ps[0] as Record<string, any>;
+    expect(zed.detail).toMatch(/^2 folder convention\(s\) broken \(1 blocking\): /);
+    expect(zed.suggested_action).toMatch(
+      /Edits that keep these violations still pass; an edit that adds a violation marked block, including a different disallowed value, is refused \(convention_blocked\)\./,
+    );
+    expect(zed.evidence.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ property: "status", level: "block" }),
+        expect.objectContaining({ property: "kind", level: "warn" }),
+      ]),
+    );
+    expect(ps[1]).toEqual(
+      expect.objectContaining({
+        detail: '1 folder convention(s) broken: `kind` has "z"; allowed: a, b',
+        suggested_action:
+          "Fix the frontmatter to match the folder's conventions (get_conventions lists them), then re-run lint_wiki.",
+      }),
+    );
+  });
+
+  it("a child's severity '*' does not relax a parent's named type-level block", async () => {
+    const hh = fixture({
+      "wiki/SCHEMA.md": layer(
+        "  version: 1\n  frontmatter:\n    types:\n      meeting:\n        required: [date]\n        severity:\n          date: block",
+      ),
+      "wiki/meetings/SCHEMA.md": layer(
+        '  version: 1\n  frontmatter:\n    severity:\n      "*": warn',
+      ),
+      "wiki/meetings/Standup.md": "---\ntype: meeting\n---\nno date\n",
+    });
+    const d = await lint(hh, { checks: ["conventions"] });
+    expect(one(d, "conventions", "wiki/meetings/Standup.md").evidence.warnings).toEqual([
+      expect.objectContaining({ code: "missing_required", property: "date", level: "block" }),
+    ]);
+  });
+
+  it("a child's null on the parent's type-level leaf removes the block, so the child's '*' applies", async () => {
+    const hh = fixture({
+      "wiki/SCHEMA.md": layer(
+        "  version: 1\n  frontmatter:\n    types:\n      meeting:\n        required: [date]\n        severity:\n          date: block",
+      ),
+      "wiki/meetings/SCHEMA.md": layer(
+        '  version: 1\n  frontmatter:\n    severity:\n      "*": block\n    types:\n      meeting:\n        severity:\n          date: null',
+      ),
+      "wiki/meetings/Standup.md": "---\ntype: meeting\n---\nno date\n",
+    });
+    const d = await lint(hh, { checks: ["conventions"] });
+    expect(one(d, "conventions", "wiki/meetings/Standup.md").evidence.warnings).toEqual([
+      expect.objectContaining({ code: "missing_required", property: "date", level: "block" }),
+    ]);
+  });
+
   it("a clean vault and a vault with no SCHEMA.md get no conventions proposals, and the existing kinds are unchanged", async () => {
     const clean = fixture({ "wiki/Good.md": FILES["wiki/Good.md"] as string });
     const d = await lint(clean, { checks: ["conventions", "conventions_file"] });

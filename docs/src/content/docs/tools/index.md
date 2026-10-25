@@ -488,7 +488,7 @@ properties:
 Obsidian's own `tags`, `aliases` and `cssclasses` are always allowed. SCHEMA.md is read as a bounded
 file: one over 64 KiB is not parsed, and a section over 100 types, 100 fields per type, 500 properties,
 200 values per property or 200 characters per name or value is cut, each with a warning. A SCHEMA.md
-that cannot be read is a `schema_file` problem, never an error.
+that cannot be read is a `schema_file` problem, never an error. A `conventions:` block can mark a rule `severity: block`, which refuses a write that adds its violation; see [Vault conventions](/guides/vault-conventions/).
 
 **The wiki folder is required.** `commit_wiki_page` refuses (`invalid_input`, `reason: no_wiki_folder`)
 in a vault with no `wiki.folder`, and refuses a page outside it (`reason: outside_wiki_folder`). The
