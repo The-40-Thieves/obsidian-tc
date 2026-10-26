@@ -90,7 +90,8 @@ scopes allow.
 - **Read tools work.** A call such as `read_note` returns HTTP 200 with the note.
 - **Confirmation-gated tools fail closed.** mcpo does not implement MCP elicitation, so the server
   sees no elicitation capability. A gated tool returns an error, and mcpo reports it as HTTP 500 with
-  `{"detail":{"message":"Error [elicit_required]: ..."}}`. Nothing runs, and nothing is confirmed
+  `{"detail":{"message":"Unexpected error","error":"500: {'message': \"Error [elicit_required]: human confirmation required ...\"}"}}`
+  (the `elicit_required` text sits inside the `error` field). Nothing runs, and nothing is confirmed
   automatically.
 - **Shared identity.** Every caller is the same principal, so the folder ACL and the audit trail
   cannot tell callers apart.
