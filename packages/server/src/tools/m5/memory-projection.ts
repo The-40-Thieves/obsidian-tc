@@ -306,6 +306,7 @@ export function planNeighbors(
     if (src?.materialize !== 1) continue;
     const srcPath = currentNotePath(deps, v.id, src);
     if (memoryReadable(deps, ctx, src)) {
+      enforcePathAcl(ctx.acl, "write", srcPath, v.root, ctx.grantedScopes);
       assertNoteOwnership(v.root, srcPath, src.id);
       out.push({ id: src.id, visible: true });
       continue;

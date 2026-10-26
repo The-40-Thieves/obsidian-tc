@@ -29,17 +29,20 @@ import {
   enforceMemoryDefenseOnTransformed,
 } from "../../experiential/memory-defense";
 import { argsHash } from "../../hash";
-import type { ToolDefinition } from "../../mcp/registry";
+import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import {
   deleteEntity,
   deleteRelation,
   findEntity,
+  getEntityById,
   relationsForEntity,
   updateEntity,
 } from "../../memory/entities";
 import { assertNoteOwnership, entityNotePath, sanitizeSegment } from "../../memory/materialize";
 import { hardDelete, noteExists, readNote, trashNote, writeNoteAtomic } from "../../vault/notes-io";
 import { resolveVaultPath } from "../../vault/paths";
+import type { ResolvedVault } from "../../vault/registry";
+import { captureSnapshot } from "../../vault/snapshots";
 import { defineTool } from "../m1/define";
 import {
   assertMemoryPathReadable,
@@ -56,6 +59,78 @@ import {
 import { type M5Deps, memoryDefenseFor, memoryFolderFor } from "./shared";
 
 const EntityStatusSchema = z.enum(["active", "retired"]);
+
+/** A note file a call may touch: its vault-relative path, absolute path, and bytes before the call
+ *  (null when it was absent). */
+interface NoteFile {
+  rel: string;
+  abs: string;
+  raw: string | null;
+}
+
+function noteFile(root: string, rel: string): NoteFile {
+  const abs = resolveVaultPath(root, rel);
+  const ex = noteExists(abs);
+  return { rel, abs, raw: ex.exists && ex.type === "file" ? readNote(abs).raw : null };
+}
+
+/** The projection notes of the planned neighbours, as they are on disk now. */
+function neighborFiles(
+  deps: M5Deps,
+  ctx: CallerContext,
+  v: ResolvedVault,
+  planned: readonly Neighbor[],
+): NoteFile[] {
+  const out: NoteFile[] = [];
+  for (const n of planned) {
+    const src = getEntityById(ctx.db, n.id);
+    if (src?.materialize === 1) out.push(noteFile(v.root, currentNotePath(deps, v.id, src)));
+  }
+  return out;
+}
+
+/** Put a file back as it was before a failed call: its bytes, or its absence. Best effort; the
+ *  call's own error is the one the caller sees. */
+function restoreFile(f: NoteFile): void {
+  try {
+    if (f.raw !== null) writeNoteAtomic(f.abs, f.raw, true);
+    else if (noteExists(f.abs).exists) hardDelete(f.abs);
+  } catch {
+    /* best effort: see above */
+  }
+}
+
+/** Run a write transaction and, if it throws, restore the captured files. SQLite rolls the rows
+ *  back, but the files the transaction wrote stay on disk. */
+function restoreFilesOnThrow<T>(files: readonly NoteFile[], body: () => T): T {
+  try {
+    return body();
+  } catch (caught) {
+    for (const f of files) restoreFile(f);
+    throw caught;
+  }
+}
+
+/** Index files whose bytes are already committed when the call is about to throw: withIndexFlush
+ *  sends nothing for a throwing call, so the hook is called directly. */
+function reindexFiles(deps: M5Deps, vaultId: string, files: readonly NoteFile[]): void {
+  for (const f of files) {
+    if (f.raw === null) continue;
+    try {
+      deps.reindex?.(vaultId, f.rel, f.raw);
+    } catch {
+      /* best effort, as flushIndex */
+    }
+  }
+}
+
+/** Whether a rename's old and new note paths name one file: a name that sanitizes to the old one,
+ *  or a case-only change on a case-insensitive filesystem. */
+function samePath(a: string, b: string): boolean {
+  return process.platform === "win32" || process.platform === "darwin"
+    ? a.toLowerCase() === b.toLowerCase()
+    : a === b;
+}
 
 const RenameEntityOutput = z.object({
   entity_id: z.string(),
@@ -198,57 +273,72 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
         }
 
         const now = (ctx.now ?? Date.now)();
-        return inWriteTransaction(ctx.db, "memory_rename", () => {
-          const updated = updateEntity(
-            ctx.db,
-            e.id,
-            {
-              name: renaming ? nextName : undefined,
-              status:
-                input.status !== undefined && input.status !== e.status ? input.status : undefined,
-            },
-            now,
-          );
-          if (!updated) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
+        // Captured before the transaction so a throw can put the target and every neighbour note
+        // back (see restoreFilesOnThrow).
+        const files: NoteFile[] =
+          e.materialize === 1
+            ? [noteFile(v.root, newPath), ...neighborFiles(deps, ctx, v, neighborsToRematerialize)]
+            : [];
+        const result = restoreFilesOnThrow(files, () =>
+          inWriteTransaction(ctx.db, "memory_rename", () => {
+            const updated = updateEntity(
+              ctx.db,
+              e.id,
+              {
+                name: renaming ? nextName : undefined,
+                status:
+                  input.status !== undefined && input.status !== e.status
+                    ? input.status
+                    : undefined,
+              },
+              now,
+            );
+            if (!updated)
+              throw err.invalidInput("entity not found", { entity_id: input.entity_id });
 
-          let vaultPath: string | null = e.vault_path;
-          if (updated.materialize === 1) {
-            if (renaming && oldRaw !== null) {
-              // Already ownership-checked above — this write can only ever land on a free path or
-              // this entity's own.
-              writeNoteAtomic(resolveVaultPath(v.root, newPath), oldRaw, true);
+            let vaultPath: string | null = e.vault_path;
+            if (updated.materialize === 1) {
+              if (renaming && oldRaw !== null) {
+                // Already ownership-checked above — this write can only ever land on a free path or
+                // this entity's own.
+                writeNoteAtomic(resolveVaultPath(v.root, newPath), oldRaw, true);
+              }
+              vaultPath = rematerialize(deps, ctx, v, updated, now);
             }
-            vaultPath = rematerialize(deps, ctx, v, updated, now);
-            if (renaming) {
-              const oldAbs = resolveVaultPath(v.root, oldPath);
-              if (noteExists(oldAbs).exists) hardDelete(oldAbs);
-              recordIndexDelete(ctx, v.id, oldPath);
-            }
-          }
 
-          // Keep every OTHER materialized entity's [[link]] to this one pointing at its (possibly
-          // new) name — the set pre-checked above.
-          const neighborsRematerialized = rematerializeNeighbors(
-            deps,
-            ctx,
-            v,
-            neighborsToRematerialize,
-            now,
-          );
+            // Keep every OTHER materialized entity's [[link]] to this one pointing at its (possibly
+            // new) name — the set pre-checked above.
+            const neighborsRematerialized = rematerializeNeighbors(
+              deps,
+              ctx,
+              v,
+              neighborsToRematerialize,
+              now,
+            );
 
-          return {
-            entity_id: updated.id,
-            type: updated.entity_type,
-            name: updated.name,
-            status: updated.status,
-            vault_path: vaultPath,
-            updated_at: updated.updated_at,
-            neighbors_rematerialized: neighborsRematerialized,
-            ...((nameScan?.redactions ?? 0) + pathSegmentScan.redactions > 0
-              ? { redactions: (nameScan?.redactions ?? 0) + pathSegmentScan.redactions }
-              : {}),
-          };
-        });
+            return {
+              entity_id: updated.id,
+              type: updated.entity_type,
+              name: updated.name,
+              status: updated.status,
+              vault_path: vaultPath,
+              updated_at: updated.updated_at,
+              neighbors_rematerialized: neighborsRematerialized,
+              ...((nameScan?.redactions ?? 0) + pathSegmentScan.redactions > 0
+                ? { redactions: (nameScan?.redactions ?? 0) + pathSegmentScan.redactions }
+                : {}),
+            };
+          }),
+        );
+
+        // The old note goes only after the commit, and never when the new path is the same file: that
+        // would delete the note the transaction just wrote.
+        if (renaming && e.materialize === 1 && !samePath(oldPath, newPath)) {
+          const oldAbs = resolveVaultPath(v.root, oldPath);
+          if (noteExists(oldAbs).exists) hardDelete(oldAbs);
+          recordIndexDelete(ctx, v.id, oldPath);
+        }
+        return result;
       },
     }),
 
@@ -371,10 +461,22 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
         if (notePath) assertNoteOwnership(v.root, notePath, e.id);
         const neighborsToRematerialize = planNeighbors(deps, ctx, v, incoming);
 
+        // The note's bytes before the delete, so a permanent delete can still be restored.
+        const noteRaw = notePath === null ? null : noteFile(v.root, notePath).raw;
         const now = (ctx.now ?? Date.now)();
         const { relationsDeleted } = inWriteTransaction(ctx.db, "memory_delete", () => {
           const { deleted, relationsDeleted: deletedCount } = deleteEntity(ctx.db, e.id);
           if (!deleted) throw err.invalidInput("entity not found", { entity_id: input.entity_id });
+          if (notePath !== null && noteRaw !== null)
+            captureSnapshot(
+              ctx.db,
+              deps.snapshots,
+              v.id,
+              notePath,
+              noteRaw,
+              "delete_entity",
+              ctx.now,
+            );
           rematerializeNeighbors(deps, ctx, v, neighborsToRematerialize, now);
           return { relationsDeleted: deletedCount };
         });
@@ -383,9 +485,16 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
         let trashedTo: string | null = null;
         if (notePath) {
           const abs = resolveVaultPath(v.root, notePath);
-          if (noteExists(abs).exists) {
-            if (input.permanent) hardDelete(abs);
-            else trashedTo = trashNote(v.root, notePath);
+          try {
+            if (noteExists(abs).exists) {
+              if (input.permanent) hardDelete(abs);
+              else trashedTo = trashNote(v.root, notePath);
+            }
+          } catch (caught) {
+            // The delete has committed and a throw flushes nothing: index the neighbour notes it
+            // rewrote now, or the index keeps their old links.
+            reindexFiles(deps, v.id, neighborFiles(deps, ctx, v, neighborsToRematerialize));
+            throw caught;
           }
           recordIndexDelete(ctx, v.id, notePath);
         }

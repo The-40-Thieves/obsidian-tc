@@ -16,6 +16,7 @@ import type { MetricsRecorder } from "../../metrics/registry";
 import type { PlurClient } from "../../plur/client";
 import type { ProvenanceStamper } from "../../provenance/stamp";
 import type { VaultRegistry } from "../../vault/registry";
+import type { SnapshotCaptureConfig } from "../../vault/snapshots";
 import { type ActiveSessionTracker, DEFAULT_TRACE_FOLDER } from "../../workspace/sessions";
 
 // THE-600: DEFAULT_MEMORY_FOLDER now lives in @the-40-thieves/obsidian-tc-shared (single source
@@ -41,6 +42,8 @@ export interface M5Deps {
   reindex?: (vaultId: string, path: string, content: string) => void;
   /** Index-on-delete hook for memory notes a committed call removed or trashed. */
   deindex?: (vaultId: string, path: string) => void;
+  /** Pre-image snapshots for a destructive memory write (delete_entity). Absent -> no capture. */
+  snapshots?: SnapshotCaptureConfig;
   /** THE-209: active-session tracker; start_session/end_session maintain it, the transport reads it. */
   activeSessions?: ActiveSessionTracker;
   /** Global plur read client (HTTP endpoint or local CLI); undefined when unconfigured. */
