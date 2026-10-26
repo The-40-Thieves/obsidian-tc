@@ -37,7 +37,7 @@ const FILES = {
 
 async function groupsOf(
   base: string,
-  files = FILES,
+  files: Record<string, string> = FILES,
 ): Promise<{ total: number; groups: unknown[] }> {
   const v = makeM3Vault({ files: { ...files, "kanban.base": base } });
   try {
