@@ -776,11 +776,8 @@ describe("THE-937 round 3: instructions must not touch the session store", () =>
   it(
     "a bare triad-mode tools/list opens NO session row, even with autoOpen on",
     async () => {
-      // Triad mode specifically: its tools/list branch returns the static meta-tools without ever
-      // calling opts.context() itself (server.ts) — the ONLY facade mode where that is true, and
-      // therefore the mode a construction-time session touch is invisible to every OTHER existing
-      // test (they either dispatch a real tool, exercising the invariant this suite already pins,
-      // or use flat/domain mode, whose tools/list branches already called context() before THE-937).
+      // Triad mode: its tools/list branch reads only `opts.visibility`, never `opts.context()`.
+      // The domain and flat tests below pin the same invariant for the other two modes.
       const h = await boot({ autoOpen: true, windowSeconds: 1800 }, "triad");
       try {
         const alice = await tokenFor("alice");
@@ -803,6 +800,80 @@ describe("THE-937 round 3: instructions must not touch the session store", () =>
       } finally {
         await h.close();
       }
+    },
+    stallTimeout(30_000),
+  );
+
+  it(
+    "a bare domain-mode tools/list opens NO session row, even with autoOpen on",
+    async () => {
+      const h = await boot({ autoOpen: true, windowSeconds: 1800 }, "domain");
+      try {
+        const alice = await tokenFor("alice");
+        const res = await post(
+          h.port,
+          alice,
+          { jsonrpc: "2.0", id: 1, method: "tools/list" },
+          { "mcp-protocol-version": LEGACY },
+        );
+        expect(res.status).toBe(200);
+        expect(sessionCount(h.db)).toBe(0);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
+
+  it(
+    "a bare flat-mode tools/list opens NO session row, even with autoOpen on",
+    async () => {
+      const h = await boot({ autoOpen: true, windowSeconds: 1800 }, "flat");
+      try {
+        const alice = await tokenFor("alice");
+        const res = await post(
+          h.port,
+          alice,
+          { jsonrpc: "2.0", id: 1, method: "tools/list" },
+          { "mcp-protocol-version": LEGACY },
+        );
+        expect(res.status).toBe(200);
+        expect(sessionCount(h.db)).toBe(0);
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
+
+  it(
+    "a modern domain-mode tools/list carries the same private cache hint as flat mode",
+    async () => {
+      const clientMeta = {
+        "io.modelcontextprotocol/protocolVersion": MODERN,
+        "io.modelcontextprotocol/clientInfo": { name: "cache-hint-test", version: "0" },
+        "io.modelcontextprotocol/clientCapabilities": {},
+      };
+      async function listCacheHint(mode: FacadeMode): Promise<Record<string, unknown>> {
+        const h = await boot(undefined, mode);
+        try {
+          const alice = await tokenFor("alice");
+          const res = await post(
+            h.port,
+            alice,
+            { jsonrpc: "2.0", id: 1, method: "tools/list", params: { _meta: clientMeta } },
+            { "mcp-protocol-version": MODERN, "mcp-method": "tools/list" },
+          );
+          expect(res.status).toBe(200);
+          return { ttlMs: res.json.result?.ttlMs, cacheScope: res.json.result?.cacheScope };
+        } finally {
+          await h.close();
+        }
+      }
+      const flat = await listCacheHint("flat");
+      const domain = await listCacheHint("domain");
+      expect(domain).toEqual({ ttlMs: 60_000, cacheScope: "private" });
+      expect(domain).toEqual(flat);
     },
     stallTimeout(30_000),
   );
