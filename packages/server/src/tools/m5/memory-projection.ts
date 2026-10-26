@@ -118,34 +118,42 @@ function flushIndex(deps: M5Deps, p: IndexFlush): void {
 }
 
 /** Wrap a memory tool so its projection writes and removals reach the index hooks after a
- *  successful return. A throw flushes nothing: the rolled-back write never reached the disk. */
+ *  successful return. A throw flushes nothing. The SQLite rollback does not undo files: a note the
+ *  call wrote before throwing stays on disk, unindexed, and the watcher picks it up. */
 export function withIndexFlush(deps: M5Deps, tool: ToolDefinition): ToolDefinition {
   const inner = tool.handler;
   return {
     ...tool,
     handler: (input, ctx) => {
+      // A nested wrapped call on the same ctx saves the outer collector and restores it, so the
+      // outer call's later records still reach its own flush.
+      const outer = pending.get(ctx);
       const p: IndexFlush = { writes: new Map(), deletes: new Map() };
+      const restore = (): void => {
+        if (outer) pending.set(ctx, outer);
+        else pending.delete(ctx);
+      };
       pending.set(ctx, p);
       let result: unknown;
       try {
         result = inner(input, ctx);
       } catch (caught) {
-        pending.delete(ctx);
+        restore();
         throw caught;
       }
       if (typeof (result as { then?: unknown } | null)?.then === "function")
         return (result as Promise<unknown>).then(
           (value) => {
-            pending.delete(ctx);
+            restore();
             flushIndex(deps, p);
             return value;
           },
           (caught) => {
-            pending.delete(ctx);
+            restore();
             throw caught;
           },
         );
-      pending.delete(ctx);
+      restore();
       flushIndex(deps, p);
       return result;
     },
