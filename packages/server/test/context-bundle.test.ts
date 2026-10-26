@@ -18,7 +18,10 @@ import {
   remapBundleVault,
   validateContextBundle,
 } from "../src/experiential/context-bundle";
-import { BUNDLE_FORMAT_VERSION } from "../src/experiential/context-bundle-schema";
+import {
+  BUNDLE_FORMAT_VERSION,
+  type ContextBundle,
+} from "../src/experiential/context-bundle-schema";
 import { appendForgetLog, verifyForgetLog } from "../src/experiential/forget";
 import { readNoteQuality, recomputeNoteQuality } from "../src/experiential/note-quality";
 import { openMemoryDb } from "./helpers";
@@ -55,6 +58,34 @@ function seedChunk(cache: Database, id: string, vaultId = "main", path = "notes/
       "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, ?, ?, 0, '[]', 'c', ?, 10, ?, ?)",
     )
     .run(id, vaultId, path, id, NOW, NOW);
+}
+
+/** A note forget row; `details` names its vault, or none for a legacy row. */
+function forgetNote(
+  db: Database,
+  target: string,
+  ts: number,
+  details: Record<string, unknown>,
+): void {
+  appendForgetLog(db, { ts, kind: "note", target, mode: "tombstone", details });
+}
+
+/** Remap a bundle to `vault` and import it into a fresh target. Throws on a refused remap. */
+function importIntoVault(bundle: ContextBundle, vault: string): Database {
+  const remapped = remapBundleVault(bundle, vault);
+  if (!remapped.ok) throw new Error(remapped.error);
+  const target = edb();
+  importContextBundle(target, cacheDb(), remapped.bundle);
+  return target;
+}
+
+/** A `notes` row so recomputeNoteQuality has a live note to score at `path` in `vaultId`. */
+function seedNote(cache: Database, vaultId: string, path: string): void {
+  cache
+    .prepare(
+      "INSERT INTO notes (vault_id, path, title, tags, frontmatter, content_hash, mtime, size, indexed_at) VALUES (?, ?, ?, '[]', NULL, ?, ?, 10, ?)",
+    )
+    .run(vaultId, path, path, `h-${vaultId}-${path}`, NOW - 1000, NOW);
 }
 
 const ZERO_STATS = {
@@ -656,12 +687,7 @@ describe("true round-trip equality (export -> import into a fresh DB -> re-expor
       details: { chunks: 0 },
     });
     const bundle = exportContextBundle(src, { nowMs: NOW, serverVersion: "1.0.0" });
-    const remapped = remapBundleVault(bundle, "other");
-    expect(remapped.ok).toBe(true);
-    if (!remapped.ok) return;
-
-    const target = edb();
-    importContextBundle(target, cacheDb(), remapped.bundle);
+    const target = importIntoVault(bundle, "other");
     const rows = target
       .prepare("SELECT target, details FROM forget_log ORDER BY seq ASC")
       .all() as Array<{ target: string; details: string }>;
@@ -672,35 +698,12 @@ describe("true round-trip equality (export -> import into a fresh DB -> re-expor
 
   it("export --vault narrows forget_log to that vault's forgets and keeps legacy rows", () => {
     const src = edb();
-    appendForgetLog(src, {
-      ts: NOW - 5000,
-      kind: "note",
-      target: "a.md",
-      mode: "tombstone",
-      details: { vault_id: "A" },
-    });
-    appendForgetLog(src, {
-      ts: NOW - 4000,
-      kind: "note",
-      target: "b.md",
-      mode: "tombstone",
-      details: { vault_id: "B" },
-    });
-    appendForgetLog(src, {
-      ts: NOW - 3000,
-      kind: "note",
-      target: "legacy.md",
-      mode: "tombstone",
-      details: {},
-    });
+    forgetNote(src, "a.md", NOW - 5000, { vault_id: "A" });
+    forgetNote(src, "b.md", NOW - 4000, { vault_id: "B" });
+    forgetNote(src, "legacy.md", NOW - 3000, {});
     const bundle = exportContextBundle(src, { nowMs: NOW, serverVersion: "1.0.0", vaultId: "A" });
     expect(bundle.tables.forget_log.map((r) => r.target)).toEqual(["a.md", "legacy.md"]);
-    const remapped = remapBundleVault(bundle, "X");
-    expect(remapped.ok).toBe(true);
-    if (!remapped.ok) return;
-
-    const target = edb();
-    importContextBundle(target, cacheDb(), remapped.bundle);
+    const target = importIntoVault(bundle, "X");
     const rows = target
       .prepare("SELECT target, details FROM forget_log ORDER BY seq ASC")
       .all() as Array<{ target: string; details: string }>;
@@ -711,13 +714,7 @@ describe("true round-trip equality (export -> import into a fresh DB -> re-expor
 
   it("export --vault A where only vault B forgot remaps without a refusal", () => {
     const src = edb();
-    appendForgetLog(src, {
-      ts: NOW - 4000,
-      kind: "note",
-      target: "b.md",
-      mode: "tombstone",
-      details: { vault_id: "B" },
-    });
+    forgetNote(src, "b.md", NOW - 4000, { vault_id: "B" });
     const bundle = exportContextBundle(src, { nowMs: NOW, serverVersion: "1.0.0", vaultId: "A" });
     expect(bundle.tables.forget_log).toEqual([]);
     expect(remapBundleVault(bundle, "X").ok).toBe(true);
@@ -725,22 +722,12 @@ describe("true round-trip equality (export -> import into a fresh DB -> re-expor
 
   it("the same forget bundle imported under vault X then vault Y lands both tombstones", () => {
     const src = edb();
-    appendForgetLog(src, {
-      ts: NOW - 5000,
-      kind: "note",
-      target: "p.md",
-      mode: "tombstone",
-      details: { vault_id: "A" },
-    });
+    forgetNote(src, "p.md", NOW - 5000, { vault_id: "A" });
     const bundle = exportContextBundle(src, { nowMs: NOW, serverVersion: "1.0.0", vaultId: "A" });
     const target = edb();
     const cache = cacheDb();
     for (const v of ["X", "Y"]) {
-      cache
-        .prepare(
-          "INSERT INTO notes (vault_id, path, title, tags, frontmatter, content_hash, mtime, size, indexed_at) VALUES (?, 'p.md', 'p', '[]', NULL, ?, ?, 10, ?)",
-        )
-        .run(v, `h-${v}`, NOW - 1000, NOW);
+      seedNote(cache, v, "p.md");
       const remapped = remapBundleVault(bundle, v);
       if (!remapped.ok) throw new Error(remapped.error);
       importContextBundle(target, cache, remapped.bundle);
@@ -753,8 +740,7 @@ describe("true round-trip equality (export -> import into a fresh DB -> re-expor
   });
 
   it("a forget row whose details is the JSON literal null does not crash a --vault remap", () => {
-    const src = edb();
-    const bundle = exportContextBundle(src, { nowMs: NOW, serverVersion: "1.0.0" });
+    const bundle = exportContextBundle(edb(), { nowMs: NOW, serverVersion: "1.0.0" });
     bundle.tables.forget_log.push({
       seq: 1,
       ts: NOW,
@@ -765,11 +751,7 @@ describe("true round-trip equality (export -> import into a fresh DB -> re-expor
       prev_hash: "0",
       hash: "x",
     });
-    const remapped = remapBundleVault(bundle, "X");
-    expect(remapped.ok).toBe(true);
-    if (!remapped.ok) return;
-    const target = edb();
-    importContextBundle(target, cacheDb(), remapped.bundle);
+    const target = importIntoVault(bundle, "X");
     expect(verifyForgetLog(target).ok).toBe(true);
   });
 });
