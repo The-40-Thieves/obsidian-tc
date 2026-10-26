@@ -24,6 +24,7 @@ import type { MetricsRecorder } from "../src/metrics/registry";
 import { createPlurClient } from "../src/plur/client";
 import { registerM5Tools } from "../src/tools/m5";
 import { VaultRegistry } from "../src/vault/registry";
+import type { SnapshotCaptureConfig } from "../src/vault/snapshots";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
@@ -59,6 +60,8 @@ export interface M5VaultOptions {
   /** Index-on-write hooks (M5Deps.reindex / deindex); pass spies to assert what a call re-indexed. */
   reindex?: (vaultId: string, path: string, content: string) => void;
   deindex?: (vaultId: string, path: string) => void;
+  /** Pre-image snapshots for destructive memory writes (M5Deps.snapshots). Omit -> disabled. */
+  snapshots?: SnapshotCaptureConfig;
 }
 
 export interface M5EventRow {
@@ -150,6 +153,7 @@ export function makeM5Vault(opts: M5VaultOptions = {}): M5Vault {
     ...(opts.bootstrap ? { bootstrap: opts.bootstrap } : {}),
     ...(opts.reindex ? { reindex: opts.reindex } : {}),
     ...(opts.deindex ? { deindex: opts.deindex } : {}),
+    ...(opts.snapshots ? { snapshots: opts.snapshots } : {}),
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({

@@ -301,8 +301,8 @@ rule:
     });
   });
 
-  it("the only raw enforcePathAcl in the memory tools are the helper itself and planNeighbors' quiet probe", () => {
-    expect(found.raw?.["memory-projection.ts"]).toBe(2);
+  it("the only raw enforcePathAcl in the memory tools are the helper itself and planNeighbors' two neighbour probes", () => {
+    expect(found.raw?.["memory-projection.ts"]).toBe(3);
     expect(found.raw?.["memory-tools.ts"]).toBeUndefined();
     expect(found.raw?.["memory-lifecycle-tools.ts"]).toBeUndefined();
   });

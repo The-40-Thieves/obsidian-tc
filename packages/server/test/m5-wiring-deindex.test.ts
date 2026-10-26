@@ -52,6 +52,9 @@ async function createThenDeleteAlice(
     const r = await registry.dispatch("delete_entity", input, { ...ctx, elicitToken: token });
     expect(r.ok).toBe(true);
     expect(deindex.mock.calls).toEqual([["test", "memory/person/Alice.md"]]);
+    // The wiring also hands over the snapshot config (on by default), so the delete keeps a pre-image.
+    const snaps = db.prepare("SELECT count(*) AS n FROM note_snapshots").get() as { n: number };
+    expect(snaps.n).toBe(1);
   } finally {
     rmTemp(root);
     rmTemp(cacheDir);
