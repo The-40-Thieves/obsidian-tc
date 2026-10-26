@@ -76,3 +76,6 @@ Coolify, Dokploy or CapRover from the templates in `deploy/paas/`, see
 ZimaOS or Unraid, on your local network, see [Home server](/deployment/home-server/).
 
 For stdio containers and the shared long-lived HTTP Compose bundle, see [Docker](/deployment/docker/).
+
+For OpenAPI-only consumers (n8n, Zapier, scripts, Open WebUI user tool servers), run the mcpo bridge
+in front of the HTTP bundle; see [OpenAPI clients (mcpo bridge)](/deployment/openapi-bridge/).

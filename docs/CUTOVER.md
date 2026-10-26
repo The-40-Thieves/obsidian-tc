@@ -64,7 +64,7 @@ Beyond parity, obsidian-tc adds links (`get_outgoing_links`, `get_backlinks`,
 `find_orphans`, `find_unresolved_links`, `rewrite_link`, `prune_hub_links`), attachments
 (`list_attachments`, `get_attachment`, `write_attachment`, `move_attachment`, `delete_attachment`), canvas
 (`read_canvas`, `create_canvas`, `update_canvas`, `query_canvas`), Bases (`read_base`,
-`create_base`, `update_base`, `query_base` — evaluates the real Obsidian 1.12 Bases
+`create_base`, `update_base`, `query_base` — evaluates the real Obsidian 1.14 Bases
 expression-DSL subset, with realigned `order`/`sort`/`limit`/`groupBy` view keys
 and deprecation notices for the old aliases), bookmarks, workspaces, bulk ops
 (`bulk_create_notes`, `bulk_set_property`, `bulk_move_notes`), multi-vault registry
