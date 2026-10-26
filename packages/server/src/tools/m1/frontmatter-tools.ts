@@ -32,6 +32,7 @@ import { captureSnapshot } from "../../vault/snapshots";
 import { readableStoredRow } from "../../vault/stored-acl-path";
 import { preflightNoteWrite } from "../../vault/write-gate";
 import { noteKeys, ToolHint, unknownPropertyHint } from "../hints";
+import { readRefusalShape } from "../read-refusals";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import { defineTool } from "./define";
@@ -149,6 +150,7 @@ const UpdateFrontmatterOutput = z.object({
 
 const ListPropertiesOutput = z.object({
   ...scanWarningsShape,
+  ...readRefusalShape,
   vault: z.string(),
   notes_scanned: z.number().int(),
   properties: z.array(
@@ -158,6 +160,7 @@ const ListPropertiesOutput = z.object({
 
 const FindNotesByPropertyOutput = z.object({
   ...scanWarningsShape,
+  ...readRefusalShape,
   vault: z.string(),
   key: z.string(),
   total: z.number().int(),
@@ -518,17 +521,22 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
           );
           for (const e of entries) {
             if (scanned >= input.max_notes) break;
+            const raw = warnings.refusals.read(v.root, e.relPath);
+            if (raw === null) continue;
             scanned++;
-            tally(
-              warnings.parse(readNote(resolveVaultPath(v.root, e.relPath)).raw, e.relPath)
-                .frontmatter,
-            );
+            tally(warnings.parse(raw, e.relPath).frontmatter);
           }
         }
         const properties = [...stats.entries()]
           .map(([key, s]) => ({ key, count: s.count, types: [...s.types].sort() }))
           .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
-        return { ...warnings.out(), vault: v.id, notes_scanned: scanned, properties };
+        return {
+          ...warnings.out(),
+          ...warnings.refusals.out(),
+          vault: v.id,
+          notes_scanned: scanned,
+          properties,
+        };
       },
     }),
 
@@ -590,10 +598,9 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
             readableEntry(ctx.acl, e, ctx.grantedScopes),
           );
           for (const e of entries) {
-            const fm = warnings.parse(
-              readNote(resolveVaultPath(v.root, e.relPath)).raw,
-              e.relPath,
-            ).frontmatter;
+            const raw = warnings.refusals.read(v.root, e.relPath);
+            if (raw === null) continue;
+            const fm = warnings.parse(raw, e.relPath).frontmatter;
             if (!consider(e.relPath, fm)) break;
           }
         }
@@ -603,6 +610,7 @@ export function buildFrontmatterTools(deps: M1Deps): ToolDefinition[] {
             : undefined;
         return {
           ...warnings.out(),
+          ...warnings.refusals.out(),
           vault: v.id,
           key: input.key,
           total: matches.length,

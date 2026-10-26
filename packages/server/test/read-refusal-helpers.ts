@@ -1,10 +1,33 @@
-// Shared assertions for the read-refusal walker tests (read-refusal-walkers*.test.ts).
+// Shared assertions and fixtures for the read-refusal walker tests (read-refusal-walkers*.test.ts).
+import { linkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import { expect } from "vitest";
+import { makeTempDir, rmTemp } from "./tmp";
+
+/** A file outside the vault, hard-linked into `root` at `rel`: the safe open refuses that read. The
+ *  caller's `rel` directory must already exist. Returns the cleanup for the outside directory. */
+export function hardLinkOutside(root: string, text: string, rel = join("n", "hl.md")): () => void {
+  const outside = makeTempDir("obtc-walk-refusal-out-");
+  const src = join(outside, "src.md");
+  writeFileSync(src, text);
+  linkSync(src, join(root, rel));
+  return () => rmTemp(outside);
+}
 
 /** The data of a successful tool call; throws with the envelope otherwise. */
 export function okData(r: ToolResult): Record<string, unknown> {
   if (!r.ok) throw new Error(`call failed: ${JSON.stringify(r)}`);
   return r.data as Record<string, unknown>;
+}
+
+/** The link and provenance scans of lint_wiki ran: a refused note skips one read, not the check. */
+export function expectLintScansRan(lint: Record<string, unknown>): void {
+  const skipped = (lint.skipped as Array<{ check: string }>).map((s) => s.check);
+  for (const check of ["orphans", "unresolved_links", "missing_sources"]) {
+    expect(lint.checks_run).toContain(check);
+    expect(skipped).not.toContain(check);
+  }
 }
 
 /** The sorted paths of a search result's items. */

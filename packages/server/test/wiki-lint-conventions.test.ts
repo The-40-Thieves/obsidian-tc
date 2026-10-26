@@ -4,10 +4,12 @@
 // existing kinds' output as it was.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { LINT_CHECKS } from "../src/tools/m7/knowledge/wiki-lint";
 import { conventionsScanSteps } from "../src/tools/m7/knowledge/wiki-lint-conventions";
+import { ReadRefusals } from "../src/tools/read-refusals";
 import { drainYielding } from "../src/util/scan-steps";
+import { hardLinkOutside } from "./read-refusal-helpers";
 import { makeWikiHarness, type WikiHarness } from "./wiki-test-helpers";
 
 const layer = (body: string): string => `---\nconventions:\n${body}\n---\n# rules\n`;
@@ -359,7 +361,7 @@ describe("lint_wiki conventions", () => {
     };
     let finished = false;
     function* tapped() {
-      const r = yield* conventionsScanSteps(scope, keep);
+      const r = yield* conventionsScanSteps(scope, keep, undefined, new ReadRefusals());
       finished = true;
       return r;
     }
@@ -379,5 +381,22 @@ describe("lint_wiki conventions", () => {
     });
     const d = await lint(hh, { checks: ["conventions_file"] });
     expect(ofKind(d, "conventions_file")).toEqual([]);
+  });
+});
+
+describe.skipIf(process.platform === "win32")("lint_wiki conventions counts a refused read", () => {
+  const cleanups: Array<() => void> = [];
+  afterEach(() => {
+    for (const c of cleanups.splice(0)) c();
+  });
+
+  it("a convention-checked note the safe open refuses is counted, not skipped silently", async () => {
+    const hh = fixture();
+    cleanups.push(() => hh.v.cleanup());
+    cleanups.push(
+      hardLinkOutside(hh.v.root, "---\ntype: research\n---\nx\n", join("wiki", "hl.md")),
+    );
+    const d = await lint(hh, { checks: ["conventions"] });
+    expect(d.notes_read_refused).toBe(1);
   });
 });

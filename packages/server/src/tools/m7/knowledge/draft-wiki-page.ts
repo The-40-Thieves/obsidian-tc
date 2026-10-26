@@ -16,6 +16,7 @@ import { vaultExclusionFor } from "../../../search/index-exclusion";
 import { readNote } from "../../../vault/notes-io";
 import { resolveVaultPath } from "../../../vault/paths";
 import { defineTool } from "../../m1/define";
+import { readRefusalShape } from "../../read-refusals";
 import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
 import { scanWarningsShape } from "../../scan-warnings";
 import type { M7Deps } from "./deps";
@@ -87,6 +88,7 @@ const IngestSection = z.object({
 
 export const DraftWikiPageOutput = z.object({
   ...scanWarningsShape,
+  ...readRefusalShape,
   vault: z.string(),
   topic: z.string(),
   wiki: z.object({ folder: z.string().nullable(), schema: SchemaSection }),
@@ -254,7 +256,14 @@ export function createDraftWikiPageTool(deps: M7Deps, retrieval: RetrievalRuntim
         judge: input.judge,
         concise,
       });
-      const { warnings, warnings_omitted, vault: _v, topic: _t, ...dedupe } = output;
+      const {
+        warnings,
+        warnings_omitted,
+        notes_read_refused: _refused,
+        vault: _v,
+        topic: _t,
+        ...dedupe
+      } = output;
       const exclusion = vaultExclusionFor(deps.vaultRegistry, v.id);
       const exists = output.verdict === "exists" ? ranked[0] : undefined;
       const type = resolveType(input.type, load);
@@ -281,7 +290,7 @@ export function createDraftWikiPageTool(deps: M7Deps, retrieval: RetrievalRuntim
       const inWiki = (p: string): boolean => !!v.wikiFolder && pathInFolder(p, v.wikiFolder);
       const citedBy =
         rawSource && v.wikiFolder
-          ? pagesCiting(v.root, scan.notes, v.wikiFolder, rawSource.path)
+          ? pagesCiting(v.root, scan.notes, v.wikiFolder, rawSource.path, scan.warnings.refusals)
           : [];
       // Can the wiki take the source in: a page covers the topic, one is related to it, or one cites it.
       const refused = rawSource
@@ -306,6 +315,7 @@ export function createDraftWikiPageTool(deps: M7Deps, retrieval: RetrievalRuntim
           : {}),
         ...(warnings ? { warnings } : {}),
         ...(warnings_omitted ? { warnings_omitted } : {}),
+        ...scan.warnings.refusals.out(),
         vault: v.id,
         topic: input.topic,
         wiki: { folder: v.wikiFolder ?? null, schema: schemaSection(load, !!v.wikiFolder) },

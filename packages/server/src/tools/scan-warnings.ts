@@ -9,6 +9,7 @@
 import { z } from "zod";
 import { type ParsedNote, parseNoteLenient } from "../vault/frontmatter";
 import { type ExtractedLink, extractNoteLinks } from "../vault/links";
+import { ReadRefusals } from "./read-refusals";
 
 /** Warnings kept per result; the rest are only counted (`warnings_omitted`). */
 export const MAX_SCAN_WARNINGS = 50;
@@ -75,6 +76,13 @@ export function capWarningsOut<T>(items: readonly T[]): {
 export class ScanWarnings {
   private readonly items: ScanWarning[] = [];
   private omitted = 0;
+  /** The notes a walk skipped because the safe open refused their read (counted, never named). */
+  readonly refusals: ReadRefusals;
+
+  /** Pass a shared counter when two walks of one call must count a note once. */
+  constructor(refusals: ReadRefusals = new ReadRefusals()) {
+    this.refusals = refusals;
+  }
 
   /** Parse one note of a scan. Never throws on bad frontmatter YAML: records a warning and returns
    *  the note with `frontmatter: null` and its real body. */

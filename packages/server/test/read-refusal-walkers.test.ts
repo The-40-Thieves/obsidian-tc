@@ -1,13 +1,12 @@
 // A walker that reads every note skips one the safe open refuses (a hard link to a file outside the
 // vault) instead of aborting the whole call. The refused note is counted in notes_read_refused and
 // never named: the caller may not read it.
-import { linkSync, symlinkSync, writeFileSync } from "node:fs";
+import { symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeM2Vault } from "./m2-helpers";
 import { makeM3Vault } from "./m3-helpers";
-import { itemPaths, okData, TEXT_SEARCH_TOOLS } from "./read-refusal-helpers";
-import { makeTempDir, rmTemp } from "./tmp";
+import { hardLinkOutside, itemPaths, okData, TEXT_SEARCH_TOOLS } from "./read-refusal-helpers";
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -16,11 +15,7 @@ afterEach(() => {
 
 /** A file outside the vault, hard-linked in as n/hl.md: the safe open refuses that read. */
 function outsideLink(root: string, text: string, rel = join("n", "hl.md")): void {
-  const outside = makeTempDir("obtc-walk-refusal-out-");
-  cleanups.push(() => rmTemp(outside));
-  const src = join(outside, "src.md");
-  writeFileSync(src, text);
-  linkSync(src, join(root, rel));
+  cleanups.push(hardLinkOutside(root, text, rel));
 }
 
 /** The caller of the ACL vault below: it may read notes and attachments, not private/. */

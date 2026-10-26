@@ -15,8 +15,7 @@ import { globToRegExp } from "../acl";
 import { drainSteps, type ScanSteps } from "../util/scan-steps";
 import { readableEntry } from "../vault/acl-read-filter";
 import { buildVaultIndex, type ExtractedLink, resolveTarget } from "../vault/links";
-import { readNote } from "../vault/notes-io";
-import { resolveVaultPath, walkVaultSteps } from "../vault/paths";
+import { walkVaultSteps } from "../vault/paths";
 import { matchHeadingBoundary } from "./m1/notes/heading-syntax";
 import { isGeneratedWikiPath, rawPathFilter } from "./m7/knowledge/wiki-folder";
 import { isGeneratedPage } from "./m7/knowledge/wiki-generated-seal";
@@ -59,7 +58,8 @@ export function readableNotes(
 /** A note's links for a scan: property links, then body links. Bad frontmatter YAML does not fail
  *  the scan: the note is named in `warnings`, it has no property links, and its body still counts. */
 export function linksOf(root: string, rel: string, warnings: ScanWarnings): ExtractedLink[] {
-  const raw = readNote(resolveVaultPath(root, rel)).raw;
+  const raw = warnings.refusals.read(root, rel);
+  if (raw === null) return [];
   // A generated page (the wiki index) links every page it lists: those are not authored links.
   return isGeneratedPage(raw) ? [] : warnings.links(raw, rel);
 }
@@ -317,7 +317,12 @@ export function* scanProvenanceSteps(
   let withConfidence = 0;
   let withVerified = 0;
   for (const rel of notes) {
-    const parsed = warnings.parse(readNote(resolveVaultPath(scope.root, rel)).raw, rel);
+    const raw = warnings.refusals.read(scope.root, rel);
+    if (raw === null) {
+      yield;
+      continue;
+    }
+    const parsed = warnings.parse(raw, rel);
     const fm = parsed.frontmatter;
     if (types && !typeMatches(fm, types)) {
       skippedByType++;

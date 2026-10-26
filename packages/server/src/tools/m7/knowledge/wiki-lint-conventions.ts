@@ -11,9 +11,8 @@ import {
 } from "../../../conventions/schema";
 import type { ScanSteps } from "../../../util/scan-steps";
 import { type Frontmatter, parseNoteLenient } from "../../../vault/frontmatter";
-import { readNoteBounded } from "../../../vault/notes-io";
-import { resolveVaultPath } from "../../../vault/paths";
 import { isValidTag } from "../../../vault/tags";
+import type { ReadRefusals } from "../../read-refusals";
 import { capWarningsOut, MAX_SCAN_WARNINGS } from "../../scan-warnings";
 import { readableNotesSteps } from "../../wiki-scan";
 
@@ -122,7 +121,8 @@ const folderOf = (rel: string): string =>
 export function* conventionsScanSteps(
   scope: ConventionsScope,
   keep: (path: string) => boolean,
-  folder?: string,
+  folder: string | undefined,
+  refusals: ReadRefusals,
 ): ScanSteps<ConventionsScan> {
   const notes: ConventionProposal[] = [];
   const blockingNotes: ConventionProposal[] = [];
@@ -153,7 +153,7 @@ export function* conventionsScanSteps(
         filesOmitted = Math.max(filesOmitted, eff.fileWarningsOmitted);
       }
       if (!judges(eff, rel)) continue;
-      const { raw } = readNoteBounded(resolveVaultPath(scope.root, rel), NOTE_MAX_BYTES);
+      const raw = refusals.readBounded(scope.root, rel, NOTE_MAX_BYTES);
       if (raw === null) continue;
       const fm = parseNoteLenient(raw, rel).frontmatter;
       const warnings = checkNote(eff, rel, fm);

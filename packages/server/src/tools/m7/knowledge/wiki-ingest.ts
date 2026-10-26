@@ -14,6 +14,7 @@ import { buildVaultIndex, resolveTarget } from "../../../vault/links";
 import { noteExists, readNote } from "../../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../../../vault/paths";
 import type { ResolvedVault } from "../../../vault/registry";
+import type { ReadRefusals } from "../../read-refusals";
 import { ScanWarnings } from "../../scan-warnings";
 import { linksOf } from "../../wiki-scan";
 import { insideFolder, pathInFolder, rawFolderPlacement } from "./wiki-folder";
@@ -109,9 +110,10 @@ export function pagesCiting(
   notes: readonly string[],
   wikiFolder: string,
   sourcePath: string,
+  refusals: ReadRefusals,
 ): string[] {
   const index = buildVaultIndex([...notes]);
-  const warnings = new ScanWarnings();
+  const warnings = new ScanWarnings(refusals);
   return notes
     .filter((rel) => pathInFolder(rel, wikiFolder))
     .filter((rel) =>

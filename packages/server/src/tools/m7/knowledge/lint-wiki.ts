@@ -8,6 +8,7 @@ import { NOTE_DUPLICATE_MIN } from "../../../search/dedupe-band";
 import { vaultExclusionFor } from "../../../search/index-exclusion";
 import { normalizeVaultPath } from "../../../vault/paths";
 import { defineTool } from "../../m1/define";
+import { readRefusalShape } from "../../read-refusals";
 import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
 import { scanWarningsShape } from "../../scan-warnings";
 import type { M7Deps } from "./deps";
@@ -46,6 +47,7 @@ const ProposalSchema = z.object({
 
 export const LintWikiOutput = z.object({
   ...scanWarningsShape,
+  ...readRefusalShape,
   vault: z.string(),
   folder: z.string().optional(),
   // Always true: this tool proposes, the caller applies.

@@ -14,6 +14,7 @@ import { parseNote, serializeNote } from "../../vault/frontmatter";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
+import { readRefusalShape } from "../read-refusals";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import type { M3Deps } from "./shared";
 
@@ -86,6 +87,7 @@ function insertLine(col: Column): number {
 
 const ListKanbanBoardsOutput = z.object({
   ...scanWarningsShape,
+  ...readRefusalShape,
   vault: z.string(),
   total: z.number().int(),
   boards: z.array(
@@ -141,10 +143,9 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
         const warnings = new ScanWarnings();
         for (const e of walkVault(v.root, { sub, extensions: [".md"] })) {
           if (!readableEntry(ctx.acl, e, ctx.grantedScopes)) continue;
-          const parsed = warnings.parse(
-            readNote(resolveVaultPath(v.root, e.relPath)).raw,
-            e.relPath,
-          );
+          const raw = warnings.refusals.read(v.root, e.relPath);
+          if (raw === null) continue;
+          const parsed = warnings.parse(raw, e.relPath);
           if (!isBoard(parsed.frontmatter)) continue;
           const { columns } = parseBoard(parsed.body);
           boards.push({
@@ -153,7 +154,13 @@ export function buildKanbanTools(deps: M3Deps): ToolDefinition[] {
             cards: columns.reduce((n, c) => n + c.cards.length, 0),
           });
         }
-        return { ...warnings.out(), vault: v.id, total: boards.length, boards };
+        return {
+          ...warnings.out(),
+          ...warnings.refusals.out(),
+          vault: v.id,
+          total: boards.length,
+          boards,
+        };
       },
     }),
 

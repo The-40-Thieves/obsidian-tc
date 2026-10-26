@@ -121,6 +121,7 @@ export interface LintReport {
   truncated: ProposalKind[];
   notes: string[];
   warnings: ReturnType<ScanWarnings["out"]>;
+  notes_read_refused?: number;
 }
 
 const ORDER: ProposalKind[] = [
@@ -482,6 +483,7 @@ export async function runWikiLint(
         },
         subjectOk,
         folder,
+        warnings.refusals,
       ),
       signal,
     );
@@ -510,5 +512,6 @@ export async function runWikiLint(
     truncated: [...truncated],
     notes,
     warnings: warnings.out(),
+    ...warnings.refusals.out(),
   };
 }

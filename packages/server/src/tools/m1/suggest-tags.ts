@@ -25,6 +25,7 @@ import { parseNote } from "../../vault/frontmatter";
 import { noteExists, readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { isValidTag, normalizeTag, noteTags } from "../../vault/tags";
+import { ReadRefusals, readRefusalShape } from "../read-refusals";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
@@ -69,6 +70,7 @@ const SuggestTagsInput = z
   .strict();
 
 const SuggestTagsOutput = z.object({
+  ...readRefusalShape,
   vault: z.string(),
   path: z.string(),
   /** Who produced `suggestions`: the client's model over MCP sampling, or this server's heuristic. */
@@ -205,12 +207,14 @@ export function buildSuggestTagsTool(deps: M1Deps): ToolDefinition {
       const body = parseNote(raw, rel).body;
       const title = rel.replace(/^.*\//, "").replace(/\.md$/i, "");
 
+      const refusals = new ReadRefusals();
       const { counts } = collectTagCounts(
         deps.metadataIndex?.ready() === true,
         ctx,
         v,
         undefined,
         L.vocabularyNotes,
+        refusals,
       );
       for (const t of [...counts.keys()])
         if (t.length > L.tagChars || !isValidTag(t)) counts.delete(t);
@@ -226,8 +230,9 @@ export function buildSuggestTagsTool(deps: M1Deps): ToolDefinition {
           .slice(0, limit)
           .map((tag) => ({ tag, in_vocabulary: counts.has(tag) }));
         if (resolveResponseFormat(input, deps.responseFormat) === "concise")
-          return { vault: v.id, source, suggestions };
+          return { ...refusals.out(), vault: v.id, source, suggestions };
         return {
+          ...refusals.out(),
           vault: v.id,
           path: rel,
           source,
