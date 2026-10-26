@@ -15,13 +15,32 @@ afterEach(() => {
 });
 
 /** A file outside the vault, hard-linked in as n/hl.md: the safe open refuses that read. */
-function outsideLink(root: string, text: string): void {
+function outsideLink(root: string, text: string, rel = join("n", "hl.md")): void {
   const outside = makeTempDir("obtc-walk-refusal-out-");
   cleanups.push(() => rmTemp(outside));
   const src = join(outside, "src.md");
   writeFileSync(src, text);
-  linkSync(src, join(root, "n", "hl.md"));
+  linkSync(src, join(root, rel));
 }
+
+/** The caller of the ACL vault below: it may read notes and attachments, not private/. */
+const NO_PRIVATE = { grantedScopes: new Set(["read:notes", "read:attachments"]) };
+
+describe("a clean vault's attachment walks carry no notes_read_refused key", () => {
+  it("list_attachments and get_attachment", async () => {
+    const v = makeM3Vault({ files: { "img.png": "png", "n/a.md": "![[img.png]]\n" } });
+    cleanups.push(() => v.cleanup());
+    const listed = okData(
+      await v.call("list_attachments", { vault: "test", include_reference_count: true }),
+    );
+    expect(listed).not.toHaveProperty("notes_read_refused");
+    const got = okData(
+      await v.call("get_attachment", { vault: "test", path: "img.png", include_references: true }),
+    );
+    expect(got.references).toEqual(["n/a.md"]);
+    expect(got).not.toHaveProperty("notes_read_refused");
+  });
+});
 
 describe.skipIf(process.platform === "win32")(
   "walkers skip a hard-linked note and count it",
@@ -56,6 +75,54 @@ describe.skipIf(process.platform === "win32")(
       );
       expect(d.references).toEqual(["n/a.md"]);
       expect(d.notes_read_refused).toBe(1);
+    });
+
+    it("list_attachments counts a hard-linked note once across attachments, concise too", async () => {
+      const v = makeM3Vault({
+        files: { "img.png": "png", "pic.png": "png", "n/a.md": "![[img.png]]\n![[pic.png]]\n" },
+      });
+      cleanups.push(() => v.cleanup());
+      outsideLink(v.root, "![[img.png]]\n![[pic.png]]\n");
+      for (const response_format of [undefined, "concise"] as const) {
+        const d = okData(
+          await v.call("list_attachments", {
+            vault: "test",
+            include_reference_count: true,
+            response_format,
+          }),
+        );
+        expect(d.attachments).toHaveLength(2);
+        expect(d.notes_read_refused).toBe(1);
+      }
+    });
+
+    it("an unreadable note is neither read nor counted by the attachment walks", async () => {
+      const v = makeM3Vault({
+        files: { "pub/img.png": "png", "pub/a.md": "![[img.png]]\n", "private/keep.md": "x" },
+        acl: { rules: [{ glob: "private/**", scopes: ["read:private"] }] },
+      });
+      cleanups.push(() => v.cleanup());
+      outsideLink(v.root, "![[img.png]]\n", join("private", "hl.md"));
+      const got = okData(
+        await v.call(
+          "get_attachment",
+          { vault: "test", path: "pub/img.png", include_references: true },
+          NO_PRIVATE,
+        ),
+      );
+      expect(got.references).toEqual(["pub/a.md"]);
+      expect(got).not.toHaveProperty("notes_read_refused");
+      const listed = okData(
+        await v.call(
+          "list_attachments",
+          { vault: "test", folder: "pub", include_reference_count: true },
+          NO_PRIVATE,
+        ),
+      );
+      expect(listed.attachments).toEqual([
+        expect.objectContaining({ path: "pub/img.png", reference_count: 1 }),
+      ]);
+      expect(listed).not.toHaveProperty("notes_read_refused");
     });
 
     it("delete_attachment deletes and reports the readable referrer and the refusal", async () => {

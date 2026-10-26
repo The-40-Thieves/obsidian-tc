@@ -268,9 +268,9 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           ...(concise ? {} : { size: e.size, mtime: e.mtime, mime: mimeOf(e.relPath) }),
           ...(input.include_reference_count
             ? {
-                reference_count: findAttachmentReferences(v.root, e.relPath, refusals).filter((r) =>
-                  readableEntry(ctx.acl, r, ctx.grantedScopes),
-                ).length,
+                reference_count: findAttachmentReferences(v.root, e.relPath, refusals, (x) =>
+                  readableEntry(ctx.acl, x, ctx.grantedScopes),
+                ).filter((r) => readableEntry(ctx.acl, r, ctx.grantedScopes)).length,
               }
             : {}),
         }));
@@ -336,7 +336,9 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           // enumerate out-of-ACL note paths.
           ...(input.include_references
             ? {
-                references: findAttachmentReferences(v.root, rel, refusals)
+                references: findAttachmentReferences(v.root, rel, refusals, (x) =>
+                  readableEntry(ctx.acl, x, ctx.grantedScopes),
+                )
                   .filter((r) => readableEntry(ctx.acl, r, ctx.grantedScopes))
                   .map((r) => r.relPath),
               }
@@ -631,7 +633,9 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("attachment not found", { path: rel });
         const refusals = new ReadRefusals();
-        const references = findAttachmentReferences(v.root, rel, refusals)
+        const references = findAttachmentReferences(v.root, rel, refusals, (x) =>
+          readableEntry(ctx.acl, x, ctx.grantedScopes),
+        )
           .filter((r) => readableEntry(ctx.acl, r, ctx.grantedScopes))
           .map((r) => r.relPath);
         const st = statNote(abs);

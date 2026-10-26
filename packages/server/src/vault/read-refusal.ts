@@ -1,8 +1,10 @@
 // A note the safe open refuses (acl_denied) is skipped by a whole-vault walk, not an abort of the
 // whole call. The walk lists a note under its symlink-resolved identity; the read goes through the
 // safe open, which refuses an unconfigured symlinked folder (`wiki -> pages`) and a hard link to a
-// file outside the vault. Only that refusal is caught here: every other error (ENOENT for a note
-// deleted mid-pass, I/O, a non-regular file) propagates unchanged.
+// file outside the vault. Only acl_denied is caught here: every other error (ENOENT for a note
+// deleted mid-pass, a non-regular file) propagates unchanged. Under the native module an ordinary I/O
+// failure on a regular file also surfaces as acl_denied, so it is skipped and counted; only the JS
+// fallback propagates it.
 import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { errorMessage } from "../util/errors";
 import { readNote } from "./notes-io";

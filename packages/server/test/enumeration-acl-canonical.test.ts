@@ -191,7 +191,10 @@ describe.skipIf(process.platform === "win32")("enumeration filters on the canoni
     ] as const) {
       const denied = await v.call(tool, { vault: "test", root: "wiki", ...input }, CALLER);
       expect(leaks(dump(denied))).toBe(false);
-      if (denied.ok) expect((denied.data as { hits?: unknown[] }).hits ?? []).toEqual([]);
+      if (denied.ok) {
+        expect((denied.data as { items?: unknown[] }).items ?? []).toEqual([]);
+        expect(denied.data).not.toHaveProperty("notes_read_refused");
+      }
     }
     // The alias target is read through an UNCONFIGURED symlinked folder, which the safe open refuses on
     // both the native and the JS path (fail closed). The walk skips that note and counts it, so the

@@ -9,24 +9,25 @@ export const readRefusalShape = {
 };
 
 export class ReadRefusals {
-  private refused = 0;
+  // Keyed by note, so a note read by several walks of one call (one per attachment) counts once.
+  private readonly refused = new Set<string>();
 
   /** The note's raw text, or null when the safe open refused it (counted). Any other error propagates. */
   read(root: string, rel: string): string | null {
     const r = readNoteOrRefusal(root, rel);
     if ("refused" in r) {
-      this.refused++;
+      this.refused.add(rel);
       return null;
     }
     return r.raw;
   }
 
   get count(): number {
-    return this.refused;
+    return this.refused.size;
   }
 
   /** Spread into the tool's return value (absent when nothing was refused). */
   out(): { notes_read_refused?: number } {
-    return this.refused > 0 ? { notes_read_refused: this.refused } : {};
+    return this.refused.size > 0 ? { notes_read_refused: this.refused.size } : {};
   }
 }

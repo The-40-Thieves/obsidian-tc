@@ -33,9 +33,9 @@ describe("a refused read is skipped and counted, not fatal", () => {
     const v = makeM2Vault({ files: { "n/a.md": "![[img.png]]\n", "n/b.md": "![[img.png]]\n" } });
     cleanups.push(() => v.cleanup());
     const refusals = new ReadRefusals();
-    expect(findAttachmentReferences(v.root, "img.png", refusals).map((e) => e.relPath)).toEqual([
-      "n/a.md",
-    ]);
+    expect(
+      findAttachmentReferences(v.root, "img.png", refusals, () => true).map((e) => e.relPath),
+    ).toEqual(["n/a.md"]);
     expect(refusals.count).toBe(1);
   });
 
@@ -47,7 +47,8 @@ describe("a refused read is skipped and counted, not fatal", () => {
     expect(text.map((h) => h.path)).toEqual(["n/a.md"]);
     const regex = await searchRegex(v.root, { pattern: "zebra", limit: 100, refusals });
     expect(regex.map((h) => h.path)).toEqual(["n/a.md"]);
-    expect(refusals.count).toBe(2);
+    // One refused note, read by both walks: counted once.
+    expect(refusals.count).toBe(1);
   });
 
   it("list_attachments include_reference_count counts the readable reference and the refusal", async () => {

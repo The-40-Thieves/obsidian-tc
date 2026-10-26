@@ -94,13 +94,19 @@ describe("formats/attachments", () => {
     });
     try {
       expect(
-        findAttachmentReferences(root, "diagram.png", new ReadRefusals()).map((e) => e.relPath),
+        findAttachmentReferences(root, "diagram.png", new ReadRefusals(), () => true).map(
+          (e) => e.relPath,
+        ),
       ).toEqual(["a.md"]);
       expect(
-        findAttachmentReferences(root, "docs/spec.pdf", new ReadRefusals()).map((e) => e.relPath),
+        findAttachmentReferences(root, "docs/spec.pdf", new ReadRefusals(), () => true).map(
+          (e) => e.relPath,
+        ),
       ).toEqual(["a.md"]);
       expect(
-        findAttachmentReferences(root, "absent.png", new ReadRefusals()).map((e) => e.relPath),
+        findAttachmentReferences(root, "absent.png", new ReadRefusals(), () => true).map(
+          (e) => e.relPath,
+        ),
       ).toEqual([]);
     } finally {
       rmTemp(root);

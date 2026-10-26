@@ -109,16 +109,19 @@ function normalizeTarget(targetRaw: string): string {
 }
 
 /** Every note that references an attachment: its display path (`relPath`) to show, and its ACL identity
- *  (`aclRel`) for a caller to judge (readableEntry). For a root walk the two are equal. */
+ *  (`aclRel`) for a caller to judge (readableEntry). For a root walk the two are equal. A note `readable`
+ *  rejects is neither read nor counted in `refusals`. */
 export function findAttachmentReferences(
   root: string,
   attachmentRel: string,
   refusals: ReadRefusals,
+  readable: (e: WalkEntry) => boolean,
 ): Array<Pick<WalkEntry, "relPath" | "aclRel">> {
   const targetPath = attachmentRel.toLowerCase();
   const targetBase = baseOf(attachmentRel).toLowerCase();
   const out: Array<Pick<WalkEntry, "relPath" | "aclRel">> = [];
   for (const e of walkVault(root, { extensions: [".md"] })) {
+    if (!readable(e)) continue;
     // A property link counts (`cover: "[[img.png]]"`): an image used only there is still referenced.
     // Lenient: a note whose YAML does not parse still has its body links counted.
     const raw = refusals.read(root, e.relPath);

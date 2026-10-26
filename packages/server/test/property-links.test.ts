@@ -513,10 +513,14 @@ describe("attachment references", () => {
     });
     try {
       expect(
-        findAttachmentReferences(v.root, "hero.png", new ReadRefusals()).map((e) => e.relPath),
+        findAttachmentReferences(v.root, "hero.png", new ReadRefusals(), () => true).map(
+          (e) => e.relPath,
+        ),
       ).toEqual(["post.md"]);
       expect(
-        findAttachmentReferences(v.root, "other.png", new ReadRefusals()).map((e) => e.relPath),
+        findAttachmentReferences(v.root, "other.png", new ReadRefusals(), () => true).map(
+          (e) => e.relPath,
+        ),
       ).toEqual(["broken.md"]);
     } finally {
       v.cleanup();
