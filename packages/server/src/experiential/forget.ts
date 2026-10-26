@@ -41,6 +41,11 @@ function rowHash(
     .digest("hex");
 }
 
+/** The vault a forget_log row names in `details.vault_id` as SQL: its string value, or NULL for a
+ *  legacy row or a non-string value. Every reader uses it so they agree on which vault a row is. */
+export const FORGET_ROW_VAULT_SQL =
+  "CASE WHEN json_type(details, '$.vault_id') = 'text' THEN json_extract(details, '$.vault_id') END";
+
 /** Append one forget event to the hash chain. Returns the new head hash. */
 export function appendForgetLog(edb: Database, e: ForgetLogEntry): string {
   const last = edb.prepare("SELECT hash FROM forget_log ORDER BY seq DESC LIMIT 1").get() as
@@ -311,6 +316,8 @@ export function forgetNote(
       target: opts.relPath,
       mode: opts.erase ? "erase" : "tombstone",
       details: {
+        // Scopes the tombstone to this vault: note_quality reads forget_log by path, not vault.
+        vault_id: opts.vaultId,
         chunks: chunkIds.length,
         retrieval_rows: retrievalRows,
         retrieval_rows_deleted: retrievalDeleted,

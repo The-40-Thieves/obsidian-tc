@@ -11,6 +11,7 @@ import { runMigrations } from "../src/db/migrate";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
+import { appendForgetLog, forgetNote } from "../src/experiential/forget";
 import {
   flagsFor,
   noteQualityWarningFor,
@@ -526,5 +527,71 @@ describe("THE-537 note_quality is NOT the ranker", () => {
       readFileSync(join(root, f), "utf8").includes("note-quality"),
     );
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("note_quality forget scope and pruning", () => {
+  function addNote(cacheDb: Database, vaultId: string, path: string): void {
+    cacheDb
+      .prepare(
+        "INSERT INTO notes (vault_id, path, title, tags, frontmatter, content_hash, mtime, size, indexed_at) VALUES (?, ?, ?, '[]', NULL, ?, ?, 10, ?)",
+      )
+      .run(vaultId, path, path, `h-${vaultId}-${path}`, NOW - DAY, NOW);
+  }
+  const rowOf = (edb: Database, vaultId: string, path: string) =>
+    readNoteQuality(edb, { vaultId, path })[0];
+
+  it("a forget in vault A does not tombstone vault B's note at the same path", () => {
+    const { cacheDb, edb } = stores();
+    addNote(cacheDb, "A", "notes/project.md");
+    addNote(cacheDb, "B", "notes/project.md");
+    forgetNote(edb, cacheDb, { vaultId: "A", relPath: "notes/project.md", nowMs: NOW });
+    recomputeNoteQuality(cacheDb, edb, { vaultId: "A", nowMs: NOW });
+    recomputeNoteQuality(cacheDb, edb, { vaultId: "B", nowMs: NOW });
+    expect(rowOf(edb, "A", "notes/project.md")?.tombstoned).toBe(1);
+    expect(rowOf(edb, "B", "notes/project.md")?.tombstoned).toBe(0);
+  });
+
+  it("a legacy forget row without vault_id still tombstones the path in every vault", () => {
+    const { cacheDb, edb } = stores();
+    addNote(cacheDb, "A", "notes/old.md");
+    addNote(cacheDb, "B", "notes/old.md");
+    appendForgetLog(edb, {
+      ts: NOW,
+      kind: "note",
+      target: "notes/old.md",
+      mode: "tombstone",
+      details: {},
+    });
+    recomputeNoteQuality(cacheDb, edb, { vaultId: "A", nowMs: NOW });
+    recomputeNoteQuality(cacheDb, edb, { vaultId: "B", nowMs: NOW });
+    expect(rowOf(edb, "A", "notes/old.md")?.tombstoned).toBe(1);
+    expect(rowOf(edb, "B", "notes/old.md")?.tombstoned).toBe(1);
+  });
+
+  it("deleting a note and recomputing drops its row, and leaves another vault's row alone", () => {
+    const { cacheDb, edb } = stores();
+    addNote(cacheDb, VAULT, "notes/gone.md");
+    addNote(cacheDb, "other", "notes/gone.md");
+    recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW });
+    recomputeNoteQuality(cacheDb, edb, { vaultId: "other", nowMs: NOW });
+    cacheDb
+      .prepare("DELETE FROM notes WHERE vault_id = ? AND path = ?")
+      .run(VAULT, "notes/gone.md");
+    recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW });
+    expect(rowOf(edb, VAULT, "notes/gone.md")).toBeUndefined();
+    expect(rowOf(edb, "other", "notes/gone.md")).toBeDefined();
+  });
+
+  it("moving a note and recomputing drops the old-path row", () => {
+    const { cacheDb, edb } = stores();
+    addNote(cacheDb, VAULT, "notes/from.md");
+    recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW });
+    cacheDb
+      .prepare("UPDATE notes SET path = ? WHERE vault_id = ? AND path = ?")
+      .run("notes/to.md", VAULT, "notes/from.md");
+    recomputeNoteQuality(cacheDb, edb, { vaultId: VAULT, nowMs: NOW });
+    expect(rowOf(edb, VAULT, "notes/from.md")).toBeUndefined();
+    expect(rowOf(edb, VAULT, "notes/to.md")).toBeDefined();
   });
 });
