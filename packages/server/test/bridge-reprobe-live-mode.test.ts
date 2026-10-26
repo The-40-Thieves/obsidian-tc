@@ -38,7 +38,12 @@ async function boot(route: FakeRoute, ids: readonly string[] = ["main"]) {
   const state = { route, probes: 0 };
   const fetchFn: BridgeFetch = (input, init) => {
     state.probes++;
-    return fakeBridgeTransport({ routes: { [PROBE]: state.route } })(input, init);
+    // A network failure carries its errno code, as Node's fetch does, so the boot log names it.
+    return fakeBridgeTransport({ routes: { [PROBE]: state.route } })(input, init).catch(
+      (e: unknown) => {
+        throw Object.assign(e as Error, { code: "ECONNREFUSED" });
+      },
+    );
   };
   const bridges = await wireBridges({
     vaults: ids.map((id) => ({
