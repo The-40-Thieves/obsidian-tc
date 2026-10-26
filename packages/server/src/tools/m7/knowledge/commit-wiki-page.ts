@@ -33,6 +33,7 @@ import { enforcePathAcl } from "../../../vault/acl-path";
 import { readableRel } from "../../../vault/acl-read-filter";
 import { callerMayReadNote, casConflict } from "../../../vault/cas";
 import { parseNoteLenient, serializeNote } from "../../../vault/frontmatter";
+import { filesystemIdentity } from "../../../vault/fs-identity";
 import { requireConfirmation } from "../../../vault/hitl";
 import {
   buildVaultIndex,
@@ -68,7 +69,7 @@ import {
   WikiPatchSpec,
 } from "./wiki-changeset";
 import { collectIdentityEvidence } from "./wiki-evidence";
-import { assertWikiPagePath, filesystemIdentity, rawPathFilter } from "./wiki-folder";
+import { assertWikiPagePath, rawPathFilter } from "./wiki-folder";
 import { regenerateWikiPages, type WikiGenerateEnv } from "./wiki-generated";
 import { buildLinkMap } from "./wiki-link-map";
 import { checkFrontmatter, loadWikiSchema } from "./wiki-schema";

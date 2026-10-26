@@ -8,10 +8,11 @@
 // make two distinct directories equal. A folder that does not exist yet has no identity: then only
 // the exact configured spelling is in it, and any other spelling is refused (fail closed). A vault
 // with no wiki folder has no place a page may go: nothing is ever "in the wiki" by default.
-import { lstatSync, statSync } from "node:fs";
+import { lstatSync } from "node:fs";
 import { join } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { CASE_INSENSITIVE_FS, foldPath } from "../../../acl";
+import { inodeIdentity } from "../../../vault/fs-identity";
 import { resolveVaultPath, resolveVaultPathChecked } from "../../../vault/paths";
 
 /** Whether `path` is strictly inside `folder` (both vault-relative, normalised, no trailing slash). */
@@ -61,32 +62,11 @@ export function isGeneratedWikiPath(
   });
 }
 
-/** `dev:ino` of the directory at `abs` (symlinks followed); null when it is not an existing directory
- *  or the filesystem reports no inode (a fake inode 0 proves nothing). */
-function dirIdentity(abs: string, requireDirectory = true): string | null {
-  try {
-    const st = statSync(abs, { bigint: true });
-    return (!requireDirectory || st.isDirectory()) && st.ino !== 0n ? `${st.dev}:${st.ino}` : null;
-  } catch {
-    return null;
-  }
-}
-
-/** `dev:ino` of an existing path after symlinks, or null when no stable identity exists. */
-export function filesystemIdentity(root: string, rel: string): string | null {
-  try {
-    const checked = resolveVaultPathChecked(root, rel);
-    return dirIdentity(resolveVaultPath(root, checked.aclRel), false);
-  } catch {
-    return null;
-  }
-}
-
 /** Whether the folder (identified by `folderId`) is one of the directories above `rel`. */
 function folderAbove(root: string, folderId: string, rel: string): boolean {
   const segs = rel.split("/").slice(0, -1);
   for (let n = segs.length; n > 0; n--)
-    if (dirIdentity(join(root, ...segs.slice(0, n))) === folderId) return true;
+    if (inodeIdentity(join(root, ...segs.slice(0, n))) === folderId) return true;
   return false;
 }
 
@@ -123,7 +103,7 @@ export function assertWikiPagePath(
  */
 export function insideFolder(root: string, folder: string, rel: string): boolean {
   const realRel = resolveVaultPathChecked(root, rel).aclRel;
-  const folderId = dirIdentity(resolveVaultPath(root, folder));
+  const folderId = inodeIdentity(resolveVaultPath(root, folder));
   if (folderId === null) {
     const prefix = `${folder}/`;
     return rel.startsWith(prefix) && realRel.startsWith(prefix);
@@ -169,7 +149,7 @@ export function rawFolderPlacement(root: string, rawFolder: string): RawFolderPl
   } catch {
     exists = false;
   }
-  if (exists && dirIdentity(abs) === null)
+  if (exists && inodeIdentity(abs) === null)
     return { ok: false, reason: "its directory identity cannot be established" };
   return { ok: true, canonical: aclRel === rawFolder ? null : aclRel };
 }
@@ -186,8 +166,8 @@ export function rawFolderNames(root: string, rawFolder: string): string[] {
  *  resolves them (a symlinked folder is the same directory as its target; spelling cannot say that). A
  *  folder that does not exist has no identity and overlaps nothing here: the lexical check covers it. */
 export function foldersShareDirectory(root: string, a: string, b: string): boolean {
-  const idA = dirIdentity(resolveVaultPath(root, a));
-  const idB = dirIdentity(resolveVaultPath(root, b));
+  const idA = inodeIdentity(resolveVaultPath(root, a));
+  const idB = inodeIdentity(resolveVaultPath(root, b));
   if (idA === null || idB === null) return false;
   const holds = (folder: string, id: string): boolean => {
     let real: string | null = null;

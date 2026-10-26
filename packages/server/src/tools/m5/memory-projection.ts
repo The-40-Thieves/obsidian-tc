@@ -282,6 +282,8 @@ export function getReadableEntity(
  *  `visible` false: the caller cannot read it, so it is handled quietly (see planNeighbors). */
 export interface Neighbor {
   id: string;
+  /** The neighbour's note path, vault-relative, as it is when planned. */
+  rel: string;
   visible: boolean;
 }
 
@@ -308,13 +310,13 @@ export function planNeighbors(
     if (memoryReadable(deps, ctx, src)) {
       enforcePathAcl(ctx.acl, "write", srcPath, v.root, ctx.grantedScopes);
       assertNoteOwnership(v.root, srcPath, src.id);
-      out.push({ id: src.id, visible: true });
+      out.push({ id: src.id, rel: srcPath, visible: true });
       continue;
     }
     try {
       enforcePathAcl(ctx.acl, "write", srcPath, v.root, ctx.grantedScopes);
       assertNoteOwnership(v.root, srcPath, src.id);
-      out.push({ id: src.id, visible: false });
+      out.push({ id: src.id, rel: srcPath, visible: false });
     } catch {
       /* skipped quietly: see above */
     }
