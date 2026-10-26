@@ -3,6 +3,7 @@
 // notes_read_refused, never name it. The platform-independent twin is read-refusal-walkers-b-mixed.test.ts.
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import type { ToolRegistry } from "../src/mcp/registry";
 import { makeTestVault } from "./m1-helpers";
 import { makeM3Vault } from "./m3-helpers";
 import { makeM4Vault } from "./m4-helpers";
@@ -173,10 +174,7 @@ const DECLARES_REFUSALS = {
 } as const;
 
 describe("each walker declares notes_read_refused in its output schema", () => {
-  function declares(
-    registry: { list(): Array<{ name: string; outputSchema: unknown }> },
-    name: string,
-  ): boolean {
+  function declares(registry: ToolRegistry, name: string): boolean {
     const def = registry.list().find((d) => d.name === name);
     const shape = (def?.outputSchema as { shape?: object } | undefined)?.shape ?? {};
     return "notes_read_refused" in shape;
