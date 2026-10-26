@@ -1,13 +1,14 @@
-// PR B of the read-refusal walkers: the whole-vault walkers that are not search or attachments skip
-// a note the safe open refuses (a hard link to a file outside the vault) and count it in
-// notes_read_refused, never name it. The platform-independent twin is read-refusal-walkers-b-mixed.test.ts.
+// The whole-vault walkers that are not search or attachments skip a note the safe open refuses (a hard
+// link to a file outside the vault) and count it in notes_read_refused, never name it. The
+// platform-independent twin is read-refusal-walkers-b-mixed.test.ts.
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ToolRegistry } from "../src/mcp/registry";
 import { makeTestVault } from "./m1-helpers";
 import { makeM3Vault } from "./m3-helpers";
 import { makeM4Vault } from "./m4-helpers";
-import { hardLinkOutside, okData } from "./read-refusal-helpers";
+import { expectLintScansRan, hardLinkOutside, okData } from "./read-refusal-helpers";
+import { topLevelShape } from "./schema-introspect";
 import { makeWikiHarness, type WikiHarness } from "./wiki-test-helpers";
 
 const cleanups: Array<() => void> = [];
@@ -101,6 +102,34 @@ describe.skipIf(process.platform === "win32")(
       expect(d.notes_read_refused).toBe(1);
     });
 
+    it("bundle_folder pages past a refused note: every readable note is reached, no empty truncated page", async () => {
+      const v = makeM4Vault({ files: { "Notes/a.md": "# A\n", "Notes/x.md": "# X\n" } });
+      cleanups.push(() => v.cleanup());
+      cleanups.push(hardLinkOutside(v.root, "# outside\n", join("Notes", "hl.md")));
+      const seen: string[] = [];
+      let refused: unknown;
+      let cursor: string | undefined;
+      for (let page = 0; page < 10; page++) {
+        const d = okData(
+          await v.call("bundle_folder", {
+            vault: "test",
+            root: "Notes",
+            max_files: 1,
+            ...(cursor ? { cursor } : {}),
+          }),
+        );
+        const files = d.files as Array<{ path: string }>;
+        seen.push(...files.map((f) => f.path));
+        refused = d.notes_read_refused ?? refused;
+        if (!d.truncated) break;
+        expect(files).not.toEqual([]);
+        expect(d.cursor).toBeDefined();
+        cursor = d.cursor as string;
+      }
+      expect(seen).toEqual(["Notes/a.md", "Notes/x.md"]);
+      expect(refused).toBe(1);
+    });
+
     it("find_orphans, get_backlinks and audit_provenance skip the refused note", async () => {
       const v = linked(
         makeTestVault({
@@ -129,12 +158,34 @@ describe.skipIf(process.platform === "win32")(
       cleanups.push(hardLinkOutside(h.v.root, "[[Spaced repetition]]\n", join("wiki", "hl.md")));
       const lint = await h.data("lint_wiki", {});
       expect(lint.notes_read_refused).toBe(1);
+      expectLintScansRan(lint);
       const found = await h.data("find_existing_page", { topic: "Spaced repetition" });
       expect(found.verdict).toBe("exists");
       expect(found.notes_read_refused).toBe(1);
       const draft = await h.data("draft_wiki_page", { topic: "Spaced repetition" });
       expect(draft.notes_read_refused).toBe(1);
     });
+
+    it.each([
+      ["a link_text alias", "wiki/SR-notes.md", "See [[SR-notes|Spaced repetition]] here.\n"],
+      ["the page path", "wiki/Spaced repetition.md", "[[Spaced repetition]]\n"],
+    ])(
+      "a refused note that is %s evidence is never named or re-read by find_existing_page and draft_wiki_page",
+      async (_, refusedRel, other) => {
+        // The same vault without the hidden note is the oracle: a refused note answers as a missing one.
+        const missing = makeWikiHarness({ wikiFolder: "wiki", files: { "wiki/Other.md": other } });
+        cleanups.push(() => missing.v.cleanup());
+        const h = makeWikiHarness({ wikiFolder: "wiki", files: { "wiki/Other.md": other } });
+        cleanups.push(() => h.v.cleanup());
+        cleanups.push(hardLinkOutside(h.v.root, "# SR\n", refusedRel));
+        for (const tool of ["find_existing_page", "draft_wiki_page"]) {
+          const want = await missing.data(tool, { topic: "Spaced repetition" });
+          const { notes_read_refused, ...got } = await h.data(tool, { topic: "Spaced repetition" });
+          expect(notes_read_refused).toBe(1);
+          expect(got).toEqual(want);
+        }
+      },
+    );
   },
 );
 
@@ -176,8 +227,7 @@ const DECLARES_REFUSALS = {
 describe("each walker declares notes_read_refused in its output schema", () => {
   function declares(registry: ToolRegistry, name: string): boolean {
     const def = registry.list().find((d) => d.name === name);
-    const shape = (def?.outputSchema as { shape?: object } | undefined)?.shape ?? {};
-    return "notes_read_refused" in shape;
+    return "notes_read_refused" in (topLevelShape(def?.outputSchema) ?? {});
   }
 
   it.each(DECLARES_REFUSALS.m1)("%s (M1 registry)", (name) => {

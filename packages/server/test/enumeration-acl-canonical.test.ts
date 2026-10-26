@@ -137,12 +137,14 @@ describe.skipIf(process.platform === "win32")("enumeration filters on the canoni
     const tags = await v.call("list_tags", { vault: "test", folder: "wiki" });
     expect(tags.ok).toBe(true);
     expect(leaks(dump(tags)) || dump(tags).includes("leaktag")).toBe(false);
+    expect(tags.ok && tags.data).not.toHaveProperty("notes_read_refused");
     const found = await v.call("find_notes_by_tag", {
       vault: "test",
       tag: "leaktag",
       folder: "wiki",
     });
     expect(leaks(dump(found))).toBe(false);
+    if (found.ok) expect(found.data).not.toHaveProperty("notes_read_refused");
     const ok = await v.call("find_notes_by_tag", {
       vault: "test",
       tag: "leaktag",
@@ -182,6 +184,7 @@ describe.skipIf(process.platform === "win32")("enumeration filters on the canoni
     const v = m3();
     const denied = await v.call("list_kanban_boards", { vault: "test", folder: "wiki" });
     expect(leaks(dump(denied))).toBe(false);
+    if (denied.ok) expect(denied.data).not.toHaveProperty("notes_read_refused");
     const ok = await v.call("list_kanban_boards", { vault: "test", folder: "shared" });
     expectSharedSkipped(ok, v.root);
   });

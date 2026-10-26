@@ -110,7 +110,7 @@ export function pagesCiting(
   notes: readonly string[],
   wikiFolder: string,
   sourcePath: string,
-  refusals?: ReadRefusals,
+  refusals: ReadRefusals,
 ): string[] {
   const index = buildVaultIndex([...notes]);
   const warnings = new ScanWarnings(refusals);

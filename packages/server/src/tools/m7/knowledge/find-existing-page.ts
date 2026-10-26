@@ -26,7 +26,7 @@ import { normalizeVaultPath } from "../../../vault/paths";
 import type { ResolvedVault } from "../../../vault/registry";
 import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
-import { readRefusalShape } from "../../read-refusals";
+import { ReadRefusals, readRefusalShape } from "../../read-refusals";
 import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
 import { scanWarningsShape } from "../../scan-warnings";
 import type { M7Deps } from "./deps";
@@ -293,6 +293,7 @@ export async function findExistingPage(
   const exclusion = vaultExclusionFor(deps.vaultRegistry, v.id);
   // A raw source is an input to the wiki, not a page: it never answers "does a page exist?".
   const isRaw = rawPathFilter(v.rawFolders);
+  const refusals = new ReadRefusals();
   const identity = collectIdentityEvidence(
     {
       root: v.root,
@@ -302,7 +303,7 @@ export async function findExistingPage(
       wikiFolders: v.wikiFolders,
     },
     args.topic,
-    { folder, isExcluded: exclusion.isExcluded, ignore: isRaw },
+    { folder, isExcluded: exclusion.isExcluded, ignore: isRaw, refusals },
   );
   const candidates = identity.candidates;
   const min = args.minSimilarity ?? TOPIC_MATCH_MIN;
@@ -410,7 +411,7 @@ export async function findExistingPage(
   const shown = ranked.slice(0, args.limit);
   const output = {
     ...identity.warnings.out(),
-    ...identity.warnings.refusals.out(),
+    ...refusals.out(),
     vault: v.id,
     topic: args.topic,
     verdict,

@@ -483,6 +483,7 @@ export async function runWikiLint(
         },
         subjectOk,
         folder,
+        warnings.refusals,
       ),
       signal,
     );
