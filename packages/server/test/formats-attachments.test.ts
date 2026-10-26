@@ -9,6 +9,7 @@ import {
   planAttachmentReferences,
   resolveAttachmentFolder,
 } from "../src/formats/attachments";
+import { ReadRefusals } from "../src/tools/read-refusals";
 import { ImmutableRewriteSkips } from "../src/vault/acl-path";
 import { applyWriteBatch } from "../src/vault/write-batch";
 import { makeTempDir, rmTemp } from "./tmp";
@@ -92,11 +93,15 @@ describe("formats/attachments", () => {
       "code.md": "```\n![[diagram.png]]\n```\n",
     });
     try {
-      expect(findAttachmentReferences(root, "diagram.png").map((e) => e.relPath)).toEqual(["a.md"]);
-      expect(findAttachmentReferences(root, "docs/spec.pdf").map((e) => e.relPath)).toEqual([
-        "a.md",
-      ]);
-      expect(findAttachmentReferences(root, "absent.png").map((e) => e.relPath)).toEqual([]);
+      expect(
+        findAttachmentReferences(root, "diagram.png", new ReadRefusals()).map((e) => e.relPath),
+      ).toEqual(["a.md"]);
+      expect(
+        findAttachmentReferences(root, "docs/spec.pdf", new ReadRefusals()).map((e) => e.relPath),
+      ).toEqual(["a.md"]);
+      expect(
+        findAttachmentReferences(root, "absent.png", new ReadRefusals()).map((e) => e.relPath),
+      ).toEqual([]);
     } finally {
       rmTemp(root);
     }

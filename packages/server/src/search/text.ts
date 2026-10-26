@@ -5,6 +5,7 @@
 // query terms using the native module (JS fallback when the binary is absent).
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
+import type { ReadRefusals } from "../tools/read-refusals";
 import type { WalkReadable } from "../vault/acl-read-filter";
 import { readNote } from "../vault/notes-io";
 import { resolveVaultPath, walkVault } from "../vault/paths";
@@ -26,6 +27,8 @@ export interface TextOptions {
   wholeWord?: boolean;
   sub?: string;
   isReadable?: WalkReadable;
+  /** Counts the notes the walk skipped because the safe open refused them. */
+  refusals: ReadRefusals;
   limit: number;
 }
 
@@ -43,6 +46,7 @@ export interface RegexOptions {
   sub?: string;
   maxPerFile?: number;
   isReadable?: WalkReadable;
+  refusals: ReadRefusals;
   /** THE-293: worker-time budget (ms) for the whole call — only regex execution in the worker
    *  counts (file I/O excluded). Default 2000. */
   timeoutMs?: number;
@@ -63,19 +67,24 @@ interface Doc {
   tokens: string[];
 }
 
-function loadDocs(root: string, sub: string | undefined, readable: WalkReadable): Doc[] {
+function loadDocs(
+  root: string,
+  sub: string | undefined,
+  readable: WalkReadable,
+  refusals: ReadRefusals,
+): Doc[] {
   return walkVault(root, { sub, extensions: [".md"] })
     .filter((e) => readable(e.relPath, e.aclRel))
     .map((e) => e.relPath)
-    .map((path) => {
-      const raw = readNote(resolveVaultPath(root, path)).raw;
-      return { path, lines: raw.split(/\r?\n/), tokens: tokenize(raw) };
+    .flatMap((path) => {
+      const raw = refusals.read(root, path);
+      return raw === null ? [] : [{ path, lines: raw.split(/\r?\n/), tokens: tokenize(raw) }];
     });
 }
 
 export function searchText(root: string, opts: TextOptions): TextHit[] {
   const readable = opts.isReadable ?? (() => true);
-  const docs = loadDocs(root, opts.sub, readable);
+  const docs = loadDocs(root, opts.sub, readable, opts.refusals);
   const n = docs.length;
   if (n === 0) return [];
 
@@ -276,7 +285,9 @@ export async function searchRegex(root: string, opts: RegexOptions): Promise<Reg
 
   const hits: RegexHit[] = [];
   for (const path of files) {
-    const lines = readNote(resolveVaultPath(root, path)).raw.split(/\r?\n/);
+    const raw = opts.refusals.read(root, path);
+    if (raw === null) continue;
+    const lines = raw.split(/\r?\n/);
     let fileHits: WorkerHit[];
     if (useWorker) {
       const remaining = timeoutMs - spentMs;

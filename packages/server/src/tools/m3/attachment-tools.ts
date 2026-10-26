@@ -59,6 +59,7 @@ import {
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { applyWriteBatch, isIncompleteRollback } from "../../vault/write-batch";
 import { defineTool } from "../m1/define";
+import { ReadRefusals, readRefusalShape } from "../read-refusals";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { immutableSkipShape, schemaSkipShape } from "../scan-warnings";
 import type { M3Deps } from "./shared";
@@ -183,6 +184,7 @@ const ListAttachmentsOutput = z.object({
   attachments: z.array(AttachmentEntry),
   next_cursor: z.string().nullable(),
   total_returned: z.number().int().optional(),
+  ...readRefusalShape,
 });
 
 /** get_attachment. `references` is a conditional spread (include_references), so optional —
@@ -198,6 +200,7 @@ const GetAttachmentOutput = z.object({
   /** Omitted when the call passed include_content=false. */
   content: z.string().optional(),
   references: z.array(z.string()).optional(),
+  ...readRefusalShape,
 });
 
 const WriteAttachmentOutput = z.object({
@@ -231,6 +234,7 @@ const DeleteAttachmentOutput = z.object({
   trashed_to: z.string().nullable(),
   size: z.number().nullable(),
   references: z.array(z.string()),
+  ...readRefusalShape,
 });
 
 export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
@@ -248,6 +252,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const sub = input.folder ? normalizeVaultPath(input.folder) : undefined;
         if (sub) enforcePathAcl(ctx.acl, "read", sub, v.root, ctx.grantedScopes);
+        const refusals = new ReadRefusals();
         const exts = (input.extensions ?? DEFAULT_ATTACHMENT_EXTS).map((x) => x.toLowerCase());
         const entries = walkVault(v.root, { sub, recursive: true, extensions: exts }).filter((e) =>
           readableEntry(ctx.acl, e, ctx.grantedScopes),
@@ -263,13 +268,13 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           ...(concise ? {} : { size: e.size, mtime: e.mtime, mime: mimeOf(e.relPath) }),
           ...(input.include_reference_count
             ? {
-                reference_count: findAttachmentReferences(v.root, e.relPath).filter((r) =>
+                reference_count: findAttachmentReferences(v.root, e.relPath, refusals).filter((r) =>
                   readableEntry(ctx.acl, r, ctx.grantedScopes),
                 ).length,
               }
             : {}),
         }));
-        if (concise) return { vault: v.id, attachments, next_cursor: next };
+        if (concise) return { vault: v.id, attachments, next_cursor: next, ...refusals.out() };
         return {
           vault: v.id,
           folder: sub ?? "",
@@ -277,6 +282,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           attachments,
           next_cursor: next,
           total_returned: page.length,
+          ...refusals.out(),
         };
       },
     }),
@@ -294,6 +300,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         const v = deps.vaultRegistry.resolve(input.vault);
         const rel = normalizeVaultPath(input.path);
         enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
+        const refusals = new ReadRefusals();
         // N-1: read:attachments grants binary attachment reads, not arbitrary file reads — reject a
         // path whose extension is not in the attachment allowlist (list_attachments already filters);
         // notes are read with read_note under read:notes.
@@ -329,11 +336,12 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           // enumerate out-of-ACL note paths.
           ...(input.include_references
             ? {
-                references: findAttachmentReferences(v.root, rel)
+                references: findAttachmentReferences(v.root, rel, refusals)
                   .filter((r) => readableEntry(ctx.acl, r, ctx.grantedScopes))
                   .map((r) => r.relPath),
               }
             : {}),
+          ...refusals.out(),
         };
       },
     }),
@@ -622,7 +630,8 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         const ex = noteExists(abs);
         if (!ex.exists || ex.type === "folder")
           throw err.noteNotFound("attachment not found", { path: rel });
-        const references = findAttachmentReferences(v.root, rel)
+        const refusals = new ReadRefusals();
+        const references = findAttachmentReferences(v.root, rel, refusals)
           .filter((r) => readableEntry(ctx.acl, r, ctx.grantedScopes))
           .map((r) => r.relPath);
         const st = statNote(abs);
@@ -637,6 +646,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           trashed_to: trashedTo,
           size: st?.size ?? null,
           references,
+          ...refusals.out(),
         };
       },
     }),

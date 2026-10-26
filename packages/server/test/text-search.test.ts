@@ -1,6 +1,7 @@
 import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { searchRegex, searchText } from "../src/search/text";
+import { ReadRefusals } from "../src/tools/read-refusals";
 import { makeM2Vault } from "./m2-helpers";
 import { stallTimeout } from "./stall-timeouts";
 
@@ -12,7 +13,7 @@ describe("searchText", () => {
         "rain.md": "# Rain\n\nstormy weather tonight",
       },
     });
-    const hits = searchText(v.root, { query: "lazy", limit: 50 });
+    const hits = searchText(v.root, { refusals: new ReadRefusals(), query: "lazy", limit: 50 });
     expect(hits).toHaveLength(1);
     expect(hits[0]?.path).toBe("fox.md");
     expect(hits[0]?.line).toBe(3);
@@ -23,8 +24,13 @@ describe("searchText", () => {
 
   it("honors whole_word", () => {
     const v = makeM2Vault({ files: { "a.md": "a dog runs\ndogma is strict" } });
-    const loose = searchText(v.root, { query: "dog", limit: 50 });
-    const strict = searchText(v.root, { query: "dog", wholeWord: true, limit: 50 });
+    const loose = searchText(v.root, { refusals: new ReadRefusals(), query: "dog", limit: 50 });
+    const strict = searchText(v.root, {
+      refusals: new ReadRefusals(),
+      query: "dog",
+      wholeWord: true,
+      limit: 50,
+    });
     expect(loose.length).toBe(2);
     expect(strict.length).toBe(1);
     expect(strict[0]?.line).toBe(1);
@@ -33,8 +39,13 @@ describe("searchText", () => {
 
   it("honors case_sensitive", () => {
     const v = makeM2Vault({ files: { "a.md": "Fox\nfox" } });
-    const ci = searchText(v.root, { query: "Fox", limit: 50 });
-    const cs = searchText(v.root, { query: "Fox", caseSensitive: true, limit: 50 });
+    const ci = searchText(v.root, { refusals: new ReadRefusals(), query: "Fox", limit: 50 });
+    const cs = searchText(v.root, {
+      refusals: new ReadRefusals(),
+      query: "Fox",
+      caseSensitive: true,
+      limit: 50,
+    });
     expect(ci.length).toBe(2);
     expect(cs.length).toBe(1);
     expect(cs[0]?.line).toBe(1);
@@ -46,6 +57,7 @@ describe("searchText", () => {
       files: { "pub.md": "shared secret word", "priv.md": "private secret word" },
     });
     const hits = searchText(v.root, {
+      refusals: new ReadRefusals(),
       query: "secret",
       isReadable: (p) => p === "pub.md",
       limit: 50,
@@ -58,7 +70,12 @@ describe("searchText", () => {
 describe("searchRegex", () => {
   it("returns per-match line/col and caps at max_matches_per_file", async () => {
     const v = makeM2Vault({ files: { "a.md": "cat1 cat2 cat3 cat4" } });
-    const hits = await searchRegex(v.root, { pattern: "cat\\d", maxPerFile: 2, limit: 50 });
+    const hits = await searchRegex(v.root, {
+      refusals: new ReadRefusals(),
+      pattern: "cat\\d",
+      maxPerFile: 2,
+      limit: 50,
+    });
     expect(hits).toHaveLength(2);
     expect(hits[0]?.match).toBe("cat1");
     expect(hits[0]?.line).toBe(1);
@@ -67,7 +84,11 @@ describe("searchRegex", () => {
 
   it("throws invalid_input on an uncompilable pattern", async () => {
     const v = makeM2Vault({ files: { "a.md": "x" } });
-    const p = searchRegex(v.root, { pattern: "(unclosed", limit: 10 });
+    const p = searchRegex(v.root, {
+      refusals: new ReadRefusals(),
+      pattern: "(unclosed",
+      limit: 10,
+    });
     await expect(p).rejects.toBeInstanceOf(ObsidianTcError);
     await expect(p).rejects.toMatchObject({ code: "invalid_input" });
     v.cleanup();
@@ -88,10 +109,19 @@ describe("searchRegex", () => {
       // ~1.1s warm / ~6s cold per exec), so the worker is terminated on overrun.
       const evil = `${"(a|aa)".repeat(22)}\\1c`;
       await expect(
-        searchRegex(v.root, { pattern: evil, timeoutMs: 50, limit: 10 }),
+        searchRegex(v.root, {
+          refusals: new ReadRefusals(),
+          pattern: evil,
+          timeoutMs: 50,
+          limit: 10,
+        }),
       ).rejects.toMatchObject({ code: "compute_budget_exceeded" });
       // The worker was terminated; the next call lazily recreates it and succeeds.
-      const hits = await searchRegex(v.root, { pattern: "a+", limit: 10 });
+      const hits = await searchRegex(v.root, {
+        refusals: new ReadRefusals(),
+        pattern: "a+",
+        limit: 10,
+      });
       expect(hits.length).toBeGreaterThan(0);
       v.cleanup();
     },
@@ -110,7 +140,9 @@ describe("searchRegex", () => {
     // review verified the bug.
     it("REJECTS a run of 3+ identical adjacent quantified single-char atoms", async () => {
       const v = makeM2Vault({ files: { "a.md": "x" } });
-      await expect(searchRegex(v.root, { pattern: "a*a*a*a*b", limit: 10 })).rejects.toMatchObject({
+      await expect(
+        searchRegex(v.root, { refusals: new ReadRefusals(), pattern: "a*a*a*a*b", limit: 10 }),
+      ).rejects.toMatchObject({
         code: "invalid_input",
       });
       v.cleanup();
@@ -119,10 +151,10 @@ describe("searchRegex", () => {
     it("REJECTS a run of 3+ identical adjacent quantified escaped-class atoms", async () => {
       const v = makeM2Vault({ files: { "a.md": "x" } });
       await expect(
-        searchRegex(v.root, { pattern: "\\w+\\w+\\w+x", limit: 10 }),
+        searchRegex(v.root, { refusals: new ReadRefusals(), pattern: "\\w+\\w+\\w+x", limit: 10 }),
       ).rejects.toMatchObject({ code: "invalid_input" });
       await expect(
-        searchRegex(v.root, { pattern: "\\s*\\s*\\s*$", limit: 10 }),
+        searchRegex(v.root, { refusals: new ReadRefusals(), pattern: "\\s*\\s*\\s*$", limit: 10 }),
       ).rejects.toMatchObject({ code: "invalid_input" });
       v.cleanup();
     });
@@ -131,20 +163,37 @@ describe("searchRegex", () => {
       const v = makeM2Vault({ files: { "a.md": "aabbccc CamelCase123 3.14" } });
       const admitted = ["a+b+c+", "\\w+\\s+\\w+", "[A-Z]+[a-z]+\\d+", "\\d+\\.\\d+", "a+b+c+d+e+"];
       for (const pattern of admitted) {
-        await expect(searchRegex(v.root, { pattern, limit: 10 })).resolves.toBeInstanceOf(Array);
+        await expect(
+          searchRegex(v.root, { refusals: new ReadRefusals(), pattern, limit: 10 }),
+        ).resolves.toBeInstanceOf(Array);
       }
       v.cleanup();
     });
 
     it("the disjoint patterns above actually MATCH what they are supposed to (not just 'did not throw')", async () => {
       const v = makeM2Vault({ files: { "a.md": "aabbccc CamelCase123 3.14" } });
-      expect((await searchRegex(v.root, { pattern: "a+b+c+", limit: 10 })).length).toBeGreaterThan(
-        0,
-      );
       expect(
-        (await searchRegex(v.root, { pattern: "[A-Z]+[a-z]+\\d+", limit: 10 })).length,
+        (await searchRegex(v.root, { refusals: new ReadRefusals(), pattern: "a+b+c+", limit: 10 }))
+          .length,
       ).toBeGreaterThan(0);
-      expect((await searchRegex(v.root, { pattern: "\\d+\\.\\d+", limit: 10 })).length).toBe(1);
+      expect(
+        (
+          await searchRegex(v.root, {
+            refusals: new ReadRefusals(),
+            pattern: "[A-Z]+[a-z]+\\d+",
+            limit: 10,
+          })
+        ).length,
+      ).toBeGreaterThan(0);
+      expect(
+        (
+          await searchRegex(v.root, {
+            refusals: new ReadRefusals(),
+            pattern: "\\d+\\.\\d+",
+            limit: 10,
+          })
+        ).length,
+      ).toBe(1);
       v.cleanup();
     });
 
@@ -162,7 +211,12 @@ describe("searchRegex", () => {
         // measured 0.9-1.2 s against a 1.5 s ceiling.
         const v = makeM2Vault({ files: { "big.md": "a".repeat(5_000) } });
         const start = Date.now();
-        const hits = await searchRegex(v.root, { pattern: "a+b+c+", timeoutMs: 2000, limit: 10 });
+        const hits = await searchRegex(v.root, {
+          refusals: new ReadRefusals(),
+          pattern: "a+b+c+",
+          timeoutMs: 2000,
+          limit: 10,
+        });
         const elapsed = Date.now() - start;
         expect(hits).toEqual([]);
         expect(elapsed).toBeLessThan(1500);
@@ -173,7 +227,11 @@ describe("searchRegex", () => {
 
     it("a separator between quantified atoms resets the run — a date-shaped pattern is admitted", async () => {
       const v = makeM2Vault({ files: { "a.md": "2026-08-31" } });
-      const hits = await searchRegex(v.root, { pattern: "\\d+-\\d+-\\d+", limit: 10 });
+      const hits = await searchRegex(v.root, {
+        refusals: new ReadRefusals(),
+        pattern: "\\d+-\\d+-\\d+",
+        limit: 10,
+      });
       expect(hits.length).toBeGreaterThan(0);
       v.cleanup();
     });
@@ -181,7 +239,9 @@ describe("searchRegex", () => {
     it("still admits the repo's other real regex patterns (1-2 quantified atoms)", async () => {
       const v = makeM2Vault({ files: { "a.md": "cat1 la99 aaa [x]" } });
       for (const pattern of ["cat\\d", "la\\w+", "a+", "[ab]+", "a*b*"]) {
-        await expect(searchRegex(v.root, { pattern, limit: 10 })).resolves.toBeInstanceOf(Array);
+        await expect(
+          searchRegex(v.root, { refusals: new ReadRefusals(), pattern, limit: 10 }),
+        ).resolves.toBeInstanceOf(Array);
       }
       v.cleanup();
     });

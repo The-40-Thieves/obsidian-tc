@@ -11,6 +11,7 @@ import { issueElicitToken } from "../src/elicit";
 import { findAttachmentReferences } from "../src/formats/attachments";
 import { desiredEdges, reconcileVaultEdges } from "../src/search/edges";
 import { expandGraphLiteral } from "../src/search/graph_expand";
+import { ReadRefusals } from "../src/tools/read-refusals";
 import { parseNote } from "../src/vault/frontmatter";
 import { extractLinks, extractNoteLinks, extractPropertyLinks } from "../src/vault/links";
 import { openMemoryDb } from "./helpers";
@@ -511,12 +512,12 @@ describe("attachment references", () => {
       },
     });
     try {
-      expect(findAttachmentReferences(v.root, "hero.png").map((e) => e.relPath)).toEqual([
-        "post.md",
-      ]);
-      expect(findAttachmentReferences(v.root, "other.png").map((e) => e.relPath)).toEqual([
-        "broken.md",
-      ]);
+      expect(
+        findAttachmentReferences(v.root, "hero.png", new ReadRefusals()).map((e) => e.relPath),
+      ).toEqual(["post.md"]);
+      expect(
+        findAttachmentReferences(v.root, "other.png", new ReadRefusals()).map((e) => e.relPath),
+      ).toEqual(["broken.md"]);
     } finally {
       v.cleanup();
     }

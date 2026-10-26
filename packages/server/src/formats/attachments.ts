@@ -8,6 +8,7 @@
 import { join } from "node:path";
 import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { MetricsRecorder } from "../metrics/registry";
+import type { ReadRefusals } from "../tools/read-refusals";
 import type { ImmutableRewriteSkips } from "../vault/acl-path";
 import { parseNoteLenient } from "../vault/frontmatter";
 import { extractNoteLinks } from "../vault/links";
@@ -112,6 +113,7 @@ function normalizeTarget(targetRaw: string): string {
 export function findAttachmentReferences(
   root: string,
   attachmentRel: string,
+  refusals: ReadRefusals,
 ): Array<Pick<WalkEntry, "relPath" | "aclRel">> {
   const targetPath = attachmentRel.toLowerCase();
   const targetBase = baseOf(attachmentRel).toLowerCase();
@@ -119,7 +121,9 @@ export function findAttachmentReferences(
   for (const e of walkVault(root, { extensions: [".md"] })) {
     // A property link counts (`cover: "[[img.png]]"`): an image used only there is still referenced.
     // Lenient: a note whose YAML does not parse still has its body links counted.
-    const note = parseNoteLenient(readNote(resolveVaultPath(root, e.relPath)).raw, e.relPath);
+    const raw = refusals.read(root, e.relPath);
+    if (raw === null) continue;
+    const note = parseNoteLenient(raw, e.relPath);
     const hit = extractNoteLinks(note).some((l) => {
       if (l.inCodeblock) return false;
       const t = normalizeTarget(l.target);
