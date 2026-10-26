@@ -512,6 +512,20 @@ describe("write_attachment: path safety", () => {
     },
   );
 
+  it.each(["view.js.", "view.js. .", "view.js  ."])(
+    "%s is refused: trailing dots and spaces do not hide a script extension",
+    async (path) => {
+      const b = boot();
+      try {
+        const r = await b.call("write_attachment", { vault: "test", path, content: b64(PNG) });
+        expect(r.ok).toBe(false);
+        expect(b.exists(path)).toBe(false);
+      } finally {
+        b.cleanup();
+      }
+    },
+  );
+
   it.each([
     ".obsidian/plugins/x/evil.png",
     ".git/objects/x.png",

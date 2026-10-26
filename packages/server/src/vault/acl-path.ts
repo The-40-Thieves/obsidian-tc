@@ -56,6 +56,9 @@ export function evaluatePathAcl(
  *  (conventions.protectSchemaFiles). `admin:*`, `*` and `admin` grant it, as they grant any admin scope. */
 const CONVENTIONS_SCOPE = "admin:conventions";
 
+/** Code-unit order, the default `sort()` order, spelled out: the output must not follow the host locale. */
+const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
 /** The name a SCHEMA.md convention layer is loaded by (tools/m7/knowledge/wiki-schema.ts's
  *  WIKI_SCHEMA_FILE). Repeated here, not imported: that module imports this one. The test suite pins
  *  the two equal. */
@@ -379,14 +382,14 @@ export class ImmutableRewriteSkips {
     const immTotal = imm.size + immHidden.size;
     const schTotal = sch.size + schHidden.size;
     return {
-      ...(imm.size > 0 ? { immutable_not_updated: [...imm].sort() } : {}),
+      ...(imm.size > 0 ? { immutable_not_updated: [...imm].sort(byCodeUnit) } : {}),
       ...(immHidden.size > 0 ? { immutable_not_updated_hidden: immHidden.size } : {}),
       ...(immTotal > 0
         ? {
             immutable_warning: `${immTotal} immutable (raw source) note${immTotal === 1 ? "" : "s"} link${immTotal === 1 ? "s" : ""} the moved target and ${immTotal === 1 ? "was" : "were"} not rewritten: those links still point at the old name`,
           }
         : {}),
-      ...(sch.size > 0 ? { schema_not_updated: [...sch].sort() } : {}),
+      ...(sch.size > 0 ? { schema_not_updated: [...sch].sort(byCodeUnit) } : {}),
       ...(schHidden.size > 0 ? { schema_not_updated_hidden: schHidden.size } : {}),
       ...(schTotal > 0
         ? {
