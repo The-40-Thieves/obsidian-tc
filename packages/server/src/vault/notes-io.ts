@@ -33,6 +33,7 @@ import { existsNoFollow } from "../auth/key-files";
 import { enforceMemoryDefenseOnNoteWrite } from "../experiential/memory-defense";
 import { redactSecrets } from "../experiential/redact";
 import type { MetricsRecorder } from "../metrics/registry";
+import { vaultDetailPath } from "./folder-links";
 import {
   type NativeVaultIo,
   nativeIo,
@@ -67,7 +68,7 @@ function nativeRead(io: NativeVaultIo, abs: string): Buffer {
 }
 
 const fallbackReadRefused = (message: string, abs: string): ObsidianTcError =>
-  err.aclDenied(`safe open refused the path: ${message}`, { path: abs });
+  err.aclDenied(`safe open refused the path: ${message}`, { path: vaultDetailPath(abs) });
 
 function openRegularRead(abs: string): { fd: number; stat: BigIntStats } {
   // O_NONBLOCK prevents a swapped FIFO from hanging open; Linux/macOS ignore it for regular-file
@@ -75,7 +76,7 @@ function openRegularRead(abs: string): { fd: number; stat: BigIntStats } {
   const fd = openSync(abs, constants.O_RDONLY | O_NOFOLLOW | O_NONBLOCK);
   try {
     const stat = fstatSync(fd, { bigint: true });
-    if (!stat.isFile()) throw err.pathInvalid("not a regular file", { path: abs });
+    if (!stat.isFile()) throw err.pathInvalid("not a regular file", { path: vaultDetailPath(abs) });
     return { fd, stat };
   } catch (e) {
     closeSync(fd);
@@ -117,7 +118,7 @@ function mapNativeReadError(e: unknown, abs: string): never {
       throw fallbackReadRefused("refusing symlinked or missing file", path);
     }
     if (!leaf.isFile()) {
-      throw err.pathInvalid("not a regular file", { path });
+      throw err.pathInvalid("not a regular file", { path: vaultDetailPath(path) });
     }
   } catch (error) {
     if (error instanceof ObsidianTcError) throw error;
@@ -145,7 +146,7 @@ function fallbackOpen(abs: string): number {
     throw fallbackReadRefused("refusing symlinked or missing file", path);
   }
   if (!leaf.isFile()) {
-    throw err.pathInvalid("not a regular file", { path });
+    throw err.pathInvalid("not a regular file", { path: vaultDetailPath(path) });
   }
 
   let fd: number;
@@ -206,9 +207,11 @@ export function noteExists(abs: string): { exists: boolean; type?: "file" | "fol
  *  into an allowed path, which realpath cannot see (C-1b). fstat is on the OPEN fd: no TOCTOU. */
 function assertRegularSingleLink(fd: number, abs: string): Stats {
   const st = fstatSync(fd);
-  if (!st.isFile()) throw err.pathInvalid("not a regular file", { path: abs });
+  if (!st.isFile()) throw err.pathInvalid("not a regular file", { path: vaultDetailPath(abs) });
   if (st.nlink > 1)
-    throw err.aclDenied("refusing to read a hard-linked file (inode aliasing)", { path: abs });
+    throw err.aclDenied("refusing to read a hard-linked file (inode aliasing)", {
+      path: vaultDetailPath(abs),
+    });
   return st;
 }
 
@@ -297,10 +300,14 @@ export function ensureDirNoFollow(dir: string, create = true): void {
     create,
     beforeCreate: (component) => assertCreatableName(component, component),
     onSymlink: (component) => {
-      throw err.aclDenied("refusing a symlinked path component", { path: component });
+      throw err.aclDenied("refusing a symlinked path component", {
+        path: vaultDetailPath(component),
+      });
     },
     onNotDirectory: (component) => {
-      throw err.pathInvalid("a path component is not a directory", { path: component });
+      throw err.pathInvalid("a path component is not a directory", {
+        path: vaultDetailPath(component),
+      });
     },
   });
 }
@@ -400,7 +407,9 @@ export function writeFileAtomic(
         enoent.code = "ENOENT";
         throw enoent;
       }
-      throw err.aclDenied(`safe write refused the path: ${(e as Error).message}`, { path: abs });
+      throw err.aclDenied(`safe write refused the path: ${(e as Error).message}`, {
+        path: vaultDetailPath(abs),
+      });
     }
   }
   const tmp = writeTempFile(abs, data, false);
@@ -481,7 +490,7 @@ export function moveNoReplace(fromAbs: string, toAbs: string): void {
         throw enoent;
       }
       throw err.aclDenied(`safe rename refused the path: ${(e as Error).message}`, {
-        path: toAbs,
+        path: vaultDetailPath(toAbs),
       });
     }
   }
@@ -719,7 +728,9 @@ export function hardDelete(abs: string): void {
     } catch (e) {
       // A parent that is not there leaves nothing to remove, as `rmSync({ force })` would say.
       if (pinned === undefined && !existsSync(dirname(abs))) return;
-      throw err.aclDenied(`safe delete refused the path: ${(e as Error).message}`, { path: abs });
+      throw err.aclDenied(`safe delete refused the path: ${(e as Error).message}`, {
+        path: vaultDetailPath(abs),
+      });
     }
   }
   refuseJsThroughPin(abs);
