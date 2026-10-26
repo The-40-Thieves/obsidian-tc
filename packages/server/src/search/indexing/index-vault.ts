@@ -49,7 +49,7 @@ import {
   EMBED_MAX_BATCH_TOKENS,
   embedPlans,
 } from "./embed-batches";
-import { readLeaderEpoch } from "./leader-epoch";
+import { leaderEpochStale, reportStaleEpochBatch } from "./leader-epoch";
 import {
   computeNotePlan,
   existingRowsMatch,
@@ -303,8 +303,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       args.db,
       "index_batch",
       () => {
-        epochStale =
-          args.leaderEpoch !== undefined && readLeaderEpoch(args.db) !== args.leaderEpoch;
+        epochStale = leaderEpochStale(args.db, args.leaderEpoch);
         if (epochStale) return;
         for (const plan of toApply) {
           // THE-925 invariant: indexVault plans+embeds a whole batch OUTSIDE any transaction, then
@@ -366,13 +365,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     }
     const staleReport = staleSkips.report();
     if (staleReport !== undefined) process.stderr.write(staleReport);
-    if (epochStale) {
-      process.stderr.write(
-        `[index] vault "${args.vaultId}": dropped a whole batch of ${toApply.length} note(s) — a ` +
-          `successor has promoted leadership since this reconcile started (GH #995 follow-up); the ` +
-          `successor's own reconcile supersedes this run.\n`,
-      );
-    }
+    if (epochStale) reportStaleEpochBatch(args.vaultId, toApply.length);
     // THE-486: a committed plan means this note's chunk embeddings changed this pass (toEmbed
     // non-empty and/or a prune) — computeNotePlan never returns a plan otherwise (see its
     // toEmbed.length === 0 && !willPrune early return). This is the kNN delta's change signal,

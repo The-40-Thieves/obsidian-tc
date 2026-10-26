@@ -5,7 +5,7 @@
 import { inWriteTransaction } from "../../db/txn";
 import { type NoteRecord, upsertNoteRow } from "../fts";
 import { bumpGeneration } from "../generation";
-import { readLeaderEpoch } from "./leader-epoch";
+import { leaderEpochStale, reportStaleEpochBatch } from "./leader-epoch";
 import type { IndexVaultArgs } from "./types";
 import { commitFence } from "./write-fence";
 
@@ -23,7 +23,7 @@ export function flushNoteRows(
     "index_notes_flush",
     () => {
       // Read inside the transaction, as the chunk apply does (index-vault.ts index_batch).
-      epochStale = args.leaderEpoch !== undefined && readLeaderEpoch(args.db) !== args.leaderEpoch;
+      epochStale = leaderEpochStale(args.db, args.leaderEpoch);
       if (epochStale) return 0;
       let landed = 0;
       for (const rec of rows) {
@@ -47,5 +47,9 @@ export function flushNoteRows(
     },
     args.sql,
   );
-  return epochStale ? null : upserted;
+  if (epochStale) {
+    reportStaleEpochBatch(args.vaultId, rows.length);
+    return null;
+  }
+  return upserted;
 }
