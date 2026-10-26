@@ -13,6 +13,7 @@ import type {
 } from "@the-40-thieves/obsidian-tc-shared";
 import {
   type BridgeClient,
+  type BridgeFetch,
   buildVaultCapabilities,
   CapabilityCache,
   checkBridgeCompat,
@@ -22,8 +23,9 @@ import {
 import type { CapabilitySnapshot } from "../bridge/capabilities";
 import { MEMORY_DEFENSE_OFF } from "../experiential/memory-defense";
 import type { MetricsRecorder } from "../metrics/registry";
+import type { Scheduler } from "../scheduler/scheduler";
 import { type BridgeTimeouts, DEFAULT_BRIDGE_TIMEOUTS, type M4Deps } from "../tools/m4";
-import { resolveMode, type VaultMode } from "../vault/mode";
+import { resolveMode } from "../vault/mode";
 import type { VaultRegistry } from "../vault/registry";
 
 export interface BridgeWiringDeps {
@@ -38,14 +40,27 @@ export interface BridgeWiringDeps {
    *  seam gets. Absent -> no hit-counter tagging (the scan itself still runs off the vault's own
    *  memoryDefenseByVault entry below). */
   metrics?: MetricsRecorder;
+  /** Transport seam for the bridge clients (tests inject a fake companion). Absent -> real fetch. */
+  fetchFn?: BridgeFetch;
+}
+
+/** Background re-probe cadence for a bridged vault whose companion is not reachable. It is also
+ *  the cooldown between two probes of the same vault. */
+export const BRIDGE_REPROBE_INTERVAL_MS = 60_000;
+
+export interface BridgeReprobeDeps {
+  capabilities: CapabilityCache;
+  reprobe: (vaultId: string) => Promise<CapabilitySnapshot>;
+  /** Vaults that have a bridge transport. A vault without one has no companion to find. */
+  vaultIds: readonly string[];
 }
 
 export interface BridgeWiring {
   bridgeClients: Map<string, BridgeClient>;
   capabilities: CapabilityCache;
-  /** THE-255: per-vault headless/live mode, resolved once at startup from the companion probe
-   *  result captured below. */
-  modeByVault: Map<string, VaultMode>;
+  /** THE-527: re-probe one vault with its config overrides. Shared by refresh_plugin_capabilities
+   *  and the background re-probe job (registerBridgeReprobe). */
+  reprobeVault: (vaultId: string) => Promise<CapabilitySnapshot>;
   memoryFolderByVault: Map<string, string>;
   /** memory.supersededInNote, present only for a vault that configured a `memory` block. */
   supersededInNoteByVault: Map<string, boolean>;
@@ -95,6 +110,7 @@ export async function wireBridges(deps: BridgeWiringDeps): Promise<BridgeWiring>
           baseUrl: v.restApiUrl,
           apiKey: v.restApiKey,
           timeoutMs: v.bridges?.timeoutMs,
+          fetchFn: deps.fetchFn,
         })
       : undefined;
     if (client) bridgeClients.set(v.id, client);
@@ -105,6 +121,11 @@ export async function wireBridges(deps: BridgeWiringDeps): Promise<BridgeWiring>
       timeoutMs: v.bridges?.probeTimeoutMs,
     });
     capabilities.set(v.id, snap);
+    // A failed boot probe is logged with its cause code only: the URL and API key never reach it.
+    if (snap.companion === "unreachable") {
+      const cause = snap.unreachableCause ? ` (${snap.unreachableCause})` : "";
+      process.stderr.write(`obsidian-tc: vault "${v.id}" companion unreachable at boot${cause}\n`);
+    }
     // THE-523 version handshake: warn ONCE per vault on a server↔plugin skew, with the specific
     // incompatibility, instead of letting a route diverge silently. A reachable-but-incompatible
     // companion is the only case that logs; missing/unreachable is bridge STATE, reported elsewhere.
@@ -113,17 +134,6 @@ export async function wireBridges(deps: BridgeWiringDeps): Promise<BridgeWiring>
       process.stderr.write(`${formatCompatWarning(v.id, compat)}\n`);
     }
   }
-  // Per-vault mode resolved once at startup (THE-255): explicit live/headless win; auto uses
-  // the companion probe result captured above. Tier-3 bridge tools degrade headless.
-  const modeByVault = new Map<string, VaultMode>(
-    deps.vaults.map((v) => [
-      v.id,
-      resolveMode(
-        { mode: v.mode, restApiUrl: v.restApiUrl },
-        capabilities.get(v.id).companion === "reachable",
-      ),
-    ]),
-  );
   // THE-527: re-probe a vault with the SAME config overrides used at startup, so
   // refresh_plugin_capabilities produces a snapshot consistent with a fresh boot. Unknown vault ->
   // an empty (companion-missing) snapshot rather than a throw.
@@ -146,7 +156,17 @@ export async function wireBridges(deps: BridgeWiringDeps): Promise<BridgeWiring>
     bridgeFor: (vaultId) => bridgeClients.get(vaultId),
     timeouts: (vaultId) => timeoutsByVault.get(vaultId) ?? DEFAULT_BRIDGE_TIMEOUTS,
     commandPolicy: (vaultId) => commandsByVault.get(vaultId) ?? { enabled: false, allowlist: [] },
-    mode: (vaultId) => modeByVault.get(vaultId) ?? "headless",
+    // THE-255, resolved per call: the mode follows the LIVE snapshot, so a refresh or background
+    // re-probe that finds the companion reachable takes effect without a restart. Explicit
+    // live/headless still win. Tier-3 bridge tools degrade headless.
+    mode: (vaultId) => {
+      const v = vaultConfigById.get(vaultId);
+      if (!v) return "headless";
+      return resolveMode(
+        { mode: v.mode, restApiUrl: v.restApiUrl },
+        capabilities.get(vaultId).companion === "reachable",
+      );
+    },
     reprobe: reprobeVault,
     // update_task's memoryDefense guard — same "closure, defaulted at the read site"
     // shape every other memoryDefense seam uses.
@@ -157,7 +177,7 @@ export async function wireBridges(deps: BridgeWiringDeps): Promise<BridgeWiring>
   return {
     bridgeClients,
     capabilities,
-    modeByVault,
+    reprobeVault,
     memoryFolderByVault,
     supersededInNoteByVault,
     traceFolderByVault,
@@ -165,4 +185,35 @@ export async function wireBridges(deps: BridgeWiringDeps): Promise<BridgeWiring>
     reflectDefaultsByVault,
     m4Deps,
   };
+}
+
+/** The vaults the background re-probe covers: bridged vaults not pinned headless. The live gate never
+ *  reads a headless vault's snapshot, so probing one would be wasted traffic. */
+export function reprobeVaultIds(
+  vaults: readonly { id: string; mode?: string }[],
+  bridged: ReadonlyMap<string, unknown>,
+): string[] {
+  return vaults.filter((v) => bridged.has(v.id) && v.mode !== "headless").map((v) => v.id);
+}
+
+/** Re-probe each bridged vault whose companion is not reachable, once per cooldown, until it
+ *  answers. A reachable vault is skipped, so the job goes idle on its own. The scheduler's timer
+ *  is unref'd and stopped with it, so this never holds the process open. No vault, no job. */
+export function registerBridgeReprobe(scheduler: Scheduler, deps: BridgeReprobeDeps): void {
+  if (deps.vaultIds.length === 0) return;
+  scheduler.register({
+    name: "bridge-reprobe",
+    intervalMs: BRIDGE_REPROBE_INTERVAL_MS,
+    run: async (signal) => {
+      for (const vaultId of deps.vaultIds) {
+        // stop() aborts the tick: no further vault starts a probe after it.
+        if (signal.aborted) return;
+        if (deps.capabilities.get(vaultId).companion === "reachable") continue;
+        // Compare-and-set: a manual refresh that lands while this probe is in flight is newer.
+        const before = deps.capabilities.get(vaultId);
+        const next = await deps.reprobe(vaultId);
+        if (deps.capabilities.get(vaultId) === before) deps.capabilities.set(vaultId, next);
+      }
+    },
+  });
 }
