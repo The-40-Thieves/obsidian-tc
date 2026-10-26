@@ -36,7 +36,6 @@ import {
   type NoteRecord,
   noteRowHash,
   notesRowExpectedForSize,
-  upsertNoteRow,
 } from "../fts";
 import { bumpGeneration } from "../generation";
 import { deleteNoteSummary } from "../note-summaries";
@@ -50,7 +49,7 @@ import {
   EMBED_MAX_BATCH_TOKENS,
   embedPlans,
 } from "./embed-batches";
-import { readLeaderEpoch } from "./leader-epoch";
+import { leaderEpochStale, reportStaleEpochBatch } from "./leader-epoch";
 import {
   computeNotePlan,
   existingRowsMatch,
@@ -61,13 +60,14 @@ import {
   readExistingChunkRows,
   readNoteTags,
 } from "./note-plan";
+import { flushNoteRows } from "./notes-flush";
 import { logPassSkips } from "./pass-skip-log";
 import { applyNoteWrites, fireIndexHook } from "./persist-note-plan";
 import { readIndexableNote, recordReadRefusal } from "./read-refusal";
 import { createStaleSkipLog } from "./stale-skip";
 import { sweepUnindexedNotes } from "./sweep-notes";
 import type { DedupCache, IndexStats, IndexVaultArgs, NoteWritePlan } from "./types";
-import { commitFence, preloadFenceGenerations } from "./write-fence";
+import { preloadFenceGenerations } from "./write-fence";
 
 // THE-500: default flush thresholds. See docs/design/search-indexing-and-cache.md.
 const DEFAULT_BATCH_MAX_NOTES = 100;
@@ -303,8 +303,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       args.db,
       "index_batch",
       () => {
-        epochStale =
-          args.leaderEpoch !== undefined && readLeaderEpoch(args.db) !== args.leaderEpoch;
+        epochStale = leaderEpochStale(args.db, args.leaderEpoch);
         if (epochStale) return;
         for (const plan of toApply) {
           // THE-925 invariant: indexVault plans+embeds a whole batch OUTSIDE any transaction, then
@@ -366,13 +365,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     }
     const staleReport = staleSkips.report();
     if (staleReport !== undefined) process.stderr.write(staleReport);
-    if (epochStale) {
-      process.stderr.write(
-        `[index] vault "${args.vaultId}": dropped a whole batch of ${toApply.length} note(s) — a ` +
-          `successor has promoted leadership since this reconcile started (GH #995 follow-up); the ` +
-          `successor's own reconcile supersedes this run.\n`,
-      );
-    }
+    if (epochStale) reportStaleEpochBatch(args.vaultId, toApply.length);
     // THE-486: a committed plan means this note's chunk embeddings changed this pass (toEmbed
     // non-empty and/or a prune) — computeNotePlan never returns a plan otherwise (see its
     // toEmbed.length === 0 && !willPrune early return). This is the kNN delta's change signal,
@@ -399,32 +392,11 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     if (!hasNotes || notesBatch.length === 0) return;
     const rows = notesBatch;
     notesBatch = [];
-    const upserted = inWriteTransaction(
-      args.db,
-      "index_notes_flush",
-      () => {
-        let landed = 0;
-        for (const rec of rows) {
-          // Fix round (cross-vendor review): a notes-row-only backfill (plan==null but the row is
-          // missing/stale) previously bypassed BOTH fences entirely — a demoted leader's stale
-          // metadata could overwrite fresher content, or resurrect a note's search-visible row
-          // after a successor's deindex, since neither commitFence nor readLeaderEpoch ever ran
-          // for this write. Same commit-time re-check as applyNoteWrites, but only when this row is
-          // the SOLE write for its path this pass — see NoteRecord.fenceCheckRequired's own
-          // comment for why a plan-carrying row must NOT also bump this same generation here.
-          if (rec.fenceCheckRequired) {
-            const fence = commitFence(args.db, args.vaultId, rec.path, rec.fenceGeneration, now());
-            if (!fence.ok) continue;
-          }
-          upsertNoteRow(args.db, args.vaultId, rec, hasFts, now());
-          landed += 1;
-        }
-        // A promoted identity moves the permitted-path sets, as syncAclPaths' own writes do.
-        if (rows.some((r) => demoted.has(r.path))) bumpGeneration(args.db, args.vaultId);
-        return landed;
-      },
-      args.sql,
-    );
+    const upserted = flushNoteRows(args, rows, hasFts, demoted, now);
+    if (upserted === null) {
+      stats.notes_epoch_stale_skipped += rows.length;
+      return;
+    }
     stats.notes_upserted += upserted;
     stats.notes_stale_skipped += rows.length - upserted;
   };

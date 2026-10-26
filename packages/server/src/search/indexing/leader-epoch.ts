@@ -1,8 +1,8 @@
 // GH #995 follow-up: the demotion residual. See db/migrations/20260928_003_index_leader_epoch.sql
 // for the table and why note_write_fence alone does not close this gap. wireLeaderEpoch is the
 // runtime/server-runtime.ts call site's whole integration (one line there, by construction);
-// search/indexing/index-vault.ts reads readLeaderEpoch back inside a reconcile batch's commit
-// transaction.
+// search/indexing/index-vault.ts (the chunk batch) and notes-flush.ts (the notes rows) read the epoch
+// back via leaderEpochStale inside their own commit transaction.
 import { tableExists } from "../../db/introspect";
 import { cachedPrepare, type Database } from "../../db/types";
 
@@ -32,6 +32,21 @@ export function readLeaderEpoch(db: Database): number {
     | { epoch: number }
     | undefined;
   return row?.epoch ?? 0;
+}
+
+/** True when a successor has promoted since the reconcile run that captured `leaderEpoch` began.
+ *  Call INSIDE the batch's write transaction. An undefined epoch (single-process mode) never is. */
+export function leaderEpochStale(db: Database, leaderEpoch: number | undefined): boolean {
+  return leaderEpoch !== undefined && readLeaderEpoch(db) !== leaderEpoch;
+}
+
+/** The stderr line both stale-batch sites write when they drop a whole batch. */
+export function reportStaleEpochBatch(vaultId: string, notes: number): void {
+  process.stderr.write(
+    `[index] vault "${vaultId}": dropped a whole batch of ${notes} note(s) — a ` +
+      `successor has promoted leadership since this reconcile started (GH #995 follow-up); the ` +
+      `successor's own reconcile supersedes this run.\n`,
+  );
 }
 
 /** Bump and return the new epoch. Call ONCE per promotion (leaderElection.onPromote), never per
