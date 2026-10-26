@@ -18,8 +18,12 @@ import {
   remapBundleVault,
   validateContextBundle,
 } from "../src/experiential/context-bundle";
-import { BUNDLE_FORMAT_VERSION } from "../src/experiential/context-bundle-schema";
-import { verifyForgetLog } from "../src/experiential/forget";
+import {
+  BUNDLE_FORMAT_VERSION,
+  type ContextBundle,
+} from "../src/experiential/context-bundle-schema";
+import { appendForgetLog, verifyForgetLog } from "../src/experiential/forget";
+import { readNoteQuality, recomputeNoteQuality } from "../src/experiential/note-quality";
 import { openMemoryDb } from "./helpers";
 
 const NOW = 1_700_000_000_000;
@@ -54,6 +58,48 @@ function seedChunk(cache: Database, id: string, vaultId = "main", path = "notes/
       "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?, ?, ?, 0, '[]', 'c', ?, 10, ?, ?)",
     )
     .run(id, vaultId, path, id, NOW, NOW);
+}
+
+/** A note forget row; `details` names its vault, or none for a legacy row. */
+function forgetNote(
+  db: Database,
+  target: string,
+  ts: number,
+  details: Record<string, unknown>,
+): void {
+  appendForgetLog(db, { ts, kind: "note", target, mode: "tombstone", details });
+}
+
+/** Add a raw forget row to a bundle, with `details` verbatim (no JSON encoding). */
+function pushRawForgetRow(bundle: ContextBundle, target: string, details: string): void {
+  bundle.tables.forget_log.push({
+    seq: 1,
+    ts: NOW,
+    kind: "note",
+    target,
+    mode: "tombstone",
+    details,
+    prev_hash: "0",
+    hash: "x",
+  });
+}
+
+/** Remap a bundle to `vault` and import it into a fresh target. Throws on a refused remap. */
+function importIntoVault(bundle: ContextBundle, vault: string): Database {
+  const remapped = remapBundleVault(bundle, vault);
+  if (!remapped.ok) throw new Error(remapped.error);
+  const target = edb();
+  importContextBundle(target, cacheDb(), remapped.bundle);
+  return target;
+}
+
+/** A `notes` row so recomputeNoteQuality has a live note to score at `path` in `vaultId`. */
+function seedNote(cache: Database, vaultId: string, path: string): void {
+  cache
+    .prepare(
+      "INSERT INTO notes (vault_id, path, title, tags, frontmatter, content_hash, mtime, size, indexed_at) VALUES (?, ?, ?, '[]', NULL, ?, ?, 10, ?)",
+    )
+    .run(vaultId, path, path, `h-${vaultId}-${path}`, NOW - 1000, NOW);
 }
 
 const ZERO_STATS = {
@@ -102,7 +148,7 @@ describe("exportContextBundle", () => {
     expect(ids).toEqual(["kept"]);
   });
 
-  it("--vault narrows the 6 SQL-filterable tables; chunk_retrievals/vault_object_state/forget_log stay full", () => {
+  it("--vault narrows the 6 SQL-filterable tables and forget_log; chunk_retrievals/vault_object_state stay full", () => {
     const db = edb();
     seedEpisode(db, "e-main", { vaultId: "main" });
     seedEpisode(db, "e-other", { vaultId: "other" });
@@ -121,6 +167,7 @@ describe("exportContextBundle", () => {
     // globally-scoped tables ignore --vault entirely
     expect(bundle.tables.chunk_retrievals).toHaveLength(1);
     expect(bundle.tables.vault_object_state).toHaveLength(1);
+    // forget_log narrows by details.vault_id; this legacy row names none, so it stays
     expect(bundle.tables.forget_log).toHaveLength(1);
   });
 });
@@ -636,5 +683,131 @@ describe("true round-trip equality (export -> import into a fresh DB -> re-expor
     const { exported_at: _a, ...exportedRest } = exported;
     const { exported_at: _b, ...reExportedRest } = reExported;
     expect(reExportedRest).toEqual(exportedRest);
+  });
+
+  it("a --vault remap gives an imported forget row the target vault's id; a legacy row stays unscoped", () => {
+    const src = edb();
+    appendForgetLog(src, {
+      ts: NOW - 5000,
+      kind: "note",
+      target: "a.md",
+      mode: "tombstone",
+      details: { vault_id: "source", chunks: 0 },
+    });
+    appendForgetLog(src, {
+      ts: NOW - 4000,
+      kind: "note",
+      target: "b.md",
+      mode: "tombstone",
+      details: { chunks: 0 },
+    });
+    const bundle = exportContextBundle(src, { nowMs: NOW, serverVersion: "1.0.0" });
+    const target = importIntoVault(bundle, "other");
+    const rows = target
+      .prepare("SELECT target, details FROM forget_log ORDER BY seq ASC")
+      .all() as Array<{ target: string; details: string }>;
+    expect(JSON.parse(rows[0]?.details ?? "{}").vault_id).toBe("other");
+    expect(JSON.parse(rows[1]?.details ?? "{}")).not.toHaveProperty("vault_id");
+    expect(verifyForgetLog(target)).toEqual({ ok: true, entries: 2 });
+  });
+
+  it("export --vault narrows forget_log to that vault's forgets and keeps legacy rows", () => {
+    const src = edb();
+    forgetNote(src, "a.md", NOW - 5000, { vault_id: "A" });
+    forgetNote(src, "b.md", NOW - 4000, { vault_id: "B" });
+    forgetNote(src, "legacy.md", NOW - 3000, {});
+    const bundle = exportContextBundle(src, { nowMs: NOW, serverVersion: "1.0.0", vaultId: "A" });
+    expect(bundle.tables.forget_log.map((r) => r.target)).toEqual(["a.md", "legacy.md"]);
+    const target = importIntoVault(bundle, "X");
+    const rows = target
+      .prepare("SELECT target, details FROM forget_log ORDER BY seq ASC")
+      .all() as Array<{ target: string; details: string }>;
+    expect(rows.map((r) => r.target)).toEqual(["a.md", "legacy.md"]);
+    expect(JSON.parse(rows[0]?.details ?? "{}").vault_id).toBe("X");
+    expect(verifyForgetLog(target).ok).toBe(true);
+  });
+
+  it("export --vault A where only vault B forgot remaps without a refusal", () => {
+    const src = edb();
+    forgetNote(src, "b.md", NOW - 4000, { vault_id: "B" });
+    const bundle = exportContextBundle(src, { nowMs: NOW, serverVersion: "1.0.0", vaultId: "A" });
+    expect(bundle.tables.forget_log).toEqual([]);
+    expect(remapBundleVault(bundle, "X").ok).toBe(true);
+  });
+
+  it("the same forget bundle imported under vault X then vault Y lands both tombstones", () => {
+    const src = edb();
+    forgetNote(src, "p.md", NOW - 5000, { vault_id: "A" });
+    const bundle = exportContextBundle(src, { nowMs: NOW, serverVersion: "1.0.0", vaultId: "A" });
+    const target = edb();
+    const cache = cacheDb();
+    for (const v of ["X", "Y"]) {
+      seedNote(cache, v, "p.md");
+      const remapped = remapBundleVault(bundle, v);
+      if (!remapped.ok) throw new Error(remapped.error);
+      importContextBundle(target, cache, remapped.bundle);
+    }
+    recomputeNoteQuality(cache, target, { vaultId: "X", nowMs: NOW });
+    recomputeNoteQuality(cache, target, { vaultId: "Y", nowMs: NOW });
+    expect(readNoteQuality(target, { vaultId: "X", path: "p.md" })[0]?.tombstoned).toBe(1);
+    expect(readNoteQuality(target, { vaultId: "Y", path: "p.md" })[0]?.tombstoned).toBe(1);
+    expect(verifyForgetLog(target).ok).toBe(true);
+  });
+
+  it("a forget row whose details is the JSON literal null does not crash a --vault remap", () => {
+    const bundle = exportContextBundle(edb(), { nowMs: NOW, serverVersion: "1.0.0" });
+    pushRawForgetRow(bundle, "n.md", "null");
+    const target = importIntoVault(bundle, "X");
+    expect(verifyForgetLog(target).ok).toBe(true);
+  });
+
+  it("a forget row whose details is an empty string imports without --vault as a legacy row", () => {
+    const bundle = exportContextBundle(edb(), { nowMs: NOW, serverVersion: "1.0.0" });
+    pushRawForgetRow(bundle, "n.md", "");
+    const target = edb();
+    const result = importContextBundle(target, cacheDb(), bundle);
+    expect(result.tables.forget_log.imported).toBe(1);
+    expect(target.prepare("SELECT COUNT(*) AS n FROM forget_log").get()).toEqual({ n: 1 });
+  });
+
+  it("a non-string vault_id is treated as no vault by import dedup and note-quality, and lands once", () => {
+    const bundle = exportContextBundle(edb(), { nowMs: NOW, serverVersion: "1.0.0" });
+    pushRawForgetRow(bundle, "n.md", '{"vault_id":123}');
+    const target = edb();
+    const cache = cacheDb();
+    seedNote(cache, "X", "n.md");
+    const results = [1, 2, 3].map((_, i) => {
+      const r = importContextBundle(target, cache, bundle).tables.forget_log;
+      return i === 0 ? r.imported : r.skipped_duplicate;
+    });
+    expect(results).toEqual([1, 1, 1]);
+    expect(target.prepare("SELECT COUNT(*) AS n FROM forget_log").get()).toEqual({ n: 1 });
+    recomputeNoteQuality(cache, target, { vaultId: "X", nowMs: NOW });
+    expect(readNoteQuality(target, { vaultId: "X", path: "n.md" })[0]?.tombstoned).toBe(1);
+  });
+
+  it("re-importing a bundle with forget rows dedups every one, legacy and vault-scoped alike, with and without --vault", () => {
+    const src = edb();
+    forgetNote(src, "legacy.md", NOW - 3000, {});
+    appendForgetLog(src, {
+      ts: NOW - 2000,
+      kind: "episode",
+      target: "e1",
+      mode: "tombstone",
+      details: { vault_id: "A" },
+    });
+    forgetNote(src, "a.md", NOW - 5000, { vault_id: "A" });
+    const bundle = exportContextBundle(src, { nowMs: NOW, serverVersion: "1.0.0" });
+    const remapped = remapBundleVault(bundle, "X");
+    if (!remapped.ok) throw new Error(remapped.error);
+    for (const b of [bundle, remapped.bundle]) {
+      const target = edb();
+      const cache = cacheDb();
+      const first = importContextBundle(target, cache, b).tables.forget_log;
+      expect(first.imported).toBe(3);
+      const second = importContextBundle(target, cache, b).tables.forget_log;
+      expect(second).toEqual({ ...ZERO_STATS, skipped_duplicate: 3 });
+      expect(target.prepare("SELECT COUNT(*) AS n FROM forget_log").get()).toEqual({ n: 3 });
+    }
   });
 });

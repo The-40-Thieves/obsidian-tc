@@ -8,7 +8,7 @@ import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 // (symlinkSync above: the symlinkOk probe below is the Windows guard, see acl-symlink-canonical.test.ts)
 import { dirname, join } from "node:path";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
@@ -24,6 +24,20 @@ import { nativeVaultIo } from "../src/vault/notes-io";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
+
+// Forces a refusal for one walked path (undefined = none), to reach the response filter with a refusal
+// the caller can read. Every other read goes through the real safe open.
+const forced = vi.hoisted(() => ({ rel: undefined as string | undefined }));
+vi.mock("../src/search/indexing/read-refusal", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/search/indexing/read-refusal")>();
+  return {
+    ...real,
+    readIndexableNote: (root: string, rel: string) =>
+      rel === forced.rel
+        ? { refused: `native path classification failed: EACCES, open '${root}/${rel}'` }
+        : real.readIndexableNote(root, rel),
+  };
+});
 
 const VAULT = "v";
 const REFUSED = 'safe open refused the path: refusing symlinked or missing path component: "wiki"';
@@ -201,7 +215,7 @@ describe.skipIf(!symlinkOk || process.platform === "win32")(
     });
 
     for (const response_format of ["concise", undefined] as const) {
-      it(`index_vault { folder: "wiki" } returns ok with notes_read_refused: 1 (response_format: ${response_format ?? "default"})`, async () => {
+      it(`index_vault { folder: "wiki" } counts the refusal but does not name it in read_refusals (response_format: ${response_format ?? "default"})`, async () => {
         const { root } = makeRoot();
         const db = freshDb();
         const reg = registry(root, db);
@@ -216,9 +230,32 @@ describe.skipIf(!symlinkOk || process.platform === "win32")(
         };
         expect(r.ok, JSON.stringify(r)).toBe(true);
         expect(r.data?.notes_read_refused).toBe(1);
-        expect(r.data?.read_refusals).toEqual([expect.objectContaining({ path: "wiki/a.md" })]);
+        // The caller cannot read wiki/a.md (read_note refuses it too): counted in the total, not named.
+        expect(r.data?.read_refusals).toEqual([]);
       });
     }
+
+    it("a refusal the caller CAN read stays listed in read_refusals, its error vault-relative", async () => {
+      const { root } = makeRoot();
+      const db = freshDb();
+      const reg = registry(root, db);
+      forced.rel = "top.md";
+      try {
+        const r = (await reg.dispatch(
+          "index_vault",
+          { vault: VAULT, response_format: "concise" },
+          ctxFor(db),
+        )) as { ok: boolean; data?: Record<string, unknown> };
+        expect(r.ok).toBe(true);
+        expect(r.data?.notes_read_refused).toBe(1);
+        expect(r.data?.read_refusals).toEqual([
+          { path: "top.md", error: expect.stringContaining("EACCES") },
+        ]);
+        expect(JSON.stringify(r.data)).not.toContain(root);
+      } finally {
+        forced.rel = undefined;
+      }
+    });
 
     it("the advertised output schema (ajv, the SDK validator) accepts the refusal fields", async () => {
       const { root } = makeRoot();

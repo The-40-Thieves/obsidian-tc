@@ -2,8 +2,9 @@
 //
 // Mode is not a write-path distinction (writes are always direct-atomic-fs, see backend.ts);
 // it is solely whether the app-action channel (Local REST API) is reachable. Resolution is
-// per-vault and resolved ONCE at startup: `auto` (or absent) probes bridge/probe.ts and the
-// result is cached by the caller (cli.ts); explicit `live`/`headless` skip the probe.
+// per-vault and resolved per call from the live capability snapshot. `auto` (or absent) probes
+// bridge/probe.ts at startup and on each re-probe (runtime/bridge-wiring.ts); explicit
+// `live`/`headless` skip the probe.
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 
 export type VaultMode = "live" | "headless";

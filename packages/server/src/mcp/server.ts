@@ -351,31 +351,9 @@ export function createMcpServer(opts: McpServerOptions): Server {
   // docs/MCP-CLIENT-COMPAT-MATRIX.md (Finding 2, THE-725/THE-862) and the design note. SEP-2575
   // made verbosity a PER-REQUEST `_meta` field, so there is no server-side floor to set anyway.
 
-  // SEP-2575: `server/discover` REPLACES the removed initialize/initialized handshake, and the
-  // spec makes it mandatory. Reachable only when served through `createMcpHandler`, which
-  // classifies the era per request — asserted end to end by mcp-protocol-eras.test.ts.
-  //
-  // THE-718's feedback clause: a client in triad/domain mode never sees record_retrieval_feedback's
-  // own description. THE-937 adds the catalog summary too, recomputed per caller — hence PRIVATE.
-  server.setRequestHandler("server/discover", (_req, extra) => {
-    const dctx = opts.context(extra.mcpReq.signal);
-    return withCacheHint(
-      {
-        supportedVersions: [MODERN_PROTOCOL_VERSION, ...SUPPORTED_PROTOCOL_VERSIONS],
-        capabilities: server.getCapabilities(),
-        instructions: buildInstructions(
-          opts.name,
-          opts.version,
-          opts.registry,
-          visibilityCallerOf(dctx),
-          Boolean(opts.vaultRegistry),
-          opts.experientialLogRetrievals,
-          surface,
-        ),
-      },
-      CACHE_PRIVATE,
-    );
-  });
+  // SEP-2575: `server/discover` is installed by the SDK when `createMcpHandler` serves a modern
+  // request, replacing any handler set here, so the app does not register one. Asserted end to
+  // end by mcp-protocol-eras.test.ts.
 
   server.setRequestHandler("tools/list", (req, extra): ListToolsResult => {
     const facadeMode = resolveFacadeMode(
@@ -398,26 +376,17 @@ export function createMcpServer(opts: McpServerOptions): Server {
       );
     }
     if (facadeMode === "domain") {
-      const dctx = opts.context(extra.mcpReq.signal);
-      const dvisible = opts.registry.listVisible({
-        grantedScopes: dctx.grantedScopes,
-        readOnly: dctx.acl?.readOnly,
-        toolVisibility: dctx.toolVisibility,
-      });
-      return advertiseSchemes(opts, { tools: domainTools(dvisible) });
+      // Pure caller, as the triad branch: a bare listing must not open a session.
+      const dvisible = opts.registry.listVisible(opts.visibility);
+      return advertiseSchemes(opts, withCacheHint({ tools: domainTools(dvisible) }, CACHE_PRIVATE));
     }
     // Per-caller filtering (THE-250): the caller's resolved scopes + ACL read-only shape the
     // advertised surface, so a caller never sees a tool it could not dispatch. A full grant
     // (stdio / auth-none) leaves the surface unchanged. Filter first, THEN page: the cursor is an
     // opaque offset into this caller's visible list (mirrors resources/list).
-    const ctx = opts.context(extra.mcpReq.signal);
-    const visible = opts.registry.listVisible({
-      grantedScopes: ctx.grantedScopes,
-      readOnly: ctx.acl?.readOnly,
-      // THE-647 item 2: a persona's own tool-visibility mask, composed at explainVisibility's
-      // chokepoint. Undefined for every non-persona caller — unchanged behaviour.
-      toolVisibility: ctx.toolVisibility,
-    });
+    // THE-647 item 2: a persona's own tool-visibility mask rides in `opts.visibility` too
+    // (composed at explainVisibility's chokepoint); undefined for every non-persona caller.
+    const visible = opts.registry.listVisible(opts.visibility);
     // Tool-budget subset: narrow the caller's visible list BEFORE paging, so the cursor and the
     // count a client sees are the subset's. The caller's scope filtering above has already run, so
     // a subset can only ever show less than the caller is granted.

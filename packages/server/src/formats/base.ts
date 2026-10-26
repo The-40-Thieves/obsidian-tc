@@ -31,6 +31,9 @@ export const BaseView = z
     order: z.array(z.string()).optional(),
     limit: z.number().int().positive().optional(),
     groupBy: z.unknown().optional(),
+    // Obsidian 1.14 — the groups to show, in order (`null` = the no-value group). Shape is
+    // checked at query time, so a malformed value reads as absent instead of failing the base.
+    groupOrder: z.unknown().optional(),
   })
   .passthrough();
 

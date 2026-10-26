@@ -6,10 +6,12 @@ import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { vaultExclusionFor } from "../../search/index-exclusion";
 import { indexVault } from "../../search/indexer";
+import { vaultRelativeError } from "../../search/indexing/read-refusal";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableByFolder, readableResolved } from "../../vault/acl-read-filter";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
+import { readVaultNote } from "../m1/notes/read";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import type { M2Deps } from "./shared";
 
@@ -138,14 +140,23 @@ export function buildIndexTools(deps: M2Deps): ToolDefinition[] {
           const frontmatterFailures = stats.frontmatter_failures.filter((f) =>
             readableResolved(ctx.acl, v.root, f.path, ctx.grantedScopes),
           );
-          // A refused read is named by its walked path too, so it is filtered the same way.
-          const readRefusals = stats.read_refusals.filter((f) =>
-            readableResolved(ctx.acl, v.root, f.path, ctx.grantedScopes),
-          );
+          // A refused read is named by its walked path, so it is listed only when read_note could read
+          // that path for this caller (readVaultNote: same resolve, folder ACL and safe open). The total
+          // stays unfiltered: an admin:vault caller may know how many reads failed, not which paths.
+          const readRefusals = stats.read_refusals
+            .filter((f) => {
+              try {
+                readVaultNote(v.root, f.path, ctx.acl, ctx.grantedScopes);
+                return true;
+              } catch {
+                return false;
+              }
+            })
+            .map((f) => ({ path: f.path, error: vaultRelativeError(f.error, v.root) }));
           const failures = {
             notes_frontmatter_failed: frontmatterFailures.length,
             frontmatter_failures: frontmatterFailures,
-            notes_read_refused: readRefusals.length,
+            notes_read_refused: stats.notes_read_refused,
             read_refusals: readRefusals,
           };
           if (resolveResponseFormat(input, deps.responseFormat) === "concise")

@@ -183,9 +183,10 @@ Usage:
                                           if it resolves inside any configured vault's root —
                                           the bundle is derived personal data and must never be
                                           indexed/synced like vault content. --vault narrows the
-                                          vault-scoped tables; chunk_retrievals, vault_object_state
-                                          and forget_log have no vault axis and always export in
-                                          full. A tombstoned/blocked episode is never included.
+                                          vault-scoped tables; chunk_retrievals and vault_object_state
+                                          have no vault axis and always export in full; forget_log
+                                          keeps this vault's forgets plus legacy ones that name no
+                                          vault. A tombstoned/blocked episode is never included.
   obsidian-tc context-import <bundle> [path] [--vault id] [--dry-run]
                                           Import a context-export bundle. Every row is
                                           schema-validated before any write; a format_version

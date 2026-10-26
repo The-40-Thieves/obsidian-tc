@@ -295,4 +295,21 @@ describe("forgetNote", () => {
     expect(res.syntheses_mentions).toBe(1); // only "main"'s row counted, not "other"'s
     expect(res.contradictions_mentions).toBe(1); // only "main"'s row counted, not "other"'s
   });
+
+  it("records the vault in details, and the chain still verifies across a legacy row", () => {
+    const { edb, cache } = rig();
+    appendForgetLog(edb, {
+      ts: NOW,
+      kind: "note",
+      target: "notes/legacy.md",
+      mode: "tombstone",
+      details: {},
+    });
+    forgetNote(edb, cache, { vaultId: "main", relPath: "notes/target.md", nowMs: NOW + 5 });
+    const row = edb
+      .prepare("SELECT details FROM forget_log WHERE target = 'notes/target.md'")
+      .get() as { details: string };
+    expect(JSON.parse(row.details).vault_id).toBe("main");
+    expect(verifyForgetLog(edb)).toEqual({ ok: true, entries: 2 });
+  });
 });

@@ -35,12 +35,12 @@ until this generator existed, by which point five entire defaulted blocks had go
 | `name` | string *(optional)* | Display name. |
 | `path` | string, required | Absolute vault directory. |
 | `publicUrl` | https url *(optional)* | Opt-in base url where this vault's notes are published (Obsidian Publish, Quartz, ...). When set, the standard `search` and `fetch` tools cite `<publicUrl>/<note path>` (each path segment percent-encoded, `.md` dropped) so ChatGPT deep research and company knowledge render clickable citations. Absent, they cite an `obsidian://open?vault=…&file=…` link. https only; credentials, a query or a fragment are rejected. |
-| `mode` | `live \| headless \| auto` *(optional → auto)* | `auto` probes the Local REST API **once at startup**: reachable → live (bridge tools work), else headless (bridge tools return `requires_live_obsidian`; filesystem tools unaffected). Resolved once — config changes take effect on the next server start. |
+| `mode` | `live \| headless \| auto` *(optional → auto)* | `auto` probes the Local REST API **at startup** and re-probes it **every 60 s while it is unreachable or missing** (a `headless`-pinned vault is not re-probed): reachable → live (bridge tools work), else headless (bridge tools return `requires_live_obsidian`; filesystem tools unaffected). `refresh_plugin_capabilities` re-probes on demand. Config changes take effect on the next server start. |
 | `restApiUrl` | url *(optional)* | Local REST API base for live mode. Use the plugin's **non-encrypted loopback server** (`http://127.0.0.1:27123`, enable it in LRA settings) — the bridge client does not trust LRA's self-signed HTTPS certificate. Without this the vault is always headless. |
 | `restApiKey` | string *(optional)* | The LRA API key. Treat as a full-vault admin credential. |
 | `acl` | object *(optional)* | Per-vault ACL override, same shape as the root `acl` — "write vault A, read-only vault B" in one process. |
 | `bridges.timeoutMs` | int, 5000 | Per-route bridge timeout. |
-| `bridges.probeTimeoutMs` | int, 500 | Startup capability-probe timeout. |
+| `bridges.probeTimeoutMs` | int, 500 | Capability-probe timeout, at startup and on each re-probe. |
 | `bridges.ocrTimeoutMs` | int, 30000 | OCR route timeout. |
 | `bridges.templaterTimeoutMs` | int, 30000 | Templater/execute route timeout. |
 | `plugins.forceEnabled` | string[], `[]` | Treat these plugin ids as installed regardless of the probe (CI seam with `probeSkip`). |
