@@ -21,6 +21,7 @@ import { z } from "zod";
 import {
   enforceMemoryDefenseOnNoteWrite,
   MEMORY_DEFENSE_OFF,
+  refusePathIfSecretShaped,
 } from "../../experiential/memory-defense";
 import { redactSecrets } from "../../experiential/redact";
 import { describeAttachment } from "../../formats/attachment-description";
@@ -486,6 +487,8 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           throw err.noteNotFound("source attachment not found", { path: fromRel });
         const toEx = noteExists(toAbs);
         requireAttachmentPath(toRel);
+        const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
+        refusePathIfSecretShaped(mdConfig, "to", toRel, { metrics: deps.metrics });
         if (toEx.exists && toEx.type === "folder")
           throw err.invalidInput("destination is a folder", { path: toRel });
         if (toEx.exists && !input.overwrite)
@@ -496,7 +499,6 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         // `block`-mode memoryDefense scan refuses ends here, with the attachment still in place and
         // its references still valid. The plan holds each referencing note's pre-image; the commit
         // re-checks it.
-        const mdConfig = deps.memoryDefense?.(v.id) ?? MEMORY_DEFENSE_OFF;
         const skips = new ImmutableRewriteSkips(ctx.acl, v.root, ctx.grantedScopes);
         const planReferences = (record: boolean) =>
           input.update_references
@@ -587,6 +589,7 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
           },
         });
         snapshots.landed();
+        for (const r of plan.pending) deps.reindex?.(v.id, r.rel, r.text);
         return {
           vault: v.id,
           from: fromRel,
