@@ -34,7 +34,7 @@ This sub-doc commits the topology, IPC contracts, and dispatch pipeline for V1. 
 - G2.1 r2 cross-cutting #8 (HITL threshold policy location) — §7. **Shipped as hardcoded floors** (a tool's `destructive` flag plus per-scope HITL floors), evaluated in the dispatch pipeline; the config-driven per-vault threshold model from the original design was dropped at implementation.
 - Where `execute:<plugin>` scope check fires (G2.1 cross-cutting #1's location question) — §8. ACL layer. Scope class itself remains G2.4's call.
 - Streaming support in V1 — §9. No, pagination covers it.
-- MCP protocol version — §10. **2025-11-25**, negotiated (guarded in `test/tool-surface-2025.test.ts`). Streamable HTTP for remote, STDIO for local. Capabilities declare `listChanged` on `tools`/`prompts`/`resources` (SEP-2575 makes a `subscriptions/listen` filter real only for declared types), but the surface is static, registered once at startup, so the server never emits a `list_changed` notification (pinned in `test/list-changed-stability.test.ts`; Visual Studio resets tool approvals on one); HITL is the server's own elicit-token flow (§4c), not the MCP `elicitation` client capability.
+- MCP protocol version — §10. **2026-07-28**, negotiated first (`MODERN_PROTOCOL_VERSION` in `mcp/server.ts`); 2025-11-25 clients are still served. Streamable HTTP for remote, STDIO for local. Capabilities declare `listChanged` on `tools`/`prompts`/`resources` (SEP-2575 makes a `subscriptions/listen` filter real only for declared types), but the surface is static, registered once at startup, so the server never emits a `list_changed` notification (pinned in `test/list-changed-stability.test.ts`; Visual Studio resets tool approvals on one); HITL is the server's own elicit-token flow (§4c); its confirm step is an `elicitation/create` input request (`mcp/elicit-form.ts`) where the client supports it.
 
 **Forward-routed to G2.3-G2.5:** see end of doc.
 
@@ -46,7 +46,7 @@ Thirteen named components in V1. Each component has an owner of state, a languag
 
 ### Server-side (single process)
 
-**(1) Transport layer.** TypeScript on Bun + Hono. Parses MCP messages (JSON-RPC 2.0 over STDIO or Streamable HTTP per MCP 2025-11-25). Owns connection lifecycle, message framing, protocol-version negotiation. NOT responsible for tool semantics, vault state, or auth decisions.
+**(1) Transport layer.** TypeScript on Bun + Hono. Parses MCP messages (JSON-RPC 2.0 over STDIO or Streamable HTTP per MCP 2026-07-28, with 2025-11-25 still negotiated). Owns connection lifecycle, message framing, protocol-version negotiation. NOT responsible for tool semantics, vault state, or auth decisions.
 
 **(2) Auth layer.** TypeScript. Validates JWT bearer tokens (or accepts `none` mode if bound to localhost). Two verification routes selected by the token's protected header: **HS256 verifies only against the shared `jwtSecret`; asymmetric algorithms (RS256 / ES256 / EdDSA by default, configurable via `auth.algorithms`) verify only against a local JWKS** (`auth.jwks` inline or `auth.jwksFile`, loaded once at transport boot — deliberately no URL fetch). Key rotation is `kid`-based inside the JWKS (publish old + new keys together). The strict routing makes the classic alg-confusion attack (public key used as HMAC secret) structurally impossible. Owns token validation, scope extraction, and caller-context construction. NOT responsible for per-resource access control (that's ACL), throttling (Policy), or session state (workspace_memory).
 
@@ -182,7 +182,7 @@ flowchart TB
 
 **Layer 1: Transport (MCP SDK boundary).** The MCP TypeScript SDK parses JSON-RPC over STDIO or Streamable HTTP; malformed JSON-RPC is rejected at the protocol layer before dispatch. The `tools/call` handler strips a caller-supplied `elicit_token` out of the arguments into the caller context, so the token never perturbs the args hash — the token is bound to the hash of the call *without* it (`packages/server/src/mcp/server.ts`). There is no separate normalized request type: the dispatch entry point is `registry.dispatch(name, args, ctx)` with a per-request `CallerContext` (caller identity, granted scopes, `authenticated`, resolved vault + optional vault binding, elicit token, DB handle, per-vault ACL, workspace session id, the effect-committed marker callback, a clock override, and the per-request `AbortSignal`).
 
-**Layer 2: Auth (HTTP edge + dispatch).** Three modes: `none` (no token; the config refuses to validate if HTTP is bound to a non-loopback host), `jwt`, and `oidc` (verifies access tokens from an external OpenID Connect provider: boot-time discovery, exact issuer and audience, asymmetric algorithms only, the same identity/revocation path as `jwt`; `auth/oidc.ts`). In `jwt` mode the token's protected header routes verification: **HS256 verifies only against the shared `jwtSecret`; RS256 / ES256 / EdDSA (the default `auth.algorithms` allowlist) verify only against a local JWKS** (`auth.jwks` inline or `auth.jwksFile`, loaded once at transport boot — no URL fetch), with `kid`-based key selection for rotation. Either side may be absent; tokens for the missing side reject. HS256-only deployments are unchanged, and `auth.mode: "jwt"` accepts a JWKS in place of `jwtSecret`. Optionally, obsidian-tc acts as an OAuth 2.0 resource server (RFC 9728 Protected Resource Metadata + `WWW-Authenticate` challenge) when `auth.resource` + `auth.authorizationServers` are configured; there is no in-repo authorization server (no token issuance / DCR / OIDC).
+**Layer 2: Auth (HTTP edge + dispatch).** Three modes: `none` (no token; the config refuses to validate if HTTP is bound to a non-loopback host), `jwt`, and `oidc` (verifies access tokens from an external OpenID Connect provider: boot-time discovery, exact issuer and audience, asymmetric algorithms only, the same identity/revocation path as `jwt`; `auth/oidc.ts`). In `jwt` mode the token's protected header routes verification: **HS256 verifies only against the shared `jwtSecret`; RS256 / ES256 / EdDSA (the default `auth.algorithms` allowlist) verify only against a local JWKS** (`auth.jwks` inline or `auth.jwksFile`, loaded once at transport boot — no URL fetch), with `kid`-based key selection for rotation. Either side may be absent; tokens for the missing side reject. HS256-only deployments are unchanged, and `auth.mode: "jwt"` accepts a JWKS in place of `jwtSecret`. Optionally, obsidian-tc acts as an OAuth 2.0 resource server (RFC 9728 Protected Resource Metadata + `WWW-Authenticate` challenge) when `auth.resource` + `auth.authorizationServers` are configured; a bundled authorization server (`auth/as-*.ts`, configured under `auth.as`) issues tokens for its own OAuth endpoints; `auth.authorizationServers` otherwise names an external one.
 
 The HTTP edge **authenticates only** — it verifies the bearer and derives caller + scopes + optional vault binding; a missing, invalid, or expired token is an **HTTP 401** and never reaches dispatch. Authorization stays in dispatch: a tool with required scopes rejects an unauthenticated caller with `unauthorized`, and a caller missing a required scope gets `forbidden` with `details.required`. On stdio (trusted parent process, auth `none`) the caller runs with full scopes.
 
@@ -336,22 +336,25 @@ A hand-written `index.js` loader (replacing the napi-generated one) tries a loca
 **Calls (sync, CPU-bound):**
 
 ```typescript
-// packages/native/src/lib.rs → exposed as TS via napi-rs (shipped surface: 4 pure primitives,
-// plus 2 Unix-only filesystem helpers — see prose above)
+// packages/native/index.d.ts: the shipped surface, exposed as TS via napi-rs
 export function cosineSimilarity(a: number[], b: Float32Array | number[]): number;   // 0 for empty/mismatched length
-export function cosineBatch(                                          // one query vs N concatenated f32 docs
-  query: Float32Array, docsFlat: Float32Array, dim: number,
-): Float64Array;
-export function tokenize(text: string): string[];                     // Unicode lowercase alphanumeric terms
-export function bm25Score(                                            // one query term's BM25 contribution (k1=1.2, b=0.75)
-  tf: number, docLen: number, avgDocLen: number, docFreq: number, docCount: number,
-): number;
-
-// Deferred / removed: dotProduct and reciprocalRankFusion are not implemented (RRF is a V2
-// hybrid-fusion input; the sqlite-vec wrapper lives at the TS/db layer, not here). The V2
-// stubs kmeansAssign / actrDecayScore were removed with the V2 ML scope (see top-of-doc note).
-// Inputs are plain f64 arrays; cosineSimilarity also accepts the document vector as a
-// zero-copy Float32Array on the brute-force path.
+export function cosineBatch(query: Float32Array, docsFlat: Float32Array, dim: number): Float64Array;  // one query vs N concatenated f32 docs
+export function tokenize(text: string): string[];                                    // Unicode lowercase alphanumeric terms
+export function bm25Score(tf: number, docLen: number, avgDocLen: number, docFreq: number, docCount: number): number;  // k1=1.2, b=0.75
+export function rougeLLcs(a: Int32Array, b: Int32Array): number;                    // LCS length of two interned token-id sequences
+export interface PinnedDir { dir: string; dev: bigint; ino: bigint }
+export const SAFE_IO_PINNED_DIR: true | undefined;
+export const SAFE_IO_PINNED_WRITE: true | undefined;
+export const SAFE_IO_PINNED_MKDIR: true | undefined;
+export function safeReadNote(abs: string, pinned?: PinnedDir): Buffer;
+export function safeWriteNoteAtomic(abs: string, data: Buffer, pinned: PinnedDir | undefined, createDirs?: boolean): void;
+export function safeWriteNoteExclusive(abs: string, data: Buffer, pinned: PinnedDir | undefined, createDirs?: boolean): void;  // refuses an existing target
+export function safeRenameNoReplace(fromAbs: string, toAbs: string, fromPinned?: PinnedDir, toPinned?: PinnedDir): void;
+export function safeUnlink(abs: string, pinned?: PinnedDir): boolean;
+export function safeRmdir(abs: string, pinned?: PinnedDir): void;
+export const nativeLoaded: boolean;
+export function hostTriple(): string | null;
+export function isMusl(): boolean;
 ```
 
 **Memory:** napi-rs copies typed arrays on the boundary. For 768-dim embeddings (3KB) the copy is ~100µs; for 1536-dim (6KB) ~200µs. Acceptable.
@@ -416,7 +419,7 @@ Recommendation surfaces in docs (G2.5).
 
 ### Schema (as shipped — `ServerConfigSchema`, exported from `@the-40-thieves/obsidian-tc-shared`)
 
-The shipped schema (`packages/shared/src/config.schema.ts`) is flatter than the G2.2 design sketch. Key reconciliations vs the original design: **auth is `none | jwt` only** (no `oauth` / DCR mode; `jwt` covers HS256 via `jwtSecret` and RS256/ES256/EdDSA via a local JWKS); **ACL is a global block with an optional per-vault override** (`vaults[].acl` — the root block is the inherited default); **embeddings providers are ollama / openai / voyage / cohere / bge-m3 / openai-compatible / model-tier / module** (no `custom`), configured globally; there is **no `sidecar` block** (the V2 ML scope was dropped); HITL is **hardcoded floors + per-scope**, not a per-vault `hitl_thresholds` table; and throttle / governor / observability / maintenance / plane / indexing / retrieval / ranking / experiential / snapshots are first-class top-level blocks.
+The shipped schema (`packages/shared/src/config.schema.ts`) is flatter than the G2.2 design sketch. Key reconciliations vs the original design: **auth is `none | jwt | oidc`** (`oidc` verifies an external provider's tokens; the bundled authorization server is configured under `auth.as`; `jwt` covers HS256 via `jwtSecret` and RS256/ES256/EdDSA via a local JWKS); **ACL is a global block with an optional per-vault override** (`vaults[].acl` — the root block is the inherited default); **embeddings providers are ollama / openai / voyage / cohere / bge-m3 / openai-compatible / model-tier / module** (no `custom`), configured globally; there is **no `sidecar` block** (the V2 ML scope was dropped); HITL is **hardcoded floors + per-scope**, not a per-vault `hitl_thresholds` table; and throttle / governor / observability / maintenance / plane / indexing / retrieval / ranking / experiential / snapshots are first-class top-level blocks.
 
 <!-- A hand-mirrored copy of ServerConfigSchema lived here as a TypeScript code block. It
      had rotted (17 of 25 top-level keys, missing both `indexing` and `retrieval` — the homes of
@@ -628,7 +631,7 @@ V2 retrieval ops (GraphRAG, hybrid fusion) are batch-shaped by nature: the resul
 
 ### Decision
 
-**MCP spec 2025-11-25.** Latest stable as of design date 2026-05-18.
+**MCP spec 2025-11-25 was the design target** (latest stable at 2026-05-18). **As shipped, 2026-07-28 is negotiated first** and 2025-11-25 is still accepted.
 
 Source: modelcontextprotocol.io spec endpoint and the official 2026 roadmap blog confirming no new spec cut since November 2025.
 
@@ -646,8 +649,7 @@ Handled by the MCP TypeScript SDK, not custom code: the initialize exchange (STD
 - **`tools`**: yes — the full registered tool surface (the G2.1 set plus post-1.0 additive tools). What `tools/list` *advertises* is shaped by the `toolFacade` mode: `triad` (default — `find_capability` / `describe_capability` / `call_capability`, with `find_capability` scored by the in-process tokenizer + BM25), `domain` (~a dozen domain meta-tools), `flat` (the full surface), or `auto` (superseded by an explicit per-client mode, see docs "Choosing a facade mode per client"; one of the three, resolved per connecting client from its `clientInfo.name` — provisional table, and precise only where the SDK's `Server` instance actually persists across requests: stdio on either protocol era, or Streamable HTTP for a 2026-07-28 client that resends `clientInfo` per request; a legacy client over the stateless HTTP transport always falls back to `triad`). Every tool stays callable by name in every mode, and `call_capability` routes through the same dispatch pipeline (all gates fire unchanged).
 - **`resources`**: yes — vault notes are advertised as MCP resources (`resources/list` + `resources/read` over `obsidian-tc://<vault>/<path>` URIs) when a vault registry is present, enforcing the same read scope + folder ACL inline.
 - **`prompts`**: yes — a small set of built-in static prompt templates (`prompts/list` + `prompts/get`).
-- **`elicitation`**: **as shipped, HITL does NOT use MCP's `elicitation` capability.** It uses a custom token pattern: a destructive / HITL-floor call returns an `elicit_required` error carrying the `args_hash` to confirm against; a token minted out-of-band via the `issueElicitToken` API is resubmitted as an `elicit_token` argument (single-use, 5-min TTL, bound to the tool + args through the hash, consumed via an atomic `UPDATE`). This works with any MCP client regardless of elicitation support. Adopting the native `elicitation` primitive is a possible V1.x change.
-- **`sampling`**: no. Server does not request LLM completions from clients.
+- **`elicitation`**: **as shipped, the HITL confirm step is an `elicitation/create` input request (`mcp/elicit-form.ts`) where the client supports it.** Otherwise it uses the custom token pattern: a destructive / HITL-floor call returns an `elicit_required` error carrying the `args_hash` to confirm against; a token minted out-of-band via the `issueElicitToken` API is resubmitted as an `elicit_token` argument (single-use, 5-min TTL, bound to the tool + args through the hash, consumed via an atomic `UPDATE`). This works with any MCP client regardless of elicitation support.- **`sampling`**: no. Server does not request LLM completions from clients.
 
 ### Tool annotations (MCP 2025-11-25 feature)
 
@@ -762,7 +764,7 @@ New from G2.2:
 Architectural hooks baked into V1 so V2 is an upgrade, not a rewrite:
 
 - **Plugin bridge URL space versioned (`/v1/`).** Companion plugin can ship `/v2/` routes alongside `/v1/` without breaking V1 server. Server selects version based on its compiled-in expectation, and an incompatible companion API major degrades bridge tools visibly (`plugin_incompatible`) rather than silently.
-- **Native module V2 stubs removed.** The `kmeansAssign` / `actrDecayScore` reservations were removed with the V2 ML scope; the shipped `@the-40-thieves/obsidian-tc-native` exports four pure primitives — cosine similarity, batched cosine similarity, a Unicode tokenizer, BM25 term scoring — plus the Unix-only symlink-safe note read/write helpers.
+- **Native module V2 stubs removed.** The `kmeansAssign` / `actrDecayScore` reservations were removed with the V2 ML scope; the shipped `@the-40-thieves/obsidian-tc-native` exports five pure primitives — cosine similarity, batched cosine similarity, a Unicode tokenizer, BM25 term scoring, ROUGE-L LCS — plus the symlink-safe filesystem primitives (note read and write, no-replace rename, unlink, rmdir; several are Unix-only, see `index.d.ts`).
 - **SQLite schema has V2-reserved columns** (chunks.cluster_id, chunks.decay_score, chunks.activation_count, chunks.last_accessed_at — per G2-architecture parent). V2 lights them up without migration.
 - **Storage rewrite seam.** The shared-`cache.db` + `vault_id` layout (component 10) is committed for v1.x with additive-only schema changes; the V2 storage rewrite moves to physically separate per-vault DB files behind a storage-backend abstraction without changing the tool surface.
 - **ACL/Policy layers are scope-aware.** V2 may add scope `agent:autonomous-l3` for restricted scopes. Handler already exists in the ACL parser; G2.4 commits scope grammar that V2 extends.
