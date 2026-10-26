@@ -41,8 +41,11 @@ an error naming it and pointing at `docs-ingest setup`. `dry_run=True` needs non
 Setup: `docs-ingest setup` (or `uv run docs-ingest setup`) prompts for each setting, shows the
 current value as the default (secrets masked), validates the URLs, probes both endpoints and
 writes `$XDG_CONFIG_HOME/obsidian-tc/docs-ingest.env` (default `~/.config/obsidian-tc/docs-ingest.env`)
-with mode 0600 on POSIX. Use `DOCS_INGEST_CONFIG` to point at another file. The file holds
-`KEY=VALUE` lines; `#` comments go on their own line only (no inline comments, no `export`).
+with mode 0600 on POSIX. Re-running setup keeps comment lines and keys it does not manage.
+Use `DOCS_INGEST_CONFIG` to point at another file. The file holds `KEY=VALUE` lines; `#`
+comments go on their own line only (no inline comments, no `export`). An explicit empty optional
+flag, such as `--crawl4ai-token ""`, removes that key from the file; a required setting still
+exits 2.
 
 Precedence is the environment first, then that file. For `LANGEXTRACT_API_KEY` the order is:
 environment `LANGEXTRACT_API_KEY`, environment `LITELLM_AGENT_KEY`, file `LANGEXTRACT_API_KEY`,

@@ -248,3 +248,43 @@ def test_unresolvable_home_is_ignored_with_one_warning(
     err = capsys.readouterr().err
     assert err.count("ignoring") == 1
     assert "RuntimeError" in err
+
+
+def test_failed_swap_keeps_the_old_file_and_leaves_no_temp_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _point_at(tmp_path, monkeypatch)
+    path.parent.mkdir(parents=True)
+    path.write_text("CRAWL4AI_URL=http://old:1\n", encoding="utf-8")
+
+    def swap_fails(src: str, dst: str) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "replace", swap_fails)
+
+    with pytest.raises(OSError, match="disk full"):
+        config.save({"CRAWL4AI_URL": "http://new:2"})
+
+    assert path.read_text(encoding="utf-8") == "CRAWL4AI_URL=http://old:1\n"
+    assert list(path.parent.iterdir()) == [path]
+
+
+@posix_only
+def test_temp_file_is_0600_in_the_same_directory_before_the_swap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = _point_at(tmp_path, monkeypatch)
+    swapped: list[tuple[Path, int]] = []
+    real_replace = os.replace
+
+    def record_then_swap(src: str, dst: str) -> None:
+        swapped.append((Path(src), stat.S_IMODE(os.stat(src).st_mode)))
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", record_then_swap)
+
+    config.save({"LANGEXTRACT_API_KEY": "sk-test"})
+
+    [(temp, mode)] = swapped
+    assert temp.parent == path.parent
+    assert mode == 0o600

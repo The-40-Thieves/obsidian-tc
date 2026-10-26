@@ -8,10 +8,12 @@ the location.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import string
 import sys
-from collections.abc import Mapping
+import tempfile
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 CONFIG_ENV = "DOCS_INGEST_CONFIG"
@@ -72,29 +74,90 @@ def load() -> dict[str, str]:
     return values
 
 
-def save(values: Mapping[str, str]) -> Path:
-    """Replace the setup file with ``values``, created or tightened to mode 0600.
+def save(values: Mapping[str, str], remove: Iterable[str] = ()) -> Path:
+    """Write the setup file: ``values`` set or added, ``remove`` keys dropped, and every other line
+    (comments, keys this tool does not manage) kept in its place.
 
-    Every value is checked and the whole file is encoded before the file is opened, so a refused
-    or unencodable value leaves the existing file untouched. The mode is set before the secrets
-    are written, so the file is never readable by others, not even briefly.
+    Every value is checked and the whole file is built before anything is written, so a refused
+    value leaves the existing file untouched. The new text goes to a 0600 temp file in the same
+    directory, is flushed to disk, then swapped over the old file; a failure removes the temp file
+    and leaves the old one as it was. The secrets are never readable by others, not even briefly.
     """
-    lines = []
+    updates = {}
     for key, value in values.items():
         if not value.isprintable():
             raise ValueError(f"{key} must be one line of printable text")
-        lines.append(f"{key}={_quote(value)}")
-    data = ("\n".join(lines) + "\n").encode("utf-8")
+        updates[key] = f"{key}={_quote(value)}"
+    dropped = set(remove)
 
-    target = path()
+    # A symlink is resolved first, so the swap replaces the real file and the link stays in place.
+    target = Path(os.path.realpath(path()))
+    kept: list[str] = []
+    written: set[str] = set()
+    for raw in _read_lines(target):
+        key = _key(raw)
+        if key is None:
+            kept.append(raw)
+        elif key in updates:
+            if key not in written:
+                kept.append(updates[key])
+                written.add(key)
+        elif key not in dropped:
+            kept.append(raw)
+    kept += [line for key, line in updates.items() if key not in written]
+    data = ("\n".join(kept) + "\n").encode("utf-8")
+
     target.parent.mkdir(parents=True, exist_ok=True)
-    if os.name == "posix" and target.exists():
-        os.chmod(target, 0o600)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0)
-    fd = os.open(target, flags, 0o600)
-    with os.fdopen(fd, "wb") as handle:
-        handle.write(data)
+    fd, temp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, target)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(temp)
+        raise
+    _sync_directory(target.parent)
     return target
+
+
+def _read_lines(target: Path) -> list[str]:
+    """The setup file's lines as written, without their line feeds (a carriage return stays with its
+    line, so a kept line is copied exactly); none if the file is missing."""
+    try:
+        text = target.read_bytes().decode("utf-8")
+    except FileNotFoundError:
+        return []
+    lines = text.split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    return lines
+
+
+def _sync_directory(directory: Path) -> None:
+    """Flush the swap's directory entry to disk. Skipped where a directory cannot be opened."""
+    flag = getattr(os, "O_DIRECTORY", None)
+    if flag is None:
+        return
+    try:
+        fd = os.open(directory, os.O_RDONLY | flag)
+    except OSError:
+        return
+    try:
+        with contextlib.suppress(OSError):
+            os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _key(line: str) -> str | None:
+    """The setting a line assigns, or None for a comment, a blank line or anything ``load`` skips."""
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#") or "=" not in stripped:
+        return None
+    return stripped.partition("=")[0].strip()
 
 
 def _first_set(source: Mapping[str, str], names: tuple[str, ...]) -> str | None:
