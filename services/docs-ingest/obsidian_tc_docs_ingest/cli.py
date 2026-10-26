@@ -24,7 +24,8 @@ from urllib.parse import urlsplit
 from . import config, transport
 
 PROBE_TIMEOUT = 5
-# Off a terminal, a required prompt gives up after this many unusable answers in a row.
+# Off a terminal, any prompt (required or optional) gives up after this many unusable answers in a
+# row.
 _MAX_FAILED_ANSWERS = 3
 
 
@@ -43,10 +44,12 @@ def _check_url(value: str) -> str | None:
     try:
         parts = urlsplit(value)
         if parts.scheme in ("http", "https") and parts.hostname:
-            if "@" in parts.netloc:
+            # Anywhere in the URL: a '/', '?' or '#' in a password moves the host the probe reaches.
+            if "@" in value:
                 return "must not contain a username or password; use the token or key setting"
             if any(c.isspace() for c in parts.netloc):
                 return "must not contain whitespace in the host"
+            _ = parts.port  # raises ValueError for a non-numeric or out-of-range port
             return None
     except ValueError:
         pass
@@ -216,16 +219,20 @@ def _probe(
     return f"{label}: FAIL ({url}): {reason}"
 
 
-def _effective(values: dict[str, str], name: str) -> str:
-    """The value a live run would use: each environment name first, then the same names in the
-    setup file (``config.get``'s order, applied to the values setup is about to save)."""
+def _resolved(values: dict[str, str], name: str) -> tuple[str, str]:
+    """The (variable, value) a live run would use: each environment name first, then the same names
+    in the setup file (``config.get``'s order, applied to the values setup is about to save)."""
     names = config.env_names(name)
     for source in (os.environ, values):
         for env_name in names:
             value = (source.get(env_name) or "").strip()
             if value:
-                return value
-    return ""
+                return env_name, value
+    return "", ""
+
+
+def _effective(values: dict[str, str], name: str) -> str:
+    return _resolved(values, name)[1]
 
 
 def _setup(
@@ -357,6 +364,8 @@ def _setup(
         print(f"docs-ingest: cannot save {config.location()}: {exc}", file=sys.stderr)
         return 2
     print(f"Saved {saved}")
+    # A setting cleared by its flag and then typed at the prompt is set again: no clear to report.
+    cleared = [name for name in cleared if name not in values]
     for name in cleared:
         print(f"{name} cleared")
     if "LANGEXTRACT_API_KEY" in cleared and not os.environ.get("LANGEXTRACT_API_KEY", "").strip():
@@ -400,9 +409,10 @@ def _setup(
         if _effective(values, url_name) != saved_url:
             print(f"{label}: skipped ({url_name} is set in the environment)")
             continue
-        key = _effective(values, key_name) or None
+        source_name, key_value = _resolved(values, key_name)
+        key = key_value or None
         if key and _problem(_BY_NAME[key_name], key):
-            print(f"{key_name} is not one line of printable text; probe skipped")
+            print(f"{source_name} is not one line of printable text; probe skipped")
             continue
         print(_probe(label, f"{saved_url.rstrip('/')}/{path}", key, secrets, opener))
     return 0
