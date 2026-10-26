@@ -137,7 +137,15 @@ describe.skipIf(process.platform === "win32")("enumeration filters on the canoni
       tag: "leaktag",
       folder: "shared",
     });
-    expect(dump(ok)).toContain("shared/open-note.md");
+    if (!nativeVaultIo) {
+      // The JS fallback refuses the unconfigured symlinked folder: the refusal is the positive control.
+      expect(ok.ok).toBe(false);
+      expect(dump(ok)).toContain("shared/open-note.md");
+      expect(dump(ok)).not.toContain(v.root);
+    } else {
+      expect(ok.ok).toBe(true);
+      expect(dump(ok)).toContain("shared/open-note.md");
+    }
   });
 
   it("a configured folder whose target is readable still counts its tags, under the display path", async () => {
@@ -171,7 +179,14 @@ describe.skipIf(process.platform === "win32")("enumeration filters on the canoni
     const denied = await v.call("list_kanban_boards", { vault: "test", folder: "wiki" });
     expect(leaks(dump(denied))).toBe(false);
     const ok = await v.call("list_kanban_boards", { vault: "test", folder: "shared" });
-    expect(dump(ok)).toContain("shared/open-note.md");
+    if (!nativeVaultIo) {
+      expect(ok.ok).toBe(false);
+      expect(dump(ok)).toContain("shared/open-note.md");
+      expect(dump(ok)).not.toContain(v.root);
+    } else {
+      expect(ok.ok).toBe(true);
+      expect(dump(ok)).toContain("shared/open-note.md");
+    }
   });
 
   it("list_attachments shows no denied file's name, size or mtime and still lists a readable one", async () => {

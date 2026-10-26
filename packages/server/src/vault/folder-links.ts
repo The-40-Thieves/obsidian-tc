@@ -234,7 +234,7 @@ export function vaultDetailPath(abs: string): string {
   const root = folderRootForSink(abs);
   const rel = root === undefined ? "" : relative(root, abs);
   const shown =
-    rel !== "" && !rel.startsWith("..") && !isAbsolute(rel)
+    rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)
       ? rel
       : (abs.split(/[\\/]/).pop() ?? "");
   return redactSecrets(shown.split(/[\\/]/).join("/")).text;

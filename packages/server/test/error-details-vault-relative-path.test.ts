@@ -3,7 +3,7 @@
 
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
-import { readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
@@ -56,6 +56,25 @@ describe("vaultDetailPath", () => {
   it("turns backslash separators into POSIX ones", () => {
     expect(vaultDetailPath("C:\\vault\\notes\\a.md")).toBe("a.md");
   });
+
+  it("keeps an in-vault folder named ..hidden vault-relative", () => {
+    const root = vaultRoot("otc-detail-dotdot-");
+    withFolderPins(new FolderPins([{ root }]), () => {
+      expect(vaultDetailPath(join(root, "..hidden", "x.md"))).toBe("..hidden/x.md");
+    });
+  });
+
+  it("falls back to the basename for a traversal that leaves the vault", () => {
+    expect(vaultDetailPath("/root/../etc/passwd")).toBe("passwd");
+  });
+
+  it("names the vault root by its basename, never as an absolute path", () => {
+    const root = vaultRoot("otc-detail-rootself-");
+    withFolderPins(new FolderPins([{ root }]), () => {
+      expect(vaultDetailPath(root)).not.toMatch(/^[\\/]/);
+      expect(vaultDetailPath(root)).not.toContain(root);
+    });
+  });
 });
 
 describe("read refusals name the note vault-relatively", () => {
@@ -66,14 +85,18 @@ describe("read refusals name the note vault-relatively", () => {
         async () => {
           const io = await loadNotesIo(backend);
           if (!io) throw new Error("native addon availability changed after test collection");
+          // loadNotesIo resets the module graph: pins must come from the same folder-links instance.
+          const links = await import("../src/vault/folder-links");
           const root = vaultRoot("otc-detail-link-");
-          writeFileSync(join(root, "b.md"), "target\n");
-          if (!trySymlink(fs, join(root, "b.md"), join(root, "a.md"), "file")) return; // host forbids file symlinks (Windows without privilege)
-          const refusal = withFolderPins(new FolderPins([{ root }]), () =>
-            refusalOf(() => io.readNote(join(root, "a.md"))),
+          fs.mkdirSync(join(root, "notes"));
+          writeFileSync(join(root, "notes", "b.md"), "target\n");
+          if (!trySymlink(fs, join(root, "notes", "b.md"), join(root, "notes", "a.md"), "file"))
+            return; // host forbids file symlinks (Windows without privilege)
+          const refusal = links.withFolderPins(new links.FolderPins([{ root }]), () =>
+            refusalOf(() => io.readNote(join(root, "notes", "a.md"))),
           );
           expect(refusal?.code).toBe("acl_denied");
-          expect(refusal?.details.path).toBe("a.md");
+          expect(refusal?.details.path).toBe("notes/a.md");
           expect(JSON.stringify(refusal?.details)).not.toContain(root);
         },
       );
@@ -87,14 +110,17 @@ describe("read refusals name the note vault-relatively", () => {
         async () => {
           const io = await loadNotesIo(backend);
           if (!io) throw new Error("native addon availability changed after test collection");
+          // loadNotesIo resets the module graph: pins must come from the same folder-links instance.
+          const links = await import("../src/vault/folder-links");
           const root = vaultRoot("otc-detail-fifo-");
-          const made = spawnSync("mkfifo", [join(root, "fifo.md")], { encoding: "utf8" });
+          fs.mkdirSync(join(root, "notes"));
+          const made = spawnSync("mkfifo", [join(root, "notes", "fifo.md")], { encoding: "utf8" });
           expect(made.status, made.stderr).toBe(0);
-          const refusal = withFolderPins(new FolderPins([{ root }]), () =>
-            refusalOf(() => io.readNote(join(root, "fifo.md"))),
+          const refusal = links.withFolderPins(new links.FolderPins([{ root }]), () =>
+            refusalOf(() => io.readNote(join(root, "notes", "fifo.md"))),
           );
           expect(refusal?.code).toBe("path_invalid");
-          expect(refusal?.details.path).toBe("fifo.md");
+          expect(refusal?.details.path).toBe("notes/fifo.md");
           expect(JSON.stringify(refusal?.details)).not.toContain(root);
         },
       );
@@ -102,64 +128,137 @@ describe("read refusals name the note vault-relatively", () => {
   });
 });
 
-// Source-scan gate: every error-details `path` in the two sinks must be wrapped by vaultDetailPath,
-// so a new refusal that echoes the host path fails review here rather than in production.
-const SRC_ROOT = fileURLToPath(new URL("../src/", import.meta.url));
-const SINK_FILES = ["vault/notes-io.ts", "vault/native-io.ts"] as const;
+// Source-scan gate: every error-detail `path` under src/vault must be wrapped by vaultDetailPath, so a
+// refusal that echoes a host path fails here rather than in production. A detail is an object literal
+// passed to `err.<kind>(` or `new ObsidianTcError(`, or a literal bound to a name such a call passes
+// (`const details = {...}; err.x(msg, details)`). Object literals elsewhere (types, returns, ACL
+// records) are not details. Not covered: `{ target: abs }`, and paths embedded in message strings.
+const VAULT_DIR = fileURLToPath(new URL("../src/vault/", import.meta.url));
+const SCANNED_FLOOR = 30;
+const WRAPPED_FLOOR = 14;
+const WRAPPED = /^vaultDetailPath\(|^redactSecrets\(rel\)\.text$/;
+/** Flagged details that are vault-relative by construction (a caller's own note path, normalised or
+ *  redacted; never a host path). Keyed by file; each entry is the flagged text. */
+const RELATIVE_BY_CONSTRUCTION: Record<string, readonly string[]> = {
+  "acl-path.ts": ["path: redactedPath"],
+  "cas.ts": ["path: rel", "path: check.rel"],
+  "frontmatter.ts": ["path"],
+  "paths.ts": [
+    "path: redactSecrets(relPath).text",
+    "path: redactSecrets(shown).text",
+    "path: redactedRelPath",
+  ],
+  "write-mode-errors.ts": ["path"],
+};
 
-/** Comment-stripped source, as the other source-scan gates read it. */
-function stripped(relPath: string): string {
-  const raw = readFileSync(join(SRC_ROOT, relPath), "utf8");
-  return raw.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+/** `src` with comments and string/template bodies blanked; offsets still match the source. */
+function codeOnly(src: string): string {
+  return src.replace(
+    /\/\*[\s\S]*?\*\/|\/\/[^\n]*|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`/g,
+    (c) => (c.startsWith("/") ? c.replace(/[^\n]/g, " ") : c[0] + " ".repeat(c.length - 2) + c[0]),
+  );
 }
 
-/** Every `path` key of an object literal: inline `{ path: X }` / `{ path }` or a multi-line one. */
-const PATH_KEY = /\{\s*path(?:\s*:\s*([^,}\n]+?))?\s*[,}]|\{\s*\n\s*path\s*:\s*([^,\n]+?)\s*,/g;
+/** The index of the bracket closing the one at `open`, or -1. */
+function closeOf(s: string, open: number): number {
+  let depth = 0;
+  for (let k = open; k < s.length; k++) {
+    if ("({[".includes(s[k] ?? "")) depth++;
+    else if (")}]".includes(s[k] ?? "") && --depth === 0) return k;
+  }
+  return -1;
+}
 
-/** The argument text of every `err.<kind>(` call in `src`, parens balanced. Error details live
- *  only inside these calls, so a destructured `{ path }` or a type literal is not a detail. */
-function errCallArgs(src: string): string[] {
+/** The comma-separated entries at the top level of an object literal body. */
+function entries(body: string): string[] {
   const out: string[] = [];
-  for (const m of src.matchAll(/\berr\.\w+\(/g)) {
-    let depth = 1;
-    let i = (m.index ?? 0) + m[0].length;
-    const from = i;
-    for (; i < src.length && depth > 0; i++) {
-      if (src[i] === "(") depth++;
-      else if (src[i] === ")") depth--;
+  let depth = 0;
+  let cur = "";
+  for (const c of body) {
+    if ("({[".includes(c)) depth++;
+    if (")}]".includes(c)) depth--;
+    if (c === "," && depth === 0) {
+      out.push(cur);
+      cur = "";
+    } else cur += c;
+  }
+  out.push(cur);
+  return out.map((e) => e.replace(/\s+/g, " ").trim()).filter(Boolean);
+}
+
+/** The path details of one source file: `wrapped` vaultDetailPath-style values, `flagged` raw ones. */
+function pathDetails(src: string): { wrapped: number; flagged: string[] } {
+  const s = codeOnly(src);
+  const calls: Array<[number, number]> = [];
+  for (const m of s.matchAll(/\berr\.\w+\(|\bnew ObsidianTcError\(/g)) {
+    const open = (m.index ?? 0) + m[0].length - 1;
+    calls.push([open, closeOf(s, open)]);
+  }
+  const names = new Set(calls.flatMap(([a, b]) => s.slice(a, b).match(/\b[A-Za-z_]\w*\b/g) ?? []));
+  const out = { wrapped: 0, flagged: [] as string[] };
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] !== "{") continue;
+    const close = closeOf(s, i);
+    if (close < 0) continue;
+    const inCall = calls.some(([a, b]) => i > a && close < b);
+    const bound = /\b(?:const|let|var)\s+(\w+)\s*(?::[^=;]+)?=\s*$/.exec(
+      s.slice(Math.max(0, i - 160), i),
+    );
+    if (!inCall && !(bound && names.has(bound[1] ?? ""))) continue;
+    for (const e of entries(s.slice(i + 1, close))) {
+      if (e !== "path" && !/^path\s*:/.test(e)) continue;
+      const value = e === "path" ? "path" : e.slice(e.indexOf(":") + 1).trim();
+      if (WRAPPED.test(value)) out.wrapped++;
+      else out.flagged.push(e);
     }
-    out.push(src.slice(from, i - 1));
   }
   return out;
 }
 
 describe("error-details path gate", () => {
-  it("every path detail in notes-io.ts and native-io.ts is wrapped by vaultDetailPath", () => {
-    const unwrapped: string[] = [];
-    let wrapped = 0;
-    let sites = 0;
-    for (const file of SINK_FILES) {
-      const src = stripped(file);
-      expect(src.length).toBeGreaterThan(2000); // floor: the file was read, not emptied
-      sites += errCallArgs(src).length;
-      for (const m of errCallArgs(src).join("\n").matchAll(PATH_KEY)) {
-        const value = (m[1] ?? m[2] ?? "").trim();
-        const expr = value === "" ? "path" : value;
-        // redactSecrets(rel): already vault-relative (restoreTrashed); everything else is wrapped.
-        if (/^vaultDetailPath\(/.test(expr) || expr === "redactSecrets(rel).text") {
-          wrapped++;
-        } else {
-          unwrapped.push(`${file}: ${m[0].replace(/\s+/g, " ")}`);
-        }
-      }
-    }
-    expect(unwrapped).toEqual([]);
-    expect(sites, "err.* calls found: the scan is vacuous below this floor").toBeGreaterThanOrEqual(
-      8,
+  it.each([
+    [
+      "the verbatim multi-key literal",
+      'throw err.aclDenied("refused", { op: "delete", path: abs });',
+    ],
+    [
+      "a details variable passed to the call",
+      'const details = { path: abs };\nthrow err.aclDenied("refused", details);',
+    ],
+    ["new ObsidianTcError", 'throw new ObsidianTcError("acl_denied", "refused", { path: abs });'],
+    ["a shorthand path", 'throw err.aclDenied("refused", { path });'],
+    ["a plain literal", 'throw err.aclDenied("refused", { path: abs });'],
+    ["a multi-line literal", 'throw err.aclDenied("refused", {\n  op,\n  path: abs,\n});'],
+  ])("flags %s", (_name, mutant) => {
+    expect(pathDetails(mutant).flagged.length).toBeGreaterThan(0);
+  });
+
+  it("passes a wrapped detail and an object literal outside an error call", () => {
+    const ok = pathDetails(
+      'const meta = { path: abs };\nthrow err.aclDenied("refused", { path: vaultDetailPath(abs) });',
     );
+    expect(ok).toEqual({ wrapped: 1, flagged: [] });
+  });
+
+  it("every path detail under src/vault is wrapped by vaultDetailPath", () => {
+    const files = readdirSync(VAULT_DIR, { recursive: true })
+      .map(String)
+      .filter((f) => f.endsWith(".ts"));
+    expect(files.length, "the scan is vacuous below this floor").toBeGreaterThanOrEqual(
+      SCANNED_FLOOR,
+    );
+    const flagged: string[] = [];
+    let wrapped = 0;
+    for (const f of files) {
+      const r = pathDetails(readFileSync(join(VAULT_DIR, f), "utf8"));
+      const allowed = RELATIVE_BY_CONSTRUCTION[f] ?? [];
+      flagged.push(...r.flagged.filter((e) => !allowed.includes(e)).map((e) => `${f}: ${e}`));
+      wrapped += r.wrapped;
+    }
+    expect(flagged).toEqual([]);
     expect(
       wrapped,
       "fewer wrapped path details than the sinks are known to carry",
-    ).toBeGreaterThanOrEqual(8);
+    ).toBeGreaterThanOrEqual(WRAPPED_FLOOR);
   });
 });
