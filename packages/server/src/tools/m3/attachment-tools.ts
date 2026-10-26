@@ -638,6 +638,12 @@ export function buildAttachmentTools(deps: M3Deps): ToolDefinition[] {
         )
           .filter((r) => readableEntry(ctx.acl, r, ctx.grantedScopes))
           .map((r) => r.relPath);
+        // A permanent delete is final, and an unread note may still embed this attachment: refuse it.
+        if (input.permanent && refusals.count > 0)
+          throw err.conflict(
+            "refusing to permanently delete: some notes that may embed this attachment could not be read; delete to trash instead",
+            { notes_read_refused: refusals.count },
+          );
         const st = statNote(abs);
         let trashedTo: string | null = null;
         if (input.permanent) hardDelete(abs);

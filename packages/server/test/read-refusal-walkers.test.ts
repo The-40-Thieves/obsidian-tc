@@ -42,6 +42,22 @@ describe("a clean vault's attachment walks carry no notes_read_refused key", () 
   });
 });
 
+describe("a clean vault's permanent attachment delete is not refused", () => {
+  it("delete_attachment permanent deletes the file", async () => {
+    const v = makeM3Vault({ files: { "img.png": "png", "n/a.md": "![[img.png]]\n" } });
+    cleanups.push(() => v.cleanup());
+    const d = okData(
+      await v.callConfirmed("delete_attachment", {
+        vault: "test",
+        path: "img.png",
+        permanent: true,
+      }),
+    );
+    expect(d.deleted).toBe(true);
+    expect(v.exists("img.png")).toBe(false);
+  });
+});
+
 describe.skipIf(process.platform === "win32")(
   "walkers skip a hard-linked note and count it",
   () => {
@@ -132,7 +148,23 @@ describe.skipIf(process.platform === "win32")(
       );
       expect(d.deleted).toBe(true);
       expect(d.references).toEqual(["n/a.md"]);
+      expect(d.trashed_to).toEqual(expect.any(String));
+      expect(v.exists("img.png")).toBe(false);
       expect(d.notes_read_refused).toBe(1);
+    });
+
+    it("delete_attachment permanent refuses when a note read was refused, and deletes nothing", async () => {
+      const v = attachmentVault();
+      const r = await v.callConfirmed("delete_attachment", {
+        vault: "test",
+        path: "img.png",
+        permanent: true,
+      });
+      expect(r.ok).toBe(false);
+      if (r.ok) return;
+      expect(r.error.code).toBe("conflict");
+      expect(r.error.details).toMatchObject({ notes_read_refused: 1 });
+      expect(v.exists("img.png")).toBe(true);
     });
 
     describe.each(TEXT_SEARCH_TOOLS)("%s", (tool, args) => {
