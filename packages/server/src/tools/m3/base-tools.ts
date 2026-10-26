@@ -383,7 +383,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
       domain: "structured",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
-        "Execute a base view and return resolved rows. Filters/formulas may use obsidian-tc's JSONLogic model OR the real Obsidian Bases expression DSL (a documented subset); constructs outside the subset — and trees mixing both models — are refused with unsupported_base_filter.",
+        "Execute a base view and return resolved rows. A view's groupOrder (Obsidian 1.14) keeps only the listed groups, in that order; null is the no-value group. Filters/formulas may use obsidian-tc's JSONLogic model OR the real Obsidian Bases expression DSL (a documented subset); constructs outside the subset — and trees mixing both models — are refused with unsupported_base_filter.",
       inputSchema: QueryInput,
       outputSchema: QueryBaseOutput,
       requiredScopes: ["read:bases"],
@@ -457,6 +457,9 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
               ? rawGroupBy.property
               : undefined;
         const groupDesc = isLogicObject(rawGroupBy) && rawGroupBy.direction === "DESC";
+        // Obsidian 1.14 `groupOrder`: a non-array value is treated as absent.
+        const groupOrder =
+          view && Array.isArray(view.groupOrder) ? (view.groupOrder as unknown[]) : undefined;
         const idValue = (
           id: string,
           p: string,
@@ -601,6 +604,25 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
           const sorted = idx.map((i) => rows[i] as (typeof rows)[number]);
           rows.length = 0;
           rows.push(...sorted);
+        }
+        // groupOrder keeps only the listed groups, in list order (overrides direction), before
+        // the limit so hidden groups do not consume it. Values compare as strings; null = no value.
+        if (groupOrder !== undefined && groupProp !== undefined) {
+          const keyOf = (g: unknown): string | null => (g == null ? null : String(g));
+          const rank = new Map<string | null, number>();
+          groupOrder.forEach((g, i) => {
+            const k = keyOf(g);
+            if (!rank.has(k)) rank.set(k, i);
+          });
+          const kept = rows
+            .map((row, i) => ({ row, i, r: rank.get(keyOf(row.group)) }))
+            .filter(
+              (x): x is { row: (typeof rows)[number]; i: number; r: number } => x.r !== undefined,
+            )
+            .sort((a, b) => a.r - b.r || a.i - b.i)
+            .map((x) => x.row);
+          rows.length = 0;
+          rows.push(...kept);
         }
         if (viewLimit !== undefined && rows.length > viewLimit) rows.length = viewLimit;
 
