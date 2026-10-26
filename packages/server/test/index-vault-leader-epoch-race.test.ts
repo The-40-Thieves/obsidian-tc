@@ -23,6 +23,7 @@ import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexVault } from "../src/search/indexer";
 import { bumpLeaderEpoch } from "../src/search/indexing/leader-epoch";
 import { buildRepresentationManifest } from "../src/search/representation";
+import { readableStoredRow } from "../src/vault/stored-acl-path";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const VAULT = "v1";
@@ -131,6 +132,58 @@ describe("indexVault epoch read happens inside the index_batch write transaction
       n: number;
     };
     expect(rows.n).toBe(0);
+
+    rmTemp(root);
+  });
+
+  it("drops a notes-row flush whose leader epoch went stale before the notes transaction", async () => {
+    // The notes pass (index_notes_flush) is the FIRST BEGIN IMMEDIATE of a pass: a successor that
+    // promotes at that boundary must stop this run's notes row (and its FTS body) from committing.
+    const dir = makeTempDir("obtc-notes-epoch-race-");
+    const dbPath = join(dir, "cache.db");
+    const dbA = await openDatabase(dbPath);
+    provisionCacheDb(dbA);
+    const dbB = await openDatabase(dbPath);
+    openDirs.push({ dir, dbA, dbB });
+
+    const startEpoch = bumpLeaderEpoch(dbA, 1);
+    expect(startEpoch).toBe(1);
+
+    let successorPromoted = false;
+    const raceDb = wrapWithBeginImmediateHook(dbA, 1, () => {
+      successorPromoted = true;
+      expect(bumpLeaderEpoch(dbB, 2)).toBe(2);
+    });
+
+    const root = makeVault("obtc-notes-epoch-race-vault-");
+    const provider = fakeEmbeddingProvider({ dimensions: 8 });
+    const representation = buildRepresentationManifest(provider, {});
+
+    const stats = await indexVault({
+      db: raceDb,
+      provider,
+      vaultId: VAULT,
+      root,
+      isReadable: () => true,
+      now: () => 3,
+      representation,
+      chunkContext: false,
+      leaderEpoch: startEpoch,
+    });
+
+    expect(successorPromoted).toBe(true);
+    expect(stats.notes_epoch_stale_skipped).toBeGreaterThan(0);
+    const notes = dbB
+      .prepare("SELECT COUNT(*) AS n FROM notes WHERE vault_id = ? AND path = ?")
+      .get(VAULT, "note.md") as { n: number };
+    expect(notes.n).toBe(0);
+    const fts = dbB
+      .prepare("SELECT COUNT(*) AS n FROM notes_fts WHERE vault_id = ?")
+      .get(VAULT) as {
+      n: number;
+    };
+    expect(fts.n).toBe(0);
+    expect(readableStoredRow(dbB, VAULT, () => true)("note.md")).toBe(false);
 
     rmTemp(root);
   });
