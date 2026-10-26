@@ -11,7 +11,7 @@ import { VaultRegistry } from "../src/vault/registry";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";
 
 // `trash.fail` forces trashNote to throw after the delete commits (the trash-throws case only).
-// `hardDeleteFails.path` forces hardDelete to throw for that one file name (the old-note case only).
+// `hardDeleteFails.name` forces hardDelete to throw for that one file name (the old-note case only).
 // `fsWrites` logs every note write or removal, so a refusal can be shown to touch nothing.
 const trash = vi.hoisted(() => ({ fail: false }));
 const hardDeleteFails = vi.hoisted(() => ({ name: undefined as string | undefined }));
@@ -55,24 +55,25 @@ function dataOf<T>(r: { ok: boolean; data?: unknown; error?: unknown }, call: st
   return r.data as T;
 }
 
+async function create(v: M5Vault, type: string, name: string): Promise<string> {
+  const r = await v.call("create_entity", { vault: "test", type, name }, SETUP);
+  return dataOf<{ entity_id: string }>(r, "create_entity").entity_id;
+}
+
+async function link(v: M5Vault, source: string, target: string, relation: string): Promise<void> {
+  const r = await v.call(
+    "link_entities",
+    { vault: "test", source_id: source, target_id: target, relation_type: relation },
+    SETUP,
+  );
+  dataOf(r, "link_entities");
+}
+
 /** Alice (person) and Acme (org) with Acme -> Alice "employs", seeded under a permissive ACL. */
 async function seedPair(v: M5Vault): Promise<string> {
-  const alice = dataOf<{ entity_id: string }>(
-    await v.call("create_entity", { vault: "test", type: "person", name: "Alice" }, SETUP),
-    "create_entity",
-  ).entity_id;
-  const acme = dataOf<{ entity_id: string }>(
-    await v.call("create_entity", { vault: "test", type: "org", name: "Acme" }, SETUP),
-    "create_entity",
-  ).entity_id;
-  dataOf(
-    await v.call(
-      "link_entities",
-      { vault: "test", source_id: acme, target_id: alice, relation_type: "employs" },
-      SETUP,
-    ),
-    "link_entities",
-  );
+  const alice = await create(v, "person", "Alice");
+  const acme = await create(v, "org", "Acme");
+  await link(v, acme, alice, "employs");
   return alice;
 }
 
@@ -80,20 +81,16 @@ async function seedPair(v: M5Vault): Promise<string> {
  *  rewritten before Bob's (in memory/team) is attempted. */
 async function seedTriple(v: M5Vault): Promise<string> {
   const alice = await seedPair(v);
-  const bob = dataOf<{ entity_id: string }>(
-    await v.call("create_entity", { vault: "test", type: "team", name: "Bob" }, SETUP),
-    "create_entity",
-  ).entity_id;
-  dataOf(
-    await v.call(
-      "link_entities",
-      { vault: "test", source_id: bob, target_id: alice, relation_type: "member" },
-      SETUP,
-    ),
-    "link_entities",
-  );
+  const bob = await create(v, "team", "Bob");
+  await link(v, bob, alice, "member");
   return alice;
 }
+
+const renameToAlice2 = (v: M5Vault, alice: string) =>
+  v.call("rename_entity", { vault: "test", entity_id: alice, new_name: "Alice2" });
+
+const cascadeDelete = (v: M5Vault, alice: string, permanent: boolean) =>
+  v.callConfirmed("delete_entity", { vault: "test", entity_id: alice, cascade: true, permanent });
 
 async function nameOf(v: M5Vault, entityId: string): Promise<string> {
   const e = dataOf<{ name: string }>(
@@ -101,6 +98,37 @@ async function nameOf(v: M5Vault, entityId: string): Promise<string> {
     "get_entity",
   );
   return e.name;
+}
+
+/** Runs `body` with the vault directory `rel` read-only, restoring its mode afterwards. */
+async function withReadOnly(v: M5Vault, rel: string, body: () => Promise<void>): Promise<void> {
+  chmodSync(join(v.root, rel), 0o555);
+  try {
+    await body();
+  } finally {
+    chmodSync(join(v.root, rel), 0o755);
+  }
+}
+
+/** After a failed call, Alice is where she was, Acme is byte-identical and nothing moved to Alice2. */
+async function expectUnchangedAfterFailure(
+  v: M5Vault,
+  alice: string,
+  acmeBefore: string,
+): Promise<void> {
+  expect(v.exists(ALICE)).toBe(true);
+  expect(v.exists(ALICE2)).toBe(false);
+  expect(v.read(ACME)).toBe(acmeBefore);
+  expect(await nameOf(v, alice)).toBe("Alice");
+}
+
+/** The delete_entity operations snapshotted for Alice's note, oldest first. */
+async function snapshotOps(v: M5Vault): Promise<string[]> {
+  const list = dataOf<{ snapshots: { op: string }[] }>(
+    await v.call("list_snapshots", { vault: "test", path: ALICE }),
+    "list_snapshots",
+  );
+  return list.snapshots.map((s) => s.op);
 }
 
 describe("rename_entity and delete_entity leave the vault unchanged when they refuse", () => {
@@ -113,17 +141,10 @@ describe("rename_entity and delete_entity leave the vault unchanged when they re
       const acmeBefore = v.read(ACME);
       reindex.mockClear();
       fsWrites.paths.length = 0;
-      const r = await v.call("rename_entity", {
-        vault: "test",
-        entity_id: alice,
-        new_name: "Alice2",
-      });
+      const r = await renameToAlice2(v, alice);
       expect(denied(r)).toBe(true);
       expect(fsWrites.paths).toEqual([]);
-      expect(v.exists(ALICE)).toBe(true);
-      expect(v.exists(ALICE2)).toBe(false);
-      expect(v.read(ACME)).toBe(acmeBefore);
-      expect(await nameOf(v, alice)).toBe("Alice");
+      await expectUnchangedAfterFailure(v, alice, acmeBefore);
       expect(reindex.mock.calls).toEqual([]);
       expect(deindex).not.toHaveBeenCalled();
     } finally {
@@ -137,80 +158,61 @@ describe("rename_entity and delete_entity leave the vault unchanged when they re
       const alice = await seedPair(v);
       const acmeBefore = v.read(ACME);
       fsWrites.paths.length = 0;
-      const r = await v.callConfirmed("delete_entity", {
-        vault: "test",
-        entity_id: alice,
-        cascade: true,
-        permanent: false,
-      });
+      const r = await cascadeDelete(v, alice, false);
       expect(denied(r)).toBe(true);
       expect(fsWrites.paths).toEqual([]);
-      expect(v.exists(ALICE)).toBe(true);
-      expect(v.read(ACME)).toBe(acmeBefore);
-      expect(await nameOf(v, alice)).toBe("Alice");
+      await expectUnchangedAfterFailure(v, alice, acmeBefore);
     } finally {
       v.cleanup();
     }
   });
 });
 
-describe("a failed rename restores the notes it touched", () => {
-  it.skipIf(process.platform === "win32" || isRoot)(
-    "restores the target and neighbour notes when a neighbour write fails mid-transaction",
-    async () => {
-      const v = makeM5Vault();
-      try {
-        const alice = await seedPair(v);
-        const acmeBefore = v.read(ACME);
-        chmodSync(join(v.root, ORG_DIR), 0o555);
-        try {
-          const r = await v.call("rename_entity", {
-            vault: "test",
-            entity_id: alice,
-            new_name: "Alice2",
-          });
-          expect(r.ok).toBe(false);
-          expect(v.exists(ALICE)).toBe(true);
-          expect(v.exists(ALICE2)).toBe(false);
-          expect(v.read(ACME)).toBe(acmeBefore);
-          expect(await nameOf(v, alice)).toBe("Alice");
-        } finally {
-          chmodSync(join(v.root, ORG_DIR), 0o755);
-        }
-      } finally {
-        v.cleanup();
-      }
+describe("a failed rename or cascade delete restores the neighbour notes it rewrote", () => {
+  // Acme is rewritten before the read-only neighbour is reached (relation order), so restoring it
+  // is what makes the bytes match again.
+  const CASES = [
+    {
+      when: "a rename's write into memory/org fails",
+      dir: ORG_DIR,
+      seed: seedPair,
+      act: renameToAlice2,
     },
-  );
-
-  it.skipIf(process.platform === "win32" || isRoot)(
-    "restores a neighbour note it had already rewritten when a later neighbour write fails",
-    async () => {
-      const v = makeM5Vault();
-      try {
-        const alice = await seedTriple(v);
-        const acmeBefore = v.read(ACME);
-        chmodSync(join(v.root, TEAM_DIR), 0o555);
-        try {
-          const r = await v.call("rename_entity", {
-            vault: "test",
-            entity_id: alice,
-            new_name: "Alice2",
-          });
-          expect(r.ok).toBe(false);
-          expect(v.read(ACME)).toBe(acmeBefore);
-          expect(v.exists(ALICE)).toBe(true);
-          expect(v.exists(ALICE2)).toBe(false);
-          expect(await nameOf(v, alice)).toBe("Alice");
-        } finally {
-          chmodSync(join(v.root, TEAM_DIR), 0o755);
-        }
-      } finally {
-        v.cleanup();
-      }
+    {
+      when: "a rename's later write into memory/team fails",
+      dir: TEAM_DIR,
+      seed: seedTriple,
+      act: renameToAlice2,
     },
-  );
+    {
+      when: "a cascade delete's write into memory/team fails",
+      dir: TEAM_DIR,
+      seed: seedTriple,
+      act: (v: M5Vault, alice: string) => cascadeDelete(v, alice, false),
+    },
+  ];
+  for (const c of CASES) {
+    it.skipIf(process.platform === "win32" || isRoot)(
+      `restores the target and neighbour notes when ${c.when}`,
+      async () => {
+        const v = makeM5Vault();
+        try {
+          const alice = await c.seed(v);
+          const acmeBefore = v.read(ACME);
+          await withReadOnly(v, c.dir, async () => {
+            const r = await c.act(v, alice);
+            expect(r.ok).toBe(false);
+            await expectUnchangedAfterFailure(v, alice, acmeBefore);
+          });
+        } finally {
+          v.cleanup();
+        }
+      },
+    );
+  }
+});
 
+describe("a failed rename reindexes what it rewrote before it throws", () => {
   it("reindexes the new note and the neighbours, then surfaces the error, when the old note cannot be removed", async () => {
     const reindex = vi.fn();
     const v = makeM5Vault({ reindex });
@@ -218,12 +220,7 @@ describe("a failed rename restores the notes it touched", () => {
       const alice = await seedPair(v);
       reindex.mockClear();
       hardDeleteFails.name = "Alice.md";
-      const r = await v.call("rename_entity", {
-        vault: "test",
-        entity_id: alice,
-        new_name: "Alice2",
-      });
-      expect(r.ok).toBe(false);
+      const r = await renameToAlice2(v, alice);
       expect(r).toMatchObject({ ok: false, error: { code: "internal" } });
       expect(reindex).toHaveBeenCalledWith("test", ALICE2, v.read(ALICE2));
       expect(reindex).toHaveBeenCalledWith("test", ACME, v.read(ACME));
@@ -232,36 +229,6 @@ describe("a failed rename restores the notes it touched", () => {
       v.cleanup();
     }
   });
-});
-
-describe("a failed cascade delete restores the neighbour notes it rewrote", () => {
-  it.skipIf(process.platform === "win32" || isRoot)(
-    "restores Acme and keeps Alice when a team neighbour write fails",
-    async () => {
-      const v = makeM5Vault();
-      try {
-        const alice = await seedTriple(v);
-        const acmeBefore = v.read(ACME);
-        chmodSync(join(v.root, TEAM_DIR), 0o555);
-        try {
-          const r = await v.callConfirmed("delete_entity", {
-            vault: "test",
-            entity_id: alice,
-            cascade: true,
-            permanent: false,
-          });
-          expect(r.ok).toBe(false);
-          expect(v.read(ACME)).toBe(acmeBefore);
-          expect(v.exists(ALICE)).toBe(true);
-          expect(await nameOf(v, alice)).toBe("Alice");
-        } finally {
-          chmodSync(join(v.root, TEAM_DIR), 0o755);
-        }
-      } finally {
-        v.cleanup();
-      }
-    },
-  );
 });
 
 describe("a rename onto the same path keeps the note it wrote", () => {
@@ -311,21 +278,14 @@ describe("delete_entity snapshots the note it removes", () => {
     try {
       const alice = await seedPair(v);
       const bytes = v.read(ALICE);
-      const deleted = await v.callConfirmed("delete_entity", {
-        vault: "test",
-        entity_id: alice,
-        cascade: true,
-        permanent: true,
-      });
-      dataOf(deleted, "delete_entity");
+      dataOf(await cascadeDelete(v, alice, true), "delete_entity");
       expect(v.exists(ALICE)).toBe(false);
+      expect(await snapshotOps(v)).toEqual(["delete_entity"]);
 
-      const list = dataOf<{ snapshots: { id: number; op: string }[] }>(
+      const list = dataOf<{ snapshots: { id: number }[] }>(
         await v.call("list_snapshots", { vault: "test", path: ALICE }),
         "list_snapshots",
       );
-      expect(list.snapshots.map((s) => s.op)).toEqual(["delete_entity"]);
-
       const restored = await v.callConfirmed("restore_note", {
         vault: "test",
         path: ALICE,
@@ -342,18 +302,8 @@ describe("delete_entity snapshots the note it removes", () => {
     const v = snapshotVault();
     try {
       const alice = await seedPair(v);
-      const deleted = await v.callConfirmed("delete_entity", {
-        vault: "test",
-        entity_id: alice,
-        cascade: true,
-        permanent: false,
-      });
-      dataOf(deleted, "delete_entity");
-      const list = dataOf<{ snapshots: { op: string }[] }>(
-        await v.call("list_snapshots", { vault: "test", path: ALICE }),
-        "list_snapshots",
-      );
-      expect(list.snapshots.map((s) => s.op)).toEqual(["delete_entity"]);
+      dataOf(await cascadeDelete(v, alice, false), "delete_entity");
+      expect(await snapshotOps(v)).toEqual(["delete_entity"]);
     } finally {
       v.cleanup();
     }
@@ -363,13 +313,7 @@ describe("delete_entity snapshots the note it removes", () => {
     const v = makeM5Vault();
     try {
       const alice = await seedPair(v);
-      const deleted = await v.callConfirmed("delete_entity", {
-        vault: "test",
-        entity_id: alice,
-        cascade: true,
-        permanent: true,
-      });
-      dataOf(deleted, "delete_entity");
+      dataOf(await cascadeDelete(v, alice, true), "delete_entity");
       const n = v.db.prepare("SELECT COUNT(*) AS n FROM note_snapshots").get() as { n: number };
       expect(n.n).toBe(0);
     } finally {
@@ -387,12 +331,7 @@ describe("the index hears about committed neighbour rewrites", () => {
       const alice = await seedPair(v);
       reindex.mockClear();
       trash.fail = true;
-      const r = await v.callConfirmed("delete_entity", {
-        vault: "test",
-        entity_id: alice,
-        cascade: true,
-        permanent: false,
-      });
+      const r = await cascadeDelete(v, alice, false);
       expect(r.ok).toBe(false);
       expect(reindex).toHaveBeenCalledWith("test", ACME, v.read(ACME));
     } finally {
