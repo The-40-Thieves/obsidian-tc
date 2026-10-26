@@ -7,7 +7,7 @@
 // fallback propagates it.
 import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { errorMessage } from "../util/errors";
-import { readNote } from "./notes-io";
+import { readNote, readNoteBounded } from "./notes-io";
 import { resolveVaultPath } from "./paths";
 
 /** The note's raw text, or the refusal message when the safe open refused the read. */
@@ -15,8 +15,21 @@ export function readNoteOrRefusal(
   root: string,
   rel: string,
 ): { raw: string } | { refused: string } {
+  return refusalOr(() => ({ raw: readNote(resolveVaultPath(root, rel)).raw }));
+}
+
+/** As readNoteOrRefusal, but `raw` is null for a note over `maxBytes` (never read past the cap). */
+export function readNoteBoundedOrRefusal(
+  root: string,
+  rel: string,
+  maxBytes: number,
+): { raw: string | null } | { refused: string } {
+  return refusalOr(() => readNoteBounded(resolveVaultPath(root, rel), maxBytes));
+}
+
+function refusalOr<T>(read: () => T): T | { refused: string } {
   try {
-    return { raw: readNote(resolveVaultPath(root, rel)).raw };
+    return read();
   } catch (e) {
     if (e instanceof ObsidianTcError && e.code === "acl_denied")
       return { refused: errorMessage(e) };

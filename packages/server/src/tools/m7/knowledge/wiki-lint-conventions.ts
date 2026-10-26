@@ -153,8 +153,8 @@ export function* conventionsScanSteps(
         filesOmitted = Math.max(filesOmitted, eff.fileWarningsOmitted);
       }
       if (!judges(eff, rel)) continue;
-      const raw = refusals.read(scope.root, rel);
-      if (raw === null || Buffer.byteLength(raw) > NOTE_MAX_BYTES) continue;
+      const raw = refusals.readBounded(scope.root, rel, NOTE_MAX_BYTES);
+      if (raw === null) continue;
       const fm = parseNoteLenient(raw, rel).frontmatter;
       const warnings = checkNote(eff, rel, fm);
       if (warnings.length === 0) continue;

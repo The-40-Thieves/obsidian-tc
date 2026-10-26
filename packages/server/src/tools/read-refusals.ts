@@ -1,7 +1,7 @@
 // Counts the notes a whole-vault walk skipped because the safe open refused their read (acl_denied).
 // Only the count leaves the call: a refused note is one the caller may not read, so no path is named.
 import { z } from "zod";
-import { readNoteOrRefusal } from "../vault/read-refusal";
+import { readNoteBoundedOrRefusal, readNoteOrRefusal } from "../vault/read-refusal";
 
 /** Spread into a walking tool's output schema. The key is absent when no note was refused. */
 export const readRefusalShape = {
@@ -15,6 +15,16 @@ export class ReadRefusals {
   /** The note's raw text, or null when the safe open refused it (counted). Any other error propagates. */
   read(root: string, rel: string): string | null {
     const r = readNoteOrRefusal(root, rel);
+    if ("refused" in r) {
+      this.refused.add(rel);
+      return null;
+    }
+    return r.raw;
+  }
+
+  /** As read(), but null (not counted) for a note over `maxBytes`, which is never read past the cap. */
+  readBounded(root: string, rel: string, maxBytes: number): string | null {
+    const r = readNoteBoundedOrRefusal(root, rel, maxBytes);
     if ("refused" in r) {
       this.refused.add(rel);
       return null;
