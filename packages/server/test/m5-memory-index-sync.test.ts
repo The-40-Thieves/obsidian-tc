@@ -6,15 +6,21 @@ import { makeM5Vault } from "./m5-helpers";
 
 const ENTITY = (type: string, name: string): string => `memory/${type}/${name}.md`;
 
+function dataOf<T>(r: { ok: boolean; data?: unknown; error?: unknown }, call: string): T {
+  if (!r.ok) throw new Error(`${call} failed: ${JSON.stringify(r.error)}`);
+  return r.data as T;
+}
+
 async function createEntity(
   v: ReturnType<typeof makeM5Vault>,
   type: string,
   name: string,
   extra: Record<string, unknown> = {},
 ): Promise<string> {
-  const r = await v.call("create_entity", { vault: "test", type, name, ...extra });
-  if (!r.ok) throw new Error(`create_entity failed: ${JSON.stringify(r.error)}`);
-  return (r.data as { entity_id: string }).entity_id;
+  return dataOf<{ entity_id: string }>(
+    await v.call("create_entity", { vault: "test", type, name, ...extra }),
+    "create_entity",
+  ).entity_id;
 }
 
 async function firstObservationId(
@@ -22,9 +28,17 @@ async function firstObservationId(
   entityId: string,
 ): Promise<string> {
   const r = await v.call("get_entity", { vault: "test", entity_id: entityId });
-  if (!r.ok) throw new Error(`get_entity failed: ${JSON.stringify(r.error)}`);
-  return (r.data as { observations: { observation_id: string }[] }).observations[0]
-    ?.observation_id as string;
+  const { observations } = dataOf<{ observations: { observation_id: string }[] }>(r, "get_entity");
+  return observations[0]?.observation_id as string;
+}
+
+function deleteEntity(v: ReturnType<typeof makeM5Vault>, entityId: string, permanent: boolean) {
+  return v.callConfirmed("delete_entity", {
+    vault: "test",
+    entity_id: entityId,
+    cascade: false,
+    permanent,
+  });
 }
 
 function spies() {
@@ -137,37 +151,17 @@ describe("memory writes reindex the projection they commit", () => {
     }
   });
 
-  it("delete_entity deindexes the note when trashed", async () => {
+  it.each([
+    ["trashed", false],
+    ["permanent", true],
+  ])("delete_entity deindexes the note when %s", async (_kind, permanent) => {
     const s = spies();
     const v = makeM5Vault(s);
     try {
       const alice = await createEntity(v, "person", "Alice");
       s.reindex.mockClear();
-      const r = await v.callConfirmed("delete_entity", {
-        vault: "test",
-        entity_id: alice,
-        cascade: false,
-        permanent: false,
-      });
-      expect(r.ok).toBe(true);
-      expect(s.deindex.mock.calls).toEqual([["test", ENTITY("person", "Alice")]]);
-    } finally {
-      v.cleanup();
-    }
-  });
-
-  it("delete_entity deindexes the note when permanent", async () => {
-    const s = spies();
-    const v = makeM5Vault(s);
-    try {
-      const alice = await createEntity(v, "person", "Alice");
       s.deindex.mockClear();
-      const r = await v.callConfirmed("delete_entity", {
-        vault: "test",
-        entity_id: alice,
-        cascade: false,
-        permanent: true,
-      });
+      const r = await deleteEntity(v, alice, permanent);
       expect(r.ok).toBe(true);
       expect(s.deindex.mock.calls).toEqual([["test", ENTITY("person", "Alice")]]);
     } finally {
