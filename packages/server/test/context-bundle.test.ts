@@ -20,6 +20,7 @@ import {
 } from "../src/experiential/context-bundle";
 import { BUNDLE_FORMAT_VERSION } from "../src/experiential/context-bundle-schema";
 import { appendForgetLog, verifyForgetLog } from "../src/experiential/forget";
+import { readNoteQuality, recomputeNoteQuality } from "../src/experiential/note-quality";
 import { openMemoryDb } from "./helpers";
 
 const NOW = 1_700_000_000_000;
@@ -667,5 +668,108 @@ describe("true round-trip equality (export -> import into a fresh DB -> re-expor
     expect(JSON.parse(rows[0]?.details ?? "{}").vault_id).toBe("other");
     expect(JSON.parse(rows[1]?.details ?? "{}")).not.toHaveProperty("vault_id");
     expect(verifyForgetLog(target)).toEqual({ ok: true, entries: 2 });
+  });
+
+  it("export --vault narrows forget_log to that vault's forgets and keeps legacy rows", () => {
+    const src = edb();
+    appendForgetLog(src, {
+      ts: NOW - 5000,
+      kind: "note",
+      target: "a.md",
+      mode: "tombstone",
+      details: { vault_id: "A" },
+    });
+    appendForgetLog(src, {
+      ts: NOW - 4000,
+      kind: "note",
+      target: "b.md",
+      mode: "tombstone",
+      details: { vault_id: "B" },
+    });
+    appendForgetLog(src, {
+      ts: NOW - 3000,
+      kind: "note",
+      target: "legacy.md",
+      mode: "tombstone",
+      details: {},
+    });
+    const bundle = exportContextBundle(src, { nowMs: NOW, serverVersion: "1.0.0", vaultId: "A" });
+    expect(bundle.tables.forget_log.map((r) => r.target)).toEqual(["a.md", "legacy.md"]);
+    const remapped = remapBundleVault(bundle, "X");
+    expect(remapped.ok).toBe(true);
+    if (!remapped.ok) return;
+
+    const target = edb();
+    importContextBundle(target, cacheDb(), remapped.bundle);
+    const rows = target
+      .prepare("SELECT target, details FROM forget_log ORDER BY seq ASC")
+      .all() as Array<{ target: string; details: string }>;
+    expect(rows.map((r) => r.target)).toEqual(["a.md", "legacy.md"]);
+    expect(JSON.parse(rows[0]?.details ?? "{}").vault_id).toBe("X");
+    expect(verifyForgetLog(target).ok).toBe(true);
+  });
+
+  it("export --vault A where only vault B forgot remaps without a refusal", () => {
+    const src = edb();
+    appendForgetLog(src, {
+      ts: NOW - 4000,
+      kind: "note",
+      target: "b.md",
+      mode: "tombstone",
+      details: { vault_id: "B" },
+    });
+    const bundle = exportContextBundle(src, { nowMs: NOW, serverVersion: "1.0.0", vaultId: "A" });
+    expect(bundle.tables.forget_log).toEqual([]);
+    expect(remapBundleVault(bundle, "X").ok).toBe(true);
+  });
+
+  it("the same forget bundle imported under vault X then vault Y lands both tombstones", () => {
+    const src = edb();
+    appendForgetLog(src, {
+      ts: NOW - 5000,
+      kind: "note",
+      target: "p.md",
+      mode: "tombstone",
+      details: { vault_id: "A" },
+    });
+    const bundle = exportContextBundle(src, { nowMs: NOW, serverVersion: "1.0.0", vaultId: "A" });
+    const target = edb();
+    const cache = cacheDb();
+    for (const v of ["X", "Y"]) {
+      cache
+        .prepare(
+          "INSERT INTO notes (vault_id, path, title, tags, frontmatter, content_hash, mtime, size, indexed_at) VALUES (?, 'p.md', 'p', '[]', NULL, ?, ?, 10, ?)",
+        )
+        .run(v, `h-${v}`, NOW - 1000, NOW);
+      const remapped = remapBundleVault(bundle, v);
+      if (!remapped.ok) throw new Error(remapped.error);
+      importContextBundle(target, cache, remapped.bundle);
+    }
+    recomputeNoteQuality(cache, target, { vaultId: "X", nowMs: NOW });
+    recomputeNoteQuality(cache, target, { vaultId: "Y", nowMs: NOW });
+    expect(readNoteQuality(target, { vaultId: "X", path: "p.md" })[0]?.tombstoned).toBe(1);
+    expect(readNoteQuality(target, { vaultId: "Y", path: "p.md" })[0]?.tombstoned).toBe(1);
+    expect(verifyForgetLog(target).ok).toBe(true);
+  });
+
+  it("a forget row whose details is the JSON literal null does not crash a --vault remap", () => {
+    const src = edb();
+    const bundle = exportContextBundle(src, { nowMs: NOW, serverVersion: "1.0.0" });
+    bundle.tables.forget_log.push({
+      seq: 1,
+      ts: NOW,
+      kind: "note",
+      target: "n.md",
+      mode: "tombstone",
+      details: "null",
+      prev_hash: "0",
+      hash: "x",
+    });
+    const remapped = remapBundleVault(bundle, "X");
+    expect(remapped.ok).toBe(true);
+    if (!remapped.ok) return;
+    const target = edb();
+    importContextBundle(target, cacheDb(), remapped.bundle);
+    expect(verifyForgetLog(target).ok).toBe(true);
   });
 });

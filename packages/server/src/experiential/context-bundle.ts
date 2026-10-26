@@ -22,13 +22,18 @@
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
 import {
+  exportForgetLog,
+  forgetRowVault,
+  importForgetRow,
+  remapForgetRow,
+} from "./context-bundle-forget";
+import {
   type AgentEpisodeRow,
   BUNDLE_FORMAT_VERSION,
   type ChunkRetrievalRow,
   type ContextBundle,
   ContextBundleSchema,
   type ContextBundleTables,
-  type ForgetLogRow,
   type GapReportRow,
   type GoalRow,
   type NoteQualityRow,
@@ -36,17 +41,13 @@ import {
   type PreferenceProfileRow,
   type VaultObjectStateRow,
 } from "./context-bundle-schema";
-import { appendForgetLog } from "./forget";
 import { SCORE_VERSION } from "./note-quality";
 
 export interface ExportOptions {
-  /** Narrow the 6 vault-scoped-and-filterable tables to one vault. `chunk_retrievals` and
-   *  `vault_object_state` have no `vault_id` column to filter by at all (they key "by value",
-   *  globally, across every vault in the deployment); `forget_log` conceptually belongs to
-   *  whichever vault owned the deleted episode/note, but also carries no `vault_id` column, and
-   *  guessing one from `target` (a bare episode id or note path) would be exactly the kind of
-   *  silent lossy filter THE-636's design note warns against. All three are therefore ALWAYS
-   *  exported in full regardless of `--vault`. Absent -> deployment-wide export, `vault: "*"`. */
+  /** Narrow the vault-scoped tables to one vault. `chunk_retrievals` and `vault_object_state` have
+   *  no `vault_id` column to filter by at all (they key "by value", globally), so they are ALWAYS
+   *  exported in full. `forget_log` narrows through `details.vault_id` (see exportForgetLog): this
+   *  vault's forgets plus legacy rows that name no vault. Absent -> deployment-wide, `vault: "*"`. */
   vaultId?: string;
   nowMs: number;
   serverVersion: string;
@@ -147,19 +148,15 @@ export function exportContextBundle(edb: Database, opts: ExportOptions): Context
       : edb.prepare(`SELECT ${GOAL_COLS} FROM goals`).all()
   ) as GoalRow[];
 
-  // ALWAYS FULL — no vault_id column to filter by (chunk_retrievals, vault_object_state), or a
-  // deliberate choice not to guess one from `target` (forget_log). See ExportOptions.vaultId above.
+  // ALWAYS FULL — no vault_id column to filter by (chunk_retrievals, vault_object_state). See
+  // ExportOptions.vaultId above.
   const chunk_retrievals = edb
     .prepare(`SELECT ${CHUNK_RETRIEVAL_COLS} FROM chunk_retrievals`)
     .all() as ChunkRetrievalRow[];
   const vault_object_state = edb
     .prepare(`SELECT ${VAULT_OBJECT_STATE_COLS} FROM vault_object_state`)
     .all() as VaultObjectStateRow[];
-  const forget_log = edb
-    .prepare(
-      "SELECT seq, ts, kind, target, mode, details, prev_hash, hash FROM forget_log ORDER BY seq ASC",
-    )
-    .all() as ForgetLogRow[];
+  const forget_log = exportForgetLog(edb, v);
 
   return {
     format_version: BUNDLE_FORMAT_VERSION,
@@ -246,12 +243,9 @@ export function remapBundleVault(
   for (const row of bundle.tables.agent_episodes) {
     if (row.vault_id !== null) sourceVaults.add(row.vault_id);
   }
-  // A forget row names its vault only inside `details` (no column); legacy rows name none.
-  const forgetVault = (r: ForgetLogRow): unknown =>
-    r.details === null ? undefined : (JSON.parse(r.details) as { vault_id?: unknown }).vault_id;
   for (const row of bundle.tables.forget_log) {
-    const v = forgetVault(row);
-    if (typeof v === "string") sourceVaults.add(v);
+    const v = forgetRowVault(row);
+    if (v !== undefined) sourceVaults.add(v);
   }
 
   if (sourceVaults.size > 1) {
@@ -286,17 +280,7 @@ export function remapBundleVault(
         agent_episodes: bundle.tables.agent_episodes.map((r) =>
           r.vault_id === null ? r : { ...r, vault_id: targetVault },
         ),
-        forget_log: bundle.tables.forget_log.map((r) =>
-          typeof forgetVault(r) !== "string"
-            ? r
-            : {
-                ...r,
-                details: JSON.stringify({
-                  ...(JSON.parse(r.details ?? "{}") as Record<string, unknown>),
-                  vault_id: targetVault,
-                }),
-              },
-        ),
+        forget_log: bundle.tables.forget_log.map((r) => remapForgetRow(r, targetVault)),
       },
     },
   };
@@ -383,53 +367,7 @@ export function importContextBundle(
     //    retroactively block content that arrives later in this same pass (agent_episodes, step 2)
     //    or already existed in the target before this import ran.
     for (const row of bundle.tables.forget_log) {
-      const exists = edb
-        .prepare(
-          "SELECT 1 FROM forget_log WHERE kind = ? AND target = ? AND mode = ? AND ts = ? LIMIT 1",
-        )
-        .get(row.kind, row.target, row.mode, row.ts);
-      if (exists) {
-        stats.forget_log.skipped_duplicate++;
-        continue;
-      }
-      if (!dryRun) {
-        // THE-636 review fix (item c, "minor gap"): mark this row as import-derived, in the
-        // EXISTING `details` JSON column — no migration authorized or needed. Without this, a
-        // native forget and an imported one are byte-for-byte indistinguishable once appended,
-        // which matters for an operator auditing which entries this install itself decided vs.
-        // which arrived from elsewhere. `imported_from`/`imported_at` piggyback on the same field
-        // `already_blocked`/`scrubbed`/etc. already use for this kind of free-form provenance.
-        const parsedDetails = row.details
-          ? (JSON.parse(row.details) as Record<string, unknown>)
-          : {};
-        appendForgetLog(edb, {
-          ts: row.ts,
-          kind: row.kind,
-          target: row.target,
-          mode: row.mode,
-          details: {
-            ...parsedDetails,
-            imported: true,
-            imported_from: bundle.server_version,
-            imported_at: Date.now(),
-          },
-        });
-        if (row.kind === "episode") {
-          edb
-            .prepare(
-              "UPDATE agent_episodes SET blocked = 1, valid_until = COALESCE(valid_until, ?) WHERE id = ? AND blocked = 0",
-            )
-            .run(row.ts, row.target);
-          if (row.mode === "erase") {
-            edb
-              .prepare(
-                "UPDATE agent_episodes SET args_json = NULL, summary = NULL, tags = NULL, error_code = NULL WHERE id = ?",
-              )
-              .run(row.target);
-          }
-        }
-      }
-      stats.forget_log.imported++;
+      stats.forget_log[importForgetRow(edb, row, bundle.server_version, dryRun)]++;
     }
 
     // 2. agent_episodes — direction (a): reconcile against the TARGET's own forget_log (now
