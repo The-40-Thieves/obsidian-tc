@@ -10,6 +10,7 @@ import { type FakeRoute, fakeBridgeTransport } from "../src/bridge/fake";
 import {
   BRIDGE_REPROBE_INTERVAL_MS,
   registerBridgeReprobe,
+  reprobeVaultIds,
   wireBridges,
 } from "../src/runtime/bridge-wiring";
 import { Scheduler } from "../src/scheduler/scheduler";
@@ -31,16 +32,21 @@ const REACHABLE: FakeRoute = {
   },
 };
 
-/** Boot wireBridges for one auto-mode vault whose companion answers `route`. The transport reads
+/** Boot wireBridges for auto-mode vaults whose companion answers `route`. The transport reads
  *  `state.route` on every request, so a test flips the companion without rebuilding the wiring. */
-async function boot(route: FakeRoute) {
+async function boot(route: FakeRoute, ids: readonly string[] = ["main"]) {
   const state = { route, probes: 0 };
   const fetchFn: BridgeFetch = (input, init) => {
     state.probes++;
     return fakeBridgeTransport({ routes: { [PROBE]: state.route } })(input, init);
   };
   const bridges = await wireBridges({
-    vaults: [{ id: "main", restApiUrl: BASE, restApiKey: API_KEY, mode: "auto" }] as never,
+    vaults: ids.map((id) => ({
+      id,
+      restApiUrl: BASE,
+      restApiKey: API_KEY,
+      mode: "auto",
+    })) as never,
     vaultRegistry: {} as never,
     reindex: () => {},
     fetchFn,
@@ -68,8 +74,8 @@ function codeOf(fn: () => unknown): string | undefined {
 }
 
 afterEach(() => {
-  vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe("bridge live mode follows the companion probe", () => {
@@ -102,7 +108,67 @@ describe("bridge live mode follows the companion probe", () => {
     expect(openBridge(bridges.m4Deps, "main", "dataview").client).toBeDefined();
   });
 
-  it("the re-probe stays idle while reachable, is unref'd, and stops on teardown", async () => {
+  it("a stale scheduled probe that finishes after a manual refresh does not overwrite it", async () => {
+    const { bridges, state } = await boot(UNREACHABLE);
+
+    // The tick's probe reads the unreachable companion, then hangs before it reports back.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.useFakeTimers();
+    const sched = new Scheduler({ now: () => 0 });
+    registerBridgeReprobe(sched, {
+      capabilities: bridges.capabilities,
+      reprobe: async (id) => {
+        const snap = await bridges.reprobeVault(id);
+        await gate;
+        return snap;
+      },
+      vaultIds: ["main"],
+    });
+    sched.start();
+    await vi.advanceTimersByTimeAsync(BRIDGE_REPROBE_INTERVAL_MS);
+
+    // The companion comes up, and a manual refresh records it before the stale probe finishes.
+    state.route = REACHABLE;
+    bridges.capabilities.set("main", await bridges.reprobeVault("main"));
+    release();
+    await sched.stop();
+
+    expect(bridges.capabilities.get("main").companion).toBe("reachable");
+    expect(openBridge(bridges.m4Deps, "main", "dataview").client).toBeDefined();
+  });
+
+  it("stop() mid-tick starts no further vault probe", async () => {
+    const { bridges } = await boot(UNREACHABLE, ["a", "b", "c"]);
+    const started: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.useFakeTimers();
+    const sched = new Scheduler({ now: () => 0 });
+    registerBridgeReprobe(sched, {
+      capabilities: bridges.capabilities,
+      reprobe: async (id) => {
+        started.push(id);
+        await gate;
+        return bridges.reprobeVault(id);
+      },
+      vaultIds: ["a", "b", "c"],
+    });
+    sched.start();
+    await vi.advanceTimersByTimeAsync(BRIDGE_REPROBE_INTERVAL_MS);
+    expect(started).toEqual(["a"]);
+
+    const stopping = sched.stop();
+    release();
+    await stopping;
+    expect(started).toEqual(["a"]);
+  });
+
+  it("the re-probe stays idle while reachable and is unref'd", async () => {
     const { bridges, state } = await boot(REACHABLE);
     const probesAfterBoot = state.probes;
 
@@ -115,14 +181,44 @@ describe("bridge live mode follows the companion probe", () => {
 
     await vi.advanceTimersByTimeAsync(5 * BRIDGE_REPROBE_INTERVAL_MS);
     expect(state.probes).toBe(probesAfterBoot);
+    await sched.stop();
+  });
 
-    // Teardown: a companion that goes down after boot is re-probed until the scheduler stops.
-    state.route = UNREACHABLE;
+  it("stop() ends the re-probe of a companion that stays unreachable", async () => {
+    const { bridges, state } = await boot(UNREACHABLE);
+
+    vi.useFakeTimers();
+    const sched = reprobeScheduler(bridges);
+    sched.start();
     await vi.advanceTimersByTimeAsync(BRIDGE_REPROBE_INTERVAL_MS);
+    expect(state.probes).toBeGreaterThan(1);
+
     await sched.stop();
     const probesAtStop = state.probes;
     await vi.advanceTimersByTimeAsync(3 * BRIDGE_REPROBE_INTERVAL_MS);
     expect(state.probes).toBe(probesAtStop);
+  });
+
+  it("registers no re-probe job for a headless-pinned vault or a vault without a bridge", async () => {
+    const { bridges } = await boot(UNREACHABLE, ["pinned", "auto"]);
+    const vaults = [
+      { id: "pinned", mode: "headless" },
+      { id: "auto", mode: "auto" },
+      { id: "plain", mode: "auto" },
+    ];
+    const bridged = new Map([
+      ["pinned", bridges.bridgeClients.get("pinned")],
+      ["auto", bridges.bridgeClients.get("auto")],
+    ]);
+    expect(reprobeVaultIds(vaults, bridged)).toEqual(["auto"]);
+
+    const sched = new Scheduler({ now: () => 0 });
+    registerBridgeReprobe(sched, {
+      capabilities: bridges.capabilities,
+      reprobe: bridges.reprobeVault,
+      vaultIds: reprobeVaultIds(vaults.slice(0, 1), new Map()),
+    });
+    expect(sched.stats()).toEqual([]);
   });
 
   it("a failed boot probe logs its cause code and no credentials", async () => {
@@ -131,7 +227,9 @@ describe("bridge live mode follows the companion probe", () => {
     const logged = write.mock.calls.map((c) => String(c[0])).join("");
     expect(logged).toContain('vault "main"');
     expect(logged).toContain("unreachable");
+    expect(logged).toContain("(ECONNREFUSED)");
     expect(logged).not.toContain(API_KEY);
+    expect(logged).not.toContain(API_KEY.slice(0, 4));
     expect(logged).not.toContain(BASE);
   });
 });

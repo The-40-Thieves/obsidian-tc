@@ -66,7 +66,8 @@ export function fakeBridgeTransport(opts: FakeBridgeOptions = {}): BridgeFetch {
       return Promise.resolve(
         fakeResponse(404, { ok: false, code: "plugin_missing", message: "no such route" }),
       );
-    if (route.networkError) return Promise.reject(new Error("ECONNREFUSED"));
+    if (route.networkError)
+      return Promise.reject(Object.assign(new Error("ECONNREFUSED"), { code: "ECONNREFUSED" }));
     if (route.abort) {
       const e = new Error("The operation was aborted");
       e.name = "AbortError";

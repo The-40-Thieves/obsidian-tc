@@ -124,9 +124,7 @@ export async function wireBridges(deps: BridgeWiringDeps): Promise<BridgeWiring>
     // A failed boot probe is logged with its cause code only: the URL and API key never reach it.
     if (snap.companion === "unreachable") {
       const cause = snap.unreachableCause ? ` (${snap.unreachableCause})` : "";
-      process.stderr.write(
-        `obsidian-tc: vault "${v.id}" companion unreachable at boot${cause}; re-probing every ${BRIDGE_REPROBE_INTERVAL_MS / 1000}s until it answers\n`,
-      );
+      process.stderr.write(`obsidian-tc: vault "${v.id}" companion unreachable at boot${cause}\n`);
     }
     // THE-523 version handshake: warn ONCE per vault on a server↔plugin skew, with the specific
     // incompatibility, instead of letting a route diverge silently. A reachable-but-incompatible
@@ -189,17 +187,32 @@ export async function wireBridges(deps: BridgeWiringDeps): Promise<BridgeWiring>
   };
 }
 
+/** The vaults the background re-probe covers: bridged vaults not pinned headless. The live gate never
+ *  reads a headless vault's snapshot, so probing one would be wasted traffic. */
+export function reprobeVaultIds(
+  vaults: readonly { id: string; mode?: string }[],
+  bridged: ReadonlyMap<string, unknown>,
+): string[] {
+  return vaults.filter((v) => bridged.has(v.id) && v.mode !== "headless").map((v) => v.id);
+}
+
 /** Re-probe each bridged vault whose companion is not reachable, once per cooldown, until it
  *  answers. A reachable vault is skipped, so the job goes idle on its own. The scheduler's timer
- *  is unref'd and stopped with it, so this never holds the process open. */
+ *  is unref'd and stopped with it, so this never holds the process open. No vault, no job. */
 export function registerBridgeReprobe(scheduler: Scheduler, deps: BridgeReprobeDeps): void {
+  if (deps.vaultIds.length === 0) return;
   scheduler.register({
     name: "bridge-reprobe",
     intervalMs: BRIDGE_REPROBE_INTERVAL_MS,
-    run: async () => {
+    run: async (signal) => {
       for (const vaultId of deps.vaultIds) {
+        // stop() aborts the tick: no further vault starts a probe after it.
+        if (signal.aborted) return;
         if (deps.capabilities.get(vaultId).companion === "reachable") continue;
-        deps.capabilities.set(vaultId, await deps.reprobe(vaultId));
+        // Compare-and-set: a manual refresh that lands while this probe is in flight is newer.
+        const before = deps.capabilities.get(vaultId);
+        const next = await deps.reprobe(vaultId);
+        if (deps.capabilities.get(vaultId) === before) deps.capabilities.set(vaultId, next);
       }
     },
   });

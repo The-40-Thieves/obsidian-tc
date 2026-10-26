@@ -46,7 +46,7 @@ import {
   unwindReversed,
 } from "./boot-helpers";
 import { emitBootNotices, emitHeadlessStdioNotice } from "./boot-notices";
-import { wireBridges } from "./bridge-wiring";
+import { reprobeVaultIds, wireBridges } from "./bridge-wiring";
 import { createExclusionReloader } from "./exclusion-reload";
 import { wireIndexCoordinator } from "./indexing-wiring";
 import { createObservability } from "./observability";
@@ -527,7 +527,7 @@ export async function buildServerRuntime(
       bridgeReprobe: {
         capabilities: bridges.capabilities,
         reprobe: bridges.reprobeVault,
-        vaultIds: [...bridges.bridgeClients.keys()],
+        vaultIds: reprobeVaultIds(config.vaults, bridges.bridgeClients),
       },
       // THE-1081 review round 2 (Medium 1): the CANONICAL root, under `root` (the field
       // resolveTraceDirs requires by name) — previously the RAW config path, which threw
