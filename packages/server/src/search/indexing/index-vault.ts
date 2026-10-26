@@ -63,7 +63,7 @@ import {
 import { flushNoteRows } from "./notes-flush";
 import { logPassSkips } from "./pass-skip-log";
 import { applyNoteWrites, fireIndexHook } from "./persist-note-plan";
-import { readIndexableNote, recordReadRefusal } from "./read-refusal";
+import { readOrRecordRefusal } from "./read-refusal";
 import { createStaleSkipLog } from "./stale-skip";
 import { sweepUnindexedNotes } from "./sweep-notes";
 import type { DedupCache, IndexStats, IndexVaultArgs, NoteWritePlan } from "./types";
@@ -406,10 +406,8 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     stat: { mtime: number; size: number } | null,
   ): Promise<void> => {
     await yieldToLoop();
-    const read = readIndexableNote(args.root, rel);
-    if ("refused" in read)
-      return recordReadRefusal(args, stats, walkedSet, readableWalked, rel, read.refused);
-    const raw = read.raw;
+    const raw = readOrRecordRefusal(args, stats, walkedSet, readableWalked, rel);
+    if (raw === null) return;
     // THE-1073: probe-parse ONCE, here, before anything else touches this note's frontmatter
     // (buildNoteRecord/noteTags below both call parseNote themselves and would throw on the SAME
     // note otherwise). A YAML failure quarantines just this note — counted, listed, and named in
