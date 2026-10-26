@@ -193,17 +193,22 @@ describe.skipIf(process.platform === "win32")("enumeration filters on the canoni
       expect(leaks(dump(denied))).toBe(false);
       if (denied.ok) expect((denied.data as { hits?: unknown[] }).hits ?? []).toEqual([]);
     }
-    // Native safe-open refuses an UNCONFIGURED symlinked folder on read (fail closed, as on main), so
-    // the readable-alias positive control only has a result to show on the JS fallback; the pinned
-    // positive control for a content-reading tool is the list_tags case above.
-    if (!nativeVaultIo) {
-      const ok = await v.call(
-        "search_text",
-        { vault: "test", root: "shared", query: "open card" },
-        CALLER,
-      );
-      expect(dump(ok)).toContain("shared/open-note.md");
-    }
+    // The alias target is read through an UNCONFIGURED symlinked folder, which the safe open refuses on
+    // both the native and the JS path (fail closed). The walk skips that note and counts it, so the
+    // call succeeds with no items and no path named.
+    const ok = await v.call(
+      "search_text",
+      { vault: "test", root: "shared", query: "open card" },
+      CALLER,
+    );
+    expect(ok.ok).toBe(true);
+    expect(ok.ok ? ok.data : {}).toEqual({
+      vault: "test",
+      mode_used: "text",
+      notes_read_refused: 1,
+      items: [],
+      total: 0,
+    });
   });
 
   it("search_jsonlogic filters the alias on its target", async () => {
