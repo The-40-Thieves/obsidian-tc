@@ -85,6 +85,15 @@ const m3 = (acl: object = ACL) => {
 const dump = (r: { ok: boolean; data?: unknown; error?: unknown }): string =>
   JSON.stringify(r.ok ? r.data : r.error);
 const leaks = (s: string): boolean => s.includes(SECRET) || s.includes(MARK);
+/** An unconfigured symlinked folder is refused on both backends; the refusal is the positive control. */
+const expectSharedRefused = (
+  r: { ok: boolean; data?: unknown; error?: unknown },
+  root: string,
+): void => {
+  expect(r.ok).toBe(false);
+  expect(dump(r)).toContain("shared/open-note.md");
+  expect(dump(r)).not.toContain(root);
+};
 
 describe.skipIf(process.platform === "win32")("enumeration filters on the canonical target", () => {
   describe.each([
@@ -137,7 +146,7 @@ describe.skipIf(process.platform === "win32")("enumeration filters on the canoni
       tag: "leaktag",
       folder: "shared",
     });
-    expect(dump(ok)).toContain("shared/open-note.md");
+    expectSharedRefused(ok, v.root);
   });
 
   it("a configured folder whose target is readable still counts its tags, under the display path", async () => {
@@ -171,7 +180,7 @@ describe.skipIf(process.platform === "win32")("enumeration filters on the canoni
     const denied = await v.call("list_kanban_boards", { vault: "test", folder: "wiki" });
     expect(leaks(dump(denied))).toBe(false);
     const ok = await v.call("list_kanban_boards", { vault: "test", folder: "shared" });
-    expect(dump(ok)).toContain("shared/open-note.md");
+    expectSharedRefused(ok, v.root);
   });
 
   it("list_attachments shows no denied file's name, size or mtime and still lists a readable one", async () => {
@@ -193,16 +202,18 @@ describe.skipIf(process.platform === "win32")("enumeration filters on the canoni
       expect(leaks(dump(denied))).toBe(false);
       if (denied.ok) expect((denied.data as { hits?: unknown[] }).hits ?? []).toEqual([]);
     }
-    // Native safe-open refuses an UNCONFIGURED symlinked folder on read (fail closed, as on main), so
-    // the readable-alias positive control only has a result to show on the JS fallback; the pinned
-    // positive control for a content-reading tool is the list_tags case above.
+    // Native safe-open refuses an UNCONFIGURED symlinked folder on read (fail closed), so on the JS
+    // fallback that refusal is the positive control: it must name the note vault-relatively.
+    // The pinned positive control for a content-reading tool is the list_tags case above.
     if (!nativeVaultIo) {
-      const ok = await v.call(
+      const refused = await v.call(
         "search_text",
         { vault: "test", root: "shared", query: "open card" },
         CALLER,
       );
-      expect(dump(ok)).toContain("shared/open-note.md");
+      expect(refused.ok).toBe(false);
+      expect(dump(refused)).toContain("shared/open-note.md");
+      expect(dump(refused)).not.toContain(v.root);
     }
   });
 

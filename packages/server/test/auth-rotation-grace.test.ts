@@ -319,10 +319,28 @@ describe("grace default from config (auth.rotationGraceSeconds), overridden by -
       const d = deployment({ rotationGraceSeconds: 3600 });
       const before = Date.now();
       const r = await rotate(d.configPath);
+      const after = Date.now();
       const window = (r.previous_retire_after as number) - before;
       expect(window).toBeGreaterThanOrEqual(3_600_000);
-      expect(window).toBeLessThan(3_600_000 + 10_000);
+      expect(window).toBeLessThanOrEqual(after - before + 3_600_000);
       expect((await keysOf(d.configPath)).map((k) => k.state)).toEqual(["retiring", "active"]);
+    },
+    stallTimeout(30_000),
+  );
+
+  it(
+    "brackets the window by the rotate call's own elapsed time (slow runner)",
+    async () => {
+      const d = deployment({ rotationGraceSeconds: 3600 });
+      const before = Date.now();
+      // The expiry is stamped 11 s after `before`, as a slow runner does.
+      const clock = vi.spyOn(Date, "now").mockReturnValue(before + 11_000);
+      const r = await rotate(d.configPath);
+      const after = Date.now();
+      clock.mockRestore();
+      const window = (r.previous_retire_after as number) - before;
+      expect(window).toBeGreaterThanOrEqual(3_600_000);
+      expect(window).toBeLessThanOrEqual(after - before + 3_600_000);
     },
     stallTimeout(30_000),
   );
@@ -343,7 +361,10 @@ describe("grace default from config (auth.rotationGraceSeconds), overridden by -
       const d = deployment({ rotationGraceSeconds: 3600 });
       const before = Date.now();
       const r = await rotate(d.configPath, { graceSeconds: 60 });
-      expect((r.previous_retire_after as number) - before).toBeLessThan(70_000);
+      const after = Date.now();
+      const window = (r.previous_retire_after as number) - before;
+      expect(window).toBeGreaterThanOrEqual(60_000);
+      expect(window).toBeLessThanOrEqual(after - before + 60_000);
     },
     stallTimeout(30_000),
   );

@@ -21,6 +21,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
+import { redactSecrets } from "../experiential/redact";
 
 /** A pinned folder's real directory and its identity when pinned: what the native open verifies. */
 export interface PinnedDir {
@@ -225,4 +226,16 @@ export function pinnedOpenPath(abs: string): { path: string; pinned?: PinnedDir 
 /** The canonical vault root containing `abs` in the current dispatch, when one is registered. */
 export function folderRootForSink(abs: string): string | undefined {
   return (frame.getStore() ?? NO_PINS).rootFor(abs);
+}
+
+/** `abs` as an error detail names it: vault-relative under a registered root, else the basename, with
+ *  POSIX separators and secrets redacted. A refusal never echoes the host filesystem layout. */
+export function vaultDetailPath(abs: string): string {
+  const root = folderRootForSink(abs);
+  const rel = root === undefined ? "" : relative(root, abs);
+  const shown =
+    rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)
+      ? rel
+      : (abs.split(/[\\/]/).pop() ?? "");
+  return redactSecrets(shown.split(/[\\/]/).join("/")).text;
 }

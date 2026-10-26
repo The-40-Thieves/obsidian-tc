@@ -642,6 +642,7 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
     cacheDir: config.cacheDir,
     activeSessions: deps.activeSessions,
     reindex: deps.reindex,
+    deindex: deps.deindex,
     plur: plurClient,
     bootstrap: config.bootstrap,
     memoryFolder,

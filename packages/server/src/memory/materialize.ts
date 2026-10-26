@@ -305,6 +305,7 @@ export function assertNoteOwnership(root: string, rel: string, expectedEntityId:
 export function materializeEntity(input: MaterializeInput): {
   vaultPath: string;
   contentHash: string;
+  content: string;
 } {
   const rel = entityNotePath(input.folder, input.entityType, input.name);
   const abs = resolveVaultPath(input.root, rel);
@@ -315,7 +316,7 @@ export function materializeEntity(input: MaterializeInput): {
   const preserved = owner.frontmatter;
   const content = renderEntityNote({ ...input, preserved });
   writeNoteAtomic(abs, content, true);
-  return { vaultPath: rel, contentHash: contentHash(content) };
+  return { vaultPath: rel, contentHash: contentHash(content), content };
 }
 
 export interface ParsedEntityNote {

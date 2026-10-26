@@ -49,7 +49,7 @@ export function materializeProjection(
   observations: readonly RenderableObservation[],
 ): string | null {
   if (e.materialize !== 1) return null;
-  return materializeEntity({
+  const r = materializeEntity({
     root: v.root,
     acl: ctx.acl,
     folder: memoryFolderFor(deps, v.id),
@@ -61,7 +61,95 @@ export function materializeProjection(
     observations: [...observations],
     relations: outgoingLinks(ctx, e.id),
     grantedScopes: ctx.grantedScopes,
-  }).vaultPath;
+  });
+  recordIndexWrite(ctx, v.id, r.vaultPath, r.content);
+  return r.vaultPath;
+}
+
+/** Index-on-write for the memory tools. Each projection write or removal a call makes is recorded
+ *  against its ctx, then withIndexFlush sends them to the hooks once the handler has returned. */
+interface IndexFlush {
+  writes: Map<string, { vaultId: string; path: string; content: string }>;
+  deletes: Map<string, { vaultId: string; path: string }>;
+}
+const pending = new WeakMap<object, IndexFlush>();
+const indexKey = (vaultId: string, path: string): string => `${vaultId}\0${path}`;
+
+/** Record a projection note the current call wrote (no-op outside withIndexFlush). */
+export function recordIndexWrite(
+  ctx: object,
+  vaultId: string,
+  path: string,
+  content: string,
+): void {
+  const p = pending.get(ctx);
+  if (!p) return;
+  const key = indexKey(vaultId, path);
+  p.deletes.delete(key);
+  p.writes.set(key, { vaultId, path, content });
+}
+
+/** Record a projection note the current call removed or trashed (no-op outside withIndexFlush). */
+export function recordIndexDelete(ctx: object, vaultId: string, path: string): void {
+  const p = pending.get(ctx);
+  if (!p) return;
+  const key = indexKey(vaultId, path);
+  p.writes.delete(key);
+  p.deletes.set(key, { vaultId, path });
+}
+
+/** Send the recorded changes to the hooks. Each call is isolated: a throwing hook never fails the
+ *  committed tool call, and never stops the remaining notes from being indexed. */
+function flushIndex(deps: M5Deps, p: IndexFlush): void {
+  for (const d of p.deletes.values()) {
+    try {
+      deps.deindex?.(d.vaultId, d.path);
+    } catch {
+      /* best effort: the watcher catches up */
+    }
+  }
+  for (const w of p.writes.values()) {
+    try {
+      deps.reindex?.(w.vaultId, w.path, w.content);
+    } catch {
+      /* best effort: the watcher catches up */
+    }
+  }
+}
+
+/** Wrap a memory tool so its projection writes and removals reach the index hooks after a
+ *  successful return. A throw flushes nothing: the rolled-back write never reached the disk. */
+export function withIndexFlush(deps: M5Deps, tool: ToolDefinition): ToolDefinition {
+  const inner = tool.handler;
+  return {
+    ...tool,
+    handler: (input, ctx) => {
+      const p: IndexFlush = { writes: new Map(), deletes: new Map() };
+      pending.set(ctx, p);
+      let result: unknown;
+      try {
+        result = inner(input, ctx);
+      } catch (caught) {
+        pending.delete(ctx);
+        throw caught;
+      }
+      if (typeof (result as { then?: unknown } | null)?.then === "function")
+        return (result as Promise<unknown>).then(
+          (value) => {
+            pending.delete(ctx);
+            flushIndex(deps, p);
+            return value;
+          },
+          (caught) => {
+            pending.delete(ctx);
+            throw caught;
+          },
+        );
+      pending.delete(ctx);
+      flushIndex(deps, p);
+      return result;
+    },
+  };
 }
 
 /** Regenerate an entity's .md projection from current SQLite state (no-op when the

@@ -49,6 +49,7 @@ import {
   type Neighbor,
   planNeighbors,
   readableRelations,
+  recordIndexDelete,
   rematerialize,
   rematerializeNeighbors,
 } from "./memory-projection";
@@ -221,6 +222,7 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
             if (renaming) {
               const oldAbs = resolveVaultPath(v.root, oldPath);
               if (noteExists(oldAbs).exists) hardDelete(oldAbs);
+              recordIndexDelete(ctx, v.id, oldPath);
             }
           }
 
@@ -385,6 +387,7 @@ export function buildMemoryLifecycleTools(deps: M5Deps): ToolDefinition[] {
             if (input.permanent) hardDelete(abs);
             else trashedTo = trashNote(v.root, notePath);
           }
+          recordIndexDelete(ctx, v.id, notePath);
         }
 
         return {
