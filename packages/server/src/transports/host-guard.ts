@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import {
   localhostAllowedHostnames,
   validateHostHeader,
@@ -8,14 +9,17 @@ import {
  *  VALUES" (which may include a port). Canonicalize the way the SDK does (`new URL(...).hostname`):
  *  IPv6 keeps its brackets, IDN is punycoded, IPv4 shorthand is expanded. A value the URL parser
  *  rejects, or that is more than an authority (a path, query, fragment, userinfo or whitespace),
- *  keeps the port-and-bracket strip it always had, so a malformed entry still matches nothing. */
+ *  keeps the port strip it always had. Brackets come off only around an IPv6 literal, so a bracketed
+ *  name such as `[trusted.example]` stays bracketed and matches no bare Host. */
 export const hostnameOf = (v: string): string => {
   if (!/[/?#@\\\s]/.test(v)) {
     try {
       return new URL(`http://${v}`).hostname;
     } catch {}
   }
-  return v.replace(/:\d+$/, "").replace(/^\[|\]$/g, "");
+  const bare = v.replace(/:\d+$/, "");
+  const inner = bare.replace(/^\[|\]$/g, "");
+  return isIP(inner) === 6 ? inner : bare;
 };
 export const bothForms = (vs: readonly string[]): string[] => vs.flatMap((v) => [v, hostnameOf(v)]);
 
