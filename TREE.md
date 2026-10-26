@@ -36,7 +36,11 @@ root first, or vitest silently resolves against the wrong tree.
 ```
 packages/
   native/          Rust napi-rs module
-    src/           lib.rs — cosine_similarity, cosine_batch
+    src/           lib.rs — napi exports, as index.d.ts types them: cosineSimilarity, cosineBatch,
+                   tokenize, bm25Score, rougeLLcs, safeReadNote, safeWriteNoteAtomic,
+                   safeWriteNoteExclusive, safeRenameNoReplace, safeUnlink, safeRmdir,
+                   SAFE_IO_PINNED_DIR, SAFE_IO_PINNED_WRITE, SAFE_IO_PINNED_MKDIR, nativeLoaded,
+                   hostTriple, isMusl; PinnedDir (type)
     benches/       Criterion benches (dims x docs matrix)
     bench/         JS-vs-native comparison harness
   plugin/

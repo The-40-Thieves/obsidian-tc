@@ -365,6 +365,7 @@ returns `rate_limit` with `retry_after_ms`.
 | `prometheus` | disabled, `127.0.0.1:9464` | `/metrics` scrape endpoint. |
 | `morgiana.spool` | true | CloudEvents JSONL spool; `httpEndpoint` (+`httpHeaders`) enables push. |
 | `retention.eventLogDays` | 30 | `event_log` rows older than this are pruned by the maintenance sweep. |
+| `retention.tracesDays` | 30 | Workspace session trace files (`<vault>/<traceFolder>/*.jsonl`) older than this are deleted by the maintenance sweep. Traces live inside the vault, so a sync or backup picks them up too. Orphan traces from a failed `start_session` follow the same age rule. |
 | `retention.spoolRetentionDays` | 30 | Morgiana spool day files (`morgiana-events-<date>.jsonl`) older than this are deleted by the maintenance sweep; `0` keeps them forever. The current UTC day's file is never touched. |
 | `retention.spoolMaxBytes` | *(optional)* | Per-vault size cap on the morgiana spool: the oldest day files are deleted until the vault's spool fits. The current day's file is never deleted. |
 
