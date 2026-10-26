@@ -25,8 +25,10 @@ import { DEFAULT_TRACE_FOLDER } from "../tools/m5";
 import { getOrCreateWikiSealKey, readWikiSealKey } from "../tools/m7/knowledge/wiki-generated-seal";
 import { schedulerPersistErrorSink } from "../util/errors";
 import type { FolderPins } from "../vault/folder-links";
+import type { VaultRegistry } from "../vault/registry";
 import type { ActiveSessionTracker } from "../workspace/sessions";
 import { registerAdvisorySweep } from "./advisory-sweep";
+import { type BridgeReprobeDeps, registerBridgeReprobe } from "./bridge-wiring";
 import { registerGapSweep } from "./gap-sweep";
 import { configureMaintenance } from "./maintenance-wiring";
 import type { Observability } from "./observability";
@@ -100,6 +102,24 @@ export interface SchedulerWiringDeps {
    *  close callback clears its entry here, since SQL closing the row is invisible to this
    *  process-local map otherwise. */
   activeSessions: ActiveSessionTracker;
+  /** The bridge re-probe for vaults whose companion failed its boot probe. Absent -> no job. */
+  bridgeReprobe?: BridgeReprobeDeps;
+}
+
+/** The vaults wireScheduler's jobs read, with each root taken from the registry's canonical resolve
+ *  (THE-1081 review round 2), never the raw config path. */
+export function schedulerVaults(
+  vaults: ServerConfig["vaults"],
+  registry: Pick<VaultRegistry, "resolve">,
+): SchedulerWiringDeps["vaults"] {
+  return vaults.map((v) => ({
+    id: v.id,
+    root: registry.resolve(v.id).root,
+    ...(v.workspace !== undefined ? { workspace: v.workspace } : {}),
+    wikiFolder: registry.resolve(v.id).wikiFolder,
+    wikiFolders: registry.resolve(v.id).wikiFolders,
+    rawFolders: registry.resolve(v.id).rawFolders,
+  }));
 }
 
 /**
@@ -297,6 +317,8 @@ export function wireScheduler(deps: SchedulerWiringDeps): Scheduler {
       run: (signal) => deps.runReconcile(signal),
     });
   }
+
+  if (deps.bridgeReprobe) registerBridgeReprobe(scheduler, deps.bridgeReprobe);
 
   // THE-1125: opt-in telemetry send. Registered LAST, after every job an operator actually cares
   // about the latency of — telemetry is the lowest-priority background work in this process, and

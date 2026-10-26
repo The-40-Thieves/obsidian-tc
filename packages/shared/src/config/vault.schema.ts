@@ -26,7 +26,7 @@ export const VaultBridgesConfigSchema = z.object({
     .positive()
     .default(500)
     .describe(
-      "Timeout in ms for the startup plugin/liveness probe. Deliberately short: it runs before the server is useful, so a dead Obsidian must not stall boot.",
+      "Timeout in ms for the plugin/liveness probe, at startup and on each background re-probe. Deliberately short: a dead Obsidian must not stall boot or a re-probe.",
     ),
   ocrTimeoutMs: z
     .number()
@@ -321,7 +321,7 @@ export const VaultConfigSchema = z.object({
     .enum(["live", "headless", "auto"])
     .optional()
     .describe(
-      "How this vault is reached. `auto` (the default when absent) probes the Local REST API once at startup: reachable means live, otherwise headless direct-filesystem access with Tier-3 action tools degrading to requires_live_obsidian. `live`/`headless` force the mode and skip the probe.",
+      "How this vault is reached. `auto` (the default when absent) probes the Local REST API at startup and re-probes it every 60 seconds while it is unreachable or missing: reachable means live, otherwise headless direct-filesystem access with Tier-3 action tools degrading to requires_live_obsidian. `live`/`headless` force the mode and skip the probe.",
     ),
   bridges: VaultBridgesConfigSchema.optional().describe(
     "Per-vault plugin-bridge timeouts. Absent uses the documented defaults.",
