@@ -39,6 +39,8 @@ export interface M5Deps {
   cacheDir: string;
   /** THE-291: index-on-write hook for capture-commit writes (best-effort, backgrounded). */
   reindex?: (vaultId: string, path: string, content: string) => void;
+  /** Index-on-delete hook for memory notes a committed call removed or trashed. */
+  deindex?: (vaultId: string, path: string) => void;
   /** THE-209: active-session tracker; start_session/end_session maintain it, the transport reads it. */
   activeSessions?: ActiveSessionTracker;
   /** Global plur read client (HTTP endpoint or local CLI); undefined when unconfigured. */
