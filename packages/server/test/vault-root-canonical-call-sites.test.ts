@@ -105,9 +105,12 @@ describe("vault root canonicalization — every named consumer (THE-1081 review 
     expect(src.length).toBeGreaterThan(2000);
     const call = src.match(/wireScheduler\(\{[\s\S]*?\}\);/)?.[0];
     expect(call, "wireScheduler({...}) call not found").toBeDefined();
-    expect(call).toContain("root: vaultRegistry.resolve(v.id).root");
+    // The canonical-root mapping lives in scheduler-wiring's schedulerVaults helper (moved out of
+    // this file to keep server-runtime.ts under biome's 700-line cap).
+    expect(call).toContain("schedulerVaults(config.vaults, vaultRegistry)");
+    expect(stripped("runtime/scheduler-wiring.ts")).toContain("root: registry.resolve(v.id).root");
     // The bare (pre-fix) form assigns config.vaults directly, with nothing between it and the
-    // next field; `.map(...)` guarantees this isn't that.
+    // next field; the helper call guarantees this isn't that.
     expect(call).not.toMatch(/vaults:\s*config\.vaults\s*,/);
   });
 
