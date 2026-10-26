@@ -3,6 +3,7 @@
 // with no error and no health signal. A real second connection holds the write lock here (the
 // provisioning DDL needs it on a cache.db that has no notes_fts yet); the assertions are on STATES
 // and attempt counts, never on how long anything took.
+
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { openDatabase } from "../src/db/open";
@@ -19,6 +20,7 @@ import {
   ftsStatus,
 } from "../src/search/fts-status";
 import { searchTextIndexed } from "../src/search/text";
+import { ReadRefusals } from "../src/tools/read-refusals";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const dirs: string[] = [];
@@ -206,7 +208,11 @@ describe("FTS monitor: background recovery with no restart", () => {
     const { writeFileSync } = await import("node:fs");
     writeFileSync(join(dir, "a.md"), "body text of a.md\n");
     upsertNoteRow(db, "main", rec("a.md"), idx.hasFts, 1);
-    const hits = searchTextIndexed(db, "main", dir, { query: "text of a", limit: 100 });
+    const hits = searchTextIndexed(db, "main", dir, {
+      refusals: new ReadRefusals(),
+      query: "text of a",
+      limit: 100,
+    });
     expect(hits?.map((h) => h.path)).toEqual(["a.md"]);
 
     // Nothing keeps retrying once recovered.

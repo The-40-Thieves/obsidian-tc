@@ -2,6 +2,7 @@
 // the materialized note under `## Superseded` by default, so the indexer chunks and FTS-indexes it.
 // With `false` the section is omitted: the note holds only current facts, the closed interval stays
 // in SQLite, and get_entity with as_of still returns it. Real SQLite, real indexer, real text search.
+
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { VaultConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
@@ -10,6 +11,7 @@ import { parseEntityNote } from "../src/memory/materialize";
 import { indexVault } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { searchTextIndexed, type TextOptions } from "../src/search/text";
+import { ReadRefusals } from "../src/tools/read-refusals";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";
 
 const V = "test";
@@ -123,7 +125,12 @@ describe("memory.supersededInNote (per vault, default true)", () => {
         root: v.root,
         isReadable: () => true,
       });
-      const opts: TextOptions = { query: "design", limit: 5000, isReadable: () => true };
+      const opts: TextOptions = {
+        refusals: new ReadRefusals(),
+        query: "design",
+        limit: 5000,
+        isReadable: () => true,
+      };
       // The FTS path ran (not the disk fallback), so this is the index the issue complains about.
       const old = searchTextIndexed(v.db, V, v.root, opts);
       expect(old).not.toBeNull();

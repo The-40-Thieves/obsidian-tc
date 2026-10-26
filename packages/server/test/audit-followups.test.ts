@@ -2,18 +2,23 @@ import { describe, expect, it } from "vitest";
 import { assertVectors } from "../src/embeddings/provider";
 import { evaluatesTruthy } from "../src/search/jsonlogic";
 import { searchRegex } from "../src/search/text";
+import { ReadRefusals } from "../src/tools/read-refusals";
 
 describe("audit follow-ups (regression)", () => {
   it("#4 searchRegex rejects quantified overlapping alternation (a|a)+", async () => {
-    await expect(searchRegex("/no/such/root", { pattern: "(a|a)+", limit: 10 })).rejects.toThrow();
+    await expect(
+      searchRegex("/no/such/root", { refusals: new ReadRefusals(), pattern: "(a|a)+", limit: 10 }),
+    ).rejects.toThrow();
   });
 
   it("#4 searchRegex still rejects nested-quantifier classics, accepts safe patterns", async () => {
-    await expect(searchRegex("/no/such/root", { pattern: "((a)+)+", limit: 10 })).rejects.toThrow();
+    await expect(
+      searchRegex("/no/such/root", { refusals: new ReadRefusals(), pattern: "((a)+)+", limit: 10 }),
+    ).rejects.toThrow();
     // a char class is the safe equivalent of (a|b)+ and must NOT be rejected by the guard
-    await expect(searchRegex("/no/such/root", { pattern: "[ab]+", limit: 10 })).resolves.toEqual(
-      [],
-    );
+    await expect(
+      searchRegex("/no/such/root", { refusals: new ReadRefusals(), pattern: "[ab]+", limit: 10 }),
+    ).resolves.toEqual([]);
   });
 
   it("#16 assertVectors rejects a non-finite component", () => {

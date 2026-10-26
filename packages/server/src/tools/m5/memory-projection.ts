@@ -117,37 +117,62 @@ function flushIndex(deps: M5Deps, p: IndexFlush): void {
   }
 }
 
-/** Wrap a memory tool so its projection writes and removals reach the index hooks after a
- *  successful return. A throw flushes nothing: the rolled-back write never reached the disk. */
+/** Wrap a memory tool so its projection writes and removals reach the index hooks once the
+ *  outermost wrapped call returns. A throw flushes nothing. The SQLite rollback does not undo
+ *  files: rename and delete restore the notes they captured, and any other note written before the
+ *  throw stays on disk, unindexed, until the watcher catches up. Wrapped handlers are synchronous and ctx is per call; if an async wrapped handler ever
+ *  lands, move the collector to AsyncLocalStorage. */
 export function withIndexFlush(deps: M5Deps, tool: ToolDefinition): ToolDefinition {
   const inner = tool.handler;
   return {
     ...tool,
     handler: (input, ctx) => {
+      // A nested wrapped call on the same ctx saves the outer collector. On success its records
+      // merge into the outer one (the inner call wins per key); on a throw they are dropped.
+      const outer = pending.get(ctx);
       const p: IndexFlush = { writes: new Map(), deletes: new Map() };
+      const settle = (ok: boolean): void => {
+        if (outer) pending.set(ctx, outer);
+        else pending.delete(ctx);
+        if (!ok) return;
+        if (!outer) {
+          flushIndex(deps, p);
+          return;
+        }
+        for (const [k, d] of p.deletes) {
+          outer.writes.delete(k);
+          outer.deletes.set(k, d);
+        }
+        for (const [k, w] of p.writes) {
+          outer.deletes.delete(k);
+          outer.writes.set(k, w);
+        }
+      };
       pending.set(ctx, p);
       let result: unknown;
+      let thenable: boolean;
       try {
         result = inner(input, ctx);
+        thenable = typeof (result as { then?: unknown } | null)?.then === "function";
       } catch (caught) {
-        pending.delete(ctx);
+        settle(false);
         throw caught;
       }
-      if (typeof (result as { then?: unknown } | null)?.then === "function")
-        return (result as Promise<unknown>).then(
-          (value) => {
-            pending.delete(ctx);
-            flushIndex(deps, p);
-            return value;
-          },
-          (caught) => {
-            pending.delete(ctx);
-            throw caught;
-          },
-        );
-      pending.delete(ctx);
-      flushIndex(deps, p);
-      return result;
+      if (!thenable) {
+        settle(true);
+        return result;
+      }
+      // Promise.resolve turns a throwing `then` into a rejection, so every exit reaches settle.
+      return Promise.resolve(result).then(
+        (value) => {
+          settle(true);
+          return value;
+        },
+        (caught) => {
+          settle(false);
+          throw caught;
+        },
+      );
     },
   };
 }

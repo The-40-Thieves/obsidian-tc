@@ -146,7 +146,7 @@ describe("advertised schema", () => {
     );
   });
 
-  it("search_vault output schema gains the optional fields mode_source, warnings and warnings_omitted", () => {
+  it("search_vault output schema gains the optional fields mode_source, warnings, warnings_omitted and notes_read_refused", () => {
     const schema = z.toJSONSchema(def()?.outputSchema as z.ZodType, JSON_SCHEMA_OPTS) as {
       properties: Record<string, unknown>;
       required: string[];
@@ -154,6 +154,7 @@ describe("advertised schema", () => {
     expect(Object.keys(schema.properties)).toEqual([
       "warnings",
       "warnings_omitted",
+      "notes_read_refused",
       "vault",
       "mode_used",
       "headers",
