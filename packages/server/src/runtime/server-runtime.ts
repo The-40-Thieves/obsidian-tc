@@ -57,7 +57,7 @@ import {
   wireJobHandlers,
 } from "./plane-wiring";
 import { wireRuntimeCore } from "./runtime-core-wiring";
-import { wireScheduler } from "./scheduler-wiring";
+import { schedulerVaults, wireScheduler } from "./scheduler-wiring";
 import { makeSandboxRerun } from "./session-rerun-sandbox";
 import { joinReconcileOrExit, logShutdownError, raceShutdownPhaseOrExit } from "./shutdown-phase";
 import { stdioContext } from "./stdio-context";
@@ -524,18 +524,16 @@ export async function buildServerRuntime(
     const scheduler = wireScheduler({
       config,
       db,
+      bridgeReprobe: {
+        capabilities: bridges.capabilities,
+        reprobe: bridges.reprobeVault,
+        vaultIds: [...bridges.bridgeClients.keys()],
+      },
       // THE-1081 review round 2 (Medium 1): the CANONICAL root, under `root` (the field
       // resolveTraceDirs requires by name) — previously the RAW config path, which threw
       // vault_not_found at boot for a vault root that is itself a symlink (iCloud/Dropbox/NAS
       // sync targets; see vault/watcher.ts), with maintenance.enabled defaulting to true.
-      vaults: config.vaults.map((v) => ({
-        id: v.id,
-        root: vaultRegistry.resolve(v.id).root,
-        ...(v.workspace !== undefined ? { workspace: v.workspace } : {}),
-        wikiFolder: vaultRegistry.resolve(v.id).wikiFolder,
-        wikiFolders: vaultRegistry.resolve(v.id).wikiFolders,
-        rawFolders: vaultRegistry.resolve(v.id).rawFolders,
-      })),
+      vaults: schedulerVaults(config.vaults, vaultRegistry),
       folderPins: vaultRegistry.folderPins,
       eventVaultId: firstVault.id,
       listVaultIds: () => vaultRegistry.list().map((v) => v.id),
