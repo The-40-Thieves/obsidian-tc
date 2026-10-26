@@ -21,6 +21,7 @@
 
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
+import { FORGET_ROW_VAULT_SQL } from "./forget";
 
 /** Days since last EDIT beyond which a note is `stale_edit`. Mirrors search/freshness.ts. */
 export const STALE_EDIT_DAYS = 365;
@@ -274,7 +275,7 @@ export function recomputeNoteQuality(
     // un-forgetting a note.
     for (const r of edb
       .prepare(
-        "SELECT target FROM forget_log WHERE kind = 'note' AND mode = 'tombstone' AND (json_extract(details, '$.vault_id') = ? OR json_extract(details, '$.vault_id') IS NULL)",
+        `SELECT target FROM forget_log WHERE kind = 'note' AND mode = 'tombstone' AND (${FORGET_ROW_VAULT_SQL} = ? OR ${FORGET_ROW_VAULT_SQL} IS NULL)`,
       )
       .all(vaultId) as Array<{ target: string }>) {
       tombstoned.add(r.target);

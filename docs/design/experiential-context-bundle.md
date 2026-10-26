@@ -51,7 +51,8 @@ notes. Importing verbatim would silently merge two unrelated vaults' derived sta
 label. Two mechanisms close this:
 
 - `remapBundleVault` makes `--vault` load-bearing: when the operator names a target vault, every
-  vault-scoped row (the 6 tables that carry `vault_id`) is remapped from the bundle's actual source
+  vault-scoped row (the 6 tables that carry `vault_id`, and each forget_log row naming one in
+  `details.vault_id`) is remapped from the bundle's actual source
   vault to that target, and a bundle whose vault-scoped rows name more than one source vault is
   refused outright — "the" source vault would be undefined. Omitting `--vault` keeps rows verbatim,
   which is the other legitimate case the ticket names: migrating a whole deployment to a new

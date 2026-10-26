@@ -3,12 +3,18 @@
 // vault column); legacy rows name none and apply to every vault.
 import type { Database } from "../db/types";
 import type { ForgetLogRow } from "./context-bundle-schema";
-import { appendForgetLog } from "./forget";
+import { appendForgetLog, FORGET_ROW_VAULT_SQL } from "./forget";
 
-/** The vault a forget row names in `details`, or undefined for a legacy or non-object row. */
+/** The vault a forget row names in `details`, or undefined for a legacy, non-object or
+ *  unparseable row. */
 export function forgetRowVault(row: ForgetLogRow): string | undefined {
   if (row.details === null) return undefined;
-  const parsed: unknown = JSON.parse(row.details);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(row.details);
+  } catch {
+    return undefined;
+  }
   if (typeof parsed !== "object" || parsed === null) return undefined;
   const v = (parsed as { vault_id?: unknown }).vault_id;
   return typeof v === "string" ? v : undefined;
@@ -22,7 +28,7 @@ export function exportForgetLog(edb: Database, vaultId: string | undefined): For
     vaultId
       ? edb
           .prepare(
-            `${cols} WHERE (json_extract(details, '$.vault_id') = ? OR json_extract(details, '$.vault_id') IS NULL) ORDER BY seq ASC`,
+            `${cols} WHERE (${FORGET_ROW_VAULT_SQL} = ? OR ${FORGET_ROW_VAULT_SQL} IS NULL) ORDER BY seq ASC`,
           )
           .all(vaultId)
       : edb.prepare(`${cols} ORDER BY seq ASC`).all()
@@ -52,7 +58,7 @@ export function importForgetRow(
   const vault = forgetRowVault(row) ?? null;
   const exists = edb
     .prepare(
-      "SELECT 1 FROM forget_log WHERE kind = ? AND target = ? AND mode = ? AND ts = ? AND json_extract(details, '$.vault_id') IS ? LIMIT 1",
+      `SELECT 1 FROM forget_log WHERE kind = ? AND target = ? AND mode = ? AND ts = ? AND ${FORGET_ROW_VAULT_SQL} IS ? LIMIT 1`,
     )
     .get(row.kind, row.target, row.mode, row.ts, vault);
   if (exists) return "skipped_duplicate";
