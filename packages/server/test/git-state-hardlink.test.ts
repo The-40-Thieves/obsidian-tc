@@ -5,9 +5,10 @@
 // file now goes through the opened-fd guard (readFileChecked: nlink > 1 and non-regular refused), and
 // the state is refused rather than fingerprinted from it. Runs in the native-loaded CI step too.
 
-import { linkSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { FolderPins, withFolderPins } from "../src/vault/folder-links";
 import { gitCommitState } from "../src/vault/git-state";
 import { makeTempDir, rmTemp } from "./tmp";
 
@@ -88,6 +89,24 @@ describe("gitCommitState reads git metadata through the single-link guard", () =
     plant("HEAD", "ref: refs/heads/main\n", "sym");
     expect(() => gitCommitState(root)).toThrow();
   });
+
+  it.skipIf(process.platform === "win32")(
+    "a symlinked .git/HEAD refusal names .git/HEAD vault-relatively, never the host path",
+    () => {
+      const vault = realpathSync(root);
+      plant("HEAD", "ref: refs/heads/main\n", "sym");
+      const refusal = withFolderPins(new FolderPins([{ root: vault }]), () => {
+        try {
+          gitCommitState(vault);
+          return null;
+        } catch (error) {
+          return error as { details?: Record<string, unknown> };
+        }
+      });
+      expect(refusal?.details?.path).toBe(".git/HEAD");
+      expect(JSON.stringify(refusal?.details)).not.toContain(vault);
+    },
+  );
 
   it("two different hard-linked HEAD contents never yield two different fingerprints", () => {
     plant("HEAD", SHA_A, "hard");

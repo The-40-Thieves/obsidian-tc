@@ -39,6 +39,25 @@ describe("isHostAllowed matches the SDK's canonical hostname (THE-271)", () => {
   });
 });
 
+describe("a bracketed entry that is not an IPv6 literal matches nothing", () => {
+  it("refuses a bare name under a bracketed allowedHosts entry", () => {
+    expect(isHostAllowed("trusted.example", ["[trusted.example]"])).toBe(false);
+  });
+
+  it("refuses a bare name under a bracketed allowedOrigins entry", () => {
+    expect(
+      isOriginAllowed("https://trusted.example", "server.example", ["https://[trusted.example]"]),
+    ).toBe(false);
+  });
+
+  it("still admits an IPv6 literal entry by its bracketed Host, with and without a port", () => {
+    expect(isHostAllowed("[fd00::1]", ["[fd00::1]"])).toBe(true);
+    expect(isHostAllowed("[fd00::1]:8765", ["[fd00::1]"])).toBe(true);
+    expect(isHostAllowed("[::1]", ["[::1]"])).toBe(true);
+    expect(isHostAllowed("[::1]:8765", ["[::1]:8765"])).toBe(true);
+  });
+});
+
 describe("isOriginAllowed", () => {
   it("a malformed allowedOrigins entry with a path admits no origin", () => {
     expect(

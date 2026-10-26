@@ -56,6 +56,9 @@ export interface M5VaultOptions {
   responseFormat?: ResponseFormat;
   /** session_bootstrap's routing table (server config `bootstrap`); absent -> degrades to lightweight. */
   bootstrap?: BootstrapConfig;
+  /** Index-on-write hooks (M5Deps.reindex / deindex); pass spies to assert what a call re-indexed. */
+  reindex?: (vaultId: string, path: string, content: string) => void;
+  deindex?: (vaultId: string, path: string) => void;
 }
 
 export interface M5EventRow {
@@ -145,6 +148,8 @@ export function makeM5Vault(opts: M5VaultOptions = {}): M5Vault {
     ...(opts.metrics ? { metrics: opts.metrics } : {}),
     ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
     ...(opts.bootstrap ? { bootstrap: opts.bootstrap } : {}),
+    ...(opts.reindex ? { reindex: opts.reindex } : {}),
+    ...(opts.deindex ? { deindex: opts.deindex } : {}),
   });
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({

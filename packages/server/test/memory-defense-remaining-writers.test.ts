@@ -617,10 +617,14 @@ describe("memoryDefense redact mode — persists the redacted form", () => {
     });
   });
 
-  it("move_attachment persists [REDACTED] in the rewritten link, not the raw secret", async () => {
+  // A secret-shaped destination PATH is refused even in redact mode, as move_note and copy_note
+  // refuse it: the path is persisted verbatim (as the attachment's name and in every rewritten link),
+  // so redacting it silently is not an option.
+  it("move_attachment refuses a secret-shaped destination in redact mode and rewrites nothing", async () => {
     await withHarness("redact", async (h) => {
       plant(h.vaultDir, "probe/pic.png", "not a real png, just bytes\n");
-      plant(h.vaultDir, "probe/ref2.md", "See [[pic.png]] for details.\n");
+      const original = "See [[pic.png]] for details.\n";
+      plant(h.vaultDir, "probe/ref2.md", original);
       const secret = fakeOpenAiKey();
       const r = await h.runtime.registry.dispatch(
         "move_attachment",
@@ -632,14 +636,9 @@ describe("memoryDefense redact mode — persists the redacted form", () => {
         },
         h.ctx,
       );
-      // Note: `to` legitimately echoes the caller's own destination path here — the attachment
-      // FILE itself is not memoryDefense's business (see the "binary attachment op" reasoning
-      // still true for delete_attachment); it is the rewritten NOTE BODY this case pins.
-      const out = un<{ references_updated: { notes: number; refs: number } }>(r);
-      expect(out.references_updated.notes).toBeGreaterThan(0);
-      const onDisk = readFileSync(join(h.vaultDir, "probe/ref2.md"), "utf8");
-      expect(onDisk).toContain("[REDACTED]");
-      expect(onDisk).not.toContain(secret);
+      expect(errOf(r).code).toBe("secret_detected");
+      expect(readFileSync(join(h.vaultDir, "probe/ref2.md"), "utf8")).toBe(original);
+      expect(existsSync(join(h.vaultDir, "probe/pic.png"))).toBe(true);
     });
   });
 });
