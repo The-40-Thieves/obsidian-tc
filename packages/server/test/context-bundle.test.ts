@@ -19,7 +19,7 @@ import {
   validateContextBundle,
 } from "../src/experiential/context-bundle";
 import { BUNDLE_FORMAT_VERSION } from "../src/experiential/context-bundle-schema";
-import { verifyForgetLog } from "../src/experiential/forget";
+import { appendForgetLog, verifyForgetLog } from "../src/experiential/forget";
 import { openMemoryDb } from "./helpers";
 
 const NOW = 1_700_000_000_000;
@@ -636,5 +636,36 @@ describe("true round-trip equality (export -> import into a fresh DB -> re-expor
     const { exported_at: _a, ...exportedRest } = exported;
     const { exported_at: _b, ...reExportedRest } = reExported;
     expect(reExportedRest).toEqual(exportedRest);
+  });
+
+  it("a --vault remap gives an imported forget row the target vault's id; a legacy row stays unscoped", () => {
+    const src = edb();
+    appendForgetLog(src, {
+      ts: NOW - 5000,
+      kind: "note",
+      target: "a.md",
+      mode: "tombstone",
+      details: { vault_id: "source", chunks: 0 },
+    });
+    appendForgetLog(src, {
+      ts: NOW - 4000,
+      kind: "note",
+      target: "b.md",
+      mode: "tombstone",
+      details: { chunks: 0 },
+    });
+    const bundle = exportContextBundle(src, { nowMs: NOW, serverVersion: "1.0.0" });
+    const remapped = remapBundleVault(bundle, "other");
+    expect(remapped.ok).toBe(true);
+    if (!remapped.ok) return;
+
+    const target = edb();
+    importContextBundle(target, cacheDb(), remapped.bundle);
+    const rows = target
+      .prepare("SELECT target, details FROM forget_log ORDER BY seq ASC")
+      .all() as Array<{ target: string; details: string }>;
+    expect(JSON.parse(rows[0]?.details ?? "{}").vault_id).toBe("other");
+    expect(JSON.parse(rows[1]?.details ?? "{}")).not.toHaveProperty("vault_id");
+    expect(verifyForgetLog(target)).toEqual({ ok: true, entries: 2 });
   });
 });

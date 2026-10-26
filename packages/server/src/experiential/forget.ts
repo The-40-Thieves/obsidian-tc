@@ -311,6 +311,8 @@ export function forgetNote(
       target: opts.relPath,
       mode: opts.erase ? "erase" : "tombstone",
       details: {
+        // Scopes the tombstone to this vault: note_quality reads forget_log by path, not vault.
+        vault_id: opts.vaultId,
         chunks: chunkIds.length,
         retrieval_rows: retrievalRows,
         retrieval_rows_deleted: retrievalDeleted,

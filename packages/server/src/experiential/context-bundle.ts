@@ -246,6 +246,13 @@ export function remapBundleVault(
   for (const row of bundle.tables.agent_episodes) {
     if (row.vault_id !== null) sourceVaults.add(row.vault_id);
   }
+  // A forget row names its vault only inside `details` (no column); legacy rows name none.
+  const forgetVault = (r: ForgetLogRow): unknown =>
+    r.details === null ? undefined : (JSON.parse(r.details) as { vault_id?: unknown }).vault_id;
+  for (const row of bundle.tables.forget_log) {
+    const v = forgetVault(row);
+    if (typeof v === "string") sourceVaults.add(v);
+  }
 
   if (sourceVaults.size > 1) {
     return {
@@ -278,6 +285,17 @@ export function remapBundleVault(
         note_quality: bundle.tables.note_quality.map((r) => ({ ...r, vault_id: targetVault })),
         agent_episodes: bundle.tables.agent_episodes.map((r) =>
           r.vault_id === null ? r : { ...r, vault_id: targetVault },
+        ),
+        forget_log: bundle.tables.forget_log.map((r) =>
+          typeof forgetVault(r) !== "string"
+            ? r
+            : {
+                ...r,
+                details: JSON.stringify({
+                  ...(JSON.parse(r.details ?? "{}") as Record<string, unknown>),
+                  vault_id: targetVault,
+                }),
+              },
         ),
       },
     },

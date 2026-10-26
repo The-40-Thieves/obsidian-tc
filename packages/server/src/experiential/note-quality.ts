@@ -270,9 +270,13 @@ export function recomputeNoteQuality(
 
   const tombstoned = new Set<string>();
   if (tableExists(edb, "forget_log")) {
+    // Legacy rows without a vault_id keep matching every vault: over-tombstoning is safer than
+    // un-forgetting a note.
     for (const r of edb
-      .prepare("SELECT target FROM forget_log WHERE kind = 'note' AND mode = 'tombstone'")
-      .all() as Array<{ target: string }>) {
+      .prepare(
+        "SELECT target FROM forget_log WHERE kind = 'note' AND mode = 'tombstone' AND (json_extract(details, '$.vault_id') = ? OR json_extract(details, '$.vault_id') IS NULL)",
+      )
+      .all(vaultId) as Array<{ target: string }>) {
       tombstoned.add(r.target);
     }
   }
@@ -357,6 +361,14 @@ export function recomputeNoteQuality(
       else out.scored++;
       if (flags.length > 0) out.flagged++;
     }
+    // Rows for notes that were deleted or moved away would otherwise keep their stale flags, and
+    // noteQualityWarningFor would hand them to a later write at the same path.
+    const live = new Set(notes.map((n) => n.path));
+    const stored = edb
+      .prepare("SELECT path FROM note_quality WHERE vault_id = ?")
+      .all(vaultId) as Array<{ path: string }>;
+    const prune = edb.prepare("DELETE FROM note_quality WHERE vault_id = ? AND path = ?");
+    for (const s of stored) if (!live.has(s.path)) prune.run(vaultId, s.path);
     edb.exec("COMMIT");
   } catch (err) {
     edb.exec("ROLLBACK");
