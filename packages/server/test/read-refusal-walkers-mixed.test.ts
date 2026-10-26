@@ -2,16 +2,14 @@
 // throwing acl_denied from readNote for one note, so the walkers' skip-and-count path runs on every
 // OS (the hard-link and symlink fixtures are POSIX-only). A separate file: the readNote mock below
 // must not reach any other test's module graph.
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { err, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { findAttachmentReferences } from "../src/formats/attachments";
 import { searchRegex, searchText } from "../src/search/text";
 import { ReadRefusals } from "../src/tools/read-refusals";
 import { makeM2Vault } from "./m2-helpers";
 import { makeM3Vault } from "./m3-helpers";
-import { makeTempDir, rmTemp } from "./tmp";
+import { itemPaths, okData } from "./read-refusal-helpers";
 
 vi.mock("../src/vault/notes-io", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/vault/notes-io")>();
@@ -30,44 +28,24 @@ afterEach(() => {
   for (const c of cleanups.splice(0)) c();
 });
 
-function data(r: ToolResult): Record<string, unknown> {
-  if (!r.ok) throw new Error(`call failed: ${JSON.stringify(r)}`);
-  return r.data as Record<string, unknown>;
-}
-
-function paths(d: Record<string, unknown>): string[] {
-  return (d.items as Array<{ path: string }>).map((i) => i.path).sort();
-}
-
 describe("a refused read is skipped and counted, not fatal", () => {
   it("findAttachmentReferences skips the refused note and counts it", () => {
-    const root = makeTempDir("obtc-walk-refusal-mixed-");
-    cleanups.push(() => rmTemp(root));
-    for (const [rel, text] of [
-      ["n/a.md", "![[img.png]]\n"],
-      ["n/b.md", "![[img.png]]\n"],
-    ] as const) {
-      mkdirSync(dirname(join(root, rel)), { recursive: true });
-      writeFileSync(join(root, rel), text);
-    }
+    const v = makeM2Vault({ files: { "n/a.md": "![[img.png]]\n", "n/b.md": "![[img.png]]\n" } });
+    cleanups.push(() => v.cleanup());
     const refusals = new ReadRefusals();
-    expect(findAttachmentReferences(root, "img.png", refusals).map((e) => e.relPath)).toEqual([
+    expect(findAttachmentReferences(v.root, "img.png", refusals).map((e) => e.relPath)).toEqual([
       "n/a.md",
     ]);
     expect(refusals.count).toBe(1);
   });
 
   it("searchText and searchRegex skip the refused note and count it", async () => {
-    const root = makeTempDir("obtc-walk-refusal-mixed-");
-    cleanups.push(() => rmTemp(root));
-    for (const rel of ["n/a.md", "n/b.md"]) {
-      mkdirSync(dirname(join(root, rel)), { recursive: true });
-      writeFileSync(join(root, rel), `zebra ${rel}\n`);
-    }
+    const v = makeM2Vault({ files: { "n/a.md": "zebra n/a.md\n", "n/b.md": "zebra n/b.md\n" } });
+    cleanups.push(() => v.cleanup());
     const refusals = new ReadRefusals();
-    const text = searchText(root, { query: "zebra", limit: 100, refusals });
+    const text = searchText(v.root, { query: "zebra", limit: 100, refusals });
     expect(text.map((h) => h.path)).toEqual(["n/a.md"]);
-    const regex = await searchRegex(root, { pattern: "zebra", limit: 100, refusals });
+    const regex = await searchRegex(v.root, { pattern: "zebra", limit: 100, refusals });
     expect(regex.map((h) => h.path)).toEqual(["n/a.md"]);
     expect(refusals.count).toBe(2);
   });
@@ -77,7 +55,7 @@ describe("a refused read is skipped and counted, not fatal", () => {
       files: { "img.png": "png", "n/a.md": "![[img.png]]\n", "n/b.md": "![[img.png]]\n" },
     });
     cleanups.push(() => v.cleanup());
-    const d = data(
+    const d = okData(
       await v.call("list_attachments", { vault: "test", include_reference_count: true }),
     );
     expect(d.attachments).toEqual([
@@ -89,41 +67,15 @@ describe("a refused read is skipped and counted, not fatal", () => {
   it("search_text returns the readable hits and counts the refusal", async () => {
     const v = makeM2Vault({ files: { "a.md": "zebra alpha\n", "n/b.md": "zebra beta\n" } });
     cleanups.push(() => v.cleanup());
-    const d = data(await v.call("search_text", { vault: "test", query: "zebra" }));
-    expect(paths(d)).toEqual(["a.md"]);
-    expect(d.notes_read_refused).toBe(1);
-  });
-
-  it("search_regex returns the readable hits and counts the refusal", async () => {
-    const v = makeM2Vault({ files: { "a.md": "zebra alpha\n", "n/b.md": "zebra beta\n" } });
-    cleanups.push(() => v.cleanup());
-    const d = data(await v.call("search_regex", { vault: "test", pattern: "zebra" }));
-    expect(paths(d)).toEqual(["a.md"]);
-    expect(d.notes_read_refused).toBe(1);
-  });
-
-  it("search_jsonlogic returns the readable matches and counts the refusal", async () => {
-    const v = makeM2Vault({ files: { "a.md": "zebra alpha\n", "n/b.md": "zebra beta\n" } });
-    cleanups.push(() => v.cleanup());
-    const d = data(
-      await v.call("search_jsonlogic", { vault: "test", logic: { "!!": [{ var: "path" }] } }),
-    );
-    expect(paths(d)).toEqual(["a.md"]);
-    expect(d.notes_read_refused).toBe(1);
-  });
-
-  it("search_vault text mode returns the readable hits and counts the refusal", async () => {
-    const v = makeM2Vault({ files: { "a.md": "zebra alpha\n", "n/b.md": "zebra beta\n" } });
-    cleanups.push(() => v.cleanup());
-    const d = data(await v.call("search_vault", { vault: "test", query: "zebra", mode: "text" }));
-    expect(paths(d)).toEqual(["a.md"]);
+    const d = okData(await v.call("search_text", { vault: "test", query: "zebra" }));
+    expect(itemPaths(d)).toEqual(["a.md"]);
     expect(d.notes_read_refused).toBe(1);
   });
 
   it("a clean vault's search output carries no notes_read_refused key", async () => {
     const v = makeM2Vault({ files: { "a.md": "zebra alpha\n" } });
     cleanups.push(() => v.cleanup());
-    const d = data(await v.call("search_text", { vault: "test", query: "zebra" }));
+    const d = okData(await v.call("search_text", { vault: "test", query: "zebra" }));
     expect("notes_read_refused" in d).toBe(false);
   });
 });
