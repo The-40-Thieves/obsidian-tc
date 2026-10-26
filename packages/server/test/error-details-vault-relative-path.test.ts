@@ -42,6 +42,13 @@ describe("vaultDetailPath", () => {
     });
   });
 
+  it("keeps a nested path vault-relative", () => {
+    const root = vaultRoot("otc-detail-nested-");
+    withFolderPins(new FolderPins([{ root }]), () => {
+      expect(vaultDetailPath(join(root, "a", "b", "c.md"))).toBe("a/b/c.md");
+    });
+  });
+
   it("falls back to the basename when no registered root holds the path", () => {
     expect(vaultDetailPath("/srv/elsewhere/notes/a.md")).toBe("a.md");
   });
