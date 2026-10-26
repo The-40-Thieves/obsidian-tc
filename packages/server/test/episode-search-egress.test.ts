@@ -144,15 +144,18 @@ describe("agent_episodes.summary has ONE content-bearing writer (THE-934 fix rou
     expect(listTsFiles(SRC_ROOT).length).toBeGreaterThan(300);
   });
 
-  it("only the four audited modules write an agent_episodes row at all", () => {
+  it("only the five audited modules write an agent_episodes row at all", () => {
     // experiential/episodes.ts     — the capture INSERT. Its column list does NOT include
     //                                `summary`, so a captured episode starts with it NULL.
     // experiential/reflect.ts      — the ONLY writer of a non-NULL summary, and it binds
     //                                serializeEpisodeSummary (asserted below).
     // experiential/context-bundle.ts — the import path: copies another install's already-built
-    //                                Tier-0 summary verbatim, and separately NULLs it on forget.
+    //                                Tier-0 summary verbatim.
+    // experiential/context-bundle-forget.ts — the forget import path: NULLs summary on a forgotten
+    //                                episode; never writes content.
     // experiential/forget.ts       — NULLs the column; never writes content into it.
     expect(agentEpisodeWriters()).toEqual([
+      "experiential/context-bundle-forget.ts",
       "experiential/context-bundle.ts",
       "experiential/episodes.ts",
       "experiential/forget.ts",

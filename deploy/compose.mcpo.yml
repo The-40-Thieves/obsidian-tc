@@ -1,0 +1,44 @@
+# OpenAPI bridge overlay: exposes the essentials tool profile as OpenAPI operations through mcpo, for
+# HTTP-only consumers (n8n, Zapier, scripts, Open WebUI user tool servers). Run it on top of the HTTP
+# bundle, from deploy/:
+#   docker compose -f compose.http.yml up -d --wait          # 1. obsidian-tc alone
+#   docker compose -f compose.http.yml exec obsidian-tc \
+#     bun /app/packages/server/dist/cli.js token mint /config/obsidian-tc.config.json \
+#     --sub openapi-bridge --vault main --scopes 'read:*'     # 2. mint; copy the printed token
+#   export OBSIDIAN_TC_MCPO_TOKEN='<token>'
+#   export OBSIDIAN_TC_MCPO_API_KEY='<random key for the bridge callers>'
+#   docker compose -f compose.http.yml -f compose.mcpo.yml up -d   # 3. add the overlay
+#
+# Run the first `up` without this overlay: its ${...:?} guards stop the whole project from starting
+# until the token exists. The compose.git.yml bundle works the same way.
+#
+# Every OpenAPI caller shares ONE obsidian-tc identity (the token above) and one bridge API key.
+# A token expires: mint a new one, export it, and restart mcpo. Its tool list is read once at start,
+# so restart it after a server upgrade or a scope change too. See docs/src/content/docs/deployment/openapi-bridge.md.
+services:
+  obsidian-tc:
+    environment:
+      OBSIDIAN_TC_ALLOWED_HOSTS: obsidian-tc
+
+  mcpo:
+    image: ghcr.io/open-webui/mcpo:git-788ff92@sha256:1e82c9555c19e50b80745705f32b47a2647589f35279527b5118ecd3a71bd467
+    restart: unless-stopped
+    depends_on:
+      obsidian-tc:
+        condition: service_healthy
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --api-key
+      - "${OBSIDIAN_TC_MCPO_API_KEY:?Set OBSIDIAN_TC_MCPO_API_KEY to the key OpenAPI callers send}"
+      - --strict-auth
+      - --server-type
+      - streamable-http
+      - --header
+      - '{"Authorization": "Bearer ${OBSIDIAN_TC_MCPO_TOKEN:?Set OBSIDIAN_TC_MCPO_TOKEN to a token minted for openapi-bridge}"}'
+      - --
+      - "http://obsidian-tc:${PORT:-8765}/mcp/essentials"
+    ports:
+      - "127.0.0.1:${MCPO_PORT:-8000}:8000"

@@ -10,6 +10,7 @@ const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const configPath = join(repoRoot, "deploy/config/obsidian-tc.config.json");
 const composePath = join(repoRoot, "deploy/compose.http.yml");
 const gitComposePath = join(repoRoot, "deploy/compose.git.yml");
+const mcpoComposePath = join(repoRoot, "deploy/compose.mcpo.yml");
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -115,5 +116,60 @@ describe("git-backed Docker deployment (-git image)", () => {
     expect(service?.environment?.OBSIDIAN_TC_PUBLIC_URL).toMatch(/^\$\{OBSIDIAN_TC_PUBLIC_URL:\?/);
     expect(service?.environment?.OBSIDIAN_TC_JWT_SECRET).toMatch(/^\$\{OBSIDIAN_TC_JWT_SECRET:\?/);
     expect(compose.volumes).toHaveProperty("obsidian-tc-data");
+  });
+});
+
+describe("OpenAPI bridge overlay (mcpo)", () => {
+  it("runs the pinned mcpo bridge against the essentials surface, fail-closed and loopback-only", () => {
+    const compose = parse(readFileSync(mcpoComposePath, "utf8")) as {
+      services?: Record<
+        string,
+        {
+          image?: string;
+          restart?: string;
+          command?: string[];
+          ports?: string[];
+          depends_on?: Record<string, { condition?: string }>;
+          environment?: Record<string, string>;
+        }
+      >;
+    };
+    const bridge = compose.services?.mcpo;
+    expect(bridge?.image).toMatch(
+      /^ghcr\.io\/open-webui\/mcpo:git-[0-9a-f]{7}@sha256:[0-9a-f]{64}$/,
+    );
+    expect(bridge?.restart).toBe("unless-stopped");
+    expect(bridge?.depends_on?.["obsidian-tc"]?.condition).toBe("service_healthy");
+    expect(bridge?.ports).toEqual(["127.0.0.1:$" + "{MCPO_PORT:-8000}:8000"]);
+
+    const command = bridge?.command ?? [];
+    expect(command).toContain("--strict-auth");
+    expect(command).toContain("--server-type");
+    expect(command[command.indexOf("--server-type") + 1]).toBe("streamable-http");
+    expect(command.join(" ")).toMatch(/--api-key \$\{OBSIDIAN_TC_MCPO_API_KEY:\?/);
+    expect(command.join(" ")).toMatch(/Bearer \$\{OBSIDIAN_TC_MCPO_TOKEN:\?/);
+    expect(command.join(" ")).not.toContain("client_header_forwarding");
+    expect(command.at(-1)).toBe("http://obsidian-tc:$" + "{PORT:-8765}/mcp/essentials");
+
+    const server = compose.services?.["obsidian-tc"];
+    expect(server?.environment?.OBSIDIAN_TC_ALLOWED_HOSTS).toBe("obsidian-tc");
+  });
+
+  it("admits the compose-internal Host header through the real loader", () => {
+    const dir = makeTempDir("obtc-deploy-mcpo-");
+    try {
+      vi.stubEnv("PORT", "8765");
+      vi.stubEnv("OBSIDIAN_TC_PUBLIC_URL", "https://vault.example.com");
+      vi.stubEnv("OBSIDIAN_TC_JWT_SECRET", "deploy-smoke-secret-that-is-at-least-32-chars");
+      vi.stubEnv("OBSIDIAN_TC_VAULT_PATH", join(dir, "vault"));
+      vi.stubEnv("OBSIDIAN_TC_CACHE_DIR", join(dir, "cache"));
+      vi.stubEnv("OBSIDIAN_TC_ALLOWED_HOSTS", "obsidian-tc");
+
+      const config = loadConfig(configPath);
+
+      expect(config.transports.http.allowedHosts).toContain("obsidian-tc");
+    } finally {
+      rmTemp(dir);
+    }
   });
 });
