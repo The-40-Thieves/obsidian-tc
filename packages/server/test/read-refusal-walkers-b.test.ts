@@ -149,3 +149,60 @@ describe("a clean vault's walks carry no notes_read_refused key", () => {
     );
   });
 });
+
+/** The walkers whose output schema must declare notes_read_refused, by the registry that serves them. */
+const DECLARES_REFUSALS = {
+  m1: [
+    "list_tags",
+    "suggest_tags",
+    "find_notes_by_tag",
+    "list_properties",
+    "find_notes_by_property",
+    "find_orphans",
+    "get_backlinks",
+    "find_unresolved_links",
+    "audit_provenance",
+    "vault_health_score",
+    "find_link_cycles",
+    "get_link_strength",
+    "suggest_links",
+  ],
+  m3: ["query_base", "list_kanban_boards"],
+  m4: ["bundle_folder"],
+  m7: ["lint_wiki", "find_existing_page", "draft_wiki_page", "commit_wiki_page"],
+} as const;
+
+describe("each walker declares notes_read_refused in its output schema", () => {
+  function declares(
+    registry: { list(): Array<{ name: string; outputSchema: unknown }> },
+    name: string,
+  ): boolean {
+    const def = registry.list().find((d) => d.name === name);
+    const shape = (def?.outputSchema as { shape?: object } | undefined)?.shape ?? {};
+    return "notes_read_refused" in shape;
+  }
+
+  it.each(DECLARES_REFUSALS.m1)("%s (M1 registry)", (name) => {
+    const v = makeTestVault();
+    cleanups.push(() => v.cleanup());
+    expect(declares(v.registry, name)).toBe(true);
+  });
+
+  it.each(DECLARES_REFUSALS.m3)("%s (M3 registry)", (name) => {
+    const v = makeM3Vault();
+    cleanups.push(() => v.cleanup());
+    expect(declares(v.registry, name)).toBe(true);
+  });
+
+  it.each(DECLARES_REFUSALS.m4)("%s (M4 registry)", (name) => {
+    const v = makeM4Vault();
+    cleanups.push(() => v.cleanup());
+    expect(declares(v.registry, name)).toBe(true);
+  });
+
+  it.each(DECLARES_REFUSALS.m7)("%s (M7 registry)", (name) => {
+    const h = makeWikiHarness();
+    cleanups.push(() => h.v.cleanup());
+    expect(declares(h.v.registry, name)).toBe(true);
+  });
+});
