@@ -26,7 +26,6 @@ import type { MetricsRecorder } from "../metrics/registry";
 import { buildModelTierReranker } from "../model";
 import { compileEgressFilter, type EgressFilter } from "../plane/egress-filter";
 import type { GatewayRoles } from "../plane/gateway";
-import { createPlurBackend } from "../plur/client";
 import type { ProvenanceStamper } from "../provenance/stamp";
 import { buildLocalReranker } from "../providers/registry";
 import {
@@ -48,7 +47,6 @@ import { type ProvenanceRecorder, provenanceDepsOf, registerM1Tools } from "../t
 import { registerM2Tools } from "../tools/m2";
 import { registerM3Tools } from "../tools/m3";
 import { bridgeTimeouts, type M4Deps, openBridge, registerM4Tools } from "../tools/m4";
-import { registerM5Tools } from "../tools/m5";
 import { registerM6Tools, type SandboxRerunFn } from "../tools/m6";
 import { registerM7Tools } from "../tools/m7";
 import { getOrCreateWikiSealKey, readWikiSealKey } from "../tools/m7/knowledge/wiki-generated-seal";
@@ -59,6 +57,7 @@ import { type ActiveSessionTracker, staleExplicitSessionSummary } from "../works
 import { buildAcls } from "./acl-build";
 import { resolveDeclaredReranker } from "./declared-reranker";
 import type { IndexHealthState, IndexResources } from "./indexing-wiring";
+import { wireM5Tools } from "./m5-wiring";
 import { buildM6Deps } from "./m6-wiring";
 import { memoryVaultAccessors } from "./memory-vault-accessors";
 
@@ -633,25 +632,8 @@ export function wireDomainTools(deps: DomainToolsDeps): void {
 
   // M5 memory/capture substrate (THE-181): capture/memory/workspace are in-process SQLite (+
   // vault file writes via the M1 path primitives); plur is a global read-only proxy that degrades
-  // to plugin_missing when unconfigured.
-  const plurClient = createPlurBackend(config.plur);
-  registerM5Tools(registry, {
-    vaultRegistry: deps.vaultRegistry,
-    responseFormat,
-    // THE-737: traces live beside cache.db / experiential.db now, not in the vault.
-    cacheDir: config.cacheDir,
-    activeSessions: deps.activeSessions,
-    reindex: deps.reindex,
-    deindex: deps.deindex,
-    plur: plurClient,
-    bootstrap: config.bootstrap,
-    memoryFolder,
-    supersededInNote,
-    traceFolder,
-    memoryDefense,
-    metrics: deps.metrics,
-    ...(deps.provenanceStamp ? { provenanceStamp: deps.provenanceStamp } : {}),
-  });
+  // to plugin_missing when unconfigured (see wireM5Tools).
+  wireM5Tools(deps, { memoryFolder, supersededInNote, traceFolder, memoryDefense });
 
   const m6Deps = buildM6Deps(config, deps, registry, responseFormat);
   registerM6Tools(registry, {

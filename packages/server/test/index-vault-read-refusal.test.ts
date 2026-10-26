@@ -28,14 +28,14 @@ import { makeTempDir, rmTemp } from "./tmp";
 // Forces a refusal for one walked path (undefined = none), to reach the response filter with a refusal
 // the caller can read. Every other read goes through the real safe open.
 const forced = vi.hoisted(() => ({ rel: undefined as string | undefined }));
-vi.mock("../src/search/indexing/read-refusal", async (importOriginal) => {
-  const real = await importOriginal<typeof import("../src/search/indexing/read-refusal")>();
+vi.mock("../src/vault/read-refusal", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/vault/read-refusal")>();
   return {
     ...real,
-    readIndexableNote: (root: string, rel: string) =>
+    readNoteOrRefusal: (root: string, rel: string) =>
       rel === forced.rel
         ? { refused: `native path classification failed: EACCES, open '${root}/${rel}'` }
-        : real.readIndexableNote(root, rel),
+        : real.readNoteOrRefusal(root, rel),
   };
 });
 

@@ -12,6 +12,7 @@ import { ensureNotesFts } from "../src/search/fts";
 import { indexVault } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { searchText, searchTextIndexed, type TextOptions } from "../src/search/text";
+import { ReadRefusals } from "../src/tools/read-refusals";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
@@ -71,20 +72,29 @@ describe("searchTextIndexed parity (THE-291 3B)", () => {
     try {
       if (!h.hasFts) return; // adapter without FTS5 — the gate keeps the disk path; nothing to compare
       const cases: TextOptions[] = [
-        { query: "book", limit: 100 },
-        { query: "book", wholeWord: true, limit: 100 },
-        { query: "BOOK", caseSensitive: true, limit: 100 },
-        { query: "book", sub: "sub", limit: 100 },
-        { query: "notebook", limit: 100 },
+        { refusals: new ReadRefusals(), query: "book", limit: 100 },
+        { refusals: new ReadRefusals(), query: "book", wholeWord: true, limit: 100 },
+        { refusals: new ReadRefusals(), query: "BOOK", caseSensitive: true, limit: 100 },
+        { refusals: new ReadRefusals(), query: "book", sub: "sub", limit: 100 },
+        { refusals: new ReadRefusals(), query: "notebook", limit: 100 },
       ];
       for (const opts of cases) {
-        const indexed = searchTextIndexed(h.db, "v1", h.root, opts);
+        const indexed = searchTextIndexed(h.db, "v1", h.root, {
+          ...opts,
+          refusals: new ReadRefusals(),
+        });
         expect(indexed, JSON.stringify(opts)).not.toBeNull();
-        const disk = searchText(h.root, opts);
+        const disk = searchText(h.root, { ...opts, refusals: new ReadRefusals() });
         expect(keyset(indexed ?? []), JSON.stringify(opts)).toEqual(keyset(disk));
       }
       // Sub-trigram query -> null (disk fallback signal).
-      expect(searchTextIndexed(h.db, "v1", h.root, { query: "bo", limit: 10 })).toBeNull();
+      expect(
+        searchTextIndexed(h.db, "v1", h.root, {
+          query: "bo",
+          limit: 10,
+          refusals: new ReadRefusals(),
+        }),
+      ).toBeNull();
     } finally {
       h.cleanup();
     }
@@ -99,10 +109,16 @@ describe("searchTextIndexed parity (THE-291 3B)", () => {
         query: "book",
         isReadable: readable,
         limit: 100,
+        refusals: new ReadRefusals(),
       });
       expect(indexed).not.toBeNull();
       expect((indexed ?? []).some((x) => x.path === "denied.md")).toBe(false);
-      const disk = searchText(h.root, { query: "book", isReadable: readable, limit: 100 });
+      const disk = searchText(h.root, {
+        query: "book",
+        isReadable: readable,
+        limit: 100,
+        refusals: new ReadRefusals(),
+      });
       expect(keyset(indexed ?? [])).toEqual(keyset(disk));
     } finally {
       h.cleanup();

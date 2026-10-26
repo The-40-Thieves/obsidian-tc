@@ -20,7 +20,6 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { autoNeedsSemanticLeg, fuseTextAndSemantic } from "../../search/auto-route";
 import { mtimesByPath, noteFreshness } from "../../search/freshness";
 import { vaultExclusionFor } from "../../search/index-exclusion";
-import { evaluatesTruthy } from "../../search/jsonlogic";
 import { createQueryEncoder } from "../../search/query-encoder";
 import { DEFAULT_RRF_K } from "../../search/retrieval-defaults";
 import { type SemanticHit, semanticSearch } from "../../search/semantic";
@@ -29,10 +28,10 @@ import { DEFAULT_PAGE_SIZE, paginate } from "../../util/paginate";
 import { enforcePathAcl } from "../../vault/acl-path";
 import type { WalkReadable } from "../../vault/acl-read-filter";
 import { readableRel, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
-import { readNote } from "../../vault/notes-io";
-import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
+import { normalizeVaultPath } from "../../vault/paths";
 import { storedAclPathOf } from "../../vault/stored-acl-path";
 import { defineTool } from "../m1/define";
+import { ReadRefusals, readRefusalShape } from "../read-refusals";
 import {
   type ResponseFormat,
   type ResponseFormatFields,
@@ -41,6 +40,8 @@ import {
 } from "../response-format";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import { filterDqlResult, runDql } from "./dql";
+import { jsonlogicMatches } from "./jsonlogic-matches";
+import { projectHits } from "./project-hits";
 import type { M2Deps } from "./shared";
 
 interface UnifiedHit {
@@ -117,8 +118,8 @@ function paginatedSearchOutput<M extends string, I extends z.ZodTypeAny>(modeUse
   });
 }
 
-const SearchTextOutput = paginatedSearchOutput("text", TextSearchHit);
-const SearchRegexOutput = paginatedSearchOutput("regex", RegexSearchHit);
+const SearchTextOutput = paginatedSearchOutput("text", TextSearchHit).extend(readRefusalShape);
+const SearchRegexOutput = paginatedSearchOutput("regex", RegexSearchHit).extend(readRefusalShape);
 
 /** search_semantic does not paginate (no paginate() call in its handler) — items only. */
 const SearchSemanticOutput = z.object({
@@ -127,9 +128,9 @@ const SearchSemanticOutput = z.object({
   items: z.array(SemanticSearchHit),
 });
 
-const SearchJsonLogicOutput = paginatedSearchOutput("jsonlogic", JsonLogicHit).extend(
-  scanWarningsShape,
-);
+const SearchJsonLogicOutput = paginatedSearchOutput("jsonlogic", JsonLogicHit)
+  .extend(scanWarningsShape)
+  .extend(readRefusalShape);
 
 /** search_dql: DqlResult spread onto {vault}. `rows` cell values are whatever the Dataview bridge
  *  returns for the requested format (table/list/task/calendar) — genuinely dynamic. */
@@ -150,6 +151,7 @@ const SearchDqlOutput = z.object({
  *  _explain is present only when input.explain is true (another conditional spread -> optional). */
 const SearchVaultOutput = z.object({
   ...scanWarningsShape,
+  ...readRefusalShape,
   vault: z.string(),
   // Always one of these five in practice — z.string() rather than z.enum(...) because the
   // handler's two arms (dql vs. paginated) widen this to `string` under TS's control-flow
@@ -181,48 +183,10 @@ const SearchVaultOutput = z.object({
   mode_source: z.enum(["explicit", "preference", "default"]).optional(),
 });
 
-function jsonlogicMatches(
-  root: string,
-  sub: string | undefined,
-  readable: WalkReadable,
-  logic: unknown,
-  warnings: ScanWarnings,
-): string[] {
-  const out: string[] = [];
-  for (const rel of walkVault(root, { sub, extensions: [".md"] })
-    .filter((e) => readable(e.relPath, e.aclRel))
-    .map((e) => e.relPath)) {
-    const { frontmatter, body } = warnings.parse(readNote(resolveVaultPath(root, rel)).raw, rel);
-    const data = { ...(frontmatter ?? {}), path: rel, content: body };
-    if (evaluatesTruthy(logic, data)) out.push(rel);
-  }
-  return out;
-}
-
 const Cursor = {
   limit: z.number().int().positive().max(1000).optional(),
   cursor: z.string().optional(),
 };
-
-// THE-251 / GH #1027: the concise projection (formerly verbosity=terse) — collapse each hit to
-// path + score + snippet + chunk_id (whichever are present), dropping heavy per-hit fields
-// (line/col/content) to cut agent prompt cost. chunk_id stays: record_retrieval_feedback needs it
-// (GH #1219). The shipped default stays "detailed".
-function projectHits(
-  items: ReadonlyArray<{ path: string; score?: number; snippet?: string; chunk_id?: string }>,
-  format: ResponseFormat,
-): unknown[] {
-  if (format !== "concise") return items as unknown[];
-  return items.map((h) => {
-    const out: { path: string; score?: number; snippet?: string; chunk_id?: string } = {
-      path: h.path,
-    };
-    if (h.score !== undefined) out.score = h.score;
-    if (h.snippet !== undefined) out.snippet = h.snippet;
-    if (h.chunk_id !== undefined) out.chunk_id = h.chunk_id;
-    return out;
-  });
-}
 
 export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
   const formatOf = (input: ResponseFormatFields): ResponseFormat =>
@@ -341,12 +305,14 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const s = scope(ctx, input.vault, input.root);
+        const refusals = new ReadRefusals();
         const textOpts = {
           query: input.query,
           caseSensitive: input.case_sensitive,
           wholeWord: input.whole_word,
           sub: s.sub,
           isReadable: s.readable,
+          refusals,
           limit: 5000,
         };
         // THE-291 (3B): FTS candidates + disk re-verify when the index is ready; null (short
@@ -359,6 +325,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
         return {
           vault: s.id,
           mode_used: "text",
+          ...refusals.out(),
           ...paginate(projectHits(hits, formatOf(input)), input.limit, input.cursor),
         };
       },
@@ -388,18 +355,21 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       requiredScopes: ["read:notes"],
       handler: async (input, ctx) => {
         const s = scope(ctx, input.vault, input.root);
+        const refusals = new ReadRefusals();
         const hits = await searchRegex(s.rootPath, {
           pattern: input.pattern,
           flags: input.flags,
           sub: s.sub,
           maxPerFile: input.max_matches_per_file,
           isReadable: s.readable,
+          refusals,
           timeoutMs: deps.regexTimeoutMs,
           limit: 5000,
         });
         return {
           vault: s.id,
           mode_used: "regex",
+          ...refusals.out(),
           ...paginate(projectHits(hits, formatOf(input)), input.limit, input.cursor),
         };
       },
@@ -458,14 +428,21 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       handler: (input, ctx) => {
         const s = scope(ctx, input.vault, input.root);
         const warnings = new ScanWarnings();
-        const matched = jsonlogicMatches(s.rootPath, s.sub, s.readable, input.logic, warnings).map(
-          (path) => ({
-            path,
-            matched: true as const,
-          }),
-        );
+        const refusals = new ReadRefusals();
+        const matched = jsonlogicMatches(
+          s.rootPath,
+          s.sub,
+          s.readable,
+          input.logic,
+          warnings,
+          refusals,
+        ).map((path) => ({
+          path,
+          matched: true as const,
+        }));
         return {
           ...warnings.out(),
+          ...refusals.out(),
           vault: s.id,
           mode_used: "jsonlogic",
           ...paginate(projectHits(matched, formatOf(input)), input.limit, input.cursor),
@@ -527,6 +504,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
       handler: async (input, ctx) => {
         const s = scope(ctx, input.vault, input.root);
         const warnings = new ScanWarnings();
+        const refusals = new ReadRefusals();
         // retrieval.useSearchModePreference: the reader is only entered when it is wired (flag on);
         // otherwise the mode is the caller's or `auto`, exactly as before, and no field is added.
         const resolved = deps.searchModePreference
@@ -551,7 +529,13 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
           return input.query;
         };
         const textHits = (): UnifiedHit[] => {
-          const textOpts = { query: asString(), sub: s.sub, isReadable: s.readable, limit: 5000 };
+          const textOpts = {
+            query: asString(),
+            sub: s.sub,
+            isReadable: s.readable,
+            refusals,
+            limit: 5000,
+          };
           const idx = deps.metadataIndex;
           return (
             (idx?.hasFts && idx.ready()
@@ -599,6 +583,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
                 pattern: asString(),
                 sub: s.sub,
                 isReadable: s.readable,
+                refusals,
                 timeoutMs: deps.regexTimeoutMs,
                 limit: 5000,
               })
@@ -616,13 +601,18 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
             break;
           case "jsonlogic":
             tried.push("jsonlogic");
-            items = jsonlogicMatches(s.rootPath, s.sub, s.readable, asObject(), warnings).map(
-              (path) => ({
-                path,
-                score: 1,
-                mode_used: "jsonlogic",
-              }),
-            );
+            items = jsonlogicMatches(
+              s.rootPath,
+              s.sub,
+              s.readable,
+              asObject(),
+              warnings,
+              refusals,
+            ).map((path) => ({
+              path,
+              score: 1,
+              mode_used: "jsonlogic",
+            }));
             break;
           case "dql": {
             // The router's static scope is read:notes; the dql path additionally
@@ -649,13 +639,18 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
             if (typeof input.query !== "string") {
               tried.push("jsonlogic");
               chosen = "jsonlogic";
-              items = jsonlogicMatches(s.rootPath, s.sub, s.readable, input.query, warnings).map(
-                (path) => ({
-                  path,
-                  score: 1,
-                  mode_used: "jsonlogic",
-                }),
-              );
+              items = jsonlogicMatches(
+                s.rootPath,
+                s.sub,
+                s.readable,
+                input.query,
+                warnings,
+                refusals,
+              ).map((path) => ({
+                path,
+                score: 1,
+                mode_used: "jsonlogic",
+              }));
             } else {
               tried.push("text");
               chosen = "text";
@@ -698,6 +693,7 @@ export function buildSearchTools(deps: M2Deps): ToolDefinition[] {
           : {};
         return {
           ...warnings.out(),
+          ...refusals.out(),
           vault: s.id,
           mode_used: chosen,
           ...paginate(projectHits(items, formatOf(input)), input.limit, input.cursor),

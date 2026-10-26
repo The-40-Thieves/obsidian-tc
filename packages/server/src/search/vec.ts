@@ -389,33 +389,25 @@ function totalOrderByDistance<T extends { chunk_id: string; distance: number }>(
 // (0 = identical direction, 1 = orthogonal) nearest-first, ties broken by chunk_id
 // (THE-582). Cosine similarity is 1 - distance. Requires loadVec to have already
 // succeeded on this connection.
-// THE-277: pass vaultId to prune the KNN to that vault's partition shard — the
-// scan never touches other vaults' vectors, and the aux path rides along free.
+// THE-277: vaultId prunes the KNN to that vault's partition shard — the scan never
+// touches other vaults' vectors, and the aux path rides along free. It is required:
+// an unscoped KNN would rank every vault's vectors.
 export function vecKnn(
   db: Database,
   query: number[],
   k: number,
-  vaultId?: string,
+  vaultId: string,
 ): Array<{ chunk_id: string; distance: number; path?: string }> {
-  if (vaultId !== undefined) {
-    return totalOrderByDistance(
-      db
-        .prepare(
-          "SELECT chunk_id, path, distance FROM vec_chunks WHERE embedding MATCH ? AND k = ? AND vault_id = ? ORDER BY distance",
-        )
-        .all(floatBlob(query), k, vaultId) as Array<{
-        chunk_id: string;
-        distance: number;
-        path?: string;
-      }>,
-    );
-  }
   return totalOrderByDistance(
     db
       .prepare(
-        "SELECT chunk_id, distance FROM vec_chunks WHERE embedding MATCH ? AND k = ? ORDER BY distance",
+        "SELECT chunk_id, path, distance FROM vec_chunks WHERE embedding MATCH ? AND k = ? AND vault_id = ? ORDER BY distance",
       )
-      .all(floatBlob(query), k) as Array<{ chunk_id: string; distance: number }>,
+      .all(floatBlob(query), k, vaultId) as Array<{
+      chunk_id: string;
+      distance: number;
+      path?: string;
+    }>,
   );
 }
 

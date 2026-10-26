@@ -43,12 +43,10 @@ export interface IndexStats {
    *  400/413) and that were bisected + retried this pass. Already reported on stderr; surfaced here
    *  so the caller can emit it as a counter without the indexer taking a telemetry dependency. */
   embed_batch_rejections: number;
-  /** THE-925 (additive): notes whose batched plan was skipped this pass because a concurrent
-   *  index-on-write commit (write_note / the vault watcher, via IndexCoordinator -> indexNote on
-   *  the same cache.db connection) changed the path's chunks after the plan was computed — see
-   *  index-vault.ts's freshness guard. Already reported on stderr (sampled) and surfaced here as a
-   *  counter; non-zero is rare and expected under concurrent write traffic — re-planned next pass. */
+  /** THE-925 (additive): notes whose plan was skipped because a concurrent index-on-write commit
+   *  changed their chunks after planning (see index-vault.ts's freshness guard). Counted and sampled on stderr; rare, re-planned next pass. */
   notes_stale_skipped: number;
+  /** Dropped writes, not notes: notes rows and chunk plans skipped on a leader-epoch change; can exceed notes_seen. */
   notes_epoch_stale_skipped: number;
   notes_frontmatter_failed: number;
   frontmatter_failures: Array<{ path: string; error: string }>;

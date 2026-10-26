@@ -4,27 +4,26 @@
 // gained its second link after the walk's stat. Only that refusal is caught here: every other error
 // (ENOENT for a note deleted mid-pass, I/O, a non-regular file) propagates unchanged.
 import { sep } from "node:path";
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
-import { errorMessage } from "../../util/errors";
 import type { AclPath } from "../../vault/acl-identity";
-import { readNote } from "../../vault/notes-io";
-import { resolveVaultPath } from "../../vault/paths";
+import { readNoteOrRefusal } from "../../vault/read-refusal";
 import { ACL_PATH_UNRESOLVED } from "../../vault/stored-acl-path";
 import { syncAclPaths } from "./acl-path-sync";
 import type { IndexStats, IndexVaultArgs } from "./types";
 
-/** The note's raw text, or the refusal message when the safe open refused the read. */
-export function readIndexableNote(
-  root: string,
+/** The note's raw text, or null after recording a refused read (see recordReadRefusal). */
+export function readOrRecordRefusal(
+  args: Pick<IndexVaultArgs, "root" | "db" | "vaultId" | "sql">,
+  stats: IndexStats,
+  walkedSet: Map<string, AclPath | typeof ACL_PATH_UNRESOLVED>,
+  readableWalked: Set<string>,
   rel: string,
-): { raw: string } | { refused: string } {
-  try {
-    return { raw: readNote(resolveVaultPath(root, rel)).raw };
-  } catch (e) {
-    if (e instanceof ObsidianTcError && e.code === "acl_denied")
-      return { refused: errorMessage(e) };
-    throw e;
+): string | null {
+  const read = readNoteOrRefusal(args.root, rel);
+  if ("refused" in read) {
+    recordReadRefusal(args, stats, walkedSet, readableWalked, rel, read.refused);
+    return null;
   }
+  return read.raw;
 }
 
 /** A refusal's text with the vault root taken out: a note is named vault-relative only, never by its host path. */
