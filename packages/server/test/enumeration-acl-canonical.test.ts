@@ -85,6 +85,15 @@ const m3 = (acl: object = ACL) => {
 const dump = (r: { ok: boolean; data?: unknown; error?: unknown }): string =>
   JSON.stringify(r.ok ? r.data : r.error);
 const leaks = (s: string): boolean => s.includes(SECRET) || s.includes(MARK);
+/** An unconfigured symlinked folder is refused on both backends; the refusal is the positive control. */
+const expectSharedRefused = (
+  r: { ok: boolean; data?: unknown; error?: unknown },
+  root: string,
+): void => {
+  expect(r.ok).toBe(false);
+  expect(dump(r)).toContain("shared/open-note.md");
+  expect(dump(r)).not.toContain(root);
+};
 
 describe.skipIf(process.platform === "win32")("enumeration filters on the canonical target", () => {
   describe.each([
@@ -137,15 +146,7 @@ describe.skipIf(process.platform === "win32")("enumeration filters on the canoni
       tag: "leaktag",
       folder: "shared",
     });
-    if (!nativeVaultIo) {
-      // The JS fallback refuses the unconfigured symlinked folder: the refusal is the positive control.
-      expect(ok.ok).toBe(false);
-      expect(dump(ok)).toContain("shared/open-note.md");
-      expect(dump(ok)).not.toContain(v.root);
-    } else {
-      expect(ok.ok).toBe(true);
-      expect(dump(ok)).toContain("shared/open-note.md");
-    }
+    expectSharedRefused(ok, v.root);
   });
 
   it("a configured folder whose target is readable still counts its tags, under the display path", async () => {
@@ -179,14 +180,7 @@ describe.skipIf(process.platform === "win32")("enumeration filters on the canoni
     const denied = await v.call("list_kanban_boards", { vault: "test", folder: "wiki" });
     expect(leaks(dump(denied))).toBe(false);
     const ok = await v.call("list_kanban_boards", { vault: "test", folder: "shared" });
-    if (!nativeVaultIo) {
-      expect(ok.ok).toBe(false);
-      expect(dump(ok)).toContain("shared/open-note.md");
-      expect(dump(ok)).not.toContain(v.root);
-    } else {
-      expect(ok.ok).toBe(true);
-      expect(dump(ok)).toContain("shared/open-note.md");
-    }
+    expectSharedRefused(ok, v.root);
   });
 
   it("list_attachments shows no denied file's name, size or mtime and still lists a readable one", async () => {
