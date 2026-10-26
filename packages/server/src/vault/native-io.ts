@@ -11,7 +11,7 @@
 import { statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
-import { type PinnedDir, pinnedOpenPath } from "./folder-links";
+import { type PinnedDir, pinnedOpenPath, vaultDetailPath } from "./folder-links";
 
 export interface NativeVaultIo {
   safeReadNote(abs: string, pinned?: PinnedDir): Buffer;
@@ -117,7 +117,7 @@ export function refuseJsThroughPin(abs: string): void {
   if (pinnedOpenPath(abs).pinned === undefined) return;
   throw err.aclDenied(
     "configured symlinked folders require the native module: this path runs through one, and without it (Windows, OBSIDIAN_TC_FORCE_JS_FALLBACK, or an addon-less install) it cannot be opened safely",
-    { path: abs },
+    { path: vaultDetailPath(abs) },
   );
 }
 
@@ -141,7 +141,7 @@ export function probePath(abs: string): string {
   }
   if (now?.dev !== pinned.dev || now.ino !== pinned.ino)
     throw err.aclDenied("a configured folder no longer holds the directory it was pinned to", {
-      path: abs,
+      path: vaultDetailPath(abs),
     });
   return path;
 }

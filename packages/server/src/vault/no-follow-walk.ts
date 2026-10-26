@@ -2,7 +2,7 @@ import { lstatSync, mkdirSync, type Stats } from "node:fs";
 import { dirname, join, normalize, parse, relative, sep } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { existsNoFollow } from "../auth/key-files";
-import { folderRootForSink } from "./folder-links";
+import { folderRootForSink, vaultDetailPath } from "./folder-links";
 import { assertCreatableName } from "./paths";
 
 export interface WalkedDirectory {
@@ -93,7 +93,7 @@ export function assertPinnedFolderNames(
 ): void {
   if (!capable)
     throw err.aclDenied("this native module predates creating folders under a pinned folder", {
-      path,
+      path: vaultDetailPath(path),
     });
   let prefix = pinned.dir;
   for (const segment of relative(pinned.dir, dirname(path)).split(sep).filter(Boolean)) {

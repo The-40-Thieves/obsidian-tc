@@ -3,6 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { fingerprintTargets } from "../elicit-drift";
 import { argsHash } from "../hash";
+import { vaultDetailPath } from "./folder-links";
 import { readFileChecked } from "./notes-io";
 
 /** Read one git metadata file through the opened-fd guard every vault file read uses (a hard link or
@@ -12,7 +13,9 @@ import { readFileChecked } from "./notes-io";
  *  from something else. */
 function readGitBytes(path: string): Buffer {
   if (lstatSync(path).isSymbolicLink())
-    throw err.aclDenied("refusing to read symlinked git metadata", { path });
+    throw err.aclDenied("refusing to read symlinked git metadata", {
+      path: vaultDetailPath(path),
+    });
   return readFileChecked(path);
 }
 
