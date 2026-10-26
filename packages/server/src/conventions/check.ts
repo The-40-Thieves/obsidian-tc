@@ -233,14 +233,15 @@ export function blockingDelta(
   path: string,
   beforeFm: Frontmatter | null | undefined,
   afterFm: Frontmatter | null,
-  origin: { eff: EffectiveConventions; path: string } = { eff, path },
+  origin?: { eff: EffectiveConventions; path: string },
 ): ConventionWarning[] {
+  const o = origin ?? { eff, path };
   const blocking = (e: EffectiveConventions, p: string, fm: Frontmatter | null) =>
     checkNote(e, p, fm).filter((w) => w.level === "block");
   const after = blocking(eff, path, afterFm);
   if (beforeFm === undefined) return after;
   const before = new Set(
-    blocking(origin.eff, origin.path, beforeFm).flatMap((w) => valuesOf(w).map((v) => keyOf(w, v))),
+    blocking(o.eff, o.path, beforeFm).flatMap((w) => valuesOf(w).map((v) => keyOf(w, v))),
   );
   const out: ConventionWarning[] = [];
   for (const w of after) {

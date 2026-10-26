@@ -8,6 +8,7 @@ import {
   mimeOf,
   planAttachmentReferences,
   resolveAttachmentFolder,
+  stripTrailingDotsAndSpaces,
 } from "../src/formats/attachments";
 import { ReadRefusals } from "../src/tools/read-refusals";
 import { ImmutableRewriteSkips } from "../src/vault/acl-path";
@@ -193,5 +194,21 @@ describe("formats/attachments", () => {
     } finally {
       rmTemp(root);
     }
+  });
+});
+
+describe("stripTrailingDotsAndSpaces", () => {
+  it("drops trailing dots and spaces, as Windows reads a name", () => {
+    expect(stripTrailingDotsAndSpaces("view.js.")).toBe("view.js");
+    expect(stripTrailingDotsAndSpaces("view.js. .")).toBe("view.js");
+    expect(stripTrailingDotsAndSpaces("view.png")).toBe("view.png");
+    expect(stripTrailingDotsAndSpaces("dir. x/view.png")).toBe("dir. x/view.png");
+    expect(stripTrailingDotsAndSpaces("")).toBe("");
+  });
+
+  it("is linear on a long run of dots and spaces that is not at the end", () => {
+    const started = performance.now();
+    expect(stripTrailingDotsAndSpaces(`${". ".repeat(50_000)}x`)).toBe(`${". ".repeat(50_000)}x`);
+    expect(performance.now() - started).toBeLessThan(500);
   });
 });

@@ -251,6 +251,14 @@ export function planAttachmentReferences(
   return { pending };
 }
 
+/** `rel` without its trailing dots and spaces. One backward scan: a `/[. ]+$/` replace backtracks
+ *  quadratically on a long run of them that is not at the end. */
+export function stripTrailingDotsAndSpaces(rel: string): string {
+  let end = rel.length;
+  while (end > 0 && (rel[end - 1] === "." || rel[end - 1] === " ")) end--;
+  return rel.slice(0, end);
+}
+
 /** Whether a vault-relative path has a recognized attachment extension. */
 export function isAttachment(rel: string, extensions?: string[]): boolean {
   const exts = (extensions ?? DEFAULT_ATTACHMENT_EXTS).map((x) => x.toLowerCase());

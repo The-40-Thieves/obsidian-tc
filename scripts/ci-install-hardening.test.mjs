@@ -147,7 +147,11 @@ test("pip install: every install in .github is --require-hashes or pins each pac
         scanned++;
         if (seg.includes("--require-hashes")) continue;
         const args = seg.split(/\s+/).slice(2); // drop "pip" "install"
-        const pkgs = args.filter((a) => !a.startsWith("-"));
+        // A format-control flag's value (`--only-binary :all:`) is not a package.
+        const pkgs = args.filter(
+          (a, i) =>
+            !a.startsWith("-") && args[i - 1] !== "--only-binary" && args[i - 1] !== "--no-binary",
+        );
         const flagsTakingValue = args.some((a) => a === "-r" || a === "-e" || a === "--editable");
         const ok = !flagsTakingValue && pkgs.length > 0 && pkgs.every((p) => PINNED.test(p));
         if (!ok) unpinned.push(`${file} :: ${seg}`);

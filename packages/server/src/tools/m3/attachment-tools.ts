@@ -36,6 +36,7 @@ import {
   planAttachmentReferences,
   resolveAttachmentFolder,
   resolveAttachmentWritePath,
+  stripTrailingDotsAndSpaces,
 } from "../../formats/attachments";
 import type { ToolDefinition } from "../../mcp/registry";
 import { DEFAULT_SCAN_LIMIT } from "../../util/paginate";
@@ -107,7 +108,7 @@ const OWN_TOOL_EXTS = new Set([".md", ".canvas", ".base"]);
  *  read checks never looked. The name is judged with trailing dots and spaces removed, as Windows
  *  reads it (`view.js.` is `view.js`), so a trailing dot cannot pass the allowlist for a script. */
 function requireAttachmentPath(rel: string): void {
-  const judged = rel.replace(/[. ]+$/, "");
+  const judged = stripTrailingDotsAndSpaces(rel);
   if (OWN_TOOL_EXTS.has(extOf(judged)))
     throw err.invalidInput(
       "notes, canvases and bases have their own tools (write_note, create_canvas, create_base, move_note); attachment tools are for binary attachments",
