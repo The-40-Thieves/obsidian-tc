@@ -85,14 +85,16 @@ const m3 = (acl: object = ACL) => {
 const dump = (r: { ok: boolean; data?: unknown; error?: unknown }): string =>
   JSON.stringify(r.ok ? r.data : r.error);
 const leaks = (s: string): boolean => s.includes(SECRET) || s.includes(MARK);
-/** An unconfigured symlinked folder is refused on both backends; the refusal is the positive control. */
-const expectSharedRefused = (
+/** An unconfigured symlinked folder's note is skipped on both backends: the call succeeds, names
+ *  nothing, and counts the one refused read (notes_read_refused). */
+const expectSharedSkipped = (
   r: { ok: boolean; data?: unknown; error?: unknown },
   root: string,
 ): void => {
-  expect(r.ok).toBe(false);
-  expect(dump(r)).toContain("shared/open-note.md");
+  expect(r.ok).toBe(true);
+  expect(dump(r)).not.toContain("shared/open-note.md");
   expect(dump(r)).not.toContain(root);
+  expect(r.ok && (r.data as { notes_read_refused?: number }).notes_read_refused).toBe(1);
 };
 
 describe.skipIf(process.platform === "win32")("enumeration filters on the canonical target", () => {
@@ -146,7 +148,7 @@ describe.skipIf(process.platform === "win32")("enumeration filters on the canoni
       tag: "leaktag",
       folder: "shared",
     });
-    expectSharedRefused(ok, v.root);
+    expectSharedSkipped(ok, v.root);
   });
 
   it("a configured folder whose target is readable still counts its tags, under the display path", async () => {
@@ -160,8 +162,9 @@ describe.skipIf(process.platform === "win32")("enumeration filters on the canoni
     cleanups.push(v.cleanup);
     const tags = await v.call("list_tags", { vault: "test", folder: "wiki" });
     if (!nativeVaultIo) {
-      // Without the native module a configured symlinked folder is refused outright.
-      expect(tags.ok).toBe(false);
+      // Without the native module the configured symlinked folder's note is skipped and counted.
+      expect(tags.ok && (tags.data as { tags: unknown[] }).tags).toEqual([]);
+      expect(tags.ok && (tags.data as { notes_read_refused?: number }).notes_read_refused).toBe(1);
       return;
     }
     expect(tags.ok && (tags.data as { tags: unknown[] }).tags).toEqual([
@@ -180,7 +183,7 @@ describe.skipIf(process.platform === "win32")("enumeration filters on the canoni
     const denied = await v.call("list_kanban_boards", { vault: "test", folder: "wiki" });
     expect(leaks(dump(denied))).toBe(false);
     const ok = await v.call("list_kanban_boards", { vault: "test", folder: "shared" });
-    expectSharedRefused(ok, v.root);
+    expectSharedSkipped(ok, v.root);
   });
 
   it("list_attachments shows no denied file's name, size or mtime and still lists a readable one", async () => {
