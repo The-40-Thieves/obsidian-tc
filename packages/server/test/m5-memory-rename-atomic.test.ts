@@ -10,12 +10,22 @@ import { buildSnapshotTools } from "../src/tools/m1/snapshot-tools";
 import { VaultRegistry } from "../src/vault/registry";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";
 
-// Forces trashNote to throw after the delete commits, for the trash-throws case only.
+// `trash.fail` forces trashNote to throw after the delete commits (the trash-throws case only).
+// `fsWrites` logs every note write or removal, so a refusal can be shown to touch nothing.
 const trash = vi.hoisted(() => ({ fail: false }));
+const fsWrites = vi.hoisted(() => ({ paths: [] as string[] }));
 vi.mock("../src/vault/notes-io", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/vault/notes-io")>();
   return {
     ...actual,
+    writeNoteAtomic: (...args: Parameters<typeof actual.writeNoteAtomic>) => {
+      fsWrites.paths.push(args[0]);
+      return actual.writeNoteAtomic(...args);
+    },
+    hardDelete: (...args: Parameters<typeof actual.hardDelete>) => {
+      fsWrites.paths.push(args[0]);
+      return actual.hardDelete(...args);
+    },
     trashNote: (...args: Parameters<typeof actual.trashNote>) => {
       if (trash.fail) throw new Error("trash failed");
       return actual.trashNote(...args);
@@ -76,12 +86,14 @@ describe("rename_entity and delete_entity leave the vault unchanged when they re
       const alice = await seedPair(v);
       const acmeBefore = v.read(ACME);
       reindex.mockClear();
+      fsWrites.paths.length = 0;
       const r = await v.call("rename_entity", {
         vault: "test",
         entity_id: alice,
         new_name: "Alice2",
       });
       expect(denied(r)).toBe(true);
+      expect(fsWrites.paths).toEqual([]);
       expect(v.exists(ALICE)).toBe(true);
       expect(v.exists(ALICE2)).toBe(false);
       expect(v.read(ACME)).toBe(acmeBefore);
@@ -98,6 +110,7 @@ describe("rename_entity and delete_entity leave the vault unchanged when they re
     try {
       const alice = await seedPair(v);
       const acmeBefore = v.read(ACME);
+      fsWrites.paths.length = 0;
       const r = await v.callConfirmed("delete_entity", {
         vault: "test",
         entity_id: alice,
@@ -105,6 +118,7 @@ describe("rename_entity and delete_entity leave the vault unchanged when they re
         permanent: false,
       });
       expect(denied(r)).toBe(true);
+      expect(fsWrites.paths).toEqual([]);
       expect(v.exists(ALICE)).toBe(true);
       expect(v.read(ACME)).toBe(acmeBefore);
       expect(await nameOf(v, alice)).toBe("Alice");
