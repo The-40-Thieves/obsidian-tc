@@ -119,8 +119,8 @@ function flushIndex(deps: M5Deps, p: IndexFlush): void {
 
 /** Wrap a memory tool so its projection writes and removals reach the index hooks once the
  *  outermost wrapped call returns. A throw flushes nothing. The SQLite rollback does not undo
- *  files: a note the call wrote before throwing stays on disk, unindexed, until the watcher catches
- *  up. Wrapped handlers are synchronous and ctx is per call; if an async wrapped handler ever
+ *  files: rename and delete restore the notes they captured, and any other note written before the
+ *  throw stays on disk, unindexed, until the watcher catches up. Wrapped handlers are synchronous and ctx is per call; if an async wrapped handler ever
  *  lands, move the collector to AsyncLocalStorage. */
 export function withIndexFlush(deps: M5Deps, tool: ToolDefinition): ToolDefinition {
   const inner = tool.handler;
@@ -307,6 +307,8 @@ export function getReadableEntity(
  *  `visible` false: the caller cannot read it, so it is handled quietly (see planNeighbors). */
 export interface Neighbor {
   id: string;
+  /** The neighbour's note path, vault-relative, as it is when planned. */
+  rel: string;
   visible: boolean;
 }
 
@@ -331,14 +333,15 @@ export function planNeighbors(
     if (src?.materialize !== 1) continue;
     const srcPath = currentNotePath(deps, v.id, src);
     if (memoryReadable(deps, ctx, src)) {
+      enforcePathAcl(ctx.acl, "write", srcPath, v.root, ctx.grantedScopes);
       assertNoteOwnership(v.root, srcPath, src.id);
-      out.push({ id: src.id, visible: true });
+      out.push({ id: src.id, rel: srcPath, visible: true });
       continue;
     }
     try {
       enforcePathAcl(ctx.acl, "write", srcPath, v.root, ctx.grantedScopes);
       assertNoteOwnership(v.root, srcPath, src.id);
-      out.push({ id: src.id, visible: false });
+      out.push({ id: src.id, rel: srcPath, visible: false });
     } catch {
       /* skipped quietly: see above */
     }

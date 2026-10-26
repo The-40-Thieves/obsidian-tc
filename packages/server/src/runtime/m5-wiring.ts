@@ -47,6 +47,8 @@ export function wireM5Tools(
     traceFolder: memory.traceFolder,
     memoryDefense: memory.memoryDefense,
     metrics: deps.metrics,
+    // delete_entity keeps a pre-image of the note it removes, as M1's destructive writers do.
+    snapshots: { enabled: config.snapshots.enabled, retention: config.snapshots.retention },
     ...(deps.provenanceStamp ? { provenanceStamp: deps.provenanceStamp } : {}),
   });
 }
