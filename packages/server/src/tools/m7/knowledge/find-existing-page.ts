@@ -26,6 +26,7 @@ import { normalizeVaultPath } from "../../../vault/paths";
 import type { ResolvedVault } from "../../../vault/registry";
 import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
+import { readRefusalShape } from "../../read-refusals";
 import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
 import { scanWarningsShape } from "../../scan-warnings";
 import type { M7Deps } from "./deps";
@@ -124,6 +125,7 @@ const JudgeSectionSchema = z.object({
 
 export const FindExistingPageOutput = z.object({
   ...scanWarningsShape,
+  ...readRefusalShape,
   vault: z.string(),
   topic: z.string(),
   verdict: z.enum(["exists", "ambiguous", "new"]),
@@ -408,6 +410,7 @@ export async function findExistingPage(
   const shown = ranked.slice(0, args.limit);
   const output = {
     ...identity.warnings.out(),
+    ...identity.warnings.refusals.out(),
     vault: v.id,
     topic: args.topic,
     verdict,

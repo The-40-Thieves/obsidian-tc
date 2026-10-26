@@ -1,5 +1,18 @@
-// Shared assertions for the read-refusal walker tests (read-refusal-walkers*.test.ts).
+// Shared assertions and fixtures for the read-refusal walker tests (read-refusal-walkers*.test.ts).
+import { linkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import { makeTempDir, rmTemp } from "./tmp";
+
+/** A file outside the vault, hard-linked into `root` at `rel`: the safe open refuses that read. The
+ *  caller's `rel` directory must already exist. Returns the cleanup for the outside directory. */
+export function hardLinkOutside(root: string, text: string, rel = join("n", "hl.md")): () => void {
+  const outside = makeTempDir("obtc-walk-refusal-out-");
+  const src = join(outside, "src.md");
+  writeFileSync(src, text);
+  linkSync(src, join(root, rel));
+  return () => rmTemp(outside);
+}
 
 /** The data of a successful tool call; throws with the envelope otherwise. */
 export function okData(r: ToolResult): Record<string, unknown> {

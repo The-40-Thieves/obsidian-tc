@@ -7,8 +7,7 @@
 // READ-ONLY, and ACL-scoped by construction: only notes the caller's read ACL admits are walked,
 // so a denied note is indistinguishable from a missing one.
 import { buildVaultIndex, extractNoteLinks, resolveTarget } from "../../../vault/links";
-import { readNote } from "../../../vault/notes-io";
-import { resolveVaultPath } from "../../../vault/paths";
+import type { ReadRefusals } from "../../read-refusals";
 import { ScanWarnings } from "../../scan-warnings";
 import { readableNotes, type ScanScope } from "../../wiki-scan";
 import { isGeneratedWikiPath } from "./wiki-folder";
@@ -131,6 +130,8 @@ export function collectIdentityEvidence(
     /** Notes that are not pages (a vault's raw sources): readable and valid link targets, so they stay
      *  in `notes`, but never evidence, candidates, mentions or linkers. */
     ignore?: (rel: string) => boolean;
+    /** A caller's shared refusal counter, so a note refused by two walks of one call counts once. */
+    refusals?: ReadRefusals;
   },
 ): IdentityScan {
   const topic = cleanTopic(topicRaw);
@@ -166,13 +167,15 @@ export function collectIdentityEvidence(
       add(p, { kind: "name_variant", detail: base });
   }
 
-  const warnings = new ScanWarnings();
+  const warnings = new ScanWarnings(opts.refusals);
   const linkTexts = new Map<string, { n: number; property?: string; sample: string }>();
   const mentions: string[] = [];
   const linkers: string[] = [];
   for (const rel of all) {
     if (generated(rel) || ignored(rel)) continue;
-    const parsed = warnings.parse(readNote(resolveVaultPath(scope.root, rel)).raw, rel);
+    const raw = warnings.refusals.read(scope.root, rel);
+    if (raw === null) continue;
+    const parsed = warnings.parse(raw, rel);
     const fm = parsed.frontmatter;
     if (fm) {
       for (const [key, value] of Object.entries(fm)) {

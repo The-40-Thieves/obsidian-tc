@@ -11,6 +11,7 @@ import { drainYielding, type ScanSteps } from "../../util/scan-steps";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { buildVaultIndex, resolveTarget } from "../../vault/links";
 import { normalizeVaultPath } from "../../vault/paths";
+import { readRefusalShape } from "../read-refusals";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import { isExternal, linksOf, readableNotesSteps, scanProvenanceSteps } from "../wiki-scan";
@@ -79,6 +80,7 @@ function intersectSize(a: Set<string> | undefined, b: Set<string> | undefined): 
 
 const VaultHealthScoreOutput = z.object({
   ...scanWarningsShape,
+  ...readRefusalShape,
   vault: z.string(),
   score: z.number(),
   total_notes: z.number(),
@@ -106,6 +108,7 @@ const ConciseableVaultHealthScoreOutput = VaultHealthScoreOutput.partial({
 
 const FindLinkCyclesOutput = z.object({
   ...scanWarningsShape,
+  ...readRefusalShape,
   vault: z.string(),
   /** Distinct cycles within [min_length, max_length]. A lower bound when `truncated` is true. */
   total: z.number(),
@@ -120,6 +123,7 @@ const FindLinkCyclesOutput = z.object({
 
 const GetLinkStrengthOutput = z.object({
   ...scanWarningsShape,
+  ...readRefusalShape,
   vault: z.string(),
   from: z.string(),
   to: z.string(),
@@ -139,6 +143,7 @@ const SuggestLinkRow = z.object({
 
 const SuggestLinksOutput = z.object({
   ...scanWarningsShape,
+  ...readRefusalShape,
   vault: z.string(),
   path: z.string(),
   total: z.number(),
@@ -155,6 +160,7 @@ const ConciseableSuggestLinksOutput = SuggestLinksOutput.extend({
 
 const AuditProvenanceOutput = z.object({
   ...scanWarningsShape,
+  ...readRefusalShape,
   vault: z.string(),
   field: z.string(),
   scanned: z.number(),
@@ -263,6 +269,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         if (resolveResponseFormat(input, deps.responseFormat) === "concise")
           return {
             ...g.warnings.out(),
+            ...g.warnings.refusals.out(),
             vault: v.id,
             score,
             total_notes: total,
@@ -270,6 +277,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
           };
         return {
           ...g.warnings.out(),
+          ...g.warnings.refusals.out(),
           vault: v.id,
           score,
           total_notes: total,
@@ -321,6 +329,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         );
         return {
           ...g.warnings.out(),
+          ...g.warnings.refusals.out(),
           vault: v.id,
           total: scan.total,
           truncated: scan.truncated,
@@ -367,6 +376,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         strength = Math.min(1, Number(strength.toFixed(3)));
         return {
           ...g.warnings.out(),
+          ...g.warnings.refusals.out(),
           vault: v.id,
           from,
           to,
@@ -429,11 +439,13 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         if (resolveResponseFormat(input, deps.responseFormat) === "concise")
           return {
             ...g.warnings.out(),
+            ...g.warnings.refusals.out(),
             vault: v.id,
             suggestions: suggestions.map(({ path, score }) => ({ path, score })),
           };
         return {
           ...g.warnings.out(),
+          ...g.warnings.refusals.out(),
           vault: v.id,
           path: p,
           total: suggestions.length,
@@ -495,6 +507,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         if (resolveResponseFormat(input, deps.responseFormat) === "concise")
           return {
             ...warnings.out(),
+            ...warnings.refusals.out(),
             vault: v.id,
             scanned,
             missing_provenance: missing.length,
@@ -507,6 +520,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
           };
         return {
           ...warnings.out(),
+          ...warnings.refusals.out(),
           vault: v.id,
           field,
           scanned,

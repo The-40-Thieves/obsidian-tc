@@ -57,6 +57,7 @@ import {
   overwriteModeMissingError,
 } from "../../../vault/write-mode-errors";
 import { defineTool } from "../../m1/define";
+import { readRefusalShape } from "../../read-refusals";
 import type { M7Deps } from "./deps";
 import { findExistingPage, verdictOf } from "./find-existing-page";
 import { openContradictionsForPaths, type RetrievalRuntime } from "./retrieval-runtime";
@@ -97,6 +98,7 @@ const ProblemSchema = z.object({
 type Problem = z.infer<typeof ProblemSchema>;
 
 export const CommitWikiPageOutput = z.object({
+  ...readRefusalShape,
   vault: z.string(),
   committed: z.literal(true),
   page: z.object({
@@ -568,6 +570,7 @@ export function createCommitWikiPageTool(
             folder: undefined,
             isExcluded: exclusion.isExcluded,
             ignore: rawPathFilter(v.rawFolders),
+            refusals: scan.warnings.refusals,
           }).candidates.values(),
         ].filter((c) => c.path !== pageRel);
         if (verdictOf(fresh) === "exists")
@@ -655,6 +658,7 @@ export function createCommitWikiPageTool(
       });
 
       return {
+        ...scan.warnings.refusals.out(),
         vault: v.id,
         committed: true as const,
         page: {

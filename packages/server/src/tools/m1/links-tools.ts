@@ -27,6 +27,7 @@ import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { pruneHubLinks } from "../../vault/prune";
 import { rewriteLinks } from "../../vault/rewrite";
+import { readRefusalShape } from "../read-refusals";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import {
   capWarningsOut,
@@ -98,6 +99,7 @@ const GetOutgoingLinksOutput = z.object({
 // GH #1027: response_format=concise keeps {source_path, line} per backlink.
 const GetBacklinksOutput = z.object({
   ...scanWarningsShape,
+  ...readRefusalShape,
   vault: z.string(),
   path: z.string(),
   total: z.number().int(),
@@ -118,6 +120,7 @@ const GetBacklinksOutput = z.object({
 
 const FindUnresolvedLinksOutput = z.object({
   ...scanWarningsShape,
+  ...readRefusalShape,
   vault: z.string(),
   total: z.number().int(),
   truncated: z.boolean(),
@@ -367,6 +370,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         return {
           ...warnings.out(),
+          ...warnings.refusals.out(),
           vault: v.id,
           path: rel,
           total: backlinks.length,
@@ -409,6 +413,7 @@ export function buildLinksTools(deps: M1Deps): ToolDefinition[] {
         const concise = resolveResponseFormat(input, deps.responseFormat) === "concise";
         return {
           ...warnings.out(),
+          ...warnings.refusals.out(),
           vault: v.id,
           total: unresolved.length,
           truncated,

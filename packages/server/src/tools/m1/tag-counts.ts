@@ -2,10 +2,10 @@
 // suggest_tags, so both see exactly the same ACL-filtered view of the vault's tag vocabulary.
 import type { CallerContext } from "../../mcp/registry";
 import { readableEntry, readableRel } from "../../vault/acl-read-filter";
-import { readNote } from "../../vault/notes-io";
-import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
+import { normalizeVaultPath, walkVault } from "../../vault/paths";
 import { readableStoredRow } from "../../vault/stored-acl-path";
 import { noteTags } from "../../vault/tags";
+import type { ReadRefusals } from "../read-refusals";
 import { ScanWarnings } from "../scan-warnings";
 
 export interface TagCounts {
@@ -26,6 +26,7 @@ export function collectTagCounts(
   vault: { id: string; root: string },
   folder: string | undefined,
   maxNotes: number,
+  refusals: ReadRefusals,
 ): TagCounts {
   const sub = folder ? normalizeVaultPath(folder) : undefined;
   const counts = new Map<string, number>();
@@ -52,8 +53,9 @@ export function collectTagCounts(
     );
     for (const e of entries) {
       if (scanned >= maxNotes) break;
+      const raw = refusals.read(vault.root, e.relPath);
+      if (raw === null) continue;
       scanned++;
-      const raw = readNote(resolveVaultPath(vault.root, e.relPath)).raw;
       for (const t of noteTags(raw, e.relPath, (r, p) => warnings.parse(r, p as string)).all)
         counts.set(t, (counts.get(t) ?? 0) + 1);
     }

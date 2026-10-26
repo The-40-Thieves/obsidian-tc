@@ -8,6 +8,7 @@ import { DEFAULT_SCAN_LIMIT, nextOffsetCursor, offsetOf } from "../../util/pagin
 import { drainYielding, type ScanSteps } from "../../util/scan-steps";
 import { statNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
+import { readRefusalShape } from "../read-refusals";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import { scanOrphansSteps } from "../wiki-scan";
 import { defineTool } from "./define";
@@ -52,6 +53,7 @@ export function* groupByFolderSteps(root: string, orphans: string[]): ScanSteps<
 
 const FindOrphansOutput = z.object({
   ...scanWarningsShape,
+  ...readRefusalShape,
   vault: z.string(),
   total: z.number().int(),
   truncated: z.boolean(),
@@ -107,6 +109,7 @@ export function buildOrphansTools(deps: M1Deps): ToolDefinition[] {
         const truncated = orphans.length > skip + input.limit;
         return {
           ...warnings.out(),
+          ...warnings.refusals.out(),
           vault: v.id,
           total: orphans.length,
           truncated,

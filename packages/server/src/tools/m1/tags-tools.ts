@@ -29,6 +29,7 @@ import {
   noteTags,
   tagMatches,
 } from "../../vault/tags";
+import { ReadRefusals, readRefusalShape } from "../read-refusals";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import { defineTool } from "./define";
@@ -72,6 +73,7 @@ function omitKey(obj: Frontmatter, key: string): Frontmatter {
 
 const ListTagsOutput = z.object({
   ...scanWarningsShape,
+  ...readRefusalShape,
   vault: z.string(),
   notes_scanned: z.number().int(),
   tags: z.array(z.object({ tag: z.string(), count: z.number().int() })),
@@ -113,6 +115,7 @@ const RemoveTagOutput = z.object({
 // count); `truncated` stays, it says the list is incomplete.
 const FindNotesByTagOutput = z.object({
   ...scanWarningsShape,
+  ...readRefusalShape,
   vault: z.string(),
   tag: z.string(),
   total: z.number().int().optional(),
@@ -177,6 +180,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
       requiredScopes: ["read:notes"],
       handler: (input, ctx) => {
         const v = deps.vaultRegistry.resolve(input.vault);
+        const refusals = new ReadRefusals();
         const {
           notes_scanned: scanned,
           counts,
@@ -187,11 +191,18 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
           v,
           input.folder,
           input.max_notes,
+          refusals,
         );
         const tags = [...counts.entries()]
           .map(([tag, count]) => ({ tag, count }))
           .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
-        return { ...warnings.out(), vault: v.id, notes_scanned: scanned, tags };
+        return {
+          ...warnings.out(),
+          ...refusals.out(),
+          vault: v.id,
+          notes_scanned: scanned,
+          tags,
+        };
       },
     }),
 
@@ -437,7 +448,8 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
             readableEntry(ctx.acl, e, ctx.grantedScopes),
           );
           for (const e of entries) {
-            const raw = readNote(resolveVaultPath(v.root, e.relPath)).raw;
+            const raw = warnings.refusals.read(v.root, e.relPath);
+            if (raw === null) continue;
             const all = noteTags(raw, e.relPath, (r, p) => warnings.parse(r, p as string)).all;
             const hit = all.filter((t) => tagMatches(input.tag, t));
             if (hit.length === 0) continue;
@@ -452,6 +464,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
         if (resolveResponseFormat(input, deps.responseFormat) === "concise")
           return {
             ...warnings.out(),
+            ...warnings.refusals.out(),
             vault: v.id,
             tag: normalizeTag(input.tag),
             truncated,
@@ -460,6 +473,7 @@ export function buildTagsTools(deps: M1Deps): ToolDefinition[] {
           };
         return {
           ...warnings.out(),
+          ...warnings.refusals.out(),
           vault: v.id,
           tag: normalizeTag(input.tag),
           total: matches.length,

@@ -44,6 +44,7 @@ import {
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
+import { readRefusalShape } from "../read-refusals";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import type { M3Deps } from "./shared";
 
@@ -184,6 +185,7 @@ const QueryBaseRow = z.object({
 
 const QueryBaseOutput = z.object({
   ...scanWarningsShape,
+  ...readRefusalShape,
   vault: z.string(),
   path: z.string(),
   view_used: z.string().nullable(),
@@ -498,7 +500,9 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         const sortKeys: unknown[][] = [];
         const warnings = new ScanWarnings();
         for (const p of candidates) {
-          const parsed = warnings.parse(readNote(resolveVaultPath(v.root, p)).raw, p);
+          const text = warnings.refusals.read(v.root, p);
+          if (text === null) continue;
+          const parsed = warnings.parse(text, p);
           const { frontmatter, body } = parsed;
           const fm = frontmatter ?? {};
           const tags = normTags(fm);
@@ -633,6 +637,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         const next = nextStart < rows.length ? String(nextStart) : undefined;
         return {
           ...warnings.out(),
+          ...warnings.refusals.out(),
           vault: v.id,
           path: rel,
           view_used: view && typeof view.name === "string" ? view.name : null,

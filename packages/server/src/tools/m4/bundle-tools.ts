@@ -12,6 +12,7 @@ import { splitFrontmatterBody } from "../../vault/frontmatter";
 import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
+import { ReadRefusals, readRefusalShape } from "../read-refusals";
 import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import type { M4Deps } from "./shared";
 
@@ -129,6 +130,7 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
         })
         .strict(),
       outputSchema: ConciseableBundleResultSchema.extend({
+        ...readRefusalShape,
         vault: z.string(),
         root: z.string().optional(),
         cursor: z
@@ -152,10 +154,11 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
           .sort();
         const paged = input.cursor ? all.filter((rel) => rel > (input.cursor as string)) : all;
         const capped = paged.slice(0, input.max_files);
-        const entries = capped.map((rel) => ({
-          rel,
-          content: readNote(resolveVaultPath(v.root, rel)).raw,
-        }));
+        const refusals = new ReadRefusals();
+        const entries = capped.flatMap((rel) => {
+          const content = refusals.read(v.root, rel);
+          return content === null ? [] : [{ rel, content }];
+        });
         const result = buildBundle(entries, {
           maxBytes: input.max_bytes,
           includeFrontmatter: input.include_frontmatter,
@@ -165,8 +168,19 @@ export function buildBundleTools(deps: M4Deps): ToolDefinition[] {
         const lastFile = result.files.at(-1);
         const cursor = result.truncated && lastFile ? lastFile.path : undefined;
         if (resolveResponseFormat(input, deps.responseFormat) === "concise")
-          return { vault: v.id, ...conciseBundle(result), ...(cursor ? { cursor } : {}) };
-        return { vault: v.id, root: sub, ...result, ...(cursor ? { cursor } : {}) };
+          return {
+            ...refusals.out(),
+            vault: v.id,
+            ...conciseBundle(result),
+            ...(cursor ? { cursor } : {}),
+          };
+        return {
+          ...refusals.out(),
+          vault: v.id,
+          root: sub,
+          ...result,
+          ...(cursor ? { cursor } : {}),
+        };
       },
     }),
 
