@@ -1,46 +1,168 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/remind-regenerate.sh",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write"
+      },
+      {
+        "hooks": [
+          {
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/generated-drift-backstop.sh",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      },
+      {
+        "hooks": [
+          {
+            "command": "sh -c 'if ! command -v entire \u003e/dev/null 2\u003e\u00261; then exit 0; fi; exec entire hooks claude-code post-task'",
+            "timeout": 120,
+            "type": "command"
+          }
+        ],
+        "matcher": "Agent"
+      },
+      {
+        "hooks": [
+          {
+            "command": "sh -c 'if ! command -v entire \u003e/dev/null 2\u003e\u00261; then exit 0; fi; exec entire hooks claude-code post-task'",
+            "timeout": 120,
+            "type": "command"
+          }
+        ],
+        "matcher": "Skill"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-generated-edits.sh",
+            "statusMessage": "Checking for generated-artifact edits",
+            "timeout": 5,
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write"
+      },
+      {
+        "hooks": [
+          {
+            "command": "sh -c 'if ! command -v entire \u003e/dev/null 2\u003e\u00261; then exit 0; fi; exec entire hooks claude-code pre-task'",
+            "timeout": 30,
+            "type": "command"
+          }
+        ],
+        "matcher": "Agent"
+      },
+      {
+        "hooks": [
+          {
+            "command": "sh -c 'if command -v entire-brain \u003e/dev/null 2\u003e\u00261; then exec entire-brain hook pre-edit --claude-hook; fi; if command -v entire \u003e/dev/null 2\u003e\u00261; then exec entire brain hook pre-edit --claude-hook; fi; exit 0'",
+            "type": "command"
+          }
+        ],
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit"
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "command": "sh -c 'if ! command -v entire \u003e/dev/null 2\u003e\u00261; then exit 0; fi; exec entire hooks claude-code session-end'",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "sh -c 'if ! command -v entire \u003e/dev/null 2\u003e\u00261; then printf \"%s\\n\" \"{\\\"systemMessage\\\":\\\"\\\\n\\\\nEntire CLI is enabled but not installed or not on PATH.\\\\nInstallation guide: https://docs.entire.io/cli/installation#installation-methods\\\"}\"; exit 0; fi; exec entire hooks claude-code session-start'",
+            "timeout": 30,
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "sh -c 'if ! command -v entire \u003e/dev/null 2\u003e\u00261; then exit 0; fi; exec entire hooks claude-code stop'",
+            "timeout": 120,
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "command": "sh -c 'if ! command -v entire \u003e/dev/null 2\u003e\u00261; then exit 0; fi; exec entire hooks claude-code stop-failure'",
+            "timeout": 120,
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "command": "sh -c 'if ! command -v entire \u003e/dev/null 2\u003e\u00261; then exit 0; fi; exec entire hooks claude-code subagent-start'",
+            "timeout": 30,
+            "type": "command"
+          }
+        ],
+        "matcher": "workflow-subagent"
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "command": "sh -c 'if ! command -v entire \u003e/dev/null 2\u003e\u00261; then exit 0; fi; exec entire hooks claude-code subagent-stop'",
+            "timeout": 120,
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "sh -c 'if ! command -v entire \u003e/dev/null 2\u003e\u00261; then exit 0; fi; exec entire hooks claude-code user-prompt-submit'",
+            "timeout": 30,
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ]
+  },
   "permissions": {
     "deny": [
       "Edit(/docs/obsidian-tc.config.schema.json)",
       "Edit(/packages/server/src/db/migrations-embedded.ts)"
-    ]
-  },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-generated-edits.sh",
-            "timeout": 5,
-            "statusMessage": "Checking for generated-artifact edits"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/remind-regenerate.sh",
-            "timeout": 5
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/generated-drift-backstop.sh",
-            "timeout": 5
-          }
-        ]
-      }
     ]
   }
 }
