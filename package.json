@@ -81,12 +81,12 @@
   "devDependencies": {
     "@ast-grep/cli": "0.51.0",
     "@ast-grep/napi": "0.51.0",
-    "@biomejs/biome": "2.6.2",
+    "@biomejs/biome": "2.6.3",
     "dependency-cruiser": "18.7.0",
     "jscpd": "^5.4.2",
-    "knip": "6.42.1",
-    "oxc-parser": "0.154.0",
-    "recheck": "4.5.0",
+    "knip": "6.43.0",
+    "oxc-parser": "0.156.0",
+    "recheck": "4.6.2",
     "typescript": "^7.0.2",
     "web-tree-sitter": "0.27.1"
   },
