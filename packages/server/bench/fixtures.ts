@@ -101,21 +101,15 @@ export function makePaths(n: number, seed = 1): string[] {
 }
 
 export function makeVector(dim: number, r: () => number): number[] {
-  const v = new Array<number>(dim);
-  for (let i = 0; i < dim; i++) v[i] = r() * 2 - 1;
-  return v;
+  return Array.from({ length: dim }, () => r() * 2 - 1);
 }
 
 export function makeFloat32(len: number, seed: number): Float32Array {
   const r = rng(seed);
-  const out = new Float32Array(len);
-  for (let i = 0; i < len; i++) out[i] = r() * 2 - 1;
-  return out;
+  return Float32Array.from({ length: len }, () => r() * 2 - 1);
 }
 
 export function makeTokenIds(len: number, vocab: number, seed: number): Int32Array {
   const r = rng(seed);
-  const out = new Int32Array(len);
-  for (let i = 0; i < len; i++) out[i] = Math.floor(r() * vocab);
-  return out;
+  return Int32Array.from({ length: len }, () => Math.floor(r() * vocab));
 }

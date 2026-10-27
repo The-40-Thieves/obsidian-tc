@@ -34,19 +34,18 @@ test("lexical", async ({ bench }) => {
     queryTerms("How does the hybrid retrieval pipeline rank backlinks for the weekly review?");
   }).run();
 
+  // Per document: its length and one (term frequency, document frequency) pair per query term.
   const r = rng(7);
+  const dfs = [3, 25, 120, 400, 800, 999];
   const docs = Array.from({ length: 1_000 }, () => ({
     len: 50 + Math.floor(r() * 900),
-    tfs: Array.from({ length: 6 }, () => Math.floor(r() * 6)),
+    terms: dfs.map((df) => ({ tf: Math.floor(r() * 6), df })),
   }));
-  const dfs = [3, 25, 120, 400, 800, 999];
   const bm25 = jsBm25Score;
   await bench("jsBm25Score (6 terms x 1k docs)", () => {
     let total = 0;
     for (const d of docs) {
-      for (let i = 0; i < dfs.length; i++) {
-        total += bm25(d.tfs[i] ?? 0, d.len, 350, dfs[i] ?? 0, 1_000);
-      }
+      for (const { tf, df } of d.terms) total += bm25(tf, d.len, 350, df, 1_000);
     }
     return total;
   }).run();
