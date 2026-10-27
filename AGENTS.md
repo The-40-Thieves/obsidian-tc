@@ -45,3 +45,8 @@ cd packages/server && bunx vitest run test/<touched-area>.test.ts   # targeted t
 The Rust toolchain and the native addon are needed only when a change touches `packages/native`; the
 server falls back to JavaScript implementations without the addon. Build it with `bun run build` in
 that package. The Rust version is pinned in `packages/native/rust-toolchain.toml`.
+
+<!-- entire-agent:begin -->
+Read .entire/agent-guide.md for this repository's workflow, source inspection, and verification guidance.
+@.entire/agent-guide.md
+<!-- entire-agent:end -->

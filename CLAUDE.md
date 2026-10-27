@@ -297,3 +297,8 @@ writes capture an undo via `restore_note` unless a config explicitly opts out
 (`snapshots: { enabled: false }`). Retention (10 versions/note) is pruned inline and orphan blobs
 are GC'd, so growth is bounded by construction. Worth knowing either way before running anything
 that deletes.
+
+<!-- entire-agent:begin -->
+Read .entire/agent-guide.md for this repository's workflow, source inspection, and verification guidance.
+@.entire/agent-guide.md
+<!-- entire-agent:end -->
