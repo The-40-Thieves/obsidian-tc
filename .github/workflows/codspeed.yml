@@ -1,0 +1,74 @@
+# CodSpeed continuous benchmarking.
+#
+# Two suites, both measured with CodSpeed's CPU simulation instrument (instruction counts under
+# Valgrind, so results do not depend on how busy the GitHub-hosted runner is — the problem the
+# `perf` gate and perf-baseline.yml have to work around with contention detection):
+#
+#   rust  — packages/native/benches/*.rs (Criterion via codspeed-criterion-compat): the shipped
+#           cosine_batch / tokenize / bm25_score / rouge_l_lcs kernels.
+#   node  — packages/server/bench/*.bench.ts (vitest 5 + @codspeed/vitest-plugin): note parsing,
+#           chunking, link/tag extraction, link resolution, Bases filters and the JS retrieval
+#           fallbacks.
+#
+# Results are uploaded with OIDC (`id-token: write`), so no CODSPEED_TOKEN secret is needed.
+# `workflow_dispatch` lets CodSpeed trigger backtest runs to build initial history.
+name: codspeed
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: benchmarks (rust)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-rust
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: packages/native
+      - uses: taiki-e/install-action@ed67fa35ac944f3a9b33f12c4dd43b6f31a47e20 # v2
+        with:
+          tool: cargo-codspeed
+      - name: build benchmarks
+        working-directory: packages/native
+        run: cargo codspeed build -m simulation
+      - name: run benchmarks
+        uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062 # v5.6.0
+        with:
+          mode: simulation
+          working-directory: packages/native
+          run: cargo codspeed run
+
+  node:
+    name: benchmarks (node)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-repo
+        with:
+          node-required: 'true'
+      - name: run benchmarks
+        uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062 # v5.6.0
+        with:
+          mode: simulation
+          working-directory: packages/server
+          run: bun run bench

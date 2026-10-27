@@ -19,6 +19,7 @@
     "build": "bun build ./src/index.ts ./src/cli.ts --outdir ./dist --target node --external better-sqlite3 --external @the-40-thieves/obsidian-tc-reranker-local --external @the-40-thieves/obsidian-tc-embedder-local --external @redis/client --minify --sourcemap=linked && bun scripts/copy-assets.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.bun-smoke.json && tsc -p tsconfig.eval.json",
     "test": "vitest run",
+    "bench": "vitest bench --run --config vitest.bench.config.ts",
     "smoke:live": "vitest run test/live-companion.test.ts",
     "smoke:zero-config": "bun scripts/zero-config-smoke.ts --cli dist/cli.js",
     "test:acl-audit": "OBSIDIAN_TC_ACL_AUDIT=strict vitest run test/attachment-tools-branch-coverage.test.ts test/periodic-tools-branch-coverage.test.ts test/periodic-memory-scope.test.ts test/dispatch-guards.test.ts test/vault-arg-dispatch.test.ts test/acl-extraction-coverage.test.ts test/acl-audit.test.ts",
@@ -74,6 +75,7 @@
     "@redis/client": "6.3.0"
   },
   "devDependencies": {
+    "@codspeed/vitest-plugin": "^6.1.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@types/better-sqlite3": "^9.6.0",
     "@types/bun": "^1.4.2",
