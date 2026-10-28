@@ -62,6 +62,7 @@ import {
   BH_Q,
   bhFamilyRecord,
   buildArmEmbedLog,
+  dedupeArms,
   type EmbedLogBatch,
   embedLogBatches,
   indexRerunArgs,
@@ -70,6 +71,7 @@ import {
   nextEmbedCommand,
   nextQueryCommand,
   omittedDecisionArms,
+  poolsToLoad,
   queryEmbedMs,
   queryExportLines,
   queryLatencyRecord,
@@ -244,7 +246,10 @@ function indexOffline(
   let batches: EmbedLogBatch[];
   let done: number;
   try {
-    batches = embedLogBatches(logPath ? JSON.parse(readFileSync(logPath, "utf8")) : undefined);
+    batches = embedLogBatches(
+      logPath ? JSON.parse(readFileSync(logPath, "utf8")) : undefined,
+      ex.ids.length,
+    );
     done = loadOfflineDocVecs(db, {
       arm,
       model,
@@ -532,7 +537,9 @@ function stageScore(): void {
     .split(",")
     .filter(Boolean)
     .map((s) => s.split("=") as [string, string]);
-  const armNames = (flag("--arms") ?? EMBEDDER_ARMS.map((a) => a.name).join(",")).split(",");
+  const armNames = dedupeArms(
+    (flag("--arms") ?? EMBEDDER_ARMS.map((a) => a.name).join(",")).split(","),
+  );
   if (!exp || !outDir || goldens.length === 0)
     die(
       "usage: score --exp-dir D --golden strict=<path>,lenient=<path> --out-dir D/score [--arms a,b,c]",
@@ -541,11 +548,12 @@ function stageScore(): void {
   const pools = new Map<string, PoolFile>();
   const missing = missingPoolsError(exp, armNames, existsSync);
   if (missing) die(missing);
-  for (const n of omittedDecisionArms(armNames, exp, existsSync))
+  const omitted = omittedDecisionArms(armNames, exp, existsSync);
+  for (const n of omitted)
     process.stderr.write(
       `score: warning: decision-bearing arm "${n}" has pools in ${exp} but is not in --arms, so the BH family is smaller than the run's\n`,
     );
-  for (const n of armNames)
+  for (const n of poolsToLoad(armNames))
     pools.set(n, JSON.parse(readFileSync(join(exp, `pools-${n}.json`), "utf8")) as PoolFile);
   const readJson = <T>(p: string): T | undefined =>
     existsSync(p) ? (JSON.parse(readFileSync(p, "utf8")) as T) : undefined;
@@ -588,7 +596,10 @@ function stageScore(): void {
         ).p,
     );
     const bh = new Map(fam.map((a, i) => [a.name, bhDecisions(famP, BH_Q)[i] ?? false]));
-    bhFamily[labels] = bhFamilyRecord(fam.map((a) => a.name));
+    bhFamily[labels] = bhFamilyRecord(
+      fam.map((a) => a.name),
+      omitted,
+    );
     process.stdout.write(
       `BH family (${labels}): m=${bhFamily[labels].m} over ${bhFamily[labels].arms.join(", ")}\n`,
     );

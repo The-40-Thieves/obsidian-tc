@@ -136,18 +136,15 @@ prints each `modal run`; the shape, with `D` the experiment dir:
 
 ```bash
 bun eval/embedder-arms.ts index <source-config.json> --arm embeddinggemma-2-768 --exp-dir D
-modal run eval/modal_embed_gemma2.py --texts D/arms/embeddinggemma-2-768/export/texts.jsonl \
-  --out-prefix D/g2 --dims 768,256                       # writes D/g2-768.f32, D/g2-256.f32, D/g2-ids.json
+modal run eval/modal_embed_gemma2.py --texts D/arms/embeddinggemma-2-768/export/texts.jsonl --out-prefix D/arms/embeddinggemma-2-768/export/vecs --dims 768,256 --log D/arms/embeddinggemma-2-768/export/embed-log.json
+bun eval/embedder-arms.ts index <source-config.json> --arm embeddinggemma-2-768 --exp-dir D --vecs D/arms/embeddinggemma-2-768/export/vecs-768.f32 --ids D/arms/embeddinggemma-2-768/export/vecs-ids.json --embed-log D/arms/embeddinggemma-2-768/export/embed-log.json
 bun eval/embedder-arms.ts queries <golden.yaml> --arm embeddinggemma-2-768 --exp-dir D
-modal run eval/modal_embed_gemma2.py --queries D/queries.jsonl --qout-prefix D/q2 --dims 768,256
-bun eval/embedder-arms.ts index <source-config.json> --arm embeddinggemma-2-768 --exp-dir D \
-  --vecs D/g2-768.f32 --ids D/g2-ids.json
-bun eval/embedder-arms.ts queries <golden.yaml> --arm embeddinggemma-2-768 --exp-dir D \
-  --qvecs D/q2-768.f32 --qids D/q2-ids.json
+modal run eval/modal_embed_gemma2.py --queries D/arms/embeddinggemma-2-768/export/queries.jsonl --qout-prefix D/arms/embeddinggemma-2-768/export/qvecs --dims 768,256
+bun eval/embedder-arms.ts queries <golden.yaml> --arm embeddinggemma-2-768 --exp-dir D --qvecs D/arms/embeddinggemma-2-768/export/qvecs-768.f32 --qids D/arms/embeddinggemma-2-768/export/qvecs-ids.json
 ```
 
 Every output of one run appears together or not at all; `--ids` and `--qids` are the keys of the vectors
-just written, so the pair always comes from one run. `D/queries.jsonl` is `{"key","text"}` lines.
+just written, so the pair always comes from one run. The export's `queries.jsonl` is `{"key","text"}` lines.
 
 ## The ship rule
 

@@ -6,13 +6,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { armByName } from "../eval/embedder-arms-lib";
+import { armByName, CONTROL_ARM } from "../eval/embedder-arms-lib";
 import {
   armChunkTexts,
   assembleQueryVecs,
   assertIdsMatch,
   bhFamilyRecord,
   buildArmEmbedLog,
+  dedupeArms,
   embedLogBatches,
   indexRerunArgs,
   loadOfflineDocVecs,
@@ -20,6 +21,7 @@ import {
   nextEmbedCommand,
   nextQueryCommand,
   omittedDecisionArms,
+  poolsToLoad,
   queryEmbedMs,
   queryExportLines,
   queryLatencyRecord,
@@ -180,14 +182,25 @@ describe("query vectors assembled from the GPU run", () => {
 
 describe("embed log and query latency shapes", () => {
   it("maps the GPU script's shards to batches with zero retries", () => {
-    expect(embedLogBatches({ shards: [{ n: 16, chars: 100, ms: 250 }] })).toEqual([
+    expect(embedLogBatches({ shards: [{ n: 16, chars: 100, ms: 250 }] }, 16)).toEqual([
       { n: 16, chars: 100, ms: 250, retries: 0 },
     ]);
   });
 
   it("no embed log gives no batches; a log without shards is refused", () => {
-    expect(embedLogBatches(undefined)).toEqual([]);
-    expect(() => embedLogBatches({})).toThrow(/shards/);
+    expect(embedLogBatches(undefined, 0)).toEqual([]);
+    expect(() => embedLogBatches({}, 0)).toThrow(/shards/);
+  });
+
+  it("embedLogBatches: the log must be this run's, so shard n that do not sum to the export length are refused", () => {
+    const foreign = Array.from({ length: 24 }, () => ({ n: 500, chars: 100, ms: 250 }));
+    expect(() => embedLogBatches({ shards: foreign }, 13731)).toThrow(/12000[\s\S]*13731/);
+    const own = Array.from({ length: 24 }, (_, i) => ({
+      n: i < 23 ? 572 : 575,
+      chars: 100,
+      ms: 250,
+    }));
+    expect(embedLogBatches({ shards: own }, 13731)).toHaveLength(24);
   });
 
   it("the arm embed log has the shape score reads", () => {
@@ -264,7 +277,6 @@ describe("CLI contract with modal_embed_gemma2.py main()", () => {
     .filter((l) => /^\w+\s*:/.test(l))
     .map((l) => ({
       flag: `${l.split(":")[0]?.trim().replace(/_/g, "-")}`,
-      hasDefault: l.includes("="),
     }));
   const printed = [nextEmbedCommand(gemma, EXP), nextQueryCommand(gemma, EXP)];
   const flagsOf = (cmd: string): string[] =>
@@ -274,12 +286,25 @@ describe("CLI contract with modal_embed_gemma2.py main()", () => {
     expect(params.length).toBeGreaterThan(0);
   });
 
-  it("every parameter without a default is passed by each printed command", () => {
-    for (const cmd of printed) {
-      for (const p of params.filter((x) => !x.hasDefault)) {
-        expect(flagsOf(cmd), `${cmd} lacks --${p.flag}`).toContain(p.flag);
-      }
-    }
+  // The pairing rules of check_run_args in modal_embed_gemma2.py, read off each printed command's flags.
+  const pairingViolations = (cmd: string): string[] => {
+    const f = new Set(flagsOf(cmd));
+    const out: string[] = [];
+    if (f.has("texts") !== f.has("out-prefix")) out.push("--texts and --out-prefix go together");
+    if (f.has("queries") !== f.has("qout-prefix"))
+      out.push("--queries and --qout-prefix go together");
+    if (!f.has("texts") && !f.has("queries")) out.push("give at least one of --texts / --queries");
+    return out;
+  };
+
+  it("each printed command obeys the pairing rules of check_run_args", () => {
+    for (const cmd of printed) expect(pairingViolations(cmd), cmd).toEqual([]);
+  });
+
+  it("the pairing check rejects a command that passes --texts without --out-prefix", () => {
+    expect(pairingViolations("modal run eval/modal_embed_gemma2.py --texts t")).toEqual([
+      "--texts and --out-prefix go together",
+    ]);
   });
 
   it("every flag a printed command passes is a parameter of main()", () => {
@@ -291,12 +316,49 @@ describe("CLI contract with modal_embed_gemma2.py main()", () => {
 });
 
 describe("BH family and score guards", () => {
-  it("bhFamilyRecord: the decision-bearing arms the correction ran over, m and q", () => {
-    expect(bhFamilyRecord(["embeddinggemma-2-768", "nomic-v1.5-768"])).toEqual({
+  it("bhFamilyRecord: the decision-bearing arms the correction ran over, m, q and the omitted decision arms", () => {
+    expect(
+      bhFamilyRecord(["embeddinggemma-2-768", "nomic-v1.5-768"], ["gemini-embedding-001-1024"]),
+    ).toEqual({
       arms: ["embeddinggemma-2-768", "nomic-v1.5-768"],
       m: 2,
       q: 0.1,
+      omitted: ["gemini-embedding-001-1024"],
     });
+  });
+
+  it("dedupeArms: a repeated --arms name counts once, the first position kept", () => {
+    expect(dedupeArms(["bge-m3", "nomic-v1.5-768", "nomic-v1.5-768"])).toEqual([
+      "bge-m3",
+      "nomic-v1.5-768",
+    ]);
+    expect(bhFamilyRecord(dedupeArms(["nomic-v1.5-768", "nomic-v1.5-768"]), []).m).toBe(1);
+  });
+
+  it("poolsToLoad: the control once, then the named arms, even when --arms omits the control", () => {
+    expect(poolsToLoad(["embeddinggemma-2-768", "embeddinggemma-2-256"])).toEqual([
+      CONTROL_ARM,
+      "embeddinggemma-2-768",
+      "embeddinggemma-2-256",
+    ]);
+    expect(poolsToLoad([CONTROL_ARM, "nomic-v1.5-768"])).toEqual([CONTROL_ARM, "nomic-v1.5-768"]);
+  });
+
+  it("README: the EmbeddingGemma 2 section names the exact commands the stages print", () => {
+    const readme = readFileSync(
+      fileURLToPath(new URL("../eval/README.md", import.meta.url)),
+      "utf8",
+    );
+    const start = readme.indexOf("## EmbeddingGemma 2 on Modal");
+    const section = readme.slice(start, readme.indexOf("\n## ", start + 1));
+    const dir = join("D", "arms", gemma.name, "export");
+    const printed = [
+      nextEmbedCommand(gemma, dir),
+      nextQueryCommand(gemma, dir),
+      indexRerunArgs(gemma, dir),
+      queryRerunArgs(gemma, dir),
+    ];
+    for (const cmd of printed) expect(section, cmd).toContain(cmd.replaceAll("\\", "/"));
   });
 
   it("omittedDecisionArms: names each decision-bearing arm with pools that --arms left out", () => {

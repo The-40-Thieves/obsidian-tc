@@ -190,10 +190,23 @@ export function queryRerunArgs(arm: EmbedderArm, exportDir: string): string {
   return `${base} --qids ${join(exportDir, "qvecs-ids.json")}`;
 }
 
-/** The BH family a score run corrected over: the decision-bearing arms it was given, with m and q, recorded per
- *  label set so the verdict can be re-derived from the summary alone. */
-export function bhFamilyRecord(arms: readonly string[]): { arms: string[]; m: number; q: number } {
-  return { arms: [...arms], m: arms.length, q: BH_Q };
+/** The BH family a score run corrected over: the decision-bearing arms it was given, with m and q, and the decision
+ *  arms it left out, recorded per label set so the verdict can be re-derived from the summary alone. */
+export function bhFamilyRecord(
+  arms: readonly string[],
+  omitted: readonly string[],
+): { arms: string[]; m: number; q: number; omitted: string[] } {
+  return { arms: [...arms], m: arms.length, q: BH_Q, omitted: [...omitted] };
+}
+
+/** `--arms` with a repeated name counted once, first position kept: a repeat would inflate the BH m. */
+export function dedupeArms(names: readonly string[]): string[] {
+  return [...new Set(names)];
+}
+
+/** The pools a score run loads: the control always (its pools are the baseline), then the named arms, once each. */
+export function poolsToLoad(armNames: readonly string[]): string[] {
+  return [...new Set([CONTROL_ARM, ...armNames])];
 }
 
 /** Decision-bearing arms with a pools file in the experiment that `--arms` left out. A score over a smaller family
@@ -216,18 +229,26 @@ export interface EmbedLogBatch {
 }
 
 /** The GPU script's `{shards:[{n, chars, ms}]}` as the batches score reads. A GPU run retries
- *  nothing here, so retries is zero. No embed log gives no batches. */
-export function embedLogBatches(embedLog: unknown): EmbedLogBatch[] {
+ *  nothing here, so retries is zero. No embed log gives no batches. The shards must cover the export: a log
+ *  from another run would otherwise be read as this one's batches. */
+export function embedLogBatches(embedLog: unknown, exportLength: number): EmbedLogBatch[] {
   if (embedLog === undefined) return [];
   const shards = (embedLog as { shards?: unknown } | null)?.shards;
   if (!Array.isArray(shards)) throw new Error("embed log has no shards array");
-  return shards.map((s, i) => {
+  const batches = shards.map((s, i) => {
     const { n, chars, ms } = s as Record<string, unknown>;
     if (![n, chars, ms].every((x) => typeof x === "number" && Number.isFinite(x))) {
       throw new Error(`embed log shard ${i} needs numeric n, chars and ms`);
     }
     return { n, chars, ms, retries: 0 } as EmbedLogBatch;
   });
+  const covered = batches.reduce((sum, b) => sum + b.n, 0);
+  if (covered !== exportLength) {
+    throw new Error(
+      `embed log: its shards hold ${covered} chunks, the export has ${exportLength}; the log is not this run's`,
+    );
+  }
+  return batches;
 }
 
 /** The embed log score reads, the same shape the HTTP path writes. */
