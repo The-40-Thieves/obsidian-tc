@@ -34,9 +34,29 @@ def _identity_decorator():
     return lambda fn: fn
 
 
+class _Volume:
+    """`modal_embed_gemma2.py` keeps its Hugging Face cache on a Volume and commits it after the
+    download; both calls are no-ops here."""
+
+    @classmethod
+    def from_name(cls, *args, **kwargs):
+        return cls()
+
+    def commit(self):
+        pass
+
+
+def _parameter(*args, **kwargs):
+    """`precision: str = modal.parameter(default=...)` on the Embedder class: a class attribute that
+    tests set directly, so the stub just returns None."""
+    return None
+
+
 _modal = types.ModuleType("modal")
 _modal.App = _App
 _modal.Image = _Image()
+_modal.Volume = _Volume
+_modal.parameter = _parameter
 _modal.enter = _identity_decorator
 _modal.method = _identity_decorator
 sys.modules["modal"] = _modal
