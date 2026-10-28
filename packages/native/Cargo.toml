@@ -45,10 +45,17 @@ codegen-units = 1
 opt-level = 3
 
 [dev-dependencies]
-criterion = "0.8.2"
+# CodSpeed's Criterion compatibility layer, renamed so the benches keep `use criterion::...`. Outside
+# `cargo codspeed` it runs the regular Criterion harness, so `cargo bench` behaves as before.
+criterion = { version = "6", package = "codspeed-criterion-compat" }
 
 # THE-504: old-vs-new cosine_batch algorithm + f32-vs-f64-accumulation benches. `harness = false`
 # because Criterion provides its own `main` (via `criterion_main!`) instead of libtest's.
 [[bench]]
 name = "cosine_batch"
+harness = false
+
+# tokenize / bm25_score / rouge_l_lcs_core, the lexical kernels next to cosine_batch.
+[[bench]]
+name = "text_kernels"
 harness = false

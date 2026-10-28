@@ -8,7 +8,8 @@
         "scripts/**/*.{ts,mjs}",
         "eval/**/*.ts",
         "bun-smoke/**/*.ts",
-        "test/**/*.{ts,bun.ts}"
+        "test/**/*.{ts,bun.ts}",
+        "bench/**/*.bench.ts"
       ],
       "project": ["src/**/*.ts", "scripts/**/*.ts", "eval/**/*.ts", "bun-smoke/**/*.ts"]
     },
