@@ -110,7 +110,7 @@ export interface MaintenanceWiringDeps {
     incMemoryOrphansSwept(cls: MemoryOrphanClass, n: number): void;
     incMorgianaSpoolPruned(reason: "age" | "size", n: number): void;
   };
-  /** Vault id the process-wide sweep event is attributed to (run_serve's first vault). */
+  /** Vault id the process-wide sweep event is attributed to (run_serve's default vault). */
   eventVaultId: string;
   now?: () => number;
 }

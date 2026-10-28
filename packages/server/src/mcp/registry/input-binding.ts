@@ -221,6 +221,31 @@ const CROSS_TOOL_ALIASES: Readonly<Record<string, Readonly<Record<string, string
   ),
 };
 
+/** The count argument is `k` on the semantic/experiential family and `limit` on the listing/search
+ *  family; edit distance cannot bridge them. Derived from the keys the rejected key's own object
+ *  accepts, so no tool name is listed: a rejected `limit` on a `k` tool hints `k`, and the reverse.
+ *  Hint only: the rejected key is still refused, and no advertised schema changes. */
+function countAliasOf(
+  rejected: string,
+  accepted: readonly string[],
+  sent: unknown,
+): string | undefined {
+  const other = rejected === "limit" ? "k" : rejected === "k" ? "limit" : undefined;
+  if (other === undefined || !accepted.includes(other)) return undefined;
+  // A non-numeric string under `k` is not a count (`k: "status"` on find_notes_by_property is a
+  // shortened `key`); leave that to the edit-distance hint. `k: 5` and `limit: "5"` keep this one.
+  if (typeof sent === "string" && sent.trim() !== "" && Number.isNaN(Number(sent)))
+    return undefined;
+  return other;
+}
+
+/** The value the caller sent under `key` inside the object at `path`, or undefined. */
+function sentValueAt(rawInput: unknown, path: ReadonlyArray<PropertyKey>, key: string): unknown {
+  let cur: unknown = rawInput;
+  for (const seg of path) cur = valueAt(cur, seg);
+  return valueAt(cur, key);
+}
+
 function pathKeyOf(path: ReadonlyArray<PropertyKey>): string {
   return path.map(String).join(".");
 }
@@ -228,7 +253,7 @@ function pathKeyOf(path: ReadonlyArray<PropertyKey>): string {
 /** `details.accepted_keys` (+ `details.key_hints` when non-empty — THE-1042 fix round 1 R3, omitted
  *  rather than `{}`) for every `unrecognized_keys` issue, keyed by the issue's path (""=top level).
  *  `key_hints` names the accepted key a rejected key probably meant — the tool's alias table first,
- *  else nearest by edit distance, NEVER the rejected key itself (fix round 1 U1: filtered from the
+ *  then the `k`/`limit` pair, else nearest by edit distance, NEVER the rejected key itself (fix round 1 U1: filtered from the
  *  candidates and re-checked after, on top of `acceptedKeysAt`'s own branch-resolution fix). Also
  *  covers a bad discriminator value: zod's `invalid_union` issue carries the discriminator's allowed
  *  literal values directly, no schema walk needed — error-rendering.ts renders it with the same
@@ -252,7 +277,10 @@ function unrecognizedKeyHints(
       accepted_keys[pathKey] = acceptedForPath;
       for (const rejected of issue.keys) {
         const candidates = acceptedForPath.filter((k) => k !== rejected);
-        const suggestion = aliases?.[rejected] ?? nearestKey(rejected, candidates);
+        const suggestion =
+          aliases?.[rejected] ??
+          countAliasOf(rejected, acceptedForPath, sentValueAt(rawInput, issue.path, rejected)) ??
+          nearestKey(rejected, candidates);
         if (suggestion && suggestion !== rejected) {
           key_hints[pathKey] ??= {};
           key_hints[pathKey][rejected] = suggestion;

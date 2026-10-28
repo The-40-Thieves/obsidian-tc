@@ -14,9 +14,9 @@ export function stdioContext(deps: {
   db: Database;
   acl: FolderAcl;
   config: { sessions: { windowSeconds?: number } };
-  firstVault: { id: string };
+  defaultVaultId: string;
 }): (signal?: AbortSignal) => CallerContext {
-  const { activeSessions, db, acl, config, firstVault } = deps;
+  const { activeSessions, db, acl, config, defaultVaultId } = deps;
   return (signal) => {
     const active = activeSessions.validate(db, "stdio", config.sessions);
     return {
@@ -24,11 +24,11 @@ export function stdioContext(deps: {
       transport: "stdio",
       authenticated: true,
       grantedScopes: new Set(["*"]),
-      vaultId: firstVault.id,
+      vaultId: defaultVaultId,
       db,
       acl,
       signal,
-      ...(active && active.vaultId === firstVault.id ? { sessionId: active.sessionId } : {}),
+      ...(active && active.vaultId === defaultVaultId ? { sessionId: active.sessionId } : {}),
     };
   };
 }
