@@ -7,6 +7,7 @@
 // frontmatter failure, plus the existing embed-failure summary when present — and, folded through
 // applyReconcileOutcome, that a later clean pass still clears health back to "ok".
 import { describe, expect, it } from "vitest";
+import { provisionCacheDb } from "../src/db/provision";
 import {
   createReconcileRunner,
   type ReconcileRunnerDeps,
@@ -14,6 +15,7 @@ import {
 } from "../src/runtime/plane-wiring";
 import { applyReconcileOutcome, type ReconcileHealth } from "../src/runtime/reconcile-outcome";
 import type { IndexStats, IndexVaultArgs } from "../src/search/indexer";
+import { cleanIndexStats, openMemoryDb } from "./helpers";
 
 const NOW = 1_800_000_000_000;
 
@@ -21,35 +23,9 @@ function health(): ReconcileHealth {
   return { reconcile: "pending", reconcileAt: null, reconcileErrors: [] };
 }
 
-/** A clean IndexStats, overridable per test — every field IndexStats requires, at its zero value. */
+/** A clean IndexStats for these fixtures: the shared builder at 8 dimensions, overridable per test. */
 function stats(over: Partial<IndexStats> = {}): IndexStats {
-  return {
-    notes_seen: 0,
-    notes_indexed: 0,
-    chunks_upserted: 0,
-    chunks_deleted: 0,
-    chunks_unchanged: 0,
-    edges_inserted: 0,
-    edges_deleted: 0,
-    secrets_skipped: 0,
-    vec_enabled: true,
-    fts_enabled: true,
-    notes_upserted: 0,
-    notes_deleted: 0,
-    notes_embed_failed: 0,
-    chunks_dedup_reused: 0,
-    chunks_dedup_unresolved: 0,
-    embed_batch_rejections: 0,
-    notes_stale_skipped: 0,
-    notes_epoch_stale_skipped: 0,
-    notes_frontmatter_failed: 0,
-    frontmatter_failures: [],
-    notes_read_refused: 0,
-    read_refusals: [],
-    model: "fake",
-    dimensions: 8,
-    ...over,
-  };
+  return cleanIndexStats({ dimensions: 8, ...over });
 }
 
 describe("reconcileResultsForVault (THE-1073)", () => {
@@ -216,7 +192,7 @@ function minimalReconcileDeps(
 ): ReconcileRunnerDeps {
   return {
     vaults: [{ id: "v1", path: "/tmp/v1" }] as never,
-    db: {} as never,
+    db: provisionedDb(),
     embeddingProvider: {} as never,
     embedConfig: { batchSize: 8, concurrency: 1, maxBatchTokens: 2048 },
     chunkContext: false,
@@ -281,3 +257,10 @@ describe("createReconcileRunner — indexing.backgroundEmbed wiring (GH #995 fol
     expect(called).toBe(false);
   });
 });
+
+/** A provisioned cache.db: the reconcile runner persists its outcome there (reconcile-state.ts). */
+function provisionedDb() {
+  const db = openMemoryDb();
+  provisionCacheDb(db);
+  return db;
+}

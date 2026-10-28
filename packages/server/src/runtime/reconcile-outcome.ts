@@ -52,7 +52,13 @@ export interface ReconcileHealth {
 export function applyReconcileOutcome(
   results: readonly ReconcileResult[],
   health: ReconcileHealth,
-  deps: { now: () => number; write: (s: string) => void },
+  deps: {
+    now: () => number;
+    write: (s: string) => void;
+    /** GH #995 follow-up: the leader persists the folded outcome so a follower can report it
+     *  (reconcile-state.ts). Called once per pass, after `health` is updated. */
+    persist?: (health: ReconcileHealth) => void;
+  },
 ): Array<{ vault: string; error: string }> {
   const failed = results.filter((r) => r.error !== null);
   const reconcileErrors = failed.map((r) => ({ vault: r.vault, error: r.error as string }));
@@ -80,5 +86,6 @@ export function applyReconcileOutcome(
         `The search index may be incomplete; ${hint}\n`,
     );
   }
+  deps.persist?.(health);
   return reconcileErrors;
 }

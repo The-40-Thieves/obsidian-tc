@@ -60,6 +60,7 @@ import type { IndexHealthState, IndexResources } from "./indexing-wiring";
 import { wireM5Tools } from "./m5-wiring";
 import { buildM6Deps } from "./m6-wiring";
 import { memoryVaultAccessors } from "./memory-vault-accessors";
+import { persistNotesReady, reconcileView } from "./reconcile-state";
 
 export interface HealthToolsDeps {
   registry: ToolRegistry;
@@ -93,10 +94,11 @@ export interface HealthToolsDeps {
     lastSendAt?: number;
     lastError?: string;
   };
-  /** THE-1108: cache.db handle + config.sessions, so wireHealthTools can build
-   *  createHealthTool's `getStaleExplicitSessions` accessor itself. Absent -> the block is
-   *  omitted, same as every other optional health accessor above. */
+  /** cache.db handle: a follower reads the leader's persisted reconcile state through it (GH #995),
+   *  and with `sessions` it builds createHealthTool's `getStaleExplicitSessions` accessor (THE-1108).
+   *  Absent -> a follower reports pending, and that accessor is omitted. */
   db?: Database;
+  /** config.sessions: the window for the stale-explicit-sessions block (THE-1108). */
   sessions?: { windowSeconds: number };
   /** Config deprecations still in use (allowPlainHttp), computed once at boot. Absent -> none. */
   deprecations?: readonly string[];
@@ -118,13 +120,50 @@ export interface HealthToolsDeps {
  * reader over the same index-health state (THE-491).
  */
 export function wireHealthTools(deps: HealthToolsDeps): void {
-  const indexSnapshot = () => ({
-    reconcile: deps.indexHealth.reconcile,
-    reconcile_at: deps.indexHealth.reconcileAt,
-    write_failures: deps.indexHealth.writeFailures,
-    frontmatter_failures: deps.indexHealth.frontmatterFailures.size,
-    notes_ready: deps.indexHealth.notesReady,
-  });
+  // GH #995 follow-up: a follower reports the leader's persisted reconcile outcome, not its own
+  // never-run defaults (reconcile-state.ts). write/frontmatter counters stay this process's own.
+  const reconcileNow = () =>
+    reconcileView({
+      isFollower: deps.getLeaderRole?.() === "follower",
+      db: deps.db,
+      self: {
+        reconcile: deps.indexHealth.reconcile,
+        reconcileAt: deps.indexHealth.reconcileAt,
+        reconcileErrors: deps.indexHealth.reconcileErrors,
+        notesReady: deps.indexHealth.notesReady,
+      },
+    });
+  // Read ONCE per call: the index block and the authenticated detail must come from the same
+  // persisted row, not from two reads that a leader write can land between (GH #995 review).
+  const indexSnapshot = (authenticated: boolean) => {
+    const r = reconcileNow();
+    return {
+      reconcile: r.reconcile,
+      reconcile_at: r.reconcileAt,
+      write_failures: deps.indexHealth.writeFailures,
+      frontmatter_failures: deps.indexHealth.frontmatterFailures.size,
+      notes_ready: r.notesReady,
+      reconcile_source: r.source,
+      ...(authenticated
+        ? {
+            detail: {
+              reconcile_errors: r.reconcileErrors,
+              audit_write_failures: deps.indexHealth.auditWriteFailures,
+              // THE-458 (audit #5): index-on-write coordinator depth + backpressure.
+              index_queue_depth: deps.getIndexCoordinatorStats().queued,
+              index_queue_active: deps.getIndexCoordinatorStats().active,
+              index_queue_backpressures: deps.indexHealth.indexQueueBackpressures,
+              ...(deps.indexHealth.lastWriteError !== undefined
+                ? { last_write_error: deps.indexHealth.lastWriteError }
+                : {}),
+              ...(deps.indexHealth.lastFrontmatterFailure !== undefined
+                ? { last_frontmatter_failure: deps.indexHealth.lastFrontmatterFailure }
+                : {}),
+            },
+          }
+        : {}),
+    };
+  };
   deps.registry.register(
     createHealthTool({
       version: deps.version,
@@ -137,27 +176,7 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
       vecEnabled: deps.hasVec,
       getFtsStatus: () => deps.fts.status(),
       aclFor: (id) => deps.registry.aclFor(id),
-      getIndexHealth: (authenticated) => ({
-        ...indexSnapshot(),
-        ...(authenticated
-          ? {
-              detail: {
-                reconcile_errors: deps.indexHealth.reconcileErrors,
-                audit_write_failures: deps.indexHealth.auditWriteFailures,
-                // THE-458 (audit #5): index-on-write coordinator depth + backpressure.
-                index_queue_depth: deps.getIndexCoordinatorStats().queued,
-                index_queue_active: deps.getIndexCoordinatorStats().active,
-                index_queue_backpressures: deps.indexHealth.indexQueueBackpressures,
-                ...(deps.indexHealth.lastWriteError !== undefined
-                  ? { last_write_error: deps.indexHealth.lastWriteError }
-                  : {}),
-                ...(deps.indexHealth.lastFrontmatterFailure !== undefined
-                  ? { last_frontmatter_failure: deps.indexHealth.lastFrontmatterFailure }
-                  : {}),
-              },
-            }
-          : {}),
-      }),
+      getIndexHealth: indexSnapshot,
       getJobQueueStats: deps.getJobQueueStats,
       ...(deps.toolFacade ? { toolFacade: toolFacadeHealthView(deps.toolFacade) } : {}),
       ...(deps.getTelemetryStatus ? { getTelemetryStatus: deps.getTelemetryStatus } : {}),
@@ -181,7 +200,7 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
     createIndexStatusTool({
       vecEnabled: deps.hasVec,
       getFtsStatus: () => deps.fts.status(),
-      getIndexHealth: indexSnapshot,
+      getIndexHealth: () => indexSnapshot(false),
       getLastChunksUpserted: () => deps.indexHealth.lastChunksUpserted,
       getInFlightProgress: () => deps.indexHealth.inFlight,
       // Per-vault read ACLs decide who may see the shared index's folder-walk counters.
@@ -465,7 +484,9 @@ export function wireM1Tools(deps: M1WiringDeps): void {
         onVecRebuild: deps.onVecRebuild,
         onIndexed: deps.makeOnIndexed(vaultId),
         onNotesPass: () => {
+          if (deps.indexHealth.notesReady) return;
           deps.indexHealth.notesReady = true;
+          persistNotesReady(deps.db); // GH #995 follow-up: followers report notes_ready
         },
         // THE-490/THE-591: indexing.streamingWalk. Off by default -> byte-identical to before.
         walk: { streaming: config.indexing.streamingWalk },

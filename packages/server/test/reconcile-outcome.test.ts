@@ -91,6 +91,25 @@ describe("applyReconcileOutcome", () => {
     expect(h.reconcileAt).toBe(NOW + 60_000);
   });
 
+  it("hands the folded outcome to an injected persist hook after every pass (GH #995 follow-up)", () => {
+    // The leader persists this so a follower's server_health can report it; a pass that is not
+    // persisted would leave followers reporting a stale or pending state indefinitely.
+    const h = health();
+    const seen: Array<{ reconcile: string; errors: number }> = [];
+    const deps = {
+      now: () => NOW,
+      write: () => {},
+      persist: (x: ReconcileHealth) =>
+        seen.push({ reconcile: x.reconcile, errors: x.reconcileErrors.length }),
+    };
+    applyReconcileOutcome([{ vault: "v1", error: "transient" }], h, deps);
+    applyReconcileOutcome([{ vault: "v1", error: null }], h, deps);
+    expect(seen).toEqual([
+      { reconcile: "degraded", errors: 1 },
+      { reconcile: "ok", errors: 0 },
+    ]);
+  });
+
   it("treats an empty result set as ok rather than throwing", () => {
     // Reachable if every vault's promise rejected upstream and was filtered, or a zero-vault config
     // slipped past validation. It must not throw inside a background pass.

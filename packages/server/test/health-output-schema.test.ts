@@ -61,6 +61,26 @@ const ctxBase = {
   db: {} as never,
 } satisfies Partial<CallerContext>;
 
+/** The health tool every case builds: a fixed identity, with the case's own fields spread over it. */
+function healthTool(extra: Partial<Parameters<typeof createHealthTool>[0]> = {}) {
+  return createHealthTool({
+    version: "test",
+    vaults: ["v1"],
+    startedAt: 0,
+    nativeLoaded: false,
+    vecEnabled: false,
+    ...extra,
+  });
+}
+
+/** The SDK's ajv validator against the tool's advertised outputSchema, on the JSON a client receives. */
+function ajvValid(tool: ReturnType<typeof healthTool>, out: unknown): boolean {
+  // biome-ignore lint/style/noNonNullAssertion: createHealthTool always declares an outputSchema.
+  const schema = toJson(tool.outputSchema!)!;
+  const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
+  return validate(JSON.parse(JSON.stringify(out))).valid;
+}
+
 describe("server_health's emitted payload vs its advertised outputSchema (ajv, THE-1073 fix round 2)", () => {
   it("a degraded reconcile (frontmatter failure, real reconcileResultsForVault) validates under ajv, the way a real MCP client checks it", () => {
     const health: ReconcileHealth = {
@@ -75,12 +95,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     expect(health.reconcile).toBe("degraded");
     expect(health.reconcileErrors).toHaveLength(1);
 
-    const tool = createHealthTool({
-      version: "test",
-      vaults: ["v1"],
-      startedAt: 0,
-      nativeLoaded: false,
-      vecEnabled: false,
+    const tool = healthTool({
       getIndexHealth: (authenticated) => ({
         reconcile: health.reconcile,
         reconcile_at: health.reconcileAt,
@@ -100,20 +115,27 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     // THE GATE: ajv against the JSON Schema toJson() emits — the same validator
     // @modelcontextprotocol/sdk's Client.callTool runs client-side, and the one that actually
     // rejected fix round 1's leaked `kind` field with "must NOT have additional properties".
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above.
-    const schema = toJson(tool.outputSchema!)!;
-    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
-    const result = validate(JSON.parse(JSON.stringify(out)));
-    expect(result.valid).toBe(true);
+    expect(ajvValid(tool, out)).toBe(true);
+  });
+
+  it("reconcile_source (leader/self) on the index block validates under ajv", () => {
+    // GH #995 follow-up: a follower reports the leader's persisted state and says so. The schema
+    // must list the field, or the SDK's ajv validator rejects the whole server_health payload.
+    const tool = healthTool({
+      getIndexHealth: () => ({
+        reconcile: "ok",
+        reconcile_at: 1,
+        write_failures: 0,
+        notes_ready: true,
+        reconcile_source: "leader",
+      }),
+    });
+    const out = tool.handler({}, { ...ctxBase, authenticated: true } as CallerContext);
+    expect(ajvValid(tool, out)).toBe(true);
   });
 
   it("the index-on-write frontmatter fields (count + last failure) validate under ajv, and write_failures stays 0", () => {
-    const tool = createHealthTool({
-      version: "test",
-      vaults: ["v1"],
-      startedAt: 0,
-      nativeLoaded: false,
-      vecEnabled: false,
+    const tool = healthTool({
       getIndexHealth: (authenticated) => ({
         reconcile: "ok",
         reconcile_at: 1,
@@ -135,10 +157,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
       }),
     });
     const out = tool.handler({}, { ...ctxBase, authenticated: true } as CallerContext);
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined by createHealthTool.
-    const schema = toJson(tool.outputSchema!)!;
-    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
-    expect(validate(JSON.parse(JSON.stringify(out))).valid).toBe(true);
+    expect(ajvValid(tool, out)).toBe(true);
     const index = (out as { index: { write_failures: number; frontmatter_failures: number } })
       .index;
     expect(index.write_failures).toBe(0);
@@ -150,12 +169,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
   // — see reference_obsidian_tc_zod_safeparse_strips_but_ajv_rejects_extra_keys. Pinned here so a
   // future field added to that block is caught the same way fix round 1's `kind` leak was.
   it("the toolFacade block (auto mode, resolved from ctx.effectiveFacadeMode) validates under ajv too", () => {
-    const tool = createHealthTool({
-      version: "test",
-      vaults: ["v1"],
-      startedAt: 0,
-      nativeLoaded: false,
-      vecEnabled: false,
+    const tool = healthTool({
       toolFacade: { configured: "auto", autoClients: { cursor: "flat" }, profile: "core" },
     });
     const out = tool.handler({}, {
@@ -180,11 +194,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     expect(tool.outputSchema).toBeDefined();
     // biome-ignore lint/style/noNonNullAssertion: asserted defined immediately above.
     expect(tool.outputSchema!.safeParse(out).success).toBe(true);
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined above.
-    const schema = toJson(tool.outputSchema!)!;
-    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
-    const result = validate(JSON.parse(JSON.stringify(out)));
-    expect(result.valid).toBe(true);
+    expect(ajvValid(tool, out)).toBe(true);
   });
 
   // allowPlainHttp is deprecated: server_health says so, from the REAL wiring helper that reads
@@ -196,12 +206,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
       experiential: { citationInfer: { judge: { provider: "typesafe", allowPlainHttp: true } } },
       wikiJudge: { provider: "typesafe", allowPlainHttp: true },
     });
-    const tool = createHealthTool({
-      version: "test",
-      vaults: ["v1"],
-      startedAt: 0,
-      nativeLoaded: false,
-      vecEnabled: false,
+    const tool = healthTool({
       ...(wiring.deprecations ? { deprecations: wiring.deprecations } : {}),
     });
     // The deprecation lines are behind the same gate as the vault list (see
@@ -216,10 +221,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
       ),
       expect.stringMatching(/wikiJudge\.allowPlainHttp is deprecated/),
     ]);
-    // biome-ignore lint/style/noNonNullAssertion: outputSchema is defined for this tool.
-    const schema = toJson(tool.outputSchema!)!;
-    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
-    expect(validate(JSON.parse(JSON.stringify(out))).valid).toBe(true);
+    expect(ajvValid(tool, out)).toBe(true);
   });
 
   it("deprecations: absent when no judge sets allowPlainHttp", () => {
@@ -250,34 +252,21 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     expect(wiring.deprecations).toEqual([
       expect.stringMatching(/^embeddings\.baseUrl: .*emb\.lan.*network\.plainHttpHosts/),
     ]);
-    const tool = createHealthTool({
-      version: "test",
-      vaults: ["v1"],
-      startedAt: 0,
-      nativeLoaded: false,
-      vecEnabled: false,
+    const tool = healthTool({
       ...(wiring.deprecations ? { deprecations: wiring.deprecations } : {}),
     });
     const out = tool.handler({}, {
       ...ctxBase,
       authenticated: false,
     } as CallerContext) as HealthInfo;
-    // biome-ignore lint/style/noNonNullAssertion: outputSchema is defined for this tool.
-    const schema = toJson(tool.outputSchema!)!;
-    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
-    expect(validate(JSON.parse(JSON.stringify(out))).valid).toBe(true);
+    expect(ajvValid(tool, out)).toBe(true);
   });
 
   // `toolFacade.explainAutoMode`: the optional `explanation` sub-object must survive the SDK's ajv
   // validator too (zod's safeParse strips unknown keys; ajv rejects them), so a field added to the
   // explanation but not to the output schema fails here.
   it("the toolFacade block carrying an explanation validates under zod and ajv", () => {
-    const tool = createHealthTool({
-      version: "test",
-      vaults: ["v1"],
-      startedAt: 0,
-      nativeLoaded: false,
-      vecEnabled: false,
+    const tool = healthTool({
       toolFacade: { configured: "auto", profile: "core" },
     });
     const explanation = explainAutoFacadeMode("claude-code", { zed: "flat" });
@@ -290,11 +279,8 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     } as CallerContext) as HealthInfo;
     expect(out.toolFacade?.explanation).toEqual(explanation);
     // biome-ignore lint/style/noNonNullAssertion: outputSchema is defined for this tool.
-    const schema = toJson(tool.outputSchema!)!;
-    // biome-ignore lint/style/noNonNullAssertion: outputSchema is defined for this tool.
     expect(tool.outputSchema!.safeParse(out).success).toBe(true);
-    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
-    expect(validate(JSON.parse(JSON.stringify(out))).valid).toBe(true);
+    expect(ajvValid(tool, out)).toBe(true);
   });
 
   // THE-1123 review fix (HIGH): the exact regression the reviewer reproduced — a naive
@@ -302,12 +288,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
   // built-in claude-code entry), but `ctx.effectiveFacadeMode` is what the real connection actually
   // resolved to (set once, cached, shared with tools/list) and MUST win.
   it("effective reads ctx.effectiveFacadeMode even when a naive re-resolution from clientInfo would disagree", () => {
-    const tool = createHealthTool({
-      version: "test",
-      vaults: ["v1"],
-      startedAt: 0,
-      nativeLoaded: false,
-      vecEnabled: false,
+    const tool = healthTool({
       toolFacade: { configured: "auto", profile: "core" },
     });
     const out = tool.handler({}, {
@@ -320,12 +301,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
   });
 
   it("the advertise fields validate under ajv and echo the configured + per-connection subsets", () => {
-    const tool = createHealthTool({
-      version: "test",
-      vaults: ["v1"],
-      startedAt: 0,
-      nativeLoaded: false,
-      vecEnabled: false,
+    const tool = healthTool({
       toolFacade: { configured: "triad", profile: "full", advertise: "core" },
     });
     const out = tool.handler({}, {
@@ -367,12 +343,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
   });
 
   it("a caller with no observable clientInfo omits clientName (never a placeholder)", () => {
-    const tool = createHealthTool({
-      version: "test",
-      vaults: ["v1"],
-      startedAt: 0,
-      nativeLoaded: false,
-      vecEnabled: false,
+    const tool = healthTool({
       toolFacade: { configured: "triad", profile: "core" },
     });
     const out = tool.handler({}, {
@@ -390,11 +361,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     expect(out.toolFacade).not.toHaveProperty("clientName");
 
     expect(tool.outputSchema).toBeDefined();
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined immediately above.
-    const schema = toJson(tool.outputSchema!)!;
-    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
-    const result = validate(JSON.parse(JSON.stringify(out)));
-    expect(result.valid).toBe(true);
+    expect(ajvValid(tool, out)).toBe(true);
   });
 
   // THE-1125: the telemetry block validates under ajv — the same zod/ajv drift class THE-1073
@@ -466,11 +433,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
       expect(out.telemetry?.nextSendAt).toBe(1737936000000 + 60 * 60_000);
 
       expect(tool.outputSchema).toBeDefined();
-      // biome-ignore lint/style/noNonNullAssertion: asserted defined immediately above.
-      const schema = toJson(tool.outputSchema!)!;
-      const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
-      const result = validate(JSON.parse(JSON.stringify(out)));
-      expect(result.valid).toBe(true);
+      expect(ajvValid(tool, out)).toBe(true);
     } finally {
       db?.close?.();
       rmTemp(cacheDir);
@@ -478,12 +441,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
   });
 
   it("the telemetry block (disabled, no install id yet) validates under ajv too", () => {
-    const tool = createHealthTool({
-      version: "test",
-      vaults: ["v1"],
-      startedAt: 0,
-      nativeLoaded: false,
-      vecEnabled: false,
+    const tool = healthTool({
       getTelemetryStatus: () => ({ enabled: false }),
     });
     const out = tool.handler({}, {
@@ -495,10 +453,6 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     expect(out.telemetry).not.toHaveProperty("installId");
 
     expect(tool.outputSchema).toBeDefined();
-    // biome-ignore lint/style/noNonNullAssertion: asserted defined immediately above.
-    const schema = toJson(tool.outputSchema!)!;
-    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
-    const result = validate(JSON.parse(JSON.stringify(out)));
-    expect(result.valid).toBe(true);
+    expect(ajvValid(tool, out)).toBe(true);
   });
 });

@@ -9,6 +9,9 @@ import { type AdvertiseSubset, NON_CORE_TOOL_NAMES } from "../../mcp/tool-profil
 import type { FtsStatus } from "../../search/fts-status";
 import { readUnrestrictedOnEveryVault } from "../../vault/acl-read-filter";
 
+const reconcileSource = z.enum(["leader", "self"]);
+type ReconcileSource = z.infer<typeof reconcileSource>;
+
 export interface IndexHealthSnapshot {
   /** Boot reconcile lifecycle: `pending` until it settles, then `ok`, or `degraded` if any vault
    *  failed to reconcile. Non-identifying. */
@@ -20,6 +23,7 @@ export interface IndexHealthSnapshot {
   frontmatter_failures?: number;
   /** THE-291: the notes/FTS metadata pass completed (independent of embed success). */
   notes_ready?: boolean;
+  reconcile_source?: ReconcileSource;
   /** Per-vault reconcile errors + last write error — authenticated, non-vault-bound callers only
    *  (THE-924; may name paths). */
   detail?: {
@@ -201,6 +205,7 @@ export interface IndexStatusInfo {
   write_failures: number;
   frontmatter_failures?: number;
   notes_ready: boolean;
+  reconcile_source: ReconcileSource;
   vec_enabled: boolean;
   fts_enabled: boolean;
   fts?: FtsHealthView;
@@ -229,6 +234,7 @@ const IndexStatusOutput = z.object({
   write_failures: z.number(),
   frontmatter_failures: z.number().optional(),
   notes_ready: z.boolean(),
+  reconcile_source: reconcileSource,
   vec_enabled: z.boolean(),
   fts_enabled: z.boolean(),
   fts: FtsHealthOutput.optional(),
@@ -242,6 +248,7 @@ const IndexHealthSnapshotOutput = z.object({
   write_failures: z.number(),
   frontmatter_failures: z.number().optional(),
   notes_ready: z.boolean().optional(),
+  reconcile_source: reconcileSource.optional(),
   // authenticated, non-vault-bound callers only (may name paths; THE-924): absent for an
   // unauthenticated OR vault-bound server_health call.
   detail: z
@@ -382,6 +389,7 @@ export function createIndexStatusTool(opts: {
           ? { frontmatter_failures: snap.frontmatter_failures }
           : {}),
         notes_ready: snap.notes_ready ?? false,
+        reconcile_source: snap.reconcile_source ?? "self",
         vec_enabled: opts.vecEnabled,
         fts_enabled: fts ? fts.state === "available" : (opts.ftsEnabled ?? false),
         ...(fts ? { fts: ftsView(fts, fullRead) } : {}),
