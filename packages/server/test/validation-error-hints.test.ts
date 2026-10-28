@@ -337,3 +337,55 @@ describe("THE-1042 (GH #935): validation errors name the fix", () => {
     expect(details.did_you_mean).toBeUndefined();
   });
 });
+
+// The count argument is `k` on the semantic/experiential family and `limit` on the listing/search
+// family. Neither edit distance nor the GH #935 root/folder table bridges them, so the hint is
+// derived from the tool's own accepted keys: a rejected `limit` on a `k` tool names `k`, and the
+// reverse. No tool name is listed anywhere, so a new tool gets the hint with no entry.
+describe("k vs limit: a rejected count argument names its sibling", () => {
+  it("search_semantic (takes k) rejects limit: key_hints names k", async () => {
+    const { client, cleanup } = await connect();
+    cleanups.push(cleanup);
+    const res = await callCapability(client, "search_semantic", {
+      vault: "auny",
+      query: "blog",
+      limit: 5,
+    });
+    expect(res.isError).toBe(true);
+    expect(textOf(res)).toContain('did you mean "k"');
+    expect(detailsOf(res).key_hints?.[""]).toEqual({ limit: "k" });
+  });
+
+  it("search_text (takes limit) rejects k: key_hints names limit", async () => {
+    const { client, cleanup } = await connect();
+    cleanups.push(cleanup);
+    const res = await callCapability(client, "search_text", {
+      vault: "auny",
+      query: "blog",
+      k: 5,
+    });
+    expect(res.isError).toBe(true);
+    expect(textOf(res)).toContain('did you mean "limit"');
+    expect(detailsOf(res).key_hints?.[""]).toEqual({ k: "limit" });
+  });
+
+  it("list_notes (takes limit, no k) rejects k: key_hints names limit", async () => {
+    const { client, cleanup } = await connect();
+    cleanups.push(cleanup);
+    const res = await callCapability(client, "list_notes", { vault: "auny", k: 5 });
+    expect(res.isError).toBe(true);
+    expect(detailsOf(res).key_hints?.[""]).toEqual({ k: "limit" });
+  });
+
+  it("read_note (takes neither k nor limit) rejects limit: no count hint", async () => {
+    const { client, cleanup } = await connect();
+    cleanups.push(cleanup);
+    const res = await callCapability(client, "read_note", {
+      vault: "auny",
+      path: "a.md",
+      limit: 5,
+    });
+    expect(res.isError).toBe(true);
+    expect(detailsOf(res).key_hints?.[""]?.limit).toBeUndefined();
+  });
+});
