@@ -29,7 +29,7 @@ const MODERN = "2026-07-28";
 /** Records the context each call was dispatched with, so leakage is directly observable. */
 const seen: CallerContext[] = [];
 
-async function boot() {
+async function boot(vaultId = "alpha") {
   const db = openMemoryDb();
   provisionCacheDb(db);
   const registry = new ToolRegistry();
@@ -56,7 +56,7 @@ async function boot() {
     registry,
     auth,
     db,
-    vaultId: "alpha",
+    vaultId,
     acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
     host: "127.0.0.1",
     port: 0,
@@ -108,6 +108,24 @@ async function whoami(port: number, jwt: string): Promise<Record<string, unknown
   const body = JSON.parse(line ? line.slice(6) : text || "{}");
   return body.result?.structuredContent ?? body;
 }
+
+describe("an unbound token takes the transport's default vault", () => {
+  // Pins the HTTP layer's contract only (`authz.vault ?? opts.vaultId`); the runtime wiring that
+  // chooses `opts.vaultId` is covered by http-default-vault.test.ts.
+  it("lands on the vault the transport was built with, on every call", async () => {
+    seen.length = 0;
+    const handle = await boot("beta");
+    try {
+      const unbound = await tokenFor("agent-unbound", ["read:notes"]);
+      const first = await whoami(handle.port, unbound);
+      const again = await whoami(handle.port, unbound);
+      expect(first.vaultId).toBe("beta");
+      expect(again.vaultId).toBe("beta");
+    } finally {
+      await handle.close();
+    }
+  });
+});
 
 describe("one shared handler, two callers (THE-583)", () => {
   it(

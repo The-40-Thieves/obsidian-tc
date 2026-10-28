@@ -66,7 +66,7 @@ export function withDefaultVault(
  *  parsed vault argument, explicit or defaulted) when that differs from the caller's own. Everything
  *  keyed on a per-call vault (the elicit_required text and mint command, token mint/redeem, audit,
  *  idempotency claim, rate-limit bucket, metrics) reads `ctx.vaultId`, so it must name the effect
- *  vault, never the stdio first-vault placeholder. Call only AFTER enforceVaultBinding, which needs
+ *  vault, never the stdio default-vault placeholder. Call only AFTER enforceVaultBinding, which needs
  *  the caller's own `vaultId`. Returns `ctx` itself when nothing differs, so the common case keeps
  *  one context object; a copy otherwise, which leaves a shared caller context untouched. */
 export function withEffectiveVault(

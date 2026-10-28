@@ -501,7 +501,7 @@ https-only, and the optional local embedder and reranker download their model fi
 | Variable | Purpose |
 | --- | --- |
 | `OBSIDIAN_TC_CONFIG` | Config path when no CLI argument is given. |
-| `OBSIDIAN_TC_DEFAULT_VAULT` | Default vault id when several are configured. |
+| `OBSIDIAN_TC_DEFAULT_VAULT` | Default vault id when several are configured. It is also the vault an unbound HTTP/OAuth token (no `vault` claim, no grant vault) is bound to. |
 | `OBSIDIAN_TC_JWT_SECRET` | HS256 signing secret (keeps it off disk). |
 | `PORT` | HTTP port: `transports.http.port`, and turns the HTTP transport on unless the file sets it to `false`. Refused unless an integer from 1 to 65535. See [Railway](/deployment/railway/). |
 | `OBSIDIAN_TC_PUBLIC_URL` | Public `https://host[:port]`: sets `auth.resource` to its `/mcp` URL and adds its host to `transports.http.allowedHosts`. |

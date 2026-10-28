@@ -62,7 +62,7 @@ export interface SchedulerWiringDeps {
    *  outside any dispatch, so they get the pins here (the trace sweep, the wiki-pages sweep) and
    *  act under them exactly as a tool call does. */
   folderPins?: FolderPins;
-  /** run_serve's first vault id — the process-wide sweep event is attributed to it. */
+  /** run_serve's default vault id — the process-wide sweep event is attributed to it. */
   eventVaultId: string;
   /** The live vault registry's ids, read at each memory orphan sweep (add_vault can grow it after
    *  boot). Absent -> the sweep's removed-vault class never runs. */

@@ -108,8 +108,7 @@ export async function buildServerRuntime(
    *  never nag by accident; cli.ts's `run_serve` passes the real computed value. */
   planeEnabledExplicit = true,
 ): Promise<ServerRuntime> {
-  const firstVault = config.vaults[0];
-  if (!firstVault) throw new Error("config.vaults must contain at least one vault");
+  if (config.vaults.length === 0) throw new Error("config.vaults must contain at least one vault");
   // Trust root for a `module` provider's modulePath: cwd in a container is arbitrary, so a
   // relative modulePath resolves against the config FILE's directory instead, refused entirely
   // when `configPath` is absent (module-loader.ts; see docs/design/server-runtime.md).
@@ -218,6 +217,7 @@ export async function buildServerRuntime(
       : {}),
   });
   const { acl, aclByVault, vaultRegistry, activeSessions, rateLimiter, registry } = governance;
+  const defaultVaultId = vaultRegistry.default; // OBSIDIAN_TC_DEFAULT_VAULT, else the first vault
   toolRegistryRef = registry; // THE-1125: registry exists now — see this file's lazy-ref comment above.
   const {
     embeddingProvider,
@@ -455,7 +455,7 @@ export async function buildServerRuntime(
       provenanceStamp: governance.provenanceStamp,
     });
 
-    const context = stdioContext({ activeSessions, db, acl, config, firstVault });
+    const context = stdioContext({ activeSessions, db, acl, config, defaultVaultId });
 
     const server = createMcpServer({
       name: "obsidian-tc",
@@ -484,7 +484,7 @@ export async function buildServerRuntime(
       registry,
       vaultRegistry,
       db,
-      firstVaultId: firstVault.id,
+      firstVaultId: defaultVaultId,
       acl,
       ...taskCalls,
       metrics,
@@ -535,7 +535,7 @@ export async function buildServerRuntime(
       // sync targets; see vault/watcher.ts), with maintenance.enabled defaulting to true.
       vaults: schedulerVaults(config.vaults, vaultRegistry),
       folderPins: vaultRegistry.folderPins,
-      eventVaultId: firstVault.id,
+      eventVaultId: defaultVaultId,
       listVaultIds: () => vaultRegistry.list().map((v) => v.id),
       ...(transports.authRegistry ? { authRegistry: transports.authRegistry } : {}),
       ...(transports.reapOauthDb ? { reapOauthDb: transports.reapOauthDb } : {}),
@@ -604,7 +604,7 @@ export async function buildServerRuntime(
     // so the rows written while it was off are backfilled.
     fts.schedule({ initialized, onRecovered: () => void runReconcile(bootReconcileAbort.signal) });
 
-    morgiana.emit(firstVault.id, "tc.server.start");
+    morgiana.emit(defaultVaultId, "tc.server.start");
 
     scheduler.start();
 
@@ -645,11 +645,11 @@ export async function buildServerRuntime(
           .finally(() => process.exit(0));
       };
       process.stderr.write(
-        `obsidian-tc ${VERSION} ready on stdio (vault ${firstVault.id}; native=${nativeReadyToken(nativeBindingActive)} vec=${hasVec ? "on" : "off"})\n`,
+        `obsidian-tc ${VERSION} ready on stdio (vault ${defaultVaultId}; native=${nativeReadyToken(nativeBindingActive)} vec=${hasVec ? "on" : "off"})\n`,
       );
     } else if (config.transports.http.enabled) {
       process.stderr.write(
-        `obsidian-tc ${VERSION} ready (http-only; stdio disabled; vault ${firstVault.id}; native=${nativeReadyToken(nativeBindingActive)} vec=${hasVec ? "on" : "off"})\n`,
+        `obsidian-tc ${VERSION} ready (http-only; stdio disabled; vault ${defaultVaultId}; native=${nativeReadyToken(nativeBindingActive)} vec=${hasVec ? "on" : "off"})\n`,
       );
     } else {
       process.stderr.write(
@@ -687,7 +687,7 @@ export async function buildServerRuntime(
     };
     await raceShutdownPhaseOrExit(drainOpts);
     await leaderElection.close(); // F3: release the lock LAST, once every writer above has stopped
-    morgiana.emit(firstVault.id, "tc.server.shutdown");
+    morgiana.emit(defaultVaultId, "tc.server.shutdown");
     // Every opened resource below gets a best-effort, independently-guarded close — one failing
     // must not skip the rest.
     try {
