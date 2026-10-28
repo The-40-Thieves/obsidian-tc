@@ -17,15 +17,28 @@ export interface ExportedChunkTexts {
   excluded: number;
 }
 
+/** One chunk as `textOf` sees it: headings already parsed. */
+export interface ExportChunk {
+  id: string;
+  path: string;
+  headings: string[];
+  content: string;
+}
+
 /** Every chunk's embed-text for the given vaults, in one stable order (vault, path, chunk_index).
  *  The text is the SHIPPED representation: enrichChunkText when `chunkContext` is on, bare content
  *  when it is off. The query side is enriched either way, so exporting the wrong one produces
- *  vectors that look fine and retrieve badly. Egress-excluded paths never leave the machine, the
- *  same rule `obsidian-tc index` applies before embedding. */
+ *  vectors that look fine and retrieve badly. `textOf`, when given, replaces that choice (the
+ *  embedder-arms harness exports each arm's own text). Egress-excluded paths never leave the
+ *  machine, the same rule `obsidian-tc index` applies before embedding. */
 export function exportChunkTexts(
   db: Database,
   vaultIds: readonly string[],
-  opts: { chunkContext: boolean; egress: EgressFilter },
+  opts: {
+    chunkContext: boolean;
+    egress: EgressFilter;
+    textOf?: (chunk: ExportChunk) => string;
+  },
 ): ExportedChunkTexts {
   const ids: string[] = [];
   const lines: string[] = [];
@@ -51,7 +64,11 @@ export function exportChunkTexts(
       } catch {
         headings = []; // unparseable headings: title-only is the right enrichment
       }
-      const text = opts.chunkContext ? enrichChunkText(r.path, headings, r.content) : r.content;
+      const text = opts.textOf
+        ? opts.textOf({ id: r.id, path: r.path, headings, content: r.content })
+        : opts.chunkContext
+          ? enrichChunkText(r.path, headings, r.content)
+          : r.content;
       ids.push(r.id);
       lines.push(JSON.stringify({ chunk_id: r.id, text }));
     }

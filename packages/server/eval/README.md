@@ -127,6 +127,25 @@ updates none. The model id, revision, width, pooling and checksums are read from
 `python-eval` job; run it locally with `cd packages/server/eval && ruff check . && ruff format --check . && pytest pytests`.
 A Modal run costs money and is run by the owner; the image has not been exercised against onnxruntime-gpu 1.26.0 on a T4 in CI.
 
+## EmbeddingGemma 2 on Modal (bf16, eval only)
+
+`modal_embed_gemma2.py` (owner-run: a Modal run costs money). bf16 or fp32 only; `fp16` is refused. The
+model loads text-only and the harness supplies prefixed text, so the script passes no prompt. Its pin is the
+`evalOnly` block of `embedder-model-pins.json`, not a local-provider catalog model. The harness drives it and
+prints each `modal run`; the shape, with `D` the experiment dir:
+
+```bash
+bun eval/embedder-arms.ts index <source-config.json> --arm embeddinggemma-2-768 --exp-dir D
+modal run eval/modal_embed_gemma2.py --texts D/arms/embeddinggemma-2-768/export/texts.jsonl --out-prefix D/arms/embeddinggemma-2-768/export/vecs --dims 768,256 --log D/arms/embeddinggemma-2-768/export/embed-log.json
+bun eval/embedder-arms.ts index <source-config.json> --arm embeddinggemma-2-768 --exp-dir D --vecs D/arms/embeddinggemma-2-768/export/vecs-768.f32 --ids D/arms/embeddinggemma-2-768/export/vecs-ids.json --embed-log D/arms/embeddinggemma-2-768/export/embed-log.json
+bun eval/embedder-arms.ts queries <golden.yaml> --arm embeddinggemma-2-768 --exp-dir D
+modal run eval/modal_embed_gemma2.py --queries D/arms/embeddinggemma-2-768/export/queries.jsonl --qout-prefix D/arms/embeddinggemma-2-768/export/qvecs --dims 768,256
+bun eval/embedder-arms.ts queries <golden.yaml> --arm embeddinggemma-2-768 --exp-dir D --qvecs D/arms/embeddinggemma-2-768/export/qvecs-768.f32 --qids D/arms/embeddinggemma-2-768/export/qvecs-ids.json
+```
+
+Every output of one run appears together or not at all; `--ids` and `--qids` are the keys of the vectors
+just written, so the pair always comes from one run. The export's `queries.jsonl` is `{"key","text"}` lines.
+
 ## The ship rule
 
 **Status 2026-08-02: the MDE is MEASURED on the engine that actually runs, and it is

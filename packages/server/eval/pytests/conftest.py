@@ -1,8 +1,9 @@
-"""Test harness for eval/modal_embed_nomic.py: no GPU, no network, no `modal` install needed.
+"""Test harness for eval/modal_embed_nomic.py and eval/modal_embed_gemma2.py: no GPU, no network,
+no `modal` install needed.
 
-The script's logic is module-level functions plus a thin Modal class. `modal` is replaced with a
-stub whose decorators are identity, so the real `Embedder` class is importable and testable with a
-mock tokenizer and a mock ORT session.
+The scripts' logic is module-level functions plus a thin Modal class. `modal` is replaced with a
+stub whose decorators are identity, so the real `Embedder` classes are importable and testable with
+a mock tokenizer, a mock ORT session or a fake SentenceTransformer-shaped model.
 """
 
 import sys
@@ -34,9 +35,29 @@ def _identity_decorator():
     return lambda fn: fn
 
 
+class _Volume:
+    """`modal_embed_gemma2.py` keeps its Hugging Face cache on a Volume and commits it after the
+    download; both calls are no-ops here."""
+
+    @classmethod
+    def from_name(cls, *args, **kwargs):
+        return cls()
+
+    def commit(self):
+        pass
+
+
+def _parameter(*args, **kwargs):
+    """`precision: str = modal.parameter(default=...)` on the Embedder class: a class attribute that
+    tests set directly, so the stub just returns None."""
+    return None
+
+
 _modal = types.ModuleType("modal")
 _modal.App = _App
 _modal.Image = _Image()
+_modal.Volume = _Volume
+_modal.parameter = _parameter
 _modal.enter = _identity_decorator
 _modal.method = _identity_decorator
 sys.modules["modal"] = _modal

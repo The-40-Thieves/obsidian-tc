@@ -240,6 +240,19 @@ describe("exportChunkTexts", () => {
     expect(out.excluded).toBe(1);
   });
 
+  it("textOf replaces the shipped text (the harness's per-arm text) and still withholds excluded paths", () => {
+    const out = exportChunkTexts(exportDb(), ["v1"], {
+      chunkContext: true,
+      egress,
+      textOf: (c) => `${c.path}|${c.headings.join(">")}|${c.content}`,
+    });
+    expect(out.lines.map((l) => JSON.parse(l))).toEqual([
+      { chunk_id: "c1", text: "notes/Alpha.md|Alpha>Intro|first body" },
+      { chunk_id: "c3", text: "notes/Beta.md||third body" },
+    ]);
+    expect(out.excluded).toBe(1);
+  });
+
   it("with no exclusion rules exports every chunk", () => {
     const out = exportChunkTexts(exportDb(), ["v1"], {
       chunkContext: true,

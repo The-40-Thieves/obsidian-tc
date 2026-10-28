@@ -14,6 +14,7 @@ import {
   PINS_FILE,
   PY_DIR,
   PY_EMBEDDER_RE,
+  pinsToWrite,
 } from "./check-model-pins.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -93,6 +94,81 @@ test("RED: an empty catalog, and zero Python files scanned, are failures not sil
   assert.match(run({ pyFiles: [] }).problems.join("\n"), /scanned nothing/);
 });
 
+const committed = JSON.parse(committedJson);
+/** The committed artifact with one hand edit applied, as JSON text. */
+const mutant = (patch) => {
+  const c = structuredClone(committed);
+  patch(c);
+  return JSON.stringify(c);
+};
+
+test("evalOnly: a malformed entry is refused, naming the field", () => {
+  const cases = [
+    [
+      (c) => (c.evalOnly["embeddinggemma-2"].revision = "not-a-commit"),
+      /evalOnly\.embeddinggemma-2\.revision must be a 40-hex/,
+    ],
+    [
+      (c) => delete c.evalOnly["embeddinggemma-2"].files,
+      /evalOnly\.embeddinggemma-2\.files must be a non-empty array/,
+    ],
+    [
+      (c) => (c.evalOnly["embeddinggemma-2"].files[0].sha256 = "abc"),
+      /files\[0\]\.sha256 must be 64-hex/,
+    ],
+    [
+      (c) => (c.evalOnly["embeddinggemma-2"].format = "gguf"),
+      /format must be "safetensors" or "onnx"/,
+    ],
+    [
+      (c) => (c.evalOnly["embeddinggemma-2"].files[1].sizeBytes = 0),
+      /files\[1\]\.sizeBytes must be a positive integer/,
+    ],
+  ];
+  for (const [patch, pattern] of cases) {
+    assert.match(run({ committedJson: mutant(patch) }).problems.join("\n"), pattern);
+  }
+});
+
+test("evalOnly: an unknown top-level key is a failure", () => {
+  const problems = run({ committedJson: mutant((c) => (c.extra = {})) }).problems;
+  assert.match(problems.join("\n"), /unknown top-level key "extra"/);
+});
+
+test("evalOnly: --write keeps the block verbatim, and the written artifact passes the gate", () => {
+  const next = pinsToWrite({
+    catalog: info.MODEL_CATALOG,
+    pinnedFilesFor: info.pinnedFilesFor,
+    dtypeFor: info.dtypeFor,
+    committedJson,
+  });
+  assert.deepEqual(next.evalOnly, committed.evalOnly);
+  assert.deepEqual(next.models, committed.models);
+  assert.deepEqual(run({ committedJson: JSON.stringify(next) }).problems, []);
+});
+
+test("evalOnly: --write refuses to regenerate over a file whose evalOnly block it cannot read", () => {
+  assert.throws(
+    () =>
+      pinsToWrite({
+        catalog: info.MODEL_CATALOG,
+        pinnedFilesFor: info.pinnedFilesFor,
+        dtypeFor: info.dtypeFor,
+        committedJson: "{oops",
+      }),
+    /evalOnly/,
+  );
+});
+
+test("evalOnly: a Python file restating an eval-only repo id is refused", () => {
+  const source = `MODEL = "${committed.evalOnly["embeddinggemma-2"].modelId}"`;
+  const { problems } = run({ pyFiles: [{ name: "modal_embed_gemma2.py", source }] });
+  assert.match(
+    problems.join("\n"),
+    /modal_embed_gemma2\.py restates a pinned value \(repo id "google\/embeddinggemma-2"\)/,
+  );
+});
+
 test("findRestatedPins: a plain script with no pinned literal is clean", () => {
   assert.deepEqual(findRestatedPins('PINS = load_pins("pins.json")', info.MODEL_CATALOG), []);
 });
@@ -104,4 +180,50 @@ test("buildPins: every catalog model carries both variants with their checksumme
     assert.ok(m.variants.fp32.files.some((f) => f.path === "onnx/model.onnx"));
     assert.ok(m.variants.q8.files.some((f) => f.path === "onnx/model_quantized.onnx"));
   }
+});
+
+test("evalOnly: a zero or negative width is refused", () => {
+  const problems = run({
+    committedJson: mutant((c) => (c.evalOnly["embeddinggemma-2"].dimensions = 0)),
+  }).problems;
+  assert.match(
+    problems.join("\n"),
+    /evalOnly\.embeddinggemma-2\.dimensions must be a positive integer/,
+  );
+});
+
+test("evalOnly: two files with the same path are refused, naming the second", () => {
+  const problems = run({
+    committedJson: mutant((c) => {
+      const files = c.evalOnly["embeddinggemma-2"].files;
+      files[1].path = files[0].path;
+    }),
+  }).problems;
+  assert.match(problems.join("\n"), /files\[1\]\.path duplicates an earlier file's path/);
+});
+
+test("evalOnly: an unknown key on an entry is refused (a misspelt pin cannot ride along)", () => {
+  const problems = run({
+    committedJson: mutant((c) => (c.evalOnly["embeddinggemma-2"].commit = "0".repeat(40))),
+  }).problems;
+  assert.match(problems.join("\n"), /evalOnly\.embeddinggemma-2 has unknown key "commit"/);
+});
+
+test("evalOnly: an empty block is refused, not a pass with nothing pinned", () => {
+  const problems = run({ committedJson: mutant((c) => (c.evalOnly = {})) }).problems;
+  assert.match(problems.join("\n"), /evalOnly must name at least one eval model/);
+});
+
+test("evalOnly: --write refuses an unknown top-level key rather than dropping it", () => {
+  const committedWithTypo = JSON.stringify({ ...committed, evalonly: committed.evalOnly });
+  assert.throws(
+    () =>
+      pinsToWrite({
+        catalog: info.MODEL_CATALOG,
+        pinnedFilesFor: info.pinnedFilesFor,
+        dtypeFor: info.dtypeFor,
+        committedJson: committedWithTypo,
+      }),
+    /unknown top-level key "evalonly"/,
+  );
 });
