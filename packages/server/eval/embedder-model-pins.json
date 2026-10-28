@@ -234,6 +234,21 @@
           "path": "config_sentence_transformers.json",
           "sha256": "031e56a498d33c349ab489a21885bcfe25b4fcba841149dc99e1e90d4a7c28f5",
           "sizeBytes": 1565
+        },
+        {
+          "path": "processor_config.json",
+          "sha256": "168f6a08522f3ce5dea596d94d003af2fd691742d4f41fe1f9d8cce76bfbf69c",
+          "sizeBytes": 1788
+        },
+        {
+          "path": "preprocessor_config.json",
+          "sha256": "ea2ae257e901064abdd98dceb19f2b0da06af600bed15e0f99f5c85c37ee9d78",
+          "sizeBytes": 511
+        },
+        {
+          "path": "chat_template.jinja",
+          "sha256": "4b852efc0b9960283e735363331e6f325b33bc74bdbaa076f595bc4e9b94d85e",
+          "sizeBytes": 1016
         }
       ]
     },
