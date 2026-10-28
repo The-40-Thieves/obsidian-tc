@@ -110,7 +110,9 @@ async function whoami(port: number, jwt: string): Promise<Record<string, unknown
 }
 
 describe("an unbound token takes the transport's default vault", () => {
-  it("lands on the vault the transport was built with, not the first vault listed", async () => {
+  // Pins the HTTP layer's contract only (`authz.vault ?? opts.vaultId`); the runtime wiring that
+  // chooses `opts.vaultId` is covered by http-default-vault.test.ts.
+  it("lands on the vault the transport was built with, on every call", async () => {
     seen.length = 0;
     const handle = await boot("beta");
     try {

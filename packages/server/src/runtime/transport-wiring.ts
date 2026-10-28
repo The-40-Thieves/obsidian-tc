@@ -43,6 +43,8 @@ export interface TransportWiringDeps {
   registry: ToolRegistry;
   vaultRegistry: VaultRegistry;
   db: Database;
+  /** The server's default vault (`VaultRegistry.default`, so `OBSIDIAN_TC_DEFAULT_VAULT` wins over
+   *  list order). The name predates that: it is the vault an unbound HTTP caller is bound to. */
   firstVaultId: string;
   acl: FolderAcl;
   jobQueue: JobQueue;
