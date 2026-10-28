@@ -131,16 +131,23 @@ A Modal run costs money and is run by the owner; the image has not been exercise
 
 `modal_embed_gemma2.py` (owner-run: a Modal run costs money). bf16 or fp32 only; `fp16` is refused. The
 model loads text-only and the harness supplies prefixed text, so the script passes no prompt. Its pin is the
-`evalOnly` block of `embedder-model-pins.json`, not a local-provider catalog model.
+`evalOnly` block of `embedder-model-pins.json`, not a local-provider catalog model. The harness drives it and
+prints each `modal run`; the shape, with `D` the experiment dir:
 
 ```bash
-bun eval/export-chunk-texts.ts <config.json> <outdir>
-modal run eval/modal_embed_gemma2.py --texts <outdir>/texts.jsonl --out-prefix <outdir>/g2 --dims 768,256
-modal run eval/modal_embed_gemma2.py --texts <outdir>/texts.jsonl --out-prefix <outdir>/g2 \
-  --queries <outdir>/queries.jsonl --qout-prefix <outdir>/q2 --dims 768,256
+bun eval/embedder-arms.ts index <source-config.json> --arm embeddinggemma-2-768 --exp-dir D
+modal run eval/modal_embed_gemma2.py --texts D/arms/embeddinggemma-2-768/export/texts.jsonl \
+  --out-prefix D/g2 --dims 768,256                       # writes D/g2-768.f32, D/g2-256.f32, D/g2-ids.json
+bun eval/embedder-arms.ts queries <golden.yaml> --arm embeddinggemma-2-768 --exp-dir D
+modal run eval/modal_embed_gemma2.py --queries D/queries.jsonl --qout-prefix D/q2 --dims 768,256
+bun eval/embedder-arms.ts index <source-config.json> --arm embeddinggemma-2-768 --exp-dir D \
+  --vecs D/g2-768.f32 --ids D/g2-ids.json
+bun eval/embedder-arms.ts queries <golden.yaml> --arm embeddinggemma-2-768 --exp-dir D \
+  --qvecs D/q2-768.f32 --qids D/q2-ids.json
 ```
 
-`queries.jsonl` is `{"key","text"}` lines from the harness; `q2-ids.json` lists its keys in vector order.
+Every output of one run appears together or not at all; `--ids` and `--qids` are the keys of the vectors
+just written, so the pair always comes from one run. `D/queries.jsonl` is `{"key","text"}` lines.
 
 ## The ship rule
 

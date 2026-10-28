@@ -1,44 +1,43 @@
-"""Embed exported chunk texts (and queries) with EmbeddingGemma 2 on one Modal GPU, in bfloat16.
+"""Embed exported chunk texts (and queries) with EmbeddingGemma 2 on one Modal GPU, in bf16 or fp32.
 
 Eval only. The pin is the `embeddinggemma-2` entry of the `evalOnly` block in
 embedder-model-pins.json (safetensors). This script adds no prefix of its own: the eval harness
 decides what each text looks like, and that text is what gets embedded.
 
     modal run eval/modal_embed_gemma2.py --texts texts.jsonl --out-prefix vecs --dims 768,256
+    modal run eval/modal_embed_gemma2.py --queries queries.jsonl --qout-prefix qvecs --dims 768,256
     modal run eval/modal_embed_gemma2.py --texts texts.jsonl --out-prefix vecs \\
         --queries queries.jsonl --qout-prefix qvecs --dims 768,256
 
 PRECISION RULE. The model card runs EmbeddingGemma 2 in bfloat16 or float32 only. float16 returns
-NaN
-or silently degraded vectors, so `fp16` is refused here (parse_precision), and every batch is
-checked
-for NaN and Inf in every precision (check_finite): a bad dtype fails loudly instead of shipping
-vectors.
+NaN or silently degraded vectors, so `fp16` is refused here (parse_precision), and every batch is
+checked for NaN and Inf in every precision (check_finite): a bad dtype fails loudly instead of
+shipping vectors.
 
 LOAD RULE. Text-only: `config_kwargs={"vision_config": None, "audio_config": None}` on
-SentenceTransformer. The snapshot's files are sha256-checked against the pins (verify_pins). Its
-1_Pooling and modules.json must be mean pooling with include_prompt and an L2 Normalize, the
-pipeline
-the model card specifies.
+SentenceTransformer. The snapshot's files are sha256-checked against the pins (verify_pins). The
+loaded pipeline must be mean pooling with include_prompt, ending in an L2 Normalize, the pipeline
+the model card specifies (check_loaded_pipeline).
 
 PREFIX RULE. The harness supplies every text already prefixed (`title: <title> | text: <breadcrumb>`
 for documents, `task: search result | query: <q>` for queries; see documentText in
 eval/embedder-arms-lib.ts), so `embed` passes NO `prompt` or `prompt_name` to encode(). Adding one
 here would make these vectors disagree with the harness's own query side.
 
-OUTPUT CONTRACT. For each requested width (MRL 768/512/256/128, re-normalised after truncation): raw
-little-endian float32 at `<out-prefix>-<dim>.f32`, N*dim, in the input's line order. With --queries
-the
-query vectors go to `<qout-prefix>-<dim>.f32` and their keys, in order, to `<qout-prefix>-ids.json`;
-the harness joins both positionally. Each file appears only when complete (`.partial`, then rename).
---log records the model, revision, precision, shard timings and GPU time.
+OUTPUT CONTRACT. For each requested width (MRL 768/512/256/128, re-normalised after truncation):
+raw little-endian float32 at `<out-prefix>-<dim>.f32`, N*dim, in the input's line order, and the
+chunk ids of those rows at `<out-prefix>-ids.json`. Queries get the same pair under `--qout-prefix`,
+with their keys in place of chunk ids. Every file of one run appears together and only when all of
+them are complete (`.partial`, then rename). --log records the model, revision, precision, shard
+timings and GPU time.
 
 WHY THE PINS COME FROM JSON. The model id, revision and file hashes are NOT in this file. They are
 read from the `evalOnly` block of embedder-model-pins.json, and the pins gate scans every
 modal_embed_*.py for restated ids and hashes. A checksum mismatch at download time is fatal.
 
-WHY bf16 IS NOT convert_to_numpy. A bfloat16 tensor has no numpy dtype, so encode() returns a tensor
-and the float32 cast happens in `to_float32`, where it is visible.
+WHY THE TIMER STOPS AFTER to_float32. With convert_to_tensor the result is a tensor that is still
+on the GPU, so the work is only finished once it is copied to the host. to_float32 does that copy,
+and the per-shard `ms` is taken after it, so it is real GPU time and not the time to queue kernels.
 
 A Modal run costs money and is run by the owner. CI runs the unit tests in pytests/ (no GPU, no
 torch).
@@ -71,6 +70,11 @@ REQUIRED_FILES = (
     "2_Normalize/config.json",
     "sentence_bert_config.json",
     "config_sentence_transformers.json",
+    # ST 6.2.0 loads through AutoProcessor (tokenizer_config names EmbeddingGemma2Processor), and
+    # sends every string through apply_chat_template: these three shape the token stream.
+    "processor_config.json",
+    "preprocessor_config.json",
+    "chat_template.jinja",
 )
 DIM = 768
 # Matryoshka widths the model card lists; anything else is refused rather than silently sliced.
@@ -79,7 +83,25 @@ MRL_DIMS = (768, 512, 256, 128)
 TORCH_DTYPE = {"bf16": "bfloat16", "fp32": "float32"}
 FLOAT16_NAMES = ("fp16", "float16", "half")
 PER_CALL = 256  # texts per remote call, keeps each argument well under Modal's limit
+BATCH_SIZE = 32
+# ST reports an effectively unbounded max_seq_length for this model (no top-level
+# max_position_embeddings), so nothing would truncate. The eval chunks are far shorter than this;
+# the cap only stops a runaway input from exhausting the A10G's memory at batch 32.
+MAX_SEQ_LENGTH = 2048
 READ_BLOCK = 1048576
+
+# Exact pins, so the image is reproducible. torchvision 0.29.2 is the release for torch 2.15 (both
+# released 2026-10-28; torchvision 0.29.2 needs torch>=2.14). Pillow and torchvision are imported by
+# the multimodal processor even for text-only input, so AutoProcessor fails without them.
+IMAGE_PACKAGES = (
+    "torch==2.15.0",
+    "torchvision==0.29.2",
+    "pillow==13.0.0",
+    "sentence-transformers==6.2.0",
+    "transformers==5.21.0",
+    "huggingface-hub==1.33.0",
+    "numpy==2.5.3",
+)
 
 
 @dataclass(frozen=True)
@@ -116,17 +138,9 @@ def load_pins(path: Path, name: str = MODEL_NAME) -> Pins:
 PINS = load_pins(PINS_PATH)
 
 app = modal.App("otc-embed-gemma2")
-# Exact pins, so the image is reproducible. ST 6.2.0 is the current release; its docs take
-# `model_kwargs={"torch_dtype": ...}` and `config_kwargs=...` on SentenceTransformer.
 image = (
     modal.Image.debian_slim(python_version="3.12")
-    .uv_pip_install(
-        "torch==2.15.0",
-        "sentence-transformers==6.2.0",
-        "transformers==5.21.0",
-        "huggingface-hub==1.33.0",
-        "numpy==2.5.3",
-    )
+    .uv_pip_install(*IMAGE_PACKAGES)
     # The Hugging Face cache lives on the Volume below, so the 1.5 GB safetensors download once.
     .env({"HF_HOME": "/cache/hf"})
     # Mounted beside this module (Modal places the entrypoint at /root), so PINS_PATH resolves the
@@ -137,9 +151,9 @@ hf_cache = modal.Volume.from_name("otc-hf-cache", create_if_missing=True)
 
 
 # --- pure logic: no GPU, no modal; unit-tested in pytests/ --------------------------------------
-# sha256_file, verify_pins and write_vectors are copied from modal_embed_nomic.py. Importing that
-# module inside this container would need its own source added to the image, and the copy is the
-# simpler contract; pytests/test_modal_embed_gemma2.py covers these copies directly.
+# sha256_file and verify_pins are copied from modal_embed_nomic.py. Importing that module inside
+# this container would need its own source added to the image, and the copy is the simpler
+# contract; pytests/test_modal_embed_gemma2.py covers these copies directly.
 
 
 def sha256_file(path: str) -> str:
@@ -180,12 +194,31 @@ def check_pooling(cfg: dict) -> None:
 
 
 def check_modules(modules: Sequence[dict]) -> None:
-    """modules.json must end in a Normalize, the L2 step the model card's pipeline ends with."""
+    """modules.json must have a Pooling module and end in a Normalize, the L2 step the model card's
+    pipeline ends with."""
     types = [m["type"] for m in modules]
     if not any(t.endswith(".Pooling") for t in types):
         raise SystemExit("modules.json has no Pooling module")
-    if not any(t.endswith(".Normalize") for t in types):
-        raise SystemExit("modules.json has no Normalize module")
+    if not types or not types[-1].endswith(".Normalize"):
+        raise SystemExit("modules.json must end in a Normalize module")
+
+
+def check_loaded_pipeline(modules: Any) -> None:
+    """The same pipeline, checked on the objects sentence-transformers built (`modules[1]` is the
+    Pooling, `modules[-1]` the Normalize), not only on the JSON files."""
+    if len(modules) < 2:
+        raise SystemExit(
+            f"loaded model has {len(modules)} modules; expected Transformer, Pooling, ..."
+        )
+    pooling = modules[1]
+    mode = getattr(pooling, "pooling_mode", None)
+    if mode != POOLING:
+        raise SystemExit(f"loaded Pooling is {mode!r} pooling, not {POOLING!r}")
+    if getattr(pooling, "include_prompt", None) is not True:
+        raise SystemExit("loaded Pooling has include_prompt false; the model card needs true")
+    last = type(modules[-1]).__name__
+    if last != "Normalize":
+        raise SystemExit(f"loaded pipeline ends in {last!r}, not a Normalize")
 
 
 def parse_precision(value: str) -> str:
@@ -215,6 +248,21 @@ def parse_dims(value: str) -> tuple[int, ...]:
     return tuple(dict.fromkeys(dims))
 
 
+def check_run_args(
+    texts: str | None, out_prefix: str | None, queries: str | None, qout_prefix: str | None
+) -> None:
+    """Documents, queries or both. Each input needs its prefix, each prefix its input, and the two
+    prefixes must name different outputs."""
+    if texts is None and queries is None:
+        raise SystemExit("give at least one of --texts / --queries")
+    if (texts is None) != (out_prefix is None):
+        raise SystemExit("--texts and --out-prefix go together")
+    if (queries is None) != (qout_prefix is None):
+        raise SystemExit("--queries and --qout-prefix go together")
+    if out_prefix is not None and out_prefix == qout_prefix:
+        raise SystemExit("--out-prefix and --qout-prefix must differ")
+
+
 def truncate_normalize(arr: Any, dim: int) -> Any:
     """Matryoshka truncation: keep the first `dim` components, then L2-normalise each row again.
 
@@ -241,7 +289,8 @@ def check_finite(arr: Any, where: str) -> None:
 
 
 def to_float32(vecs: Any) -> Any:
-    """ST returns a torch tensor for convert_to_tensor; bf16 has no numpy dtype, so cast first."""
+    """A torch tensor (from convert_to_tensor) becomes a float32 numpy array: .float() casts bf16
+    up, and .cpu() is where the GPU work is waited for."""
     import numpy as np
 
     if hasattr(vecs, "cpu"):
@@ -269,13 +318,12 @@ def plan_shards(texts: Sequence[str], per_call: int = PER_CALL) -> list[list[str
     return [list(texts[i : i + per_call]) for i in range(0, len(texts), per_call)]
 
 
-def write_vectors(out: str, blobs: Iterable[bytes], shard_sizes: Sequence[int], dim: int) -> int:
-    """Write the shards' packed float32 vectors to `out`, atomically and only if complete.
+def stage_vectors(out: str, blobs: Iterable[bytes], shard_sizes: Sequence[int], dim: int) -> str:
+    """Write the shards' packed float32 vectors to `<out>.partial` and return that path.
 
-    `blobs` must arrive in shard order; each must be exactly shard_sizes[i] * dim * 4 bytes. The
-    bytes go to `<out>.partial` and are renamed over `out` after the last shard checks out, so a
-    crash, a short shard or a wrong total never leaves a file the loader could mistake for a
-    result. Returns the number of vectors written."""
+    `blobs` must arrive in shard order; each must be exactly shard_sizes[i] * dim * 4 bytes. A
+    short, missing or extra shard removes the partial and refuses, so nothing is left to be mistaken
+    for a result."""
     partial = f"{out}.partial"
     n = 0
     try:
@@ -294,26 +342,48 @@ def write_vectors(out: str, blobs: Iterable[bytes], shard_sizes: Sequence[int], 
         total = sum(shard_sizes)
         if n != total:
             raise SystemExit(f"wrote {n} vectors for {total} texts -- refusing a partial file")
-        os.replace(partial, out)
     except BaseException:
         if os.path.exists(partial):
             os.remove(partial)
         raise
-    return n
+    return partial
 
 
-def write_embeddings(
-    prefix: str, results: Sequence[dict], shard_sizes: Sequence[int], dims: Sequence[int]
-) -> int:
-    """One complete `<prefix>-<dim>.f32` per width, from the shards' per-dim blobs in order."""
-    for dim in dims:
-        write_vectors(f"{prefix}-{dim}.f32", (r[dim] for r in results), shard_sizes, dim)
-    return sum(shard_sizes)
+def stage_text(out: str, text: str) -> str:
+    partial = f"{out}.partial"
+    Path(partial).write_text(text, encoding="utf-8")
+    return partial
 
 
-def write_query_ids(prefix: str, keys: Sequence[str]) -> None:
-    """The query keys, in the order their vectors were written, for the harness to join."""
-    Path(f"{prefix}-ids.json").write_text(json.dumps(list(keys)), encoding="utf-8")
+# (output prefix, the shards' results, shard sizes, the id of each row in order)
+RunGroup = tuple[str, Sequence[dict], Sequence[int], Sequence[str]]
+
+
+def write_run(groups: Sequence[RunGroup], dims: Sequence[int]) -> dict[str, int]:
+    """Every output of one run, or none.
+
+    For each group this stages `<prefix>-<dim>.f32` for every width and `<prefix>-ids.json`, all as
+    `.partial`. The final names appear only after every file has checked out. A failure anywhere
+    removes the partials staged so far, so a new file never sits beside a stale one from an earlier
+    run. Returns the vector count per prefix."""
+    staged: list[tuple[str, str]] = []  # (partial, final)
+    try:
+        for prefix, results, sizes, ids in groups:
+            if len(ids) != sum(sizes):
+                raise SystemExit(f"{prefix}: {len(ids)} ids for {sum(sizes)} vectors")
+            for dim in dims:
+                final = f"{prefix}-{dim}.f32"
+                staged.append((stage_vectors(final, (r[dim] for r in results), sizes, dim), final))
+            final = f"{prefix}-ids.json"
+            staged.append((stage_text(final, json.dumps(list(ids))), final))
+    except BaseException:
+        for partial, _ in staged:
+            if os.path.exists(partial):
+                os.remove(partial)
+        raise
+    for partial, final in staged:
+        os.replace(partial, final)
+    return {prefix: sum(sizes) for prefix, _, sizes, _ in groups}
 
 
 def build_log(
@@ -367,9 +437,14 @@ class Embedder:
         self.model = SentenceTransformer(
             snapshot,
             device="cuda",
-            model_kwargs={"torch_dtype": dtype},
+            model_kwargs={"dtype": dtype},
             config_kwargs={"vision_config": None, "audio_config": None},
         )
+        self.model.max_seq_length = MAX_SEQ_LENGTH
+        check_loaded_pipeline(self.model)
+        got_dtype = next(self.model.parameters()).dtype
+        if got_dtype != dtype:
+            raise SystemExit(f"model loaded as {got_dtype}; the precision asked for is {dtype}")
         got = self.model.get_embedding_dimension()
         if got != PINS.dim:
             raise SystemExit(f"model is {got}-wide; the pin says {PINS.dim}")
@@ -380,10 +455,10 @@ class Embedder:
         t0 = time.perf_counter()
         # No prompt: the harness already prefixed every text (see the PREFIX RULE above).
         vecs = self.model.encode(
-            texts, batch_size=64, normalize_embeddings=True, convert_to_tensor=True
+            texts, batch_size=BATCH_SIZE, normalize_embeddings=True, convert_to_tensor=True
         )
-        ms = (time.perf_counter() - t0) * 1000.0
         arr = to_float32(vecs)
+        ms = (time.perf_counter() - t0) * 1000.0
         check_finite(arr, "embed")
         out: dict[Any, Any] = {d: truncate_normalize(arr, d).astype("<f4").tobytes() for d in dims}
         out["ms"] = ms
@@ -394,21 +469,18 @@ class Embedder:
 
 @app.local_entrypoint()
 def main(
-    texts: str,
-    out_prefix: str,
+    texts: str | None = None,
+    out_prefix: str | None = None,
     dims: str = "768,256",
     precision: str = "bf16",
     queries: str | None = None,
     qout_prefix: str | None = None,
     log: str | None = None,
 ):
+    check_run_args(texts, out_prefix, queries, qout_prefix)
     dim_list = parse_dims(dims)
     precision = parse_precision(precision)
-    if queries is not None and qout_prefix is None:
-        raise SystemExit(
-            "--queries needs --qout-prefix: the query vectors and ids are written there"
-        )
-    _, doc_texts = read_rows(texts, "chunk_id")
+    doc_ids, doc_texts = read_rows(texts, "chunk_id") if texts is not None else ([], [])
     q_keys, q_texts = read_rows(queries, "key") if queries is not None else ([], [])
     doc_shards = plan_shards(doc_texts)
     q_shards = plan_shards(q_texts)
@@ -423,10 +495,12 @@ def main(
     stats = [{"n": r["n"], "chars": r["chars"], "ms": r["ms"]} for r in results]
     doc_stats, query_stats = stats[: len(doc_shards)], stats[len(doc_shards) :]
 
-    n = write_embeddings(out_prefix, doc_results, [len(s) for s in doc_shards], dim_list)
-    if queries is not None and qout_prefix is not None:
-        write_embeddings(qout_prefix, q_results, [len(s) for s in q_shards], dim_list)
-        write_query_ids(qout_prefix, q_keys)
+    groups: list[RunGroup] = []
+    if out_prefix is not None:
+        groups.append((out_prefix, doc_results, [len(s) for s in doc_shards], doc_ids))
+    if qout_prefix is not None:
+        groups.append((qout_prefix, q_results, [len(s) for s in q_shards], q_keys))
+    written = write_run(groups, dim_list)
     if log is not None:
         entry = build_log(
             PINS,
@@ -438,7 +512,9 @@ def main(
             started.isoformat(timespec="seconds"),
         )
         Path(log).write_text(json.dumps(entry, indent=2) + "\n", encoding="utf-8")
+    total = sum(written.values())
     dims_label = "/".join(str(d) for d in dim_list)
     print(
-        f"{n} vectors ({dims_label}d {precision}) -> {out_prefix} in {wall:.1f}s ({n / wall:.1f}/s)"
+        f"{total} vectors ({dims_label}d {precision}) -> {', '.join(written)} "
+        f"in {wall:.1f}s ({total / wall:.1f}/s)"
     )

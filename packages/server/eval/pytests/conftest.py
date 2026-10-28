@@ -1,8 +1,9 @@
-"""Test harness for eval/modal_embed_nomic.py: no GPU, no network, no `modal` install needed.
+"""Test harness for eval/modal_embed_nomic.py and eval/modal_embed_gemma2.py: no GPU, no network,
+no `modal` install needed.
 
-The script's logic is module-level functions plus a thin Modal class. `modal` is replaced with a
-stub whose decorators are identity, so the real `Embedder` class is importable and testable with a
-mock tokenizer and a mock ORT session.
+The scripts' logic is module-level functions plus a thin Modal class. `modal` is replaced with a
+stub whose decorators are identity, so the real `Embedder` classes are importable and testable with
+a mock tokenizer, a mock ORT session or a fake SentenceTransformer-shaped model.
 """
 
 import sys
