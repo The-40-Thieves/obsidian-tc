@@ -78,8 +78,9 @@ export function toolFacadeHealthView(cfg: {
  *  Named + imported, called via a spread at the call site, rather than an unnamed inline object
  *  literal. `telemetry` is optional so a caller that never wires telemetry (a harness/test) keeps
  *  compiling; server-runtime.ts's own call site always passes it. `db` (THE-1108) is likewise
- *  optional and, together with `cfg.sessions`, lets `wireHealthTools` build
- *  `createHealthTool`'s `getStaleExplicitSessions` accessor — folded into this same spread rather
+ *  optional: passed whenever given (a follower reads the leader's reconcile row through it, GH #995),
+ *  and with `cfg.sessions` it lets `wireHealthTools` build `createHealthTool`'s
+ *  `getStaleExplicitSessions` accessor — folded into this same spread rather
  *  than two more dedicated lines at the call site, the reason this file exists. */
 export function healthToolsWiringFields<V extends readonly { id: string }[]>(
   cfg: PlainHttpConfigView & {
@@ -111,7 +112,8 @@ export function healthToolsWiringFields<V extends readonly { id: string }[]>(
     toolFacade: cfg.toolFacade,
     ...(deprecations.length > 0 ? { deprecations } : {}),
     ...(telemetry ? { getTelemetryStatus: telemetry.getStatus } : {}),
-    ...(db && cfg.sessions ? { db, sessions: cfg.sessions } : {}),
+    ...(db ? { db } : {}),
+    ...(cfg.sessions ? { sessions: cfg.sessions } : {}),
   };
 }
 

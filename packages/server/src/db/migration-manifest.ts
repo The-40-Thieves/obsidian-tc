@@ -124,6 +124,9 @@ export const CACHE_MIGRATION_FILES = [
   // to the caller that made them (Bob reusing Alice's key no longer replays Alice's result).
   // Existing rows are purged: none recorded an owner. See the migration header.
   "20261010_001_idempotency_principal.sql",
+  // GH #995 follow-up: 20261028_001 adds reconcile_state, the single-row copy of the leader's
+  // reconcile outcome that a follower's server_health / get_index_status report (runtime/reconcile-state.ts).
+  "20261028_001_reconcile_state.sql",
 ] as const;
 
 /**

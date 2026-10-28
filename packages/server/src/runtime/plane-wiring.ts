@@ -45,6 +45,7 @@ import { syncFrontmatterFailures } from "./index-write-outcome";
 import type { IndexHealthState } from "./indexing-wiring";
 import { type Observability, wireActivationRecompute } from "./observability";
 import { applyReconcileOutcome, type ReconcileResult } from "./reconcile-outcome";
+import { persistNotesReady, persistRunOutcome } from "./reconcile-state";
 import { planeRoles } from "./tool-wiring";
 
 // GH #995 follow-up: the ONE IdleGate the boot/promotion reconcile paces against — backed by
@@ -467,6 +468,8 @@ export function createReconcileRunner(
     // /parse/plan work between flushes, which this signal does not interrupt — see index-vault.ts's
     // own IndexVaultArgs.signal doc for why that gap is deliberate (walkedSet completeness).
     if (signal.aborted) return;
+    // The leader epoch this run is fenced to (leader-epoch.ts): captured once, at the start of the run.
+    const runEpoch = deps.leaderEpoch?.();
     // GH #995 follow-up: "immediate" (an explicit opt-out) threads no embedPace at all, so
     // embedPlans' worker loop takes the exact same branch as every pre-existing caller — not a
     // pace() that happens to return instantly, an ACTUAL absence, matching this file's own
@@ -525,7 +528,9 @@ export function createReconcileRunner(
             onIndexed: deps.makeOnIndexed(v.id),
             // THE-291: metadata/FTS readiness is independent of embed success.
             onNotesPass: () => {
+              if (deps.indexHealth.notesReady) return;
               deps.indexHealth.notesReady = true;
+              persistNotesReady(deps.db, runEpoch); // GH #995 follow-up: followers report notes_ready
             },
             // THE-490/THE-591: indexing.streamingWalk. Off by default -> byte-identical to before.
             walk: { streaming: deps.streamingWalk },
@@ -549,6 +554,9 @@ export function createReconcileRunner(
       applyReconcileOutcome(results.flat(), deps.indexHealth, {
         now: Date.now,
         write: (m) => process.stderr.write(m),
+        // GH #995 follow-up: followers report this pass's outcome from cache.db (reconcile-state.ts).
+        persist: (h) =>
+          persistRunOutcome(deps.db, h, deps.indexHealth.notesReady, { signal, epoch: runEpoch }),
       });
       // #14: sweep jobs enqueued during the reconcile through the SAME durable runner as runtime
       // writes, rather than waiting for the scheduler's next CONTRADICTION_DRAIN_MS tick. No-op

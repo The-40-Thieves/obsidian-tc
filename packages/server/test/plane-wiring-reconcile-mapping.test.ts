@@ -7,6 +7,7 @@
 // frontmatter failure, plus the existing embed-failure summary when present — and, folded through
 // applyReconcileOutcome, that a later clean pass still clears health back to "ok".
 import { describe, expect, it } from "vitest";
+import { provisionCacheDb } from "../src/db/provision";
 import {
   createReconcileRunner,
   type ReconcileRunnerDeps,
@@ -14,6 +15,7 @@ import {
 } from "../src/runtime/plane-wiring";
 import { applyReconcileOutcome, type ReconcileHealth } from "../src/runtime/reconcile-outcome";
 import type { IndexStats, IndexVaultArgs } from "../src/search/indexer";
+import { openMemoryDb } from "./helpers";
 
 const NOW = 1_800_000_000_000;
 
@@ -216,7 +218,7 @@ function minimalReconcileDeps(
 ): ReconcileRunnerDeps {
   return {
     vaults: [{ id: "v1", path: "/tmp/v1" }] as never,
-    db: {} as never,
+    db: provisionedDb(),
     embeddingProvider: {} as never,
     embedConfig: { batchSize: 8, concurrency: 1, maxBatchTokens: 2048 },
     chunkContext: false,
@@ -281,3 +283,10 @@ describe("createReconcileRunner — indexing.backgroundEmbed wiring (GH #995 fol
     expect(called).toBe(false);
   });
 });
+
+/** A provisioned cache.db: the reconcile runner persists its outcome there (reconcile-state.ts). */
+function provisionedDb() {
+  const db = openMemoryDb();
+  provisionCacheDb(db);
+  return db;
+}

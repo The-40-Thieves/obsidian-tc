@@ -32,12 +32,14 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { provisionCacheDb } from "../src/db/provision";
 import type { EmbeddingProvider } from "../src/embeddings/provider";
 import { type CallerContext, type ToolDefinition, ToolRegistry } from "../src/mcp/registry";
 import { createMcpServer } from "../src/mcp/server";
 import { createReconcileRunner, type ReconcileRunnerDeps } from "../src/runtime/plane-wiring";
 import type { IndexStats, IndexVaultArgs } from "../src/search/indexer";
 import { embedPlans } from "../src/search/indexer";
+import { openMemoryDb } from "./helpers";
 import { stallTimeout } from "./stall-timeouts";
 
 /** A stub EmbeddingProvider whose embed() is SYNCHRONOUS busy-work — matching the in-process
@@ -149,7 +151,7 @@ function reconcileDeps(opts: {
 }): ReconcileRunnerDeps {
   return {
     vaults: opts.vaultIds.map((id) => ({ id, path: `/tmp/${id}` })) as never,
-    db: {} as never,
+    db: provisionedDb(),
     embeddingProvider: {} as never,
     embedConfig: { batchSize: 1, concurrency: opts.concurrency, maxBatchTokens: 999_999 },
     chunkContext: false,
@@ -296,3 +298,10 @@ describe("GH #995 follow-up — boot embed pacing keeps a concurrent tool call r
     stallTimeout(20_000),
   );
 });
+
+/** A provisioned cache.db: the reconcile runner persists its outcome there (reconcile-state.ts). */
+function provisionedDb() {
+  const db = openMemoryDb();
+  provisionCacheDb(db);
+  return db;
+}

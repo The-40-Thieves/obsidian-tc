@@ -107,6 +107,30 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
     expect(result.valid).toBe(true);
   });
 
+  it("reconcile_source (leader/self) on the index block validates under ajv", () => {
+    // GH #995 follow-up: a follower reports the leader's persisted state and says so. The schema
+    // must list the field, or the SDK's ajv validator rejects the whole server_health payload.
+    const tool = createHealthTool({
+      version: "test",
+      vaults: ["v1"],
+      startedAt: 0,
+      nativeLoaded: false,
+      vecEnabled: false,
+      getIndexHealth: () => ({
+        reconcile: "ok",
+        reconcile_at: 1,
+        write_failures: 0,
+        notes_ready: true,
+        reconcile_source: "leader",
+      }),
+    });
+    const out = tool.handler({}, { ...ctxBase, authenticated: true } as CallerContext);
+    // biome-ignore lint/style/noNonNullAssertion: createHealthTool always sets an outputSchema.
+    const schema = toJson(tool.outputSchema!)!;
+    const validate = new AjvJsonSchemaValidator().getValidator(schema as never);
+    expect(validate(JSON.parse(JSON.stringify(out))).valid).toBe(true);
+  });
+
   it("the index-on-write frontmatter fields (count + last failure) validate under ajv, and write_failures stays 0", () => {
     const tool = createHealthTool({
       version: "test",

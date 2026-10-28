@@ -36,6 +36,7 @@ describe("get_index_status (THE-491)", () => {
       vec_enabled: true,
       fts_enabled: true,
       chunks_upserted: 42,
+      reconcile_source: "self",
     });
   });
 
@@ -159,6 +160,7 @@ describe("get_index_status (THE-491)", () => {
         "notes_ready",
         "reconcile",
         "reconcile_at",
+        "reconcile_source",
         "vec_enabled",
         "write_failures",
       ].sort(),
