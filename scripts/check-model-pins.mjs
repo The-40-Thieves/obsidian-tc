@@ -59,6 +59,7 @@ export function buildPins(catalog, pinnedFilesFor, dtypeFor) {
 }
 
 const TOP_KEYS = ["generatedFrom", "models", "evalOnly"];
+const ENTRY_KEYS = ["modelId", "revision", "dimensions", "pooling", "format", "note", "files"];
 const HEX40 = /^[0-9a-f]{40}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -69,17 +70,23 @@ export function validateEvalOnly(evalOnly) {
   if (evalOnly === undefined) return [];
   if (!isObject(evalOnly)) return ["evalOnly must be an object keyed by eval-model name"];
   const problems = [];
+  if (Object.keys(evalOnly).length === 0)
+    problems.push("evalOnly must name at least one eval model (or be absent)");
   for (const [name, e] of Object.entries(evalOnly)) {
     const at = `evalOnly.${name}`;
     if (!isObject(e)) {
       problems.push(`${at} must be an object`);
       continue;
     }
+    for (const k of Object.keys(e)) {
+      if (!ENTRY_KEYS.includes(k)) problems.push(`${at} has unknown key "${k}"`);
+    }
     if (typeof e.modelId !== "string" || !/^[^/\s]+\/[^/\s]+$/.test(e.modelId))
       problems.push(`${at}.modelId must be "owner/name"`);
     if (typeof e.revision !== "string" || !HEX40.test(e.revision))
       problems.push(`${at}.revision must be a 40-hex commit`);
-    if (!Number.isInteger(e.dimensions)) problems.push(`${at}.dimensions must be an integer`);
+    if (!Number.isInteger(e.dimensions) || e.dimensions <= 0)
+      problems.push(`${at}.dimensions must be a positive integer`);
     if (typeof e.pooling !== "string" || e.pooling === "")
       problems.push(`${at}.pooling must be a non-empty string`);
     if (e.format !== "safetensors" && e.format !== "onnx")
@@ -88,10 +95,14 @@ export function validateEvalOnly(evalOnly) {
       problems.push(`${at}.files must be a non-empty array`);
       continue;
     }
+    const seenPaths = new Set();
     e.files.forEach((f, i) => {
       const fat = `${at}.files[${i}]`;
       if (!isObject(f) || typeof f.path !== "string" || f.path === "")
         problems.push(`${fat}.path must be a non-empty string`);
+      else if (seenPaths.has(f.path))
+        problems.push(`${fat}.path duplicates an earlier file's path`);
+      else seenPaths.add(f.path);
       if (!isObject(f) || typeof f.sha256 !== "string" || !HEX64.test(f.sha256))
         problems.push(`${fat}.sha256 must be 64-hex`);
       if (!isObject(f) || !Number.isInteger(f.sizeBytes) || f.sizeBytes <= 0)
@@ -170,7 +181,16 @@ export function pinsToWrite({ catalog, pinnedFilesFor, dtypeFor, committedJson }
       `${PINS_FILE} is not valid JSON, so its evalOnly block cannot be preserved: ${e.message}`,
     );
   }
-  if (isObject(have) && have.evalOnly !== undefined) want.evalOnly = have.evalOnly;
+  if (isObject(have)) {
+    // A misspelt block (say `evalonly`) would be dropped by the regeneration; refuse it instead.
+    for (const k of Object.keys(have)) {
+      if (!TOP_KEYS.includes(k))
+        throw new Error(
+          `${PINS_FILE} has unknown top-level key "${k}"; --write refuses to drop it`,
+        );
+    }
+    if (have.evalOnly !== undefined) want.evalOnly = have.evalOnly;
+  }
   return want;
 }
 

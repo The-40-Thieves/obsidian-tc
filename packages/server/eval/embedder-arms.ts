@@ -16,8 +16,8 @@
 // Offline arms (nomic-v1.5-768, embeddinggemma-2-768, embeddinggemma-2-256) embed on a Modal GPU, not over
 // HTTP. Each stage writes its export under D/arms/<arm>/export and prints the Modal command. Run that off-box,
 // then re-run the same stage with the vectors back:
-//   index   ... --vecs <f32> --ids <export ids.json> [--embed-log <json>]
-//   queries ... --qvecs <f32> --qids <export query-ids.json>
+//   index   ... --vecs <f32> --ids <the run's ids file> [--embed-log <json>]
+//   queries ... --qvecs <f32> --qids <the run's query ids file>
 // eval/embedder-arms-offline.ts holds the rules (export text, id and key checks, vector validation).
 //
 // Gemini arms read their key from the environment by NAME. The free-tier key (GEMINI_API_KEY) is refused
@@ -59,19 +59,23 @@ import {
 import {
   armChunkTexts,
   assembleQueryVecs,
-  assertIdsMatch,
+  BH_Q,
+  bhFamilyRecord,
   buildArmEmbedLog,
+  type EmbedLogBatch,
   embedLogBatches,
+  indexRerunArgs,
+  loadOfflineDocVecs,
   missingPoolsError,
   nextEmbedCommand,
   nextQueryCommand,
+  omittedDecisionArms,
   queryEmbedMs,
   queryExportLines,
   queryLatencyRecord,
-  queryVecsFileFor,
-  vecsFileFor,
+  queryRerunArgs,
 } from "./embedder-arms-offline";
-import { loadGpuVecs } from "./gpu-embed-lib";
+import { type ExportedChunkTexts, gpuVecsModelId } from "./gpu-embed-lib";
 import {
   aggregateMetrics,
   computeQueryMetrics,
@@ -206,7 +210,14 @@ function buildEmbedder(arm: EmbedderArm, corpus: Corpus): Embedder {
 const armDir = (exp: string, arm: EmbedderArm): string => join(exp, "arms", arm.name);
 const f32 = (v: number[]): Buffer => Buffer.from(new Float32Array(v).buffer);
 
-/** An offline arm: always write the export; load the GPU run's vectors when they are given. */
+/** The export an offline stage hands the GPU run: the chunk ids in order, and one `{chunk_id, text}` line per chunk. */
+function writeChunkExport(expDir: string, ex: ExportedChunkTexts): void {
+  writeFileSync(join(expDir, "ids.json"), JSON.stringify(ex.ids));
+  writeFileSync(join(expDir, "texts.jsonl"), `${ex.lines.join("\n")}\n`);
+}
+
+/** An offline arm: the export is always written. A GPU run's vectors are loaded only after the run's ids pass
+ *  the check against the fresh export, and the export files are rewritten only after that load succeeds. */
 function indexOffline(
   db: Database,
   arm: EmbedderArm,
@@ -214,68 +225,67 @@ function indexOffline(
   exp: string,
   vaultId: string,
   filter: EgressFilter,
+  model: string,
 ): void {
   const expDir = join(armDir(exp, arm), "export");
   mkdirSync(expDir, { recursive: true });
   const ex = armChunkTexts(db, [vaultId], arm, filter);
-  writeFileSync(join(expDir, "ids.json"), JSON.stringify(ex.ids));
-  writeFileSync(join(expDir, "texts.jsonl"), `${ex.lines.join("\n")}\n`);
   const vecsPath = flag("--vecs");
   if (!vecsPath) {
+    writeChunkExport(expDir, ex);
     process.stdout.write(
-      `export ${expDir}: ${ex.ids.length} chunk(s), ${ex.excluded} egress-excluded\nrun off-box: ${nextEmbedCommand(arm, expDir)}\nthen re-run index ${arm.name} with the same arguments plus --vecs ${vecsFileFor(expDir, arm)} --ids ${join(expDir, "ids.json")}\n`,
+      `export ${expDir}: ${ex.ids.length} chunk(s), ${ex.excluded} egress-excluded\nrun off-box: ${nextEmbedCommand(arm, expDir)}\nthen re-run index ${arm.name} with the same arguments plus ${indexRerunArgs(arm, expDir)}\n`,
     );
     process.exit(3);
   }
   const idsPath = flag("--ids");
-  if (!idsPath) die("index --vecs needs --ids <the export's ids.json>");
+  if (!idsPath) die("index --vecs needs --ids <the run's ids file, see the re-run hint>");
+  const logPath = flag("--embed-log");
+  let batches: EmbedLogBatch[];
+  let done: number;
   try {
-    assertIdsMatch(ex.ids, JSON.parse(readFileSync(idsPath, "utf8")));
+    batches = embedLogBatches(logPath ? JSON.parse(readFileSync(logPath, "utf8")) : undefined);
+    done = loadOfflineDocVecs(db, {
+      arm,
+      model,
+      fresh: ex.ids,
+      givenIds: JSON.parse(readFileSync(idsPath, "utf8")),
+      vecs: readFileSync(vecsPath),
+    });
   } catch (e) {
     die(`index ${arm.name}: ${(e as Error).message}`);
   }
-  const logPath = flag("--embed-log");
-  const batches = embedLogBatches(logPath ? JSON.parse(readFileSync(logPath, "utf8")) : undefined);
-  const model = `openai:${arm.model}`;
-  loadGpuVecs(db, {
-    model,
-    dim: arm.dims,
-    ids: ex.ids,
-    vecs: readFileSync(vecsPath),
-    insert: true,
-  });
-  invalidateVecIndex(db);
+  writeChunkExport(expDir, ex);
   writeFileSync(
     join(exp, `embed-log-${arm.name}.json`),
     JSON.stringify(buildArmEmbedLog({ arm, corpus, chunks: ex.ids.length, batches })),
   );
-  const done = (
-    db.prepare("SELECT count(*) AS c FROM chunk_embeddings WHERE model = ?").get(model) as {
-      c: number;
-    }
-  ).c;
   db.close?.();
   process.stdout.write(
     `index ${arm.name}: ${done}/${ex.ids.length} chunks embedded under ${model}\n`,
   );
-  if (done < ex.ids.length) process.exit(3);
 }
 
-/** An offline arm's queries: write the export; assemble the GPU run's query vectors when given. */
+/** An offline arm's queries: write the export; assemble the GPU run's query vectors when given. The query
+ *  keys are checked before the export files are rewritten, as the chunk ids are. */
 function queriesOffline(arm: EmbedderArm, corpus: Corpus, exp: string, texts: string[]): void {
   const expDir = join(armDir(exp, arm), "export");
   mkdirSync(expDir, { recursive: true });
-  writeFileSync(join(expDir, "queries.jsonl"), `${queryExportLines(arm, texts).join("\n")}\n`);
-  writeFileSync(join(expDir, "query-ids.json"), JSON.stringify(texts));
+  const writeQueryExport = (): void => {
+    writeFileSync(join(expDir, "queries.jsonl"), `${queryExportLines(arm, texts).join("\n")}\n`);
+    writeFileSync(join(expDir, "query-ids.json"), JSON.stringify(texts));
+  };
   const qvecsPath = flag("--qvecs");
   if (!qvecsPath) {
+    writeQueryExport();
     process.stdout.write(
-      `export ${expDir}: ${texts.length} quer${texts.length === 1 ? "y" : "ies"}\nrun off-box: ${nextQueryCommand(arm, expDir)}\nthen re-run queries for ${arm.name} with the same arguments plus --qvecs ${queryVecsFileFor(expDir, arm)} --qids ${join(expDir, "query-ids.json")}\n`,
+      `export ${expDir}: ${texts.length} quer${texts.length === 1 ? "y" : "ies"}\nrun off-box: ${nextQueryCommand(arm, expDir)}\nthen re-run queries for ${arm.name} with the same arguments plus ${queryRerunArgs(arm, expDir)}\n`,
     );
     process.exit(3);
   }
   const qidsPath = flag("--qids");
-  if (!qidsPath) die("queries --qvecs needs --qids <the export's query-ids.json>");
+  if (!qidsPath)
+    die("queries --qvecs needs --qids <the run's query ids file, see the re-run hint>");
   let vecs: Record<string, number[]>;
   try {
     vecs = assembleQueryVecs({
@@ -287,6 +297,7 @@ function queriesOffline(arm: EmbedderArm, corpus: Corpus, exp: string, texts: st
   } catch (e) {
     die(`queries ${arm.name}: ${(e as Error).message}`);
   }
+  writeQueryExport();
   writeFileSync(join(exp, `qvecs-${arm.name}.json`), JSON.stringify(vecs));
   writeFileSync(
     join(exp, `query-latency-${arm.name}.json`),
@@ -338,7 +349,15 @@ async function stageIndex(): Promise<void> {
   if (fresh && arm.family !== "gateway-bge") db.exec("DELETE FROM chunk_embeddings");
   const filter = compileEgressFilter(cfg.egress.excludePaths);
   if (isOfflineFamily(arm)) {
-    indexOffline(db, arm, corpus, exp, vault.id, filter);
+    indexOffline(
+      db,
+      arm,
+      corpus,
+      exp,
+      vault.id,
+      filter,
+      gpuVecsModelId(cfg.embeddings, cfg.cacheDir),
+    );
     return;
   }
   const all = (
@@ -522,6 +541,10 @@ function stageScore(): void {
   const pools = new Map<string, PoolFile>();
   const missing = missingPoolsError(exp, armNames, existsSync);
   if (missing) die(missing);
+  for (const n of omittedDecisionArms(armNames, exp, existsSync))
+    process.stderr.write(
+      `score: warning: decision-bearing arm "${n}" has pools in ${exp} but is not in --arms, so the BH family is smaller than the run's\n`,
+    );
   for (const n of armNames)
     pools.set(n, JSON.parse(readFileSync(join(exp, `pools-${n}.json`), "utf8")) as PoolFile);
   const readJson = <T>(p: string): T | undefined =>
@@ -529,6 +552,7 @@ function stageScore(): void {
 
   const rows: Array<Record<string, unknown>> = [];
   const decisionRows: Record<string, RetrievalRow[]> = {};
+  const bhFamily: Record<string, ReturnType<typeof bhFamilyRecord>> = {};
   for (const [labels, path] of goldens) {
     const queries = GoldenSetSchema.parse(parseYaml(readFileSync(path, "utf8"))).queries;
     const score = (
@@ -563,7 +587,11 @@ function stageScore(): void {
           score(a.name, "dense").m.map((m) => m.ndcg_at_10),
         ).p,
     );
-    const bh = new Map(fam.map((a, i) => [a.name, bhDecisions(famP)[i] ?? false]));
+    const bh = new Map(fam.map((a, i) => [a.name, bhDecisions(famP, BH_Q)[i] ?? false]));
+    bhFamily[labels] = bhFamilyRecord(fam.map((a) => a.name));
+    process.stdout.write(
+      `BH family (${labels}): m=${bhFamily[labels].m} over ${bhFamily[labels].arms.join(", ")}\n`,
+    );
     for (const name of armNames) {
       const arm = armByName(name);
       const dense = score(name, "dense");
@@ -709,7 +737,11 @@ function stageScore(): void {
   };
   writeFileSync(
     join(outDir, "summary.json"),
-    JSON.stringify({ private_phase: decision, rows, doc_embed: docLat, cost }, null, 2),
+    JSON.stringify(
+      { private_phase: decision, rows, doc_embed: docLat, cost, bh_family: bhFamily },
+      null,
+      2,
+    ),
   );
   for (const r of rows) {
     const v = (r.vs_control as { ndcg10: { delta: number; p: number; lower95: number } } | null)
