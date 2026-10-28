@@ -168,8 +168,10 @@ def verify_pins(download: Callable[[str], str], pins: Pins) -> dict[str, str]:
 
 
 def check_pooling(cfg: dict) -> None:
-    """The model card's pooling: mean over tokens, prompt tokens included."""
-    if cfg.get("pooling_mode_mean_tokens") is not True:
+    """The model card's pooling: mean over tokens, prompt tokens included. sentence-transformers 6
+    writes `"pooling_mode": "mean"`; older cards write `"pooling_mode_mean_tokens": true`."""
+    mean = cfg.get("pooling_mode") == "mean" or cfg.get("pooling_mode_mean_tokens") is True
+    if not mean:
         raise SystemExit("1_Pooling/config.json does not declare mean pooling")
     if cfg.get("include_prompt") is not True:
         raise SystemExit(

@@ -85,11 +85,18 @@ def test_verify_pins_accepts_matching_bytes_and_rejects_a_drifted_file(tmp_path)
 
 
 def test_check_pooling_and_modules_require_mean_pooling_with_prompt_and_a_normalize(tmp_path):
+    # The pinned google/embeddinggemma-2 1_Pooling/config.json, verbatim (sentence-transformers 6
+    # writes `pooling_mode`, not the older `pooling_mode_*_tokens` booleans). The first Modal run on
+    # 2026-10-28 died on this exact file with "does not declare mean pooling".
+    g.check_pooling({"embedding_dimension": 768, "pooling_mode": "mean", "include_prompt": True})
+    # The older boolean form (nomic's card) is still mean pooling.
     g.check_pooling({"pooling_mode_mean_tokens": True, "include_prompt": True})
+    with pytest.raises(SystemExit, match="mean pooling"):
+        g.check_pooling({"pooling_mode": "cls", "include_prompt": True})
     with pytest.raises(SystemExit, match="mean pooling"):
         g.check_pooling({"pooling_mode_mean_tokens": False, "include_prompt": True})
     with pytest.raises(SystemExit, match="include_prompt"):
-        g.check_pooling({"pooling_mode_mean_tokens": True, "include_prompt": False})
+        g.check_pooling({"pooling_mode": "mean", "include_prompt": False})
     g.check_modules(
         [
             {"type": "sentence_transformers.sentence_transformer.modules.Transformer"},
