@@ -180,10 +180,21 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock', 'packages/reranker-local/bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
       - name: install (skip napi build -> no .node)
         run: bun install --frozen-lockfile --ignore-scripts
+      # The full suite's reranker-local-resolution and reranker-auto-select tests stage and tsc-build
+      # packages/reranker-local, which is deliberately NOT a root workspace member (see the
+      # reranker-local job in ci-server.yml). Without this step each of their three test-time
+      # `bun install`s downloads its ~230 MB @huggingface/transformers tree from the registry inside
+      # the helper's 180 s kill timer, which timed out on 5 of 6 matrix runs on 2026-10-28. Installing
+      # it here once fills ~/.bun/install/cache (keyed on this lockfile too, above), so the staged
+      # copies link from the cache and the real-checkout install is a no-op. --ignore-scripts matches
+      # the reranker-local job's own install (setup-repo's install-mode default, frozen-no-scripts).
+      - name: install reranker-local (fills the bun cache for the suite's staged builds)
+        run: bun install --frozen-lockfile --ignore-scripts
+        working-directory: packages/reranker-local
       - name: pre-warm shared Bun runtime transpiler cache
         # Bun #34210 is safe here: the regex Worker imports only builtins; re-check before a Worker imports modules.
         # An optimisation only: a failed warm-up leaves the tests to fill the cache themselves.
