@@ -225,9 +225,25 @@ const CROSS_TOOL_ALIASES: Readonly<Record<string, Readonly<Record<string, string
  *  family; edit distance cannot bridge them. Derived from the keys the rejected key's own object
  *  accepts, so no tool name is listed: a rejected `limit` on a `k` tool hints `k`, and the reverse.
  *  Hint only: the rejected key is still refused, and no advertised schema changes. */
-function countAliasOf(rejected: string, accepted: readonly string[]): string | undefined {
+function countAliasOf(
+  rejected: string,
+  accepted: readonly string[],
+  sent: unknown,
+): string | undefined {
   const other = rejected === "limit" ? "k" : rejected === "k" ? "limit" : undefined;
-  return other !== undefined && accepted.includes(other) ? other : undefined;
+  if (other === undefined || !accepted.includes(other)) return undefined;
+  // A non-numeric string under `k` is not a count (`k: "status"` on find_notes_by_property is a
+  // shortened `key`); leave that to the edit-distance hint. `k: 5` and `limit: "5"` keep this one.
+  if (typeof sent === "string" && sent.trim() !== "" && Number.isNaN(Number(sent)))
+    return undefined;
+  return other;
+}
+
+/** The value the caller sent under `key` inside the object at `path`, or undefined. */
+function sentValueAt(rawInput: unknown, path: ReadonlyArray<PropertyKey>, key: string): unknown {
+  let cur: unknown = rawInput;
+  for (const seg of path) cur = valueAt(cur, seg);
+  return valueAt(cur, key);
 }
 
 function pathKeyOf(path: ReadonlyArray<PropertyKey>): string {
@@ -263,7 +279,7 @@ function unrecognizedKeyHints(
         const candidates = acceptedForPath.filter((k) => k !== rejected);
         const suggestion =
           aliases?.[rejected] ??
-          countAliasOf(rejected, acceptedForPath) ??
+          countAliasOf(rejected, acceptedForPath, sentValueAt(rawInput, issue.path, rejected)) ??
           nearestKey(rejected, candidates);
         if (suggestion && suggestion !== rejected) {
           key_hints[pathKey] ??= {};

@@ -386,6 +386,19 @@ describe("k vs limit: a rejected count argument names its sibling", () => {
       limit: 5,
     });
     expect(res.isError).toBe(true);
+    // The hint code ran (accepted keys were computed); it just found no count sibling.
+    expect(detailsOf(res).accepted_keys?.[""]).toBeDefined();
     expect(detailsOf(res).key_hints?.[""]?.limit).toBeUndefined();
+  });
+
+  it("find_notes_by_property rejects a string k: still hints key, not limit", async () => {
+    const { client, cleanup } = await connect();
+    cleanups.push(cleanup);
+    const res = await callCapability(client, "find_notes_by_property", {
+      vault: "auny",
+      k: "status",
+    });
+    expect(res.isError).toBe(true);
+    expect(detailsOf(res).key_hints?.[""]?.k).toBe("key");
   });
 });
