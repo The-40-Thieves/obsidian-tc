@@ -2,6 +2,7 @@
 // The harness exports each arm's chunk texts and query texts, the GPU script embeds them into raw
 // float32 files, and the harness loads those files back, checking them against its own export first.
 // No I/O and no network here: every rule is unit-testable (test/eval-embedder-arms-offline.test.ts).
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Database } from "../src/db/types";
 import type { EgressFilter } from "../src/plane/egress-filter";
@@ -175,18 +176,86 @@ export function loadOfflineDocVecs(
   return done;
 }
 
-/** The flags that re-run `index` with a GPU run's document vectors. gemma2's script writes its consumed ids
- *  and embed log beside the vectors; nomic's writes neither, so its export ids.json is the reference. */
+/** An arm's working directory under the experiment directory. */
+export const armDir = (exp: string, arm: EmbedderArm): string => join(exp, "arms", arm.name);
+
+/** The command-line inputs of an offline index run: a GPU run's vectors, the ids they belong to, and its embed log. */
+export interface OfflineIndexInput {
+  vecsPath?: string;
+  idsPath?: string;
+  logPath?: string;
+}
+
+/** The export an offline stage hands the GPU run: the chunk ids in order, and one `{chunk_id, text}` line per chunk. */
+function writeChunkExport(expDir: string, ex: ExportedChunkTexts): void {
+  writeFileSync(join(expDir, "ids.json"), JSON.stringify(ex.ids));
+  writeFileSync(join(expDir, "texts.jsonl"), `${ex.lines.join("\n")}\n`);
+}
+
+/** An offline arm's index stage. Without vectors it writes the export and returns 3: the GPU run comes next. With
+ *  vectors it checks them against a fresh export, loads them under `model`, and rewrites the export only after that
+ *  load succeeded, then returns 0. A refused load throws before any export file changes. `out` gets the stage's lines. */
+export function indexOfflineArm(
+  db: Database,
+  o: {
+    arm: EmbedderArm;
+    corpus: Corpus;
+    exp: string;
+    vaultId: string;
+    filter: EgressFilter;
+    model: string;
+    input: OfflineIndexInput;
+    out: (text: string) => void;
+  },
+): 0 | 3 {
+  const { arm, corpus, exp, model, input } = o;
+  const expDir = join(armDir(exp, arm), "export");
+  mkdirSync(expDir, { recursive: true });
+  const ex = armChunkTexts(db, [o.vaultId], arm, o.filter);
+  if (!input.vecsPath) {
+    writeChunkExport(expDir, ex);
+    o.out(
+      `export ${expDir}: ${ex.ids.length} chunk(s), ${ex.excluded} egress-excluded\nrun off-box: ${nextEmbedCommand(arm, expDir)}\nthen re-run index ${arm.name} with the same arguments plus ${indexRerunArgs(arm, expDir)}\n`,
+    );
+    return 3;
+  }
+  if (!input.idsPath)
+    throw new Error("index --vecs needs --ids <the run's ids file, see the re-run hint>");
+  const batches = embedLogBatches(
+    input.logPath ? JSON.parse(readFileSync(input.logPath, "utf8")) : undefined,
+    ex.ids.length,
+  );
+  const done = loadOfflineDocVecs(db, {
+    arm,
+    model,
+    fresh: ex.ids,
+    givenIds: JSON.parse(readFileSync(input.idsPath, "utf8")),
+    vecs: readFileSync(input.vecsPath),
+  });
+  writeChunkExport(expDir, ex);
+  writeFileSync(
+    join(exp, `embed-log-${arm.name}.json`),
+    JSON.stringify(buildArmEmbedLog({ arm, corpus, chunks: ex.ids.length, batches })),
+  );
+  db.close?.();
+  o.out(`index ${arm.name}: ${done}/${ex.ids.length} chunks embedded under ${model}\n`);
+  return 0;
+}
+
+/** The flags that re-run `index` with a GPU run's document vectors. Both scripts write the ids of the rows they
+ *  consumed beside the vectors; gemma2's run also writes its embed log. */
 export function indexRerunArgs(arm: EmbedderArm, exportDir: string): string {
   const base = `--vecs ${vecsFileFor(exportDir, arm)}`;
-  if (arm.family === "modal-nomic") return `${base} --ids ${join(exportDir, "ids.json")}`;
+  if (arm.family === "modal-nomic")
+    return `${base} --ids ${join(exportDir, `vecs-${arm.dims}-ids.json`)}`;
   return `${base} --ids ${join(exportDir, "vecs-ids.json")} --embed-log ${join(exportDir, "embed-log.json")}`;
 }
 
 /** The flags that re-run `queries` with a GPU run's query vectors. */
 export function queryRerunArgs(arm: EmbedderArm, exportDir: string): string {
   const base = `--qvecs ${queryVecsFileFor(exportDir, arm)}`;
-  if (arm.family === "modal-nomic") return `${base} --qids ${join(exportDir, "query-ids.json")}`;
+  if (arm.family === "modal-nomic")
+    return `${base} --qids ${join(exportDir, `qvecs-${arm.dims}-ids.json`)}`;
   return `${base} --qids ${join(exportDir, "qvecs-ids.json")}`;
 }
 
@@ -197,6 +266,19 @@ export function bhFamilyRecord(
   omitted: readonly string[],
 ): { arms: string[]; m: number; q: number; omitted: string[] } {
   return { arms: [...arms], m: arms.length, q: BH_Q, omitted: [...omitted] };
+}
+
+/** One BH family's decisions, beside its record: each decision arm's unrounded p-value, and the arms the
+ *  correction rejected at q. `rejected[i]` is the decision for `arms[i]`. */
+export function bhDecisionRecord(
+  arms: readonly string[],
+  ps: readonly number[],
+  rejected: readonly boolean[],
+): { rejected: string[]; p_values: Record<string, number> } {
+  return {
+    rejected: arms.filter((_, i) => rejected[i] === true),
+    p_values: Object.fromEntries(arms.map((a, i) => [a, ps[i] ?? Number.NaN])),
+  };
 }
 
 /** `--arms` with a repeated name counted once, first position kept: a repeat would inflate the BH m. */

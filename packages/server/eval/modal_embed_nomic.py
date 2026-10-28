@@ -15,11 +15,13 @@ document and query embedding, so the two sides must be the same function.
     modal run eval/modal_embed_nomic.py --texts texts.jsonl --out vecs.f32
 
 Writes raw little-endian float32, N*768, in the input's line order -- exactly the layout
-eval/load-gpu-vecs.ts reads. Pair it with the ids.json eval/export-chunk-texts.ts wrote in the SAME
-run; the two files are positionally joined and nothing downstream can detect a mismatch, so ORDER is
-the contract: shards are embedded length-sorted for throughput but returned, and written, in input
-order. The output appears only when complete: it is written to `<out>.partial` and renamed, so a
-crash or a short run leaves no file for the loader to mistake for a result.
+eval/load-gpu-vecs.ts reads. Beside it, `<out minus .f32>-ids.json` holds the id (`chunk_id`, or
+`key` for queries) of each row, in the same order, read from the input rows themselves. Pass that
+file to the loader, not the export's ids.json from another run: the two are positionally joined and
+nothing downstream can detect a mismatch, so ORDER is the contract: shards are embedded
+length-sorted for throughput but returned, and written, in input order. Both files appear only when
+complete: they are written to `.partial` and renamed together, so a crash or a short run leaves no
+file for the loader to mistake for a result.
 
 NO RESTATED PINS. The model id, revision, width, pooling and file checksums are NOT in this file:
 they are read from embedder-model-pins.json, which scripts/check-model-pins.mjs derives from
@@ -335,16 +337,52 @@ def make_forward(
     return forward
 
 
-def write_vectors(
-    out: str, blobs: Iterable[bytes], shard_sizes: Sequence[int], dim: int = DIM
-) -> int:
-    """Write the shards' packed float32 vectors to `out`, atomically and only if complete.
+def ids_path(out: str) -> str:
+    """`<out minus .f32>-ids.json`: vecs-768.f32 -> vecs-768-ids.json."""
+    return f"{os.path.splitext(out)[0]}-ids.json"
 
-    `blobs` must arrive in shard order; each must be exactly shard_sizes[i] * dim * 4 bytes. The
-    bytes go to `<out>.partial` and are renamed over `out` after the last shard checks out, so a
-    crash, a short shard or a wrong total never leaves a file the loader could mistake for a
-    result. Returns the number of vectors written."""
+
+def read_rows(path: str) -> tuple[list[str], list[str]]:
+    """(ids, texts) from a JSONL file, in line order. A row takes its id from `chunk_id` (the chunk
+    export) or `key` (the query export). A row with neither is refused, not skipped: a skipped row
+    would shift the id of every vector after it."""
+    ids: list[str] = []
+    texts: list[str] = []
+    with open(path, encoding="utf-8") as f:
+        for lineno, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            row_id = row.get("chunk_id", row.get("key"))
+            if row_id is None:
+                raise SystemExit(f"{path} line {lineno}: no chunk_id or key")
+            ids.append(row_id)
+            texts.append(row["text"])
+    if not texts:
+        raise SystemExit(f"{path} held no texts")
+    return ids, texts
+
+
+def write_vectors(
+    out: str,
+    blobs: Iterable[bytes],
+    shard_sizes: Sequence[int],
+    ids: Sequence[str],
+    dim: int = DIM,
+) -> int:
+    """Write the shards' packed float32 vectors to `out` and their ids to `ids_path(out)`, both
+    atomically and only if complete.
+
+    `blobs` must arrive in shard order; each must be exactly shard_sizes[i] * dim * 4 bytes, and
+    `ids` must name one row per vector. Both files go to `.partial` and are renamed after the last
+    shard checks out, so a crash, a short shard or a wrong total never leaves a file the loader
+    could mistake for a result. Returns the number of vectors written."""
+    if len(ids) != sum(shard_sizes):
+        raise SystemExit(f"{len(ids)} ids for {sum(shard_sizes)} vectors -- refusing")
     partial = f"{out}.partial"
+    final_ids = ids_path(out)
+    partial_ids = f"{final_ids}.partial"
     n = 0
     try:
         with open(partial, "wb") as fh:
@@ -362,10 +400,14 @@ def write_vectors(
         total = sum(shard_sizes)
         if n != total:
             raise SystemExit(f"wrote {n} vectors for {total} texts -- refusing a partial file")
+        with open(partial_ids, "w", encoding="utf-8") as fh:
+            json.dump(list(ids), fh)
         os.replace(partial, out)
+        os.replace(partial_ids, final_ids)
     except BaseException:
-        if os.path.exists(partial):
-            os.remove(partial)
+        for leftover in (partial, partial_ids):
+            if os.path.exists(leftover):
+                os.remove(leftover)
         raise
     return n
 
@@ -424,19 +466,11 @@ class Embedder:
 
 @app.local_entrypoint()
 def main(texts: str, out: str):
-    rows = []
-    with open(texts, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                rows.append(json.loads(line)["text"])
-    if not rows:
-        raise SystemExit(f"{texts} held no texts")
-
+    ids, rows = read_rows(texts)
     shards = [rows[i : i + PER_CALL] for i in range(0, len(rows), PER_CALL)]
     t0 = time.perf_counter()
     # .map preserves input order (order_outputs defaults True) -- load-gpu-vecs.ts joins these
     # positionally against ids.json, so order IS the correctness contract here.
-    n = write_vectors(out, Embedder().embed.map(shards), [len(s) for s in shards])
+    n = write_vectors(out, Embedder().embed.map(shards), [len(s) for s in shards], ids)
     secs = time.perf_counter() - t0
     print(f"{n} vectors ({DIM}d fp32) -> {out} in {secs:.1f}s ({n / secs:.1f}/s)")

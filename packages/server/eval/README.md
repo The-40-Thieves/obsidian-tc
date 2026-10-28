@@ -114,12 +114,13 @@ stays local. The GPU script runs the same pinned ONNX graph, so its vectors are 
 
 ```bash
 bun eval/export-chunk-texts.ts <config.json> <outdir>            # ids.json + texts.jsonl, whole vault
-modal run eval/modal_embed_nomic.py --texts <outdir>/texts.jsonl --out <outdir>/vecs.f32
-bun eval/load-gpu-vecs.ts <config.json> <outdir>/ids.json <outdir>/vecs.f32 [--insert]
+modal run eval/modal_embed_nomic.py --texts <outdir>/texts.jsonl --out <outdir>/vecs.f32   # also writes vecs-ids.json
+bun eval/load-gpu-vecs.ts <config.json> <outdir>/vecs-ids.json <outdir>/vecs.f32 [--insert]
 obsidian-tc index                                                # rebuilds vec_chunks from the loaded vectors
 ```
 
-`ids.json` and `vecs.f32` are joined by position, so use the pair from one export. `--insert` is for a provider
+`vecs-ids.json` and `vecs.f32` come from the same `modal run`, written together and joined by position; load that
+pair, not the export's `ids.json`. `--insert` is for a provider
 change (no rows under the new id yet); without it the loader only updates rows that exist and errors when it
 updates none. The model id, revision, width, pooling and checksums are read from `embedder-model-pins.json`, which
 `bun run check:model-pins` derives from `packages/embedder-local/src/model-info.ts` (regenerate with

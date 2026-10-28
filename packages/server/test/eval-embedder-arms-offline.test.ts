@@ -11,6 +11,7 @@ import {
   armChunkTexts,
   assembleQueryVecs,
   assertIdsMatch,
+  bhDecisionRecord,
   bhFamilyRecord,
   buildArmEmbedLog,
   dedupeArms,
@@ -327,6 +328,14 @@ describe("BH family and score guards", () => {
     });
   });
 
+  it("bhDecisionRecord: each decision arm's raw p, and the arms the family correction rejected", () => {
+    expect(bhDecisionRecord(["a", "b", "c"], [0.001, 0.2, 0.04], [true, false, false])).toEqual({
+      rejected: ["a"],
+      p_values: { a: 0.001, b: 0.2, c: 0.04 },
+    });
+    expect(bhDecisionRecord([], [], [])).toEqual({ rejected: [], p_values: {} });
+  });
+
   it("dedupeArms: a repeated --arms name counts once, the first position kept", () => {
     expect(dedupeArms(["bge-m3", "nomic-v1.5-768", "nomic-v1.5-768"])).toEqual([
       "bge-m3",
@@ -390,12 +399,12 @@ describe("re-run hints", () => {
     );
   });
 
-  it("nomic: the export's ids.json, no embed log (its script writes neither)", () => {
+  it("nomic: the ids file modal_embed_nomic.py wrote beside each vectors file, no embed log", () => {
     expect(indexRerunArgs(nomic, EXP)).toBe(
-      `--vecs ${join(EXP, "vecs-768.f32")} --ids ${join(EXP, "ids.json")}`,
+      `--vecs ${join(EXP, "vecs-768.f32")} --ids ${join(EXP, "vecs-768-ids.json")}`,
     );
     expect(queryRerunArgs(nomic, EXP)).toBe(
-      `--qvecs ${join(EXP, "qvecs-768.f32")} --qids ${join(EXP, "query-ids.json")}`,
+      `--qvecs ${join(EXP, "qvecs-768.f32")} --qids ${join(EXP, "qvecs-768-ids.json")}`,
     );
   });
 });

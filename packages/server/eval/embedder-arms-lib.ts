@@ -96,6 +96,21 @@ export function isOfflineFamily(arm: EmbedderArm): boolean {
   return arm.family === "modal-nomic" || arm.family === "modal-gemma2";
 }
 
+/** The `embeddings` block an HTTP arm's config is written with (through the gateway). Its provider id is the
+ *  `chunk_embeddings.model` the arm's vectors are stored under; `gpuVecsModelId` asks the provider for it. */
+export function httpArmEmbeddings(arm: EmbedderArm, baseUrl: string) {
+  return {
+    provider: "openai",
+    apiKeyEnv: "LITELLM_AGENT_KEY",
+    model: arm.model,
+    dimensions: arm.dims,
+    baseUrl,
+    timeoutMs: 600000,
+    batchSize: 16,
+    concurrency: 1,
+  };
+}
+
 /** The EmbeddingGemma prefix shape: gemini-embedding-2 and the offline EmbeddingGemma 2 arms share
  *  the documented `title: … | text: …` document text and `task: search result | query: …` query. */
 const usesGemma2Prefixes = (arm: EmbedderArm): boolean =>

@@ -310,6 +310,19 @@ def test_to_float32_casts_a_tensor_like_object_and_passes_arrays_through():
 # --- embed against a fake model ------------------------------------------------------------------
 
 
+class FakeTokenizer:
+    """HF-tokenizer-shaped: called on a list of texts, returns {"input_ids": ...} with one id list
+    per text. A text named in `lengths` gets that many ids; any other text gets one."""
+
+    def __init__(self, lengths: dict[str, int] | None = None):
+        self.lengths = lengths or {}
+        self.calls: list[dict] = []
+
+    def __call__(self, texts, **kwargs):
+        self.calls.append(kwargs)
+        return {"input_ids": [[0] * self.lengths.get(t, 1) for t in texts]}
+
+
 class FakeModel:
     """SentenceTransformer-shaped: encode() returns a fixed unit-row table looked up by the text's
     index ("t7" -> row 7), and records the keyword arguments it was called with."""
@@ -318,6 +331,7 @@ class FakeModel:
         self.table = _rows(n, 768, seed=9)
         self.table /= np.linalg.norm(self.table, axis=1, keepdims=True)
         self.calls: list[dict] = []
+        self.tokenizer = FakeTokenizer()
 
     def encode(self, texts, **kwargs):
         self.calls.append(kwargs)
@@ -355,6 +369,21 @@ def test_embed_refuses_a_non_finite_model_output():
     e, model = _embedder(2)
     model.table[1, 5] = np.nan
     with pytest.raises(SystemExit, match="embed"):
+        e.embed(["t0", "t1"], [768])
+
+
+def test_embed_counts_the_inputs_the_model_will_cut_with_its_own_tokenizer():
+    e, model = _embedder(10)
+    model.tokenizer = FakeTokenizer({"t1": g.MAX_SEQ_LENGTH + 1, "t2": g.MAX_SEQ_LENGTH})
+    out = e.embed(["t0", "t1", "t2"], [768])
+    assert out["truncated"] == 1  # t2 is exactly the limit and is not cut
+    assert model.tokenizer.calls == [{"truncation": False}]
+
+
+def test_embed_refuses_a_model_with_no_tokenizer_to_count_truncation_with():
+    e, model = _embedder(2)
+    model.tokenizer = None
+    with pytest.raises(SystemExit, match="tokenizer"):
         e.embed(["t0", "t1"], [768])
 
 
@@ -453,6 +482,42 @@ def test_a_failure_on_the_second_width_publishes_nothing_new(tmp_path):
     assert not list(tmp_path.glob("*.partial"))
 
 
+def test_write_run_publishes_the_log_with_the_vectors_or_not_at_all(tmp_path):
+    prefix = str(tmp_path / "vecs")
+    log = tmp_path / "log.json"
+    g.write_run(
+        [(prefix, _shard_results([1], (768,)), [1], ["a"])], (768,), [(str(log), '{"n": 1}\n')]
+    )
+    assert log.read_text(encoding="utf-8") == '{"n": 1}\n'
+    assert not list(tmp_path.glob("*.partial"))
+
+
+def test_a_failed_run_publishes_no_log_and_keeps_the_old_one(tmp_path):
+    prefix = str(tmp_path / "vecs")
+    log = tmp_path / "log.json"
+    log.write_text("old log", encoding="utf-8")
+    results = [{768: _rows_blob(0, 1, 768)}]  # one row for two ids: a short shard
+    with pytest.raises(SystemExit, match="expected"):
+        g.write_run([(prefix, results, [2], ["a", "b"])], (768,), [(str(log), "new log")])
+    assert log.read_text(encoding="utf-8") == "old log"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["log.json"]
+
+
+def test_a_text_write_that_dies_midway_leaves_no_partial_behind(tmp_path, monkeypatch):
+    prefix = str(tmp_path / "vecs")
+    real_write_text = Path.write_text
+
+    def dies_midway(self, data, *args, **kwargs):
+        real_write_text(self, data[:2], *args, **kwargs)
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "write_text", dies_midway)
+    with pytest.raises(OSError, match="disk full"):
+        g.write_run([(prefix, _shard_results([1], (768,)), [1], ["a"])], (768,))
+    assert not list(tmp_path.glob("*.partial"))
+    assert not list(tmp_path.glob("vecs*"))
+
+
 # --- input, sharding and the run log --------------------------------------------------------------
 
 
@@ -473,8 +538,11 @@ def test_plan_shards_cuts_per_call_chunks_in_order():
 
 
 def test_build_log_has_the_contract_keys_and_shards_sum_to_n_texts():
-    stats = [{"n": 256, "chars": 900, "ms": 12.5}, {"n": 44, "chars": 100, "ms": 3.0}]
-    query = [{"n": 2, "chars": 20, "ms": 1.0}]
+    stats = [
+        {"n": 256, "chars": 900, "ms": 12.5, "truncated": 1},
+        {"n": 44, "chars": 100, "ms": 3.0, "truncated": 0},
+    ]
+    query = [{"n": 2, "chars": 20, "ms": 1.0, "truncated": 0}]
     log = g.build_log(g.PINS, "bf16", (768, 256), stats, query, 4.2, "2026-10-28T00:00:00+00:00")
     assert set(log) == {
         "model_id",
@@ -487,9 +555,11 @@ def test_build_log_has_the_contract_keys_and_shards_sum_to_n_texts():
         "gpu_ms_total",
         "wall_s",
         "started_at_utc",
+        "truncated_inputs",
     }
     assert log["model_id"] == g.PINS.model_id and log["revision"] == g.PINS.revision
     assert log["dims"] == [768, 256]
     assert sum(s["n"] for s in log["shards"]) == log["n_texts"] == 300
     assert log["n_queries"] == 2
+    assert log["truncated_inputs"] == 1
     assert log["gpu_ms_total"] == pytest.approx(16.5)

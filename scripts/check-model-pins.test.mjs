@@ -124,6 +124,10 @@ test("evalOnly: a malformed entry is refused, naming the field", () => {
       (c) => (c.evalOnly["embeddinggemma-2"].files[1].sizeBytes = 0),
       /files\[1\]\.sizeBytes must be a positive integer/,
     ],
+    [
+      (c) => (c.evalOnly["embeddinggemma-2"].files[0].note = "a hand-added key"),
+      /evalOnly\.embeddinggemma-2\.files\[0\]\.note is not an allowed key/,
+    ],
   ];
   for (const [patch, pattern] of cases) {
     assert.match(run({ committedJson: mutant(patch) }).problems.join("\n"), pattern);

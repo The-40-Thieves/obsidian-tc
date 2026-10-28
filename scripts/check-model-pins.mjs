@@ -60,6 +60,7 @@ export function buildPins(catalog, pinnedFilesFor, dtypeFor) {
 
 const TOP_KEYS = ["generatedFrom", "models", "evalOnly"];
 const ENTRY_KEYS = ["modelId", "revision", "dimensions", "pooling", "format", "note", "files"];
+const FILE_KEYS = ["path", "sha256", "sizeBytes"];
 const HEX40 = /^[0-9a-f]{40}$/;
 const HEX64 = /^[0-9a-f]{64}$/;
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -107,6 +108,9 @@ export function validateEvalOnly(evalOnly) {
         problems.push(`${fat}.sha256 must be 64-hex`);
       if (!isObject(f) || !Number.isInteger(f.sizeBytes) || f.sizeBytes <= 0)
         problems.push(`${fat}.sizeBytes must be a positive integer`);
+      if (isObject(f))
+        for (const k of Object.keys(f))
+          if (!FILE_KEYS.includes(k)) problems.push(`${fat}.${k} is not an allowed key`);
     });
   }
   return problems;
