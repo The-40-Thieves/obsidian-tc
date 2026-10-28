@@ -15,7 +15,7 @@ import {
 } from "../src/runtime/plane-wiring";
 import { applyReconcileOutcome, type ReconcileHealth } from "../src/runtime/reconcile-outcome";
 import type { IndexStats, IndexVaultArgs } from "../src/search/indexer";
-import { openMemoryDb } from "./helpers";
+import { cleanIndexStats, openMemoryDb } from "./helpers";
 
 const NOW = 1_800_000_000_000;
 
@@ -23,35 +23,9 @@ function health(): ReconcileHealth {
   return { reconcile: "pending", reconcileAt: null, reconcileErrors: [] };
 }
 
-/** A clean IndexStats, overridable per test — every field IndexStats requires, at its zero value. */
+/** A clean IndexStats for these fixtures: the shared builder at 8 dimensions, overridable per test. */
 function stats(over: Partial<IndexStats> = {}): IndexStats {
-  return {
-    notes_seen: 0,
-    notes_indexed: 0,
-    chunks_upserted: 0,
-    chunks_deleted: 0,
-    chunks_unchanged: 0,
-    edges_inserted: 0,
-    edges_deleted: 0,
-    secrets_skipped: 0,
-    vec_enabled: true,
-    fts_enabled: true,
-    notes_upserted: 0,
-    notes_deleted: 0,
-    notes_embed_failed: 0,
-    chunks_dedup_reused: 0,
-    chunks_dedup_unresolved: 0,
-    embed_batch_rejections: 0,
-    notes_stale_skipped: 0,
-    notes_epoch_stale_skipped: 0,
-    notes_frontmatter_failed: 0,
-    frontmatter_failures: [],
-    notes_read_refused: 0,
-    read_refusals: [],
-    model: "fake",
-    dimensions: 8,
-    ...over,
-  };
+  return cleanIndexStats({ dimensions: 8, ...over });
 }
 
 describe("reconcileResultsForVault (THE-1073)", () => {

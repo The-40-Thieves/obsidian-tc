@@ -39,7 +39,7 @@ import { createMcpServer } from "../src/mcp/server";
 import { createReconcileRunner, type ReconcileRunnerDeps } from "../src/runtime/plane-wiring";
 import type { IndexStats, IndexVaultArgs } from "../src/search/indexer";
 import { embedPlans } from "../src/search/indexer";
-import { openMemoryDb } from "./helpers";
+import { cleanIndexStats, openMemoryDb } from "./helpers";
 import { stallTimeout } from "./stall-timeouts";
 
 /** A stub EmbeddingProvider whose embed() is SYNCHRONOUS busy-work — matching the in-process
@@ -108,36 +108,6 @@ async function connectClient(registry: ToolRegistry) {
   return client;
 }
 
-/** A clean IndexStats, matching plane-wiring-reconcile-mapping.test.ts's own helper shape. */
-function cleanStats(): IndexStats {
-  return {
-    notes_seen: 0,
-    notes_indexed: 0,
-    chunks_upserted: 0,
-    chunks_deleted: 0,
-    chunks_unchanged: 0,
-    edges_inserted: 0,
-    edges_deleted: 0,
-    secrets_skipped: 0,
-    vec_enabled: true,
-    fts_enabled: true,
-    notes_upserted: 0,
-    notes_deleted: 0,
-    notes_embed_failed: 0,
-    chunks_dedup_reused: 0,
-    chunks_dedup_unresolved: 0,
-    embed_batch_rejections: 0,
-    notes_stale_skipped: 0,
-    notes_epoch_stale_skipped: 0,
-    notes_frontmatter_failed: 0,
-    frontmatter_failures: [],
-    notes_read_refused: 0,
-    read_refusals: [],
-    model: "fake",
-    dimensions: 4,
-  };
-}
-
 /** Real `createReconcileRunner` deps, minimal everywhere except `backgroundEmbed` (under test) and
  *  `indexVaultRecorded`, which each vault's real Promise.all'd pass below calls with the REAL
  *  `embedPace` closure createReconcileRunner constructed — running a synthetic embedPlans() pass
@@ -187,7 +157,7 @@ function reconcileDeps(opts: {
         vaultOpts.signal,
         vaultOpts.embedPace,
       );
-      return cleanStats();
+      return cleanIndexStats();
     },
     roles: null,
     jobRunner: {} as never,

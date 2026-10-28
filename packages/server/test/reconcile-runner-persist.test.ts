@@ -7,7 +7,7 @@ import { createReconcileRunner } from "../src/runtime/plane-wiring";
 import { persistReconcileState, readPersistedReconcileState } from "../src/runtime/reconcile-state";
 import type { IndexStats, IndexVaultArgs } from "../src/search/indexer";
 import { bumpLeaderEpoch, readLeaderEpoch } from "../src/search/indexing/leader-epoch";
-import { openMemoryDb } from "./helpers";
+import { cleanIndexStats, openMemoryDb } from "./helpers";
 
 function provisionedDb() {
   const db = openMemoryDb();
@@ -28,30 +28,6 @@ function freshIndexHealth() {
     lastChunksUpserted: null,
     inFlight: null,
   };
-}
-
-function stats(): IndexStats {
-  return {
-    notes_seen: 0,
-    notes_indexed: 0,
-    chunks_upserted: 0,
-    chunks_deleted: 0,
-    chunks_unchanged: 0,
-    edges_inserted: 0,
-    edges_deleted: 0,
-    secrets_skipped: 0,
-    vec_enabled: true,
-    fts_enabled: true,
-    notes_upserted: 0,
-    notes_deleted: 0,
-    notes_embed_failed: 0,
-    embed_batch_rejections: 0,
-    chunks_dedup_reused: 0,
-    chunks_dedup_unresolved: 0,
-    notes_stale_skipped: 0,
-    notes_frontmatter_failed: 0,
-    frontmatter_failures: [],
-  } as never;
 }
 
 function runnerFor(
@@ -87,7 +63,7 @@ describe("createReconcileRunner persists the leader's outcome to cache.db (GH #9
     const db = provisionedDb();
     const runner = runnerFor(db, async (o) => {
       o.onNotesPass?.();
-      return stats();
+      return cleanIndexStats();
     });
     await runner(new AbortController().signal);
     expect(readPersistedReconcileState(db)).toEqual({
@@ -103,7 +79,7 @@ describe("createReconcileRunner persists the leader's outcome to cache.db (GH #9
     const controller = new AbortController();
     const runner = runnerFor(db, async () => {
       controller.abort();
-      return stats();
+      return cleanIndexStats();
     });
     await runner(controller.signal);
     expect(readPersistedReconcileState(db)).toBeUndefined();
@@ -114,7 +90,7 @@ describe("createReconcileRunner persists the leader's outcome to cache.db (GH #9
     bumpLeaderEpoch(db, 1);
     const captured = readLeaderEpoch(db);
     bumpLeaderEpoch(db, 2); // a successor promoted after this run's epoch was captured
-    const runner = runnerFor(db, async () => stats(), { leaderEpoch: () => captured });
+    const runner = runnerFor(db, async () => cleanIndexStats(), { leaderEpoch: () => captured });
     await runner(new AbortController().signal);
     expect(readPersistedReconcileState(db)).toBeUndefined();
   });
@@ -122,7 +98,9 @@ describe("createReconcileRunner persists the leader's outcome to cache.db (GH #9
   it("a pass under the current leader epoch persists the row tagged with that epoch", async () => {
     const db = provisionedDb();
     bumpLeaderEpoch(db, 1);
-    const runner = runnerFor(db, async () => stats(), { leaderEpoch: () => readLeaderEpoch(db) });
+    const runner = runnerFor(db, async () => cleanIndexStats(), {
+      leaderEpoch: () => readLeaderEpoch(db),
+    });
     await runner(new AbortController().signal);
     expect(readPersistedReconcileState(db)?.reconcile).toBe("ok");
     expect(db.prepare("SELECT epoch FROM reconcile_state WHERE id = 1").get()).toEqual({
@@ -143,7 +121,7 @@ describe("createReconcileRunner persists the leader's outcome to cache.db (GH #9
       true,
       readLeaderEpoch(db),
     );
-    const runner = runnerFor(db, async () => stats(), { leaderEpoch: () => captured });
+    const runner = runnerFor(db, async () => cleanIndexStats(), { leaderEpoch: () => captured });
     await runner(new AbortController().signal);
     expect(
       db.prepare("SELECT state, reconcile_at, epoch FROM reconcile_state WHERE id = 1").get(),
@@ -171,7 +149,7 @@ describe("createReconcileRunner persists the leader's outcome to cache.db (GH #9
         o.onNotesPass?.();
         notesPassed();
         await held; // the walk is still running: indexVaultRecorded has not resolved
-        return stats();
+        return cleanIndexStats();
       },
       { leaderEpoch: () => readLeaderEpoch(db) },
     );
