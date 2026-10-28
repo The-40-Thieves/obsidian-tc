@@ -1,7 +1,9 @@
 // Offline (Modal-batched) embedder arms: the pure rules embedder-arms.ts applies to a GPU batch run.
 // The harness exports each arm's chunk texts and query texts, the GPU script embeds them into raw
 // float32 files, and the harness loads those files back, checking them against its own export first.
-// No I/O and no network here: every rule is unit-testable (test/eval-embedder-arms-offline.test.ts).
+// No network here. The rules are pure and unit-tested (test/eval-embedder-arms-offline.test.ts); the
+// one stage that touches the filesystem, indexOfflineArm, is driven end to end on a temp database in
+// test/eval-embedder-arms-offline-stage.test.ts.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Database } from "../src/db/types";

@@ -402,6 +402,10 @@ def write_vectors(
             raise SystemExit(f"wrote {n} vectors for {total} texts -- refusing a partial file")
         with open(partial_ids, "w", encoding="utf-8") as fh:
             json.dump(list(ids), fh)
+        # Drop an earlier run's ids file BEFORE the two renames: if the second rename fails, the new
+        # vectors must sit beside NO ids file (loud) rather than beside stale ids (silent mis-join).
+        if os.path.exists(final_ids):
+            os.remove(final_ids)
         os.replace(partial, out)
         os.replace(partial_ids, final_ids)
     except BaseException:
@@ -469,8 +473,8 @@ def main(texts: str, out: str):
     ids, rows = read_rows(texts)
     shards = [rows[i : i + PER_CALL] for i in range(0, len(rows), PER_CALL)]
     t0 = time.perf_counter()
-    # .map preserves input order (order_outputs defaults True) -- load-gpu-vecs.ts joins these
-    # positionally against ids.json, so order IS the correctness contract here.
+    # .map preserves input order (order_outputs defaults True) -- the loader joins these
+    # positionally against the `-ids.json` this run writes beside `out`, so order IS the contract.
     n = write_vectors(out, Embedder().embed.map(shards), [len(s) for s in shards], ids)
     secs = time.perf_counter() - t0
     print(f"{n} vectors ({DIM}d fp32) -> {out} in {secs:.1f}s ({n / secs:.1f}/s)")
