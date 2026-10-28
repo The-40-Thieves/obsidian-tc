@@ -175,5 +175,102 @@
         }
       }
     }
+  },
+  "evalOnly": {
+    "embeddinggemma-2": {
+      "modelId": "google/embeddinggemma-2",
+      "revision": "f9972ac22e696a105c482202646979e33e4b5a1e",
+      "dimensions": 768,
+      "pooling": "mean",
+      "format": "safetensors",
+      "note": "Eval-only pin (not a local-provider catalog model): run by eval/modal_embed_gemma2.py on a GPU in bfloat16 or float32, never float16. Hashes from the Hub API and direct downloads on 2026-10-28.",
+      "files": [
+        {
+          "path": "model.safetensors",
+          "sha256": "197a32965d4b1105faf060417baa899e193fb73cd401f42ec9295234d5553d79",
+          "sizeBytes": 1488915288
+        },
+        {
+          "path": "config.json",
+          "sha256": "b8f1e9931b57fbc054acdb445c41765d55b0074c58d145fa82839941ad1b5bb3",
+          "sizeBytes": 4455
+        },
+        {
+          "path": "tokenizer.json",
+          "sha256": "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4",
+          "sizeBytes": 32170510
+        },
+        {
+          "path": "tokenizer.model",
+          "sha256": "e594c8a90eb08d8bda498ff4747977dc827ae0c3c56b5c0d41a605a22d02ef03",
+          "sizeBytes": 4689013
+        },
+        {
+          "path": "tokenizer_config.json",
+          "sha256": "17bd5d6e9364ca49a534e1502076593317c298d4a663623091ed45388f004874",
+          "sizeBytes": 1599
+        },
+        {
+          "path": "modules.json",
+          "sha256": "3d02572a0455b832de67fb8e63a54981bc7e8b46e337c95e917bd8122a533bfd",
+          "sizeBytes": 413
+        },
+        {
+          "path": "1_Pooling/config.json",
+          "sha256": "8759bdf7c77efc7df7723f64856a593c8943b71ee38baf2a88771fbaf78438f9",
+          "sizeBytes": 90
+        },
+        {
+          "path": "2_Normalize/config.json",
+          "sha256": "cdb09dfca347a56aa2d691744e38d5ad3c7cbc2834e7181272b9a15328b82524",
+          "sizeBytes": 97
+        },
+        {
+          "path": "sentence_bert_config.json",
+          "sha256": "b1bcd9f2dce3ae863b359e87d0710b5dbc3314a59ecb4e2f97c7778fc8e4b228",
+          "sizeBytes": 747
+        },
+        {
+          "path": "config_sentence_transformers.json",
+          "sha256": "031e56a498d33c349ab489a21885bcfe25b4fcba841149dc99e1e90d4a7c28f5",
+          "sizeBytes": 1565
+        }
+      ]
+    },
+    "embeddinggemma-2-onnx": {
+      "modelId": "onnx-community/embeddinggemma-2-ONNX",
+      "revision": "daa72c51243991dfcaf9f9137d2c573d8f7790c0",
+      "dimensions": 768,
+      "pooling": "mean",
+      "format": "onnx",
+      "note": "Eval-only pin for the deployment-parity leg (transformers.js, fp32 text model only; the fp16 and q4f16 exports are excluded by the model card's precision rule).",
+      "files": [
+        {
+          "path": "onnx/model.onnx",
+          "sha256": "bc47de15f81208a5c99e5ab10f746d5e33b51ea228b7dc0bef9c133a94f1c1c3",
+          "sizeBytes": 421421
+        },
+        {
+          "path": "onnx/model.onnx_data",
+          "sha256": "9fd452bfc6916e5a92f080f8dada35598ca4512b21c65897d4c5974d5f9630a2",
+          "sizeBytes": 1084170240
+        },
+        {
+          "path": "config.json",
+          "sha256": "8d011bfe08b5e345bbe0b81e5c6fd02c381920b345b986047bc2a33ce7b90d1d",
+          "sizeBytes": 5031
+        },
+        {
+          "path": "tokenizer.json",
+          "sha256": "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4",
+          "sizeBytes": 32170510
+        },
+        {
+          "path": "tokenizer_config.json",
+          "sha256": "17bd5d6e9364ca49a534e1502076593317c298d4a663623091ed45388f004874",
+          "sizeBytes": 1599
+        }
+      ]
+    }
   }
 }
