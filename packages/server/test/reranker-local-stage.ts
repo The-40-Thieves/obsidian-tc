@@ -54,11 +54,59 @@ export function stageRerankerLocalSource(realRerankerLocalDir: string, stageRoot
   return stagedPkg;
 }
 
+/** Characters of a failed step's stderr kept in its error message. bun prints the package it is
+ *  fetching last, so the tail is what names a step that hung (GH #958 / 2026-10-28 incident). */
+const STDERR_TAIL_CHARS = 2_000;
+
+/** The one place a failed subprocess becomes an Error message, shared by the async and sync step
+ *  runners: the command, its cwd, how it failed (killed at the step timeout, or a non-zero exit)
+ *  and the tail of its stderr. */
+export function describeStepFailure(
+  cmd: string,
+  args: string[],
+  cwd: string,
+  outcome: { timedOut: true; ms: number } | { code: number | null; signal: NodeJS.Signals | null },
+  stderr: string,
+): string {
+  const step = `${cmd} ${args.join(" ")} in ${cwd}`;
+  const tail = stderr.slice(-STDERR_TAIL_CHARS);
+  if ("timedOut" in outcome) {
+    return `${step} timed out after ${outcome.ms}ms and was killed: ${tail}`;
+  }
+  return `${step} exited ${outcome.code}${outcome.signal ? ` (signal ${outcome.signal})` : ""}: ${tail}`;
+}
+
+/** Runs one command synchronously, bounded by `BUILD_STEP_TIMEOUT_MS` like `runCommandAsync`, so a
+ *  hung step is named in its error instead of surfacing as vitest's generic hook timeout. */
+function runStepSync(cmd: string, args: string[], cwd: string): void {
+  try {
+    execFileSync(cmd, args, {
+      cwd,
+      stdio: "pipe",
+      timeout: BUILD_STEP_TIMEOUT_MS,
+      killSignal: "SIGKILL",
+    });
+  } catch (e) {
+    const failure = e as Error & {
+      code?: unknown;
+      status?: number | null;
+      signal?: NodeJS.Signals | null;
+      stderr?: Buffer | string;
+    };
+    const stderr = String(failure.stderr ?? "");
+    const outcome =
+      failure.code === "ETIMEDOUT"
+        ? { timedOut: true as const, ms: BUILD_STEP_TIMEOUT_MS }
+        : { code: failure.status ?? null, signal: failure.signal ?? null };
+    throw new Error(describeStepFailure(cmd, args, cwd, outcome, stderr));
+  }
+}
+
 /** `bun install --frozen-lockfile && bun run build` — the same two commands the original in-place
  *  tests ran, just pointed at the staged copy. Returns the built entry file's absolute path. */
 export function buildStagedRerankerLocal(stagedPkg: string): string {
-  execFileSync("bun", ["install", "--frozen-lockfile"], { cwd: stagedPkg, stdio: "pipe" });
-  execFileSync("bun", ["run", "build"], { cwd: stagedPkg, stdio: "pipe" });
+  runStepSync("bun", ["install", "--frozen-lockfile"], stagedPkg);
+  runStepSync("bun", ["run", "build"], stagedPkg);
   return join(stagedPkg, "dist", "index.js");
 }
 
@@ -297,17 +345,19 @@ function runCommandAsync(cmd: string, args: string[], cwd: string): Promise<void
       if (timedOut) {
         reject(
           new Error(
-            `${cmd} ${args.join(" ")} in ${cwd} timed out after ${BUILD_STEP_TIMEOUT_MS}ms and was killed`,
+            describeStepFailure(
+              cmd,
+              args,
+              cwd,
+              { timedOut: true, ms: BUILD_STEP_TIMEOUT_MS },
+              stderr,
+            ),
           ),
         );
       } else if (code === 0) {
         resolve();
       } else {
-        reject(
-          new Error(
-            `${cmd} ${args.join(" ")} in ${cwd} exited ${code}${signal ? ` (signal ${signal})` : ""}: ${stderr}`,
-          ),
-        );
+        reject(new Error(describeStepFailure(cmd, args, cwd, { code, signal }, stderr)));
       }
     });
   });
