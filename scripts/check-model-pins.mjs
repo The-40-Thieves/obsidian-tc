@@ -14,6 +14,11 @@
  *   2. a Python file under eval/ restates a pinned value (a catalog repo id, revision or sha256) as
  *      a literal, which is a second copy nothing keeps in step.
  *
+ * `models` is derived from model-info.ts and gated for equality. `evalOnly` is hand-maintained: it
+ * pins GPU-only eval models (EmbeddingGemma 2) that are not local-provider catalog entries, so no
+ * derivation can produce them. The gate checks its shape and that no Python restates its repo id or
+ * revision; `--write` carries it over verbatim, never regenerates it.
+ *
  * Floor: an empty catalog, an unreadable JSON, or zero scanned Python files is a failure, never a
  * silent pass.
  */
@@ -53,13 +58,59 @@ export function buildPins(catalog, pinnedFilesFor, dtypeFor) {
   return { generatedFrom: MODEL_INFO_FILE, models };
 }
 
-/** Literals in a Python source that restate a pinned value: a catalog repo id, a revision, or any
- *  sha256 / 40-hex commit shape. Returns human-readable findings. */
-export function findRestatedPins(pySource, catalog) {
+const TOP_KEYS = ["generatedFrom", "models", "evalOnly"];
+const HEX40 = /^[0-9a-f]{40}$/;
+const HEX64 = /^[0-9a-f]{64}$/;
+const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+
+/** Shape of the hand-maintained `evalOnly` block. Its values are not derivable from model-info.ts,
+ *  so the gate checks their form only. Returns problems; none for an absent block. */
+export function validateEvalOnly(evalOnly) {
+  if (evalOnly === undefined) return [];
+  if (!isObject(evalOnly)) return ["evalOnly must be an object keyed by eval-model name"];
+  const problems = [];
+  for (const [name, e] of Object.entries(evalOnly)) {
+    const at = `evalOnly.${name}`;
+    if (!isObject(e)) {
+      problems.push(`${at} must be an object`);
+      continue;
+    }
+    if (typeof e.modelId !== "string" || !/^[^/\s]+\/[^/\s]+$/.test(e.modelId))
+      problems.push(`${at}.modelId must be "owner/name"`);
+    if (typeof e.revision !== "string" || !HEX40.test(e.revision))
+      problems.push(`${at}.revision must be a 40-hex commit`);
+    if (!Number.isInteger(e.dimensions)) problems.push(`${at}.dimensions must be an integer`);
+    if (typeof e.pooling !== "string" || e.pooling === "")
+      problems.push(`${at}.pooling must be a non-empty string`);
+    if (e.format !== "safetensors" && e.format !== "onnx")
+      problems.push(`${at}.format must be "safetensors" or "onnx"`);
+    if (!Array.isArray(e.files) || e.files.length === 0) {
+      problems.push(`${at}.files must be a non-empty array`);
+      continue;
+    }
+    e.files.forEach((f, i) => {
+      const fat = `${at}.files[${i}]`;
+      if (!isObject(f) || typeof f.path !== "string" || f.path === "")
+        problems.push(`${fat}.path must be a non-empty string`);
+      if (!isObject(f) || typeof f.sha256 !== "string" || !HEX64.test(f.sha256))
+        problems.push(`${fat}.sha256 must be 64-hex`);
+      if (!isObject(f) || !Number.isInteger(f.sizeBytes) || f.sizeBytes <= 0)
+        problems.push(`${fat}.sizeBytes must be a positive integer`);
+    });
+  }
+  return problems;
+}
+
+/** Literals in a Python source that restate a pinned value: a catalog or eval-only repo id or
+ *  revision, or any sha256 / 40-hex commit shape. Returns human-readable findings. */
+export function findRestatedPins(pySource, catalog, evalOnlyEntries = []) {
   const found = [];
-  for (const info of catalog) {
-    if (pySource.includes(info.modelId)) found.push(`repo id "${info.modelId}"`);
-    if (pySource.includes(info.revision)) found.push(`revision ${info.revision}`);
+  const pinned = [...catalog, ...evalOnlyEntries.filter(isObject)];
+  for (const p of pinned) {
+    if (typeof p.modelId === "string" && p.modelId !== "" && pySource.includes(p.modelId))
+      found.push(`repo id "${p.modelId}"`);
+    if (typeof p.revision === "string" && p.revision !== "" && pySource.includes(p.revision))
+      found.push(`revision ${p.revision}`);
   }
   for (const m of pySource.matchAll(/\b[0-9a-f]{64}\b|\b[0-9a-f]{40}\b/g)) {
     found.push(`hex digest ${m[0]}`);
@@ -78,19 +129,49 @@ export function checkPins({ catalog, pinnedFilesFor, dtypeFor, committedJson, py
   } catch (e) {
     problems.push(`${PINS_FILE} is not valid JSON: ${e.message}`);
   }
-  if (have && JSON.stringify(have) !== JSON.stringify(want)) {
-    problems.push(
-      `${PINS_FILE} does not match ${MODEL_INFO_FILE}. Regenerate: node scripts/check-model-pins.mjs --write`,
-    );
+  if (have !== undefined) {
+    if (!isObject(have)) {
+      problems.push(`${PINS_FILE} is not a JSON object`);
+    } else {
+      for (const k of Object.keys(have)) {
+        if (!TOP_KEYS.includes(k)) problems.push(`${PINS_FILE} has unknown top-level key "${k}"`);
+      }
+      const derived = (o) => JSON.stringify({ generatedFrom: o.generatedFrom, models: o.models });
+      if (derived(have) !== derived(want)) {
+        problems.push(
+          `${PINS_FILE} does not match ${MODEL_INFO_FILE}. Regenerate: node scripts/check-model-pins.mjs --write`,
+        );
+      }
+      problems.push(...validateEvalOnly(have.evalOnly));
+    }
   }
+  const evalOnly = isObject(have) && isObject(have.evalOnly) ? Object.values(have.evalOnly) : [];
   if (pyFiles.length === 0)
     problems.push(`no modal_embed_*.py found under ${PY_DIR} (gate scanned nothing)`);
   for (const { name, source } of pyFiles) {
-    for (const f of findRestatedPins(source, catalog ?? [])) {
+    for (const f of findRestatedPins(source, catalog ?? [], evalOnly)) {
       problems.push(`${name} restates a pinned value (${f}); read ${PINS_FILE} instead`);
     }
   }
   return { problems, want };
+}
+
+/** What `--write` puts in the file: the derived `models`, plus the committed `evalOnly` block copied
+ *  verbatim. A committed file that cannot be read has no block to copy, so the write is refused
+ *  rather than dropping it. An absent file (first write) has nothing to keep. */
+export function pinsToWrite({ catalog, pinnedFilesFor, dtypeFor, committedJson }) {
+  const want = buildPins(catalog ?? [], pinnedFilesFor, dtypeFor);
+  if (committedJson.trim() === "") return want;
+  let have;
+  try {
+    have = JSON.parse(committedJson);
+  } catch (e) {
+    throw new Error(
+      `${PINS_FILE} is not valid JSON, so its evalOnly block cannot be preserved: ${e.message}`,
+    );
+  }
+  if (isObject(have) && have.evalOnly !== undefined) want.evalOnly = have.evalOnly;
+  return want;
 }
 
 function readPyFiles(root) {
@@ -105,31 +186,31 @@ function readPyFiles(root) {
 async function main() {
   const write = process.argv.includes("--write");
   const info = await import(pathToFileURL(join(ROOT, MODEL_INFO_FILE)).href);
-  const committedJson = (() => {
+  const readCommitted = () => {
     try {
       return readFileSync(join(ROOT, PINS_FILE), "utf8");
     } catch {
       return "";
     }
-  })();
+  };
+  if (write) {
+    const next = pinsToWrite({
+      catalog: info.MODEL_CATALOG,
+      pinnedFilesFor: info.pinnedFilesFor,
+      dtypeFor: info.dtypeFor,
+      committedJson: readCommitted(),
+    });
+    writeFileSync(join(ROOT, PINS_FILE), `${JSON.stringify(next, null, 2)}\n`);
+    console.log(`wrote ${PINS_FILE} (${Object.keys(next.models).length} model(s))`);
+  }
+  // Checked after any write, so a restated Python pin or a malformed evalOnly still fails the run.
   const { problems, want } = checkPins({
     catalog: info.MODEL_CATALOG,
     pinnedFilesFor: info.pinnedFilesFor,
     dtypeFor: info.dtypeFor,
-    committedJson,
+    committedJson: readCommitted(),
     pyFiles: readPyFiles(ROOT),
   });
-  if (write) {
-    writeFileSync(join(ROOT, PINS_FILE), `${JSON.stringify(want, null, 2)}\n`);
-    console.log(`wrote ${PINS_FILE} (${Object.keys(want.models).length} model(s))`);
-    // Only the staleness problem is cured by writing; a restated pin in Python still fails.
-    const rest = problems.filter(
-      (p) => !p.includes("does not match") && !p.includes("not valid JSON"),
-    );
-    if (rest.length === 0) return;
-    problems.length = 0;
-    problems.push(...rest);
-  }
   if (problems.length > 0) {
     for (const p of problems) console.error(`check-model-pins: ${p}`);
     process.exitCode = 1;

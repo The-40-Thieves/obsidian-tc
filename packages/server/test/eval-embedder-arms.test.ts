@@ -14,6 +14,7 @@ import {
   geminiBatchBody,
   geminiRequest,
   isDailyQuota,
+  isOfflineFamily,
   l2norm,
   neuronsToUsd,
   pairedAgainstControl,
@@ -28,16 +29,43 @@ import { GoldenQuerySchema } from "../eval/metrics";
 const g2 = armByName("gemini-embedding-2-1024");
 const g1 = armByName("gemini-embedding-001-1024");
 const bge = armByName(CONTROL_ARM);
+const nomic = armByName("nomic-v1.5-768");
+const gemma768 = armByName("embeddinggemma-2-768");
+const gemma256 = armByName("embeddinggemma-2-256");
 
 describe("arms", () => {
-  it("names are unique, the control is bge-m3 at 1024, and exactly the two 1024-wide Gemini arms bear the decision", () => {
+  it("names are unique, the control is bge-m3 at 1024, and the four deployable-width arms bear the decision", () => {
     expect(new Set(EMBEDDER_ARMS.map((a) => a.name)).size).toBe(EMBEDDER_ARMS.length);
     expect(bge).toMatchObject({ model: "BAAI/bge-m3", dims: 1024, decisionBearing: false });
     expect(EMBEDDER_ARMS.filter((a) => a.decisionBearing).map((a) => a.name)).toEqual([
       "gemini-embedding-2-1024",
       "gemini-embedding-001-1024",
+      "nomic-v1.5-768",
+      "embeddinggemma-2-768",
     ]);
     expect(() => armByName("nope")).toThrow(/unknown arm/);
+  });
+
+  it("the three offline arms are offline families; the four HTTP-era arms are not", () => {
+    const offline = ["nomic-v1.5-768", "embeddinggemma-2-768", "embeddinggemma-2-256"];
+    for (const n of offline) expect(isOfflineFamily(armByName(n))).toBe(true);
+    for (const a of EMBEDDER_ARMS.filter((x) => !offline.includes(x.name))) {
+      expect(isOfflineFamily(a)).toBe(false);
+    }
+  });
+
+  it("the 256 MRL arm shares the 768 model id, never decides, and the 768 arms are decision-bearing", () => {
+    expect(gemma256).toMatchObject({
+      model: "embeddinggemma-2",
+      dims: 256,
+      decisionBearing: false,
+    });
+    expect(gemma768).toMatchObject({ model: "embeddinggemma-2", dims: 768, decisionBearing: true });
+    expect(nomic).toMatchObject({
+      model: "nomic-embed-text-v1.5",
+      dims: 768,
+      decisionBearing: true,
+    });
   });
 });
 
@@ -90,7 +118,21 @@ describe("text each arm embeds", () => {
     );
   });
 
-  it("only gemini-embedding-2 rewrites the query", () => {
+  it("modal-nomic gets the production text with NO search_document prefix, and a raw query", () => {
+    expect(documentText(nomic, chunk)).toBe("Evergreen notes — A — B\n\nbody");
+    expect(queryText(nomic, "q")).toBe("q");
+  });
+
+  it("the EmbeddingGemma 2 offline arms get gemini-embedding-2's document and query shapes", () => {
+    expect(documentText(gemma768, chunk)).toBe("title: Evergreen notes | text: A — B\n\nbody");
+    expect(documentText(gemma256, { ...chunk, headings: [] })).toBe(
+      "title: Evergreen notes | text: body",
+    );
+    expect(queryText(gemma768, "q")).toBe("task: search result | query: q");
+    expect(queryText(gemma256, "q")).toBe("task: search result | query: q");
+  });
+
+  it("only the EmbeddingGemma-shaped arms rewrite the query", () => {
     expect(queryText(g2, "q")).toBe("task: search result | query: q");
     expect(queryText(g1, "q")).toBe("q");
     expect(queryText(bge, "q")).toBe("q");

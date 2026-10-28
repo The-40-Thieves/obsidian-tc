@@ -8,7 +8,9 @@ import { enrichChunkText } from "../src/search/chunk";
 import { type GoldenQuery, normalizeSeparators } from "./metrics";
 import { type CorpusVerdict, summarizePaired } from "./rerank-arms-lib";
 
-export type ArmFamily = "gateway-bge" | "gemini-2" | "gemini-001";
+/** `modal-*` families are OFFLINE: their vectors arrive as files from a GPU batch run (Modal), never
+ *  through an HTTP embedder. See isOfflineFamily. */
+export type ArmFamily = "gateway-bge" | "gemini-2" | "gemini-001" | "modal-nomic" | "modal-gemma2";
 
 export interface EmbedderArm {
   name: string;
@@ -52,6 +54,32 @@ export const EMBEDDER_ARMS: readonly EmbedderArm[] = [
     dims: 3072,
     decisionBearing: false,
   },
+  // Offline (Modal GPU batch) arms. nomic-v1.5 is production's model, so it gets production's text
+  // (no task prefix). EmbeddingGemma 2 is text-only bf16 with its documented prefixes.
+  {
+    name: "nomic-v1.5-768",
+    family: "modal-nomic",
+    model: "nomic-embed-text-v1.5",
+    dims: 768,
+    decisionBearing: true,
+  },
+  {
+    name: "embeddinggemma-2-768",
+    family: "modal-gemma2",
+    model: "embeddinggemma-2",
+    dims: 768,
+    decisionBearing: true,
+  },
+  // MRL storage arm: the 768 vectors truncated to 256 and re-normalized by the GPU script. Never
+  // decides. It shares `model` with the 768 arm, but as its own arm copy, so the
+  // `openai:embeddinggemma-2` id does not collide between them.
+  {
+    name: "embeddinggemma-2-256",
+    family: "modal-gemma2",
+    model: "embeddinggemma-2",
+    dims: 256,
+    decisionBearing: false,
+  },
 ];
 
 export function armByName(name: string): EmbedderArm {
@@ -62,6 +90,16 @@ export function armByName(name: string): EmbedderArm {
     );
   return a;
 }
+
+/** True for an arm whose vectors come from a GPU batch run, not an HTTP embedder. */
+export function isOfflineFamily(arm: EmbedderArm): boolean {
+  return arm.family === "modal-nomic" || arm.family === "modal-gemma2";
+}
+
+/** The EmbeddingGemma prefix shape: gemini-embedding-2 and the offline EmbeddingGemma 2 arms share
+ *  the documented `title: … | text: …` document text and `task: search result | query: …` query. */
+const usesGemma2Prefixes = (arm: EmbedderArm): boolean =>
+  arm.family === "gemini-2" || arm.family === "modal-gemma2";
 
 export type Corpus = "public" | "private";
 
@@ -105,15 +143,15 @@ export interface DocChunk {
  *  documentation prescribes `title: <title> | text: <body>` for retrieval documents, so the same title
  *  and breadcrumb are given in that shape. */
 export function documentText(arm: EmbedderArm, c: DocChunk): string {
-  if (arm.family !== "gemini-2") return enrichChunkText(c.path, c.headings, c.content);
+  if (!usesGemma2Prefixes(arm)) return enrichChunkText(c.path, c.headings, c.content);
   const body = c.headings.length > 0 ? `${c.headings.join(" — ")}\n\n${c.content}` : c.content;
   return `title: ${titleOf(c.path) || "none"} | text: ${body}`;
 }
 
-/** The query-side text. Only gemini-embedding-2 rewrites it (its prescribed `task: search result |`
- *  prefix); the others take the raw query and, for -001, a RETRIEVAL_QUERY task type. */
+/** The query-side text. The EmbeddingGemma-shaped arms rewrite it (the prescribed `task: search
+ *  result |` prefix); the others take the raw query and, for -001, a RETRIEVAL_QUERY task type. */
 export function queryText(arm: EmbedderArm, q: string): string {
-  return arm.family === "gemini-2" ? `task: search result | query: ${q}` : q;
+  return usesGemma2Prefixes(arm) ? `task: search result | query: ${q}` : q;
 }
 
 export type EmbedKind = "document" | "query";
