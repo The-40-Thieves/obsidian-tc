@@ -2,7 +2,7 @@
 // order that decides whether the server may redirect at all. The client and the redirect URI come
 // first and a failure of either is a LOCAL error: nothing has proven where the browser may be sent,
 // so nothing redirects. Only after both match does any other fault become an error redirect, which
-// the caller builds with `iss` and the client's `state`.
+// the caller builds with `iss` and the client's `state` — unchanged, or absent, never shortened.
 import { type ClientResolver, UNKNOWN_CLIENT } from "./as-cimd";
 import type { AsClient } from "./as-clients";
 import { redirectUriAllowed, resolveScopes, splitScope } from "./as-clients";
@@ -31,7 +31,18 @@ export interface AuthorizeRules {
 }
 
 const CHALLENGE_RE = /^[A-Za-z0-9_-]{43}$/;
-const STATE_MAX = 512;
+/** RFC 6749 puts no upper bound on `state` — it is opaque client data — so this is only a DoS floor,
+ *  and it has to clear what real clients send: Google's Gemini `state` is a signed-and-encrypted blob
+ *  of a few KB, and at 512 no Gemini request could ever succeed.
+ *
+ *  Counted in UTF-16 code units, because that is what `String.length` measures — NOT bytes. The
+ *  distinction is deliberate rather than overlooked: the transport is already the tighter byte bound,
+ *  and it binds first for exactly the inputs where the two diverge. Both Node and Bun cap a request
+ *  line plus headers near 16 KiB by default, and a `state` reaches this check only after surviving
+ *  that. 4096 code units of ASCII is 4 KiB of query; 4096 of CJK is 12 KiB raw but **36 KiB
+ *  percent-encoded**, so the request line is refused before this cap is ever consulted. Byte-counting
+ *  here would add a TextEncoder pass to every authorize request and move no outcome. */
+const STATE_MAX = 4096;
 
 /** The same words for every reason a client cannot be used: which reason it is (an unreachable host, a
  *  document that is not JSON, one that names another client) is for the log, never for whoever started
@@ -163,7 +174,10 @@ export async function parseAuthorizeRequest(
     return {
       kind: "redirect",
       redirectUri,
-      state: typeof state === "string" ? state.slice(0, STATE_MAX) : undefined,
+      // NEVER truncate: `state` is echoed byte for byte or omitted. A prefix of a client's signed blob
+      // fails inside its own crypto (Google answers `Ciphertext HMAC does not verify`) and buries the
+      // OAuth error this redirect exists to report; omitting it fails the client cleanly instead.
+      state: typeof state === "string" && state.length <= STATE_MAX ? state : undefined,
       error: checked.fault.error,
       description: checked.fault.description,
     };

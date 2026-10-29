@@ -3,16 +3,21 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   authorize,
+  authorizeQuery,
   CLIENT_ID,
   CLIENT_REDIRECT,
   cleanupFlows,
+  codeOf,
+  exchange,
   ISSUER,
   Jar,
   LOOPBACK_CLIENT,
   makeFlow,
+  obtainCode,
   pkce,
   RESOURCE,
   rows,
+  tokenFields,
 } from "./as-flow-harness";
 
 afterEach(cleanupFlows);
@@ -291,5 +296,96 @@ describe("scopes and the pending request", () => {
     const res = await authorize(flow, new Jar(), challenge);
     expect(res.headers.get("referrer-policy")).toBe("same-origin");
     expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+});
+
+// A client's `state` is opaque bytes it must get back unchanged. Google's Gemini sends a signed and
+// encrypted blob of a few kilobytes; a 512-byte cap refused every one of those requests, and the
+// error redirect then handed Google a 512-byte PREFIX of its own ciphertext, which failed inside
+// Keymaster ("Ciphertext HMAC does not verify") instead of reporting the OAuth error.
+describe("state is opaque: echoed byte for byte, never truncated", () => {
+  const longState = `g_${"A1b2C3d4-_".repeat(204)}`; // 2,042 chars, sized like Gemini's blob
+  const overCap = "x".repeat(8192);
+
+  it("a 2KB state round-trips byte-identical through a successful authorize", async () => {
+    const flow = await makeFlow();
+    const start = await authorize(flow, new Jar(), challenge, { state: longState });
+    expect(start.status).toBe(303);
+    expect(start.headers.get("location")).toMatch(/^\/oauth\/login/);
+    expect(rows<{ state: string }>(flow, "SELECT state FROM auth_requests")[0]?.state).toBe(
+      longState,
+    );
+
+    const { verifier, challenge: ch } = pkce();
+    const { location } = await obtainCode(flow, new Jar(), ch, { state: longState });
+    expect(new URL(location).searchParams.get("state")).toBe(longState);
+    const { res } = await exchange(flow, tokenFields(codeOf(location), verifier));
+    expect(res.status).toBe(200);
+  });
+
+  it("an error redirect returns the state identical or not at all, never a prefix", async () => {
+    const flow = await makeFlow();
+    const cases: Array<{ state: string; over: Record<string, string | undefined> }> = [
+      { state: longState, over: { code_challenge_method: "plain" } },
+      { state: longState, over: { resource: "https://other.example/mcp" } },
+      { state: overCap, over: {} },
+      { state: overCap, over: { response_type: "token" } },
+    ];
+    for (const { state, over } of cases) {
+      const res = await authorize(flow, new Jar(), challenge, { ...over, state });
+      const label = `${state.length} chars, ${JSON.stringify(over)}`;
+      const e = errorOf(res);
+      expect(e.status, label).toBe(303);
+      expect(e.origin, label).toBe(CLIENT_REDIRECT);
+      expect(e.error, label).toBeTruthy();
+      if (e.state !== null) expect(e.state, label).toBe(state);
+      // A truncation would leak a prefix while failing the equality above; assert it directly, so a
+      // regression that re-adds a slice cannot pass by returning a shorter-but-plausible value.
+      const location = res.headers.get("location") ?? "";
+      if (e.state === null) expect(location.includes(state.slice(0, 64)), label).toBe(false);
+    }
+  });
+
+  // The cap is 4096 UTF-16 code units (what `String.length` measures), so pin both sides of the
+  // boundary and the unit itself: an off-by-one here is the same class of bug as the 512 cap, and a
+  // comment claiming the unit is worth nothing unless a test fails when the unit changes.
+  it("accepts exactly the cap and refuses one past it", async () => {
+    const flow = await makeFlow();
+    const at = await authorize(flow, new Jar(), challenge, { state: "x".repeat(4096) });
+    expect(at.status).toBe(303);
+    expect(at.headers.get("location")).toMatch(/^\/oauth\/login/);
+
+    const over = await authorize(flow, new Jar(), challenge, { state: "x".repeat(4097) });
+    expect(errorOf(over)).toMatchObject({ error: "invalid_request", state: null });
+  });
+
+  it("measures the cap in code units, not bytes: 4096 CJK characters are in limit", async () => {
+    const flow = await makeFlow();
+    // 4096 code units, but 12,288 UTF-8 bytes — in limit by the documented unit. A byte-counting
+    // cap would refuse this, so this test is what makes that choice load-bearing.
+    const cjk = "漢".repeat(4096);
+    expect(cjk.length).toBe(4096);
+    expect(Buffer.byteLength(cjk, "utf8")).toBe(12_288);
+    const res = await authorize(flow, new Jar(), challenge, { state: cjk });
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toMatch(/^\/oauth\/login/);
+    expect(rows<{ state: string }>(flow, "SELECT state FROM auth_requests")[0]?.state).toBe(cjk);
+  });
+
+  it("a repeated state is omitted from the error redirect, not truncated", async () => {
+    const flow = await makeFlow();
+    const url = `/oauth/authorize?${authorizeQuery(challenge, { state: undefined })}&state=${longState}&state=second`;
+    const res = await flow.app.request(flow.url(url), { redirect: "manual" });
+    const e = errorOf(res);
+    expect(e).toMatchObject({ error: "invalid_request", origin: CLIENT_REDIRECT, state: null });
+    expect(res.headers.get("location") ?? "").not.toContain(longState.slice(0, 64));
+    expect(rows(flow, "SELECT 1 FROM auth_requests")).toHaveLength(0);
+  });
+
+  it("a state over the cap is refused as invalid_request, with no state echoed", async () => {
+    const flow = await makeFlow();
+    const res = await authorize(flow, new Jar(), challenge, { state: overCap });
+    expect(errorOf(res)).toMatchObject({ error: "invalid_request", state: null });
+    expect(rows(flow, "SELECT 1 FROM auth_requests")).toHaveLength(0);
   });
 });
