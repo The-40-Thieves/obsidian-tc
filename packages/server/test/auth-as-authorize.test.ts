@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   authorize,
+  authorizeQuery,
   CLIENT_ID,
   CLIENT_REDIRECT,
   cleanupFlows,
@@ -343,6 +344,42 @@ describe("state is opaque: echoed byte for byte, never truncated", () => {
       const location = res.headers.get("location") ?? "";
       if (e.state === null) expect(location.includes(state.slice(0, 64)), label).toBe(false);
     }
+  });
+
+  // The cap is 4096 UTF-16 code units (what `String.length` measures), so pin both sides of the
+  // boundary and the unit itself: an off-by-one here is the same class of bug as the 512 cap, and a
+  // comment claiming the unit is worth nothing unless a test fails when the unit changes.
+  it("accepts exactly the cap and refuses one past it", async () => {
+    const flow = await makeFlow();
+    const at = await authorize(flow, new Jar(), challenge, { state: "x".repeat(4096) });
+    expect(at.status).toBe(303);
+    expect(at.headers.get("location")).toMatch(/^\/oauth\/login/);
+
+    const over = await authorize(flow, new Jar(), challenge, { state: "x".repeat(4097) });
+    expect(errorOf(over)).toMatchObject({ error: "invalid_request", state: null });
+  });
+
+  it("measures the cap in code units, not bytes: 4096 CJK characters are in limit", async () => {
+    const flow = await makeFlow();
+    // 4096 code units, but 12,288 UTF-8 bytes — in limit by the documented unit. A byte-counting
+    // cap would refuse this, so this test is what makes that choice load-bearing.
+    const cjk = "漢".repeat(4096);
+    expect(cjk.length).toBe(4096);
+    expect(Buffer.byteLength(cjk, "utf8")).toBe(12_288);
+    const res = await authorize(flow, new Jar(), challenge, { state: cjk });
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toMatch(/^\/oauth\/login/);
+    expect(rows<{ state: string }>(flow, "SELECT state FROM auth_requests")[0]?.state).toBe(cjk);
+  });
+
+  it("a repeated state is omitted from the error redirect, not truncated", async () => {
+    const flow = await makeFlow();
+    const url = `/oauth/authorize?${authorizeQuery(challenge, { state: undefined })}&state=${longState}&state=second`;
+    const res = await flow.app.request(flow.url(url), { redirect: "manual" });
+    const e = errorOf(res);
+    expect(e).toMatchObject({ error: "invalid_request", origin: CLIENT_REDIRECT, state: null });
+    expect(res.headers.get("location") ?? "").not.toContain(longState.slice(0, 64));
+    expect(rows(flow, "SELECT 1 FROM auth_requests")).toHaveLength(0);
   });
 
   it("a state over the cap is refused as invalid_request, with no state echoed", async () => {

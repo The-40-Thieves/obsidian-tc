@@ -33,9 +33,15 @@ export interface AuthorizeRules {
 const CHALLENGE_RE = /^[A-Za-z0-9_-]{43}$/;
 /** RFC 6749 puts no upper bound on `state` — it is opaque client data — so this is only a DoS floor,
  *  and it has to clear what real clients send: Google's Gemini `state` is a signed-and-encrypted blob
- *  of a few KB, and at 512 no Gemini request could ever succeed. 4096 is well above every client seen
- *  and well below the transport's own limit (both Node and Bun cap a request line plus headers near
- *  16 KiB by default), which is what actually bounds the query. */
+ *  of a few KB, and at 512 no Gemini request could ever succeed.
+ *
+ *  Counted in UTF-16 code units, because that is what `String.length` measures — NOT bytes. The
+ *  distinction is deliberate rather than overlooked: the transport is already the tighter byte bound,
+ *  and it binds first for exactly the inputs where the two diverge. Both Node and Bun cap a request
+ *  line plus headers near 16 KiB by default, and a `state` reaches this check only after surviving
+ *  that. 4096 code units of ASCII is 4 KiB of query; 4096 of CJK is 12 KiB raw but **36 KiB
+ *  percent-encoded**, so the request line is refused before this cap is ever consulted. Byte-counting
+ *  here would add a TextEncoder pass to every authorize request and move no outcome. */
 const STATE_MAX = 4096;
 
 /** The same words for every reason a client cannot be used: which reason it is (an unreachable host, a
