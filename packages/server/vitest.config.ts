@@ -72,7 +72,10 @@ export default defineConfig({
       process.platform === "win32" ? WINDOWS_STALL_TIMEOUT_MS : Math.max(10_000, timeoutFloor),
     coverage: {
       provider: "v8",
-      reporter: ["text-summary"],
+      // text-summary is what a human reads in the job log; lcov is the machine-readable report
+      // the code-quality services ingest. Neither had anything to read before this, which is why
+      // both reported no coverage at all rather than a low number.
+      reporter: ["text-summary", "lcov"],
       include: ["src/**/*.ts"],
       // Honest excludes only: type-only files, the composition root + barrel (exercised via the
       // integration suites, not unit), the runtime DB adapters (bun-sqlite is covered by the
