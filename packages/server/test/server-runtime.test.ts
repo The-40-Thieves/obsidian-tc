@@ -13,7 +13,7 @@
 
 import { mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { configFromVaultPath } from "../src/cli/args";
 import { experientialMigrations } from "../src/cli/shared";
 import { MetricsRecorder } from "../src/metrics/registry";
@@ -32,12 +32,13 @@ import { makeTempDir, rmTemp } from "./tmp";
 // Symlink creation needs a privilege Windows does not grant by default — probed, not
 // platform-sniffed, matching vault-watcher.test.ts's own `symlinkOk`.
 let symlinkOk = true;
+const symlinkProbe = makeTempDir("otc-runtime-sl-probe-");
 try {
-  const probe = makeTempDir("otc-runtime-sl-probe-");
-  symlinkSync(join(probe, "t"), join(probe, "l"), "dir");
-  rmTemp(probe);
+  symlinkSync(join(symlinkProbe, "t"), join(symlinkProbe, "l"), "dir");
 } catch {
   symlinkOk = false;
+} finally {
+  rmTemp(symlinkProbe);
 }
 
 describe("nativeReadyToken — THE-906 boot ready line's native= token", () => {
@@ -126,6 +127,55 @@ describe("unwindReversed — reverse-ownership-order cleanup", () => {
       (name) => reported.push(name),
     );
     expect(reported).toEqual(["governance", "stores"]);
+  });
+
+  it("continues after a rejecting cleanup and reports its error", async () => {
+    const diagnostic = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    try {
+      const storesClose = vi.fn();
+      const reported: string[] = [];
+      await unwindReversed(
+        [
+          { name: "stores", close: storesClose },
+          {
+            name: "governance",
+            close: async () => {
+              throw new Error("cleanup rejected");
+            },
+          },
+        ],
+        (name) => reported.push(name),
+      );
+      expect(storesClose).toHaveBeenCalledTimes(1);
+      expect(reported).toEqual(["governance", "stores"]);
+      expect(diagnostic).toHaveBeenCalledWith(expect.stringContaining("cleanup rejected"));
+    } finally {
+      diagnostic.mockRestore();
+    }
+  });
+
+  it("continues cleanup when the observer and diagnostic stream both throw", async () => {
+    const diagnostic = vi.spyOn(process.stderr, "write").mockImplementation(() => {
+      throw new Error("diagnostic failed");
+    });
+    try {
+      const storesClose = vi.fn();
+      const governanceClose = vi.fn();
+      await unwindReversed(
+        [
+          { name: "stores", close: storesClose },
+          { name: "governance", close: governanceClose },
+        ],
+        () => {
+          throw new Error("observer failed");
+        },
+      );
+      expect(governanceClose).toHaveBeenCalledTimes(1);
+      expect(storesClose).toHaveBeenCalledTimes(1);
+      expect(diagnostic).toHaveBeenCalledTimes(2);
+    } finally {
+      diagnostic.mockRestore();
+    }
   });
 });
 
@@ -391,7 +441,7 @@ describe("buildServerRuntime — post-core unwind on a real late boot failure", 
     // server-runtime.ts's own comment on why it's constructed first in the try block); then
     // governance; then stores. "transports" never appears — wireTransports itself is what threw,
     // so it never finished.
-    expect(cleanedUp).toEqual(["watcher", "leaderElection", "governance", "stores"]);
+    expect(cleanedUp).toEqual(["watcher", "leaderElection", "governance", "otel", "stores"]);
   });
 });
 
