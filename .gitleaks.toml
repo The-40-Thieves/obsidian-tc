@@ -14,6 +14,11 @@ useDefault = true
 description = "Benign secret-shaped content: scanner regexes, test fixtures, doc examples, build output"
 regexes = [
   '''tok_a1b2c3d4''',
+  # Sonar project key. Public identifying metadata -- it appears in the PR check's own URL -- but
+  # `...Key=<value>` reads to the generic-api-key rule as a credential assignment. Allowlisting the
+  # VALUE and not the file keeps the rest of sonar-project.properties scanned, so a real credential
+  # pasted there later (a `sonar.login=` line, say) still fails this gate.
+  '''The-40-Thieves_obsidian-tc''',
 ]
 paths = [
   '''packages/server/test/.*''',

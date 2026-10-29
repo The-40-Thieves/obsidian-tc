@@ -284,7 +284,9 @@ jobs:
         with:
           # Sonar attributes new code from git history, so a depth-1 clone misattributes it. Only the
           # one leg that scans pays for the full fetch; the other seven stay shallow.
-          fetch-depth: ${{ matrix.os == 'ubuntu-latest' && matrix.node == '26' && 0 || 1 }}
+          # The quotes are load-bearing: Actions counts numeric 0 as FALSY, so an unquoted `&& 0 || 1`
+          # evaluates to 1 on the very leg it is meant to deepen, silently leaving it shallow.
+          fetch-depth: ${{ matrix.os == 'ubuntu-latest' && matrix.node == '26' && '0' || '1' }}
       - uses: ./.github/actions/macos-hostname
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
