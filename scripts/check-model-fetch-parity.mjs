@@ -34,6 +34,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { parseSync } from "oxc-parser";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -87,49 +88,46 @@ export const DOCUMENTED_DELTAS = new Map([
   ],
 ]);
 
-/** Extracts the source text of a top-level `function NAME(...)`, `async function NAME(...)`, or
- *  `const NAME = ...` declaration, including its full body, by brace/bracket depth-matching from
- *  the first `{`/`[` after the declaration head to its match. Returns undefined if `name` is not
- *  declared at the top level of `source` in one of those three shapes — this gate's PARITY_SYMBOLS
- *  are all one of those three shapes today (verified by the fact every one of them extracts). */
-export function extractSymbol(source, name) {
-  const headRe = new RegExp(
-    `(?:^|\\n)(?:export )?(?:async )?(?:function ${name}\\s*\\(|const ${name}\\s*=)`,
-  );
-  const head = headRe.exec(source);
-  if (!head) return undefined;
-  const declStart = head.index + (head[0].startsWith("\n") ? 1 : 0);
-  let i = head.index + head[0].length;
-  while (i < source.length && source[i] !== "{" && source[i] !== "[" && source[i] !== ";") i++;
-  if (i >= source.length) return undefined;
-  if (source[i] === ";") return source.slice(declStart, i + 1).trim();
-  const open = source[i];
-  const close = open === "{" ? "}" : "]";
-  let depth = 0;
-  let j = i;
-  for (; j < source.length; j++) {
-    if (source[j] === open) depth++;
-    else if (source[j] === close) {
-      depth--;
-      if (depth === 0) {
-        j++;
-        break;
+function parseSource(source) {
+  const parsed = parseSync("mirror.ts", source, { lang: "ts", preserveParens: false });
+  if (parsed.errors.length > 0) {
+    throw new SyntaxError(`model-fetch-parity: parse error: ${parsed.errors[0].message}`);
+  }
+  return parsed.program;
+}
+
+function symbolSources(source) {
+  const symbols = new Map();
+  const add = (name, text) => {
+    if (symbols.has(name)) throw new SyntaxError(`model-fetch-parity: duplicate symbol ${name}`);
+    symbols.set(name, text);
+  };
+  for (const statement of parseSource(source).body) {
+    const declaration =
+      statement.type === "ExportNamedDeclaration" ? statement.declaration : statement;
+    if (declaration?.type === "FunctionDeclaration" && declaration.id && declaration.body) {
+      add(declaration.id.name, source.slice(statement.start, statement.end));
+    } else if (declaration?.type === "VariableDeclaration" && declaration.kind === "const") {
+      for (const variable of declaration.declarations) {
+        if (variable.id.type !== "Identifier" || !variable.init) continue;
+        const prefix = statement.type === "ExportNamedDeclaration" ? "export const " : "const ";
+        add(variable.id.name, `${prefix}${source.slice(variable.start, variable.end)};`);
       }
     }
   }
-  if (depth !== 0) return undefined; // unbalanced -- treat as "could not extract", not a false match
-  if (source[j] === ";") j++; // include a trailing `const NAME = [...];` semicolon when present
-  return source.slice(declStart, j).trim();
+  return symbols;
 }
 
-/** Comments (both styles) and all whitespace runs stripped, so two logically-identical bodies with
- *  different comments/formatting normalize equal, but any token-level change does not. */
+/** Full top-level declarations; signature objects, comments and literals cannot truncate bodies. */
+export function extractSymbol(source, name) {
+  return symbolSources(source).get(name);
+}
+
+/** Compare syntax without positions or comments; literal contents and ASI remain significant. */
 export function normalizeBody(text) {
-  return text
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\/\/.*$/gm, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return JSON.stringify(parseSource(text), (key, value) =>
+    key === "start" || key === "end" ? undefined : value,
+  );
 }
 
 /**
@@ -144,10 +142,12 @@ export function compareModelFetchFiles({
   embedderFile = EMBEDDER_FILE,
   rerankerFile = RERANKER_FILE,
 }) {
+  const embedderSymbols = symbolSources(embedderSource);
+  const rerankerSymbols = symbolSources(rerankerSource);
   const results = [];
   for (const name of symbols) {
-    const embedderBody = extractSymbol(embedderSource, name);
-    const rerankerBody = extractSymbol(rerankerSource, name);
+    const embedderBody = embedderSymbols.get(name);
+    const rerankerBody = rerankerSymbols.get(name);
     if (embedderBody === undefined || rerankerBody === undefined) {
       results.push({
         name,
