@@ -32,7 +32,37 @@ Treat a model change like a schema migration: plan it, run a full re-embed, and 
 
 ## The migration
 
-1. **Edit the config**:
+1. **Pause ordinary clients and background writers, and back up the state.** Stop every server
+   process sharing this `cacheDir` before taking a consistent backup of the directory and your
+   config. `cache.db` contains durable write provenance and the source-of-truth memory entity graph;
+   a vault reindex cannot restore them. Keep `experiential.db`, `<cacheDir>/auth.db`, `auth-keys/` and
+   `server-secrets/` too. See [Storage state and index resets](../storage-state/).
+
+2. **Clear only the index rows through the existing tool.** Start one administrative server with
+   the old config, keep ordinary clients and writes paused, and call `reset_vault_cache` for each
+   affected vault. This requires `admin:vault` and the normal confirmation flow. Use these explicit
+   input flags so the reset keeps idempotency records, event history and committed captures:
+
+   ```json
+   {
+     "vault": "your-vault-id",
+     "include": {
+       "chunks": true,
+       "embeddings": true,
+       "idempotency_keys": false,
+       "event_log": false,
+       "capture_committed": false
+     }
+   }
+   ```
+
+   The tool deletes that vault's chunks and embeddings, with the corresponding chunk FTS/vector
+   entries. It leaves the database files, memory graph and write-provenance chain in place. Chunk
+   deletion can also remove dependent derived rows through foreign keys. This reset is destructive
+   to the selected index; it does not preserve an old-vector rollback copy. Wait for any old-config
+   indexing work to finish before resetting, then stop the administrative server.
+
+3. **Edit the config** and use it consistently for every process sharing the database:
 
    ```json
    {
@@ -44,18 +74,21 @@ Treat a model change like a schema migration: plan it, run a full re-embed, and 
    }
    ```
 
-2. **Drop the vector index** so it is recreated at the new dimension. Delete the cache database (it
-   is a regenerable derivative of the vault) — `rm <cacheDir>/cache.db*` — or drop just `vec_chunks`
-   if you want to keep other cached state. Delete **only** `cache.db*`, never the whole cache
-   directory: `<cacheDir>/auth.db` and `auth-keys/` beside it are the auth registry (revocations, key
-   retirements, signing keys), are **not** regenerable, and must survive. The next boot recreates `vec_chunks` at the new
-   `dimensions`.
+4. **Full reindex.** Start the server with the new config and let boot reconciliation complete, or
+   call `index_vault` for every affected vault. The indexer recreates the sqlite-vec table when its
+   representation fingerprint or dimensions change and embeds the missing chunks. You do not need
+   to delete a database file or issue manual `DROP TABLE` statements. The vector table is shared,
+   so a representation change can affect every vault using that database; coordinate their reindex.
 
-3. **Full reindex.** Start the server (the boot reconcile re-embeds the whole vault) or call
-   `index_vault`. `chunk_embeddings`, `vec_chunks`, and the FTS/notes tables are rebuilt.
+5. **Verify before resuming clients.** Check index status and reconcile health, investigate any
+   degraded or skipped-note result, and exercise `search_semantic` / `vault_graph_search` against
+   known notes. A successful process start alone does not prove the re-embed completed.
 
-4. **Verify.** A `search_semantic` / `vault_graph_search` query should return sensible hits; a boot
-   with no `[index] boot reconcile degraded` warning on stderr means the re-embed settled.
+An ordinary model-identity change already causes unchanged notes to be re-embedded during
+reconciliation. The explicit reset above also forces fresh embeddings for representation changes
+that retain the same provider/model ID, such as a changed document prefix or output dimensions.
+It avoids relying on a vector-table rebuild to regenerate document embeddings: rebuilding that
+table can copy existing embedding rows and is not, by itself, a full re-embed.
 
 ## MRL truncation
 
@@ -100,6 +133,9 @@ a single-text request is quarantined — its note is skipped that pass, reported
 
 ## Rollback
 
-Revert `embeddings.model` + `dimensions` (+ `truncate`) to the previous values and reindex again.
-Because stale vectors at the old dimension are incompatible with the new one, there is no partial
-state to clean up — the reindex re-converges the store to whatever the config declares.
+Restore the previous embedding configuration, including provider, model, dimensions, revision,
+prefixes and truncation, then repeat the same table-scoped reset and reindex procedure. Keep clients
+paused until the old representation is usable again. A partially completed migration can contain
+mixed embedding generations; do not assume changing the config alone has already repaired them.
+Restore database backups only as a coordinated state restore, accounting for any writes made since
+the backup.
