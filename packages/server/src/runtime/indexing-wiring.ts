@@ -235,9 +235,8 @@ export interface IndexCoordinatorDeps {
   db: Database;
   embeddingProvider: EmbeddingProvider;
   hasVec: boolean;
-  /** THE-424: config.indexing.chunkTokens. Undefined -> the chunker's 512 default. */
+  /** THE-424: config.indexing.chunkTokens (undefined -> 512) and embedConfig: the vault-pass limits. */
   chunkTokens?: number;
-  /** Embedding batch limits shared with whole-vault indexing. */
   embedConfig?: IndexVaultArgs["embed"];
   /** config.embeddings.chunkContext */
   chunkContext: boolean;
