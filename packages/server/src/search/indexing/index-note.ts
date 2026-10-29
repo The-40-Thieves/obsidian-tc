@@ -31,8 +31,10 @@ import { syncAclPaths } from "./acl-path-sync";
 import { EMBED_BATCH, EMBED_CONCURRENCY, embedPlans } from "./embed-batches";
 import { computeNotePlan, hasBodyShaColumn } from "./note-plan";
 import { applyNoteWrites, DELETE_CONTRADICTIONS_SQL, fireIndexHook } from "./persist-note-plan";
-import type { IndexHook, PlanResult } from "./types";
+import type { IndexHook, IndexVaultArgs, PlanResult } from "./types";
 import { bumpFenceUnconditional, commitFence } from "./write-fence";
+
+type IndexNoteOptions = Pick<IndexVaultArgs, "chunkTokens" | "embed">;
 
 // Single-note plan + embed (indexNote / index-on-write path). indexVault batches embeds instead.
 async function planNoteWrites(
@@ -49,6 +51,7 @@ async function planNoteWrites(
    *  text to the embedding provider — the batched indexVault reconcile got this in round 0, this
    *  path did not. */
   isExcluded?: (rel: string) => boolean,
+  options: IndexNoteOptions = {},
 ): Promise<PlanResult> {
   // THE-531: pass the active model so an unchanged note whose vectors are from a superseded model is
   // still re-embedded.
@@ -63,11 +66,17 @@ async function planNoteWrites(
     false,
     provider.id,
     undefined,
-    undefined,
+    options.chunkTokens,
     isExcluded,
   );
   if (res.plan) {
-    const { failed } = await embedPlans(provider, [res.plan], EMBED_BATCH, EMBED_CONCURRENCY);
+    const { failed } = await embedPlans(
+      provider,
+      [res.plan],
+      options.embed?.batchSize ?? EMBED_BATCH,
+      options.embed?.concurrency ?? EMBED_CONCURRENCY,
+      options.embed?.maxBatchTokens,
+    );
     // Index-on-write is a single note: a quarantined chunk means the note cannot be applied,
     // so keep the caller's existing best-effort failure semantics (counted as a write failure)
     // rather than writing a partial note.
@@ -105,6 +114,8 @@ export async function indexNote(
    *  (vault/paths.ts resolveVaultPathChecked), stored next to the display `path`. Index-on-write
    *  callers know the vault root and resolve it; absent is stored as unresolved (closed). */
   aclPath?: string,
+  /** Share the vault indexing chunk and embedding policy; omitted fields retain defaults. */
+  options: IndexNoteOptions = {},
 ): Promise<{
   upserted: number;
   deleted: number;
@@ -125,6 +136,7 @@ export async function indexNote(
     now(),
     enrich,
     isExcluded,
+    options,
   );
   // THE-291: the metadata/FTS row rides the same write (skip empty content — a true delete goes
   // through deindexNote; an empty note has nothing to index).

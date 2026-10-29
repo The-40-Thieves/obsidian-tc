@@ -235,8 +235,9 @@ export interface IndexCoordinatorDeps {
   db: Database;
   embeddingProvider: EmbeddingProvider;
   hasVec: boolean;
-  /** THE-424: config.indexing.chunkTokens. Undefined -> the chunker's 512 default. */
+  /** THE-424: config.indexing.chunkTokens (undefined -> 512) and embedConfig: the vault-pass limits. */
   chunkTokens?: number;
+  embedConfig?: IndexVaultArgs["embed"];
   /** config.embeddings.chunkContext */
   chunkContext: boolean;
   /** config.indexing */
@@ -337,6 +338,10 @@ export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinat
           deps.sqlHooksFor(vaultId),
           deps.isEgressExcluded,
           aclRelFor(vaultId, path) ?? ACL_PATH_UNRESOLVED,
+          {
+            chunkTokens: deps.chunkTokens,
+            embed: deps.embedConfig,
+          },
         );
       },
       delete: (vaultId, path) => deindexPath(vaultId, path, isExcludedPath(vaultId, path)),
