@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -122,7 +122,9 @@ export function runProcess(suite, { signal, timeoutMs = 3_600_000 } = {}) {
       if (!child.pid) return;
       if (process.platform === "win32") {
         // Kill only the tree created for this stage, including test workers.
-        const killer = spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+        // Absolute path: resolving taskkill through PATH would run whatever a writable PATH entry holds.
+        const taskkill = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "taskkill.exe");
+        const killer = spawn(taskkill, ["/pid", String(child.pid), "/t", "/f"], {
           stdio: "ignore",
           windowsHide: true,
         });
