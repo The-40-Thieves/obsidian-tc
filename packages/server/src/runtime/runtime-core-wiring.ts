@@ -19,11 +19,10 @@ import { withBootstrapBarrier } from "./vault-lock";
  */
 export async function wireRuntimeCore(deps: RuntimeCoreDeps): Promise<RuntimeCore> {
   const built: OwnedLayer[] = [{ name: "stores", close: deps.stores.close }];
-  // otel opens right after stores in real boot, so its cleanup slots in here too. `.catch` swallows
-  // a shutdown() rejection so it can never replace the real error `unwindReversed` is propagating.
+  // OTEL opens after stores; unwindReversed reports cleanup failures and preserves the boot error.
   if (deps.otel) {
     const otel = deps.otel;
-    built.push({ name: "otel", close: () => otel.shutdown().catch(() => {}) });
+    built.push({ name: "otel", close: () => otel.shutdown() });
   }
   // (governance's onAuditFailure): indexHealth is constructed one step AFTER the registry
   // that closes over it — same forward-reference shape as cli.ts's indexCoordinatorRef/schedulerRef.

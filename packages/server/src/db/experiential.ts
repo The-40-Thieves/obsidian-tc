@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { stderrOnError } from "../util/errors";
 import { type Migration, runMigrations } from "./migrate";
 import { openDatabase } from "./open";
 import type { Database } from "./types";
@@ -33,6 +34,19 @@ export async function provisionExperientialDb(
 ): Promise<Database> {
   const open = opts.open ?? openDatabase;
   const db = await open(join(cacheDir, "experiential.db"), opts.busyTimeoutMs);
-  runMigrations(db, migrations, { version: opts.version, now: opts.now });
-  return db;
+  try {
+    runMigrations(db, migrations, { version: opts.version, now: opts.now });
+    return db;
+  } catch (error) {
+    try {
+      db.close?.();
+    } catch (cleanupError) {
+      try {
+        stderrOnError("experiential-close")(cleanupError);
+      } catch {
+        // A broken diagnostic stream must not replace the migration error.
+      }
+    }
+    throw error;
+  }
 }
