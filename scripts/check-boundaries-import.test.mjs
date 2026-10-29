@@ -1,13 +1,4 @@
-// Isolated from check-boundaries.test.mjs on purpose: this file must NOT statically import
-// check-boundaries.mjs. If the entry-point guard in that module ever regresses (main() runs on
-// import instead of only under `node scripts/check-boundaries.mjs`), a file that imported it
-// statically would have main() run — and its process.exit() call — during its own module
-// evaluation, before any test() in that file registers. node's test runner then reports that
-// file as a trivial "1 passed" (a *.test.mjs with zero test() calls still prints "tests 1 / pass
-// 1" — verified empirically), which would silently swallow the regression instead of failing.
-//
-// This file spawns the module in its OWN child process instead, so it keeps registering and
-// running its own test regardless of what check-boundaries.mjs does on import.
+// A separate process keeps an accidental process.exit() during import observable to the test.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { test } from "node:test";

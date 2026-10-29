@@ -4,6 +4,7 @@
 // filesystem, and a fabricated fixture lets each test assert one specific failure mode in
 // isolation. See check-facade-parity.test.mjs for the same pattern applied to a different gate.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   compareModelFetchFiles,
@@ -13,6 +14,105 @@ import {
   normalizeBody,
   PARITY_SYMBOLS,
 } from "./check-model-fetch-parity.mjs";
+
+function compareOne(source, replacement, name) {
+  return compareModelFetchFiles({
+    embedderSource: source,
+    rerankerSource: replacement,
+    symbols: [name],
+    deltas: new Map(),
+  })[0].status;
+}
+
+test("parity catches body drift after object defaults and object return types", () => {
+  for (const source of [
+    'export function f(opts: object = {}) { return "safe"; }',
+    'async function f(): Promise<{ rel: string }[]> { return [{ rel: "safe" }]; }',
+    'function f({ value }: { value: string }) { return "safe"; }',
+  ]) {
+    assert.equal(compareOne(source, source.replace('"safe"', '"unsafe"'), "f"), "drift");
+  }
+});
+
+test("parity preserves URL, regex, template and string contents", () => {
+  for (const [source, replacement] of [
+    ['const f = "https://safe.example";', 'const f = "https://unsafe.example";'],
+    ['const f = "a  b";', 'const f = "a b";'],
+    ['const f = "/* safe */";', 'const f = "/* unsafe */";'],
+    ["const f = /[}]/;", "const f = /[}]+/;"],
+    ["const f = `a  b`;", "const f = `a b`;"],
+    ["const f = String.raw`\\n`;", "const f = String.raw`\\u000a`;"],
+  ]) {
+    assert.equal(compareOne(source, replacement, "f"), "drift");
+  }
+});
+
+test("extraction respects braces in strings and comments and ignores nested declarations", () => {
+  const source = 'function f() { const text = "}"; /* } */ return "safe"; }';
+  assert.equal(extractSymbol(source, "f"), source);
+  assert.equal(extractSymbol("function outer() { function f() {} }", "f"), undefined);
+  assert.equal(compareOne(source, source.replace('"safe"', '"unsafe"'), "f"), "drift");
+});
+
+test("extraction uses source offsets after Unicode and isolates sibling constants", () => {
+  const source = '// 🔒 café\nexport const first: string = "same", second = "two";';
+  assert.equal(extractSymbol(source, "first"), 'export const first: string = "same";');
+  assert.equal(compareOne(source, source.replace('"two"', '"three"'), "first"), "match");
+  assert.equal(compareOne(source, source.replace('"two"', '"three"'), "second"), "drift");
+});
+
+test("ambiguous declarations and missing documented symbols cannot pass", () => {
+  assert.throws(() => extractSymbol("function f() {} function f() {}", "f"), /duplicate/);
+  const result = compareModelFetchFiles({
+    embedderSource: "function sha256File() {}",
+    rerankerSource: "",
+    symbols: ["sha256File"],
+  });
+  assert.equal(result[0].status, "missing");
+});
+
+test("malformed source fails closed even for documented deltas", () => {
+  assert.throws(
+    () =>
+      compareModelFetchFiles({
+        embedderSource: "function sha256File() {",
+        rerankerSource: "function sha256File() {}",
+      }),
+    /parse/i,
+  );
+});
+
+test("normalization ignores formatting but preserves automatic semicolon semantics", () => {
+  assert.equal(
+    normalizeBody("function f(){return 1;}"),
+    normalizeBody("function f() { return 1; }"),
+  );
+  assert.notEqual(
+    normalizeBody("function f(){return 1;}"),
+    normalizeBody("function f(){return\n1;}"),
+  );
+});
+
+test("real mirror mutations behind object signatures fail the gate", () => {
+  for (const [file, name, before, after] of [
+    [
+      "../packages/embedder-local/src/onnx-wasm-fallback.ts",
+      "ensureOnnxBackend",
+      "opts.platform ?? process.platform",
+      'opts.platform ?? "linux"',
+    ],
+    [
+      "../packages/embedder-local/src/model-fetch.ts",
+      "listRelativeEntries",
+      "const out:",
+      'throw new Error("mutation"); const out:',
+    ],
+  ]) {
+    const source = readFileSync(new URL(file, import.meta.url), "utf8");
+    assert.ok(source.includes(before), `mutation anchor missing: ${name}`);
+    assert.equal(compareOne(source, source.replace(before, after), name), "drift");
+  }
+});
 
 test("extractSymbol: pulls a function declaration's full body", () => {
   const src = `

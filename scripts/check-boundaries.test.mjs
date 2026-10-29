@@ -1,109 +1,97 @@
-// Tests for the cross-platform pieces of the boundary gate (scripts/check-boundaries.mjs).
-//
-// Uses node:test rather than vitest: this repo has no test runner wired for scripts/ at all
-// (`bun run test` == `bun run --filter='*' test`, which only reaches the four package
-// workspaces — root-level scripts are outside every workspace's glob, and there is no root
-// vitest config). node:test needs zero configuration to execute a file directly, so this is the
-// placement that actually runs rather than sitting inert next to a runner that never reaches it:
-//
-//   node --test scripts/check-boundaries.test.mjs
-//
-// A `test:scripts` script is added to the root package.json (`node --test scripts/*.test.mjs`)
-// so the suite has a documented, discoverable entry point — it is intentionally not wired into
-// `bun run test` or any CI job here, since that is a job/workflow decision outside this change.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import { test } from "node:test";
-import {
-  buildDependencyCruiserCommand,
-  parseDependencyCruiserReport,
-  resolveDependencyCruiserCli,
-} from "./check-boundaries.mjs";
+import { fileURLToPath } from "node:url";
+import { cruiseSourceFiles } from "./lib/dependency-cruiser.mjs";
 
-// The "importing has no side effects" check deliberately lives in its own file
-// (check-boundaries-import.test.mjs), NOT here. This file's own top-level import of
-// check-boundaries.mjs (above) already depends on that property holding — if the entry-point
-// guard ever regresses, main() runs during THIS import and calls process.exit(), which kills this
-// file's process before any test() below registers. node's test runner reports a file that
-// registered zero tests as a trivial "1 passed" (verified empirically: a *.test.mjs with no
-// test() calls at all still prints "tests 1 / pass 1"), so a same-file test could never observe
-// the regression it exists to catch. Isolating it in a file that never imports the module
-// statically is what makes it capable of going red.
+const root = fileURLToPath(new URL("..", import.meta.url));
 
-test("buildDependencyCruiserCommand: Windows paths pass through untouched (no npx/npx.cmd shim)", () => {
-  const execPath = "C:\\Program Files\\nodejs\\node.exe";
-  const cliPath = "C:\\repo\\node_modules\\dependency-cruiser\\bin\\dependency-cruise.mjs";
-
-  const { command, args } = buildDependencyCruiserCommand(["src/a.ts"], { execPath, cliPath });
-
-  // The whole point of the fix: invoke node directly on the resolved CLI script, never a
-  // package-manager shim. On a real Windows box a bare "npx" throws ENOENT under execFileSync's
-  // shell:false; command must be the node binary itself, not "npx"/"npx.cmd".
-  assert.equal(command, execPath);
-  assert.equal(args[0], cliPath);
-});
-
-test("buildDependencyCruiserCommand: arg order is exactly [cli, ...files, --config, ..., --ignore-known, --output-type, json]", () => {
-  const files = [
-    "packages/server/src/a.ts",
-    "packages/server/src/b.ts",
-    "packages/shared/src/c.ts",
-  ];
-
-  const { args } = buildDependencyCruiserCommand(files, { cliPath: "/fake/dependency-cruise.mjs" });
-
-  assert.deepEqual(args, [
-    "/fake/dependency-cruise.mjs",
-    "packages/server/src/a.ts",
-    "packages/server/src/b.ts",
-    "packages/shared/src/c.ts",
-    "--config",
-    ".dependency-cruiser.cjs",
-    "--ignore-known",
-    "--output-type",
-    "json",
-  ]);
-});
-
-test("buildDependencyCruiserCommand: defaults execPath to process.execPath and resolves cliPath when omitted", () => {
-  const { command } = buildDependencyCruiserCommand(["src/a.ts"], {
-    cliPath: "/fake/dependency-cruise.mjs",
-  });
-
-  assert.equal(command, process.execPath);
-});
-
-test("resolveDependencyCruiserCli: throws a clear error when the resolved bin does not exist", () => {
-  const fakeResolve = (specifier) => {
-    assert.equal(specifier, "dependency-cruiser");
-    return "file:///nonexistent/node_modules/dependency-cruiser/src/main/index.mjs";
+function fixture(t) {
+  const cache = join(root, ".cache");
+  mkdirSync(cache, { recursive: true });
+  const dir = mkdtempSync(join(cache, "dependency graph "));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const path = (name) => relative(root, join(dir, name)).replaceAll("\\", "/");
+  const write = (name, content) => writeFileSync(join(dir, name), content);
+  write("entry.js", 'import "./target.js";\n');
+  write("target.js", "export const target = true;\n");
+  write("ignored.js", "export const ignored = true;\n");
+  write(
+    "rules.cjs",
+    `module.exports = ${JSON.stringify({
+      forbidden: [
+        {
+          name: "fixture-boundary",
+          severity: "error",
+          from: { path: "entry\\.js$" },
+          to: { path: "target\\.js$" },
+        },
+      ],
+      options: { exclude: { path: "ignored\\.js$" } },
+    })};\n`,
+  );
+  return {
+    files: [path("entry.js"), path("target.js"), path("ignored.js")],
+    configFile: path("rules.cjs"),
+    knownViolationsFile: path("known.json"),
+    write,
   };
+}
 
-  assert.throws(
-    () => resolveDependencyCruiserCli(fakeResolve),
-    (err) => {
-      assert.match(err.message, /dependency-cruiser CLI not found/);
-      assert.match(err.message, /nonexistent.*bin.*dependency-cruiser\.mjs/s);
-      return true;
-    },
+test("the API preserves CLI modules, exclusions and error-severity violations", async (t) => {
+  const f = fixture(t);
+  const actual = await cruiseSourceFiles(f.files, f);
+  const cli = fileURLToPath(
+    new URL("../../bin/dependency-cruiser.mjs", import.meta.resolve("dependency-cruiser")),
   );
-});
-
-test("resolveDependencyCruiserCli: resolves the real installed CLI from the package entry point", () => {
-  // No injected resolve — exercises the real import.meta.resolve("dependency-cruiser") path
-  // against whatever is actually installed in node_modules, proving the walk (entry -> ../../bin)
-  // matches the real package layout rather than only a mocked one.
-  const cli = resolveDependencyCruiserCli();
-  assert.match(cli, /bin[\\/]dependency-cruiser\.mjs$/);
-});
-
-test("parseDependencyCruiserReport: parses a string", () => {
-  const report = parseDependencyCruiserReport('{"summary":{"totalCruised":1}}');
-  assert.deepEqual(report, { summary: { totalCruised: 1 } });
-});
-
-test("parseDependencyCruiserReport: parses a Buffer", () => {
-  const report = parseDependencyCruiserReport(
-    Buffer.from('{"summary":{"totalCruised":2}}', "utf8"),
+  const expected = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [cli, ...f.files, "--config", f.configFile, "--output-type", "json"],
+      { cwd: root, encoding: "utf8" },
+    ),
   );
-  assert.deepEqual(report, { summary: { totalCruised: 2 } });
+  assert.deepEqual(actual.modules, expected.modules);
+  assert.deepEqual(actual.summary.violations, expected.summary.violations);
+  assert.equal(actual.summary.totalCruised, 2);
+  assert.equal(actual.summary.violations[0].rule.severity, "error");
+});
+
+test("only requested known violations are ignored; new violations remain errors", async (t) => {
+  const f = fixture(t);
+  const first = await cruiseSourceFiles(f.files, f);
+  f.write("known.json", JSON.stringify(first.summary.violations));
+  const known = await cruiseSourceFiles(f.files, { ...f, ignoreKnown: true });
+  assert.equal(known.summary.violations[0].rule.severity, "ignore");
+  const unfiltered = await cruiseSourceFiles(f.files, f);
+  assert.equal(unfiltered.summary.violations[0].rule.severity, "error");
+  f.write("known.json", "[]");
+  const newViolation = await cruiseSourceFiles(f.files, { ...f, ignoreKnown: true });
+  assert.equal(newViolation.summary.violations[0].rule.severity, "error");
+});
+
+test("an explicit source list larger than Windows argv limits is analyzed", async (t) => {
+  const f = fixture(t);
+  const files = Array.from({ length: 2000 }, (_, i) => f.files[i % f.files.length]);
+  assert.ok(files.join(" ").length > 32767);
+  const report = await cruiseSourceFiles(files, f);
+  assert.equal(report.summary.totalCruised, 2);
+  assert.equal(report.summary.violations[0].rule.severity, "error");
+});
+
+test("empty input, missing files and invalid configuration fail rather than passing", async (t) => {
+  const f = fixture(t);
+  await assert.rejects(cruiseSourceFiles([], f), /no source files/);
+  await assert.rejects(cruiseSourceFiles(["missing-source.ts"], f), /missing-source/);
+  f.write("rules.cjs", "this is not JavaScript");
+  await assert.rejects(cruiseSourceFiles(f.files, f));
+});
+
+test("a requested missing or malformed known-violation file fails closed", async (t) => {
+  const f = fixture(t);
+  await assert.rejects(cruiseSourceFiles(f.files, { ...f, ignoreKnown: true }), /known\.json/);
+  f.write("known.json", "{broken");
+  await assert.rejects(cruiseSourceFiles(f.files, { ...f, ignoreKnown: true }), SyntaxError);
 });
