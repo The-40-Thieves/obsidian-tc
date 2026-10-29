@@ -361,6 +361,27 @@ jobs:
           VITEST_TIMEOUT_FLOOR_MS: ${{ matrix.vitest-timeout-floor-ms }}
         run: node ./node_modules/vitest/vitest.mjs run ${{ matrix.os == 'ubuntu-latest' && matrix.node == '26' && '--coverage' || '' }}
         working-directory: packages/server
+      # vitest writes lcov source paths relative to packages/server ("SF:src/acl.ts", and with a
+      # backslash on Windows), but both services resolve them from the repository root, where that
+      # file does not exist. Left alone each matches nothing, reports zero coverage, and still
+      # uploads cleanly - the exact silent failure this change exists to remove. Assert the
+      # rewrite found paths rather than letting a changed report shape pass as success.
+      - name: make coverage paths repo-root relative
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '26'
+        run: |
+          lcov=packages/server/coverage/lcov.info
+          if [ ! -f "$lcov" ]; then
+            echo "::error::$lcov missing - the suite wrote no coverage report"
+            exit 1
+          fi
+          found=$(grep -cE '^SF:src[/\]' "$lcov" || true)
+          if [ "$found" -eq 0 ]; then
+            echo "::error::no SF:src paths in $lcov - report shape changed, coverage would not map"
+            grep -m3 '^SF:' "$lcov" || true
+            exit 1
+          fi
+          sed -i -E 's|^SF:src[/\]|SF:packages/server/src/|' "$lcov"
+          echo "rewrote $found source paths to be repo-root relative"
       # Coverage REPORTING, not a gate. The gate is vitest's own thresholds in the step above, which
       # fail the suite by themselves. Both uploads are pinned to the single leg that passes
       # --coverage (ubuntu-latest, Node 26), and both are continue-on-error deliberately: a missing
