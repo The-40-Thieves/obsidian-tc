@@ -40,6 +40,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { configFromVaultPath } from "../src/cli/args";
+import { finalizeConfig } from "../src/config/load";
 import { openConfiguredDatabase } from "../src/db/open";
 import type { Database } from "../src/db/types";
 import { issueElicitToken } from "../src/elicit";
@@ -78,8 +79,28 @@ const RERUN_TMP_RE = /^obtc-rerun-[a-zA-Z0-9]+$/;
 const TMP_ENV_KEYS = ["TMPDIR", "TMP", "TEMP"] as const;
 const savedTmpEnv = TMP_ENV_KEYS.map((k) => [k, process.env[k]] as const);
 const PRIVATE_TMP = makeTempDir("obtc-mcp-sbx-tmp-");
+const FIXTURE_EMBEDDINGS = {
+  provider: "module",
+  modulePath: join(PRIVATE_TMP, "fixture-embeddings.mjs"),
+  model: "sandbox-fixture",
+  dimensions: 2,
+};
 beforeAll(() => {
   for (const k of TMP_ENV_KEYS) process.env[k] = PRIVATE_TMP;
+  // Exercise real indexing without making this lifecycle fixture depend on whether the optional
+  // local model package has been built. The same module also works in the spawned CLI process.
+  writeFileSync(
+    FIXTURE_EMBEDDINGS.modulePath,
+    `export function createEmbeddingProvider() {
+      return {
+        id: "sandbox-fixture:deterministic",
+        provider: "sandbox-fixture",
+        model: "sandbox-fixture",
+        dimensions: 2,
+        embed: async (texts) => texts.map(() => [1, 0]),
+      };
+    }`,
+  );
 });
 afterAll(() => {
   for (const [k, v] of savedTmpEnv) {
@@ -105,6 +126,10 @@ interface Harness {
   cacheDir: string;
   db: Database;
   runtime: Awaited<ReturnType<typeof buildServerRuntime>>;
+}
+
+function sandboxConfig(vaultDir: string) {
+  return finalizeConfig({ ...configFromVaultPath(vaultDir), embeddings: FIXTURE_EMBEDDINGS }, {});
 }
 
 const tmpDirs: string[] = [];
@@ -145,7 +170,7 @@ async function boot(): Promise<Harness> {
   const vaultDir = makeTempDir("obtc-mcp-sbx-vault-");
   const cacheDir = makeTempDir("obtc-mcp-sbx-cache-");
   tmpDirs.push(vaultDir, cacheDir);
-  const config = configFromVaultPath(vaultDir);
+  const config = sandboxConfig(vaultDir);
   config.cacheDir = cacheDir;
   const runtime = await buildServerRuntime(config, join(vaultDir, "config.json"));
   runtimes.push(runtime);
@@ -403,7 +428,11 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
     const configPath = join(confDir, "config.json");
     writeFileSync(
       configPath,
-      JSON.stringify({ cacheDir, vaults: [{ id: "main", path: vaultDir }] }),
+      JSON.stringify({
+        cacheDir,
+        vaults: [{ id: "main", path: vaultDir }],
+        embeddings: FIXTURE_EMBEDDINGS,
+      }),
     );
     const cli = spawnSync(
       "bun",
@@ -440,7 +469,7 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
     // on Windows an open handle blocks the unlink outright.
     const { vaultDir, cacheDir, db } = await boot();
     const id = seedSession(db, cacheDir, [listNotesRecord(1000)]);
-    const config = configFromVaultPath(vaultDir);
+    const config = sandboxConfig(vaultDir);
     config.cacheDir = cacheDir;
     const events: string[] = [];
     // The timeout is made to fire deterministically rather than raced: the builder is held until the
@@ -499,7 +528,7 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
   }, async () => {
     const { vaultDir, cacheDir, db } = await boot();
     const id = seedSession(db, cacheDir, [listNotesRecord(1000)]);
-    const config = configFromVaultPath(vaultDir);
+    const config = sandboxConfig(vaultDir);
     config.cacheDir = cacheDir;
     const boot$ = openableGate();
     const events: string[] = [];
@@ -539,7 +568,7 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
   it("concurrency cap: calls beyond MAX_CONCURRENT_SANDBOX_RERUNS are refused as throttled, and a slot frees once cleanup finishes", async () => {
     const { vaultDir, cacheDir, db } = await boot();
     const id = seedSession(db, cacheDir, [listNotesRecord(1000)]);
-    const config = configFromVaultPath(vaultDir);
+    const config = sandboxConfig(vaultDir);
     config.cacheDir = cacheDir;
     const boot$ = openableGate();
     const rerun = makeSandboxRerun(config, join(vaultDir, "config.json"), async () => {
