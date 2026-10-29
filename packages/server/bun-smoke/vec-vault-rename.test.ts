@@ -15,7 +15,8 @@ import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
 import { buildRepresentationManifest } from "../src/search/representation";
 import { ensureVecChunks, floatBlob, vecKnn } from "../src/search/vec";
-import { resolveAndApplyVaultIdentity } from "../src/vault/identity";
+import { normalizeRealpathForIdentity, resolveAndApplyVaultIdentity } from "../src/vault/identity";
+import { canonicalizeVaultRoot } from "../src/vault/registry";
 
 const DIMS = 8;
 
@@ -35,13 +36,11 @@ test("renaming an already-indexed vault re-keys vec_chunks instead of rolling ba
   const db = await openDatabase(":memory:");
   provisionCacheDb(db);
   const edb = await experientialDb();
+  const vaultPath = "/tmp/does-not-need-to-exist-for-this-test";
+  const rootRealpath = normalizeRealpathForIdentity(canonicalizeVaultRoot(vaultPath));
 
   // First boot under the OLD id — this is the vault_identity insert, not a rename.
-  expect(
-    resolveAndApplyVaultIdentity(db, edb, [
-      { id: "old-id", path: "/tmp/does-not-need-to-exist-for-this-test" },
-    ]),
-  ).toEqual([]);
+  expect(resolveAndApplyVaultIdentity(db, edb, [{ id: "old-id", path: vaultPath }])).toEqual([]);
 
   const manifest = buildRepresentationManifest(
     { provider: "fake", model: "m", dimensions: DIMS },
@@ -64,12 +63,8 @@ test("renaming an already-indexed vault re-keys vec_chunks instead of rolling ba
   ).run("c1", "old-id", "a.md", "fake:m", floatBlob(Array.from(vec)));
 
   // Second boot: SAME path, NEW id — a rename. Must not throw, and must not roll back.
-  const notices = resolveAndApplyVaultIdentity(db, edb, [
-    { id: "new-id", path: "/tmp/does-not-need-to-exist-for-this-test" },
-  ]);
-  expect(notices).toEqual([
-    { oldId: "old-id", newId: "new-id", rootRealpath: "/tmp/does-not-need-to-exist-for-this-test" },
-  ]);
+  const notices = resolveAndApplyVaultIdentity(db, edb, [{ id: "new-id", path: vaultPath }]);
+  expect(notices).toEqual([{ oldId: "old-id", newId: "new-id", rootRealpath }]);
 
   // chunks re-keyed (already covered under node:sqlite by vault-identity.test.ts).
   expect(

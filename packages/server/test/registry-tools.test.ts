@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { argsHash } from "../src/hash";
+import { insertEntity, insertRelation } from "../src/memory/entities";
+import { appendProvenance } from "../src/provenance/store";
 import { makeTestVault } from "./m1-helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
@@ -117,6 +119,119 @@ describe("Domain 1: multi-vault registry", () => {
       v.cleanup();
     }
   });
+
+  it.each([false, true])(
+    "reset_vault_cache preserves durable state (explicit index-only flags: %s)",
+    async (indexOnly) => {
+      const projection = "# Ada\n\nMaterialized memory projection\n";
+      const v = makeTestVault({ files: { "memory/person/Ada.md": projection } });
+      try {
+        const ada = insertEntity(v.db, {
+          vaultId: "test",
+          entityType: "person",
+          name: "Ada",
+          observations: ["Maintains the project"],
+          materialize: true,
+          vaultPath: "memory/person/Ada.md",
+          now: 1000,
+        });
+        const project = insertEntity(v.db, {
+          vaultId: "test",
+          entityType: "project",
+          name: "Archive",
+          materialize: false,
+          now: 1000,
+        });
+        insertRelation(v.db, ada.id, project.id, "maintains", 1000);
+        appendProvenance(
+          v.db,
+          {
+            vaultId: "test",
+            ts: 1000,
+            tool: "write_note",
+            outcome: "ok",
+            paths: [{ path: "memory/person/Ada.md", before: "absent", after: "f".repeat(64) }],
+            pathsOmitted: 0,
+            verified: { host: "fixture", server_version: "test" },
+            unauthenticated: {},
+            self_reported: {},
+          },
+          undefined,
+        );
+        const durableTables = [
+          "memory_entities",
+          "memory_relations",
+          "memory_observation_intervals",
+          "write_provenance",
+          "write_provenance_heads",
+        ];
+        const durableState = () =>
+          durableTables.map((table) => v.db.prepare(`SELECT * FROM ${table} ORDER BY 1, 2`).all());
+        const before = durableState();
+        for (const rows of before) expect(rows.length).toBeGreaterThan(0);
+        v.db
+          .prepare(
+            "INSERT INTO chunks (id, vault_id, path, chunk_index, headings, content, content_hash, token_count, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+          )
+          .run(
+            "chunk",
+            "test",
+            "memory/person/Ada.md",
+            "0",
+            "[]",
+            projection,
+            "hash",
+            5,
+            1000,
+            1000,
+          );
+        v.db
+          .prepare(
+            "INSERT INTO chunk_embeddings (chunk_id, model, dimensions, embedding, is_active, generated_at) VALUES (?,?,?,?,?,?)",
+          )
+          .run("chunk", "fake:old", 2, new Uint8Array(Float32Array.from([1, 0]).buffer), 1, 1000);
+        v.db
+          .prepare(
+            "INSERT INTO idempotency_keys (vault_id, principal, idem_key, tool_name, args_hash, started_at, expires_at) VALUES (?,'t',?,?,?,?,?)",
+          )
+          .run("test", "preserve", "write_note", "h", 1, 9999999999999);
+        const input = {
+          vault: "test",
+          ...(indexOnly
+            ? {
+                include: {
+                  chunks: true,
+                  embeddings: true,
+                  idempotency_keys: false,
+                  event_log: false,
+                  capture_committed: false,
+                },
+              }
+            : {}),
+        };
+        const need = await v.call("reset_vault_cache", input);
+        expect(need.ok).toBe(false);
+        if (!need.ok) expect(need.error.code).toBe("elicit_required");
+        const token = issueElicitToken(v.db, {
+          vaultId: "test",
+          toolName: "reset_vault_cache",
+          argsHash: argsHash("reset_vault_cache", input),
+          caller: "test",
+        });
+        const reset = await v.call("reset_vault_cache", input, { elicitToken: token });
+        expect(reset.ok).toBe(true);
+        expect(v.db.prepare("SELECT id FROM chunks").all()).toEqual([]);
+        expect(v.db.prepare("SELECT chunk_id FROM chunk_embeddings").all()).toEqual([]);
+        expect(durableState()).toEqual(before);
+        expect(v.read("memory/person/Ada.md")).toBe(projection);
+        expect(v.db.prepare("SELECT idem_key FROM idempotency_keys").all()).toEqual(
+          indexOnly ? [{ idem_key: "preserve" }] : [],
+        );
+      } finally {
+        v.cleanup();
+      }
+    },
+  );
 });
 
 describe("THE-376 add_vault (runtime registration)", () => {
