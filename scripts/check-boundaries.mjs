@@ -19,8 +19,8 @@
  * --ignore-known, so new rules could land green. That file should only ever shrink.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
+import { cruiseSourceFiles } from "./lib/dependency-cruiser.mjs";
 
 // `**/` requires at least one directory component, so it excludes top-level files (cli.ts,
 // index.ts, ...) — a plain `*.ts` pattern is needed alongside it to also match those. Listing
@@ -84,65 +84,7 @@ function run(cmd, args) {
   return execFileSync(cmd, args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 }
 
-// execFileSync(shell:false) cannot invoke a package-manager shim like "npx"/"npx.cmd" — on Windows
-// it throws ENOENT (this repo's earlier fix attempt), and even where the shim resolves it is one
-// more process hop that can fail in its own platform-specific way (an external review reported
-// EINVAL for the same underlying problem). The actual fix is to not go through npx at all: resolve
-// dependency-cruiser's CLI script on disk and invoke it directly with `process.execPath` (the node
-// binary itself), which needs no shell and no shim on any platform.
-//
-// dependency-cruiser 18.x only exports "." from its package.json (-> src/main/index.mjs) — it
-// exports NEITHER "bin/dependency-cruiser.mjs" NOR "package.json". That means
-// `createRequire(...).resolve("dependency-cruiser/bin/dependency-cruiser.mjs")` throws
-// ERR_PACKAGE_PATH_NOT_EXPORTED: the package is ESM-only and its exports map does not admit that
-// path. The only resolvable entry point is the bare specifier itself, so this walks from there:
-// resolve "." to find where the package lives, then step relative to the known bin/ layout.
-// Verified empirically against the installed dependency-cruiser@18.4.0:
-//   import.meta.resolve("dependency-cruiser")
-//     -> file:///.../node_modules/.bun/dependency-cruiser@18.4.0/node_modules/dependency-cruiser/src/main/index.mjs
-//   -> ../../bin/dependency-cruiser.mjs from there exists on disk.
-// THE-1119: 18.1.0 shipped this file as bin/dependency-cruise.mjs (no trailing "r"); 18.4.0
-// renamed it to bin/dependency-cruiser.mjs. A hardcoded filename is exactly what breaks on a
-// version bump like this — the name is worth re-checking (`ls node_modules/.../bin/`) whenever
-// dependency-cruiser moves again, not just assumed stable.
-// Someone will be tempted to "simplify" this back to require.resolve() or a bare "npx" call —
-// both are the bug this function exists to avoid re-introducing.
-export function resolveDependencyCruiserCli(resolve = import.meta.resolve) {
-  const entry = resolve("dependency-cruiser");
-  const cli = fileURLToPath(new URL("../../bin/dependency-cruiser.mjs", entry));
-  if (!existsSync(cli)) {
-    throw new Error(
-      `boundary gate: dependency-cruiser CLI not found at ${cli} (resolved package entry: ${entry})`,
-    );
-  }
-  return cli;
-}
-
-/** Builds the depcruise invocation. Side-effect-free so it is directly unit-testable. */
-export function buildDependencyCruiserCommand(
-  files,
-  { execPath = process.execPath, cliPath = resolveDependencyCruiserCli() } = {},
-) {
-  return {
-    command: execPath,
-    args: [
-      cliPath,
-      ...files,
-      "--config",
-      ".dependency-cruiser.cjs",
-      "--ignore-known",
-      "--output-type",
-      "json",
-    ],
-  };
-}
-
-/** dependency-cruiser's JSON report, from either the string or Buffer form execFileSync can return. */
-export function parseDependencyCruiserReport(output) {
-  return JSON.parse(typeof output === "string" ? output : output.toString("utf8"));
-}
-
-function main() {
+async function main() {
   const files = run("git", ["ls-files", ...SOURCE_GLOBS])
     .split("\n")
     .filter(Boolean);
@@ -153,21 +95,13 @@ function main() {
     process.exit(1);
   }
 
-  const { command, args } = buildDependencyCruiserCommand(files);
-
   let report;
   try {
-    report = parseDependencyCruiserReport(run(command, args));
+    report = await cruiseSourceFiles(files, { ignoreKnown: true });
   } catch (e) {
-    // depcruise exits non-zero when it finds error-severity violations, and still prints the report
-    // on stdout. Re-parse rather than treating a found violation as a crash.
-    const out = e?.stdout;
-    if (!out) {
-      console.error("boundary gate: dependency-cruiser failed to produce a report");
-      console.error(e?.stderr || e?.message || e);
-      process.exit(1);
-    }
-    report = parseDependencyCruiserReport(out);
+    console.error("boundary gate: dependency-cruiser failed to produce a report");
+    console.error(e?.message || e);
+    process.exit(1);
   }
 
   const { totalCruised = 0, totalDependenciesCruised = 0, violations = [] } = report.summary ?? {};
@@ -241,9 +175,7 @@ function main() {
   process.exit(errors.length > 0 || unexpected.length > 0 || staleAllowlist.length > 0 ? 1 : 0);
 }
 
-// Importing this module (as the test file does, to reach the exported functions) must have no
-// side effects — no filesystem checks, no subprocess spawns, no process.exit. Only run the gate
-// when this file is the process entry point.
+// Importing the gate must not scan files, spawn subprocesses or exit.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main();
+  await main();
 }

@@ -301,6 +301,12 @@ export const EmbeddingsConfigSchema = z.object({
 // are never dropped).
 export const IndexingConfigSchema = z
   .object({
+    writePreparation: z
+      .enum(["legacy", "modular"])
+      .default("legacy")
+      .describe(
+        'Single-note indexing rollout: "legacy" keeps the established preparation path; "modular" opts into isolated preparation. Both use the same index format and configured limits. Change the selection and restart to roll back without rebuilding the index.',
+      ),
     writeConcurrency: z
       .number()
       .int()

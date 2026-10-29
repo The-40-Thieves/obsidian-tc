@@ -430,10 +430,10 @@ sets a `jti`).
 ### Back up `<cacheDir>/auth.db`: it is not a cache
 
 The registry lives in `<cacheDir>/auth.db` and the signing keys in `<cacheDir>/auth-keys/`.
-Unlike `cache.db`, **neither is regenerable**: they hold your decisions to revoke a token or
-retire a key. `rm <cacheDir>/cache.db*` (the documented way to reset the index), `compact`,
-`reset_vault_cache` and every other cache wipe leave them alone; back both up with your other
-operator state.
+**Neither is regenerable**: they hold your decisions to revoke a token or retire a key.
+`compact`, `reset_vault_cache` and the maintenance sweep leave them alone; back both up with your
+other operator state. `cache.db` also contains durable memory and write-provenance records, so
+deleting it is not an index-reset procedure. Use the [table-scoped reset guidance](../../configuration/storage-state/).
 
 The server fails closed if the registry is lost, and it judges each part separately. Three marker
 files sit in `auth-keys/`, outside the database: `.keys-initialized` (the first `mint` `rotate-key`; any

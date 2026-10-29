@@ -3,10 +3,7 @@
 // bridge clients/capability snapshots -> M2-M8 -> MCP server -> transports -> scheduler), argv-free,
 // returning a `ServerRuntime` whose `start()` fires the boot reconcile/scheduler/stdio and whose
 // `close(reason)` is the ordered, idempotent shutdown.
-// `stores` (and `otel`) are constructed OUTSIDE `wireRuntimeCore` and handed in as params, then
-// folded into its own unwind stack, because real boot's construction order requires them to sit
-// textually between `stores` and `governance` — reordering that is forbidden, and accepting an
-// arbitrary deps callback would reintroduce the service-locator this file avoids (docs/design/server-runtime.md).
+// Stores and OTEL hand ownership to wireRuntimeCore in construction order (docs/design/server-runtime.md).
 
 import { dirname } from "node:path";
 import {
@@ -56,6 +53,7 @@ import {
   createReconcileRunner,
   wireJobHandlers,
 } from "./plane-wiring";
+import type { RuntimeCoreDeps } from "./runtime-core-types";
 import { wireRuntimeCore } from "./runtime-core-wiring";
 import { schedulerVaults, wireScheduler } from "./scheduler-wiring";
 import { makeSandboxRerun } from "./session-rerun-sandbox";
@@ -74,28 +72,14 @@ export interface ServerRuntime {
   close(reason: string): Promise<void>;
 }
 
-// requireBoot/nativeReadyToken/OwnedLayer/unwindReversed moved to boot-helpers.ts (biome's 700-line
-// cap) — imported above, see server-runtime.test.ts for their own import path.
-
-// RuntimeCoreDeps/RuntimeCore (wireRuntimeCore's input/output contract) moved to
-// runtime-core-types.ts, and wireRuntimeCore itself to runtime-core-wiring.ts, same 700-line cap —
-// re-exported so every existing import path (including wireRuntimeCore's own test suite) keeps
-// working.
+// Preserve the public core construction imports.
 export type { RuntimeCore, RuntimeCoreDeps } from "./runtime-core-types";
 export { wireRuntimeCore };
 
 // THE-457: cap on how long graceful shutdown waits for in-flight index work.
 const SHUTDOWN_DRAIN_MS = 5000;
 
-/**
- * The full composition root. Builds every boot resource in the same order as inline boot — stores,
- * otel/observability, governance+index resources (`wireRuntimeCore`), job queue, health tools,
- * gateway seams, job handlers/runner, index coordinator+watcher, M1, bridge clients/capability
- * snapshots, M2-M8, MCP server, transports, scheduler (registered, not started) — then returns a
- * `ServerRuntime` whose `start()` is the go-live step and whose `close(reason)` is the ordered,
- * idempotent shutdown. Argv-free: takes an already-resolved `ServerConfig`, never touches
- * `process.argv`. See docs/design/server-runtime.md.
- */
+/** Argv-free composition root; start() goes live and close(reason) shuts down in ownership order. */
 export async function buildServerRuntime(
   config: ServerConfig,
   configPath: string | undefined,
@@ -129,39 +113,95 @@ export async function buildServerRuntime(
     busyTimeoutMs: config.db.busyTimeoutMs, // THE-935: reaches every connectionPragmas() call site via wireStores -> openDatabase / provisionExperientialDb
     experiential: config.experiential,
     experientialMigrations,
-    // Stable vault identity (20260928_001): the SAME config.vaults governance/sticky-provider
-    // resolution reads (line ~284/~178 below) — a rename must be resolved against the exact ids
-    // this boot registers, same reasoning as GH #995 fix round 2's sticky-embeddings vaults wiring.
+    // Resolve renames against the same vault IDs used by governance and sticky providers.
     vaults: config.vaults.map((v) => ({ id: v.id, path: v.path })),
   });
   const { db, experientialDb, retrievalLog, activationFor, experientialOpen } = stores;
 
-  // Prometheus recorder (G2.4) — always live so get_metrics and the optional /metrics scrape
-  // share the same in-memory counters. OTEL tracing — no-op unless observability.otel.endpoint set.
-  const otel = await initOtel(config.observability, VERSION);
-  // THE-507: hoisted ABOVE the recorder so its stats can be a gauge source.
-  const retrievalCaches = createRetrievalCaches({
-    maxEntries: config.retrieval.cache.maxEntries,
-    ttlMs: config.retrieval.cache.ttlSeconds * 1000,
-  });
-  // THE-585 (#11): set once, when the HTTP transport is constructed, below.
   let httpConstructSeconds: number | null = null;
-  // indexCoordinator/scheduler are built further down; these lazy refs let readers see them live.
   let indexCoordinatorRef: IndexCoordinator | undefined;
   let schedulerRef: Scheduler | undefined;
-  let toolRegistryRef: ToolRegistry | undefined; // grok HIGH-1: registry built after telemetry.
+  let toolRegistryRef: ToolRegistry | undefined;
   const getKnownToolNames = () => new Set(toolRegistryRef?.list().map((t) => t.name) ?? []);
-  const telemetry = wireTelemetry({ config, db, serverVersion: VERSION, getKnownToolNames }); // THE-1125
-  const observability = createObservability({
-    db,
-    cacheDir: config.cacheDir,
-    morgianaSpool: config.observability.morgiana.spool,
-    retrievalCaches,
-    getIndexCoordinatorStats: () => requireBoot(indexCoordinatorRef, "indexCoordinator").stats(),
-    getSchedulerStats: () => requireBoot(schedulerRef, "scheduler").stats(),
-    getHttpConstructSeconds: () => httpConstructSeconds,
-    toolCallObserver: telemetry.observer,
-  });
+  const preCoreLayers: OwnedLayer[] = [{ name: "stores", close: stores.close }];
+  const { otel, retrievalCaches, telemetry, observability, governance, indexResources } =
+    await (async () => {
+      let coreOwnsCleanup = false;
+      try {
+        // Prometheus recorder (G2.4) — always live so get_metrics and the optional /metrics scrape
+        // share the same in-memory counters. OTEL tracing — no-op unless observability.otel.endpoint set.
+        const otel = await initOtel(config.observability, VERSION);
+        preCoreLayers.push({ name: "otel", close: () => otel.shutdown() });
+        // THE-507: hoisted ABOVE the recorder so its stats can be a gauge source.
+        const retrievalCaches = createRetrievalCaches({
+          maxEntries: config.retrieval.cache.maxEntries,
+          ttlMs: config.retrieval.cache.ttlSeconds * 1000,
+        });
+        const telemetry = wireTelemetry({ config, db, serverVersion: VERSION, getKnownToolNames }); // THE-1125
+        const observability = createObservability({
+          db,
+          cacheDir: config.cacheDir,
+          morgianaSpool: config.observability.morgiana.spool,
+          retrievalCaches,
+          getIndexCoordinatorStats: () =>
+            requireBoot(indexCoordinatorRef, "indexCoordinator").stats(),
+          getSchedulerStats: () => requireBoot(schedulerRef, "scheduler").stats(),
+          getHttpConstructSeconds: () => httpConstructSeconds,
+          toolCallObserver: telemetry.observer,
+        });
+        const { metrics, sqlHooksFor, morgiana } = observability;
+
+        const coreDeps: RuntimeCoreDeps = {
+          stores,
+          cacheDir: config.cacheDir,
+          traceContent: config.sessions.traceContent,
+          vaults: config.vaults,
+          acl: config.acl,
+          defaultVaultId: process.env.OBSIDIAN_TC_DEFAULT_VAULT,
+          boundVaultOnly: config.resources?.boundVaultOnly,
+          elicitTtlSeconds: config.elicitTtlSeconds,
+          throttle: config.throttle,
+          busyTimeoutMs: config.db.busyTimeoutMs,
+          maxResponseBytes: config.governor.maxResponseBytes,
+          idempotencyTtlSeconds: config.idempotencyTtlSeconds,
+          idempotencyReclaimSeconds: config.idempotencyReclaimSeconds,
+          toolVisibility: {
+            ...(config.toolVisibility ?? ALLOW_ALL),
+            allowReadOnlyDerivedTelemetry: isFeedbackExemptFromReadOnly(config.experiential),
+            disabledByProfile: disabledByProfileFor(config.toolFacade.profile),
+          },
+          metrics,
+          tracer: otel.tracer,
+          otelDetail: config.observability.otel.detail,
+          morgiana,
+          // The core owns stores and OTEL during governance/index construction.
+          otel,
+          onCleanup,
+          embeddings: config.embeddings,
+          onVecRebuild: observability.onVecRebuild,
+          configDir,
+          securityProfile: config.securityProfile,
+          excludeFilter: egressFilter,
+          ...(config.provenance.enabled
+            ? {
+                provenance: {
+                  host: resolveHostId(config.provenance.host),
+                  serverVersion: VERSION,
+                  hooks: sqlHooksFor("provenance"),
+                  stamp: config.provenance.stamp,
+                },
+              }
+            : {}),
+        };
+        // Arguments must finish evaluating before the core takes responsibility for cleanup.
+        coreOwnsCleanup = true;
+        const core = await wireRuntimeCore(coreDeps);
+        return { otel, retrievalCaches, telemetry, observability, ...core };
+      } catch (error) {
+        if (!coreOwnsCleanup) await unwindReversed(preCoreLayers, onCleanup);
+        throw error;
+      }
+    })();
   const {
     metrics,
     onVecFallback,
@@ -171,51 +211,6 @@ export async function buildServerRuntime(
     morgiana,
     onSnapshotSkipped,
   } = observability;
-
-  const { governance, indexResources } = await wireRuntimeCore({
-    stores,
-    cacheDir: config.cacheDir,
-    traceContent: config.sessions.traceContent,
-    vaults: config.vaults,
-    acl: config.acl,
-    defaultVaultId: process.env.OBSIDIAN_TC_DEFAULT_VAULT,
-    boundVaultOnly: config.resources?.boundVaultOnly,
-    elicitTtlSeconds: config.elicitTtlSeconds,
-    throttle: config.throttle,
-    busyTimeoutMs: config.db.busyTimeoutMs,
-    maxResponseBytes: config.governor.maxResponseBytes,
-    idempotencyTtlSeconds: config.idempotencyTtlSeconds,
-    idempotencyReclaimSeconds: config.idempotencyReclaimSeconds,
-    toolVisibility: {
-      ...(config.toolVisibility ?? ALLOW_ALL),
-      allowReadOnlyDerivedTelemetry: isFeedbackExemptFromReadOnly(config.experiential),
-      disabledByProfile: disabledByProfileFor(config.toolFacade.profile),
-    },
-    metrics,
-    tracer: otel.tracer,
-    otelDetail: config.observability.otel.detail,
-    morgiana,
-    // otel is opened just above, between `stores` and this call — handing it in folds its shutdown
-    // into wireRuntimeCore's own unwind if governance or index resources throws (`onCleanup` fires
-    // only when wireRuntimeCore itself throws — a distinct window from postCoreLayers below).
-    otel,
-    onCleanup,
-    embeddings: config.embeddings,
-    onVecRebuild: observability.onVecRebuild,
-    configDir,
-    securityProfile: config.securityProfile,
-    excludeFilter: egressFilter,
-    ...(config.provenance.enabled
-      ? {
-          provenance: {
-            host: resolveHostId(config.provenance.host),
-            serverVersion: VERSION,
-            hooks: sqlHooksFor("provenance"),
-            stamp: config.provenance.stamp,
-          },
-        }
-      : {}),
-  });
   const { acl, aclByVault, vaultRegistry, activeSessions, rateLimiter, registry } = governance;
   const defaultVaultId = vaultRegistry.default; // OBSIDIAN_TC_DEFAULT_VAULT, else the first vault
   toolRegistryRef = registry; // THE-1125: registry exists now — see this file's lazy-ref comment above.
@@ -233,16 +228,12 @@ export async function buildServerRuntime(
     embeddingsSticky,
   } = indexResources;
 
-  // A later construction failure (e.g. wireTransports below) must still close what this function
-  // went on to open after `wireRuntimeCore` succeeded: the vault watcher and any transport socket,
-  // then governance and stores, in reverse order via `unwindReversed`. `indexResources` contributes
-  // no cleanup of its own, so it is not repeated here.
+  // After core succeeds, retain its owners for later failures. indexResources owns no cleanup.
   const postCoreLayers: OwnedLayer[] = [
     { name: "stores", close: stores.close },
+    { name: "otel", close: () => otel.shutdown() },
     { name: "governance", close: governance.close },
   ];
-  // requireBoot idiom (see this file's top): assigned once at the end of the try block, after
-  // every post-core step succeeds; the catch below always rethrows.
   let postCore:
     | {
         runReconcile: GatedReconcile;
@@ -343,7 +334,9 @@ export async function buildServerRuntime(
         hasVec,
         chunkContext: config.embeddings.chunkContext,
         chunkTokens: config.indexing.chunkTokens, // THE-424
+        embedConfig,
         indexing: config.indexing,
+        writePreparation: config.indexing.writePreparation,
         // THE-1081 review round (Medium 1): the CANONICAL root (vaultRegistry.list(), realpath'd
         // at registration — see vault/registry.ts), not raw `config.vaults`. registerVaultWatch
         // (vault/watcher.ts) stores this string verbatim and re-opens it on every flush; a raw

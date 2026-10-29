@@ -6,12 +6,13 @@ import { enforcePathAcl } from "../src/vault/acl-path";
 import { makeTempDir, rmTemp } from "./tmp";
 
 let symlinkOk = true;
+const symlinkProbe = makeTempDir("sl-probe-");
 try {
-  const probe = makeTempDir("sl-probe-");
-  symlinkSync(join(probe, "t"), join(probe, "l"), "dir");
-  rmTemp(probe);
+  symlinkSync(join(symlinkProbe, "t"), join(symlinkProbe, "l"), "dir");
 } catch {
   symlinkOk = false; // Windows without the privilege to create symlinks
+} finally {
+  rmTemp(symlinkProbe);
 }
 
 describe.skipIf(!symlinkOk)("THE-269 symlink ACL canonicalization", () => {

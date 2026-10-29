@@ -44,12 +44,13 @@ const REFUSED = 'safe open refused the path: refusing symlinked or missing path 
 const OPEN_ACL = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
 
 let symlinkOk = true;
+const symlinkProbe = makeTempDir("sl-probe-");
 try {
-  const probe = makeTempDir("sl-probe-");
-  symlinkSync(join(probe, "t"), join(probe, "l"), "dir");
-  rmTemp(probe);
+  symlinkSync(join(symlinkProbe, "t"), join(symlinkProbe, "l"), "dir");
 } catch {
   symlinkOk = false; // Windows without the privilege to create symlinks
+} finally {
+  rmTemp(symlinkProbe);
 }
 
 const provider = fakeEmbeddingProvider({ dimensions: 32 });

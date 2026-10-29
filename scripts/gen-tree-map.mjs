@@ -23,12 +23,12 @@
  *      this repo is on TypeScript 7; given a directory it enumerates ZERO .ts files and cheerfully
  *      reports success over an empty set. So the file list is explicit, and a zero-module result is
  *      treated as a FAILURE, never a pass.
- *   2. IN ZSH, `depcruise $FILES` PASSES ONE ARGUMENT, not many — zsh does not word-split unquoted
- *      parameters the way bash does. Irrelevant here because execFileSync takes an array, which is
- *      the real fix.
+ *   2. KEEP FILES IN MEMORY. Shell splitting and operating-system argv limits must not constrain
+ *      the graph size; both this command and the boundary gate use the same analyzer API adapter.
  */
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { cruiseSourceFiles } from "./lib/dependency-cruiser.mjs";
 import { committedGeneratedProblems } from "./lib/tree-map-guard.mjs";
 
 const CHECK = process.argv.includes("--check");
@@ -65,21 +65,14 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-const DEPCRUISE = "./node_modules/.bin/depcruise";
-let raw;
+let graph;
 try {
-  raw = run(DEPCRUISE, [...files, "--config", ".dependency-cruiser.cjs", "--output-type", "json"]);
+  graph = await cruiseSourceFiles(files);
 } catch (err) {
-  // A fresh git worktree has no node_modules, so this is the first thing that breaks there — and a
-  // raw ENOENT stack trace is a poor way to say "run bun install", especially now that this runs as
-  // a pre-commit hook and a CI gate.
-  if (err?.code === "ENOENT") {
-    console.error(`gen-tree-map: ${DEPCRUISE} not found — run \`bun install\` in this checkout`);
-    process.exit(1);
-  }
-  throw err;
+  console.error("gen-tree-map: dependency-cruiser failed to produce a report");
+  console.error(err?.message || err);
+  process.exit(1);
 }
-const graph = JSON.parse(raw);
 const modules = graph.modules ?? [];
 
 // The false-green guard. See trap 1 above: an empty module set is the symptom of a resolver

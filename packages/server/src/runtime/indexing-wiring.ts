@@ -8,6 +8,7 @@
 // reorder real side-effecting boot steps. See server-runtime.ts for why only `wireIndexResources`
 // is folded into the argv-free composition entry.
 
+import type { IndexingConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { type FolderAcl, makeIndexReadable, makeReindexGate } from "../acl";
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
@@ -235,8 +236,10 @@ export interface IndexCoordinatorDeps {
   db: Database;
   embeddingProvider: EmbeddingProvider;
   hasVec: boolean;
-  /** THE-424: config.indexing.chunkTokens. Undefined -> the chunker's 512 default. */
+  /** Effective chunking, embedding limits, and single-note preparation selection. */
   chunkTokens?: number;
+  embedConfig?: IndexVaultArgs["embed"];
+  writePreparation?: IndexingConfig["writePreparation"];
   /** config.embeddings.chunkContext */
   chunkContext: boolean;
   /** config.indexing */
@@ -337,6 +340,11 @@ export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinat
           deps.sqlHooksFor(vaultId),
           deps.isEgressExcluded,
           aclRelFor(vaultId, path) ?? ACL_PATH_UNRESOLVED,
+          {
+            chunkTokens: deps.chunkTokens,
+            embed: deps.embedConfig,
+            writePreparation: deps.writePreparation,
+          },
         );
       },
       delete: (vaultId, path) => deindexPath(vaultId, path, isExcludedPath(vaultId, path)),

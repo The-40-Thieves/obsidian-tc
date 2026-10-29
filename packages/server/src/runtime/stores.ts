@@ -16,6 +16,7 @@ import { createRetrievalLogger, type RetrievalLogger } from "../experiential/log
 import { stderrOnError } from "../util/errors";
 import { ensureEnvVaultRoot } from "../vault/ensure-root";
 import { formatVaultRenameNotice, resolveAndApplyVaultIdentity } from "../vault/identity";
+import { unwindReversed } from "./boot-helpers";
 import { withBootstrapBarrier } from "./vault-lock";
 
 export interface StoresDeps {
@@ -76,46 +77,75 @@ export interface Stores {
  */
 export async function wireStores(deps: StoresDeps): Promise<Stores> {
   mkdirSync(deps.cacheDir, { recursive: true });
-  const db = await openDatabase(join(deps.cacheDir, "cache.db"), deps.busyTimeoutMs);
-  provisionCacheDb(db, { version: deps.version });
-  const experientialDb = await provisionExperientialDb(deps.cacheDir, deps.experientialMigrations, {
-    version: deps.version,
-    busyTimeoutMs: deps.busyTimeoutMs,
-  });
-  // Stable vault identity (20260928_001): must run AFTER both stores are migrated (vault_identity
-  // exists, and experiential.db's tables are there to re-key) and BEFORE experientialDb is
-  // possibly closed below (experientialOpen === false) — a rename needs a live handle on both.
-  // See vault/identity.ts's `resolveAndApplyVaultIdentity` for the full rationale.
-  for (const notice of resolveAndApplyVaultIdentity(db, experientialDb, deps.vaults)) {
-    process.stderr.write(formatVaultRenameNotice(notice));
-  }
-  const retrievalLog = deps.experiential.logRetrievals
-    ? createRetrievalLogger(experientialDb, { onError: stderrOnError("retrieval-log") })
-    : undefined;
-  const episodeCapture = deps.experiential.captureEpisodes
-    ? createEpisodeCapture(experientialDb, {
-        captureContent: deps.experiential.captureContent,
-        onError: stderrOnError("episodes"),
-      })
-    : undefined;
-  const activationFor = deps.experiential.activationRerank
-    ? makeActivationLookup(experientialDb, { onError: stderrOnError("activation-read") })
-    : undefined;
-  const experientialOpen = !!(retrievalLog || episodeCapture || activationFor);
-  if (!experientialOpen) experientialDb.close?.();
-
-  return {
-    db,
-    experientialDb,
-    ...(retrievalLog ? { retrievalLog } : {}),
-    ...(episodeCapture ? { episodeCapture } : {}),
-    ...(activationFor ? { activationFor } : {}),
-    experientialOpen,
-    close: () => {
-      db.close?.();
-      if (experientialOpen) experientialDb.close?.();
-    },
+  const owned: { name: string; close(): void }[] = [];
+  const own = (name: string, handle: Database): (() => void) => {
+    let open = true;
+    const close = () => {
+      if (!open) return;
+      open = false;
+      handle.close?.();
+    };
+    owned.push({ name, close });
+    return close;
   };
+  const db = await openDatabase(join(deps.cacheDir, "cache.db"), deps.busyTimeoutMs);
+  own("cache.db", db);
+  try {
+    provisionCacheDb(db, { version: deps.version });
+    const experientialDb = await provisionExperientialDb(
+      deps.cacheDir,
+      deps.experientialMigrations,
+      {
+        version: deps.version,
+        busyTimeoutMs: deps.busyTimeoutMs,
+      },
+    );
+    const closeExperiential = own("experiential.db", experientialDb);
+    // Stable vault identity (20260928_001): must run AFTER both stores are migrated (vault_identity
+    // exists, and experiential.db's tables are there to re-key) and BEFORE experientialDb is
+    // possibly closed below (experientialOpen === false) — a rename needs a live handle on both.
+    // See vault/identity.ts's `resolveAndApplyVaultIdentity` for the full rationale.
+    for (const notice of resolveAndApplyVaultIdentity(db, experientialDb, deps.vaults)) {
+      process.stderr.write(formatVaultRenameNotice(notice));
+    }
+    const retrievalLog = deps.experiential.logRetrievals
+      ? createRetrievalLogger(experientialDb, { onError: stderrOnError("retrieval-log") })
+      : undefined;
+    const episodeCapture = deps.experiential.captureEpisodes
+      ? createEpisodeCapture(experientialDb, {
+          captureContent: deps.experiential.captureContent,
+          onError: stderrOnError("episodes"),
+        })
+      : undefined;
+    const activationFor = deps.experiential.activationRerank
+      ? makeActivationLookup(experientialDb, { onError: stderrOnError("activation-read") })
+      : undefined;
+    const experientialOpen = !!(retrievalLog || episodeCapture || activationFor);
+    if (!experientialOpen) closeExperiential();
+
+    return {
+      db,
+      experientialDb,
+      ...(retrievalLog ? { retrievalLog } : {}),
+      ...(episodeCapture ? { episodeCapture } : {}),
+      ...(activationFor ? { activationFor } : {}),
+      experientialOpen,
+      close: () => {
+        const errors: unknown[] = [];
+        for (const layer of [...owned].reverse()) {
+          try {
+            layer.close();
+          } catch (error) {
+            errors.push(error);
+          }
+        }
+        if (errors.length > 0) throw new AggregateError(errors, "Failed to close stores");
+      },
+    };
+  } catch (error) {
+    await unwindReversed(owned);
+    throw error;
+  }
 }
 
 /**
