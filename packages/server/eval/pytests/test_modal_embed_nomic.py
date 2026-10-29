@@ -292,10 +292,40 @@ def _blob(n: int, fill: float = 1.0) -> bytes:
 
 def test_write_vectors_writes_the_complete_file_and_leaves_no_partial(tmp_path):
     out = tmp_path / "vecs.f32"
-    n = m.write_vectors(str(out), [_blob(2), _blob(1)], [2, 1])
+    n = m.write_vectors(str(out), [_blob(2), _blob(1)], [2, 1], ["a", "b", "c"])
     assert n == 3
     assert out.stat().st_size == 3 * m.DIM * 4
     assert not Path(f"{out}.partial").exists()
+
+
+def test_write_vectors_writes_the_ids_beside_the_vectors_in_input_order(tmp_path):
+    out = tmp_path / "vecs-768.f32"
+    m.write_vectors(str(out), [_blob(2), _blob(1)], [2, 1], ["c-b", "c-a", "c-c"])
+    ids = json.loads((tmp_path / "vecs-768-ids.json").read_text(encoding="utf-8"))
+    assert ids == ["c-b", "c-a", "c-c"]
+    assert sorted(os.listdir(tmp_path)) == ["vecs-768-ids.json", "vecs-768.f32"]
+
+
+def test_write_vectors_refuses_ids_that_do_not_match_the_vectors(tmp_path):
+    out = tmp_path / "vecs-768.f32"
+    with pytest.raises(SystemExit, match="ids"):
+        m.write_vectors(str(out), [_blob(2)], [2], ["only-one"])
+    assert os.listdir(tmp_path) == []
+
+
+def test_read_rows_takes_a_chunk_id_or_a_key_in_line_order(tmp_path):
+    rows = tmp_path / "in.jsonl"
+    rows.write_text(
+        '{"chunk_id": "c1", "text": "a"}\n{"key": "q1", "text": "b"}\n', encoding="utf-8"
+    )
+    assert m.read_rows(str(rows)) == (["c1", "q1"], ["a", "b"])
+
+
+def test_read_rows_refuses_a_row_without_an_id_and_names_the_line(tmp_path):
+    rows = tmp_path / "in.jsonl"
+    rows.write_text('{"chunk_id": "c1", "text": "a"}\n{"text": "orphan"}\n', encoding="utf-8")
+    with pytest.raises(SystemExit, match="line 2"):
+        m.read_rows(str(rows))
 
 
 @pytest.mark.parametrize(
@@ -312,9 +342,10 @@ def test_write_vectors_refuses_a_partial_result_and_keeps_an_earlier_good_file(
     out = tmp_path / "vecs.f32"
     out.write_bytes(b"previous complete run")
     with pytest.raises(SystemExit, match=msg):
-        m.write_vectors(str(out), blobs, sizes)
+        m.write_vectors(str(out), blobs, sizes, [f"c{i}" for i in range(sum(sizes))])
     assert out.read_bytes() == b"previous complete run"
     assert not Path(f"{out}.partial").exists()
+    assert sorted(os.listdir(tmp_path)) == ["vecs.f32"]
 
 
 def test_write_vectors_cleans_up_when_the_remote_call_dies_midway(tmp_path):
@@ -325,7 +356,7 @@ def test_write_vectors_cleans_up_when_the_remote_call_dies_midway(tmp_path):
         raise ConnectionError("worker lost")
 
     with pytest.raises(ConnectionError):
-        m.write_vectors(str(out), shards(), [1, 1])
+        m.write_vectors(str(out), shards(), [1, 1], ["a", "b"])
     assert not out.exists()
     assert not Path(f"{out}.partial").exists()
     assert os.listdir(tmp_path) == []

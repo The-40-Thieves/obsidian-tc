@@ -28,8 +28,9 @@ OUTPUT CONTRACT. For each requested width (MRL 768/512/256/128, re-normalised af
 raw little-endian float32 at `<out-prefix>-<dim>.f32`, N*dim, in the input's line order, and the
 chunk ids of those rows at `<out-prefix>-ids.json`. Queries get the same pair under `--qout-prefix`,
 with their keys in place of chunk ids. Every file of one run appears together and only when all of
-them are complete (`.partial`, then rename). --log records the model, revision, precision, shard
-timings and GPU time.
+them are complete (`.partial`, then rename). --log is published in that same group: the model,
+revision, precision, shard timings, GPU time and `truncated_inputs` (inputs the model cut at
+MAX_SEQ_LENGTH).
 
 WHY THE PINS COME FROM JSON. The model id, revision and file hashes are NOT in this file. They are
 read from the `evalOnly` block of embedder-model-pins.json, and the pins gate scans every
@@ -39,8 +40,9 @@ WHY THE TIMER STOPS AFTER to_float32. With convert_to_tensor the result is a ten
 on the GPU, so the work is only finished once it is copied to the host. to_float32 does that copy,
 and the per-shard `ms` is taken after it, so it is real GPU time and not the time to queue kernels.
 
-A Modal run costs money and is run by the owner. CI runs the unit tests in pytests/ (no GPU, no
-torch).
+A Modal run costs money and is run by the owner. Wrap each `modal run` in a client-side timeout
+shorter than the Embedder's `timeout=3600`, since on 2026-10-28 a hung client kept an A10G billed
+until a 25-minute client timeout ended it. CI runs the unit tests in pytests/ (no GPU, no torch).
 """
 
 import hashlib
@@ -349,23 +351,39 @@ def stage_vectors(out: str, blobs: Iterable[bytes], shard_sizes: Sequence[int], 
     return partial
 
 
-def stage_text(out: str, text: str) -> str:
+def count_truncated(model: Any, texts: Sequence[str]) -> int:
+    """How many of `texts` the model cuts at MAX_SEQ_LENGTH, counted with the model's own tokenizer.
+    A cut input is a vector of a text it does not describe, so the count goes in the log; without a
+    tokenizer there is no count, and no run."""
+    tokenizer = getattr(model, "tokenizer", None)
+    if tokenizer is None:
+        raise SystemExit("the loaded model has no tokenizer to count truncation with")
+    lengths = tokenizer(list(texts), truncation=False)["input_ids"]
+    return sum(1 for ids in lengths if len(ids) > MAX_SEQ_LENGTH)
+
+
+def stage_text(out: str, text: str, staged: list[tuple[str, str]]) -> None:
+    """Write `text` to `<out>.partial`. The partial is registered in `staged` BEFORE the write, so a
+    write that dies midway is cleaned up with the rest."""
     partial = f"{out}.partial"
+    staged.append((partial, out))
     Path(partial).write_text(text, encoding="utf-8")
-    return partial
 
 
 # (output prefix, the shards' results, shard sizes, the id of each row in order)
 RunGroup = tuple[str, Sequence[dict], Sequence[int], Sequence[str]]
 
 
-def write_run(groups: Sequence[RunGroup], dims: Sequence[int]) -> dict[str, int]:
+def write_run(
+    groups: Sequence[RunGroup], dims: Sequence[int], texts: Sequence[tuple[str, str]] = ()
+) -> dict[str, int]:
     """Every output of one run, or none.
 
     For each group this stages `<prefix>-<dim>.f32` for every width and `<prefix>-ids.json`, all as
     `.partial`. The final names appear only after every file has checked out. A failure anywhere
     removes the partials staged so far, so a new file never sits beside a stale one from an earlier
-    run. Returns the vector count per prefix."""
+    run. `texts` are (path, content) pairs published in the same run, the run log among them.
+    Returns the vector count per prefix."""
     staged: list[tuple[str, str]] = []  # (partial, final)
     try:
         for prefix, results, sizes, ids in groups:
@@ -375,7 +393,9 @@ def write_run(groups: Sequence[RunGroup], dims: Sequence[int]) -> dict[str, int]
                 final = f"{prefix}-{dim}.f32"
                 staged.append((stage_vectors(final, (r[dim] for r in results), sizes, dim), final))
             final = f"{prefix}-ids.json"
-            staged.append((stage_text(final, json.dumps(list(ids))), final))
+            stage_text(final, json.dumps(list(ids)), staged)
+        for final, text in texts:
+            stage_text(final, text, staged)
     except BaseException:
         for partial, _ in staged:
             if os.path.exists(partial):
@@ -404,6 +424,7 @@ def build_log(
         "n_queries": sum(s["n"] for s in query_stats),
         "shards": list(doc_stats),
         "gpu_ms_total": sum(s["ms"] for s in [*doc_stats, *query_stats]),
+        "truncated_inputs": sum(s["truncated"] for s in [*doc_stats, *query_stats]),
         "wall_s": wall_s,
         "started_at_utc": started_at_utc,
     }
@@ -451,7 +472,8 @@ class Embedder:
 
     @modal.method()
     def embed(self, texts: list[str], dims: list[int]) -> dict:
-        """{dim: little-endian float32 bytes in input order} plus ms, n and chars for the log."""
+        """{dim: little-endian float32 bytes in input order} plus ms, n, chars and truncated
+        for the log."""
         t0 = time.perf_counter()
         # No prompt: the harness already prefixed every text (see the PREFIX RULE above).
         vecs = self.model.encode(
@@ -464,6 +486,7 @@ class Embedder:
         out["ms"] = ms
         out["n"] = len(texts)
         out["chars"] = sum(len(t) for t in texts)
+        out["truncated"] = count_truncated(self.model, texts)
         return out
 
 
@@ -492,7 +515,10 @@ def main(
     results = list(Embedder(precision=precision).embed.map(shards, [dim_list] * len(shards)))
     wall = time.perf_counter() - t0
     doc_results, q_results = results[: len(doc_shards)], results[len(doc_shards) :]
-    stats = [{"n": r["n"], "chars": r["chars"], "ms": r["ms"]} for r in results]
+    stats = [
+        {"n": r["n"], "chars": r["chars"], "ms": r["ms"], "truncated": r["truncated"]}
+        for r in results
+    ]
     doc_stats, query_stats = stats[: len(doc_shards)], stats[len(doc_shards) :]
 
     groups: list[RunGroup] = []
@@ -500,7 +526,7 @@ def main(
         groups.append((out_prefix, doc_results, [len(s) for s in doc_shards], doc_ids))
     if qout_prefix is not None:
         groups.append((qout_prefix, q_results, [len(s) for s in q_shards], q_keys))
-    written = write_run(groups, dim_list)
+    texts_out: list[tuple[str, str]] = []
     if log is not None:
         entry = build_log(
             PINS,
@@ -511,10 +537,12 @@ def main(
             wall,
             started.isoformat(timespec="seconds"),
         )
-        Path(log).write_text(json.dumps(entry, indent=2) + "\n", encoding="utf-8")
+        texts_out.append((log, json.dumps(entry, indent=2) + "\n"))
+    written = write_run(groups, dim_list, texts_out)
     total = sum(written.values())
+    truncated = sum(s["truncated"] for s in stats)
     dims_label = "/".join(str(d) for d in dim_list)
     print(
-        f"{total} vectors ({dims_label}d {precision}) -> {', '.join(written)} "
-        f"in {wall:.1f}s ({total / wall:.1f}/s)"
+        f"{total} vectors ({dims_label}d {precision}), {truncated} truncated "
+        f"-> {', '.join(written)} in {wall:.1f}s ({total / wall:.1f}/s)"
     )

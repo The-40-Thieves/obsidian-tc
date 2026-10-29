@@ -3,9 +3,12 @@
 //
 // export-enrichment-texts.ts is the EVAL exporter: a control/variant pair over a golden set,
 // defaulting to --cap 12 notes. This is the OPERATIONAL one — the whole vault, one stable order,
-// emitting exactly the two files load-gpu-vecs.ts consumes:
-//   ids.json     ["<chunk_id>", ...]           the order the .f32 rows MUST be in
+// emitting two files in one stable order:
+//   ids.json     ["<chunk_id>", ...]           the order the texts were exported in
 //   texts.jsonl  {"chunk_id":..,"text":..}     one per line, same order
+// The GPU script writes the ids it actually embedded beside its vectors (`vecs-ids.json` next to
+// `vecs.f32`); load-gpu-vecs.ts joins THAT file positionally, so a re-export between the two steps
+// cannot mis-pair rows.
 // The rules (shipped enrichment, egress exclusion) live in gpu-embed-lib.ts.
 //
 // Usage: bun eval/export-chunk-texts.ts <config.json> <outdir> [--vault ID]

@@ -13,6 +13,7 @@ import {
   embedCostUsd,
   geminiBatchBody,
   geminiRequest,
+  httpArmEmbeddings,
   isDailyQuota,
   isOfflineFamily,
   l2norm,
@@ -24,7 +25,19 @@ import {
   recallAtK,
   resolveGeminiKey,
 } from "../eval/embedder-arms-lib";
+import { gpuVecsModelId } from "../eval/gpu-embed-lib";
 import { GoldenQuerySchema } from "../eval/metrics";
+
+describe("the HTTP arm's model id", () => {
+  it("is the provider id gpuVecsModelId gives the arm's own embeddings block, the one stageIndex addresses", () => {
+    const http = EMBEDDER_ARMS.filter((arm) => !isOfflineFamily(arm));
+    expect(http.length).toBeGreaterThan(0);
+    for (const arm of http) {
+      const id = gpuVecsModelId(httpArmEmbeddings(arm, "http://gateway.test/v1"), "/arm-cache");
+      expect(id).toBe(`openai:${arm.model}`);
+    }
+  });
+});
 
 const g2 = armByName("gemini-embedding-2-1024");
 const g1 = armByName("gemini-embedding-001-1024");
