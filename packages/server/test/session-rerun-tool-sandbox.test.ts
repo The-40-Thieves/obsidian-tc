@@ -128,8 +128,13 @@ interface Harness {
   runtime: Awaited<ReturnType<typeof buildServerRuntime>>;
 }
 
-function sandboxConfig(vaultDir: string) {
-  return finalizeConfig({ ...configFromVaultPath(vaultDir), embeddings: FIXTURE_EMBEDDINGS }, {});
+function sandboxConfig(vaultDir: string, cacheDir: string) {
+  const config = finalizeConfig(
+    { ...configFromVaultPath(vaultDir), embeddings: FIXTURE_EMBEDDINGS },
+    {},
+  );
+  config.cacheDir = cacheDir;
+  return config;
 }
 
 const tmpDirs: string[] = [];
@@ -170,8 +175,7 @@ async function boot(): Promise<Harness> {
   const vaultDir = makeTempDir("obtc-mcp-sbx-vault-");
   const cacheDir = makeTempDir("obtc-mcp-sbx-cache-");
   tmpDirs.push(vaultDir, cacheDir);
-  const config = sandboxConfig(vaultDir);
-  config.cacheDir = cacheDir;
+  const config = sandboxConfig(vaultDir, cacheDir);
   const runtime = await buildServerRuntime(config, join(vaultDir, "config.json"));
   runtimes.push(runtime);
   const db = await openConfiguredDatabase(config, "cache.db");
@@ -469,8 +473,7 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
     // on Windows an open handle blocks the unlink outright.
     const { vaultDir, cacheDir, db } = await boot();
     const id = seedSession(db, cacheDir, [listNotesRecord(1000)]);
-    const config = sandboxConfig(vaultDir);
-    config.cacheDir = cacheDir;
+    const config = sandboxConfig(vaultDir, cacheDir);
     const events: string[] = [];
     // The timeout is made to fire deterministically rather than raced: the builder is held until the
     // call has already rejected with the timeout, so staging can never beat the 1ms budget on a slow
@@ -528,8 +531,7 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
   }, async () => {
     const { vaultDir, cacheDir, db } = await boot();
     const id = seedSession(db, cacheDir, [listNotesRecord(1000)]);
-    const config = sandboxConfig(vaultDir);
-    config.cacheDir = cacheDir;
+    const config = sandboxConfig(vaultDir, cacheDir);
     const boot$ = openableGate();
     const events: string[] = [];
     let stagedCacheDir = "";
@@ -568,8 +570,7 @@ describe("session_rerun — real buildServerRuntime sandbox lifecycle", () => {
   it("concurrency cap: calls beyond MAX_CONCURRENT_SANDBOX_RERUNS are refused as throttled, and a slot frees once cleanup finishes", async () => {
     const { vaultDir, cacheDir, db } = await boot();
     const id = seedSession(db, cacheDir, [listNotesRecord(1000)]);
-    const config = sandboxConfig(vaultDir);
-    config.cacheDir = cacheDir;
+    const config = sandboxConfig(vaultDir, cacheDir);
     const boot$ = openableGate();
     const rerun = makeSandboxRerun(config, join(vaultDir, "config.json"), async () => {
       await boot$.wait;
