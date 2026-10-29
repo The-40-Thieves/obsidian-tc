@@ -334,6 +334,7 @@ export async function buildServerRuntime(
         hasVec,
         chunkContext: config.embeddings.chunkContext,
         chunkTokens: config.indexing.chunkTokens, // THE-424
+        embedConfig,
         indexing: config.indexing,
         // THE-1081 review round (Medium 1): the CANONICAL root (vaultRegistry.list(), realpath'd
         // at registration — see vault/registry.ts), not raw `config.vaults`. registerVaultWatch

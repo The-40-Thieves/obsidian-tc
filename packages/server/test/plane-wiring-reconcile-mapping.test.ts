@@ -264,3 +264,17 @@ function provisionedDb() {
   provisionCacheDb(db);
   return db;
 }
+
+describe("createReconcileRunner — indexing.chunkTokens wiring", () => {
+  it("threads the configured chunk size into every boot and scheduled pass", async () => {
+    let captured: IndexVaultArgs | undefined;
+    const runner = createReconcileRunner({
+      ...minimalReconcileDeps({ mode: "immediate", idleMs: 2000, maxDeferMs: 30000 }, (opts) => {
+        captured = opts;
+      }),
+      chunkTokens: 64,
+    });
+    await runner(new AbortController().signal);
+    expect(captured?.chunkTokens).toBe(64);
+  });
+});
