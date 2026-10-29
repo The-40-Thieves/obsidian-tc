@@ -505,6 +505,7 @@ export function createReconcileRunner(
             provider: deps.embeddingProvider,
             embed: deps.embedConfig,
             chunkContext: deps.chunkContext,
+            chunkTokens: deps.chunkTokens,
             representation: deps.representation,
             densify: deps.densify,
             vaultId: v.id,
