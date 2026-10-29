@@ -1,8 +1,5 @@
-// Small, dependency-free boot-lifecycle primitives shared by server-runtime.ts's `wireRuntimeCore`
-// and `buildServerRuntime` (and re-exported from there — see that file's header — so every existing
-// caller/test import path keeps working). Split out to keep server-runtime.ts under biome's 700-line
-// noExcessiveLinesPerFile cap: this trio carries no runtime-specific wiring of its own, so lifting it
-// is a clean split rather than the circular-import trap CLAUDE.md warns a naive one creates.
+// Boot-lifecycle primitives shared by store provisioning and runtime composition.
+import { stderrOnError } from "../util/errors";
 
 /** Guards a boot resource captured by a closure before its own `const`/`let` has run: throws (never
  *  a non-null assertion — forbidden by lint) if the closure is ever invoked early. THE-466. Shared
@@ -39,7 +36,8 @@ export interface OwnedLayer {
 /**
  * Runs each already-built layer's cleanup in REVERSE (most-recently-opened-first) order — the
  * resource-acquisition-is-cleanup pattern used when a later wiring step throws. A layer that was
- * never built never contributes a cleanup call. Exported and independently tested; see
+ * never built never contributes a cleanup call. Failed cleanup is reported without interrupting
+ * the remaining owners or replacing the construction error. Exported and independently tested; see
  * server-runtime.test.ts.
  */
 export async function unwindReversed(
@@ -47,8 +45,24 @@ export async function unwindReversed(
   onCleanup?: (name: OwnedLayer["name"]) => void,
 ): Promise<void> {
   for (const layer of [...layers].reverse()) {
-    await layer.close();
-    onCleanup?.(layer.name);
+    try {
+      await layer.close();
+    } catch (error) {
+      try {
+        stderrOnError(`boot-cleanup:${layer.name}`)(error);
+      } catch {
+        // A broken diagnostic stream must not prevent the remaining cleanup.
+      }
+    }
+    try {
+      onCleanup?.(layer.name);
+    } catch (error) {
+      try {
+        stderrOnError(`boot-cleanup-observer:${layer.name}`)(error);
+      } catch {
+        // The observer is diagnostic and cannot own the boot failure.
+      }
+    }
   }
 }
 

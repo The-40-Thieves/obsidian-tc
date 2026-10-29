@@ -1,6 +1,6 @@
 # Server Runtime — Composition Root
 
-Extracted from inline commentary, 2026-08-21. The code carries the invariants; this note carries the history and evidence.
+Extracted from inline commentary, 2026-08-21; ownership and failure handling updated 2026-10-28. The code carries the invariants; this note carries the history and evidence.
 
 ## File overview / `buildServerRuntime` composition root
 
@@ -30,15 +30,23 @@ The established idiom (slice 2) (originally documented in cli.ts's header commen
 
 ## `OwnedLayer`
 
-Layer names are a plain `string`, not a closed union: `wireRuntimeCore` uses its own fixed set ("stores"/"otel" (only when supplied)/"governance"/"indexResources"), while `buildServerRuntime`'s own post-`wireRuntimeCore` unwind stack reuses the same `OwnedLayer`/`unwindReversed` machinery for a different set ("watcher"/"transports") — the mechanism is identical, only the inventory of what got built differs.
+Layer names are a plain `string`, not a closed union. `buildServerRuntime` initially owns "stores" and, after initialization succeeds, "otel" in `preCoreLayers`. `wireRuntimeCore` takes those owners and adds "governance" and "indexResources" (the latter has no cleanup). After core construction succeeds, `postCoreLayers` retains "stores", "otel", and "governance", then adds "leaderElection", "watcher", and "transports" as each finishes construction. Only the scope responsible for the failed construction step unwinds its stack; an outer scope does not repeat a core unwind.
 
 ## `unwindReversed`
 
 Runs each already-built layer's cleanup in REVERSE (most-recently-opened-first) order — the resource-acquisition-is-cleanup pattern `wireRuntimeCore` uses when a later wiring step throws. Exported and independently testable: a layer that was never built never contributed a cleanup, so it can never be touched here, and reversing (or dropping) an entry in `layers` is exactly the bug class this function exists to make loud — see `server-runtime.test.ts`.
 
+Each close is awaited independently. A close failure is reported to stderr and does not prevent the remaining owners from closing or replace the original construction error, which the caller rethrows after unwinding. `onCleanup` runs after each close attempt, including a failed attempt. Observer failures are also reported; failures in the diagnostic stream cannot interrupt cleanup. This helper is for construction failure handling. Normal `Stores.close()` attempts each owned handle once and reports close failures through `AggregateError`.
+
+## Store construction and release
+
+`wireStores` registers each database handle immediately after its open succeeds. Cache provisioning, experiential provisioning, identity resolution, or capture-port construction failures unwind acquired handles in reverse order. `provisionExperientialDb` owns its handle until migrations succeed and closes it if migration fails; `wireStores` only registers that handle after provisioning returns, avoiding overlapping ownership. With all experiential gates off, the handle is released during construction. Its close wrapper makes later store cleanup a no-op for that handle.
+
+These internal store failures occur before `buildServerRuntime` receives the stores, so they do not call its `onCleanup` observer. The tests in `stores-failure-cleanup.test.ts` cover this ownership boundary and distinguish construction errors from normal close errors.
+
 ## `RuntimeCoreDeps.otel`
 
-Already-initialized OTEL handle, opened between `stores` and the `wireRuntimeCore` call in real boot (see "Why `stores` (and `otel`) are parameters" above). Optional: `buildServerRuntime` always supplies it, but the direct `wireRuntimeCore` tests construct no OTEL and omit it, so `built` simply has one fewer entry and behaves exactly as before this was added. When present, `shutdown()` is called best-effort (its own rejection is swallowed) — a telemetry SDK failing to shut down during unwind must never replace the real construction error that is propagating.
+Already-initialized OTEL handle, opened between `stores` and the `wireRuntimeCore` call in real boot (see "Why `stores` (and `otel`) are parameters" above). Optional: `buildServerRuntime` always supplies it; direct callers may omit it, leaving one fewer cleanup entry. When present, `shutdown()` is called best-effort through `unwindReversed`. The shared unwinder reports a rejection and continues cleanup while preserving the original construction error; there is no local `.catch` that silently discards an OTEL shutdown failure.
 
 ## `RuntimeCoreDeps.configDir`
 
@@ -48,13 +56,13 @@ Already-initialized OTEL handle, opened between `stores` and the `wireRuntimeCor
 
 ## `RuntimeCoreDeps.onCleanup`
 
-Test-only observability: fires with each layer's name, in the order its cleanup actually ran. Only invoked when a later step throws during construction — never on the happy path, and never by production callers, which omit it.
+Test-only observability: fires with each layer's name after its cleanup was attempted, in reverse acquisition order. Only invoked when a later step throws during construction — never on the happy path, and never by production callers, which omit it. A throwing observer cannot prevent cleanup or replace the construction error.
 
 ## `wireRuntimeCore`
 
-Composes governance -> index resources on top of already-open stores, with no process-argument parsing — the map's acceptance criterion for WP5 ("the runtime is constructible in a test without parsing process arguments"), scoped to what this slice actually extracted. If governance or index resources throws during construction, every already-built layer's cleanup — INCLUDING the stores (and, when supplied, otel) handed in — runs in reverse order (via `unwindReversed`) before the error propagates, so a partial boot never leaks an open db handle or a live OTEL exporter.
+Composes governance -> index resources on top of already-open stores, with no process-argument parsing — the map's acceptance criterion for WP5 ("the runtime is constructible in a test without parsing process arguments"), scoped to what this slice actually extracted. If governance or index resources throws during construction, every already-built layer's cleanup — INCLUDING the stores (and, when supplied, otel) handed in — is attempted in reverse order via `unwindReversed` before the original error propagates. A failing close is reported and cannot skip the remaining owners.
 
-Inline: otel opens right after stores in real boot, so its cleanup slots into `built` too — before governance is attempted, after stores. Best-effort by construction: `.catch` swallows a `shutdown()` rejection so it can never replace the real error `unwindReversed` is already propagating.
+OTEL opens right after stores in real boot, so its cleanup slots into `built` before governance is attempted, after stores. `unwindReversed` owns best-effort error handling for this entry, just as it does for the other layers.
 
 ## `SHUTDOWN_DRAIN_MS`
 
@@ -68,7 +76,17 @@ Trust root for a `module` provider's `modulePath` (`embeddings.modulePath` / `re
 
 ## `buildServerRuntime.onCleanup` (parameter)
 
-Test-only observability: fires with each already-built layer's name, in the order its cleanup actually ran, on either failure window this function covers — a construction step AFTER `wireRuntimeCore` throws (reports its own post-core layers), or `wireRuntimeCore` itself throws (reports stores/otel/governance via the same callback, passed straight through to the `wireRuntimeCore` call). Never invoked on the happy path, and never passed by production callers (`cli.ts`).
+Test-only observability: fires after each already-built layer's cleanup attempt in three construction failure windows:
+
+- Before core construction: `preCoreLayers` reports stores and, if initialized, OTEL. This includes telemetry/observability setup and evaluation of core arguments.
+- During `wireRuntimeCore`: the same callback is passed through to core, which reports its own stack. The outer pre-core scope does not close those owners again.
+- After core succeeds: `postCoreLayers` reports retained core owners and any successfully constructed later layers.
+
+Never invoked on the happy path, and never passed by production callers (`cli.ts`). `runtime-boot-cleanup.test.ts` covers these handoffs, including argument-evaluation failure and exactly-once cleanup across overlapping scopes.
+
+## `preCoreLayers` (in `buildServerRuntime`)
+
+After stores return, `buildServerRuntime` owns their cleanup while initializing OTEL, retrieval caches, telemetry, and observability. OTEL joins the stack only after initialization succeeds. Ownership transfers to `wireRuntimeCore` only after the complete `RuntimeCoreDeps` object has been evaluated and immediately before invoking core. Thus an argument getter or setup function that throws still unwinds OTEL then stores, while a core failure is cleaned up solely by core.
 
 ## `buildServerRuntime.planeEnabledExplicit` (parameter)
 
@@ -76,7 +94,7 @@ Whether the raw config file explicitly set `plane.enabled` (vs. absent and defau
 
 ## `postCoreLayers` (in `buildServerRuntime`)
 
-Everything from the `wireRuntimeCore` call onward is built on top of an already-successful `wireRuntimeCore` — a later construction failure (e.g. the metrics endpoint's non-loopback-bind refusal, deep in `wireTransports`) must still close what `buildServerRuntime` itself went on to open: the vault watcher (`indexCoordinator` has no other stop path) and any transport socket, then governance and stores, in reverse order — the same `unwindReversed` contract `wireRuntimeCore` used, extended to the layers WP5.2 adds. `indexResources` contributes no cleanup of its own (see `wireRuntimeCore`), so it is not repeated here.
+After `wireRuntimeCore` succeeds, `postCoreLayers` starts with stores, OTEL, and governance. Leader election, the vault watcher, and transports are appended only after each finishes construction. A later failure attempts cleanup in reverse order: transports (if built), watcher, leader election, governance, OTEL, then stores. For example, the metrics endpoint's non-loopback-bind refusal occurs inside `wireTransports`, so the transports entry is absent but all earlier owners still unwind. `indexResources` contributes no cleanup of its own and is not repeated here.
 
 ## `close()` — job-runner drain (`#14`)
 
