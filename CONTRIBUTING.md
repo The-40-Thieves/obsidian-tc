@@ -101,6 +101,11 @@ Restart Obsidian on manifest changes.
 
 ### Running the native module tests
 
+For all automated regression suites, including the optional model packages and Python services,
+use `bun run test:regression`. `bun run test:e2e` runs the real-runtime indexing lifecycle. See
+[Regression testing](docs/testing-regressions.md)
+for prerequisites, reports, platform limits, and rollback controls.
+
 ```bash
 cd packages/native
 cargo test               # Rust unit tests
