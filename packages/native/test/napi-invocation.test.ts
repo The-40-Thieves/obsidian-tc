@@ -1,5 +1,6 @@
 // Unit tests for scripts/lib/napi-invocation.mjs (THE-1080, #948). Pure argv/options builder --
 // no spawning, no `napi build`, no cargo, no compiler.
+import { normalize } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildNapiBuildInvocation,
@@ -24,12 +25,12 @@ function fakeRequireFor(binField: string | Record<string, string>) {
 describe("resolveNapiCliBin", () => {
   it("joins the package directory with bin.napi when bin is an object", () => {
     const bin = resolveNapiCliBin(fakeRequireFor({ napi: "./dist/cli.js" }));
-    expect(bin).toBe("/fake/node_modules/@napi-rs/cli/dist/cli.js");
+    expect(bin).toBe(normalize("/fake/node_modules/@napi-rs/cli/dist/cli.js"));
   });
 
   it("joins the package directory with bin when bin is a bare string", () => {
     const bin = resolveNapiCliBin(fakeRequireFor("./bin/napi.js"));
-    expect(bin).toBe("/fake/node_modules/@napi-rs/cli/bin/napi.js");
+    expect(bin).toBe(normalize("/fake/node_modules/@napi-rs/cli/bin/napi.js"));
   });
 
   it("throws a clear error when the package declares no napi bin", () => {
@@ -69,7 +70,7 @@ describe("buildNapiBuildInvocation", () => {
       requireFn,
     });
     expect(command).toBe(process.execPath);
-    expect(args[0]).toBe("/fake/node_modules/@napi-rs/cli/dist/cli.js");
+    expect(args[0]).toBe(normalize("/fake/node_modules/@napi-rs/cli/dist/cli.js"));
     expect(args[1]).toBe("build");
   });
 
