@@ -281,6 +281,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Sonar attributes new code from git history, so a depth-1 clone misattributes it. Only the
+          # one leg that scans pays for the full fetch; the other seven stay shallow.
+          # The quotes are load-bearing: Actions counts numeric 0 as FALSY, so an unquoted `&& 0 || 1`
+          # evaluates to 1 on the very leg it is meant to deepen, silently leaving it shallow.
+          fetch-depth: ${{ matrix.os == 'ubuntu-latest' && matrix.node == '26' && '0' || '1' }}
       - uses: ./.github/actions/macos-hostname
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
@@ -357,6 +363,49 @@ jobs:
           VITEST_TIMEOUT_FLOOR_MS: ${{ matrix.vitest-timeout-floor-ms }}
         run: node ./node_modules/vitest/vitest.mjs run ${{ matrix.os == 'ubuntu-latest' && matrix.node == '26' && '--coverage' || '' }}
         working-directory: packages/server
+      # vitest writes lcov source paths relative to packages/server ("SF:src/acl.ts", and with a
+      # backslash on Windows), but both services resolve them from the repository root, where that
+      # file does not exist. Left alone each matches nothing, reports zero coverage, and still
+      # uploads cleanly - the exact silent failure this change exists to remove. Assert the
+      # rewrite found paths rather than letting a changed report shape pass as success.
+      - name: make coverage paths repo-root relative
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '26'
+        run: |
+          lcov=packages/server/coverage/lcov.info
+          if [ ! -f "$lcov" ]; then
+            echo "::error::$lcov missing - the suite wrote no coverage report"
+            exit 1
+          fi
+          found=$(grep -cE '^SF:src[/\]' "$lcov" || true)
+          if [ "$found" -eq 0 ]; then
+            echo "::error::no SF:src paths in $lcov - report shape changed, coverage would not map"
+            grep -m3 '^SF:' "$lcov" || true
+            exit 1
+          fi
+          sed -i -E 's|^SF:src[/\]|SF:packages/server/src/|' "$lcov"
+          echo "rewrote $found source paths to be repo-root relative"
+      # Coverage REPORTING, not a gate. The gate is vitest's own thresholds in the step above, which
+      # fail the suite by themselves. Both uploads are pinned to the single leg that passes
+      # --coverage (ubuntu-latest, Node 26), and both are continue-on-error deliberately: a missing
+      # secret, a fork pull request that has no secrets, or a provider outage must not turn a green
+      # suite red. That means silence here is not success, so read the step in the job log.
+      - name: upload coverage to Codacy
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '26'
+        continue-on-error: true
+        uses: codacy/codacy-coverage-reporter-action@89d6c85cfafaec52c72b6c5e8b2878d33104c699 # v1.3.0
+        with:
+          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+          coverage-reports: packages/server/coverage/lcov.info
+      # Inert until Automatic Analysis is turned off for the project (Administration > Analysis
+      # Method). The two analysis methods cannot both run, so while Automatic is on this step is
+      # rejected; once it is off the scanner takes over and replaces the app's pull request
+      # comments with its own. See sonar-project.properties.
+      - name: SonarQube Cloud scan
+        if: matrix.os == 'ubuntu-latest' && matrix.node == '26'
+        continue-on-error: true
+        uses: SonarSource/sonarqube-scan-action@4d1dc0c91ee400dcf8a6dddf2f705ac36542e304 # v8.4.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
   # The Intel twin of ci-native.yml's macos-native-server-tests, on the two Intel runner labels. It lives
   # HERE, not in ci-native.yml, because that workflow is path-filtered (packages/native/**, its own file,
