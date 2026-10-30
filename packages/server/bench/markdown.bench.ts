@@ -4,6 +4,7 @@ import { test } from "vitest";
 import { chunkNote } from "../src/search/chunk";
 import { parseNote } from "../src/vault/frontmatter";
 import { buildVaultIndex, extractLinks, resolveTarget } from "../src/vault/links";
+import { contentHash } from "../src/vault/paths";
 import { extractInlineTags } from "../src/vault/tags";
 import { makeNote, makePaths } from "./fixtures";
 
@@ -11,6 +12,19 @@ const smallNote = makeNote(2, 1);
 const largeNote = makeNote(60, 2);
 const smallBody = parseNote(smallNote).body;
 const largeBody = parseNote(largeNote).body;
+
+// Warm node's lazy digest init so it cannot land inside a measured bench body. `chunkNote` hashes
+// every chunk (makeChunk -> contentHash -> createHash("sha256")) and this is the only bench file
+// whose measured path reaches node:crypto; node builds its digest tables on the process's first
+// createHash, at a cost of two syscalls. Whichever bench hashed first absorbed that, which under
+// CodSpeed's Simulation instrument made `chunkNote::small note` bimodal - ~511us with sysCount 0,
+// ~718us with sysCount 2, surfacing as a ~29% regression on PRs that touched no markdown code (GH
+// #1448, an OAuth state fix). Each mode was otherwise reproducible to within 0.1us and the entire
+// ~211us gap sat in contentHash's own self time. Hashing once at module load keeps the hot loops
+// pure CPU work, so this file stays on the same Simulation instrument as the rest of the suite
+// instead of moving to Walltime. Called directly, not via a throwaway chunkNote(), so it cannot
+// silently stop warming if the chunker ever short-circuits on trivial input.
+contentHash("warm node:crypto");
 
 test("parseNote", async ({ bench }) => {
   await bench("small note", () => {
