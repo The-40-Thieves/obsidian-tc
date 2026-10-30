@@ -10,22 +10,26 @@
  *
  *   - A file excluded in vitest but NOT in Sonar is uninstrumented by construction, so Sonar reads
  *     it as 0% covered. The headline figure then measures how much of the repo vitest looks at
- *     rather than how well the server is tested — the exact failure the exclusions list exists to
- *     prevent.
- *   - A packages/server/src file excluded in Sonar but NOT in vitest is the worse one: vitest does
- *     instrument it, so Sonar is hiding real measured coverage and the quality gate reads a
- *     smaller, friendlier denominator than the suite actually produced.
+ *     rather than how well the server is tested.
+ *   - A file excluded in Sonar but still instrumented by vitest is the worse one: Sonar hides real
+ *     measured coverage, and the quality gate reads a smaller, friendlier denominator than the
+ *     suite actually produced.
  *
- * The comparison is pattern-aware, not a literal diff. vitest's patterns are relative to
- * packages/server; Sonar's are repository-relative, so each vitest entry is prefixed before
- * matching. A vitest glob counts as covered when a representative path matching it is matched by
- * any Sonar pattern — which is how `src/**` + `/*.d.ts` passes on the strength of the repo-wide
- * `**` + `/*.d.ts` in sonar.exclusions, without demanding a literal copy in the coverage list.
+ * The comparison runs over REAL FILES, not over the pattern strings. Each tracked file matching
+ * vitest's coverage `include` is tested against both sides as a predicate, and the two verdicts are
+ * compared. Comparing the lists textually instead was wrong twice over, both caught in review:
  *
- * Only packages/server/src entries are checked in the Sonar-to-vitest direction: vitest's coverage
- * `include` is src/**, so scripts/, docs/, test/ and the other workspaces are uninstrumented by
- * construction and have no vitest counterpart to match.
+ *   - Scope by literal prefix let a broad Sonar pattern slip through entirely. `packages/server/**`
+ *     or `**` + `/*.ts` in sonar.coverage.exclusions excludes every instrumented server file (727
+ *     of them as this lands), yet neither literally starts with `packages/server/src/`, so a
+ *     prefix test skipped both and the gate reported OK — the exact vacuous pass it exists to stop.
+ *   - A literal set lookup called two equivalent configurations drift. vitest `src/db/**` with a
+ *     concrete Sonar entry `packages/server/src/db/types.ts` exclude precisely the same file, but
+ *     string equality says otherwise and the lint job would fail a correct config.
+ *
+ * Evaluating both sides on the same concrete paths removes the pattern algebra that caused both.
  */
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -37,18 +41,29 @@ export const VITEST_CONFIG_PATH = join(ROOT, "packages", "server", "vitest.confi
 /** vitest patterns are relative to packages/server; Sonar's are relative to the repository root. */
 export const SERVER_PREFIX = "packages/server/";
 
-/** Reads the `exclude` array belonging to the `coverage` block specifically — `test.exclude` is a
- *  different list with a different job, and reading it instead would compare the wrong thing. */
-export function parseVitestCoverageExcludes(source) {
+/** How many offending files to name before summarising — a broad pattern can hit hundreds. */
+const MAX_LISTED = 10;
+
+function parseArrayField(source, field) {
   const coverageAt = source.indexOf("coverage:");
   if (coverageAt === -1) {
     return [];
   }
-  const match = source.slice(coverageAt).match(/\bexclude\s*:\s*\[([^\]]*)\]/);
+  const match = source.slice(coverageAt).match(new RegExp(`\\b${field}\\s*:\\s*\\[([^\\]]*)\\]`));
   if (!match) {
     return [];
   }
   return [...match[1].matchAll(/["'`]([^"'`]+)["'`]/g)].map((m) => m[1]);
+}
+
+/** Reads the arrays belonging to the `coverage` block specifically — `test.exclude` is a different
+ *  list with a different job, and reading it instead would compare the wrong thing. */
+export function parseVitestCoverageExcludes(source) {
+  return parseArrayField(source, "exclude");
+}
+
+export function parseVitestCoverageIncludes(source) {
+  return parseArrayField(source, "include");
 }
 
 /** Minimal .properties reader: the one key, comma-split, comments and other keys ignored. */
@@ -71,8 +86,9 @@ export function parseSonarProperty(source, key) {
   return [];
 }
 
-/** Sonar path-matcher semantics: `**` spans directories, `*` stays inside one segment. */
-function sonarPatternToRegExp(pattern) {
+/** Sonar path-matcher semantics: `**` spans directories, `*` stays inside one segment. vitest's
+ *  globs use the same two forms for the patterns that appear here, so one matcher serves both. */
+export function patternToRegExp(pattern) {
   let out = "";
   for (let i = 0; i < pattern.length; i += 1) {
     const ch = pattern[i];
@@ -99,62 +115,61 @@ function sonarPatternToRegExp(pattern) {
   return new RegExp(`^${out}$`);
 }
 
-/** One concrete path that the glob would match, so "is this pattern covered?" becomes the much
- *  simpler "is this path excluded?".
- *
- *  Single pass, with the two-star alternative first so `**` is never read as two `*`. Substituting
- *  in two stages would need a sentinel that cannot occur in a glob, and the obvious candidates are
- *  control characters — which biome rightly refuses inside a regex. */
-export function representativePath(pattern) {
-  return pattern.replace(/\*\*|\*/g, (match) => (match === "**" ? "globdir" : "globseg"));
+/** The files coverage actually considers: tracked, and matching vitest's coverage `include`. */
+export function selectInstrumentedFiles(trackedFiles, vitestIncludes) {
+  const matchers = vitestIncludes.map((p) => patternToRegExp(SERVER_PREFIX + p));
+  return trackedFiles.filter((file) => matchers.some((re) => re.test(file)));
+}
+
+function floor(parseError) {
+  return { ok: false, parseError, missingFromSonar: [], missingFromVitest: [], hidingPatterns: [] };
 }
 
 export function checkSonarCoverageParity({
+  instrumentedFiles,
   vitestExcludes,
   sonarCoverageExclusions,
   sonarExclusions = [],
 }) {
-  // A gate that scans nothing reports success, so both inputs carry a non-empty floor: an empty
-  // list here means the parse broke, not that the repo is clean.
+  // A gate that scans nothing reports success, so each input carries a non-empty floor: an empty
+  // list here means something broke, not that the repo is clean.
+  if (instrumentedFiles.length === 0) {
+    return floor(
+      "found no instrumented source files — vitest's coverage include matched nothing, so the " +
+        "comparison would have passed without examining anything",
+    );
+  }
   if (vitestExcludes.length === 0) {
-    return {
-      ok: false,
-      parseError:
-        "found no coverage.exclude entries in packages/server/vitest.config.ts — the parser is " +
-        "out of step with the config's shape, not the config with Sonar",
-      missingFromSonar: [],
-      missingFromVitest: [],
-    };
+    return floor(
+      "found no coverage.exclude entries in packages/server/vitest.config.ts — the parser is out " +
+        "of step with the config's shape, not the config with Sonar",
+    );
   }
   if (sonarCoverageExclusions.length === 0) {
-    return {
-      ok: false,
-      parseError:
-        "found no sonar.coverage.exclusions entries in sonar-project.properties — the key is " +
+    return floor(
+      "found no sonar.coverage.exclusions entries in sonar-project.properties — the key is " +
         "missing or the parser is out of step with the file",
-      missingFromSonar: [],
-      missingFromVitest: [],
-    };
+    );
   }
 
-  const matchers = [...sonarCoverageExclusions, ...sonarExclusions].map(sonarPatternToRegExp);
+  const vitestMatchers = vitestExcludes.map((p) => patternToRegExp(SERVER_PREFIX + p));
+  const sonarMatchers = [...sonarCoverageExclusions, ...sonarExclusions].map((pattern) => ({
+    pattern,
+    re: patternToRegExp(pattern),
+  }));
+
   const missingFromSonar = [];
-  for (const entry of vitestExcludes) {
-    const repoRelative = SERVER_PREFIX + entry;
-    const probe = representativePath(repoRelative);
-    if (!matchers.some((re) => re.test(probe))) {
-      missingFromSonar.push(repoRelative);
-    }
-  }
-
-  const vitestSet = new Set(vitestExcludes);
   const missingFromVitest = [];
-  for (const entry of sonarCoverageExclusions) {
-    if (!entry.startsWith(`${SERVER_PREFIX}src/`)) {
-      continue;
-    }
-    if (!vitestSet.has(entry.slice(SERVER_PREFIX.length))) {
-      missingFromVitest.push(entry);
+  const hidingPatterns = new Set();
+
+  for (const file of instrumentedFiles) {
+    const excludedByVitest = vitestMatchers.some((re) => re.test(file));
+    const sonarHit = sonarMatchers.find(({ re }) => re.test(file));
+    if (excludedByVitest && !sonarHit) {
+      missingFromSonar.push(file);
+    } else if (!excludedByVitest && sonarHit) {
+      missingFromVitest.push(file);
+      hidingPatterns.add(sonarHit.pattern);
     }
   }
 
@@ -163,21 +178,40 @@ export function checkSonarCoverageParity({
     parseError: null,
     missingFromSonar,
     missingFromVitest,
+    hidingPatterns: [...hidingPatterns],
   };
+}
+
+function report(files) {
+  for (const file of files.slice(0, MAX_LISTED)) {
+    console.error(`  ${file}`);
+  }
+  if (files.length > MAX_LISTED) {
+    console.error(`  ... and ${files.length - MAX_LISTED} more`);
+  }
 }
 
 function main() {
   const sonarSource = readFileSync(SONAR_PROPERTIES_PATH, "utf8");
+  const vitestSource = readFileSync(VITEST_CONFIG_PATH, "utf8");
+  const tracked = execFileSync("git", ["-C", ROOT, "ls-files", "packages/server/src"], {
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024,
+  })
+    .split("\n")
+    .filter(Boolean);
+
   const result = checkSonarCoverageParity({
-    vitestExcludes: parseVitestCoverageExcludes(readFileSync(VITEST_CONFIG_PATH, "utf8")),
+    instrumentedFiles: selectInstrumentedFiles(tracked, parseVitestCoverageIncludes(vitestSource)),
+    vitestExcludes: parseVitestCoverageExcludes(vitestSource),
     sonarCoverageExclusions: parseSonarProperty(sonarSource, "sonar.coverage.exclusions"),
     sonarExclusions: parseSonarProperty(sonarSource, "sonar.exclusions"),
   });
 
   if (result.ok) {
     console.log(
-      "check-sonar-coverage-parity: OK — every vitest coverage exclude is excluded in Sonar, " +
-        "and Sonar hides no packages/server/src file that vitest instruments.",
+      "check-sonar-coverage-parity: OK — vitest and Sonar agree on every instrumented file under " +
+        "packages/server/src.",
     );
     process.exit(0);
   }
@@ -189,25 +223,22 @@ function main() {
 
   if (result.missingFromSonar.length > 0) {
     console.error(
-      "check-sonar-coverage-parity: excluded from vitest coverage but not from Sonar — Sonar " +
-        "will score these 0% although nothing instruments them. Add them to " +
-        "sonar.coverage.exclusions in sonar-project.properties:",
+      `check-sonar-coverage-parity: ${result.missingFromSonar.length} file(s) excluded from ` +
+        "vitest coverage but not from Sonar — Sonar will score them 0% although nothing " +
+        "instruments them. Add them to sonar.coverage.exclusions in sonar-project.properties:",
     );
-    for (const entry of result.missingFromSonar) {
-      console.error(`  ${entry}`);
-    }
+    report(result.missingFromSonar);
   }
 
   if (result.missingFromVitest.length > 0) {
     console.error(
-      "check-sonar-coverage-parity: excluded from Sonar but still instrumented by vitest — Sonar " +
-        "is hiding coverage the suite actually measured. Either drop them from " +
-        "sonar.coverage.exclusions, or exclude them in packages/server/vitest.config.ts too if " +
-        "they genuinely hold no testable logic:",
+      `check-sonar-coverage-parity: ${result.missingFromVitest.length} file(s) excluded from ` +
+        "Sonar but still instrumented by vitest — Sonar is hiding coverage the suite actually " +
+        `measured. Responsible pattern(s): ${result.hidingPatterns.join(", ")}. Either narrow ` +
+        "those entries in sonar.coverage.exclusions, or exclude the files in " +
+        "packages/server/vitest.config.ts too if they genuinely hold no testable logic:",
     );
-    for (const entry of result.missingFromVitest) {
-      console.error(`  ${entry}`);
-    }
+    report(result.missingFromVitest);
   }
   process.exit(1);
 }
