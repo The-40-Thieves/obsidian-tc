@@ -51,6 +51,7 @@
     "check:public-text": "node scripts/check-public-text.mjs",
     "check:readme-size": "node scripts/check-readme-size.mjs",
     "check:redos": "node scripts/check-redos.mjs",
+    "check:sonar-coverage-parity": "node scripts/check-sonar-coverage-parity.mjs",
     "check:version": "node scripts/check-version-coherence.mjs",
     "check:workflow-injection": "node scripts/check-workflow-injection.mjs",
     "config:schema": "bun scripts/gen-config-schema.ts",

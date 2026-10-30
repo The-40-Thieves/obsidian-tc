@@ -180,6 +180,14 @@ jobs:
       - name: embedding transport names no vendor (source scan)
         run: bun run check:embedding-transport
 
+      # sonar.coverage.exclusions and vitest's coverage `exclude` describe one decision — which
+      # source files are deliberately uninstrumented — in two files that nothing connected. Drift
+      # distorts the number either way: a vitest exclude missing from Sonar reads as 0% covered
+      # although nothing instruments it, and a Sonar-only exclusion hides coverage the suite really
+      # measured. The comparison is pattern-aware, so a glob covered by sonar.exclusions passes.
+      - name: sonar coverage exclusions match vitest (config parity)
+        run: bun run check:sonar-coverage-parity
+
       # The gate's own unit tests — the view/word-boundary/quoting cases that decide whether it
       # reports the truth or quietly reports nothing.
       - name: gate unit tests
