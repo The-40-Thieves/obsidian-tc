@@ -10,7 +10,25 @@ import {
   parseVitestCoverageExcludes,
   parseVitestCoverageIncludes,
   selectInstrumentedFiles,
+  stripJsComments,
 } from "./check-sonar-coverage-parity.mjs";
+
+const CONFIG_WITH_COMMENTED_ENTRIES = `
+export default defineConfig({
+  test: {
+    coverage: {
+      include: ["src/**/*.ts"],
+      // exclude: ["src/decoy-commented-out-array.ts"],
+      exclude: [
+        "src/index.ts",
+        // "src/cli.ts",
+        /* "src/db/types.ts", */
+        "src/transports/stdio.ts",
+      ],
+    },
+  },
+});
+`;
 
 const CONFIG_WITH_DECOY = `
 export default defineConfig({
@@ -157,6 +175,43 @@ test("parity: non-src Sonar exclusions matching no instrumented file are ignored
     sonarExclusions: [],
   });
   assert.equal(result.ok, true);
+});
+
+test("stripJsComments: preserves a glob that a naive comment regex would corrupt", () => {
+  // The suggested one-line fix, /\/\*[\s\S]*?\*\//, matches the slash-star-star-slash sequence
+  // inside this glob and rewrites it to "src*.ts". That is why stripping is string-aware.
+  const kept = stripJsComments('exclude: ["src/**/*.ts", "src/**/*.d.ts"],');
+  assert.match(kept, /"src\/\*\*\/\*\.ts"/);
+  assert.match(kept, /"src\/\*\*\/\*\.d\.ts"/);
+  assert.doesNotMatch(kept, /src\*\.ts/);
+});
+
+test("stripJsComments: removes line and block comments outside strings", () => {
+  assert.equal(stripJsComments("a // gone\nb").trim(), "a \nb".trim());
+  assert.equal(stripJsComments("x /* gone */ y"), "x  y");
+  assert.equal(stripJsComments('"// kept"'), '"// kept"');
+});
+
+test("parseVitestCoverageExcludes: a commented-out entry is NOT active config", () => {
+  // Collecting a commented-out entry made the gate believe vitest excluded a file it instruments,
+  // so it passed while Sonar hid measured coverage — the drift it exists to catch. Reported in
+  // review against the file-based revision.
+  assert.deepEqual(parseVitestCoverageExcludes(CONFIG_WITH_COMMENTED_ENTRIES), [
+    "src/index.ts",
+    "src/transports/stdio.ts",
+  ]);
+});
+
+test("parseVitestCoverageExcludes: a commented-out `exclude:` line is not mistaken for the array", () => {
+  assert.ok(
+    !parseVitestCoverageExcludes(CONFIG_WITH_COMMENTED_ENTRIES).includes(
+      "src/decoy-commented-out-array.ts",
+    ),
+  );
+});
+
+test("parseVitestCoverageIncludes: survives comment stripping intact", () => {
+  assert.deepEqual(parseVitestCoverageIncludes(CONFIG_WITH_COMMENTED_ENTRIES), ["src/**/*.ts"]);
 });
 
 test("parity: an empty parse fails loudly instead of passing vacuously", () => {

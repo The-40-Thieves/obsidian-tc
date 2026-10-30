@@ -44,12 +44,70 @@ export const SERVER_PREFIX = "packages/server/";
 /** How many offending files to name before summarising — a broad pattern can hit hundreds. */
 const MAX_LISTED = 10;
 
+// Removes JS comments while respecting string literals.
+//
+// Without this, a commented-out entry inside the array is collected as an active pattern, and the
+// gate then believes vitest excludes a file it actually instruments: it passes while Sonar hides
+// measured coverage, which is the precise drift it exists to catch. Reported in review.
+//
+// A plain comment-stripping regex cannot do this. The obvious one matches the slash-star-star-slash
+// sequence inside the glob "src/**" + "/*.ts", rewriting it to "src*.ts" and silently breaking the
+// most common pattern in the config. Only a scan that tracks whether it is inside a quote is safe,
+// which is why the suggested one-line regex fix was not taken.
+export function stripJsComments(source) {
+  let out = "";
+  let quote = null;
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i];
+    if (quote) {
+      out += ch;
+      if (ch === "\\") {
+        out += source[i + 1] ?? "";
+        i += 2;
+        continue;
+      }
+      if (ch === quote) {
+        quote = null;
+      }
+      i += 1;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      out += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "/") {
+      while (i < source.length && source[i] !== "\n") {
+        i += 1;
+      }
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "*") {
+      i += 2;
+      while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) {
+        i += 1;
+      }
+      i += 2;
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
 function parseArrayField(source, field) {
-  const coverageAt = source.indexOf("coverage:");
+  // Comments go first, so neither a commented-out entry nor a commented-out `exclude:` line can be
+  // read as configuration, and a `]` inside a comment cannot truncate the array early.
+  const code = stripJsComments(source);
+  const coverageAt = code.indexOf("coverage:");
   if (coverageAt === -1) {
     return [];
   }
-  const match = source.slice(coverageAt).match(new RegExp(`\\b${field}\\s*:\\s*\\[([^\\]]*)\\]`));
+  const match = code.slice(coverageAt).match(new RegExp(`\\b${field}\\s*:\\s*\\[([^\\]]*)\\]`));
   if (!match) {
     return [];
   }
@@ -125,31 +183,43 @@ function floor(parseError) {
   return { ok: false, parseError, missingFromSonar: [], missingFromVitest: [], hidingPatterns: [] };
 }
 
+/** A gate that scans nothing reports success, so each input carries a non-empty floor: an empty
+ *  list means something broke, not that the repo is clean. Returns the first breach, or null. */
+function firstFloorError({ instrumentedFiles, vitestExcludes, sonarCoverageExclusions }) {
+  if (instrumentedFiles.length === 0) {
+    return (
+      "found no instrumented source files — vitest's coverage include matched nothing, so the " +
+      "comparison would have passed without examining anything"
+    );
+  }
+  if (vitestExcludes.length === 0) {
+    return (
+      "found no coverage.exclude entries in packages/server/vitest.config.ts — the parser is out " +
+      "of step with the config's shape, not the config with Sonar"
+    );
+  }
+  if (sonarCoverageExclusions.length === 0) {
+    return (
+      "found no sonar.coverage.exclusions entries in sonar-project.properties — the key is " +
+      "missing or the parser is out of step with the file"
+    );
+  }
+  return null;
+}
+
 export function checkSonarCoverageParity({
   instrumentedFiles,
   vitestExcludes,
   sonarCoverageExclusions,
   sonarExclusions = [],
 }) {
-  // A gate that scans nothing reports success, so each input carries a non-empty floor: an empty
-  // list here means something broke, not that the repo is clean.
-  if (instrumentedFiles.length === 0) {
-    return floor(
-      "found no instrumented source files — vitest's coverage include matched nothing, so the " +
-        "comparison would have passed without examining anything",
-    );
-  }
-  if (vitestExcludes.length === 0) {
-    return floor(
-      "found no coverage.exclude entries in packages/server/vitest.config.ts — the parser is out " +
-        "of step with the config's shape, not the config with Sonar",
-    );
-  }
-  if (sonarCoverageExclusions.length === 0) {
-    return floor(
-      "found no sonar.coverage.exclusions entries in sonar-project.properties — the key is " +
-        "missing or the parser is out of step with the file",
-    );
+  const floorError = firstFloorError({
+    instrumentedFiles,
+    vitestExcludes,
+    sonarCoverageExclusions,
+  });
+  if (floorError) {
+    return floor(floorError);
   }
 
   const vitestMatchers = vitestExcludes.map((p) => patternToRegExp(SERVER_PREFIX + p));
