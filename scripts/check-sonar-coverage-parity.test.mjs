@@ -286,9 +286,9 @@ function runGate(gatePath, cwd) {
   }
 }
 
-// A minimal repository the gate can run against: its own copy of the script (ROOT is derived
-// from the script's location), both config files, and two tracked source files in the index so
-// `git ls-files` has something to return.
+// A minimal tree the gate can run against: its own copy of the script (ROOT is derived from the
+// script's location), both config files, and two source files for it to find on disk. No git
+// repository is needed — the gate reads the source list off disk, the way vitest does.
 function buildFixture({ sonar, vitestExcludes }) {
   const dir = mkdtempSync(join(tmpdir(), "sonar-parity-"));
   mkdirSync(join(dir, "scripts"), { recursive: true });
@@ -302,8 +302,6 @@ function buildFixture({ sonar, vitestExcludes }) {
   );
   writeFileSync(join(dir, "packages", "server", "src", "index.ts"), "export const a = 1;\n");
   writeFileSync(join(dir, "packages", "server", "src", "cli.ts"), "export const b = 2;\n");
-  execFileSync("git", ["-C", dir, "init", "-q"]);
-  execFileSync("git", ["-C", dir, "add", "-A"]);
   return dir;
 }
 

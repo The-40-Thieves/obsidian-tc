@@ -29,9 +29,8 @@
  *
  * Evaluating both sides on the same concrete paths removes the pattern algebra that caused both.
  */
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -231,7 +230,8 @@ function matchSegment(pattern, segment) {
   return patternIndex === pattern.length;
 }
 
-/** The files coverage actually considers: tracked, and matching vitest's coverage `include`. */
+/** The files coverage actually considers: present under packages/server/src, and matching
+ *  vitest's coverage `include`. */
 export function selectInstrumentedFiles(trackedFiles, vitestIncludes) {
   const matchers = vitestIncludes.map((p) => createPathMatcher(SERVER_PREFIX + p));
   return trackedFiles.filter((file) => matchers.some((matches) => matches(file)));
@@ -319,18 +319,26 @@ function report(files) {
   }
 }
 
+/** The candidate set is read off disk, not from `git ls-files`. vitest's coverage `include` is a
+ *  filesystem glob, so the files on disk ARE the files it instruments — and reading them needs no
+ *  subprocess, which keeps this gate from resolving an executable name through PATH. */
+function listServerSourceFiles() {
+  const sourceRoot = join(ROOT, "packages", "server", "src");
+  if (!existsSync(sourceRoot)) {
+    return [];
+  }
+  return readdirSync(sourceRoot, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => relative(ROOT, join(entry.parentPath, entry.name)).split(sep).join("/"));
+}
+
 function main() {
   const sonarSource = readFileSync(SONAR_PROPERTIES_PATH, "utf8");
   const vitestSource = readFileSync(VITEST_CONFIG_PATH, "utf8");
-  const tracked = execFileSync("git", ["-C", ROOT, "ls-files", "packages/server/src"], {
-    encoding: "utf8",
-    maxBuffer: 32 * 1024 * 1024,
-  })
-    .split("\n")
-    .filter(Boolean);
+  const onDisk = listServerSourceFiles();
 
   const result = checkSonarCoverageParity({
-    instrumentedFiles: selectInstrumentedFiles(tracked, parseVitestCoverageIncludes(vitestSource)),
+    instrumentedFiles: selectInstrumentedFiles(onDisk, parseVitestCoverageIncludes(vitestSource)),
     vitestExcludes: parseVitestCoverageExcludes(vitestSource),
     sonarCoverageExclusions: parseSonarProperty(sonarSource, "sonar.coverage.exclusions"),
     sonarExclusions: parseSonarProperty(sonarSource, "sonar.exclusions"),
