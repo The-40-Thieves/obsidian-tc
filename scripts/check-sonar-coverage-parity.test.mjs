@@ -1,9 +1,18 @@
-// Tests for scripts/check-sonar-coverage-parity.mjs. Every case feeds the pure functions
+// Tests for scripts/check-sonar-coverage-parity.mjs. The unit cases feed the pure functions
 // fabricated file lists and pattern lists rather than the real sonar-project.properties and
 // packages/server/vitest.config.ts, so a legitimate future edit to either file cannot turn these
 // red — only a genuine parser or comparison bug can.
+//
+// The CLI cases at the bottom do run the entrypoint: once against this repo (a smoke test that the
+// gate agrees with the committed config) and once against a purpose-built drifted fixture repo, so
+// the failure path's exit code and remediation text are exercised rather than assumed.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   checkSonarCoverageParity,
   parseSonarProperty,
@@ -214,6 +223,27 @@ test("parseVitestCoverageIncludes: survives comment stripping intact", () => {
   assert.deepEqual(parseVitestCoverageIncludes(CONFIG_WITH_COMMENTED_ENTRIES), ["src/**/*.ts"]);
 });
 
+test("regression: a narrower Sonar glob under src that vitest does not mirror is caught", () => {
+  // The broad cases above cover patterns outside src. This is the stated acceptance criterion:
+  // a glob UNDER packages/server/src, hiding instrumented files, with no vitest counterpart.
+  const result = checkSonarCoverageParity({
+    instrumentedFiles: [
+      "packages/server/src/index.ts",
+      "packages/server/src/search/vec.ts",
+      "packages/server/src/search/bm25.ts",
+    ],
+    vitestExcludes: ["src/index.ts"],
+    sonarCoverageExclusions: ["packages/server/src/index.ts", "packages/server/src/search/**"],
+    sonarExclusions: [],
+  });
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.missingFromVitest, [
+    "packages/server/src/search/vec.ts",
+    "packages/server/src/search/bm25.ts",
+  ]);
+  assert.deepEqual(result.hidingPatterns, ["packages/server/src/search/**"]);
+});
+
 test("parity: an empty parse fails loudly instead of passing vacuously", () => {
   const base = {
     instrumentedFiles: ["packages/server/src/index.ts"],
@@ -232,4 +262,82 @@ test("parity: an empty parse fails loudly instead of passing vacuously", () => {
   const noSonar = checkSonarCoverageParity({ ...base, sonarCoverageExclusions: [] });
   assert.equal(noSonar.ok, false);
   assert.match(noSonar.parseError, /sonar\.coverage\.exclusions/);
+});
+
+// --- CLI entrypoint -------------------------------------------------------------------------
+// main() reads the real files and shells out to git, so none of the cases above reach it. These
+// run the gate as a process: once against this repository, and twice against a fixture repo
+// built to drift in each direction, so the exit code and the remediation text are exercised
+// rather than assumed.
+
+const GATE = fileURLToPath(new URL("./check-sonar-coverage-parity.mjs", import.meta.url));
+const REPO_ROOT = join(GATE, "..", "..");
+
+const FIXTURE_VITEST_HEAD =
+  'export default defineConfig({ test: { coverage: { include: ["src/**/*.ts"], exclude: [';
+
+function runGate(gatePath, cwd) {
+  try {
+    const stdout = execFileSync(process.execPath, [gatePath], { cwd, encoding: "utf8" });
+    return { status: 0, stdout, stderr: "" };
+  } catch (error) {
+    return { status: error.status, stdout: error.stdout ?? "", stderr: error.stderr ?? "" };
+  }
+}
+
+// A minimal repository the gate can run against: its own copy of the script (ROOT is derived
+// from the script's location), both config files, and two tracked source files in the index so
+// `git ls-files` has something to return.
+function buildFixture({ sonar, vitestExcludes }) {
+  const dir = mkdtempSync(join(tmpdir(), "sonar-parity-"));
+  mkdirSync(join(dir, "scripts"), { recursive: true });
+  mkdirSync(join(dir, "packages", "server", "src"), { recursive: true });
+  cpSync(GATE, join(dir, "scripts", "check-sonar-coverage-parity.mjs"));
+  writeFileSync(join(dir, "sonar-project.properties"), sonar);
+  const excludes = vitestExcludes.map((pattern) => `"${pattern}"`).join(", ");
+  writeFileSync(
+    join(dir, "packages", "server", "vitest.config.ts"),
+    `${FIXTURE_VITEST_HEAD}${excludes}] } } });\n`,
+  );
+  writeFileSync(join(dir, "packages", "server", "src", "index.ts"), "export const a = 1;\n");
+  writeFileSync(join(dir, "packages", "server", "src", "cli.ts"), "export const b = 2;\n");
+  execFileSync("git", ["-C", dir, "init", "-q"]);
+  execFileSync("git", ["-C", dir, "add", "-A"]);
+  return dir;
+}
+
+test("CLI: the committed config passes, reporting success on stdout", () => {
+  const result = runGate(GATE, REPO_ROOT);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /OK/);
+});
+
+test("CLI: a file vitest excludes but Sonar does not exits 1 and names it", () => {
+  const dir = buildFixture({
+    sonar: "sonar.coverage.exclusions=packages/server/src/index.ts\n",
+    vitestExcludes: ["src/index.ts", "src/cli.ts"],
+  });
+  try {
+    const result = runGate(join(dir, "scripts", "check-sonar-coverage-parity.mjs"), dir);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /packages\/server\/src\/cli\.ts/);
+    assert.match(result.stderr, /sonar\.coverage\.exclusions/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("CLI: a Sonar pattern hiding instrumented source exits 1 and names the pattern", () => {
+  const dir = buildFixture({
+    sonar: "sonar.coverage.exclusions=packages/server/src/index.ts, packages/server/src/**\n",
+    vitestExcludes: ["src/index.ts"],
+  });
+  try {
+    const result = runGate(join(dir, "scripts", "check-sonar-coverage-parity.mjs"), dir);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /packages\/server\/src\/cli\.ts/);
+    assert.match(result.stderr, /packages\/server\/src\/\*\*/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
