@@ -1,0 +1,10 @@
+# actionlint's runner-label rule rejects any `runs-on` label it does not recognise as a
+# GitHub-hosted runner, and ci-security.yml runs it as a gate (no continue-on-error). CodSpeed's
+# macro runners are self-hosted runners that CodSpeed manages, so their labels have to be declared
+# here or codspeed.yml fails workflow lint.
+#
+# Keep this list in step with the labels codspeed.yml actually uses - test/bench-instruments.test.ts
+# checks that every `codspeed-macro-*` label in that workflow is declared here.
+self-hosted-runner:
+  labels:
+    - codspeed-macro-arm64-graviton-ubuntu-22-04
