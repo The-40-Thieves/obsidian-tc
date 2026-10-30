@@ -15,6 +15,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   checkSonarCoverageParity,
+  createPathMatcher,
   parseSonarProperty,
   parseVitestCoverageExcludes,
   parseVitestCoverageIncludes,
@@ -340,4 +341,46 @@ test("CLI: a Sonar pattern hiding instrumented source exits 1 and names the patt
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// --- path matching --------------------------------------------------------------------------
+// The matcher replaced a glob-to-RegExp translation, so these pin the semantics both config
+// files rely on, and the pathological case the generated regex could not survive.
+
+test("createPathMatcher: the segment semantics both config files rely on", () => {
+  const cases = [
+    ["packages/server/src/index.ts", "packages/server/src/index.ts", true],
+    ["packages/server/src/index.ts", "packages/server/src/cli.ts", false],
+    ["packages/server/**", "packages/server/src/index.ts", true],
+    ["**/*.d.ts", "packages/server/src/db/example.d.ts", true],
+    // `**` spans ZERO directories here, which is why src/**/*.ts covers src/index.ts.
+    ["packages/server/src/**/*.ts", "packages/server/src/index.ts", true],
+    ["packages/server/src/**/*.ts", "packages/server/src/db/types.ts", true],
+    // A single `*` stays inside its segment.
+    ["packages/server/src/*.ts", "packages/server/src/db/types.ts", false],
+    ["packages/server/src/db/**", "packages/server/src/db/types.ts", true],
+    ["packages/server/src/inde?.ts", "packages/server/src/index.ts", true],
+    ["packages/server/src/inde?.ts", "packages/server/src/indexx.ts", false],
+    ["scripts/**", "packages/server/src/index.ts", false],
+    ["**/*.config.ts", "vitest.config.ts", true],
+  ];
+  for (const [pattern, file, expected] of cases) {
+    assert.equal(createPathMatcher(pattern)(file), expected, `${pattern} vs ${file}`);
+  }
+});
+
+test("createPathMatcher: a regex metacharacter in a pattern matches literally", () => {
+  const matches = createPathMatcher("packages/server/src/a.b+c.ts");
+  assert.equal(matches("packages/server/src/a.b+c.ts"), true);
+  assert.equal(matches("packages/server/src/axbxcxts"), false);
+});
+
+test("createPathMatcher: many ** segments on a long non-matching path return promptly", () => {
+  // Compiled to a regex this was stacked (?:[^/]+/)* groups — catastrophic backtracking. The
+  // memoised segment walk visits each position pair once, so this finishes immediately.
+  const pattern = `${"**/".repeat(8)}needle.ts`;
+  const file = `${"a/".repeat(40)}haystack.ts`;
+  const startedAt = Date.now();
+  assert.equal(createPathMatcher(pattern)(file), false);
+  assert.ok(Date.now() - startedAt < 1000, `took ${Date.now() - startedAt}ms`);
 });

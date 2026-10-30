@@ -99,7 +99,10 @@ export function stripJsComments(source) {
   return out;
 }
 
-function parseArrayField(source, field) {
+// The field name is NOT interpolated into a pattern. There are exactly two arrays to read, so
+// each caller passes its own literal regex; building one from a variable would be a regex
+// assembled from data, which a security scan flags and which this file has no need for.
+function parseArrayField(source, arrayPattern) {
   // Comments go first, so neither a commented-out entry nor a commented-out `exclude:` line can be
   // read as configuration, and a `]` inside a comment cannot truncate the array early.
   const code = stripJsComments(source);
@@ -107,7 +110,7 @@ function parseArrayField(source, field) {
   if (coverageAt === -1) {
     return [];
   }
-  const match = code.slice(coverageAt).match(new RegExp(`\\b${field}\\s*:\\s*\\[([^\\]]*)\\]`));
+  const match = code.slice(coverageAt).match(arrayPattern);
   if (!match) {
     return [];
   }
@@ -117,11 +120,11 @@ function parseArrayField(source, field) {
 /** Reads the arrays belonging to the `coverage` block specifically — `test.exclude` is a different
  *  list with a different job, and reading it instead would compare the wrong thing. */
 export function parseVitestCoverageExcludes(source) {
-  return parseArrayField(source, "exclude");
+  return parseArrayField(source, /\bexclude\s*:\s*\[([^\]]*)\]/);
 }
 
 export function parseVitestCoverageIncludes(source) {
-  return parseArrayField(source, "include");
+  return parseArrayField(source, /\binclude\s*:\s*\[([^\]]*)\]/);
 }
 
 /** Minimal .properties reader: the one key, comma-split, comments and other keys ignored. */
@@ -144,39 +147,94 @@ export function parseSonarProperty(source, key) {
   return [];
 }
 
-/** Sonar path-matcher semantics: `**` spans directories, `*` stays inside one segment. vitest's
- *  globs use the same two forms for the patterns that appear here, so one matcher serves both. */
-export function patternToRegExp(pattern) {
-  let out = "";
-  for (let i = 0; i < pattern.length; i += 1) {
-    const ch = pattern[i];
-    if (ch === "*") {
-      if (pattern[i + 1] === "*") {
-        if (pattern[i + 2] === "/") {
-          out += "(?:[^/]+/)*";
-          i += 2;
-        } else {
-          out += ".*";
-          i += 1;
-        }
-      } else {
-        out += "[^/]*";
-      }
-      continue;
-    }
-    if (ch === "?") {
-      out += "[^/]";
-      continue;
-    }
-    out += ch.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+/** Sonar path-matcher semantics, walked directly rather than compiled into a regex: a `**`
+ *  segment spans zero or more directories, `*` stays inside one segment, `?` is one character.
+ *  vitest's globs use the same forms, so one matcher serves both files.
+ *
+ *  Nothing here builds a pattern from data. Translating a glob into `new RegExp` hands the
+ *  generated source nested quantifiers — two `**` segments become `(?:[^/]+/)*(?:[^/]+/)*`,
+ *  which backtracks badly on a long non-matching path. Walking segments cannot: a failed
+ *  (pattern position, path position) pair is remembered, so the walk visits each pair at most
+ *  once and several `**` segments cost a product of positions rather than a product of paths.
+ *
+ *  `**` spans directories only as a WHOLE segment, which is how every pattern in both files is
+ *  written (`scripts/**`, `**` + `/*.d.ts`, `packages/server/src/db/**`). Mixed into a segment
+ *  it behaves like `*` and stays inside that segment. */
+export function createPathMatcher(pattern) {
+  const patternSegments = pattern.split("/");
+  return (file) => matchSegments(patternSegments, 0, file.split("/"), 0, new Set());
+}
+
+/** Memoised on the (pattern position, path position) pair: a pair that failed once fails always,
+ *  since matching from a pair depends on nothing else. Without this, every `**` multiplies the
+ *  work of the one after it. */
+function matchSegments(patternSegments, patternIndex, pathSegments, pathIndex, failed) {
+  const state = patternIndex * (pathSegments.length + 1) + pathIndex;
+  if (failed.has(state)) {
+    return false;
   }
-  return new RegExp(`^${out}$`);
+  const matched = matchFrom(patternSegments, patternIndex, pathSegments, pathIndex, failed);
+  if (!matched) {
+    failed.add(state);
+  }
+  return matched;
+}
+
+function matchFrom(patternSegments, patternIndex, pathSegments, pathIndex, failed) {
+  if (patternIndex === patternSegments.length) {
+    return pathIndex === pathSegments.length;
+  }
+  if (patternSegments[patternIndex] === "**") {
+    for (let skipTo = pathIndex; skipTo <= pathSegments.length; skipTo += 1) {
+      if (matchSegments(patternSegments, patternIndex + 1, pathSegments, skipTo, failed)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  if (pathIndex === pathSegments.length) {
+    return false;
+  }
+  if (!matchSegment(patternSegments[patternIndex], pathSegments[pathIndex])) {
+    return false;
+  }
+  return matchSegments(patternSegments, patternIndex + 1, pathSegments, pathIndex + 1, failed);
+}
+
+/** Wildcard match within one segment. The only backtrack point is the most recent `*`, and it
+ *  only ever advances, so this is linear in the segment's length. */
+function matchSegment(pattern, segment) {
+  let patternIndex = 0;
+  let segmentIndex = 0;
+  let starIndex = -1;
+  let starMatchEnd = 0;
+  while (segmentIndex < segment.length) {
+    const ch = pattern[patternIndex];
+    if (patternIndex < pattern.length && (ch === "?" || ch === segment[segmentIndex])) {
+      patternIndex += 1;
+      segmentIndex += 1;
+    } else if (patternIndex < pattern.length && ch === "*") {
+      starIndex = patternIndex;
+      starMatchEnd = segmentIndex;
+      patternIndex += 1;
+    } else if (starIndex !== -1) {
+      starMatchEnd += 1;
+      patternIndex = starIndex + 1;
+      segmentIndex = starMatchEnd;
+    } else {
+      return false;
+    }
+  }
+  while (patternIndex < pattern.length && pattern[patternIndex] === "*") {
+    patternIndex += 1;
+  }
+  return patternIndex === pattern.length;
 }
 
 /** The files coverage actually considers: tracked, and matching vitest's coverage `include`. */
 export function selectInstrumentedFiles(trackedFiles, vitestIncludes) {
-  const matchers = vitestIncludes.map((p) => patternToRegExp(SERVER_PREFIX + p));
-  return trackedFiles.filter((file) => matchers.some((re) => re.test(file)));
+  const matchers = vitestIncludes.map((p) => createPathMatcher(SERVER_PREFIX + p));
+  return trackedFiles.filter((file) => matchers.some((matches) => matches(file)));
 }
 
 function floor(parseError) {
@@ -222,10 +280,10 @@ export function checkSonarCoverageParity({
     return floor(floorError);
   }
 
-  const vitestMatchers = vitestExcludes.map((p) => patternToRegExp(SERVER_PREFIX + p));
+  const vitestMatchers = vitestExcludes.map((p) => createPathMatcher(SERVER_PREFIX + p));
   const sonarMatchers = [...sonarCoverageExclusions, ...sonarExclusions].map((pattern) => ({
     pattern,
-    re: patternToRegExp(pattern),
+    matches: createPathMatcher(pattern),
   }));
 
   const missingFromSonar = [];
@@ -233,8 +291,8 @@ export function checkSonarCoverageParity({
   const hidingPatterns = new Set();
 
   for (const file of instrumentedFiles) {
-    const excludedByVitest = vitestMatchers.some((re) => re.test(file));
-    const sonarHit = sonarMatchers.find(({ re }) => re.test(file));
+    const excludedByVitest = vitestMatchers.some((matches) => matches(file));
+    const sonarHit = sonarMatchers.find(({ matches }) => matches(file));
     if (excludedByVitest && !sonarHit) {
       missingFromSonar.push(file);
     } else if (!excludedByVitest && sonarHit) {
