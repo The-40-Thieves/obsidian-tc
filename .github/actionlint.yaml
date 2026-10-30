@@ -7,4 +7,4 @@
 # checks that every `codspeed-macro-*` label in that workflow is declared here.
 self-hosted-runner:
   labels:
-    - codspeed-macro-x64-ryzen-9950x-ubuntu-24-04
+    - codspeed-macro-arm64-graviton-ubuntu-22-04

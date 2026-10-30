@@ -26,6 +26,13 @@
 #           measured by neither suite, which is deliberate: being unmeasured beats a published
 #           number that swings 29% on unrelated changes.
 #
+#           The runner is the arm64 Graviton one for two reasons. Cost: every CodSpeed plan
+#           includes 600 free minutes per month of it, where the x64 Ryzen 9950X runner has no
+#           free allowance, is Pro-with-contact-us, and bills at $0.06/min. Fidelity: this repo
+#           ships an aarch64 binary and production runs Ampere, so arm64 is the closer match.
+#           Walltime only requires that the label stay FIXED across runs - switching machine
+#           class shifts the measurements and invalidates the baseline.
+#
 # Results are uploaded with OIDC (`id-token: write`), so no CODSPEED_TOKEN secret is needed.
 # `workflow_dispatch` lets CodSpeed trigger backtest runs to build initial history.
 name: codspeed
@@ -93,7 +100,7 @@ jobs:
     name: benchmarks (node, walltime)
     # A missing variable is falsy, so the default is skip. See the header for how to turn it on.
     if: vars.CODSPEED_MACRO_RUNNERS == 'true'
-    runs-on: codspeed-macro-x64-ryzen-9950x-ubuntu-24-04
+    runs-on: codspeed-macro-arm64-graviton-ubuntu-22-04
     timeout-minutes: 30
     permissions:
       contents: read
