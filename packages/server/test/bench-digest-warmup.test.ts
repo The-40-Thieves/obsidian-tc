@@ -1,9 +1,12 @@
-// CodSpeed measures `chunkNote::small note` on the Simulation instrument, and chunkNote hashes every
-// chunk. Node builds its digest tables on a process's first createHash, at a cost of two syscalls,
-// so that one-time setup has to happen at module load or it lands inside the measured region and
-// makes the benchmark bimodal (~511us vs ~718us, surfacing as a false ~29% regression). The warm-up
-// is a bare side-effecting statement that reads like dead code, and CodSpeed is not one of main's
-// required status checks, so nothing else would catch its removal. This test is that guard.
+// chunkNote hashes every chunk, and node builds its digest tables on a process's first createHash
+// at a cost of two syscalls. Warming that at module load keeps the one-time setup out of the
+// measured bench bodies: it is worth ~5us of the Simulation floor, and more on Walltime, where the
+// first iteration is part of the distribution. The warm-up is a bare side-effecting statement that
+// reads like dead code, and CodSpeed is not one of main's required status checks, so nothing else
+// would catch its removal. This test is that guard.
+//
+// It does not claim the warm-up cures the ~29% bimodal swing it was first written for. It does not;
+// bench/instruments.ts carries that census and routes this file to Walltime instead.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";

@@ -1,6 +1,6 @@
 # CodSpeed continuous benchmarking.
 #
-# Two suites, both measured with CodSpeed's CPU simulation instrument (instruction counts under
+# Three suites. The first two use CodSpeed's CPU simulation instrument (instruction counts under
 # Valgrind, so results do not depend on how busy the GitHub-hosted runner is — the problem the
 # `perf` gate and perf-baseline.yml have to work around with contention detection):
 #
@@ -8,7 +8,23 @@
 #           cosine_batch / tokenize / bm25_score / rouge_l_lcs kernels.
 #   node  — packages/server/bench/*.bench.ts (vitest 5 + @codspeed/vitest-plugin): note parsing,
 #           chunking, link/tag extraction, link resolution, Bases filters and the JS retrieval
-#           fallbacks.
+#           fallbacks, minus whatever packages/server/bench/instruments.ts routes to Walltime.
+#
+#   node-walltime — exactly the files instruments.ts routes away from Simulation, because
+#           Simulation measured them bimodally for reasons outside the code (that file carries the
+#           evidence). Walltime takes a distribution rather than one Valgrind pass, so a stray
+#           pause lands in the spread instead of in the headline number.
+#
+#           It needs a CodSpeed macro runner. CodSpeed's own docs say Walltime on a shared
+#           GitHub-hosted runner produces inconsistent data, and a Walltime baseline is only
+#           comparable to runs on the same class of machine. So the job is gated on the repository
+#           variable CODSPEED_MACRO_RUNNERS and stays SKIPPED - not queued forever against a label
+#           nothing answers - until macro runners exist for this org. To enable: Organization
+#           Settings -> Actions -> Runner groups -> Default -> allow public repositories (GitHub
+#           blocks self-hosted runners on public repos by default), then
+#           `gh variable set CODSPEED_MACRO_RUNNERS --body true`. Until then those files are
+#           measured by neither suite, which is deliberate: being unmeasured beats a published
+#           number that swings 29% on unrelated changes.
 #
 # Results are uploaded with OIDC (`id-token: write`), so no CODSPEED_TOKEN secret is needed.
 # `workflow_dispatch` lets CodSpeed trigger backtest runs to build initial history.
@@ -72,3 +88,27 @@ jobs:
           mode: simulation
           working-directory: packages/server
           run: bun run bench
+
+  node-walltime:
+    name: benchmarks (node, walltime)
+    # A missing variable is falsy, so the default is skip. See the header for how to turn it on.
+    if: vars.CODSPEED_MACRO_RUNNERS == 'true'
+    runs-on: codspeed-macro-x64-ryzen-9950x-ubuntu-24-04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup-repo
+        with:
+          node-required: 'true'
+          # A macro runner is a different machine class from ubuntu-latest, so it must not share
+          # the simulation job's bun install cache entry.
+          cache-key-suffix: macro-${{ runner.arch }}
+      - name: run benchmarks
+        uses: CodSpeedHQ/action@78102a468f96d8e0ccb92d0ec49425753fc42062 # v5.6.0
+        with:
+          mode: walltime
+          working-directory: packages/server
+          run: bun run bench:walltime
