@@ -101,7 +101,12 @@ test("parity: non-src Sonar exclusions are not expected to appear in vitest", ()
   // construction. Only packages/server/src/** entries are in scope for the reverse direction.
   const result = checkSonarCoverageParity({
     vitestExcludes: ["src/index.ts"],
-    sonarCoverageExclusions: ["packages/server/src/index.ts", "scripts/**", "docs/**", "**/*.config.ts"],
+    sonarCoverageExclusions: [
+      "packages/server/src/index.ts",
+      "scripts/**",
+      "docs/**",
+      "**/*.config.ts",
+    ],
     sonarExclusions: [],
   });
   assert.equal(result.ok, true);

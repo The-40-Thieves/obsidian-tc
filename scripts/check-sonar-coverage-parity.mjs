@@ -100,13 +100,13 @@ function sonarPatternToRegExp(pattern) {
 }
 
 /** One concrete path that the glob would match, so "is this pattern covered?" becomes the much
- *  simpler "is this path excluded?". Placeholder segments cannot collide with a real name. */
+ *  simpler "is this path excluded?".
+ *
+ *  Single pass, with the two-star alternative first so `**` is never read as two `*`. Substituting
+ *  in two stages would need a sentinel that cannot occur in a glob, and the obvious candidates are
+ *  control characters — which biome rightly refuses inside a regex. */
 export function representativePath(pattern) {
-  return pattern
-    .replace(/\*\*/g, "\u0000G")
-    .replace(/\*/g, "\u0000S")
-    .replace(/\u0000G/g, "globdir")
-    .replace(/\u0000S/g, "globseg");
+  return pattern.replace(/\*\*|\*/g, (match) => (match === "**" ? "globdir" : "globseg"));
 }
 
 export function checkSonarCoverageParity({
