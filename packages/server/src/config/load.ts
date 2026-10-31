@@ -7,9 +7,12 @@ import {
   type ServerConfig,
   ServerConfigSchema,
 } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  applyEmbedBatchingDefaults,
+  markEmbedBatchingBaseline,
+} from "../embeddings/embed-batching-defaults";
 import { markEmbeddingsProviderExplicit } from "../embeddings/provider-explicit";
 import { configureProviderPlainHttp } from "../gateway/provider-fetch";
-import { applyLocalEmbedBatchingDefaults } from "./local-embed-defaults";
 import { applySecurityProfile, requestsDynamicRegistration } from "./security-profile";
 
 /**
@@ -370,7 +373,8 @@ export function finalizeConfig(
       }
     }
   }
-  applyLocalEmbedBatchingDefaults(config, raw);
+  markEmbedBatchingBaseline(config.embeddings, raw);
+  applyEmbedBatchingDefaults(config.embeddings);
   // THE-1122 review round 3: `provider: "local"` (explicit OR the resolved schema default) must
   // name its own cacheDir — the provider factory (buildLocalEmbeddingProvider) already fails
   // closed when ctx.cacheDir is absent, but config LOAD itself never asked, so that failure only

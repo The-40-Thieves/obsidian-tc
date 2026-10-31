@@ -150,7 +150,7 @@ export const EmbeddingsConfigSchema = z.object({
     .positive()
     .default(2048)
     .describe(
-      "Estimated-token ceiling per request (chars/4), splitting a dense sub-batch before it overruns a local runner's budget. Must stay UNDER the provider's loaded context: Ollama defaults to n_ctx 4096 and rejects an over-budget request, and the chars/4 estimate undercounts real tokenization on link-dense markdown. This same ceiling sizes each in-process inference under provider \"local\", where measured resident memory scales with chunks per request (1 chunk ~0.5 GB, 2 ~0.73 GB, 4 ~1.1 GB, 32 ~1.9-2.7 GB for nomic q8), so that provider resolves this to 512 unless you set it explicitly (packages/server/src/config/local-embed-defaults.ts).",
+      "Estimated-token ceiling per request (chars/4), splitting a dense sub-batch before it overruns a local runner's budget. Must stay UNDER the provider's loaded context: Ollama defaults to n_ctx 4096 and rejects an over-budget request, and the chars/4 estimate undercounts real tokenization on link-dense markdown. This same ceiling sizes each in-process inference under provider \"local\", where measured resident memory scales with chunks per request (1 chunk ~0.5 GB, 2 ~0.73 GB, 4 ~1.1 GB, 32 ~1.9-2.7 GB for nomic q8), so that provider resolves this to 512 unless you set it explicitly (packages/server/src/embeddings/embed-batching-defaults.ts).",
     ),
   concurrency: z
     .number()
