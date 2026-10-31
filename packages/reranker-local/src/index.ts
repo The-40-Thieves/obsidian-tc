@@ -99,7 +99,7 @@ export interface Session {
     // biome-ignore lint/suspicious/noExplicitAny: tokenizer output shape is Transformers.js's own.
   ) => any;
   // biome-ignore lint/suspicious/noExplicitAny: model output shape is Transformers.js's own.
-  model: (inputs: any) => Promise<{ logits: { data: ArrayLike<number> } }>;
+  model: (inputs: any) => Promise<{ logits: { data: ArrayLike<number>; dispose?: () => void } }>;
 }
 
 /** query+doc pairs are truncated to this many combined tokens — standard for MS MARCO
@@ -216,6 +216,12 @@ export function createReranker(
       max_length: MAX_PAIR_TOKENS,
     });
     const { logits } = await model(inputs);
-    return rankLogits(Array.from(logits.data), topN);
+    // GH #1433: as in embedder-local — Array.from copies the scores out, and dispose() hands the
+    // native buffer back now rather than at whatever later point Bun's GC fires.
+    try {
+      return rankLogits(Array.from(logits.data), topN);
+    } finally {
+      logits?.dispose?.();
+    }
   };
 }

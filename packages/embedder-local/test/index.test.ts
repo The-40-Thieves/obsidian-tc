@@ -158,3 +158,65 @@ describe("embedPipelineOptions (GH #995 — the ACTUAL options loadSession hands
     expect(opts.local_files_only).toBe(true);
   });
 });
+
+// GH #1433: Transformers.js hands back a Tensor whose data lives in a native ORT buffer. Copying it
+// out with tolist() does not free that buffer — only dispose() does, or Bun's GC whenever it next
+// runs. Bun's GC is driven by JS HEAP pressure, and the garbage here is almost entirely native, so
+// it runs late: the reporter measured ~300MB of dead tensors accumulating between collections, and
+// a forced GC every 5s cut the resident swing by 262MB and the peak by 177MB. These tests pin the
+// per-request release so a long-lived server does not hold a burst's peak for its whole life.
+describe("embed() releases the output tensor per request (GH #1433)", () => {
+  function disposableExtractor(vectorsPerCall: number[][]) {
+    const dispose = vi.fn();
+    const extractor = vi.fn(async (_texts: string[], _opts: unknown) => ({
+      tolist: () => vectorsPerCall,
+      dispose,
+    }));
+    return { extractor, dispose };
+  }
+
+  it("disposes the output tensor after reading the vectors out", async () => {
+    const { extractor, dispose } = disposableExtractor([
+      [1, 2, 3],
+      [4, 5, 6],
+    ]);
+    const provider = createEmbeddingProvider({ model: "all-MiniLM-L6-v2" }, async () => ({
+      extractor,
+    }));
+    await provider.embed(["a", "b"]);
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  // The load-bearing one: it is what distinguishes a `finally` from a trailing call. The vector
+  // count check throws AFTER tolist(), so a dispose() placed on the happy path alone leaks the
+  // buffer on exactly the path a wedged model takes repeatedly.
+  it("disposes the output tensor even when the vector-count check throws", async () => {
+    const { extractor, dispose } = disposableExtractor([[1, 2, 3]]);
+    const provider = createEmbeddingProvider({ model: "all-MiniLM-L6-v2" }, async () => ({
+      extractor,
+    }));
+    await expect(provider.embed(["a", "b"])).rejects.toThrow(/expected 2 vectors, got 1/);
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  // Tensor.dispose() arrived in Transformers.js; a pinned-older or stubbed tensor may not have it,
+  // and embedding must not start throwing TypeError because of a memory optimisation.
+  it("still returns vectors when the tensor predates dispose()", async () => {
+    const extractor = vi.fn(async () => ({ tolist: () => [[7, 8, 9]] }));
+    const provider = createEmbeddingProvider({ model: "all-MiniLM-L6-v2" }, async () => ({
+      extractor,
+    }));
+    await expect(provider.embed(["a"])).resolves.toEqual([[7, 8, 9]]);
+  });
+
+  it("disposes once per embed call, not once per session load", async () => {
+    const { extractor, dispose } = disposableExtractor([[1, 2, 3]]);
+    const provider = createEmbeddingProvider({ model: "all-MiniLM-L6-v2" }, async () => ({
+      extractor,
+    }));
+    await provider.embed(["a"]);
+    await provider.embed(["b"]);
+    await provider.embed(["c"]);
+    expect(dispose).toHaveBeenCalledTimes(3);
+  });
+});
