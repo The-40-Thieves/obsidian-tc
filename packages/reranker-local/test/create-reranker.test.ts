@@ -145,4 +145,25 @@ describe("createReranker releases the logits tensor per request (GH #1433)", () 
     const reranker = createReranker({}, async () => session as unknown as Session);
     await expect(reranker("q", ["doc"], 1)).resolves.toHaveLength(1);
   });
+
+  it("disposes the logits tensor even when reading the scores out throws", async () => {
+    const dispose = vi.fn();
+    const tokenizer = vi.fn((_queries: string[], _opts: unknown) => ({ input_ids: [] }));
+    // A logits object that carries dispose() but whose data accessor fails — what an invalidated or
+    // wedged ORT output looks like from here. Without the finally, this is the one path that leaks
+    // the native buffer, and a broken model takes it on every call. Mirrors the embedder's
+    // "disposes even when the vector-count check throws" case.
+    const model = vi.fn(async (_inputs: unknown) => ({
+      logits: {
+        get data(): number[] {
+          throw new Error("logits buffer unavailable");
+        },
+        dispose,
+      },
+    }));
+    const session = { tokenizer, model } as unknown as Session;
+    const reranker = createReranker({}, async () => session);
+    await expect(reranker("q", ["doc"], 1)).rejects.toThrow("logits buffer unavailable");
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
 });
