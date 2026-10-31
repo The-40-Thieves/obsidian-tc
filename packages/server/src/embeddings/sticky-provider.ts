@@ -8,6 +8,7 @@
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { tableExists } from "../db/introspect";
 import type { Database } from "../db/types";
+import { applyEmbedBatchingDefaults } from "./embed-batching-defaults";
 import { isEmbeddingsProviderExplicitOnConfig } from "./provider-explicit";
 
 /** Schema defaults obsidian-tc shipped BEFORE PR #980 (1.31.3 and earlier). Used as the FALLBACK
@@ -324,6 +325,8 @@ export interface StickyEmbeddingsConfigLike {
     dimensions: number;
     onProviderChange: "keep" | "switch";
     revision?: string;
+    maxBatchTokens?: number;
+    concurrency?: number;
   };
   vaults: ReadonlyArray<{ id: string }>;
 }
@@ -387,5 +390,6 @@ export function applyStickyEmbeddings<T extends StickyEmbeddingsConfigLike>(
     config.embeddings.dimensions = resolution.dimensions;
     if (resolution.revision !== undefined) config.embeddings.revision = resolution.revision;
   }
+  applyEmbedBatchingDefaults(config.embeddings);
   return resolution;
 }

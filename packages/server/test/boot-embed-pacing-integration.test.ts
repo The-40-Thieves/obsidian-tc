@@ -247,7 +247,9 @@ describe("GH #995 follow-up — boot embed pacing keeps a concurrent tool call r
         vaultIds: ["v1", "v2"],
         backgroundEmbed: { mode: "idle", idleMs: IDLE_MS, maxDeferMs: 30_000 },
         provider: busySpinProvider(BUSY_MS),
-        concurrency: 4, // packages/shared's EMBED_CONCURRENCY production default
+        // The schema default, which every provider except "local" still resolves to (GH #1433
+        // lowers that one to 1 in finalizeConfig) — this case is about the 4 production reaches.
+        concurrency: 4,
         chunksPerVault: 8,
       });
       const runner = createReconcileRunner(deps);

@@ -150,14 +150,16 @@ export const EmbeddingsConfigSchema = z.object({
     .positive()
     .default(2048)
     .describe(
-      "Estimated-token ceiling per request (chars/4), splitting a dense sub-batch before it overruns a local runner's budget. Must stay UNDER the provider's loaded context: Ollama defaults to n_ctx 4096 and rejects an over-budget request, and the chars/4 estimate undercounts real tokenization on link-dense markdown.",
+      "Estimated-token ceiling per request (chars/4), splitting a dense sub-batch before it overruns a local runner's budget. Must stay UNDER the provider's loaded context: Ollama defaults to n_ctx 4096 and rejects an over-budget request, and the chars/4 estimate undercounts real tokenization on link-dense markdown. This same ceiling sizes each in-process inference under provider \"local\", where measured resident memory scales with chunks per request (1 chunk ~0.5 GB, 2 ~0.73 GB, 4 ~1.1 GB, 32 ~1.9-2.7 GB for nomic q8), so that provider resolves this to 512 unless you set it explicitly (packages/server/src/embeddings/embed-batching-defaults.ts).",
     ),
   concurrency: z
     .number()
     .int()
     .positive()
     .default(4)
-    .describe("How many embed requests run in flight at once."),
+    .describe(
+      'How many embed requests run in flight at once. Under provider "local" each one is a separate in-process ONNX inference holding its own activation memory, so that provider resolves this to 1 unless you set it explicitly — a first index is slower, steady-state edits are small batches and barely change.',
+    ),
   // THE-387: Matryoshka (MRL) dimension truncation. When true, a provider that returns vectors
   // WIDER than `dimensions` is truncated to the first `dimensions` components + renormalised (so a
   // wide MRL model such as Qwen3-8B at 4096 can be stored at 1024). Off by default; a non-MRL width
