@@ -601,3 +601,92 @@ describe("network.plainHttpHosts reaches the provider transport", () => {
     ).toThrow(/network\.plainHttpHosts/);
   });
 });
+
+// GH #1433: `embeddings.maxBatchTokens` (2048) and `.concurrency` (4) are provider-AGNOSTIC schema
+// defaults chosen to keep a batch inside Ollama's n_ctx 4096 — but the same two numbers decide how
+// large each IN-PROCESS ONNX inference is and how many run at once. A reporter measured the
+// plateau scaling with chunks per request (1 -> ~0.5 GB, 4 -> ~1.1 GB) on a server that settled at
+// 1.5 GB and peaked at 2.9 GB. Lowering them cannot happen at the schema level (a
+// provider-conditional `.transform()` erases the whole `embeddings` subtree from generated docs —
+// see indexing-embeddings.schema.ts's own comment), so finalizeConfig derives them post-parse,
+// per key, and only for a key the operator did not name.
+describe("embed batching defaults for provider 'local' (GH #1433)", () => {
+  it("provider 'local' with neither key named lowers maxBatchTokens to 512 and concurrency to 1", () => {
+    const cfg = loadConfig(
+      writeConfig({ vaults: [{ id: "v1", path: "/tmp/v1" }], embeddings: { provider: "local" } }),
+    );
+    expect(cfg.embeddings.maxBatchTokens).toBe(512);
+    expect(cfg.embeddings.concurrency).toBe(1);
+  });
+
+  it("an absent embeddings block (provider resolves to 'local') gets the same lowered pair", () => {
+    const cfg = loadConfig(writeConfig({ vaults: [{ id: "v1", path: "/tmp/v1" }] }));
+    expect(cfg.embeddings.provider).toBe("local");
+    expect(cfg.embeddings.maxBatchTokens).toBe(512);
+    expect(cfg.embeddings.concurrency).toBe(1);
+  });
+
+  // Each key is independent: naming one must not silently restore the other to the schema default,
+  // which is the whole reason this reads the RAW object per key rather than comparing against 2048.
+  it("an explicit maxBatchTokens is honored, and concurrency is still lowered", () => {
+    const cfg = loadConfig(
+      writeConfig({
+        vaults: [{ id: "v1", path: "/tmp/v1" }],
+        embeddings: { provider: "local", maxBatchTokens: 2048 },
+      }),
+    );
+    expect(cfg.embeddings.maxBatchTokens).toBe(2048);
+    expect(cfg.embeddings.concurrency).toBe(1);
+  });
+
+  it("an explicit concurrency is honored, and maxBatchTokens is still lowered", () => {
+    const cfg = loadConfig(
+      writeConfig({
+        vaults: [{ id: "v1", path: "/tmp/v1" }],
+        embeddings: { provider: "local", concurrency: 4 },
+      }),
+    );
+    expect(cfg.embeddings.concurrency).toBe(4);
+    expect(cfg.embeddings.maxBatchTokens).toBe(512);
+  });
+
+  // An explicit value EQUAL to what this would have derived still counts as explicit — the point
+  // is that the operator decided, not that the number happens to match.
+  it("an explicit 512/1 pair is left exactly as written", () => {
+    const cfg = loadConfig(
+      writeConfig({
+        vaults: [{ id: "v1", path: "/tmp/v1" }],
+        embeddings: { provider: "local", maxBatchTokens: 512, concurrency: 1 },
+      }),
+    );
+    expect(cfg.embeddings.maxBatchTokens).toBe(512);
+    expect(cfg.embeddings.concurrency).toBe(1);
+  });
+
+  it("provider 'ollama' keeps the 2048/4 pair the defaults were sized for", () => {
+    const cfg = loadConfig(
+      writeConfig({
+        vaults: [{ id: "v1", path: "/tmp/v1" }],
+        embeddings: { provider: "ollama", model: "nomic-embed-text", dimensions: 768 },
+      }),
+    );
+    expect(cfg.embeddings.maxBatchTokens).toBe(2048);
+    expect(cfg.embeddings.concurrency).toBe(4);
+  });
+
+  it("a hosted provider keeps 2048/4 as well", () => {
+    const cfg = loadConfig(
+      writeConfig({
+        vaults: [{ id: "v1", path: "/tmp/v1" }],
+        embeddings: {
+          provider: "openai",
+          model: "text-embedding-3-small",
+          dimensions: 1536,
+          apiKeyEnv: "OTC_TEST_OPENAI_KEY",
+        },
+      }),
+    );
+    expect(cfg.embeddings.maxBatchTokens).toBe(2048);
+    expect(cfg.embeddings.concurrency).toBe(4);
+  });
+});

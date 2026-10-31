@@ -255,8 +255,8 @@ protects nothing; a dead whitelist entry as one that grants nothing.
 | `apiKey` | string *(optional)* | Cloud-provider key; config-then-env, never logged. |
 | `timeoutMs` | int, 120000 | Per embed request. |
 | `batchSize` | int, 512 | Max inputs per request. |
-| `maxBatchTokens` | int, 2048 | Estimated-token cap per request (chars/4) — keeps a dense batch inside a local runner's context (Ollama defaults to n_ctx 4096 and 400-rejects overruns; the indexer bisects and retries anyway). |
-| `concurrency` | int, 4 | Embed requests in flight. |
+| `maxBatchTokens` | int, 2048 — **512** under `provider: local` | Estimated-token cap per request (chars/4) — keeps a dense batch inside a local runner's context (Ollama defaults to n_ctx 4096 and 400-rejects overruns; the indexer bisects and retries anyway). The same ceiling sizes each **in-process** inference under `provider: local`, where resident memory scales with chunks per request (1 → ~0.5 GB, 4 → ~1.1 GB for nomic q8), so that provider resolves it to 512 unless you set it. |
+| `concurrency` | int, 4 — **1** under `provider: local` | Embed requests in flight. Each is a separate in-process inference under `provider: local`, holding its own activation memory, so that provider resolves it to 1 unless you set it: a first index is slower, steady-state edits barely change. |
 | `truncate` | bool, false | Matryoshka (MRL) truncation: a provider returning vectors **wider** than `dimensions` is truncated + renormalized. Non-MRL width mismatches still error. |
 | `chunkContext` | bool, **true** | Contextual enrichment: each chunk embeds + BM25-indexes as `"{title} — {breadcrumb}\n\n{content}"`. Measured **+0.223 nDCG@10 (p=0.0001)**. The content hash covers the enriched text, so flipping it re-embeds on the next reconcile. |
 | `queryPrefix` / `documentPrefix` | string, `""` | Asymmetric instruct prefixes for models that require them (e.g. Qwen3-Embedding's query instruction). Changing `documentPrefix` does not re-embed by itself — pair it with a fresh `cacheDir`. |

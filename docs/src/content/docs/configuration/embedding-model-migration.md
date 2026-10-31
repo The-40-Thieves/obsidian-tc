@@ -121,8 +121,8 @@ reindex throughput is governed by:
 |---|---|---|
 | `timeoutMs` | per-request embed timeout | 120000 |
 | `batchSize` | max inputs per request | 512 |
-| `maxBatchTokens` | max estimated tokens per request (splits a dense sub-batch) | 2048 |
-| `concurrency` | embed requests in flight | 4 |
+| `maxBatchTokens` | max estimated tokens per request (splits a dense sub-batch) | 2048 (**512** for `local`) |
+| `concurrency` | embed requests in flight | 4 (**1** for `local`) |
 
 `maxBatchTokens` must stay under the provider's **loaded context** — Ollama defaults to `n_ctx`
 4096 and rejects (HTTP 400) any request whose summed tokens exceed it, and the internal chars/4
@@ -130,6 +130,14 @@ estimate undercounts real tokenization (~2-2.5x on link-dense markdown). A rejec
 bisected and retried automatically (extra round-trips, logged to stderr); a chunk rejected even as
 a single-text request is quarantined — its note is skipped that pass, reported via
 `notes_embed_failed` and degraded reconcile health, and retried on the next reconcile.
+
+Under `provider: local` both defaults resolve lower, because the same two numbers size an
+**in-process** ONNX inference instead of a request to another process: measured resident memory
+scales with chunks per request (1 → ~0.5 GB, 2 → ~0.73 GB, 4 → ~1.1 GB, 32 → 1.9-2.7 GB for
+nomic q8), which is what made one long-lived server settle at 1.5 GB and peak at 2.9 GB. A value
+you set explicitly always wins, per key. The trade is reindex throughput — `concurrency: 1`
+leaves a many-core host under-used during a full reindex, so raise it explicitly when the host
+has memory to spare.
 
 ## Rollback
 
