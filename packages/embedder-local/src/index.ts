@@ -227,13 +227,23 @@ export function createEmbeddingProvider(
       // measurement applied mean pooling uniformly, which is wrong for bge-small-en-v1.5 (CLS).
       // See model-info.ts's EmbeddingModelInfo.pooling doc comment.
       const output = await extractor(texts, { pooling: info.pooling, normalize: true });
-      const vectors = output.tolist() as number[][];
-      if (vectors.length !== texts.length) {
-        throw new Error(
-          `embedder-local: expected ${texts.length} vectors, got ${vectors.length} from "${info.name}"`,
-        );
+      // GH #1433: tolist() COPIES the vectors out, but the tensor's native ORT buffer is released
+      // only by dispose() — otherwise not until Bun's GC next runs, and Bun's GC is driven by JS
+      // HEAP pressure while this garbage is almost all native, so it runs late. Freeing per request
+      // keeps a long-lived server near its loaded size instead of holding a burst's peak for the
+      // life of the process. Optional-called because a stubbed or older tensor may not carry
+      // dispose(), and a memory optimisation must never be what stops embedding working.
+      try {
+        const vectors = output.tolist() as number[][];
+        if (vectors.length !== texts.length) {
+          throw new Error(
+            `embedder-local: expected ${texts.length} vectors, got ${vectors.length} from "${info.name}"`,
+          );
+        }
+        return vectors;
+      } finally {
+        output?.dispose?.();
       }
-      return vectors;
     },
   };
 }

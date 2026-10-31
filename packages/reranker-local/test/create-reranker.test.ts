@@ -107,3 +107,42 @@ describe("rerankModelOptions (GH #995 — the ACTUAL options loadSession hands t
     expect(opts.session_options.extra.session.disable_prepacking).toBe("1");
   });
 });
+
+// GH #1433: same native-buffer problem as the embedder. The reranker loads Transformers.js too, so
+// its per-request logits tensor is native memory that tolist()/Array.from does not free. See the
+// embedder's own dispose tests for the measurements.
+describe("createReranker releases the logits tensor per request (GH #1433)", () => {
+  function disposableSession(logitsByDoc: number[]) {
+    const dispose = vi.fn();
+    const tokenizer = vi.fn((_queries: string[], _opts: unknown) => ({ input_ids: [] }));
+    const model = vi.fn(async (_inputs: unknown) => ({
+      logits: { data: logitsByDoc, dispose },
+    }));
+    return { session: { tokenizer, model } as unknown as Session, dispose };
+  }
+
+  it("disposes the logits tensor after copying the scores out", async () => {
+    const { session, dispose } = disposableSession([0.1, 0.9]);
+    const reranker = createReranker({}, async () => session);
+    const hits = await reranker("q", ["doc a", "doc b"], 2);
+    expect(hits).toHaveLength(2);
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("disposes once per rerank call", async () => {
+    const { session, dispose } = disposableSession([0.5]);
+    const reranker = createReranker({}, async () => session);
+    await reranker("q", ["doc"], 1);
+    await reranker("q", ["doc"], 1);
+    expect(dispose).toHaveBeenCalledTimes(2);
+  });
+
+  it("still ranks when the logits tensor predates dispose()", async () => {
+    const session = {
+      tokenizer: vi.fn(() => ({})),
+      model: vi.fn(async () => ({ logits: { data: [0.3] } })),
+    };
+    const reranker = createReranker({}, async () => session as unknown as Session);
+    await expect(reranker("q", ["doc"], 1)).resolves.toHaveLength(1);
+  });
+});
