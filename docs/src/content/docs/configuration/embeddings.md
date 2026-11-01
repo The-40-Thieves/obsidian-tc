@@ -152,6 +152,43 @@ release repins a catalog entry's Hugging Face revision under the same catalog na
 reproduces today's behavior (the previous checkpoint's vectors keep serving) exactly, same as it
 does for every other provider.
 
+### Memory-constrained hosts
+
+The local embedder runs inside the server process, so its memory is the server's memory. Resident
+memory rises with the number of chunks in one embed request, because each request's ONNX activations
+are held until it returns. For the default `nomic-embed-text-v1.5` (q8) the measured curve is
+roughly:
+
+| Chunks per request | Resident memory (approximate) |
+| --- | --- |
+| 1 | ~0.5 GB |
+| 4 | ~1.1 GB |
+| 32 | ~1.9-2.7 GB |
+
+With `provider: "local"` the batching defaults are `embeddings.maxBatchTokens` 512 and
+`embeddings.concurrency` 1, which keep requests small. Every other provider keeps 2048 and 4. Setting
+either key explicitly overrides the local default. Lower concurrency makes a full reindex slower, so
+raise it only when the host has memory to spare.
+
+For a host under 16 GB, a smaller catalog entry is the practical choice. `all-MiniLM-L6-v2` (~23 MB
+q8) and `bge-small-en-v1.5` (~34 MB q8) both measured about 1.1-1.3 GB peak RSS on the evaluation
+host, against about 2.7 GB for the default. Their retrieval quality is lower: neither clears the
+non-inferiority floor that the default was chosen against, so expect weaker recall. The per-model
+numbers are in [`docs/EVALUATION.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/EVALUATION.md#local-embedder-model-selection).
+
+```json
+{
+  "embeddings": { "provider": "local", "model": "all-MiniLM-L6-v2" }
+}
+```
+
+Switching models on a live index is a coordinated migration; see
+[Changing providers or models on a live index](#changing-providers-or-models-on-a-live-index).
+
+Memory visibility and a budget are added by the memory-reporting change: `server_health` reports
+process memory, and `embeddings.memoryBudgetMb` sets a budget for it. These are available from the
+next release; earlier releases have neither key.
+
 ## Hosted and self-hosted providers
 
 Every built-in from before this default changed is unchanged and still fully supported — `local` only changes
