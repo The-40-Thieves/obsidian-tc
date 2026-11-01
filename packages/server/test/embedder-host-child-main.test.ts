@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { runEmbedderChild } from "../src/embeddings/host/child-main";
 import { encodeMessage, parseMessage } from "../src/embeddings/host/protocol";
+import { stallTimeout } from "./stall-timeouts";
 
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
 const CONSOLE_CHILD = fileURLToPath(new URL("./fixtures/console-child.ts", import.meta.url));
@@ -116,7 +117,7 @@ describe("embedder child", () => {
         encodeMessage({ t: "init", v: 1, opts: INIT }) +
         encodeMessage({ t: "embed", v: 1, id: 1, texts: ["abc"] }),
       encoding: "utf8",
-      timeout: 20_000,
+      timeout: stallTimeout(20_000),
     });
     expect(run.error).toBeUndefined();
     const lines = run.stdout.split("\n").filter(Boolean);
@@ -125,16 +126,20 @@ describe("embedder child", () => {
 
   // Fix round (MEDIUM 11): the EOF test above runs against the fixture. This one runs the real child:
   // the CLI entry with the flag set, under bun, which is the runtime the compiled server uses.
-  it("the real child (the cli entry with the flag, under bun) exits 0 when stdin closes", async () => {
-    const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
-    const child = spawn("bun", [cli], {
-      stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env, OBSIDIAN_TC_EMBEDDER_HOST: "1" },
-    });
-    child.stdout.resume();
-    child.stderr.resume();
-    const code = new Promise<number | null>((resolveExit) => child.on("exit", resolveExit));
-    child.stdin.end();
-    expect(await code).toBe(0);
-  }, 30_000);
+  it(
+    "the real child (the cli entry with the flag, under bun) exits 0 when stdin closes",
+    async () => {
+      const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
+      const child = spawn("bun", [cli], {
+        stdio: ["pipe", "pipe", "pipe"],
+        env: { ...process.env, OBSIDIAN_TC_EMBEDDER_HOST: "1" },
+      });
+      child.stdout.resume();
+      child.stderr.resume();
+      const code = new Promise<number | null>((resolveExit) => child.on("exit", resolveExit));
+      child.stdin.end();
+      expect(await code).toBe(0);
+    },
+    stallTimeout(30_000),
+  );
 });

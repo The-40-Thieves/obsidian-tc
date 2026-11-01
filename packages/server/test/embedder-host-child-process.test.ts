@@ -13,6 +13,7 @@ import {
   createChildProcessHost,
 } from "../src/embeddings/host/child-process";
 import { markCliEntry } from "../src/embeddings/host/spawn-argv";
+import { stallTimeout } from "./stall-timeouts";
 
 const FIXTURE = fileURLToPath(new URL("./fixtures/fake-embedder-child.mjs", import.meta.url));
 const ONE_SHOT = fileURLToPath(new URL("./fixtures/embed-once-no-close.ts", import.meta.url));
@@ -135,7 +136,10 @@ describe("child-process EmbedderHost", () => {
   // Fix round (Opus review, HIGH 1): an idle child must not hold the parent's event loop, or every
   // one-shot CLI command that embeds once and never closes the host hangs until killed.
   it("a one-shot host that embeds once and never closes lets the process exit on its own", () => {
-    const run = spawnSync("bun", [ONE_SHOT, FIXTURE], { encoding: "utf8", timeout: 8_000 });
+    const run = spawnSync("bun", [ONE_SHOT, FIXTURE], {
+      encoding: "utf8",
+      timeout: stallTimeout(8_000),
+    });
     expect(run.error).toBeUndefined();
     expect(run.signal).toBeNull();
     expect(run.status).toBe(0);
