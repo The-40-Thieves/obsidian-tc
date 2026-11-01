@@ -426,14 +426,11 @@ export interface HealthMemory {
   external_mb: number;
   budget_mb: number | null;
   over_budget: boolean;
-  /** Present only while a child-process embedder host is open (GH #1433 step 3). */
   embedder_host?: { state: string; restarts: number; rss_mb: number | null };
 }
 
 const MIB = 1024 * 1024;
 
-// With a child embedder, over_budget compares the parent's RSS plus the child's against the budget:
-// the budget is the whole process tree's, and rss_mb stays the parent's own.
 function processMemory(budgetMb: number | undefined, child?: EmbedderHostStats): HealthMemory {
   const { rss, external } = process.memoryUsage();
   const rssMb = Math.ceil(rss / MIB);
@@ -470,7 +467,6 @@ export function createHealthTool(opts: {
   nativeLoaded: boolean;
   vecEnabled: boolean;
   memoryBudgetMb?: HealthMemoryBudget["memoryBudgetMb"];
-  /** The open child-process embedder's last known stats, read without IPC; absent when none is open. */
   embedderHost?: () => EmbedderHostStats | undefined;
   /** Optional so existing harnesses stay source-compatible; absent -> false. */
   ftsEnabled?: boolean;

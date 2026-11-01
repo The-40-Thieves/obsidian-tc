@@ -30,17 +30,13 @@ describe("burst-end sites (GH #1433 step 3)", () => {
     try {
       const provider = fakeEmbeddingProvider({ dimensions: 8 });
       let flushes = 0;
+      const representation = buildRepresentationManifest(provider, {});
+      const pass = { representation, provider, db: v.db, vaultId: v.id, root: v.root };
       await indexVault({
-        db: v.db,
-        provider,
-        vaultId: v.id,
-        root: v.root,
+        ...pass,
         isReadable: () => true,
-        representation: buildRepresentationManifest(provider, {}),
         batch: { maxNotes: 1 }, // one sub-batch per note: three in this pass
-        onProgress: () => {
-          flushes += 1;
-        },
+        onProgress: () => (flushes += 1),
       });
       expect(flushes).toBe(3);
       expect(burst).toHaveBeenCalledTimes(1);

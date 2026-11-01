@@ -247,8 +247,7 @@ export interface IndexCoordinatorDeps {
   embedConfig?: IndexVaultArgs["embed"];
   /** config.embeddings.chunkContext */
   chunkContext: boolean;
-  /** config.indexing, plus config.embeddings.memoryBudgetMb: a write-queue drain over that budget
-   *  recycles a child-process embedder (GH #1433 step 3). */
+  /** config.indexing, plus memoryBudgetMb (GH #1433 step 3). */
   indexing: {
     writeConcurrency: number;
     writeConcurrencyPerVault: number;
@@ -372,7 +371,6 @@ export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinat
       globalConcurrency: deps.indexing.writeConcurrency,
       perVaultConcurrency: deps.indexing.writeConcurrencyPerVault,
       queueMax: deps.indexing.queueMax,
-      // GH #1433 step 3: a drained write queue is a burst end for the embedder recycle policy.
       onIdle: () => void onBurstEnd("write-drain", deps.indexing.memoryBudgetMb),
       onBackpressure: (depth) => {
         deps.indexHealth.indexQueueBackpressures++;

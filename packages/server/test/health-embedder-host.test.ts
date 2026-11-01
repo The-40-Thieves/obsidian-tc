@@ -33,7 +33,7 @@ function memoryWith(opts: { budgetMb?: number; child?: EmbedderHostStats }) {
     embedderHost: () => opts.child,
   });
   return (
-    tool.handler({}, adminCtx) as {
+    tool.handler({}, adminCtx) as unknown as {
       memory: Record<string, unknown> & { over_budget: boolean };
     }
   ).memory;
