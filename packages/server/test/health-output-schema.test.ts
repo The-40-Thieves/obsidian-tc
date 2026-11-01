@@ -188,6 +188,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
       nonCoreToolCount: NON_CORE_TOOL_NAMES.length,
       advertise: "all",
       effectiveAdvertise: "all",
+      triadHotPath: false,
       deprecation: AUTO_FACADE_DEPRECATION,
     });
 
@@ -357,6 +358,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
       nonCoreToolCount: NON_CORE_TOOL_NAMES.length,
       advertise: "all",
       effectiveAdvertise: "all",
+      triadHotPath: false,
     });
     expect(out.toolFacade).not.toHaveProperty("clientName");
 

@@ -590,6 +590,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         explainAutoMode: config.toolFacade.explainAutoMode,
         profile: config.toolFacade.profile,
         advertise: config.toolFacade.advertise,
+        triadHotPath: config.toolFacade.triadHotPath,
         hiddenAllowlistEntries: [
           {
             source: "toolVisibility.allowed",

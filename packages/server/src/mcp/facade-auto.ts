@@ -90,6 +90,7 @@ export function healthToolsWiringFields<V extends readonly { id: string }[]>(
       autoClients?: Readonly<Record<string, FacadeMode>>;
       profile: "full" | "core";
       advertise?: AdvertiseSubset;
+      triadHotPath?: boolean;
     };
     sessions?: { windowSeconds: number };
   },

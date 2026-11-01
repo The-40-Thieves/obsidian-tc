@@ -195,8 +195,9 @@ it when a client misbehaves on the field:
 | Cursor | an `outputSchema` whose root is not `type: object` blanks the whole server | vendor reports; every schema this server advertises is an object root | not needed today |
 | any validating SDK client | replaces an error's `structuredContent` with `-32602` (see the hazard above) | the section above | yes: nothing to validate against |
 
-`triad` (the default surface) and `domain` advertise no `outputSchema` at all, so the setting only
-changes the `flat` surface.
+The triad's three meta-tools and `domain` advertise no `outputSchema`. On the `triad` surface the
+`search`/`fetch` pair (and the hot-path tools with `toolFacade.triadHotPath`) do, so the setting
+changes those as well as the `flat` surface.
 
 ## What this page does not claim
 

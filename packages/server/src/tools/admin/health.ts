@@ -104,6 +104,7 @@ export interface HealthInfo {
     nonCoreToolCount: number;
     advertise: AdvertiseSubset;
     effectiveAdvertise: AdvertiseSubset;
+    triadHotPath: boolean;
     deprecation?: string;
     explanation?: AutoFacadeExplanation;
   };
@@ -274,6 +275,7 @@ const ToolFacadeHealthOutput = z.object({
   nonCoreToolCount: z.number(),
   advertise: z.enum(["all", "core", "essentials"]),
   effectiveAdvertise: z.enum(["all", "core", "essentials"]),
+  triadHotPath: z.boolean(),
   deprecation: z.string().optional(),
   explanation: z
     .object({
@@ -431,6 +433,7 @@ export function createHealthTool(opts: {
     /** THE-1131: config.toolFacade.profile. */
     profile: "full" | "core";
     advertise?: AdvertiseSubset;
+    triadHotPath?: boolean;
   };
   /** THE-1125: read live at call time (like getJobQueueStats above) — never cached, since
    *  lastSendAt/lastError change on the scheduler's own cadence, independent of this call. */
@@ -533,6 +536,7 @@ export function createHealthTool(opts: {
                 nonCoreToolCount: NON_CORE_TOOL_NAMES.length,
                 advertise: opts.toolFacade.advertise ?? "all",
                 effectiveAdvertise: ctx.effectiveAdvertise ?? opts.toolFacade.advertise ?? "all",
+                triadHotPath: opts.toolFacade.triadHotPath === true,
                 ...(opts.toolFacade.configured === "auto"
                   ? { deprecation: AUTO_FACADE_DEPRECATION }
                   : {}),

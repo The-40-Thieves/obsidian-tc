@@ -256,7 +256,16 @@ function visibilityCallerOf(ctx: CallerContext): VisibilityCaller {
 
 export function createMcpServer(opts: McpServerOptions): Server {
   // THE-937 round 3: `instructions` builds ONCE from `opts.visibility` — see its doc comment.
-  const surface = instructionsSurfaceOf(opts.facadeMode, opts.advertise, opts.triadHotPath);
+  // GH #1457: the triad-core text names read_note and search_vault, so it is used only when this
+  // caller's visibility lists both. A hidden tool is never named in the routing text.
+  const visibleNames = opts.triadHotPath
+    ? new Set(opts.registry.listVisible(opts.visibility).map((d) => d.name))
+    : new Set<string>();
+  const surface = instructionsSurfaceOf(
+    opts.facadeMode,
+    opts.advertise,
+    visibleNames.has("read_note") && visibleNames.has("search_vault"),
+  );
   const staticInstructions = buildInstructions(
     opts.name,
     opts.version,

@@ -35,6 +35,9 @@ export interface ToolFacadeView {
   /** mirrors config.toolFacade.advertise (absent = "all"). The default tool-budget subset for plain
    *  `/mcp`; a `/mcp/<segment>` URL picks its own (see `details.urlProfiles`). */
   advertise?: AdvertiseSubset;
+  /** mirrors config.toolFacade.triadHotPath (absent = off). Reported only: it changes the triad
+   *  tools/list, and the domain and flat modes ignore it. */
+  triadHotPath?: boolean;
   /** mirrors config.toolFacade.explainAutoMode (absent = off). Offline doctor can only report the
    *  flag; the live per-client explanation is server_health's `toolFacade.explanation`. */
   explainAutoMode?: boolean;
@@ -96,6 +99,7 @@ export function toolFacadeCheck(view: ToolFacadeView): Check {
         ),
         nonCoreToolCount: String(nonCoreToolCount),
         explainAutoMode: view.explainAutoMode ? "on" : "off",
+        triadHotPath: view.triadHotPath ? "on" : "off",
       };
       if (view.configured === "auto") {
         details.autoClients = renderAutoClientsTable(view.autoClients);
