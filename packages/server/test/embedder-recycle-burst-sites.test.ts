@@ -40,7 +40,24 @@ describe("burst-end sites (GH #1433 step 3)", () => {
       });
       expect(flushes).toBe(3);
       expect(burst).toHaveBeenCalledTimes(1);
-      expect(burst).toHaveBeenCalledWith("full-reconcile");
+      expect(burst).toHaveBeenCalledWith("full-reconcile", { embeddedChunks: expect.any(Number) });
+      expect(burst.mock.calls[0]?.[1]?.embeddedChunks).toBeGreaterThan(0);
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("an indexVault pass over an unchanged vault reports zero embedded chunks to the recycle policy", async () => {
+    const v = makeM2Vault({ files: { "a.md": "alpha one", "b.md": "bravo two" } });
+    try {
+      const provider = fakeEmbeddingProvider({ dimensions: 8 });
+      const representation = buildRepresentationManifest(provider, {});
+      const pass = { representation, provider, db: v.db, vaultId: v.id, root: v.root };
+      const opts = { ...pass, isReadable: () => true };
+      await indexVault(opts);
+      burst.mockClear();
+      await indexVault(opts);
+      expect(burst).toHaveBeenCalledWith("full-reconcile", { embeddedChunks: 0 });
     } finally {
       v.cleanup();
     }
@@ -85,7 +102,7 @@ describe("burst-end sites (GH #1433 step 3)", () => {
       await wiring.indexCoordinator.idle();
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(burst).toHaveBeenCalledTimes(1);
-      expect(burst).toHaveBeenCalledWith("write-drain", 512);
+      expect(burst).toHaveBeenCalledWith("write-drain", { budgetMb: 512 });
     } finally {
       rmTemp(root);
     }

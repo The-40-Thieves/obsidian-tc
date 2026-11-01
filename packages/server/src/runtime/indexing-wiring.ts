@@ -371,7 +371,7 @@ export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinat
       globalConcurrency: deps.indexing.writeConcurrency,
       perVaultConcurrency: deps.indexing.writeConcurrencyPerVault,
       queueMax: deps.indexing.queueMax,
-      onIdle: () => void onBurstEnd("write-drain", deps.indexing.memoryBudgetMb),
+      onIdle: () => void onBurstEnd("write-drain", { budgetMb: deps.indexing.memoryBudgetMb }),
       onBackpressure: (depth) => {
         deps.indexHealth.indexQueueBackpressures++;
         process.stderr.write(

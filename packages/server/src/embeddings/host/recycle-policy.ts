@@ -1,8 +1,9 @@
 // GH #1433 rec 4, step 3: when the child-process embedder is recycled. A recycle drains the child, so
 // its memory returns to the OS and the next embed spawns a fresh one. Two burst ends call onBurstEnd:
-// a finished index pass (full-reconcile, always recycles) and the index-on-write queue going idle
-// (write-drain, recycles only while parent + child RSS is over the memory budget). Only child-process
-// hosts are recycled, and each host at most once per RECYCLE_DEBOUNCE_MS.
+// a finished index pass (full-reconcile, recycles when the pass embedded chunks) and the index-on-write
+// queue going idle (write-drain, recycles only while parent + child RSS is over the memory budget).
+// Either burst end also recycles while over budget. Only child-process hosts are recycled, and each
+// host at most once per RECYCLE_DEBOUNCE_MS.
 import { allLiveHosts } from "./registry";
 import type { EmbedderHost } from "./types";
 
@@ -21,9 +22,17 @@ export function embedderRecycleTotals(): Readonly<typeof totals> {
   return { ...totals };
 }
 
+export interface BurstEndOpts {
+  /** memoryBudgetMb: absent means no budget rule. */
+  budgetMb?: number;
+  /** Chunks the finished pass embedded. Zero means nothing changed, so a full reconcile keeps the
+   *  loaded model. */
+  embeddedChunks?: number;
+}
+
 /** Called at each burst end. Never rejects: a failed stats or recycle is logged and skipped, so the
  *  index path that fired it is not affected. */
-export async function onBurstEnd(kind: BurstEnd, budgetMb?: number): Promise<void> {
+export async function onBurstEnd(kind: BurstEnd, opts: BurstEndOpts = {}): Promise<void> {
   try {
     for (const host of allLiveHosts()) {
       if (host.kind !== "child-process") continue;
@@ -31,9 +40,11 @@ export async function onBurstEnd(kind: BurstEnd, budgetMb?: number): Promise<voi
       // A request queued or in flight is not interrupted: the next burst end with an empty queue acts.
       if ((stats.queued ?? 0) > 0) continue;
       const overBudget =
-        budgetMb !== undefined &&
-        process.memoryUsage().rss + (stats.rssBytes ?? 0) > budgetMb * MIB;
-      if (kind === "write-drain" && !overBudget) continue;
+        opts.budgetMb !== undefined &&
+        process.memoryUsage().rss + (stats.rssBytes ?? 0) > opts.budgetMb * MIB;
+      const worthRecycling =
+        kind === "full-reconcile" ? (opts.embeddedChunks ?? 0) > 0 || overBudget : overBudget;
+      if (!worthRecycling) continue;
       const now = Date.now();
       const last = lastRecycleAt.get(host);
       if (last !== undefined && now - last < RECYCLE_DEBOUNCE_MS) continue;

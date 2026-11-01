@@ -668,6 +668,6 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     );
   }
   // GH #1433 step 3: a finished pass is a burst end for the embedder recycle policy (fire-and-forget).
-  void onBurstEnd("full-reconcile");
+  void onBurstEnd("full-reconcile", { embeddedChunks: stats.chunks_upserted });
   return stats;
 }
