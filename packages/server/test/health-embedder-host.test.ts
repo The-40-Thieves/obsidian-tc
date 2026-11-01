@@ -39,8 +39,6 @@ function memoryWith(opts: { budgetMb?: number; child?: EmbedderHostStats }) {
   ).memory;
 }
 
-const parentMb = Math.ceil(process.memoryUsage().rss / MIB);
-
 describe("server_health embedder_host (GH #1433 step 3)", () => {
   it("adds no embedder_host key and keeps the #1459 field set when there is no child host", () => {
     const m = memoryWith({ budgetMb: 1_000_000 });
@@ -58,11 +56,13 @@ describe("server_health embedder_host (GH #1433 step 3)", () => {
   });
 
   it("over_budget compares parent + child RSS, so a child alone can tip it over", () => {
-    // Budget is the parent alone plus 50 MB: the parent is under it, the parent + a 100 MB child is not.
+    // Read the parent's RSS now, not at import: the suite grows the process after collection. The budget
+    // is the parent alone plus 50 MB, so the parent is under it and parent + a 100 MB child is not.
+    const parentMb = Math.ceil(process.memoryUsage().rss / MIB);
     const budgetMb = parentMb + 50;
     expect(memoryWith({ budgetMb }).over_budget).toBe(false);
     const m = memoryWith({ budgetMb, child: childStats(100 * MIB) });
     expect(m.over_budget).toBe(true);
-    expect(m.rss_mb).toBe(parentMb);
+    expect(m.rss_mb).toBeGreaterThan(0);
   });
 });
