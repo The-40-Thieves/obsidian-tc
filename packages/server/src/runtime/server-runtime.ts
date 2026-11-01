@@ -678,6 +678,7 @@ export async function buildServerRuntime(
       drainMs: SHUTDOWN_DRAIN_MS,
     };
     await raceShutdownPhaseOrExit(drainOpts);
+    closeStdioOpened(db, Date.now()); // GH #1457: the stdio session this process opened, if any
     await leaderElection.close(); // F3: release the lock LAST, once every writer above has stopped
     morgiana.emit(defaultVaultId, "tc.server.shutdown");
     // Every opened resource below gets a best-effort, independently-guarded close — one failing
@@ -692,7 +693,6 @@ export async function buildServerRuntime(
     } catch {
       /* best-effort */
     }
-    closeStdioOpened(db, Date.now()); // GH #1457: the stdio session this process opened, if any
     try {
       stores.close();
     } catch {

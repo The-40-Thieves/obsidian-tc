@@ -659,8 +659,8 @@ export const ExperientialConfigSchema = z.object({
    *  DEPENDENCY (owner-settled, THE-726 review round 1): this axis, and the derivation it gates,
    *  act only on sessions that EXIST and END. `session_id` attaches to a captured episode only when
    *  a session is open — over HTTP or stdio that needs `sessions.autoOpen` (default false) or an explicit
-   *  `start_session`/`end_session` pair, and an implicit session opened that way is only ever closed
-   *  by the maintenance sweep's `closeStaleImplicitSessions`. On stdio with `sessions.autoOpen` off and no session concept
+   *  `start_session`/`end_session` pair, and an implicit session opened that way is closed by the
+   *  maintenance sweep's `closeStaleImplicitSessions`, or, on stdio, at a clean exit. On stdio with `sessions.autoOpen` off and no session concept
    *  in play, this flag has nothing to act on and the derivation is inert by design, not broken.
    *  Measured on the live Cave deployment (2026-09-03): 15 sessions since 2026-08-20, 13 implicit,
    *  12 already closed by the stale-session sweep, and 44 ended sessions carrying 249 derivable

@@ -69,12 +69,12 @@ export function closeStdioOpened(db: Database, now: number): number {
   const opened = openedByDb.get(db);
   if (!opened) return 0;
   let closed = 0;
-  try {
-    for (const id of opened) {
+  for (const id of opened) {
+    try {
       if (inFlightCount(id) === 0 && endSession(db, id, now).changes > 0) closed++;
+    } catch {
+      /* the sweep closes this one; keep closing the rest */
     }
-  } catch {
-    /* the sweep closes what this misses */
   }
   opened.clear();
   return closed;

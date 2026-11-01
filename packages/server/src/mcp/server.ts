@@ -134,6 +134,11 @@ export interface McpServerOptions {
    * runDispatch can observe cancellation. Every call site below passes it; a factory that ignores
    * the argument (every one before THE-514, and any test double) is unaffected — the parameter is
    * optional and dispatch treats an absent signal as a no-op.
+   *
+   * GH #1457: `use` says what the call is for. `"call"` is tools/call and `"read"` is
+   * resources/read, the first calls that touch a vault. It is omitted on the connect-time list and
+   * prompt handlers, so a transport can open a session on real work and not on every connect.
+   * Factories that ignore it (HTTP, every test double) are unaffected.
    */
   context: (signal?: AbortSignal, use?: "call" | "read") => CallerContext;
   /**

@@ -22,6 +22,7 @@ import {
   insertSession,
   markInFlight,
 } from "../src/workspace/sessions";
+import { waitFor } from "./git-sync-test-helpers";
 import { openMemoryDb } from "./helpers";
 import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
@@ -87,12 +88,10 @@ async function harness(autoOpen: boolean): Promise<Harness> {
   const request = async (method: string, params: object = {}) => {
     const id = nextId++;
     stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
-    for (let i = 0; i < 400; i++) {
-      const hit = replies.get(id);
-      if (hit) return hit;
-      await new Promise((r) => setTimeout(r, 10));
-    }
-    throw new Error(`no stdio reply for ${method}`);
+    await waitFor(() => replies.has(id), 4_000).catch(() => {
+      throw new Error(`no stdio reply for ${method}`);
+    });
+    return replies.get(id) as Record<string, any>;
   };
   await request("initialize", {
     protocolVersion: "2025-11-25",
@@ -147,13 +146,14 @@ describe("stdio sessions.autoOpen opens a server session on the first vault call
   );
 
   it(
-    "opens NO row for the connect-time list calls (tools/list, resources/list, prompts/list)",
+    "opens NO row for the connect-time calls (tools/list, resources/list, prompts/list, prompts/get)",
     async () => {
       const h = await harness(true);
       try {
         await h.request("tools/list", {});
         await h.request("resources/list", {});
         await h.request("prompts/list", {});
+        await h.request("prompts/get", { name: "no-such-prompt" });
         expect(rows(h.db)).toHaveLength(0);
       } finally {
         await h.close();
@@ -265,6 +265,39 @@ describe("stdio sessions.autoOpen opens a server session on the first vault call
         } finally {
           release();
         }
+      } finally {
+        await h.close();
+      }
+    },
+    stallTimeout(30_000),
+  );
+
+  it(
+    "closeOpened keeps closing the other rows when one endSession throws",
+    async () => {
+      const h = await harness(true);
+      try {
+        await h.request("tools/call", probe);
+        const first = rows(h.db)[0]?.id as string;
+        h.db
+          .prepare("UPDATE workspace_sessions SET ended_at = ? WHERE id = ?")
+          .run(Date.now(), first);
+        await h.request("tools/call", probe);
+        const second = rows(h.db)[1]?.id as string;
+
+        // Re-open the first row, so this process still holds two open rows, and it is the one
+        // closeOpened reaches first. A trigger makes its UPDATE fail, the way SQLITE_BUSY would.
+        h.db.prepare("UPDATE workspace_sessions SET ended_at = NULL WHERE id = ?").run(first);
+        h.db
+          .prepare(
+            `CREATE TRIGGER fail_close BEFORE UPDATE OF ended_at ON workspace_sessions
+             WHEN OLD.id = '${first}' BEGIN SELECT RAISE(ABORT, 'database is locked'); END`,
+          )
+          .run();
+
+        expect(h.closeOpened(Date.now())).toBe(1);
+        expect(endedAt(h.db, second)).not.toBeNull();
+        expect(endedAt(h.db, first)).toBeNull();
       } finally {
         await h.close();
       }
