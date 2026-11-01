@@ -430,7 +430,8 @@ export function buildLocalEmbeddingProvider(
   // to close, just on the revision axis instead of the quantization axis.
   const quantized = c.quantized ?? true;
   const revisionSuffix = c.revision ? `:${c.revision}` : "";
-  const host = registerHost(createInProcessHost(session));
+  // No owner (CLI/eval): nothing closes it, and an in-process close is a no-op anyway.
+  const host = registerHost(ctx.embedderHostOwner ?? {}, createInProcessHost(session));
   return {
     id: `local:${c.model}:${quantized ? "q8" : "fp32"}${revisionSuffix}`,
     provider: "local",

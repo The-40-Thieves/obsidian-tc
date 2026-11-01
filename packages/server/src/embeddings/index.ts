@@ -152,6 +152,7 @@ export async function createEmbeddingProviderAsync(
     securityProfile: opts.securityProfile,
     embeddings: opts.embeddings,
     cacheDir: opts.cacheDir,
+    embedderHostOwner: opts.embedderHostOwner,
   });
   return applyWrappers(resolved, entry, cfg, opts.excludeFilter ?? compileEgressFilter([]));
 }

@@ -5,29 +5,22 @@ export interface LoadedEmbedder {
   embed(texts: string[], opts?: unknown): Promise<number[][]>;
 }
 
-/** The model runs inside this process. The load is memoized, but a rejected load is NOT: a
- *  transient failure (package not built yet, model not downloadable) must not wedge the provider
- *  for the life of the process. */
+/** The model runs inside this process. The loader owns memoization (the provider's session() memo
+ *  already keeps a rejected load from being retained), so this host calls it on every embed and only
+ *  tracks state. */
 export function createInProcessHost(load: () => Promise<LoadedEmbedder>): EmbedderHost {
-  let pending: Promise<LoadedEmbedder> | undefined;
   let state: EmbedderHostState = "idle";
   let recycles = 0;
-  const session = (): Promise<LoadedEmbedder> => {
-    if (!pending) {
-      state = "loading";
-      pending = (async () => load())().then(
-        (loaded) => {
-          state = "ready";
-          return loaded;
-        },
-        (error: unknown) => {
-          state = "failed";
-          pending = undefined;
-          throw error;
-        },
-      );
+  const session = async (): Promise<LoadedEmbedder> => {
+    state = "loading";
+    try {
+      const loaded = await load();
+      state = "ready";
+      return loaded;
+    } catch (error) {
+      state = "failed";
+      throw error;
     }
-    return pending;
   };
   return {
     kind: "in-process",

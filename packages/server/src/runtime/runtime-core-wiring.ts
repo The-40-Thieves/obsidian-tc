@@ -3,6 +3,7 @@
 // noExcessiveLinesPerFile cap. Re-exported from server-runtime.ts so every existing import path
 // (including `wireRuntimeCore`'s own test suite) keeps working.
 import { DEFAULT_BUSY_TIMEOUT_MS } from "../db/pragmas";
+import { closeOwnedHosts } from "../embeddings/host/registry";
 import { createRateLimitBackend, DEFAULT_REDIS_REF } from "../ratelimit/create";
 import { type OwnedLayer, requireBoot, unwindReversed } from "./boot-helpers";
 import { wireGovernance } from "./governance";
@@ -27,6 +28,8 @@ export async function wireRuntimeCore(deps: RuntimeCoreDeps): Promise<RuntimeCor
   // (governance's onAuditFailure): indexHealth is constructed one step AFTER the registry
   // that closes over it — same forward-reference shape as cli.ts's indexCoordinatorRef/schedulerRef.
   let indexHealthRef: IndexHealthState | undefined;
+  // Owns every embedder host this boot's provider builds (see wireIndexResources).
+  const embedderHostOwner = {};
   try {
     // The shared bucket store (sqlite / redis) is opened here, before governance, so a bad
     // reference (no Redis URL, a missing @redis/client, an unwritable cacheDir) refuses boot loudly
@@ -85,9 +88,14 @@ export async function wireRuntimeCore(deps: RuntimeCoreDeps): Promise<RuntimeCor
       // two runtime-provisioned index migrations, which otherwise run before leader election
       // exists; provider construction stays outside the 60 s barrier wait.
       guardSchema: (fn) => withBootstrapBarrier(deps.cacheDir, async () => fn()),
+      embedderHostOwner,
+    }).catch(async (error: unknown) => {
+      // The provider may already hold a host built before the step that failed. Close it here:
+      // indexResources never finished opening, so it has no onCleanup layer of its own.
+      await closeOwnedHosts(embedderHostOwner);
+      throw error;
     });
     indexHealthRef = indexResources.indexHealth;
-    built.push({ name: "indexResources", close: () => {} });
 
     return { governance, indexResources };
   } catch (e) {

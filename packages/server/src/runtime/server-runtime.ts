@@ -14,7 +14,6 @@ import { version as VERSION } from "../../package.json";
 import { experientialMigrations } from "../cli/shared";
 import { plainHttpEndpointDeprecations } from "../doctor/plain-http";
 import { createStdioElicitCodec } from "../elicit";
-import { closeAllHosts } from "../embeddings/host/registry";
 import { buildMemoryDefenseLookup } from "../experiential/memory-defense";
 import { providerResolveHost } from "../gateway/provider-fetch";
 import { healthToolsWiringFields, mcpServerFacadeOptions } from "../mcp/facade-auto";
@@ -229,11 +228,12 @@ export async function buildServerRuntime(
     embeddingsSticky,
   } = indexResources;
 
-  // After core succeeds, retain its owners for later failures. indexResources owns no cleanup.
+  // After core succeeds, retain its owners for later failures. indexResources closes its embedder hosts.
   const postCoreLayers: OwnedLayer[] = [
     { name: "stores", close: stores.close },
     { name: "otel", close: () => otel.shutdown() },
     { name: "governance", close: governance.close },
+    { name: "indexResources", close: () => indexResources.closeEmbedderHosts() },
   ];
   let postCore:
     | {
@@ -693,7 +693,7 @@ export async function buildServerRuntime(
     } catch {
       /* best-effort */
     }
-    await closeAllHosts(); // never rejects: each host's close is isolated
+    await indexResources.closeEmbedderHosts(); // never rejects: each host's close is isolated
     try {
       stores.close();
     } catch {
