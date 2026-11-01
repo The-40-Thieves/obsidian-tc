@@ -16,9 +16,15 @@ import { describe, expect, it } from "vitest";
 import { buildFullRegistry } from "../scripts/docgen/build-registry";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
-import { buildInstructions, TRIAD_DIRECT_TOOLS, triadTools } from "../src/mcp/facade";
+import {
+  buildInstructions,
+  TRIAD_DIRECT_TOOLS,
+  TRIAD_HOT_PATH_TOOLS,
+  triadTools,
+} from "../src/mcp/facade";
+import { instructionsSurfaceOf } from "../src/mcp/instructions-routing";
 import type { CallerContext, ToolRegistry } from "../src/mcp/registry";
-import { createMcpServer } from "../src/mcp/server";
+import { createMcpServer, type McpServerOptions } from "../src/mcp/server";
 import {
   type AdvertiseSubset,
   ESSENTIALS_RESERVED_SLOTS,
@@ -26,6 +32,7 @@ import {
   NON_CORE_TOOL_NAMES,
   urlSurfaceFor,
 } from "../src/mcp/tool-profiles";
+import { ALLOW_ALL } from "../src/mcp/visibility";
 import { createHttpApp } from "../src/transports/http";
 import { openMemoryDb } from "./helpers";
 import { listToolsRaw } from "./list-tools-raw";
@@ -33,6 +40,8 @@ import { REGISTERED_TOOL_COUNT } from "./registered-tool-count";
 import { stallTimeout } from "./stall-timeouts";
 
 const FULL = { grantedScopes: new Set(["*"]) };
+const HOT_PATH = TRIAD_HOT_PATH_TOOLS;
+const HOT_ON = { facadeMode: "triad", triadHotPath: true } as const;
 
 const context = (): CallerContext => ({
   caller: "stdio",
@@ -45,8 +54,23 @@ const context = (): CallerContext => ({
 
 async function listNames(
   registry: ToolRegistry,
-  opts: { facadeMode?: "triad" | "domain" | "flat"; advertise?: AdvertiseSubset },
+  opts: {
+    facadeMode?: "triad" | "domain" | "flat";
+    advertise?: AdvertiseSubset;
+    triadHotPath?: boolean;
+  },
 ): Promise<string[]> {
+  return withClient(registry, opts, async (client) =>
+    (await listToolsRaw(client)).map((t) => t.name),
+  );
+}
+
+// One connected in-memory client over a server built with `opts`, closed when `fn` settles.
+async function withClient<T>(
+  registry: ToolRegistry,
+  opts: Partial<McpServerOptions>,
+  fn: (client: Client) => Promise<T>,
+): Promise<T> {
   const server = createMcpServer({
     name: "x",
     version: "0",
@@ -59,9 +83,12 @@ async function listNames(
   await server.connect(st);
   const client = new Client({ name: "t", version: "0" });
   await client.connect(ct);
-  const names = (await listToolsRaw(client)).map((t) => t.name);
-  await client.close();
-  return names;
+  try {
+    return await fn(client);
+  } finally {
+    await client.close();
+    await server.close();
+  }
 }
 
 describe("the essentials list", () => {
@@ -184,7 +211,7 @@ describe("tools/list per profile", () => {
 });
 
 describe("URL routing on the HTTP transport", () => {
-  function app() {
+  function app(extra: { triadHotPath?: boolean } = {}) {
     const db = openMemoryDb();
     provisionCacheDb(db);
     const auth = ServerConfigSchema.parse({
@@ -196,6 +223,7 @@ describe("URL routing on the HTTP transport", () => {
       version: "0.0.0-test",
       // What transport-wiring passes from the default config: `/mcp` stays the triad.
       facadeMode: "triad",
+      ...extra,
       registry: buildFullRegistry(),
       auth,
       db,
@@ -231,6 +259,19 @@ describe("URL routing on the HTTP transport", () => {
     }
     return { status: res.status, names, raw: text };
   }
+
+  it("HTTP /mcp with triadHotPath lists the four hot-path tools after search and fetch", async () => {
+    const r = await listAt(app({ triadHotPath: true }), "/mcp");
+    expect(r.status).toBe(200);
+    expect(r.names).toEqual([
+      "find_capability",
+      "describe_capability",
+      "call_capability",
+      "search",
+      "fetch",
+      ...HOT_PATH,
+    ]);
+  });
 
   it("/mcp is the unchanged default (triad)", async () => {
     const a = app();
@@ -319,13 +360,15 @@ describe("config selection", () => {
 });
 
 describe("instructions bounds", () => {
-  const surfaces = ["triad", "flat", "subset", "generic"] as const;
+  const surfaces = ["triad", "triad-core", "flat", "subset", "generic"] as const;
   const render = (surface: (typeof surfaces)[number]) =>
     buildInstructions("obsidian-tc", "9.9.9", buildFullRegistry(), FULL, true, true, surface);
   // The routing sentence is what a client must receive intact; it is asserted by content, so a
   // reword that pushes it past the bound fails here rather than silently getting truncated.
   const routing: Record<(typeof surfaces)[number], RegExp> = {
     triad: /find_capability[^.]*describe_capability[^.]*call_capability[^.]*\./,
+    "triad-core":
+      /read_note[^.]*search_vault[^.]*find_capability[^.]*describe_capability[^.]*call_capability[^.]*\./,
     flat: /Every tool is listed directly: call it by name\./,
     subset: /A curated subset; other tools are still callable by name[^.]*\./,
     generic: /If find_capability is listed[^.]*\./,
@@ -401,12 +444,25 @@ describe("instructions bounds", () => {
     expect(text).toContain("search(query)");
   });
 
-  it("triad: the routing head names only tools the triad surface advertises", () => {
+  it("triad and triad-core: the routing head names only tools that surface advertises", () => {
     const listed = new Set<string>([...triadTools(true).map((t) => t.name), ...TRIAD_DIRECT_TOOLS]);
-    const head = render("triad").slice(0, 512);
-    const named = [...head.matchAll(/\b([a-z]+(?:_[a-z]+)*)\(/g)].map((m) => m[1] ?? "");
-    expect(named.length).toBeGreaterThan(0);
-    for (const n of named) expect(listed.has(n), n).toBe(true);
+    for (const s of ["triad", "triad-core"] as const) {
+      const advertised = s === "triad" ? listed : new Set([...listed, ...HOT_PATH]);
+      const head = render(s).slice(0, 512);
+      const named = [...head.matchAll(/\b([a-z]+(?:_[a-z]+)*)\(/g)].map((m) => m[1] ?? "");
+      expect(named.length).toBeGreaterThan(0);
+      for (const n of named) expect(advertised.has(n), n).toBe(true);
+    }
+  });
+
+  // GH #1457 slice 2: the triad-core variant names the hot-path reads before the gateway.
+  it("triad-core: names read_note and search_vault before find_capability", () => {
+    const text = render("triad-core");
+    const find = text.indexOf("find_capability(");
+    expect(text.indexOf("read_note(")).toBeGreaterThan(0);
+    expect(text.indexOf("read_note(")).toBeLessThan(find);
+    expect(text.indexOf("search_vault(")).toBeGreaterThan(0);
+    expect(text.indexOf("search_vault(")).toBeLessThan(find);
   });
 });
 
@@ -454,5 +510,92 @@ describe("Claude Code alwaysLoad", () => {
     const tools = (await client.listTools()).tools;
     await client.close();
     expect(tools.filter((t) => t._meta?.["anthropic/alwaysLoad"] !== undefined)).toEqual([]);
+  });
+});
+
+describe("triadHotPath: the hot-path tools join the triad surface (GH #1457 slice 2)", () => {
+  it("adds read_note, search_vault, write_note and list_notes after search and fetch", async () => {
+    expect(
+      await listNames(buildFullRegistry(), { facadeMode: "triad", triadHotPath: true }),
+    ).toEqual([
+      "find_capability",
+      "describe_capability",
+      "call_capability",
+      "search",
+      "fetch",
+      ...HOT_PATH,
+    ]);
+  });
+
+  it("without triadHotPath the triad surface is unchanged", async () => {
+    expect(await listNames(buildFullRegistry(), { facadeMode: "triad" })).toEqual([
+      "find_capability",
+      "describe_capability",
+      "call_capability",
+      "search",
+      "fetch",
+    ]);
+  });
+
+  it("is inert on a flat surface", async () => {
+    expect(
+      await listNames(buildFullRegistry(), { facadeMode: "flat", triadHotPath: true }),
+    ).toEqual(await listNames(buildFullRegistry(), { facadeMode: "flat" }));
+  });
+
+  // Drives the real tools/call route (not registry.dispatch), so a direct call that skipped the
+  // ACL would fail here while the call_capability route still refused it.
+  it("refuses a vault-bound caller on tools/call read_note, as call_capability does", async () => {
+    const bound = { ...context(), vaultBound: true, vaultId: "a" };
+    await withClient(buildFullRegistry(), { ...HOT_ON, context: () => bound }, async (client) => {
+      const args = { vault: "b", path: "note.md" };
+      const direct = await client.callTool({ name: "read_note", arguments: args });
+      const viaFacade = await client.callTool({
+        name: "call_capability",
+        arguments: { name: "read_note", args },
+      });
+      expect(direct.isError).toBe(true);
+      expect(JSON.stringify(direct.content)).toContain("forbidden");
+      expect(direct.content).toEqual(viaFacade.content);
+    });
+  });
+
+  it("the instructions name read_note(path) before find_capability on a triadHotPath server", async () => {
+    await withClient(buildFullRegistry(), HOT_ON, async (client) => {
+      const text = (await client.getInstructions()) ?? "";
+      expect(text.indexOf("read_note(path)")).toBeGreaterThan(0);
+      expect(text.indexOf("read_note(path)")).toBeLessThan(text.indexOf("find_capability("));
+    });
+  });
+
+  it("routing text names no hidden read_note when a visibility mask hides it", async () => {
+    const visibility = { ...FULL, toolVisibility: { ...ALLOW_ALL, hidden: ["read_note"] } };
+    await withClient(buildFullRegistry(), { ...HOT_ON, visibility }, async (client) => {
+      const names = (await client.listTools()).tools.map((t) => t.name);
+      const text = (await client.getInstructions()) ?? "";
+      expect(names).not.toContain("read_note");
+      expect(text).not.toContain("read_note(");
+      expect(text).toContain("find_capability(");
+    });
+  });
+
+  it("marks each hot-path tool alwaysLoad on the wire tools/list", async () => {
+    await withClient(buildFullRegistry(), HOT_ON, async (client) => {
+      const tools = (await client.listTools()).tools;
+      for (const n of HOT_PATH) {
+        expect(tools.find((t) => t.name === n)?._meta?.["anthropic/alwaysLoad"], n).toBe(true);
+      }
+    });
+  });
+});
+
+describe("instructionsSurfaceOf: triad-core needs triad mode, no advertise subset, and the flag", () => {
+  it("picks triad-core only for the triad surface with triadHotPath on", () => {
+    expect(instructionsSurfaceOf("triad", undefined, true)).toBe("triad-core");
+    expect(instructionsSurfaceOf("triad", "all", true)).toBe("triad-core");
+    expect(instructionsSurfaceOf("triad", undefined, false)).toBe("triad");
+    expect(instructionsSurfaceOf("triad", "essentials", true)).toBe("subset");
+    expect(instructionsSurfaceOf("flat", undefined, true)).toBe("flat");
+    expect(instructionsSurfaceOf("domain", undefined, true)).toBe("generic");
   });
 });

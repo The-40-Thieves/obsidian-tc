@@ -165,6 +165,10 @@ export interface McpServerOptions {
    *  "all" makes tools/list a flat list of that subset, whatever `facadeMode` says. Advertisement
    *  only; every tool stays callable by name. Defaults to "all". See tool-profiles.ts. */
   advertise?: AdvertiseSubset;
+  /** `toolFacade.triadHotPath`: on the triad surface, also list the hot-path tools (read_note,
+   *  search_vault, write_note, list_notes) as top-level tools beside search and fetch. Ignored by
+   *  every other surface. Advertisement only. See facade.ts TRIAD_HOT_PATH_TOOLS. */
+  triadHotPath?: boolean;
   /** `auth.anonymousDiscovery: "list"`: every tool tools/list returns declares `securitySchemes`; the
    *  value is the scopes a facade tool (which fronts tools of every scope) declares. */
   securitySchemes?: readonly string[];
@@ -252,7 +256,16 @@ function visibilityCallerOf(ctx: CallerContext): VisibilityCaller {
 
 export function createMcpServer(opts: McpServerOptions): Server {
   // THE-937 round 3: `instructions` builds ONCE from `opts.visibility` — see its doc comment.
-  const surface = instructionsSurfaceOf(opts.facadeMode, opts.advertise);
+  // GH #1457: the triad-core text names read_note and search_vault, so it is used only when this
+  // caller's visibility lists both. A hidden tool is never named in the routing text.
+  const visibleNames = opts.triadHotPath
+    ? new Set(opts.registry.listVisible(opts.visibility).map((d) => d.name))
+    : new Set<string>();
+  const surface = instructionsSurfaceOf(
+    opts.facadeMode,
+    opts.advertise,
+    visibleNames.has("read_note") && visibleNames.has("search_vault"),
+  );
   const staticInstructions = buildInstructions(
     opts.name,
     opts.version,
@@ -366,7 +379,11 @@ export function createMcpServer(opts: McpServerOptions): Server {
       // `opts.visibility` is the pure per-request caller (see its doc comment), not `opts.context`,
       // which can open a workspace session on HTTP: a bare triad tools/list must not.
       const project = projectTool(opts.outputSchema, opts.registry.maxResponseBytes);
-      const direct = triadDirectTools(opts.registry.listVisible(opts.visibility), project);
+      const direct = triadDirectTools(
+        opts.registry.listVisible(opts.visibility),
+        project,
+        opts.triadHotPath,
+      );
       return advertiseSchemes(
         opts,
         withCacheHint(

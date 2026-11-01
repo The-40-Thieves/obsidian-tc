@@ -71,6 +71,7 @@ function healthPayload(res: unknown): {
     nonCoreToolCount: number;
     advertise: string;
     effectiveAdvertise: string;
+    triadHotPath?: boolean;
   };
 } {
   const content = (res as { content: [{ text: string }] }).content;
@@ -97,6 +98,7 @@ describe("tools/list and server_health agree on the auto-resolved facade mode (T
       nonCoreToolCount: NON_CORE_TOOL_NAMES.length,
       advertise: "all",
       effectiveAdvertise: "all",
+      triadHotPath: false,
       deprecation: AUTO_FACADE_DEPRECATION,
     });
 
@@ -133,6 +135,7 @@ describe("server_health names the advertise subset a /mcp/<surface> URL selected
   async function callHealthOn(
     surface: { facadeMode: "triad" | "flat"; advertise?: "all" | "core" | "essentials" },
     configuredAdvertise?: "all" | "core" | "essentials",
+    triadHotPath = false,
   ) {
     const r = new ToolRegistry();
     r.register(
@@ -146,6 +149,7 @@ describe("server_health names the advertise subset a /mcp/<surface> URL selected
           configured: "triad",
           profile: "full",
           ...(configuredAdvertise ? { advertise: configuredAdvertise } : {}),
+          triadHotPath,
         },
       }),
     );
@@ -191,6 +195,11 @@ describe("server_health names the advertise subset a /mcp/<surface> URL selected
     expect(tf?.advertise).toBe("essentials");
     expect(tf?.effectiveAdvertise).toBe("essentials");
     expect(tf?.effective).toBe("flat");
+  });
+
+  it("reports toolFacade.triadHotPath from config: on when set, off by default", async () => {
+    expect((await callHealthOn({ facadeMode: "triad" }, undefined, true))?.triadHotPath).toBe(true);
+    expect((await callHealthOn({ facadeMode: "triad" }))?.triadHotPath).toBe(false);
   });
 
   it("a server given no advertise at all reports all", async () => {

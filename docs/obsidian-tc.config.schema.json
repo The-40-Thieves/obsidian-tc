@@ -2200,6 +2200,11 @@
             "essentials"
           ]
         },
+        "triadHotPath": {
+          "default": false,
+          "description": "On the `triad` surface, also list `read_note`, `search_vault`, `write_note` and `list_notes` as top-level tools beside `search` and `fetch`. Default false. Ignored by the `domain` and `flat` modes and by a flat `advertise` list. Advertisement only: each tool stays callable through call_capability.",
+          "type": "boolean"
+        },
         "profile": {
           "default": "full",
           "description": "Which tools are visible/callable for this process — registration itself is unaffected (every tool is always registered). \"full\" (the default) leaves every tool visible/callable, unchanged from today. \"core\" is an opt-in, smaller curated surface. Orthogonal to `mode`: `mode` picks what a session is ADVERTISED, `profile` picks what is CALLABLE. A tool `core` hides answers describe_capability/call_capability with a `capability_hidden` error rather than a silent failure.",

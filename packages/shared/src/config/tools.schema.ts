@@ -127,6 +127,15 @@ export const ToolFacadeConfigSchema = z.object({
     .describe(
       'Tool-budget profile for clients that cap the tools they accept. "all" (the default) narrows nothing. "essentials" advertises a flat list of about 35 curated tools (about one per domain; fits 100-tool caps), "core" the flat core curation (101 tools; fits 128-tool caps). Anything other than "all" overrides `mode` with a flat list. On HTTP, a URL such as `/mcp/essentials` selects a profile per client and wins over this key. Advertisement only: tools outside the subset stay callable by name, subject to the same authorization.',
     ),
+  // GH #1457 (slice 2): on the triad surface, also list the hot-path tools as top-level tools beside
+  // search and fetch, so an agent's everyday read, search, write or listing is one call. Triad-only:
+  // a flat `advertise` list and the domain and flat modes ignore it. Advertisement only.
+  triadHotPath: z
+    .boolean()
+    .default(false)
+    .describe(
+      "On the `triad` surface, also list `read_note`, `search_vault`, `write_note` and `list_notes` as top-level tools beside `search` and `fetch`. Default false. Ignored by the `domain` and `flat` modes and by a flat `advertise` list. Advertisement only: each tool stays callable through call_capability.",
+    ),
   // Deployment-level and orthogonal to `mode` above: `mode` picks what a given SESSION is
   // advertised, `profile` picks which tools are VISIBLE and CALLABLE at all, resolved once
   // when the registry is built. Registration itself is profile-invariant — every tool is always

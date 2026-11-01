@@ -153,6 +153,8 @@ export interface HttpAppOptions {
   outputSchema?: "full" | "omit";
   /** `toolFacade.advertise`: the default tool-budget subset for `/mcp`; a `/mcp/<surface>` URL wins. */
   advertise?: AdvertiseSubset;
+  /** `toolFacade.triadHotPath`: threaded to createMcpServer; only the triad surface reads it. */
+  triadHotPath?: boolean;
   /** GH #1027: `tools.defaults.responseFormat`, threaded to createMcpServer (resources/read). */
   responseFormat?: ResponseFormat;
   /** DNS-rebinding / cross-origin guard (THE-271). Defaults on when undefined. */
@@ -485,6 +487,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
         // Re-resolved from the segment's NAME, never from an object carried on the request.
         ...surfaceOptions(opts, mcpCtx.authInfo),
         autoClients: opts.autoClients,
+        triadHotPath: opts.triadHotPath,
         explainAutoMode: opts.explainAutoMode,
         securitySchemes: mixedAuth,
         outputSchema: opts.outputSchema,

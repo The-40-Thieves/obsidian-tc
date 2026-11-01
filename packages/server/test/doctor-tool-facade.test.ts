@@ -39,6 +39,13 @@ describe("toolFacade.doctor", () => {
     }
   });
 
+  it("reports toolFacade.triadHotPath as on or off", async () => {
+    const on = await run({ configured: "triad", profile: "core", triadHotPath: true });
+    expect(on.details?.triadHotPath).toBe("on");
+    const off = await run({ configured: "triad", profile: "core" });
+    expect(off.details?.triadHotPath).toBe("off");
+  });
+
   it("lists the EFFECTIVE (config-merged-over-built-in) table for auto mode", async () => {
     const r = await run({ configured: "auto", profile: "core", autoClients: { cursor: "flat" } });
     expect(r.summary).toContain("auto");

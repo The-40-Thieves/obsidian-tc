@@ -28,16 +28,29 @@ export function isFacadeTool(name: string): boolean {
 
 // Standard connector pair (ChatGPT deep research needs these exact names), advertised beside the triad.
 export const TRIAD_DIRECT_TOOLS = ["search", "fetch"] as const;
+export const TRIAD_HOT_PATH_TOOLS = [
+  "read_note",
+  "search_vault",
+  "write_note",
+  "list_notes",
+] as const;
 
-export function triadDirectDefs(visible: readonly ToolDefinition[]): ToolDefinition[] {
-  return TRIAD_DIRECT_TOOLS.flatMap((name) => visible.filter((d) => d.name === name));
+export function triadDirectDefs(
+  visible: readonly ToolDefinition[],
+  hotPath = false,
+): ToolDefinition[] {
+  const names: readonly string[] = hotPath
+    ? [...TRIAD_DIRECT_TOOLS, ...TRIAD_HOT_PATH_TOOLS]
+    : TRIAD_DIRECT_TOOLS;
+  return names.flatMap((name) => visible.filter((d) => d.name === name));
 }
 
 export function triadDirectTools(
   visible: readonly ToolDefinition[],
   project: (d: ToolDefinition) => Tool,
+  hotPath = false,
 ): Tool[] {
-  return triadDirectDefs(visible).map((d) => {
+  return triadDirectDefs(visible, hotPath).map((d) => {
     const tool = project(d);
     return { ...tool, _meta: { ...tool._meta, ...ALWAYS_LOAD_META } };
   });

@@ -39,8 +39,9 @@ What `tools/list` advertises is controlled by `toolFacade.mode`:
   (invoke by name). Discover, inspect, then call. Two standard knowledge-connector tools
   ride alongside them: `search` and `fetch` (see below), so ChatGPT deep research and
   company knowledge, which only recognise tools by those names, find them without a
-  discovery round trip. They are the only tools promoted; hide them with
-  `toolVisibility.hidden: [search, fetch]`.
+  discovery round trip. They are the only tools promoted, unless `toolFacade.triadHotPath` is on:
+  then `read_note`, `search_vault`, `write_note` and `list_notes` are listed beside them too. Hide
+  them with `toolVisibility.hidden: [search, fetch]`.
 - **`domain`** — ~a dozen domain meta-tools (`notes`, `search`, `vault`, …), each
   taking `{ action, args }`.
 - **`flat`** — the full underlying surface.
@@ -153,7 +154,8 @@ advertised and never what is authorized. See
 The server `instructions` open with one routing sentence for the surface the client was
 given, complete inside the first 512 characters (Codex truncates there) and well inside
 Claude Code's 2,048. The triad's three tools, and the `search` and `fetch` advertised beside them, carry `_meta` `"anthropic/alwaysLoad": true`
-so Claude Code loads them upfront instead of behind its tool search.
+so Claude Code loads them upfront instead of behind its tool search. With `toolFacade.triadHotPath` on,
+the four hot-path tools carry it too.
 
 ## Tool tags
 
