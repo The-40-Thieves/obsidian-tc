@@ -1,7 +1,7 @@
 // GH #1433 step 3: each burst-end site calls onBurstEnd exactly once per burst, however many embed
 // sub-batches the burst ran. The two sites are a finished index pass (indexVault) and the
 // index-on-write queue going idle (wireIndexCoordinator's onIdle).
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -58,6 +58,46 @@ describe("burst-end sites (GH #1433 step 3)", () => {
       burst.mockClear();
       await indexVault(opts);
       expect(burst).toHaveBeenCalledWith("full-reconcile", { embeddedChunks: 0 });
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("a pass whose chunks are all dedup copies reports zero embedded chunks, so it does not recycle", async () => {
+    const v = makeM2Vault({ files: { "a.md": "alpha one" } });
+    try {
+      const provider = fakeEmbeddingProvider({ dimensions: 8 });
+      const representation = buildRepresentationManifest(provider, {});
+      const pass = { representation, provider, db: v.db, vaultId: v.id, root: v.root };
+      await indexVault({ ...pass, isReadable: () => true });
+      // b.md repeats a.md's body: its chunk is a dedup copy, so no text reaches the provider.
+      writeFileSync(join(v.root, "b.md"), "alpha one");
+      burst.mockClear();
+      await indexVault({ ...pass, isReadable: () => true });
+      expect(burst).toHaveBeenCalledWith("full-reconcile", { embeddedChunks: 0 });
+    } finally {
+      v.cleanup();
+    }
+  });
+
+  it("a reconcile hands the memory budget to the recycle policy, so an idle over-budget pass can recycle", async () => {
+    const v = makeM2Vault({ files: { "a.md": "alpha one" } });
+    try {
+      const provider = fakeEmbeddingProvider({ dimensions: 8 });
+      const representation = buildRepresentationManifest(provider, {});
+      const opts = {
+        representation,
+        provider,
+        db: v.db,
+        vaultId: v.id,
+        root: v.root,
+        isReadable: () => true,
+        embed: { memoryBudgetMb: 512 },
+      };
+      await indexVault(opts);
+      burst.mockClear();
+      await indexVault(opts);
+      expect(burst).toHaveBeenCalledWith("full-reconcile", { embeddedChunks: 0, budgetMb: 512 });
     } finally {
       v.cleanup();
     }

@@ -6,8 +6,8 @@ import { embedderRecycleTotals } from "../embeddings/host/recycle-policy";
 
 export function registerEmbedderHostRestarts(registers: Registry[]): void {
   new Counter({
-    name: "obsidian_tc_embedder_host_restarts_total",
-    help: "Embedder child processes the burst-end recycle policy drained, by reason (reconcile = a finished index pass, budget = parent + child RSS over embeddings.memoryBudgetMb at a write-queue drain). Cumulative. A crash-restart is not counted here.",
+    name: "obsidian_tc_embedder_host_recycles_total",
+    help: "Embedder child processes the burst-end recycle policy drained, by reason (reconcile = a finished index pass that embedded chunks, budget = parent + child RSS over embeddings.memoryBudgetMb at a write-queue drain while the parent alone is under it). Cumulative. A crash-restart is not counted here.",
     labelNames: ["reason"],
     registers,
     collect() {

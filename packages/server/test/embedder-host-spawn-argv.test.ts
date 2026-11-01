@@ -29,7 +29,30 @@ describe("selfSpawnArgv", () => {
 
   it("forwards the parent's execArgv (runtime flags) ahead of the entry script", () => {
     expect(
-      selfSpawnArgv("/srv/obsidian-tc/src/cli.ts", "/usr/bin/bun", ["--smol", "--inspect=0"]),
-    ).toEqual(["/usr/bin/bun", "--smol", "--inspect=0", "/srv/obsidian-tc/src/cli.ts"]);
+      selfSpawnArgv("/srv/obsidian-tc/src/cli.ts", "/usr/bin/bun", [
+        "--smol",
+        "--max-old-space-size=512",
+      ]),
+    ).toEqual([
+      "/usr/bin/bun",
+      "--smol",
+      "--max-old-space-size=512",
+      "/srv/obsidian-tc/src/cli.ts",
+    ]);
+  });
+
+  it("drops the inspector and watch-mode flags, so the child neither clashes on the port nor waits for a debugger", () => {
+    expect(
+      selfSpawnArgv("/srv/obsidian-tc/src/cli.ts", "/usr/bin/bun", [
+        "--inspect",
+        "--inspect-brk",
+        "--inspect=9229",
+        "--inspect-brk=9230",
+        "--inspect-wait=9231",
+        "--watch",
+        "--hot",
+        "--smol",
+      ]),
+    ).toEqual(["/usr/bin/bun", "--smol", "/srv/obsidian-tc/src/cli.ts"]);
   });
 });

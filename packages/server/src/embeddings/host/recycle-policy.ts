@@ -1,9 +1,11 @@
 // GH #1433 rec 4, step 3: when the child-process embedder is recycled. A recycle drains the child, so
 // its memory returns to the OS and the next embed spawns a fresh one. Two burst ends call onBurstEnd:
 // a finished index pass (full-reconcile, recycles when the pass embedded chunks) and the index-on-write
-// queue going idle (write-drain, recycles only while parent + child RSS is over the memory budget).
-// Either burst end also recycles while over budget. Only child-process hosts are recycled, and each
-// host at most once per RECYCLE_DEBOUNCE_MS.
+// queue going idle (write-drain). Either burst end also recycles while the budget rule holds: the
+// parent alone is under embeddings.memoryBudgetMb and parent + child RSS is over it. A recycle cannot
+// shrink a parent that is over the budget by itself, so that case never recycles. Only child-process
+// hosts with a running child are recycled, each host at most once per RECYCLE_DEBOUNCE_MS, and each
+// recycle logs one stderr line.
 import { allLiveHosts } from "./registry";
 import type { EmbedderHost } from "./types";
 
@@ -37,11 +39,18 @@ export async function onBurstEnd(kind: BurstEnd, opts: BurstEndOpts = {}): Promi
     for (const host of allLiveHosts()) {
       if (host.kind !== "child-process") continue;
       const stats = await host.stats();
+      // No child running: nothing to drain, and no child RSS to count against the budget.
+      if (stats.pid === undefined) continue;
       // A request queued or in flight is not interrupted: the next burst end with an empty queue acts.
       if ((stats.queued ?? 0) > 0) continue;
+      const parentRss = process.memoryUsage().rss;
+      const childRss = stats.rssBytes ?? 0;
+      const budgetBytes = opts.budgetMb === undefined ? undefined : opts.budgetMb * MIB;
       const overBudget =
-        opts.budgetMb !== undefined &&
-        process.memoryUsage().rss + (stats.rssBytes ?? 0) > opts.budgetMb * MIB;
+        budgetBytes !== undefined &&
+        stats.rssBytes !== undefined &&
+        parentRss < budgetBytes &&
+        parentRss + childRss > budgetBytes;
       const worthRecycling =
         kind === "full-reconcile" ? (opts.embeddedChunks ?? 0) > 0 || overBudget : overBudget;
       if (!worthRecycling) continue;
@@ -51,6 +60,10 @@ export async function onBurstEnd(kind: BurstEnd, opts: BurstEndOpts = {}): Promi
       lastRecycleAt.set(host, now);
       const reason = kind === "full-reconcile" ? "reconcile" : "budget";
       totals[reason] += 1;
+      console.error(
+        `embedder host recycled: reason=${reason} child_rss_mb=${Math.round(childRss / MIB)} ` +
+          `total_mb=${Math.round((parentRss + childRss) / MIB)}`,
+      );
       await host.recycle(reason);
     }
   } catch (error) {

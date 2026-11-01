@@ -55,6 +55,17 @@ describe("server_health embedder_host (GH #1433 step 3)", () => {
     expect(m.embedder_host).toEqual({ state: "loading", restarts: 0, rss_mb: null });
   });
 
+  it("over_budget stays false when the parent is under budget and no child is running", () => {
+    // A host with no child reports no RSS (the recycled child's RSS is cleared), so nothing is added.
+    const parentMb = Math.ceil(process.memoryUsage().rss / MIB);
+    const m = memoryWith({
+      budgetMb: parentMb + 50,
+      child: { state: "idle", restarts: 1, recycles: 1 },
+    });
+    expect(m.over_budget).toBe(false);
+    expect(m.embedder_host).toEqual({ state: "idle", restarts: 1, rss_mb: null });
+  });
+
   it("over_budget compares parent + child RSS, so a child alone can tip it over", () => {
     // Read the parent's RSS now, not at import: the suite grows the process after collection. The budget
     // is the parent alone plus 50 MB, so the parent is under it and parent + a 100 MB child is not.

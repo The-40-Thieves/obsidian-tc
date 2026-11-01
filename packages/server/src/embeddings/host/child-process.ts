@@ -284,7 +284,11 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
     running.dead = true;
     if (running.killTimer) clearTimeout(running.killTimer);
     clearDeadline(running);
-    if (child === running) child = undefined;
+    if (child === running) {
+      child = undefined;
+      // The exited child's RSS is not the parent's to count against the memory budget.
+      lastRssBytes = undefined;
+    }
     if (running.stopping) {
       // Asked to stop, or killed by the grace timer. A request still in flight is lost with the child.
       const job = inFlight;

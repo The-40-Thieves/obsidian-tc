@@ -423,7 +423,7 @@ export function buildLocalEmbeddingProvider(
   // No owner (CLI/eval): nothing closes it. An idle child is unref'd (child-process.ts), so it never holds
   // the process open; its stdin closes with this process, and the child exits on that EOF.
   const host = registerHost(
-    ctx.embedderHostOwner ?? {},
+    ctx.embedderHostOwner,
     c.host === "child-process"
       ? createChildProcessHost({
           argv: selfSpawnArgv(),

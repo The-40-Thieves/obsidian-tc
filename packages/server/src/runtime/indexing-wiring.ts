@@ -131,7 +131,13 @@ export interface IndexResources {
    *  caller passes the SAME one instead of re-deriving it from loose config fields. */
   representation: RepresentationManifest;
   /** The embed-batch knobs, threaded into every reconcile so local runners are tunable. */
-  embedConfig: { batchSize: number; concurrency: number; maxBatchTokens: number };
+  embedConfig: {
+    batchSize: number;
+    concurrency: number;
+    maxBatchTokens: number;
+    /** embeddings.memoryBudgetMb: the reconcile's burst end recycles an over-budget child. */
+    memoryBudgetMb?: number;
+  };
   hasVec: boolean;
   fts: FtsMonitor;
   indexHealth: IndexHealthState;
@@ -169,7 +175,7 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
     { embeddings: deps.embeddings, vaults: deps.vaults },
     deps.db,
   );
-  const embedderHostOwner = deps.embedderHostOwner ?? {};
+  const embedderHostOwner = deps.embedderHostOwner;
   const embeddingProvider = await createEmbeddingProviderAsync(deps.embeddings, {
     configDir: deps.configDir,
     securityProfile: deps.securityProfile,
@@ -181,6 +187,7 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
     batchSize: deps.embeddings.batchSize,
     concurrency: deps.embeddings.concurrency,
     maxBatchTokens: deps.embeddings.maxBatchTokens,
+    memoryBudgetMb: deps.embeddings.memoryBudgetMb,
   };
   // The ONE derivation. This manifest is also handed to indexVault (IndexVaultArgs.representation)
   // rather than rebuilt there, so boot and the index_vault tool cannot compute different

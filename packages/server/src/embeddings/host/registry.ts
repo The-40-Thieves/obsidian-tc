@@ -12,7 +12,9 @@ const liveHosts = new Set<EmbedderHost>();
 /** A close that never settles must not hang shutdown: past this the host is abandoned. */
 const HOST_CLOSE_DEADLINE_MS = 5_000;
 
-export function registerHost(owner: object, host: EmbedderHost): EmbedderHost {
+export function registerHost(owner: object | undefined, host: EmbedderHost): EmbedderHost {
+  // No owner (CLI, eval): nothing closes the host, so it is not held here (the policy cannot recycle it).
+  if (owner === undefined) return host;
   const owned = hostsByOwner.get(owner) ?? new Set<EmbedderHost>();
   owned.add(host);
   hostsByOwner.set(owner, owned);
@@ -35,7 +37,8 @@ export function childHostSnapshot(): EmbedderHostStats | undefined {
 
 /** Shutdown hook for one owner. Closes only that owner's hosts and never rejects: each close is
  *  isolated and bounded, so one failing or stalled close cannot skip the rest. */
-export async function closeOwnedHosts(owner: object): Promise<void> {
+export async function closeOwnedHosts(owner: object | undefined): Promise<void> {
+  if (owner === undefined) return;
   const live = [...(hostsByOwner.get(owner) ?? [])];
   hostsByOwner.delete(owner);
   for (const host of live) liveHosts.delete(host);
