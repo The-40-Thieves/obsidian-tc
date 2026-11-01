@@ -102,6 +102,10 @@ const body = rolled.body;
 // commit is on main, so record the judgement here instead — keyed by PR number or 8-char sha, one
 // line of reason each, where it is reviewable in a diff rather than argued once in a terminal.
 const NOT_USER_VISIBLE = new Map([
+  [
+    "1445",
+    "test-only: five fixtures made portable to Windows and model-free hosts; the systeminformation bump on its branch is #1441's commit, cited there",
+  ],
   ["583", "CI only: cross-platform dependency-cruiser invocation in the boundary gate (WP0.1)"],
   ["599", "CI only: config-threading parser had to read the split WP1 schema leaves"],
   [

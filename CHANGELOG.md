@@ -6,6 +6,401 @@ All notable changes to obsidian-tc are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [1.34.0] - 2026-11-01
+
+### Added
+
+- **Operator password reset without a shell.** On a host with no terminal, set `OBSIDIAN_TC_AS_RESET_TOKEN` (or the name in `auth.as.resetTokenEnv`) to a random value of at least 24 characters, restart, and open `<issuer>/oauth/setup` to choose a new operator password. The token works once and is refused after that; the boot window closes 24 hours after start. Remove the variable afterwards: the server warns at every boot while it is set. Revoking every grant from the page is an option, refused while the revocation registry is lost (#1292).
+
+- **query_base honours per-view `groupOrder` (Obsidian 1.14).** A view's `groupOrder` list keeps only the listed groups, in that order (`null` selects the notes with no value), and overrides `groupBy.direction`. Groups not listed are hidden before `limit` applies. Bases without `groupOrder` are unchanged (#1413).
+
+- **CI: continuous benchmarking with CodSpeed.** A new `codspeed` workflow measures the native Rust kernels (`packages/native/benches`, Criterion through `codspeed-criterion-compat`) and the server's note-parsing and retrieval hot paths (`packages/server/bench`, vitest 5 with `@codspeed/vitest-plugin`) under CPU simulation on every pull request and push to `main`. Run the TypeScript suite locally with `bun run bench` in `packages/server`, and the Rust one with `cargo bench` in `packages/native`. No runtime or published-package behaviour changes (#1432).
+
+- **New error code `convention_blocked`.** Reserved for a write that a folder convention marked `block` in SCHEMA.md would break. It is returned when a write that a folder convention marked `block` would break is refused, and nothing is written (#1375).
+
+- **Vault conventions: a `severity: block` rule refuses a write that adds its violation.** A write whose note would gain a blocking folder-convention violation (a required property missing, or a value outside its allowed list) fails with `convention_blocked` before any byte reaches disk. A refused write takes no snapshot, trashes nothing, spends no confirmation and releases its idempotency key, so a corrected retry runs. A write that only fixes a note, or edits a note that already broke the rule, is never refused, and a `warn` rule still only warns. Note names are matched case-insensitively, so `.MD` is a note too. Restores and cross-note backlink rewrites stay warn-only. A move or copy is judged against its source note under the source folder's rules, and `copy_note` now reports the same `conventions` field as `move_note` (#1377).
+
+- **Folder conventions warnings on more write tools.** `bulk_create_notes`, `bulk_set_property`, `bulk_move_notes` (reported at the destination), `commit_capture`, `execute_template` and `commit_wiki_page` now check each note they write against the `SCHEMA.md` rules of its folder and return a `conventions` field when a written note breaks one. The write still stands; the warning is advisory. Clients that parse these results can ignore the new field (#1369).
+
+- **Vault conventions can block writes.** A SCHEMA.md `conventions:` block can set `severity:` per property, globally and per type, to `warn` or `block`. A write that adds a `block` violation is refused with `convention_blocked` and nothing is written, while a partial fix always passes. Moves and copies are judged against their source note under the source folder's rules, so moving a note into a stricter folder can be refused. `bulk_move_notes` with `dry_run` reports `would_block` for each row a real run would refuse. `lint_wiki` lists notes with blocking violations first and says how many are blocking. The rules, severity precedence and fail-open behaviour are in [Vault conventions](docs/src/content/docs/guides/vault-conventions.md) (#1383).
+
+- **Vault conventions: `severity:` is read and reported.** A SCHEMA.md `conventions:` block may set `severity:` per frontmatter property (globally, and per type under `types`) to `warn` or `block`, with `"*"` as the default and `null` removing an inherited entry. `get_conventions` and `start_session` report each severity with its source. The level is enforced by the write gate: a `block` violation that a write adds refuses it with `convention_blocked` (#1374).
+
+- **Test coverage is now published, not just measured.** The server suite already enforced coverage thresholds but wrote only a human-readable summary, so the code-quality services that report on pull requests had no file to read and showed no coverage at all. The suite now also writes an `lcov` report, and continuous integration uploads it (#1449).
+
+- **Fly.io and VPS deploy bundles.** `fly.toml` runs the published image as one Fly Machine with a volume at `/data`, the shared HTTP config and a `/healthz` check; create it with `fly launch --from`. `deploy/cloud-init.yaml` sets up an Ubuntu 24.04 server with Docker and Caddy, writes the shared Compose file and generates the JWT secret on the server. The Fly.io and VPS deployment pages explain the first-run steps (#1318).
+
+- **Self-hosted PaaS templates.** `deploy/paas/` adds a Coolify compose template, a Dokploy template and a CapRover one-click app, all derived from `deploy/compose.http.yml`: the published image, a volume at `/data`, the shipped HTTP config, port 8765 and a generated JWT secret. The new Self-hosted PaaS deployment page explains each one, the HTTPS requirement and how to switch to the bundled authorization server (#1317).
+
+- **Render Blueprint.** `render.yaml` deploys the published image as one web service on the Standard (2 GB) plan, with a persistent disk at `/data`, a `/healthz` health check, a prompted public URL and a generated setup token. A new **Deploy to Render** button in the README starts it, and the Render deployment page explains the first-run steps (#1312).
+
+- **`-git` image variant.** `ghcr.io/the-40-thieves/obsidian-tc:<version>-git` (and `:latest-git` for a stable release) ships `git` and `openssh-client` and runs `obsidian-tc git-sync --supervise`: it clones the vault from `OBSIDIAN_TC_VAULT_GIT_URL`, keeps it in step with that remote, and serves it over MCP. The default image is unchanged and carries no Git tooling. `obsidian-tc git-sync --supervise` starts the server as a child, runs the sync loop beside it, and exits when either stops, so the platform restarts the container (#1299).
+
+- **The published Docker image now supports a shared long-lived HTTP deployment out of the box.** It declares its port and persistent data volume, carries a stdio-safe healthcheck, ships an authenticated HTTP Compose bundle, and exercises that path in Docker CI (#1297).
+
+- **`docs-ingest setup` writes the endpoint config.** Prompts for the crawl4ai and LangExtract gateway settings (secrets hidden and masked), validates the URLs, probes both endpoints without blocking the save, and writes `obsidian-tc/docs-ingest.env` under the config home with mode 0600. Live runs read environment variables first, then that file; a missing setting's error now names `docs-ingest setup`. `--non-interactive` takes the values as flags, and a secret flag given as `-` is read from stdin (#1409).
+
+- **`doctor` names another MCP server on the same vault root.** The new `clients.sameVaultRoot` check reads the MCP client configs it can find (Claude Code, Cursor, Claude Desktop) and lists any other server whose arguments or environment point at a configured vault root, by client label and server key. It never prints a path. It is a hint, always `ok`: it cannot see servers defined elsewhere, and its notes say which configs and entries it could not compare. Refs #1457 (#1462).
+
+- **`embeddings.host: "child-process"` runs the local embedder in a child process.** It is opt-in (the default stays `"in-process"`) and applies only to `embeddings.provider: "local"`; a child is started on the first embed, and a dead child is retried once, then the request fails through the existing degrade path. This addresses #1433. Measured on a 300-note synthetic set with `nomic-embed-text-v1.5` on the test VM: after the batch the parent process holds 53 MiB, and the parent plus child total is about 2.28 GiB, against 2.08 GiB in-process. So the total is about the same, or slightly higher, until the recycle policy lands. The gain is that the child can be stopped to return its memory to the OS, which an in-process model cannot do; nothing calls the recycle path yet (#1465).
+
+- **Environment overrides for container hosts.** `PORT`, `OBSIDIAN_TC_PUBLIC_URL`, `OBSIDIAN_TC_JWKS_URI`, `OBSIDIAN_TC_VAULT_PATH` and `OBSIDIAN_TC_CACHE_DIR` overlay the config file, so a deployment such as Railway can configure the server without editing it. Environment values win over the file. `PORT` turns on the HTTP transport unless the file disables it, and `OBSIDIAN_TC_VAULT_PATH` is refused when the config names several vaults. See the new Railway deployment page (#1294).
+
+- **Embedder-arms eval gains offline arm families.** nomic-v1.5 at 768 dimensions, and EmbeddingGemma 2 at 768 and 256 dimensions (the 256 arm is an MRL storage arm and never decides). Their vectors come from a Modal GPU batch run (`eval/modal_embed_gemma2.py`, bf16, text-only), loaded back into the harness after its export is checked against the run. `embedder-model-pins.json` gains an `evalOnly` block for the GPU-only eval models, which the pins gate now validates (#1439).
+
+- **Browser sign-in example.** `examples/web-client/` is a static page that signs in to the bundled authorization server with PKCE, then searches a vault and reads a note. Allow its origin with `transports.http.cors.allowedOrigins`; the example README has the config (#1315).
+
+- **`find_notes_by_property` says when no readable note has the key.** An empty result now carries a `hint` (`reason: "unknown_property"`) that suggests up to five similar property names, so a misspelled key such as `tag` for `tags`, or `Status` for `status`, no longer looks like a value that matched nothing. Suggestions come only from notes the caller can read (#1311).
+
+- **New `get_conventions` tool returns the vault conventions that apply to a note or folder.** It lists the `SCHEMA.md` layers that carry a `conventions:` block, root first, with the merged required frontmatter and allowed values, each entry naming the layer it came from. Layers the caller cannot read are left out. `start_session` now also returns the root layer's rules (concise form) to a caller that holds `read:notes` (#1368).
+
+- **Synchronize a Git-backed vault with the new POSIX-only (Linux, macOS) `obsidian-tc git-sync` sidecar command.** Intended for the `-git` container image, it clones or verifies the configured vault, batches local commits, rebases and pushes changes, preserves conflicts on rescue branches, and supports `--once` for cron-style operation (#1298).
+
+- **Home-server templates for Umbrel, CasaOS / ZimaOS and Unraid.** `deploy/homeserver/` holds an Umbrel
+  community app, a CasaOS compose app and an Unraid template. Each runs the published image on a LAN with
+  a bearer token, an exact allow-list of hosts and a vault folder you pick. The JWT secret is never a
+  literal value: Umbrel derives it per install, and CasaOS and Unraid ask for it at install. See the
+  Home server page in the deployment docs (#1324).
+
+- **Opt-in CORS for browser clients.** Set `transports.http.cors.allowedOrigins` to the exact web origins of your pages (for example `https://app.example.com`) and browsers can call the MCP endpoint, the OAuth token, registration and revocation endpoints, and the `/.well-known` metadata. The list is empty by default and then no CORS header is sent. Origins are echoed back exactly, never `*`, and no credentials are shared. See "From a web page" in the authentication docs (#1295).
+
+- **HTTP liveness check.** `GET /healthz` answers `{"status":"ok"}` without authentication for process-liveness probes while retaining the HTTP Host guard (#1296).
+
+- **Environment overlays for LAN installs.** `OBSIDIAN_TC_ALLOWED_HOSTS` adds Host values (`host`, `host:port`, IPv4 or bracketed IPv6) to the DNS-rebinding allow-list, and `OBSIDIAN_TC_AUDIENCE` sets `auth.audience`. A JWT server reached at a LAN address (`http://umbrel.local:8765`) can now be configured from the environment alone, without a public `https` URL. Exact entries only: wildcards are refused. Matching is by host name: a port in an entry is accepted but not enforced, because the DNS-rebinding check is about the name (#1323).
+
+- **`lint_wiki` reports SCHEMA.md convention violations.** Two new checks, `conventions` (one proposal per note that breaks the folder conventions it sits under, listing its warnings) and `conventions_file` (one proposal per SCHEMA.md layer with file warnings). Both are part of the default check set. A fix is proposed as `tool_args` only when it is unambiguous: a disallowed tag gets `remove_tag`, and a scalar with a single allowed value gets `update_frontmatter`. A missing required property never gets a proposed value (#1371).
+
+- **OpenAPI clients can reach the server through an mcpo bridge.** `deploy/compose.mcpo.yml` is an overlay on the HTTP Compose bundle that runs the pinned mcpo image against the `essentials` tool profile, bound to loopback, with a shared bridge API key. Every OpenAPI caller shares one token's identity, so mint a read-only token for it. The new "OpenAPI clients (mcpo bridge)" page covers the deploy order, the Open WebUI setup and the limits (#1422).
+
+- **`find_orphans` can group its result by folder.** Pass `group_by: "folder"` to get a `groups`
+  array with one entry per top-level folder (notes at the vault root under `"/"`): the orphan
+  `count`, and the `oldest` and `newest` note modification times. Groups are sorted by count and
+  cover the whole result, so `limit` and `cursor` paging do not change them. Without `group_by`
+  the output is unchanged (#1362).
+
+- **The server now reports its own process memory.** `/metrics` exposes `obsidian_tc_process_memory_bytes` by `kind` (`rss`, `heap_used`, `external`, `array_buffers`), read at scrape time, and `server_health` returns a `memory` block (`rss_mb`, `external_mb`, `budget_mb`, `over_budget`) to authenticated callers that are not bound to one vault; a vault-bound token does not see it, because process RSS is shared across tenants. A long-lived server that climbs with only host-wide lag as its symptom, as in issue 1433, can now be seen directly. Under Bun, `external` equals `arrayBuffers` and ONNX Runtime's native memory shows up only in `rss`, so `rss` is the number to watch for #1433. Set the optional `embeddings.memoryBudgetMb` to have `server_health` report `over_budget: true` while the process RSS is above it; unset, no budget applies (#1459).
+
+- **`conventions.protectSchemaFiles` makes block rules hold against note writers.** Set it on a vault and creating, editing, deleting, moving or renaming any `SCHEMA.md` (the root one included) requires the `admin:conventions` scope (also granted by `admin:*`, `*` or `admin`); without it the call is refused with `acl_denied`, reason `schema_file`. The key binds only callers whose token lacks `admin:conventions`: stdio callers and `auth.mode: none` callers hold `*`, so it does nothing for them. Reads are unchanged, and `inspect_acl` reports the refusal as `schema_file`. `move_note`, `bulk_move_notes` and `move_attachment` leave a protected layer alone and report it under `schema_not_updated`. The default is `false`, so no vault changes behaviour until it sets the key (#1389).
+
+- **Run repository regression suites from one command.** `bun run test:regression` includes all six packages, Bun SQLite checks, tooling tests, both Python services, evaluation Python tests, documentation build and tool-page checks, lint, type checking, architecture boundaries, and model-fetch parity. It reports failed or blocked stages and continues independent suites. `bun run test:e2e` runs the real-runtime indexing lifecycle over HTTP (#1447).
+
+- **CI gates `sonar.coverage.exclusions` against vitest's coverage `exclude`.** The two lists
+  describe one decision — which source files are deliberately uninstrumented — in two files with
+  nothing connecting them, and drift distorts the reported coverage either way. The gate fails when
+  a vitest exclude is missing from Sonar, which scores the file 0% although nothing instruments it,
+  and when Sonar excludes a `packages/server/src` file vitest still instruments, which hides
+  coverage the suite actually measured. Matching is pattern-aware rather than a literal diff, so a
+  glob already covered by `sonar.exclusions` passes without a duplicate entry (#1453).
+
+- **CI: nightly StrykerJS mutation run for the shared parsers.** A non-gating scheduled workflow runs Stryker over the three pure parsers in `packages/shared` on its command runner and uploads the HTML report. It is not a required check and does not change any published package (#1356).
+
+- **Opt-in hot-path tools on the triad surface.** Set `toolFacade.triadHotPath: true` to list `read_note`, `search_vault`, `write_note` and `list_notes` as top-level tools beside `search` and `fetch`, so an agent's first read or search is one call. Everything else stays behind `find_capability`, `describe_capability` and `call_capability`. Default off. Cost when on: the triad `tools/list` grows from about 4.5k to about 17.3k JSON characters, and Claude Code loads all of it every session because the hot-path tools carry `alwaysLoad`. Refs #1457 (#1461).
+
+- **More note writers report folder convention warnings.** `add_tag`, `remove_tag`, `update_frontmatter`, `restore_note`, `format_table`, `insert_table_row`, `insert_table_column`, `sort_table_by_column`, `update_task`, `create_periodic_note`, `append_to_periodic_note` and `find_or_create_periodic_note` now check the note they wrote against the `conventions:` rules in the folder's `SCHEMA.md` files, as `write_note` does. A write that breaks a rule carries `conventions.warnings` naming the note, and the write still succeeds. A call that changes no note adds no `conventions` key. `rewrite_link` is not checked: it rewrites links across the vault and judges no single note (#1370).
+
+- **Note writes report folder convention warnings.** `write_note`, `append_note`, `patch_note`, `move_note` and `copy_note` now check the notes they wrote against the `conventions:` rules in the folder's `SCHEMA.md` files, and so do `update_active_file`, `append_active_file` and `patch_active_file`. A result that breaks a rule carries `conventions.warnings` (for example a missing required property) and the write still succeeds: the warnings are advisory, and a note that is clean adds no `conventions` key. Only the rules the caller may read apply. This is the first slice of folder conventions; the other write tools report them in a later release (#1367).
+
+- **Git vault sync webhook.** `POST /hooks/vault-sync` lets a Git host (GitHub, Gitea, Forgejo or GitLab) ask the git-sync sidecar to pull now instead of waiting for the next interval. It is enabled only when `OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET` is set, to at least 32 characters, and it authenticates each call with an HMAC signature or a GitLab token. A valid call only touches the sync trigger file; it runs no git command and takes no input. Unset, the path is not routed at all. Like the sidecar, it supports Linux and macOS only: on Windows the server refuses to start while the secret is set (#1301).
+
+### Changed
+
+- **CI: six pinned GitHub Actions move to their current patch releases.** `setup-node` and `setup-python` go to v7.1.0, `upload-artifact` to v7.0.2, `download-artifact` to v8.0.2, `rust-cache` to v2.9.3 and `deploy-pages` to v5.0.1. Every use is still pinned to a full commit SHA. No runtime or published-package behaviour changes (#1344).
+
+- **`@ast-grep/napi` 0.51.0 and `web-tree-sitter` 0.27.1 are added as root dev dependencies**, for structural code search and parsing from repo scripts. `@ast-grep/napi` matches the `@ast-grep/cli` version already pinned. Nothing changes for users of the server or plugin (#1401).
+
+- **`audit_provenance` counts evidence in the note body.** A note with no `sources` field but a URL, a footnote definition or a Sources/References section with a list or link is reported as cited in body only (`body_only`, `body_only_count`) instead of missing. Citations inside code are not counted. `lint_wiki`'s `missing_sources` check uses the same scan, so it no longer proposes those notes (#1364).
+- **`audit_provenance` takes `types`.** Only notes whose frontmatter `type` matches are claim-bearing; the rest are counted in `skipped_by_type`. Without `types` the scan covers every readable note, as before.
+
+- **CI: the markdown benchmarks move to CodSpeed's Walltime instrument.** `packages/server/bench/markdown.bench.ts` was bimodal under CPU simulation - `chunkNote::small note` measured either ~506us or ~715us with nothing in between, alternating across commits that touched no markdown code and surfacing as a false ~29% regression. A census of 23 runs ruled out both the runner CPU and the `node:crypto` warm-up added for it, and put the entire ~208us gap inside `contentHash`, which is the signature of a garbage collection landing in the measured region. `packages/server/bench/instruments.ts` now says which bench file each instrument measures, and `codspeed.yml` runs one node job per instrument; `bun run bench` keeps the simulation suite and `bun run bench:walltime` runs the Walltime one. Walltime needs a CodSpeed macro runner to mean anything, so that job stays skipped until the repository variable `CODSPEED_MACRO_RUNNERS` is set. No runtime or published-package behaviour changes (#1452).
+
+- **Refreshes the bge-m3 service locks to current releases.** The runtime lock moves fastapi to 0.161.1, pydantic to 2.14.1, sentence-transformers to 6.2.0, transformers to 5.20.2 and numpy to 2.5.4; the CI test lock moves fastapi, pydantic and starlette. Torch and FlagEmbedding are unchanged (#1346).
+- **The bge-m3 service now declares Python 3.12 or newer.** It said 3.10, but the locked runtime set (numpy 2.5.4, scipy 1.18.1, networkx 3.7) already required 3.12, and starlette 1.8 dropped 3.10. Deployments already run 3.14.
+
+- **The dev-time Biome linter and formatter is upgraded to 2.6.2.** Nothing changes for users of the server or plugin. Biome's Markdown and YAML formatter and linter stay off, so the set of files checked is the same as before (#1347).
+
+- **CI: the server suite runs with two Vitest workers on `macos-latest`.** Those runners have 3 vCPUs, and three workers plus the main process competed with the runner agent. A new `VITEST_MAX_WORKERS` setting controls the cap; other CI runners and local runs keep their existing defaults (#1278).
+
+- **CI: the remaining downloads and installs are hardened.** Every `curl` download in the workflows forces HTTPS on redirects, and every CI and Dockerfile `bun install` skips lifecycle scripts, except the one job that exists to exercise the real install path. The Python CI installs are hash-verified or pin every package, and the bootstrap `pip` and `uv` are pinned. No runtime or published-package behaviour changes (#1404).
+
+- **CI: the full suite pre-installs the local reranker's dependencies once per job.** `packages/reranker-local` is deliberately not a root workspace member, so its reranker tests downloaded its ~230 MB dependency tree three times per run inside a 180-second kill timer. The server and native CI jobs now install it once, and the bun cache key covers its lockfile. A timed-out or failed staging step now names its command, directory and stderr tail instead of a generic hook timeout. No runtime or published-package behaviour changes (#1438).
+
+- **Moves and copies are judged against their source.** A move or copy is now checked under the destination folder's `block` rules, with the source note's own violations under the source folder's rules as the baseline. A rename within a folder, a move between folders with the same rules, and a move into a looser folder pass. A move or copy into a stricter folder whose `block` rule the note breaks is refused with `convention_blocked`, and nothing is written. `bulk_move_notes` with `dry_run` reports a `would_block` entry on each row that would be refused. A move or copy from a note the caller cannot read is never refused by a convention rule, so the result never reveals that note's frontmatter (#1378).
+
+- **Zod 4.6.7 hardens array, set and map parsing against oversized input.** Schemas in the shared and server packages move from 4.6.5; no configuration change is needed (#1348).
+- **Dev and runtime patch bumps.** vitest 5.0.5, dependency-cruiser 18.7.0, jscpd 5.4.2 and obsidian 1.14.4 (plugin typings: `find()` now returns `HTMLElement | null`).
+
+- **`docs-ingest` now requires Python 3.11 or later.** Pillow 13.0.0 is the only release that fixes its open advisories (one critical, six high, two medium), and it needs Python 3.11. With the 3.10 floor, the dependency resolver could not move past Pillow 12.3.0. Python 3.10 reaches end of life this month, and CI already tests on 3.14. `bge-m3-service` keeps its 3.10 floor. Pillow itself moves to 13 once docling releases its Pillow 13 support (#1330).
+
+- **The local embedder is now opt-in for npm installs.** `npm install obsidian-tc` no longer installs `@the-40-thieves/obsidian-tc-embedder-local`, which pulled about half of the install tree even for users on a hosted or Ollama embeddings provider. To use the default `local` embedder, install the same version: `npm install -g @the-40-thieves/obsidian-tc-embedder-local@<same version>` (drop `-g` for a project install). `obsidian-tc setup` offers to run that install, and prints the exact command when it cannot ask (no TTY, `--yes`, or `--dry-run`) (#1361).
+- **Upgrading an existing npm install loses semantic search until the embedder is installed.** npm prunes the embedder that the previous release nested under obsidian-tc, so `local` cannot resolve. The server then boots text-only (lexical search still works) and `obsidian-tc doctor` names the fix. Run `obsidian-tc setup`, or the install command above.
+- **A version mismatch is reported.** An embedder at a different version than obsidian-tc (for example after `npm i -g obsidian-tc@latest` alone) still loads, and boot and `obsidian-tc doctor` now say so and name the matching install.
+
+- **npm installs only your platform's ONNX runtime.** `@the-40-thieves/obsidian-tc-embedder-local` now ships the bundled embedder and pulls the host's runtime from a per-platform optional package (`...-embedder-local-<os>-<arch>`), cutting the install from about 585 MB. Installs with `--omit=optional` lose the local embedder; use ollama or a hosted provider instead (#1254).
+
+- **The child-process embedder is recycled at burst ends while parent plus child RSS is over the budget.** With
+  `embeddings.host` set to `child-process` (GH #1433), a finished index pass that embedded chunks drains the
+  embedder child, and a drained index-on-write queue drains it while parent plus child RSS is over
+  `embeddings.memoryBudgetMb` and the parent alone is under it, at most once per 30 s per host. `server_health`
+  reports the child as `memory.embedder_host` (state, restarts, rss_mb). The counter
+  `obsidian_tc_embedder_host_recycles_total{reason}` counts those recycles. No setting changes; the in-process
+  host is never recycled. Measured on a 300-note vault with a full reconcile and 20 write bursts: total RSS
+  after the 20th burst was 583 MB (parent 81 + child 502) with recycling against 1084 MB in-process, with
+  0 crash restarts and 3 policy recycles (1 reconcile, 2 budget) (#1466).
+
+- **`doctor` warns when vault reads run without the native module on macOS or Windows, and SECURITY.md states that path's limit.** (#1285)
+
+- **Avoid redundant fallback vault read checks on Linux.** Pure-JavaScript fallback reads now skip
+  the second directory walk when procfs confirms that the opened file descriptor resolves to the
+  expected canonical path, while retaining the existing directory verification when procfs is
+  unavailable (#1270).
+
+- **`find_link_cycles` skips structural two-note loops by default.** A new `min_length` input (default 3) drops loops shorter than that many links, so a note and its folder index no longer fill the page. Pass `min_length: 2` to get the old behaviour. The result gains `skipped_shorter` (#1363).
+- **`total` is the real count.** It counts every distinct cycle within the length bounds, not just the returned page. `truncated: true` means the scan hit its work cap, so `total` is then a lower bound.
+- **New `folder` input.** Only notes under that folder are cycle members; edges that leave it are ignored.
+
+- **Docs cover git-backed vault sync.** `docs/SYNC.md` describes the server-run git sync of the `-git` image, the Docker and Railway pages show how to run it, and `deploy/compose.git.yml` is a Compose example. The `-git` tags are first published with the next release (#1302).
+
+- **Docs ingest no longer ships a private-network default.** `CRAWL4AI_URL` and `LANGEXTRACT_BASE_URL` have no default now; a live ingest that needs one unset fails naming the variable, and the service README documents both (either may be an `https://` endpoint). Set them before running a web or extraction ingest; `dry_run` needs neither. The eval scripts default to `http://localhost:4001/v1`. Bidi and zero-width characters in the detector sources are written as `\uXXXX` escapes, and `check:bidi` in the lint job fails on a literal one (#1406).
+
+- **Server instructions lead with the one-call read.** On the triad surface the instructions now name the `obsidian-tc://<vault>/<path>` resource read (when resources are on) and the directly listed `search` and `fetch` tools before the three-tool route, so an agent reads a known note in one call instead of several. See #1457 (#1458).
+
+- **CI: the macOS Intel legs run tests with a 15 s timeout floor.** The hosted Intel runners are the slowest legs, and tests that spawn `bun` exceeded Vitest's 5 s default there. A new `VITEST_TIMEOUT_FLOOR_MS` setting raises the non-Windows timeouts on those legs only; every other platform is unchanged. The macOS Intel CI legs now run on pushes to main and nightly, not on pull requests or the merge queue (#1286).
+
+- **The dev-time knip and oxc-parser are upgraded to 6.42.1 and 0.154.0.** Nothing changes for users of the server or plugin. The ACL identity gate parses source with oxc-parser, and its tests pass on 0.154 (#1350).
+
+- **Legacy-era protocol code is inventoried.** `LEGACY_SHIMS.md` lists every 2025-11-25 code path, with its reason and the steps that delete it, and each legacy-only block carries a `// legacy-era shim: see LEGACY_SHIMS.md` line. New protocol-facing code targets 2026-07-28 (see "Protocol eras" in `CONTRIBUTING.md`). No behaviour change (#1293).
+
+- **The local embedder now gets its own batching defaults: `embeddings.maxBatchTokens` resolves to 512 and `embeddings.concurrency` to 1 under `provider: "local"`, while every other provider keeps 2048 and 4.** Both numbers were sized for a remote runner — keeping a batch inside Ollama's `n_ctx` 4096 — but they also decide how large each in-process ONNX inference is and how many run at once. As reported in #1433, measured resident memory scales with chunks per request (one chunk is about 0.5 GB, four about 1.1 GB, thirty-two about 1.9-2.7 GB for nomic q8), and one long-lived server settled at 1.5 GB with a 2.9 GB peak. A value you set explicitly still wins, per key, including one that happens to equal what the provider would have resolved. An install that omits `embeddings.provider` and keeps its existing provider from its index also keeps 2048 and 4: the batching defaults are derived after that resolution, not before it, so an unconfigured Ollama or hosted install does not quietly start indexing with smaller batches. The trade is reindex throughput: `concurrency: 1` leaves a many-core host under-used during a full reindex, so raise it explicitly when the host has memory to spare. Steady-state edits arrive as small batches and barely change (#1456).
+
+- **Bump `@modelcontextprotocol/server` from 2.3.1 to 2.4.0** (and its `@modelcontextprotocol/core` dependency). None of the 2.4.0 upgrade notes applies to this server: no tool uses `x-mcp-header` on a number parameter, no `outputSchema` is built from `.meta({ id })`, and no tool schema sets a `$id` or `$ref` with a URI scheme. Tool names, descriptions and schemas are unchanged, so no client re-approval is needed (#1359).
+
+- **Pre-warm Bun's shared runtime transpiler cache before parallel server tests.** CI now fills the cache serially and reports its file count and size before Vitest starts, avoiding a cold first wave of concurrent Bun child processes (#1279).
+
+- **Release pipeline: the SBOM tool and the publish installs are pinned and checked.** The image SBOM step downloads a pinned syft release tarball and checks its sha256 before extracting it, instead of piping a remote install script to `sh`. The publish jobs that hold OIDC tokens install dependencies with `--ignore-scripts`. The Smithery publish script escapes line breaks and a leading `::` in every server response it logs. No runtime or published-package behaviour changes (#1402).
+
+- **SECURITY.md names rename-into-place as out of scope.** A local process that can rename directories or files inside the vault is trusted: an ordinary directory or file renamed into an allowed path mid-read keeps that path, so no backend's path check can detect it (#1288).
+
+- **Replaces two deprecated npm dependencies.** `prom-client` is now `@prometheus-io/client`, and `@opentelemetry/sdk-trace-node` is now `@opentelemetry/sdk-trace` with `@opentelemetry/context-async-hooks` and `@opentelemetry/core`. Metrics output and tracing behaviour are unchanged (#1360).
+
+- **Public text no longer names private tracker ids.** Linear ticket ids and links are gone from the Markdown docs and the CLI's printed text, and `check:public-text` now scans every tracked Markdown file, the MCP manifests and the CLI string literals. No behaviour changed (#1261).
+
+- **`sessions.autoOpen` now also opens a session on stdio.** It opens on the first tool call or resource read, and the server closes it at a clean exit. Off by default; if you already set it for HTTP, stdio now writes session rows and traces too, and `traceContent` defaults to true, so those traces include note bodies and search queries. (HTTP never closes an implicit session at exit; only the maintenance sweep does.) Tracked in GH #1457 (#1463).
+
+- **Toolchain pins moved.** Bun 1.4.3, Node 26.12.0 and Rust 1.99.1 are now the versions this repo develops and builds against. Node 24 stays the supported runtime floor, and Python stays on 3.14 (#1325).
+
+### Fixed
+
+- **Stabilized the auth rotation grace-window tests on slow runners.** Each test now has the
+  stall-sized timeout, and each call collects only the stdout it wrote, so a timed-out test can no
+  longer leak JSON into the next test's output (#1291).
+
+- **CI: the `chunkNote::small note` benchmark no longer reports false regressions.** The markdown benchmarks hash every chunk, and node builds its digest tables on a process's first `createHash` at a cost of two syscalls. That one-time setup landed inside the measured region, so the benchmark was bimodal - ~511us without the init and ~718us with it - and CodSpeed reported the flip as a ~29% regression on pull requests that touched no markdown code. The bench file now hashes once at module load, outside every measured region. No runtime or published-package behaviour changes (#1450).
+
+- **Hardened companion bridge result filtering.** Reuse per-call ACL path decisions for repeated rows and report `plugin_incompatible` for malformed template and DQL payloads (#1274).
+
+- **A companion that was unreachable at startup is picked up without a restart.** The Tier-3 live gate used to be fixed at the boot probe, so a vault whose companion answered only after startup kept refusing Dataview, Tasks, Templater, Git and the other companion tools until a manual `refresh_plugin_capabilities`, and even that refresh left the gate closed. The gate now follows the live capability snapshot, and the server re-probes any bridged vault whose companion is unreachable or missing once a minute until it answers. A failed boot probe is logged with its cause code (#1421).
+
+- **Treat bridge paths that normalize to the vault root as missing attribution.** Restricted callers now fail closed on root-only bridge rows, while real paths in the same row remain authoritative (#1277).
+
+- **bulk_move_notes refuses a batch that names one source twice.** Two rows with the same `from` (also when spelled `a.md` and `./a.md`) used to both report `ok`, and only the last destination was written. Both rows are now refused with `invalid_input`, nothing moves, and a dry run no longer copies a verdict across them (#1385).
+
+- **`bulk_move_notes` checks every backlink rewrite before it trashes anything.** A rewrite the folder conventions gate refuses now refuses the whole batch before any destination is moved aside or any note is snapshotted, instead of after. Nothing is left in `.trash` and no note changes (#1387).
+
+- **Offline CLI passes no longer exit 1 when the database is busy at close.** `note-quality` (and the other offline passes that share the bun:sqlite adapter) could report `database is locked` after their writes had committed, when another process held the same cache open. A close-time busy is now retried without the throw; any other close failure still fails the command. Refs #1259 (#1260)
+
+- **`knowledge_challenge` and `reflect` (mode `challenge`) no longer return silent zero evidence.** The decision filter runs over the normal 30 readable results first and expands once, to at most 90, only when decision evidence is underfilled. Both tools return a `coverage` object (`recalled`, `decision_matched`, `filtered_out`, `kept`, `dropped`, `truncated`, `low_coverage`) counted over the notes the caller may read. Cited `evidence_paths` are checked against every evidence or contradiction path shown to the judge: unseen paths are listed in `coverage.unresolved_evidence_paths`, unsupported items are dropped, and an objection verdict (`reconsider` or `do_not_proceed`) left with no supported citation, stripped or never given, is downgraded to `reconsider` with a neutral summary. `reflect` with `mode: "challenge"` and `persist: true` now returns a validation error instead of ignoring `persist` (#1262).
+
+- **Challenge evidence now stays traceable after expanded recall and filtering.** Reflect returns every evidence chunk the judge was shown in `sources`, keeps egress-excluded top-k sources in `sources` and the retrieval log at their rank (only their text is withheld from a model, in every mode), and logs only returned evidence. Numbered, dot-relative, wikilink, and extensionless citations resolve only when their normalized vault-relative path exactly matches a shown path, never by basename; low coverage and `kept`/`truncated`/`contradiction_count` reflect the post-egress set; stripped evidence aliases cannot survive in a summary or finding rationale; and egress exclusion that leaves no evidence refuses instead of calling the judge (#1269).
+
+- **Egress-excluded chunks no longer take up challenge evidence slots.** Chunks whose text is withheld from models by `egress.excludePaths` are now removed before the challenge evidence is selected, so they no longer count against the evidence cap or the per-note limit, and a recall page that is mostly withheld now expands to find readable decision chunks. Withheld chunks are reported in `coverage.dropped.egress`, and `knowledge_challenge`'s `excluded_count` includes them (#1287).
+- **Challenge evidence the judge did not cite no longer earns retrieval-log activation credit.** `reflect` (challenge mode) and `knowledge_challenge` log only the evidence the judge cited, after the judge runs. A judge call that fails still logs the `reflect` top-k hits; `knowledge_challenge` logs nothing in that case, because the judge cited nothing.
+
+- **Challenge citation scrub is precise.** A short bare basename no longer wipes unrelated text from a judge rationale, and the scrub now also catches a malformed citation holding several paths, slug and percent-encoded spellings of a stripped title, and a numbered `[n]` citation to a path containing `#`, `|` or `]` (#1280).
+
+- **A client address survives a parent app that rebuilds the request.** An embedder that mounts the app under its own Hono app and registers a body-rebuilding middleware (such as `bodyLimit`) before the route could make a chunked `POST /oauth/login` lose its address under Bun, which skipped the per-IP login limit. The capture now keeps a peer a parent already recorded, and `captureClientPeer` is exported from the package root for embedders to register first (#1307).
+
+- **Two servers starting together on an empty cache no longer crash on `schema_migrations`.** When another process has already applied a migration, the second one now skips it instead of exiting with `UNIQUE constraint failed: schema_migrations.version`. Refs #995 (#1255)
+
+- **A `limit` sent to a `k` tool, or `k` sent to a `limit` tool, now says which name to use.** The validation error now carries a `did you mean "k" for "limit"?` hint (or the reverse) instead of a bare rejection; a non-numeric string under `k` still gets the edit-distance hint, so `k: "status"` keeps pointing at `key`. Nothing is renamed or accepted under a second name, and no advertised schema changes; the hint is derived from each tool's own input keys (#1434).
+
+- **Dependency boundary and structural map commands work with large source lists on Windows.** Both commands now call dependency-cruiser's supported API directly, preserving configured rules, exclusions, known-violation handling and nonempty graph checks without shell shims or operating-system command-length limits (#1446).
+
+- **`docs-ingest setup` hardening and usability.** A saved URL with a username or password is masked in its prompt, never shown raw, and a malformed one shows no default. It is rejected like a new value. Redirect targets and escaped environment secrets are masked in every case and escaped form. An environment secret that is not one line of printable text is never sent: its probe is skipped. An endpoint URL with an `@` anywhere, whitespace in the host or a non-numeric port is rejected. The setup file is saved atomically through a 0600 temp file, in place behind a symlink. A required prompt gives up on a non-terminal stdin instead of re-asking forever, and an optional one keeps its value at end of input. Every bad setting is reported in one run. An explicit empty optional flag clears its key, and re-saving copies comments and unknown keys through unchanged (#1411).
+
+- **The local embedder and reranker now release each request's tensor instead of leaving it for the garbage collector, so a long-lived server no longer keeps a burst's peak memory for its whole life.** `embed()` copied its vectors out with `tolist()` and returned without calling `dispose()`, leaving the tensor's native ONNX Runtime buffer alive until Bun's garbage collector next ran — and that collector is driven by JS heap pressure while this garbage is almost entirely native, so it ran late. Reported in #1433 against a 2,277-note vault on a 12 GB host: the process reached 2.37 GB after 15 hours with a 2.9 GB peak and never gave it back while idle, and forcing a collection every 5 seconds cut the resident swing by 262 MB and the peak by 177 MB — evidence that the memory was collectable garbage rather than a leak. `packages/embedder-local` and `packages/reranker-local` now dispose in a `finally`, freeing the buffer per request including on the path where the vector-count check throws. A post-burst collection and a recyclable embedder process remain open in that issue (#1454).
+
+- **The embedder install hint follows how obsidian-tc is installed.** A global npm install is told `npm install --global <embedder>@<version>`; a project install is told `npm install --save-exact <embedder>@<version>` run in that project's directory. `obsidian-tc setup`'s install prompt names no directory for a global install. Before, the doctor warning, the boot log and the setup prompt printed both forms, and a global user who ran the project form from their home folder got a stray `package.json` (#1361).
+
+- **Refusals name notes by vault-relative path.** A `read_note`, `write_note` or `delete_note` refusal (`acl_denied`, `path_invalid`) carried the server's absolute filesystem path in `details.path`, which exposed the host layout to any authenticated caller. `details.path` is now the vault-relative path with POSIX separators, or the basename when no vault root matches (#1424).
+
+- **Eval harness follow-ups from the EmbeddingGemma 2 reviews.** Eval tooling only; no product behaviour changes. `modal_embed_nomic.py` writes the ids of the rows it embedded beside the vectors (`vecs.f32` gets `vecs-ids.json`), refuses a row with no id, and publishes both files or neither. The HTTP arm's model id comes from the same `gpuVecsModelId` as the offline path. `modal_embed_gemma2.py` publishes `--log` in the same all-or-nothing group, cleans up a partial whose write fails, counts the inputs the model truncates (`truncated_inputs`), and documents a client-side timeout for `modal run`. The model-pins gate refuses unknown keys in `evalOnly` file entries. Score summaries carry the unrounded p-value (`p_raw`) and each BH family's rejected arms and p-values. The offline index stage is a callable function with an end-to-end test over export, load and a refused stale ids file (#1440).
+
+- **Followers report the leader's reconcile state.** Only the vault-lock leader runs reconciles, so a
+  second MCP process on the same cache reported `reconcile: "pending"` and `notes_ready: false` for its
+  whole life. The leader now persists its outcome to cache.db, and `server_health` and
+  `get_index_status` on a follower read it back. Both outputs gain `reconcile_source`: `leader` on a
+  follower (the leader's row, or pending until one lands), `self` on the leader. Nothing to configure (#1437).
+
+- **Git status and diff map paths more accurately.** On macOS and Windows, in-vault files whose case or Unicode form differs between git and disk are no longer dropped, and a symlinked vault maps correctly. Status, diff and stage now refuse with a retry message, rather than mis-mapping, while obsidian-git reloads its settings (#1284).
+
+- **Batched git sync commits after the quiet window.** A write that lands while a status check is in flight no longer lets the batched commit fire up to one status round early (#1398).
+
+- **The `-git` image shuts down and refuses unsafe switches more reliably.** When a branch is configured and the clone sits on a detached HEAD with uncommitted changes, boot now refuses to switch, as it already did for a dirty checkout of another branch. A SIGTERM or SIGINT during the initial clone now aborts it, leaving the vault empty. A second signal no longer kills the launcher before the server child is reaped. The image runs `tini` as PID 1, so git and ssh processes orphaned by a killed fetch or push are reaped instead of left as zombies (#1304).
+
+- **A confirmation a tool checks inside its handler is released on a pre-effect refusal too.** When the handler's own write gate refuses the confirmed call with `convention_blocked` before any write, the single-use token is handed back. Today only `update_task` reaches this path, since the other handler-confirmed tools refuse in a conventions preflight before the token is spent. It keeps its original expiry and bindings, a retry with the same arguments runs once the input is corrected, and each release is recorded as an `hitl_released` event. A handler that signals an effect, or fails for any other reason after the confirmation, keeps the token spent (#1403).
+
+- **Host guard refuses a bare name under a bracketed config entry.** An `allowedHosts` or `allowedOrigins` entry written as `[name]` (brackets around a non-IPv6 name) no longer admits the bare `name` Host. Brackets are stripped only around an IPv6 literal. Entries written as `[ipv6]` are unchanged (#1416).
+
+- **`OBSIDIAN_TC_DEFAULT_VAULT` now decides the server's default vault everywhere, not only in the vault registry.** An HTTP or OAuth caller with no vault binding (no `vault` claim, no grant vault) was pinned to the first vault listed in `vaults`, so the variable named a vault such a caller could not reach. It now follows the default. Because an HTTP caller is bound to exactly one vault, a caller that used to work in the first vault is moved to the default after upgrading, and a call that names the old vault answers `forbidden`: if a client must stay on a specific vault, give its token a vault (`token mint --vault`), bound the account, or pick a persona at consent. The same default now also applies to the stdio caller's vault (so `resources.boundVaultOnly: true` confines it to the default vault, as the config docs say), to the vault the `tc.server.start`, `tc.server.shutdown` and `tc.maintenance.sweep` MORGIANA events are attributed to (their spool moves to `<cacheDir>/<default>/`), and to the Prometheus `vault` label on calls that name no vault. With the variable unset, or naming an unknown vault, the first vault is used exactly as before (#1435).
+
+- **`index_vault` demotes a note whose ACL identity changed before it reads the note.** A folder pin retargeted between passes used to leave the note's stored identity in place until the pass finished, so a pass that ended early kept authorizing the old identity. The stored row now becomes unresolved (fail closed) as soon as the walk sees the new identity, and it takes the new identity only together with content read from the new file and committed in the same pass. A note the pass could not read, or whose new content never committed (an embedding failure or a cancelled pass), stays unresolved, so its old content is never shown under the new identity (#1320).
+
+- **Indexing honors the configured policy across edits and restarts.** Note writes and watcher updates now use the same chunk size, embedding batch size, concurrency and token budget as whole-vault indexing, and boot and scheduled reconciliation keep the configured chunk size. Before this, a vault with a non-default `indexing.chunkTokens` re-chunked edited notes at the 512-token default and rebuilt them again at the configured size on the next reconcile (#1444).
+
+- **`index_vault` no longer aborts on a note the safe open refuses.** Indexing a folder that is an unconfigured symlink (or a note that became hard-linked mid-pass) used to fail the whole pass with `acl_denied`; each refused note is now skipped and left unresolved in the index, counted in the new `notes_read_refused` result field, and listed in `read_refusals` where the caller may read that path (#1320).
+
+- **`index_vault` no longer names a note the caller cannot read in `read_refusals`.** A refused read is listed only when `read_note` would read that path for the caller, and its error text carries no host path. `notes_read_refused` still counts every refusal (#1420).
+
+- **A demoted indexer no longer upserts note bodies or search rows after a successor takes leadership.** The notes pass now re-checks the leader epoch inside its write transaction and drops the whole batch when a successor has promoted, so the stale note body stops being readable and searchable until the successor re-indexes it (#1417).
+
+- **Memory rename and delete are atomic against the vault.** `rename_entity` restores the target and neighbour notes when a step fails, and removes the old note only after the rename commits, so a refused or failed rename no longer leaves a half-moved note. A cascade `delete_entity` refuses a read-only neighbour before any change. A rename whose new name maps to the same note file no longer deletes that file, and a rename whose old note cannot be removed still reindexes the notes it rewrote. A failed cascade `delete_entity` restores the neighbour notes it had rewritten. A permanent `delete_entity` keeps a snapshot of the note, so `restore_note` can bring it back when snapshots are enabled (#1428).
+
+- **Memory notes show up in search as soon as the tool returns.** `create_entity`, `link_entities`,
+  `unlink_entities`, `add_observation`, `update_observation`, `rename_entity` and `delete_entity` now
+  re-index the projection notes they write and de-index the ones they remove, once the call has
+  committed. A search made right after one of these calls no longer misses the new fact, and a
+  renamed or deleted entity's old note no longer lingers in the index. A failing index hook never
+  fails the call (#1423).
+
+- **Local-model mirror parity checks cover complete implementations.** Compare full parsed declarations, including bodies after object defaults and object return types. Preserve literal contents and reject malformed source so download and backend drift cannot silently pass (#1446).
+
+- **`move_attachment` refuses a secret-shaped destination path.** The destination is checked the same way `move_note` and `write_attachment` check it, so a secret-shaped name is refused with `secret_detected` in every memory-defense mode, with or without `update_references`. Referencing notes rewritten by a move are now reindexed, so search reflects the new link text (#1419).
+
+- **Native vault reads no longer hang on a FIFO, and both backends classify non-files the same way.** The native read opened the file without `O_NONBLOCK`, so a named pipe with no writer inside the vault blocked the server indefinitely. Reading a directory or a FIFO now reports `path_invalid` on both the native and the fallback backend; symlinks remain access refusals (#1275).
+
+- **A forget no longer leaks into other vaults' note quality.** A forgotten note path tombstoned the same path in every vault, and deleted or moved notes kept a stale quality row. Forget records its vault, legacy forget entries still apply to every vault, and a recompute removes rows for notes that no longer exist. A context export with `--vault` now carries only that vault's forgets (plus legacy ones), so importing it under another vault is no longer refused, and the same bundle imported under two vaults keeps both vaults' forgets (#1414).
+
+- **The bundled authorization server no longer refuses or truncates a large OAuth `state`.** `GET /oauth/authorize` capped `state` at 512 bytes, which RFC 6749 does not bound at all, and the error redirect echoed a 512-byte *prefix* of whatever the client sent. Clients whose `state` is a signed-and-encrypted blob — Google's Gemini among them — could never connect: the prefix failed inside their own crypto (`Ciphertext HMAC does not verify`) and hid the OAuth error the redirect was reporting. The bound is now 4096 bytes as a DoS floor only, and `state` is echoed byte for byte or omitted, never shortened (#1448).
+
+- **The performance gate again measures only index batching transactions.** Runtime-provisioned search schemas are set up before transaction counting starts, so a cold perf run no longer reports their three `BEGIN IMMEDIATE` transactions as an indexing regression. Refs #1256 (#1258)
+
+- **`egress.excludePaths` withholds text from models only.** Reflect now returns every top-k source in `sources` and the retrieval log at its original rank in every mode, egress-excluded ones included: ids, paths and scores are not egress, and excluded text still never reaches a model. In degraded mode (no gateway) excluded hits are no longer dropped silently. `excluded_count` means one thing in every mode: the number of returned top-k sources whose content was withheld from the model (degraded mode counts the hits that would have been withheld). Persisted reflection provenance lists exactly the chunks the model was shown (#1281).
+
+- **A confirmed call refused before it could have had any effect keeps its confirmation.** The single-use token is handed back only on a positive pre-effect fact: the call was refused after the confirmation but before the tool's handler was entered (for example by the folder ACL), or the vault write gate refused it with `convention_blocked` before any write of the call (such as a blocked destination on a real `bulk_move_notes` run). The same token and the same arguments then work once the input is corrected; the token keeps its original expiry and bindings, and each release is recorded as an `hitl_released` event. Every other failure keeps the token spent, including a timeout or companion error after the request was sent, so one approval can never run an action twice. A custom `verifyElicit` hook releases only if it implements the new optional `release` (#1388).
+
+- **Failed startup releases its database and tracing resources.** Store migrations, identity setup, early telemetry setup, and later transport failures now unwind every acquired resource in reverse order. Cleanup failures are reported without hiding the original startup error; normal store shutdown still reports close failures and attempts each handle exactly once (#1443).
+
+- **vecKnn requires a vault id.** The search helper no longer has an unscoped mode that ranks every vault's vectors. Internal callers already pass the vault, so no config or tool change is needed (#1415).
+- **Security and architecture docs match the code.** SECURITY.md now states the fixed HITL floors, the ACL-rebuild-on-restart rule, the replayable `requestState` window and the bridge-tool boundary. ARCHITECTURE.md and TREE.md list the 2026-07-28 MCP surface, the `oidc` auth mode and the shipped native exports. config-yaml documents `retention.tracesDays` (default 30).
+
+- **SonarQube Cloud was analysing nothing.** `sonar-project.properties` set `sonar.tests` without
+  its counterpart `sonar.sources`, which left the scanner with zero main source files: the first
+  CI-based analysis of `main` reported no `ncloc` at all, imported no coverage, and passed its
+  quality gate because there was nothing left to measure. `sonar.sources` now sets the scope back
+  to the repository root, and the test tree is excluded from the main set so `sonar.tests` can
+  still claim it without the two overlapping (#1451).
+
+- **Index-reset guidance preserves durable state.** Embedding migration and configuration documentation now use the confirmed, table-scoped reset tool instead of recommending deletion of `cache.db`, which also stores write provenance and the source-of-truth memory graph. Regression coverage verifies that reset preserves those records and materialized notes (#1442).
+
+- **Stabilized Bun-powered server tests on Windows.** Test workers now share a repo-local runtime
+  transpiler cache, avoiding repeated cold cache bursts when each file uses an isolated home (#1265).
+
+- **Two server tests no longer fail on the macOS Intel legs.** The `runBunSync` kill test and the `vitest.config.ts` timeout pin assumed no timeout floor, so the Intel legs' `VITEST_TIMEOUT_FLOOR_MS=15000` stretched the 300 ms kill to the test's own timeout and broke the 5 s pin. Both now set the floor explicitly, and the config test also pins the floored values (#1290).
+
+- **A bare `tools/list` no longer opens a workspace session in domain or flat mode.** With `sessions.autoOpen` on, those two modes opened one on every listing, as triad mode already did not. Domain-mode `tools/list` also now carries the same private one-minute cache hint as the other modes (#1412).
+
+- **An empty `cacheDir` is now refused instead of writing caches into the working directory.** With `cacheDir: ""`, the index, auth registry and indexing leader lock (`vault-lock.db`) all resolved against the process's current directory, leaking files there and letting unrelated runs collide. Config load now rejects an empty `cacheDir` with an error naming it, and the leader election refuses an empty or blank one as a second guard for programmatic callers. A config that set `cacheDir: ""` must name a directory (or drop the key to use the default `.obsidian-tc`) (#1340).
+
+- **A fresh data volume no longer stops the first boot.** When `OBSIDIAN_TC_VAULT_PATH` names a folder that does not exist yet and its parent does, the server creates it and logs one line, instead of exiting with `vault root could not be resolved`. A vault path written only in the config file still fails loudly when missing (#1319).
+
+- **Attachment, search and jsonlogic walks skip a note the safe open refuses.** A note that is a hard link to a file outside the vault, or sits under an unconfigured symlinked folder, no longer fails list_attachments, get_attachment, delete_attachment, search_text, search_regex, search_jsonlogic or search_vault. The walk skips that note and reports `notes_read_refused` (a count, absent when nothing was refused). The refused note is never named. `delete_attachment` with `permanent: true` refuses (`conflict`, nothing deleted) when a read was refused, since a note it cannot read may still embed the file; trash delete is unchanged (#1425).
+
+- **Whole-vault walks skip a note the safe open refuses.** `list_tags`, `suggest_tags`, `find_notes_by_tag`, `list_properties`, `find_notes_by_property`, `query_base`, `list_kanban_boards`, `bundle_folder`, `find_orphans`, `get_backlinks`, `find_unresolved_links`, `audit_provenance`, the graph-health tools, `lint_wiki`, `find_existing_page`, `draft_wiki_page` and `commit_wiki_page` no longer fail when one note is a hard link to a file outside the vault or sits under an unconfigured symlinked folder the safe open refuses. The walk skips reading that note and counts it in `notes_read_refused`, the number of notes skipped, never a path. A listing such as `find_orphans` may still name a path it lists anyway. A clean vault's output has no such key (#1429).
+
+### Security
+
+- **Dependency advisories cleared.** body-parser 2.4.0 (denial of service from trailing bytes after a compressed request body) and fast-uri 3.1.9 (URI scheme spoofing, host confusion) via overrides; filelock 4.2.4 and setuptools 84.2.1 in the Python model services; undici 8.12.2 and zod 4.6.6 in the docs site toolchain (#1358).
+
+- **Bounded the Bases expression parse cache.** `query_base` retained every distinct filter or formula expression for the life of the process, so a caller with read access to bases could grow server memory without limit by sending unique expressions. Expressions longer than 16,384 characters are now refused with `unsupported_base_filter` before parsing, and the parse cache holds at most 128 entries and 262,144 source characters, evicting the least recently used first. Existing `.base` files and valid expressions behave as before (#1337).
+
+- **Companion bridge responses now filter declared paths and project fixed-shape results.** Daily-note, Git, command, automation, metadata, OCR, Excalidraw, and sync results drop undeclared fields. Item-list rows and make.md spaces are kept only when every declared path is readable; retained rows are otherwise passed through unchanged from the plugin payload. Opaque values scan nested paths, and malformed acknowledgements fail with a non-retryable compatibility error (#1271).
+
+- **Apply canonical read ACLs to bridge listings and Dataview results.** Tasks, make.md, Omnisearch, Datacore, Git status, template listings, `search_dql` and `search_vault` in `dql` mode now drop a row when any path it reports is invalid (for example a Windows-reserved name such as `CON.md`) or direct note reads would refuse its canonical target, and filter the Dataview `note_paths` list the same way. A bridge result without an `items` array no longer passes its other fields through, and filtered item envelopes always report a `total` counted over the visible rows. Known limit: Dataview rows are attributed only by a Link cell or a task `path`, so a `TABLE WITHOUT ID` row (or a bare path string in a cell) names no path and stays visible to an unrestricted caller (#1263).
+
+- **Closed residual companion-bridge contract gaps.** Link objects nested in declared fields (including a Link stored directly under a `fields` key) now receive read-ACL filtering, `execute_template` stamps only the note this call created (never a companion-reported path) and keeps `effect_committed` on an unusable or unreadable reported path, malformed post-effect acknowledgements warn that the action may have happened, active-file payloads use the shared compatibility error, and advertised validation, template-target, and ignored-input behavior matches the implemented routes (#1282).
+
+- **Bun 1.4.4 for the Brotli decoder fix (CVE-2026-111497).** Bun 1.4.3 and earlier bundle a Brotli decoder with an out-of-bounds write that malformed compressed input can trigger. The container image, CI and the repo toolchain pin now use Bun 1.4.4, the first fixed release (#1357).
+
+- **Under Bun, a chunked request to the OAuth endpoints lost its client IP, which skipped the per-IP rate limits.** The client address is now read before any middleware runs, so a chunked `POST /oauth/login` counts against the same per-IP login limit as a request with a `Content-Length` (#1307).
+
+- **A caller that may write a note but not read it gets only content-blind writes.** Creating, overwriting, `append_note`, `move_note` and `delete_note` still work. Anything whose outcome depends on the note's bytes is refused whatever they hold. A caller the read ACL refuses gets `acl_denied` (it depends only on the ACL); a caller that passes the ACL but lacks the read scope gets one fixed `invalid_input`: any `prev_hash` it supplies, every `patch_note` operation (a frontmatter-preamble append or prepend included), `add_tag`, `remove_tag`, `update_frontmatter`, `update_task`, `bulk_set_property` (per note), the table, Kanban, canvas and base tools, `restore_note`, `prune_hub_links`, `copy_note` (which also needs `read:notes` on its source), the bookmark and workspace writes, `append_to_periodic_note` with a `heading`, and `update_excalidraw`. Under `writes.requireCas` such a caller cannot append to or patch an existing note. `rewrite_link` now needs `read:notes`, and it only scans and names notes the caller may read (#1328).
+- **A write-only caller's `append_note` in `block` mode is judged on its own bytes.** A secret already in the note does not refuse the append, and the refusal names nothing in the note. The same holds for `append_to_periodic_note` without a `heading`. `move_note` and `bulk_move` refuse a secret-shaped backlink in `block` mode with a refusal that names nothing (no pattern id, no field, no path); a caller that may read the note keeps the detailed refusal.
+- **The compare-and-swap detail is read-gated.** The `concurrent_modification` refusal, the `elicit_required` details and the write acks withhold `actual`, `prev_hash`, `quality_warning` and the whole-note `content_hash` unless the caller may read the note; `delete_note`'s `prev_hash` is `null` for such a caller, and `move_note`'s `content_hash` is `null`. An overwrite of an existing note always asks for confirmation for such a caller, empty or not. Readers see no change, except that a batch-commit drift error (a note that changed between plan and commit in a move or `commit_wiki_page`) now withholds `expected` and `actual` from every caller.
+- **`patch_note` honours `writes.requireCas` and accepts `options.idempotency_key`**, like `append_note`. Under `requireCas` (on in the `hardened` posture), `patch_note` without `prev_hash` is now refused. `patch_active_file` inherits `requireCas` through `patch_note`, but it does not take `options.idempotency_key` (it strips `options`).
+
+- **commit_capture now needs the capture read scope.** A commit writes the queued capture's body into a vault note, so the caller must be able to read the capture as `list_capture_queue` does: `read:capture` and the folder read ACL on the capture's notes. A caller that holds `write:capture` alone is refused with `forbidden` before anything is written, and the capture stays queued. Tokens that commit captures must now also hold `read:capture` (#1405).
+
+- **`query_datacore` returns frontmatter links as link objects resolved to their note.** A Datacore link now comes back as `{ path, type, display, subpath, embed }` naming the note it resolves to, so the read ACL drops a row that links to a note the caller cannot read (#1289).
+
+- **`qs` 6.16.0 → 6.16.1 in the lockfile** (GHSA-6pq8-jhm2-2vcw: `qs.stringify` with `arrayFormat: 'comma'` threw an uncaught TypeError on array elements carrying a non-callable `toString`). Transitive only, through `express`/`body-parser` under the MCP SDK and `typed-rest-client` under Stryker; no obsidian-tc code calls `qs` directly. Nothing to do on upgrade (#1436).
+
+- **Docs site dependencies bumped to clear a `http-cache-semantics` advisory.** `astro` 7.4.2 and `@astrojs/starlight` 0.42.6 resolve `http-cache-semantics` 4.3.0, which fixes GHSA-ch52-4w7c-c8xp. The docs-workspace ignore for that advisory is removed. The docs site build is unchanged for readers (#1345).
+
+- **Bumped Pillow from 12.3 to 13.0.0 in the docs-ingest service.** Pillow 12.3 carried nine advisories that are fixed in Pillow 13.0.0. The docling family (docling, docling-core, docling-parse and docling-ibm-models) lifted its `pillow<13` cap in its latest release, so the lock now resolves Pillow 13 with it. The `parse` extra also declares `pillow>=13` so the floor cannot regress (#1341).
+
+- **Entity name clashes are unchanged and now documented.** `create_entity` and `rename_entity` still answer a clash with an entity the caller cannot read as `entity already exists`, the one-bit residual described in SECURITY.md. No behaviour changed; tests now pin it so it cannot widen (#1407).
+
+- **Prevent fallback vault reads from hanging on swapped FIFOs.** Pure-JavaScript reads now open nonblocking and validate the opened descriptor is a regular file before reading it (#1267).
+
+- **Refuse linked components in fallback vault reads.** Pure-JavaScript note, config, and attachment reads now reject every symlinked or junctioned path component, including unconfigured in-vault aliases such as `wiki -> pages`. A symlinked `.obsidian` directory or developer-symlinked plugin folder is therefore skipped on Windows and in other addon-less or forced-fallback deployments. On the native backend, a missing path reached through an unconfigured link now reports a refusal instead of not-found, so whether a file exists outside the vault no longer shows. A memory-import directory reached through a symlinked parent is now resolved before the walk; a directory that is itself a symlink is still refused (#1264).
+
+- **Keep Git paths inside the vault.** Status results are converted from repository-relative paths to vault-relative paths before ACL filtering, files outside a nested vault are omitted, and older companion installs receive an actionable update error instead of returning an ambiguous payload. Diff and stage inputs are mapped back to repository-relative paths; native Git receives literal pathspecs while the mobile backend receives exact filenames, so nested repositories work without wildcard expansion reaching denied files (#1276).
+
+- **Respect read ACLs when scoring graph hubs.** Graph expansion now excludes unreadable neighbours from hub degree and smooth scoring while preserving unrestricted results (#1268).
+
+- **A request whose body the server leaves unread closes its connection unless the body arrives in full.** A caller could hold a connection open with a declared request body it never sent, for the whole idle timeout (about two minutes under Bun). Such a body is now drained for up to 250 ms and 4 MiB; if it does not finish within that bound, the response closes the connection. A body the server reads, or one the caller sent in full, keeps its connection (#1306).
+
+- **Updated `ip-address` to 10.7.4** (GHSA-rxp7-6hxx-x8q5: `Address6` parsed a zone identifier in quadratic time before applying its length limit, so one long string could stall the process). The override floor is raised to `>=10.7.4` so the lockfile cannot resolve back to a vulnerable release (#1341).
+
+- **`/mcp` now enforces the MCP SDK's 4 MiB request-body limit and a 30 s body deadline.** Before, the early JSON check read request bodies with no size or time limit, so an authenticated caller could send a body up to the runtime's own cap (128 MiB under Bun by default). An oversize body is answered 413 and a body that does not arrive within 30 s is answered 408; both close the connection. An unauthenticated discovery request (`auth.anonymousDiscovery: "list"`) is held to a tighter bound: 64 KiB and 10 s, answered the same way (#1308).
+
+- **Five denial-of-service advisories published against transitive dependencies are cleared: `minimatch` moves to 11.0.3 and `pyasn1` to 0.6.5.** `minimatch` 10.2.6 is vulnerable to denial of service via glob (GHSA-g3hv-75wg-m249), and the fix is 11.0.1 — above the `<11` ceiling the root `overrides` entry deliberately held — so the floor becomes `>=11.0.1 <12` and resolves to 11.0.3. Crossing that major is safe here because the only package declaring `minimatch` is `@stryker-mutator/core`, a `packages/shared` devDependency behind the non-gating nightly mutation run; no shipped package depends on it, `brace-expansion` was already at the 5.0.12 that minimatch 11 requires, and v11 still ships a CommonJS entry. `pyasn1` 0.6.4 carries four quadratic-complexity denial-of-service advisories (GHSA-2qm8-x737-gmw5, GHSA-9m75-vc3g-4x39, GHSA-fm9c-5rcf-2q5p, GHSA-mm57-4v3p-rchx) and is relocked to 0.6.5 in `services/docs-ingest`. All five advisories were published after the last green scan, so this is a feed update rather than a regression, and no runtime behaviour changes (#1455).
+
+- **move_note, bulk_move_notes and move_attachment now require read access to the source.** A move carries the source's bytes to the destination, so the caller must be able to read the source (the read ACL and the `read:notes` or `read:attachments` scope), as `copy_note` already requires. A caller that may only delete and write can no longer move a note or attachment it cannot read into a folder it can read. `move_attachment` also refuses any path that is not a binary attachment as its source or destination (a note, a script such as `view.js`, an Excalidraw drawing, or a name with trailing dots that Windows reads as one of those), and `copy_note` lists `read:notes` among its required scopes (#1390).
+
+- **Node 26.12.1 security release.** The development and CI target moves from Node 26.12.0 to 26.12.1, which fixes ten CVEs (five high). The supported runtime floor stays Node 24, so no user action is needed (#1343).
+
+- **OAuth endpoints now give a request body 10 s to arrive.** A body that stalls answers 408 and closes the connection, and a body over 16 KiB answers 413 and closes it. Under Node, the server now enforces a 120 s request timeout, checked every second (#1309).
+
+- **get_provenance judges paths on their canonical identity.** Through a symlinked folder (`wiki -> private` with `wiki/**` readable), get_provenance returned a note's write history (principal, session, hashes) that read_note refuses. It now applies read_note's own decision to the queried path, to each record's paths and to each move hop, so an unreadable note answers exactly like a path with no records. inspect_acl evaluates the resolved target too, so it no longer reports `allowed: true` for a symlinked path whose target read_note refuses (#1322).
+
+- **rename_entity now needs the memory read scope.** A rename moves the entity's materialized note to its new path, so the caller must be able to read the entity as `get_entity` does: `read:memory` and the folder read ACL. A caller that holds `write:memory` alone is refused with `forbidden` before anything moves. A caller that renames entities must now also hold `read:memory` (#1395).
+
+- **A SCHEMA.md read error no longer shows the vault's absolute path.** A SCHEMA.md that could not be
+  read (permissions, a race with a deletion) reported the OS error message, which carried the server's
+  absolute file path. The warning now names only the error code, such as `EACCES`, so
+  `draft_wiki_page` reports `wiki/SCHEMA.md could not be read: EACCES`. Callers that matched the old
+  message text need to match the new one (#1365).
+
+- **Patch the hardware information dependency.** Raise `systeminformation` to 5.33.16, the patched version for GHSA-3f7j-7jwc-fxfj (Windows command injection in `services()`). obsidian-tc only calls the CPU and graphics readers, never `services()`, so the vulnerable path was not reachable; the bump clears the audit gate. No action needed on upgrade (#1441).
+
+- **execute_template and a caller-named create_periodic_note template now require read:notes.** A template's content lands in the output, so a caller may name a template only when it can read notes (`read:notes`, and the read ACL on the template), as `move_note` already requires read on its source. Tokens calling `execute_template` now need `read:notes` in addition to `write:templater`, and `create_periodic_note` with a `template_override` needs `read:notes`. The periodic-notes template the operator configured is exempt (#1394).
+
+- **Judge the file Templater writes, not the target as given.** `execute_template` authorized, confirmed and checked for an existing file the raw `target`, but the companion writes `<target>.md` when the target has no `.md` suffix. The write ACL, the confirmation fingerprint, the overwrite check and the request sent to the companion now all name that Markdown path. A write grant on an extensionless path no longer covers the file a template creates, so grant the `.md` path instead. An implicit `wiki/log.md` rule now also covers `wiki/log` and `wiki/./log`, and a confirmation whose file changed after it was raised is refused as a replay drift (#1336).
+
+- **The dev toolchain's `vite` is raised to a patched release in every workspace.** 7.3.6 and earlier carry three `launch-editor` advisories (GHSA-587h-7wmj-h5pm, GHSA-698v-4r3x-3vcv, GHSA-r825-w8mm-5pxw), all Windows editor-launch issues in the dev server reached through `vitest`. The shipped server does not include `vite`; nothing to do for users. `packages/reranker-local` and `packages/embedder-local`, which have their own lockfiles, move to `vite` 8.2.4 and 8.3.3, the patched releases on their lines. The root override now has a floor and a ceiling (`>=7.3.7 <8`) so it cannot fall back below the fix (#1329).
+
+- **Note writes honour a configured symlinked folder.** A write into a folder reached through its
+  symlink (`wiki -> pages`), such as `write_note` or `commit_wiki_page`, was refused as a symlinked
+  path component even though reads and deletes already followed the pin. It now lands in the folder
+  the symlink points at. A write named by the target's own spelling is also verified against the pin,
+  so it can no longer overwrite or create a file in a directory swapped in after the access decision.
+  A native addon that predates pinned writes refuses such a write rather than writing unpinned. The
+  folders a write creates under a pinned folder are now made inside the verified walk, so a folder
+  swapped in after the access decision gets none, and a pinned folder moved away is not re-created.
+  A failed batch removes the folders it made under the pin. A native addon that predates pinned
+  folder creation refuses a write that would create folders under a pin (#1326).
+
 ## [1.33.1] - 2026-10-13
 
 ### Fixed
