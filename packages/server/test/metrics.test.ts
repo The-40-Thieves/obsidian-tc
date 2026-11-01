@@ -42,6 +42,8 @@ const COUNTERS = [
   "obsidian_tc_memory_orphans_swept_total",
   // The morgiana spool retention sweep's deleted-file count, by reason (age | size).
   "obsidian_tc_morgiana_spool_files_pruned_total",
+  // GH #1433 step 3: the child-process embedder drained by the burst-end recycle policy, by reason.
+  "obsidian_tc_embedder_host_restarts_total",
   // THE-417 Phase 2: the readable half of warn-mode. Any non-zero value names a tool whose
   // declared contract has drifted from what it returns; there is no benign case.
   "obsidian_tc_output_schema_drift_total",
@@ -122,14 +124,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 33 counters, 4 histograms, 19 gauges", async () => {
+  it("registers the full catalog: 34 counters, 4 histograms, 19 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(57);
+    expect(new Set(declared).size).toBe(58);
   });
 
   it("GH #1433: process memory by kind is read at scrape time; rss and heap_used are live", async () => {

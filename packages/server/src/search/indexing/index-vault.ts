@@ -6,6 +6,7 @@
 // See docs/design/search-indexing-and-cache.md.
 import { tableExists } from "../../db/introspect";
 import { inWriteTransaction } from "../../db/txn";
+import { onBurstEnd } from "../../embeddings/host/recycle-policy";
 import { errorMessage } from "../../util/errors";
 import { createSliceYielder, drainYielding } from "../../util/scan-steps";
 import type { AclPath } from "../../vault/acl-identity";
@@ -666,5 +667,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       `[index] vault "${args.vaultId}": dedup reused ${stats.chunks_dedup_reused} chunk embedding(s) from identical-body siblings (copied, not recomputed)\n`,
     );
   }
+  // GH #1433 step 3: a finished pass is a burst end for the embedder recycle policy (fire-and-forget).
+  void onBurstEnd("full-reconcile");
   return stats;
 }

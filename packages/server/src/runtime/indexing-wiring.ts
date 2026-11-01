@@ -13,6 +13,7 @@ import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import { createEmbeddingProviderAsync, type EmbeddingsConfigLike } from "../embeddings";
+import { onBurstEnd } from "../embeddings/host/recycle-policy";
 import { closeOwnedHosts } from "../embeddings/host/registry";
 import {
   applyStickyEmbeddings,
@@ -246,8 +247,14 @@ export interface IndexCoordinatorDeps {
   embedConfig?: IndexVaultArgs["embed"];
   /** config.embeddings.chunkContext */
   chunkContext: boolean;
-  /** config.indexing */
-  indexing: { writeConcurrency: number; writeConcurrencyPerVault: number; queueMax: number };
+  /** config.indexing, plus config.embeddings.memoryBudgetMb: a write-queue drain over that budget
+   *  recycles a child-process embedder (GH #1433 step 3). */
+  indexing: {
+    writeConcurrency: number;
+    writeConcurrencyPerVault: number;
+    queueMax: number;
+    memoryBudgetMb?: number;
+  };
   /** The CANONICAL vault roots (vaultRegistry.list(), not raw config.vaults), narrowed to what
    *  registerVaultWatch needs. */
   vaults: readonly { id: string; path: string }[];
@@ -365,6 +372,8 @@ export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinat
       globalConcurrency: deps.indexing.writeConcurrency,
       perVaultConcurrency: deps.indexing.writeConcurrencyPerVault,
       queueMax: deps.indexing.queueMax,
+      // GH #1433 step 3: a drained write queue is a burst end for the embedder recycle policy.
+      onIdle: () => void onBurstEnd("write-drain", deps.indexing.memoryBudgetMb),
       onBackpressure: (depth) => {
         deps.indexHealth.indexQueueBackpressures++;
         process.stderr.write(

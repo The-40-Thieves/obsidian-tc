@@ -92,6 +92,8 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
   let draining = false;
   let closed = false;
   let initError: string | undefined;
+  // The child's last reported RSS (from a stats reply), so snapshot() can report it without IPC.
+  let lastRssBytes: number | undefined;
 
   const circuitError = () =>
     err.embeddingProviderError("embedder host circuit is open after repeated child deaths", {
@@ -333,6 +335,15 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
     armKill(running);
   };
 
+  const snapshot = (): EmbedderHostStats => ({
+    state,
+    restarts,
+    recycles,
+    pid: child?.pid,
+    rssBytes: lastRssBytes,
+    queued: queue.length + (inFlight ? 1 : 0),
+  });
+
   const drain = (): Promise<void> =>
     new Promise((resolve) => {
       if (!child) {
@@ -365,7 +376,6 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
     },
     stats: async (): Promise<EmbedderHostStats> => {
       const running = child;
-      let rssBytes: number | undefined;
       if (running?.ready && !inFlight && !draining && queue.length === 0) {
         try {
           const reply = await new Promise<ChildMessage>((resolve, reject) =>
@@ -376,13 +386,14 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
               reject,
             }),
           );
-          if (reply.t === "stats") rssBytes = reply.rssBytes;
+          if (reply.t === "stats") lastRssBytes = reply.rssBytes;
         } catch {
-          rssBytes = undefined;
+          /* the last known RSS stands */
         }
       }
-      return { state, restarts, recycles, pid: child?.pid, rssBytes };
+      return { ...snapshot(), rssBytes: lastRssBytes };
     },
+    snapshot: () => snapshot(),
     close: async () => {
       closed = true;
       rejectQueued(closedError());

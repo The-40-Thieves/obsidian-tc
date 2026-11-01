@@ -16,6 +16,7 @@ import type { CapabilityCache } from "../bridge";
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
+import { childHostSnapshot } from "../embeddings/host/registry";
 import type { EmbedderWarmupStatus } from "../embeddings/warmup";
 import type { RetrievalLogger } from "../experiential/log";
 import { createGatewayClient, type GatewayClient } from "../gateway";
@@ -180,6 +181,7 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
       nativeLoaded: nativeBindingActive,
       vecEnabled: deps.hasVec,
       getFtsStatus: () => deps.fts.status(),
+      embedderHost: childHostSnapshot,
       aclFor: (id) => deps.registry.aclFor(id),
       getIndexHealth: indexSnapshot,
       getJobQueueStats: deps.getJobQueueStats,

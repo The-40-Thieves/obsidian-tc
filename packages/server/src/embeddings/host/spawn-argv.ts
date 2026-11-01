@@ -15,12 +15,15 @@ export function isCliEntryMarked(): boolean {
   return cliEntry;
 }
 
+// The parent's runtime flags (process.execArgv, e.g. --smol) go ahead of the entry, so the child runs
+// under the same runtime options as the parent.
 export function selfSpawnArgv(
   entry: string | undefined = process.argv[1],
   execPath: string = process.execPath,
+  execArgv: readonly string[] = process.execArgv,
 ): string[] {
   if (!entry || entry.startsWith("/$bunfs/") || entry.startsWith("B:/~BUN")) {
-    return [execPath];
+    return [execPath, ...execArgv];
   }
-  return [execPath, entry];
+  return [execPath, ...execArgv, entry];
 }

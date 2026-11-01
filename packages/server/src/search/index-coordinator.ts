@@ -48,6 +48,9 @@ export interface IndexCoordinatorOptions {
   queueMax?: number;
   /** Best-effort callback on the rising edge of the pending-key depth crossing queueMax. */
   onBackpressure?(depth: number): void;
+  /** Fired once each time the queue drains to empty (no path queued or in flight). GH #1433 step 3:
+   *  the embedder recycle policy runs on it. Best-effort: a throw is swallowed. */
+  onIdle?(): void;
 }
 
 /** A snapshot of the coordinator's live depth for health/metrics (audit #5: queue-depth visibility). */
@@ -103,6 +106,7 @@ export class IndexCoordinator {
   private readonly vaultActive = new Map<string, number>();
   private readonly queueMax: number;
   private readonly onBackpressure?: (depth: number) => void;
+  private readonly onIdle?: () => void;
   private active = 0;
   /** THE-585 (#2): cumulative count of pending ops superseded before they ran. */
   private coalesced = 0;
@@ -116,6 +120,7 @@ export class IndexCoordinator {
     this.perVaultConcurrency = Math.max(1, options.perVaultConcurrency ?? 4);
     this.queueMax = Math.max(1, options.queueMax ?? 1000);
     this.onBackpressure = options.onBackpressure;
+    this.onIdle = options.onIdle;
   }
 
   private key(vaultId: string, path: string): string {
@@ -171,6 +176,7 @@ export class IndexCoordinator {
     // map from growing unbounded over a long-lived process without dropping in-flight work.
     void next.finally(() => {
       if (this.chain.get(k) === next) this.chain.delete(k);
+      if (this.chain.size === 0) this.fireIdle();
     });
     // Backpressure signal (audit #5): distinct pending keys crossed the soft cap. Edge-triggered off
     // the per-submit transition, so a sustained overload fires once (not once per submit); writes are
@@ -184,6 +190,14 @@ export class IndexCoordinator {
       }
     }
     this.overQueueMax = nowOver;
+  }
+
+  private fireIdle(): void {
+    try {
+      this.onIdle?.();
+    } catch {
+      /* an observer must never break the write path */
+    }
   }
 
   private async drain(vaultId: string, path: string, k: string): Promise<void> {

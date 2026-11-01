@@ -12,6 +12,7 @@ import type { MemoryOrphanClass } from "../db/memory-orphans";
 import type { BusyReason, WriteTxnLabel } from "../db/txn";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
 import type { RerankOutcome } from "../search/rerank";
+import { registerEmbedderHostRestarts } from "./embedder-host-counters";
 import { MaintenanceCounters } from "./maintenance-counters";
 import { registerProcessMemoryGauge } from "./process-memory";
 import { ProvenanceCounters } from "./provenance-counters";
@@ -284,6 +285,7 @@ export class MetricsRecorder {
       registers,
     });
     this.maintenance = new MaintenanceCounters(registers);
+    registerEmbedderHostRestarts(registers);
     this.provenance = new ProvenanceCounters(registers);
     this.idempotencyHits = new Counter({
       name: "obsidian_tc_idempotency_hits_total",

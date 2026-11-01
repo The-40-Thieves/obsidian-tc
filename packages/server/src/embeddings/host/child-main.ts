@@ -135,6 +135,10 @@ function routeConsoleToStderr(): () => void {
   };
 }
 
+// The protocol carries one message string, so the hint an error carries (its details.hint, e.g. the
+// install command for a missing embedder) is appended to it: the parent sees it in its own error.
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  if (!(error instanceof Error)) return String(error);
+  const hint = (error as { details?: { hint?: unknown } }).details?.hint;
+  return typeof hint === "string" ? `${error.message} (${hint})` : error.message;
 }

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { FolderAcl } from "../../acl";
+import type { EmbedderHostStats } from "../../embeddings/host/types";
 import type { EmbedderWarmupStatus } from "../../embeddings/warmup";
 import type { FacadeMode } from "../../mcp/facade";
 import { AUTO_FACADE_DEPRECATION, FALLBACK_FACADE_MODE } from "../../mcp/facade-auto";
@@ -307,6 +308,9 @@ const HealthMemoryOutput = z.object({
   external_mb: z.number(),
   budget_mb: z.number().nullable(),
   over_budget: z.boolean(),
+  embedder_host: z
+    .object({ state: z.string(), restarts: z.number(), rss_mb: z.number().nullable() })
+    .optional(),
 });
 
 const HealthInfoOutput = z.object({
@@ -422,26 +426,41 @@ export interface HealthMemory {
   external_mb: number;
   budget_mb: number | null;
   over_budget: boolean;
+  /** Present only while a child-process embedder host is open (GH #1433 step 3). */
+  embedder_host?: { state: string; restarts: number; rss_mb: number | null };
 }
 
 const MIB = 1024 * 1024;
 
-function processMemory(budgetMb: number | undefined): HealthMemory {
+// With a child embedder, over_budget compares the parent's RSS plus the child's against the budget:
+// the budget is the whole process tree's, and rss_mb stays the parent's own.
+function processMemory(budgetMb: number | undefined, child?: EmbedderHostStats): HealthMemory {
   const { rss, external } = process.memoryUsage();
   const rssMb = Math.ceil(rss / MIB);
+  const childMb = Math.ceil((child?.rssBytes ?? 0) / MIB);
   return {
     rss_mb: rssMb,
     external_mb: Math.ceil(external / MIB),
     budget_mb: budgetMb ?? null,
-    over_budget: budgetMb !== undefined && rssMb > budgetMb,
+    over_budget: budgetMb !== undefined && rssMb + childMb > budgetMb,
+    ...(child
+      ? {
+          embedder_host: {
+            state: child.state,
+            restarts: child.restarts,
+            rss_mb: child.rssBytes === undefined ? null : Math.ceil(child.rssBytes / MIB),
+          },
+        }
+      : {}),
   };
 }
 
 function memoryBlock(
   authedUnbound: boolean,
   budgetMb: number | undefined,
+  child: EmbedderHostStats | undefined,
 ): { memory?: HealthMemory } {
-  return authedUnbound ? { memory: processMemory(budgetMb) } : {};
+  return authedUnbound ? { memory: processMemory(budgetMb, child) } : {};
 }
 
 export function createHealthTool(opts: {
@@ -451,6 +470,8 @@ export function createHealthTool(opts: {
   nativeLoaded: boolean;
   vecEnabled: boolean;
   memoryBudgetMb?: HealthMemoryBudget["memoryBudgetMb"];
+  /** The open child-process embedder's last known stats, read without IPC; absent when none is open. */
+  embedderHost?: () => EmbedderHostStats | undefined;
   /** Optional so existing harnesses stay source-compatible; absent -> false. */
   ftsEnabled?: boolean;
   getFtsStatus?: () => FtsStatus;
@@ -533,7 +554,7 @@ export function createHealthTool(opts: {
         version: opts.version,
         native_loaded: opts.nativeLoaded,
         vec_enabled: opts.vecEnabled,
-        ...memoryBlock(authedUnbound, opts.memoryBudgetMb),
+        ...memoryBlock(authedUnbound, opts.memoryBudgetMb, opts.embedderHost?.()),
         fts_enabled: fts ? fts.state === "available" : (opts.ftsEnabled ?? false),
         ...(fts ? { fts: ftsView(fts, indexDetail) } : {}),
         vault_count: opts.vaults.length,
