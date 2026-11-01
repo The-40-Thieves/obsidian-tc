@@ -366,6 +366,48 @@ describe("instructions bounds", () => {
     for (const n of text.match(/\b[a-z]+(?:_[a-z]+)+\b/g) ?? [])
       if (n !== "mcp_server") expect(names.has(n) || n.startsWith("obsidian"), n).toBe(true);
   });
+
+  // GH #1457: the cheapest route (one resource read, then search) leads the triad text, so an agent
+  // reads a known note in one call instead of three.
+  it("triad: leads with the one-call resource read, and names search before find_capability", () => {
+    const text = buildInstructions(
+      "obsidian-tc",
+      "9.9.9",
+      buildFullRegistry(),
+      FULL,
+      true,
+      true,
+      "triad",
+    );
+    const resource = text.indexOf("obsidian-tc://<vault>/<path>");
+    const search = text.indexOf("search(query)");
+    expect(resource).toBeGreaterThan(0);
+    expect(search).toBeGreaterThan(0);
+    expect(resource).toBeLessThan(text.indexOf("find_capability("));
+    expect(search).toBeLessThan(text.indexOf("find_capability("));
+  });
+
+  it("triad: names no resource URI when resources are off", () => {
+    const text = buildInstructions(
+      "obsidian-tc",
+      "9.9.9",
+      buildFullRegistry(),
+      FULL,
+      false,
+      true,
+      "triad",
+    );
+    expect(text).not.toContain("obsidian-tc://");
+    expect(text).toContain("search(query)");
+  });
+
+  it("triad: the routing head names only tools the triad surface advertises", () => {
+    const listed = new Set<string>([...triadTools(true).map((t) => t.name), ...TRIAD_DIRECT_TOOLS]);
+    const head = render("triad").slice(0, 512);
+    const named = [...head.matchAll(/\b([a-z]+(?:_[a-z]+)*)\(/g)].map((m) => m[1] ?? "");
+    expect(named.length).toBeGreaterThan(0);
+    for (const n of named) expect(listed.has(n), n).toBe(true);
+  });
 });
 
 describe("Claude Code alwaysLoad", () => {

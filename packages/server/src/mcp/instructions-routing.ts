@@ -25,12 +25,19 @@ export function instructionsSurfaceOf(
 /** Every tool it names is on every surface that gets that variant (the flat variants name only
  *  tools in the essentials profile), so the guidance never points at an unlisted tool. */
 export function routingGuidance(surface: InstructionsSurface, hasResources: boolean): string {
-  if (surface === "triad")
+  if (surface === "triad") {
+    // The cheapest route leads (GH #1457): a known note path is one resource read, and search and
+    // fetch are listed directly. The three-tool route is the fallback for anything else.
+    const lead = hasResources
+      ? "Known note path? Read the resource obsidian-tc://<vault>/<path> (one call). Topic? "
+      : "Topic? ";
     return (
-      "Route every request through three tools: find_capability(query) locates a tool, " +
-      "describe_capability(name) returns its schema, call_capability(name, args) runs it. " +
-      "Good first calls: search_vault, read_note, list_notes."
+      lead +
+      "search(query) is listed directly and fetch(id) opens a result. Anything else: " +
+      "find_capability(query) locates a tool, describe_capability(name) returns its schema, " +
+      "call_capability(name, args) runs it."
     );
+  }
   if (surface === "generic")
     return (
       "If find_capability is listed, use it to locate a tool, describe_capability for its schema " +
