@@ -29,6 +29,7 @@ describe("defaultConfiguredFacadeMode", () => {
           advertise: "all",
           explainAutoMode: false,
           outputSchema: "full",
+          triadHotPath: false,
         },
       }),
     ).toBe("domain");
@@ -42,6 +43,7 @@ describe("defaultConfiguredFacadeMode", () => {
           advertise: "all",
           explainAutoMode: false,
           outputSchema: "full",
+          triadHotPath: false,
         },
       }),
     ).toBe("triad");

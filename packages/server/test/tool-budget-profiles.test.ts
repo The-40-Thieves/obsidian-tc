@@ -16,7 +16,12 @@ import { describe, expect, it } from "vitest";
 import { buildFullRegistry } from "../scripts/docgen/build-registry";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
-import { buildInstructions, TRIAD_DIRECT_TOOLS, triadTools } from "../src/mcp/facade";
+import {
+  buildInstructions,
+  TRIAD_DIRECT_TOOLS,
+  triadDirectTools,
+  triadTools,
+} from "../src/mcp/facade";
 import type { CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { createMcpServer } from "../src/mcp/server";
 import {
@@ -33,6 +38,7 @@ import { REGISTERED_TOOL_COUNT } from "./registered-tool-count";
 import { stallTimeout } from "./stall-timeouts";
 
 const FULL = { grantedScopes: new Set(["*"]) };
+const HOT_PATH = ["read_note", "search_vault", "write_note", "list_notes"];
 
 const context = (): CallerContext => ({
   caller: "stdio",
@@ -45,7 +51,11 @@ const context = (): CallerContext => ({
 
 async function listNames(
   registry: ToolRegistry,
-  opts: { facadeMode?: "triad" | "domain" | "flat"; advertise?: AdvertiseSubset },
+  opts: {
+    facadeMode?: "triad" | "domain" | "flat";
+    advertise?: AdvertiseSubset;
+    triadHotPath?: boolean;
+  },
 ): Promise<string[]> {
   const server = createMcpServer({
     name: "x",
@@ -319,13 +329,15 @@ describe("config selection", () => {
 });
 
 describe("instructions bounds", () => {
-  const surfaces = ["triad", "flat", "subset", "generic"] as const;
+  const surfaces = ["triad", "triad-core", "flat", "subset", "generic"] as const;
   const render = (surface: (typeof surfaces)[number]) =>
     buildInstructions("obsidian-tc", "9.9.9", buildFullRegistry(), FULL, true, true, surface);
   // The routing sentence is what a client must receive intact; it is asserted by content, so a
   // reword that pushes it past the bound fails here rather than silently getting truncated.
   const routing: Record<(typeof surfaces)[number], RegExp> = {
     triad: /find_capability[^.]*describe_capability[^.]*call_capability[^.]*\./,
+    "triad-core":
+      /read_note[^.]*search_vault[^.]*find_capability[^.]*describe_capability[^.]*call_capability[^.]*\./,
     flat: /Every tool is listed directly: call it by name\./,
     subset: /A curated subset; other tools are still callable by name[^.]*\./,
     generic: /If find_capability is listed[^.]*\./,
@@ -401,12 +413,24 @@ describe("instructions bounds", () => {
     expect(text).toContain("search(query)");
   });
 
-  it("triad: the routing head names only tools the triad surface advertises", () => {
+  it("triad and triad-core: the routing head names only tools that surface advertises", () => {
     const listed = new Set<string>([...triadTools(true).map((t) => t.name), ...TRIAD_DIRECT_TOOLS]);
-    const head = render("triad").slice(0, 512);
-    const named = [...head.matchAll(/\b([a-z]+(?:_[a-z]+)*)\(/g)].map((m) => m[1] ?? "");
-    expect(named.length).toBeGreaterThan(0);
-    for (const n of named) expect(listed.has(n), n).toBe(true);
+    for (const s of ["triad", "triad-core"] as const) {
+      const advertised = s === "triad" ? listed : new Set([...listed, ...HOT_PATH]);
+      const head = render(s).slice(0, 512);
+      const named = [...head.matchAll(/\b([a-z]+(?:_[a-z]+)*)\(/g)].map((m) => m[1] ?? "");
+      expect(named.length).toBeGreaterThan(0);
+      for (const n of named) expect(advertised.has(n), n).toBe(true);
+    }
+  });
+
+  // GH #1457 slice 2: the triad-core variant names the hot-path reads before the gateway.
+  it("triad-core: names read_note and search_vault before find_capability", () => {
+    const text = render("triad-core");
+    const find = text.indexOf("find_capability(");
+    expect(text.indexOf("read_note(")).toBeGreaterThan(0);
+    expect(text.indexOf("read_note(")).toBeLessThan(find);
+    expect(text.indexOf("search_vault(")).toBeLessThan(find);
   });
 });
 
@@ -454,5 +478,53 @@ describe("Claude Code alwaysLoad", () => {
     const tools = (await client.listTools()).tools;
     await client.close();
     expect(tools.filter((t) => t._meta?.["anthropic/alwaysLoad"] !== undefined)).toEqual([]);
+  });
+});
+
+describe("triadHotPath: the hot-path tools join the triad surface (GH #1457 slice 2)", () => {
+  it("adds read_note, search_vault, write_note and list_notes after search and fetch", async () => {
+    expect(
+      await listNames(buildFullRegistry(), { facadeMode: "triad", triadHotPath: true }),
+    ).toEqual([
+      "find_capability",
+      "describe_capability",
+      "call_capability",
+      "search",
+      "fetch",
+      ...HOT_PATH,
+    ]);
+  });
+
+  it("without triadHotPath the triad surface is unchanged", async () => {
+    expect(await listNames(buildFullRegistry(), { facadeMode: "triad" })).toEqual([
+      "find_capability",
+      "describe_capability",
+      "call_capability",
+      "search",
+      "fetch",
+    ]);
+  });
+
+  it("is inert on a flat surface", async () => {
+    expect(
+      await listNames(buildFullRegistry(), { facadeMode: "flat", triadHotPath: true }),
+    ).toEqual(await listNames(buildFullRegistry(), { facadeMode: "flat" }));
+  });
+
+  it("marks each hot-path tool alwaysLoad, like the rest of the triad", () => {
+    const project = (d: { name: string }) => ({ name: d.name }) as never;
+    const tools = triadDirectTools(buildFullRegistry().listVisible(FULL), project, true);
+    expect(tools.map((t) => t.name)).toEqual(["search", "fetch", ...HOT_PATH]);
+    for (const t of tools) expect(t._meta?.["anthropic/alwaysLoad"], t.name).toBe(true);
+  });
+
+  it("refuses a vault-bound caller naming another vault when read_note is called directly", async () => {
+    const r = await buildFullRegistry().dispatch(
+      "read_note",
+      { vault: "b", path: "note.md" },
+      { ...context(), vaultBound: true, vaultId: "a" },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.code).toBe("forbidden");
   });
 });

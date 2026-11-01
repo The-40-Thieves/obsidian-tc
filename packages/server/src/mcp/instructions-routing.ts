@@ -9,22 +9,37 @@ import type { AdvertiseSubset } from "./tool-profiles";
 /** Which tool surface the instructions describe. "triad"/"flat" are known at construction; a
  *  "subset" is a flat list that is deliberately not the whole catalog (tool-profiles.ts); "generic"
  *  (domain, auto: resolved per client, after the text is built) says it conditionally. */
-export type InstructionsSurface = "triad" | "flat" | "subset" | "generic";
+export type InstructionsSurface = "triad" | "triad-core" | "flat" | "subset" | "generic";
 
 /** The instructions surface for a server's configured facade mode and tool-budget subset. An unset
  *  mode is flat, matching `createFacadeModeResolver`. */
 export function instructionsSurfaceOf(
   facadeMode: FacadeMode | "auto" | undefined,
   advertise: AdvertiseSubset | undefined,
+  triadHotPath = false,
 ): InstructionsSurface {
   if (advertise !== undefined && advertise !== "all") return "subset";
   if (facadeMode === undefined || facadeMode === "flat") return "flat";
-  return facadeMode === "triad" ? "triad" : "generic";
+  if (facadeMode !== "triad") return "generic";
+  return triadHotPath ? "triad-core" : "triad";
 }
 
 /** Every tool it names is on every surface that gets that variant (the flat variants name only
  *  tools in the essentials profile), so the guidance never points at an unlisted tool. */
 export function routingGuidance(surface: InstructionsSurface, hasResources: boolean): string {
+  if (surface === "triad-core") {
+    // GH #1457 (slice 2): the hot-path tools are listed directly, so they are named before the
+    // gateway. Same sentence shape as "triad"; the 512-character head test covers both.
+    const lead = hasResources
+      ? "Known note path? Read the resource obsidian-tc://<vault>/<path> (one call). "
+      : "";
+    return (
+      lead +
+      "read_note(path) and search_vault(query) are listed too, with search(query) and fetch(id); " +
+      "anything else: find_capability(query) locates a tool, describe_capability(name) returns its " +
+      "schema, call_capability(name, args) runs it."
+    );
+  }
   if (surface === "triad") {
     // The cheapest route leads (GH #1457): a known note path is one resource read, and search and
     // fetch are listed directly. The three-tool route is the fallback for anything else.

@@ -125,12 +125,14 @@ export function mcpServerFacadeOptions(cfg: {
   explainAutoMode?: boolean;
   outputSchema?: "full" | "omit";
   advertise?: AdvertiseSubset;
+  triadHotPath?: boolean;
 }): {
   facadeMode: FacadeMode | "auto";
   autoClients?: Readonly<Record<string, FacadeMode>>;
   explainAutoMode?: boolean;
   outputSchema?: "full" | "omit";
   advertise?: AdvertiseSubset;
+  triadHotPath?: boolean;
 } {
   return {
     facadeMode: cfg.mode,
@@ -138,6 +140,7 @@ export function mcpServerFacadeOptions(cfg: {
     explainAutoMode: cfg.explainAutoMode,
     outputSchema: cfg.outputSchema,
     advertise: cfg.advertise,
+    triadHotPath: cfg.triadHotPath,
   };
 }
 
