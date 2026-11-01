@@ -46,7 +46,8 @@ import type { VisibilityCaller } from "../mcp/visibility";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { JobQueue } from "../scheduler/job-queue";
 import type { VaultRegistry } from "../vault/registry";
-import { activeSessionFor, DEFAULT_TRACE_FOLDER, openImplicitSession } from "../workspace/sessions";
+import { autoOpenSession } from "../workspace/auto-open";
+import { activeSessionFor, DEFAULT_TRACE_FOLDER } from "../workspace/sessions";
 import { anonymousGate, isAnonymousCandidate, mixedModeScopes } from "./anonymous-discovery";
 import { corsMiddleware, corsOriginSet } from "./cors";
 import { mountHealthz } from "./healthz";
@@ -401,15 +402,14 @@ function contextFromAuthInfo(
         // `activeSessionFor` already refuses a NULL/empty principal; re-checking here keeps the
         // OPEN path from depending on that, because writing a row for an unidentifiable principal
         // would create exactly the shared bucket the resolver refuses to read from.
-        if (!opts.sessions?.autoOpen || typeof principal !== "string" || principal.length === 0)
-          return {};
-        const opened = openImplicitSession(opts.db, {
+        const opened = autoOpenSession(opts.db, {
+          autoOpen: opts.sessions?.autoOpen === true,
           principal,
           vaultId: bound,
           traceFolder: opts.traceFolderFor?.(bound) ?? DEFAULT_TRACE_FOLDER,
           now: Date.now(),
         });
-        return { sessionId: opened.sessionId };
+        return opened ? { sessionId: opened.sessionId } : {};
       })(),
     };
   };

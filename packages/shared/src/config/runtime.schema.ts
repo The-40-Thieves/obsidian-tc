@@ -266,7 +266,7 @@ export const SessionsConfigSchema = z
       .boolean()
       .default(false)
       .describe(
-        "Open a workspace session automatically on a principal's first authenticated dispatch when it has none, instead of waiting for an explicit start_session. Off by default: session correlation changes what the server retains about who read what.",
+        "Open a workspace session automatically on a principal's first authenticated dispatch when it has none, instead of waiting for an explicit start_session. Applies to HTTP and to stdio: on stdio the session opens on the first tool call or resource read, and the server closes it at a clean process exit. Off by default: session correlation changes what the server retains about who read what.",
       ),
     /** THE-736 content axis: also persist each dispatch's raw parsed arguments on the session
      *  trace, so a recorded session can be REPLAYED.

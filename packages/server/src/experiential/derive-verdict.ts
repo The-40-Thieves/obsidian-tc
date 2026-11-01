@@ -10,9 +10,9 @@
 //
 // DEPENDENCY, stated plainly (owner-settled, THE-726 review round 1): this pass acts only on
 // sessions that EXIST and END. `session_id` is attached to a captured episode only when a session
-// is open — over HTTP that requires `sessions.autoOpen` (default false) or an explicit
+// is open — over HTTP or stdio that requires `sessions.autoOpen` (default false) or an explicit
 // `start_session`/`end_session` pair; an implicit session opened that way is only ever closed by
-// the maintenance sweep's `closeStaleImplicitSessions`. On the plain stdio transport with no
+// the maintenance sweep's `closeStaleImplicitSessions`. On stdio with `sessions.autoOpen` off and no
 // session concept in play, no episode ever carries a `session_id`, `deriveClosedWindows` finds no
 // candidates, and this pass is inert by design, not broken. Measured on the live Cave deployment
 // (2026-09-03): 15 sessions since 2026-08-20, 13 implicit, 12 already closed by the stale-session

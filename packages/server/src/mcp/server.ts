@@ -135,7 +135,7 @@ export interface McpServerOptions {
    * the argument (every one before THE-514, and any test double) is unaffected — the parameter is
    * optional and dispatch treats an absent signal as a no-op.
    */
-  context: (signal?: AbortSignal) => CallerContext;
+  context: (signal?: AbortSignal, use?: "call" | "read") => CallerContext;
   /**
    * THE-937 round 3: the caller's visibility for legacy `initialize`'s STATIC `instructions`, a
    * plain resolved value — NOT `context`. Calling `context` at construction (a prior version did)
@@ -515,7 +515,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
     if (oversized !== null) return oversized;
     const rawArgs = (req.params.arguments ?? {}) as Record<string, unknown>;
     let args: Record<string, unknown> = rawArgs;
-    let ctx = opts.context(extra.mcpReq.signal);
+    let ctx = opts.context(extra.mcpReq.signal, "call");
     // SEP-414: lift W3C trace context out of `_meta` so dispatch's SERVER span is parented to the
     // caller's span. Read from `_meta`, NOT from a transport header — this is the one place that
     // works identically over stdio and Streamable HTTP, and it is where the 2026-07-28 spec puts it.
@@ -725,7 +725,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
         Promise.resolve(withCacheHint({ resourceTemplates: [] }, CACHE_PRIVATE)),
     );
     server.setRequestHandler("resources/read", (req, extra): Promise<ReadResourceResult> => {
-      const ctx = opts.context(extra.mcpReq.signal);
+      const ctx = opts.context(extra.mcpReq.signal, "read");
       // THE-937: caches an hour (CACHE_CATALOG), not the 60s notes get (CACHE_PRIVATE) — the
       // tool surface is fixed for a process lifetime; a vault note is not.
       const isCatalog = req.params.uri === CATALOG_RESOURCE_URI;

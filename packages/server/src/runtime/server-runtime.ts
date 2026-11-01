@@ -58,7 +58,7 @@ import { wireRuntimeCore } from "./runtime-core-wiring";
 import { schedulerVaults, wireScheduler } from "./scheduler-wiring";
 import { makeSandboxRerun } from "./session-rerun-sandbox";
 import { joinReconcileOrExit, logShutdownError, raceShutdownPhaseOrExit } from "./shutdown-phase";
-import { stdioContext } from "./stdio-context";
+import { closeStdioOpened, stdioContext } from "./stdio-context";
 import { wireStoresBehindBootstrapBarrier } from "./stores";
 import { wireDomainTools, wireGatewaySeams, wireHealthTools, wireM1Tools } from "./tool-wiring";
 import { wireTransports } from "./transport-wiring";
@@ -692,6 +692,7 @@ export async function buildServerRuntime(
     } catch {
       /* best-effort */
     }
+    closeStdioOpened(db, Date.now()); // GH #1457: the stdio session this process opened, if any
     try {
       stores.close();
     } catch {
