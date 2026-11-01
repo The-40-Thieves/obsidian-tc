@@ -58,7 +58,7 @@ import { wireRuntimeCore } from "./runtime-core-wiring";
 import { schedulerVaults, wireScheduler } from "./scheduler-wiring";
 import { makeSandboxRerun } from "./session-rerun-sandbox";
 import { joinReconcileOrExit, logShutdownError, raceShutdownPhaseOrExit } from "./shutdown-phase";
-import { stdioContext } from "./stdio-context";
+import { closeStdioOpened, stdioContext } from "./stdio-context";
 import { wireStoresBehindBootstrapBarrier } from "./stores";
 import { wireDomainTools, wireGatewaySeams, wireHealthTools, wireM1Tools } from "./tool-wiring";
 import { wireTransports } from "./transport-wiring";
@@ -678,6 +678,7 @@ export async function buildServerRuntime(
       drainMs: SHUTDOWN_DRAIN_MS,
     };
     await raceShutdownPhaseOrExit(drainOpts);
+    closeStdioOpened(db, Date.now()); // GH #1457: the stdio session this process opened, if any
     await leaderElection.close(); // F3: release the lock LAST, once every writer above has stopped
     morgiana.emit(defaultVaultId, "tc.server.shutdown");
     // Every opened resource below gets a best-effort, independently-guarded close — one failing
