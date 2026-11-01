@@ -42,7 +42,11 @@ import type { RepresentationManifest } from "../search/representation";
 import { guardReranker, type Reranker, type RerankOutcome } from "../search/rerank";
 import type { VecRebuildEvent } from "../search/vec";
 import type { RateLimiter } from "../throttle";
-import { createHealthTool, createIndexStatusTool } from "../tools/admin/health";
+import {
+  createHealthTool,
+  createIndexStatusTool,
+  type HealthMemoryBudget,
+} from "../tools/admin/health";
 import { type ProvenanceRecorder, provenanceDepsOf, registerM1Tools } from "../tools/m1";
 import { registerM2Tools } from "../tools/m2";
 import { registerM3Tools } from "../tools/m3";
@@ -56,13 +60,14 @@ import type { VaultRegistry } from "../vault/registry";
 import { type ActiveSessionTracker, staleExplicitSessionSummary } from "../workspace/sessions";
 import { buildAcls } from "./acl-build";
 import { resolveDeclaredReranker } from "./declared-reranker";
+import { rolesFrom } from "./gateway-roles";
 import type { IndexHealthState, IndexResources } from "./indexing-wiring";
 import { wireM5Tools } from "./m5-wiring";
 import { buildM6Deps } from "./m6-wiring";
 import { memoryVaultAccessors } from "./memory-vault-accessors";
 import { persistNotesReady, reconcileView } from "./reconcile-state";
 
-export interface HealthToolsDeps {
+export interface HealthToolsDeps extends HealthMemoryBudget {
   registry: ToolRegistry;
   version: string;
   /** config.vaults, narrowed to ids. */
@@ -82,6 +87,7 @@ export interface HealthToolsDeps {
     failed: number;
     oldestQueuedAgeMs: number | null;
   };
+  memoryBudgetMb?: number;
   /** THE-1123: config.toolFacade, shaped by `wireHealthTools` for createHealthTool's own field. */
   toolFacade?: Pick<ServerConfig["toolFacade"], "mode" | "autoClients" | "profile"> &
     Partial<Pick<ServerConfig["toolFacade"], "advertise">>;
@@ -192,6 +198,7 @@ export function wireHealthTools(deps: HealthToolsDeps): void {
         : {}),
       ...(deps.deprecations ? { deprecations: deps.deprecations } : {}),
       ...(deps.getEmbedderWarmup ? { getEmbedderWarmup: deps.getEmbedderWarmup } : {}),
+      ...(deps.memoryBudgetMb !== undefined ? { memoryBudgetMb: deps.memoryBudgetMb } : {}),
       ...(deps.getLeaderRole ? { getLeaderRole: deps.getLeaderRole } : {}),
       ...(deps.getLeaderRoleDetail ? { getLeaderRoleDetail: deps.getLeaderRoleDetail } : {}),
     }),
@@ -342,15 +349,6 @@ export async function wireGatewaySeams(
   // no-op).
   const roles: GatewayRoles | null = gw ? rolesFrom(gw) : null;
   return { gateway, reranker, roles };
-}
-
-/** Adapt a GatewayClient to the three-role seam the workers consume. */
-function rolesFrom(gw: GatewayClient): GatewayRoles {
-  return {
-    extract: (r) => gw.extract(r).then((x) => ({ text: x.text, model: x.model })),
-    synthesize: (r) => gw.synthesize(r).then((x) => ({ text: x.text, model: x.model })),
-    judge: (r) => gw.judge(r).then((x) => ({ text: x.text, model: x.model })),
-  };
 }
 
 /**

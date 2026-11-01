@@ -58,6 +58,7 @@ export interface HealthInfo {
    *  (`search.notes_fts`), which runs the FTS5 integrity-check; boot-time detection and repair is
    *  opt-in via OBSIDIAN_TC_VERIFY_FTS=1. */
   fts_enabled: boolean;
+  memory: HealthMemory;
   /** Number of configured vaults (always present, non-identifying). */
   vault_count: number;
   /** Vault id list — only for an authenticated, non-vault-bound caller (ids are
@@ -297,12 +298,20 @@ const TelemetryHealthOutput = z.object({
   nextSendAt: z.number().optional(),
 });
 
+const HealthMemoryOutput = z.object({
+  rss_mb: z.number(),
+  external_mb: z.number(),
+  budget_mb: z.number().nullable(),
+  over_budget: z.boolean(),
+});
+
 const HealthInfoOutput = z.object({
   status: z.literal("ok"),
   name: z.literal("obsidian-tc"),
   version: z.string(),
   native_loaded: z.boolean(),
   vec_enabled: z.boolean(),
+  memory: HealthMemoryOutput,
   fts_enabled: z.boolean(),
   fts: FtsHealthOutput.optional(),
   vault_count: z.number(),
@@ -400,12 +409,36 @@ export function createIndexStatusTool(opts: {
   };
 }
 
+export interface HealthMemoryBudget {
+  memoryBudgetMb?: number;
+}
+
+export interface HealthMemory {
+  rss_mb: number;
+  external_mb: number;
+  budget_mb: number | null;
+  over_budget: boolean;
+}
+
+const MIB = 1024 * 1024;
+
+function processMemory(budgetMb: number | undefined): HealthMemory {
+  const { rss, external } = process.memoryUsage();
+  return {
+    rss_mb: Math.round(rss / MIB),
+    external_mb: Math.round(external / MIB),
+    budget_mb: budgetMb ?? null,
+    over_budget: budgetMb !== undefined && rss > budgetMb * MIB,
+  };
+}
+
 export function createHealthTool(opts: {
   version: string;
   vaults: string[];
   startedAt: number;
   nativeLoaded: boolean;
   vecEnabled: boolean;
+  memoryBudgetMb?: number;
   /** Optional so existing harnesses stay source-compatible; absent -> false. */
   ftsEnabled?: boolean;
   getFtsStatus?: () => FtsStatus;
@@ -489,6 +522,7 @@ export function createHealthTool(opts: {
         version: opts.version,
         native_loaded: opts.nativeLoaded,
         vec_enabled: opts.vecEnabled,
+        memory: processMemory(opts.memoryBudgetMb),
         fts_enabled: fts ? fts.state === "available" : (opts.ftsEnabled ?? false),
         ...(fts ? { fts: ftsView(fts, indexDetail) } : {}),
         vault_count: opts.vaults.length,

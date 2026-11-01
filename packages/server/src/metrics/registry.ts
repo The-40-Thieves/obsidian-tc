@@ -13,7 +13,9 @@ import type { BusyReason, WriteTxnLabel } from "../db/txn";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
 import type { RerankOutcome } from "../search/rerank";
 import { MaintenanceCounters } from "./maintenance-counters";
+import { registerProcessMemoryGauge } from "./process-memory";
 import { ProvenanceCounters } from "./provenance-counters";
+import type { ToolCallObserver, ToolCallStatus } from "./tool-call-observer";
 
 /** Per-vault gauge sample sources, read lazily at scrape time (G2.4 gauges are per `vault`). */
 export interface GaugeSources {
@@ -67,28 +69,7 @@ export interface GaugeSources {
   authKeys?: () => Record<"active" | "retiring" | "retired", number>;
 }
 
-/** Terminal call status for `obsidian_tc_tool_calls_total` (matches the OTEL status attribute). */
-export type ToolCallStatus = "ok" | "denied" | "error";
-
-/**
- * THE-1125: the ONE observation site opt-in telemetry (telemetry/collector.ts) taps to build its
- * own per-tool and per-error-code counts, instead of a second call site instrumenting
- * `mcp/registry/dispatch.ts` a second time. `observeToolCall` below is already the single method
- * every dispatch.ts call site funnels through (success and every error branch); a telemetry
- * observer registered here sees exactly the same calls Prometheus's `obsidian_tc_tool_calls_total`
- * does, with nothing new to keep in sync.
- *
- * Deliberately a narrow, telemetry-agnostic interface (not a dependency on
- * `TelemetryCollector` itself) so this metrics-only module never imports from `telemetry/` —
- * the composition root (runtime/observability.ts) is the only place that knows both exist.
- */
-export interface ToolCallObserver {
-  onToolCall(
-    tool: string,
-    status: ToolCallStatus,
-    detail?: { errorCode?: string; facadeMode?: string; clientName?: string },
-  ): void;
-}
+export type { ToolCallObserver, ToolCallStatus } from "./tool-call-observer";
 
 // Log-spaced byte buckets from G2.4 (1k, 10k, 100k, 1M, 10M).
 const RESPONSE_BYTE_BUCKETS = [1_000, 10_000, 100_000, 1_000_000, 10_000_000];
@@ -556,6 +537,7 @@ export class MetricsRecorder {
         for (const [state, value] of Object.entries(source())) this.set({ state }, value);
       },
     });
+    registerProcessMemoryGauge(registers);
     // THE-507: retrieval-cache effectiveness. The `vault` label holds the cache name
     // ("results"/"vectors") — see GaugeSources. Hit rate is hits/(hits+misses); a rising
     // eviction count against a flat hit count means retrieval.cache.maxEntries is too small,

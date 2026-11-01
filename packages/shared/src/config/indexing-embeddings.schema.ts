@@ -160,6 +160,14 @@ export const EmbeddingsConfigSchema = z.object({
     .describe(
       'How many embed requests run in flight at once. Under provider "local" each one is a separate in-process ONNX inference holding its own activation memory, so that provider resolves this to 1 unless you set it explicitly — a first index is slower, steady-state edits are small batches and barely change.',
     ),
+  memoryBudgetMb: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      "Optional process-memory budget in MB. When set, server_health reports memory.over_budget true while the process RSS exceeds it. A future release may recycle the in-process embedder at this bound.",
+    ),
   // THE-387: Matryoshka (MRL) dimension truncation. When true, a provider that returns vectors
   // WIDER than `dimensions` is truncated to the first `dimensions` components + renormalised (so a
   // wide MRL model such as Qwen3-8B at 4096 can be stored at 1024). Off by default; a non-MRL width
