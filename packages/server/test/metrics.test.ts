@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MetricsRecorder } from "../src/metrics/registry";
 
 // The exact catalog. Stale comment fixed (THE-585): this was "14 counters, 2 histograms,
@@ -117,17 +117,56 @@ const GAUGES = [
   "obsidian_tc_background_embed_paused",
   // Signing keys by lifecycle state, read from the auth registry at scrape time.
   "obsidian_tc_auth_keys",
+  // GH #1433: process-wide memory, by kind, read from process.memoryUsage() at scrape time.
+  "obsidian_tc_process_memory_bytes",
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 33 counters, 4 histograms, 18 gauges", async () => {
+  it("registers the full catalog: 33 counters, 4 histograms, 19 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(56);
+    expect(new Set(declared).size).toBe(57);
+  });
+
+  it("GH #1433: process memory by kind is read at scrape time; rss and heap_used are live", async () => {
+    const text = await new MetricsRecorder().metrics();
+    expect(text).toContain("# TYPE obsidian_tc_process_memory_bytes gauge");
+    const sample = (kind: string): number => {
+      const m = text.match(
+        new RegExp(`^obsidian_tc_process_memory_bytes\\{kind="${kind}"\\} (\\S+)$`, "m"),
+      );
+      expect(m, `kind="${kind}" sample`).not.toBeNull();
+      return Number(m?.[1]);
+    };
+    for (const kind of ["rss", "heap_used", "external", "array_buffers"]) {
+      expect(Number.isFinite(sample(kind))).toBe(true);
+    }
+    expect(sample("rss")).toBeGreaterThan(0);
+    expect(sample("heap_used")).toBeGreaterThan(0);
+
+    // Read at scrape time, not cached at construction: each scrape reports the rss that
+    // process.memoryUsage returns at that moment.
+    const MIB = 1024 * 1024;
+    let rss = 111 * MIB;
+    const spy = vi
+      .spyOn(process, "memoryUsage")
+      .mockImplementation(() => ({ rss, heapTotal: 0, heapUsed: 1, external: 0, arrayBuffers: 0 }));
+    try {
+      const rssOf = async (): Promise<number> => {
+        const scraped = await new MetricsRecorder().metrics();
+        const m = scraped.match(/^obsidian_tc_process_memory_bytes\{kind="rss"\} (\S+)$/m);
+        return Number(m?.[1]);
+      };
+      expect(await rssOf()).toBe(111 * MIB);
+      rss = 222 * MIB;
+      expect(await rssOf()).toBe(222 * MIB);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {

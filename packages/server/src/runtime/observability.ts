@@ -55,8 +55,8 @@ export interface ObservabilityDeps {
    *  server) — see the gauge source below. */
   getHttpConstructSeconds: () => number | null;
   /** THE-1125: opt-in telemetry's counter sink, fed from the SAME `observeToolCall` call sites
-   *  Prometheus already uses — see metrics/registry.ts's `ToolCallObserver` for why this is not a
-   *  second instrumentation site. Undefined on a build that never wires telemetry (every existing
+   *  Prometheus already uses — see metrics/tool-call-observer.ts's `ToolCallObserver` for why
+   *  this is not a second instrumentation site. Undefined on a build that never wires telemetry (every existing
    *  caller of createObservability before THE-1125 keeps compiling unchanged). */
   toolCallObserver?: ToolCallObserver;
 }

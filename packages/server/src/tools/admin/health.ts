@@ -58,6 +58,9 @@ export interface HealthInfo {
    *  (`search.notes_fts`), which runs the FTS5 integrity-check; boot-time detection and repair is
    *  opt-in via OBSIDIAN_TC_VERIFY_FTS=1. */
   fts_enabled: boolean;
+  /** GH #1433: unbound authenticated callers only (THE-924): process RSS is process-wide, so a
+   *  vault-bound token would see other tenants' activity at MiB resolution (as /metrics refuses). */
+  memory?: HealthMemory;
   /** Number of configured vaults (always present, non-identifying). */
   vault_count: number;
   /** Vault id list — only for an authenticated, non-vault-bound caller (ids are
@@ -297,12 +300,20 @@ const TelemetryHealthOutput = z.object({
   nextSendAt: z.number().optional(),
 });
 
+const HealthMemoryOutput = z.object({
+  rss_mb: z.number(),
+  external_mb: z.number(),
+  budget_mb: z.number().nullable(),
+  over_budget: z.boolean(),
+});
+
 const HealthInfoOutput = z.object({
   status: z.literal("ok"),
   name: z.literal("obsidian-tc"),
   version: z.string(),
   native_loaded: z.boolean(),
   vec_enabled: z.boolean(),
+  memory: HealthMemoryOutput.optional(),
   fts_enabled: z.boolean(),
   fts: FtsHealthOutput.optional(),
   vault_count: z.number(),
@@ -400,12 +411,44 @@ export function createIndexStatusTool(opts: {
   };
 }
 
+export interface HealthMemoryBudget {
+  memoryBudgetMb?: number;
+}
+
+export interface HealthMemory {
+  rss_mb: number;
+  external_mb: number;
+  budget_mb: number | null;
+  over_budget: boolean;
+}
+
+const MIB = 1024 * 1024;
+
+function processMemory(budgetMb: number | undefined): HealthMemory {
+  const { rss, external } = process.memoryUsage();
+  const rssMb = Math.ceil(rss / MIB);
+  return {
+    rss_mb: rssMb,
+    external_mb: Math.ceil(external / MIB),
+    budget_mb: budgetMb ?? null,
+    over_budget: budgetMb !== undefined && rssMb > budgetMb,
+  };
+}
+
+function memoryBlock(
+  authedUnbound: boolean,
+  budgetMb: number | undefined,
+): { memory?: HealthMemory } {
+  return authedUnbound ? { memory: processMemory(budgetMb) } : {};
+}
+
 export function createHealthTool(opts: {
   version: string;
   vaults: string[];
   startedAt: number;
   nativeLoaded: boolean;
   vecEnabled: boolean;
+  memoryBudgetMb?: HealthMemoryBudget["memoryBudgetMb"];
   /** Optional so existing harnesses stay source-compatible; absent -> false. */
   ftsEnabled?: boolean;
   getFtsStatus?: () => FtsStatus;
@@ -473,11 +516,9 @@ export function createHealthTool(opts: {
     // requiredScopes [] keeps this an unauthenticated liveness probe, but the vault-id list is
     // emitted only to authenticated callers (F3): ids are deployment-internal. The native/vec
     // capability flags are non-identifying, so they stay in the always-present payload.
-    //
     // THE-924: F3's rationale covered only the pre-auth axis — a vaultBound (HTTP-token) caller
     // is `authenticated: true` but must not see other tenants' vault ids or path-bearing index
-    // detail, so `authenticated` alone is not the right gate. `authedUnbound` folds both axes:
-    // present only for a trusted, non-vault-bound caller.
+    // detail, so `authenticated` alone is not the right gate: `authedUnbound` folds both axes.
     handler: (_input, ctx) => {
       const authedUnbound = ctx.authenticated && ctx.vaultBound !== true;
       const indexDetail =
@@ -489,6 +530,7 @@ export function createHealthTool(opts: {
         version: opts.version,
         native_loaded: opts.nativeLoaded,
         vec_enabled: opts.vecEnabled,
+        ...memoryBlock(authedUnbound, opts.memoryBudgetMb),
         fts_enabled: fts ? fts.state === "available" : (opts.ftsEnabled ?? false),
         ...(fts ? { fts: ftsView(fts, indexDetail) } : {}),
         vault_count: opts.vaults.length,

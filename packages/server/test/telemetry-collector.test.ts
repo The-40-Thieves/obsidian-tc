@@ -1,5 +1,5 @@
 // THE-1125 — TelemetryCollector: the in-process counter set fed from MetricsRecorder's ONE
-// observeToolCall hook (see registry.ts's ToolCallObserver comment).
+// observeToolCall hook (see metrics/tool-call-observer.ts's ToolCallObserver comment).
 //
 // Security review (grok HIGH-1 + in-pool HIGH-A, 2026-09-25): `recordToolCall`/`recordClientName`
 // used to store the caller-supplied string VERBATIM with no allowlist and no cap on the

@@ -12,11 +12,12 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
-import { AUTO_FACADE_DEPRECATION } from "../src/mcp/facade-auto";
+import { AUTO_FACADE_DEPRECATION, healthToolsWiringFields } from "../src/mcp/facade-auto";
 import type { CallerContext } from "../src/mcp/registry";
 import { ToolRegistry } from "../src/mcp/registry";
 import { createMcpServer } from "../src/mcp/server";
 import { NON_CORE_TOOL_NAMES } from "../src/mcp/tool-profiles";
+import { wireHealthTools } from "../src/runtime/tool-wiring";
 import { createHealthTool } from "../src/tools/admin/health";
 
 function reg(): ToolRegistry {
@@ -196,5 +197,62 @@ describe("server_health names the advertise subset a /mcp/<surface> URL selected
     const tf = await callHealthOn({ facadeMode: "triad" });
     expect(tf?.advertise).toBe("all");
     expect(tf?.effectiveAdvertise).toBe("all");
+  });
+});
+
+// GH #1433 threading: config.embeddings.memoryBudgetMb must reach server_health's memory block
+// through the two seams production uses, healthToolsWiringFields (facade-auto.ts) spread into
+// wireHealthTools (tool-wiring.ts). A dropped spread at either seam leaves budget_mb null.
+describe("memoryBudgetMb threading (GH #1433)", () => {
+  it("config embeddings.memoryBudgetMb reaches server_health memory.budget_mb and over_budget", () => {
+    const tools = new Map<string, { handler: (input: unknown, ctx: CallerContext) => unknown }>();
+    wireHealthTools({
+      registry: {
+        register: (t: { name: string }) => tools.set(t.name, t as never),
+        aclFor: () => undefined,
+        maxResponseBytes: 1_000_000,
+      },
+      version: "test",
+      startedAt: 0,
+      hasVec: false,
+      fts: { status: () => ({ state: "available" }) },
+      indexHealth: {
+        reconcile: "pending",
+        reconcileAt: null,
+        reconcileErrors: [],
+        writeFailures: 0,
+        frontmatterFailures: new Map(),
+        notesReady: false,
+        auditWriteFailures: 0,
+        indexQueueBackpressures: 0,
+        lastChunksUpserted: null,
+        inFlight: null,
+      },
+      getIndexCoordinatorStats: () => ({ queued: 0, active: 0 }),
+      getJobQueueStats: () => ({
+        queued: 0,
+        running: 0,
+        retrying: 0,
+        failed: 0,
+        oldestQueuedAgeMs: null,
+      }),
+      ...healthToolsWiringFields({
+        vaults: [{ id: "v1" }],
+        toolFacade: { mode: "triad", profile: "full" },
+        embeddings: { memoryBudgetMb: 1 },
+      } as never),
+    } as never);
+    const ctx = {
+      caller: "stdio",
+      authenticated: true,
+      grantedScopes: new Set(["*"]),
+      vaultId: "v1",
+      db: {} as never,
+    } as CallerContext;
+    const out = tools.get("server_health")?.handler({}, ctx) as {
+      memory: { budget_mb: number | null; over_budget: boolean };
+    };
+    expect(out.memory.budget_mb).toBe(1);
+    expect(out.memory.over_budget).toBe(true);
   });
 });

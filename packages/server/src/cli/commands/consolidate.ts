@@ -23,27 +23,13 @@ import type { GatewayRoles } from "../../plane/gateway";
 import { auditJob } from "../../plane/jobs/audit";
 import { planSynthesis, runSynthesis } from "../../plane/jobs/synthesis";
 import type { JobContext } from "../../plane/plane";
+import { rolesFrom } from "../../runtime/gateway-roles";
 import {
   type Cmd,
   experientialMigrations,
   resolveCliVaultIdentity,
   resolveOrUsageExit,
 } from "../shared";
-
-/** Adapt a GatewayClient to the GatewayRoles seam the plane jobs consume — the same mapping
- *  runtime/tool-wiring.ts's rolesFrom does for the live server, duplicated here (not imported)
- *  because that one is module-private and this is the only CLI call site that needs it. */
-function rolesFrom(gw: {
-  extract: GatewayRoles["extract"];
-  synthesize: GatewayRoles["synthesize"];
-  judge: GatewayRoles["judge"];
-}): GatewayRoles {
-  return {
-    extract: (r) => gw.extract(r).then((x) => ({ text: x.text, model: x.model })),
-    synthesize: (r) => gw.synthesize(r).then((x) => ({ text: x.text, model: x.model })),
-    judge: (r) => gw.judge(r).then((x) => ({ text: x.text, model: x.model })),
-  };
-}
 
 export async function run_consolidate(cmd: Cmd<"consolidate">): Promise<void> {
   const cfg = resolveOrUsageExit(cmd.configPath);

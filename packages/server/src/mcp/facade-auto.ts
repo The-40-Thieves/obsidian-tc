@@ -92,6 +92,7 @@ export function healthToolsWiringFields<V extends readonly { id: string }[]>(
       advertise?: AdvertiseSubset;
     };
     sessions?: { windowSeconds: number };
+    embeddings?: { memoryBudgetMb?: number };
   },
   telemetry?: { getStatus: () => TelemetryStatusInfo },
   db?: Database,
@@ -105,6 +106,7 @@ export function healthToolsWiringFields<V extends readonly { id: string }[]>(
   db?: Database;
   sessions?: { windowSeconds: number };
   deprecations?: string[];
+  memoryBudgetMb?: number;
 } {
   const deprecations = [...plainHttpDeprecations(cfg), ...endpointAdvice];
   return {
@@ -114,6 +116,9 @@ export function healthToolsWiringFields<V extends readonly { id: string }[]>(
     ...(telemetry ? { getTelemetryStatus: telemetry.getStatus } : {}),
     ...(db ? { db } : {}),
     ...(cfg.sessions ? { sessions: cfg.sessions } : {}),
+    ...(cfg.embeddings?.memoryBudgetMb !== undefined
+      ? { memoryBudgetMb: cfg.embeddings.memoryBudgetMb }
+      : {}),
   };
 }
 

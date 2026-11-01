@@ -1157,6 +1157,12 @@
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
         },
+        "memoryBudgetMb": {
+          "description": "Optional process-memory budget in MB. When set, server_health reports memory.over_budget true while the process RSS exceeds it.",
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
         "truncate": {
           "default": false,
           "description": "Matryoshka (MRL) truncation: accept a provider vector WIDER than `dimensions` by keeping the first `dimensions` components and renormalising. Off by default so a non-MRL width mismatch errors instead of silently storing a meaningless prefix.",
