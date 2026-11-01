@@ -170,6 +170,20 @@ export function assertBaseUrlNotDuplicating(
   );
 }
 
+/** embeddings.host "child-process" hosts the local model only: any other provider refuses it here, so a
+ *  config cannot ask for a child process it would never start. */
+function refuseChildHostOutsideLocal(cfg: EmbeddingsConfigLike): void {
+  if (cfg.host === "child-process" && cfg.provider !== "local") {
+    throw err.invalidInput(
+      `embeddings.host "child-process" applies only to embeddings.provider "local", not "${cfg.provider}"`,
+      {
+        provider: cfg.provider,
+        hint: 'remove embeddings.host, or set embeddings.provider to "local"',
+      },
+    );
+  }
+}
+
 function embeddingsEntryOrThrow(name: string): EmbeddingsEntry {
   const entry = EMBEDDINGS[name];
   if (!entry) {
@@ -186,6 +200,7 @@ export function resolveEmbeddings(
   cfg: EmbeddingsConfigLike,
   ctx: ResolveContext = {},
 ): { provider: EmbeddingProvider; entry: EmbeddingsEntry } {
+  refuseChildHostOutsideLocal(cfg);
   const entry = embeddingsEntryOrThrow(cfg.provider);
   if (entry.asyncOnly) {
     throw err.invalidInput(
@@ -207,6 +222,7 @@ export async function resolveEmbeddingsAsync(
   cfg: EmbeddingsConfigLike,
   ctx: ResolveContext = {},
 ): Promise<{ provider: EmbeddingProvider; entry: EmbeddingsEntry }> {
+  refuseChildHostOutsideLocal(cfg);
   const entry = embeddingsEntryOrThrow(cfg.provider);
   assertBaseUrlNotDuplicating(cfg.baseUrl, entry.appendsPath, "embeddings");
   if (entry.buildAsync) return { provider: await entry.buildAsync(cfg, ctx), entry };

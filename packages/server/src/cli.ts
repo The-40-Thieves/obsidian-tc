@@ -140,6 +140,13 @@ async function run_serve(cmd: Cmd<"serve">): Promise<void> {
 // do not add audit rows to the recompute commands above without re-litigating the "recomputable
 // state is not a loss event" premise this classification rests on.
 async function main(): Promise<void> {
+  // The embedder child (embeddings.host "child-process") re-runs this entry with the flag set. It serves
+  // the embeddings protocol on stdin/stdout and never reaches argument dispatch or the MCP transport.
+  if (process.env.OBSIDIAN_TC_EMBEDDER_HOST === "1") {
+    const { runEmbedderChild } = await import("./embeddings/host/child-main");
+    await runEmbedderChild({ input: process.stdin, output: process.stdout });
+    process.exit(0);
+  }
   const cmd = parseCliArgs(process.argv.slice(2));
   switch (cmd.kind) {
     case "token-mint":

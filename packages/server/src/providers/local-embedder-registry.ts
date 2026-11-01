@@ -18,8 +18,10 @@ import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { version as OWN_VERSION } from "../../package.json";
 import { embeddedEmbedder } from "../embeddings/embedded-embedder";
 import { extractEmbeddedRuntime } from "../embeddings/embedded-runtime";
+import { createChildProcessHost } from "../embeddings/host/child-process";
 import { createInProcessHost } from "../embeddings/host/in-process";
 import { registerHost } from "../embeddings/host/registry";
+import { selfSpawnArgv } from "../embeddings/host/spawn-argv";
 import type { EmbeddingProvider } from "../embeddings/provider";
 import {
   currentInstallSite,
@@ -430,8 +432,23 @@ export function buildLocalEmbeddingProvider(
   // to close, just on the revision axis instead of the quantization axis.
   const quantized = c.quantized ?? true;
   const revisionSuffix = c.revision ? `:${c.revision}` : "";
-  // No owner (CLI/eval): nothing closes it, and an in-process close is a no-op anyway.
-  const host = registerHost(ctx.embedderHostOwner ?? {}, createInProcessHost(session));
+  // No owner (CLI/eval): nothing closes it. A child's stdin closes with this process, so the child
+  // exits with its parent.
+  const host = registerHost(
+    ctx.embedderHostOwner ?? {},
+    c.host === "child-process"
+      ? createChildProcessHost({
+          argv: selfSpawnArgv(),
+          init: {
+            model: c.model,
+            quantized,
+            threads: c.threads,
+            modelsRoot,
+            cacheDir: ctx.cacheDir,
+          },
+        })
+      : createInProcessHost(session),
+  );
   return {
     id: `local:${c.model}:${quantized ? "q8" : "fp32"}${revisionSuffix}`,
     provider: "local",

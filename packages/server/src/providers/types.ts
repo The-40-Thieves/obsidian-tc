@@ -44,6 +44,9 @@ export interface EmbeddingsConfigLike {
    *  ort-session-options.ts). An explicit value overrides that default outright for both intra-
    *  and inter-op. */
   threads?: number;
+  /** embeddings.host: only read by provider "local". "child-process" runs the model in a child
+   *  process (embeddings/host/child-process.ts); any other provider refuses it. */
+  host?: "in-process" | "child-process";
   /** THE-1122: not a schema-exposed config key today (see registry.ts's
    *  resolveLocalEmbedderModule doc comment) — present so a test can drive the "local" embedder's
    *  resolution ladder's route (i) the same way reranker.localModulePath does for its slot. */
