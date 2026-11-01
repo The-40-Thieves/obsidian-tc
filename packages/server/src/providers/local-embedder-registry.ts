@@ -458,6 +458,31 @@ export function buildLocalEmbeddingProvider(
   };
 }
 
+/** The local embedder's provider for one set of init options, resolved exactly as
+ *  buildLocalEmbeddingProvider resolves it. The embedder child (embeddings/host/child-main.ts) loads
+ *  through this. The egress guard runs in the parent before embed() crosses the child protocol. */
+export async function loadLocalEmbedderProvider(opts: {
+  model: string;
+  quantized: boolean;
+  threads?: number;
+  modelsRoot: string;
+  cacheDir: string;
+}): Promise<{ embed(texts: string[], embedOpts?: unknown): Promise<number[][]> }> {
+  const resolution = await resolveLocalEmbedderModule({}, { cacheDir: opts.cacheDir });
+  if (!resolution.ok || !resolution.mod) {
+    const attempts = resolution.attempts
+      .map((a) => `${a.route} (${a.target}): ${a.error ?? "unknown error"}`)
+      .join("; ");
+    throw new Error(`embedder "local" did not resolve: ${attempts}`);
+  }
+  return resolution.mod.createEmbeddingProvider({
+    model: opts.model,
+    quantized: opts.quantized,
+    threads: opts.threads,
+    modelsRoot: opts.modelsRoot,
+  });
+}
+
 /** doctor-facing probe: whether "local" is buildable right now, independent of whether it is
  *  actually configured (used both when `embeddings.provider === "local"` explicitly and, since it
  *  is also the SCHEMA default, whenever the block is absent). */

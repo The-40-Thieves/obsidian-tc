@@ -149,9 +149,6 @@ const EMBEDDING_PROVIDER_ALLOWLIST = [
   "cli/commands/doctor.ts",
   "cli/commands/gaps.ts",
   "cli/commands/prefetch.ts",
-  // The embedder child (embeddings.host "child-process") builds the local provider inside its own
-  // process; it is the only other place that does, and it re-runs the same resolution ladder.
-  "embeddings/host/child-main.ts",
   "runtime/indexing-wiring.ts",
 ].sort();
 

@@ -4,7 +4,7 @@
 // Its stdout IS the protocol channel, so everything else it logs goes to stderr.
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
-import { resolveLocalEmbedderModule } from "../../providers/local-embedder-registry";
+import { loadLocalEmbedderProvider } from "../../providers/local-embedder-registry";
 import type { LoadedEmbedder } from "./in-process";
 import {
   type ChildMessage,
@@ -22,21 +22,7 @@ export interface ChildIo {
 export type LoadEmbedder = (opts: EmbedderInitOpts) => Promise<LoadedEmbedder>;
 
 /** The local embedder, resolved exactly as the in-process host resolves it. */
-export const loadLocalEmbedder: LoadEmbedder = async (opts) => {
-  const resolution = await resolveLocalEmbedderModule({}, { cacheDir: opts.cacheDir });
-  if (!resolution.ok || !resolution.mod) {
-    const attempts = resolution.attempts
-      .map((a) => `${a.route} (${a.target}): ${a.error ?? "unknown error"}`)
-      .join("; ");
-    throw new Error(`embedder "local" did not resolve: ${attempts}`);
-  }
-  return resolution.mod.createEmbeddingProvider({
-    model: opts.model,
-    quantized: opts.quantized,
-    threads: opts.threads,
-    modelsRoot: opts.modelsRoot,
-  });
-};
+export const loadLocalEmbedder: LoadEmbedder = loadLocalEmbedderProvider;
 
 /** Serves the protocol until stdin closes or the parent sends shutdown. Lines are answered in order:
  *  the parent sends one request at a time, and the model is single-threaded. */
