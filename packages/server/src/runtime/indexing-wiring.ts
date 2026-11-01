@@ -63,6 +63,7 @@ export interface IndexResourcesDeps {
     maxBatchTokens: number;
     chunkContext: boolean;
     onProviderChange: "keep" | "switch";
+    memoryBudgetMb?: number;
   };
   /** config.vaults, narrowed to the id every sticky-resolution query needs — required so
    *  `wireIndexResources` can apply sticky resolution itself rather than relying on every caller
