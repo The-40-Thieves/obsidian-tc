@@ -18,6 +18,8 @@ import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { version as OWN_VERSION } from "../../package.json";
 import { embeddedEmbedder } from "../embeddings/embedded-embedder";
 import { extractEmbeddedRuntime } from "../embeddings/embedded-runtime";
+import { createInProcessHost } from "../embeddings/host/in-process";
+import { registerHost } from "../embeddings/host/registry";
 import type { EmbeddingProvider } from "../embeddings/provider";
 import {
   currentInstallSite,
@@ -428,15 +430,13 @@ export function buildLocalEmbeddingProvider(
   // to close, just on the revision axis instead of the quantization axis.
   const quantized = c.quantized ?? true;
   const revisionSuffix = c.revision ? `:${c.revision}` : "";
+  const host = registerHost(createInProcessHost(session));
   return {
     id: `local:${c.model}:${quantized ? "q8" : "fp32"}${revisionSuffix}`,
     provider: "local",
     model: c.model,
     dimensions: c.dimensions,
-    embed: async (texts, opts) => {
-      const s = await session();
-      return s.embed(texts, opts);
-    },
+    embed: (texts, opts) => host.embed(texts, opts),
   };
 }
 

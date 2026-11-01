@@ -14,6 +14,7 @@ import { version as VERSION } from "../../package.json";
 import { experientialMigrations } from "../cli/shared";
 import { plainHttpEndpointDeprecations } from "../doctor/plain-http";
 import { createStdioElicitCodec } from "../elicit";
+import { closeAllHosts } from "../embeddings/host/registry";
 import { buildMemoryDefenseLookup } from "../experiential/memory-defense";
 import { providerResolveHost } from "../gateway/provider-fetch";
 import { healthToolsWiringFields, mcpServerFacadeOptions } from "../mcp/facade-auto";
@@ -692,6 +693,7 @@ export async function buildServerRuntime(
     } catch {
       /* best-effort */
     }
+    await closeAllHosts(); // never rejects: each host's close is isolated
     try {
       stores.close();
     } catch {
