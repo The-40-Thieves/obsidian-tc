@@ -9,7 +9,8 @@
 //   FAKE_CRASH=until-marker      exit(3) on every embed request until FAKE_CRASH_MARKER exists.
 //   FAKE_CRASH_TEXT=<text>       exit(3) on any embed request whose texts include <text>.
 //   FAKE_EMBED_DELAY_MS=<n>      sleep before answering an embed (keeps a request in flight).
-//   FAKE_HANG=embed|ready        never answer an embed, or never send ready (the host must time out).
+//   FAKE_HANG=embed|ready|stats  never answer an embed, never send ready (the host must time out), or never
+//                                answer a stats request.
 import { existsSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
@@ -47,6 +48,7 @@ async function handle(msg) {
       return;
     }
     case "stats":
+      if (env.FAKE_HANG === "stats") return;
       send({ t: "stats", id: msg.id, rssBytes: process.memoryUsage().rss });
       return;
     case "shutdown":

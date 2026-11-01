@@ -307,9 +307,14 @@ const HealthMemoryOutput = z.object({
   rss_mb: z.number(),
   external_mb: z.number(),
   budget_mb: z.number().nullable(),
-  over_budget: z.boolean(),
+  over_budget: z.boolean().nullable(),
   embedder_host: z
-    .object({ state: z.string(), restarts: z.number(), rss_mb: z.number().nullable() })
+    .object({
+      state: z.string(),
+      restarts: z.number(),
+      rss_mb: z.number().nullable(),
+      child_rss_known: z.boolean().optional(),
+    })
     .optional(),
 });
 
@@ -425,8 +430,13 @@ export interface HealthMemory {
   rss_mb: number;
   external_mb: number;
   budget_mb: number | null;
-  over_budget: boolean;
-  embedder_host?: { state: string; restarts: number; rss_mb: number | null };
+  over_budget: boolean | null;
+  embedder_host?: {
+    state: string;
+    restarts: number;
+    rss_mb: number | null;
+    child_rss_known?: boolean;
+  };
 }
 
 const MIB = 1024 * 1024;
@@ -434,18 +444,20 @@ const MIB = 1024 * 1024;
 function processMemory(budgetMb: number | undefined, child?: EmbedderHostStats): HealthMemory {
   const { rss, external } = process.memoryUsage();
   const rssMb = Math.ceil(rss / MIB);
+  const childRssKnown = child?.pid === undefined || child.rssBytes !== undefined;
   const childMb = Math.ceil((child?.rssBytes ?? 0) / MIB);
   return {
     rss_mb: rssMb,
     external_mb: Math.ceil(external / MIB),
     budget_mb: budgetMb ?? null,
-    over_budget: budgetMb !== undefined && rssMb + childMb > budgetMb,
+    over_budget: budgetMb === undefined ? false : childRssKnown ? rssMb + childMb > budgetMb : null,
     ...(child
       ? {
           embedder_host: {
             state: child.state,
             restarts: child.restarts,
             rss_mb: child.rssBytes === undefined ? null : Math.ceil(child.rssBytes / MIB),
+            ...(child.pid !== undefined ? { child_rss_known: child.rssBytes !== undefined } : {}),
           },
         }
       : {}),

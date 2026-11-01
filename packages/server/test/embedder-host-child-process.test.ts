@@ -105,6 +105,26 @@ describe("child-process EmbedderHost", () => {
     await host.close();
   });
 
+  it("a child's RSS is known once it is ready, with no embed burst after the one that started it", async () => {
+    const host = hostWith({});
+    await host.embed(["a"]);
+    await until(async () => host.snapshot().rssBytes !== undefined);
+    expect(host.snapshot().rssBytes).toBeGreaterThan(0);
+    await host.close();
+  });
+
+  it("a stats request that never gets a reply does not kill the child and does not count as a death", async () => {
+    const host = hostWith({ FAKE_HANG: "stats" }, { timeoutMs: 300 });
+    expect(await host.embed(["a"])).toEqual([[1, 1, 0]]);
+    const pid = (await host.stats()).pid;
+    expect(pid).toBeDefined();
+    expect((await host.stats()).pid).toBe(pid);
+    expect((await host.stats()).restarts).toBe(0);
+    expect(host.snapshot().state).not.toBe("failed");
+    expect(await host.embed(["bb"])).toEqual([[2, 1, 0]]);
+    await host.close();
+  });
+
   it("a child that dies on its first embed is replaced and the request succeeds on a retry", async () => {
     const host = hostWith({ FAKE_CRASH: "once", FAKE_CRASH_MARKER: join(dir, "crashed") });
     expect(await host.embed(["a"])).toEqual([[1, 1, 0]]);
