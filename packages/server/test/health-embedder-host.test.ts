@@ -66,6 +66,37 @@ describe("server_health embedder_host (GH #1433 step 3)", () => {
     expect(m.embedder_host).toEqual({ state: "idle", restarts: 1, rss_mb: null });
   });
 
+  it("a child with a pid whose RSS is not known yet reads over_budget as null, not as the parent alone", () => {
+    // Right after a respawn the child is running but its RSS has not come back yet.
+    const parentMb = Math.ceil(process.memoryUsage().rss / MIB);
+    const m = memoryWith({
+      budgetMb: parentMb + 50,
+      child: { state: "loading", restarts: 1, recycles: 0, pid: 4242 },
+    });
+    expect(m.over_budget).toBeNull();
+    expect(m.embedder_host).toEqual({
+      state: "loading",
+      restarts: 1,
+      rss_mb: null,
+      child_rss_known: false,
+    });
+  });
+
+  it("a child with a pid and a known RSS reports child_rss_known true and computes over_budget", () => {
+    const parentMb = Math.ceil(process.memoryUsage().rss / MIB);
+    const m = memoryWith({
+      budgetMb: parentMb + 100,
+      child: { state: "ready", restarts: 0, recycles: 0, pid: 4242, rssBytes: 150 * MIB },
+    });
+    expect(m.over_budget).toBe(true);
+    expect(m.embedder_host).toEqual({
+      state: "ready",
+      restarts: 0,
+      rss_mb: 150,
+      child_rss_known: true,
+    });
+  });
+
   it("over_budget compares parent + child RSS, so a child alone can tip it over", () => {
     // Read the parent's RSS now, not at import: the suite grows the process after collection. The budget
     // is the parent alone plus 50 MB, so the parent is under it and parent + a 100 MB child is not.

@@ -64,6 +64,8 @@ interface Running {
   killTimer?: ReturnType<typeof setTimeout>;
   /** The deadline for the ready message, or for the request in flight. */
   deadline?: ReturnType<typeof setTimeout>;
+  /** The id of the stats request sent when this child reported ready; its reply sets the child's RSS. */
+  rssRequest?: number;
 }
 
 interface Job {
@@ -131,10 +133,21 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
   };
 
   // A child that does not answer in time is SIGKILLed; its exit is then counted as a death, so the
-  // request is retried once and the circuit breaker sees it like any other crash.
+  // request is retried once and the circuit breaker sees it like any other crash. A stats request is
+  // only a memory probe, so a stats reply that never comes gives up on that request and spares the child.
   const armDeadline = (running: Running): void => {
     clearDeadline(running);
-    running.deadline = setTimeout(() => running.proc.kill("SIGKILL"), timeoutMs);
+    running.deadline = setTimeout(() => {
+      running.deadline = undefined;
+      if (inFlight?.request.t === "stats") {
+        const job = inFlight;
+        inFlight = undefined;
+        job.reject(err.embeddingProviderError("embedder child did not answer a stats request"));
+        pump();
+        return;
+      }
+      running.proc.kill("SIGKILL");
+    }, timeoutMs);
   };
 
   // The grace timer starts once, so a child that is already dying is not given a second grace period.
@@ -247,6 +260,13 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
         clearDeadline(running);
         if (inFlight) armDeadline(running);
         if (!draining) state = "ready";
+        // Nothing else asks a respawned child for its RSS until a burst ends, so one stats request goes
+        // out now. It is written past the queue: the embed in flight is not delayed, and a reply that
+        // never comes costs nothing.
+        if (!running.stopping) {
+          running.rssRequest = nextId++;
+          write(running, { t: "stats", v: 1, id: running.rssRequest });
+        }
         return;
       case "error": {
         if (message.id === "init") {
@@ -263,6 +283,11 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
       }
       case "result":
       case "stats": {
+        if (message.t === "stats" && message.id === running.rssRequest) {
+          running.rssRequest = undefined;
+          lastRssBytes = message.rssBytes;
+          return;
+        }
         if (inFlight?.request.id !== message.id) return;
         const job = inFlight;
         inFlight = undefined;
