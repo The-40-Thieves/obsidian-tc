@@ -71,7 +71,7 @@ describe("embedder child", () => {
       // Runtime imports only: `import type` is erased and cannot load anything.
       const specifiers = [
         ...source.matchAll(/^import\s+(?!type\s)[\s\S]*?from\s+"(\.{1,2}\/[^"]+)";/gm),
-      ].map((m) => m[1]);
+      ].map((m) => m[1] as string);
       for (const specifier of specifiers) {
         const base = resolve(dirname(file), specifier);
         const target = [`${base}.ts`, join(base, "index.ts")].find((c) => existsSync(c));
