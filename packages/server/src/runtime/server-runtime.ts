@@ -222,9 +222,8 @@ export async function buildServerRuntime(
     indexHealth,
     recordIngestStatsFor,
     indexVaultRecorded,
-    // GH #995 fix round 2 (item B): computed INSIDE wireIndexResources now (via wireRuntimeCore),
-    // not by this function itself — see that function's doc comment. Still read here, unchanged,
-    // for the boot notice below.
+    // GH #995 fix round 2 (item B): computed inside wireIndexResources (via wireRuntimeCore), see
+    // that function's doc comment; still read here, unchanged, for the boot notice below.
     embeddingsSticky,
   } = indexResources;
 
