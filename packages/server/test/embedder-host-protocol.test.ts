@@ -21,7 +21,7 @@ describe("embedder host NDJSON protocol", () => {
       { t: "shutdown", v: 1 },
       { t: "ready", v: 1, pid: 4242 },
       { t: "result", v: 1, id: 2, vectors: [[0.5, 0.25]] },
-      { t: "error", v: 1, id: 2, message: "boom", code: "E" },
+      { t: "error", v: 1, id: 2, message: "boom" },
       { t: "stats", v: 1, id: 3, rssBytes: 1024 },
     ] satisfies ProtocolMessage[];
     for (const message of messages) {

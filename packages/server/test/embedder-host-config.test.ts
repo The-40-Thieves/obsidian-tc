@@ -46,12 +46,14 @@ describe("embeddings.host selection", () => {
       { cacheDir: "/cache-dir" },
     );
     expect(mocks.createChildProcessHost).toHaveBeenCalledTimes(1);
-    expect(mocks.createChildProcessHost.mock.calls[0][0].init).toEqual({
-      model: "bge-small-en-v1.5",
-      quantized: true,
-      threads: 2,
-      modelsRoot: "/cache-dir/models/embedder-local",
-      cacheDir: "/cache-dir",
+    expect(mocks.createChildProcessHost.mock.calls[0]?.[0]).toMatchObject({
+      init: {
+        model: "bge-small-en-v1.5",
+        quantized: true,
+        threads: 2,
+        modelsRoot: "/cache-dir/models/embedder-local",
+        cacheDir: "/cache-dir",
+      },
     });
     expect(await provider.embed(["x"])).toEqual([[7]]);
     expect(stub.embed).toHaveBeenCalledTimes(1);
