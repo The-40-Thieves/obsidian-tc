@@ -8,8 +8,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { configFromVaultPath } from "../src/cli/args";
 import { openDatabase } from "../src/db/open";
 import { buildServerRuntime } from "../src/runtime/server-runtime";
-import { waitFor } from "./git-sync-test-helpers";
 import { stallTimeout } from "./stall-timeouts";
+import { awaitStdioReply, collectStdioReplies } from "./stdio-reply-reader";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const io = vi.hoisted(() => ({
@@ -44,25 +44,15 @@ describe("ServerRuntime.close() ends the stdio session sessions.autoOpen opened"
       config.cacheDir = cacheDir;
       config.sessions = { ...config.sessions, autoOpen: true, windowSeconds: 1800 };
 
-      io.stdin = new PassThrough();
-      io.stdout = new PassThrough();
-      const replies = new Map<number, Record<string, any>>();
-      let pending = "";
-      io.stdout.on("data", (chunk: Buffer) => {
-        pending += chunk.toString("utf8");
-        for (let nl = pending.indexOf("\n"); nl >= 0; nl = pending.indexOf("\n")) {
-          const msg = JSON.parse(pending.slice(0, nl));
-          pending = pending.slice(nl + 1);
-          if (typeof msg.id === "number") replies.set(msg.id, msg);
-        }
-      });
-      const send = (msg: object) => io.stdin?.write(`${JSON.stringify(msg)}\n`);
-      const request = async (id: number, method: string, params: object) => {
+      const stdin = new PassThrough();
+      const stdout = new PassThrough();
+      io.stdin = stdin;
+      io.stdout = stdout;
+      const replies = collectStdioReplies(stdout);
+      const send = (msg: object) => stdin.write(`${JSON.stringify(msg)}\n`);
+      const request = (id: number, method: string, params: object) => {
         send({ jsonrpc: "2.0", id, method, params });
-        await waitFor(() => replies.has(id), 4_000).catch(() => {
-          throw new Error(`no stdio reply for ${method}`);
-        });
-        return replies.get(id) as Record<string, any>;
+        return awaitStdioReply(replies, id, method);
       };
 
       const runtime = await buildServerRuntime(config, undefined);

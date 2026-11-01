@@ -22,9 +22,9 @@ import {
   insertSession,
   markInFlight,
 } from "../src/workspace/sessions";
-import { waitFor } from "./git-sync-test-helpers";
 import { openMemoryDb } from "./helpers";
 import { stallTimeout } from "./stall-timeouts";
+import { awaitStdioReply, collectStdioReplies } from "./stdio-reply-reader";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const tmpRoots: string[] = [];
@@ -73,25 +73,13 @@ async function harness(autoOpen: boolean): Promise<Harness> {
 
   const stdin = new PassThrough();
   const stdout = new PassThrough();
-  const replies = new Map<number, Record<string, any>>();
-  let pending = "";
-  stdout.on("data", (chunk: Buffer) => {
-    pending += chunk.toString("utf8");
-    for (let nl = pending.indexOf("\n"); nl >= 0; nl = pending.indexOf("\n")) {
-      const msg = JSON.parse(pending.slice(0, nl));
-      pending = pending.slice(nl + 1);
-      if (typeof msg.id === "number") replies.set(msg.id, msg);
-    }
-  });
+  const replies = collectStdioReplies(stdout);
   const transport = await connectStdio(server, { stdin, stdout });
   let nextId = 1;
   const request = async (method: string, params: object = {}) => {
     const id = nextId++;
     stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
-    await waitFor(() => replies.has(id), 4_000).catch(() => {
-      throw new Error(`no stdio reply for ${method}`);
-    });
-    return replies.get(id) as Record<string, any>;
+    return awaitStdioReply(replies, id, method);
   };
   await request("initialize", {
     protocolVersion: "2025-11-25",
