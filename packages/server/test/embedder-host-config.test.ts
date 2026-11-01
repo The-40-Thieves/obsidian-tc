@@ -3,6 +3,7 @@
 // tested in embedder-host-child-process.test.ts); and cli.ts hands the child process off before any
 // argument parsing.
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -51,7 +52,8 @@ describe("embeddings.host selection", () => {
         model: "bge-small-en-v1.5",
         quantized: true,
         threads: 2,
-        modelsRoot: "/cache-dir/models/embedder-local",
+        // Built with the platform `join` in the provider, so the expectation must be too (win32).
+        modelsRoot: join("/cache-dir", "models", "embedder-local"),
         cacheDir: "/cache-dir",
       },
     });
