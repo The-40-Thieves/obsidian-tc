@@ -2,7 +2,7 @@
 // JSON object per line, `v: 1`. A line that does not parse, carries another version, or names an
 // unknown message is rejected, never half-accepted: the host treats a rejected line as a child crash.
 import { describe, expect, it } from "vitest";
-import { encodeMessage, parseMessage } from "../src/embeddings/host/protocol";
+import { encodeMessage, type ProtocolMessage, parseMessage } from "../src/embeddings/host/protocol";
 
 const INIT = { model: "m", quantized: true, modelsRoot: "/models", cacheDir: "/cache" };
 
@@ -23,7 +23,7 @@ describe("embedder host NDJSON protocol", () => {
       { t: "result", v: 1, id: 2, vectors: [[0.5, 0.25]] },
       { t: "error", v: 1, id: 2, message: "boom", code: "E" },
       { t: "stats", v: 1, id: 3, rssBytes: 1024 },
-    ] as const;
+    ] satisfies ProtocolMessage[];
     for (const message of messages) {
       expect(parseMessage(encodeMessage(message))).toEqual(message);
     }
