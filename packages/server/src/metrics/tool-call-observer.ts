@@ -4,8 +4,9 @@ export type ToolCallStatus = "ok" | "denied" | "error";
 /**
  * THE-1125: the ONE observation site opt-in telemetry (telemetry/collector.ts) taps to build its
  * own per-tool and per-error-code counts, instead of a second call site instrumenting
- * `mcp/registry/dispatch.ts` a second time. `observeToolCall` below is already the single method
- * every dispatch.ts call site funnels through (success and every error branch); a telemetry
+ * `mcp/registry/dispatch.ts` a second time. `observeToolCall` (`MetricsRecorder`, in
+ * metrics/registry.ts) is already the single method every dispatch.ts call site funnels
+ * through (success and every error branch); a telemetry
  * observer registered here sees exactly the same calls Prometheus's `obsidian_tc_tool_calls_total`
  * does, with nothing new to keep in sync.
  *

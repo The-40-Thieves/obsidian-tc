@@ -300,9 +300,7 @@ describe("egress port inventory (THE-934 fix round 1)", () => {
     const allowed = new Set([
       "gateway/client.ts", // the factory itself
       "plane/egress-guard.ts", // wraps an INJECTED, already-guarded GatewayRoles
-      "runtime/tool-wiring.ts", // rolesFrom() adapts an already-guarded GatewayClient
-      "cli/commands/consolidate.ts", // its own local rolesFrom(), same pattern, over an
-      // already-guarded createGatewayClient() result
+      "runtime/gateway-roles.ts", // rolesFrom() adapts an already-guarded GatewayClient
     ]);
     const unexpected = shapeHits.filter((f) => !allowed.has(f));
     expect(unexpected).toEqual([]);

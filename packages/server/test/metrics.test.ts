@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MetricsRecorder } from "../src/metrics/registry";
 
 // The exact catalog. Stale comment fixed (THE-585): this was "14 counters, 2 histograms,
@@ -147,6 +147,26 @@ describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
     }
     expect(sample("rss")).toBeGreaterThan(0);
     expect(sample("heap_used")).toBeGreaterThan(0);
+
+    // Read at scrape time, not cached at construction: each scrape reports the rss that
+    // process.memoryUsage returns at that moment.
+    const MIB = 1024 * 1024;
+    let rss = 111 * MIB;
+    const spy = vi
+      .spyOn(process, "memoryUsage")
+      .mockImplementation(() => ({ rss, heapTotal: 0, heapUsed: 1, external: 0, arrayBuffers: 0 }));
+    try {
+      const rssOf = async (): Promise<number> => {
+        const scraped = await new MetricsRecorder().metrics();
+        const m = scraped.match(/^obsidian_tc_process_memory_bytes\{kind="rss"\} (\S+)$/m);
+        return Number(m?.[1]);
+      };
+      expect(await rssOf()).toBe(111 * MIB);
+      rss = 222 * MIB;
+      expect(await rssOf()).toBe(222 * MIB);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("records SQL lock waits into buckets, and busy failures by reason (THE-585 #5)", async () => {

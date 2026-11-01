@@ -166,7 +166,7 @@ export const EmbeddingsConfigSchema = z.object({
     .positive()
     .optional()
     .describe(
-      "Optional process-memory budget in MB. When set, server_health reports memory.over_budget true while the process RSS exceeds it. A future release may recycle the in-process embedder at this bound.",
+      "Optional process-memory budget in MB. When set, server_health reports memory.over_budget true while the process RSS exceeds it.",
     ),
   // THE-387: Matryoshka (MRL) dimension truncation. When true, a provider that returns vectors
   // WIDER than `dimensions` is truncated to the first `dimensions` components + renormalised (so a

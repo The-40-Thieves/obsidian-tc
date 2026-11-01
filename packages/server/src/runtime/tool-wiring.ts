@@ -87,7 +87,6 @@ export interface HealthToolsDeps extends HealthMemoryBudget {
     failed: number;
     oldestQueuedAgeMs: number | null;
   };
-  memoryBudgetMb?: number;
   /** THE-1123: config.toolFacade, shaped by `wireHealthTools` for createHealthTool's own field. */
   toolFacade?: Pick<ServerConfig["toolFacade"], "mode" | "autoClients" | "profile"> &
     Partial<Pick<ServerConfig["toolFacade"], "advertise">>;
