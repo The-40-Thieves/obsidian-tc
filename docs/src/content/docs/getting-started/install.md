@@ -94,7 +94,7 @@ lexical search is unaffected.
 ```sh
 docker run --rm -v "$HOME/vaults:/vaults" \
   -v "$HOME/.config/obsidian-tc:/config" \
-  ghcr.io/the-40-thieves/obsidian-tc:1.33.1 /config/config.json
+  ghcr.io/the-40-thieves/obsidian-tc:1.34.0 /config/config.json
 ```
 
 The image is an `oven/bun:1.4.2-slim` build (Debian, glibc): the native prebuilds are
