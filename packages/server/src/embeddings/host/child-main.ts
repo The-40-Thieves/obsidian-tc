@@ -30,6 +30,9 @@ export async function runEmbedderChild(
   io: ChildIo,
   load: LoadEmbedder = loadLocalEmbedder,
 ): Promise<void> {
+  // The flag that started this child must not reach the model stack: a child that inherits it would
+  // treat any child it starts as another embedder child.
+  delete process.env.OBSIDIAN_TC_EMBEDDER_HOST;
   const restoreConsole = routeConsoleToStderr();
   const reply = (message: ChildMessage): void => {
     io.output.write(encodeMessage(message));
@@ -100,15 +103,36 @@ export async function runEmbedderChild(
   }
 }
 
-/** The model stack may log with console.log/info/debug. The protocol owns stdout, so those go to
- *  stderr for the child's lifetime. Returns the restore function (tests run this in-process). */
+// Every console method that writes to stdout (node and bun alike): the model stack may log with any of
+// them, and one stray line on stdout breaks the protocol. console.trace and console.warn already write
+// to stderr.
+const STDOUT_CONSOLE_METHODS = [
+  "log",
+  "info",
+  "debug",
+  "dir",
+  "dirxml",
+  "table",
+  "group",
+  "groupCollapsed",
+  "groupEnd",
+  "count",
+  "countReset",
+  "time",
+  "timeEnd",
+  "timeLog",
+] as const;
+
+/** Routes the stdout console methods to stderr for the child's lifetime. Returns the restore function
+ *  (tests run this in-process). */
 function routeConsoleToStderr(): () => void {
-  const saved = { log: console.log, info: console.info, debug: console.debug };
+  const target = console as unknown as Record<(typeof STDOUT_CONSOLE_METHODS)[number], unknown>;
+  const saved = STDOUT_CONSOLE_METHODS.map((name) => [name, target[name]] as const);
   const toStderr = (...args: unknown[]): void => console.error(...args);
-  console.log = toStderr;
-  console.info = toStderr;
-  console.debug = toStderr;
-  return () => Object.assign(console, saved);
+  for (const name of STDOUT_CONSOLE_METHODS) target[name] = toStderr;
+  return () => {
+    for (const [name, method] of saved) target[name] = method;
+  };
 }
 
 function errorText(error: unknown): string {

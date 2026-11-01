@@ -84,3 +84,28 @@ describe("cli.ts embedder child short-circuit", () => {
     expect(block).toContain("process.exit(0)");
   });
 });
+
+describe("embeddings.host documentation", () => {
+  // Fix round (INFO 8): the fragment read "53 MiB against 2.1 GiB" as a saving. The parent+child total
+  // after the batch is about the same, so the fragment must say so, and say what the gain is.
+  it("the changes fragment states the parent+child total plainly, not as a saving", () => {
+    const fragment = readFileSync(
+      fileURLToPath(new URL("../../../changes/embeddings-child-host.md", import.meta.url)),
+      "utf8",
+    );
+    expect(fragment).toContain("2.28 GiB");
+    expect(fragment).toContain("2.08 GiB");
+    expect(fragment).toMatch(/about the same|slightly higher/);
+  });
+
+  // Fix round (MEDIUM 9): the operator-facing page names the host key, its default and what it costs.
+  it("documents embeddings.host on the embeddings docs page (in-process default, child-process opt-in, local only)", () => {
+    const page = readFileSync(
+      fileURLToPath(
+        new URL("../../../docs/src/content/docs/configuration/embeddings.md", import.meta.url),
+      ),
+      "utf8",
+    );
+    expect(page).toMatch(/\| `host` \|[^\n]*in-process[^\n]*child-process[^\n]*local/);
+  });
+});

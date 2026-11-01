@@ -15,6 +15,7 @@ import {
   type ParentMessage,
   parseMessage,
 } from "./protocol";
+import { isCliEntryMarked } from "./spawn-argv";
 import type {
   EmbedderHost,
   EmbedderHostState,
@@ -27,8 +28,11 @@ export const CIRCUIT_DEATHS = 3;
 export const CIRCUIT_WINDOW_MS = 60_000;
 /** How long an open circuit rejects embeds before one spawn is allowed. */
 export const CIRCUIT_COOLDOWN_MS = 60_000;
-/** A drained child that has not exited by then is killed. */
+/** A child that is asked to stop (drain, or close) and has not exited by then is killed. */
 const SHUTDOWN_GRACE_MS = 5_000;
+/** The embeddings.timeoutMs default (packages/shared config schema): the deadline for one request, and
+ *  for the child's ready message. A child that misses it is killed and goes through the death path. */
+const DEFAULT_TIMEOUT_MS = 120_000;
 
 export interface ChildProcessHostOptions {
   /** The command that starts an embedder child: selfSpawnArgv() in production. */
@@ -39,19 +43,27 @@ export interface ChildProcessHostOptions {
   /** The circuit breaker's clock. Tests inject one. */
   now?: () => number;
   shutdownGraceMs?: number;
+  /** embeddings.timeoutMs: the deadline for one embed or stats request, and for the ready message. */
+  timeoutMs?: number;
 }
 
 type ChildProc = ChildProcessByStdio<Writable, Readable, null>;
 type Request = Extract<ParentMessage, { t: "embed" | "stats" }>;
+/** A child process or pipe whose event-loop reference can be taken and dropped. Bun's stdin has no
+ *  ref/unref, so each handle is optional. */
+type RefHandle = { ref?(): unknown; unref?(): unknown };
 
 interface Running {
   proc: ChildProc;
   pid: number | undefined;
   ready: boolean;
-  /** The parent asked this child to stop (drain or close), so its exit is not a death. */
+  /** The parent asked this child to stop (drain, or close), so its exit is not a death. */
   stopping: boolean;
   dead: boolean;
+  /** The grace timer: kills a child that was asked to stop and has not exited. */
   killTimer?: ReturnType<typeof setTimeout>;
+  /** The deadline for the ready message, or for the request in flight. */
+  deadline?: ReturnType<typeof setTimeout>;
 }
 
 interface Job {
@@ -65,6 +77,7 @@ interface Job {
 export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderHost {
   const now = opts.now ?? Date.now;
   const graceMs = opts.shutdownGraceMs ?? SHUTDOWN_GRACE_MS;
+  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const queue: Job[] = [];
   const drainWaiters: Array<() => void> = [];
   let inFlight: Job | undefined;
@@ -94,6 +107,43 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
     running.proc.stdin.write(encodeMessage(message));
   };
 
+  // An idle child must not keep the parent's event loop alive: a one-shot CLI command that embeds once
+  // and never calls close() would otherwise hang on it. The child's stdin closes with this process, and
+  // the child exits on that EOF. The child and its pipes are referenced only while a request is queued
+  // or in flight.
+  // Measured under bun 1.4: a ref() on the stdout pipe keeps the parent alive after the release, so only
+  // the child process itself is ref'd while busy. Its stdout is unref'd with it while idle.
+  const setHeld = (running: Running, held: boolean): void => {
+    const proc = running.proc as unknown as RefHandle;
+    if (held) {
+      proc.ref?.();
+      return;
+    }
+    proc.unref?.();
+    (running.proc.stdout as unknown as RefHandle).unref?.();
+  };
+
+  const clearDeadline = (running: Running): void => {
+    if (running.deadline) clearTimeout(running.deadline);
+    running.deadline = undefined;
+  };
+
+  // A child that does not answer in time is SIGKILLed; its exit is then counted as a death, so the
+  // request is retried once and the circuit breaker sees it like any other crash.
+  const armDeadline = (running: Running): void => {
+    clearDeadline(running);
+    running.deadline = setTimeout(() => running.proc.kill("SIGKILL"), timeoutMs);
+  };
+
+  // The grace timer starts once, so a child that is already dying is not given a second grace period.
+  const armKill = (running: Running): void => {
+    if (running.killTimer) return;
+    running.killTimer = setTimeout(() => {
+      running.stopping = true;
+      running.proc.kill("SIGKILL");
+    }, graceMs);
+  };
+
   const openCircuit = (): void => {
     openUntil = now() + CIRCUIT_COOLDOWN_MS;
     probing = false;
@@ -108,7 +158,10 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
       stopIfIdle();
       return;
     }
-    if (inFlight || queue.length === 0) return;
+    if (inFlight || queue.length === 0) {
+      if (!inFlight && child) setHeld(child, false);
+      return;
+    }
     if (closed) {
       rejectQueued(closedError());
       return;
@@ -120,14 +173,30 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
       }
       startChild();
     }
+    const running = child as Running;
     const job = queue.shift() as Job;
     inFlight = job;
-    write(child as Running, job.request);
+    setHeld(running, true);
+    write(running, job.request);
+    armDeadline(running);
   };
 
   const submit = (job: Job): void => {
     if (closed) {
       job.reject(closedError());
+      return;
+    }
+    // The child re-runs argv[1]. Only the CLI entry may start one (spawn-argv.ts), so a program that
+    // embeds this package as a library cannot turn into a chain of children.
+    if (!isCliEntryMarked()) {
+      job.reject(
+        err.embeddingProviderError(
+          "the embedder child can only be started by the obsidian-tc CLI entry",
+          {
+            hint: 'use embeddings.host "in-process" when the server is embedded in another program',
+          },
+        ),
+      );
       return;
     }
     if (openUntil !== undefined && now() < openUntil) {
@@ -156,6 +225,7 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
       onExit(running, signal ? `signal ${signal}` : `code ${code}`),
     );
     write(running, { t: "init", v: 1, opts: opts.init });
+    armDeadline(running);
   };
 
   const onLine = (running: Running, line: string): void => {
@@ -171,6 +241,9 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
     switch (message.t) {
       case "ready":
         running.ready = true;
+        // The ready deadline is over; a request already in flight keeps its own deadline.
+        clearDeadline(running);
+        if (inFlight) armDeadline(running);
         if (!draining) state = "ready";
         return;
       case "error": {
@@ -181,6 +254,7 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
         if (inFlight?.request.id !== message.id) return;
         const job = inFlight;
         inFlight = undefined;
+        clearDeadline(running);
         job.reject(err.embeddingProviderError(message.message));
         pump();
         return;
@@ -190,8 +264,10 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
         if (inFlight?.request.id !== message.id) return;
         const job = inFlight;
         inFlight = undefined;
+        clearDeadline(running);
+        // A successful reply does not clear the death count: a batch that kills its child every time it
+        // is tried must still open the circuit when healthy batches run in between.
         probing = false;
-        deaths = [];
         job.resolve(message);
         pump();
         return;
@@ -205,8 +281,15 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
     if (running.dead) return;
     running.dead = true;
     if (running.killTimer) clearTimeout(running.killTimer);
+    clearDeadline(running);
     if (child === running) child = undefined;
     if (running.stopping) {
+      // Asked to stop, or killed by the grace timer. A request still in flight is lost with the child.
+      const job = inFlight;
+      inFlight = undefined;
+      job?.reject(
+        err.embeddingProviderError("embedder child stopped before it answered this request"),
+      );
       finishDrain();
       pump();
       return;
@@ -247,7 +330,7 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
     const running = child;
     running.stopping = true;
     write(running, { t: "shutdown", v: 1 });
-    running.killTimer = setTimeout(() => running.proc.kill("SIGKILL"), graceMs);
+    armKill(running);
   };
 
   const drain = (): Promise<void> =>
@@ -303,6 +386,9 @@ export function createChildProcessHost(opts: ChildProcessHostOptions): EmbedderH
     close: async () => {
       closed = true;
       rejectQueued(closedError());
+      // The grace timer starts now, even with a request in flight: a child that cannot finish within it
+      // is killed, and that request rejects rather than keeping the process alive.
+      if (child) armKill(child);
       await drain();
     },
   };

@@ -3,7 +3,7 @@
 // existing install that never configured embeddings was silently switched to a different provider
 // on upgrade, forcing a full in-process re-embed. RED on main (pre-fix): case (i) below resolves to
 // "local" instead of keeping "ollama".
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import {
   applyStickyEmbeddings,
@@ -490,5 +490,39 @@ describe("applyStickyEmbeddings — orphan detection wiring", () => {
     };
     expect(() => applyStickyEmbeddings(config, db)).toThrow(/could not be mapped back to a real/);
     expect(config.embeddings.provider).toBe("local");
+  });
+});
+
+describe("applyStickyEmbeddings — embeddings.host", () => {
+  // Fix round (MEDIUM 10): a sticky "keep" can land on a non-local provider while embeddings.host stays
+  // child-process. That combination is refused for an explicit config; for a kept index it must not
+  // become a boot failure, so the host falls back to in-process with a one-line warning.
+  it("a sticky resolution to a non-local provider drops embeddings.host child-process to in-process, with a warning", () => {
+    const db = openMemoryDb();
+    provisionCacheDb(db);
+    seedChunkEmbedding(db, {
+      vaultId: "main",
+      chunkId: "c1",
+      model: "ollama:nomic-embed-text",
+      isActive: 1,
+      dimensions: 768,
+    });
+    const config = {
+      embeddings: {
+        provider: "local",
+        model: "nomic-embed-text-v1.5",
+        dimensions: 768,
+        host: "child-process" as "in-process" | "child-process",
+        onProviderChange: "keep" as const,
+      },
+      vaults: [{ id: "main" }],
+    };
+    const warn = vi.spyOn(console, "error").mockImplementation(() => {});
+    const resolution = applyStickyEmbeddings(config, db);
+    expect(resolution.provider).toBe("ollama");
+    expect(config.embeddings.provider).toBe("ollama");
+    expect(config.embeddings.host).toBe("in-process");
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("embeddings.host"));
+    warn.mockRestore();
   });
 });

@@ -432,13 +432,14 @@ export function buildLocalEmbeddingProvider(
   // to close, just on the revision axis instead of the quantization axis.
   const quantized = c.quantized ?? true;
   const revisionSuffix = c.revision ? `:${c.revision}` : "";
-  // No owner (CLI/eval): nothing closes it. A child's stdin closes with this process, so the child
-  // exits with its parent.
+  // No owner (CLI/eval): nothing closes it. An idle child is unref'd (child-process.ts), so it never holds
+  // the process open; its stdin closes with this process, and the child exits on that EOF.
   const host = registerHost(
     ctx.embedderHostOwner ?? {},
     c.host === "child-process"
       ? createChildProcessHost({
           argv: selfSpawnArgv(),
+          timeoutMs: c.timeoutMs,
           init: {
             model: c.model,
             quantized,

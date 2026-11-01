@@ -147,6 +147,9 @@ async function main(): Promise<void> {
     await runEmbedderChild({ input: process.stdin, output: process.stdout });
     process.exit(0);
   }
+  // Only the CLI entry may start an embedder child (embeddings/host/spawn-argv.ts).
+  const { markCliEntry } = await import("./embeddings/host/spawn-argv");
+  markCliEntry();
   const cmd = parseCliArgs(process.argv.slice(2));
   switch (cmd.kind) {
     case "token-mint":
