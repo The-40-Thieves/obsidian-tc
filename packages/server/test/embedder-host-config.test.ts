@@ -2,7 +2,7 @@
 // child host is built lazily by buildLocalEmbeddingProvider (its spawn happens on the first embed,
 // tested in embedder-host-child-process.test.ts); and cli.ts hands the child process off before any
 // argument parsing.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -90,14 +90,18 @@ describe("cli.ts embedder child short-circuit", () => {
 describe("embeddings.host documentation", () => {
   // Fix round (INFO 8): the fragment read "53 MiB against 2.1 GiB" as a saving. The parent+child total
   // after the batch is about the same, so the fragment must say so, and say what the gain is.
+  // A release roll folds the fragment into CHANGELOG.md and deletes it, so the wording is checked
+  // wherever it lives now: the fragment while unreleased, the CHANGELOG section after the cut.
   it("the changes fragment states the parent+child total plainly, not as a saving", () => {
-    const fragment = readFileSync(
-      fileURLToPath(new URL("../../../changes/embeddings-child-host.md", import.meta.url)),
-      "utf8",
+    const fragmentPath = fileURLToPath(
+      new URL("../../../changes/embeddings-child-host.md", import.meta.url),
     );
-    expect(fragment).toContain("2.28 GiB");
-    expect(fragment).toContain("2.08 GiB");
-    expect(fragment).toMatch(/about the same|slightly higher/);
+    const text = existsSync(fragmentPath)
+      ? readFileSync(fragmentPath, "utf8")
+      : readFileSync(fileURLToPath(new URL("../../../CHANGELOG.md", import.meta.url)), "utf8");
+    expect(text).toContain("2.28 GiB");
+    expect(text).toContain("2.08 GiB");
+    expect(text).toMatch(/about the same|slightly higher/);
   });
 
   // Fix round (MEDIUM 9): the operator-facing page names the host key, its default and what it costs.
