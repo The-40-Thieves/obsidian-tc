@@ -65,6 +65,7 @@ import { type PublicUrlView, publicUrlChecks } from "./public-url";
 import { runDoctor } from "./report";
 import type { RetrievalHeadsView } from "./retrieval-heads";
 import { retrievalHeadsCheck } from "./retrieval-heads";
+import { type SameVaultRootView, sameVaultRootCheck } from "./same-vault-root";
 import { type SessionLivenessView, sessionLivenessCheck } from "./session-liveness";
 // THE-1123: toolFacade lives in its own module, same reasoning as capture-location above — its
 // own merged-table rendering that no other check needs.
@@ -152,6 +153,7 @@ export interface DoctorConfigView {
   citationJudge?: CitationJudgeView;
   plainHttp?: PlainHttpView;
   vaultIo?: VaultIoView;
+  sameVaultRoot?: SameVaultRootView;
   publicUrl?: PublicUrlView;
   /** THE-1073: per-vault notes-on-disk vs notes-indexed counts, only under `--probe` (same
    *  reasoning as every other store-touching view above). */
@@ -272,6 +274,7 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   if (config.citationJudge) checks.push(citationJudgeCheck(config.citationJudge));
   if (config.plainHttp) checks.push(plainHttpCheck(config.plainHttp));
   if (config.vaultIo) checks.push(vaultIoCheck(config.vaultIo));
+  if (config.sameVaultRoot) checks.push(sameVaultRootCheck(config.sameVaultRoot));
   if (config.publicUrl) checks.push(...publicUrlChecks(config.publicUrl));
   // THE-1073: is every note on disk actually reaching the index? Same optional-view reasoning as
   // retrieval/snapshots above.

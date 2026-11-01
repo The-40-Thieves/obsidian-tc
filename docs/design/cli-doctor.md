@@ -134,3 +134,17 @@ accepts raises a warning (a headless approval smell), naming the clients that re
 - **Floor, not preference.** Nothing reads these rows back into a gate. `test/hitl-preference-isolation.test.ts`
   fails the build if any HITL gate module references the preference store, the reflect pass or an
   experiential module.
+
+## `clients.sameVaultRoot` — a second server on the same vault
+
+- **Hint, not error.** Agents with two vault servers split their reads between them, and the
+  operator often does not know the second is configured. The check reads only the client config
+  files on disk (Claude Code, Cursor, Claude Desktop), so neither doctor nor server_health needs to
+  see another server. It is always `ok`, and it names server keys only: no path appears in its
+  output.
+- **Self.** The entry that loads this run's own config, or that names one of this run's vault roots
+  as its positional argument (`obsidian-tc <vault>`), is skipped.
+- **Limits, stated in its notes.** Codex's TOML is not read (no parser, and a hint is not worth
+  one). A Local REST API entry carries no vault path, so it is listed as unverifiable, never
+  matched. Another obsidian-tc instance with its own `--config` is listed as unverifiable, since
+  its roots are not in this process.

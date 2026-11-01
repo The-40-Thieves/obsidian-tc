@@ -24,6 +24,7 @@ import { HITL_DOCTOR_WINDOW_DAYS, probeHitlConfirmations } from "../../doctor/hi
 import { probeNoteSummariesScale } from "../../doctor/note-summary-scale";
 import { plainHttpEndpoints } from "../../doctor/plain-http";
 import { publicUrlViewOf } from "../../doctor/public-url-http";
+import { nodeSameVaultRootIo } from "../../doctor/same-vault-root";
 import { hiddenNamesInAllowlist } from "../../doctor/tool-facade";
 import { createEmbeddingProvider } from "../../embeddings";
 import { resolveApiKey } from "../../embeddings/provider";
@@ -225,7 +226,9 @@ export function formatSetupOriginNotice(setupOrigin: string | undefined): string
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 68); split when next modified
 export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
-  const { config, embeddingsProviderExplicit } = resolveOrUsageExitWithProvenance(cmd.configPath);
+  const { config, embeddingsProviderExplicit, configFilePath } = resolveOrUsageExitWithProvenance(
+    cmd.configPath,
+  );
   const busyTimeoutMs = config.db.busyTimeoutMs; // THE-935: short alias for every probe call below
 
   const setupOriginNotice = formatSetupOriginNotice(config.setupOrigin);
@@ -537,6 +540,12 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       },
       plainHttp: { resolveHost: defaultResolveHost, endpoints: plainHttpEndpoints(config) },
       vaultIo: { nativeLoaded: nativeVaultIo, platform: process.platform },
+      sameVaultRoot: {
+        configPath: configFilePath,
+        vaults: config.vaults,
+        restApiOnDisk: (vaultPath) => restApiOnDisk(profile, vaultPath),
+        io: nodeSameVaultRootIo(),
+      },
       // THE-696: notes_fts availability always; the integrity verdict only when --probe looked.
       notesFts: {
         ftsEnabled: notesFts.ftsEnabled,
