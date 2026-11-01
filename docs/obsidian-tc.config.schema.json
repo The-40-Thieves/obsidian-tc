@@ -1265,6 +1265,15 @@
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
         },
+        "host": {
+          "default": "in-process",
+          "description": "provider \"local\" only. \"in-process\" (default) runs the ONNX model inside the server process. \"child-process\" runs it in a child process that the server starts on the first embed and stops when the embedder is recycled or closed, so the model's memory returns to the OS. A child that dies is retried once on a fresh child; 3 deaths within 60 s refuse embeds for 60 s. Any other provider with \"child-process\" is refused when the embeddings provider is resolved.",
+          "type": "string",
+          "enum": [
+            "in-process",
+            "child-process"
+          ]
+        },
         "onProviderChange": {
           "default": "keep",
           "description": "When embeddings.provider is NOT set and this vault's cache already holds active embeddings from a different provider than the current default, \"keep\" (default) continues using that existing provider/model instead of silently switching and forcing a full re-embed (GH #995). \"switch\" adopts the current default (\"local\") outright, same as a fresh install. An explicit embeddings.provider always wins over this key — setting embeddings.provider: \"local\" explicitly is itself the opt-in to switch.",

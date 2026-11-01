@@ -291,6 +291,16 @@ export const EmbeddingsConfigSchema = z.object({
         "disables intra-/inter-op spinning. An explicit value overrides that default outright for " +
         "both intra- and inter-op.",
     ),
+  host: z
+    .enum(["in-process", "child-process"])
+    .default("in-process")
+    .describe(
+      'provider "local" only. "in-process" (default) runs the ONNX model inside the server process. ' +
+        '"child-process" runs it in a child process that the server starts on the first embed and stops when ' +
+        "the embedder is recycled or closed, so the model's memory returns to the OS. A child that dies is " +
+        "retried once on a fresh child; 3 deaths within 60 s refuse embeds for 60 s. Any other provider " +
+        'with "child-process" is refused when the embeddings provider is resolved.',
+    ),
   onProviderChange: z
     .enum(["keep", "switch"])
     .default("keep")

@@ -1,5 +1,5 @@
-// The seam between an embedding provider and whatever actually holds the model. Step 1 ships only
-// the in-process implementation; the child-process kind is reserved for the recyclable embedder.
+// The seam between an embedding provider and whatever actually holds the model: in this process
+// (in-process.ts) or in a child process the host spawns and can drain (child-process.ts).
 
 export type EmbedderHostKind = "in-process" | "child-process";
 
@@ -12,6 +12,8 @@ export interface EmbedderHostStats {
   restarts: number;
   recycles: number;
   rssBytes?: number;
+  /** The child's pid while one is running (child-process hosts only). */
+  pid?: number;
 }
 
 export interface EmbedderHost {

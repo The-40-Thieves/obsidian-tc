@@ -202,6 +202,17 @@ describe("egress port inventory (THE-934 fix round 1)", () => {
     expect(found).toEqual(EMBEDDING_PROVIDER_ALLOWLIST);
   });
 
+  // Fix round (LOW 6): loadLocalEmbedderProvider is an exported embedder factory with no egress guard
+  // of its own. Its only caller is the embedder child: the child IS the egress boundary's own process,
+  // and the parent's guard runs before embed() crosses the child protocol. Any other caller must be
+  // reviewed here, not waved through by a file-level exemption written for a different call.
+  it("loadLocalEmbedderProvider is called ONLY from the embedder child (the egress boundary's own process)", () => {
+    const found = callSites(/\bloadLocalEmbedderProvider\b/).filter(
+      (f) => f !== "providers/local-embedder-registry.ts",
+    );
+    expect(found).toEqual(["embeddings/host/child-main.ts"]);
+  });
+
   // THE-934 fix round 3 (H): eval/ — not scanned at all before this round.
   it("eval/: createGatewayClient is called ONLY from the allowlisted scripts", () => {
     const found = callSites(/createGatewayClient\(/, EVAL_ROOT);

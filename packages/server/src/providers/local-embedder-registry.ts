@@ -18,8 +18,10 @@ import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { version as OWN_VERSION } from "../../package.json";
 import { embeddedEmbedder } from "../embeddings/embedded-embedder";
 import { extractEmbeddedRuntime } from "../embeddings/embedded-runtime";
+import { createChildProcessHost } from "../embeddings/host/child-process";
 import { createInProcessHost } from "../embeddings/host/in-process";
 import { registerHost } from "../embeddings/host/registry";
+import { selfSpawnArgv } from "../embeddings/host/spawn-argv";
 import type { EmbeddingProvider } from "../embeddings/provider";
 import {
   currentInstallSite,
@@ -430,8 +432,24 @@ export function buildLocalEmbeddingProvider(
   // to close, just on the revision axis instead of the quantization axis.
   const quantized = c.quantized ?? true;
   const revisionSuffix = c.revision ? `:${c.revision}` : "";
-  // No owner (CLI/eval): nothing closes it, and an in-process close is a no-op anyway.
-  const host = registerHost(ctx.embedderHostOwner ?? {}, createInProcessHost(session));
+  // No owner (CLI/eval): nothing closes it. An idle child is unref'd (child-process.ts), so it never holds
+  // the process open; its stdin closes with this process, and the child exits on that EOF.
+  const host = registerHost(
+    ctx.embedderHostOwner ?? {},
+    c.host === "child-process"
+      ? createChildProcessHost({
+          argv: selfSpawnArgv(),
+          timeoutMs: c.timeoutMs,
+          init: {
+            model: c.model,
+            quantized,
+            threads: c.threads,
+            modelsRoot,
+            cacheDir: ctx.cacheDir,
+          },
+        })
+      : createInProcessHost(session),
+  );
   return {
     id: `local:${c.model}:${quantized ? "q8" : "fp32"}${revisionSuffix}`,
     provider: "local",
@@ -439,6 +457,31 @@ export function buildLocalEmbeddingProvider(
     dimensions: c.dimensions,
     embed: (texts, opts) => host.embed(texts, opts),
   };
+}
+
+/** The local embedder's provider for one set of init options, resolved exactly as
+ *  buildLocalEmbeddingProvider resolves it. The embedder child (embeddings/host/child-main.ts) loads
+ *  through this. The egress guard runs in the parent before embed() crosses the child protocol. */
+export async function loadLocalEmbedderProvider(opts: {
+  model: string;
+  quantized: boolean;
+  threads?: number;
+  modelsRoot: string;
+  cacheDir: string;
+}): Promise<{ embed(texts: string[], embedOpts?: unknown): Promise<number[][]> }> {
+  const resolution = await resolveLocalEmbedderModule({}, { cacheDir: opts.cacheDir });
+  if (!resolution.ok || !resolution.mod) {
+    const attempts = resolution.attempts
+      .map((a) => `${a.route} (${a.target}): ${a.error ?? "unknown error"}`)
+      .join("; ");
+    throw new Error(`embedder "local" did not resolve: ${attempts}`);
+  }
+  return resolution.mod.createEmbeddingProvider({
+    model: opts.model,
+    quantized: opts.quantized,
+    threads: opts.threads,
+    modelsRoot: opts.modelsRoot,
+  });
 }
 
 /** doctor-facing probe: whether "local" is buildable right now, independent of whether it is

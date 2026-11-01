@@ -327,6 +327,7 @@ export interface StickyEmbeddingsConfigLike {
     revision?: string;
     maxBatchTokens?: number;
     concurrency?: number;
+    host?: "in-process" | "child-process";
   };
   vaults: ReadonlyArray<{ id: string }>;
 }
@@ -389,6 +390,12 @@ export function applyStickyEmbeddings<T extends StickyEmbeddingsConfigLike>(
     config.embeddings.model = resolution.model;
     config.embeddings.dimensions = resolution.dimensions;
     if (resolution.revision !== undefined) config.embeddings.revision = resolution.revision;
+    if (config.embeddings.host === "child-process" && resolution.provider !== "local") {
+      console.error(
+        `embeddings.host "child-process" applies only to the local provider; this vault's index is kept on "${resolution.provider}", so embeddings run in-process`,
+      );
+      config.embeddings.host = "in-process";
+    }
   }
   applyEmbedBatchingDefaults(config.embeddings);
   return resolution;
