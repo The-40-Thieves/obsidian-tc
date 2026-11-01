@@ -14,6 +14,8 @@ export interface EmbedderHostStats {
   rssBytes?: number;
   /** The child's pid while one is running (child-process hosts only). */
   pid?: number;
+  /** Requests queued or in flight: a host with work pending is not recycled (recycle-policy.ts). */
+  queued?: number;
 }
 
 export interface EmbedderHost {
@@ -21,5 +23,7 @@ export interface EmbedderHost {
   embed(texts: string[], opts?: unknown): Promise<number[][]>;
   recycle(reason: EmbedderRecycleReason): Promise<void>;
   stats(): Promise<EmbedderHostStats>;
+  /** The last known stats, synchronously and without IPC: server_health reads it. */
+  snapshot(): EmbedderHostStats;
   close(): Promise<void>;
 }

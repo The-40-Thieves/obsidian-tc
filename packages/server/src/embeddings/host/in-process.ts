@@ -31,6 +31,7 @@ export function createInProcessHost(load: () => Promise<LoadedEmbedder>): Embedd
       recycles += 1;
     },
     stats: async () => ({ state, restarts: 0, recycles }),
+    snapshot: () => ({ state, restarts: 0, recycles }),
     close: async () => {},
   };
 }

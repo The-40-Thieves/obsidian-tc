@@ -13,6 +13,7 @@ import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import { createEmbeddingProviderAsync, type EmbeddingsConfigLike } from "../embeddings";
+import { onBurstEnd } from "../embeddings/host/recycle-policy";
 import { closeOwnedHosts } from "../embeddings/host/registry";
 import {
   applyStickyEmbeddings,
@@ -62,6 +63,7 @@ export interface IndexResourcesDeps {
     maxBatchTokens: number;
     chunkContext: boolean;
     onProviderChange: "keep" | "switch";
+    memoryBudgetMb?: number;
   };
   /** config.vaults, narrowed to the id every sticky-resolution query needs — required so
    *  `wireIndexResources` can apply sticky resolution itself rather than relying on every caller
@@ -130,7 +132,12 @@ export interface IndexResources {
    *  caller passes the SAME one instead of re-deriving it from loose config fields. */
   representation: RepresentationManifest;
   /** The embed-batch knobs, threaded into every reconcile so local runners are tunable. */
-  embedConfig: { batchSize: number; concurrency: number; maxBatchTokens: number };
+  embedConfig: {
+    batchSize: number;
+    concurrency: number;
+    maxBatchTokens: number;
+    memoryBudgetMb?: number;
+  };
   hasVec: boolean;
   fts: FtsMonitor;
   indexHealth: IndexHealthState;
@@ -168,7 +175,7 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
     { embeddings: deps.embeddings, vaults: deps.vaults },
     deps.db,
   );
-  const embedderHostOwner = deps.embedderHostOwner ?? {};
+  const embedderHostOwner = deps.embedderHostOwner;
   const embeddingProvider = await createEmbeddingProviderAsync(deps.embeddings, {
     configDir: deps.configDir,
     securityProfile: deps.securityProfile,
@@ -180,6 +187,7 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
     batchSize: deps.embeddings.batchSize,
     concurrency: deps.embeddings.concurrency,
     maxBatchTokens: deps.embeddings.maxBatchTokens,
+    memoryBudgetMb: deps.embeddings.memoryBudgetMb,
   };
   // The ONE derivation. This manifest is also handed to indexVault (IndexVaultArgs.representation)
   // rather than rebuilt there, so boot and the index_vault tool cannot compute different
@@ -246,8 +254,13 @@ export interface IndexCoordinatorDeps {
   embedConfig?: IndexVaultArgs["embed"];
   /** config.embeddings.chunkContext */
   chunkContext: boolean;
-  /** config.indexing */
-  indexing: { writeConcurrency: number; writeConcurrencyPerVault: number; queueMax: number };
+  /** config.indexing, plus memoryBudgetMb (GH #1433 step 3). */
+  indexing: {
+    writeConcurrency: number;
+    writeConcurrencyPerVault: number;
+    queueMax: number;
+    memoryBudgetMb?: number;
+  };
   /** The CANONICAL vault roots (vaultRegistry.list(), not raw config.vaults), narrowed to what
    *  registerVaultWatch needs. */
   vaults: readonly { id: string; path: string }[];
@@ -365,6 +378,7 @@ export function wireIndexCoordinator(deps: IndexCoordinatorDeps): IndexCoordinat
       globalConcurrency: deps.indexing.writeConcurrency,
       perVaultConcurrency: deps.indexing.writeConcurrencyPerVault,
       queueMax: deps.indexing.queueMax,
+      onIdle: () => void onBurstEnd("write-drain", { budgetMb: deps.indexing.memoryBudgetMb }),
       onBackpressure: (depth) => {
         deps.indexHealth.indexQueueBackpressures++;
         process.stderr.write(

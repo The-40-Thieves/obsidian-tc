@@ -95,6 +95,16 @@ describe("child-process EmbedderHost", () => {
     await host.close();
   });
 
+  it("a recycled child's RSS is no longer reported, so a drained host has no RSS to add to the budget", async () => {
+    const host = hostWith({});
+    await host.embed(["a"]);
+    expect((await host.stats()).rssBytes).toBeGreaterThan(0);
+    await host.recycle("reconcile");
+    expect(host.snapshot().rssBytes).toBeUndefined();
+    expect((await host.stats()).rssBytes).toBeUndefined();
+    await host.close();
+  });
+
   it("a child that dies on its first embed is replaced and the request succeeds on a retry", async () => {
     const host = hostWith({ FAKE_CRASH: "once", FAKE_CRASH_MARKER: join(dir, "crashed") });
     expect(await host.embed(["a"])).toEqual([[1, 1, 0]]);

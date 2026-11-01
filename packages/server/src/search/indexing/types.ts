@@ -144,6 +144,8 @@ export interface PlanResult {
 export interface EmbedReport {
   failed: NoteWritePlan[];
   rejections: number;
+  /** Chunks whose text was sent to the provider. Dedup copies and excluded chunks are not counted. */
+  embedded: number;
 }
 
 // THE-454: copy an identical EMBED TEXT's already-stored vectors onto a cross-path-dedup (skipEmbed)
@@ -177,7 +179,13 @@ export interface IndexVaultArgs {
   /** GH #171/#172: embed-batch tuning; each field falls back to its module default. Callers thread
    *  config.embeddings.{batchSize,concurrency,maxBatchTokens} here so a slow or small local runner
    *  can be tuned without touching code. */
-  embed?: { batchSize?: number; concurrency?: number; maxBatchTokens?: number };
+  /** memoryBudgetMb (GH #1433): the finished pass's burst end recycles an over-budget child. */
+  embed?: {
+    batchSize?: number;
+    concurrency?: number;
+    maxBatchTokens?: number;
+    memoryBudgetMb?: number;
+  };
   /** THE-406: embeddings.chunkContext — embed + BM25-index each chunk with a note-title +
    *  heading-breadcrumb prefix (display content stays raw). Callers MUST thread the same value on
    *  every index path (boot reconcile, index_vault tool, index-on-write): the chunk content hash

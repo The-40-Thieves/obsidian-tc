@@ -133,7 +133,7 @@ export async function embedPlans(
       contents.push(c.embedText ?? c.content);
       contentPaths.push(p.path);
     }
-  if (contents.length === 0) return { failed: [], rejections: 0 };
+  if (contents.length === 0) return { failed: [], rejections: 0, embedded: 0 };
   // Pack sub-batches greedily under BOTH caps: at most `batchSize` inputs and at most
   // `maxBatchTokens` estimated tokens per request (GH #172 — a fixed 512-input batch packed ~87k
   // tokens into one call and crashed a stock local runner). A single text that alone exceeds the
@@ -213,7 +213,7 @@ export async function embedPlans(
   // plane-wiring.ts's createReconcileRunner) — the caller (index-vault.ts's flush()) re-checks the
   // signal itself and drops the whole batch rather than writing a partial embed result; the next
   // reconcile re-plans and re-embeds these same notes from scratch.
-  if (signal?.aborted) return { failed: [], rejections: counters.rejections };
+  if (signal?.aborted) return { failed: [], rejections: counters.rejections, embedded: 0 };
   const flatDense = results.flatMap((r) => r.dense);
   const flatSparse = hasFull ? results.flatMap((r) => r.sparse ?? []) : null;
   const flatColbert = hasFull ? results.flatMap((r) => r.colbert ?? []) : null;
@@ -252,5 +252,5 @@ export async function embedPlans(
       if (flatColbert) p.colbert = colbert;
     }
   }
-  return { failed, rejections: counters.rejections };
+  return { failed, rejections: counters.rejections, embedded: contents.length };
 }

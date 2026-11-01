@@ -19,7 +19,8 @@ import { version as OWN_VERSION } from "../../package.json";
 import { embeddedEmbedder } from "../embeddings/embedded-embedder";
 import { extractEmbeddedRuntime } from "../embeddings/embedded-runtime";
 import { createChildProcessHost } from "../embeddings/host/child-process";
-import { createInProcessHost } from "../embeddings/host/in-process";
+import { createInProcessHost, type LoadedEmbedder } from "../embeddings/host/in-process";
+import type { EmbedderInitOpts } from "../embeddings/host/protocol";
 import { registerHost } from "../embeddings/host/registry";
 import { selfSpawnArgv } from "../embeddings/host/spawn-argv";
 import type { EmbeddingProvider } from "../embeddings/provider";
@@ -380,20 +381,7 @@ export function buildLocalEmbeddingProvider(
               `embeddings "local": ${a.route} (${a.target}) did not resolve — ${a.error ?? "unknown error"}`,
             );
           }
-          const runtimeMissing = resolution.attempts.some(
-            (attempt) => attempt.code === "OBTC_EMBEDDER_RUNTIME_MISSING",
-          );
-          const runtimePackage = `${LOCAL_EMBEDDER_PACKAGE}-${process.platform}-${process.arch}`;
-          const installCommand = localEmbedderInstallHint();
-          throw err.embeddingProviderError(
-            `embeddings.provider "local" could not resolve the optional ${LOCAL_EMBEDDER_PACKAGE} package`,
-            {
-              attempts: resolution.attempts,
-              hint: runtimeMissing
-                ? `run ${installCommand} (npm installs ${runtimePackage} for this host); if this platform has no published runtime, pick ollama or a hosted provider instead.`
-                : `run "bun run build" in packages/embedder-local (source checkouts), or install the package with ${installCommand} (obsidian-tc does not install it by default) — see "obsidian-tc doctor" for the full attempt list.`,
-            },
-          );
+          throw localResolutionError(resolution);
         }
         // A stale pair (obsidian-tc upgraded, embedder left behind) still loads; say so once at boot.
         const skew = embedderVersionSkew(installedEmbedderVersion());
@@ -435,7 +423,7 @@ export function buildLocalEmbeddingProvider(
   // No owner (CLI/eval): nothing closes it. An idle child is unref'd (child-process.ts), so it never holds
   // the process open; its stdin closes with this process, and the child exits on that EOF.
   const host = registerHost(
-    ctx.embedderHostOwner ?? {},
+    ctx.embedderHostOwner,
     c.host === "child-process"
       ? createChildProcessHost({
           argv: selfSpawnArgv(),
@@ -459,23 +447,34 @@ export function buildLocalEmbeddingProvider(
   };
 }
 
+/** The error for a local embedder that does not resolve, with the install hint for this platform. The
+ *  embedder child sends only the message across the protocol, so the hint is folded into it (child-main.ts). */
+function localResolutionError<T extends { code?: string }>(resolution: { attempts: T[] }) {
+  const runtimeMissing = resolution.attempts.some(
+    (attempt) => attempt.code === "OBTC_EMBEDDER_RUNTIME_MISSING",
+  );
+  const runtimePackage = `${LOCAL_EMBEDDER_PACKAGE}-${process.platform}-${process.arch}`;
+  const installCommand = localEmbedderInstallHint();
+  return err.embeddingProviderError(
+    `embeddings.provider "local" could not resolve the optional ${LOCAL_EMBEDDER_PACKAGE} package`,
+    {
+      attempts: resolution.attempts,
+      hint: runtimeMissing
+        ? `run ${installCommand} (npm installs ${runtimePackage} for this host); if this platform has no published runtime, pick ollama or a hosted provider instead.`
+        : `run "bun run build" in packages/embedder-local (source checkouts), or install the package with ${installCommand} (obsidian-tc does not install it by default) — see "obsidian-tc doctor" for the full attempt list.`,
+    },
+  );
+}
+
 /** The local embedder's provider for one set of init options, resolved exactly as
  *  buildLocalEmbeddingProvider resolves it. The embedder child (embeddings/host/child-main.ts) loads
  *  through this. The egress guard runs in the parent before embed() crosses the child protocol. */
-export async function loadLocalEmbedderProvider(opts: {
-  model: string;
-  quantized: boolean;
-  threads?: number;
-  modelsRoot: string;
-  cacheDir: string;
-}): Promise<{ embed(texts: string[], embedOpts?: unknown): Promise<number[][]> }> {
+export async function loadLocalEmbedderProvider(opts: EmbedderInitOpts): Promise<LoadedEmbedder> {
   const resolution = await resolveLocalEmbedderModule({}, { cacheDir: opts.cacheDir });
-  if (!resolution.ok || !resolution.mod) {
-    const attempts = resolution.attempts
-      .map((a) => `${a.route} (${a.target}): ${a.error ?? "unknown error"}`)
-      .join("; ");
-    throw new Error(`embedder "local" did not resolve: ${attempts}`);
-  }
+  // The child's stderr is the parent's, so a stale pair is shown on the parent's terminal too.
+  const skew = embedderVersionSkew(installedEmbedderVersion());
+  if (skew) console.error(`embeddings "local": ${skew}`);
+  if (!resolution.ok || !resolution.mod) throw localResolutionError(resolution);
   return resolution.mod.createEmbeddingProvider({
     model: opts.model,
     quantized: opts.quantized,

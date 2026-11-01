@@ -29,6 +29,7 @@ function fakeHost(
     embed: async () => [],
     recycle: async () => {},
     stats: async () => ({ state: "idle", restarts: 0, recycles: 0 }),
+    snapshot: () => ({ state: "idle", restarts: 0, recycles: 0 }),
     close: async () => {
       closed.push(name);
       await close();

@@ -6,6 +6,7 @@
 // See docs/design/search-indexing-and-cache.md.
 import { tableExists } from "../../db/introspect";
 import { inWriteTransaction } from "../../db/txn";
+import { onBurstEnd } from "../../embeddings/host/recycle-policy";
 import { errorMessage } from "../../util/errors";
 import { createSliceYielder, drainYielding } from "../../util/scan-steps";
 import type { AclPath } from "../../vault/acl-identity";
@@ -219,6 +220,8 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
   const BATCH_MAX_BYTES = args.batch?.maxBytes ?? DEFAULT_BATCH_MAX_BYTES;
   let batch: NoteWritePlan[] = [];
   let batchBytes = 0; // THE-500: accumulated raw note bytes in the pending batch
+  // GH #1433: chunks whose text reached the provider this pass. Dedup copies do not count.
+  let embeddedChunks = 0;
   const flush = async (): Promise<void> => {
     if (batch.length === 0) return;
     const applied = batch;
@@ -246,6 +249,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     // whatever sub-batches never ran. Drop the whole batch instead; the next reconcile re-plans it.
     if (args.signal?.aborted) return;
     stats.embed_batch_rejections += report.rejections;
+    embeddedChunks += report.embedded;
     if (report.rejections > 0) {
       process.stderr.write(
         `[index] vault "${args.vaultId}": ${report.rejections} embed request(s) exceeded the ` +
@@ -666,5 +670,10 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
       `[index] vault "${args.vaultId}": dedup reused ${stats.chunks_dedup_reused} chunk embedding(s) from identical-body siblings (copied, not recomputed)\n`,
     );
   }
+  // GH #1433 step 3: a finished pass is a burst end for the embedder recycle policy (fire-and-forget).
+  void onBurstEnd("full-reconcile", {
+    embeddedChunks,
+    budgetMb: args.embed?.memoryBudgetMb,
+  });
   return stats;
 }

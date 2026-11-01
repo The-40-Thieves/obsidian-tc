@@ -335,7 +335,7 @@ export async function buildServerRuntime(
         chunkContext: config.embeddings.chunkContext,
         chunkTokens: config.indexing.chunkTokens, // THE-424
         embedConfig,
-        indexing: config.indexing,
+        indexing: { ...config.indexing, memoryBudgetMb: config.embeddings.memoryBudgetMb },
         // THE-1081 review round (Medium 1): the CANONICAL root (vaultRegistry.list(), realpath'd
         // at registration — see vault/registry.ts), not raw `config.vaults`. registerVaultWatch
         // (vault/watcher.ts) stores this string verbatim and re-opens it on every flush; a raw
