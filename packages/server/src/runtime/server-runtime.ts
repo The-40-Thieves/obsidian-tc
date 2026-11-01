@@ -222,17 +222,17 @@ export async function buildServerRuntime(
     indexHealth,
     recordIngestStatsFor,
     indexVaultRecorded,
-    // GH #995 fix round 2 (item B): computed INSIDE wireIndexResources now (via wireRuntimeCore),
-    // not by this function itself — see that function's doc comment. Still read here, unchanged,
-    // for the boot notice below.
+    // GH #995 fix round 2 (item B): computed inside wireIndexResources (via wireRuntimeCore), see
+    // that function's doc comment; still read here, unchanged, for the boot notice below.
     embeddingsSticky,
   } = indexResources;
 
-  // After core succeeds, retain its owners for later failures. indexResources owns no cleanup.
+  // After core succeeds, retain its owners for later failures. indexResources closes its embedder hosts.
   const postCoreLayers: OwnedLayer[] = [
     { name: "stores", close: stores.close },
     { name: "otel", close: () => otel.shutdown() },
     { name: "governance", close: governance.close },
+    { name: "indexResources", close: () => indexResources.closeEmbedderHosts() },
   ];
   let postCore:
     | {
@@ -693,6 +693,7 @@ export async function buildServerRuntime(
     } catch {
       /* best-effort */
     }
+    await indexResources.closeEmbedderHosts(); // never rejects: each host's close is isolated
     try {
       stores.close();
     } catch {

@@ -134,7 +134,15 @@ describe("boot cleanup across ownership handoffs", () => {
     await expect(
       buildServerRuntime(input, undefined, (name) => cleaned.push(name)),
     ).rejects.toThrow(/refuses a non-localhost bind/);
-    expect(cleaned).toEqual(["watcher", "leaderElection", "governance", "otel", "stores"]);
+    // indexResources closes the embedder hosts the core built, before the governance beneath it.
+    expect(cleaned).toEqual([
+      "watcher",
+      "leaderElection",
+      "indexResources",
+      "governance",
+      "otel",
+      "stores",
+    ]);
     expect(mocks.storesClosed).toHaveBeenCalledTimes(1);
     expect(mocks.shutdown).toHaveBeenCalledTimes(1);
   });

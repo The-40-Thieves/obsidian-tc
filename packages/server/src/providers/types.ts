@@ -104,6 +104,9 @@ export interface ResolveContext {
    *  default (see registry.ts's buildLocalEmbeddingProvider), so an omitted cacheDir never
    *  crashes resolution, only relocates the cache. */
   cacheDir?: string;
+  /** The runtime that owns the embedder hosts this resolution builds: closeOwnedHosts(owner) at its
+   *  shutdown closes them (embeddings/host/registry.ts). Absent for CLI and eval callers. */
+  embedderHostOwner?: object;
   /** The EMBEDDINGS config, needed by the model-tier reranker entry: buildModelTierReranker takes
    *  ModelTierConfigLike, which requires `dimensions` and `modelTier` (model/factory.ts:87-94) —
    *  fields a reranker descriptor does not carry. Passing it as ambient context is what makes that

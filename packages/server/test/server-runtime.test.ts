@@ -16,6 +16,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { configFromVaultPath } from "../src/cli/args";
 import { experientialMigrations } from "../src/cli/shared";
+import * as inProcessHost from "../src/embeddings/host/in-process";
+import type { EmbedderHost } from "../src/embeddings/host/types";
 import { MetricsRecorder } from "../src/metrics/registry";
 import { nativeReadyToken, unwindReversed } from "../src/runtime/boot-helpers";
 import {
@@ -24,6 +26,7 @@ import {
   wireRuntimeCore,
 } from "../src/runtime/server-runtime";
 import { type Stores, wireStores } from "../src/runtime/stores";
+import * as representation from "../src/search/representation";
 import { canonicalizeVaultRoot, VaultRegistry } from "../src/vault/registry";
 import { DEFAULT_TRACE_FOLDER, resolveTraceDirs } from "../src/workspace/sessions";
 import { stallTimeout } from "./stall-timeouts";
@@ -267,6 +270,54 @@ describe("wireRuntimeCore — argv-free composition with unwind on failure", {
     onVecRebuild: () => {},
   });
 
+  it("closes the embedder host when boot fails after the provider is built", async () => {
+    const cacheDir = tmpCacheDir();
+    const realCreate = inProcessHost.createInProcessHost;
+    const created: EmbedderHost[] = [];
+    let closeCalls = 0;
+    const createSpy = vi.spyOn(inProcessHost, "createInProcessHost").mockImplementation((load) => {
+      const host = realCreate(load);
+      const close = host.close;
+      const wrapped: EmbedderHost = {
+        ...host,
+        close: async () => {
+          closeCalls += 1;
+          await close();
+        },
+      };
+      created.push(wrapped);
+      return wrapped;
+    });
+    // Fails in wireIndexResources right after the provider is built: the step that consumes it.
+    const manifestSpy = vi
+      .spyOn(representation, "buildRepresentationManifest")
+      .mockImplementation(() => {
+        throw new Error("boom after the provider is built");
+      });
+    try {
+      await expect(
+        wireRuntimeCore({
+          ...(await baseDeps(cacheDir)),
+          embeddings: {
+            provider: "local",
+            model: "bge-small-en-v1.5",
+            dimensions: 384,
+            batchSize: 8,
+            concurrency: 1,
+            maxBatchTokens: 1000,
+            chunkContext: false,
+            onProviderChange: "keep",
+          },
+        }),
+      ).rejects.toThrow("boom after the provider is built");
+      expect(created).toHaveLength(1);
+      expect(closeCalls).toBe(1);
+    } finally {
+      createSpy.mockRestore();
+      manifestSpy.mockRestore();
+    }
+  });
+
   it("composes governance -> index resources on top of already-open stores, with no process.argv involved", async () => {
     const cacheDir = tmpCacheDir();
     const core = await wireRuntimeCore({
@@ -438,10 +489,18 @@ describe("buildServerRuntime — post-core unwind on a real late boot failure", 
     ).rejects.toThrow(/refuses a non-localhost bind/);
     // watcher (opened after stores+governance+leaderElection) closes first; then GH #995's
     // leaderElection (pushed right after stores+governance, ahead of watcher — see
-    // server-runtime.ts's own comment on why it's constructed first in the try block); then
-    // governance; then stores. "transports" never appears — wireTransports itself is what threw,
-    // so it never finished.
-    expect(cleanedUp).toEqual(["watcher", "leaderElection", "governance", "otel", "stores"]);
+    // server-runtime.ts's own comment on why it's constructed first in the try block); then the
+    // embedder hosts indexResources built (closed before the governance they were built after);
+    // then governance; then stores. "transports" never appears — wireTransports itself is what
+    // threw, so it never finished.
+    expect(cleanedUp).toEqual([
+      "watcher",
+      "leaderElection",
+      "indexResources",
+      "governance",
+      "otel",
+      "stores",
+    ]);
   });
 });
 

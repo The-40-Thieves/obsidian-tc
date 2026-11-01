@@ -13,6 +13,7 @@ import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
 import type { EmbeddingProvider } from "../embeddings";
 import { createEmbeddingProviderAsync, type EmbeddingsConfigLike } from "../embeddings";
+import { closeOwnedHosts } from "../embeddings/host/registry";
 import {
   applyStickyEmbeddings,
   type StickyEmbeddingsResolution,
@@ -48,6 +49,7 @@ import {
 // --- Group A: wireIndexResources -------------------------------------------------------------
 
 export interface IndexResourcesDeps {
+  embedderHostOwner?: object;
   db: Database;
   metrics: MetricsRecorder;
   /** config.embeddings. `onProviderChange` is required (not part of the narrower
@@ -123,6 +125,7 @@ export interface IndexHealthState {
 export interface IndexResources {
   embeddingProvider: EmbeddingProvider;
   embedderWarmup: EmbedderWarmup;
+  closeEmbedderHosts: () => Promise<void>;
   /** The representation identity this boot computed, published so every downstream indexVault
    *  caller passes the SAME one instead of re-deriving it from loose config fields. */
   representation: RepresentationManifest;
@@ -165,10 +168,12 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
     { embeddings: deps.embeddings, vaults: deps.vaults },
     deps.db,
   );
+  const embedderHostOwner = deps.embedderHostOwner ?? {};
   const embeddingProvider = await createEmbeddingProviderAsync(deps.embeddings, {
     configDir: deps.configDir,
     securityProfile: deps.securityProfile,
     cacheDir: deps.cacheDir,
+    embedderHostOwner,
     ...(deps.excludeFilter !== undefined ? { excludeFilter: deps.excludeFilter } : {}),
   });
   const embedConfig = {
@@ -218,6 +223,7 @@ export async function wireIndexResources(deps: IndexResourcesDeps): Promise<Inde
   return {
     embeddingProvider,
     embedderWarmup: createEmbedderWarmup(embeddingProvider),
+    closeEmbedderHosts: () => closeOwnedHosts(embedderHostOwner),
     representation,
     embedConfig,
     hasVec,
