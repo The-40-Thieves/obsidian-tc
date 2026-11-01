@@ -10,19 +10,28 @@
 // self-contained scanner that has to stay under biome's 700-line ceiling. It is a HINT, so it
 // always reports `ok`: a second server on one vault is not an error, and a wrong guess here must
 // not turn the doctor red.
-import { readFileSync, realpathSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { posix, win32 } from "node:path";
 import { type ParseError, parse } from "jsonc-parser/lib/esm/main.js";
 import type { RestApiOnDisk } from "../bridge";
 import { claudeDesktopConfigPath, cursorMcpConfigPath } from "../cli/setup/client-install";
+import { sanitizeClientName } from "../hitl-telemetry";
+import { canonicalizeVaultRootWithStatus } from "../vault/registry";
 import type { Check, CheckResult } from "./types";
 
+/** What reading one client config file came to. `absent` is a file that does not exist. */
+export type ConfigFileRead =
+  | { kind: "text"; text: string }
+  | { kind: "absent" }
+  | { kind: "not-a-file" }
+  | { kind: "too-large" };
+
 /** Every filesystem read this check makes, injected so a test never touches a real home directory.
- *  `readFile` returns undefined for a file that does not exist and throws for any other failure;
- *  `realpath` returns undefined for a path that does not exist. */
+ *  `readFile` reports what it found and throws for any other failure; `realpath` returns undefined
+ *  for a path that does not exist. */
 export interface SameVaultRootIo {
-  readFile: (path: string) => string | undefined;
+  readFile: (path: string) => ConfigFileRead;
   realpath: (path: string) => string | undefined;
   home: string;
   cwd: string;
@@ -41,24 +50,37 @@ export interface SameVaultRootView {
   io: SameVaultRootIo;
 }
 
-/** The real filesystem. A missing file or directory is simply absent, not an error. */
+/** A client config is a small JSON file; anything bigger is refused rather than read. */
+const CONFIG_MAX_BYTES = 1024 * 1024;
+
+/** The real filesystem. A missing file or directory is simply absent, not an error. The file is
+ *  opened non-blocking and checked with fstat before any read: a FIFO or a device (`/dev/tty`,
+ *  `/dev/zero`) would otherwise block the read, and no client config is one. */
 export function nodeSameVaultRootIo(): SameVaultRootIo {
   return {
     readFile: (path) => {
+      let fd: number;
       try {
-        return readFileSync(path, "utf8");
+        fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
       } catch (err) {
         const code = (err as NodeJS.ErrnoException).code;
-        if (code === "ENOENT" || code === "ENOTDIR") return undefined;
+        if (code === "ENOENT" || code === "ENOTDIR") return { kind: "absent" };
         throw err;
       }
-    },
-    realpath: (path) => {
       try {
-        return realpathSync.native(path);
-      } catch {
-        return undefined;
+        const st = fstatSync(fd);
+        if (!st.isFile()) return { kind: "not-a-file" };
+        if (st.size > CONFIG_MAX_BYTES) return { kind: "too-large" };
+        return { kind: "text", text: readFileSync(fd, "utf8") };
+      } finally {
+        closeSync(fd);
       }
+    },
+    // The vault registry's realpath (realpath.native, lexical fallback; THE-657), so a root is
+    // spelled the same way here as everywhere else. Undefined when the path does not exist.
+    realpath: (path) => {
+      const { root, canonical } = canonicalizeVaultRootWithStatus(path);
+      return canonical ? root : undefined;
     },
     home: homedir(),
     cwd: process.cwd(),
@@ -68,10 +90,10 @@ export function nodeSameVaultRootIo(): SameVaultRootIo {
 }
 
 const NOT_COMPARED = [
-  "not read: Codex (~/.codex/config.toml; this build has no TOML parser) and every other MCP client's config",
+  "not read: the Codex config (TOML, not read) and every other MCP client's config",
   "not compared: remote servers, which have no local path",
   "a server that uses the Local REST API carries no vault path, so it is listed under unverifiable, never matched",
-  "another obsidian-tc instance points at a config file, not a vault root, so it is listed under unverifiable",
+  "another obsidian-tc instance with its own --config is listed under unverifiable: its roots are not in this process",
   "this is a hint about the config files found, not a guarantee: a server defined anywhere else is invisible here",
 ];
 
@@ -117,7 +139,8 @@ function isInside(root: string, dir: string, platform: NodeJS.Platform): boolean
   const d = foldCase(platform, p.normalize(dir));
   if (r === d) return true;
   const rel = p.relative(r, d);
-  return rel !== "" && !rel.startsWith("..") && !p.isAbsolute(rel);
+  // `..foo` is a directory inside the root, not a climb: only `..` itself, or `../…`, climbs out.
+  return rel !== "" && rel !== ".." && !rel.startsWith(`..${p.sep}`) && !p.isAbsolute(rel);
 }
 
 /** A leading `~` expands to the home directory. Only an absolute result is comparable: a relative
@@ -126,6 +149,29 @@ function absolutePath(raw: string, home: string, p: typeof posix): string | unde
   const expanded =
     raw === "~" || raw.startsWith("~/") || raw.startsWith("~\\") ? p.join(home, raw.slice(1)) : raw;
   return p.isAbsolute(expanded) ? p.normalize(expanded) : undefined;
+}
+
+/** A candidate that names a network or device location is never handed to realpath: on win32 a UNC
+ *  or device path (`\\host\share`, `\\.\pipe\x`, `//host/...`), and on darwin `/net/<host>`, can make
+ *  realpath open an SMB share or an autofs mount. Doctor is offline by construction, so these are not
+ *  compared at all. */
+function isNetworkOrDevicePath(raw: string, platform: NodeJS.Platform): boolean {
+  if (raw.startsWith("\\\\") || raw.startsWith("//")) return true;
+  return platform === "darwin" && (raw === "/net" || raw.startsWith("/net/"));
+}
+
+/** The realpath of a candidate, or undefined when it is not comparable: relative once expanded, a
+ *  network or device location, missing, or a realpath that is not absolute (`pipe:[N]` for a
+ *  /proc/self/fd entry). */
+function candidateRealpath(io: SameVaultRootIo, raw: string): string | undefined {
+  const p = pathsFor(io.platform);
+  const abs = absolutePath(raw, io.home, p);
+  if (abs === undefined) return undefined;
+  if (isNetworkOrDevicePath(raw, io.platform) || isNetworkOrDevicePath(abs, io.platform)) {
+    return undefined;
+  }
+  const real = io.realpath(abs);
+  return real !== undefined && p.isAbsolute(real) ? real : undefined;
 }
 
 /** The value of `--config <p>` or `--config=<p>`, when the args carry one. */
@@ -156,26 +202,41 @@ function readServers(
   src: ClientSource,
   notes: string[],
 ): [string, unknown][] | undefined {
-  let text: string | undefined;
+  let read: ConfigFileRead;
   try {
-    text = io.readFile(src.path);
+    read = io.readFile(src.path);
   } catch {
     notes.push(`${src.label}: config file could not be read; its servers were not compared`);
     return undefined;
   }
-  if (text === undefined) return undefined;
+  if (read.kind === "absent") return undefined;
+  if (read.kind !== "text") {
+    const why = read.kind === "too-large" ? "is larger than 1 MiB" : "is not a regular file";
+    notes.push(`${src.label}: config file ${why}; its servers were not compared`);
+    return undefined;
+  }
   const errors: ParseError[] = [];
-  const data = asObject(parse(text, errors, { allowTrailingComma: true }));
+  const data = asObject(parse(read.text, errors, { allowTrailingComma: true }));
   if (data === undefined || errors.length > 0) {
     notes.push(`${src.label}: config file is not valid JSON; its servers were not compared`);
     return undefined;
   }
   const entries: [string, unknown][] = Object.entries(asObject(data.mcpServers) ?? {});
   if (src.projectCwd !== undefined) {
-    const project = asObject(asObject(data.projects)?.[src.projectCwd]);
-    entries.push(...Object.entries(asObject(project?.mcpServers) ?? {}));
+    // projects[<cwd>] is keyed by the cwd as written, so try it with and without a trailing separator.
+    const bare = src.projectCwd.replace(/[\\/]+$/, "");
+    const projects = asObject(data.projects) ?? {};
+    const sep = pathsFor(io.platform).sep;
+    for (const key of new Set([src.projectCwd, bare, `${bare}${sep}`])) {
+      entries.push(...Object.entries(asObject(asObject(projects[key])?.mcpServers) ?? {}));
+    }
   }
   return entries;
+}
+
+/** Adds `value` unless it is already listed: one server reached through two sources is one line. */
+function addOnce(list: string[], value: string): void {
+  if (!list.includes(value)) list.push(value);
 }
 
 interface ScanCtx {
@@ -188,12 +249,25 @@ interface ScanCtx {
   out: Scan;
 }
 
-/** True when the entry's `--config` names the config this run loaded: this server itself. */
-function isThisServer(ctx: ScanCtx, configArg: string | undefined): boolean {
-  if (configArg === undefined) return false;
-  const target = absolutePath(configArg, ctx.io.home, pathsFor(ctx.io.platform));
-  const real = target === undefined ? undefined : ctx.io.realpath(target);
-  return real !== undefined && real === ctx.selfReal;
+/** True when an obsidian-tc entry is this server: its `--config` names the config this run loaded, or
+ *  a positional argument names one of this run's vault roots (the zero-config `obsidian-tc <vault>`,
+ *  which loads no file). Compared after realpath, case-folded where the platform folds. */
+function isThisServer(
+  ctx: ScanCtx,
+  args: readonly string[],
+  configArg: string | undefined,
+): boolean {
+  const { io } = ctx;
+  const same = (a: string, b: string) => foldCase(io.platform, a) === foldCase(io.platform, b);
+  const configReal = configArg === undefined ? undefined : candidateRealpath(io, configArg);
+  if (configReal !== undefined && ctx.selfReal !== undefined) {
+    if (same(configReal, ctx.selfReal)) return true;
+  }
+  return args.some((arg) => {
+    if (arg.startsWith("-")) return false;
+    const real = candidateRealpath(io, arg);
+    return real !== undefined && ctx.roots.some((root) => same(root, real));
+  });
 }
 
 /** Local REST API: the entry carries an API key or the REST port, and never a vault path. */
@@ -208,7 +282,6 @@ function pointsAtRoot(
   envValues: readonly string[],
 ): boolean {
   const { io } = ctx;
-  const p = pathsFor(io.platform);
   const candidates = [
     ...args,
     ...args
@@ -217,8 +290,7 @@ function pointsAtRoot(
     ...envValues,
   ];
   return candidates.some((candidate) => {
-    const abs = absolutePath(candidate, io.home, p);
-    const real = abs === undefined ? undefined : io.realpath(abs);
+    const real = candidateRealpath(io, candidate);
     return real !== undefined && ctx.roots.some((root) => isInside(root, real, io.platform));
   });
 }
@@ -235,21 +307,22 @@ function classifyEntry(ctx: ScanCtx, ref: string, raw: unknown): void {
   const command = typeof entry.command === "string" ? entry.command : "";
   const configArg = configArgOf(args);
 
-  if (isThisServer(ctx, configArg)) return;
+  const obsidianTc = `${command} ${args.join(" ")}`.includes("obsidian-tc");
+  if (obsidianTc && isThisServer(ctx, args, configArg)) return;
   if (usesRestApi(envObject, args)) {
     const enabled =
       ctx.restEnabled.length > 0
         ? `; Local REST API is enabled on vault ${ctx.restEnabled.join(", ")}`
         : "";
-    ctx.out.unverifiable.push(`${ref}: Local REST API, vault not comparable${enabled}`);
+    addOnce(ctx.out.unverifiable, `${ref}: Local REST API, vault not comparable${enabled}`);
     return;
   }
   // Another obsidian-tc instance on a different config: its roots are not in this process.
-  if (`${command} ${args.join(" ")}`.includes("obsidian-tc") && configArg !== undefined) {
-    ctx.out.unverifiable.push(`${ref}: another obsidian-tc instance, roots not compared`);
+  if (obsidianTc && configArg !== undefined) {
+    addOnce(ctx.out.unverifiable, `${ref}: another obsidian-tc instance, roots not compared`);
     return;
   }
-  if (pointsAtRoot(ctx, args, envValues)) ctx.out.sameRoot.push(ref);
+  if (pointsAtRoot(ctx, args, envValues)) addOnce(ctx.out.sameRoot, ref);
 }
 
 function scan(view: SameVaultRootView): Scan {
@@ -263,11 +336,19 @@ function scan(view: SameVaultRootView): Scan {
       .map((v) => v.id),
     out: { sameRoot: [], unverifiable: [], scanned: [], notes: [] },
   };
+  // Two sources can be one file (with cwd at home, the project's .cursor/mcp.json is the user one):
+  // it is read once. The key is sanitised here, so no output can carry a raw escape or a path.
+  const seen = new Set<string>();
   for (const src of clientSources(io)) {
+    const real = io.realpath(src.path) ?? src.path;
+    if (seen.has(real)) continue;
+    seen.add(real);
     const servers = readServers(io, src, ctx.out.notes);
     if (servers === undefined) continue;
     if (!ctx.out.scanned.includes(src.label)) ctx.out.scanned.push(src.label);
-    for (const [key, raw] of servers) classifyEntry(ctx, `${src.label}:${key}`, raw);
+    for (const [key, raw] of servers) {
+      classifyEntry(ctx, `${src.label}:${sanitizeClientName(key) ?? "(key omitted)"}`, raw);
+    }
   }
   ctx.out.notes.push(...NOT_COMPARED);
   return ctx.out;
@@ -283,6 +364,9 @@ export function sameVaultRootCheck(view: SameVaultRootView): Check {
     id: "clients.sameVaultRoot",
     category: "config",
     run: (): CheckResult => {
+      if (view.vaults.length === 0) {
+        return { status: "ok", summary: "no vault roots are configured; nothing to compare" };
+      }
       let found: Scan;
       try {
         found = scan(view);

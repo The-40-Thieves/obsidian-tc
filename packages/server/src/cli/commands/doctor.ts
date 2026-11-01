@@ -226,7 +226,9 @@ export function formatSetupOriginNotice(setupOrigin: string | undefined): string
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-existing (score 68); split when next modified
 export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
-  const { config, embeddingsProviderExplicit } = resolveOrUsageExitWithProvenance(cmd.configPath);
+  const { config, embeddingsProviderExplicit, configFilePath } = resolveOrUsageExitWithProvenance(
+    cmd.configPath,
+  );
   const busyTimeoutMs = config.db.busyTimeoutMs; // THE-935: short alias for every probe call below
 
   const setupOriginNotice = formatSetupOriginNotice(config.setupOrigin);
@@ -539,7 +541,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
       plainHttp: { resolveHost: defaultResolveHost, endpoints: plainHttpEndpoints(config) },
       vaultIo: { nativeLoaded: nativeVaultIo, platform: process.platform },
       sameVaultRoot: {
-        configPath: cmd.configPath,
+        configPath: configFilePath,
         vaults: config.vaults,
         restApiOnDisk: (vaultPath) => restApiOnDisk(profile, vaultPath),
         io: nodeSameVaultRootIo(),
