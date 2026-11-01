@@ -1158,7 +1158,7 @@
           "maximum": 9007199254740991
         },
         "memoryBudgetMb": {
-          "description": "Optional process-memory budget in MB. When set, server_health reports memory.over_budget true while the process RSS exceeds it. With embeddings.host child-process, the budget covers parent + child RSS, and the embedder child is also recycled at a burst end while over budget.",
+          "description": "Optional process-memory budget in MB. When set, server_health reports memory.over_budget true while the process RSS exceeds it. With embeddings.host child-process, the budget covers parent + child RSS, and the embedder child is also recycled at a burst end while parent + child RSS is over it, but only while the parent alone is under it.",
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991

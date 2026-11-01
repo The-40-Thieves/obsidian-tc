@@ -135,7 +135,6 @@ export interface IndexResources {
     batchSize: number;
     concurrency: number;
     maxBatchTokens: number;
-    /** embeddings.memoryBudgetMb: the reconcile's burst end recycles an over-budget child. */
     memoryBudgetMb?: number;
   };
   hasVec: boolean;
