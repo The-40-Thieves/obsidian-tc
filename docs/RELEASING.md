@@ -88,7 +88,17 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
    build/test across Linux/macOS/Windows, install-smoke, `ci-version` (version coherence), and `ci-native`. Address any autofix-bot commits (fetch/rebase before
    pushing follow-ups).
 
-3. **Merge to `main`.**
+3. **Merge to `main`.** Then, before tagging, **check that every package name the tag will publish
+   already exists on npm with a trusted publisher** (see *Brand-new package names* below):
+
+   ```sh
+   npm view <name> version     # must resolve (E404 = never published: bootstrap it by hand first)
+   npm trust list <name>       # must list The-40-Thieves/obsidian-tc, publish.yml (asks for 2FA)
+   ```
+
+   Run it for every name the release adds since the last tag, and for every name that has never had
+   a CI publish. OIDC trusted publishing cannot create a package, so a missing name fails its job.
+   That failure leaves the version partly published (see *Recovery*).
 
 4. **Tag.** A human pushes the annotated tag `v<x.y.z>` (signed by a key listed in `.github/allowed_signers` on `main`; that list is read from `main`, never from the tag, so a new signer's key must be merged before its tag can release), firing `publish.yml`: the eight-triple
    native build matrix (linux gnu+musl x64/arm64, darwin x64/arm64, win32 x64/arm64) → npm
@@ -373,9 +383,24 @@ Together those give the property `pending` was there to provide, with no step th
   `obsidian-tc@latest` still points at the previous release, so installers are unaffected. The
   published sub-versions are orphaned and harmless: nothing references them, because the umbrella
   that would pin them was never published. Bump and re-tag.
+- **A job is partly published because a package name was missing on npm** (v1.34.0:
+  `publish-embedder-local` published 1 of 7, because the six platform names had never existed). Its
+  F3-style preflight resumes only when **all** of the job's packages are at the version. On some-but-not-all
+  it fails with `PARTIAL publish state`, so a re-run cannot get past it. Publish **every** missing
+  package of that job by hand, including the base package that depends on them. Use a TTY so the security-key
+  prompt can appear (`script -qfec "npm publish --access public" log`). Next, attach the trusted publisher
+  to each new name with `npm trust github <name> --file publish.yml --repo The-40-Thieves/obsidian-tc
+  --allow-publish`. Then do a full re-run. Hand-published versions carry no npm provenance. Before the re-run,
+  poll `curl -H 'Cache-Control: no-cache' https://registry.npmjs.org/<name>/<version>` for a 200,
+  because the CDN caches the earlier 404.
 - **Inspect a release.** `npm view obsidian-tc dist-tags` shows where `latest` and `next` point.
 
-## Caveat: brand-new package names
+## Brand-new package names
+
+**CI cannot create a package.** npm trusted publishing (OIDC) can only publish a new version of a
+package that already exists and has a trusted publisher attached. So every new package name needs a
+one-time manual first publish by the owner, plus `npm trust github …` (the commands are in
+*Recovery*), **before** the tag that would publish it. Step 3's pre-tag check catches a missing name.
 
 npm forces the first published version of a new package name onto `latest` regardless of `--tag`.
 That is now the desired behaviour for a stable release, but it means a **prerelease** of a
