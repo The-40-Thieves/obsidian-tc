@@ -519,7 +519,7 @@ describe("THE-1098 (GH #964): buildInstructions reflects the effective config", 
   function feedbackRegistry(toolVisibility?: ToolVisibilityConfig): ToolRegistry {
     const r = new ToolRegistry({ toolVisibility });
     r.register(tool("read_note", "notes", "Read a note from the vault by path."));
-    // Mirrors the real m8 tool: mutating, gated on write:workspace (THE-718).
+    // Mirrors the real m8 tool (THE-718): mutating, gated on write:workspace.
     r.register(
       tool("record_retrieval_feedback", "knowledge", "Judge whether a retrieval helped.", [
         "write:workspace",

@@ -242,7 +242,7 @@ export interface WalkEntry {
   hardLinked?: true;
 }
 
-/** Where a walk begins and its ACL identity (`""` = root), after the planted-root check (THE-1081).
+/** Where a walk begins and its ACL identity (`""` = root), computed behind the planted-root check (THE-1081).
  *  Entries below it are real (a symlink entry is never descended): start identity plus their path. */
 function walkStart(absRoot: string, sub: string | undefined): { abs: string; aclPrefix: string } {
   assertRootNotPlantedSymlink(absRoot, sub ?? "");

@@ -3,7 +3,7 @@
  * THE-837 — the shared embedding transport must name no vendor (source-scan regression guard).
  *
  * `packages/server/src/embeddings/http.ts` is shared by every embedding adapter, both reranker
- * adapters and both model-tier service clients. Until THE-837 its `providerHint` carried a
+ * adapters and both model-tier service clients. Before THE-837 its `providerHint` carried a
  * `provider === "<vendor>"` branch, so one of the providers registered in
  * `packages/server/src/providers/registry.ts` got first-run advice the other seven did not. That is
  * a privileged vendor sitting in code that is supposed to be common to all of them, and it grew
