@@ -378,7 +378,7 @@ export async function indexVault(args: IndexVaultArgs): Promise<IndexStats> {
     for (const plan of appliedPlans) fireIndexHook(args.onIndexed, plan);
     // THE-645: once per completed batch (never per-chunk, per the perf-gate note on IndexVaultArgs)
     // — a straight projection of the running `stats` accumulator, no new counters. `notesSeen` is
-    // the streaming path's honest "unknown" (-1): the eager total isn't known until the walk
+    // the streaming path's honest "unknown" (-1): the eager total isn't known before the walk
     // finishes (see THE-490's comment above), so a fabricated total would render a false percentage.
     args.onProgress?.({
       notesSeen: streamWalk ? -1 : notes.length,

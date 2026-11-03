@@ -1,5 +1,5 @@
 // WP1.3: extracted from ../config.schema.ts (which stays a compatibility facade re-exporting
-// these same symbol names). Leaf schema — was Zod-only until THE-1078; see below.
+// these same symbol names). Leaf schema — was Zod-only before THE-1078; see below.
 //
 // Import direction is non-negotiable: this file must never import config.schema.ts,
 // server.schema.ts, or any other schema module. THE-1078 added the first superRefine in this

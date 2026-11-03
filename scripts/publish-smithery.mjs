@@ -2,7 +2,7 @@
 // publish-smithery (THE-956, rewritten THE-966) — every other directory listing updates itself on
 // a version tag (the MCP Registry via `publish-registry`, the un-prefixed plugin release via
 // mirror-plugin-release.mjs); Smithery was the one surface still needing a human hand, and even
-// after THE-956 wired it up, the listing showed "No capabilities found" and was absent from
+// once THE-956 had wired it up, the listing showed "No capabilities found" and was absent from
 // Smithery search.
 //
 // HISTORY. THE-956 shelled out to `smithery mcp publish <bundle>.mcpb -n <name>` (CLI 4.11.1).

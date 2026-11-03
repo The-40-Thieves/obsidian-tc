@@ -181,7 +181,7 @@ export async function graphSearch(
   // returned; absent here after being present at gatedRerank means projection (ColBERT rerank)
   // dropped it.
   traceStage(opts, "projection", core.results.length, results, candidateId);
-  // Fired AFTER projection (THE-631) so the estimate describes exactly what the caller receives;
+  // Fired once projection has run (THE-631) so the estimate describes exactly what the caller receives;
   // never fed back into the pipeline above — see estimateCoverage()'s doc comment.
   if (opts.onCoverage) {
     // The mtime lookup runs ONLY when a caller asked for coverage, so ordinary search pays

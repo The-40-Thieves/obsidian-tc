@@ -168,6 +168,10 @@ const DEP_ALLOW = new Map([
  *  Map and re-running, rather than trusting it. Same instruction DEP_ALLOW carries, same reason. */
 const NOT_STARTED_ALLOW = new Map([
   [
+    "THE-160",
+    "G3-gated (Simplicity Check before build); the shipped agent_episodes migration cites it as NOT a dependency",
+  ],
+  [
     "THE-175",
     "design-only, G2-gated; cited by capture_queue/poison as the substrate it will target",
   ],
