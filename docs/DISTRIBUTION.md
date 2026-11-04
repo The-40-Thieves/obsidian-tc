@@ -13,7 +13,7 @@ URL is on every row so the next reader can re-check, because these formats move.
 | MCP Registry (`io.github.The-40-Thieves/obsidian-tc`) | `server.json`, `mcpName` in the server package | Published (registry API read 1.32.0 as latest). `server.json` validates against the registry's 2025-12-11 schema in CI (`packages/server/test/server-json-schema.test.ts`) |
 | Docker image (GHCR) | Release workflow | Shipped per the README; not re-checked here |
 | `.mcpb` bundle | `bun run bundle`, attached to each release | Shipped. **Not accepted by Anthropic's connector directory any more**, see below |
-| Smithery, glama | `scripts/publish-smithery.mjs`, `glama.json` | Existing listings; not touched or re-checked by this change |
+| glama | `glama.json` | Existing listing; not touched or re-checked by this change |
 | Claude Code plugin marketplace | `.claude-plugin/marketplace.json` + `plugins/obsidian-tc` | **Live as soon as this is merged**: `claude plugin marketplace add The-40-Thieves/obsidian-tc`. No submission needed for this route |
 | Muse Code | `.muse-plugin/plugin.json`, same marketplace file | Built; **format not confirmed against Meta docs** (below). No submission route known |
 | Grok Build | reads Claude marketplaces | Documented by xAI as automatic (below). No submission needed |
@@ -140,5 +140,5 @@ generic executor to enable operations not individually exposed for review."
 4. **Muse Code.** Install Muse 1.4.0 or later, enable experimental plugins, then run
    `muse plugins validate plugins/obsidian-tc` from a clone and report the output; fix the manifest if
    it disagrees with the shape above. Meta publishes no plugin directory to submit to that I could find.
-5. **MCP Registry, npm, Docker, Smithery, glama.** Nothing to do for this change; the next release
+5. **MCP Registry, npm, Docker, glama.** Nothing to do for this change; the next release
    publishes the new `server.json` and plugin files together.
