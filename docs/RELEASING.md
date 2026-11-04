@@ -106,7 +106,7 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
    every npm package `server.json` references resolving live on npmjs — see *MCP Registry publish*
    below) → standalone binaries →
    Docker/ghcr → the `.mcpb` bundle → the companion-plugin assets → a published GitHub Release
-   with checksums (`draft-release`) → the un-prefixed plugin release (`mirror-plugin-release`) → the Smithery listing (`publish-smithery`). See *What a tag produces* and
+   with checksums (`draft-release`) → the un-prefixed plugin release (`mirror-plugin-release`). See *What a tag produces* and
    *Ordered npm publish* below for the details.
 
    **RC tags.** `verify-tag` classifies the version ONCE
@@ -122,9 +122,8 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
      `action-gh-release`, so an RC is marked as a prerelease **and** never becomes "Latest" —
      before this fix, this step passed neither flag, so an RC tag would have published as a normal,
      Latest release, which `/releases/latest`, BRAT and the Obsidian community directory all read.
-   - `mirror-plugin-release` and `publish-smithery` both skip outright: no un-prefixed mirror tag
-     and no live Smithery listing for a prerelease (unchanged from the earlier steps, now reading
-     the shared classification instead of recomputing it).
+   - `mirror-plugin-release` skips outright for a prerelease: no un-prefixed mirror tag (unchanged
+     from the earlier steps, now reading the shared classification instead of recomputing it).
 
 5. **Verify the assets** — the Release is already PUBLISHED, not a draft: `draft-release` creates it as
    a draft, `check-release-assets.sh` confirms every artifact and all 19 cosign bundles are attached
@@ -216,14 +215,9 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
 
 8. **Fire the directory listings.** The registry entry from step 6 only reaches an
    aggregator that scrapes it (Glama, PulseMCP); the companion plugin's community-store submission
-   is a one-time, owner-run form (see prerequisite note below); Smithery and mcp.so used to each
-   need their own manual submission too. **Smithery is now automatic** (`publish-smithery`,
-   gated identically to `publish-registry` — a real `v*` tag only): this step is
-   confirm-only — open the URL the job's log line prints
-   (`https://smithery.ai/servers/the-40-thieves/obsidian-tc/releases`) and check it directly, not
-   just the job's exit code — a known upstream defect (`arcadeai-labs/smithery-cli#787`) can leave
-   a live listing showing "No capabilities found" even on success. mcp.so still needs a manual
-   submission. Full steps, commands, and verification URLs for every one of them:
+   is a one-time, owner-run form (see prerequisite note below); mcp.so still needs a manual
+   submission. Smithery was dropped from this list because it shut down publishing on 2026-10-31.
+   Full steps, commands, and verification URLs for every one of them:
    `docs/superpowers/plans/2026-09-03-listings/checklist.md`.
 
 ## What a tag produces
@@ -251,7 +245,7 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
   (`signature-manifest.tsv`, one line per bundle) that only the completeness check reads. A family that
   matches no files fails the job. `build-docker` signs the pushed GHCR image by digest. **Signing is a
   barrier:** `publish-npm`, `publish-reranker-local`, `publish-embedder-local`, `build-docker` and
-  `draft-release` (and through them the registry, Smithery and mirror jobs) all `needs: sign-artifacts`,
+  `draft-release` (and through them the registry and mirror jobs) all `needs: sign-artifacts`,
   so a Sigstore failure stops the release before anything irreversible ships. `draft-release` creates the
   release as a draft, `check-release-assets.sh` compares it to the checksum list, the signature manifest
   and the pinned per-family counts, and only then is it published. This is separate from, and does not
@@ -268,10 +262,6 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
   Obsidian's community directory actually reads. The tag is unsigned by construction (CI holds no maintainer
   signing key), but each file carries its cosign bundle, which verifies against the `v<x.y.z>` workflow
   identity; idempotent on re-run. See `scripts/mirror-plugin-release.mjs`.
-- **Smithery listing** — `publish-smithery` publishes the `.mcpb` bundle to
-  `the-40-thieves/obsidian-tc` on the Smithery Registry via `SMITHERY_API_KEY`. A repeat publish
-  of an already-listed version is treated as success (probed live 2026-09-05 — see
-  `scripts/publish-smithery.mjs`'s header). See `docs/superpowers/plans/2026-09-03-listings/smithery.md`.
 
 ## MCP Registry publish
 

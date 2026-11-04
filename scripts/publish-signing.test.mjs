@@ -196,7 +196,6 @@ const EXPECTED_PERMISSIONS = {
   "sign-artifacts": { contents: "read", "id-token": "write" }, // cosign sign-blob (keyless)
   "draft-release": { contents: "write" }, // create/upload/publish the release
   "mirror-plugin-release": { contents: "write" }, // creates the un-prefixed tag + release
-  "publish-smithery": { contents: "read" }, // API key only
 };
 
 // Markers of a step that needs an OIDC token.
@@ -255,7 +254,6 @@ test("every publishing job transitively needs sign-artifacts, so a signing failu
     /docker\/build-push-action/,
     /softprops\/action-gh-release/,
     /mirror-plugin-release\.mjs/,
-    /publish-smithery\.mjs/,
     /login github-oidc/,
   ];
   const publishers = ALL_JOBS.filter((job) =>
@@ -269,7 +267,6 @@ test("every publishing job transitively needs sign-artifacts, so a signing failu
     "build-docker",
     "draft-release",
     "mirror-plugin-release",
-    "publish-smithery",
   ]) {
     assert.ok(publishers.includes(expected), `${expected} should be detected as a publisher`);
   }

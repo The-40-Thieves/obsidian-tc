@@ -21,7 +21,7 @@
 // package.json, never from the pushed tag's own name — so a tag `v1.28.0-rc.1` pushed against a
 // commit whose package.json still says `1.28.0` (a stale checkout, a forgotten bump, a
 // re-tagged commit) would silently classify as a STABLE release: npm `latest`, a `:latest` ghcr
-// tag, a Latest GitHub release, the plugin mirror and the Smithery publish all fire from the
+// tag, a Latest GitHub release and the plugin mirror all fire from the
 // wrong classification. `tagMatchesVersion` below lets verify-tag assert the two agree before
 // trusting either.
 import { readFileSync } from "node:fs";
