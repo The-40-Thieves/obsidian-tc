@@ -1,6 +1,6 @@
 ---
 title: AGPL and you
-description: What the AGPL-3.0 licence actually requires, in plain language — running it locally, serving a modified copy, hosting it for others, and the commercial exception.
+description: What the AGPL-3.0 licence actually requires, in plain language — running it locally, serving a modified copy, hosting it for others, and why there is no commercial license.
 ---
 
 :::caution
@@ -77,22 +77,19 @@ doesn't change anything about the license terms your own users are bound by if t
 receive a copy from you.
 
 Either way — hosted unmodified or hosted modified — some organizations find AGPL's terms
-incompatible with how they want to operate a hosted offering. That's what the commercial
-exception below is for.
+incompatible with how they want to operate a hosted offering. The project offers no other
+license for that case; see below.
 
-## The commercial exception
+## No commercial license
 
 Quoting [CONTRIBUTING.md](https://github.com/The-40-Thieves/obsidian-tc/blob/main/CONTRIBUTING.md#license-and-sign-off-dco)
 directly, since that's the canonical source for this project's own terms:
 
-> obsidian-tc is licensed under [AGPL-3.0-only](https://github.com/The-40-Thieves/obsidian-tc/blob/main/LICENSE).
-> A separate commercial-exception license may also be available for organizations that cannot
-> meet the AGPL's network-copyleft terms; if that applies to you, open a discussion to ask — the
-> terms are decided case by case and are not published here.
+> obsidian-tc is licensed under [AGPL-3.0-only](https://github.com/The-40-Thieves/obsidian-tc/blob/main/LICENSE),
+> and only under that license. There is no commercial-exception license, dual license or other
+> proprietary license, and none is sold or negotiated.
 
-To ask: open a
-[GitHub discussion](https://github.com/The-40-Thieves/obsidian-tc/discussions). There's no
-published price list or standard contract — each case is evaluated on its own facts.
+Every user, individual or organization, gets the same AGPL-3.0 terms.
 
 ## Common misconceptions
 
