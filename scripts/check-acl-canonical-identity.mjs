@@ -168,6 +168,7 @@ const isNode = (v) => v !== null && typeof v === "object" && typeof v.type === "
 const keep = (set, ...keys) => new Set([...set].filter((l) => keys.includes(l) || l.includes(":")));
 const union = (...sets) => new Set(sets.flatMap((s) => [...s]));
 const EMPTY = new Set();
+const compareSignatureValues = (a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b));
 
 function propName(member) {
   if (!member.computed && member.property.type === "Identifier") return member.property.name;
@@ -269,16 +270,41 @@ class Registry {
   }
   signature() {
     return JSON.stringify([
-      [...this.reach].map(([k, v]) => [k, [...v].sort()]).sort(),
-      [...this.returns].map(([k, v]) => [k, [...v].sort()]).sort(),
-      [...this.byName].map(([k, v]) => [k, [...v].sort()]).sort(),
+      [...this.reach]
+        .map(([k, v]) => [k, [...v].sort(compareSignatureValues)])
+        .sort(compareSignatureValues),
+      [...this.returns]
+        .map(([k, v]) => [k, [...v].sort(compareSignatureValues)])
+        .sort(compareSignatureValues),
+      [...this.byName]
+        .map(([k, v]) => [k, [...v].sort(compareSignatureValues)])
+        .sort(compareSignatureValues),
       [...this.reachProp]
-        .map(([k, v]) => [k, [...v].map(([i, s]) => [i, [...s].sort()]).sort()])
-        .sort(),
-      [...this.cb].map(([k, v]) => [k, [...v].map(([i, s]) => [i, [...s].sort()]).sort()]).sort(),
+        .map(([k, v]) => [
+          k,
+          [...v]
+            .map(([i, s]) => [i, [...s].sort(compareSignatureValues)])
+            .sort(compareSignatureValues),
+        ])
+        .sort(compareSignatureValues),
+      [...this.cb]
+        .map(([k, v]) => [
+          k,
+          [...v]
+            .map(([i, s]) => [i, [...s].sort(compareSignatureValues)])
+            .sort(compareSignatureValues),
+        ])
+        .sort(compareSignatureValues),
       [...this.cbProp].map(([k, v]) => [
         k,
-        [...v].map(([i, m]) => [i, [...m].map(([kk, s]) => [kk, [...s].sort()]).sort()]).sort(),
+        [...v]
+          .map(([i, m]) => [
+            i,
+            [...m]
+              .map(([kk, s]) => [kk, [...s].sort(compareSignatureValues)])
+              .sort(compareSignatureValues),
+          ])
+          .sort(compareSignatureValues),
       ]),
     ]);
   }

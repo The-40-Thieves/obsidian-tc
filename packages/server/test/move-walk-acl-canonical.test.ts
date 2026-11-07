@@ -23,9 +23,9 @@ import { type M6Vault, makeM6Vault } from "./m6-helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const MARK = "TOPSECRETMARK";
-const SECRET = "secret-project";
+const DENIED_NOTE_STEM = "secret-project";
 /** The bystander the caller may not read; it links the note being moved. */
-const BYSTANDER = `private/${SECRET}.md`;
+const BYSTANDER = `private/${DENIED_NOTE_STEM}.md`;
 const FILES: Record<string, string> = {
   [BYSTANDER]: `${MARK}\nSee [[a]]\n`,
   "pages/a.md": "alpha\n",
@@ -72,7 +72,7 @@ const readRefusal = async (
 const expectNoLeak = (r: ToolResult): void => {
   const wire = JSON.stringify(r);
   expect(wire).not.toContain("private");
-  expect(wire).not.toContain(SECRET);
+  expect(wire).not.toContain(DENIED_NOTE_STEM);
   expect(wire).not.toContain(MARK);
 };
 
@@ -108,7 +108,7 @@ describe.skipIf(!JUNCTIONS)("move tools judge the alias by its canonical target"
     const v = noteVault();
     const r = await v.call(
       "read_note",
-      { vault: "test", path: `wiki/${SECRET}.md` },
+      { vault: "test", path: `wiki/${DENIED_NOTE_STEM}.md` },
       { grantedScopes: NOTE_SCOPES },
     );
     expect(r.ok).toBe(false);
@@ -118,18 +118,18 @@ describe.skipIf(!JUNCTIONS)("move tools judge the alias by its canonical target"
     const v = noteVault();
     const r = await v.call(
       "move_note",
-      { vault: "test", from: `wiki/${SECRET}.md`, to: "pages/stolen.md" },
+      { vault: "test", from: `wiki/${DENIED_NOTE_STEM}.md`, to: "pages/stolen.md" },
       { grantedScopes: NOTE_SCOPES },
     );
     expect(errOf(r)?.code, JSON.stringify(r)).toBe("acl_denied");
-    expect(errOf(r)).toEqual(await readRefusal(v, `wiki/${SECRET}.md`, NOTE_SCOPES));
+    expect(errOf(r)).toEqual(await readRefusal(v, `wiki/${DENIED_NOTE_STEM}.md`, NOTE_SCOPES));
     expect(v.exists(BYSTANDER)).toBe(true);
     expect(v.exists("pages/stolen.md")).toBe(false);
   });
 
   it("bulk_move_notes refuses a row whose source is named through the alias, dry run and real", async () => {
     const v = bulkVault();
-    const moves = [{ from: `wiki/${SECRET}.md`, to: "pages/stolen.md" }];
+    const moves = [{ from: `wiki/${DENIED_NOTE_STEM}.md`, to: "pages/stolen.md" }];
     for (const dryRun of [true, false]) {
       const r = await v.callConfirmed(
         "bulk_move_notes",
@@ -137,7 +137,7 @@ describe.skipIf(!JUNCTIONS)("move tools judge the alias by its canonical target"
         { grantedScopes: BULK_SCOPES },
       );
       expect(errOf(r)?.code, JSON.stringify(r)).toBe("acl_denied");
-      expect(errOf(r)).toEqual(await readRefusal(v, `wiki/${SECRET}.md`, BULK_SCOPES));
+      expect(errOf(r)).toEqual(await readRefusal(v, `wiki/${DENIED_NOTE_STEM}.md`, BULK_SCOPES));
       expect(v.exists(BYSTANDER)).toBe(true);
       expect(v.exists("pages/stolen.md")).toBe(false);
     }
