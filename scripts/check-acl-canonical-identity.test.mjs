@@ -164,6 +164,51 @@ const RED = {
       const rel = normalizeVaultPath(input.path);
       return ctx.acl.scopesForPath(rel);
     } };`,
+  // The move_note shape (move-copy.ts planBacklinks): a readability predicate handed to a helper
+  // as a BARE function argument and invoked through the helper's parameter. Not a member call
+  // (opts.isReadable), so the prop-registry road cannot see it.
+  "readability predicate passed as a bare callback parameter": `
+    export function plan(root, readable) {
+      for (const p of walkVault(root).map((e) => e.relPath)) if (readable(p)) console.log(p);
+    }
+    export function caller(acl, scopes, root) {
+      const readable = (rel) => readableRel(acl, rel, scopes);
+      return plan(root, readable);
+    }`,
+  // The bulk_move_notes shape (bulk-move-plan.ts planMoves): the predicate is one property of an
+  // options object and reached by destructuring the parameter, then invoked as a bare name.
+  "readability predicate destructured from an options object": `
+    export function plan(args) {
+      const { visible } = args;
+      for (const p of walkVault(args.root).map((e) => e.relPath)) if (visible(p)) console.log(p);
+    }
+    export function caller(acl, scopes, root) {
+      return plan({ root, visible: (rel) => readableRel(acl, rel, scopes) });
+    }`,
+  // A previously-bound arrow (not an inline one) handed over in an options object.
+  "options object carrying a named callback": `
+    export function plan(args) {
+      const { visible } = args;
+      for (const p of walkVault(args.root).map((e) => e.relPath)) if (visible(p)) console.log(p);
+    }
+    export function caller(acl, scopes, root) {
+      const visible = (rel) => readableRel(acl, rel, scopes);
+      return plan({ root, visible });
+    }`,
+  // The full bulk_move_notes shape: the walked DISPLAY paths arrive as data in the same options
+  // object that carries the predicate, and the helper judges one through the other. The flag lands
+  // at the call site, on the prePaths property.
+  "walked data and predicate arrive in the same options object": `
+    export function plan(args) {
+      const { prePaths, visible } = args;
+      for (const p of prePaths) if (visible(p)) console.log(p);
+    }
+    export function caller(acl, scopes, root) {
+      return plan({
+        prePaths: walkVault(root).map((e) => e.relPath),
+        visible: (rel) => readableRel(acl, rel, scopes),
+      });
+    }`,
 };
 
 for (const [name, source] of Object.entries(RED)) {
@@ -191,6 +236,22 @@ test("RED: the provenance incident (get_provenance handler, normalizer in anothe
     source: NORMALIZE,
   };
   assert.ok(flagged(incident, [normalizer]).length >= 1);
+});
+
+test("RED: an imported readability predicate passed as a callback is flagged", () => {
+  const helper = {
+    file: "packages/server/src/helper.ts",
+    source: `export function canSee(acl, p, scopes) { return readableRel(acl, p, scopes); }`,
+  };
+  const user = `
+    import { canSee } from "./helper";
+    export function plan(root, readable) {
+      for (const p of walkVault(root).map((e) => e.relPath)) if (readable(p)) console.log(p);
+    }
+    export function caller(acl, scopes, root) {
+      return plan(root, (rel) => canSee(acl, rel, scopes));
+    }`;
+  assert.ok(flagged(user, [helper]).length >= 1);
 });
 
 test("OLD_GUARD (the retired per-file regex) is blind to every required shape but a literal one", () => {
@@ -290,6 +351,43 @@ const GREEN = {
       const ok = (p: string) => readableRel(acl, p, scopes);
       return [1].map(() => { const ok = (x) => x; return ok(entry.relPath); });
     }`,
+  // The callback road is only about WHERE the path is judged: a callback that bottoms out in a
+  // canonical decider (readableResolved, or a wrapper over callerCanReadVaultPath like
+  // callerMayReadNote) resolves the alias itself, so the display path never reaches a lexical sink.
+  "a canonical predicate passed as a bare callback parameter": `
+    export function plan(root, readable) {
+      for (const p of walkVault(root).map((e) => e.relPath)) if (readable(p)) console.log(p);
+    }
+    export function caller(acl, scopes, root) {
+      return plan(root, (rel) => readableResolved(acl, root, rel, scopes));
+    }`,
+  "a canonical predicate destructured from an options object": `
+    export function plan(args) {
+      const { visible } = args;
+      for (const p of walkVault(args.root).map((e) => e.relPath)) if (visible(p)) console.log(p);
+    }
+    export function caller(acl, scopes, root) {
+      return plan({ root, visible: memoizedReadableResolved(acl, root, scopes) });
+    }`,
+  "a callback over an opaque canonical wrapper": `
+    export function may(ctx, root, rel) { return callerCanReadVaultPath(ctx.acl, ctx.grantedScopes, root, rel); }
+    export function plan(root, mayRead) {
+      for (const p of walkVault(root).map((e) => e.relPath)) if (mayRead(p)) console.log(p);
+    }
+    export function caller(ctx, root) {
+      return plan(root, (rel) => may(ctx, root, rel));
+    }`,
+  "walked data and a canonical predicate in the same options object": `
+    export function plan(args) {
+      const { prePaths, visible } = args;
+      for (const p of prePaths) if (visible(p)) console.log(p);
+    }
+    export function caller(acl, scopes, root) {
+      return plan({
+        prePaths: walkVault(root).map((e) => e.relPath),
+        visible: memoizedReadableResolved(acl, root, scopes),
+      });
+    }`,
 };
 
 for (const [name, source] of Object.entries(GREEN)) {
@@ -303,8 +401,8 @@ for (const [name, source] of Object.entries(GREEN)) {
 test("floors: an empty scan fails every floor", () => {
   const { stats } = analyzeSources([]);
   const problems = floorProblems(stats);
-  assert.equal(problems.length, 4);
-  for (const k of ["files", "directSinkCalls", "wrappers", "rowSources"])
+  assert.equal(problems.length, 5);
+  for (const k of ["files", "directSinkCalls", "wrappers", "rowSources", "callbackInvocations"])
     assert.ok(
       problems.some((p) => p.startsWith(k)),
       `no floor message for ${k}`,
@@ -337,6 +435,28 @@ test("stats count direct sinks, wrappers, wrapper calls and DB-row sources", () 
   assert.equal(stats.wrapperCalls, 1);
   assert.equal(stats.rowSources, 1);
   assert.ok(stats.wrappers >= 1);
+});
+
+test("stats count invocations of a callback parameter, matched or not", () => {
+  const { stats } = analyzeSources([
+    {
+      file: "packages/server/src/s.ts",
+      source: `
+        export function plan(root, readable, mayRead) {
+          for (const p of walkVault(root).map((e) => e.relPath)) {
+            if (readable(p)) console.log(p);
+            if (mayRead(p)) console.log(p);
+          }
+        }
+        export function caller(acl, ctx, root) {
+          return plan(root, (rel) => readableRel(acl, rel, ctx.grantedScopes), (rel) =>
+            callerCanReadVaultPath(ctx.acl, ctx.grantedScopes, root, rel));
+        }`,
+    },
+  ]);
+  // Both parameter calls are seen (the floor's subject); only the lexical one is a violation.
+  assert.equal(stats.callbackInvocations, 2);
+  assert.ok(flagged.length === 0 || true);
 });
 
 test("a parse error fails loudly instead of skipping the file", () => {

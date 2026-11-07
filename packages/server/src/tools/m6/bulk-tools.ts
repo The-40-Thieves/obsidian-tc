@@ -37,7 +37,7 @@ import type { ToolDefinition } from "../../mcp/registry";
 import type { MetricsRecorder } from "../../metrics/registry";
 import { frontmatterFallbackSink } from "../../util/errors";
 import { enforcePathAcl, ImmutableRewriteSkips } from "../../vault/acl-path";
-import { readableRel } from "../../vault/acl-read-filter";
+import { memoizedReadableResolved } from "../../vault/acl-read-filter";
 import { runBulk } from "../../vault/bulk";
 import {
   callerMayReadNote,
@@ -485,8 +485,9 @@ export function buildBulkTools(deps: M6Deps): ToolDefinition[] {
             ),
           );
 
-        // The caller-visible filter for the REPORT (the rewrite is vault-wide regardless).
-        const visible = (rel: string): boolean => readableRel(ctx.acl, rel, ctx.grantedScopes);
+        // The caller-visible filter for the REPORT (the rewrite is vault-wide regardless), judged on
+        // the canonical identity (read_note's decision), not the walked display path.
+        const visible = memoizedReadableResolved(ctx.acl, v.root, ctx.grantedScopes);
         const skips = new ImmutableRewriteSkips(ctx.acl, v.root, ctx.grantedScopes);
         const plan = (defense: VaultMemoryDefenseConfig, metrics: MetricsRecorder | undefined) =>
           planMoves({

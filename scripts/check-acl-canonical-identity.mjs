@@ -24,6 +24,13 @@
  *      whether it is a local const, a function declaration, an imported function, an object-property
  *      callback (`isReadable: (p) => readableRel(...)`) or a class method.
  *
+ * A callback is also followed through the CALL, not only through a member name: when a caller hands
+ * a sink-reaching predicate to a helper (`plan(root, readable)`, `planMoves({ visible })`), the
+ * helper's parameter — or the options-object property it destructures — inherits the callback's
+ * reach, and invoking it with a display path (`readable(p)`, `visible(p)`) is a violation at the
+ * invocation site. A canonical predicate (readableResolved, callerMayReadNote over
+ * callerCanReadVaultPath, ...) has no reach, so handing one over is silent.
+ *
  * D flows through aliases, destructuring, for-of, array callbacks, template literals, string methods,
  * ternaries and unknown calls; a member read other than `.aclRel` / `.abs`, or a `storedAclPathOf(...)`
  * result, drops it. A violation is D reaching a lexical decider (see SINKS) or a wrapper forwarding to
@@ -48,6 +55,11 @@ const MIN_FILES = 300;
 const MIN_DIRECT_SINK_CALLS = 40;
 const MIN_WRAPPERS = 5;
 const MIN_ROW_SOURCES = 5;
+// Invocations seen through a callback-shaped binding (a function-typed parameter, or a property
+// destructured from one), whether or not any caller's callback was found to reach a decider.
+// Floored so the callback-following below cannot silently stop scanning (a broken cbRef binding
+// would otherwise read as zero violations).
+const MIN_CALLBACK_INVOCATIONS = 10;
 
 /** Lexical ACL deciders: callee name -> indexes of the argument that is judged as a path. */
 export const SINKS = new Map([
@@ -134,6 +146,24 @@ const TRANSPARENT = new Set([
   "SpreadElement",
 ]);
 
+const PARAM_LABEL = /^(.*):(\d+)$/;
+/** A property-of-parameter label: `<fn ctx id>:<param index>.<prop key>`. PARAM_LABEL does not
+ *  match it (it ends in a key, not digits), so it is never read as a callback reference. */
+const PROP_LABEL = /^(.*):(\d+)\.(.+)$/;
+/** The parameter-shaped labels of a value (`<fn ctx id>:<param index>`), as callback references.
+ *  Used only where the value IS the parameter (a destructure of it), never on a label that merely
+ *  flowed through a call's return value: `const isReadable = readableStoredRow(db, id, decide)`
+ *  carries `decide`'s label but invoking it runs the canonicalizer first, so it is not the
+ *  callback. */
+function cbRefsOf(labels) {
+  const out = [];
+  for (const l of labels) {
+    const m = PARAM_LABEL.exec(l);
+    if (m) out.push({ id: m[1], index: Number(m[2]) });
+  }
+  return out;
+}
+
 const isNode = (v) => v !== null && typeof v === "object" && typeof v.type === "string";
 const keep = (set, ...keys) => new Set([...set].filter((l) => keys.includes(l) || l.includes(":")));
 const union = (...sets) => new Set(sets.flatMap((s) => [...s]));
@@ -173,6 +203,51 @@ class Registry {
     this.returns = new Map(); // ctx id -> Set<label> (D / R only)
     this.opaque = new Set(); // ctx ids of CANONICAL_ENTRYPOINTS
     this.byName = new Map(); // "fn:name" | "prop:name" -> Set<ctx id>
+    // fn ctx id -> Map<param index, Set<prop key>>: a PROPERTY of the function's parameter
+    // reaches a lexical decider (directly, or through a sibling callback in the same options
+    // object). Such a function is a sink for its callers on that property.
+    this.reachProp = new Map();
+    // fn ctx id -> Map<param index, Set<arg position>>: when a caller passes a sink-reaching
+    // callback as argument i, the callee's parameter i forwards those positions to the decider.
+    this.cb = new Map();
+    // Same, for a callback carried as property K of an options object passed as argument i.
+    this.cbProp = new Map(); // fn ctx id -> Map<param index, Map<prop key, Set<arg position>>>
+  }
+  addReachProp(id, i, key) {
+    const m = this.reachProp.get(id) ?? new Map();
+    this.reachProp.set(id, m);
+    const s = m.get(i) ?? new Set();
+    m.set(i, s);
+    s.add(key);
+  }
+  reachPropsOf(ids) {
+    return [...ids].flatMap((id) =>
+      this.opaque.has(id)
+        ? []
+        : [...(this.reachProp.get(id) ?? [])].flatMap(([i, keys]) => [...keys].map((k) => [i, k])),
+    );
+  }
+  addCb(id, i, pos) {
+    const m = this.cb.get(id) ?? new Map();
+    this.cb.set(id, m);
+    const s = m.get(i) ?? new Set();
+    m.set(i, s);
+    s.add(pos);
+  }
+  addCbProp(id, i, key, pos) {
+    const m = this.cbProp.get(id) ?? new Map();
+    this.cbProp.set(id, m);
+    const byKey = m.get(i) ?? new Map();
+    m.set(i, byKey);
+    const s = byKey.get(key) ?? new Set();
+    byKey.set(key, s);
+    s.add(pos);
+  }
+  cbOf(id, i) {
+    return this.cb.get(id)?.get(i) ?? EMPTY;
+  }
+  cbPropOf(id, i, key) {
+    return this.cbProp.get(id)?.get(i)?.get(key) ?? EMPTY;
   }
   addReach(id, i) {
     const s = this.reach.get(id) ?? new Set();
@@ -197,6 +272,14 @@ class Registry {
       [...this.reach].map(([k, v]) => [k, [...v].sort()]).sort(),
       [...this.returns].map(([k, v]) => [k, [...v].sort()]).sort(),
       [...this.byName].map(([k, v]) => [k, [...v].sort()]).sort(),
+      [...this.reachProp]
+        .map(([k, v]) => [k, [...v].map(([i, s]) => [i, [...s].sort()]).sort()])
+        .sort(),
+      [...this.cb].map(([k, v]) => [k, [...v].map(([i, s]) => [i, [...s].sort()]).sort()]).sort(),
+      [...this.cbProp].map(([k, v]) => [
+        k,
+        [...v].map(([i, m]) => [i, [...m].map(([kk, s]) => [kk, [...s].sort()]).sort()]).sort(),
+      ]),
     ]);
   }
 }
@@ -224,27 +307,34 @@ function analyzeFile(file, source, reg, out) {
         text: source.slice(node.start, Math.min(node.end, node.start + 90)).split("\n")[0],
       });
     for (const l of labels) {
-      const m = /^(.*):(\d+)$/.exec(l);
+      const m = PARAM_LABEL.exec(l);
       if (m) reg.addReach(m[1], Number(m[2]));
+      const pm = PROP_LABEL.exec(l);
+      if (pm) reg.addReachProp(pm[1], Number(pm[2]), pm[3]);
     }
   }
 
-  function bindPattern(p, labels, scope, fnIds) {
+  function bindPattern(p, labels, scope, fnIds, cbRefs) {
     if (!p) return;
+    const refs = cbRefs ?? [];
     switch (p.type) {
       case "Identifier":
-        scope.set(p.name, { labels, fnIds });
+        scope.set(p.name, { labels, fnIds, cbRefs: refs });
         return;
       case "AssignmentPattern":
-        bindPattern(p.left, union(labels, ev(p.right, scope)), scope);
+        bindPattern(p.left, union(labels, ev(p.right, scope)), scope, undefined, refs);
         return;
       case "RestElement":
-        bindPattern(p.argument, labels, scope);
+        bindPattern(p.argument, labels, scope, undefined, refs);
         return;
       case "ArrayPattern":
-        for (const e of p.elements) bindPattern(e, labels, scope);
+        for (const e of p.elements) bindPattern(e, labels, scope, undefined, refs);
         return;
-      case "ObjectPattern":
+      case "ObjectPattern": {
+        // A destructure of a parameter (an options object): each property stays tied to that
+        // parameter by a prop label, so a property — data or callback — that reaches a lexical
+        // decider makes this function a sink for its callers on that property.
+        const base = cbRefs ?? cbRefsOf(labels);
         for (const prop of p.properties) {
           if (prop.type === "RestElement") {
             bindPattern(prop.argument, EMPTY, scope);
@@ -259,9 +349,18 @@ function analyzeFile(file, source, reg, out) {
           )
             l = new Set([D]);
           else if (labels.has(R)) l = EMPTY;
-          bindPattern(prop.value, l, scope);
+          if (k !== undefined && base.length > 0)
+            l = union(l, new Set(base.map((r) => `${r.id}:${r.index}.${k}`)));
+          bindPattern(
+            prop.value,
+            l,
+            scope,
+            undefined,
+            k === undefined ? [] : base.map((r) => ({ ...r, prop: k })),
+          );
         }
         return;
+      }
       default:
         return;
     }
@@ -274,7 +373,9 @@ function analyzeFile(file, source, reg, out) {
     node.params.forEach((p, i) => {
       const own = new Set([`${id}:${i}`]);
       if (p.type === "Identifier" && /^(input|args)$/.test(p.name)) own.add(I);
-      bindPattern(p, i === 0 && elem0 ? union(own, elem0) : own, inner);
+      bindPattern(p, i === 0 && elem0 ? union(own, elem0) : own, inner, undefined, [
+        { id, index: i },
+      ]);
     });
     if (key && name) reg.register(`${key}:${name}`, id);
     if (name && CANONICAL_ENTRYPOINTS.has(name)) reg.opaque.add(id);
@@ -419,6 +520,42 @@ function analyzeFile(file, source, reg, out) {
     return { name: undefined, ids: [], other: u };
   }
 
+  /** The function ctx ids an argument refers to: an inline function's own id, a local binding's,
+   *  or an imported function's (by name, cross-file). */
+  function fnIdsOf(a, scope) {
+    const u = unwrap(a);
+    if (u && FN_TYPES.has(u.type)) return [`${file}:${u.start}`];
+    if (u && u.type === "Identifier") {
+      const b = scope.lookup(u.name);
+      if (b?.fnIds) return b.fnIds;
+      const imp = imported.get(u.name);
+      if (imp) return [...(reg.byName.get(`fn:${imp}`) ?? [])];
+    }
+    return [];
+  }
+
+  /** Analyse an options-object argument once, capturing each property's labels (ev's
+   *  ObjectExpression case, plus the per-key record the prop road needs). */
+  function evalObjectProps(n, scope) {
+    const props = new Map();
+    for (const p of n.properties) {
+      if (p.type !== "Property") {
+        ev(p, scope);
+        continue;
+      }
+      const k = !p.computed && p.key.type === "Identifier" ? p.key.name : undefined;
+      const v = unwrap(p.value);
+      if (v && FN_TYPES.has(v.type)) {
+        fn(v, scope, k, "prop", k === "handler" ? new Set([I]) : undefined);
+        if (k !== undefined) props.set(k, EMPTY);
+      } else {
+        const l = ev(p.value, scope);
+        if (k !== undefined) props.set(k, l);
+      }
+    }
+    return props;
+  }
+
   function call(node, scope) {
     const c = callee(node.callee, scope);
     const objLabels = c.member ? ev(c.member.object, scope) : EMPTY;
@@ -426,6 +563,7 @@ function analyzeFile(file, source, reg, out) {
     const calleeFn = c.other && FN_TYPES.has(c.other.type) ? c.other : undefined;
     const isArrayCb = c.member && ARRAY_CALLBACK.has(c.name);
     const argLabels = [];
+    const argProps = [];
     const fnReturns = new Set();
     node.arguments.forEach((a, i) => {
       const u = unwrap(a);
@@ -438,6 +576,9 @@ function analyzeFile(file, source, reg, out) {
           isArrayCb && i === 0 ? keep(objLabels, D, R) : undefined,
         );
         if (isArrayCb && i === 0) for (const l of ret) fnReturns.add(l);
+        argLabels.push(EMPTY);
+      } else if (u && u.type === "ObjectExpression") {
+        argProps[i] = evalObjectProps(u, scope);
         argLabels.push(EMPTY);
       } else argLabels.push(ev(a, scope));
     });
@@ -453,6 +594,54 @@ function analyzeFile(file, source, reg, out) {
       for (const i of reach)
         report(node, c.name, argLabels[i] ?? EMPTY, `wrapper ${c.name}(#${i})`);
     }
+    // Prop road: the callee judges a PROPERTY of one of its parameters lexically (directly, or
+    // through a sibling callback in the same options object), so the matching property of this
+    // call's argument is judged here, at the call site.
+    if (c.ids.length > 0)
+      for (const [j, k] of reg.reachPropsOf(c.ids))
+        report(
+          node,
+          c.name,
+          argProps[j]?.get(k) ?? argLabels[j] ?? EMPTY,
+          `wrapper ${c.name}(#${j}.${k})`,
+        );
+
+    // Callback road, consuming side: this call goes through a callback-shaped binding (a
+    // function-typed parameter, or a property destructured from one). The positions some caller's
+    // callback forwards to a lexical decider are judged here, on this invocation's arguments.
+    if (c.binding?.cbRefs?.length) {
+      out.callbackInvocations++;
+      for (const ref of c.binding.cbRefs) {
+        const positions =
+          ref.prop === undefined
+            ? reg.cbOf(ref.id, ref.index)
+            : reg.cbPropOf(ref.id, ref.index, ref.prop);
+        for (const pos of positions)
+          report(
+            node,
+            c.name ?? "callback",
+            argLabels[pos] ?? EMPTY,
+            `callback ${c.name}(#${pos})`,
+          );
+      }
+    }
+    // Callback road, recording side: a function argument whose own parameters reach a lexical
+    // decider makes the callee's matching parameter (or, in an options object, the matching
+    // property) a callback that forwards those positions.
+    if (c.ids.length > 0)
+      node.arguments.forEach((a, i) => {
+        const u = unwrap(a);
+        if (u && u.type === "ObjectExpression")
+          for (const p of u.properties) {
+            if (p.type !== "Property") continue;
+            const k = !p.computed && p.key.type === "Identifier" ? p.key.name : undefined;
+            if (k === undefined) continue;
+            for (const pos of reg.reachOf(fnIdsOf(p.value, scope)))
+              for (const id of c.ids) reg.addCbProp(id, i, k, pos);
+          }
+        for (const pos of reg.reachOf(fnIdsOf(a, scope)))
+          for (const id of c.ids) reg.addCb(id, i, pos);
+      });
 
     // `out.push(e.relPath)` / `set.add(row.path)` make the collection carry the display path.
     if (
@@ -603,7 +792,13 @@ export function analyzeSources(files) {
   let out;
   let sig = "";
   for (let pass = 0; pass < 8; pass++) {
-    out = { violations: [], directSinkCalls: 0, wrapperCalls: 0, rowSources: 0 };
+    out = {
+      violations: [],
+      directSinkCalls: 0,
+      wrapperCalls: 0,
+      rowSources: 0,
+      callbackInvocations: 0,
+    };
     for (const { file, source } of files) analyzeFile(file, source, reg, out);
     const next = reg.signature();
     if (next === sig) break;
@@ -622,6 +817,7 @@ export function analyzeSources(files) {
       wrapperCalls: out.wrapperCalls,
       wrappers,
       rowSources: out.rowSources,
+      callbackInvocations: out.callbackInvocations,
     },
   };
 }
@@ -654,6 +850,7 @@ export function floorProblems(stats, floors = {}) {
     directSinkCalls: MIN_DIRECT_SINK_CALLS,
     wrappers: MIN_WRAPPERS,
     rowSources: MIN_ROW_SOURCES,
+    callbackInvocations: MIN_CALLBACK_INVOCATIONS,
     ...floors,
   };
   return Object.entries(f)
@@ -672,7 +869,8 @@ function main() {
   const problems = floorProblems(stats);
   console.log(
     `acl-canonical-identity gate: ${stats.files} file(s) scanned, ${stats.directSinkCalls} lexical ACL call site(s), ` +
-      `${stats.wrappers} wrapper(s) (${stats.wrapperCalls} call site(s)), ${stats.rowSources} DB-row source(s); ` +
+      `${stats.wrappers} wrapper(s) (${stats.wrapperCalls} call site(s)), ${stats.rowSources} DB-row source(s), ` +
+      `${stats.callbackInvocations} callback invocation(s); ` +
       `${failing.length} violation(s), ${allowed.length} allowlisted`,
   );
   for (const v of allowed) console.log(`  allowlisted ${v.file}:${v.line} ${v.fn} -> ${v.sink}`);
