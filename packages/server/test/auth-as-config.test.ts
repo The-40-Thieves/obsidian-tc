@@ -42,7 +42,7 @@ describe("auth.as: shape and defaults", () => {
       dynamicRegistration: true,
       dcr: { maxClients: 1000, perIpPerHour: 10, unusedDays: 90 },
       cimd: { allowedHosts: [] },
-      consent: { loopback: "remember" },
+      consent: { loopback: "prompt" },
       setupTokenEnv: "OBSIDIAN_TC_AS_SETUP_TOKEN",
       resetTokenEnv: "OBSIDIAN_TC_AS_RESET_TOKEN",
       login: { maxFailuresPerWindow: 5, windowSeconds: 900 },
@@ -61,6 +61,7 @@ describe("auth.as: shape and defaults", () => {
 
   it("auth.as.consent.loopback is 'remember' or 'prompt' and nothing else", () => {
     expect(issuesOf(jwtAuth({}, { consent: { loopback: "prompt" } }))).toEqual([]);
+    expect(issuesOf(jwtAuth({}, { consent: { loopback: "remember" } }))).toEqual([]);
     expect(issuesOf(jwtAuth({}, { consent: { loopback: "never" } })).length).toBeGreaterThan(0);
     expect(issuesOf(jwtAuth({}, { consent: { loopbak: "prompt" } })).length).toBeGreaterThan(0);
   });

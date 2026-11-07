@@ -235,9 +235,9 @@ export const AsConfigSchema = z
       .strictObject({
         loopback: z
           .enum(["remember", "prompt"])
-          .default("remember")
+          .default("prompt")
           .describe(
-            "How a sign-in whose redirect is on this machine (`127.0.0.0/8`, `::1` or `localhost`) is treated once the operator has approved the client. `remember` (the default): the approval is reused across ports, so Claude Code and Codex sign in without a click. `prompt`: every such sign-in shows the consent page, whichever port it uses, so a local process cannot start its own sign-in and obtain a token without the operator seeing it. A redirect that is not on this machine is always remembered.",
+            "How a sign-in whose redirect is on this machine (`127.0.0.0/8`, `::1` or `localhost`) is treated once the operator has approved the client. `prompt` (the default): every such sign-in shows the consent page, whichever port it uses, so a local process cannot start its own sign-in and obtain a token without the operator seeing it. `remember` explicitly opts into reusing approvals across ports, so Claude Code and Codex sign in without a click, but another local process claiming the same client can do so too. A redirect that is not on this machine is always remembered.",
           ),
       })
       .prefault({})
