@@ -65,6 +65,15 @@ describe("auth.as: shape and defaults", () => {
     expect(issuesOf(jwtAuth({}, { consent: { loopbak: "prompt" } })).length).toBeGreaterThan(0);
   });
 
+  it("auth.as.consent.remembered is 'silent' or 'confirm', and unset by default (decided per redirect)", () => {
+    for (const ok of ["silent", "confirm"]) {
+      expect(issuesOf(jwtAuth({}, { consent: { remembered: ok } }))).toEqual([]);
+    }
+    expect(issuesOf(jwtAuth({}, { consent: { remembered: "always" } })).length).toBeGreaterThan(0);
+    const r = ServerConfigSchema.parse(config(jwtAuth()));
+    expect(r.auth.as?.consent.remembered).toBeUndefined();
+  });
+
   it("DCR is on by default (owner decision 2026-10-09) and an explicit false turns it off", () => {
     const r = ServerConfigSchema.parse(config(jwtAuth()));
     expect(r.auth.as?.dynamicRegistration).toBe(true);

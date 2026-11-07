@@ -168,8 +168,10 @@ describe("gcOauthDb: housekeeping deletes only what is past its time", () => {
       NOW + 1000,
     );
     // pending authorization requests
+    // A request is kept REQUEST_TOMBSTONE_MS (10 min) past its expiry, so a late visit reads "expired".
     for (const [h, exp] of [
-      ["r-old", NOW - 1],
+      ["r-old", NOW - 10 * 60_000],
+      ["r-tombstone", NOW - 1],
       ["r-live", NOW + 1000],
     ] as const) {
       run(
@@ -232,7 +234,10 @@ describe("gcOauthDb: housekeeping deletes only what is past its time", () => {
     const db = await seeded();
     const counts = gcOauthDb(db, { now: NOW, dcrUnusedDays: 90 });
     expect(keys(db, "SELECT id_hash AS k FROM sessions")).toEqual(["s-live"]);
-    expect(keys(db, "SELECT handle_hash AS k FROM auth_requests")).toEqual(["r-live"]);
+    expect(keys(db, "SELECT handle_hash AS k FROM auth_requests")).toEqual([
+      "r-live",
+      "r-tombstone",
+    ]);
     expect(keys(db, "SELECT client_id AS k FROM cimd_cache")).toEqual(["https://live/c"]);
     expect(keys(db, "SELECT client_id AS k FROM oauth_clients")).toEqual(["dcr-new", "dcr-used"]);
     expect(keys(db, "SELECT code_hash AS k FROM auth_codes")).toEqual(["code-live"]);

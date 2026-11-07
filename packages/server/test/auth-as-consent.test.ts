@@ -98,7 +98,7 @@ describe("approval", () => {
     expect(loc.searchParams.get("iss")).toBe(ISSUER);
     expect(loc.searchParams.get("state")).toBe("st-123");
     expect(codes(flow)).toHaveLength(0);
-    expect(rows(flow, "SELECT 1 FROM auth_requests")).toHaveLength(0);
+    expect(rows(flow, "SELECT 1 FROM auth_requests WHERE used_at IS NULL")).toHaveLength(0);
   });
 
   it("warns loudly when every redirect of the client is on loopback", async () => {
@@ -162,8 +162,8 @@ describe("consent phishing: a first grant needs a fresh login", () => {
     expect(codes(flow)).toHaveLength(0);
   });
 
-  it("a remembered grant skips the page for a scope within it, even on an old session", async () => {
-    const flow = await makeFlow();
+  it("a remembered grant skips the page for a scope within it, even on an old session (remembered: silent)", async () => {
+    const flow = await makeFlow({ as: { consent: { remembered: "silent" } } });
     const jar = new Jar();
     const first = await obtainCode(flow, jar, challenge);
     expect(first.code).not.toBe("");
@@ -271,15 +271,16 @@ describe("auth.as.consent.loopback: prompt makes every loopback sign-in ask", ()
     expect(codes(flow)).toHaveLength(2);
   });
 
-  it("a hosted (non-loopback) redirect is still remembered", async () => {
+  it("a hosted (non-loopback) redirect is still remembered: one Continue, not the full page", async () => {
     const flow = await prompting();
     const jar = new Jar();
     await obtainCode(flow, jar, challenge);
     flow.clock.t += 20 * MIN;
     const a = await authorize(flow, jar, challenge);
     const via = await get(flow, a.headers.get("location") ?? "", jar);
-    expect(via.res.status).toBe(303);
-    expect(codeOf(via.res.headers.get("location"))).not.toBe("");
+    expect(via.res.status).toBe(200);
+    expect(via.text).toContain('name="remembered" value="1"');
+    expect(via.text).not.toContain("Approve access");
   });
 });
 

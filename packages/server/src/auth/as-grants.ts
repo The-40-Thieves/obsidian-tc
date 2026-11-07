@@ -12,6 +12,8 @@ import { type SessionGuard, sessionIsCurrent } from "./as-operator-store";
 import type { AuthRegistry } from "./registry";
 
 export const PENDING_TTL_MS = 10 * 60_000;
+/** How long past its expiry a request row is kept, so a late visit reads "expired" or "used", not "unknown". */
+export const REQUEST_TOMBSTONE_MS = PENDING_TTL_MS;
 export const CODE_TTL_MS = 60_000;
 /**
  * Unauthenticated GETs create pending rows, so admission is bounded three ways: a TCP peer holds at
@@ -70,10 +72,10 @@ const pendingOf = (r: PendingRow): PendingRequest => ({
 
 /**
  * Store a validated request and return its handle (the only time it exists outside the browser), or
- * undefined when admission is refused. `source` is the TCP peer address. The purge of expired rows, the
+ * undefined when admission is refused. `source` is the TCP peer address. The purge of old rows, the
  * quota counts and the insert are ONE `BEGIN IMMEDIATE` transaction, so two processes sharing the file
- * cannot both pass a count the other is about to invalidate, and the table never carries expired rows
- * for longer than the next admission.
+ * cannot both pass a count the other is about to invalidate. Only live rows (unused, unexpired) count;
+ * a used or expired row stays as a tombstone for `REQUEST_TOMBSTONE_MS` past its expiry and no longer.
  */
 export function createPending(
   db: Database,
@@ -84,15 +86,15 @@ export function createPending(
 ): string | undefined {
   const sourceHash = source === undefined ? null : sha256Hex(`as-source:${source}`);
   return inWriteTransaction(db, "as_grants", () => {
-    db.prepare("DELETE FROM auth_requests WHERE expires_at <= ?").run(now);
+    db.prepare("DELETE FROM auth_requests WHERE expires_at <= ?").run(now - REQUEST_TOMBSTONE_MS);
     const n = db
       .prepare(
         `SELECT COUNT(*) AS total,
                 COALESCE(SUM(client_id = ?), 0) AS client,
                 COALESCE(SUM(source_hash IS ?), 0) AS source
-           FROM auth_requests`,
+           FROM auth_requests WHERE used_at IS NULL AND expires_at > ?`,
       )
-      .get(p.clientId, sourceHash) as { total: number; client: number; source: number };
+      .get(p.clientId, sourceHash, now) as { total: number; client: number; source: number };
     if (n.total >= limits.global) return undefined;
     if (n.client >= limits.perClient) return undefined;
     if (sourceHash !== null && n.source >= limits.perSource) return undefined;
@@ -121,10 +123,24 @@ export function createPending(
 export function loadPending(db: Database, handle: string, now: number): PendingRequest | undefined {
   const row = db
     .prepare(
-      "SELECT client_id, redirect_uri, scope, resource, code_challenge, state FROM auth_requests WHERE handle_hash = ? AND expires_at > ?",
+      "SELECT client_id, redirect_uri, scope, resource, code_challenge, state FROM auth_requests WHERE handle_hash = ? AND expires_at > ? AND used_at IS NULL",
     )
     .get(sha256Hex(handle), now) as PendingRow | undefined;
   return row === undefined ? undefined : pendingOf(row);
+}
+
+/** Why `loadPending` found nothing: the row was consumed, ran out of time, or is not (or no longer) kept. */
+export function deadPendingReason(
+  db: Database,
+  handle: string,
+  now: number,
+): "used" | "expired" | "unknown" {
+  const row = db
+    .prepare("SELECT used_at, expires_at FROM auth_requests WHERE handle_hash = ?")
+    .get(sha256Hex(handle)) as { used_at: number | null; expires_at: number } | undefined;
+  if (row === undefined) return "unknown";
+  if (row.used_at !== null) return "used";
+  return row.expires_at <= now ? "expired" : "unknown";
 }
 
 /** Consume a request without approving it (the operator pressed Deny). Single use. */
@@ -135,9 +151,9 @@ export function discardPending(
 ): PendingRequest | undefined {
   const row = db
     .prepare(
-      "DELETE FROM auth_requests WHERE handle_hash = ? AND expires_at > ? RETURNING client_id, redirect_uri, scope, resource, code_challenge, state",
+      "UPDATE auth_requests SET used_at = ? WHERE handle_hash = ? AND expires_at > ? AND used_at IS NULL RETURNING client_id, redirect_uri, scope, resource, code_challenge, state",
     )
-    .get(sha256Hex(handle), now) as PendingRow | undefined;
+    .get(now, sha256Hex(handle), now) as PendingRow | undefined;
   return row === undefined ? undefined : pendingOf(row);
 }
 
