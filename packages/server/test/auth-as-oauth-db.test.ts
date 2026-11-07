@@ -54,11 +54,17 @@ describe("oauth.db migration chain", () => {
     db.prepare(
       "INSERT INTO auth_requests (handle_hash, client_id, redirect_uri, scope, resource, code_challenge, created_at, expires_at) VALUES ('h', 'c', 'https://app.example/cb', 'read:*', 'https://vault.example/mcp', 'challenge', 1, 1000)",
     ).run();
+    // A consumed request can never be continued, so its tombstone keeps saying "already used".
+    db.prepare(
+      "INSERT INTO auth_requests (handle_hash, client_id, redirect_uri, scope, resource, code_challenge, created_at, expires_at, used_at) VALUES ('t', 'c', 'https://app.example/cb', 'read:*', 'https://vault.example/mcp', 'challenge', 1, 1000, 5)",
+    ).run();
     db.prepare(
       "INSERT INTO oauth_clients (client_id, kind, metadata_json, created_at) VALUES ('c', 'dcr', '{}', 1)",
     ).run();
     expect(provisionOauthDb(db)).toEqual(["20261108_957"]);
-    expect(db.prepare("SELECT 1 FROM auth_requests").all()).toHaveLength(0);
+    expect(db.prepare("SELECT handle_hash FROM auth_requests").all()).toEqual([
+      { handle_hash: "t" },
+    ]);
     expect(db.prepare("SELECT client_id FROM oauth_clients").all()).toEqual([{ client_id: "c" }]);
     expect(columnsOf(db, "auth_requests")).toEqual(
       expect.arrayContaining(["scope_defaulted", "dropped_scopes"]),
