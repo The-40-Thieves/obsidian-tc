@@ -37,10 +37,11 @@
  * covered: a string passed to `.match()`/`.search()`, which the engine also compiles at runtime —
  * neither tree does that today.
  *
- * SCOPE: every `.ts` under `packages/server/src/vault/` and `packages/server/src/experiential/`.
+ * SCOPE: every `.ts` under `packages/server/src/vault/` and `packages/server/src/experiential/`,
+ * plus the redaction and memory-defense scanners relocated to `util/`.
  * Both trees run their regexes over content that can be caller/attacker-controlled — a note body,
  * an imported memory episode — as opposed to a config key or a CLI flag. Extend SCAN_DIRS if
- * another untrusted-text scanner grows regexes outside those two trees.
+ * another untrusted-text scanner grows regexes outside those trees and explicit files.
  *
  * CLI: `node scripts/check-redos.mjs [--scan-dir DIR]... [--timeout-ms N]`. `--scan-dir` replaces
  * SCAN_DIRS (used by the tests to run the gate against synthetic fixtures); the allowlists still
@@ -54,6 +55,10 @@ import { check } from "recheck";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SCAN_DIRS = ["packages/server/src/vault", "packages/server/src/experiential"];
+const SCAN_FILES = [
+  "packages/server/src/util/redact.ts",
+  "packages/server/src/util/memory-defense.ts",
+];
 const CHECK_TIMEOUT_MS = 20_000;
 
 // `recheck`'s automaton checker is exact; its FUZZ checker (used when the automaton gives up on a
@@ -139,6 +144,13 @@ function listTsFiles(dir) {
   };
   walk(dir);
   return out;
+}
+
+export function defaultScanFiles() {
+  return [
+    ...SCAN_DIRS.flatMap((dir) => listTsFiles(join(ROOT, dir))),
+    ...SCAN_FILES.map((file) => join(ROOT, file)),
+  ];
 }
 
 // A `/` is legal as the START of a regex literal only where the previous significant code token
@@ -413,7 +425,7 @@ export async function runGate({
   const usedDynamic = new Set();
 
   for (const filePath of files) {
-    const rel = relative(root, filePath);
+    const rel = relative(root, filePath).replaceAll("\\", "/");
     const source = readFileSync(filePath, "utf8");
     const { literals, dynamic } = scanSource(source);
 
@@ -480,7 +492,7 @@ async function main() {
   const { scanDirs, timeoutMs } = parseArgs(process.argv.slice(2));
   const custom = scanDirs.length > 0;
   const dirs = custom ? scanDirs.map((d) => resolve(d)) : SCAN_DIRS.map((d) => join(ROOT, d));
-  const files = dirs.flatMap((d) => listTsFiles(d));
+  const files = custom ? dirs.flatMap((d) => listTsFiles(d)) : defaultScanFiles();
   if (files.length === 0) {
     console.error("check-redos: found 0 files under", dirs, "— gate has no floor, failing");
     process.exit(1);
