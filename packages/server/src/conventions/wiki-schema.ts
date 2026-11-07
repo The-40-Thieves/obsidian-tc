@@ -257,29 +257,35 @@ export function checkFrontmatter(
             message: `type "${def.name}" requires \`${field}\``,
           });
   }
-  if (schema.vocabulary && fm) {
-    const vocabulary = schema.vocabulary;
-    for (const [key, value] of Object.entries(fm)) {
-      if (BUILTIN_PROPERTIES.has(key.toLowerCase())) continue;
-      const allowed = Object.hasOwn(vocabulary, key) ? vocabulary[key] : undefined;
-      if (allowed === undefined) {
-        const near = Object.keys(vocabulary).find((k) => k.toLowerCase() === key.toLowerCase());
+  if (schema.vocabulary && fm) problems.push(...checkVocabulary(schema.vocabulary, fm));
+  return problems;
+}
+
+function checkVocabulary(
+  vocabulary: Record<string, string[] | null>,
+  fm: Record<string, unknown>,
+): SchemaProblem[] {
+  const problems: SchemaProblem[] = [];
+  for (const [key, value] of Object.entries(fm)) {
+    if (BUILTIN_PROPERTIES.has(key.toLowerCase())) continue;
+    const allowed = Object.hasOwn(vocabulary, key) ? vocabulary[key] : undefined;
+    if (allowed === undefined) {
+      const near = Object.keys(vocabulary).find((k) => k.toLowerCase() === key.toLowerCase());
+      problems.push({
+        code: "unknown_property",
+        field: key,
+        message: near
+          ? `\`${key}\` is not in the property vocabulary; SCHEMA.md uses \`${near}\``
+          : `\`${key}\` is not in the property vocabulary of SCHEMA.md`,
+      });
+    } else if (allowed !== null) {
+      const bad = valueText(value).filter((v) => !allowed.includes(v));
+      if (bad.length > 0)
         problems.push({
-          code: "unknown_property",
+          code: "bad_value",
           field: key,
-          message: near
-            ? `\`${key}\` is not in the property vocabulary; SCHEMA.md uses \`${near}\``
-            : `\`${key}\` is not in the property vocabulary of SCHEMA.md`,
+          message: `\`${key}\` has ${bad.map((b) => `"${b}"`).join(", ")}; allowed: ${allowed.join(", ")}`,
         });
-      } else if (allowed !== null) {
-        const bad = valueText(value).filter((v) => !allowed.includes(v));
-        if (bad.length > 0)
-          problems.push({
-            code: "bad_value",
-            field: key,
-            message: `\`${key}\` has ${bad.map((b) => `"${b}"`).join(", ")}; allowed: ${allowed.join(", ")}`,
-          });
-      }
     }
   }
   return problems;
