@@ -67,6 +67,12 @@ export type {
 };
 export { assertScopesGranted, memoizeSerialized, TOOL_DOMAINS, takeSerialized };
 
+function requireRootResolver(opts: RegistryOptions): RegistryOptions["rootResolver"] {
+  if (typeof opts?.rootResolver !== "function")
+    throw new TypeError("ToolRegistry requires rootResolver");
+  return opts.rootResolver;
+}
+
 export class ToolRegistry {
   // WP4.1: storage moved to registry/tool-store.ts (ToolStore) — a concrete owned instance, not an
   // interface seam (map constraint 6). ToolRegistry still resolves a definition by name at several
@@ -116,8 +122,7 @@ export class ToolRegistry {
   }
 
   constructor(opts: RegistryOptions) {
-    if (typeof opts?.rootResolver !== "function")
-      throw new TypeError("ToolRegistry requires rootResolver");
+    this.rootResolver = requireRootResolver(opts);
     this._maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
     this.verifyElicit = opts.verifyElicit;
     this.tracer = opts.tracer;
@@ -130,7 +135,6 @@ export class ToolRegistry {
     this.onInternalError = opts.onInternalError;
     this.onOutputSchemaDrift = opts.onOutputSchemaDrift;
     this.aclResolver = opts.aclResolver;
-    this.rootResolver = opts.rootResolver;
     this.folderPins = opts.folderPins;
     this.vaultKindResolver = opts.vaultKindResolver;
     this.visibleVaultIds = opts.visibleVaultIds;
