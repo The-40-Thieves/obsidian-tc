@@ -62,8 +62,8 @@ export function proposedPagePath(
 }
 
 /** No wiki folder configured means no path is in the wiki. */
-const inWikiFolder = (path: string, wikiFolder: string | undefined): boolean =>
-  wikiFolder !== undefined && pathInFolder(path, wikiFolder);
+const inWikiFolder = (path: string, wikiFolder: string | undefined, ci?: boolean | null): boolean =>
+  wikiFolder !== undefined && pathInFolder(path, wikiFolder, ci);
 
 function add(
   map: Map<string, LinkMapEntry>,
@@ -71,8 +71,9 @@ function add(
   reason: string,
   wikiFolder: string | undefined,
   score?: number,
+  ci?: boolean | null,
 ): void {
-  const e = map.get(path) ?? { path, reasons: [], in_wiki: inWikiFolder(path, wikiFolder) };
+  const e = map.get(path) ?? { path, reasons: [], in_wiki: inWikiFolder(path, wikiFolder, ci) };
   if (!e.reasons.includes(reason)) e.reasons.push(reason);
   if (score !== undefined) e.score = Math.max(e.score ?? 0, score);
   map.set(path, e);
@@ -96,12 +97,14 @@ export function buildLinkMap(args: {
   /** What the caller cited: note paths / wikilinks resolve to notes, anything else (URLs) is ignored here. */
   sources: readonly string[];
   wikiFolder?: string | undefined;
+  /** The vault's filesystem case behavior for the in-wiki classification (platform default when absent). */
+  caseInsensitive?: boolean | null | undefined;
   /** The page being drafted or committed: never its own link target. */
   selfPath?: string | undefined;
   isExcluded: (rel: string) => boolean;
   limit?: number;
 }): LinkMap {
-  const { wikiFolder, selfPath } = args;
+  const { wikiFolder, selfPath, caseInsensitive: ci } = args;
   const limit = args.limit ?? LINK_MAP_LIMIT;
   const linkers = new Set(args.scan.linkers);
   const to = new Map<string, LinkMapEntry>();
@@ -111,21 +114,21 @@ export function buildLinkMap(args: {
   for (const s of args.sources) {
     const r = resolveTarget(index, cleanTopic(s));
     if (r.resolved && r.target_path && r.target_path !== selfPath)
-      add(to, r.target_path, "source", wikiFolder);
+      add(to, r.target_path, "source", wikiFolder, undefined, ci);
   }
   for (const c of args.ranked) {
     if (c.path === selfPath) continue;
     const score = semanticScore(c);
     for (const kind of new Set(c.evidence.map((e) => e.kind))) {
       if (kind !== "judged_by")
-        add(to, c.path, kind, wikiFolder, kind === "semantic" ? score : undefined);
+        add(to, c.path, kind, wikiFolder, kind === "semantic" ? score : undefined, ci);
     }
     if (!c.excluded && inWikiFolder(c.path, wikiFolder) && !linkers.has(c.path))
-      add(from, c.path, "related_wiki_page", wikiFolder, score);
+      add(from, c.path, "related_wiki_page", wikiFolder, score, ci);
   }
   for (const path of args.scan.mentions) {
     if (path === selfPath || linkers.has(path) || args.isExcluded(path)) continue;
-    add(from, path, "mentions_topic", wikiFolder);
+    add(from, path, "mentions_topic", wikiFolder, undefined, ci);
   }
   const top = (m: Map<string, LinkMapEntry>): LinkMapEntry[] =>
     [...m.values()].sort(byRelevance).slice(0, limit);

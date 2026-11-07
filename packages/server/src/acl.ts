@@ -24,6 +24,20 @@ export interface AclConfigT {
   immutablePaths?: string[];
   /** DERIVED, never configured: runtime/acl-build.ts sets it from `conventions.protectSchemaFiles`. */
   protectSchemaFiles?: boolean;
+  /** DERIVED, never configured: runtime/acl-build.ts sets it from the vault's OWN filesystem case
+   *  behavior (vaults[].caseSensitive override, else the probe). Absent = the platform default. */
+  caseMatch?: AclCaseMatch;
+}
+
+/** How a FolderAcl's glob matching folds case, per side. The sides differ only in the fail-closed
+ *  fallback for an unprobeable filesystem (vault/case-sensitivity.ts): whitelists then match
+ *  case-SENSITIVELY (can only under-match, denying a legitimate path), rule scopes and immutable
+ *  globs case-INSENSITIVELY (can only over-apply). A known filesystem sets both sides to its value. */
+export interface AclCaseMatch {
+  /** Fold case matching the per-op whitelists (readPaths/writePaths/deletePaths). */
+  readonly allow: boolean;
+  /** Fold case matching rule globs (scopesForPath) and immutablePaths. */
+  readonly rules: boolean;
 }
 
 const reEscape = (c: string): string => c.replace(/[.+*?^${}()|[\]\\]/g, "\\$&");
@@ -34,8 +48,8 @@ export const escapeGlob = (name: string): string => name.replace(/[*?\\[]/g, "\\
 
 // On a case-insensitive filesystem (Windows NTFS, macOS APFS), a path and its case variants name
 // the SAME file, so ACL matching must be case-insensitive there or a case-variant path slips past a
-// whitelist/deny (THE-272). Detected once from the platform; overridable for tests. See
-// docs/design/acl-folder-rules.md.
+// whitelist/deny (THE-272). This is only the PLATFORM DEFAULT for vault-less callers: each vault's
+// own filesystem is probed and threaded via AclConfigT.caseMatch (vault/case-sensitivity.ts).
 export const CASE_INSENSITIVE_FS = process.platform === "win32" || process.platform === "darwin";
 
 export const foldPath = (path: string, ci: boolean = CASE_INSENSITIVE_FS): string => {
@@ -43,19 +57,14 @@ export const foldPath = (path: string, ci: boolean = CASE_INSENSITIVE_FS): strin
   return ci ? nfc.toLowerCase() : nfc;
 };
 
-// Upper bound on a single glob. Every path check compiles its globs, so an unbounded pattern is
-// wasted work on the hot path at best; the limit also keeps a malformed or generated config from
-// producing a pathological regex. Real vault globs are far below this — the hardened example's
-// longest is under 20 chars — so the ceiling is deliberately generous and never trips in practice.
+// Upper bound on a single glob: keeps a malformed or generated config from producing a pathological
+// regex on the hot path. Real vault globs are far below this, so the ceiling never trips in practice.
 const MAX_GLOB_LENGTH = 512;
 
-// THE-618: memoized compiled-regex cache for the per-note ACL hot path. FolderAcl precompiles
-// its own rule globs and per-op whitelists at construction (see below), so this cache now mainly
-// serves caller-supplied globs (graph-health-tools' include/exclude) and direct globMatch callers.
-// Nested Map (glob string -> caseInsensitive boolean -> RegExp), deliberately not a concatenated
-// key — a wrong flag on a cache hit is a silent ACL correctness bug. Bounded (GLOB_CACHE_MAX,
-// FIFO eviction) because audit_provenance's include/exclude args accept unbounded caller-supplied
-// globs across calls. See docs/design/acl-folder-rules.md.
+// THE-618: memoized compiled-regex cache. FolderAcl precompiles its own globs at construction, so
+// this mainly serves caller-supplied globs (graph-health-tools' include/exclude) and direct globMatch
+// callers. Nested Map (glob -> flag -> RegExp), deliberately not a concatenated key — a wrong flag on
+// a cache hit is a silent ACL correctness bug. Bounded FIFO (GLOB_CACHE_MAX): those args are unbounded.
 const GLOB_CACHE_MAX = 1000;
 const globCache = new Map<string, Map<boolean, RegExp>>();
 
@@ -128,8 +137,7 @@ export function isDefaultDenied(path: string): boolean {
 /** The three per-path operation kinds carrying an independent whitelist. */
 export type AclPathOp = "read" | "write" | "delete";
 
-/** A whitelist entry: the compiled matcher plus the ORIGINAL glob string, which is what
- *  evaluatePathAcl reports back as `matchedGlob` (callers surface it in ACL diagnostics). */
+/** A whitelist entry: the compiled matcher plus the ORIGINAL glob (reported as `matchedGlob`). */
 interface CompiledGlobT {
   readonly glob: string;
   readonly re: RegExp;
@@ -140,9 +148,10 @@ interface CompiledGlobT {
 // deny-all. Collapsing the two turns a deny-all into an allow-all.
 function compileGlobList(
   list: readonly string[] | undefined,
+  caseInsensitive: boolean,
 ): readonly CompiledGlobT[] | undefined {
   if (list === undefined) return undefined;
-  return list.map((glob) => ({ glob, re: globToRegExp(glob.normalize("NFC")) }));
+  return list.map((glob) => ({ glob, re: globToRegExp(glob.normalize("NFC"), caseInsensitive) }));
 }
 
 /** Rules that could not be worked out when the ACL was built (the vault root was unavailable) and
@@ -165,6 +174,7 @@ export class FolderAcl {
   // per-result read predicate skip the rule scan entirely for a deployment that uses no rule-scopes.
   private declaredScopeUnion: readonly string[];
   private pending: PendingAclRules | undefined;
+  private readonly caseMatchFlags: AclCaseMatch;
 
   constructor(cfg: AclConfigT, pending?: PendingAclRules) {
     // Snapshot the config so the compiled rules and aclFingerprint() are always derived from the
@@ -178,22 +188,27 @@ export class FolderAcl {
       writePaths: cfg.writePaths ? [...cfg.writePaths] : undefined,
       deletePaths: cfg.deletePaths ? [...cfg.deletePaths] : undefined,
       immutablePaths: cfg.immutablePaths ? [...cfg.immutablePaths] : undefined,
+      caseMatch: cfg.caseMatch !== undefined ? { ...cfg.caseMatch } : undefined,
     };
-    this.compiledImmutable = compileGlobList(this.cfg.immutablePaths) ?? [];
+    this.caseMatchFlags = this.cfg.caseMatch ?? {
+      allow: CASE_INSENSITIVE_FS,
+      rules: CASE_INSENSITIVE_FS,
+    };
+    this.compiledImmutable =
+      compileGlobList(this.cfg.immutablePaths, this.caseMatchFlags.rules) ?? [];
     this.compiledRules = this.compileRules();
     this.declaredScopeUnion = this.unionOfDeclaredScopes();
     this.pending = pending;
     this.compiledPaths = {
-      read: compileGlobList(this.cfg.readPaths),
-      write: compileGlobList(this.cfg.writePaths),
-      delete: compileGlobList(this.cfg.deletePaths),
+      read: compileGlobList(this.cfg.readPaths, this.caseMatchFlags.allow),
+      write: compileGlobList(this.cfg.writePaths, this.caseMatchFlags.allow),
+      delete: compileGlobList(this.cfg.deletePaths, this.caseMatchFlags.allow),
     };
   }
   private compileRules(): readonly { readonly re: RegExp; readonly scopes: string[] }[] {
     return this.cfg.rules.map((r) => ({
-      // The glob is normalized ONCE here; the PATH is still normalized per call in the matchers
-      // below. Both halves stay load-bearing (THE-272) — only the redundancy is removed.
-      re: globToRegExp(r.glob.normalize("NFC")),
+      // The glob is normalized once here, the path per call in the matchers (both load-bearing, THE-272).
+      re: globToRegExp(r.glob.normalize("NFC"), this.caseMatchFlags.rules),
       scopes: r.scopes,
     }));
   }
@@ -229,16 +244,10 @@ export class FolderAcl {
     }
     return [...scopes];
   }
-  /**
-   * THE-618 item 3: the per-op whitelist decision, against precompiled globs.
-   *
-   * Returns the matched glob string, `null` when a whitelist exists but nothing matched, and
-   * `undefined` when the op has NO whitelist (unrestricted — M0 back-compat). Callers must keep
-   * `undefined` and `null` distinct: they are allow-all and deny respectively.
-   *
-   * This replaces three separate `list.some/find((g) => globMatch(g, path))` scans that each first
-   * allocated a defensive copy of the whitelist via the accessors, on per-note hot paths.
-   */
+  /** THE-618 item 3: the per-op whitelist decision, against precompiled globs. Returns the matched
+   *  glob string, `null` when a whitelist exists but nothing matched, `undefined` when the op has
+   *  NO whitelist (unrestricted — M0 back-compat); callers must keep the two distinct (allow-all vs
+   *  deny). Replaces the old per-call re-scan of a defensive whitelist copy on per-note hot paths. */
   matchedPathGlob(op: AclPathOp, path: string): string | null | undefined {
     const list = this.compiledPaths[op];
     if (list === undefined) return undefined;
@@ -257,6 +266,10 @@ export class FolderAcl {
   }
   get protectsSchemaFiles(): boolean {
     return this.cfg.protectSchemaFiles === true;
+  }
+  /** The case-fold behavior this ACL's globs were compiled with (the fingerprint keys on it). */
+  get caseMatch(): AclCaseMatch {
+    return this.caseMatchFlags;
   }
   /** True when ANY path can declare a required scope (rule-scopes or non-empty defaultScopes). When
    *  false, no caller is ever refused a path for lacking a scope, so per-path scope checks are
@@ -308,6 +321,9 @@ export function aclFingerprint(cfg: AclConfigT, grantedScopes: Iterable<string>)
     predicate: 2,
     readOnly: cfg.readOnly === true,
     strictReadDefault: cfg.strictReadDefault === true,
+    // The case behavior the globs match with is part of the effective ACL: identical configs on
+    // filesystems with different case behavior must never share persisted path sets or cache keys.
+    caseMatch: cfg.caseMatch ?? { allow: CASE_INSENSITIVE_FS, rules: CASE_INSENSITIVE_FS },
     defaultScopes: [...cfg.defaultScopes].sort(),
     // order-preserving: [ruleA, ruleB] != [ruleB, ruleA] under last-match-wins
     rules: cfg.rules.map((r) => ({ glob: r.glob, scopes: [...r.scopes].sort() })),

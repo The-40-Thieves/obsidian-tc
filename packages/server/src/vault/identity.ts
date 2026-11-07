@@ -21,6 +21,7 @@ import { CASE_INSENSITIVE_FS } from "../acl";
 import { tableExists } from "../db/introspect";
 import { inTransaction } from "../db/txn";
 import type { Database } from "../db/types";
+import { detectFsCaseSensitivity } from "./case-sensitivity";
 import { canonicalizeVaultRootWithStatus } from "./registry";
 
 /**
@@ -86,17 +87,16 @@ export const EXPERIENTIAL_VAULT_ID_TABLES: readonly string[] = [
 ];
 
 /**
- * Normalize a realpath for IDENTITY COMPARISON (never display, never opening a file) on a
- * case-insensitive filesystem, so `/Vault` and `/vault` resolve to the SAME `vault_identity` row
- * instead of two different vaults, or worse, an id collision refusal against itself. Reuses
- * `acl.ts`'s `CASE_INSENSITIVE_FS` (win32/darwin) rather than re-deriving the platform check, and
- * lowercases (not a locale-aware fold) matching NTFS/APFS's ASCII-range case-insensitivity — same
- * strategy `acl.ts` already applies to path globs.
+ * Normalize a realpath for IDENTITY COMPARISON (never display, never opening a file), folding
+ * case when the vault's filesystem does, so `/Vault` and `/vault` resolve to the SAME
+ * `vault_identity` row instead of two different vaults, or worse, an id collision refusal against
+ * itself. `caseInsensitive` is the vault's resolved behavior (registry/buildAcls), defaulting to
+ * acl.ts's platform constant for path-less callers; the fold is a plain lowercase, not locale-aware,
+ * matching NTFS/APFS's ASCII-range case-insensitivity — same strategy acl.ts applies to globs.
  *
  * Not chosen: `dev`+`ino` (stat identity) instead of a path string. It sidesteps case-folding, but
- * `root_realpath` also needs to be a portable value an operator can read in a boot-error message —
- * a `(dev, ino)` pair means nothing to a person deciding which colliding vault to rename, and
- * inode numbers are not stable across a restore/remount the way a path is already assumed to be.
+ * `root_realpath` must stay human-readable in a boot error — a `(dev, ino)` pair means nothing to
+ * someone renaming a colliding vault, and inodes are not stable across a restore/remount.
  */
 export function normalizeRealpathForIdentity(
   realpath: string,
@@ -184,11 +184,16 @@ function rekeyVaultIdInDb(
 function resolveVaultIdentity(
   db: Database,
   experientialDb: Database,
-  vault: { id: string; path: string },
+  vault: { id: string; path: string; caseSensitive?: "auto" | boolean },
   now: number,
 ): VaultRenameNotice | undefined {
   const { root, canonical } = canonicalizeVaultRootWithStatus(vault.path);
-  const normalized = normalizeRealpathForIdentity(root);
+  // Fold the way THIS vault's filesystem folds (override wins, else probe the canonical root); an undecidable probe does NOT fold — a false "same path" would re-key one vault's rows onto another, a false "different path" only refuses a boot.
+  const fold =
+    vault.caseSensitive !== undefined && vault.caseSensitive !== "auto"
+      ? vault.caseSensitive
+      : (detectFsCaseSensitivity(root) ?? false);
+  const normalized = normalizeRealpathForIdentity(root, fold);
 
   const rowById = db
     .prepare(
@@ -282,7 +287,7 @@ function resolveVaultIdentity(
 export function resolveAndApplyVaultIdentity(
   db: Database,
   experientialDb: Database,
-  vaults: readonly { id: string; path: string }[],
+  vaults: readonly { id: string; path: string; caseSensitive?: "auto" | boolean }[],
 ): VaultRenameNotice[] {
   const now = Date.now();
   const notices: VaultRenameNotice[] = [];

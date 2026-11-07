@@ -32,6 +32,9 @@ export interface ScanScope {
   wikiFolders?: readonly string[] | undefined;
   /** Every name of the vault's raw-sources folder: raw notes are inputs, never the subject of a scan. */
   rawFolders?: readonly string[] | undefined;
+  /** The vault's filesystem case behavior (registry `caseInsensitive`): the raw/generated
+   *  classification folds the way the vault resolves names. Absent keeps the platform default. */
+  caseInsensitive?: boolean | null | undefined;
 }
 
 /** Read-ACL-visible `.md` note paths (optionally under a folder): one step per directory walked. */
@@ -98,9 +101,11 @@ export function* scanOrphansSteps(
   opts: { folder?: string | undefined; requireNoOutgoing?: boolean },
 ): ScanSteps<string[]> {
   const { root, acl, grantedScopes } = scope;
-  const isRaw = rawPathFilter(scope.rawFolders);
+  const isRaw = rawPathFilter(scope.rawFolders, scope.caseInsensitive);
   const candidates = (yield* readableNotesSteps(root, acl, grantedScopes, opts.folder)).filter(
-    (p) => !isGeneratedWikiPath(p, scope.wikiFolders ?? scope.wikiFolder) && !isRaw(p),
+    (p) =>
+      !isGeneratedWikiPath(p, scope.wikiFolders ?? scope.wikiFolder, scope.caseInsensitive) &&
+      !isRaw(p),
   );
   const all = yield* readableNotesSteps(root, acl, grantedScopes);
   const index = buildVaultIndex(all);
@@ -297,7 +302,7 @@ export function* scanProvenanceSteps(
     if (includeRes.length && !includeRes.some((re) => re.test(p))) return false;
     return !excludeRes.some((re) => re.test(p));
   };
-  const isRaw = rawPathFilter(scope.rawFolders);
+  const isRaw = rawPathFilter(scope.rawFolders, scope.caseInsensitive);
   const notes = (yield* readableNotesSteps(
     scope.root,
     scope.acl,
@@ -305,7 +310,9 @@ export function* scanProvenanceSteps(
     opts.folder,
   )).filter(
     (p) =>
-      inScope(p) && !isGeneratedWikiPath(p, scope.wikiFolders ?? scope.wikiFolder) && !isRaw(p),
+      inScope(p) &&
+      !isGeneratedWikiPath(p, scope.wikiFolders ?? scope.wikiFolder, scope.caseInsensitive) &&
+      !isRaw(p),
   );
   const types = opts.types ? new Set(opts.types) : undefined;
   const byFolder = new Map<string, { scanned: number; missing: number }>();

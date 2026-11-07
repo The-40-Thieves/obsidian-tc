@@ -63,6 +63,18 @@
             "minLength": 1,
             "description": "Absolute path to the vault directory on disk."
           },
+          "caseSensitive": {
+            "description": "Whether the filesystem holding THIS vault folds filename case. \"auto\" (or absent) probes the vault root at startup and on each ACL build; true/false overrides the probe. Folder ACLs, the vault rename/identity key and convention classification match the way this filesystem resolves names rather than the way the host platform usually does. Set it when the probe cannot decide (obsidian-tc doctor's vaults.case-sensitivity check reports that).",
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "auto"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
           "publicUrl": {
             "description": "Opt-in https base url where this vault's notes are published (for example an Obsidian Publish or Quartz site). When set, the standard `search` and `fetch` tools cite `<publicUrl>/<note path>` (path segments percent-encoded, `.md` dropped) instead of an obsidian://open link, so ChatGPT deep research and company knowledge can render clickable citations. Absent means the obsidian:// deep link is used.",
             "type": "string",

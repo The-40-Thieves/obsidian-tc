@@ -16,10 +16,6 @@ import { configureProviderPlainHttp } from "../gateway/provider-fetch";
 import { applySecurityProfile, requestsDynamicRegistration } from "./security-profile";
 
 /**
- * Apply environment-secret overlays (kept off disk) to a raw config object and
- * validate it against the schema. Shared by file loading and zero-config startup.
- */
-/**
  * Overlay environment-supplied values onto a raw config object, in place.
  *
  * THE-518: exported and `env`-injectable because `config/explain.ts` must apply the EXACT same
@@ -34,6 +30,31 @@ import { applySecurityProfile, requestsDynamicRegistration } from "./security-pr
  * pattern as the JWT secret). The token is only ever placed in the Authorization header by the
  * bridge transport, never logged.
  */
+/** vaults[].caseSensitive via the environment. Same unambiguous-target rule as
+ *  OBSIDIAN_TC_VAULT_PATH above (which runs first, so the two compose): exactly one vault. With
+ *  several, which vault the variable names is the operator's choice to make in the config file;
+ *  with none it is meaningless and ignored like an empty set. */
+function overlayVaultCase(raw: Record<string, unknown>, vaultCase: string): void {
+  const trimmed = vaultCase.trim().toLowerCase();
+  if (trimmed !== "auto" && trimmed !== "true" && trimmed !== "false") {
+    throw err.invalidInput(
+      `OBSIDIAN_TC_VAULT_CASE_SENSITIVE must be auto, true or false, got ${JSON.stringify(vaultCase)}`,
+      { variable: "OBSIDIAN_TC_VAULT_CASE_SENSITIVE" },
+    );
+  }
+  const value: string | boolean = trimmed === "auto" ? "auto" : trimmed === "true";
+  const vaults = raw.vaults;
+  if (Array.isArray(vaults) && vaults.length === 1) {
+    raw.vaults = [{ ...(vaults[0] as Record<string, unknown>), caseSensitive: value }];
+  } else if (Array.isArray(vaults) && vaults.length > 1) {
+    throw err.invalidInput(
+      `OBSIDIAN_TC_VAULT_CASE_SENSITIVE cannot pick one of ${vaults.length} configured vaults; ` +
+        "set each vault's caseSensitive in the config file",
+      { variable: "OBSIDIAN_TC_VAULT_CASE_SENSITIVE" },
+    );
+  }
+}
+
 export function applyEnvOverlays(
   raw: Record<string, unknown>,
   env: Record<string, string | undefined> = process.env,
@@ -127,6 +148,8 @@ export function applyEnvOverlays(
       );
     }
   }
+  if (env.OBSIDIAN_TC_VAULT_CASE_SENSITIVE)
+    overlayVaultCase(raw, env.OBSIDIAN_TC_VAULT_CASE_SENSITIVE);
   const plurEndpoint = env.OBSIDIAN_TC_PLUR_ENDPOINT;
   const plurToken = env.OBSIDIAN_TC_PLUR_TOKEN;
   if (plurEndpoint || plurToken) {
