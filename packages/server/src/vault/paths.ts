@@ -14,7 +14,7 @@ import { existsNoFollow } from "../auth/key-files";
 // normalization does not scrub content, only slashes/segments — so the invalid-path rejection
 // must redact separately. Same scanner every other raw-value echo in this codebase already shares
 // (episode log, trace capture, ambient import, acl-path.ts's aclDenied).
-import { redactSecrets } from "../experiential/redact";
+import { redactSecrets } from "../util/redact";
 import { drainSteps, type ScanSteps } from "../util/scan-steps";
 import { recordPathUse } from "./acl-audit";
 import { type AclPath, mintAclPath } from "./acl-identity";

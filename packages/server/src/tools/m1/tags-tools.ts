@@ -7,14 +7,15 @@
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { conventionsResultShape } from "../../conventions/schema";
+import type { ToolDefinition } from "../../mcp/registry";
+import { frontmatterFallbackSink } from "../../util/errors";
 import {
   enforceMemoryDefenseOnNoteWrite,
   MEMORY_DEFENSE_OFF,
   redactedEcho,
-} from "../../experiential/memory-defense";
-import type { ToolDefinition } from "../../mcp/registry";
-import { frontmatterFallbackSink } from "../../util/errors";
+} from "../../util/memory-defense";
 import { DEFAULT_SCAN_LIMIT, nextOffsetCursor, offsetOf } from "../../util/paginate";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableEntry, readableRel } from "../../vault/acl-read-filter";
 import { checkCas, requireContentRead } from "../../vault/cas";
@@ -30,7 +31,6 @@ import {
   tagMatches,
 } from "../../vault/tags";
 import { ReadRefusals, readRefusalShape } from "../read-refusals";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";

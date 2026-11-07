@@ -1,7 +1,7 @@
 import type { ListResourcesResult, ReadResourceResult } from "@modelcontextprotocol/server";
 import { err, grantsAll, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
-import { type ResponseFormat, resolveResponseFormat } from "../tools/response-format";
+import { type ResponseFormat, resolveResponseFormat } from "../util/response-format";
 import { enforcePathAcl } from "../vault/acl-path";
 import { readableEntry } from "../vault/acl-read-filter";
 import { splitFrontmatterBody } from "../vault/frontmatter";

@@ -19,7 +19,6 @@ import { experientialMigrations } from "../src/cli/shared";
 import * as inProcessHost from "../src/embeddings/host/in-process";
 import type { EmbedderHost } from "../src/embeddings/host/types";
 import { MetricsRecorder } from "../src/metrics/registry";
-import { nativeReadyToken, unwindReversed } from "../src/runtime/boot-helpers";
 import {
   buildServerRuntime,
   type RuntimeCoreDeps,
@@ -27,6 +26,7 @@ import {
 } from "../src/runtime/server-runtime";
 import { type Stores, wireStores } from "../src/runtime/stores";
 import * as representation from "../src/search/representation";
+import { nativeReadyToken, unwindReversed } from "../src/util/boot-helpers";
 import { canonicalizeVaultRoot, VaultRegistry } from "../src/vault/registry";
 import { DEFAULT_TRACE_FOLDER, resolveTraceDirs } from "../src/workspace/sessions";
 import { stallTimeout } from "./stall-timeouts";

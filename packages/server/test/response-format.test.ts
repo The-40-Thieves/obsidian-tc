@@ -4,7 +4,7 @@
 import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { ResponseFormatInput, resolveResponseFormat } from "../src/tools/response-format";
+import { ResponseFormatInput, resolveResponseFormat } from "../src/util/response-format";
 
 describe("resolveResponseFormat precedence", () => {
   it("falls back to detailed when nothing is set", () => {

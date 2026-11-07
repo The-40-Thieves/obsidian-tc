@@ -6,6 +6,7 @@
 import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableEntry } from "../../vault/acl-read-filter";
 import { splitFrontmatterBody } from "../../vault/frontmatter";
@@ -13,7 +14,6 @@ import { readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import { ReadRefusals, readRefusalShape } from "../read-refusals";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import type { M4Deps } from "./shared";
 
 type Format = "markdown" | "xml";

@@ -14,8 +14,9 @@
 import { err, grantsAll, Pagination, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { inTransaction } from "../../db/txn";
-import { enforceMemoryDefense } from "../../experiential/memory-defense";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
+import { enforceMemoryDefense } from "../../util/memory-defense";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import { enforcePathAcl } from "../../vault/acl-path";
 import {
   appendTrace,
@@ -33,7 +34,6 @@ import {
 } from "../../workspace/sessions";
 import { EffectiveConventionsOutput, rootConventionsFor } from "../m1/conventions-tools";
 import { defineTool } from "../m1/define";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { type M5Deps, memoryDefenseFor, parseIso } from "./shared";
 
 /**

@@ -5,10 +5,10 @@ import { withStateProbe } from "../../elicit-drift";
 import { argsHash } from "../../hash";
 import { type OtelDetail, openDispatchSpans } from "../../otel/dispatch-spans";
 import { callerHash, type RateLimiter } from "../../throttle";
+import { checkAborted } from "../../util/abort";
 import { isCrossNoteAuditExempt, runAudited } from "../../vault/acl-audit";
 import { NO_OUTPUT_TEXT } from "../no-output-text";
 import type { EffectiveToolVisibilityConfig } from "../visibility";
-import { checkAborted } from "./abort";
 import { isToolDisabledFor, runAuthorizationGates } from "./authorization-gates";
 import { conventionsScope } from "./conventions-scope";
 import {

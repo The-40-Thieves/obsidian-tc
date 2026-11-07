@@ -25,6 +25,12 @@ import { DEFAULT_RRF_K } from "../../search/retrieval-defaults";
 import { type SemanticHit, semanticSearch } from "../../search/semantic";
 import { searchRegex, searchText, searchTextIndexed } from "../../search/text";
 import { DEFAULT_PAGE_SIZE, paginate } from "../../util/paginate";
+import {
+  type ResponseFormat,
+  type ResponseFormatFields,
+  ResponseFormatInput,
+  resolveResponseFormat,
+} from "../../util/response-format";
 import { enforcePathAcl } from "../../vault/acl-path";
 import type { WalkReadable } from "../../vault/acl-read-filter";
 import { readableRel, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
@@ -32,12 +38,6 @@ import { normalizeVaultPath } from "../../vault/paths";
 import { storedAclPathOf } from "../../vault/stored-acl-path";
 import { defineTool } from "../m1/define";
 import { ReadRefusals, readRefusalShape } from "../read-refusals";
-import {
-  type ResponseFormat,
-  type ResponseFormatFields,
-  ResponseFormatInput,
-  resolveResponseFormat,
-} from "../response-format";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import { filterDqlResult, runDql } from "./dql";
 import { jsonlogicMatches } from "./jsonlogic-matches";

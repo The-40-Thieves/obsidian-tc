@@ -13,7 +13,6 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
 import { mintElicitForRaisedRequest } from "../src/cli/commands/elicit-mint";
-import { runMaintenanceSweep } from "../src/db/maintenance";
 import { provisionCacheDb } from "../src/db/provision";
 import { elicitVerifier, getDefaultElicitTtlSeconds } from "../src/elicit";
 import { createElicitCodec } from "../src/elicit-request-state";
@@ -27,6 +26,7 @@ import {
 import type { FacadeMode } from "../src/mcp/facade";
 import { type CallerContext, type ToolDefinition, ToolRegistry } from "../src/mcp/registry";
 import { createMcpServer } from "../src/mcp/server";
+import { runMaintenanceSweep } from "../src/runtime/maintenance";
 import { startHttp } from "../src/transports/http";
 import { requireConfirmation } from "../src/vault/hitl";
 import { openMemoryDb } from "./helpers";

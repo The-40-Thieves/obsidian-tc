@@ -38,12 +38,12 @@ function fakeOpenAiKey(): string {
   return ["sk", "-", "Q7w8E9r0T1y2U3i4O5p6A7s8D9f0G1h2"].join("");
 }
 
-function fakeGithubToken(): string {
-  return ["gh", "p_", "M1n2B3v4C5x6Z7a8S9d0F1g2H3j4K5l6"].join("");
-}
-
 function fakeAwsKeyId(): string {
   return ["AKIA", "Q7W8E9R0T1Y2U3I4"].join("");
+}
+
+function fakeGithubToken(): string {
+  return ["gh", "p_", "M1n2B3v4C5x6Z7a8S9d0F1g2H3j4K5l6"].join("");
 }
 
 // review finding 1 PoC: a colon separator instead of the pattern's own hyphen — doesn't match
@@ -185,8 +185,8 @@ function fakeInvalidVisaCard(): string {
 // that only the mocked redactSecrets below reacts to.
 const THROW_SENTINEL = "TRIGGER_SCANNER_THROW_GH994";
 
-vi.mock("../src/experiential/redact", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/experiential/redact")>();
+vi.mock("../src/util/redact", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/util/redact")>();
   return {
     ...actual,
     redactSecrets: (text: string) => {

@@ -15,7 +15,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ToolRegistry } from "../src/mcp/registry";
 import { createMcpServer } from "../src/mcp/server";
-import { deferBootWork } from "../src/runtime/boot-helpers";
+import { deferBootWork } from "../src/util/boot-helpers";
 
 describe("deferBootWork", () => {
   beforeEach(() => vi.useFakeTimers());

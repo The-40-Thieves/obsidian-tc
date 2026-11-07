@@ -33,10 +33,10 @@
 import { ObsidianTcError, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../../../acl";
 import type { Database } from "../../../db/types";
-import { enforceMemoryDefenseOnNoteWrite } from "../../../experiential/memory-defense";
 import { sanitizeDisplayText } from "../../../mcp/elicit-form";
 import type { MetricsRecorder } from "../../../metrics/registry";
 import type { VaultExclusion } from "../../../search/index-exclusion";
+import { enforceMemoryDefenseOnNoteWrite } from "../../../util/memory-defense";
 import { callerCanReadVaultPath, enforcePathAcl } from "../../../vault/acl-path";
 import { parseNoteLenient } from "../../../vault/frontmatter";
 import { noteExists, readNote, readNoteBounded } from "../../../vault/notes-io";

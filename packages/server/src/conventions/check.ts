@@ -1,11 +1,8 @@
 // Check one note's frontmatter against its effective conventions. Pure: no I/O, no ACL. Problems are
 // warnings for the caller to fix; nothing here blocks a write.
 
-import { isGeneratedWikiPath, rawPathFilter } from "../tools/m7/knowledge/wiki-folder";
-import { WIKI_SCHEMA_FILE } from "../tools/m7/knowledge/wiki-schema";
-import { MAX_SCAN_WARNINGS } from "../tools/scan-warnings";
-import { fmHas } from "../tools/wiki-scan";
-import type { Frontmatter } from "../vault/frontmatter";
+import { MAX_SCAN_WARNINGS } from "../util/scan-caps";
+import { type Frontmatter, fmHas } from "../vault/frontmatter";
 import { frontmatterTags, normalizeTag, tagMatches } from "../vault/tags";
 import { scalarText } from "./parse";
 import type {
@@ -15,6 +12,7 @@ import type {
   Severity,
   SourcedValues,
 } from "./schema";
+import { isGeneratedWikiPath, rawPathFilter, WIKI_SCHEMA_FILE } from "./wiki-layout";
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);

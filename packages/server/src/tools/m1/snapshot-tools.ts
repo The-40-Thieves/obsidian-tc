@@ -5,15 +5,15 @@
 import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { conventionsResultShape } from "../../conventions/schema";
-import { MEMORY_DEFENSE_OFF } from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
+import { MEMORY_DEFENSE_OFF } from "../../util/memory-defense";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { checkCas, requireContentRead } from "../../vault/cas";
 import { requireConfirmation } from "../../vault/hitl";
 import { noteExists, readNote, writeNoteAtomicGuarded } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { captureSnapshot, listSnapshots, readSnapshot } from "../../vault/snapshots";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
 

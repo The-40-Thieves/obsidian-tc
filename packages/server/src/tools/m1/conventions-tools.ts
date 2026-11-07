@@ -12,9 +12,9 @@ import {
   type SourcedValues,
 } from "../../conventions/schema";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import { normalizeVaultPath } from "../../vault/paths";
 import { WIKI_SCHEMA_FILE } from "../m7/knowledge/wiki-schema";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
 

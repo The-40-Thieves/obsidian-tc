@@ -15,9 +15,9 @@ import {
   type VaultMemoryDefenseConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
-import { enforceMemoryDefenseOnMovedBytes } from "../experiential/memory-defense";
-import { redactSecrets } from "../experiential/redact";
 import type { MetricsRecorder } from "../metrics/registry";
+import { enforceMemoryDefenseOnMovedBytes } from "../util/memory-defense";
+import { redactSecrets } from "../util/redact";
 import type { ImmutableRewriteSkips } from "./acl-path";
 import { casConflict } from "./cas";
 import { readNote } from "./notes-io";

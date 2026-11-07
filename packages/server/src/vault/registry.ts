@@ -3,9 +3,9 @@
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { err, type VaultConfigInput, type VaultKind } from "@the-40-thieves/obsidian-tc-shared";
-import { rawFolderNames, wikiFolderNames } from "../tools/m7/knowledge/wiki-folder";
 import { FolderPins } from "./folder-links";
 import { canonicalFolderOf, rawFolderOf } from "./raw-folder";
+import { rawFolderNames, wikiFolderNames } from "./wiki-folders";
 
 /**
  * Canonicalize a configured vault root through realpath, once, at registration (THE-1081 / #946).

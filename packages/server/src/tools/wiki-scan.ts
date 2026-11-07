@@ -14,6 +14,7 @@ import type { FolderAcl } from "../acl";
 import { globToRegExp } from "../acl";
 import { drainSteps, type ScanSteps } from "../util/scan-steps";
 import { readableEntry } from "../vault/acl-read-filter";
+import { fmHas } from "../vault/frontmatter";
 import { buildVaultIndex, type ExtractedLink, resolveTarget } from "../vault/links";
 import { walkVaultSteps } from "../vault/paths";
 import { matchHeadingBoundary } from "./m1/notes/heading-syntax";
@@ -78,16 +79,6 @@ export function originOf(l: Pick<ExtractedLink, "source" | "property">): {
 
 export function isExternal(kind: string, target: string): boolean {
   return kind === "markdown" && /^[a-z]+:\/\//i.test(target);
-}
-
-/** Frontmatter has the key with a non-empty value (non-empty string/array, or any present scalar). */
-export function fmHas(fm: Record<string, unknown> | null, key: string): boolean {
-  if (!fm || !Object.hasOwn(fm, key)) return false;
-  const val = fm[key];
-  if (val == null) return false;
-  if (typeof val === "string") return val.trim().length > 0;
-  if (Array.isArray(val)) return val.length > 0;
-  return true;
 }
 
 /** Notes (in `folder`, or the whole vault) that nothing else links to. A link in a property counts.

@@ -2,7 +2,7 @@
 // (GH #1027). Kept out of admin-tools.ts, which sits at biome's line cap, so the concise shape
 // lives beside the schema that has to mark its dropped fields optional.
 import { z } from "zod";
-import type { ResponseFormat } from "../response-format";
+import type { ResponseFormat } from "../../util/response-format";
 
 // THE-417: written from get_server_config's return statement, not from ThrottleConfig's own
 // declaration site — `throttle_tiers` mirrors ThrottleConfig["tiers"] verbatim, but `limits` picks

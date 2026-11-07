@@ -14,8 +14,8 @@ import {
   resolveConventions,
 } from "../../conventions/resolve";
 import { CONVENTIONS_KEY, NOTE_MAX_BYTES } from "../../conventions/schema";
-import { WIKI_SCHEMA_FILE } from "../../tools/m7/knowledge/wiki-schema";
-import { capWarningsOut, MAX_SCAN_WARNINGS } from "../../tools/scan-warnings";
+import { WIKI_SCHEMA_FILE } from "../../conventions/wiki-layout";
+import { capWarningsOut, MAX_SCAN_WARNINGS } from "../../util/scan-caps";
 import { createSliceYielder } from "../../util/scan-steps";
 import { CROSS_NOTE_REWRITE_TOOLS } from "../../vault/acl-audit";
 import { enforcePathAcl } from "../../vault/acl-path";

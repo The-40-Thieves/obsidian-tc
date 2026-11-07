@@ -14,7 +14,7 @@ import { ensureChunkFts } from "../src/search/chunk_fts";
 import { registerM6Tools } from "../src/tools/m6";
 import { registerM7Tools } from "../src/tools/m7";
 import { registerM8Tools } from "../src/tools/m8";
-import type { ResponseFormat } from "../src/tools/response-format";
+import type { ResponseFormat } from "../src/util/response-format";
 import { VaultRegistry } from "../src/vault/registry";
 import { captureSnapshot } from "../src/vault/snapshots";
 import { appendTrace, resolveTraceAbs } from "../src/workspace/sessions";

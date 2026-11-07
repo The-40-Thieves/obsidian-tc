@@ -78,7 +78,7 @@ export const ALLOWLIST = [
     measured: "<10ms at 150KB of adversarial input",
   },
   {
-    file: "packages/server/src/experiential/redact.ts",
+    file: "packages/server/src/util/redact.ts",
     pattern: "\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{5,}\\b",
     reason: "recheck fuzz-checker false positive",
     measured: "<1ms at 20KB of adversarial input",
@@ -107,7 +107,7 @@ export const ALLOWLIST = [
 // Dynamic sites (see the header): keyed on file + kind + the exact call/literal source text.
 export const DYNAMIC_ALLOWLIST = [
   {
-    file: "packages/server/src/experiential/memory-defense.ts",
+    file: "packages/server/src/util/memory-defense.ts",
     kind: "new-regexp",
     text: 'new RegExp(`[${body}]`, "gu")',
     reason:

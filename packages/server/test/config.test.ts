@@ -212,7 +212,7 @@ describe("maintenance config (THE-292)", () => {
       episodesRetentionDays: 90,
       retrievalsRetentionDays: 365,
       // Days a COMMITTED capture_queue row is retained before the maintenance sweep prunes it —
-      // a PENDING row is never pruned by this sweep at any age, see db/maintenance.ts.
+      // a PENDING row is never pruned by this sweep at any age, see runtime/maintenance.ts.
       captureQueueRetentionDays: 30,
       // Only the dangling-row class is on by default; retiredRetentionDays and
       // removedVaultRetentionDays are ABSENT (off) — memory rows are user data.

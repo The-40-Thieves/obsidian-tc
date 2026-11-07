@@ -31,9 +31,9 @@ import {
 import type { ProvenanceRecorder } from "../../provenance/recorder";
 import type { KeyResolver } from "../../provenance/signer";
 import { verifyRecordAt } from "../../provenance/verify";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import { memoizedReadableResolved } from "../../vault/acl-read-filter";
 import { normalizeVaultPath } from "../../vault/paths";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
 

@@ -16,8 +16,8 @@
 import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
-import { redactSecrets } from "../src/experiential/redact";
 import { captureArgs } from "../src/mcp/registry/dispatch-observability";
+import { redactSecrets } from "../src/util/redact";
 import { appendTrace } from "../src/workspace/sessions";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";
 import { expectLinearWork } from "./scaling";

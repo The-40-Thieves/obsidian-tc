@@ -14,7 +14,7 @@ import { type CanonicalHighlightSource, ingestHighlights } from "../src/capture/
 import { listCaptures } from "../src/capture/queue";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
-import { enforceMemoryDefense } from "../src/experiential/memory-defense";
+import { enforceMemoryDefense } from "../src/util/memory-defense";
 import { openMemoryDb } from "./helpers";
 
 function cacheDb(): Database {

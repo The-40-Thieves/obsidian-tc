@@ -7,8 +7,8 @@
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { conventionsResultShape } from "../../conventions/schema";
-import { MEMORY_DEFENSE_OFF } from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
+import { MEMORY_DEFENSE_OFF } from "../../util/memory-defense";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { checkCas, requireContentRead } from "../../vault/cas";
 import { noteExists, readNote, writeNoteAtomicGuarded } from "../../vault/notes-io";

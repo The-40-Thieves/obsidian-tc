@@ -1,7 +1,6 @@
 // Parse one SCHEMA.md layer's `conventions:` block. Never throws: a bad block is a warning and no
 // layer, a bad entry is dropped with a warning and the rest of the block still counts.
-import { SCHEMA_LIMITS } from "../tools/m7/knowledge/wiki-schema";
-import { MAX_SCAN_WARNINGS } from "../tools/scan-warnings";
+import { MAX_SCAN_WARNINGS } from "../util/scan-caps";
 import { parseNoteLenient } from "../vault/frontmatter";
 import {
   CONVENTIONS_KEY,
@@ -12,6 +11,7 @@ import {
   SEVERITIES,
   type Severity,
 } from "./schema";
+import { SCHEMA_LIMITS } from "./wiki-layout";
 
 const KNOWN_TOP = new Set(["version", "inherit", "frontmatter"]);
 const KNOWN_FRONTMATTER = new Set(["type_key", "required", "values", "severity", "types"]);

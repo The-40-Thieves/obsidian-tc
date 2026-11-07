@@ -16,7 +16,7 @@
 // A worker thread was measured and rejected: the scan needs the ACL, the native note reader and the
 // YAML parser, none of which a worker can load from a `bun --compile` binary, which embeds no
 // assets. regex-worker.ts can use one only because its source is a self-contained string.
-import { checkAborted } from "../mcp/registry/abort";
+import { checkAborted } from "../util/abort";
 
 /** A scan body: yields once per unit of work (a note, a directory), returns the scan's result. */
 export type ScanSteps<T> = Generator<void, T, void>;

@@ -27,6 +27,7 @@ import {
 } from "../../formats/canvas";
 import { detectJsonIndent } from "../../formats/json-config";
 import type { ToolDefinition } from "../../mcp/registry";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableEntry, readableResolved } from "../../vault/acl-read-filter";
 import { checkCas, requireContentRead } from "../../vault/cas";
@@ -34,7 +35,6 @@ import { requireConfirmation } from "../../vault/hitl";
 import { noteExists, readNote, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import type { M3Deps } from "./shared";
 
 function requireCanvasExt(rel: string): void {

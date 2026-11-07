@@ -21,10 +21,10 @@ import {
   formatCompatWarning,
 } from "../bridge";
 import type { CapabilitySnapshot } from "../bridge/capabilities";
-import { MEMORY_DEFENSE_OFF } from "../experiential/memory-defense";
 import type { MetricsRecorder } from "../metrics/registry";
 import type { Scheduler } from "../scheduler/scheduler";
 import { type BridgeTimeouts, DEFAULT_BRIDGE_TIMEOUTS, type M4Deps } from "../tools/m4";
+import { MEMORY_DEFENSE_OFF } from "../util/memory-defense";
 import { resolveMode } from "../vault/mode";
 import type { VaultRegistry } from "../vault/registry";
 

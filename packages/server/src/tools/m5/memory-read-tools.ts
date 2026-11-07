@@ -16,8 +16,8 @@ import {
   relationsForEntity,
 } from "../../memory/entities";
 import { formatObservationId } from "../../memory/observation-edit";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import { defineTool } from "../m1/define";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { getReadableEntity, memoryReadable } from "./memory-projection";
 import type { M5Deps } from "./shared";
 

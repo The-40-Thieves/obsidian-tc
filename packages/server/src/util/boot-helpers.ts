@@ -1,5 +1,5 @@
 // Boot-lifecycle primitives shared by store provisioning and runtime composition.
-import { stderrOnError } from "../util/errors";
+import { stderrOnError } from "./errors";
 
 /** Guards a boot resource captured by a closure before its own `const`/`let` has run: throws (never
  *  a non-null assertion — forbidden by lint) if the closure is ever invoked early. THE-466. Shared

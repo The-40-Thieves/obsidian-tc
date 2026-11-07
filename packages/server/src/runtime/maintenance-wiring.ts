@@ -11,7 +11,6 @@
 // Extracted verbatim: the run body, the emit, the best-effort event_log write and the stderr error
 // routing are unchanged from the inline block in cli.ts.
 import { writeEvent } from "../audit";
-import { registerMaintenanceSweep, type SweepCounts } from "../db/maintenance";
 import {
   MEMORY_ORPHAN_CLASSES,
   type MemoryOrphanClass,
@@ -26,6 +25,7 @@ import type { SignerSource } from "../provenance/signer";
 import type { Scheduler } from "../scheduler/scheduler";
 import type { FolderPins } from "../vault/folder-links";
 import { resolveCacheTraceDir, resolveTraceDirs } from "../workspace/sessions";
+import { registerMaintenanceSweep, type SweepCounts } from "./maintenance";
 
 export interface MaintenanceWiringDeps {
   db: Database;
@@ -39,7 +39,7 @@ export interface MaintenanceWiringDeps {
     jobsFailedRetentionDays: number;
     episodesRetentionDays: number;
     retrievalsRetentionDays: number;
-    /** maintenance.captureQueueRetentionDays — see db/maintenance.ts's sweepCaptureQueue. */
+    /** maintenance.captureQueueRetentionDays — see runtime/maintenance.ts's sweepCaptureQueue. */
     captureQueueRetentionDays: number;
     /** maintenance.memoryOrphans — see db/memory-orphans.ts. Absent -> that job is not registered. */
     memoryOrphans?: {
@@ -83,7 +83,7 @@ export interface MaintenanceWiringDeps {
    *  `root`, not `path`, to match resolveTraceDirs's own parameter — see its doc comment. */
   vaults: readonly { id: string; root: string; workspace?: { traceFolder: string } }[];
   /** The vault registry's folder pins. The trace sweep deletes files inside a vault outside any
-   *  dispatch, so it carries them itself and deletes through the pin (db/maintenance.ts). Absent ->
+   *  dispatch, so it carries them itself and deletes through the pin (runtime/maintenance.ts). Absent ->
    *  the legacy unpinned sweep (a unit test with no registry). */
   folderPins?: FolderPins;
   defaultTraceFolder: string;
