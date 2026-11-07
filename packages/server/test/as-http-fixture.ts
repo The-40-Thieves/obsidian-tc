@@ -24,6 +24,18 @@ export interface AsHttpFixture {
   url: (path: string) => string;
 }
 
+function fixtureAuth(dir: string, as?: Record<string, unknown>) {
+  return ServerConfigSchema.parse({
+    vaults: [{ id: "v1", path: dir }],
+    auth: {
+      mode: "jwt",
+      jwtSecret: "test-only-secret-not-a-real-credential-0123456789",
+      resource: RESOURCE,
+      as: { enabled: true, issuer: ISSUER, ...as },
+    },
+  }).auth as never;
+}
+
 /** createHttpApp over in-memory dbs and one temp-dir vault. `as` merges into the `auth.as` config;
  *  `rotateAsKey` installs an AS signing key (tests that hit /oauth/token need one). Cleanup —
  *  handle.close() and removing `dir` — is the caller's, so each test keeps its own discipline. */
@@ -35,15 +47,7 @@ export async function asHttpFixture(opts: {
   metrics?: MetricsRecorder;
 }): Promise<AsHttpFixture> {
   const dir = makeTempDir(opts.tempPrefix);
-  const auth = ServerConfigSchema.parse({
-    vaults: [{ id: "v1", path: dir }],
-    auth: {
-      mode: "jwt",
-      jwtSecret: "test-only-secret-not-a-real-credential-0123456789",
-      resource: RESOURCE,
-      as: { enabled: true, issuer: ISSUER, ...opts.as },
-    },
-  }).auth as never;
+  const auth = fixtureAuth(dir, opts.as);
   const authDb = openMemoryDb();
   provisionAuthDb(authDb);
   const registry = createAuthRegistry(authDb, { keysDir: authKeysDir(dir) });

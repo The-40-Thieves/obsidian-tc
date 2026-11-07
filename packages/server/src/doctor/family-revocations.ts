@@ -43,6 +43,20 @@ export interface FamilyRevocationsView {
   probe?: () => FamilyRevocationsProbe;
 }
 
+function revocationDetails(probed: FamilyRevocationsProbe, window: string): Record<string, string> {
+  const details: Record<string, string> = { window, revocations: String(probed.total) };
+  for (const [reason, n] of Object.entries(probed.byReason)) {
+    details[`reason.${reason}`] = String(n);
+  }
+  if (probed.latest !== undefined) {
+    details.latest =
+      `${probed.latest.reason} client=${probed.latest.clientId ?? "unknown"} ` +
+      `at ${new Date(probed.latest.ts).toISOString()} ` +
+      `(${probed.latest.accessTokens} access token(s) revoked with it)`;
+  }
+  return details;
+}
+
 export function familyRevocationsCheck(view: FamilyRevocationsView): Check {
   return {
     id: "auth.family-revocations",
@@ -65,16 +79,7 @@ export function familyRevocationsCheck(view: FamilyRevocationsView): Check {
         };
       }
       const window = `${view.windowHours}h`;
-      const details: Record<string, string> = { window, revocations: String(probed.total) };
-      for (const [reason, n] of Object.entries(probed.byReason)) {
-        details[`reason.${reason}`] = String(n);
-      }
-      if (probed.latest !== undefined) {
-        details.latest =
-          `${probed.latest.reason} client=${probed.latest.clientId ?? "unknown"} ` +
-          `at ${new Date(probed.latest.ts).toISOString()} ` +
-          `(${probed.latest.accessTokens} access token(s) revoked with it)`;
-      }
+      const details = revocationDetails(probed, window);
       if (probed.total === 0) {
         return {
           status: "ok",
