@@ -7,6 +7,7 @@
 import { rmSync, type Stats, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { type AclCaseMatch, CASE_INSENSITIVE_FS } from "../acl";
+import { resolveVaultPath } from "./paths";
 
 /** `vaults[].caseSensitive`: "auto" (or absent) probes the vault root; true/false overrides it. */
 export type CaseSensitiveSetting = "auto" | boolean;
@@ -33,7 +34,18 @@ function probeDir(root: string): boolean | null {
   // The temp-file probe answers for the root's OWN directory, the right fact where case
   // sensitivity is per-directory (NTFS's per-directory attribute, ext4 casefold): create a
   // mixed-case file and stat its case-flipped name.
-  const probe = join(root, `.obtc-CaSe-${process.pid}-${Math.random().toString(36).slice(2)}`);
+  // resolveVaultPath, not a raw join: the probe is created and deleted inside the vault, so it
+  // takes the same containment and symlink checks as any vault write/delete. A root that fails
+  // the resolver (a planted symlink) makes the answer unknowable, not an exception.
+  let probe: string;
+  try {
+    probe = resolveVaultPath(
+      root,
+      `.obtc-CaSe-${process.pid}-${Math.random().toString(36).slice(2)}`,
+    );
+  } catch {
+    return null;
+  }
   let wrote = false;
   try {
     writeFileSync(probe, "");

@@ -16,7 +16,7 @@ import { statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { VaultConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
-import { type AclConfigT, aclFingerprint, FolderAcl } from "../src/acl";
+import { type AclConfigT, aclFingerprint, CASE_INSENSITIVE_FS, FolderAcl } from "../src/acl";
 import { applyEnvOverlays } from "../src/config/load";
 import { buildAcls } from "../src/runtime/acl-build";
 import { VaultRegistry } from "../src/vault/registry";
@@ -202,9 +202,12 @@ describe("the ACL fingerprint carries the vault's case behavior", () => {
     // RED: pre-fix aclFingerprint ignores the case behavior, so persisted acl_path_sets rows and
     // prewarm files computed under one would be served under the other.
     expect(sensitive.fingerprint(["read:notes"])).not.toBe(insensitive.fingerprint(["read:notes"]));
-    expect(aclFingerprint({ ...OPEN, caseMatch: { allow: false, rules: false } }, ["s"])).not.toBe(
-      aclFingerprint(OPEN, ["s"]),
-    );
+    // The explicit side must differ from the platform default, or the comparison is vacuous:
+    // on a case-SENSITIVE platform { allow: false, rules: false } IS the absent-caseMatch value.
+    const nonDefault = !CASE_INSENSITIVE_FS;
+    expect(
+      aclFingerprint({ ...OPEN, caseMatch: { allow: nonDefault, rules: nonDefault } }, ["s"]),
+    ).not.toBe(aclFingerprint(OPEN, ["s"]));
   });
 });
 
