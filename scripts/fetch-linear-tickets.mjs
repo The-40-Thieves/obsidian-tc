@@ -10,10 +10,18 @@
 //
 // Reads LINEAR_API_KEY from the environment. Writes JSON to stdout; diagnostics to stderr, so
 // `node scripts/fetch-linear-tickets.mjs > tickets.json` is safe.
+//
+// Every remote-derived fragment (reason phrase, GraphQL error body, undici cause) passes through
+// escapeDiagnostic before it reaches stderr: a raw CR/LF forges extra log lines under this
+// script's prefix, and ESC/C1 bytes reach the terminal as control sequences.
+import { escapeDiagnostic } from "./lib/diagnostic-text.mjs";
+
 // Trimmed because a key set from `read` or piped out of a file routinely arrives with a trailing
 // newline, and an HTTP header cannot carry one.
 const KEY = (process.env.LINEAR_API_KEY ?? "").trim();
 const PROJECT = process.argv[2] ?? "obsidian-tc";
+// Tests point this at a local server; nothing in normal use sets it.
+const API = process.env.LINEAR_API_URL ?? "https://api.linear.app/graphql";
 
 if (!KEY) {
   console.error("fetch-linear-tickets: LINEAR_API_KEY is not set (or is empty/whitespace)");
@@ -70,22 +78,25 @@ for (let page = 0; page < 40; page++) {
   // an auth problem to anyone reading CI output.
   let res;
   try {
-    res = await fetch("https://api.linear.app/graphql", {
+    res = await fetch(API, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: KEY },
       body: JSON.stringify({ query: QUERY, variables: { project: PROJECT, after } }),
     });
   } catch (e) {
-    console.error(`fetch-linear-tickets: request failed — ${e.cause?.message ?? e.message}`);
+    console.error(
+      `fetch-linear-tickets: request failed — ${escapeDiagnostic(e.cause?.message ?? e.message)}`,
+    );
     process.exit(1);
   }
   if (!res.ok) {
-    console.error(`fetch-linear-tickets: HTTP ${res.status} ${res.statusText}`);
+    console.error(`fetch-linear-tickets: HTTP ${res.status} ${escapeDiagnostic(res.statusText)}`);
     process.exit(1);
   }
   const body = await res.json();
   if (body.errors) {
-    console.error(`fetch-linear-tickets: ${JSON.stringify(body.errors)}`);
+    // JSON.stringify escapes C0 but not DEL/C1; the escaper closes that gap.
+    console.error(`fetch-linear-tickets: ${escapeDiagnostic(JSON.stringify(body.errors))}`);
     process.exit(1);
   }
   const { nodes, pageInfo } = body.data.issues;
@@ -99,7 +110,7 @@ for (let page = 0; page < 40; page++) {
       ),
     ).length;
     console.error(
-      `fetch-linear-tickets: ${out.length} tickets for "${PROJECT}" (${out.length - closed} open, ${closed} closed) across ${page + 1} page(s).`,
+      `fetch-linear-tickets: ${out.length} tickets for "${escapeDiagnostic(PROJECT)}" (${out.length - closed} open, ${closed} closed) across ${page + 1} page(s).`,
     );
     if (out.length === 0) {
       console.error("fetch-linear-tickets: zero tickets — refusing to emit an empty list");
