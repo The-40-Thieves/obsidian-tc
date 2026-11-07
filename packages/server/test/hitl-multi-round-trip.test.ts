@@ -36,7 +36,10 @@ async function boot() {
   provisionCacheDb(db);
   const effect = { applied: 0, seen: [] as string[] };
   const events: string[] = [];
-  const registry = new ToolRegistry({ emit: (_v, type) => events.push(type) });
+  const registry = new ToolRegistry({
+    rootResolver: () => undefined,
+    emit: (_v, type) => events.push(type),
+  });
   // `destructive: true` is what arms the dispatch HITL gate (registry: `needsHitl`).
   registry.register({
     name: "danger_write",

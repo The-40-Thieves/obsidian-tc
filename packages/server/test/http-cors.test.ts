@@ -50,7 +50,7 @@ async function boot(opts: { auth?: ServerConfig["auth"]; corsOrigins?: string[] 
   const handle = await startHttp({
     name: "obsidian-tc",
     version: "0.0.0-test",
-    registry: new ToolRegistry(),
+    registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth: opts.auth ?? authOf(),
     db,
     vaultId: "v1",

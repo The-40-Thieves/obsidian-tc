@@ -41,7 +41,7 @@ beforeAll(async () => {
   writeFileSync(join(vaultRoot, "note.md"), "---\ntitle: X\n---\n\nbody\n");
   const db = openMemoryDb();
   provisionCacheDb(db);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register(
     createHealthTool({
       version: "0.0.0-test",

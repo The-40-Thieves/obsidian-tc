@@ -91,7 +91,7 @@ function harness(
     cacheDb?: Database;
   } = {},
 ) {
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   const withNow = opts.withNow ?? true;
   registerM8Tools(registry, {
     ...(edb ? { edb } : {}),

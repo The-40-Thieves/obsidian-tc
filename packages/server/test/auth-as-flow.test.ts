@@ -72,7 +72,10 @@ async function boot(reuse?: string) {
   const vaultRegistry = new VaultRegistry([{ id: "v1", path: dir }]);
   const exporter = new InMemorySpanExporter();
   const provider = new TracerProvider({ spanProcessors: [new SimpleSpanProcessor({ exporter })] });
-  const registry = new ToolRegistry({ tracer: provider.getTracer("as-flow") });
+  const registry = new ToolRegistry({
+    rootResolver: (id) => vaultRegistry.resolve(id).root,
+    tracer: provider.getTracer("as-flow"),
+  });
   for (const t of buildRegistryTools(
     {
       vaultRegistry,

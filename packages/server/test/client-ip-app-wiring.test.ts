@@ -50,7 +50,7 @@ async function claimedApp(): Promise<{ app: Hono; close: () => Promise<void> }> 
   const handle: HttpApp = createHttpApp({
     name: "obsidian-tc",
     version: "t",
-    registry: new ToolRegistry(),
+    registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth,
     db: openMemoryDb(),
     oauthDb,

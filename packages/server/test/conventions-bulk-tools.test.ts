@@ -239,7 +239,6 @@ describe("commit_wiki_page conventions", () => {
   const wikiHarness = () =>
     makeWikiHarness({
       conventions: true,
-      centralAcl: true,
       wikiFolder: "wiki",
       files: { "wiki/SCHEMA.md": REQUIRE_TYPE, "wiki/Mentions.md": MENTIONS },
     });

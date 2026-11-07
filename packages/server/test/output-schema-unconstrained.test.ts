@@ -25,7 +25,7 @@ const context = (): CallerContext => ({
 });
 
 function fixtureRegistry(): ToolRegistry {
-  const r = new ToolRegistry({ strictOutputSchema: false });
+  const r = new ToolRegistry({ rootResolver: () => undefined, strictOutputSchema: false });
   const base = { inputSchema: z.object({}).strict(), requiredScopes: [] };
   r.register({
     ...base,

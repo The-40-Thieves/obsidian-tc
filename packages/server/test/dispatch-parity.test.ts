@@ -199,7 +199,7 @@ describe("cross-surface dispatch parity — audit row for a successful mutating 
       const cacheDb = openMemoryDb();
       provisionCacheDb(cacheDb);
 
-      const registry = new ToolRegistry({});
+      const registry = new ToolRegistry({ rootResolver: () => undefined });
       registerM8Tools(registry, { edb, now: () => NOW });
 
       const { client, close } = await surface.boot(registry, cacheDb);
@@ -241,7 +241,7 @@ function cliForget(edb: Database, id: string, nowMs: number) {
 }
 
 async function toolForget(edb: Database, id: string) {
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registerM8Tools(registry, { edb, now: () => NOW });
   const ctx: CallerContext = {
     caller: "tester",
@@ -304,7 +304,7 @@ describe("THE-600 documented exception — work_forget vs CLI forgetEpisode forg
 
 describe("THE-514 item 2 — vault-binding: documented divergence, asserted as such", () => {
   it("tool dispatch: an UNBOUND (trusted stdio) caller may name any configured vault", async () => {
-    const registry = new ToolRegistry({});
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register({
       name: "vault_echo_parity",
       description: "echoes the vault arg",
@@ -402,7 +402,7 @@ describe("THE-514 item 1 — resources and tool-dispatch share one scope-authori
     expect(re.code).toBe("forbidden");
     expect(re.details).toMatchObject({ required: ["read:notes"] });
 
-    const registry = new ToolRegistry({});
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register({
       name: "scope_parity_probe",
       description: "THE-514 parity probe — requires read:notes like resources/read does",
@@ -439,7 +439,7 @@ describe("THE-514 item 1 — resources and tool-dispatch share one scope-authori
 
 describe("THE-514 item 2 — the same lowered maxResponseBytes refuses an oversized TOOL response and an oversized RESOURCE read", () => {
   it("refuses an oversized tool response", async () => {
-    const registry = new ToolRegistry({ maxResponseBytes: 50 });
+    const registry = new ToolRegistry({ rootResolver: () => undefined, maxResponseBytes: 50 });
     registry.register({
       name: "oversized_echo_parity",
       description: "returns a payload over the configured ceiling",
@@ -468,7 +468,7 @@ describe("THE-514 item 2 — the same lowered maxResponseBytes refuses an oversi
     const vaultRegistry = new VaultRegistry(
       ServerConfigSchema.parse({ vaults: [{ id: "main", path: dir }] }).vaults,
     );
-    const registry = new ToolRegistry({ maxResponseBytes: 50 });
+    const registry = new ToolRegistry({ rootResolver: () => undefined, maxResponseBytes: 50 });
     expect(() =>
       readResource(
         vaultRegistry,
@@ -519,7 +519,7 @@ describe("THE-605 — CLI forget's audit_events row matches dispatch's shape", (
     provisionCacheDb(dispatchCache);
     const dispatchEdb = experientialDb();
     seedEpisode(dispatchEdb, "ep-dispatch");
-    const registry = new ToolRegistry({});
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registerM8Tools(registry, { edb: dispatchEdb, now: () => NOW });
     const dispatchRes = await registry.dispatch(
       "work_forget",

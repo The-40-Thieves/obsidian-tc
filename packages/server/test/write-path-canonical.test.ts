@@ -58,7 +58,7 @@ describe("write_note / move_note / copy_note refuse hostile targets", () => {
   afterEach(() => v?.cleanup());
 
   it.each(HOSTILE_NOTES)("write_note: %s", async (_label, path) => {
-    v = makeTestVault({ centralAcl: true });
+    v = makeTestVault({});
     const r = await v.call("write_note", { vault: "test", path, content: "x" });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.code).toBe("path_invalid");
@@ -67,14 +67,14 @@ describe("write_note / move_note / copy_note refuse hostile targets", () => {
   it.each(HOSTILE_NOTES)(
     "write_note through the central stage: %s writes nothing",
     async (_l, p) => {
-      v = makeTestVault({ centralAcl: true });
+      v = makeTestVault({});
       await v.call("write_note", { vault: "test", path: p, content: "x" });
       expect(v.exists(p)).toBe(false);
     },
   );
 
   it.each(HOSTILE_NOTES)("move_note destination: %s", async (_label, to) => {
-    v = makeTestVault({ files: { "src.md": "hello" }, centralAcl: true });
+    v = makeTestVault({ files: { "src.md": "hello" } });
     const r = await v.call("move_note", { vault: "test", from: "src.md", to });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.code).toBe("path_invalid");
@@ -83,7 +83,7 @@ describe("write_note / move_note / copy_note refuse hostile targets", () => {
   });
 
   it("copy_note destination", async () => {
-    v = makeTestVault({ files: { "src.md": "hello" }, centralAcl: true });
+    v = makeTestVault({ files: { "src.md": "hello" } });
     const r = await v.call("copy_note", { vault: "test", from: "src.md", to: "a:b.md" });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.code).toBe("path_invalid");
@@ -94,7 +94,7 @@ describe("write_note / move_note / copy_note refuse hostile targets", () => {
   it.skipIf(process.platform === "win32")(
     "an EXISTING file with a hostile name is still readable and updatable in place",
     async () => {
-      v = makeTestVault({ centralAcl: true });
+      v = makeTestVault({});
       // Reserved names are already refused by normalizeVaultPath (reads too), so use the colon and
       // trailing-dot shapes a Linux-synced vault can legitimately hold.
       mkdirSync(join(v.root, "legacy"), { recursive: true });

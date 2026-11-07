@@ -278,7 +278,6 @@ describe("execute_template", () => {
         installed: ["templater"],
         routes: createdRoutes,
         files: { "Exports/report.md": "original" },
-        bindState: true,
       });
       const input = exec("Exports/report", true);
       const need = await v.call("execute_template", input);

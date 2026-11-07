@@ -61,7 +61,7 @@ function call(agent: http.Agent, port: number, i: number): Promise<[boolean, str
 test("every request on a REUSED keep-alive connection succeeds", async () => {
   const db = await openDatabase(":memory:");
   provisionCacheDb(db);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register(
     createHealthTool({
       version: "0.0.0-test",

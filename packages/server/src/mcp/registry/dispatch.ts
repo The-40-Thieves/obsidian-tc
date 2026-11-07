@@ -77,7 +77,7 @@ export interface DispatchDeps {
   onOutputSchemaDrift?: RegistryOptions["onOutputSchemaDrift"];
   onProfile?: RegistryOptions["onProfile"];
   aclResolver?: RegistryOptions["aclResolver"];
-  rootResolver?: RegistryOptions["rootResolver"];
+  rootResolver: RegistryOptions["rootResolver"];
   vaultKindResolver?: RegistryOptions["vaultKindResolver"];
   visibleVaultIds?: RegistryOptions["visibleVaultIds"];
   tracer?: Tracer;
@@ -429,7 +429,7 @@ export async function runDispatch(
     // enforce them HERE, right before the handler (handler-side enforcePathAcl calls remain as
     // defense-in-depth). Placed after HITL to mirror where handler-side enforcement used to run.
     // Wrapped in the (default-off) ACL-audit frame so a dev/test run can verify each pathAcl
-    // extractor mirrors the handler's real fs usage (#280). Skipped when no root resolver is wired.
+    // extractor mirrors the handler's real fs usage (#280). An unresolved vault root is refused.
     // The mid-execution effect-committed signal, installed AFTER every gate that can still
     // reject-and-release the claim, so the callback never outlives the claim it points at. Only for
     // a call that owns a claim or carries a confirmation token its handler may spend; any other call leaves

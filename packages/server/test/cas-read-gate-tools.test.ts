@@ -178,7 +178,6 @@ describe("rewrite_link: a caller without read:notes learns nothing about notes",
     m1 = makeTestVault({
       files: { "Private/p.md": "[[Target]] PIN 4821\n", "Target.md": "x\n" },
       acl: { writePaths: ["**"] },
-      centralAcl: true,
     });
     const r = await m1.call(
       "rewrite_link",
@@ -224,7 +223,6 @@ describe("append_note in block mode: a non-reader's outcome depends only on the 
     m1 = makeTestVault({
       files: { "Private/dirty.md": `token: ${fakeGithubToken()}\n`, "Private/clean.md": "clean\n" },
       acl: WRITE_ONLY_ACL,
-      centralAcl: true,
       memoryDefense: { mode: "block", pii: false },
     });
     const writer = { grantedScopes: new Set(["write:notes"]) };
@@ -258,11 +256,10 @@ describe("patch_note frontmatter preamble: a non-reader is refused identically f
     m1 = makeTestVault({
       files: { "Private/p.md": BALANCED },
       acl: WRITE_ONLY_ACL,
-      centralAcl: true,
     });
     const a = await m1.call("patch_note", PREPEND, { grantedScopes: new Set(["write:notes"]) });
     m1.cleanup();
-    m1 = makeTestVault({ files: { "Private/p.md": OPEN }, acl: WRITE_ONLY_ACL, centralAcl: true });
+    m1 = makeTestVault({ files: { "Private/p.md": OPEN }, acl: WRITE_ONLY_ACL });
     const b = await m1.call("patch_note", PREPEND, { grantedScopes: new Set(["write:notes"]) });
     expect(errOf(a)?.message).toBe(FIXED_REFUSAL);
     expect(JSON.stringify(a.ok ? null : a.error)).toBe(JSON.stringify(b.ok ? null : b.error));
@@ -274,7 +271,6 @@ describe("move_note in block mode: a non-reader gets a refusal that names nothin
     m1 = makeTestVault({
       files: { "Private/s.md": `token: ${fakeGithubToken()}\n` },
       acl: WRITE_ONLY_ACL,
-      centralAcl: true,
       memoryDefense: { mode: "block", pii: false },
     });
     const r = await m1.call(
@@ -302,7 +298,6 @@ describe("move_note and bulk_move_notes: an unreadable backlink's secret is not 
     m1 = makeTestVault({
       files: FILES,
       acl: WRITE_ONLY_ACL,
-      centralAcl: true,
       memoryDefense: BLOCK,
     });
     const r = await m1.call(
@@ -317,7 +312,7 @@ describe("move_note and bulk_move_notes: an unreadable backlink's secret is not 
   });
 
   it("move_note: a reader of the backlink keeps the detailed refusal", async () => {
-    m1 = makeTestVault({ files: FILES, acl: READER_ACL, centralAcl: true, memoryDefense: BLOCK });
+    m1 = makeTestVault({ files: FILES, acl: READER_ACL, memoryDefense: BLOCK });
     const r = await m1.call(
       "move_note",
       { vault: "test", from: "Public/s.md", to: "Public/t.md" },

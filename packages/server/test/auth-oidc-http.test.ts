@@ -28,7 +28,7 @@ beforeEach(async () => {
 afterEach(() => idp.close());
 
 function whoamiRegistry() {
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register({
     name: "whoami",
     description: "test-only: echoes the caller context it was dispatched with",

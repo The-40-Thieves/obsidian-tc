@@ -45,7 +45,10 @@ function makeHarness(extraVaultIds: readonly string[] = []): Harness {
     { id: "test", path: root },
     ...extraVaultIds.map((id) => ({ id, path: root })),
   ]);
-  const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
+  const registry = new ToolRegistry({
+    rootResolver: (id) => vaultRegistry.resolve(id).root,
+    verifyElicit: elicitVerifier,
+  });
   registerM1Tools(registry, {
     vaultRegistry,
     version: "test",

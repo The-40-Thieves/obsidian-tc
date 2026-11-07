@@ -77,7 +77,7 @@ function un<T>(r: unknown): T {
 }
 
 function harness(edb?: Database) {
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registerM8Tools(registry, { ...(edb ? { edb } : {}), now: () => NOW });
   const cache = cacheDb0();
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({

@@ -43,7 +43,7 @@ function seed(db: Database, id: string, caller: string | null): void {
 }
 
 function workHarness(db: Database) {
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registerM8Tools(registry, { edb: db, now: () => NOW });
   const cache = openMemoryDb();
   cache.exec(

@@ -85,7 +85,7 @@ afterAll(() => rmTemp(root));
 
 function harness(retrieval: { gatedRerank?: boolean } | undefined, reranker: Reranker | null) {
   const db = hardDb();
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   const vaultRegistry = new VaultRegistry([{ id: VAULT, name: VAULT, path: root }]);
   registerM7Tools(registry, {
     vaultRegistry,

@@ -12,7 +12,7 @@ export const REQUIRE_TYPE =
 export const LEGACY =
   "---\ntypes:\n  concept:\n    required: [summary]\nproperties:\n  summary: {}\n---\n";
 /** The vault options every conventions test takes: the central ACL root and the check sink. */
-export const CHECKED = { centralAcl: true, conventions: true };
+export const CHECKED = { conventions: true };
 
 export type CallResult = Awaited<ReturnType<TestVault["call"]>>;
 

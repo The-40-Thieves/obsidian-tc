@@ -54,7 +54,6 @@ describe("write_note conventions", () => {
     await withVault(
       {
         ...CHECKED,
-        centralAcl: true,
         acl: { readPaths: ["open/**"], writePaths: ["open/**"] },
         files: { "SCHEMA.md": REQUIRE_TYPE },
       },
@@ -86,7 +85,6 @@ describe("write_note conventions", () => {
     const reported: string[] = [];
     await withVault(
       {
-        centralAcl: true,
         files: { "meetings/SCHEMA.md": REQUIRE_TYPE },
         registryOpts: {
           conventions: failingSink,
@@ -263,7 +261,6 @@ describe("write_note conventions", () => {
   it("the write succeeds when the sink and onInternalError also throws", async () => {
     await withVault(
       {
-        centralAcl: true,
         files: { "meetings/SCHEMA.md": REQUIRE_TYPE },
         registryOpts: {
           conventions: failingSink,
