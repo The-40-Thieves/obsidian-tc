@@ -4,6 +4,7 @@
 // SMB, ext4 casefold), and Windows can mark a single directory case-sensitive. CASE_INSENSITIVE_FS
 // (acl.ts) remains the platform default for vault-less callers; this module answers per vault
 // root and says how to fail closed when the answer is unknowable.
+import { randomUUID } from "node:crypto";
 import { rmSync, type Stats, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { type AclCaseMatch, CASE_INSENSITIVE_FS } from "../acl";
@@ -39,16 +40,13 @@ function probeDir(root: string): boolean | null {
   // the resolver (a planted symlink) makes the answer unknowable, not an exception.
   let probe: string;
   try {
-    probe = resolveVaultPath(
-      root,
-      `.obtc-CaSe-${process.pid}-${Math.random().toString(36).slice(2)}`,
-    );
+    probe = resolveVaultPath(root, `.obtc-CaSe-${process.pid}-${randomUUID()}`);
   } catch {
     return null;
   }
   let wrote = false;
   try {
-    writeFileSync(probe, "");
+    writeFileSync(probe, "", { flag: "wx", mode: 0o600 });
     wrote = true;
     try {
       statSync(join(root, flipCase(basename(probe))));
@@ -111,7 +109,7 @@ export function aclCaseMatchFor(caseInsensitive: boolean | null): AclCaseMatch {
 export function vaultCaseInfo(
   root: string | undefined,
   configured: CaseSensitiveSetting | undefined,
-  detect: (root: string) => boolean | null = detectFsCaseSensitivity,
+  detect: typeof detectFsCaseSensitivity = detectFsCaseSensitivity,
 ): VaultCaseInfo {
   if (configured !== undefined && configured !== "auto")
     return {
