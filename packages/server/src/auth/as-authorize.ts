@@ -165,8 +165,8 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
     // `auth.as.consent.loopback: prompt` stops a loopback callback being remembered: its port is
     // picked at run time and nothing proves WHICH local process is behind it, so a grant made for one
     // process would also approve another that claims the same client_id and path (design v2 section
-    // 4.3 gives no instance proof). The default, `remember`, accepts that so a native CLI signs in
-    // without a click. Without a remembered grant, `first` still keys on whether the client has any.
+    // 4.3 gives no instance proof). `prompt` is the default; explicit `remember` accepts that risk.
+    // Without a remembered grant, `first` still keys on whether the client has any.
     const remembers = as.consent.loopback === "remember" || !isLoopbackRedirect(p.redirectUri);
     // A remembered grant is reused only while the account's CURRENT bounds still allow all of it:
     // narrowing the account after the grant makes the operator decide again.
