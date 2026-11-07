@@ -9,9 +9,10 @@ import { SignJWT } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
 import { authKeysDir, createAuthRegistry } from "../src/auth/registry";
 import { createTokenVerifier } from "../src/auth/verifier";
+import { runMigrations } from "../src/db/migrate";
 import { OAUTH_MIGRATION_FILES } from "../src/db/migration-manifest";
 import { openConfiguredDatabase } from "../src/db/open";
-import { provisionAuthDb } from "../src/db/provision";
+import { OAUTH_MIGRATIONS, provisionAuthDb, provisionOauthDb } from "../src/db/provision";
 import { openMemoryDb } from "./helpers";
 import { makeTempDir, rmTemp } from "./tmp";
 
@@ -45,6 +46,32 @@ const columnsOf = (db: { prepare(sql: string): { all(): unknown[] } }, table: st
   (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((r) => r.name);
 
 describe("oauth.db migration chain", () => {
+  it("discards legacy pending sign-ins whose scope provenance is unknown, without losing registrations", () => {
+    const db = openMemoryDb();
+    const index = OAUTH_MIGRATIONS.findIndex((m) => m.version === "20261108_957");
+    expect(index).toBeGreaterThan(0);
+    runMigrations(db, OAUTH_MIGRATIONS.slice(0, index));
+    db.prepare(
+      "INSERT INTO auth_requests (handle_hash, client_id, redirect_uri, scope, resource, code_challenge, created_at, expires_at) VALUES ('h', 'c', 'https://app.example/cb', 'read:*', 'https://vault.example/mcp', 'challenge', 1, 1000)",
+    ).run();
+    // A consumed request can never be continued, so its tombstone keeps saying "already used".
+    db.prepare(
+      "INSERT INTO auth_requests (handle_hash, client_id, redirect_uri, scope, resource, code_challenge, created_at, expires_at, used_at) VALUES ('t', 'c', 'https://app.example/cb', 'read:*', 'https://vault.example/mcp', 'challenge', 1, 1000, 5)",
+    ).run();
+    db.prepare(
+      "INSERT INTO oauth_clients (client_id, kind, metadata_json, created_at) VALUES ('c', 'dcr', '{}', 1)",
+    ).run();
+    expect(provisionOauthDb(db)).toEqual(["20261108_957"]);
+    expect(db.prepare("SELECT handle_hash FROM auth_requests").all()).toEqual([
+      { handle_hash: "t" },
+    ]);
+    expect(db.prepare("SELECT client_id FROM oauth_clients").all()).toEqual([{ client_id: "c" }]);
+    expect(columnsOf(db, "auth_requests")).toEqual(
+      expect.arrayContaining(["scope_defaulted", "dropped_scopes"]),
+    );
+    expect(provisionOauthDb(db)).toEqual([]);
+  });
+
   it("is registered as its own chain, with the 95x numbering", () => {
     expect(OAUTH_MIGRATION_FILES.length).toBeGreaterThan(0);
     expect(OAUTH_MIGRATION_FILES.every((f) => /^\d{8}_95\d_/.test(f))).toBe(true);

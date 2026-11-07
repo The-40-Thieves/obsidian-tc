@@ -21,7 +21,7 @@ connector, `codex mcp login`, Gemini CLI, Grok Build, Cursor) cannot get a token
 opt-in, in-process authorization server under `auth.as`, **written in-repo on Hono + jose + SQLite**
 rather than on a library. It signs ES256 RFC 9068 access tokens with a **registry key of its own
 purpose**. The existing verifier checks those tokens in process, with no loopback JWKS fetch. Clients
-register by **Client ID Metadata Document** by default, by DCR (`auth.as.dynamicRegistration`, on by default since 2026-10-09), or from config. A **single operator** logs in with a password set from the CLI or a one-time
+register by **Client ID Metadata Document** by default, by opt-in DCR (`auth.as.dynamicRegistration`, off by default), or from config. A **single operator** logs in with a password set from the CLI or a one-time
 setup token. Grants live in a new `oauth.db`. Hand-minted HS256 tokens keep working unchanged, and
 bring-your-own external servers (`jwt` + `jwksUri`, `oidc`, Cloudflare Access managed OAuth) stay
 first-class.
@@ -368,7 +368,7 @@ the registered redirect URIs.
 | `GET/POST /oauth/consent` | Shows the client name, `client_id` host, redirect host (a loud warning when the redirect being used is loopback, any scheme and any 127.0.0.0/8 or ::1 address, or when it is a CIMD client the operator has never approved), the requested scopes in words, the resource, and a persona/vault picker when personas are configured. The first grant for a `(client_id, redirect_uri)` requires a login newer than 5 min. POST needs the CSRF token bound to (session, pending handle) and an `Origin` equal to the issuer origin. Approve → create or extend the grant, issue a code, 303 to `redirect_uri?code&state&iss`. Deny → `error=access_denied` with `iss`. Remembered consent skips the page only for `scope ⊆ granted` on the same `(client_id, redirect_uri, sub)`, **including a loopback callback across ports** (the default, `auth.as.consent.loopback: remember`, so a native CLI signs in without a click; nothing proves which local process is behind the port, so `prompt` makes every loopback sign-in ask, see the auth model), **and only while the account's current `scopes_allowed` / `vaults_allowed` still allow all of it** (they are re-read on every decision: consent POST, remembered consent, token exchange; a grant the account has since outgrown asks again, and a code is exchanged only for the scopes and vault the account still allows); there is no auto-approve otherwise |
 | `POST /oauth/token` | `application/x-www-form-urlencoded` only (else 415). `authorization_code`: the code is looked up by SHA-256 and must be unused, unexpired (60 s) and bound to the same `client_id`, `redirect_uri` and `resource`; `BASE64URL(SHA256(code_verifier)) == code_challenge` in constant time. A **second use of a code revokes every token issued from it** (grant family + access `jti`s). `refresh_token`: rotation per §4.6. Response: `access_token` (JWT §4.4), `token_type: Bearer`, `expires_in`, `refresh_token`, `scope`. Errors are RFC 6749 codes, `invalid_grant` for any bad code or refresh token. `Cache-Control: no-store`. Target p99 < 1 s (Claude's 10 s / 30 s budgets) |
 | `POST /oauth/revoke` | RFC 7009. A refresh token revokes its family. An access token: its `jti` goes to the registry's revoked set (existing `registry.revoke`). Always 200 for an unknown token |
-| `POST /oauth/register` | Unless `auth.as.dynamicRegistration` is false (on by default since 2026-10-09); 404 then. RFC 7591 JSON. Public clients only (`token_endpoint_auth_method` must be `none`; no secret is ever issued). `redirect_uris` validated as in authorize; a private-use scheme (`cursor://…`) is **dropped, not fatal**, as long as one usable URI remains. Rate-limited, row-capped, unused rows expire (§8) |
+| `POST /oauth/register` | Only when `auth.as.dynamicRegistration` is true (off by default); otherwise 404. RFC 7591 JSON. Public clients use `none`; `client_secret_basic` issues a secret once and stores only its hash. `redirect_uris` validated as in authorize; a private-use scheme (`cursor://…`) is **dropped, not fatal**, as long as one usable URI remains. Rate-limited, row-capped, unused rows expire (§8) |
 | `GET/POST /oauth/setup` | First-boot claim when no CLI password exists: needs the setup token (§4.5); single use |
 | PRM `/.well-known/oauth-protected-resource[/mcp]` | Existing route. With `as.enabled`, `authorization_servers` defaults to `[as.issuer]`. If the operator lists servers explicitly, `as.issuer` must be **first** (Claude reads only the first), or config load fails. The issuer string is byte-identical in AS metadata, PRM, every `iss` claim and every `iss` response parameter |
 
@@ -526,7 +526,7 @@ Config validation enforces three conditions:
   - Optional `auth.as.cimd.allowedHosts` restricts which hosts may be `client_id`s.
   - Consent pins the grant to the URL. A later document whose `redirect_uris` no longer contain the
     granted one invalidates remembered consent.
-- **DCR**: §4.3 `/oauth/register`, **off by default (decided)**. A boot notice at `warn` level
+- **DCR**: §4.3 `/oauth/register`, **off by default (decided)**. A boot notice at `info` level
   whenever it is on, naming the flooding surface and the knobs. Clients that still need it: Gemini
   CLI, Grok Build and Cursor, all unverified. claude.ai, Claude Code, ChatGPT and Codex use CIMD
   (§2).
@@ -711,7 +711,7 @@ RED tests (S10):
     "signingAlg": "ES256",                            // "ES256" | "EdDSA"
     "accessTokenSeconds": 1800,                       // 300..3600
     "refreshTokenDays": 30,                           // 1..90
-    "dynamicRegistration": true,                      // DCR; on by default (2026-10-09); info line at boot
+    "dynamicRegistration": false,                     // DCR opt-in; info line at boot when enabled
     "dcr": { "maxClients": 1000, "perIpPerHour": 10, "unusedDays": 90 },
     "cimd": { "allowedHosts": [] },                   // empty = any public https host
     "setupTokenEnv": "OBSIDIAN_TC_AS_SETUP_TOKEN",
@@ -891,6 +891,9 @@ key), and S4–S8 run in order after it. S9 can start after S5.
    the box. The abuse controls (S8: per-source budget, client cap, unused-registration GC) bound it;
    `hardened` still forces it off; the boot notice is one info line, not a warning. Antigravity was
    subsequently verified on 2026-10-12 to use a metadata document rather than DCR.
+   **Reversed again for #1474:** off everywhere by default, with explicit operator opt-in.
+   Self-registration does not establish trust in a client's name. Operators can list and remove
+   DCR registrations with `auth as clients list|remove`; removal revokes the client's grants and tokens.
 3. **Password login first; passkeys in a later slice** (S10, §4.11).
 4. **Persona narrowing:** for AS-issued tokens, effective scopes = persona ∩ token `scope`. It only
    removes scopes. Hand-minted persona tokens keep "persona replaces scopes".

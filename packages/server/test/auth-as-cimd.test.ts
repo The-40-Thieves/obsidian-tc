@@ -902,7 +902,7 @@ describe("review round 1: the localhost warning follows the SELECTED redirect, f
     expect(text).not.toContain(LOOP);
   });
 
-  it("the never-approved warning is spec-literal: it ends at the first approval and does not return after a revoke", async () => {
+  it("the unapproved warning returns after the last live approval is revoked", async () => {
     const { flow } = await cimdFlow({ [CHATGPT]: json(chatgptDoc) });
     const jar = new Jar();
     expect(
@@ -917,7 +917,7 @@ describe("review round 1: the localhost warning follows the SELECTED redirect, f
     const a = await authorizeAs(flow, CHATGPT, CHATGPT_REDIRECT, jar);
     const page = await consentPage(flow, jar, handleOf(a.headers.get("location")));
     expect(page.seen.res.status).toBe(200);
-    expect(page.seen.text).not.toContain("you have not approved it before");
+    expect(page.seen.text).toContain("you have not approved it before");
   });
 });
 

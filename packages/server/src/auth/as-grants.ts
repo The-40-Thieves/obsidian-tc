@@ -50,6 +50,8 @@ export interface PendingRequest {
   resource: string;
   codeChallenge: string;
   state: string | null;
+  scopeDefaulted?: boolean;
+  droppedScopes?: string[];
 }
 
 interface PendingRow {
@@ -59,6 +61,8 @@ interface PendingRow {
   resource: string;
   code_challenge: string;
   state: string | null;
+  scope_defaulted: number;
+  dropped_scopes: string;
 }
 
 const pendingOf = (r: PendingRow): PendingRequest => ({
@@ -68,6 +72,8 @@ const pendingOf = (r: PendingRow): PendingRequest => ({
   resource: r.resource,
   codeChallenge: r.code_challenge,
   state: r.state,
+  ...(r.scope_defaulted === 1 ? { scopeDefaulted: true } : {}),
+  ...(r.dropped_scopes !== "[]" ? { droppedScopes: JSON.parse(r.dropped_scopes) as string[] } : {}),
 });
 
 /**
@@ -102,8 +108,8 @@ export function createPending(
     const handle = random();
     db.prepare(
       `INSERT INTO auth_requests
-         (handle_hash, client_id, redirect_uri, scope, resource, code_challenge, state, created_at, expires_at, source_hash)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (handle_hash, client_id, redirect_uri, scope, resource, code_challenge, state, created_at, expires_at, source_hash, scope_defaulted, dropped_scopes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       sha256Hex(handle),
       p.clientId,
@@ -115,6 +121,8 @@ export function createPending(
       now,
       now + PENDING_TTL_MS,
       sourceHash,
+      p.scopeDefaulted ? 1 : 0,
+      JSON.stringify(p.droppedScopes ?? []),
     );
     return handle;
   });
@@ -123,7 +131,7 @@ export function createPending(
 export function loadPending(db: Database, handle: string, now: number): PendingRequest | undefined {
   const row = db
     .prepare(
-      "SELECT client_id, redirect_uri, scope, resource, code_challenge, state FROM auth_requests WHERE handle_hash = ? AND expires_at > ? AND used_at IS NULL",
+      "SELECT client_id, redirect_uri, scope, resource, code_challenge, state, scope_defaulted, dropped_scopes FROM auth_requests WHERE handle_hash = ? AND expires_at > ? AND used_at IS NULL",
     )
     .get(sha256Hex(handle), now) as PendingRow | undefined;
   return row === undefined ? undefined : pendingOf(row);
@@ -151,7 +159,7 @@ export function discardPending(
 ): PendingRequest | undefined {
   const row = db
     .prepare(
-      "UPDATE auth_requests SET used_at = ? WHERE handle_hash = ? AND expires_at > ? AND used_at IS NULL RETURNING client_id, redirect_uri, scope, resource, code_challenge, state",
+      "UPDATE auth_requests SET used_at = ? WHERE handle_hash = ? AND expires_at > ? AND used_at IS NULL RETURNING client_id, redirect_uri, scope, resource, code_challenge, state, scope_defaulted, dropped_scopes",
     )
     .get(now, sha256Hex(handle), now) as PendingRow | undefined;
   return row === undefined ? undefined : pendingOf(row);
@@ -198,9 +206,11 @@ export function liveGrants(db: Database, k: GrantKey): Grant[] {
   ).map(grantOf);
 }
 
-/** Has the operator ever approved this client (any redirect, any scope, any account)? A revoked grant counts. */
+/** Does this client still have an approval (any redirect, scope or account)? Revoked grants do not count. */
 export const everApproved = (db: Database, clientId: string): boolean =>
-  db.prepare("SELECT 1 FROM grants WHERE client_id = ? LIMIT 1").get(clientId) !== undefined;
+  db
+    .prepare("SELECT 1 FROM grants WHERE client_id = ? AND revoked_at IS NULL LIMIT 1")
+    .get(clientId) !== undefined;
 
 export interface Approval {
   handle: string;
