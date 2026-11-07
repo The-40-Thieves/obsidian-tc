@@ -921,6 +921,14 @@
                     "remember",
                     "prompt"
                   ]
+                },
+                "remembered": {
+                  "description": "What a sign-in that an earlier approval already covers does. `confirm`: the browser shows a one-click Continue page, so a link opened from another site cannot obtain a code without the operator seeing it. `silent`: the code is issued with no page. Unset (the default): `silent` when the redirect is on this machine (`127.0.0.0/8`, `::1` or `localhost`), so native CLIs keep signing in without a click, and `confirm` for any other redirect.",
+                  "type": "string",
+                  "enum": [
+                    "silent",
+                    "confirm"
+                  ]
                 }
               },
               "additionalProperties": false
