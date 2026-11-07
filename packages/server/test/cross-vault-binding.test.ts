@@ -17,7 +17,7 @@ function freshDb(): any {
 }
 
 function reg(): ToolRegistry {
-  const r = new ToolRegistry();
+  const r = new ToolRegistry({ rootResolver: () => undefined });
   r.register({
     name: "vault_echo",
     description: "echoes the vault arg",
@@ -80,7 +80,7 @@ describe("THE-267 vault-binding guard", () => {
   // still refuses a genuine cross-vault id. A fix that quietly widened the exemption would pass the
   // first assertion and fail the second.
   it("does not fire on generate_uri, whose vault_name is a display name (THE-589)", async () => {
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     for (const t of buildUriTools()) r.register(t);
     const res = await r.dispatch(
       "generate_uri",

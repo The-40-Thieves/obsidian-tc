@@ -13,7 +13,6 @@ describe("commit_wiki_page under a block rule", () => {
     const hh = makeWikiHarness({
       files: { "wiki/SCHEMA.md": WIKI_SCHEMA },
       wikiFolder: "wiki",
-      centralAcl: true,
       conventions: true,
     });
     try {

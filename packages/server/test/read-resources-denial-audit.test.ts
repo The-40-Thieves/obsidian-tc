@@ -46,7 +46,6 @@ function vault(files: Record<string, string>, over: Parameters<typeof makeTestVa
   const metrics = new MetricsRecorder();
   const v = makeTestVault({
     files,
-    centralAcl: true,
     acl: ACL,
     metrics,
     ...over,

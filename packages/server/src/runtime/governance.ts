@@ -174,7 +174,7 @@ export function wireGovernance(deps: GovernanceDeps): Governance {
     aclResolver: (vaultId) => aclByVault.get(vaultId) ?? acl,
     // THE-414: vault-root resolver so dispatch can run central pathAcl enforcement with the same
     // symlink-canonical enforcePathAcl the handlers use. Unknown vaults resolve to undefined
-    // (central enforcement then skips; the vault-binding guard already rejects cross-vault access).
+    // (central path enforcement refuses the call).
     folderPins: vaultRegistry.folderPins,
     rootResolver: (vaultId) => {
       try {

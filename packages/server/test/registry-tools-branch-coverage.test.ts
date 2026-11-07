@@ -36,7 +36,10 @@ function makeCustomVault(deps: Partial<M1Deps> = {}) {
   const db = openMemoryDb();
   provisionCacheDb(db);
   const vaultRegistry = deps.vaultRegistry ?? new VaultRegistry([{ id: id ?? "test", path: root }]);
-  const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
+  const registry = new ToolRegistry({
+    rootResolver: (id) => vaultRegistry.resolve(id).root,
+    verifyElicit: elicitVerifier,
+  });
   registerM1Tools(registry, {
     vaultRegistry,
     version: "test",

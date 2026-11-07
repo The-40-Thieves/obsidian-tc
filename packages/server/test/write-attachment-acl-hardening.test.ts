@@ -18,7 +18,7 @@ import { trySymlink } from "./write-io-backends";
 const PNG_B64 = Buffer.from([0x89, 0x50, 0x4e, 0x47]).toString("base64");
 
 function pathAclOf() {
-  const reg = new ToolRegistry();
+  const reg = new ToolRegistry({ rootResolver: () => undefined });
   const deps = { vaultRegistry: new VaultRegistry([{ id: "x", path: "/" }]) } as M3Deps;
   registerM3Tools(reg, deps);
   const tool = reg.list().find((t) => t.name === "write_attachment");

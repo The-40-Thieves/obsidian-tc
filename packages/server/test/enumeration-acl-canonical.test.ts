@@ -57,7 +57,7 @@ const m1 = (opts: { pinned: boolean }) => {
   const v = makeTestVault({
     files: FILES,
     acl: ACL,
-    ...(opts.pinned ? { wikiFolder: "wiki", centralAcl: true } : {}),
+    ...(opts.pinned ? { wikiFolder: "wiki" } : {}),
     setup: alias,
   });
   cleanups.push(v.cleanup);
@@ -158,7 +158,6 @@ describe.skipIf(process.platform === "win32")("enumeration filters on the canoni
       files: FILES,
       acl: { readPaths: ["pages", "pages/**"] },
       wikiFolder: "wiki",
-      centralAcl: true,
       setup: (root) => symlinkSync(join(root, "pages"), join(root, "wiki")),
     });
     cleanups.push(v.cleanup);

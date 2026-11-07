@@ -79,7 +79,7 @@ describe("createAdvisoryBus", () => {
 async function boot(): Promise<{ handle: HttpHandle; bus: ReturnType<typeof createAdvisoryBus> }> {
   const db = openMemoryDb();
   provisionCacheDb(db);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register(
     createHealthTool({
       version: "0.0.0-test",
@@ -289,7 +289,7 @@ describe("notifications/advisory (THE-634)", () => {
     async () => {
       const db = openMemoryDb();
       provisionCacheDb(db);
-      const registry = new ToolRegistry();
+      const registry = new ToolRegistry({ rootResolver: () => undefined });
       registry.register(
         createHealthTool({
           version: "0.0.0-test",

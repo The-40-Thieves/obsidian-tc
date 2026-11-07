@@ -285,6 +285,11 @@ export function checkHitl(
   });
 }
 
+/** No resolvable root: refuse with the same vault_not_found the handler gives an unknown vault. */
+function rootUnavailable(vault: string): ObsidianTcError {
+  return err.vaultNotFound(`vault not found: ${vault}`, { vault });
+}
+
 /** The probe that fingerprints what THIS call targets (replay_drift): its `pathAcl` paths and/or
  *  `confirmationTargets` state; null only when there is nothing to bind. A throw FAILS CLOSED (a typed
  *  refusal like `acl_denied` surfaces as itself): swallowing it would mint an UNBOUND approval. */
@@ -297,10 +302,11 @@ export function confirmationStateProbe(
   return () => {
     if (!def.pathAcl && typeof def.confirmationTargets !== "function") return null;
     const vaultId = vaultArgOf(def, data) ?? ctx.vaultId;
-    const root = rootResolver?.(vaultId);
+    const root = rootResolver(vaultId);
     try {
       const parts: string[] = [];
-      if (def.pathAcl && root) {
+      if (def.pathAcl) {
+        if (!root) throw rootUnavailable(vaultId);
         const targets = def.pathAcl(data, { root });
         for (const { op, path } of targets)
           enforcePathAcl(ctx.acl, op, path, root, ctx.grantedScopes);
@@ -325,13 +331,12 @@ export function confirmationStateProbe(
 }
 
 /**
- * THE-414: central folder-ACL enforcement. Extract the vault-relative paths this call touches
+ * Central folder-ACL enforcement. Extract the vault-relative paths this call touches
  * (declared per tool via def.pathAcl) and enforce the per-op ACL HERE, right before the handler —
  * so containment no longer depends on every handler remembering to call enforcePathAcl (the
  * handler-side calls remain as defense-in-depth). Uses the same symlink-canonical enforcePathAcl +
- * the (already per-vault-swapped) ctx.acl; the root is the effective vault's. A no-op when the
- * tool declares no pathAcl, or when no root resolver is wired (matching the original's nested
- * `if (def.pathAcl) { ... if (root) { ... } }`).
+ * the (already per-vault-swapped) ctx.acl; the root is the effective vault's. A no-op only when the
+ * tool declares no pathAcl. An unresolved root must never silently skip the gate.
  */
 export function enforceCentralPathAcl(
   def: ToolDefinition,
@@ -341,8 +346,8 @@ export function enforceCentralPathAcl(
 ): void {
   if (!def.pathAcl) return;
   const effVault = vaultArgOf(def, data) ?? ctx.vaultId;
-  const root = rootResolver?.(effVault);
-  if (!root) return;
+  const root = rootResolver(effVault);
+  if (!root) throw rootUnavailable(effVault);
   for (const { op, path } of def.pathAcl(data, { root })) {
     // P1.4: pass the caller's granted scopes so a path's declared rule-scopes are
     // enforced here (the authoritative central stage), not just the folder allowlist.

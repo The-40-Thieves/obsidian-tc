@@ -399,7 +399,7 @@ describe("external authorization server (auth.mode: jwt, no bundled AS)", () => 
     return createHttpApp({
       name: "obsidian-tc",
       version: "t",
-      registry: new ToolRegistry(),
+      registry: new ToolRegistry({ rootResolver: () => undefined }),
       auth: cfg,
       db,
       vaultId: "v1",

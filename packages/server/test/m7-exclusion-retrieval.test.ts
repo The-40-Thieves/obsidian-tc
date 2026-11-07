@@ -34,9 +34,10 @@ function addChunk(db: Database, vaultId: string, id: string, path: string, conte
 function harness(vaults: Array<{ id: string; path: string; kind?: "private" | "docs" }>) {
   const db = openMemoryDb();
   provisionCacheDb(db);
-  const registry = new ToolRegistry({});
+  const vaultRegistry = new VaultRegistry(vaults);
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   registerM7Tools(registry, {
-    vaultRegistry: new VaultRegistry(vaults),
+    vaultRegistry,
     embeddingProvider: {
       id: "test:fixed",
       provider: "fake",

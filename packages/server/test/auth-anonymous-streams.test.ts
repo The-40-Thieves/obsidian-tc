@@ -48,7 +48,7 @@ function boot(authOver: Record<string, unknown>) {
   const queue = new JobQueue(db);
   const listen = vi.spyOn(queue, "onTaskChange");
   const probe = vi.fn(() => ({ ok: true }));
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register({
     name: "scope_free_probe",
     description: "test-only, declares no scopes (like server_health)",
@@ -269,7 +269,7 @@ describe("an unauthenticated context dispatches no tool", () => {
   });
 
   it("registry dispatch refuses authenticated:false even for requiredScopes []", async () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     const probe = vi.fn(() => ({ ok: true }));
     registry.register({
       name: "scope_free_probe",

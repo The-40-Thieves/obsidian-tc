@@ -67,7 +67,6 @@ describe("a blocked write leaves no trace", () => {
         "wiki/learning.md": "---\ntype: concept\nsummary: old\n---\nold\n",
       },
       wikiFolder: "wiki",
-      centralAcl: true,
       conventions: true,
     });
     const r = await hh.v.call("commit_wiki_page", {

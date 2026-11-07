@@ -89,7 +89,7 @@ export class ToolRegistry {
   private readonly onInternalError?: RegistryOptions["onInternalError"];
   private readonly onOutputSchemaDrift?: RegistryOptions["onOutputSchemaDrift"];
   private readonly aclResolver?: RegistryOptions["aclResolver"];
-  private readonly rootResolver?: RegistryOptions["rootResolver"];
+  private readonly rootResolver: RegistryOptions["rootResolver"];
   private readonly folderPins?: FolderPins;
   private readonly vaultKindResolver?: RegistryOptions["vaultKindResolver"];
   private readonly visibleVaultIds?: RegistryOptions["visibleVaultIds"];
@@ -115,7 +115,9 @@ export class ToolRegistry {
     return this.aclResolver?.(vaultId);
   }
 
-  constructor(opts: RegistryOptions = {}) {
+  constructor(opts: RegistryOptions) {
+    if (typeof opts?.rootResolver !== "function")
+      throw new TypeError("ToolRegistry requires rootResolver");
     this._maxResponseBytes = opts.maxResponseBytes ?? 1_000_000;
     this.verifyElicit = opts.verifyElicit;
     this.tracer = opts.tracer;

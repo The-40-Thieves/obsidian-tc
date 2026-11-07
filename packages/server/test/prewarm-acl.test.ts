@@ -115,7 +115,7 @@ const root = makeTempDir("obtc-pwacl-");
 afterAll(() => rmTemp(root));
 
 function harness(db: Database, prewarmDir: string) {
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   const vaultRegistry = new VaultRegistry([{ id: "main", name: "main", path: root }]);
   const embeddingProvider = {
     provider: "ollama",

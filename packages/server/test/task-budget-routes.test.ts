@@ -39,7 +39,7 @@ async function rig(opts: {
   const gate = new Promise<void>((r) => {
     release = r;
   });
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   const tool = (name: string, handler: ToolDefinition["handler"]): ToolDefinition =>
     ({
       name,

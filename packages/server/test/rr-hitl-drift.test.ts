@@ -220,7 +220,7 @@ describe("RR-M2 a cancelled call never reaches its handler", () => {
       },
       commit: async () => {},
     };
-    const registry = new ToolRegistry({ provenance });
+    const registry = new ToolRegistry({ rootResolver: () => undefined, provenance });
     registry.register(writeTool(effect));
     const r = await registry.dispatch("rr_write", {}, baseCtx(controller.signal));
     expect(controller.signal.aborted).toBe(true);
@@ -239,7 +239,11 @@ describe("RR-M2 a cancelled call never reaches its handler", () => {
       },
       commit: async () => {},
     };
-    const registry = new ToolRegistry({ provenance, verifyElicit: elicitVerifier });
+    const registry = new ToolRegistry({
+      rootResolver: () => undefined,
+      provenance,
+      verifyElicit: elicitVerifier,
+    });
     registry.register(writeTool(effect, true));
     const base = baseCtx(controller.signal);
     const raised = errOf(await registry.dispatch("rr_write", {}, base));
@@ -279,6 +283,7 @@ describe("RR-M2 a cancelled call never reaches its handler", () => {
     const effect = { applied: 0 };
     let verifyCalls = 0;
     const registry = new ToolRegistry({
+      rootResolver: () => undefined,
       rateLimiter: {
         check: async () => {
           controller.abort();

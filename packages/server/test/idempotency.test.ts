@@ -25,8 +25,8 @@ function ctx(db: Database, over: Partial<CallerContext> = {}): CallerContext {
 }
 
 // A keyed write tool that counts how many times its handler actually runs.
-function counterReg(opts: RegistryOptions = {}) {
-  const reg = new ToolRegistry(opts);
+function counterReg(opts: Partial<RegistryOptions> = {}) {
+  const reg = new ToolRegistry({ rootResolver: () => undefined, ...opts });
   const calls = { n: 0 };
   reg.register({
     name: "kv_put",
@@ -157,7 +157,7 @@ describe("dispatch idempotency gate (D3)", () => {
 
   it("a failed handler releases the slot so a retry can run", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     let n = 0;
     reg.register({
       name: "flaky",
@@ -190,7 +190,7 @@ describe("dispatch idempotency gate (D3)", () => {
 
   it("extracts a nested options.idempotency_key", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     let n = 0;
     reg.register({
       name: "wopts",
@@ -211,7 +211,7 @@ describe("dispatch idempotency gate (D3)", () => {
 
   it("extracts the bulk_idempotency_key alias", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     let n = 0;
     reg.register({
       name: "wbulk",
@@ -279,7 +279,7 @@ describe("dispatch idempotency metrics (THE-197)", () => {
   it("records a cache-skip when a keyed result overflows the byte cap", async () => {
     const db = freshDb();
     const metrics = new MetricsRecorder();
-    const reg = new ToolRegistry({ metrics, maxResponseBytes: 10 });
+    const reg = new ToolRegistry({ rootResolver: () => undefined, metrics, maxResponseBytes: 10 });
     reg.register({
       name: "big_keyed",
       description: "big keyed write",
@@ -299,7 +299,7 @@ describe("dispatch idempotency metrics (THE-197)", () => {
     const db = freshDb();
     const metrics = new MetricsRecorder();
     let runs = 0;
-    const reg = new ToolRegistry({ metrics, maxResponseBytes: 10 });
+    const reg = new ToolRegistry({ rootResolver: () => undefined, metrics, maxResponseBytes: 10 });
     reg.register({
       name: "big_keyed2",
       description: "big keyed write with a side effect",

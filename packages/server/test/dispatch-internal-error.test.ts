@@ -30,7 +30,10 @@ function registryWithThrower(
   handler: () => unknown,
   onInternalError?: (tool: string, vaultId: string, err: unknown) => void,
 ): ToolRegistry {
-  const registry = new ToolRegistry(onInternalError ? { onInternalError } : {});
+  const registry = new ToolRegistry({
+    rootResolver: () => undefined,
+    ...(onInternalError ? { onInternalError } : {}),
+  });
   registry.register(
     defineTool({
       name,

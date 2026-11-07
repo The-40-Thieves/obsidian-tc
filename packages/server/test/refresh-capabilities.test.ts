@@ -76,7 +76,10 @@ function harness(
 ) {
   const capabilities = new CapabilityCache();
   capabilities.set("main", initial);
-  const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
+  const registry = new ToolRegistry({
+    rootResolver: () => undefined,
+    verifyElicit: elicitVerifier,
+  });
   for (const t of buildCapabilityTools({
     vaultRegistry: { list: () => [{ id: "main", path: "/v" }] } as never,
     capabilities,
@@ -169,7 +172,10 @@ describe("THE-527 refresh_plugin_capabilities tool", () => {
   it("returns a clear error (not ok) when reprobe is not wired", async () => {
     const capabilities = new CapabilityCache();
     capabilities.set("main", snap());
-    const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
+    const registry = new ToolRegistry({
+      rootResolver: () => undefined,
+      verifyElicit: elicitVerifier,
+    });
     for (const t of buildCapabilityTools({
       vaultRegistry: { list: () => [{ id: "main", path: "/v" }] } as never,
       capabilities,

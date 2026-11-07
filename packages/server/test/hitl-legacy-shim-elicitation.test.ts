@@ -150,7 +150,10 @@ async function bootStdio(
 ) {
   const db = openMemoryDb();
   provisionCacheDb(db);
-  const registry = new ToolRegistry({ emit: (_v, type) => events.push(type) });
+  const registry = new ToolRegistry({
+    rootResolver: () => undefined,
+    emit: (_v, type) => events.push(type),
+  });
   registry.register(destructiveTool(effect));
   for (const t of extraTools) registry.register(t);
   const context = (signal?: AbortSignal): CallerContext => ({
@@ -500,7 +503,7 @@ describe("THE-1106 fix round 1: legacyElicitationShim is STDIO-ONLY (addendum 2)
   async function bootHttp() {
     const db = openMemoryDb();
     provisionCacheDb(db);
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register(destructiveTool({ applied: 0, seen: [] }));
     const auth: ServerConfig["auth"] = ServerConfigSchema.parse({
       vaults: [{ id: "v1", path: "/tmp/v1" }],

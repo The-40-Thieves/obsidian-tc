@@ -165,7 +165,7 @@ describe("telemetry property test — fed through the REAL ToolRegistry.dispatch
       getKnownToolNames: () => new Set(REGISTERED_TOOL_NAMES),
     });
     const metrics = new MetricsRecorder({}, telemetry.observer);
-    const registry = new ToolRegistry({ metrics });
+    const registry = new ToolRegistry({ rootResolver: () => undefined, metrics });
     for (const name of REGISTERED_TOOL_NAMES) registry.register(tool(name));
 
     let registeredCalls = 0;

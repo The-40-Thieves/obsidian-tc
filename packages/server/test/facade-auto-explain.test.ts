@@ -184,7 +184,7 @@ describe("createFacadeModeResolver — explanation log + ctx field", () => {
 
 describe("server_health surfaces the calling client's explanation", () => {
   const reg = (profile: "full" | "core"): ToolRegistry => {
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     r.register(
       createHealthTool({
         version: "test",

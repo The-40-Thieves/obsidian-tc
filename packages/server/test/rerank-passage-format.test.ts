@@ -213,7 +213,7 @@ afterAll(() => rmTemp(root));
 async function searchWith(rerankPassageFormat?: RerankPassageFormat): Promise<string[]> {
   const db = hardDb();
   const s = spy();
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: () => root });
   registerM7Tools(registry, {
     vaultRegistry: new VaultRegistry([{ id: VAULT, name: VAULT, path: root }]),
     embeddingProvider: {

@@ -85,7 +85,7 @@ export async function runBootProbe(): Promise<BootProbeResult> {
   }
   const moduleEvalMs = performance.now() - t0;
 
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   const t1 = performance.now();
   for (const register of registrars) register(registry, deps);
   const registrationMs = performance.now() - t1;

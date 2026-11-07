@@ -48,7 +48,7 @@ describe("THE-514: AbortSignal threads through runDispatch", () => {
   });
 
   it("an already-aborted signal never invokes the handler", async () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     const handler = vi.fn(() => ({ ok: true }));
     registry.register({
       name: "plain",
@@ -66,7 +66,7 @@ describe("THE-514: AbortSignal threads through runDispatch", () => {
   });
 
   it("a signal that aborts mid-pipeline stops before the handler runs", async () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     const handler = vi.fn(() => ({ ok: true }));
     const ctrl = new AbortController();
     registry.register({
@@ -90,7 +90,7 @@ describe("THE-514: AbortSignal threads through runDispatch", () => {
   });
 
   it("with no signal at all, dispatch behaves exactly as before (regression pin)", async () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     const handler = vi.fn(() => ({ ok: true, n: 1 }));
     registry.register({
       name: "plain",
@@ -106,7 +106,7 @@ describe("THE-514: AbortSignal threads through runDispatch", () => {
   });
 
   it("aborting right after an idempotency claim releases it, so a retry re-runs the handler", async () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     const ctrl = new AbortController();
     let calls = 0;
     registry.register({
@@ -149,6 +149,7 @@ describe("THE-514: AbortSignal threads through runDispatch", () => {
     const ctrl = new AbortController();
     let shouldAbort = true;
     const registry = new ToolRegistry({
+      rootResolver: () => undefined,
       verifyElicit: (token, hash) => {
         if (shouldAbort) ctrl.abort();
         return token === `good:${hash}`;

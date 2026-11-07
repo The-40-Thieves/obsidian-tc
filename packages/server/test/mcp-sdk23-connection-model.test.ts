@@ -29,7 +29,7 @@ const SECRET = "test-only-secret-not-a-real-credential-0123456789";
 const MODERN = "2026-07-28";
 
 function rendezvousRegistry(parties: number) {
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   let arrived = 0;
   let release: () => void = () => {};
   const gate = new Promise<void>((resolve) => {
@@ -142,7 +142,7 @@ describe("SDK 2.3 one-connection-per-server rule", () => {
     async () => {
       const db = openMemoryDb();
       provisionCacheDb(db);
-      const registry = new ToolRegistry();
+      const registry = new ToolRegistry({ rootResolver: () => undefined });
       registry.register({
         name: "ping",
         description: "test-only",
@@ -227,7 +227,7 @@ describe("SDK 2.3 prompts/get without `arguments`", () => {
     const server = createMcpServer({
       name: "obsidian-tc",
       version: "0.0.0-test",
-      registry: new ToolRegistry(),
+      registry: new ToolRegistry({ rootResolver: () => undefined }),
       context: (): CallerContext => ({
         caller: "stdio",
         authenticated: true,
