@@ -13,6 +13,7 @@ import type { BusyReason, WriteTxnLabel } from "../db/txn";
 import type { StageMetric } from "../search/graph_search_stages/instrumentation";
 import type { RerankOutcome } from "../search/rerank";
 import { registerEmbedderHostRestarts } from "./embedder-host-counters";
+import { FamilyRevocationCounters } from "./family-revocation-counters";
 import { MaintenanceCounters } from "./maintenance-counters";
 import { registerProcessMemoryGauge } from "./process-memory";
 import { ProvenanceCounters } from "./provenance-counters";
@@ -99,6 +100,8 @@ export class MetricsRecorder {
   private readonly governorTruncations: Counter<string>;
   private readonly morgianaDropped: Counter<string>;
   private readonly authRejections: Counter<string>;
+  /** GH #1477: OAuth family revocations by reason; the AS route sink increments it directly. */
+  readonly familyRevocations: FamilyRevocationCounters;
   private readonly auditWriteFailed: Counter<string>;
   // THE-667: the idempotency-claim RELEASE on a rejected dispatch. Sibling of auditWriteFailed
   // above, and for the same reason — the write is deliberately best-effort, so a failure has no
@@ -325,6 +328,7 @@ export class MetricsRecorder {
       labelNames: ["reason"],
       registers,
     });
+    this.familyRevocations = new FamilyRevocationCounters(registers);
     this.morgianaDropped = new Counter({
       name: "obsidian_tc_morgiana_emit_dropped_total",
       help: "MORGIANA events dropped, by vault and reason.",

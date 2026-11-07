@@ -101,6 +101,9 @@ export async function makeFlow(
     anonymousDiscovery?: "none" | "list";
     /** Extra test tools registered beside `list_vaults` and `noop`. */
     tools?: { name: string; requiredScopes: string[] }[];
+    /** GH #1477: observe the family-revocation reports the routes emit (the production app wires
+     *  the metrics + event_log sink here). */
+    onFamilyRevoked?: AsRouteDeps["onFamilyRevoked"];
   } = {},
 ): Promise<Flow> {
   process.env[SECRET_CLIENT_ENV] = SECRET_CLIENT_SECRET;
@@ -214,6 +217,7 @@ export async function makeFlow(
       log,
       clientIp: (c) => c.req.header("x-test-ip"),
       ...(opts.cimd ? { cimd: opts.cimd } : {}),
+      ...(opts.onFamilyRevoked ? { onFamilyRevoked: opts.onFamilyRevoked } : {}),
     });
     return handle;
   };

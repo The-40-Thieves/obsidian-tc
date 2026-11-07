@@ -20,6 +20,7 @@ import {
 } from "../../doctor";
 import { authJwksViews } from "../../doctor/auth-jwks";
 import { deadPathGlobsView } from "../../doctor/dead-path-globs";
+import { familyRevocationsView } from "../../doctor/family-revocations";
 import { HITL_DOCTOR_WINDOW_DAYS, probeHitlConfirmations } from "../../doctor/hitl-confirmations";
 import { probeNoteSummariesScale } from "../../doctor/note-summary-scale";
 import { plainHttpEndpoints } from "../../doctor/plain-http";
@@ -342,8 +343,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         gapSweepScheduled: experientialEnabled && config.experiential.gapSweep.enabled,
       })
     : undefined;
-  // THE-720: the column-level companion. Same probe gate and the same experiential predicate the
-  // table probe uses, so the two cannot disagree about whether the store is on.
+  // THE-720: column-level companion; same probe gate and experiential predicate as the table probe.
   const derivedColumns = cmd.probe
     ? await probeDerivedColumns(config.cacheDir, busyTimeoutMs, {
         experiential: experientialEnabled,
@@ -686,6 +686,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         windowDays: HITL_DOCTOR_WINDOW_DAYS,
         ...(hitlConfirmations !== undefined ? { probe: () => hitlConfirmations } : {}),
       },
+      familyRevocations: await familyRevocationsView(config.cacheDir, busyTimeoutMs, cmd.probe),
       memoryReadAcl: (() => {
         const { acl, aclByVault } = buildAcls(config.acl, config.vaults);
         return {

@@ -9,6 +9,7 @@ import type { Database } from "../db/types";
 import { sha256Hex } from "../provenance/store";
 import { splitScope } from "./as-clients";
 import { type SessionGuard, sessionIsCurrent } from "./as-operator-store";
+import type { FamilyRevocationEvent } from "./family-revocation-telemetry";
 import type { AuthRegistry } from "./registry";
 
 export const PENDING_TTL_MS = 10 * 60_000;
@@ -318,18 +319,30 @@ export function consumeCode(db: Database, codeHash: string, now: number): boolea
  * each is queued in `revocation_outbox` in the SAME transaction, then drained into the registry after
  * the commit. A registry that fails (busy, full) or a crash in between leaves the debt on disk; it is
  * paid by the next drain (see `drainRevocations`), so a committed revocation never strands a live token.
+ *
+ * GH #1477: `telemetry` reports the revocation once (reason, the client it belonged to, how many
+ * access tokens died with it) — the metric and the audit row the reuse-driven revocations never
+ * had. It fires only after the drain above returns: a revocation whose outbox failed to drain is
+ * already loud (the caller answers 500) and stays uncounted rather than counted twice on retry.
+ * The reason stays generic so store-level tests keep passing arbitrary strings; the production
+ * routes pass only members of FamilyRevocationReason and the hook is typed to them.
  */
-export function revokeFamily(
+export function revokeFamily<R extends string>(
   db: Database,
   registry: Pick<AuthRegistry, "revoke">,
   familyId: string,
-  reason: string,
+  reason: R,
   now: number,
+  telemetry?: {
+    clientId: string | null;
+    hook: (event: Omit<FamilyRevocationEvent, "reason"> & { reason: R }) => void;
+  },
 ): number {
   const jtis = inWriteTransaction(db, "as_grants", () =>
     queueFamilyRevocation(db, familyId, reason, now),
   );
   drainRevocations(db, registry);
+  telemetry?.hook({ reason, clientId: telemetry.clientId, accessTokens: jtis, at: now });
   return jtis;
 }
 

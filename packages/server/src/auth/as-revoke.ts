@@ -22,6 +22,7 @@ import { revokeFamily } from "./as-grants";
 import { type AsRouteDeps, enabledAs } from "./as-metadata";
 import { loadRefresh, REFRESH_TOKEN_RE } from "./as-refresh";
 import { socketClientIp } from "./client-ip";
+import { familyRevocationTelemetry } from "./family-revocation-telemetry";
 import { allowedResources } from "./resource-set";
 import { importVerificationKey } from "./signing-keys";
 
@@ -51,7 +52,14 @@ export function mountRevokeRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps
     if (!REFRESH_TOKEN_RE.test(token)) return false;
     const rec = loadRefresh(db, token);
     if (rec === undefined || rec.clientId !== clientId) return false;
-    revokeFamily(db, registry, rec.familyId, "revoked_by_client", now());
+    revokeFamily(
+      db,
+      registry,
+      rec.familyId,
+      "revoked_by_client",
+      now(),
+      familyRevocationTelemetry(deps.onFamilyRevoked, clientId),
+    );
     log(`refresh token revoked client=${clientId}`);
     return true;
   };

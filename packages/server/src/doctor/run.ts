@@ -55,6 +55,7 @@ import { type DeadPathGlobsView, deadPathGlobsCheck } from "./dead-path-globs";
 import { type EmbeddingIntegrityView, embeddingIntegrityCheck } from "./embedding-integrity";
 import { type EmbeddingsBuildableView, embeddingsBuildableCheck } from "./embeddings-buildable";
 import { type EntryPointsView, entryPointsCheck } from "./entrypoints";
+import { type FamilyRevocationsView, familyRevocationsCheck } from "./family-revocations";
 // THE-1108: sessions.liveness lives in its own module, same reasoning as capture-location above —
 // its own probe shape that no other check needs.
 import { type HitlConfirmationsView, hitlConfirmationsCheck } from "./hitl-confirmations";
@@ -179,6 +180,7 @@ export interface DoctorConfigView {
    *  same reasoning as derivedTables above. */
   sessions?: SessionLivenessView;
   hitlConfirmations?: HitlConfirmationsView;
+  familyRevocations?: FamilyRevocationsView;
   memoryReadAcl?: MemoryReadAclView;
   pathGlobs?: DeadPathGlobsView;
 }
@@ -295,6 +297,7 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   // THE-1108: sessions.liveness — same optional-view reasoning as derivedTables above.
   if (config.sessions) checks.push(sessionLivenessCheck(config.sessions));
   if (config.hitlConfirmations) checks.push(hitlConfirmationsCheck(config.hitlConfirmations));
+  if (config.familyRevocations) checks.push(familyRevocationsCheck(config.familyRevocations));
   if (config.memoryReadAcl) checks.push(memoryReadAclCheck(config.memoryReadAcl));
   if (config.pathGlobs) checks.push(deadPathGlobsCheck(config.pathGlobs));
 

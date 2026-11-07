@@ -4,21 +4,13 @@
 // Tunnel on the same host every client was the loopback peer, so one flood spent the shared CIMD
 // (10/min) and passkey login/options (60/min) buckets for everybody; and the opposite mistake, a
 // header read from any peer, would let a client pick its own bucket by writing it.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import type { Hono } from "hono";
 import { afterEach, describe, expect, it } from "vitest";
-import { FolderAcl } from "../src/acl";
 import "../src/auth/as-issuing";
-import { claimOperator } from "../src/auth/as-operator-store";
-import { hashPassword } from "../src/auth/as-password";
 import { createClientIpResolver, socketClientIp } from "../src/auth/client-ip";
-import { authKeysDir, createAuthRegistry } from "../src/auth/registry";
-import { provisionAuthDb, provisionCacheDb, provisionOauthDb } from "../src/db/provision";
-import { ToolRegistry } from "../src/mcp/registry";
-import { createHttpApp, type HttpApp } from "../src/transports/http";
-import { get, ISSUER, Jar, type OperatorFixture, PASSWORD, RESOURCE } from "./as-operator-harness";
-import { openMemoryDb } from "./helpers";
-import { makeTempDir, rmTemp } from "./tmp";
+import { asHttpFixture } from "./as-http-fixture";
+import { get, ISSUER, Jar, type OperatorFixture } from "./as-operator-harness";
+import { rmTemp } from "./tmp";
 
 const closers: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -255,50 +247,20 @@ describe("construction", () => {
 
 /** The real HTTP app (operator routes and authorization-server routes mounted by createHttpApp itself). */
 async function httpFixture(http: { trustedProxies?: string[]; forwardedHeader?: string }) {
-  const dir = makeTempDir("client-ip-");
-  closers.push(() => rmTemp(dir));
-  const auth = ServerConfigSchema.parse({
-    vaults: [{ id: "v1", path: dir }],
-    auth: {
-      mode: "jwt",
-      jwtSecret: "test-only-secret-not-a-real-credential-0123456789",
-      resource: RESOURCE,
-      as: { enabled: true, issuer: ISSUER, dynamicRegistration: true },
-    },
-  }).auth as never;
-  const authDb = openMemoryDb();
-  provisionAuthDb(authDb);
-  const registry = createAuthRegistry(authDb, { keysDir: authKeysDir(dir) });
-  const oauthDb = openMemoryDb();
-  provisionOauthDb(oauthDb, { version: "t" });
-  claimOperator(oauthDb, {
-    username: "operator",
-    passwordHash: await hashPassword(PASSWORD),
-    now: Date.now(),
+  const fx = await asHttpFixture({
+    tempPrefix: "client-ip-",
+    as: { dynamicRegistration: true },
+    http,
   });
-  const cacheDb = openMemoryDb();
-  provisionCacheDb(cacheDb);
-  const handle: HttpApp = createHttpApp({
-    name: "obsidian-tc",
-    version: "t",
-    registry: new ToolRegistry(),
-    auth,
-    db: cacheDb,
-    oauthDb,
-    authRegistry: registry,
-    vaultId: "v1",
-    acl: new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] }),
-    enableDnsRebindingProtection: false,
-    ...http,
-  } as never);
-  closers.push(() => handle.close());
+  closers.push(() => rmTemp(fx.dir));
+  closers.push(() => fx.handle.close());
   let peer = "127.0.0.1";
   const op = {
     issuer: ISSUER,
-    url: (path: string) => `${ISSUER}${path}`,
+    url: fx.url,
     app: {
       request: (input: string | Request, init?: RequestInit) =>
-        handle.app.request(input, init, envOf(peer)),
+        fx.handle.app.request(input, init, envOf(peer)),
     } as unknown as Hono,
   } as unknown as OperatorFixture;
   return {
