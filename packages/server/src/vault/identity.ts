@@ -198,11 +198,12 @@ function resolveVaultIdentity(
   now: number,
 ): VaultRenameNotice | undefined {
   const { root, canonical } = canonicalizeVaultRootWithStatus(vault.path);
-  // Fold the way THIS vault's filesystem folds (override wins, else probe the canonical root); an undecidable probe does NOT fold — a false "same path" would re-key one vault's rows onto another, a false "different path" only refuses a boot.
-  const fold =
+  // Fold the way THIS vault's filesystem folds (override wins, else probe the canonical root); an undecidable probe does NOT fold — a false "same path" would re-key one vault's rows onto another, a false "different path" only refuses a boot. The lowercase spelling must also be this directory: a case-sensitive parent can hold `Vault` and `vault` as two vaults that each fold inside.
+  const folds =
     vault.caseSensitive !== undefined && vault.caseSensitive !== "auto"
       ? !vault.caseSensitive
       : (detectFsCaseSensitivity(root) ?? false);
+  const fold = folds && sameDirectory(root.toLowerCase(), root) === true;
   const normalized = normalizeRealpathForIdentity(root, fold);
   const legacy = normalizeRealpathForIdentity(root, CASE_INSENSITIVE_FS); // pre-per-vault rows
 

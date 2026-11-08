@@ -17,9 +17,10 @@ vi.mock("../src/acl", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/acl")>()),
   CASE_INSENSITIVE_FS: true,
 }));
+const probe = vi.hoisted(() => ({ folds: false }));
 vi.mock("../src/vault/case-sensitivity", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/vault/case-sensitivity")>()),
-  detectFsCaseSensitivity: () => false,
+  detectFsCaseSensitivity: () => probe.folds,
 }));
 
 const sameDir = (a: string, b: string): boolean => {
@@ -85,6 +86,43 @@ describe("a lowercased root match is not taken on trust", () => {
         /already recorded against a different path/,
       );
     });
+    if (!ran) ctx.skip();
+  });
+});
+
+// Each root folds case inside itself, but their shared parent does not: `Vault` and `vault` are two
+// directories, so folding either root's spelling would make them one identity.
+describe("a root that folds inside a case-sensitive parent keeps its own spelling", () => {
+  const folding = (fn: (upper: string, lower: string) => void) => () => {
+    probe.folds = true;
+    try {
+      return distinctCaseVariants(fn);
+    } finally {
+      probe.folds = false;
+    }
+  };
+
+  it("a second vault at the other spelling is not a rename of the first", (ctx) => {
+    const ran = folding((upper, lower) => {
+      const { cacheDb, edb } = identityStores();
+      resolveAndApplyVaultIdentity(cacheDb, edb, [{ id: "a", path: lower }]);
+      expect(resolveAndApplyVaultIdentity(cacheDb, edb, [{ id: "b", path: upper }])).toEqual([]);
+      expect(rows(cacheDb)).toEqual([
+        { vault_id: "a", root_realpath: lower },
+        { vault_id: "b", root_realpath: upper },
+      ]);
+    })();
+    if (!ran) ctx.skip();
+  });
+
+  it("an id moved to the other spelling is a collision, not the same vault", (ctx) => {
+    const ran = folding((upper, lower) => {
+      const { cacheDb, edb } = identityStores();
+      resolveAndApplyVaultIdentity(cacheDb, edb, [{ id: "a", path: lower }]);
+      expect(() => resolveAndApplyVaultIdentity(cacheDb, edb, [{ id: "a", path: upper }])).toThrow(
+        /already recorded against a different path/,
+      );
+    })();
     if (!ran) ctx.skip();
   });
 });

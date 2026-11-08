@@ -24,6 +24,15 @@ const recorded = (db: Database): { vault_id: string; root_realpath: string }[] =
     root_realpath: string;
   }[];
 
+/** The key a first boot of `root` records: an upgraded legacy row must land on the same one. */
+const freshKey = (root: string): string => {
+  const { cacheDb, edb } = identityStores();
+  resolveAndApplyVaultIdentity(cacheDb, edb, [{ id: "probe", path: root }]);
+  const [row] = recorded(cacheDb);
+  if (row === undefined) throw new Error("fresh boot recorded no identity");
+  return row.root_realpath;
+};
+
 describe("vault identity rows recorded under the platform-default normalization", () => {
   it("the same id and path upgrades in place instead of refusing the boot", () => {
     const dir = makeTempDir("Vault-Identity-Case-");
@@ -35,7 +44,7 @@ describe("vault identity rows recorded under the platform-default normalization"
       expect(recorded(cacheDb)).toEqual([
         {
           vault_id: "main",
-          root_realpath: normalizeRealpathForIdentity(root, !CASE_INSENSITIVE_FS),
+          root_realpath: freshKey(root),
         },
       ]);
     } finally {
@@ -54,7 +63,7 @@ describe("vault identity rows recorded under the platform-default normalization"
       expect(recorded(cacheDb)).toEqual([
         {
           vault_id: "new-id",
-          root_realpath: normalizeRealpathForIdentity(root, !CASE_INSENSITIVE_FS),
+          root_realpath: freshKey(root),
         },
       ]);
     } finally {
