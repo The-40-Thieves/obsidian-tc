@@ -22,6 +22,7 @@ import {
   DYNAMIC_ALLOWLIST,
   extractRegexLiterals,
   REGEX_PRECEDING_KEYWORDS,
+  runGate,
   scanSource,
 } from "./check-redos.mjs";
 
@@ -327,5 +328,30 @@ test("every allowlist entry names a real file and records a reason and a measure
     assert.ok(existsSync(join(REPO_ROOT, entry.file)), `${entry.file} does not exist`);
     assert.ok(entry.reason?.trim().length > 10, `${entry.file}: missing reason`);
     assert.ok(entry.measured?.trim().length > 5, `${entry.file}: missing measurement`);
+  }
+});
+
+test("runGate matches allowlist entries by forward-slash path on every platform", async () => {
+  // Allowlist entries are written with `/`; on Windows `path.relative` yields `\`, and a raw
+  // comparison let no entry match there: every allowlisted site failed and every entry was stale.
+  const dir = fixtureDir("seps", { "sub/dir/a.ts": 'export const X = new RegExp(p, "g");\n' });
+  try {
+    const entry = {
+      file: "sub/dir/a.ts",
+      kind: "new-regexp",
+      text: 'new RegExp(p, "g")',
+      reason: "fixture",
+      measured: "fixture",
+    };
+    const { failures, stale } = await runGate({
+      root: dir,
+      files: [join(dir, "sub", "dir", "a.ts")],
+      allowlist: [],
+      dynamicAllowlist: [entry],
+    });
+    assert.deepEqual(failures, []);
+    assert.deepEqual(stale, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

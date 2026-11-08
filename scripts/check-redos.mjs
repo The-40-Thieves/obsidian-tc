@@ -48,7 +48,7 @@
  */
 // biome-ignore-all lint/suspicious/noTemplateCurlyInString: the allowlist and fixtures hold literal source text that contains `${...}`.
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { check } from "recheck";
 
@@ -413,7 +413,8 @@ export async function runGate({
   const usedDynamic = new Set();
 
   for (const filePath of files) {
-    const rel = relative(root, filePath);
+    // Allowlist entries use `/`; `relative` yields `\` on Windows.
+    const rel = relative(root, filePath).split(sep).join("/");
     const source = readFileSync(filePath, "utf8");
     const { literals, dynamic } = scanSource(source);
 
