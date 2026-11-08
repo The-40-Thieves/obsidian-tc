@@ -1,4 +1,6 @@
+/* tsqllint-disable set-ansi set-nocount set-quoted-identifier set-transaction-isolation-level */
 -- 20261108_956_auth_requests_used.sql
+-- SQLite, not T-SQL: the SQL Server SET options those tsqllint rules require do not exist here.
 -- oauth.db chain (NOT cache.db, NOT auth.db). A pending authorization request used to be DELETEd the
 -- moment it was approved or denied, and purged the moment it expired, so a second visit could not
 -- tell "already used" from "expired" from "never existed". `used_at` marks a consumed request
