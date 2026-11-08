@@ -20,6 +20,7 @@ import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
 import { type M3Deps, registerM3Tools } from "../src/tools/m3";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { SYMLINKS_SUPPORTED } from "./symlink-capability";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const OPEN: AclConfigT = { readOnly: false, defaultScopes: [], rules: [] };
@@ -429,56 +430,65 @@ describe("write_attachment: path safety", () => {
     },
   );
 
-  it("a symlinked directory pointing outside the vault is refused and nothing lands outside", async () => {
-    const b = boot();
-    try {
-      symlinkSync(b.outside, join(b.root, "link"));
-      const r = await b.call("write_attachment", {
-        vault: "test",
-        path: "link/a.png",
-        content: b64(PNG),
-      });
-      expect(r.ok).toBe(false);
-      expect(readdirSync(b.outside)).toEqual([]);
-    } finally {
-      b.cleanup();
-    }
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "a symlinked directory pointing outside the vault is refused and nothing lands outside",
+    async () => {
+      const b = boot();
+      try {
+        symlinkSync(b.outside, join(b.root, "link"));
+        const r = await b.call("write_attachment", {
+          vault: "test",
+          path: "link/a.png",
+          content: b64(PNG),
+        });
+        expect(r.ok).toBe(false);
+        expect(readdirSync(b.outside)).toEqual([]);
+      } finally {
+        b.cleanup();
+      }
+    },
+  );
 
-  it("a symlink at the target itself is refused, even when it points inside the vault", async () => {
-    const b = boot({ files: { "real.png": "REAL" } });
-    try {
-      symlinkSync(join(b.root, "real.png"), join(b.root, "alias.png"));
-      const r = await b.call("write_attachment", {
-        vault: "test",
-        path: "alias.png",
-        content: b64(PNG),
-        overwrite: true,
-      });
-      expect(r.ok).toBe(false);
-      expect(b.bytes("real.png").toString()).toBe("REAL");
-    } finally {
-      b.cleanup();
-    }
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "a symlink at the target itself is refused, even when it points inside the vault",
+    async () => {
+      const b = boot({ files: { "real.png": "REAL" } });
+      try {
+        symlinkSync(join(b.root, "real.png"), join(b.root, "alias.png"));
+        const r = await b.call("write_attachment", {
+          vault: "test",
+          path: "alias.png",
+          content: b64(PNG),
+          overwrite: true,
+        });
+        expect(r.ok).toBe(false);
+        expect(b.bytes("real.png").toString()).toBe("REAL");
+      } finally {
+        b.cleanup();
+      }
+    },
+  );
 
-  it("a symlink at the target pointing OUTSIDE the vault is refused; the outside file is intact", async () => {
-    const b = boot();
-    try {
-      writeFileSync(join(b.outside, "secret.png"), "SECRET");
-      symlinkSync(join(b.outside, "secret.png"), join(b.root, "alias.png"));
-      const r = await b.call("write_attachment", {
-        vault: "test",
-        path: "alias.png",
-        content: b64(PNG),
-        overwrite: true,
-      });
-      expect(r.ok).toBe(false);
-      expect(readFileSync(join(b.outside, "secret.png"), "utf8")).toBe("SECRET");
-    } finally {
-      b.cleanup();
-    }
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "a symlink at the target pointing OUTSIDE the vault is refused; the outside file is intact",
+    async () => {
+      const b = boot();
+      try {
+        writeFileSync(join(b.outside, "secret.png"), "SECRET");
+        symlinkSync(join(b.outside, "secret.png"), join(b.root, "alias.png"));
+        const r = await b.call("write_attachment", {
+          vault: "test",
+          path: "alias.png",
+          content: b64(PNG),
+          overwrite: true,
+        });
+        expect(r.ok).toBe(false);
+        expect(readFileSync(join(b.outside, "secret.png"), "utf8")).toBe("SECRET");
+      } finally {
+        b.cleanup();
+      }
+    },
+  );
 
   it.each(["note.md", "board.canvas", "table.base", "NOTE.MD"])(
     "%s is refused: those formats have their own tools",

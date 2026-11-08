@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SetupDecision } from "../src/cli/setup/decide";
 import { buildSetupConfig, writeSetupConfig } from "../src/cli/setup/write";
+import { SYMLINKS_SUPPORTED } from "./symlink-capability";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const tmpDirs: string[] = [];
@@ -331,25 +332,31 @@ describe("writeSetupConfig", () => {
 
   // Low: symlink target — resolved and the write lands on the referent, backing it up, never
   // replacing the link pathname with a regular file.
-  it("a symlinked --force target resolves to the referent: the link itself is untouched", () => {
-    const dir = tmpDir("otc-setup-write-symlink-");
-    const realTarget = join(dir, "real-config.json");
-    const link = join(dir, "config.json");
-    writeFileSync(realTarget, JSON.stringify({ existing: true }));
-    symlinkSync(realTarget, link);
-    const result = writeSetupConfig(link, decision(), { force: true });
-    expect(result.path).toBe(realTarget);
-    expect(lstatSync(link).isSymbolicLink()).toBe(true);
-    expect(JSON.parse(readFileSync(realTarget, "utf8")).vaults).toBeDefined();
-    expect(JSON.parse(readFileSync(result.backupPath as string, "utf8"))).toEqual({
-      existing: true,
-    });
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "a symlinked --force target resolves to the referent: the link itself is untouched",
+    () => {
+      const dir = tmpDir("otc-setup-write-symlink-");
+      const realTarget = join(dir, "real-config.json");
+      const link = join(dir, "config.json");
+      writeFileSync(realTarget, JSON.stringify({ existing: true }));
+      symlinkSync(realTarget, link);
+      const result = writeSetupConfig(link, decision(), { force: true });
+      expect(result.path).toBe(realTarget);
+      expect(lstatSync(link).isSymbolicLink()).toBe(true);
+      expect(JSON.parse(readFileSync(realTarget, "utf8")).vaults).toBeDefined();
+      expect(JSON.parse(readFileSync(result.backupPath as string, "utf8"))).toEqual({
+        existing: true,
+      });
+    },
+  );
 
-  it("a symlink pointing at a nonexistent file is refused, not silently replaced", () => {
-    const dir = tmpDir("otc-setup-write-symlink-broken-");
-    const link = join(dir, "config.json");
-    symlinkSync(join(dir, "does-not-exist.json"), link);
-    expect(() => writeSetupConfig(link, decision(), { force: true })).toThrow(/symlink/);
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "a symlink pointing at a nonexistent file is refused, not silently replaced",
+    () => {
+      const dir = tmpDir("otc-setup-write-symlink-broken-");
+      const link = join(dir, "config.json");
+      symlinkSync(join(dir, "does-not-exist.json"), link);
+      expect(() => writeSetupConfig(link, decision(), { force: true })).toThrow(/symlink/);
+    },
+  );
 });
