@@ -326,6 +326,7 @@ export function rememberedPage(o: RememberedView): string {
     .join("\n");
   return layout(
     "Continue signing in",
+    // nosemgrep: html-in-template-string -- every value interpolated here goes through escapeHtml or hidden
     `<p>You approved <strong>${escapeHtml(o.clientName)}</strong> (<code>${escapeHtml(o.clientId)}</code>) before. Continue only if you just started this sign-in yourself; your browser then returns to <code>${escapeHtml(o.redirectHost)}</code>.</p>
 <p>It will be able to:</p>
 <ul>
