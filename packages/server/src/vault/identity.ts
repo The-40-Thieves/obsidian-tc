@@ -16,6 +16,7 @@
 //   - unknown id, KNOWN path (under a different id) -> a rename. Every vault_id-keyed row, across
 //     BOTH cache.db and experiential.db, is re-keyed old id -> new id (each store its own
 //     transaction — see `resolveAndApplyVaultIdentity`), and the identity row is updated in place.
+import { statSync } from "node:fs";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { CASE_INSENSITIVE_FS } from "../acl";
 import { tableExists } from "../db/introspect";
@@ -91,9 +92,7 @@ export const EXPERIENTIAL_VAULT_ID_TABLES: readonly string[] = [
  * case when the vault's filesystem does, so `/Vault` and `/vault` resolve to the SAME
  * `vault_identity` row instead of two different vaults, or worse, an id collision refusal against
  * itself. `caseInsensitive` is the vault's resolved behavior (registry/buildAcls), defaulting to
- * acl.ts's platform constant for path-less callers; the fold is a plain lowercase, not locale-aware,
- * matching NTFS/APFS's ASCII-range case-insensitivity — same strategy acl.ts applies to globs.
- *
+ * acl.ts's platform constant for path-less callers; a plain lowercase, as acl.ts folds globs.
  * Paths keep boot errors readable; unlike inode identity, they survive restores/remounts.
  */
 export function normalizeRealpathForIdentity(
@@ -101,6 +100,19 @@ export function normalizeRealpathForIdentity(
   caseInsensitive: boolean = CASE_INSENSITIVE_FS,
 ): string {
   return caseInsensitive ? realpath.toLowerCase() : realpath;
+}
+
+/** Whether `stored` is `root`'s directory (case-sensitive filesystems can split them); null: unknown. */
+function sameDirectory(stored: string, root: string): boolean | null {
+  try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- a vault root recorded in vault_identity; read-only stat.
+    const a = statSync(stored, { bigint: true });
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- the configured vault's canonical root; read-only stat.
+    const b = statSync(root, { bigint: true });
+    return a.dev === b.dev && a.ino === b.ino;
+  } catch {
+    return null;
+  }
 }
 
 interface VaultIdentityRow {
@@ -192,9 +204,7 @@ function resolveVaultIdentity(
       ? !vault.caseSensitive
       : (detectFsCaseSensitivity(root) ?? false);
   const normalized = normalizeRealpathForIdentity(root, fold);
-  // Rows written before per-vault detection were folded by the platform default. The same root
-  // under that rule is the same vault, so such a row is upgraded to this rule, never a collision.
-  const legacy = normalizeRealpathForIdentity(root, CASE_INSENSITIVE_FS);
+  const legacy = normalizeRealpathForIdentity(root, CASE_INSENSITIVE_FS); // pre-per-vault rows
 
   const rowById = db
     .prepare(
@@ -213,7 +223,11 @@ function resolveVaultIdentity(
       }
       return undefined;
     }
-    if (legacy !== normalized && rowById.root_realpath === legacy) {
+    if (
+      legacy !== normalized &&
+      rowById.root_realpath === legacy &&
+      sameDirectory(legacy, root) !== false
+    ) {
       db.prepare(
         "UPDATE vault_identity SET root_realpath = ?, root_canonical = ?, updated_at = ? WHERE vault_id = ?",
       ).run(normalized, canonical ? 1 : rowById.root_canonical, now, vault.id);
@@ -250,8 +264,12 @@ function resolveVaultIdentity(
   const byPath = db.prepare(
     "SELECT vault_id, root_realpath, root_canonical FROM vault_identity WHERE root_realpath = ?",
   );
+  const legacyRow =
+    legacy === normalized ? undefined : (byPath.get(legacy) as VaultIdentityRow | undefined);
   const rowByPath = (byPath.get(normalized) ??
-    (legacy === normalized ? undefined : byPath.get(legacy))) as VaultIdentityRow | undefined;
+    (legacyRow !== undefined && sameDirectory(legacy, root) === true ? legacyRow : undefined)) as
+    | VaultIdentityRow
+    | undefined;
 
   if (rowByPath !== undefined && rowByPath.vault_id !== vault.id) {
     // Rename: rowByPath.vault_id (the OLD id) -> vault.id (the NEW id). Re-key both stores first —
