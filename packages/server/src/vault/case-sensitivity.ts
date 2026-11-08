@@ -46,9 +46,11 @@ function probeDir(root: string): boolean | null {
   }
   let wrote = false;
   try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- probe comes from resolveVaultPath (contained in the vault root); wx never overwrites.
     writeFileSync(probe, "", { flag: "wx", mode: 0o600 });
     wrote = true;
     try {
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- the case-flipped name of the probe just created inside the vault root.
       statSync(join(root, flipCase(basename(probe))));
       return true;
     } catch (e) {
@@ -65,11 +67,13 @@ function probeDir(root: string): boolean | null {
   if (flipped === basename(root)) return null; // the name carries no case information
   let real: Stats;
   try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- root is the configured vault root; probing it is this function's purpose.
     real = statSync(root);
   } catch {
     return null; // the root itself is unreachable: nothing is knowable
   }
   try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- the vault root's own name, case-flipped, in its parent; read-only stat.
     const other = statSync(join(dirname(root), flipped));
     return real.dev === other.dev && real.ino === other.ino;
   } catch (e) {
