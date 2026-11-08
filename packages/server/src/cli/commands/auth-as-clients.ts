@@ -7,27 +7,33 @@ import { CliError } from "../cli-error";
 import { type Cmd, resolveOrUsageExit } from "../shared";
 import { auditAuthEvent } from "./auth-audit";
 
+type Out = (human: string, json: unknown) => void;
+
+function printClients(db: Parameters<typeof listRegisteredClients>[0], out: Out): void {
+  const clients = listRegisteredClients(db);
+  const iso = (ms: number | null) => (ms === null ? "-" : new Date(ms).toISOString());
+  out(
+    [
+      "client\tcreated\tlast_used\texpires",
+      ...clients.map((c) =>
+        [c.clientId, iso(c.createdAt), iso(c.lastUsedAt), iso(c.expiresAt)].join("\t"),
+      ),
+    ].join("\n"),
+    clients,
+  );
+}
+
 export async function runAuthAsClients(cmd: Cmd<"auth">): Promise<void> {
   const cfg = resolveOrUsageExit(cmd.configPath);
   const as = enabledAs(cfg.auth);
   if (as === undefined) throw new CliError("auth.as is not enabled in this config");
-  const out = (human: string, json: unknown) =>
+  const out: Out = (human, json) =>
     process.stdout.write(cmd.json ? `${JSON.stringify(json, null, 2)}\n` : `${human}\n`);
   mkdirSync(cfg.cacheDir, { recursive: true, mode: 0o700 });
   const store = await openOauthDb(cfg);
   try {
     if (cmd.sub === "as-clients-list") {
-      const clients = listRegisteredClients(store.db);
-      const iso = (ms: number | null) => (ms === null ? "-" : new Date(ms).toISOString());
-      out(
-        [
-          "client\tcreated\tlast_used\texpires",
-          ...clients.map((c) =>
-            [c.clientId, iso(c.createdAt), iso(c.lastUsedAt), iso(c.expiresAt)].join("\t"),
-          ),
-        ].join("\n"),
-        clients,
-      );
+      printClients(store.db, out);
       return;
     }
     const clientId = cmd.clientId as string;

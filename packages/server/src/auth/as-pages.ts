@@ -255,7 +255,8 @@ export function consentPage(o: ConsentView): string {
     ? '<p class="note">This application did not request explicit permissions. The server defaults below need your approval.</p>\n'
     : "";
   const dropped = o.droppedScopes?.length
-    ? `<p class="note">Unsupported permissions were dropped: ${o.droppedScopes.map((s) => `<code>${escapeHtml(s)}</code>`).join(", ")}. They will not be granted.</p>\n`
+    ? // nosemgrep: html-in-template-string -- every value interpolated here goes through escapeHtml
+      `<p class="note">Unsupported permissions were dropped: ${o.droppedScopes.map((s) => `<code>${escapeHtml(s)}</code>`).join(", ")}. They will not be granted.</p>\n`
     : "";
   const scopes = o.scopes
     .map((s) => `<li>${escapeHtml(s.words)} <code>${escapeHtml(s.scope)}</code></li>`)
@@ -265,7 +266,8 @@ export function consentPage(o: ConsentView): string {
     : "";
   const unapproved =
     o.unapproved && o.clientHost !== undefined
-      ? `<p class="error" role="alert">This application identifies itself only by a web address (<code>${escapeHtml(o.clientHost)}</code>) and has no current approval: you have not approved it before, or its approvals were revoked. Anyone can publish a document under any name: approve it only if you recognise that address.</p>\n`
+      ? // nosemgrep: html-in-template-string -- every value interpolated here goes through escapeHtml
+        `<p class="error" role="alert">This application identifies itself only by a web address (<code>${escapeHtml(o.clientHost)}</code>) and has no current approval: you have not approved it before, or its approvals were revoked. Anyone can publish a document under any name: approve it only if you recognise that address.</p>\n`
       : "";
   const selfRegistered = o.selfRegistered
     ? '<p class="error" role="alert">This application registered itself with this server and has no current approval: you have not approved it before, or its approvals were revoked. Anyone who can reach this server can register under any name: approve it only if you just started connecting it yourself.</p>\n'
