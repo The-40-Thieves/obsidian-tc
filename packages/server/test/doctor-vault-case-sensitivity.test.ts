@@ -17,8 +17,8 @@ const probed = (caseInsensitive: boolean): VaultCaseInfo => ({
 const overridden = (caseSensitive: boolean): VaultCaseInfo => ({
   configured: caseSensitive,
   detected: null,
-  caseInsensitive: caseSensitive,
-  match: { allow: caseSensitive, rules: caseSensitive },
+  caseInsensitive: !caseSensitive,
+  match: { allow: !caseSensitive, rules: !caseSensitive },
 });
 const UNKNOWN: VaultCaseInfo = {
   configured: "auto",
@@ -35,17 +35,17 @@ describe("vaults.case-sensitivity", () => {
     const result = await run([
       { id: "main", info: probed(true) },
       { id: "code", info: probed(false) },
-      { id: "pinned", info: overridden(true) },
+      { id: "pinned", info: overridden(false) },
     ]);
     expect(result.status).toBe("ok");
     expect(result.details?.vaults).toEqual([
       "main: case-insensitive, probed",
       "code: case-sensitive, probed",
-      "pinned: case-insensitive, configured: true",
+      "pinned: case-insensitive, configured: caseSensitive false",
     ]);
   });
 
-  it("warns when a vault's case behavior is unknowable, naming the fail-closed split", async () => {
+  it("warns when a vault's case behavior is unknowable, naming the fail-closed posture", async () => {
     const result = await run([
       { id: "main", info: probed(true) },
       { id: "mystery", info: UNKNOWN },
@@ -56,7 +56,7 @@ describe("vaults.case-sensitivity", () => {
     expect(result.remediation).toContain("caseSensitive");
     // The unknowable vault's detail names the split posture, not a guess.
     expect(result.details?.vaults).toContain(
-      "mystery: unknown (whitelist matching is case-sensitive, scopes and immutable globs fold), probed",
+      "mystery: unknown (case-only ACL matches are settled per directory, fail-closed where one cannot be probed), probed",
     );
   });
 });

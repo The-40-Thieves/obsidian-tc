@@ -29,10 +29,8 @@ export interface AclConfigT {
   caseMatch?: AclCaseMatch;
 }
 
-/** How a FolderAcl's glob matching folds case, per side. The sides differ only in the fail-closed
- *  fallback for an unprobeable filesystem (vault/case-sensitivity.ts): whitelists then match
- *  case-SENSITIVELY (can only under-match, denying a legitimate path), rule scopes and immutable
- *  globs case-INSENSITIVELY (can only over-apply). A known filesystem sets both sides to its value. */
+/** Vault-less fallback: whitelists use `allow`; uncertain rule scopes take the union and
+ *  immutable globs fold case, so case-only exemptions cannot weaken restrictions. */
 export interface AclCaseMatch {
   /** Fold case matching the per-op whitelists (readPaths/writePaths/deletePaths). */
   readonly allow: boolean;
@@ -137,10 +135,25 @@ export function isDefaultDenied(path: string): boolean {
 /** The three per-path operation kinds carrying an independent whitelist. */
 export type AclPathOp = "read" | "write" | "delete";
 
-/** A whitelist entry: the compiled matcher plus the ORIGINAL glob (reported as `matchedGlob`). */
+/** A glob compiled both ways plus the ORIGINAL glob (reported as `matchedGlob`). */
 interface CompiledGlobT {
   readonly glob: string;
-  readonly re: RegExp;
+  readonly cs: RegExp;
+  readonly ci: RegExp;
+}
+
+const compileGlob = (glob: string): CompiledGlobT => {
+  const nfc = glob.normalize("NFC");
+  return { glob, cs: globToRegExp(nfc, false), ci: globToRegExp(nfc, true) };
+};
+
+const sameScopes = (a: readonly string[], b: readonly string[]): boolean =>
+  a === b || (a.length === b.length && a.every((s, i) => s === b[i]));
+
+/** What a vault's FolderAcl may ask its filesystem. */
+export interface FolderAclOptions {
+  /** Per-directory case behavior: true all fold, false none do, null mixed or unknown. */
+  readonly caseFolding?: (rel: string) => boolean | null;
 }
 
 // THE-618 item 3: compile a whitelist once. `undefined` (no whitelist for that op) is preserved and
@@ -148,10 +161,8 @@ interface CompiledGlobT {
 // deny-all. Collapsing the two turns a deny-all into an allow-all.
 function compileGlobList(
   list: readonly string[] | undefined,
-  caseInsensitive: boolean,
 ): readonly CompiledGlobT[] | undefined {
-  if (list === undefined) return undefined;
-  return list.map((glob) => ({ glob, re: globToRegExp(glob.normalize("NFC"), caseInsensitive) }));
+  return list?.map(compileGlob);
 }
 
 /** Rules that could not be worked out when the ACL was built (the vault root was unavailable) and
@@ -166,7 +177,7 @@ export class FolderAcl {
   // THE-618 item 1: the rule globs, compiled once, IN CONFIG ORDER. Order is load-bearing —
   // scopesForPath is last-match-wins and aclFingerprint preserves rules order for exactly that
   // reason — so this array is built with .map() and never sorted, deduped or short-circuited.
-  private compiledRules: readonly { readonly re: RegExp; readonly scopes: string[] }[];
+  private compiledRules: readonly { readonly glob: CompiledGlobT; readonly scopes: string[] }[];
   private readonly compiledPaths: Readonly<Record<AclPathOp, readonly CompiledGlobT[] | undefined>>;
   private readonly compiledImmutable: readonly CompiledGlobT[];
   // The union of every scope any path can declare (defaultScopes + every rule's scopes), computed
@@ -175,8 +186,10 @@ export class FolderAcl {
   private declaredScopeUnion: readonly string[];
   private pending: PendingAclRules | undefined;
   private readonly caseMatchFlags: AclCaseMatch;
+  private readonly options: FolderAclOptions;
 
-  constructor(cfg: AclConfigT, pending?: PendingAclRules) {
+  constructor(cfg: AclConfigT, pending?: PendingAclRules, options: FolderAclOptions = {}) {
+    this.options = options;
     // Snapshot the config so the compiled rules and aclFingerprint() are always derived from the
     // SAME frozen source (THE-496) — a live, since-mutated `cfg` would let the cache key and the
     // enforced ACL drift apart. See docs/design/acl-folder-rules.md.
@@ -194,23 +207,34 @@ export class FolderAcl {
       allow: CASE_INSENSITIVE_FS,
       rules: CASE_INSENSITIVE_FS,
     };
-    this.compiledImmutable =
-      compileGlobList(this.cfg.immutablePaths, this.caseMatchFlags.rules) ?? [];
+    this.compiledImmutable = compileGlobList(this.cfg.immutablePaths) ?? [];
     this.compiledRules = this.compileRules();
     this.declaredScopeUnion = this.unionOfDeclaredScopes();
     this.pending = pending;
     this.compiledPaths = {
-      read: compileGlobList(this.cfg.readPaths, this.caseMatchFlags.allow),
-      write: compileGlobList(this.cfg.writePaths, this.caseMatchFlags.allow),
-      delete: compileGlobList(this.cfg.deletePaths, this.caseMatchFlags.allow),
+      read: compileGlobList(this.cfg.readPaths),
+      write: compileGlobList(this.cfg.writePaths),
+      delete: compileGlobList(this.cfg.deletePaths),
     };
   }
-  private compileRules(): readonly { readonly re: RegExp; readonly scopes: string[] }[] {
-    return this.cfg.rules.map((r) => ({
-      // The glob is normalized once here, the path per call in the matchers (both load-bearing, THE-272).
-      re: globToRegExp(r.glob.normalize("NFC"), this.caseMatchFlags.rules),
-      scopes: r.scopes,
-    }));
+  private compileRules(): readonly { readonly glob: CompiledGlobT; readonly scopes: string[] }[] {
+    // The glob is normalized once here, the path per call in the matchers (both load-bearing, THE-272).
+    return this.cfg.rules.map((r) => ({ glob: compileGlob(r.glob), scopes: r.scopes }));
+  }
+  /** The filesystem's case behavior along NFC path `p`: undefined = no filesystem to ask. */
+  private folding(p: string): boolean | null | undefined {
+    const ask = this.options.caseFolding;
+    if (ask === undefined) return undefined;
+    try {
+      return ask(p);
+    } catch {
+      return null;
+    }
+  }
+  private lastMatch(p: string, side: "cs" | "ci"): string[] {
+    let scopes = this.cfg.defaultScopes;
+    for (const r of this.compiledRules) if (r.glob[side].test(p)) scopes = r.scopes;
+    return scopes;
   }
   private unionOfDeclaredScopes(): readonly string[] {
     return [...new Set([...this.cfg.defaultScopes, ...this.cfg.rules.flatMap((r) => r.scopes)])];
@@ -238,11 +262,13 @@ export class FolderAcl {
     // THE-618 item 2: one normalize for the whole loop, not one per rule. The compiled regexes
     // carry no `g`/`y` flag, so `.test` holds no lastIndex state and is safe to reuse across calls.
     const p = path.normalize("NFC");
-    let scopes = this.cfg.defaultScopes;
-    for (const r of this.compiledRules) {
-      if (r.re.test(p)) scopes = r.scopes;
-    }
-    return [...scopes];
+    const exact = this.lastMatch(p, "cs");
+    const folded = this.lastMatch(p, "ci");
+    if (sameScopes(exact, folded)) return [...exact];
+    const folds = this.folding(p);
+    if (folds === true) return [...folded];
+    if (folds === false) return [...exact];
+    return [...new Set([...exact, ...folded])];
   }
   /** THE-618 item 3: the per-op whitelist decision, against precompiled globs. Returns the matched
    *  glob string, `null` when a whitelist exists but nothing matched, `undefined` when the op has
@@ -252,7 +278,13 @@ export class FolderAcl {
     const list = this.compiledPaths[op];
     if (list === undefined) return undefined;
     const p = path.normalize("NFC");
-    return list.find((c) => c.re.test(p))?.glob ?? null;
+    const exact = list.find((c) => c.cs.test(p));
+    if (exact !== undefined) return exact.glob;
+    const folded = list.find((c) => c.ci.test(p));
+    if (folded === undefined) return null;
+    const folds = this.folding(p);
+    const accept = folds === undefined ? this.caseMatchFlags.allow : folds === true;
+    return accept ? folded.glob : null;
   }
   /** Whether any path is immutable for this ACL (a vault with a raw-sources folder). */
   get hasImmutablePaths(): boolean {
@@ -262,7 +294,11 @@ export class FolderAcl {
   immutableGlobFor(path: string): string | null {
     if (this.compiledImmutable.length === 0) return null;
     const p = path.normalize("NFC");
-    return this.compiledImmutable.find((c) => c.re.test(p))?.glob ?? null;
+    const exact = this.compiledImmutable.find((c) => c.cs.test(p));
+    if (exact !== undefined) return exact.glob;
+    const folded = this.compiledImmutable.find((c) => c.ci.test(p));
+    if (folded === undefined) return null;
+    return this.folding(p) === false ? null : folded.glob;
   }
   get protectsSchemaFiles(): boolean {
     return this.cfg.protectSchemaFiles === true;
@@ -314,11 +350,8 @@ export class FolderAcl {
 // rules changes the effective ACL and must change the fingerprint. See docs/design/acl-folder-rules.md.
 export function aclFingerprint(cfg: AclConfigT, grantedScopes: Iterable<string>): string {
   const canon = {
-    // Version of the read predicate this fingerprint keys. v2: `readableRel` also enforces a path's
-    // rule-scopes against the caller's granted scopes. Persisted acl_path_sets rows are keyed by
-    // this fingerprint, and rows built under v1 (folder whitelist only) contain rule-scoped paths
-    // the v2 predicate refuses; bumping it makes every v1 row unreachable instead of trusted.
-    predicate: 2,
+    // v3 invalidates persisted path sets predating per-directory, fail-closed case matching.
+    predicate: 3,
     readOnly: cfg.readOnly === true,
     strictReadDefault: cfg.strictReadDefault === true,
     // The case behavior the globs match with is part of the effective ACL: identical configs on

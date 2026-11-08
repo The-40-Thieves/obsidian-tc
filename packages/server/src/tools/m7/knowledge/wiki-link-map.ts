@@ -123,7 +123,7 @@ export function buildLinkMap(args: {
       if (kind !== "judged_by")
         add(to, c.path, kind, wikiFolder, kind === "semantic" ? score : undefined, ci);
     }
-    if (!c.excluded && inWikiFolder(c.path, wikiFolder) && !linkers.has(c.path))
+    if (!c.excluded && inWikiFolder(c.path, wikiFolder, ci) && !linkers.has(c.path))
       add(from, c.path, "related_wiki_page", wikiFolder, score, ci);
   }
   for (const path of args.scan.mentions) {

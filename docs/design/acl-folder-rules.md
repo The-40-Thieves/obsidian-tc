@@ -44,11 +44,17 @@ folder and not every `myXraw`. `[` has no special meaning in this grammar.
 Two independent hazards, both handled by normalizing before comparison rather than trusting the
 byte/case form a rule was authored in:
 
-- **Case.** On a case-insensitive filesystem (Windows NTFS, macOS APFS) a path and its case
-  variants name the *same* file, so the folder ACL must match case-insensitively there or a
-  case-variant path slips past a whitelist/deny authored in canonical case. On a case-sensitive
-  filesystem (Linux) case stays significant. `CASE_INSENSITIVE_FS` detects this once from
-  `process.platform`, overridable for tests. The hard-denied control-directory check
+- **Case.** On a case-insensitive filesystem a path and its case variants name the *same* file,
+  so the folder ACL must match case-insensitively there or a case-variant path slips past a
+  whitelist/deny authored in canonical case; on a case-sensitive one case stays significant.
+  Which applies is a property of the vault's filesystem, and on NTFS and ext4 casefold of each
+  directory, not of `process.platform`. Exact-case matches always apply. When only a
+  case-insensitive match fits, a vault's `FolderAcl` asks the directories the path passes through
+  (`pathCaseFolding`, which compares the file identity of an entry and its case-flipped name): all
+  fold, the folded match applies; all case-sensitive, it does not; mixed, missing or unprobeable,
+  the restrictive side wins (rule scopes are the union of both matches, immutable globs apply,
+  whitelists do not match). `CASE_INSENSITIVE_FS` remains only the default for an ACL with no
+  vault root to ask. The hard-denied control-directory check
   (`isDefaultDenied`) case-folds unconditionally instead — `.obsidian`/`.git`/`.trash` must be
   denied under every case variant regardless of platform, because a mis-cased root could otherwise
   alias the real one on a case-insensitive filesystem. This only ever denies *more*, never exempts,

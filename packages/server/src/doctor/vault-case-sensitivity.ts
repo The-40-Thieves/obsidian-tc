@@ -2,9 +2,10 @@
 // matching is a per-vault FILESYSTEM fact (vault/case-sensitivity.ts), not the process platform
 // constant it was before: a vault on a case-sensitive APFS volume under macOS, or on a
 // case-insensitive mount under Linux, is matched its own way now. The operator must be able to
-// see that fact and, above all, see the one bad case: a root the probe could not read, where the
-// fail-closed split governs (whitelists match case-sensitively, rule scopes and immutable globs
-// fold) until vaults[].caseSensitive pins it.
+// see that fact and, above all, see the one bad case: a root the probe could not read. Case-only
+// ACL matches are still settled per directory there, failing closed where a directory cannot be
+// probed, but the vault identity key and wiki classification run on a guess until
+// vaults[].caseSensitive pins it.
 //
 // Own module, same reasoning as memory-read-acl.ts: a pure classifier over an already-resolved
 // view (buildAcls' caseByVault), testable with no filesystem.
@@ -38,11 +39,12 @@ export function vaultCaseSensitivityView(
 const describe = (info: VaultCaseInfo): string => {
   const what =
     info.caseInsensitive === null
-      ? "unknown (whitelist matching is case-sensitive, scopes and immutable globs fold)"
+      ? "unknown (case-only ACL matches are settled per directory, fail-closed where one cannot be probed)"
       : info.caseInsensitive
         ? "case-insensitive"
         : "case-sensitive";
-  const how = info.configured === "auto" ? "probed" : `configured: ${info.configured}`;
+  const how =
+    info.configured === "auto" ? "probed" : `configured: caseSensitive ${info.configured}`;
   return `${what}, ${how}`;
 };
 
@@ -74,10 +76,10 @@ export function vaultCaseSensitivityCheck(view: VaultCaseSensitivityView): Check
         details,
         issues: unknown.map(
           (v) =>
-            `vault ${v.id}: case sensitivity is unknown — whitelists match case-sensitively while rule scopes and immutable globs fold, the fail-closed split`,
+            `vault ${v.id}: case sensitivity of the root is unknown — case-only ACL matches are fail-closed wherever a directory cannot be probed, and the identity key does not fold`,
         ),
         remediation:
-          'Set vaults[].caseSensitive (true/false) for each named vault to pin the behavior its filesystem actually has, or "auto" to retry the probe at the next start. The split cannot be bypassed — it can only deny a legitimate case-variant read or over-demand a scope — but it is not the behavior the filesystem would give.',
+          'Set vaults[].caseSensitive for each named vault to pin the behavior its filesystem actually has (true: names differing only by case are different files; false: they are the same file), or "auto" to retry the probe at the next start. Failing closed cannot be bypassed — it can only deny a legitimate case-variant path or over-demand a scope — but it is not the behavior the filesystem would give.',
       };
     },
   };

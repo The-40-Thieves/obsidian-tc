@@ -12,7 +12,7 @@
 // overrides), compiles each vault's FolderAcl with it, reports it per vault (caseByVault ->
 // doctor), and carries it in the ACL fingerprint. The platform default and the detector are
 // injectable so both directions are exercised on any host.
-import { statSync, writeFileSync } from "node:fs";
+import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { VaultConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
@@ -252,7 +252,7 @@ describe("vaults[].caseSensitive config override", () => {
     const root = makeTempDir("obtc-case4-");
     try {
       const registry = new VaultRegistry([
-        { id: "forced", path: root, caseSensitive: false },
+        { id: "forced", path: root, caseSensitive: true },
         { id: "auto", path: root },
       ]);
       // RED: ResolvedVault carries no case sensitivity at all pre-fix.
@@ -266,21 +266,27 @@ describe("vaults[].caseSensitive config override", () => {
   it("compiles the vault's FolderAcl with the override", () => {
     const root = makeTempDir("obtc-case4-");
     try {
+      mkdirSync(join(root, "Notes"));
+      writeFileSync(join(root, "Notes", "x.md"), "");
       const { aclByVault, caseByVault } = buildAcls(
         OPEN,
         [
           {
             id: "v",
             path: root,
-            caseSensitive: true,
+            caseSensitive: false,
             acl: { ...OPEN, readPaths: ["Notes/**"] },
           },
         ],
         { platformCaseInsensitive: false, detectCase: () => false },
       );
-      expect(caseByVault.get("v")?.configured).toBe(true);
+      expect(caseByVault.get("v")?.configured).toBe(false);
       expect(caseByVault.get("v")?.match).toEqual({ allow: true, rules: true });
-      expect(aclByVault.get("v")?.matchedPathGlob("read", "NOTES/x.md")).toBe("Notes/**");
+      // The override sets the vault-level fact; a case-only match is still settled by the
+      // directories themselves, so it holds only where the folder really folds.
+      expect(aclByVault.get("v")?.matchedPathGlob("read", "NOTES/x.md")).toBe(
+        TEMP_CI ? "Notes/**" : null,
+      );
     } finally {
       rmTemp(root);
     }
