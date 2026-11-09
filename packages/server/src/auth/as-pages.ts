@@ -299,3 +299,35 @@ ${picker}<button type="submit" name="decision" value="approve">Approve</button>
 </form>`,
   );
 }
+
+export interface RememberedView {
+  csrf: string;
+  request: string;
+  clientName: string;
+  clientId: string;
+  redirectHost: string;
+  scopes: Array<{ scope: string; words: string }>;
+}
+
+/** A remembered grant covers the request: one click (a token-bound POST) continues, nothing is asked again. */
+export function rememberedPage(o: RememberedView): string {
+  const scopes = o.scopes
+    .map((s) => `<li>${escapeHtml(s.words)} <code>${escapeHtml(s.scope)}</code></li>`)
+    .join("\n");
+  return layout(
+    "Continue signing in",
+    // nosemgrep: html-in-template-string -- every value interpolated here goes through escapeHtml or hidden
+    `<p>You approved <strong>${escapeHtml(o.clientName)}</strong> (<code>${escapeHtml(o.clientId)}</code>) before. Continue only if you just started this sign-in yourself; your browser then returns to <code>${escapeHtml(o.redirectHost)}</code>.</p>
+<p>It will be able to:</p>
+<ul>
+${scopes}
+</ul>
+<form method="post" action="/oauth/consent">
+${hidden(o.csrf)}
+<input type="hidden" name="request" value="${escapeHtml(o.request)}">
+<input type="hidden" name="remembered" value="1">
+<button type="submit" name="decision" value="approve">Continue</button>
+<button type="submit" name="decision" value="deny">Cancel</button>
+</form>`,
+  );
+}

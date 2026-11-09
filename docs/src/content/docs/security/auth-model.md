@@ -618,7 +618,11 @@ The bundled server is off until you enable it. Set these in the config (every ke
   its own sign-in for an approved client and obtain a token without a prompt. Such a process could typically already
   read the stored tokens of those CLIs. Set `auth.as.consent.loopback: prompt` to show the consent page on every
   sign-in that returns to a loopback address (the warning above is on it), whichever port it uses, even for a client and
-  path you approved a minute ago. A lookup is bounded: one 5 s deadline covers the name lookup, the connection and the
+  path you approved a minute ago. A remembered sign-in whose redirect leaves this machine is never approved by the
+  `GET` alone: the session cookie is `SameSite=Lax`, so a link on any site reaches that `GET` signed in, and the page
+  it shows is a one-click Continue whose same-origin, token-bound POST issues the code (`auth.as.consent.remembered`:
+  unset means `silent` for a loopback redirect and `confirm` otherwise; set it to apply one mode everywhere). A
+  request that can no longer be used says whether its link was damaged, unknown, expired or already used. A lookup is bounded: one 5 s deadline covers the name lookup, the connection and the
   body, one source may start five uncached lookups a minute and have two running at once (an IPv6 address counts as
   its /64; a peer with no usable address, such as a reverse proxy or tunnel on the same host that is not listed in
   `transports.http.trustedProxies`, is one shared source that may start ten a minute, not an exemption, so behind an

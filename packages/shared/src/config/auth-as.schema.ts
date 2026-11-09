@@ -239,6 +239,12 @@ export const AsConfigSchema = z
           .describe(
             "How a sign-in whose redirect is on this machine (`127.0.0.0/8`, `::1` or `localhost`) is treated once the operator has approved the client. `remember` (the default): the approval is reused across ports, so Claude Code and Codex sign in without a click. `prompt`: every such sign-in shows the consent page, whichever port it uses, so a local process cannot start its own sign-in and obtain a token without the operator seeing it. A redirect that is not on this machine is always remembered.",
           ),
+        remembered: z
+          .enum(["silent", "confirm"])
+          .optional()
+          .describe(
+            "What a sign-in that an earlier approval already covers does. `confirm`: the browser shows a one-click Continue page, so a link opened from another site cannot obtain a code without the operator seeing it. `silent`: the code is issued with no page. Unset (the default): `silent` when the redirect is on this machine (`127.0.0.0/8`, `::1` or `localhost`), so native CLIs keep signing in without a click, and `confirm` for any other redirect.",
+          ),
       })
       .prefault({})
       .describe("Consent page behaviour."),
