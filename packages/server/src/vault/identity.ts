@@ -198,7 +198,7 @@ function resolveVaultIdentity(
   now: number,
 ): VaultRenameNotice | undefined {
   const { root, canonical } = canonicalizeVaultRootWithStatus(vault.path);
-  // Fold the way THIS vault's filesystem folds (override wins, else probe the canonical root); an undecidable probe does NOT fold — a false "same path" would re-key one vault's rows onto another, a false "different path" only refuses a boot. The lowercase spelling must also be this directory: a case-sensitive parent can hold `Vault` and `vault` as two vaults that each fold inside.
+  // Fold the way THIS vault's filesystem folds (override wins, else probe the canonical root); an undecidable probe does NOT fold — a false "same path" would re-key one vault's rows onto another, a false "different path" only refuses a boot. The lowercase spelling must also be this directory: a case-sensitive parent can hold `Vault` and `vault` as two vaults that each fold inside. A recorded row differing only in case is re-spelled only for a PROVEN same directory; an unreachable root proves nothing, so its pre-per-vault row stands.
   const folds =
     vault.caseSensitive !== undefined && vault.caseSensitive !== "auto"
       ? !vault.caseSensitive
@@ -224,15 +224,15 @@ function resolveVaultIdentity(
       }
       return undefined;
     }
-    if (
-      legacy !== normalized &&
-      rowById.root_realpath === legacy &&
-      sameDirectory(legacy, root) !== false
-    ) {
-      db.prepare(
-        "UPDATE vault_identity SET root_realpath = ?, root_canonical = ?, updated_at = ? WHERE vault_id = ?",
-      ).run(normalized, canonical ? 1 : rowById.root_canonical, now, vault.id);
-      return undefined;
+    if (rowById.root_realpath.toLowerCase() === normalized.toLowerCase()) {
+      const same = sameDirectory(rowById.root_realpath, root);
+      if (same === null && !canonical && rowById.root_realpath === legacy) return undefined;
+      if (same === true) {
+        db.prepare(
+          "UPDATE vault_identity SET root_realpath = ?, root_canonical = ?, updated_at = ? WHERE vault_id = ?",
+        ).run(normalized, canonical ? 1 : rowById.root_canonical, now, vault.id);
+        return undefined;
+      }
     }
     if (rowById.root_canonical === 0 && canonical) {
       // PROVISIONAL row (realpath failed a prior boot), now genuinely resolved to a DIFFERENT
