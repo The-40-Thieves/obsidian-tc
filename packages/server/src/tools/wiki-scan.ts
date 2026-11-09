@@ -11,7 +11,7 @@
 // callers that have not been made cooperative.
 
 import type { FolderAcl } from "../acl";
-import { globToRegExp } from "../acl";
+import { globPredicate } from "../acl";
 import { drainSteps, type ScanSteps } from "../util/scan-steps";
 import { readableEntry } from "../vault/acl-read-filter";
 import { buildVaultIndex, type ExtractedLink, resolveTarget } from "../vault/links";
@@ -295,12 +295,11 @@ export function* scanProvenanceSteps(
   opts: ProvenanceScanOpts,
 ): ScanSteps<ProvenanceScan> {
   const exclude = [...PROVENANCE_DEFAULT_EXCLUDE, ...(opts.exclude ?? [])];
-  const includeRes = (opts.include ?? []).map((g) => globToRegExp(g.normalize("NFC")));
-  const excludeRes = exclude.map((g) => globToRegExp(g.normalize("NFC")));
+  const includeMatch = (opts.include ?? []).map((g) => globPredicate(g));
+  const excludeMatch = exclude.map((g) => globPredicate(g));
   const inScope = (rel: string): boolean => {
-    const p = rel.normalize("NFC");
-    if (includeRes.length && !includeRes.some((re) => re.test(p))) return false;
-    return !excludeRes.some((re) => re.test(p));
+    if (includeMatch.length && !includeMatch.some((m) => m(rel))) return false;
+    return !excludeMatch.some((m) => m(rel));
   };
   const isRaw = rawPathFilter(scope.rawFolders, scope.caseInsensitive);
   const notes = (yield* readableNotesSteps(

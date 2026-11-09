@@ -56,47 +56,129 @@ export const foldPath = (path: string, ci: boolean = CASE_INSENSITIVE_FS): strin
 };
 
 // Upper bound on a single glob: keeps a malformed or generated config from producing a pathological
-// regex on the hot path. Real vault globs are far below this, so the ceiling never trips in practice.
+// matcher on the hot path. Real vault globs are far below this, so the ceiling never trips in practice.
 const MAX_GLOB_LENGTH = 512;
 
-// THE-618: memoized compiled-regex cache. FolderAcl precompiles its own globs at construction, so
-// this mainly serves caller-supplied globs (graph-health-tools' include/exclude) and direct globMatch
-// callers. Nested Map (glob -> flag -> RegExp), deliberately not a concatenated key — a wrong flag on
-// a cache hit is a silent ACL correctness bug. Bounded FIFO (GLOB_CACHE_MAX): those args are unbounded.
-const GLOB_CACHE_MAX = 1000;
-const globCache = new Map<string, Map<boolean, RegExp>>();
+// Token kinds: LIT = literal char in lits, QMARK `?` one non-/ char, STAR `*` non-/ run, STAR2 `**` any run.
+const LIT = 0;
+const QMARK = 1;
+const STAR = 2;
+const STAR2 = 3;
 
-export function globToRegExp(glob: string, caseInsensitive: boolean = CASE_INSENSITIVE_FS): RegExp {
+interface GlobTokens {
+  readonly kinds: readonly number[];
+  readonly lits: string; // per-token literal char aligned with kinds ("\0" for wildcards)
+}
+
+function tokenizeGlob(glob: string): GlobTokens {
   if (glob.length > MAX_GLOB_LENGTH)
     throw new Error(`glob too long (${glob.length} > ${MAX_GLOB_LENGTH})`);
-  const byFlag = globCache.get(glob);
-  const cached = byFlag?.get(caseInsensitive);
-  if (cached !== undefined) return cached;
-  let re = "";
+  const kinds: number[] = [];
+  let lits = "";
   for (let i = 0; i < glob.length; i++) {
     const c = glob.charAt(i);
     if (c === "*" && glob.charAt(i + 1) === "*") {
-      re += ".*";
+      kinds.push(STAR2);
+      lits += "\0";
       i++;
-    } else if (c === "*") re += "[^/]*";
-    else if (c === "?") re += "[^/]";
-    // `\` makes the next character literal (escapeGlob); a trailing `\` is itself literal.
-    else if (c === "\\" && i + 1 < glob.length) re += reEscape(glob.charAt(++i));
-    else re += reEscape(c);
+    } else if (c === "*") {
+      kinds.push(STAR);
+      lits += "\0";
+    } else if (c === "?") {
+      kinds.push(QMARK);
+      lits += "\0";
+    } else if (c === "\\" && i + 1 < glob.length) {
+      // `\` makes the next character literal (escapeGlob); a trailing `\` is itself literal.
+      kinds.push(LIT);
+      lits += glob.charAt(++i);
+    } else {
+      kinds.push(LIT);
+      lits += c;
+    }
+  }
+  return { kinds, lits };
+}
+
+// THE-618: memoized compiled-glob cache, one entry per glob string. The matcher folds case per
+// comparison, so the tokens serve both flags; the two RegExp variants hang off the same entry for
+// globToRegExp callers. Bounded FIFO (GLOB_CACHE_MAX): caller-supplied globs are unbounded.
+const GLOB_CACHE_MAX = 1000;
+interface GlobCacheEntry {
+  tokens: GlobTokens;
+  cs?: RegExp;
+  ci?: RegExp;
+}
+const globCache = new Map<string, GlobCacheEntry>();
+
+function cachedGlobEntry(glob: string): GlobCacheEntry {
+  const cached = globCache.get(glob);
+  if (cached !== undefined) return cached;
+  const entry: GlobCacheEntry = { tokens: tokenizeGlob(glob) };
+  if (globCache.size >= GLOB_CACHE_MAX) {
+    const oldest = globCache.keys().next().value;
+    if (oldest !== undefined) globCache.delete(oldest);
+  }
+  globCache.set(glob, entry);
+  return entry;
+}
+
+// Regex form of the same tokens: the fuzz oracle for matchTokens, for callers that need a RegExp.
+// The ACL hot path never runs it — `.*` per `**` backtracks catastrophically on a failing match.
+export function globToRegExp(glob: string, caseInsensitive: boolean = CASE_INSENSITIVE_FS): RegExp {
+  const entry = cachedGlobEntry(glob);
+  const key = caseInsensitive ? "ci" : "cs";
+  const hit = entry[key];
+  if (hit !== undefined) return hit;
+  let re = "";
+  for (const [i, kind] of entry.tokens.kinds.entries()) {
+    if (kind === STAR2) re += ".*";
+    else if (kind === STAR) re += "[^/]*";
+    else if (kind === QMARK) re += "[^/]";
+    else re += reEscape(entry.tokens.lits.charAt(i));
   }
   const compiled = new RegExp(`^${re}$`, caseInsensitive ? "i" : "");
-  let entry = byFlag;
-  if (!entry) {
-    if (globCache.size >= GLOB_CACHE_MAX) {
-      // Evict the oldest glob string (both its flag variants) — insertion order is the FIFO order.
-      const oldest = globCache.keys().next().value;
-      if (oldest !== undefined) globCache.delete(oldest);
-    }
-    entry = new Map();
-    globCache.set(glob, entry);
-  }
-  entry.set(caseInsensitive, compiled);
+  entry[key] = compiled;
   return compiled;
+}
+
+// ci equality per code unit, filesystem-upcase style: either folding direction may agree (ſ↔s, K↔k).
+const foldEq = (a: string, b: string): boolean =>
+  a === b || a.toLowerCase() === b.toLowerCase() || a.toUpperCase() === b.toUpperCase();
+
+// Full-path match in O(glob x path), two rolling DP rows — no regex, no backtracking (Codacy
+// regex-dos). Same tokens and anchoring as the compiler, so matching semantics are unchanged.
+function matchTokens(t: GlobTokens, path: string, ci: boolean): boolean {
+  const n = path.length;
+  let prev = new Uint8Array(n + 1);
+  prev[0] = 1;
+  let cur = new Uint8Array(n + 1);
+  for (const [g, kind] of t.kinds.entries()) {
+    if (kind === LIT) {
+      cur[0] = 0;
+      if (ci) {
+        const lit = t.lits.charAt(g);
+        for (let p = 1; p <= n; p++)
+          cur[p] = prev[p - 1] === 1 && foldEq(path.charAt(p - 1), lit) ? 1 : 0;
+      } else {
+        const code = t.lits.charCodeAt(g);
+        for (let p = 1; p <= n; p++)
+          cur[p] = prev[p - 1] === 1 && path.charCodeAt(p - 1) === code ? 1 : 0;
+      }
+    } else if (kind === QMARK) {
+      cur[0] = 0;
+      for (let p = 1; p <= n; p++) cur[p] = prev[p - 1] === 1 && path.charAt(p - 1) !== "/" ? 1 : 0;
+    } else {
+      cur[0] = prev[0] ?? 0;
+      const anyChar = kind === STAR2;
+      for (let p = 1; p <= n; p++)
+        cur[p] =
+          prev[p] === 1 || (cur[p - 1] === 1 && (anyChar || path.charAt(p - 1) !== "/")) ? 1 : 0;
+    }
+    const swap = prev;
+    prev = cur;
+    cur = swap;
+  }
+  return prev[n] === 1;
 }
 
 // Match glob against path in a Unicode-normalization-insensitive way (THE-272): normalizing both
@@ -107,7 +189,19 @@ export function globMatch(
   path: string,
   caseInsensitive: boolean = CASE_INSENSITIVE_FS,
 ): boolean {
-  return globToRegExp(glob.normalize("NFC"), caseInsensitive).test(path.normalize("NFC"));
+  return matchTokens(
+    cachedGlobEntry(glob.normalize("NFC")).tokens,
+    path.normalize("NFC"),
+    caseInsensitive,
+  );
+}
+
+export function globPredicate(
+  glob: string,
+  caseInsensitive: boolean = CASE_INSENSITIVE_FS,
+): (path: string) => boolean {
+  const tokens = cachedGlobEntry(glob.normalize("NFC")).tokens;
+  return (path) => matchTokens(tokens, path.normalize("NFC"), caseInsensitive);
 }
 
 // Hard default-deny baseline (THE-268): the Obsidian/VCS control directories are never reachable
@@ -135,17 +229,16 @@ export function isDefaultDenied(path: string): boolean {
 /** The three per-path operation kinds carrying an independent whitelist. */
 export type AclPathOp = "read" | "write" | "delete";
 
-/** A glob compiled both ways plus the ORIGINAL glob (reported as `matchedGlob`). */
+/** A glob tokenized once plus the ORIGINAL glob string (reported as `matchedGlob`). */
 interface CompiledGlobT {
   readonly glob: string;
-  readonly cs: RegExp;
-  readonly ci: RegExp;
+  readonly tokens: GlobTokens;
 }
 
-const compileGlob = (glob: string): CompiledGlobT => {
-  const nfc = glob.normalize("NFC");
-  return { glob, cs: globToRegExp(nfc, false), ci: globToRegExp(nfc, true) };
-};
+const compileGlob = (glob: string): CompiledGlobT => ({
+  glob,
+  tokens: cachedGlobEntry(glob.normalize("NFC")).tokens,
+});
 
 const sameScopes = (a: readonly string[], b: readonly string[]): boolean =>
   a === b || (a.length === b.length && a.every((s, i) => s === b[i]));
@@ -233,7 +326,8 @@ export class FolderAcl {
   }
   private lastMatch(p: string, side: "cs" | "ci"): string[] {
     let scopes = this.cfg.defaultScopes;
-    for (const r of this.compiledRules) if (r.glob[side].test(p)) scopes = r.scopes;
+    for (const r of this.compiledRules)
+      if (matchTokens(r.glob.tokens, p, side === "ci")) scopes = r.scopes;
     return scopes;
   }
   private unionOfDeclaredScopes(): readonly string[] {
@@ -259,8 +353,7 @@ export class FolderAcl {
   // the ACL for every subsequent call — a privilege escalation with no trace in the config file.
   scopesForPath(path: string): string[] {
     this.settle();
-    // THE-618 item 2: one normalize for the whole loop, not one per rule. The compiled regexes
-    // carry no `g`/`y` flag, so `.test` holds no lastIndex state and is safe to reuse across calls.
+    // THE-618 item 2: one normalize for the whole loop, not one per rule.
     const p = path.normalize("NFC");
     const exact = this.lastMatch(p, "cs");
     const folded = this.lastMatch(p, "ci");
@@ -278,9 +371,9 @@ export class FolderAcl {
     const list = this.compiledPaths[op];
     if (list === undefined) return undefined;
     const p = path.normalize("NFC");
-    const exact = list.find((c) => c.cs.test(p));
+    const exact = list.find((c) => matchTokens(c.tokens, p, false));
     if (exact !== undefined) return exact.glob;
-    const folded = list.find((c) => c.ci.test(p));
+    const folded = list.find((c) => matchTokens(c.tokens, p, true));
     if (folded === undefined) return null;
     const folds = this.folding(p);
     const accept = folds === undefined ? this.caseMatchFlags.allow : folds === true;
@@ -294,9 +387,9 @@ export class FolderAcl {
   immutableGlobFor(path: string): string | null {
     if (this.compiledImmutable.length === 0) return null;
     const p = path.normalize("NFC");
-    const exact = this.compiledImmutable.find((c) => c.cs.test(p));
+    const exact = this.compiledImmutable.find((c) => matchTokens(c.tokens, p, false));
     if (exact !== undefined) return exact.glob;
-    const folded = this.compiledImmutable.find((c) => c.ci.test(p));
+    const folded = this.compiledImmutable.find((c) => matchTokens(c.tokens, p, true));
     if (folded === undefined) return null;
     return this.folding(p) === false ? null : folded.glob;
   }
