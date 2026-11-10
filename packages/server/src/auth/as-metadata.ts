@@ -12,6 +12,7 @@ import type { PersonasConfig, ServerConfig } from "@the-40-thieves/obsidian-tc-s
 import type { Context, Hono } from "hono";
 import type { Database } from "../db/types";
 import type { CimdSeams } from "./as-cimd";
+import type { FamilyRevocationHook } from "./family-revocation-telemetry";
 import type { AuthRegistry } from "./registry";
 
 type AuthConfig = ServerConfig["auth"];
@@ -46,6 +47,9 @@ export interface AsRouteDeps {
   clientIp?: (c: Context) => string | undefined;
   /** Test seams for client-ID metadata document resolution (transport, name resolver, timeout, cache cap). */
   cimd?: CimdSeams | undefined;
+  /** GH #1477: reported once per family revocation (the metric + audit-row sink in production;
+   *  absent in store-level unit tests). See auth/family-revocation-telemetry.ts. */
+  onFamilyRevoked?: FamilyRevocationHook | undefined;
 }
 type AsRouteMounter = (app: Hono, auth: AuthConfig, deps?: AsRouteDeps) => void;
 

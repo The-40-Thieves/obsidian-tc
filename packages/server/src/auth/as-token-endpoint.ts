@@ -29,6 +29,7 @@ import { consumeCodeAndStartFamily, newRefreshToken } from "./as-refresh";
 import { refreshGrant } from "./as-refresh-grant";
 import { secretGeneration } from "./as-refresh-replay";
 import { socketClientIp } from "./client-ip";
+import { familyRevocationTelemetry } from "./family-revocation-telemetry";
 import { matchResource } from "./resource-set";
 
 type AuthConfig = ServerConfig["auth"];
@@ -104,6 +105,7 @@ export function mountTokenRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps)
           now,
           reuseGraceMs: as.refreshReuseGraceSeconds * 1000,
           log,
+          onFamilyRevoked: deps.onFamilyRevoked,
           fail: (status, error, description) => fail(c, status, error, description),
         },
         asked,
@@ -156,7 +158,14 @@ export function mountTokenRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps)
     const computed = createHash("sha256").update(verifier).digest("base64url");
     if (!secretsEqual(computed, rec.codeChallenge)) return bad("PKCE verifier mismatch");
     if (rec.usedAt !== null) {
-      revokeFamily(db, registry, rec.codeHash, "authorization_code_reuse", now());
+      revokeFamily(
+        db,
+        registry,
+        rec.codeHash,
+        "authorization_code_reuse",
+        now(),
+        familyRevocationTelemetry(deps.onFamilyRevoked, rec.clientId),
+      );
       return bad(`code replay, client=${rec.clientId}: tokens issued from it are revoked`);
     }
     if (rec.expiresAt <= now()) return bad("expired code");
@@ -211,13 +220,27 @@ export function mountTokenRoute(app: Hono, auth: AuthConfig, deps?: AsRouteDeps)
         secretGen: secretGeneration(deps.secret),
       });
     } catch (e) {
-      revokeFamily(db, registry, rec.codeHash, "authorization_code_failed", now());
+      revokeFamily(
+        db,
+        registry,
+        rec.codeHash,
+        "authorization_code_failed",
+        now(),
+        familyRevocationTelemetry(deps.onFamilyRevoked, rec.clientId),
+      );
       log(`token not issued: ${e instanceof Error ? e.message : "refresh token not stored"}`);
       return fail(c, 500, "server_error", "the access token could not be issued");
     }
     if (!started) {
       // Another exchange of this code won while this one was signing: it is a replay.
-      revokeFamily(db, registry, rec.codeHash, "authorization_code_reuse", now());
+      revokeFamily(
+        db,
+        registry,
+        rec.codeHash,
+        "authorization_code_reuse",
+        now(),
+        familyRevocationTelemetry(deps.onFamilyRevoked, rec.clientId),
+      );
       return bad(`concurrent exchange, client=${rec.clientId}: tokens issued from it are revoked`);
     }
     log(`token issued client=${client.clientId}`);

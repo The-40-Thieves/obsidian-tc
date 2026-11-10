@@ -48,6 +48,13 @@ export type {
   ToolCensus,
 } from "./entrypoints";
 export { entryPointsCheck } from "./entrypoints";
+// GH #1477: auth.family-revocations' view and probe types, same barrel reasoning as every other
+// doctor/*.ts submodule above — the CLI builds it without importing through checks.ts.
+export type {
+  FamilyRevocationsProbe,
+  FamilyRevocationsView,
+} from "./family-revocations";
+export { familyRevocationsCheck } from "./family-revocations";
 // THE-1108: sessions.liveness's probe result type, same barrel reasoning as every other
 // doctor/*.ts submodule above — the CLI builds its probe without importing through checks.ts.
 export type { HitlConfirmationsProbe, HitlConfirmationsView } from "./hitl-confirmations";
