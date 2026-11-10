@@ -49,7 +49,7 @@ async function connect(registry: ToolRegistry) {
 
 describe("THE-278 validation-as-tool-errors (SEP-1303)", () => {
   it("a bad-args call resolves to a Tool Execution Error with readable text + structuredContent", async () => {
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     r.register(tool("read_thing"));
     const { client, server } = await connect(r);
     // Missing required `x`. The promise RESOLVES (does not reject) -> it is an in-band tool error,
@@ -68,7 +68,7 @@ describe("THE-278 validation-as-tool-errors (SEP-1303)", () => {
 describe("THE-278 icons", () => {
   it("tools/list + describe_capability carry icons only when set", async () => {
     const icons = [{ src: "data:image/png;base64,AAAA", mimeType: "image/png", sizes: ["48x48"] }];
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     r.register(tool("with_icon", { icons }));
     r.register(tool("no_icon"));
     const { client, server } = await connect(r);
@@ -87,7 +87,7 @@ describe("THE-278 icons", () => {
 describe("THE-278 outputSchema + structuredContent", () => {
   it("advertises outputSchema (2020-12) and a conformant client validates structuredContent", async () => {
     const outputSchema = z.object({ ok: z.boolean() }).strict();
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     r.register(tool("structured", { outputSchema }, () => ({ ok: true })));
     r.register(tool("plain"));
     const { client, server } = await connect(r);
@@ -121,7 +121,7 @@ describe("THE-457 strict output-schema enforcement", () => {
 
   it("warn mode (strictOutputSchema:false): a payload violating outputSchema still returns ok", async () => {
     // Production default: warn-only, so a schema drift never turns a working call into a client error.
-    const r = new ToolRegistry({ strictOutputSchema: false });
+    const r = new ToolRegistry({ rootResolver: () => undefined, strictOutputSchema: false });
     r.register(tool("bad", { outputSchema: schema }, () => ({ ok: "not-a-boolean" })));
     const res = await r.dispatch("bad", { x: "hi" }, ctx());
     expect(res.ok).toBe(true); // warn-only: the malformed payload is still returned
@@ -131,21 +131,21 @@ describe("THE-457 strict output-schema enforcement", () => {
     // With no explicit flag, the test/CI env default (strictOutputSchemaDefault) turns violations into
     // hard errors — this is what runs every real handler under strict validation across the suite.
     expect(process.env.NODE_ENV).toBe("test");
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     r.register(tool("bad", { outputSchema: schema }, () => ({ ok: "not-a-boolean" })));
     const res = await r.dispatch("bad", { x: "hi" }, ctx());
     expect(res.ok).toBe(false);
   });
 
   it("strict mode: the same violation is a hard typed error, not a returned payload", async () => {
-    const r = new ToolRegistry({ strictOutputSchema: true });
+    const r = new ToolRegistry({ rootResolver: () => undefined, strictOutputSchema: true });
     r.register(tool("bad", { outputSchema: schema }, () => ({ ok: "not-a-boolean" })));
     const res = await r.dispatch("bad", { x: "hi" }, ctx());
     expect(res.ok).toBe(false); // contract violation fails instead of shipping bad structuredContent
   });
 
   it("strict mode: a conformant payload passes unaffected", async () => {
-    const r = new ToolRegistry({ strictOutputSchema: true });
+    const r = new ToolRegistry({ rootResolver: () => undefined, strictOutputSchema: true });
     r.register(tool("good", { outputSchema: schema }, () => ({ ok: true })));
     const res = await r.dispatch("good", { x: "hi" }, ctx());
     expect(res.ok).toBe(true);
@@ -158,7 +158,7 @@ describe("THE-278 protocol version", () => {
     // the server negotiates the SDK default, so a floor regression would drop this below target.
     expect(LATEST_PROTOCOL_VERSION).toBe("2025-11-25");
     // And a real client completes the initialize handshake against the server.
-    const { client, server } = await connect(new ToolRegistry());
+    const { client, server } = await connect(new ToolRegistry({ rootResolver: () => undefined }));
     expect(client.getServerVersion()?.name).toBeDefined();
     await client.close();
     await server.close();

@@ -182,6 +182,10 @@ export const OAUTH_MIGRATION_FILES = [
   // 20261017_955 adds burned_reset_tokens: the reset tokens the no-shell reset page has used. See the
   // migration header.
   "20261017_955_burned_reset_tokens.sql",
+  // 20261108_956 adds auth_requests.used_at: a consumed request stays as a tombstone, so a second
+  // visit can say "already used" rather than "expired". See the migration header.
+  "20261108_956_auth_requests_used.sql",
+  "20261108_957_auth_request_scopes.sql",
 ] as const;
 
 /**

@@ -8,7 +8,7 @@ import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
 // tool's declarative pathAcl extractor, runDispatch calls enforcePathAcl before the
 // handler) AND here at the handler level as defense-in-depth. The M0 dispatch
 // read-only kill switch (forbidden) fires first for scope-mutating tools.
-import { type FolderAcl, foldPath, isDefaultDenied } from "../acl";
+import { CASE_INSENSITIVE_FS, type FolderAcl, foldPath, isDefaultDenied } from "../acl";
 // GH #994 second security review, M1: `path` here is the caller-controlled (resolved but
 // unscanned) target of the op — memoryDefense has not run yet at this point in dispatch, and for
 // a hard-denied or whitelist-miss path this function is what throws. Sharing the same scanner
@@ -64,10 +64,16 @@ const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0
  *  the two equal. */
 export const SCHEMA_LAYER_NAME = "SCHEMA.md";
 
-/** GH #1384: is this path's basename a SCHEMA.md convention layer? Folded the way the filesystem folds
- *  names (foldPath), which is the way the layer loader's lookup resolves them. */
-export function isSchemaLayerPath(path: string): boolean {
-  return foldPath(path.slice(path.lastIndexOf("/") + 1)) === foldPath(SCHEMA_LAYER_NAME);
+/** GH #1384: is this path's basename a SCHEMA.md convention layer? Folded the way the vault's
+ *  filesystem folds names (the ACL's rules side), which is how the layer loader's lookup resolves. */
+export function isSchemaLayerPath(
+  path: string,
+  caseInsensitive: boolean = CASE_INSENSITIVE_FS,
+): boolean {
+  return (
+    foldPath(path.slice(path.lastIndexOf("/") + 1), caseInsensitive) ===
+    foldPath(SCHEMA_LAYER_NAME, caseInsensitive)
+  );
 }
 
 /** Would this op on a SCHEMA.md layer need admin:conventions? `written` is the name as the caller wrote
@@ -81,7 +87,9 @@ function schemaLayerRefused(
 ): boolean {
   if (op === "read" || acl?.protectsSchemaFiles !== true) return false;
   if (grantsAll(grantedScopes, [CONVENTIONS_SCOPE])) return false;
-  return isSchemaLayerPath(normalizeVaultPath(written)) || isSchemaLayerPath(real);
+  // The vault's own case behavior, rules side: on an unprobeable filesystem this folds, so a case-variant of SCHEMA.md is over-protected (needs admin:conventions), never under-protected.
+  const ci = acl?.caseMatch.rules ?? CASE_INSENSITIVE_FS;
+  return isSchemaLayerPath(normalizeVaultPath(written), ci) || isSchemaLayerPath(real, ci);
 }
 
 function whitelistDecision(acl: FolderAcl | undefined, op: AclOp, path: string): PathAclDecision {

@@ -362,6 +362,7 @@ describe("per-vault ACL binding", () => {
     // The root ACL is deliberately the most permissive: only the per-vault swap can hide anything.
     const rootAcl = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
     const registry = new ToolRegistry({
+      rootResolver: (id) => (id === "va" ? rootA : id === "vb" ? rootB : undefined),
       verifyElicit: elicitVerifier,
       aclResolver: (id) => acls.get(id),
     });

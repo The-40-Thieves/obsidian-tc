@@ -561,7 +561,7 @@ describe("write_attachment: path safety", () => {
   it("the handler itself refuses a control directory when no ACL reaches it", () => {
     const b = boot();
     try {
-      const reg = new ToolRegistry();
+      const reg = new ToolRegistry({ rootResolver: () => b.root });
       registerM3Tools(reg, { vaultRegistry: new VaultRegistry([{ id: "test", path: b.root }]) });
       const handler = reg.list().find((t) => t.name === "write_attachment")?.handler;
       const noAcl = { ...b.ctx(), acl: undefined } as unknown as CallerContext;
@@ -700,7 +700,7 @@ describe("write_attachment: registration and governance", () => {
   it("declares write scope, pathAcl, vaultArg, idempotency and a conditional-destructive hint", () => {
     const b = boot();
     try {
-      const reg = new ToolRegistry();
+      const reg = new ToolRegistry({ rootResolver: () => b.root });
       registerM3Tools(reg, { vaultRegistry: new VaultRegistry([{ id: "x", path: b.root }]) });
       const tool = reg.list().find((t) => t.name === "write_attachment");
       expect(tool).toBeDefined();

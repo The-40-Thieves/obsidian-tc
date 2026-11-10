@@ -57,7 +57,7 @@ async function mcpStatus(config: ReturnType<typeof configOf>, authRegistry?: unk
   const handle = await startHttp({
     name: "obsidian-tc",
     version: "t",
-    registry: new ToolRegistry(),
+    registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth: config.auth,
     ...(authRegistry === undefined ? {} : { authRegistry: authRegistry as never }),
     db,

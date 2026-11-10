@@ -30,6 +30,8 @@ const PERSONAS = {
   author: { vaults: ["v1", "v2"], scopes: ["read:notes", "write:notes"] },
 };
 const WIDE = { scope: "read:notes write:notes" };
+/** Remembered grants issue on the GET, so a skipped page shows up as a 303 (the default confirms on a hosted redirect). */
+const SILENT = { as: { consent: { remembered: "silent" } } };
 const narrow = (flow: Flow, column: "scopes_allowed" | "vaults_allowed", value: string | null) =>
   flow.db.prepare(`UPDATE users SET ${column} = ?`).run(value);
 
@@ -55,7 +57,7 @@ async function again(flow: Flow, over: Record<string, string> = WIDE) {
 
 describe("remembered consent re-derives the account's bounds", () => {
   it("control: an unchanged account still skips the page for a remembered grant", async () => {
-    const flow = await makeFlow();
+    const flow = await makeFlow(SILENT);
     await remember(flow);
     const { page } = await again(flow);
     expect(page.seen.res.status).toBe(303);
@@ -91,7 +93,7 @@ describe("remembered consent re-derives the account's bounds", () => {
   });
 
   it("a request wholly within the narrowed bounds still rides the remembered grant", async () => {
-    const flow = await makeFlow();
+    const flow = await makeFlow(SILENT);
     await remember(flow);
     narrow(flow, "scopes_allowed", "read:notes");
     const { page } = await again(flow, { scope: "read:notes" });

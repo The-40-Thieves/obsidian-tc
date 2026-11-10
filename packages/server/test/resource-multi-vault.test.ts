@@ -59,7 +59,6 @@ function twoVaults(
 ): TwoVaults {
   const v = makeTestVault({
     files: { "a.md": "A" },
-    centralAcl: true,
     aclByVault: opts.acl ? { other: opts.acl } : undefined,
     boundVaultOnly: opts.boundVaultOnly,
   });

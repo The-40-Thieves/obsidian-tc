@@ -39,7 +39,7 @@ async function connect(registry: ToolRegistry, toolsPageSize?: number) {
 }
 
 function registryOf(...names: string[]): ToolRegistry {
-  const r = new ToolRegistry();
+  const r = new ToolRegistry({ rootResolver: () => undefined });
   for (const n of names) r.register(testTool(n));
   return r;
 }
@@ -100,7 +100,7 @@ describe("tools/list pagination", () => {
 
 describe("tools/list annotations + title", () => {
   it("derives read-only annotations for a non-mutating, non-destructive tool", async () => {
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     r.register(toolWith("read_thing", { requiredScopes: ["read:notes"] }));
     const { client, server } = await connect(r);
     const tool = (await client.listTools()).tools[0];
@@ -116,7 +116,7 @@ describe("tools/list annotations + title", () => {
   });
 
   it("marks a mutating tool as not read-only", async () => {
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     r.register(toolWith("write_thing", { requiredScopes: ["write:notes"] }));
     const { client, server } = await connect(r);
     const tool = (await client.listTools()).tools[0];
@@ -131,7 +131,7 @@ describe("tools/list annotations + title", () => {
 
   // THE-743. Three properties, and the first two are the ones a naive implementation gets wrong.
   it("idempotentHint: declared on a mutating tool, ABSENT on a read-only one (THE-743)", async () => {
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     r.register(toolWith("set_thing", { requiredScopes: ["write:notes"], idempotent: true }));
     r.register(toolWith("read_thing_2", { requiredScopes: ["read:notes"], idempotent: true }));
     const { client, server } = await connect(r);
@@ -170,7 +170,7 @@ describe("tools/list annotations + title", () => {
   });
 
   it("marks a destructive tool with destructiveHint and not read-only", async () => {
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     r.register(toolWith("delete_thing", { requiredScopes: ["delete:notes"], destructive: true }));
     const { client, server } = await connect(r);
     const tool = (await client.listTools()).tools[0];

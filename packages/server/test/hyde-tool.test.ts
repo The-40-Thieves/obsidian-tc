@@ -59,7 +59,7 @@ function harness(opts: { sparse?: boolean; colbert?: boolean } = {}) {
   const { provider, denseCalls, fullCalls } = spyProvider(opts);
   const db = openMemoryDb();
   provisionCacheDb(db);
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   const vaultRegistry = new VaultRegistry([{ id: VAULT, name: VAULT, path: root }]);
   registerM7Tools(registry, {
     vaultRegistry,

@@ -21,7 +21,7 @@ import { wireHealthTools } from "../src/runtime/tool-wiring";
 import { createHealthTool } from "../src/tools/admin/health";
 
 function reg(): ToolRegistry {
-  const r = new ToolRegistry();
+  const r = new ToolRegistry({ rootResolver: () => undefined });
   r.register(
     createHealthTool({
       version: "test",
@@ -137,7 +137,7 @@ describe("server_health names the advertise subset a /mcp/<surface> URL selected
     configuredAdvertise?: "all" | "core" | "essentials",
     triadHotPath = false,
   ) {
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     r.register(
       createHealthTool({
         version: "test",

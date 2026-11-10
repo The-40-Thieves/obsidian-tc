@@ -55,7 +55,7 @@ function harness(
     excludeFilter?: ReturnType<typeof compileEgressFilter>;
   } = {},
 ) {
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   const vaultRegistry = new VaultRegistry([{ id: "main", name: "main", path: root }]);
   registerM7Tools(registry, {
     vaultRegistry,
@@ -246,7 +246,7 @@ describe("reflect tool — egress exclusion skip-and-report (THE-934 fix round 2
     stampAclPath(db);
     ensureChunkFts(db, { now: () => NOW, enrich: false });
 
-    const registry = new ToolRegistry({});
+    const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
     const vaultRegistry = new VaultRegistry([{ id: "main", name: "main", path: root }]);
     let capturedPrompt = "";
     const capturingRoles: GatewayRoles = {

@@ -55,7 +55,7 @@ test("an oversize authenticated POST /mcp gets 413 on a real socket, and the soc
   const handle = await startHttp({
     name: "obsidian-tc",
     version: "0.0.0-test",
-    registry: new ToolRegistry(),
+    registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth,
     db,
     vaultId: "v1",

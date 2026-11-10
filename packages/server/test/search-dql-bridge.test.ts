@@ -65,7 +65,7 @@ function makeRig(opts: {
     };
   else dataviewBridge = () => ({ client, timeoutMs: 5000 });
 
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   for (const tool of buildSearchTools({
     vaultRegistry,
     embeddingProvider: fakeEmbeddingProvider({ dimensions: 8 }),

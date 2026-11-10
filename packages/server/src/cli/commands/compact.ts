@@ -8,12 +8,12 @@
 // printed for the operator to run once nothing else has the database open; this command never moves.
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { CASE_INSENSITIVE_FS } from "../../acl";
 import { dbFootprintBytes, FTS_TABLE_NAMES, tableExists } from "../../db/introspect";
 import { openDatabase } from "../../db/open";
 import { forcedCompactIntoFailure, forcedPostOptimizeThrow } from "../../db/pragmas";
 import { busyReason } from "../../db/txn";
 import type { Database } from "../../db/types";
+import { detectFsCaseSensitivity } from "../../vault/case-sensitivity";
 import { type Cmd, resolveOrUsageExit } from "../shared";
 
 const COMPACTABLE_DBS = ["cache.db", "experiential.db"] as const;
@@ -549,8 +549,10 @@ export function jsonAliasError(
       return [base, `${base}-wal`, `${base}-shm`];
     }),
   );
-  // THE-272's constant, not a win32-only test: on macOS `CACHE.DB` and `cache.db` are one file.
-  const norm = (p: string): string => (CASE_INSENSITIVE_FS ? p.toLowerCase() : p);
+  // Fold the way the MANAGED directories' own filesystems fold, probed per directory (THE-272), never the platform constant; an unprobeable directory folds — a false positive only refuses a --json target, a false negative would overwrite a managed database by a case-variant name.
+  const folds = (dir: string): boolean => detectFsCaseSensitivity(dir) ?? true;
+  const ci = folds(cacheDir) || (into !== undefined && folds(into));
+  const norm = (p: string): string => (ci ? p.toLowerCase() : p);
   const target = norm(realPath(json));
   return managed.some((m) => norm(m) === target)
     ? `--json ${json} would overwrite a database this command manages — pick a path outside ` +

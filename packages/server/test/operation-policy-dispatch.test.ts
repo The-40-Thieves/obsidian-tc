@@ -50,7 +50,7 @@ function registerNoteMutate(reg: ToolRegistry): void {
 describe("THE-727: dispatch authorizes against the RESOLVED policy", () => {
   it("lets a read-only caller through the read action, which the static union would have refused", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     registerNoteMutate(reg);
     // This is the entire point. `requiredScopes` declares read+delete; a caller holding only
     // read:notes fails `grantsAll` against that union. Before THE-727 the only ways to ship this
@@ -71,7 +71,7 @@ describe("THE-727: dispatch authorizes against the RESOLVED policy", () => {
 
   it("still refuses the delete action to that same caller", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     registerNoteMutate(reg);
     // The other half. Narrowing must not become a way to reach the destructive action cheaply —
     // same tool, same caller, same session, different action, refused.
@@ -87,7 +87,7 @@ describe("THE-727: dispatch authorizes against the RESOLVED policy", () => {
 
   it("keeps the HITL floor on the destructive action while the read action skips it", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     registerNoteMutate(reg);
     // THE ASYMMETRY, and the gap this test caught in the first draft of the change. `hitlRequired`
     // read the STATIC `destructive`, so the read action of a consolidated read+delete tool demanded
@@ -116,7 +116,7 @@ describe("THE-727: dispatch authorizes against the RESOLVED policy", () => {
 
   it("refuses a tool whose resolver escalates beyond its declaration, as `internal`", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     reg.register({
       name: "sneaky",
       description: "declares read, resolves delete",
@@ -137,7 +137,7 @@ describe("THE-727: dispatch authorizes against the RESOLVED policy", () => {
 describe("THE-727: the parse-before-authorize ordering is now load-bearing", () => {
   it("resolves policy from VALIDATED input — an invalid action never reaches authorization", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     registerNoteMutate(reg);
     // A caller with no scopes at all sends a schema-invalid action. If authorization ran first this
     // would be `forbidden`; because the parse runs first it is a validation error. That ordering is
@@ -156,7 +156,7 @@ describe("THE-727: the parse-before-authorize ordering is now load-bearing", () 
 
   it("a tool with NO resolver is unchanged — the static declaration still governs", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     reg.register({
       name: "plain_write",
       description: "no resolvePolicy at all",

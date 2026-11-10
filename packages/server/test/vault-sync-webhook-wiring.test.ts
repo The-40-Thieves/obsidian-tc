@@ -52,7 +52,7 @@ function deps(config: ReturnType<typeof configFor>["config"]) {
   return {
     config,
     version: "t",
-    registry: new ToolRegistry(),
+    registry: new ToolRegistry({ rootResolver: () => undefined }),
     vaultRegistry: {},
     db: openMemoryDb(),
     firstVaultId: "v1",

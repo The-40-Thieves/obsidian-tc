@@ -825,8 +825,11 @@ describe("remembered consent for a loopback callback follows auth.as.consent.loo
     expect(first.code).not.toBe("");
   };
 
-  it("default (remember): approved on port A, port B of the same client and path gets a code without a page", async () => {
-    const { flow } = await cimdFlow({ [CLAUDE_CODE]: json(claudeCodeDoc) });
+  it("explicit remember: approved on port A, port B of the same client and path gets a code without a page", async () => {
+    const { flow } = await cimdFlow(
+      { [CLAUDE_CODE]: json(claudeCodeDoc) },
+      { as: { consent: { loopback: "remember" } } },
+    );
     const jar = new Jar();
     await approveOnA(flow, jar);
     const b = await authorizeAs(flow, CLAUDE_CODE, "http://127.0.0.1:53999/callback", jar);
@@ -838,11 +841,8 @@ describe("remembered consent for a loopback callback follows auth.as.consent.loo
     expect(rows(flow, "SELECT 1 FROM auth_codes")).toHaveLength(2);
   });
 
-  it("prompt: approved on port A, port B shows the consent page with the loopback warning and gets no code", async () => {
-    const { flow } = await cimdFlow(
-      { [CLAUDE_CODE]: json(claudeCodeDoc) },
-      { as: { consent: { loopback: "prompt" } } },
-    );
+  it("default prompt: approved on port A, port B shows the consent page with the loopback warning and gets no code", async () => {
+    const { flow } = await cimdFlow({ [CLAUDE_CODE]: json(claudeCodeDoc) });
     const jar = new Jar();
     await approveOnA(flow, jar);
     const b = await authorizeAs(flow, CLAUDE_CODE, "http://127.0.0.1:53999/callback", jar);
@@ -902,7 +902,7 @@ describe("review round 1: the localhost warning follows the SELECTED redirect, f
     expect(text).not.toContain(LOOP);
   });
 
-  it("the never-approved warning is spec-literal: it ends at the first approval and does not return after a revoke", async () => {
+  it("the unapproved warning returns after the last live approval is revoked", async () => {
     const { flow } = await cimdFlow({ [CHATGPT]: json(chatgptDoc) });
     const jar = new Jar();
     expect(
@@ -917,7 +917,7 @@ describe("review round 1: the localhost warning follows the SELECTED redirect, f
     const a = await authorizeAs(flow, CHATGPT, CHATGPT_REDIRECT, jar);
     const page = await consentPage(flow, jar, handleOf(a.headers.get("location")));
     expect(page.seen.res.status).toBe(200);
-    expect(page.seen.text).not.toContain("you have not approved it before");
+    expect(page.seen.text).toContain("you have not approved it before");
   });
 });
 

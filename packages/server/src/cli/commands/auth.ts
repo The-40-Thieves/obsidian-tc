@@ -11,6 +11,7 @@ import { asGraceFloorSeconds, generateSigningKey, isAsymmetricAlg } from "../../
 import { CliError } from "../cli-error";
 import { type Cmd, resolveOrUsageExit } from "../shared";
 import { type AuthAsIo, runAuthAsSetPassword } from "./auth-as";
+import { runAuthAsClients } from "./auth-as-clients";
 import { runAuthAsGrants } from "./auth-as-grants";
 import { runAuthAsResetCredentials } from "./auth-as-reset";
 import { auditAuthEvent } from "./auth-audit";
@@ -22,6 +23,8 @@ export async function run_auth(cmd: Cmd<"auth">, io: AuthAsIo = {}): Promise<voi
   if (cmd.sub === "as-set-password") return runAuthAsSetPassword(cmd, io);
   if (cmd.sub === "as-reset-credentials") return runAuthAsResetCredentials(cmd, io);
   if (cmd.sub === "as-grants-list" || cmd.sub === "as-grants-revoke") return runAuthAsGrants(cmd);
+  if (cmd.sub === "as-clients-list" || cmd.sub === "as-clients-remove")
+    return runAuthAsClients(cmd);
   const cfg = resolveOrUsageExit(cmd.configPath);
   const { registry, close } = await openAuthRegistry(cfg);
   try {

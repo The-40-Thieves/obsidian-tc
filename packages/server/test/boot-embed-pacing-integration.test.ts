@@ -176,7 +176,7 @@ describe("GH #995 follow-up — boot embed pacing keeps a concurrent tool call r
   it(
     "idle-mode pacing (1 vault, concurrency 1): a tool call issued during the embed pass completes within ~1 sub-batch",
     async () => {
-      const registry = new ToolRegistry();
+      const registry = new ToolRegistry({ rootResolver: () => undefined });
       registry.register(slowTool(12));
       const client = await connectClient(registry);
 
@@ -204,7 +204,7 @@ describe("GH #995 follow-up — boot embed pacing keeps a concurrent tool call r
   it(
     "WITHOUT pacing (mode immediate, matching every call site before GH #995 follow-up): the same call misses the bound",
     async () => {
-      const registry = new ToolRegistry();
+      const registry = new ToolRegistry({ rootResolver: () => undefined });
       registry.register(slowTool(12));
       const client = await connectClient(registry);
 
@@ -239,7 +239,7 @@ describe("GH #995 follow-up — boot embed pacing keeps a concurrent tool call r
   it(
     "idle-mode pacing at PRODUCTION default concurrency (4) with 2 vaults: a concurrent tool call still gets a dispatch turn within ~1 sub-batch duration",
     async () => {
-      const registry = new ToolRegistry();
+      const registry = new ToolRegistry({ rootResolver: () => undefined });
       registry.register(slowTool(12));
       const client = await connectClient(registry);
 

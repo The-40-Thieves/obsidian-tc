@@ -85,6 +85,9 @@ export interface EffectiveConventions {
   types: Record<string, EffectiveTypeRules>;
   wikiFolders: WikiFolders;
   rawFolders: RawFolders;
+  /** The vault's filesystem case behavior, carried so the generated/raw/schema classification
+   *  folds the way the vault resolves names (absent = the platform default). */
+  caseInsensitive?: boolean | null | undefined;
   fileWarnings: ConventionsFileWarning[];
   /** File warnings past the scan cap: counted, not kept. */
   fileWarningsOmitted: number;

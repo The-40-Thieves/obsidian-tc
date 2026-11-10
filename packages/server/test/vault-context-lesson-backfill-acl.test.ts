@@ -80,7 +80,10 @@ afterAll(() => rmTemp(root));
 function harness(db: Database) {
   const vaultRegistry = new VaultRegistry([{ id: VAULT, name: VAULT, path: root }]);
   const acl = new FolderAcl(RESTRICTED_ACL);
-  const registry = new ToolRegistry({ aclResolver: () => acl });
+  const registry = new ToolRegistry({
+    rootResolver: (id) => vaultRegistry.resolve(id).root,
+    aclResolver: () => acl,
+  });
   registerM7Tools(registry, {
     vaultRegistry,
     embeddingProvider: fixedVectorProvider(QUERY_VEC),

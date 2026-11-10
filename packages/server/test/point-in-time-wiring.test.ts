@@ -65,7 +65,10 @@ function harness(db: Database, acl?: FolderAcl): { registry: ToolRegistry; ctx: 
   const vaultRegistry = new VaultRegistry([
     { id: VAULT, path: "/nonexistent/does-not-need-to-exist" },
   ]);
-  const registry = new ToolRegistry({ aclResolver: () => acl });
+  const registry = new ToolRegistry({
+    rootResolver: (id) => vaultRegistry.resolve(id).root,
+    aclResolver: () => acl,
+  });
   registerM7Tools(registry, {
     vaultRegistry,
     embeddingProvider: fixedVectorProvider(QUERY_VEC),
@@ -169,7 +172,7 @@ describe("THE-635 wiring — knowledge_search as_of (docs corpus)", () => {
     const vaultRegistry = new VaultRegistry([
       { id: VAULT, name: VAULT, path: "/nonexistent/does-not-need-to-exist", kind: "docs" },
     ]);
-    const registry = new ToolRegistry({});
+    const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
     registerM7Tools(registry, {
       vaultRegistry,
       embeddingProvider: fixedVectorProvider(QUERY_VEC),

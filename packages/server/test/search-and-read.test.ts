@@ -68,7 +68,6 @@ async function setup(
   const emitted: string[] = [];
   const v = makeTestVault({
     files,
-    centralAcl: true,
     metrics,
     ...over,
     registryOpts: { metrics, emit: (_vid, type) => emitted.push(type), ...over.registryOpts },

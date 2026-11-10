@@ -93,7 +93,7 @@ describe("deriveToolTags", () => {
 
 describe("registration guard", () => {
   it("registers a bare fixture with its derived tags, never an empty set", () => {
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     r.register(def({ name: "bare" }));
     expect(tagsOf(r, "bare")).toEqual(["read-only"]);
   });
@@ -104,7 +104,7 @@ describe("registration guard", () => {
       requiredScopes: ["read:notes"],
       tags: ["external-network", "search"],
     });
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     r.register(d);
     expect(tagsOf(r, "t")).toEqual(["read-only", "external-network", "search"]);
     expect(d.tags).toEqual(["external-network", "search"]);
@@ -112,33 +112,37 @@ describe("registration guard", () => {
 
   it("the same definition registers into two registries", () => {
     const d = def({ name: "t", tags: ["graph"] });
-    new ToolRegistry().register(d);
-    expect(() => new ToolRegistry().register(d)).not.toThrow();
+    new ToolRegistry({ rootResolver: () => undefined }).register(d);
+    expect(() => new ToolRegistry({ rootResolver: () => undefined }).register(d)).not.toThrow();
   });
 
   it("throws on a tag outside the vocabulary, naming the tool, the tag and the vocabulary", () => {
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     expect(() => r.register(def({ name: "typo", tags: ["destrutive"] }))).toThrow(
       /tool typo declares unknown tag "destrutive".*known: .*destructive/,
     );
   });
 
   it("throws on a derived-only tag written by hand", () => {
-    expect(() => new ToolRegistry().register(def({ name: "t", tags: ["destructive"] }))).toThrow(
-      /declares tag "destructive", which is computed/,
-    );
-    expect(() => new ToolRegistry().register(def({ name: "t", tags: ["domain:notes"] }))).toThrow(
-      /which is computed/,
-    );
+    expect(() =>
+      new ToolRegistry({ rootResolver: () => undefined }).register(
+        def({ name: "t", tags: ["destructive"] }),
+      ),
+    ).toThrow(/declares tag "destructive", which is computed/);
+    expect(() =>
+      new ToolRegistry({ rootResolver: () => undefined }).register(
+        def({ name: "t", tags: ["domain:notes"] }),
+      ),
+    ).toThrow(/which is computed/);
   });
 
   it("throws on a both-source tag the derivation already makes, allows it otherwise", () => {
     expect(() =>
-      new ToolRegistry().register(
+      new ToolRegistry({ rootResolver: () => undefined }).register(
         def({ name: "t", requiredScopes: ["read:dataview"], tags: ["plugin-bridge"] }),
       ),
     ).toThrow(/declares tag "plugin-bridge", which is already derived/);
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     r.register(def({ name: "t", requiredScopes: ["read:notes"], tags: ["plugin-bridge"] }));
     expect(tagsOf(r, "t")).toEqual(["read-only", "plugin-bridge"]);
   });

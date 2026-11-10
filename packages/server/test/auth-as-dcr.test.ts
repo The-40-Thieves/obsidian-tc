@@ -1,5 +1,5 @@
 // Dynamic Client Registration behind the flag (design v2 sections 4.3, 4.7, 8 and 9; slice S8).
-// Acceptance: DCR is on by default (owner decision 2026-10-09); an explicit false is a 404 and absent
+// Acceptance: DCR is off by default; an explicit false is a 404 and absent
 // from the metadata, `hardened` forces it off, the boot notice, RFC 7591 validation and response, conformance for a native loopback client and a Cursor-shaped
 // one (register -> authorize -> consent -> token -> refresh -> revoke), the flooding row (per-source
 // rate limit, row cap, GC, no unbounded growth), the never-approved consent warning, and that a
@@ -96,9 +96,9 @@ const ip = (addr: string) => ({ "x-test-ip": addr });
 
 // ---- the flag ---------------------------------------------------------------------------------------
 
-describe("DCR is on by default", () => {
-  it("default: the metadata advertises registration_endpoint and /oauth/register serves", async () => {
-    const flow = await makeFlow();
+describe("DCR requires opt-in", () => {
+  it("opt-in: the metadata advertises registration_endpoint and /oauth/register serves", async () => {
+    const flow = await dcrFlow();
     const meta = (await (await flow.app.request(flow.url(METADATA))).json()) as Record<
       string,
       unknown
@@ -132,9 +132,9 @@ describe("DCR is on by default", () => {
     expect(meta.token_endpoint_auth_methods_supported).toContain("none");
   });
 
-  it("default: ONE concise info-level boot line names the knobs and how to turn it off", async () => {
+  it("opt-in: ONE concise info-level boot line names the knobs and how to turn it off", async () => {
     const flow = await makeFlow({
-      as: { dcr: { maxClients: 7, perIpPerHour: 3, unusedDays: 11 } },
+      as: { dynamicRegistration: true, dcr: { maxClients: 7, perIpPerHour: 3, unusedDays: 11 } },
     });
     const notices = flow.logs.filter((l) => /dynamic client registration/i.test(l));
     expect(notices).toHaveLength(1);
@@ -822,8 +822,7 @@ describe("consent for a registered client", () => {
       decision: "approve",
     });
     expect(done.res.status).toBe(303);
-    // Approved: the next sign-in is remembered (loopback default), and a wider scope asks again
-    // without the first-time warning.
+    // Approval removes the first-time warning; loopback sign-ins still ask by default.
     const wider = await authorize(flow, jar, pkce().challenge, {
       client_id: clientId,
       redirect_uri: NATIVE,
@@ -872,7 +871,7 @@ describe("consent for a registered client", () => {
 });
 
 describe("the schema keys the slice reads", () => {
-  it("defaults: on, 1000 clients, 10 per source per hour, 90 days", () => {
+  it("defaults: off, 1000 clients, 10 per source per hour, 90 days", () => {
     const cfg = ServerConfigSchema.parse({
       vaults: [{ id: "v1", path: "/tmp/v1" }],
       auth: {
@@ -882,7 +881,7 @@ describe("the schema keys the slice reads", () => {
         as: { enabled: true, issuer: "https://vault.example.com" },
       },
     });
-    expect(cfg.auth.as?.dynamicRegistration).toBe(true);
+    expect(cfg.auth.as?.dynamicRegistration).toBe(false);
     expect(cfg.auth.as?.dcr).toEqual({ maxClients: 1000, perIpPerHour: 10, unusedDays: 90 });
   });
 });

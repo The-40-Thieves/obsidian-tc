@@ -246,7 +246,7 @@ test("a malformed JSON POST /mcp answers -32700 and the socket serves a second r
   const handle = await startHttp({
     name: "obsidian-tc",
     version: "0.0.0-test",
-    registry: new ToolRegistry(),
+    registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth: { mode: "none" } as never,
     db,
     vaultId: "v1",

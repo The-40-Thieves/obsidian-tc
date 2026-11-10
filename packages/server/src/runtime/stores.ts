@@ -41,7 +41,7 @@ export interface StoresDeps {
    *  `resolveAndApplyVaultIdentity` doc comment for why this must run here (post-migration,
    *  pre-experientialDb-close, inside the same bootstrap barrier that serializes migrations
    *  across racing processes). */
-  vaults: readonly { id: string; path: string }[];
+  vaults: readonly { id: string; path: string; caseSensitive?: "auto" | boolean }[];
 }
 
 export interface Stores {

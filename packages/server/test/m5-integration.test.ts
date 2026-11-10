@@ -63,7 +63,10 @@ function makeVault(opts: { plur?: boolean } = {}): IntegrationVault {
       })
     : undefined;
 
-  const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
+  const registry = new ToolRegistry({
+    rootResolver: (id) => vaultRegistry.resolve(id).root,
+    verifyElicit: elicitVerifier,
+  });
   registerM1Tools(registry, {
     vaultRegistry,
     version: "test",

@@ -18,7 +18,7 @@ function authOf(input: unknown): ServerConfig["auth"] {
 async function boot(auth: ServerConfig["auth"]) {
   const db = openMemoryDb();
   provisionCacheDb(db);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register(
     createHealthTool({
       version: "0.0.0-test",

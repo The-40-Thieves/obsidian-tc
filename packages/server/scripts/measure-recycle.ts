@@ -48,7 +48,7 @@ const MODE = process.argv[2] === "in-process" ? "in-process" : "child-process";
 const MODEL = process.env.MEASURE_MODEL ?? "nomic-embed-text-v1.5";
 const DIMS = Number(process.env.MEASURE_DIMS ?? 768);
 const MIB = 1024 * 1024;
-const cacheDir = process.env.MEASURE_CACHE ?? "/tmp/obtc-measure-cache";
+const cacheDir = process.env.MEASURE_CACHE ?? mkdtempSync(join(tmpdir(), "obtc-measure-cache-"));
 const init = {
   model: MODEL,
   quantized: true,

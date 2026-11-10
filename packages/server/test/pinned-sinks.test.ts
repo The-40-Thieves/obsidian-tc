@@ -148,7 +148,6 @@ describe.skipIf(process.platform === "win32")(
       (v = makeTestVault({
         files,
         wikiFolder: "wiki",
-        centralAcl: true,
         setup: (root) => symlinkSync(join(root, "open"), join(root, "wiki")),
       }));
 

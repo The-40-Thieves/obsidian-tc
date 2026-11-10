@@ -41,6 +41,7 @@ export async function collectDispatch(vault: VaultCtx): Promise<MetricSample[]> 
   let collecting = false;
   const overhead: number[] = [];
   const registry = new ToolRegistry({
+    rootResolver: (id) => vaultRegistry.resolve(id).root,
     onProfile: (p) => {
       if (!collecting || p.tool !== SEARCH_TOOL) return;
       overhead.push(Math.max(0, p.total_ms - p.handler_ms));

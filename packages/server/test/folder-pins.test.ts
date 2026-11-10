@@ -79,7 +79,6 @@ describe.skipIf(process.platform === "win32")(
       (v = makeTestVault({
         files,
         wikiFolder: "wiki",
-        centralAcl: true,
         setup: (root) => symlinkSync(join(root, target), join(root, "wiki")),
       }));
 
@@ -280,7 +279,6 @@ describe.skipIf(process.platform === "win32")(
       vault({
         files: { "open/x.md": "open note\n", "raw/x.md": "RAW SOURCE\n" },
         wikiFolder: "wiki",
-        centralAcl: true,
         setup: (root) => symlinkSync(join(root, "open"), join(root, "wiki")),
       });
 
@@ -307,7 +305,6 @@ describe.skipIf(process.platform === "win32")(
       vault({
         wikiFolder: "wiki",
         rawFolder: "raw",
-        centralAcl: true,
         setup: (root) => rmTemp(root),
       });
     const appear = (root: string, links: Record<string, string>): void => {
@@ -345,7 +342,6 @@ describe.skipIf(process.platform === "win32")(
       vault({
         files: { "pages/a.md": "page A\n", "scratch/a.md": "scratch A\n" },
         wikiFolder: "wiki",
-        centralAcl: true,
         setup: (root) => symlinkSync(join(root, "pages"), join(root, "wiki")),
       });
 

@@ -121,9 +121,10 @@ function makeRegistry(
   caches?: RetrievalCaches,
   embeddingProvider = countingProvider,
 ): ToolRegistry {
-  const registry = new ToolRegistry({});
+  const vaultRegistry = new VaultRegistry([{ id: VAULT_ID, path: VAULT_PATH }]);
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   registerM7Tools(registry, {
-    vaultRegistry: new VaultRegistry([{ id: VAULT_ID, path: VAULT_PATH }]),
+    vaultRegistry,
     embeddingProvider,
     reranker: null,
     roles: null,

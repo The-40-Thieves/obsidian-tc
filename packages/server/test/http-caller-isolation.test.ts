@@ -32,7 +32,7 @@ const seen: CallerContext[] = [];
 async function boot(vaultId = "alpha") {
   const db = openMemoryDb();
   provisionCacheDb(db);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register({
     name: "whoami",
     description: "test-only: echoes the caller context it was dispatched with",

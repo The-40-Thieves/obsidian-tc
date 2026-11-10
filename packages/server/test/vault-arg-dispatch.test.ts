@@ -39,7 +39,7 @@ function ctx(db: Database, over: Partial<CallerContext> = {}): CallerContext {
 
 describe("THE-513 Part 2: vaultArgOf drives all four dispatch-stage vault reads", () => {
   it("vault-binding guard (THE-267) keys off the declared vaultArg, not a hardcoded 'vault'", async () => {
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     reg.register({
       name: "renamed_vault_echo",
       description: "echoes vault_id",
@@ -68,6 +68,7 @@ describe("THE-513 Part 2: vaultArgOf drives all four dispatch-stage vault reads"
     const rootAcl = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
     const bAcl = new FolderAcl({ readOnly: true, defaultScopes: [], rules: [] });
     const reg = new ToolRegistry({
+      rootResolver: () => undefined,
       aclResolver: (vid) => (vid === "b" ? bAcl : rootAcl),
     });
     reg.register({
@@ -101,7 +102,10 @@ describe("THE-513 Part 2: vaultArgOf drives all four dispatch-stage vault reads"
       "docs-vault": "docs",
       a: "private",
     };
-    const reg = new ToolRegistry({ vaultKindResolver: (id) => kindByVault[id] });
+    const reg = new ToolRegistry({
+      rootResolver: () => undefined,
+      vaultKindResolver: (id) => kindByVault[id],
+    });
     reg.register({
       name: "renamed_mutator",
       description: "mutates",

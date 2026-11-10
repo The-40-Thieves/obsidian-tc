@@ -87,7 +87,10 @@ export function makeM2Vault(opts: M2VaultOptions = {}): M2Vault {
   const acl = new FolderAcl(aclCfg);
   const vaultRegistry = new VaultRegistry([{ id, path: root }]);
   const provider = opts.provider ?? fakeEmbeddingProvider({ dimensions: 32 });
-  const registry = new ToolRegistry({ folderPins: vaultRegistry.folderPins });
+  const registry = new ToolRegistry({
+    rootResolver: (id) => vaultRegistry.resolve(id).root,
+    folderPins: vaultRegistry.folderPins,
+  });
   registerM2Tools(registry, {
     vaultRegistry,
     embeddingProvider: provider,

@@ -57,7 +57,7 @@ function textOf(res: unknown): string {
 
 describe("THE-823: error detail reaches content[0].text", () => {
   it("a validation failure names the offending field in the text, not just the code", async () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register(tool("greet", z.strictObject({ name: z.string() })));
     const { client, server } = await connect(registry, "flat");
     const res = await client.callTool({ name: "greet", arguments: { name: 5 } });
@@ -71,7 +71,7 @@ describe("THE-823: error detail reaches content[0].text", () => {
   });
 
   it("call_capability with `arguments` instead of `args` names `arguments`, not the target's fields", async () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register(tool("create_note", z.strictObject({ path: z.string() })));
     const { client, server } = await connect(registry, "triad");
     const res = await client.callTool({
@@ -90,7 +90,7 @@ describe("THE-823: error detail reaches content[0].text", () => {
   });
 
   it("caps a large issue list instead of rendering it unbounded", async () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     const manyRequiredFields = z.strictObject(
       Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`field_${i}`, z.string()])),
     );
@@ -152,7 +152,7 @@ describe("THE-823: error detail reaches content[0].text", () => {
 // best explanation, i.e. `args` itself was never present.
 describe("THE-936: call_capability echoes received_envelope_keys", () => {
   it('(a) envelope `arguments` key: unrecognized_keys plus received_envelope_keys includes "arguments"', async () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register(tool("read_note", z.strictObject({ vault: z.string(), path: z.string() })));
     const { client, server } = await connect(registry, "triad");
     const res = await client.callTool({
@@ -169,7 +169,7 @@ describe("THE-936: call_capability echoes received_envelope_keys", () => {
   });
 
   it('(b) envelope with no `args` key: target\'s missing-field errors, received_envelope_keys ["name"], and the stripping sentence', async () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register(tool("read_note", z.strictObject({ vault: z.string(), path: z.string() })));
     const { client, server } = await connect(registry, "triad");
     const res = await client.callTool({
@@ -190,7 +190,7 @@ describe("THE-936: call_capability echoes received_envelope_keys", () => {
   });
 
   it('(c) envelope with an explicit empty `args`: missing-field errors, received_envelope_keys ["args","name"], no stripping sentence', async () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register(tool("read_note", z.strictObject({ vault: z.string(), path: z.string() })));
     const { client, server } = await connect(registry, "triad");
     const res = await client.callTool({
@@ -210,7 +210,7 @@ describe("THE-936: call_capability echoes received_envelope_keys", () => {
   });
 
   it("(d) a zero-argument target with an absent `args` still succeeds (the reporter's control)", async () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register(tool("list_vaults", z.strictObject({})));
     const { client, server } = await connect(registry, "triad");
     const res = await client.callTool({
