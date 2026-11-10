@@ -6,8 +6,8 @@ import {
   ObsidianTcError,
   type VaultMemoryDefenseConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
-import { enforceMemoryDefenseOnNoteWrite } from "../../experiential/memory-defense";
 import type { MetricsRecorder } from "../../metrics/registry";
+import { enforceMemoryDefenseOnNoteWrite } from "../../util/memory-defense";
 import type { ImmutableRewriteSkips } from "../../vault/acl-path";
 import { buildVaultIndex, resolveTarget, type VaultIndex } from "../../vault/links";
 import { type PlannedRewrite, plannedRewrite, RewriteScan } from "../../vault/move-plan";

@@ -88,7 +88,7 @@ describe("raw capture_queue reads are accounted for", () => {
     expect(found["queue-sql"]).toEqual({
       "cli/commands/doctor-probes.ts": 1, // a table-name label, no query
       "cli/usage.ts": 1, // help text
-      "db/maintenance.ts": 2, // retention sweep: DELETE of committed rows, reads no content
+      "runtime/maintenance.ts": 2, // retention sweep: DELETE of committed rows, reads no content
       "db/migration-manifest.ts": 1, // a migration file name
       "metrics/gauge-sources.ts": 1, // COUNT(*) queue depth: the /metrics cross-vault depth, tracked apart from this guard
       "metrics/registry.ts": 2, // metric help text

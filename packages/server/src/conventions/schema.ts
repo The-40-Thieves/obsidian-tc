@@ -2,7 +2,7 @@
 // checked against, and the warning shape a result carries. The engine has no tool surface yet; the
 // shapes here are the contract the tools that expose it will spread into their output schemas.
 import { z } from "zod";
-import type { RawFolders, WikiFolders } from "../tools/m7/knowledge/wiki-folder";
+import type { RawFolders, WikiFolders } from "./wiki-layout";
 
 /** The frontmatter key a SCHEMA.md layer opts in with. */
 export const CONVENTIONS_KEY = "conventions";

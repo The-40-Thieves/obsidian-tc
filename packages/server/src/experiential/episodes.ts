@@ -66,11 +66,11 @@ export function genEpisodeId(): string {
 //      deliberately keeps the permissive `{30,}` floor rather than tightening to `{34}` (HF has
 //      not published a stable shape, and a false negative here leaks a live credential while a
 //      false positive only costs one redacted string) — see the pattern below.
-import { redactSecrets } from "./redact";
+import { redactSecrets } from "../util/redact";
 
-// THE-736: the scanner moved to ./redact so the trace capture path can share it without a
+// THE-736: the scanner moved to util/redact.ts so the trace capture path can share it without a
 // cycle. Re-exported here because this module was its public home and tests import it from here.
-export { redactSecrets } from "./redact";
+export { redactSecrets } from "../util/redact";
 
 export interface EpisodeCaptureOptions {
   now?: () => number;

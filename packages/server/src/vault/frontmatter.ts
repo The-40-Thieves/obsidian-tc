@@ -654,3 +654,15 @@ export function serializeNote(
   const fm = emitFrontmatter(frontmatter, originalFrontmatter, eol, options);
   return `---${eol}${fm}${eol}${close}${body}`;
 }
+
+/** Frontmatter has the key with a non-empty value (non-empty string/array, or any present scalar).
+ *  Shared by the wiki page checks (conventions/wiki-schema.ts) and the whole-vault scans
+ *  (tools/wiki-scan.ts); lives here because it is a frontmatter predicate, not a scan or schema one. */
+export function fmHas(fm: Record<string, unknown> | null, key: string): boolean {
+  if (!fm || !Object.hasOwn(fm, key)) return false;
+  const val = fm[key];
+  if (val == null) return false;
+  if (typeof val === "string") return val.trim().length > 0;
+  if (Array.isArray(val)) return val.length > 0;
+  return true;
+}

@@ -27,15 +27,16 @@ import {
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { conventionsResultShape } from "../../conventions/schema";
+import type { ToolDefinition } from "../../mcp/registry";
+import type { MetricsRecorder } from "../../metrics/registry";
+import { frontmatterFallbackSink } from "../../util/errors";
 import {
   enforceMemoryDefenseOnNoteWrite,
   MEMORY_DEFENSE_OFF,
   redactedEcho,
   refusePathIfSecretShaped,
-} from "../../experiential/memory-defense";
-import type { ToolDefinition } from "../../mcp/registry";
-import type { MetricsRecorder } from "../../metrics/registry";
-import { frontmatterFallbackSink } from "../../util/errors";
+} from "../../util/memory-defense";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import { enforcePathAcl, ImmutableRewriteSkips } from "../../vault/acl-path";
 import { memoizedReadableResolved } from "../../vault/acl-read-filter";
 import { runBulk } from "../../vault/bulk";
@@ -64,7 +65,6 @@ import { applyWriteBatch, isIncompleteRollback } from "../../vault/write-batch";
 import { noteWriteOrigin, preflightNoteWrite } from "../../vault/write-gate";
 import { createModeConflictError, overwriteModeMissingError } from "../../vault/write-mode-errors";
 import { defineTool } from "../m1/define";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { immutableSkipShape, schemaSkipShape } from "../scan-warnings";
 import {
   type MoveRow,

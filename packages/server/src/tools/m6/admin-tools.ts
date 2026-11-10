@@ -16,12 +16,12 @@ import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { explainVisibility } from "../../mcp/visibility";
 import { deriveRrfK, resolveRetrievalDefaults } from "../../search/retrieval-defaults";
 import { readVaultIndexStats } from "../../search/vault-index-stats";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import { evaluatePathAcl, pathScopesSatisfied } from "../../vault/acl-path";
 import { normalizeVaultPath, resolveVaultPathChecked } from "../../vault/paths";
 import { intersectReplayScopes } from "../../workspace/rerun";
 import { getSession } from "../../workspace/sessions";
 import { defineTool } from "../m1/define";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import {
   GetServerConfigOutput,
   InspectVisibilityOutput,

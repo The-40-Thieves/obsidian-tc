@@ -12,7 +12,7 @@ import {
   readConventionsLayer,
   resolveConventions,
 } from "../src/conventions/resolve";
-import { MAX_SCAN_WARNINGS } from "../src/tools/scan-warnings";
+import { MAX_SCAN_WARNINGS } from "../src/util/scan-caps";
 import { makeTestVault, type TestVault } from "./m1-helpers";
 
 const ROOT_IS_ROOT = process.getuid?.() === 0;

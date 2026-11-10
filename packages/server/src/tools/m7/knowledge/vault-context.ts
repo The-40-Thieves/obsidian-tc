@@ -22,12 +22,12 @@ import {
 } from "../../../search/prefetch";
 import { cachedGraphSearch } from "../../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../../search/router";
+import { ResponseFormatInput, resolveResponseFormat } from "../../../util/response-format";
 import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
 import { readNote } from "../../../vault/notes-io";
 import { resolveVaultPath, resolveVaultPathChecked } from "../../../vault/paths";
 import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
-import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
 import { conciseVaultContext } from "./concise-reads";
 import { advanceContextWatermark, readContextWatermark } from "./context-watermark";
 import type { M7Deps } from "./deps";

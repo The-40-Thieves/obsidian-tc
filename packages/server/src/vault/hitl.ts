@@ -5,12 +5,28 @@
 // never demand confirmation. The token is bound to argsHash(toolName, input);
 // callers obtain one via issueElicitToken and resubmit. Single-use is enforced
 // by verifyAndConsumeElicit (the UPDATE ... WHERE consumed_at IS NULL).
+import type { Database } from "../db/types";
 import { elicitRequiredError, reportHandlerSpend, verifyAndConsumeElicit } from "../elicit";
 import { activeStateProbe } from "../elicit-drift";
-import { hitlSatisfiedByState } from "../elicit-request-state";
+import { type ElicitRequestState, hitlSatisfiedByState } from "../elicit-request-state";
 import { argsHash } from "../hash";
 import { recordHitlOutcome } from "../hitl-telemetry";
-import type { CallerContext } from "../mcp/registry";
+
+/**
+ * The slice of the dispatch caller context this gate reads. Declared locally — the same
+ * Pick-shaped cut hitl-telemetry.ts and elicit.ts take — so the vault layer does not import mcp/
+ * for one type (no-low-layer-imports-high). The dispatch-side CallerContext is a structural
+ * superset, so every call site passes unchanged.
+ */
+interface HitlContext {
+  db: Database;
+  vaultId: string;
+  caller: string | null;
+  elicitToken?: string | null;
+  elicitState?: ElicitRequestState;
+  relayElicitConsumed?: (toolName: string, vaultId?: string) => void;
+  now?: () => number;
+}
 
 /**
  * Require a valid, single-use elicit token when `needed` is true. Throws
@@ -32,7 +48,7 @@ import type { CallerContext } from "../mcp/registry";
  * guarantee `verifyAndConsumeElicit` gives the token path, not a weaker one.
  */
 export function requireConfirmation(
-  ctx: CallerContext,
+  ctx: HitlContext,
   toolName: string,
   input: unknown,
   needed: boolean,

@@ -9,11 +9,11 @@ import {
   type EffectiveConventions,
   NOTE_MAX_BYTES,
 } from "../../../conventions/schema";
+import { capWarningsOut, MAX_SCAN_WARNINGS } from "../../../util/scan-caps";
 import type { ScanSteps } from "../../../util/scan-steps";
 import { type Frontmatter, parseNoteLenient } from "../../../vault/frontmatter";
 import { isValidTag } from "../../../vault/tags";
 import type { ReadRefusals } from "../../read-refusals";
-import { capWarningsOut, MAX_SCAN_WARNINGS } from "../../scan-warnings";
 import { readableNotesSteps } from "../../wiki-scan";
 
 /** Structurally a `Proposal` of wiki-lint.ts. */

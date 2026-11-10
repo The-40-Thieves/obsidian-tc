@@ -7,6 +7,7 @@
 // binary. The JS fallbacks are kept numerically identical to the Rust so search
 // results never depend on which backend is active.
 import { createRequire } from "node:module";
+import { jsTokenize } from "../util/tokenize";
 
 export interface NativeOps {
   /** `b` MUST be a Float32Array: the native binding's signature is (Vec<f64>, Float32Array)
@@ -82,14 +83,10 @@ export function jsCosineBatch(
   return out;
 }
 
-/** Lowercase tokenizer over Unicode alphabetic + numbers (matches Rust is_alphanumeric). Mirrors the Rust. */
-export function jsTokenize(text: string): string[] {
-  const out: string[] = [];
-  for (const t of text.split(/[^\p{Alphabetic}\p{N}]+/u)) {
-    if (t.length > 0) out.push(t.toLowerCase());
-  }
-  return out;
-}
+/** Lowercase tokenizer over Unicode alphabetic + numbers (matches Rust is_alphanumeric). Mirrors the
+ *  Rust; the implementation lives in ../util/tokenize.ts so embeddings/fake.ts shares it without
+ *  importing search. Re-exported for the callers (and tests) that import it from here. */
+export { jsTokenize };
 
 /** BM25 contribution of one query term to one document; k1=1.2, b=0.75. Mirrors the Rust. */
 export function jsBm25Score(

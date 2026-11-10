@@ -8,7 +8,7 @@
 // credential a scanner (gitleaks/trufflehog) could flag, on top of `.gitleaks.toml`'s existing
 // `packages/server/test/.*` allowlist.
 import { describe, expect, it } from "vitest";
-import { redactSecrets, scanPii } from "../src/experiential/redact";
+import { redactSecrets, scanPii } from "../src/util/redact";
 
 /** A fake OpenAI-shaped key: no literal in this file starts with "sk-" — the prefix and body are
  *  joined at runtime. */

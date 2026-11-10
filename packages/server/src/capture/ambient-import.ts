@@ -19,7 +19,7 @@
 //      dump, a password manager unlock screen someone forgot was in frame). THE-855's poison scan
 //      (enqueueCapture, unconditional on every row) catches INSTRUCTION-shaped content; it says
 //      nothing about a bare secret sitting in otherwise-benign OCR text. `redactSecrets`
-//      (experiential/redact.ts — the ONE scanner every capture surface shares) runs over `text`
+//      (util/redact.ts — the ONE scanner every capture surface shares) runs over `text`
 //      here, before enqueue, so a raw credential never reaches capture_queue at all — not even in
 //      a poison-scanned-clean row a reviewer might approve without re-reading every character.
 //   2. DEDUP. Ambient text is highly repetitive by construction (a static screen re-polled every
@@ -31,10 +31,10 @@
 //      only path to the vault; this only keeps the QUEUE itself from filling with repeats.
 import { ObsidianTcError, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
-import { enforceMemoryDefense, MEMORY_DEFENSE_OFF } from "../experiential/memory-defense";
-import { redactSecrets } from "../experiential/redact";
 import { argsHash } from "../hash";
 import type { MetricsRecorder } from "../metrics/registry";
+import { enforceMemoryDefense, MEMORY_DEFENSE_OFF } from "../util/memory-defense";
+import { redactSecrets } from "../util/redact";
 import { enqueueCapture, listCaptureTags } from "./queue";
 
 /** One passively-observed screen moment, already mapped from a backend's native shape into this

@@ -7,12 +7,12 @@ import type { ToolDefinition } from "../../mcp/registry";
 import { vaultExclusionFor } from "../../search/index-exclusion";
 import { indexVault } from "../../search/indexer";
 import { vaultRelativeError } from "../../search/indexing/read-refusal";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableByFolder, readableResolved } from "../../vault/acl-read-filter";
 import { normalizeVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
 import { readVaultNote } from "../m1/notes/read";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import type { M2Deps } from "./shared";
 
 // THE-417 Phase 1: mirrors search/indexer.ts's IndexStats field for field. GH #1027:

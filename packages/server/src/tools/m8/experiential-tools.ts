@@ -30,10 +30,10 @@ import {
 import { readNoteQuality } from "../../experiential/note-quality";
 import { UNSTAMPED_DEBT_CLAUSES } from "../../experiential/verdict";
 import type { ToolDefinition } from "../../mcp/registry";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import { readableRel, readEnumerationUnrestricted } from "../../vault/acl-read-filter";
 import { readableStoredRow } from "../../vault/stored-acl-path";
 import { defineTool } from "../m1/define";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { activationConflict, maxActivationByPath } from "./activation-conflict";
 import {
   conciseEpisode,

@@ -12,9 +12,22 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
+import { inFlightCount } from "../dispatch-activity";
+import type { TraceRecord } from "../session-trace";
 import type { FolderPins } from "../vault/folder-links";
 import { readNote } from "../vault/notes-io";
 import { resolveVaultPathChecked } from "../vault/paths";
+
+// The dispatch-activity counters moved to ../dispatch-activity.ts (a root module) so mcp/registry.ts
+// can mark without importing workspace (no-mcp-imports-higher). Re-exported: runtime's sweep pacing
+// and the session tests import them from here, their long-standing home.
+export {
+  dispatchInFlightCount,
+  inFlightCount,
+  markDispatchActive,
+  markInFlight,
+  msSinceLastDispatchActivity,
+} from "../dispatch-activity";
 
 /** Stable session id, e.g. "sess_9f2c…". 12 random bytes = 24 hex chars. */
 export function genSessionId(): string {
@@ -138,7 +151,7 @@ export function resolveCacheTraceDir(cacheDir: string): { vaultId: string; dir: 
   return { vaultId: "*", dir: resolveCacheTracePath(cacheDir, CACHE_TRACE_SUBDIR) };
 }
 
-/** One vault's legacy trace directory (db/maintenance.ts's `TraceDir` shape). */
+/** One vault's legacy trace directory (runtime/maintenance.ts's `TraceDir` shape). */
 interface ResolvedTraceDir {
   vaultId: string;
   dir: string;
@@ -149,7 +162,7 @@ export function resolveTraceDirs(
   vaults: readonly { id: string; root: string; workspace?: { traceFolder: string } }[],
   defaultFolder: string,
   /** The vault registry's folder pins. Given, each directory carries them and a re-check, so the
-   *  sweep that deletes from it runs pinned (db/maintenance.ts) instead of through the lexical
+   *  sweep that deletes from it runs pinned (runtime/maintenance.ts) instead of through the lexical
    *  `wiki/...` spelling this validates once, now. */
   pins?: FolderPins,
 ): ResolvedTraceDir[] {
@@ -338,90 +351,6 @@ export function openImplicitSession(
     principal: input.principal,
   });
   return { sessionId: id, vaultId: input.vaultId };
-}
-
-/**
- * THE-1108 fix round (Codex P1-2): process-local, best-effort registry of "does any call have this
- * session attached RIGHT NOW" — the one thing a purely age-based close needs to keep the promise
- * both sweeps below (and `maxExplicitLifetimeSeconds`'s own schema description) make: a session
- * with a request in flight is never closed out from under it.
- *
- * `markInFlight` is called from the single shared dispatch attach point (`ToolRegistry.dispatch`,
- * mcp/registry.ts) in a try/finally, so a throw mid-handler still releases. Reference-counted, not
- * a boolean: two concurrent calls sharing one sessionId must not let the first call's release
- * un-mark the second's still-running one. The returned release function is itself idempotent — a
- * duplicate call cannot under-count.
- *
- * Not persisted, same caveat as `ActiveSessionTracker` below: a crash mid-call loses the count, so
- * a session genuinely in flight at the moment of a crash is fair game for the sweep after a
- * restart — no worse than this function not existing at all.
- */
-const inFlightCounts = new Map<string, number>();
-
-/** Mark `sessionId` as having one more call attached. Returns a release function — call it exactly
- *  once when that call finishes, success or throw; a duplicate call is a no-op. */
-export function markInFlight(sessionId: string): () => void {
-  inFlightCounts.set(sessionId, (inFlightCounts.get(sessionId) ?? 0) + 1);
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    const remaining = (inFlightCounts.get(sessionId) ?? 1) - 1;
-    if (remaining <= 0) inFlightCounts.delete(sessionId);
-    else inFlightCounts.set(sessionId, remaining);
-  };
-}
-
-/**
- * GH #995 follow-up: process-wide "is any dispatch in flight, or did one just finish" signal for
- * the boot/promotion reconcile's idle-paced embed (search/indexing/embed-pace.ts's `waitForIdle`).
- *
- * Deliberately NOT derived from `inFlightCounts` above: that map is only populated `if
- * (ctx.sessionId !== undefined)` (mcp/registry.ts's `dispatch()`), and `sessionId` is absent on
- * the common stdio call with no explicit `start_session` — the boot reconcile would see an
- * empty map and never pace at all against the overwhelming majority of real traffic. This is a
- * SEPARATE counter for that reason, incremented/decremented at the SAME one shared attach point
- * (`ToolRegistry.dispatch`, unconditionally — see mcp/registry.ts) rather than inferred from a
- * session-scoped structure that does not cover every call.
- */
-let globalDispatchInFlight = 0;
-/** Epoch ms of the last dispatch activity (a call starting OR finishing), process-wide. 0 means
- *  "no dispatch has happened yet this process" — `msSinceLastDispatchActivity` reads that as
- *  infinitely idle rather than as a recent event at the epoch. */
-let lastDispatchActivityAt = 0;
-
-/** Mark one more dispatch call in flight, process-wide. Returns a release function — call it
- *  exactly once when that call finishes, success or throw; a duplicate call is a no-op. Mirrors
- *  `markInFlight`'s shape (reference-counted, idempotent release) but is unconditional: called for
- *  EVERY dispatch, not only ones with a `sessionId`. */
-export function markDispatchActive(): () => void {
-  globalDispatchInFlight += 1;
-  lastDispatchActivityAt = Date.now();
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    globalDispatchInFlight = Math.max(0, globalDispatchInFlight - 1);
-    lastDispatchActivityAt = Date.now();
-  };
-}
-
-/** True while at least one dispatch call is in flight, process-wide. */
-export function dispatchInFlightCount(): number {
-  return globalDispatchInFlight;
-}
-
-/** Milliseconds since the last dispatch activity (a call starting or finishing), process-wide.
- *  `Number.POSITIVE_INFINITY` before this process has dispatched its first call — never busy, so
- *  immediately idle rather than "just active at epoch 0". */
-export function msSinceLastDispatchActivity(now: number = Date.now()): number {
-  return lastDispatchActivityAt === 0 ? Number.POSITIVE_INFINITY : now - lastDispatchActivityAt;
-}
-
-/** How many calls currently have `sessionId` attached. 0 — the common case — means nothing is
- *  calling through it right now, not that the session is invalid. */
-export function inFlightCount(sessionId: string): number {
-  return inFlightCounts.get(sessionId) ?? 0;
 }
 
 /** THE-1108 fix: opt-in, off-by-default stderr note when a sweep defers closing a session because
@@ -627,29 +556,7 @@ export function sessionsInWindow(
     .all(...params) as SessionRow[];
 }
 
-export interface TraceRecord {
-  ts: number;
-  type?: string;
-  tool?: string;
-  caller?: string | null;
-  duration_ms?: number;
-  args_hash?: string;
-  result_size?: number;
-  /** The vault the call acted on; present ONLY when it is not the session's own vault. */
-  effect_vault?: string;
-  /**
-   * THE-736: the dispatch's raw parsed arguments, secret-scanned and size-capped. Present ONLY
-   * when `sessions.traceContent` is on — absent is the normal value, not a gap.
-   *
-   * `args_hash` above stays regardless and is not redundant: it is computed over the UNREDACTED
-   * input, so it still identifies a call whose captured text was scrubbed or truncated.
-   */
-  args?: string;
-  /** THE-736: "clean" | "redacted:<n>" | "truncated" — what the scan did on the way in, so a
-   *  replay can tell a faithful argument from a scrubbed one BEFORE re-issuing it. */
-  args_scan?: string;
-  [key: string]: unknown;
-}
+export type { TraceRecord };
 
 /**
  * Append one trace record as a single JSONL line. Append-only: the file is never
