@@ -89,12 +89,6 @@ test("curl: every curl in .github carries --proto '=https' (localhost probes all
  */
 const BUN_INSTALL_ALLOWLIST = [
   {
-    file: ".github/actions/setup-repo/action.yml",
-    text: "bun install --frozen-lockfile",
-    reason:
-      "the documented install-mode: frozen opt-in (lifecycle scripts on); no caller uses it after the item-5 change",
-  },
-  {
     file: ".github/workflows/ci-install-smoke.yml",
     text: "bun install --frozen-lockfile",
     reason:
@@ -129,11 +123,18 @@ test("bun install: every install in .github and the Dockerfiles ignores lifecycl
 const PIP_INSTALL_ALLOWLIST = [
   {
     file: ".github/workflows/ci-model-service.yml",
-    text: "pip install --no-deps -e .",
+    text: "pip install --only-binary :all: --no-deps -e .",
     reason:
-      "installs this repo's own package with --no-deps; only its build backend resolves from an index",
+      "installs this repo's own package with --no-deps; only its build backend resolves from an index, as a wheel",
   },
 ];
+
+test("setup-repo: no install mode runs lifecycle scripts", () => {
+  const action = read(".github/actions/setup-repo/action.yml");
+  const modes = [...action.matchAll(/inputs\.install-mode == '([a-z-]+)'/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(modes)].sort(), ["frozen-no-scripts"]);
+  assert.ok(action.includes("frozen-no-scripts (default) | none."));
+});
 
 const PINNED = /^[A-Za-z0-9_.-]+(\[[A-Za-z0-9_,.-]+\])?==[^\s=]+$/;
 
@@ -165,4 +166,22 @@ test("pip install: every install in .github is --require-hashes or pins each pac
     allowed.sort(),
     "pip installs that are neither hashed nor pinned",
   );
+});
+
+// ---- pip never builds a downloaded package from source ---------------------------------------
+
+test("pip install: every install in .github carries --only-binary :all:", () => {
+  const building = [];
+  let scanned = 0;
+  for (const file of WORKFLOW_FILES) {
+    for (const cmd of commandLines(read(file))) {
+      for (const seg of segmentsOf(cmd, /\bpip install\b/)) {
+        if (!/^pip install(\s+\S+)*$/.test(seg)) continue;
+        scanned++;
+        if (!seg.includes("--only-binary :all:")) building.push(`${file} :: ${seg}`);
+      }
+    }
+  }
+  assert.ok(scanned >= 9, `expected to scan every pip install, saw ${scanned}`);
+  assert.deepEqual(building, [], "pip installs that may run a downloaded package's setup script");
 });

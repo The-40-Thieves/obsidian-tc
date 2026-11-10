@@ -235,7 +235,10 @@ jobs:
         # Pinned, not floating: checkov ships new CHECKS in minor releases, so "latest" means an
         # unrelated PR turns red the week a rule is added. The same reasoning pins it in the host
         # mise config. Bump deliberately, and re-run the baseline when doing so.
-        run: pip install --disable-pip-version-check checkov==3.3.30
+        # Wheels only: the pin fixes checkov's version, not its dependencies', and a dependency
+        # that had to be built from source would run its setup script here.
+        run: |
+          pip install --disable-pip-version-check --only-binary :all: checkov==3.3.30
       # TWO invocations, one per target. A single run with both `-f Dockerfile` and
       # `-d .github/workflows` printed only the github_actions block: the dockerfile framework
       # result never appeared, so the Dockerfile had no checkov coverage in CI (measured on checkov
