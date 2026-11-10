@@ -15,6 +15,7 @@ import {
   type WikiGenerateEnv,
 } from "../src/tools/m7/knowledge/wiki-generated";
 import { evaluatePathAcl, pathScopesSatisfied } from "../src/vault/acl-path";
+import { SYMLINKS_SUPPORTED } from "./symlink-capability";
 import {
   hashTree,
   makeWikiHarness,
@@ -90,16 +91,19 @@ describe("generated pages beside a raw folder", () => {
     expect(hh.v.read("wiki/index.md")).not.toContain("later");
   });
 
-  it("a symlink inside the wiki folder that leads into raw/ (folder or note) is not listed", () => {
-    const hh = harness();
-    symlinkSync(join(hh.v.root, "raw"), join(hh.v.root, "wiki/alias"));
-    symlinkSync(join(hh.v.root, "raw/clip.md"), join(hh.v.root, "wiki/Clip link.md"));
-    regenerateWikiPages(envFor(hh));
-    const idx = hh.v.read("wiki/index.md");
-    expect(idx).toContain("[[wiki/Page|Page]]");
-    expect(idx).not.toContain("alias");
-    expect(idx).not.toContain("Clip link");
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "a symlink inside the wiki folder that leads into raw/ (folder or note) is not listed",
+    () => {
+      const hh = harness();
+      symlinkSync(join(hh.v.root, "raw"), join(hh.v.root, "wiki/alias"));
+      symlinkSync(join(hh.v.root, "raw/clip.md"), join(hh.v.root, "wiki/Clip link.md"));
+      regenerateWikiPages(envFor(hh));
+      const idx = hh.v.read("wiki/index.md");
+      expect(idx).toContain("[[wiki/Page|Page]]");
+      expect(idx).not.toContain("alias");
+      expect(idx).not.toContain("Clip link");
+    },
+  );
 
   it("log.md carries no row for a raw path, even one a provenance row names", () => {
     const hh = harness();
@@ -125,16 +129,19 @@ describe("generated pages beside a raw folder", () => {
     expect(hh.v.read("wiki/index.md")).not.toContain("sources/");
   });
 
-  it("generated pages are refused through a symlink into raw/ (the immutable rule is not widened by the log rule)", () => {
-    const hh = harness();
-    mkdirSync(join(hh.v.root, "raw/gen"), { recursive: true });
-    symlinkSync(join(hh.v.root, "raw/gen/index.md"), join(hh.v.root, "wiki/index.md"));
-    const before = hashTree(join(hh.v.root, "raw"));
-    const r = regenerateWikiPages(envFor(hh));
-    expect(r.written).not.toContain("wiki/index.md");
-    expect(r.warnings.some((w) => w.path === "wiki/index.md")).toBe(true);
-    expect(hashTree(join(hh.v.root, "raw"))).toEqual(before);
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "generated pages are refused through a symlink into raw/ (the immutable rule is not widened by the log rule)",
+    () => {
+      const hh = harness();
+      mkdirSync(join(hh.v.root, "raw/gen"), { recursive: true });
+      symlinkSync(join(hh.v.root, "raw/gen/index.md"), join(hh.v.root, "wiki/index.md"));
+      const before = hashTree(join(hh.v.root, "raw"));
+      const r = regenerateWikiPages(envFor(hh));
+      expect(r.written).not.toContain("wiki/index.md");
+      expect(r.warnings.some((w) => w.path === "wiki/index.md")).toBe(true);
+      expect(hashTree(join(hh.v.root, "raw"))).toEqual(before);
+    },
+  );
 
   it("lint_wiki and find_existing_page skip raw notes and the generated pages alike", async () => {
     const hh = harness({

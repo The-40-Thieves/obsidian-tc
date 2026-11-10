@@ -16,6 +16,7 @@ import { registrySignerSource } from "../src/provenance/signer";
 import { appendProvenance } from "../src/provenance/store";
 import { PROVENANCE_FAULT_EVENT } from "../src/provenance/types";
 import { CLOCK0, provenanceFixture, rowsFor } from "./provenance-helpers";
+import { SYMLINKS_SUPPORTED } from "./symlink-capability";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const root = makeTempDir("obtc-prov-bind-");
@@ -42,21 +43,24 @@ describe("digestUnder: the opened file must be the vetted one", () => {
     expect(await digestUnder(root, "plain.md")).toBe(sha("plain"));
   });
 
-  it("a directory swapped for a symlink OUT of the vault between check and open is `unhashable`", async () => {
-    mkdirSync(join(root, "swap"), { recursive: true });
-    writeFileSync(join(root, "swap", "note.md"), "inside");
-    mkdirSync(join(outside, "swapped"), { recursive: true });
-    const secret = "outside-bytes-that-must-never-be-hashed";
-    writeFileSync(join(outside, "swapped", "note.md"), secret);
-    const digest = await digestUnder(root, "swap/note.md", {
-      afterCheck: () => {
-        renameSync(join(root, "swap"), join(root, "swap.real"));
-        symlinkSync(join(outside, "swapped"), join(root, "swap"));
-      },
-    });
-    expect(digest).toBe("unhashable");
-    expect(digest).not.toBe(sha(secret));
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "a directory swapped for a symlink OUT of the vault between check and open is `unhashable`",
+    async () => {
+      mkdirSync(join(root, "swap"), { recursive: true });
+      writeFileSync(join(root, "swap", "note.md"), "inside");
+      mkdirSync(join(outside, "swapped"), { recursive: true });
+      const secret = "outside-bytes-that-must-never-be-hashed";
+      writeFileSync(join(outside, "swapped", "note.md"), secret);
+      const digest = await digestUnder(root, "swap/note.md", {
+        afterCheck: () => {
+          renameSync(join(root, "swap"), join(root, "swap.real"));
+          symlinkSync(join(outside, "swapped"), join(root, "swap"));
+        },
+      });
+      expect(digest).toBe("unhashable");
+      expect(digest).not.toBe(sha(secret));
+    },
+  );
 });
 
 describe("the after-digest is bound to the write", () => {

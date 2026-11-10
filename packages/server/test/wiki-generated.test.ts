@@ -16,6 +16,7 @@ import {
   type WikiGenerateEnv,
 } from "../src/tools/m7/knowledge/wiki-generated";
 import { inspectGenerated, seal } from "../src/tools/m7/knowledge/wiki-generated-seal";
+import { SYMLINKS_SUPPORTED } from "./symlink-capability";
 import { makeTempDir } from "./tmp";
 import {
   hashTree,
@@ -479,15 +480,18 @@ describe("generation never blocks the wiki write", () => {
     expect(hashTree(hh.v.root)).toEqual(tree);
   });
 
-  it("a wiki folder that is a symlink out of the vault is refused, nothing written outside", () => {
-    const hh = harness();
-    const outside = makeTempDir("obtc-outside-");
-    symlinkSync(outside, join(hh.v.root, "linked"));
-    const r = regenerateWikiPages(envFor(hh, { wikiFolder: "linked" }));
-    expect(r.written).toEqual([]);
-    expect(r.warnings.map((w) => w.kind)).toEqual(["failed", "failed"]);
-    expect(existsSync(join(outside, "index.md"))).toBe(false);
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "a wiki folder that is a symlink out of the vault is refused, nothing written outside",
+    () => {
+      const hh = harness();
+      const outside = makeTempDir("obtc-outside-");
+      symlinkSync(outside, join(hh.v.root, "linked"));
+      const r = regenerateWikiPages(envFor(hh, { wikiFolder: "linked" }));
+      expect(r.written).toEqual([]);
+      expect(r.warnings.map((w) => w.kind)).toEqual(["failed", "failed"]);
+      expect(existsSync(join(outside, "index.md"))).toBe(false);
+    },
+  );
 });
 
 describe("the generated pages are not wiki pages", () => {
@@ -765,44 +769,50 @@ describe("sec2: log.md carries attribution, so reading it needs read:provenance"
 });
 
 describe("sec3: a symlink alias never names a path the scopeless reader may not read", () => {
-  it("wiki/link -> wiki/private: wiki/link/Secret.md is in neither file", () => {
-    const hh = harness({
-      files: { ...FILES, "wiki/private/Secret.md": "---\ntype: concept\n---\nTop secret.\n" },
-      acl: { readPaths: ["wiki/*.md", "wiki/link/**", "wiki/concepts/**"] },
-    });
-    symlinkSync(join(hh.v.root, "wiki/private"), join(hh.v.root, "wiki/link"));
-    record(hh.v.db as Database, "write_note", [["wiki/link/Secret.md", "absent", H1]], {
-      principal: "privileged-writer",
-      model: "private-model",
-    });
-    record(hh.v.db as Database, "write_note", [["wiki/Ada.md", "absent", H1]]);
-    regenerateWikiPages(envFor(hh));
-    for (const file of ["wiki/index.md", "wiki/log.md"]) {
-      const raw = hh.v.read(file);
-      expect(raw).not.toContain("Secret");
-      expect(raw).not.toContain("privileged-writer");
-    }
-    expect(logLines(hh.v.read("wiki/log.md"))).toHaveLength(1);
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "wiki/link -> wiki/private: wiki/link/Secret.md is in neither file",
+    () => {
+      const hh = harness({
+        files: { ...FILES, "wiki/private/Secret.md": "---\ntype: concept\n---\nTop secret.\n" },
+        acl: { readPaths: ["wiki/*.md", "wiki/link/**", "wiki/concepts/**"] },
+      });
+      symlinkSync(join(hh.v.root, "wiki/private"), join(hh.v.root, "wiki/link"));
+      record(hh.v.db as Database, "write_note", [["wiki/link/Secret.md", "absent", H1]], {
+        principal: "privileged-writer",
+        model: "private-model",
+      });
+      record(hh.v.db as Database, "write_note", [["wiki/Ada.md", "absent", H1]]);
+      regenerateWikiPages(envFor(hh));
+      for (const file of ["wiki/index.md", "wiki/log.md"]) {
+        const raw = hh.v.read(file);
+        expect(raw).not.toContain("Secret");
+        expect(raw).not.toContain("privileged-writer");
+      }
+      expect(logLines(hh.v.read("wiki/log.md"))).toHaveLength(1);
+    },
+  );
 
-  it("an alias of an Excluded folder is excluded by its resolved path", () => {
-    const hh = harness({
-      files: {
-        ...FILES,
-        "wiki/hidden/Excluded page.md": "x\n",
-        ".obsidian/app.json": JSON.stringify({ userIgnoreFilters: ["wiki/hidden/"] }),
-      },
-    });
-    symlinkSync(join(hh.v.root, "wiki/hidden"), join(hh.v.root, "wiki/alias"));
-    record(hh.v.db as Database, "write_note", [["wiki/alias/Excluded page.md", "absent", H1]]);
-    const exclusion: VaultExclusion = {
-      ...NO_EXCLUSION,
-      isExcluded: (rel) => rel.startsWith("wiki/hidden/"),
-    };
-    regenerateWikiPages(envFor(hh, { exclusion }));
-    expect(hh.v.exists("wiki/log.md")).toBe(false);
-    expect(hh.v.read("wiki/index.md")).not.toContain("Excluded page");
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "an alias of an Excluded folder is excluded by its resolved path",
+    () => {
+      const hh = harness({
+        files: {
+          ...FILES,
+          "wiki/hidden/Excluded page.md": "x\n",
+          ".obsidian/app.json": JSON.stringify({ userIgnoreFilters: ["wiki/hidden/"] }),
+        },
+      });
+      symlinkSync(join(hh.v.root, "wiki/hidden"), join(hh.v.root, "wiki/alias"));
+      record(hh.v.db as Database, "write_note", [["wiki/alias/Excluded page.md", "absent", H1]]);
+      const exclusion: VaultExclusion = {
+        ...NO_EXCLUSION,
+        isExcluded: (rel) => rel.startsWith("wiki/hidden/"),
+      };
+      regenerateWikiPages(envFor(hh, { exclusion }));
+      expect(hh.v.exists("wiki/log.md")).toBe(false);
+      expect(hh.v.read("wiki/index.md")).not.toContain("Excluded page");
+    },
+  );
 });
 
 describe("sec4: an edit that lands after the seal check is never overwritten", () => {
