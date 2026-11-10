@@ -21,6 +21,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { readNote } from "../src/vault/notes-io";
 import { stageSandbox } from "../src/workspace/rerun";
 import { CACHE_TRACE_SUBDIR } from "../src/workspace/sessions";
+import { SYMLINKS_SUPPORTED } from "./symlink-capability";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const CANARY = "kvantorixsecretcanary";
@@ -75,39 +76,51 @@ describe("stageSandbox does not launder a file's identity", () => {
     expect(filesHoldingCanary(staged.root)).not.toContain(join(staged.root, NEXT));
   });
 
-  it("the live read refuses a symlinked _next-session.md, and the staged copy never holds its target", async () => {
-    const { root, outside, cacheDir } = fixture();
-    symlinkSync(join(outside, "secret.md"), join(root, NEXT));
-    const staged = await stage(root, cacheDir);
-    expect(() => readNote(join(staged.root, NEXT))).toThrow();
-    expect(filesHoldingCanary(staged.root)).toEqual([join(staged.root, "private", "secret.md")]);
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "the live read refuses a symlinked _next-session.md, and the staged copy never holds its target",
+    async () => {
+      const { root, outside, cacheDir } = fixture();
+      symlinkSync(join(outside, "secret.md"), join(root, NEXT));
+      const staged = await stage(root, cacheDir);
+      expect(() => readNote(join(staged.root, NEXT))).toThrow();
+      expect(filesHoldingCanary(staged.root)).toEqual([join(staged.root, "private", "secret.md")]);
+    },
+  );
 
-  it("a symlink to a note inside the vault is not turned into a copy either", async () => {
-    const { root, cacheDir } = fixture();
-    symlinkSync(join(root, "private", "secret.md"), join(root, NEXT));
-    const staged = await stage(root, cacheDir);
-    expect(() => readNote(join(staged.root, NEXT))).toThrow();
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "a symlink to a note inside the vault is not turned into a copy either",
+    async () => {
+      const { root, cacheDir } = fixture();
+      symlinkSync(join(root, "private", "secret.md"), join(root, NEXT));
+      const staged = await stage(root, cacheDir);
+      expect(() => readNote(join(staged.root, NEXT))).toThrow();
+    },
+  );
 
-  it("a symlinked folder to somewhere outside the vault is not followed into the copy", async () => {
-    const { root, outside, cacheDir } = fixture();
-    symlinkSync(outside, join(root, "memory", "linked"), "dir");
-    const staged = await stage(root, cacheDir);
-    expect(filesHoldingCanary(staged.root)).toEqual([join(staged.root, "private", "secret.md")]);
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "a symlinked folder to somewhere outside the vault is not followed into the copy",
+    async () => {
+      const { root, outside, cacheDir } = fixture();
+      symlinkSync(outside, join(root, "memory", "linked"), "dir");
+      const staged = await stage(root, cacheDir);
+      expect(filesHoldingCanary(staged.root)).toEqual([join(staged.root, "private", "secret.md")]);
+    },
+  );
 
-  it("the session-trace copy does not launder a hard link or a symlink either", async () => {
-    const { root, outside, cacheDir } = fixture();
-    const traces = join(cacheDir, CACHE_TRACE_SUBDIR);
-    mkdirSync(traces, { recursive: true });
-    linkSync(join(root, "private", "secret.md"), join(traces, "hl.jsonl"));
-    symlinkSync(join(outside, "secret.md"), join(traces, "sl.jsonl"));
-    writeFileSync(join(traces, "ok.jsonl"), '{"ok":true}\n');
-    const staged = await stage(root, cacheDir);
-    const stagedTraces = join(staged.cacheDir, CACHE_TRACE_SUBDIR);
-    expect(readdirSync(stagedTraces)).toEqual(["ok.jsonl"]);
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "the session-trace copy does not launder a hard link or a symlink either",
+    async () => {
+      const { root, outside, cacheDir } = fixture();
+      const traces = join(cacheDir, CACHE_TRACE_SUBDIR);
+      mkdirSync(traces, { recursive: true });
+      linkSync(join(root, "private", "secret.md"), join(traces, "hl.jsonl"));
+      symlinkSync(join(outside, "secret.md"), join(traces, "sl.jsonl"));
+      writeFileSync(join(traces, "ok.jsonl"), '{"ok":true}\n');
+      const staged = await stage(root, cacheDir);
+      const stagedTraces = join(staged.cacheDir, CACHE_TRACE_SUBDIR);
+      expect(readdirSync(stagedTraces)).toEqual(["ok.jsonl"]);
+    },
+  );
 
   it("positive control: an ordinary note, nested folders and .obsidian config still replay", async () => {
     const { root, cacheDir } = fixture();

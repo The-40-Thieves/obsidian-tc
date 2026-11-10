@@ -19,6 +19,7 @@ import {
 } from "../src/mcp/resources";
 import { createMcpServer } from "../src/mcp/server";
 import { makeTestVault, type TestVault } from "./m1-helpers";
+import { SYMLINKS_SUPPORTED } from "./symlink-capability";
 import { makeTempDir, rmTemp } from "./tmp";
 
 // The native no-follow open refuses a path AFTER the ACL and stat checks have passed
@@ -143,23 +144,26 @@ describe("note resources serve every registered vault the caller may read", () =
     expect(alias).toEqual(missing);
   });
 
-  it("a symlink in vault 2 that escapes the vault, or leads into a denied folder, is refused as a missing note", () => {
-    const outside = makeTempDir("obtc-outside-");
-    cleanups.push(() => rmTemp(outside));
-    const { v } = twoVaults({
-      files: { "secret/b.md": "S", "pub/a.md": "A" },
-      acl: { readPaths: ["pub/**"] },
-      setup: (root) => {
-        writeFileSync(join(outside, "x.md"), "OUTSIDE");
-        symlinkSync(join(outside, "x.md"), join(root, "pub", "escape.md"));
-        symlinkSync(join(root, "secret", "b.md"), join(root, "pub", "peek.md"));
-      },
-    });
-    expect(textOf(readAs(v, v.ctx(), uri("other", "pub/a.md"))())).toBe("A");
-    const missing = refused(readAs(v, v.ctx(), uri("other", "pub/nope.md")));
-    expect(refused(readAs(v, v.ctx(), uri("other", "pub/escape.md")))).toEqual(missing);
-    expect(refused(readAs(v, v.ctx(), uri("other", "pub/peek.md")))).toEqual(missing);
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "a symlink in vault 2 that escapes the vault, or leads into a denied folder, is refused as a missing note",
+    () => {
+      const outside = makeTempDir("obtc-outside-");
+      cleanups.push(() => rmTemp(outside));
+      const { v } = twoVaults({
+        files: { "secret/b.md": "S", "pub/a.md": "A" },
+        acl: { readPaths: ["pub/**"] },
+        setup: (root) => {
+          writeFileSync(join(outside, "x.md"), "OUTSIDE");
+          symlinkSync(join(outside, "x.md"), join(root, "pub", "escape.md"));
+          symlinkSync(join(root, "secret", "b.md"), join(root, "pub", "peek.md"));
+        },
+      });
+      expect(textOf(readAs(v, v.ctx(), uri("other", "pub/a.md"))())).toBe("A");
+      const missing = refused(readAs(v, v.ctx(), uri("other", "pub/nope.md")));
+      expect(refused(readAs(v, v.ctx(), uri("other", "pub/escape.md")))).toEqual(missing);
+      expect(refused(readAs(v, v.ctx(), uri("other", "pub/peek.md")))).toEqual(missing);
+    },
+  );
 
   it("boundVaultOnly: true restores the old refusal for a foreign vault, known or not, in resources and read_resources", async () => {
     const { v } = twoVaults({ files: { "a.md": "A" }, boundVaultOnly: true });

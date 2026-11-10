@@ -12,6 +12,7 @@ import { WIKI_SCHEMA_FILE } from "../src/tools/m7/knowledge/wiki-schema";
 import { SCHEMA_LAYER_NAME } from "../src/vault/acl-path";
 import { CHECKED, confirmedCall, STATUS_RULES, withVault } from "./conventions-helpers";
 import { makeM6Vault } from "./m6-helpers";
+import { SYMLINKS_SUPPORTED } from "./symlink-capability";
 import { makeTempDir, rmTemp } from "./tmp";
 import { makeWikiHarness } from "./wiki-test-helpers";
 
@@ -470,42 +471,45 @@ describe("conventions.protectSchemaFiles", () => {
     });
   });
 
-  it("inspect_acl and enforcement agree on a symlink named SCHEMA.md", async () => {
-    const make = (root: string) => {
-      mkdirSync(join(root, "F"), { recursive: true });
-      writeFileSync(join(root, "F", "rules.md"), "r\n");
-      symlinkSync("rules.md", join(root, "F", "SCHEMA.md"));
-    };
-    const v = makeM6Vault({
-      acl: { protectSchemaFiles: true, writePaths: ["F/**"], deletePaths: ["F/**"] },
-      register: (r, d) => {
-        for (const t of buildAdminTools(d)) r.register(t);
-      },
-    });
-    cleanups.push(() => v.cleanup());
-    make(v.root);
-    const i = await v.call("inspect_acl", {
-      vault: "test",
-      path: "F/SCHEMA.md",
-      op: "delete",
-      scopes: ["delete:*"],
-    });
-    expect(i).toMatchObject({ ok: true, data: { allowed: false, denied_by: "schema_file" } });
-    await withVault(
-      {
-        ...PROTECTED,
-        files: { "F/rules.md": "r\n" },
-        setup: (root) => symlinkSync("rules.md", join(root, "F", "SCHEMA.md")),
-      },
-      async (w) => {
-        const r = await confirmedCall(
-          w,
-          "delete_note",
-          { vault: "test", path: "F/SCHEMA.md" },
-          { grantedScopes: WRITER },
-        );
-        expect(denial(r)).toMatchObject(SCHEMA_REFUSAL);
-      },
-    );
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "inspect_acl and enforcement agree on a symlink named SCHEMA.md",
+    async () => {
+      const make = (root: string) => {
+        mkdirSync(join(root, "F"), { recursive: true });
+        writeFileSync(join(root, "F", "rules.md"), "r\n");
+        symlinkSync("rules.md", join(root, "F", "SCHEMA.md"));
+      };
+      const v = makeM6Vault({
+        acl: { protectSchemaFiles: true, writePaths: ["F/**"], deletePaths: ["F/**"] },
+        register: (r, d) => {
+          for (const t of buildAdminTools(d)) r.register(t);
+        },
+      });
+      cleanups.push(() => v.cleanup());
+      make(v.root);
+      const i = await v.call("inspect_acl", {
+        vault: "test",
+        path: "F/SCHEMA.md",
+        op: "delete",
+        scopes: ["delete:*"],
+      });
+      expect(i).toMatchObject({ ok: true, data: { allowed: false, denied_by: "schema_file" } });
+      await withVault(
+        {
+          ...PROTECTED,
+          files: { "F/rules.md": "r\n" },
+          setup: (root) => symlinkSync("rules.md", join(root, "F", "SCHEMA.md")),
+        },
+        async (w) => {
+          const r = await confirmedCall(
+            w,
+            "delete_note",
+            { vault: "test", path: "F/SCHEMA.md" },
+            { grantedScopes: WRITER },
+          );
+          expect(denial(r)).toMatchObject(SCHEMA_REFUSAL);
+        },
+      );
+    },
+  );
 });

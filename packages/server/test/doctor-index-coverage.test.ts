@@ -19,6 +19,7 @@ import {
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { indexVault } from "../src/search/indexer";
 import { buildRepresentationManifest } from "../src/search/representation";
+import { SYMLINKS_SUPPORTED } from "./symlink-capability";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const ctx = { serverVersion: "test" };
@@ -214,37 +215,40 @@ describe("probeIndexCoverage (THE-1073)", () => {
   // (assertRootNotPlantedSymlink), and the original probe swallowed that exception into the same
   // `[]` a fresh install with no cache.db yet gets — reading as a clean "ok, no vault to inspect"
   // instead of a warning. This must now surface as a per-vault `error`.
-  it("a symlinked vault root reports a per-vault error, not a silent empty result", async () => {
-    const realRoot = makeTempDir("obtc-coverage-real-");
-    const linkParent = makeTempDir("obtc-coverage-link-parent-");
-    const cacheDir = makeTempDir("obtc-coverage-symlink-cache-");
-    const symlinkRoot = join(linkParent, "vault-link");
-    try {
-      writeFileSync(join(realRoot, "a.md"), "# A\n\nfine.");
-      symlinkSync(realRoot, symlinkRoot, "dir");
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "a symlinked vault root reports a per-vault error, not a silent empty result",
+    async () => {
+      const realRoot = makeTempDir("obtc-coverage-real-");
+      const linkParent = makeTempDir("obtc-coverage-link-parent-");
+      const cacheDir = makeTempDir("obtc-coverage-symlink-cache-");
+      const symlinkRoot = join(linkParent, "vault-link");
+      try {
+        writeFileSync(join(realRoot, "a.md"), "# A\n\nfine.");
+        symlinkSync(realRoot, symlinkRoot, "dir");
 
-      const db = await openDatabase(join(cacheDir, "cache.db"), 5_000);
-      provisionCacheDb(db);
-      db.close?.();
+        const db = await openDatabase(join(cacheDir, "cache.db"), 5_000);
+        provisionCacheDb(db);
+        db.close?.();
 
-      const states = await probeIndexCoverage(
-        cacheDir,
-        [{ id: "main", root: symlinkRoot, isReadable: () => true }],
-        5_000,
-      );
-      expect(states).toHaveLength(1);
-      expect(states[0]?.error).toBeTruthy();
-      expect(states[0]?.notesOnDisk).toBe(0);
+        const states = await probeIndexCoverage(
+          cacheDir,
+          [{ id: "main", root: symlinkRoot, isReadable: () => true }],
+          5_000,
+        );
+        expect(states).toHaveLength(1);
+        expect(states[0]?.error).toBeTruthy();
+        expect(states[0]?.notesOnDisk).toBe(0);
 
-      const result = await indexCoverageCheck({ probe: () => states }).run(ctx);
-      expect(result.status).toBe("warning");
-      expect(result.issues?.join(" ")).toContain("main");
-    } finally {
-      rmTemp(realRoot);
-      rmTemp(linkParent);
-      rmTemp(cacheDir);
-    }
-  });
+        const result = await indexCoverageCheck({ probe: () => states }).run(ctx);
+        expect(result.status).toBe("warning");
+        expect(result.issues?.join(" ")).toContain("main");
+      } finally {
+        rmTemp(realRoot);
+        rmTemp(linkParent);
+        rmTemp(cacheDir);
+      }
+    },
+  );
 
   it("probe is absent without --probe (doctor CLI wiring only attaches it under cmd.probe)", async () => {
     // No probe attached: the check itself falls back to "not probed" — the field's whole contract
