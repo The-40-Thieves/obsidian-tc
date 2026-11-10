@@ -484,6 +484,7 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
               wikiFolder: v.wikiFolder,
               wikiFolders: v.wikiFolders,
               rawFolders: v.rawFolders,
+              caseInsensitive: v.caseInsensitive,
             },
             warnings,
             {

@@ -117,7 +117,10 @@ describe("THE-414 folder-ACL path-extraction coverage", () => {
     provisionCacheDb(db);
     const vaultRegistry = new VaultRegistry([{ id: "t", name: "t", path: root }]);
     const rateLimiter = new RateLimiter(NO_THROTTLE as never);
-    const registry = new ToolRegistry({ rateLimiter });
+    const registry = new ToolRegistry({
+      rootResolver: (id) => vaultRegistry.resolve(id).root,
+      rateLimiter,
+    });
     const noop = () => {};
     const embeddingProvider: any = {
       provider: "ollama",

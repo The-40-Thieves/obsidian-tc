@@ -77,7 +77,7 @@ async function boot(): Promise<Booted> {
     { id: "agents", path: agentsRoot },
   ]);
 
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   // No `activeSessions` — see the file header. The durable path must carry this alone.
   for (const tool of buildSessionTools({ vaultRegistry, cacheDir: root })) registry.register(tool);
   registry.register({

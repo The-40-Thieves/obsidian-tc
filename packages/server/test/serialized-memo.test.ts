@@ -40,7 +40,7 @@ describe("single-serialization memo (THE-294)", () => {
   });
 
   it("a successful dispatch populates the memo with the governor's serialization", async () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     const payload = { big: "x".repeat(100), nested: { n: 1 } };
     registry.register(
       defineTool({

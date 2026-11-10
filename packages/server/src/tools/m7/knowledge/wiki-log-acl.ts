@@ -4,7 +4,7 @@
 // (the machinery enforcePathAcl, readableRel and callerCanReadVaultPath honour), built wherever a
 // vault's ACL is built. read_note, the search tools, backlinks, resources, lint and the rest then
 // deny it to a caller without the scope, with the same shape as any denied read.
-import { type AclConfigT, escapeGlob, FolderAcl } from "../../../acl";
+import { type AclCaseMatch, type AclConfigT, escapeGlob, FolderAcl } from "../../../acl";
 import { WIKI_LOG_FILE } from "./wiki-folder";
 
 /** The scope get_provenance also requires, now required to read `log.md`. */
@@ -16,8 +16,11 @@ export const WIKI_LOG_SCOPE = "read:provenance";
 export function wikiLogRules(
   cfg: AclConfigT,
   folders: readonly string[],
+  caseMatch?: AclCaseMatch,
 ): { glob: string; scopes: string[] }[] {
-  const acl = new FolderAcl(cfg);
+  // The scope the path already requires must be worked out with the vault's OWN case behavior:
+  // a rule written `Wiki/**` either does or does not cover `wiki/log.md`, per the filesystem.
+  const acl = new FolderAcl(caseMatch === undefined ? cfg : { ...cfg, caseMatch });
   return folders.map((folder) => {
     const path = folder === "" ? WIKI_LOG_FILE : `${folder}/${WIKI_LOG_FILE}`;
     return {
@@ -38,16 +41,18 @@ export function withWikiLogScope(
   cfg: AclConfigT,
   wikiFolder: string | undefined,
   canonicalFolder?: string,
+  caseMatch?: AclCaseMatch,
 ): AclConfigT {
   if (!wikiFolder) return cfg;
   return {
     ...cfg,
     rules: [
       ...cfg.rules,
-      ...wikiLogRules(cfg, [
-        wikiFolder,
-        ...(canonicalFolder === undefined ? [] : [canonicalFolder]),
-      ]),
+      ...wikiLogRules(
+        cfg,
+        [wikiFolder, ...(canonicalFolder === undefined ? [] : [canonicalFolder])],
+        caseMatch,
+      ),
     ],
   };
 }

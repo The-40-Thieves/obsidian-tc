@@ -52,7 +52,7 @@ async function harness(withIndex: boolean) {
     now: Date.now,
     representation: buildRepresentationManifest(provider, {}),
   });
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => root });
   registerM1Tools(registry, {
     vaultRegistry: new VaultRegistry([{ id: "t", path: root }]),
     version: "0.0.0",

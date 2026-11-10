@@ -52,7 +52,7 @@ async function startClaimedServer(parented = false): Promise<string> {
   const handle = createHttpApp({
     name: "obsidian-tc",
     version: "t",
-    registry: new ToolRegistry(),
+    registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth: ServerConfigSchema.parse({
       vaults: [{ id: "v1", path: "/tmp/v1" }],
       auth: {

@@ -25,7 +25,7 @@ async function createThenDeleteAlice(
   const db = openMemoryDb();
   provisionCacheDb(db);
   try {
-    const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
+    const registry = new ToolRegistry({ rootResolver: () => root, verifyElicit: elicitVerifier });
     wire(registry, root, cacheDir);
     const ctx: CallerContext = {
       caller: "test",

@@ -34,7 +34,7 @@ const BUN_PLACEHOLDER = "Welcome to Bun!";
 test("MCP and /metrics both serve real responses from one process", async () => {
   const db = await openDatabase(":memory:");
   provisionCacheDb(db);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register(
     createHealthTool({
       version: "0.0.0-test",

@@ -124,7 +124,9 @@ export async function run_memory_import(cmd: Cmd<"memory-import">): Promise<void
   }
   try {
     const vaultRegistry = new VaultRegistry(cfg.vaults, undefined, cfg.cacheDir);
-    const registry = new ToolRegistry({});
+    const registry = new ToolRegistry({
+      rootResolver: (id) => vaultRegistry.resolve(id).root,
+    });
     registerM1Tools(registry, {
       vaultRegistry,
       version: VERSION,

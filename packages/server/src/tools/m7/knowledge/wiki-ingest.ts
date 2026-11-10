@@ -111,11 +111,12 @@ export function pagesCiting(
   wikiFolder: string,
   sourcePath: string,
   refusals: ReadRefusals,
+  ci?: boolean | null,
 ): string[] {
   const index = buildVaultIndex([...notes]);
   const warnings = new ScanWarnings(refusals);
   return notes
-    .filter((rel) => pathInFolder(rel, wikiFolder))
+    .filter((rel) => pathInFolder(rel, wikiFolder, ci))
     .filter((rel) =>
       linksOf(root, rel, warnings).some(
         (l) =>

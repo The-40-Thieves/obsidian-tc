@@ -589,7 +589,8 @@ describe("registration guard: a HITL-gated tool must declare what its confirmati
     inputSchema: z.object({ vault: z.string() }).strict(),
     handler: () => ({}),
   };
-  const fresh = () => new ToolRegistry({ verifyElicit: elicitVerifier });
+  const fresh = () =>
+    new ToolRegistry({ rootResolver: () => undefined, verifyElicit: elicitVerifier });
   const undeclared: Record<string, Partial<ToolDefinition>> = {
     "destructive: true": { destructive: true, requiredScopes: ["delete:notes"] },
     "an execute:* HITL-floor scope": { requiredScopes: ["execute:command"] },

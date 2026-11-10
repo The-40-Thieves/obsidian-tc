@@ -187,9 +187,9 @@ export const AsConfigSchema = z
       ),
     dynamicRegistration: z
       .boolean()
-      .default(true)
+      .default(false)
       .describe(
-        'Default true. Serves RFC 7591 Dynamic Client Registration at `/oauth/register` and advertises `registration_endpoint`, because many MCP surfaces (Cursor, Windsurf, grok.com, Le Chat, n8n and others) can only register this way. Claude, ChatGPT, Codex and Antigravity use metadata documents instead. The unauthenticated client-creation surface is bounded by `dcr` (a per-source budget, a client cap, deletion of unused registrations). Set false to turn it off: `/oauth/register` is then a 404 and `registration_endpoint` is not advertised. One info line is logged at startup while it is on, and `securityProfile: "hardened"` forces it off even when this is set to true.',
+        'Default false. Opt in to RFC 7591 Dynamic Client Registration for clients that require it: true serves `/oauth/register` and advertises `registration_endpoint`. This lets anyone who can reach the server register under any name; registration is not an endorsement. The unauthenticated client-creation surface is bounded by `dcr` (a per-source budget, a client cap, deletion of unused registrations). When off, `/oauth/register` is a 404 and `registration_endpoint` is not advertised. Static clients and metadata-document clients do not need it. One info line is logged at startup while it is on, and `securityProfile: "hardened"` forces it off even when this is set to true.',
       ),
     dcr: z
       .strictObject({
@@ -235,9 +235,15 @@ export const AsConfigSchema = z
       .strictObject({
         loopback: z
           .enum(["remember", "prompt"])
-          .default("remember")
+          .default("prompt")
           .describe(
-            "How a sign-in whose redirect is on this machine (`127.0.0.0/8`, `::1` or `localhost`) is treated once the operator has approved the client. `remember` (the default): the approval is reused across ports, so Claude Code and Codex sign in without a click. `prompt`: every such sign-in shows the consent page, whichever port it uses, so a local process cannot start its own sign-in and obtain a token without the operator seeing it. A redirect that is not on this machine is always remembered.",
+            "How a sign-in whose redirect is on this machine (`127.0.0.0/8`, `::1` or `localhost`) is treated once the operator has approved the client. `prompt` (the default): every such sign-in shows the consent page, whichever port it uses, so a local process cannot start its own sign-in and obtain a token without the operator seeing it. `remember` explicitly opts into reusing approvals across ports, so Claude Code and Codex sign in without a click, but another local process claiming the same client can do so too. A redirect that is not on this machine is always remembered.",
+          ),
+        remembered: z
+          .enum(["silent", "confirm"])
+          .optional()
+          .describe(
+            "What a sign-in that an earlier approval already covers does. `confirm`: the browser shows a one-click Continue page, so a link opened from another site cannot obtain a code without the operator seeing it. `silent`: the code is issued with no page. Unset (the default): `silent` when the redirect is on this machine (`127.0.0.0/8`, `::1` or `localhost`), which is remembered only under `consent.loopback: remember`, and `confirm` for any other redirect.",
           ),
       })
       .prefault({})

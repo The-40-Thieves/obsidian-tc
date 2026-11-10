@@ -32,7 +32,7 @@ async function rig(augmentable: boolean) {
   const db = openMemoryDb();
   provisionCacheDb(db);
   const queue = new JobQueue(db);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register({
     name: "walker",
     description: "reports three steps",

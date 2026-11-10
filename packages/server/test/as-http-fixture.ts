@@ -71,7 +71,7 @@ export async function asHttpFixture(opts: {
   const handle: HttpApp = createHttpApp({
     name: "obsidian-tc",
     version: "t",
-    registry: new ToolRegistry(),
+    registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth,
     db: cacheDb,
     oauthDb,

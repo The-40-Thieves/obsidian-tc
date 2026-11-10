@@ -1,6 +1,6 @@
 // `POST /oauth/register` of the bundled authorization server (RFC 7591; design v2 sections 4.3, 4.7, 8):
-// Dynamic Client Registration, ON unless `auth.as.dynamicRegistration` is false (owner decision
-// 2026-10-09: many MCP surfaces can only register this way; the route does not exist when off, and
+// Dynamic Client Registration, OFF unless `auth.as.dynamicRegistration` is explicitly true
+// (the route does not exist when off, and
 // `hardened` forces the flag off). The MCP authorization spec deprecates DCR, and it hands anyone who
 // can reach the server a way to create rows and to put a name in front of the operator, so it is
 // bounded: a per-source rate limit (the CIMD source rule: the TCP peer, an IPv6 address as its /64,

@@ -131,7 +131,7 @@ afterAll(() => rmTemp(root));
 
 function harness(edb?: Database, rootOverride?: string, prewarmDir?: string) {
   const cache = cacheDb0();
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   const vaultRegistry = new VaultRegistry([
     { id: "main", name: "main", path: rootOverride ?? root },
   ]);

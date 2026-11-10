@@ -156,6 +156,7 @@ export function createLintWikiTool(deps: M7Deps): ToolDefinition {
           wikiFolder: v.wikiFolder,
           wikiFolders: v.wikiFolders,
           rawFolders: v.rawFolders,
+          caseInsensitive: v.caseInsensitive,
           sealKey,
         },
         {
@@ -189,6 +190,7 @@ export function createLintWikiTool(deps: M7Deps): ToolDefinition {
             exclusion,
             wikiFolders: v.wikiFolders ?? v.wikiFolder,
             rawFolders: v.rawFolders,
+            caseInsensitive: v.caseInsensitive,
           },
           deps.excludeFilter,
           input.max_judge_calls,

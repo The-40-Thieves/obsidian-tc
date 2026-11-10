@@ -31,6 +31,8 @@ export interface WikiHarness {
 
 export function makeWikiHarness(
   opts: TestVaultOptions & {
+    /** Exercise commit_wiki_page's handler ACL independently of its central path extractor. */
+    handlerAclOnly?: boolean;
     vectors?: Record<string, number[]>;
     edb?: Database;
     failEmbed?: boolean;
@@ -49,6 +51,7 @@ export function makeWikiHarness(
   } = {},
 ): WikiHarness {
   const {
+    handlerAclOnly,
     vectors = {},
     edb,
     failEmbed = false,
@@ -104,6 +107,11 @@ export function makeWikiHarness(
     wikiGeneratedSealKeyForLint: wikiGeneratedSealKeyForLint ?? (() => WIKI_TEST_SEAL_KEY),
     scheduleWikiPageRegeneration: scheduleWikiPageRegeneration ?? ((run) => run()),
   });
+  if (handlerAclOnly) {
+    const tool = v.registry.list().find((t) => t.name === "commit_wiki_page");
+    if (!tool) throw new Error("commit_wiki_page is not registered");
+    tool.pathAcl = () => [];
+  }
   let n = 0;
   const seed: WikiHarness["seed"] = (path, vec, extra) => {
     const id = extra?.id ?? `c${++n}`;

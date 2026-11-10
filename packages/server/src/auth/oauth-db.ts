@@ -14,6 +14,7 @@ import { version as VERSION } from "../../package.json";
 import { openConfiguredDatabase } from "../db/open";
 import { provisionOauthDb } from "../db/provision";
 import type { Database } from "../db/types";
+import { REQUEST_TOMBSTONE_MS } from "./as-grants";
 import { type AuthRegistry, summarizeScopes } from "./registry";
 import { AS_KEY_SKEW_SECONDS } from "./signing-keys";
 
@@ -81,8 +82,8 @@ export interface OauthGcCounts {
 }
 
 /**
- * Housekeeping for oauth.db, run on the maintenance sweep and at boot: deletes expired pending
- * requests, unused authorization codes (a used one is kept for `USED_CODE_KEEP_MS`, to catch a replay),
+ * Housekeeping for oauth.db, run on the maintenance sweep and at boot: deletes pending requests
+ * `REQUEST_TOMBSTONE_MS` past their expiry, unused authorization codes (a used one is kept for `USED_CODE_KEEP_MS`, to catch a replay),
  * sessions and metadata-document cache rows; dynamically registered
  * clients unused for `dcrUnusedDays` (a client never used counts from its creation); refresh-token
  * rows past their family's absolute cap; and access-token jtis once `ISSUED_ACCESS_GC_GRACE_MS` has
@@ -100,7 +101,10 @@ export function gcOauthDb(
   const del = (sql: string, ...params: unknown[]): number => db.prepare(sql).run(...params).changes;
   const counts = {
     sessions: del("DELETE FROM sessions WHERE expires_at <= ?", now),
-    authRequests: del("DELETE FROM auth_requests WHERE expires_at <= ?", now),
+    authRequests: del(
+      "DELETE FROM auth_requests WHERE expires_at <= ?",
+      now - REQUEST_TOMBSTONE_MS,
+    ),
     cimdCache: del("DELETE FROM cimd_cache WHERE expires_at <= ?", now),
     dcrClients: del(
       "DELETE FROM oauth_clients WHERE kind = 'dcr' AND (COALESCE(last_used_at, created_at) < ? OR (expires_at IS NOT NULL AND expires_at <= ?))",

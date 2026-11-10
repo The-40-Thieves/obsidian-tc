@@ -40,7 +40,7 @@ function harness(readOnly: boolean) {
   const db: Database = openMemoryDb();
   provisionCacheDb(db);
   const acl = new FolderAcl({ readOnly, defaultScopes: [], rules: [] });
-  const registry = new ToolRegistry({ aclResolver: () => acl });
+  const registry = new ToolRegistry({ rootResolver: () => root, aclResolver: () => acl });
   registerM1Tools(registry, {
     vaultRegistry: new VaultRegistry([{ id: "v", path: root }]),
     version: "test",

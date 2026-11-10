@@ -50,6 +50,7 @@ function harness(ids: string[], hidden: string[] = []): Harness {
   const vaultRegistry = new VaultRegistry(ids.map((id) => ({ id, path: roots[id] as string })));
   const aclFor = (id: string): FolderAcl | undefined => (hidden.includes(id) ? HIDDEN : undefined);
   const registry = new ToolRegistry({
+    rootResolver: (id) => (vaultRegistry.has(id) ? vaultRegistry.resolve(id).root : undefined),
     aclResolver: aclFor,
     visibleVaultIds: makeVisibleVaultIds(vaultRegistry, aclFor),
   });
@@ -187,7 +188,10 @@ describe("an explicit vault is unchanged", () => {
 
 describe("only the shared VaultId field is defaulted", () => {
   const defs = (): ToolRegistry => {
-    const reg = new ToolRegistry({ visibleVaultIds: () => ["only"] });
+    const reg = new ToolRegistry({
+      rootResolver: () => undefined,
+      visibleVaultIds: () => ["only"],
+    });
     reg.register({
       name: "optional_vault_echo",
       description: "vault is already optional",
@@ -376,6 +380,8 @@ describe("visibility: one definition for the default, the hint and list_vaults",
   it("list_vaults returns exactly the helper's set, bound or not", async () => {
     const h = mk(["a", "strict", "empty"], ["empty"]);
     const reg = new ToolRegistry({
+      rootResolver: (id) =>
+        h.vaultRegistry.has(id) ? h.vaultRegistry.resolve(id).root : undefined,
       aclResolver: (id) => (id === "strict" ? STRICT : id === "empty" ? HIDDEN : undefined),
       visibleVaultIds: makeVisibleVaultIds(h.vaultRegistry, (id) =>
         id === "strict" ? STRICT : id === "empty" ? HIDDEN : undefined,

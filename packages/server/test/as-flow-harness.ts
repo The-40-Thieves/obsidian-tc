@@ -151,7 +151,7 @@ export async function makeFlow(
   const cacheDb = openMemoryDb();
   provisionCacheDb(cacheDb);
   const vaultRegistry = new VaultRegistry(vaultDefs);
-  const tools = new ToolRegistry();
+  const tools = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   for (const t of buildRegistryTools(
     {
       vaultRegistry,

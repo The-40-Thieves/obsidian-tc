@@ -53,7 +53,7 @@ function build(opts: { as?: Record<string, unknown> | false; withOauthDb?: boole
   const handle = createHttpApp({
     name: "obsidian-tc",
     version: "t",
-    registry: new ToolRegistry(),
+    registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth: authOf(opts.as),
     db,
     vaultId: "v1",
@@ -141,7 +141,7 @@ describe("mounting", () => {
     const handle = await startHttp({
       name: "obsidian-tc",
       version: "t",
-      registry: new ToolRegistry(),
+      registry: new ToolRegistry({ rootResolver: () => undefined }),
       auth: authOf(),
       db,
       oauthDb,

@@ -73,6 +73,7 @@ import { type SessionLivenessView, sessionLivenessCheck } from "./session-livene
 import { type TelemetryView, telemetryCheck } from "./telemetry";
 import { type ToolFacadeView, toolFacadeCheck } from "./tool-facade";
 import type { Check, DoctorReport } from "./types";
+import { type VaultCaseSensitivityView, vaultCaseSensitivityCheck } from "./vault-case-sensitivity";
 import { type VaultIoView, vaultIoCheck } from "./vault-io";
 import { type WikiJudgeView, wikiJudgeCheck } from "./wiki-judge";
 
@@ -183,6 +184,7 @@ export interface DoctorConfigView {
   familyRevocations?: FamilyRevocationsView;
   memoryReadAcl?: MemoryReadAclView;
   pathGlobs?: DeadPathGlobsView;
+  vaultCaseSensitivity?: VaultCaseSensitivityView;
 }
 
 export interface AssembleOptions {
@@ -300,6 +302,8 @@ export async function assembleDoctorReport(opts: AssembleOptions): Promise<Docto
   if (config.familyRevocations) checks.push(familyRevocationsCheck(config.familyRevocations));
   if (config.memoryReadAcl) checks.push(memoryReadAclCheck(config.memoryReadAcl));
   if (config.pathGlobs) checks.push(deadPathGlobsCheck(config.pathGlobs));
+  if (config.vaultCaseSensitivity)
+    checks.push(vaultCaseSensitivityCheck(config.vaultCaseSensitivity));
 
   // bridge.state (THE-523) is added only when the caller probed the vaults — doctor's CLI wiring
   // does; a pure profile-only call omits it rather than reporting a hollow "no bridge".

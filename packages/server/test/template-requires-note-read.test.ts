@@ -66,10 +66,11 @@ describe("create_periodic_note with a caller-named template_override needs read:
   });
 
   it("a rule-denied template is refused by the handler's read check, before loadTemplate's ACL error", async () => {
-    // No central pathAcl stage here (no conventions wiring), so the handler is the first reader.
+    // Without the central pathAcl stage (which refuses first, as acl_denied), the handler is the first reader.
     m3 = makeM3Vault({
       files: { "templates/secret.md": SECRET },
       acl: { rules: [{ glob: "templates/**", scopes: ["read:templates"] }] },
+      handlerAclOnly: true,
     });
     const r = await m3.call(
       "create_periodic_note",
@@ -110,7 +111,7 @@ describe("execute_template needs read:notes", () => {
   };
 
   it("a write:templater caller without read:notes is refused by the scope gate, not HITL, with no state_fp", async () => {
-    m4 = makeM4Vault({ installed: ["templater"], routes, conventions: true, bindState: true });
+    m4 = makeM4Vault({ installed: ["templater"], routes, conventions: true });
     const r = await m4.call("execute_template", input, {
       grantedScopes: new Set(["write:templater"]),
     });
@@ -123,7 +124,7 @@ describe("execute_template needs read:notes", () => {
   });
 
   it("guard: with read:notes the same call reaches HITL and carries a state_fp", async () => {
-    m4 = makeM4Vault({ installed: ["templater"], routes, conventions: true, bindState: true });
+    m4 = makeM4Vault({ installed: ["templater"], routes, conventions: true });
     const r = await m4.call("execute_template", input, {
       grantedScopes: new Set(["write:templater", "read:notes"]),
     });

@@ -2,7 +2,8 @@
 // the full design. RED on pre-fix main: `resolveAndApplyVaultIdentity` did not exist, a renamed
 // vault id's rows stayed orphaned under the old id forever, and two zero-config "main" vaults
 // silently shared rows under one id with no refusal.
-import { readFileSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runMigrations } from "../src/db/migrate";
@@ -461,6 +462,52 @@ describe("resolveVaultIdentity — provisional identity (realpath-failed lexical
     expect(
       cacheDb.prepare("SELECT root_canonical FROM vault_identity WHERE vault_id = 'v1'").get(),
     ).toEqual({ root_canonical: 0 });
+  });
+});
+
+describe("resolveVaultIdentity — a boot that cannot decide case folding never strands the vault", () => {
+  // RED before the fix on Windows/macOS (a no-op on a case-sensitive host, where no key folds):
+  // the unreachable boot rewrote the folded row to the as-typed spelling, and the next healthy
+  // boot then refused the vault against itself.
+  const stored = (db: Database) =>
+    db
+      .prepare("SELECT root_realpath, root_canonical FROM vault_identity WHERE vault_id = 'v1'")
+      .get() as { root_realpath: string; root_canonical: number };
+  function mixedCaseRoot(): string {
+    const root = join(tmpVaultRoot(), "MixedCase");
+    mkdirSync(root);
+    return canonicalizeVaultRoot(root);
+  }
+
+  it("keeps the recorded key while the root is unreachable, and boots again once it is back", () => {
+    const { cacheDb, edb } = stores();
+    const root = mixedCaseRoot();
+    const boot = () => resolveAndApplyVaultIdentity(cacheDb, edb, [{ id: "v1", path: root }]);
+    expect(boot()).toEqual([]);
+    const healthy = stored(cacheDb);
+
+    renameSync(root, `${root}.gone`);
+    expect(boot()).toEqual([]);
+    expect(stored(cacheDb)).toEqual(healthy);
+
+    renameSync(`${root}.gone`, root);
+    expect(boot()).toEqual([]);
+    expect(stored(cacheDb)).toEqual(healthy);
+  });
+
+  it("follows a caseSensitive override being added and removed again", () => {
+    const { cacheDb, edb } = stores();
+    const root = mixedCaseRoot();
+    const boot = (caseSensitive?: boolean) =>
+      resolveAndApplyVaultIdentity(cacheDb, edb, [
+        { id: "v1", path: root, ...(caseSensitive === undefined ? {} : { caseSensitive }) },
+      ]);
+    expect(boot()).toEqual([]);
+    const auto = stored(cacheDb);
+    expect(boot(true)).toEqual([]);
+    expect(stored(cacheDb).root_realpath).toBe(root);
+    expect(boot()).toEqual([]);
+    expect(stored(cacheDb)).toEqual(auto);
   });
 });
 

@@ -23,7 +23,10 @@ function ctx(): CallerContext {
 }
 
 function noopRegistry(onProfile?: (p: DispatchProfile) => void): ToolRegistry {
-  const registry = new ToolRegistry(onProfile ? { onProfile } : {});
+  const registry = new ToolRegistry({
+    rootResolver: () => undefined,
+    ...(onProfile ? { onProfile } : {}),
+  });
   registry.register(
     defineTool({
       name: "noop",

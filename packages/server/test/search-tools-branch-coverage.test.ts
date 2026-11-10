@@ -46,7 +46,7 @@ function makeCustomVault(opts: {
   const aclCfg: AclConfigT = { readOnly: false, defaultScopes: [], rules: [], ...opts.acl };
   const acl = new FolderAcl(aclCfg);
   const vaultRegistry = new VaultRegistry([{ id: "test", path: root }]);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   registerM2Tools(registry, {
     vaultRegistry,
     embeddingProvider: fakeEmbeddingProvider({ dimensions: 32 }),

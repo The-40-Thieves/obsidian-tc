@@ -47,7 +47,7 @@ describe("oversized tool-call arguments", () => {
   it("get an isError result, and the connection keeps serving", async () => {
     const db = openMemoryDb();
     provisionCacheDb(db);
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register({
       name: "count_items",
       description: "test-only",

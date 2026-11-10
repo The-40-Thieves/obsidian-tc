@@ -40,7 +40,10 @@ function dangerTool(name: string): ToolDefinition {
 async function connect(facadeMode: FacadeMode) {
   const db = openMemoryDb();
   provisionCacheDb(db);
-  const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
+  const registry = new ToolRegistry({
+    rootResolver: () => undefined,
+    verifyElicit: elicitVerifier,
+  });
   registry.register(dangerTool("danger_write"));
   registry.register(dangerTool("danger_write_2"));
   const context = (): CallerContext => ({

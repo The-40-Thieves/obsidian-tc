@@ -57,6 +57,7 @@ export interface SchedulerWiringDeps {
     wikiFolder?: string | undefined;
     wikiFolders?: readonly string[] | undefined;
     rawFolders?: readonly string[] | undefined;
+    caseInsensitive?: boolean | null | undefined;
   }[];
   /** The vault registry's folder pins. Background jobs that write or delete inside a vault run
    *  outside any dispatch, so they get the pins here (the trace sweep, the wiki-pages sweep) and
@@ -119,6 +120,7 @@ export function schedulerVaults(
     wikiFolder: registry.resolve(v.id).wikiFolder,
     wikiFolders: registry.resolve(v.id).wikiFolders,
     rawFolders: registry.resolve(v.id).rawFolders,
+    caseInsensitive: registry.resolve(v.id).caseInsensitive,
   }));
 }
 

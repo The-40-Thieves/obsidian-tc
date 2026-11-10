@@ -52,7 +52,10 @@ function registerTools(reg: ToolRegistry): void {
 describe("THE-569: reverse vault-kind gate", () => {
   it("forbids a write:notes dispatch against a docs-kind vault", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry({ vaultKindResolver: (id) => KIND_BY_VAULT[id] });
+    const reg = new ToolRegistry({
+      rootResolver: () => undefined,
+      vaultKindResolver: (id) => KIND_BY_VAULT[id],
+    });
     registerTools(reg);
     const r = await reg.dispatch("write_note", { vault: "docs-vault" }, ctx(db));
     expect(r.ok).toBe(false);
@@ -61,7 +64,10 @@ describe("THE-569: reverse vault-kind gate", () => {
 
   it("forbids a write:notes dispatch against a system-kind vault", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry({ vaultKindResolver: (id) => KIND_BY_VAULT[id] });
+    const reg = new ToolRegistry({
+      rootResolver: () => undefined,
+      vaultKindResolver: (id) => KIND_BY_VAULT[id],
+    });
     registerTools(reg);
     const r = await reg.dispatch("write_note", { vault: "system-vault" }, ctx(db));
     expect(r.ok).toBe(false);
@@ -70,7 +76,10 @@ describe("THE-569: reverse vault-kind gate", () => {
 
   it("allows a read:notes dispatch against a docs-kind vault", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry({ vaultKindResolver: (id) => KIND_BY_VAULT[id] });
+    const reg = new ToolRegistry({
+      rootResolver: () => undefined,
+      vaultKindResolver: (id) => KIND_BY_VAULT[id],
+    });
     registerTools(reg);
     const r = await reg.dispatch("read_note", { vault: "docs-vault" }, ctx(db));
     expect(r.ok).toBe(true);
@@ -78,7 +87,10 @@ describe("THE-569: reverse vault-kind gate", () => {
 
   it("allows a write:notes dispatch against a private-kind vault (no regression)", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry({ vaultKindResolver: (id) => KIND_BY_VAULT[id] });
+    const reg = new ToolRegistry({
+      rootResolver: () => undefined,
+      vaultKindResolver: (id) => KIND_BY_VAULT[id],
+    });
     registerTools(reg);
     const r = await reg.dispatch("write_note", { vault: "private-vault" }, ctx(db));
     expect(r.ok).toBe(true);
@@ -86,7 +98,7 @@ describe("THE-569: reverse vault-kind gate", () => {
 
   it("is a no-op when no vaultKindResolver is wired (all allowed)", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     registerTools(reg);
     const write = await reg.dispatch("write_note", { vault: "docs-vault" }, ctx(db));
     expect(write.ok).toBe(true);

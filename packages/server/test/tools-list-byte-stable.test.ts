@@ -196,7 +196,7 @@ describe("tools/list is byte-identical across restarts (prompt-cache prefix)", (
   }
 
   it("the registry lists tools in registration order (the contract the restart check relies on)", () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     const names = ["zeta", "alpha", "mid"];
     for (const name of names) {
       registry.register({
