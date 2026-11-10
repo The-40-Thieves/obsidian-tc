@@ -21,7 +21,7 @@ import {
   pinnedPackageSpec,
 } from "./lib/plugin-manifest-versions.mjs";
 import { attributeReleasePrs } from "./lib/release-pr-attribution.mjs";
-import { trustedExecutable } from "./lib/trusted-exec.mjs";
+import { nodeExecutable, trustedExecutable } from "./lib/trusted-exec.mjs";
 
 // Every path below is a hardcoded repo-relative metadata file; this guard keeps
 // the reads/writes provably contained to the repo root (defense in depth).
@@ -410,7 +410,7 @@ console.log("bun run format (biome) ...");
 execFileSync(trustedExecutable("bun"), ["run", "format"], { stdio: "inherit" });
 
 // Coherence gate.
-execFileSync(trustedExecutable("node"), ["scripts/check-version-coherence.mjs"], {
+execFileSync(nodeExecutable(), ["scripts/check-version-coherence.mjs"], {
   stdio: "inherit",
 });
 

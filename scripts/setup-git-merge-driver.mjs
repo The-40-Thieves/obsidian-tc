@@ -22,7 +22,7 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { trustedExecutable } from "./lib/trusted-exec.mjs";
+import { nodeExecutable, trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const DRIVER_NAME = "regen";
 // Pre-`regen` name (it deferred TREE.md / dependency-graph.json to manual regeneration). Both files
@@ -81,11 +81,12 @@ console.log(
 );
 
 try {
-  execFileSync(trustedExecutable("node"), [path.join(here, "check-merge-driver.mjs")], {
+  execFileSync(nodeExecutable(), [path.join(here, "check-merge-driver.mjs")], {
     cwd: repoRoot,
     stdio: "inherit",
   });
 } catch (err) {
+  if (typeof err.status !== "number") console.error(`setup-git-merge-driver: ${err.message}`);
   console.error(
     "setup-git-merge-driver: wrote the git config but check-merge-driver still fails — see above.",
   );

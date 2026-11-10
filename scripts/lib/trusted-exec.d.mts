@@ -5,4 +5,5 @@ export interface TrustedExecOptions {
   stat?: (path: string) => { mode: number; isFile(): boolean; isDirectory(): boolean } | null;
 }
 export function resolveExecutable(name: string, options?: TrustedExecOptions): string | null;
+export function nodeExecutable(): string;
 export function trustedExecutable(name: string, options?: TrustedExecOptions): string;

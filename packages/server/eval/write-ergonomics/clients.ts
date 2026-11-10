@@ -232,7 +232,8 @@ function runCodexIn(c: ClientCtx, addDir: string, home: string): ClientOut {
     last,
     c.prompt,
   ];
-  const r = spawnSync(trustedExecutable("codex"), args, {
+  const codex = trustedExecutable("codex");
+  const r = spawnSync(codex, args, {
     cwd: c.workDir,
     encoding: "utf8",
     timeout: c.timeoutMs,

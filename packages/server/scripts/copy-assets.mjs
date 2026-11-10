@@ -13,7 +13,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { trustedExecutable } from "../../../scripts/lib/trusted-exec.mjs";
+import { nodeExecutable } from "../../../scripts/lib/trusted-exec.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = join(root, "dist");
@@ -76,7 +76,7 @@ try {
   // (the SOURCE, which was correctly 1.9.1); nothing asserted the build output. The build is ~40ms,
   // so unconditionally rebuilding is cheaper than the class of bug it removes.
   console.log("building companion plugin...");
-  execFileSync(trustedExecutable("node"), ["esbuild.config.mjs", "production"], {
+  execFileSync(nodeExecutable(), ["esbuild.config.mjs", "production"], {
     cwd: pluginDir,
     stdio: "inherit",
   });

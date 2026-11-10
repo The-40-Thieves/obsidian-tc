@@ -3,12 +3,13 @@
 // Starting `git` (or bun, docker, tar, ...) by bare name lets the OS search PATH, and PATH in a
 // development checkout is not all trustworthy: `bun run` and npm put node_modules/.bin in front, so
 // a dependency that ships a bin called `git` would be run by every gate; a relative or empty entry
-// means "whatever is in the current directory"; a world-writable directory is anyone's to fill.
-// resolveExecutable walks PATH itself, skips those three kinds of directory, and returns an
-// ABSOLUTE path for execFile/spawn, so the OS never searches.
+// means "whatever is in the current directory". resolveExecutable walks PATH itself, skips those
+// kinds of entry, and returns an ABSOLUTE path for execFile/spawn, so the OS never searches.
 //
-// It is not a sandbox: a PATH directory the user owns outside the repository is trusted, as the
-// shell that started the script already trusts it.
+// It is not a sandbox: an absolute PATH directory outside the repository is trusted, as the shell
+// that started the script already trusts it. Directory permissions are deliberately not judged:
+// GitHub's hosted runners keep node in a mode-777 tool cache, so refusing world-writable
+// directories would either fail there or silently pick a different node further down PATH.
 import { statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,6 +33,20 @@ function pathValue(env) {
   return key === undefined ? "" : (env[key] ?? "");
 }
 
+const NAME_CHARS = new Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-");
+
+/** A command name with no path separator, space or shell character in it. */
+function isBareName(name) {
+  if (typeof name !== "string" || name === "") return false;
+  for (const ch of name) if (!NAME_CHARS.has(ch)) return false;
+  return true;
+}
+
+function hasWindowsExtension(name) {
+  const lower = name.toLowerCase();
+  return lower.endsWith(".exe") || lower.endsWith(".com");
+}
+
 /** Whether `dir` is `root` or below it. Both are already resolved and case-folded. */
 function isInside(p, root, dir) {
   const rel = p.relative(root, dir);
@@ -43,7 +58,7 @@ function isInside(p, root, dir) {
  * `options` are seams for tests: `env`, `platform`, `repoRoot`, and `stat` (path -> Stats | null).
  */
 export function resolveExecutable(name, options = {}) {
-  if (typeof name !== "string" || !/^[A-Za-z0-9._+-]+$/.test(name))
+  if (!isBareName(name))
     throw new TypeError(`expected a bare command name, got ${JSON.stringify(name)}`);
   const platform = options.platform ?? process.platform;
   const env = options.env ?? process.env;
@@ -59,13 +74,12 @@ export function resolveExecutable(name, options = {}) {
     if (isInside(p, fold(repoRoot), fold(dir))) continue;
     const dirStat = stat(dir);
     if (dirStat === null || !dirStat.isDirectory()) continue;
-    if (!win && (dirStat.mode & 0o002) !== 0) continue;
     for (const ext of win ? WINDOWS_EXTENSIONS : [""]) {
       const candidate = p.join(dir, name + ext);
       const s = stat(candidate);
       if (s === null || !s.isFile()) continue;
       if (!win && (s.mode & 0o111) === 0) continue;
-      if (win && ext === "" && !/\.(exe|com)$/i.test(name)) continue;
+      if (win && ext === "" && !hasWindowsExtension(name)) continue;
       return candidate;
     }
   }
@@ -85,11 +99,19 @@ export function trustedExecutable(name, options) {
   const found = resolveExecutable(name, options);
   if (found === null) {
     const error = new Error(
-      `${name}: not found in a trusted PATH directory (directories inside the repository, relative entries and world-writable directories are skipped)`,
+      `${name}: not found in a trusted PATH directory (directories inside the repository and relative entries are skipped)`,
     );
     error.code = "ENOENT";
     throw error;
   }
   if (options === undefined) cache.set(name, found);
   return found;
+}
+
+/**
+ * The node binary to start a child node process with. Under node that is the binary already
+ * running (no lookup at all); under bun, whose execPath is bun, it is node from PATH.
+ */
+export function nodeExecutable() {
+  return process.versions.bun === undefined ? process.execPath : trustedExecutable("node");
 }

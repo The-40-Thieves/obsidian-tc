@@ -3,7 +3,7 @@
 // and the same cases run on every OS.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { resolveExecutable, trustedExecutable } from "./lib/trusted-exec.mjs";
+import { nodeExecutable, resolveExecutable, trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const FILE = 0o100755;
 const PLAIN = 0o100644;
@@ -72,13 +72,22 @@ test("a sibling whose name merely starts with the repository's is not inside it"
   assert.equal(resolveExecutable("git", h), "/repo-tools/git");
 });
 
-test("skips a world-writable directory on POSIX", () => {
+test("does not judge directory permissions: a hosted runner's mode-777 tool cache is used", () => {
   const h = host(
     "linux",
-    { "/tmp/bin": OPEN_DIR, "/tmp/bin/git": FILE, "/usr/bin": DIR, "/usr/bin/git": FILE },
-    ["/tmp/bin", "/usr/bin"],
+    {
+      "/opt/hostedtoolcache/node/bin": OPEN_DIR,
+      "/opt/hostedtoolcache/node/bin/node": FILE,
+      "/usr/local/bin": DIR,
+      "/usr/local/bin/node": FILE,
+    },
+    ["/opt/hostedtoolcache/node/bin", "/usr/local/bin"],
   );
-  assert.equal(resolveExecutable("git", h), "/usr/bin/git");
+  assert.equal(resolveExecutable("node", h), "/opt/hostedtoolcache/node/bin/node");
+});
+
+test("nodeExecutable is the running node binary, with no PATH lookup", () => {
+  assert.equal(nodeExecutable(), process.execPath);
 });
 
 test("needs a regular file with an execute bit on POSIX", () => {
