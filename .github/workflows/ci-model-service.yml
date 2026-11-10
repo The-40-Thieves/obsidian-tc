@@ -45,8 +45,8 @@ jobs:
         #     -o requirements-ci.txt
         run: |
           python -m pip install --only-binary :all: pip==26.2.2
-          pip install --no-deps -e .
-          pip install --require-hashes -r requirements-ci.txt
+          pip install --only-binary :all: --no-deps -e .
+          pip install --only-binary :all: --require-hashes -r requirements-ci.txt
       - name: ruff
         run: ruff check .
       - name: py_compile

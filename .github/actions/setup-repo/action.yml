@@ -34,10 +34,10 @@ inputs:
     default: '26'
   install-mode:
     description: >-
-      frozen-no-scripts (default) | frozen | none.
-      "frozen-no-scripts" is --frozen-lockfile --ignore-scripts, correct for lint/test/docs jobs
-      that never need the native postinstall. "frozen" runs lifecycle scripts, for jobs that do.
-      "none" skips installing entirely, for jobs that only need the toolchain.
+      frozen-no-scripts (default) | none.
+      "frozen-no-scripts" is --frozen-lockfile --ignore-scripts. "none" skips installing entirely,
+      for jobs that only need the toolchain. No mode runs lifecycle scripts: a job that needs the
+      real install path runs its own install step and says why (ci-install-smoke does).
     required: false
     default: 'frozen-no-scripts'
   cache:
@@ -82,16 +82,10 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       run: bun install --frozen-lockfile --ignore-scripts
 
-    - if: inputs.install-mode == 'frozen'
-      shell: bash
-      working-directory: ${{ inputs.working-directory }}
-      run: bun install --frozen-lockfile
-
     # Fail loudly on a typo rather than silently skipping the install and failing later with a
     # confusing "module not found".
     - if: >-
         inputs.install-mode != 'frozen-no-scripts' &&
-        inputs.install-mode != 'frozen' &&
         inputs.install-mode != 'none'
       shell: bash
       # THE-541: the input reaches the shell through `env:`, never through `${{ }}` interpolation
@@ -104,5 +98,5 @@ runs:
       env:
         INSTALL_MODE: ${{ inputs.install-mode }}
       run: |
-        echo "setup-repo: unknown install-mode '$INSTALL_MODE' (expected frozen-no-scripts | frozen | none)"
+        echo "setup-repo: unknown install-mode '$INSTALL_MODE' (expected frozen-no-scripts | none)"
         exit 1
