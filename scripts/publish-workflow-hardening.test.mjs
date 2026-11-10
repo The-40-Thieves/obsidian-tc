@@ -17,6 +17,25 @@ function jobsOf(workflow) {
 
 const isComment = (line) => line.trim().startsWith("#");
 
+test("napi publish steps use only the locked local binary, without a registry fallback", () => {
+  const workflow = read("publish.yml");
+  const steps = [
+    ...workflow.matchAll(/working-directory: packages\/native\n\s+run: ([^\n]+)/g),
+  ].map((match) => match[1]);
+  const commands = [
+    "create-npm-dirs",
+    "artifacts --output-dir artifacts",
+    "pre-publish -t npm --no-gh-release",
+  ];
+  for (const command of commands) {
+    assert.ok(
+      steps.includes(`./node_modules/.bin/napi ${command}`),
+      `missing local-only napi command: ${command}`,
+    );
+  }
+  assert.doesNotMatch(workflow, /\bbunx napi\b/);
+});
+
 // ---- item 1: syft is a pinned, sha256-verified tarball -----------------------------------------
 
 const PUBLISH = read("publish.yml");
