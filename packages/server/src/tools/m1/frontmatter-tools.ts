@@ -8,13 +8,11 @@
 import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { conventionsResultShape } from "../../conventions/schema";
-import {
-  enforceMemoryDefenseOnNoteWrite,
-  MEMORY_DEFENSE_OFF,
-} from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import { frontmatterFallbackSink } from "../../util/errors";
+import { enforceMemoryDefenseOnNoteWrite, MEMORY_DEFENSE_OFF } from "../../util/memory-defense";
 import { DEFAULT_SCAN_LIMIT, nextOffsetCursor, offsetOf } from "../../util/paginate";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableEntry, readableRel } from "../../vault/acl-read-filter";
 import { checkCas, requireContentRead } from "../../vault/cas";
@@ -33,7 +31,6 @@ import { readableStoredRow } from "../../vault/stored-acl-path";
 import { preflightNoteWrite } from "../../vault/write-gate";
 import { noteKeys, ToolHint, unknownPropertyHint } from "../hints";
 import { readRefusalShape } from "../read-refusals";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
 import { defineTool } from "./define";
 import { shapeWriteAck } from "./notes/concise";

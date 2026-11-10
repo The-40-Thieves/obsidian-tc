@@ -30,9 +30,9 @@ import {
   type VaultMemoryDefenseConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { existsNoFollow } from "../auth/key-files";
-import { enforceMemoryDefenseOnNoteWrite } from "../experiential/memory-defense";
-import { redactSecrets } from "../experiential/redact";
 import type { MetricsRecorder } from "../metrics/registry";
+import { enforceMemoryDefenseOnNoteWrite } from "../util/memory-defense";
+import { redactSecrets } from "../util/redact";
 import { vaultDetailPath } from "./folder-links";
 import {
   type NativeVaultIo,

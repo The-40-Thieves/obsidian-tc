@@ -18,7 +18,7 @@ import type { RateLimitFailurePolicy } from "../ratelimit/backend";
 import type { ThrottleBackendConfig } from "../ratelimit/create";
 import type { VecRebuildEvent } from "../search/vec";
 import type { ThrottleTiers } from "../throttle";
-import type { OwnedLayer } from "./boot-helpers";
+import type { OwnedLayer } from "../util/boot-helpers";
 import type { Governance, GovernanceDeps } from "./governance";
 import type { IndexResources } from "./indexing-wiring";
 import type { Stores } from "./stores";

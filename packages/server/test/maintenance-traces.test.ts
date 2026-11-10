@@ -4,7 +4,7 @@
 import { mkdirSync, readdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { sweepTraceFiles } from "../src/db/maintenance";
+import { sweepTraceFiles } from "../src/runtime/maintenance";
 import { appendTrace, resolveTraceDirs, traceRelPath } from "../src/workspace/sessions";
 
 import { makeTempDir, rmTemp } from "./tmp";

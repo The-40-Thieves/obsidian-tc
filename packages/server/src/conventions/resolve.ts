@@ -5,9 +5,7 @@
 import { statSync } from "node:fs";
 import { resolve } from "node:path";
 import { type FolderAcl, foldPath } from "../acl";
-import type { RawFolders, WikiFolders } from "../tools/m7/knowledge/wiki-folder";
-import { SCHEMA_LIMITS, WIKI_SCHEMA_FILE } from "../tools/m7/knowledge/wiki-schema";
-import { MAX_SCAN_WARNINGS } from "../tools/scan-warnings";
+import { MAX_SCAN_WARNINGS } from "../util/scan-caps";
 import { enforcePathAcl } from "../vault/acl-path";
 import { classificationFold } from "../vault/case-sensitivity";
 import { readNoteBounded } from "../vault/notes-io";
@@ -23,6 +21,7 @@ import type {
   SourcedSeverity,
   SourcedValues,
 } from "./schema";
+import { type RawFolders, SCHEMA_LIMITS, WIKI_SCHEMA_FILE, type WikiFolders } from "./wiki-layout";
 
 export interface ConventionsScope {
   /** Keys the layer cache: two vaults never share a parsed layer. */

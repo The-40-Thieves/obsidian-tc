@@ -7,10 +7,10 @@ import { randomUUID } from "node:crypto";
 import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { closeGoal, listGoals, setGoal } from "../../experiential/goals";
-import { enforceMemoryDefense } from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
+import { enforceMemoryDefense } from "../../util/memory-defense";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import { defineTool } from "../m1/define";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { availableWith, type M8Deps, memoryDefenseFor, UNAVAILABLE } from "./shared";
 
 export function buildGoalTools(deps: M8Deps): ToolDefinition[] {

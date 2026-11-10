@@ -3,9 +3,10 @@
 // each query token, its max cosine to any doc token — the standard ColBERT late-interaction score.
 // Used to rerank the fused top-K (bounded compute) once doc ColBERT vectors are available; the
 // bge-m3 encoder that produces them is separate and infra-gated. Pure functions, unit-tested.
+import type { ColbertMatrix } from "../embeddings/vec-types";
 import { cosineBatch, jsCosineSimilarity } from "./native";
 
-export type ColbertMatrix = number[][];
+export type { ColbertMatrix };
 
 /** Flatten a rectangular (uniform-width) token matrix into one row-major f32 buffer for a single
  *  `cosineBatch` crossing, or `null` when the rows don't share a width — cosineBatch's contract is

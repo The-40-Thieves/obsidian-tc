@@ -1,7 +1,6 @@
 // Embedding provider abstraction (G2.2 component 8).
 import { err } from "@the-40-thieves/obsidian-tc-shared";
-import type { ColbertMatrix } from "../search/colbert";
-import type { SparseVec } from "../search/sparse";
+import type { ColbertMatrix, SparseVec } from "./vec-types";
 /** THE-308: how to encode the input. Asymmetric models (e.g. Cohere v3) embed a search query
  *  differently from a corpus document; "document" is the default (indexing is the common path). */
 export interface EmbedOptions {

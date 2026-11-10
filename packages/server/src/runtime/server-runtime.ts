@@ -14,7 +14,6 @@ import { version as VERSION } from "../../package.json";
 import { experientialMigrations } from "../cli/shared";
 import { plainHttpEndpointDeprecations } from "../doctor/plain-http";
 import { createStdioElicitCodec } from "../elicit";
-import { buildMemoryDefenseLookup } from "../experiential/memory-defense";
 import { providerResolveHost } from "../gateway/provider-fetch";
 import { healthToolsWiringFields, mcpServerFacadeOptions } from "../mcp/facade-auto";
 import type { ToolRegistry } from "../mcp/registry";
@@ -41,7 +40,8 @@ import {
   type OwnedLayer,
   requireBoot,
   unwindReversed,
-} from "./boot-helpers";
+} from "../util/boot-helpers";
+import { buildMemoryDefenseLookup } from "../util/memory-defense";
 import { emitBootNotices, emitHeadlessStdioNotice } from "./boot-notices";
 import { reprobeVaultIds, wireBridges } from "./bridge-wiring";
 import { createExclusionReloader } from "./exclusion-reload";

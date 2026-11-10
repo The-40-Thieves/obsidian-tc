@@ -501,3 +501,9 @@ export function serverSecret(cacheDir: string, opts: ServerSecretOptions = {}): 
     throw e;
   }
 }
+/** The secret an HTTP app instance runs under: the durable per-server one when there is a
+ *  `cacheDir`, a per-process random one when there is not (a direct `createHttpApp` caller in a
+ *  test), in which case minted state simply does not survive a restart or cross processes. */
+export function httpServerSecret(cacheDir: string | undefined): string {
+  return cacheDir === undefined ? newSecret() : serverSecret(cacheDir);
+}

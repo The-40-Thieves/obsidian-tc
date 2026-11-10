@@ -20,10 +20,6 @@ import { z } from "zod";
 import type { FolderAcl } from "../../acl";
 import { conventionsResultShape } from "../../conventions/schema";
 import {
-  enforceMemoryDefenseOnNoteWrite,
-  MEMORY_DEFENSE_OFF,
-} from "../../experiential/memory-defense";
-import {
   formatMoment,
   type Period,
   parseDateInput,
@@ -33,6 +29,8 @@ import {
 } from "../../formats/periodic";
 import { assertScopesGranted, type ToolDefinition } from "../../mcp/registry";
 import type { MetricsRecorder } from "../../metrics/registry";
+import { enforceMemoryDefenseOnNoteWrite, MEMORY_DEFENSE_OFF } from "../../util/memory-defense";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { readableResolved } from "../../vault/acl-read-filter";
 import { callerMayReadNote, requireContentRead } from "../../vault/cas";
@@ -48,7 +46,6 @@ import {
 import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { preflightNoteWrite } from "../../vault/write-gate";
 import { defineTool } from "../m1/define";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import type { M3Deps } from "./shared";
 
 const PeriodEnum = z.enum(["daily", "weekly", "monthly", "quarterly", "yearly"]);

@@ -9,7 +9,7 @@
 // bytes differ from what the caller sent) and a non-zero blast radius (patch_note's lines/bytes
 // removed) are kept for the same reason.
 import type { PoisonAssessment } from "../../../experiential/poison";
-import type { ResponseFormat } from "../../response-format";
+import type { ResponseFormat } from "../../../util/response-format";
 
 interface WriteAckFields {
   vault: string;

@@ -8,10 +8,10 @@ import type { ToolDefinition } from "../../../mcp/registry";
 import { vaultExclusionFor, withVaultExclusion } from "../../../search/index-exclusion";
 import { cachedGraphSearch } from "../../../search/query_cache";
 import { lexicalRouteResults, routeQuery } from "../../../search/router";
+import { ResponseFormatInput, resolveResponseFormat } from "../../../util/response-format";
 import { readableRel, readEnumerationUnrestricted } from "../../../vault/acl-read-filter";
 import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
-import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
 import { conciseGraphResults } from "./concise-search";
 import type { M7Deps } from "./deps";
 import {

@@ -7,12 +7,10 @@
 // name a note the caller may not see. The link-scan code reads through `parse()`, which is also
 // where the frontmatter-property link pass hooks in (`links()`).
 import { z } from "zod";
+import { MAX_SCAN_WARNINGS } from "../util/scan-caps";
 import { type ParsedNote, parseNoteLenient } from "../vault/frontmatter";
 import { type ExtractedLink, extractNoteLinks } from "../vault/links";
 import { ReadRefusals } from "./read-refusals";
-
-/** Warnings kept per result; the rest are only counted (`warnings_omitted`). */
-export const MAX_SCAN_WARNINGS = 50;
 
 export const ScanWarningSchema = z.object({
   path: z.string(),
@@ -59,19 +57,6 @@ export const schemaSkipShape = {
   schema_not_updated_hidden: z.number().int().optional(),
   schema_warning: z.string().optional(),
 };
-
-/** The `warnings` / `warnings_omitted` keys for a list of warnings (absent when there are none). */
-export function capWarningsOut<T>(items: readonly T[]): {
-  warnings?: T[];
-  warnings_omitted?: number;
-} {
-  return {
-    ...(items.length > 0 ? { warnings: items.slice(0, MAX_SCAN_WARNINGS) } : {}),
-    ...(items.length > MAX_SCAN_WARNINGS
-      ? { warnings_omitted: items.length - MAX_SCAN_WARNINGS }
-      : {}),
-  };
-}
 
 export class ScanWarnings {
   private readonly items: ScanWarning[] = [];

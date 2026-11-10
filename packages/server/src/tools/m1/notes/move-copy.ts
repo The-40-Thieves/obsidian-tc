@@ -5,13 +5,14 @@
 // backlinks in every other note that pointed at the old path — planBacklinks below is private
 // to move_note; copy_note does not rewrite links (see its description).
 import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolDefinition } from "../../../mcp/registry";
+import type { MetricsRecorder } from "../../../metrics/registry";
 import {
   enforceMemoryDefenseOnNoteWrite,
   MEMORY_DEFENSE_OFF,
   refusePathIfSecretShaped,
-} from "../../../experiential/memory-defense";
-import type { ToolDefinition } from "../../../mcp/registry";
-import type { MetricsRecorder } from "../../../metrics/registry";
+} from "../../../util/memory-defense";
+import { capWarningsOut } from "../../../util/scan-caps";
 import { enforcePathAcl, ImmutableRewriteSkips } from "../../../vault/acl-path";
 import { readableResolved } from "../../../vault/acl-read-filter";
 import { callerMayReadNote, checkCas, requireContentRead } from "../../../vault/cas";
@@ -30,7 +31,7 @@ import { contentHash, normalizeVaultPath, resolveVaultPath, walkVault } from "..
 import { captureSnapshot } from "../../../vault/snapshots";
 import { applyWriteBatch } from "../../../vault/write-batch";
 import { noteWriteOrigin, preflightNoteWrite } from "../../../vault/write-gate";
-import { capWarningsOut, type RewriteWarning } from "../../scan-warnings";
+import type { RewriteWarning } from "../../scan-warnings";
 import { defineTool } from "../define";
 import type { M1Deps } from "../shared";
 import { CopyInput, CopyNoteOutput, MoveInput, MoveNoteOutput } from "./schemas";

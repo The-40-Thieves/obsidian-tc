@@ -9,6 +9,9 @@
 // explicit operator path that does one.
 import { readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { FTS_TABLE_NAMES, tableExists } from "../db/introspect";
+import type { WriteTxnHooks } from "../db/txn";
+import type { Database } from "../db/types";
 import { pruneProvenance } from "../provenance/retention";
 import type { SignerSource } from "../provenance/signer";
 import { provenanceVaults } from "../provenance/store";
@@ -17,9 +20,6 @@ import { type FolderPins, pinnedOpenPath, withFolderPins } from "../vault/folder
 import { pinnedUnlinkAvailable } from "../vault/native-io";
 import { hardDelete } from "../vault/notes-io";
 import { closeExpiredExplicitSessions, closeStaleImplicitSessions } from "../workspace/sessions";
-import { FTS_TABLE_NAMES, tableExists } from "./introspect";
-import type { WriteTxnHooks } from "./txn";
-import type { Database } from "./types";
 
 export interface SweepCounts {
   idempotency_keys: number;

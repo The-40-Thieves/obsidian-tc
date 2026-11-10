@@ -10,9 +10,9 @@ import type { CapabilitySnapshot } from "../../bridge";
 import type { EffectiveToolVisibilityConfig } from "../../mcp/visibility";
 import type { MetricsRecorder } from "../../metrics/registry";
 import type { RateLimiter } from "../../throttle";
+import type { ResponseFormat } from "../../util/response-format";
 import type { VaultRegistry } from "../../vault/registry";
 import type { RerunResult } from "../../workspace/rerun";
-import type { ResponseFormat } from "../response-format";
 
 /**
  * `session_rerun`'s per-call sandbox runtime: stage a disposable copy of `vaultId`'s vault, build

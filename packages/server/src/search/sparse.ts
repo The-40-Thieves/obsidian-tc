@@ -5,9 +5,9 @@
 // ONNX / vLLM) is separate and infra-gated; this module is the storage + retrieval side, exercised
 // in tests with hand-built weights.
 import type { Database } from "../db/types";
+import type { SparseVec } from "../embeddings/vec-types";
 
-/** token id (string key) -> weight. Empty means "no sparse signal". */
-export type SparseVec = Record<string, number>;
+export type { SparseVec };
 
 /** Sparse dot product over shared token ids (iterating the smaller map). */
 export function sparseDot(a: SparseVec, b: SparseVec): number {

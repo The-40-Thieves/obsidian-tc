@@ -90,7 +90,7 @@ export function parseObservationBullet(line: string): ParsedObservationBullet {
  *  form of a value before it becomes a path segment — sanitization can turn a raw string that
  *  doesn't match a secret pattern (`sk:...`) into one that does (`sk-...`) by normalizing
  *  separator characters, and a scan of the raw value alone runs BEFORE that transform. See
- *  `enforceMemoryDefenseOnTransformed` (experiential/memory-defense.ts) and its call sites in
+ *  `enforceMemoryDefenseOnTransformed` (util/memory-defense.ts) and its call sites in
  *  create_entity/rename_entity. */
 export function sanitizeSegment(s: string): string {
   const cleaned = s

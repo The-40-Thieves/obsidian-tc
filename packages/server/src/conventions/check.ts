@@ -2,12 +2,9 @@
 // warnings for the caller to fix; nothing here blocks a write.
 
 import { foldPath } from "../acl";
-import { isGeneratedWikiPath, rawPathFilter } from "../tools/m7/knowledge/wiki-folder";
-import { WIKI_SCHEMA_FILE } from "../tools/m7/knowledge/wiki-schema";
-import { MAX_SCAN_WARNINGS } from "../tools/scan-warnings";
-import { fmHas } from "../tools/wiki-scan";
+import { MAX_SCAN_WARNINGS } from "../util/scan-caps";
 import { classificationFold } from "../vault/case-sensitivity";
-import type { Frontmatter } from "../vault/frontmatter";
+import { type Frontmatter, fmHas } from "../vault/frontmatter";
 import { frontmatterTags, normalizeTag, tagMatches } from "../vault/tags";
 import { scalarText } from "./parse";
 import type {
@@ -17,6 +14,7 @@ import type {
   Severity,
   SourcedValues,
 } from "./schema";
+import { isGeneratedWikiPath, rawPathFilter, WIKI_SCHEMA_FILE } from "./wiki-layout";
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);

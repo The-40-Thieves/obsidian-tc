@@ -20,13 +20,13 @@
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { parseNote } from "../../vault/frontmatter";
 import { noteExists, readNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { isValidTag, normalizeTag, noteTags } from "../../vault/tags";
 import { ReadRefusals, readRefusalShape } from "../read-refusals";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { defineTool } from "./define";
 import type { M1Deps } from "./shared";
 import { collectTagCounts } from "./tag-counts";

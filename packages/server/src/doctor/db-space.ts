@@ -15,7 +15,7 @@
 import type { Check, CheckStatus } from "./types";
 
 /** One present FTS table's shadow-storage row count — `<t>_data` holds the merged/unmerged
- *  segment bytes `'merge'`/`'optimize'` act on (see db/maintenance.ts and
+ *  segment bytes `'merge'`/`'optimize'` act on (see runtime/maintenance.ts and
  *  cli/commands/compact.ts), so this number is what actually shrinks when either runs. */
 export interface FtsDataRowCount {
   table: string;

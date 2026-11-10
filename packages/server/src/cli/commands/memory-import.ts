@@ -9,7 +9,6 @@ import { version as VERSION } from "../../../package.json";
 import { provisionExperientialDb } from "../../db/experiential";
 import { openConfiguredDatabase, openDatabase } from "../../db/open";
 import { provisionCacheDb } from "../../db/provision";
-import { MEMORY_DEFENSE_OFF } from "../../experiential/memory-defense";
 import type { CallerContext } from "../../mcp/registry";
 import { ToolRegistry } from "../../mcp/registry";
 import { applyImport } from "../../memory-import/apply";
@@ -18,6 +17,7 @@ import { buildParsedSource } from "../../memory-import/plan";
 import { buildAcls } from "../../runtime/acl-build";
 import { registerM1Tools } from "../../tools/m1";
 import { registerM5Tools } from "../../tools/m5";
+import { MEMORY_DEFENSE_OFF } from "../../util/memory-defense";
 import { VaultRegistry } from "../../vault/registry";
 import {
   type Cmd,

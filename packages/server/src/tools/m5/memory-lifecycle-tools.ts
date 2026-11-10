@@ -24,10 +24,6 @@ import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { inWriteTransaction } from "../../db/txn";
 import { fingerprintTargets } from "../../elicit-drift";
-import {
-  enforceMemoryDefense,
-  enforceMemoryDefenseOnTransformed,
-} from "../../experiential/memory-defense";
 import { argsHash } from "../../hash";
 import type { ToolDefinition } from "../../mcp/registry";
 import {
@@ -38,6 +34,7 @@ import {
   updateEntity,
 } from "../../memory/entities";
 import { assertNoteOwnership, entityNotePath, sanitizeSegment } from "../../memory/materialize";
+import { enforceMemoryDefense, enforceMemoryDefenseOnTransformed } from "../../util/memory-defense";
 import { filesystemIdentity } from "../../vault/fs-identity";
 import { hardDelete, noteExists, readNote, trashNote, writeNoteAtomic } from "../../vault/notes-io";
 import { resolveVaultPath } from "../../vault/paths";

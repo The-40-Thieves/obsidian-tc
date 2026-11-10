@@ -14,9 +14,9 @@
 // the scheduler at RUNTIME, not by a migration, so a provisioned-but-unscheduled database does not
 // have the table — and an unguarded DELETE would take the entire sweep down with "no such table".
 import { describe, expect, it } from "vitest";
-import { runMaintenanceSweep } from "../src/db/maintenance";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
+import { runMaintenanceSweep } from "../src/runtime/maintenance";
 import { Scheduler } from "../src/scheduler/scheduler";
 import { openMemoryDb } from "./helpers";
 

@@ -11,14 +11,12 @@
 // private to this file — nothing else in the notes domain called them. read_note's section read
 // needs the same resolution, so they moved to ./anchors.ts; read.ts imports from there too.
 import { err } from "@the-40-thieves/obsidian-tc-shared";
-import {
-  enforceMemoryDefenseOnNoteWrite,
-  MEMORY_DEFENSE_OFF,
-} from "../../../experiential/memory-defense";
 import { noteQualityWarningFor } from "../../../experiential/note-quality";
 import { assessPoison } from "../../../experiential/poison";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { frontmatterFallbackSink } from "../../../util/errors";
+import { enforceMemoryDefenseOnNoteWrite, MEMORY_DEFENSE_OFF } from "../../../util/memory-defense";
+import { resolveResponseFormat } from "../../../util/response-format";
 import { enforcePathAcl } from "../../../vault/acl-path";
 import { callerMayReadNote, checkCas, readGatedAck, requireContentRead } from "../../../vault/cas";
 import { parseNote, serializeNote } from "../../../vault/frontmatter";
@@ -32,7 +30,6 @@ import {
   createModeConflictError,
   overwriteModeMissingError,
 } from "../../../vault/write-mode-errors";
-import { resolveResponseFormat } from "../../response-format";
 import { defineTool } from "../define";
 import type { M1Deps } from "../shared";
 import type { PatchResult, ResolvedAnchor } from "./anchors";

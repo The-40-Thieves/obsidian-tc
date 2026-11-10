@@ -18,7 +18,7 @@ import {
   trace,
 } from "@opentelemetry/api";
 import { ObsidianTcError, type ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
-import { redactSecrets } from "../experiential/redact";
+import { redactSecrets } from "../util/redact";
 import { SPAN_ATTR } from "./attrs";
 
 /** "root" | "children" | "verbose": the config enum is the single source of the literal set. */

@@ -15,20 +15,20 @@ import { IMPORT_DEDUPE_TAG_PREFIX } from "../../capture/highlight-import";
 import { type CaptureRow, deleteCapture, enqueueCapture, markCommitted } from "../../capture/queue";
 import { conventionsResultShape } from "../../conventions/schema";
 import { inTransaction } from "../../db/txn";
+import { assessPoison } from "../../experiential/poison";
+import type { ToolDefinition } from "../../mcp/registry";
 import {
   enforceMemoryDefense,
   enforceMemoryDefenseOnNoteWrite,
   refusePathIfSecretShaped,
-} from "../../experiential/memory-defense";
-import { assessPoison } from "../../experiential/poison";
-import { redactSecrets } from "../../experiential/redact";
-import type { ToolDefinition } from "../../mcp/registry";
+} from "../../util/memory-defense";
+import { redactSecrets } from "../../util/redact";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { type Frontmatter, serializeNote } from "../../vault/frontmatter";
 import { noteExists, writeNoteAtomic } from "../../vault/notes-io";
 import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
 import { defineTool } from "../m1/define";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { getReadableCapture, listReadableCaptures } from "./capture-read-acl";
 import { type M5Deps, memoryDefenseFor } from "./shared";
 
