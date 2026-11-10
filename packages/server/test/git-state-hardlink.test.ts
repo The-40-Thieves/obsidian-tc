@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FolderPins, withFolderPins } from "../src/vault/folder-links";
 import { gitCommitState } from "../src/vault/git-state";
+import { SYMLINKS_SUPPORTED } from "./symlink-capability";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const SHA_A = "a".repeat(40);
@@ -85,7 +86,7 @@ describe("gitCommitState reads git metadata through the single-link guard", () =
     }
   });
 
-  it("refuses a symlinked .git/HEAD", () => {
+  it.skipIf(!SYMLINKS_SUPPORTED)("refuses a symlinked .git/HEAD", () => {
     plant("HEAD", "ref: refs/heads/main\n", "sym");
     expect(() => gitCommitState(root)).toThrow();
   });

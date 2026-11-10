@@ -23,6 +23,7 @@ import { extractClaimedProvenance, PROVENANCE_META_KEY } from "../src/provenance
 import { startHttp } from "../src/transports/http";
 import { CLOCK0, provenanceFixture, rowsFor } from "./provenance-helpers";
 import { stallTimeout } from "./stall-timeouts";
+import { SYMLINKS_SUPPORTED } from "./symlink-capability";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const root = makeTempDir("obtc-prov-rec-");
@@ -459,25 +460,31 @@ describe("path guard: what a digest may read", () => {
     return records(fx).at(-1).paths[0];
   }
 
-  it("a symlink inside the vault to a file OUTSIDE it is `unhashable` and is never read", async () => {
-    const fx = await provenanceFixture();
-    const secretOutside = "outside-the-vault-bytes";
-    writeFileSync(join(outside, "secret.txt"), secretOutside);
-    symlinkSync(join(outside, "secret.txt"), join(root, "escape-link.md"));
-    const entry = await digestsFor(fx, "escape-link.md");
-    expect(entry).toEqual({ path: "escape-link.md", before: "unhashable", after: "unhashable" });
-    expect(JSON.stringify(entry)).not.toContain(sha(secretOutside));
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "a symlink inside the vault to a file OUTSIDE it is `unhashable` and is never read",
+    async () => {
+      const fx = await provenanceFixture();
+      const secretOutside = "outside-the-vault-bytes";
+      writeFileSync(join(outside, "secret.txt"), secretOutside);
+      symlinkSync(join(outside, "secret.txt"), join(root, "escape-link.md"));
+      const entry = await digestsFor(fx, "escape-link.md");
+      expect(entry).toEqual({ path: "escape-link.md", before: "unhashable", after: "unhashable" });
+      expect(JSON.stringify(entry)).not.toContain(sha(secretOutside));
+    },
+  );
 
-  it("a symlinked DIRECTORY out of the vault is `unhashable` for files beneath it", async () => {
-    const fx = await provenanceFixture();
-    mkdirSync(join(outside, "dir"), { recursive: true });
-    writeFileSync(join(outside, "dir", "f.md"), "deep outside");
-    symlinkSync(join(outside, "dir"), join(root, "dir-link"));
-    const entry = await digestsFor(fx, "dir-link/f.md");
-    expect(entry.before).toBe("unhashable");
-    expect(entry.after).toBe("unhashable");
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "a symlinked DIRECTORY out of the vault is `unhashable` for files beneath it",
+    async () => {
+      const fx = await provenanceFixture();
+      mkdirSync(join(outside, "dir"), { recursive: true });
+      writeFileSync(join(outside, "dir", "f.md"), "deep outside");
+      symlinkSync(join(outside, "dir"), join(root, "dir-link"));
+      const entry = await digestsFor(fx, "dir-link/f.md");
+      expect(entry.before).toBe("unhashable");
+      expect(entry.after).toBe("unhashable");
+    },
+  );
 
   it("a sibling NAME that merely starts with two dots is hashed normally", async () => {
     const fx = await provenanceFixture();

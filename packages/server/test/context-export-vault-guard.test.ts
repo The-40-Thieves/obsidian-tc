@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { isInsideConfiguredVaultRoot } from "../src/cli/commands/context-export";
+import { SYMLINKS_SUPPORTED } from "./symlink-capability";
 import { makeTempDir, rmTemp } from "./tmp";
 
 describe("isInsideConfiguredVaultRoot — THE-1081 review round", () => {
@@ -24,50 +25,59 @@ describe("isInsideConfiguredVaultRoot — THE-1081 review round", () => {
     }
   });
 
-  it("refuses a destination spelled via the CANONICAL root, when the config path is a symlinked ancestor", () => {
-    const base = makeTempDir("otc-ctxexport-sym-");
-    try {
-      const realRoot = join(base, "real-root");
-      const linkRoot = join(base, "link-root");
-      mkdirSync(realRoot);
-      symlinkSync(realRoot, linkRoot);
-      // The configured vault path is the SYMLINKED spelling; the operator's --out is spelled via
-      // the canonical (realpath'd) root, exactly as list_vaults/VaultRegistry would report it.
-      // Before this fix, isInsideVaultRoot(outPath, linkRoot) alone would NOT catch this: the two
-      // spellings share no lexical prefix, so `path.relative` returns something starting with
-      // ".." and the guard read "not inside" when it really is.
-      const outPath = join(realRoot, "bundle.json");
-      expect(isInsideConfiguredVaultRoot(outPath, linkRoot)).toBe(true);
-    } finally {
-      rmTemp(base);
-    }
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "refuses a destination spelled via the CANONICAL root, when the config path is a symlinked ancestor",
+    () => {
+      const base = makeTempDir("otc-ctxexport-sym-");
+      try {
+        const realRoot = join(base, "real-root");
+        const linkRoot = join(base, "link-root");
+        mkdirSync(realRoot);
+        symlinkSync(realRoot, linkRoot);
+        // The configured vault path is the SYMLINKED spelling; the operator's --out is spelled via
+        // the canonical (realpath'd) root, exactly as list_vaults/VaultRegistry would report it.
+        // Before this fix, isInsideVaultRoot(outPath, linkRoot) alone would NOT catch this: the two
+        // spellings share no lexical prefix, so `path.relative` returns something starting with
+        // ".." and the guard read "not inside" when it really is.
+        const outPath = join(realRoot, "bundle.json");
+        expect(isInsideConfiguredVaultRoot(outPath, linkRoot)).toBe(true);
+      } finally {
+        rmTemp(base);
+      }
+    },
+  );
 
-  it("refuses a destination spelled via the lexical (symlinked-ancestor) root too", () => {
-    const base = makeTempDir("otc-ctxexport-sym2-");
-    try {
-      const realRoot = join(base, "real-root");
-      const linkRoot = join(base, "link-root");
-      mkdirSync(realRoot);
-      symlinkSync(realRoot, linkRoot);
-      const outPath = join(linkRoot, "bundle.json");
-      expect(isInsideConfiguredVaultRoot(outPath, linkRoot)).toBe(true);
-    } finally {
-      rmTemp(base);
-    }
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "refuses a destination spelled via the lexical (symlinked-ancestor) root too",
+    () => {
+      const base = makeTempDir("otc-ctxexport-sym2-");
+      try {
+        const realRoot = join(base, "real-root");
+        const linkRoot = join(base, "link-root");
+        mkdirSync(realRoot);
+        symlinkSync(realRoot, linkRoot);
+        const outPath = join(linkRoot, "bundle.json");
+        expect(isInsideConfiguredVaultRoot(outPath, linkRoot)).toBe(true);
+      } finally {
+        rmTemp(base);
+      }
+    },
+  );
 
-  it("still allows a destination genuinely outside the vault, symlinked ancestor or not", () => {
-    const base = makeTempDir("otc-ctxexport-sym3-");
-    try {
-      const realRoot = join(base, "real-root");
-      const linkRoot = join(base, "link-root");
-      mkdirSync(realRoot);
-      symlinkSync(realRoot, linkRoot);
-      const outPath = join(base, "outside-bundle.json");
-      expect(isInsideConfiguredVaultRoot(outPath, linkRoot)).toBe(false);
-    } finally {
-      rmTemp(base);
-    }
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "still allows a destination genuinely outside the vault, symlinked ancestor or not",
+    () => {
+      const base = makeTempDir("otc-ctxexport-sym3-");
+      try {
+        const realRoot = join(base, "real-root");
+        const linkRoot = join(base, "link-root");
+        mkdirSync(realRoot);
+        symlinkSync(realRoot, linkRoot);
+        const outPath = join(base, "outside-bundle.json");
+        expect(isInsideConfiguredVaultRoot(outPath, linkRoot)).toBe(false);
+      } finally {
+        rmTemp(base);
+      }
+    },
+  );
 });

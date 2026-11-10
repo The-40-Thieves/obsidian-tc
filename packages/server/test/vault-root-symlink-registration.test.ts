@@ -31,6 +31,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveVaultPath, walkVault, walkVaultStream } from "../src/vault/paths";
 import { canonicalizeVaultRoot, VaultRegistry } from "../src/vault/registry";
+import { SYMLINKS_SUPPORTED } from "./symlink-capability";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const requireCjs = createRequire(import.meta.url);
@@ -62,24 +63,30 @@ describe("THE-1081 / #946 — vault root canonicalization at registration", () =
     rmTemp(base);
   });
 
-  it("constructor: stores the realpath, not the symlinked-ancestor lexical path", () => {
-    const registry = new VaultRegistry([{ id: "v", path: linkedRootDir }]);
-    // Compared against the SAME canonicalization production uses (canonicalizeVaultRoot,
-    // realpathSync.native), never plain realpathSync: on GitHub's windows-latest runner the two
-    // flavours return DIFFERENT spellings of the same directory (8.3 short vs. long form) for
-    // os.tmpdir()-rooted paths, which made this fail on Windows only while the code was correct.
-    expect(registry.resolve("v").root).toBe(canonicalizeVaultRoot(realRootDir));
-    // Still pinned against the lexical (unresolved) symlinked path, so a regression that stopped
-    // canonicalizing entirely would still be caught.
-    expect(registry.resolve("v").root).not.toBe(linkedRootDir);
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "constructor: stores the realpath, not the symlinked-ancestor lexical path",
+    () => {
+      const registry = new VaultRegistry([{ id: "v", path: linkedRootDir }]);
+      // Compared against the SAME canonicalization production uses (canonicalizeVaultRoot,
+      // realpathSync.native), never plain realpathSync: on GitHub's windows-latest runner the two
+      // flavours return DIFFERENT spellings of the same directory (8.3 short vs. long form) for
+      // os.tmpdir()-rooted paths, which made this fail on Windows only while the code was correct.
+      expect(registry.resolve("v").root).toBe(canonicalizeVaultRoot(realRootDir));
+      // Still pinned against the lexical (unresolved) symlinked path, so a regression that stopped
+      // canonicalizing entirely would still be caught.
+      expect(registry.resolve("v").root).not.toBe(linkedRootDir);
+    },
+  );
 
-  it("register(): the add_vault runtime path also canonicalizes", () => {
-    const registry = new VaultRegistry([{ id: "seed", path: realRootDir }]);
-    const v = registry.register({ id: "added", path: linkedRootDir });
-    expect(v.root).toBe(canonicalizeVaultRoot(realRootDir));
-    expect(v.root).not.toBe(linkedRootDir);
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "register(): the add_vault runtime path also canonicalizes",
+    () => {
+      const registry = new VaultRegistry([{ id: "seed", path: realRootDir }]);
+      const v = registry.register({ id: "added", path: linkedRootDir });
+      expect(v.root).toBe(canonicalizeVaultRoot(realRootDir));
+      expect(v.root).not.toBe(linkedRootDir);
+    },
+  );
 
   it.skipIf(!isRealNative)(
     "native binding: read/write through a symlinked-ancestor root succeeds",
@@ -103,33 +110,39 @@ describe("THE-1081 / #946 — vault root canonicalization at registration", () =
     ).toThrow(/refusing symlinked or missing path component/);
   });
 
-  it("JS fallback: read/write through a symlinked-ancestor root succeeds", async () => {
-    vi.resetModules();
-    const prevFallback = process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
-    process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = "1";
-    try {
-      const notesIo = await import("../src/vault/notes-io");
-      expect(notesIo.nativeVaultIo).toBe(false);
-      const registry = new VaultRegistry([{ id: "v", path: linkedRootDir }]);
-      const abs = resolveVaultPath(registry.resolve("v").root, "note.md");
-      notesIo.writeNoteAtomic(abs, "hello");
-      expect(notesIo.readNote(abs).raw).toBe("hello");
-    } finally {
-      if (prevFallback === undefined) delete process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
-      else process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = prevFallback;
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "JS fallback: read/write through a symlinked-ancestor root succeeds",
+    async () => {
       vi.resetModules();
-    }
-  });
+      const prevFallback = process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
+      process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = "1";
+      try {
+        const notesIo = await import("../src/vault/notes-io");
+        expect(notesIo.nativeVaultIo).toBe(false);
+        const registry = new VaultRegistry([{ id: "v", path: linkedRootDir }]);
+        const abs = resolveVaultPath(registry.resolve("v").root, "note.md");
+        notesIo.writeNoteAtomic(abs, "hello");
+        expect(notesIo.readNote(abs).raw).toBe("hello");
+      } finally {
+        if (prevFallback === undefined) delete process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
+        else process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = prevFallback;
+        vi.resetModules();
+      }
+    },
+  );
 
-  it("JS fallback: a symlink escaping the vault is still refused (realpath containment)", () => {
-    const registry = new VaultRegistry([{ id: "v", path: linkedRootDir }]);
-    const root = registry.resolve("v").root;
-    const outsideTarget = join(base, "outside2");
-    mkdirSync(outsideTarget);
-    const escapeLink = join(root, "escape2");
-    symlinkSync(outsideTarget, escapeLink);
-    expect(() => resolveVaultPath(root, "escape2/note.md")).toThrow(/escapes the vault root/);
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "JS fallback: a symlink escaping the vault is still refused (realpath containment)",
+    () => {
+      const registry = new VaultRegistry([{ id: "v", path: linkedRootDir }]);
+      const root = registry.resolve("v").root;
+      const outsideTarget = join(base, "outside2");
+      mkdirSync(outsideTarget);
+      const escapeLink = join(root, "escape2");
+      symlinkSync(outsideTarget, escapeLink);
+      expect(() => resolveVaultPath(root, "escape2/note.md")).toThrow(/escapes the vault root/);
+    },
+  );
 });
 
 // THE-1081 review round (Medium 2) — a root VaultRegistry could not canonicalize at registration
@@ -167,15 +180,18 @@ describe("THE-1081 / #946 review round — missing-at-boot root, resolved later"
     expect(readFileSync(abs, "utf8")).toBe("hello");
   });
 
-  it("JS fallback: REFUSED once the missing root is created as a SYMLINK (the plant)", () => {
-    const missing = join(base, "not-yet-created-link");
-    const registry = new VaultRegistry([{ id: "v", path: missing }]);
-    const root = registry.resolve("v").root;
-    const elsewhere = join(base, "attacker-controlled");
-    mkdirSync(elsewhere);
-    symlinkSync(elsewhere, root); // the plant: a symlink now sits exactly at the registered root
-    expect(() => resolveVaultPath(root, "note.md")).toThrow(/vault root resolved to a symlink/);
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "JS fallback: REFUSED once the missing root is created as a SYMLINK (the plant)",
+    () => {
+      const missing = join(base, "not-yet-created-link");
+      const registry = new VaultRegistry([{ id: "v", path: missing }]);
+      const root = registry.resolve("v").root;
+      const elsewhere = join(base, "attacker-controlled");
+      mkdirSync(elsewhere);
+      symlinkSync(elsewhere, root); // the plant: a symlink now sits exactly at the registered root
+      expect(() => resolveVaultPath(root, "note.md")).toThrow(/vault root resolved to a symlink/);
+    },
+  );
 
   it.skipIf(!isRealNative)(
     "native binding: works once the missing root is created as a REAL directory",
@@ -213,43 +229,52 @@ describe("THE-1081 / #946 review round — missing-at-boot root, resolved later"
   // assertRootNotPlantedSymlink was added to their own entry points, a planted-symlink root (this
   // same missing-at-boot -> symlink scenario) let list_notes enumerate the target directory's
   // names/sizes/mtimes even though content reads on those names were already refused.
-  it("list-shaped (walkVault, no sub): REFUSED once the missing root is created as a SYMLINK", () => {
-    const missing = join(base, "not-yet-created-list-link");
-    const registry = new VaultRegistry([{ id: "v", path: missing }]);
-    const root = registry.resolve("v").root;
-    const elsewhere = join(base, "attacker-controlled-list");
-    mkdirSync(elsewhere);
-    writeFileSync(join(elsewhere, "leaked-name.md"), "secret", "utf8");
-    symlinkSync(elsewhere, root);
-    expect(() => walkVault(root)).toThrow(/vault root resolved to a symlink/);
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "list-shaped (walkVault, no sub): REFUSED once the missing root is created as a SYMLINK",
+    () => {
+      const missing = join(base, "not-yet-created-list-link");
+      const registry = new VaultRegistry([{ id: "v", path: missing }]);
+      const root = registry.resolve("v").root;
+      const elsewhere = join(base, "attacker-controlled-list");
+      mkdirSync(elsewhere);
+      writeFileSync(join(elsewhere, "leaked-name.md"), "secret", "utf8");
+      symlinkSync(elsewhere, root);
+      expect(() => walkVault(root)).toThrow(/vault root resolved to a symlink/);
+    },
+  );
 
-  it("list-shaped (walkVaultStream, no sub): REFUSED once the missing root is created as a SYMLINK", async () => {
-    const missing = join(base, "not-yet-created-liststream-link");
-    const registry = new VaultRegistry([{ id: "v", path: missing }]);
-    const root = registry.resolve("v").root;
-    const elsewhere = join(base, "attacker-controlled-liststream");
-    mkdirSync(elsewhere);
-    symlinkSync(elsewhere, root);
-    async function drain(): Promise<void> {
-      for await (const _e of walkVaultStream(root)) {
-        // draining is enough to trigger the entry-point guard
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "list-shaped (walkVaultStream, no sub): REFUSED once the missing root is created as a SYMLINK",
+    async () => {
+      const missing = join(base, "not-yet-created-liststream-link");
+      const registry = new VaultRegistry([{ id: "v", path: missing }]);
+      const root = registry.resolve("v").root;
+      const elsewhere = join(base, "attacker-controlled-liststream");
+      mkdirSync(elsewhere);
+      symlinkSync(elsewhere, root);
+      async function drain(): Promise<void> {
+        for await (const _e of walkVaultStream(root)) {
+          // draining is enough to trigger the entry-point guard
+        }
       }
-    }
-    await expect(drain()).rejects.toThrow(/vault root resolved to a symlink/);
-  });
+      await expect(drain()).rejects.toThrow(/vault root resolved to a symlink/);
+    },
+  );
 
-  it("list-shaped (walkVault, no sub): lists fine when the root itself is a symlink AT CONFIG TIME (canonical)", () => {
-    const realRoot = join(base, "list-real-root");
-    const linkRoot = join(base, "list-link-root");
-    mkdirSync(realRoot);
-    writeFileSync(join(realRoot, "note.md"), "hello", "utf8");
-    symlinkSync(realRoot, linkRoot);
-    // Registered through the symlink, same as any config path reached through a symlinked ancestor
-    // or a symlinked root — VaultRegistry canonicalizes immediately, so `root` below is already
-    // the dereferenced real path, never itself a symlink.
-    const registry = new VaultRegistry([{ id: "v", path: linkRoot }]);
-    const root = registry.resolve("v").root;
-    expect(walkVault(root).map((e) => e.relPath)).toEqual(["note.md"]);
-  });
+  it.skipIf(!SYMLINKS_SUPPORTED)(
+    "list-shaped (walkVault, no sub): lists fine when the root itself is a symlink AT CONFIG TIME (canonical)",
+    () => {
+      const realRoot = join(base, "list-real-root");
+      const linkRoot = join(base, "list-link-root");
+      mkdirSync(realRoot);
+      writeFileSync(join(realRoot, "note.md"), "hello", "utf8");
+      symlinkSync(realRoot, linkRoot);
+      // Registered through the symlink, same as any config path reached through a symlinked ancestor
+      // or a symlinked root — VaultRegistry canonicalizes immediately, so `root` below is already
+      // the dereferenced real path, never itself a symlink.
+      const registry = new VaultRegistry([{ id: "v", path: linkRoot }]);
+      const root = registry.resolve("v").root;
+      expect(walkVault(root).map((e) => e.relPath)).toEqual(["note.md"]);
+    },
+  );
 });
