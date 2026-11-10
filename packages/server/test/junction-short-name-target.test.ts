@@ -10,6 +10,7 @@ import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { FolderPins } from "../src/vault/folder-links";
 import { resolveVaultPathChecked } from "../src/vault/paths";
 import { canonicalizeVaultRoot } from "../src/vault/registry";
 import { rmTemp } from "./tmp";
@@ -77,5 +78,25 @@ describe.runIf(process.platform === "win32")("a junction whose target is a short
     expect(resolveVaultPathChecked(root, "wiki/new/later.md").aclRel).toBe(
       "private-notes/new/later.md",
     );
+  });
+});
+
+describe.runIf(process.platform === "win32")("configured-folder pins", () => {
+  it.skipIf(BASE === null)("pins a junction folder at its long-named directory", () => {
+    const root = vaultWithShortNameJunction(BASE as { long: string; short: string });
+    const pins = new FolderPins([{ root, wikiFolder: "wiki" }]);
+    expect(pins.forSink(join(root, "wiki", "note.md"))?.path).toBe(
+      join(root, "private-notes", "note.md"),
+    );
+  });
+
+  it("does not take a plain folder configured in another letter case for a link", () => {
+    const made = mkdtempSync(join(realpathSync.native(tmpdir()), "obtc-case-pin-"));
+    dirs.push(made);
+    const root = canonicalizeVaultRoot(made);
+    mkdirSync(join(root, "wiki"));
+    const pins = new FolderPins([{ root, wikiFolder: "Wiki" }]);
+    expect(pins.forSink(join(root, "Wiki", "note.md"))).toBeUndefined();
+    expect(pins.forAcl(join(root, "Wiki", "note.md"))).toEqual({ kind: "none" });
   });
 });

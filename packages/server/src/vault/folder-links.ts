@@ -60,16 +60,22 @@ const under = (abs: string, alias: string): boolean => abs === alias || abs.star
 /** The pin of `alias` when it is a symlinked directory strictly inside `root`, else null. */
 function pinOf(root: string, alias: string): PinnedDir | null {
   try {
+    if (!isLinked(alias)) return null;
     const dir = realpathSync.native(alias);
     const rel = relative(root, dir);
     const inside = rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
-    if (dir === alias || !inside) return null;
+    if (!inside) return null;
     const st = statSync(dir, { bigint: true });
     return st.isDirectory() ? { dir, dev: st.dev, ino: st.ino } : null;
   } catch {
     return null;
   }
 }
+
+/** Whether `p` runs through a link. The JS realpath keeps the spelling it was given, so a plain
+ *  folder configured in another letter case than on disk is not mistaken for one; the native
+ *  realpath (which a pin needs, to match the root) would report it as a different path. */
+const isLinked = (p: string): boolean => realpathSync(p) !== p;
 
 const realpathOrNull = (p: string): string | null => {
   try {
@@ -132,8 +138,7 @@ export class FolderPins {
     if (state.kind === "refused") return state;
     if (state.kind === "pinned") return { kind: "pinned", path: reroute(abs, slot, state.pin) };
     if (state.kind === "unplaced-raw" && realpathOrNull(slot.root) === slot.root) {
-      const real = realpathOrNull(slot.alias);
-      if (real !== null && real !== slot.alias)
+      if (realpathOrNull(slot.alias) !== null && isLinked(slot.alias))
         return {
           kind: "refused",
           reason: `the configured raw folder is a symlink that appeared after startup (the vault root was missing then), so its target is not protected as immutable yet: restart the server to pin it`,
