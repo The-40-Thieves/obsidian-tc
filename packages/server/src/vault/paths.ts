@@ -91,10 +91,10 @@ export function assertCreatableName(segment: string, shown: string): void {
     );
 }
 
-/** realpathSync that returns null when the path can't be resolved (e.g. doesn't exist yet). */
+/** Native realpath (it expands a Windows 8.3 short name, as the root does), or null if unresolved. */
 function realpathOrNull(p: string): string | null {
   try {
-    return realpathSync(p);
+    return realpathSync.native(p);
   } catch {
     return null;
   }

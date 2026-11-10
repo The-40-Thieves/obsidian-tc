@@ -60,7 +60,7 @@ const under = (abs: string, alias: string): boolean => abs === alias || abs.star
 /** The pin of `alias` when it is a symlinked directory strictly inside `root`, else null. */
 function pinOf(root: string, alias: string): PinnedDir | null {
   try {
-    const dir = realpathSync(alias);
+    const dir = realpathSync.native(alias);
     const rel = relative(root, dir);
     const inside = rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
     if (dir === alias || !inside) return null;
@@ -73,7 +73,7 @@ function pinOf(root: string, alias: string): PinnedDir | null {
 
 const realpathOrNull = (p: string): string | null => {
   try {
-    return realpathSync(p);
+    return realpathSync.native(p);
   } catch {
     return null;
   }
