@@ -825,8 +825,11 @@ describe("remembered consent for a loopback callback follows auth.as.consent.loo
     expect(first.code).not.toBe("");
   };
 
-  it("default (remember): approved on port A, port B of the same client and path gets a code without a page", async () => {
-    const { flow } = await cimdFlow({ [CLAUDE_CODE]: json(claudeCodeDoc) });
+  it("explicit remember: approved on port A, port B of the same client and path gets a code without a page", async () => {
+    const { flow } = await cimdFlow(
+      { [CLAUDE_CODE]: json(claudeCodeDoc) },
+      { as: { consent: { loopback: "remember" } } },
+    );
     const jar = new Jar();
     await approveOnA(flow, jar);
     const b = await authorizeAs(flow, CLAUDE_CODE, "http://127.0.0.1:53999/callback", jar);
@@ -838,11 +841,8 @@ describe("remembered consent for a loopback callback follows auth.as.consent.loo
     expect(rows(flow, "SELECT 1 FROM auth_codes")).toHaveLength(2);
   });
 
-  it("prompt: approved on port A, port B shows the consent page with the loopback warning and gets no code", async () => {
-    const { flow } = await cimdFlow(
-      { [CLAUDE_CODE]: json(claudeCodeDoc) },
-      { as: { consent: { loopback: "prompt" } } },
-    );
+  it("default prompt: approved on port A, port B shows the consent page with the loopback warning and gets no code", async () => {
+    const { flow } = await cimdFlow({ [CLAUDE_CODE]: json(claudeCodeDoc) });
     const jar = new Jar();
     await approveOnA(flow, jar);
     const b = await authorizeAs(flow, CLAUDE_CODE, "http://127.0.0.1:53999/callback", jar);

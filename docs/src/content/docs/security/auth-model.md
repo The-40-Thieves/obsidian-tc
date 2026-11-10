@@ -622,16 +622,15 @@ The bundled server is off until you enable it. Set these in the config (every ke
   the client is registered at, warns loudly when the redirect it was asked to use is on this machine (any `127.0.0.0/8`
   address, `::1` or `localhost`, over http or https), and warns when the operator has never approved a
   metadata-document client before, since anyone can publish a document under any name. A callback on this machine
-  is remembered like any other once you have approved the client: the grant is kept without the port, so Claude Code
-  and Codex sign in again without a click. The trade-off is plain: a callback's port is chosen at run time and nothing
-  proves which local process is behind it, so with the default a malicious process on the same machine can start
-  its own sign-in for an approved client and obtain a token without a prompt. Such a process could typically already
-  read the stored tokens of those CLIs. Set `auth.as.consent.loopback: prompt` to show the consent page on every
-  sign-in that returns to a loopback address (the warning above is on it), whichever port it uses, even for a client and
-  path you approved a minute ago. A remembered sign-in whose redirect leaves this machine is never approved by the
+  shows the consent page on every sign-in by default (`auth.as.consent.loopback: prompt`), whichever port it uses,
+  even for a client and path you approved a minute ago. A callback's port is chosen at run time and nothing proves
+  which local process is behind it. Explicitly setting `auth.as.consent.loopback: remember` reuses the grant without
+  the port, so Claude Code and Codex sign in again without a click, but a malicious local process claiming the same
+  client can also obtain a token without a prompt. Existing stored grants do not bypass the default prompt.
+  A remembered sign-in whose redirect leaves this machine is never approved by the
   `GET` alone: the session cookie is `SameSite=Lax`, so a link on any site reaches that `GET` signed in, and the page
   it shows is a one-click Continue whose same-origin, token-bound POST issues the code (`auth.as.consent.remembered`:
-  unset means `silent` for a loopback redirect and `confirm` otherwise; set it to apply one mode everywhere). A
+  unset means `silent` for a remembered loopback redirect and `confirm` otherwise; set it to apply one mode everywhere). A
   request that can no longer be used says whether its link was damaged, unknown, expired or already used. A lookup is bounded: one 5 s deadline covers the name lookup, the connection and the
   body, one source may start five uncached lookups a minute and have two running at once (an IPv6 address counts as
   its /64; a peer with no usable address, such as a reverse proxy or tunnel on the same host that is not listed in

@@ -822,8 +822,7 @@ describe("consent for a registered client", () => {
       decision: "approve",
     });
     expect(done.res.status).toBe(303);
-    // Approved: the next sign-in is remembered (loopback default), and a wider scope asks again
-    // without the first-time warning.
+    // Approval removes the first-time warning; loopback sign-ins still ask by default.
     const wider = await authorize(flow, jar, pkce().challenge, {
       client_id: clientId,
       redirect_uri: NATIVE,

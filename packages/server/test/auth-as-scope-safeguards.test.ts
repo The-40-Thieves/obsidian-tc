@@ -20,7 +20,10 @@ describe("scope consent safeguards", () => {
   it.each([undefined, "", "offline_access"])(
     "defaulted scope %s always asks in full despite a covering remembered grant",
     async (scope) => {
-      const flow = await makeFlow({ as: { consent: { remembered: "silent" } } });
+      // `loopback: "remember"` keeps the scope guard, not the default loopback prompt, as what asks.
+      const flow = await makeFlow({
+        as: { consent: { loopback: "remember", remembered: "silent" } },
+      });
       const jar = new Jar();
       const { challenge } = pkce();
       const client = { client_id: LOOPBACK_CLIENT, redirect_uri: "http://localhost:5001/cb" };

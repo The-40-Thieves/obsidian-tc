@@ -132,8 +132,8 @@ describe("auth.as.consent.remembered: the default confirms on a hosted redirect"
     expect(location).toBe(`/oauth/login?request=${handle}&reauth=1`);
   });
 
-  it("a loopback redirect stays silent by default", async () => {
-    const flow = await makeFlow();
+  it("a loopback redirect remembered by explicit opt-in stays silent while `remembered` is unset", async () => {
+    const flow = await makeFlow({ as: { consent: { loopback: "remember" } } });
     const { jar, location } = await remembered(flow, loopbackAt(5001));
     const via = await get(flow, location, jar);
     expect(via.res.status).toBe(303);
@@ -150,8 +150,10 @@ describe("auth.as.consent.remembered set explicitly", () => {
     expect(codeOf(via.res.headers.get("location"))).not.toBe("");
   });
 
-  it("confirm: a loopback redirect shows the confirmation page too", async () => {
-    const flow = await makeFlow({ as: { consent: { remembered: "confirm" } } });
+  it("confirm: a remembered loopback redirect shows the confirmation page too", async () => {
+    const flow = await makeFlow({
+      as: { consent: { loopback: "remember", remembered: "confirm" } },
+    });
     const { jar, location } = await remembered(flow, loopbackAt(5001));
     const via = await get(flow, location, jar);
     expect(via.res.status).toBe(200);

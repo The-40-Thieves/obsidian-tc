@@ -213,8 +213,8 @@ describe("consent phishing: a first grant needs a fresh login", () => {
     expect(page.res.status).toBe(200);
   });
 
-  it("a loopback client's grant is remembered across ports (the default)", async () => {
-    const flow = await makeFlow();
+  it("a loopback client's grant is remembered across ports only with explicit opt-in", async () => {
+    const flow = await makeFlow({ as: { consent: { loopback: "remember" } } });
     const jar = new Jar();
     const first = await obtainCode(flow, jar, challenge, {
       client_id: LOOPBACK_CLIENT,
@@ -234,55 +234,65 @@ describe("consent phishing: a first grant needs a fresh login", () => {
   });
 });
 
-describe("auth.as.consent.loopback: prompt makes every loopback sign-in ask", () => {
-  const prompting = () => makeFlow({ as: { consent: { loopback: "prompt" } } });
-  const loopbackAt = (port: number) => ({
-    client_id: LOOPBACK_CLIENT,
-    redirect_uri: `http://localhost:${port}/cb`,
-  });
-
-  it("a grant approved on one port does not approve another port, nor the same port again", async () => {
-    const flow = await prompting();
-    const jar = new Jar();
-    expect((await obtainCode(flow, jar, challenge, loopbackAt(5001))).code).not.toBe("");
-    expect(codes(flow)).toHaveLength(1);
-    for (const port of [6002, 5001]) {
-      const a = await authorize(flow, jar, challenge, loopbackAt(port));
-      const via = await get(flow, a.headers.get("location") ?? "", jar);
-      expect(via.res.status, `port ${port}`).toBe(200);
-      expect(via.res.headers.get("location")).toBeNull();
-      expect(codes(flow), `port ${port}`).toHaveLength(1);
-    }
-  });
-
-  it("approving the page it shows still issues a code", async () => {
-    const flow = await prompting();
-    const jar = new Jar();
-    await obtainCode(flow, jar, challenge, loopbackAt(5001));
-    const a = await authorize(flow, jar, challenge, loopbackAt(6002));
-    const handle = handleOf(a.headers.get("location"));
-    const page = await consentPage(flow, jar, handle);
-    const done = await consentPost(flow, jar, {
-      csrf: page.csrf,
-      request: handle,
-      decision: "approve",
+describe.each([undefined, {}, { loopback: "prompt" }])(
+  "loopback consent asks by default and with explicit prompt (%j)",
+  (consent) => {
+    const prompting = () => makeFlow({ as: { ...(consent === undefined ? {} : { consent }) } });
+    const loopbackAt = (port: number) => ({
+      client_id: LOOPBACK_CLIENT,
+      redirect_uri: `http://localhost:${port}/cb`,
     });
-    expect(codeOf(done.res.headers.get("location"))).not.toBe("");
-    expect(codes(flow)).toHaveLength(2);
-  });
 
-  it("a hosted (non-loopback) redirect is still remembered: one Continue, not the full page", async () => {
-    const flow = await prompting();
-    const jar = new Jar();
-    await obtainCode(flow, jar, challenge);
-    flow.clock.t += 20 * MIN;
-    const a = await authorize(flow, jar, challenge);
-    const via = await get(flow, a.headers.get("location") ?? "", jar);
-    expect(via.res.status).toBe(200);
-    expect(via.text).toContain('name="remembered" value="1"');
-    expect(via.text).not.toContain("Approve access");
-  });
-});
+    it("a grant approved on one port does not approve another port, nor the same port again", async () => {
+      const flow = await prompting();
+      const jar = new Jar();
+      expect((await obtainCode(flow, jar, challenge, loopbackAt(5001))).code).not.toBe("");
+      expect(codes(flow)).toHaveLength(1);
+      for (const port of [6002, 5001]) {
+        const a = await authorize(flow, jar, pkce().challenge, loopbackAt(port));
+        const via = await get(flow, a.headers.get("location") ?? "", jar);
+        expect(via.res.status, `port ${port}`).toBe(200);
+        expect(via.res.headers.get("location")).toBeNull();
+        expect(via.text).toContain("returns to an address on the computer");
+        expect(codes(flow), `port ${port}`).toHaveLength(1);
+      }
+    });
+
+    it("approving the page it shows still issues a code", async () => {
+      const flow = await prompting();
+      const jar = new Jar();
+      await obtainCode(flow, jar, challenge, loopbackAt(5001));
+      const a = await authorize(flow, jar, challenge, loopbackAt(6002));
+      const handle = handleOf(a.headers.get("location"));
+      const page = await consentPage(flow, jar, handle);
+      const unapproved = await consentPost(flow, jar, {
+        request: handle,
+        decision: "approve",
+      });
+      expect(unapproved.res.status).toBe(403);
+      expect(codes(flow)).toHaveLength(1);
+      const done = await consentPost(flow, jar, {
+        csrf: page.csrf,
+        request: handle,
+        decision: "approve",
+      });
+      expect(codeOf(done.res.headers.get("location"))).not.toBe("");
+      expect(codes(flow)).toHaveLength(2);
+    });
+
+    it("a hosted (non-loopback) redirect is still remembered: one Continue, not the full page", async () => {
+      const flow = await prompting();
+      const jar = new Jar();
+      await obtainCode(flow, jar, challenge);
+      flow.clock.t += 20 * MIN;
+      const a = await authorize(flow, jar, challenge);
+      const via = await get(flow, a.headers.get("location") ?? "", jar);
+      expect(via.res.status).toBe(200);
+      expect(via.text).toContain('name="remembered" value="1"');
+      expect(via.text).not.toContain("Approve access");
+    });
+  },
+);
 
 describe("CSRF on consent: nothing is approved without the form's own token, Origin and session", () => {
   async function setup() {
