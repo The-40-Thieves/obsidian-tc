@@ -5,65 +5,24 @@
 // the readable note set (wikilinks/markdown links resolved via the shared vault index).
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import type { FolderAcl } from "../../acl";
 import type { ToolDefinition } from "../../mcp/registry";
 import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
-import { drainYielding, type ScanSteps } from "../../util/scan-steps";
+import { drainYielding } from "../../util/scan-steps";
 import { enforcePathAcl } from "../../vault/acl-path";
-import { buildVaultIndex, resolveTarget } from "../../vault/links";
 import { normalizeVaultPath } from "../../vault/paths";
+import { buildLinkGraphSteps, type LinkGraph } from "../link-graph";
 import { readRefusalShape } from "../read-refusals";
 import { ScanWarnings, scanWarningsShape } from "../scan-warnings";
-import { isExternal, linksOf, readableNotesSteps, scanProvenanceSteps } from "../wiki-scan";
+import { scanProvenanceSteps } from "../wiki-scan";
 import { defineTool } from "./define";
-import { CYCLE_SCAN_WORK_CAP, findLinkCyclesSteps, restrictToFolder } from "./link-cycles";
+import {
+  CYCLE_SCAN_WORK_CAP,
+  findLinkCyclesSteps,
+  LINT_CYCLE_MAX_LENGTH,
+  LINT_CYCLE_MIN_LENGTH,
+  restrictToFolder,
+} from "./link-cycles";
 import type { M1Deps } from "./shared";
-
-interface Graph {
-  notes: string[];
-  out: Map<string, Set<string>>;
-  inn: Map<string, Set<string>>;
-  unresolved: number;
-  links: number;
-  /** Notes whose frontmatter YAML did not parse (their bodies were still scanned). */
-  warnings: ScanWarnings;
-}
-
-/** One step per note, so a handler drains it with `drainYielding` and the event loop stays free. */
-function* buildLinkGraphSteps(
-  root: string,
-  acl: FolderAcl | undefined,
-  grantedScopes: Iterable<string>,
-): ScanSteps<Graph> {
-  const notes = yield* readableNotesSteps(root, acl, grantedScopes);
-  const index = buildVaultIndex(notes);
-  const out = new Map<string, Set<string>>();
-  const inn = new Map<string, Set<string>>();
-  for (const p of notes) {
-    out.set(p, new Set());
-    inn.set(p, new Set());
-  }
-  let unresolved = 0;
-  let links = 0;
-  const warnings = new ScanWarnings();
-  for (const p of notes) {
-    for (const l of linksOf(root, p, warnings)) {
-      if (l.inCodeblock) continue;
-      if (isExternal(l.kind, l.target)) continue;
-      if (l.target === "" || l.target.startsWith("#")) continue;
-      links++;
-      const r = resolveTarget(index, l.target);
-      if (r.resolved && r.target_path && r.target_path !== p) {
-        out.get(p)?.add(r.target_path);
-        inn.get(r.target_path)?.add(p);
-      } else if (!r.resolved) {
-        unresolved++;
-      }
-    }
-    yield;
-  }
-  return { notes, out, inn, unresolved, links, warnings };
-}
 
 function intersectSize(a: Set<string> | undefined, b: Set<string> | undefined): number {
   if (!a || !b) return 0;
@@ -193,7 +152,7 @@ const ConciseableAuditProvenanceOutput = AuditProvenanceOutput.partial({
 });
 
 /** Undirected shortest-path hop count between two notes, or null if disconnected. */
-function undirectedDistance(g: Graph, from: string, to: string): number | null {
+function undirectedDistance(g: LinkGraph, from: string, to: string): number | null {
   if (from === to) return 0;
   const seen = new Set<string>([from]);
   let frontier = [from];
@@ -302,8 +261,8 @@ export function buildGraphHealthTools(deps: M1Deps): ToolDefinition[] {
         .object({
           vault: VaultId,
           limit: z.number().int().positive().max(1000).default(10),
-          min_length: z.number().int().min(2).max(1000).default(3),
-          max_length: z.number().int().min(2).max(1000).default(10),
+          min_length: z.number().int().min(2).max(1000).default(LINT_CYCLE_MIN_LENGTH),
+          max_length: z.number().int().min(2).max(1000).default(LINT_CYCLE_MAX_LENGTH),
           folder: VaultPath.optional(),
         })
         .strict(),

@@ -1,5 +1,6 @@
 // Directed-cycle enumeration for find_link_cycles and vault_health_score (Refs #1332).
 import type { ScanSteps } from "../../util/scan-steps";
+import { restrictGraph } from "../link-graph";
 
 /** Work the scan may spend before it stops counting: one unit per node entered, per edge examined,
  *  and per link of each cycle it closes. A typical 20 000-note vault (~60 000 links) needs a small
@@ -7,6 +8,10 @@ import type { ScanSteps } from "../../util/scan-steps";
  *  synthetic 20 000-note graphs with long cycles, the cap is reached in 35-90 ms (about 25-45 ns a
  *  unit), so a dense vault cannot hold the event loop for long even between yields. */
 export const CYCLE_SCAN_WORK_CAP = 2_000_000;
+
+/** find_link_cycles' default bounds, which lint_wiki's cycles check uses as well. */
+export const LINT_CYCLE_MIN_LENGTH = 3;
+export const LINT_CYCLE_MAX_LENGTH = 10;
 
 export interface CycleScanOptions {
   /** Cycles kept in the returned page. */
@@ -107,11 +112,5 @@ export function restrictToFolder(
   folder: string,
 ): Map<string, Set<string>> {
   const prefix = `${folder}/`;
-  const inside = (p: string): boolean => p.startsWith(prefix);
-  const scoped = new Map<string, Set<string>>();
-  for (const [p, targets] of out) {
-    if (!inside(p)) continue;
-    scoped.set(p, new Set([...targets].filter(inside)));
-  }
-  return scoped;
+  return restrictGraph(out, (p) => p.startsWith(prefix));
 }
