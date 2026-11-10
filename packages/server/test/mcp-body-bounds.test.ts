@@ -91,7 +91,7 @@ describe("POST /mcp body bounds", () => {
     const handle = createHttpApp({
       name: "obsidian-tc",
       version: "t",
-      registry: new ToolRegistry(),
+      registry: new ToolRegistry({ rootResolver: () => undefined }),
       auth,
       db,
       vaultId: "v1",

@@ -93,7 +93,7 @@ describe("toCreateTaskResult", () => {
 function harness() {
   const db = openMemoryDb();
   provisionCacheDb(db);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   const seen: CallerContext[] = [];
   registry.register({
     name: "needs_write",
@@ -207,7 +207,7 @@ describe("the augmentable set is deliberate", () => {
     // A flag that never reaches the registry is the "registered is not emitting" shape: the
     // augmentation branch would simply never fire and every task request would run synchronously.
     const { registerM2Tools } = await import("../src/tools/m2");
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     registerM2Tools(reg, {} as never);
     const idx = reg.list().find((d) => d.name === "index_vault");
     expect(idx?.taskAugmentable).toBe(true);
@@ -216,7 +216,7 @@ describe("the augmentable set is deliberate", () => {
   it("leaves fast tools alone — a handle is worse than an answer", async () => {
     // The floor: if everything were augmentable, the opt-in would be decorative.
     const { registerM2Tools } = await import("../src/tools/m2");
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     registerM2Tools(reg, {} as never);
     const augmentable = reg
       .list()

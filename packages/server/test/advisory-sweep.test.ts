@@ -528,7 +528,7 @@ describe("registerAdvisorySweep", () => {
     const before = sessionAdvisoryState(edb, "s1");
     expect(remainingBudget(POLICY, before)).toBe(POLICY.maxPerSession - 1); // 1 emitted, 0 dismissed
 
-    const registry = new ToolRegistry({});
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registerM8Tools(registry, { edb, now: () => NOW });
     const ctx: CallerContext = {
       caller: "alice",

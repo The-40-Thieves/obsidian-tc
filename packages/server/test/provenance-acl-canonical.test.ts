@@ -11,10 +11,10 @@ import { moved, queryFixture } from "./provenance-query-helpers";
 const ACL = { readPaths: ["wiki/**", "pub/**"] };
 const FILES = { "private/x.md": "secret body", "pub/a.md": "public body" };
 
-type Variant = { wikiFolder?: string; centralAcl?: boolean };
+type Variant = { wikiFolder?: string };
 const VARIANTS: Array<[string, Variant]> = [
   ["unconfigured symlink", {}],
-  ["pinned wiki folder", { wikiFolder: "wiki", centralAcl: true }],
+  ["pinned wiki folder", { wikiFolder: "wiki" }],
 ];
 
 /** `wiki -> private` (the target is not whitelisted) and `shared -> pub` (the target is). */

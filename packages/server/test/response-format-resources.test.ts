@@ -89,7 +89,6 @@ describe("resources/read follows the config default (no per-call parameter exist
 
   it("the folder ACL still denies under concise", async () => {
     const v = vault({
-      centralAcl: true,
       aclByVault: { test: { readPaths: ["a.md"] } },
     });
     const c = await connect(v, "concise");

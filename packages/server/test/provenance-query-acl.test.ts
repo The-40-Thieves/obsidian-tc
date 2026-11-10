@@ -247,7 +247,10 @@ describe("cross-vault isolation", () => {
       { id: "alpha", path: alpha },
       { id: "beta", path: beta },
     ]);
-    const registry = new ToolRegistry({ aclResolver: (id: string) => acls.get(id) ?? open });
+    const registry = new ToolRegistry({
+      rootResolver: (id) => vaultRegistry.resolve(id).root,
+      aclResolver: (id: string) => acls.get(id) ?? open,
+    });
     registerM1Tools(registry, {
       vaultRegistry,
       version: "test",

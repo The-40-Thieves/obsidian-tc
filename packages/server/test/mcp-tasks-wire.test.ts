@@ -72,7 +72,7 @@ async function boot() {
   const db = openMemoryDb();
   provisionCacheDb(db);
   const queue = new JobQueue(db);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register({
     name: "slow_thing",
     description: "test-only task-augmentable tool",

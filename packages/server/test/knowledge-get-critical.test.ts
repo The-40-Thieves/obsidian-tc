@@ -59,7 +59,7 @@ const root = makeTempDir("obtc-kcrit-");
 afterAll(() => rmTemp(root));
 
 function harness(scopes: string[], kind: "private" | "docs" | "system" = "docs") {
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   const vaultRegistry = new VaultRegistry([{ id: VAULT, name: VAULT, path: root, kind }]);
   registerM7Tools(registry, {
     vaultRegistry,

@@ -25,7 +25,7 @@ function harness() {
   };
   const reindexed: Array<{ path: string; content: string }> = [];
   const deindexed: string[] = [];
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => root });
   registerM1Tools(registry, {
     vaultRegistry: new VaultRegistry([{ id: "t", path: root }]),
     version: "0.0.0",

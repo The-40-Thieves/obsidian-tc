@@ -43,7 +43,7 @@ async function rejectionLine(auth: unknown, token: string): Promise<string> {
   const handle = await startHttp({
     name: "obsidian-tc",
     version: "0.0.0-test",
-    registry: new ToolRegistry(),
+    registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth: authOf(auth),
     db,
     vaultId: "v1",

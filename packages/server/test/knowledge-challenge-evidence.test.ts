@@ -125,7 +125,7 @@ describe("knowledge_challenge model-egress guard (THE-564)", () => {
     excludeFilter?: ReturnType<typeof compileEgressFilter>,
     retrievalLog?: RetrievalLogger,
   ) {
-    const registry = new ToolRegistry({});
+    const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
     const vaultRegistry = new VaultRegistry([{ id: VAULT, name: VAULT, path: tmpdir() }]);
     registerM7Tools(registry, {
       vaultRegistry,

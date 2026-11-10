@@ -28,7 +28,7 @@ describe("M1 + M2 cross-milestone integration (one shared registry)", () => {
     provisionCacheDb(db);
     const vaultRegistry = new VaultRegistry([{ id: "test", path: root }]);
     const acl = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
     registerM1Tools(registry, {
       vaultRegistry,
       version: "test",

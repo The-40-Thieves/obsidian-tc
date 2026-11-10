@@ -101,7 +101,7 @@ export async function makeWorld(responseFormat?: ResponseFormat): Promise<World>
     ...(responseFormat ? { responseFormat } : {}),
   });
   await m2.call("index_vault", { vault: "test" });
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registerM8Tools(registry, {
     edb,
     now: () => NOTE_QUALITY_AT,
@@ -264,7 +264,7 @@ export async function makeWorld(responseFormat?: ResponseFormat): Promise<World>
         );
         stampAclPath(db);
         ensureChunkFts(db, { now: () => NOTE_QUALITY_AT, enrich: false });
-        const reg = new ToolRegistry({});
+        const reg = new ToolRegistry({ rootResolver: (id) => (id === "docs" ? root : undefined) });
         registerM7Tools(reg, {
           vaultRegistry: new VaultRegistry([
             { id: "docs", name: "docs", path: root, kind: "docs" },

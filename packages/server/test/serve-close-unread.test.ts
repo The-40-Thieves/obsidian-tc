@@ -329,7 +329,7 @@ describe("/mcp through the wrapper", () => {
     const handle = createHttpApp({
       name: "obsidian-tc",
       version: "t",
-      registry: new ToolRegistry(),
+      registry: new ToolRegistry({ rootResolver: () => undefined }),
       auth,
       db,
       vaultId: "v1",

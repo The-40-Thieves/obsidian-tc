@@ -34,13 +34,12 @@ const WRITE_ONLY_ACL = { readPaths: ["Public/**"], writePaths: ["**"], deletePat
 
 /** `Private/p.md` is writable but not readable by this caller (readPaths covers Public/ only). */
 const writeOnlyVault = (files: Record<string, string> = { "Private/p.md": SECRET }): TestVault =>
-  makeTestVault({ files, acl: WRITE_ONLY_ACL, centralAcl: true });
+  makeTestVault({ files, acl: WRITE_ONLY_ACL });
 
 const readerVault = (): TestVault =>
   makeTestVault({
     files: { "Private/p.md": SECRET },
     acl: { writePaths: ["**"], deletePaths: ["**"] },
-    centralAcl: true,
   });
 
 /** Runs a HITL-gated call the way a human confirmation would: first call refused, then retried with

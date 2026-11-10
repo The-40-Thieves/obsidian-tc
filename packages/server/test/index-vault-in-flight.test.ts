@@ -83,7 +83,7 @@ function makeTwoVaultHarness(
     { id: "va", path: rootA },
     { id: "vb", path: rootB },
   ]);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   registerM2Tools(registry, {
     vaultRegistry,
     embeddingProvider: provider,

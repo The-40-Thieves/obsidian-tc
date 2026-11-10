@@ -54,7 +54,11 @@ function buildHarness(rerun?: SandboxRerunFn): Harness {
   provisionCacheDb(db);
   const vaultRegistry = new VaultRegistry([{ id: "main", path: "/tmp/does-not-matter" }]);
   const rateLimiter = new RateLimiter(NO_THROTTLE as never);
-  const registry = new ToolRegistry({ verifyElicit: elicitVerifier, rateLimiter });
+  const registry = new ToolRegistry({
+    rootResolver: (id) => vaultRegistry.resolve(id).root,
+    verifyElicit: elicitVerifier,
+    rateLimiter,
+  });
   const calls: Array<Parameters<SandboxRerunFn>[0]> = [];
   registerM6Tools(registry, {
     vaultRegistry,
