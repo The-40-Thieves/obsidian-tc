@@ -13,7 +13,7 @@ Every client carries one tag:
 
 The **Last live check** column records the date of the latest live run. The verified rows below were checked with a live sign-in on 2026-10-12, followed by a successful vault tool call. None used DCR.
 
-Server side, for every client on the bundled server: `auth.mode: jwt`, `auth.as.enabled: true`, `auth.resource` set to the MCP URL, and `auth.as.issuer` set to the server's origin. Dynamic Client Registration is on by default (`auth.as.dynamicRegistration`). A client that uses only a metadata document does not need it.
+Server side, for every client on the bundled server: `auth.mode: jwt`, `auth.as.enabled: true`, `auth.resource` set to the MCP URL, and `auth.as.issuer` set to the server's origin. Dynamic Client Registration is off by default. Opt in with `auth.as.dynamicRegistration: true` only for a client that needs it. A client that uses only a metadata document does not need it.
 
 ## Bundled authorization server
 
@@ -73,7 +73,7 @@ In the Antigravity desktop app on Windows, open its MCP settings and add the MCP
 
 #### Gemini CLI
 
-Gemini CLI registers by DCR, and its page does not mention a metadata document. Keep `auth.as.dynamicRegistration` on for it. In `settings.json`:
+Gemini CLI registers by DCR, and its page does not mention a metadata document. Set `auth.as.dynamicRegistration: true` for it. In `settings.json`:
 
 ```json
 {

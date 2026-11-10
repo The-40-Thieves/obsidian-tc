@@ -46,7 +46,7 @@ function vault(): VaultRegistry {
 }
 
 async function connect(mode: "flat" | "triad" | "domain", scopes: string[]) {
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register(tool("read_note", "notes", ["read:notes"]));
   registry.register(tool("write_note", "notes", ["write:notes"]));
   registry.register(tool("search_text", "search", ["read:notes"]));

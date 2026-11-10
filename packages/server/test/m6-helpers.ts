@@ -23,6 +23,7 @@ import { registerM1Tools } from "../src/tools/m1";
 import type { M6Deps } from "../src/tools/m6/shared";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { stripPathAcl } from "./registry-fixtures";
 import { makeTempDir, rmTemp } from "./tmp";
 
 const DEFAULT_THROTTLE = ServerConfigSchema.parse({ vaults: [{ id: "x", path: "/x" }] }).throttle;
@@ -55,6 +56,8 @@ export interface M6VaultOptions {
   verifyElicit?: VerifyElicit | null;
   /** Which M6 tools to register; receives the registry and the built deps. */
   register: (registry: ToolRegistry, deps: M6Deps) => void;
+  /** Strip every tool's pathAcl after registration so a test reaches the handler-side checks. */
+  handlerAclOnly?: boolean;
 }
 
 export interface M6EventRow {
@@ -107,12 +110,11 @@ export function makeM6Vault(opts: M6VaultOptions): M6Vault {
   const rateLimiter = opts.rateLimiter ?? new RateLimiter(NO_THROTTLE);
 
   const registry = new ToolRegistry({
+    rootResolver: (vid) => vaultRegistry.resolve(vid).root,
     verifyElicit:
       opts.verifyElicit === undefined ? elicitVerifier : (opts.verifyElicit ?? undefined),
     rateLimiter,
-    ...(opts.conventions
-      ? { conventions: conventionsChecker(vaultRegistry), rootResolver: () => root }
-      : {}),
+    ...(opts.conventions ? { conventions: conventionsChecker(vaultRegistry) } : {}),
   });
   const deps: M6Deps = {
     vaultRegistry,
@@ -134,6 +136,7 @@ export function makeM6Vault(opts: M6VaultOptions): M6Vault {
     embeddings: { provider: "ollama", model: "nomic-embed-text" },
   });
   opts.register(registry, deps);
+  if (opts.handlerAclOnly) stripPathAcl(registry);
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({
     caller: "test",

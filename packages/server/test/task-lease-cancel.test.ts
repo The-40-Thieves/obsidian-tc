@@ -82,7 +82,7 @@ describe("two attempts of one task call, one lease owner string", () => {
     const queue = new JobQueue(db, { now: () => clock.t, leaseMs: 1_000 });
     const releases: Array<() => void> = [];
     const state = { started: 0 };
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register({
       name: "slow",
       description: "gated",
@@ -227,7 +227,7 @@ describe("immediate task runs are tracked and drained at shutdown", () => {
     provisionCacheDb(db);
     const queue = new JobQueue(db);
     let sawAbort = false;
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register({
       name: "slow",
       description: "waits for its signal",
@@ -355,7 +355,7 @@ describe("a job cancelled before it started never runs", () => {
 
   it("makeStartTask does not run a task cancelled before it started", async () => {
     const r = rig();
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     let ran = 0;
     registry.register({
       name: "t",

@@ -31,7 +31,7 @@ async function boot(): Promise<{ handle: HttpHandle; queue: JobQueue }> {
   const db = openMemoryDb();
   provisionCacheDb(db);
   const queue = new JobQueue(db);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register(
     createHealthTool({
       version: "0.0.0-test",

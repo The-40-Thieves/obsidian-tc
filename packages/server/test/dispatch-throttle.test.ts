@@ -29,7 +29,11 @@ const tool = (name: string, requiredScopes: string[]) => ({
 });
 
 function reg() {
-  return new ToolRegistry({ rateLimiter: new RateLimiter(), verifyElicit: () => true });
+  return new ToolRegistry({
+    rootResolver: () => undefined,
+    rateLimiter: new RateLimiter(),
+    verifyElicit: () => true,
+  });
 }
 
 describe("dispatch-wide rate limiter (THE-210)", () => {
@@ -77,7 +81,7 @@ describe("dispatch-wide rate limiter (THE-210)", () => {
   });
 
   it("does not throttle when no limiter is configured", async () => {
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     r.register(tool("read_note", ["read:notes"]));
     for (let i = 0; i < 200; i++) {
       expect(
@@ -113,6 +117,7 @@ describe("dispatch-wide rate limiter (THE-210)", () => {
     // backed-off retry. (Under the old HITL-before-throttle order this spy would fire twice.)
     let elicitChecks = 0;
     const r = new ToolRegistry({
+      rootResolver: () => undefined,
       rateLimiter: new RateLimiter(),
       verifyElicit: () => {
         elicitChecks++;
@@ -142,6 +147,7 @@ describe("dispatch under a shared-backend outage", () => {
   };
   const build = (policy: "fail-open" | "fail-closed") => {
     const r = new ToolRegistry({
+      rootResolver: () => undefined,
       rateLimiter: new RateLimiter(undefined, { backend: dead, failurePolicy: policy }),
       verifyElicit: () => true,
     });

@@ -29,7 +29,7 @@ async function boot(auth: Record<string, unknown>, withIdp: boolean) {
   const verifier = idp
     ? await createOidcVerifier(parsed.auth, { fetch: idp.fetch, resolveHost: publicResolver })
     : undefined;
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register({
     name: "read_probe",
     description: "test-only",

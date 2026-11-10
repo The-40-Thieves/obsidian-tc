@@ -64,12 +64,11 @@ const bulkMoves = (
   );
 const PRIVATE_NOTE = { vault: "test", from: "Private/p.md", to: "Private/q.md" };
 const noteVault = (files: Record<string, string>, acl: Record<string, unknown>): TestVault =>
-  makeTestVault({ files, acl, centralAcl: true });
+  makeTestVault({ files, acl });
 const attachmentVault = (files: Record<string, string>, acl: Record<string, unknown>): TestVault =>
   makeTestVault({
     files,
     acl,
-    centralAcl: true,
     registerTools: (registry, vaultRegistry) => registerM3Tools(registry, { vaultRegistry }),
   });
 // conventions: true is the production wiring (runtime/governance.ts), which also supplies the

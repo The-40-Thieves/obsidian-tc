@@ -131,10 +131,9 @@ export function makeM5Vault(opts: M5VaultOptions = {}): M5Vault {
     : undefined;
 
   const registry = new ToolRegistry({
+    rootResolver: (vid) => vaultRegistry.resolve(vid).root,
     verifyElicit: elicitVerifier,
-    ...(opts.conventions
-      ? { conventions: conventionsChecker(vaultRegistry), rootResolver: () => root }
-      : {}),
+    ...(opts.conventions ? { conventions: conventionsChecker(vaultRegistry) } : {}),
   });
   registerM5Tools(registry, {
     cacheDir,

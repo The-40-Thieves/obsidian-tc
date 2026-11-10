@@ -55,7 +55,7 @@ const PERSONA_MASK: ToolVisibilityConfig = {
 };
 
 function makeRegistry(calls: { n: number }): ToolRegistry {
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register({
     name: "net_index",
     description: "stands in for index_vault: long, and sends content to an external provider",
@@ -606,7 +606,7 @@ describe("a HITL-gated tool cannot opt into offload", () => {
 
   it("refuses a destructive taskAugmentable tool at registration", () => {
     expect(() =>
-      new ToolRegistry().register({
+      new ToolRegistry({ rootResolver: () => undefined }).register({
         ...base,
         name: "d",
         requiredScopes: ["write:notes"],
@@ -618,7 +618,7 @@ describe("a HITL-gated tool cannot opt into offload", () => {
 
   it("refuses a conditionally-gated taskAugmentable tool (elicit_token in its schema)", () => {
     expect(() =>
-      new ToolRegistry().register({
+      new ToolRegistry({ rootResolver: () => undefined }).register({
         ...base,
         name: "c",
         inputSchema: z.object({ elicit_token: z.string().optional() }),
@@ -635,7 +635,7 @@ describe("a HITL-gated tool cannot opt into offload", () => {
     provisionCacheDb(db);
     const queue = new JobQueue(db);
     const calls = { n: 0 };
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register({
       name: "destroy",
       description: "x",
@@ -672,7 +672,7 @@ describe("a HITL-gated tool cannot opt into offload", () => {
 
   it("still admits an ungated one", () => {
     expect(() =>
-      new ToolRegistry().register({
+      new ToolRegistry({ rootResolver: () => undefined }).register({
         ...base,
         name: "ok",
         requiredScopes: ["admin:vault"],

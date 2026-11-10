@@ -22,7 +22,7 @@ async function boot(auth: ServerConfig["auth"], onAuthRejected?: unknown) {
   const handle = await startHttp({
     name: "obsidian-tc",
     version: "0.0.0-test",
-    registry: new ToolRegistry(),
+    registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth,
     db,
     vaultId: "v1",

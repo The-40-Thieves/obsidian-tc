@@ -38,7 +38,7 @@ describe("THE-1106 fix round 2 (LOW 2): Server constructor receives the ACTUAL l
     const { createMcpServer } = await import("../src/mcp/server");
     const db = openMemoryDb();
     provisionCacheDb(db);
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register({
       name: "ping",
       description: "d",
@@ -69,7 +69,7 @@ describe("THE-1106 fix round 2 (LOW 2): Server constructor receives the ACTUAL l
     const { createMcpServer } = await import("../src/mcp/server");
     const db = openMemoryDb();
     provisionCacheDb(db);
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register({
       name: "ping",
       description: "d",
@@ -101,7 +101,7 @@ describe("THE-1106 fix round 2 (LOW 2): Server constructor receives the ACTUAL l
     const { createMcpServer } = await import("../src/mcp/server");
     const db = openMemoryDb();
     provisionCacheDb(db);
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register({
       name: "ping",
       description: "d",

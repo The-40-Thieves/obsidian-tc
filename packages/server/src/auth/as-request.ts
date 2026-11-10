@@ -62,7 +62,16 @@ interface Fault {
 function queryFault(
   once: (name: string) => string | undefined | null,
   rules: AuthorizeRules,
-): { fault: Fault } | { fault?: undefined; challenge: string; resource: string; scopes: string[] } {
+):
+  | { fault: Fault }
+  | {
+      fault?: undefined;
+      challenge: string;
+      resource: string;
+      scopes: string[];
+      scopeDefaulted?: boolean;
+      droppedScopes?: string[];
+    } {
   const state = once("state");
   if (state === null || (state !== undefined && state.length > STATE_MAX)) {
     return { fault: { error: "invalid_request", description: "state is repeated or too long" } };
@@ -118,7 +127,13 @@ function queryFault(
       },
     };
   }
-  return { challenge, resource, scopes: outcome.scopes };
+  return {
+    challenge,
+    resource,
+    scopes: outcome.scopes,
+    ...(outcome.defaulted ? { scopeDefaulted: true } : {}),
+    ...(outcome.dropped ? { droppedScopes: outcome.dropped } : {}),
+  };
 }
 
 /** A redirect address that could be a client's: an absolute URL without a fragment. Nothing else is
@@ -189,6 +204,8 @@ export async function parseAuthorizeRequest(
       clientId: client.clientId,
       redirectUri,
       scopes: checked.scopes,
+      ...(checked.scopeDefaulted ? { scopeDefaulted: true } : {}),
+      ...(checked.droppedScopes ? { droppedScopes: checked.droppedScopes } : {}),
       resource: checked.resource,
       codeChallenge: checked.challenge,
       state: typeof state === "string" ? state : null,

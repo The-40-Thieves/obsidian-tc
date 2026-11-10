@@ -145,7 +145,7 @@ describe("revocation over the HTTP edge and /metrics", () => {
     const handle = await startHttp({
       name: "obsidian-tc",
       version: "0.0.0-test",
-      registry: new ToolRegistry(),
+      registry: new ToolRegistry({ rootResolver: () => undefined }),
       auth: parsed.auth,
       db: registryDb.db,
       authRegistry: registryDb.registry,

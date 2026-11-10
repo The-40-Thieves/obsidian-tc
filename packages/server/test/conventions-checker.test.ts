@@ -148,7 +148,6 @@ describe("conventions checker on a real vault", () => {
 
   it("a SCHEMA.md write evicts its cached layer", async () => {
     const v = makeTestVault({
-      centralAcl: true,
       conventions: true,
       files: { "meetings/m0.md": "x\n" },
     });

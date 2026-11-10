@@ -78,7 +78,7 @@ const ECHO_TOOL: ToolDefinition<Record<string, never>, Record<string, unknown>> 
 async function boot() {
   const db = openMemoryDb();
   provisionCacheDb(db);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register(
     createHealthTool({
       version: "0.0.0-test",

@@ -22,7 +22,7 @@ function ctx(): CallerContext {
 
 /** A tool whose handler deliberately returns something its schema forbids. */
 function driftingRegistry(opts: Partial<ConstructorParameters<typeof ToolRegistry>[0]>) {
-  const r = new ToolRegistry({ strictOutputSchema: false, ...opts });
+  const r = new ToolRegistry({ rootResolver: () => undefined, strictOutputSchema: false, ...opts });
   r.register({
     name: "drifter",
     description: "returns a number where its schema promises a string",
@@ -60,6 +60,7 @@ describe("THE-417 Phase 2: output-schema drift is observable", () => {
   it("stays silent when the payload matches", async () => {
     const seen: string[] = [];
     const r = new ToolRegistry({
+      rootResolver: () => undefined,
       strictOutputSchema: false,
       onOutputSchemaDrift: (tool) => seen.push(tool),
     });

@@ -121,6 +121,7 @@ describe("THE-1131 registry construction — core vs full profile", () => {
 describe("THE-1131 describe_capability / call_capability under profile: core", () => {
   function regCore(): ToolRegistry {
     const r = new ToolRegistry({
+      rootResolver: () => undefined,
       toolVisibility: { ...ALLOW_ALL, disabledByProfile: ["create_excalidraw"] },
     });
     r.register(tool("read_note"));
@@ -197,6 +198,7 @@ describe("THE-1131 describe_capability / call_capability under profile: core", (
 describe("THE-1131 profile composes with facade mode", () => {
   function regCoreDomain(): ToolRegistry {
     const r = new ToolRegistry({
+      rootResolver: () => undefined,
       toolVisibility: { ...ALLOW_ALL, disabledByProfile: ["create_excalidraw"] },
     });
     r.register(tool("read_note", { domain: "notes" } as Partial<ToolDefinition>));
@@ -236,7 +238,10 @@ describe("THE-1131 profile composes with facade mode", () => {
   });
 
   it('profile "full": the same tool is fully reachable', async () => {
-    const r = new ToolRegistry({ toolVisibility: { ...ALLOW_ALL, disabledByProfile: [] } });
+    const r = new ToolRegistry({
+      rootResolver: () => undefined,
+      toolVisibility: { ...ALLOW_ALL, disabledByProfile: [] },
+    });
     r.register(tool("create_excalidraw"));
     const { client, server } = await connect(r, "triad");
     const res = await client.callTool({

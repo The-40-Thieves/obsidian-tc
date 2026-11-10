@@ -46,7 +46,10 @@ describe("THE-306 registered tool count", () => {
     provisionCacheDb(db);
     const vaultRegistry = new VaultRegistry([{ id: "t", name: "t", path: root }]);
     const rateLimiter = new RateLimiter(NO_THROTTLE as never);
-    const registry = new ToolRegistry({ rateLimiter });
+    const registry = new ToolRegistry({
+      rootResolver: (id) => vaultRegistry.resolve(id).root,
+      rateLimiter,
+    });
     const noop = () => {};
     // Stub backends: registration only builds tool definitions (handlers close over deps), so these
     // are never dereferenced here, which keeps the count pure and fast. `any` is permitted in test

@@ -333,7 +333,7 @@ function structuredOf(res: unknown): Record<string, unknown> {
 describe("errorToResult (mcp/server.ts): both throw sites render a complete CLI line", () => {
   async function boot(tool: ToolDefinition) {
     const db = freshDb();
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register(tool);
     const context = (): CallerContext => ({
       caller: "test-caller",
@@ -484,7 +484,7 @@ describe.skipIf(process.platform === "win32")(
 
     it("dispatch.ts's always-gated throw site (a plain vault id)", async () => {
       const db = freshDb();
-      const reg = new ToolRegistry();
+      const reg = new ToolRegistry({ rootResolver: () => undefined });
       reg.register(destructiveTool("purge"));
       const result = await reg.dispatch("purge", {}, {
         caller: "t",
@@ -549,7 +549,7 @@ describe("the modern SEP-2260 inputRequired path is unaffected (regression guard
   async function boot() {
     const db = openMemoryDb();
     provisionCacheDb(db);
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register(conditionalTool("conditional_write"));
     const auth: ServerConfig["auth"] = ServerConfigSchema.parse({
       vaults: [{ id: "v1", path: "/tmp/v1" }],

@@ -86,7 +86,7 @@ afterEach(() => {
 });
 
 const noteVault = (): TestVault => {
-  t = makeTestVault({ files: FILES, acl: ACL, centralAcl: true });
+  t = makeTestVault({ files: FILES, acl: ACL });
   alias(t.root);
   return t;
 };

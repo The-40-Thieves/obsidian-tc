@@ -56,7 +56,7 @@ function ctx(db: Database, over: Partial<CallerContext> = {}): CallerContext {
 describe("dispatch guards", () => {
   it("denies a mutating tool when the ACL is read-only, allows it otherwise", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     reg.register({
       name: "write_note",
       description: "writes",
@@ -119,7 +119,7 @@ describe("dispatch guards", () => {
 
   it("gates a destructive tool behind a single-use elicit token (HITL)", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry({ verifyElicit: elicitVerifier });
+    const reg = new ToolRegistry({ rootResolver: () => undefined, verifyElicit: elicitVerifier });
     reg.register({
       name: "purge",
       description: "destructive",
@@ -152,7 +152,7 @@ describe("dispatch guards", () => {
 describe("dispatch precheck (D5)", () => {
   it("runs after scope/ACL and before the HITL elicit consumption", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry({ verifyElicit: elicitVerifier });
+    const reg = new ToolRegistry({ rootResolver: () => undefined, verifyElicit: elicitVerifier });
     reg.register({
       name: "guarded",
       description: "destructive with a precheck that always rejects",
@@ -184,7 +184,7 @@ describe("dispatch precheck (D5)", () => {
 
   it("is transparent when it resolves", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     let ran = false;
     reg.register({
       name: "ok_tool",
@@ -206,7 +206,7 @@ describe("dispatch precheck (D5)", () => {
 
   it("runs after the scope gate (forbidden short-circuits before precheck)", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     let prechecked = false;
     reg.register({
       name: "scoped",

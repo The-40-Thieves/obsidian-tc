@@ -61,7 +61,7 @@ const NOTES = {
 /** M1 (read_note, the reference refusal) + M2 (the tools under test) on one real temp vault, with
  *  dispatch's central folder-ACL stage wired as production wires it. */
 function vault(opts: Parameters<typeof makeTestVault>[0] = {}) {
-  const v = makeTestVault({ files: NOTES, centralAcl: true, ...opts });
+  const v = makeTestVault({ files: NOTES, ...opts });
   cleanups.push(() => v.cleanup());
   const provider = fakeEmbeddingProvider({ dimensions: 32 });
   registerM2Tools(v.registry, {
@@ -297,7 +297,7 @@ describe("stored ACL identity (acl_path), fail closed", () => {
       "v",
       PATH,
     );
-    const registry = new ToolRegistry({});
+    const registry = new ToolRegistry({ rootResolver: () => root });
     registerM2Tools(registry, {
       vaultRegistry: new VaultRegistry([{ id: "v", path: root }]),
       embeddingProvider: provider,

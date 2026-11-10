@@ -115,7 +115,10 @@ function makeVault(opts: IntegrationVaultOptions = {}): IntegrationVault {
     }),
   });
 
-  const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
+  const registry = new ToolRegistry({
+    rootResolver: (id) => vaultRegistry.resolve(id).root,
+    verifyElicit: elicitVerifier,
+  });
   // M2: search_dql / search_vault(mode:dql) ride the same Dataview bridge client.
   registerM2Tools(registry, {
     vaultRegistry,

@@ -37,7 +37,7 @@ async function serve(f: ReturnType<typeof fixture>) {
   const handle = await startHttp({
     name: "obsidian-tc",
     version: "t",
-    registry: new ToolRegistry(),
+    registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth: { mode: "jwt", jwtSecret: SECRET, tokenTtlSeconds: 86400, requireJti: false } as never,
     db: cacheDb,
     authRegistry: f.registry,

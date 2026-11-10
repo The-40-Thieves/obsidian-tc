@@ -33,7 +33,7 @@ function tool(name: string): ToolDefinition {
 }
 
 function reg(): ToolRegistry {
-  const r = new ToolRegistry();
+  const r = new ToolRegistry({ rootResolver: () => undefined });
   for (const n of Object.keys(TEST_DOMAINS)) r.register(tool(n));
   return r;
 }

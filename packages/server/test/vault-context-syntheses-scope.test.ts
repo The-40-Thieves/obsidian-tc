@@ -41,7 +41,7 @@ describe("vault_context syntheses are vault-scoped (THE-563)", () => {
       ]),
     );
 
-    const registry = new ToolRegistry({});
+    const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
     const vaultRegistry = new VaultRegistry([
       { id: "v1", name: "v1", path: "/tmp" },
       { id: "v2", name: "v2", path: "/tmp" },

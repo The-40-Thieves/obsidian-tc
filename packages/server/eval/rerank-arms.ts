@@ -122,9 +122,10 @@ async function stagePools(): Promise<void> {
       o?.input === "query" ? Promise.all(texts.map(embedQuery)) : base.embed(texts, o),
   });
   const db = await openConfiguredDatabase(config, "cache.db");
-  const registry = new ToolRegistry();
+  const vaultRegistry = new VaultRegistry(config.vaults);
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   registerM2Tools(registry, {
-    vaultRegistry: new VaultRegistry(config.vaults),
+    vaultRegistry,
     embeddingProvider: provider,
     representation: buildRepresentationManifest(provider, {}),
     metadataIndex: { hasFts: true, ready: () => true },

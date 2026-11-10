@@ -37,7 +37,7 @@ const root = makeTempDir("obtc-list-contra-");
 afterAll(() => rmTemp(root));
 
 function harness(scopes: string[], acl?: FolderAcl) {
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   const vaultRegistry = new VaultRegistry([{ id: VAULT, name: VAULT, path: root }]);
   registerM7Tools(registry, {
     vaultRegistry,

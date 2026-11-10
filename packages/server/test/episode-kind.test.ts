@@ -62,7 +62,10 @@ function ctx(db: Database): CallerContext {
 /** A registry whose episode sink records into `seen`, so a test asserts what the DISPATCH SITE
  *  declared rather than what the sink chose to store. */
 function registryCapturing(seen: DispatchEpisode[], tags?: string[]) {
-  const registry = new ToolRegistry({ onEpisode: (e) => seen.push(e) });
+  const registry = new ToolRegistry({
+    rootResolver: () => undefined,
+    onEpisode: (e) => seen.push(e),
+  });
   return { registry, tags };
 }
 

@@ -461,11 +461,10 @@ export interface RegistryOptions {
    *  ctx.acl to that vault's ACL (root ACL = inherited default) so the readOnly gate and every
    *  handler-side enforcePathAcl run under the right vault's rules. */
   aclResolver?: (vaultId: string) => FolderAcl | undefined;
-  /** THE-414 vault-root resolver. runDispatch uses it to resolve the filesystem root for the
-   *  effective vault so central pathAcl enforcement can run the same symlink-canonical
-   *  enforcePathAcl the handlers do. Wired from the VaultRegistry in cli.ts; when absent (unit
-   *  tests that omit it) central enforcement is skipped and handler-side checks still apply. */
-  rootResolver?: (vaultId: string) => string | undefined;
+  /** Resolves the effective vault's root for central path ACL enforcement and confirmation
+   *  fingerprints. Required at construction; an unresolved root refuses any pathAcl tool.
+   *  Registries with no filesystem vaults explicitly return undefined, never skip the gate. */
+  rootResolver: (vaultId: string) => string | undefined;
   /** The vault registry's folder pins (vault/folder-links.ts): every tool and resource call runs
    *  against them, so its ACL and its sinks share them. Unset: no pins (the native open refuses a
    *  symlinked folder). */

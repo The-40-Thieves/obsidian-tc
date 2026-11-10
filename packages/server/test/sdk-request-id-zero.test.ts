@@ -62,7 +62,7 @@ function blockingTool(outcome: { value: "pending" | "aborted" | "timed-out" }): 
 async function bootStdioForIdZero(outcome: { value: "pending" | "aborted" | "timed-out" }) {
   const db = openMemoryDb();
   provisionCacheDb(db);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register(blockingTool(outcome));
   const context = (signal?: AbortSignal): CallerContext => ({
     caller: "stdio",

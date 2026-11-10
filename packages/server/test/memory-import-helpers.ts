@@ -35,7 +35,7 @@ export function makeMemoryImportHarness(vaultId = "test"): MemoryImportHarness {
   const db = openMemoryDb();
   provisionCacheDb(db);
   const vaultRegistry = new VaultRegistry([{ id: vaultId, path: vaultRoot }]);
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   registerM1Tools(registry, {
     vaultRegistry,
     version: "0.0.0-test",
