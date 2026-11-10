@@ -13,7 +13,7 @@
 // are rewritten (the carve-out) but never named or counted as visible in either tool's output.
 // Junctions need no admin right on Windows; where even a junction cannot be made, the file skips
 // (CI covers all three OSes).
-import { mkdirSync, statSync, symlinkSync } from "node:fs";
+import { mkdirSync, realpathSync, statSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
@@ -50,8 +50,10 @@ const JUNCTIONS = ((): boolean => {
 })();
 
 /** `wiki -> private` (denied by the whitelist), made after the vault's files exist. */
+// The junction stores its target verbatim, so name it the way the registry names the vault root
+// (realpath.native): a temp dir spelled with an 8.3 short name would otherwise resolve outside it.
 const alias = (root: string): void => {
-  symlinkSync(join(root, "private"), join(root, "wiki"), "junction");
+  symlinkSync(realpathSync.native(join(root, "private")), join(root, "wiki"), "junction");
 };
 
 const errOf = (r: ToolResult): { code: string; message: string } | null =>
