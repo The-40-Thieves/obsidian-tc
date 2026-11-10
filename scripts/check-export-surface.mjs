@@ -29,6 +29,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const TARGET_FILE = "packages/shared/src/config.schema.ts";
@@ -96,7 +97,7 @@ function main() {
 
   let baselineSource;
   try {
-    baselineSource = execFileSync("git", ["show", `${ref}:${TARGET_FILE}`], {
+    baselineSource = execFileSync(trustedExecutable("git"), ["show", `${ref}:${TARGET_FILE}`], {
       encoding: "utf8",
       cwd: ROOT,
     });

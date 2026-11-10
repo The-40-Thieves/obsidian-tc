@@ -29,6 +29,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { trustedExecutable } from "../../../../scripts/lib/trusted-exec.mjs";
 import { NARRATIVE_DOC_FILES, REFERENCE_SIGNAL_FILES } from "./targets";
 
 const REPO_ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -91,7 +92,7 @@ function arg(name: string, fallback: string): string {
 
 function git(args: string[]): string {
   try {
-    return execFileSync("git", args, { cwd: REPO_ROOT, encoding: "utf8" });
+    return execFileSync(trustedExecutable("git"), args, { cwd: REPO_ROOT, encoding: "utf8" });
   } catch {
     return "";
   }

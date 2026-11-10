@@ -24,6 +24,7 @@
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const MARKER = "# obsidian-tc: DCO sign-off (scripts/setup-dco-hook.mjs)";
 
@@ -46,7 +47,7 @@ fi
 `;
 
 function git(args) {
-  return execFileSync("git", args, { encoding: "utf8" }).trim();
+  return execFileSync(trustedExecutable("git"), args, { encoding: "utf8" }).trim();
 }
 
 let gitCommonDir;

@@ -10,6 +10,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
+import { trustedExecutable } from "../../../scripts/lib/trusted-exec.mjs";
 import { openDatabase } from "../src/db/open";
 import type { BucketSpec, RateLimitBackend } from "../src/ratelimit/backend";
 import { MemoryBackend } from "../src/ratelimit/memory-backend";
@@ -72,7 +73,7 @@ try {
         db.exec("COMMIT");
         await Bun.sleep(5);
       }`;
-    const writer = spawn("bun", ["-e", writerSrc], { stdio: "ignore" });
+    const writer = spawn(trustedExecutable("bun"), ["-e", writerSrc], { stdio: "ignore" });
     await new Promise((r) => setTimeout(r, 500));
     await measure("sqlite (file shared w/ writer)", shared);
     writer.kill();

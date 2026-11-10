@@ -25,12 +25,13 @@ import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const DRIVER_NAME = "regen";
 const ARTIFACTS = ["packages/server/src/db/migrations-embedded.ts"];
 
 function git(args) {
-  return execFileSync("git", args, { encoding: "utf8" }).trim();
+  return execFileSync(trustedExecutable("git"), args, { encoding: "utf8" }).trim();
 }
 
 /** Extract the driver script path from a `merge.<name>.driver` command line. The setup script

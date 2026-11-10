@@ -21,12 +21,15 @@
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative, sep } from "node:path";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const args = process.argv.slice(2);
 const vaultIdx = args.indexOf("--vault");
 const VAULT = vaultIdx !== -1 ? args[vaultIdx + 1] : null;
 
-const tracked = execFileSync("git", ["ls-files"], { encoding: "utf8" }).split("\n").filter(Boolean);
+const tracked = execFileSync(trustedExecutable("git"), ["ls-files"], { encoding: "utf8" })
+  .split("\n")
+  .filter(Boolean);
 const failures = [];
 const fail = (file, line, rule, detail) => failures.push({ file, line, rule, detail });
 

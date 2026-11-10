@@ -24,9 +24,15 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
-const REPO = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
-const BASE = execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO, encoding: "utf8" }).trim();
+const REPO = execFileSync(trustedExecutable("git"), ["rev-parse", "--show-toplevel"], {
+  encoding: "utf8",
+}).trim();
+const BASE = execFileSync(trustedExecutable("git"), ["rev-parse", "HEAD"], {
+  cwd: REPO,
+  encoding: "utf8",
+}).trim();
 const WT = join(mkdtempSync(join(tmpdir(), "drift-proof-")), "wt");
 const env = {
   ...process.env,
@@ -150,7 +156,10 @@ const line = (ok, text) => console.log(`  [${ok ? "PASS" : "FAIL"}] ${text}`);
 
 try {
   console.log(`base ${BASE.slice(0, 8)}; worktree ${WT}`);
-  execFileSync("git", ["worktree", "add", "--detach", WT, BASE], { cwd: REPO, env });
+  execFileSync(trustedExecutable("git"), ["worktree", "add", "--detach", WT, BASE], {
+    cwd: REPO,
+    env,
+  });
   for (const l of [
     "node_modules",
     ...readdirSync(join(REPO, "packages")).map((p) => `packages/${p}/node_modules`),
@@ -193,7 +202,7 @@ try {
   console.error(`drift proof errored: ${e.stack ?? e}`);
   failures++;
 } finally {
-  spawnSync("git", ["worktree", "remove", "--force", WT], { cwd: REPO });
+  spawnSync(trustedExecutable("git"), ["worktree", "remove", "--force", WT], { cwd: REPO });
   rmSync(join(WT, ".."), { recursive: true, force: true });
 }
 console.log(

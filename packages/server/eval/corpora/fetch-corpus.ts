@@ -26,6 +26,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { trustedExecutable } from "../../../../scripts/lib/trusted-exec.mjs";
 
 export interface CorpusDigest {
   files: number;
@@ -166,7 +167,7 @@ export async function fetchCorpus(
     const tree = join(tmp, "tree");
     mkdirSync(tree);
     execFileSync(
-      "tar",
+      trustedExecutable("tar"),
       ["-xzf", archive, "-C", tree, "--strip-components=1", "--wildcards", "*.md"],
       {
         stdio: ["ignore", "ignore", "inherit"],

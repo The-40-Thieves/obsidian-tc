@@ -22,6 +22,7 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const DRIVER_NAME = "regen";
 // Pre-`regen` name (it deferred TREE.md / dependency-graph.json to manual regeneration). Both files
@@ -29,7 +30,7 @@ const DRIVER_NAME = "regen";
 const LEGACY_DRIVER_NAME = "regenerate";
 
 function git(args) {
-  return execFileSync("git", args, { encoding: "utf8" }).trim();
+  return execFileSync(trustedExecutable("git"), args, { encoding: "utf8" }).trim();
 }
 
 let repoRoot;
@@ -80,7 +81,7 @@ console.log(
 );
 
 try {
-  execFileSync("node", [path.join(here, "check-merge-driver.mjs")], {
+  execFileSync(trustedExecutable("node"), [path.join(here, "check-merge-driver.mjs")], {
     cwd: repoRoot,
     stdio: "inherit",
   });

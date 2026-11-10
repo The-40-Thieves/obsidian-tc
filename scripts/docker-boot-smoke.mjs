@@ -38,6 +38,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 // The stdio and http-only banners differ in the middle ("ready on stdio (vault x; ..." vs
 // "ready (http-only; stdio disabled; vault x; ..."), so anchor on the tail both share.
@@ -163,7 +164,7 @@ function runStdio(opts) {
     // Zero-config boot (vault folder as the only argument). No -i: stdin is /dev/null, the stdio
     // transport sees EOF and the process exits on its own right after printing the banner.
     const run = spawnSync(
-      "docker",
+      trustedExecutable("docker"),
       [
         "run",
         "--rm",
@@ -192,7 +193,7 @@ function runStdio(opts) {
     }
     return banner ? 1 : 2;
   } finally {
-    spawnSync("docker", ["rm", "-f", name], { stdio: "ignore" });
+    spawnSync(trustedExecutable("docker"), ["rm", "-f", name], { stdio: "ignore" });
     rmSync(vault, { recursive: true, force: true });
   }
 }
@@ -216,7 +217,7 @@ function waitForHealthy(name, timeoutMs) {
   let status;
   while (Date.now() < deadline) {
     const inspect = spawnSync(
-      "docker",
+      trustedExecutable("docker"),
       [
         "inspect",
         "--format",
@@ -300,7 +301,7 @@ const LAPTOP_GIT =
  */
 function workRun(image, platform, root, script, user = "1000:1000") {
   return spawnSync(
-    "docker",
+    trustedExecutable("docker"),
     [
       "run",
       "--rm",
@@ -321,7 +322,7 @@ function workRun(image, platform, root, script, user = "1000:1000") {
 
 function mcpCall(name, token, tool, args) {
   return spawnSync(
-    "docker",
+    trustedExecutable("docker"),
     [
       "exec",
       "-e",
@@ -425,7 +426,7 @@ function gitSyncProbes({ name, token, id, image, platform, root, remote }) {
   let seen;
   const landed = () => {
     seen = spawnSync(
-      "git",
+      trustedExecutable("git"),
       ["-c", "safe.directory=*", "--git-dir", remote, "show", "main:new.md"],
       {
         encoding: "utf8",
@@ -498,7 +499,7 @@ function runHttp(opts) {
   try {
     const gitRemote = gitMode ? prepareGitRemote(root, id, opts.image, opts.platform) : undefined;
     problems.push(...(gitRemote?.problems ?? []));
-    const createVolume = spawnSync("docker", ["volume", "create", volume], {
+    const createVolume = spawnSync(trustedExecutable("docker"), ["volume", "create", volume], {
       encoding: "utf8",
       timeout: opts.timeoutMs,
     });
@@ -506,7 +507,7 @@ function runHttp(opts) {
 
     if (problems.length === 0) {
       const run = spawnSync(
-        "docker",
+        trustedExecutable("docker"),
         [
           "run",
           "-d",
@@ -541,17 +542,21 @@ function runHttp(opts) {
     }
 
     if (problems.length === 0) {
-      const healthz = spawnSync("docker", ["exec", name, "bun", "-e", HEALTHZ_PROBE], {
-        encoding: "utf8",
-        timeout: opts.timeoutMs,
-      });
+      const healthz = spawnSync(
+        trustedExecutable("docker"),
+        ["exec", name, "bun", "-e", HEALTHZ_PROBE],
+        {
+          encoding: "utf8",
+          timeout: opts.timeoutMs,
+        },
+      );
       problems.push(...commandProblems("in-container /healthz probe", healthz));
     }
 
     let token = "";
     if (problems.length === 0) {
       const mint = spawnSync(
-        "docker",
+        trustedExecutable("docker"),
         [
           "exec",
           name,
@@ -575,7 +580,7 @@ function runHttp(opts) {
 
     if (problems.length === 0) {
       const mcp = spawnSync(
-        "docker",
+        trustedExecutable("docker"),
         ["exec", "-e", "OBSIDIAN_TC_SMOKE_TOKEN", name, "bun", "-e", MCP_PROBE],
         {
           encoding: "utf8",
@@ -607,7 +612,7 @@ function runHttp(opts) {
       );
     }
 
-    const logs = spawnSync("docker", ["logs", name], {
+    const logs = spawnSync(trustedExecutable("docker"), ["logs", name], {
       encoding: "utf8",
       timeout: opts.timeoutMs,
       maxBuffer: 16 * 1024 * 1024,
@@ -630,11 +635,13 @@ function runHttp(opts) {
     }
     return banner ? 1 : 2;
   } finally {
-    const removeContainer = spawnSync("docker", ["rm", "-f", name], { encoding: "utf8" });
+    const removeContainer = spawnSync(trustedExecutable("docker"), ["rm", "-f", name], {
+      encoding: "utf8",
+    });
     for (const problem of commandProblems("docker container cleanup", removeContainer)) {
       process.stderr.write(`::warning::docker HTTP smoke: ${problem}\n`);
     }
-    const removeVolume = spawnSync("docker", ["volume", "rm", "-f", volume], {
+    const removeVolume = spawnSync(trustedExecutable("docker"), ["volume", "rm", "-f", volume], {
       encoding: "utf8",
     });
     for (const problem of commandProblems("docker volume cleanup", removeVolume)) {

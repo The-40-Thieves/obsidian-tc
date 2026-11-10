@@ -30,6 +30,7 @@ function scratch() {
     join(repoRoot, "scripts/lib/embedded-migrations.mjs"),
     join(dir, "scripts/lib/embedded-migrations.mjs"),
   );
+  cpSync(join(repoRoot, "scripts/lib/trusted-exec.mjs"), join(dir, "scripts/lib/trusted-exec.mjs"));
   writeFileSync(join(dir, ".gitattributes"), `${EMBEDDED} merge=regen\n`);
   git("config", "merge.regen.driver", 'node "scripts/merge-drivers/regen.mjs" %O %A %B %P');
   const write = (entries) => writeFileSync(join(dir, EMBEDDED), renderEmbedded(entries));

@@ -27,6 +27,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseExportedNames } from "./check-export-surface.mjs";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_BASELINE_REF = "origin/main";
@@ -87,7 +88,12 @@ export function floorForFile(file) {
 /** Reads `file` at `ref` via `git show`, or returns `{ missing: true }` if it doesn't exist there. */
 export function readAtRef(ref, file, { cwd = ROOT } = {}) {
   try {
-    return { source: execFileSync("git", ["show", `${ref}:${file}`], { encoding: "utf8", cwd }) };
+    return {
+      source: execFileSync(trustedExecutable("git"), ["show", `${ref}:${file}`], {
+        encoding: "utf8",
+        cwd,
+      }),
+    };
   } catch (e) {
     return { missing: true, error: e?.message ?? String(e) };
   }
@@ -106,11 +112,15 @@ export function readAtRef(ref, file, { cwd = ROOT } = {}) {
  */
 export function refResolves(ref, { cwd = ROOT } = {}) {
   try {
-    execFileSync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
-      encoding: "utf8",
-      cwd,
-      stdio: ["ignore", "pipe", "ignore"],
-    });
+    execFileSync(
+      trustedExecutable("git"),
+      ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`],
+      {
+        encoding: "utf8",
+        cwd,
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    );
     return true;
   } catch {
     return false;

@@ -27,6 +27,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { mergeEmbedded, parseEmbedded, renderEmbedded } from "../lib/embedded-migrations.mjs";
+import { trustedExecutable } from "../lib/trusted-exec.mjs";
 
 const EMBEDDED = "packages/server/src/db/migrations-embedded.ts";
 const [ancestorPath, currentPath, otherPath, mergedPath] = process.argv.slice(2);
@@ -41,7 +42,9 @@ if (!ancestorPath || !currentPath || !otherPath) {
 function textMerge() {
   // Unknown path or unparseable input: behave like git's default driver (markers, non-zero exit).
   try {
-    execFileSync("git", ["merge-file", currentPath, ancestorPath, otherPath], { stdio: "ignore" });
+    execFileSync(trustedExecutable("git"), ["merge-file", currentPath, ancestorPath, otherPath], {
+      stdio: "ignore",
+    });
     return 0;
   } catch (err) {
     return typeof err.status === "number" && err.status > 0 ? 1 : 2;

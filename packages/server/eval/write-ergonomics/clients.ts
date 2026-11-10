@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, copyFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { trustedExecutable } from "../../../../scripts/lib/trusted-exec.mjs";
 
 export interface Usage {
   /** Uncached input + cache writes + output: what the run newly paid for. */
@@ -127,7 +128,7 @@ export function runClaude(c: ClientCtx): ClientOut {
     "--no-session-persistence",
     "--disable-slash-commands",
   ];
-  const r = spawnSync("claude", args, {
+  const r = spawnSync(trustedExecutable("claude"), args, {
     cwd: c.workDir,
     encoding: "utf8",
     timeout: c.timeoutMs,
@@ -231,7 +232,7 @@ function runCodexIn(c: ClientCtx, addDir: string, home: string): ClientOut {
     last,
     c.prompt,
   ];
-  const r = spawnSync("codex", args, {
+  const r = spawnSync(trustedExecutable("codex"), args, {
     cwd: c.workDir,
     encoding: "utf8",
     timeout: c.timeoutMs,

@@ -36,8 +36,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const KEEP = process.argv.includes("--keep");
-const REPO = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
-const BASE = execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO, encoding: "utf8" }).trim();
+const REPO = execFileSync(trustedExecutable("git"), ["rev-parse", "--show-toplevel"], {
+  encoding: "utf8",
+}).trim();
+const BASE = execFileSync(trustedExecutable("git"), ["rev-parse", "HEAD"], {
+  cwd: REPO,
+  encoding: "utf8",
+}).trim();
 
 const WT = join(mkdtempSync(join(tmpdir(), "two-branch-proof-")), "wt");
 const env = {
@@ -57,7 +62,12 @@ const env = {
 };
 
 const git = (...args) =>
-  execFileSync("git", args, { cwd: WT, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync(trustedExecutable("git"), args, {
+    cwd: WT,
+    env,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 const rd = (rel) => readFileSync(join(WT, rel), "utf8");
 const wr = (rel, text) => writeFileSync(join(WT, rel), text);
 
@@ -78,7 +88,10 @@ function sh(cmd, args, opts = {}) {
 }
 
 function setup() {
-  execFileSync("git", ["worktree", "add", "--detach", WT, BASE], { cwd: REPO, env });
+  execFileSync(trustedExecutable("git"), ["worktree", "add", "--detach", WT, BASE], {
+    cwd: REPO,
+    env,
+  });
   // node_modules is not checked in; reuse the main checkout's install (read-only use).
   const links = [
     "node_modules",
@@ -92,6 +105,7 @@ function setup() {
 function toolFile(name, fn, domain) {
   return `import { z } from "zod";
 import { defineTool } from "../m1/define";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const Out = z.object({ ok: z.boolean() });
 
@@ -264,7 +278,7 @@ try {
   git("checkout", "-q", "--detach", BASE);
   git("checkout", "-q", "-b", "proof/control", BASE);
   git("merge", "--no-edit", "-q", "proof/a");
-  const off = spawnSync("git", ["merge", "--no-edit", "-q", "proof/b"], {
+  const off = spawnSync(trustedExecutable("git"), ["merge", "--no-edit", "-q", "proof/b"], {
     cwd: WT,
     env: { ...env, GIT_CONFIG_VALUE_0: "false" },
     encoding: "utf8",
@@ -284,10 +298,10 @@ try {
 } finally {
   if (KEEP) console.log(`kept worktree at ${WT}`);
   else {
-    spawnSync("git", ["worktree", "remove", "--force", WT], { cwd: REPO });
+    spawnSync(trustedExecutable("git"), ["worktree", "remove", "--force", WT], { cwd: REPO });
     rmSync(join(WT, ".."), { recursive: true, force: true });
     for (const b of ["proof/a", "proof/b", "proof/merge-ab", "proof/merge-ba", "proof/control"]) {
-      spawnSync("git", ["branch", "-D", b], { cwd: REPO });
+      spawnSync(trustedExecutable("git"), ["branch", "-D", b], { cwd: REPO });
     }
   }
 }
