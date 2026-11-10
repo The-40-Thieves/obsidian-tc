@@ -49,7 +49,7 @@ async function rig(opts: { caller?: string | null; withQueue?: boolean } = {}): 
   provisionCacheDb(db);
   const queue = new JobQueue(db);
   const gate = deferred();
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   const tool = (name: string, handler: ToolDefinition["handler"]): ToolDefinition =>
     ({
       name,

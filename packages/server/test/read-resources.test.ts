@@ -26,11 +26,10 @@ afterEach(() => {
 
 function vault(
   files: Record<string, string>,
-  opts: { maxResponseBytes?: number; acl?: object; centralAcl?: boolean } = {},
+  opts: { maxResponseBytes?: number; acl?: object } = {},
 ): TestVault {
   const v = makeTestVault({
     files,
-    centralAcl: opts.centralAcl ?? false,
     ...(opts.maxResponseBytes !== undefined ? { maxResponseBytes: opts.maxResponseBytes } : {}),
     ...(opts.acl ? { acl: opts.acl } : {}),
   });
@@ -137,7 +136,6 @@ describe("read_resources: per-item results", () => {
     const v = vault(
       { "a.md": "A", "secret/c.md": "C" },
       {
-        centralAcl: true,
         acl: { readOnly: false, defaultScopes: [], rules: [], readPaths: ["a.md"] },
       },
     );

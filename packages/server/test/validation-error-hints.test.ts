@@ -65,6 +65,7 @@ async function connect(over: Partial<CallerContext> = {}): Promise<Harness> {
   provisionCacheDb(db);
   const provider = fakeEmbeddingProvider({ dimensions: 8 });
   const registry = new ToolRegistry({
+    rootResolver: (id) => vaultRegistry.resolve(id).root,
     visibleVaultIds: (ctx) => {
       if (ctx.vaultBound !== true) return vaultRegistry.list().map((v) => v.id);
       try {

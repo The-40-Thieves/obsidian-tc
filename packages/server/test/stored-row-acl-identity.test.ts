@@ -65,7 +65,7 @@ function quality(db: Database, vault: string, path: string, flags = "[]"): void 
 }
 
 function m8(edb: Database, cache: Database) {
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registerM8Tools(registry, { edb, now: () => NOW });
   const call = async (tool: string, input: Record<string, unknown>, a?: FolderAcl) => {
     const ctx: CallerContext = {

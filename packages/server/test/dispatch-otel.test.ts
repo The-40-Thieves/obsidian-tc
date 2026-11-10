@@ -38,7 +38,7 @@ function makeTracer() {
 describe("dispatch OTEL root span (G2.4)", () => {
   it("emits one obsidian_tc.<tool> SERVER span with the spec attributes on success", async () => {
     const { tracer, exporter, provider } = makeTracer();
-    const reg = new ToolRegistry({ tracer });
+    const reg = new ToolRegistry({ rootResolver: () => undefined, tracer });
     reg.register(tool("read_note", ["read:notes"], () => ({ ok: 1 })));
     await reg.dispatch("read_note", {}, ctx());
     const spans = exporter.getFinishedSpans();
@@ -56,7 +56,7 @@ describe("dispatch OTEL root span (G2.4)", () => {
 
   it("marks the span ERROR with status=denied on a missing-scope forbidden", async () => {
     const { tracer, exporter, provider } = makeTracer();
-    const reg = new ToolRegistry({ tracer });
+    const reg = new ToolRegistry({ rootResolver: () => undefined, tracer });
     reg.register(tool("write_x", ["write:notes"], () => ({})));
     await reg.dispatch("write_x", {}, ctx({ grantedScopes: new Set(["read:notes"]) }));
     const s = exporter.getFinishedSpans()[0];
@@ -68,7 +68,7 @@ describe("dispatch OTEL root span (G2.4)", () => {
 
   it("creates no spans when no tracer is configured", async () => {
     const { exporter, provider } = makeTracer();
-    const reg = new ToolRegistry(); // no tracer
+    const reg = new ToolRegistry({ rootResolver: () => undefined }); // no tracer
     reg.register(tool("noop", [], () => ({})));
     await reg.dispatch("noop", {}, ctx());
     expect(exporter.getFinishedSpans()).toHaveLength(0);

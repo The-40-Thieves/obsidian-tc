@@ -29,7 +29,7 @@ const AUTH: ServerConfig["auth"] = ServerConfigSchema.parse({
 async function boot(extra: { allowedHosts?: string[]; allowedOrigins?: string[] } = {}) {
   const db = openMemoryDb();
   provisionCacheDb(db);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register(
     createHealthTool({
       version: "0.0.0-test",

@@ -25,7 +25,7 @@ function ctx(overrides: Partial<CallerContext> = {}): CallerContext {
 describe("resources run under shared governance (THE-415)", () => {
   it("records a tool-call metric for resources/read, like any tool", async () => {
     const metrics = new MetricsRecorder();
-    const reg = new ToolRegistry({ metrics });
+    const reg = new ToolRegistry({ rootResolver: () => undefined, metrics });
     await reg.dispatchResource("resources/read", ctx(), ["read:notes"], { uri: "a.md" }, () => ({
       contents: [],
     }));
@@ -40,7 +40,7 @@ describe("resources run under shared governance (THE-415)", () => {
     const limiter = {
       check: () => ({ ok: false, scopeClass: "read", retryAfterSeconds: 3, currentBurst: 9 }),
     } as unknown as RateLimiter;
-    const reg = new ToolRegistry({ metrics, rateLimiter: limiter });
+    const reg = new ToolRegistry({ rootResolver: () => undefined, metrics, rateLimiter: limiter });
     let called = false;
     await expect(
       reg.dispatchResource("resources/read", ctx(), ["read:notes"], { uri: "a.md" }, () => {
@@ -56,7 +56,7 @@ describe("resources run under shared governance (THE-415)", () => {
 
   it("records an error outcome when the resource handler throws", async () => {
     const metrics = new MetricsRecorder();
-    const reg = new ToolRegistry({ metrics });
+    const reg = new ToolRegistry({ rootResolver: () => undefined, metrics });
     await expect(
       reg.dispatchResource("resources/list", ctx(), ["read:notes"], {}, () => {
         throw new Error("boom");
@@ -75,7 +75,10 @@ describe("resources run under shared governance (THE-415)", () => {
   // so a resource read that fails with an ACL-shaped code gets the same fan-out a tool gets.
   it("relays tc.acl.denied for a resource read denied with an ACL-shaped code (parity with tools)", async () => {
     const events: Array<{ type: string; data: unknown }> = [];
-    const reg = new ToolRegistry({ emit: (_vaultId, type, data) => events.push({ type, data }) });
+    const reg = new ToolRegistry({
+      rootResolver: () => undefined,
+      emit: (_vaultId, type, data) => events.push({ type, data }),
+    });
     await expect(
       reg.dispatchResource("resources/read", ctx(), ["read:notes"], { uri: "a.md" }, () => {
         throw err.aclDenied("path denied by folder ACL");

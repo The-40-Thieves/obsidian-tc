@@ -26,7 +26,7 @@ export async function collectHttp(vault: VaultCtx): Promise<MetricSample[]> {
   const { app } = createHttpApp({
     name: "obsidian-tc-perf",
     version: "0.0.0-perf",
-    registry: new ToolRegistry(),
+    registry: new ToolRegistry({ rootResolver: () => undefined }),
     // auth "none" is safe here precisely because nothing is ever bound: the config schema's
     // fail-closed rule (no unauthenticated server on a non-loopback host) governs real servers.
     // Using jwt would measure token verification, which belongs to a different family.
@@ -125,7 +125,7 @@ export async function collectHttpConcurrency(vault: VaultCtx): Promise<MetricSam
   const { app } = createHttpApp({
     name: "obsidian-tc-perf",
     version: "0.0.0-perf",
-    registry: new ToolRegistry(),
+    registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth: { mode: "none" } as Parameters<typeof createHttpApp>[0]["auth"],
     db: vault.db,
     vaultId: vault.vaultId,

@@ -284,7 +284,7 @@ describe("commit_wiki_page: all or nothing", () => {
 
   for (const centralAcl of [true, false]) {
     it(`a denied write path aborts all and names the path (central ACL ${centralAcl})`, async () => {
-      const hh = harness({ centralAcl, acl: { writePaths: ["wiki/**"] } });
+      const hh = harness({ handlerAclOnly: !centralAcl, acl: { writePaths: ["wiki/**"] } });
       const before = hashTree(hh.v.root);
       const r = await commit(hh, {
         patches: [
@@ -298,7 +298,7 @@ describe("commit_wiki_page: all or nothing", () => {
   }
 
   it("a denied page path aborts too", async () => {
-    const hh = harness({ centralAcl: true, acl: { writePaths: ["journal/**"] } });
+    const hh = harness({ acl: { writePaths: ["journal/**"] } });
     const before = hashTree(hh.v.root);
     const r = await commit(hh);
     expect(errOf(r)).toMatchObject({ code: "acl_denied", details: { path: PAGE } });
@@ -448,7 +448,7 @@ describe("commit_wiki_page: confirmation", () => {
 describe("commit_wiki_page: provenance", () => {
   it("records a pending record before the first rename and the final record after, naming every note", async () => {
     const fx = await provenanceFixture();
-    const hh = harness({ centralAcl: true, registryOpts: { provenance: fx.recorder } });
+    const hh = harness({ registryOpts: { provenance: fx.recorder } });
     let atFirstRename: Array<{ body: string }> = [];
     io.before = (n) => {
       if (n === 1) atFirstRename = rowsFor(fx.db);
@@ -484,7 +484,7 @@ describe("commit_wiki_page: provenance", () => {
 
   it("a crash after the first rename leaves the pending record naming what was to be written", async () => {
     const fx = await provenanceFixture();
-    const hh = harness({ centralAcl: true, registryOpts: { provenance: fx.recorder } });
+    const hh = harness({ registryOpts: { provenance: fx.recorder } });
     // Stand-in for a process kill: the second rename never happens and nothing after it runs.
     io.failOn = 2;
     const r = await commit(hh);
@@ -499,7 +499,7 @@ describe("commit_wiki_page: provenance", () => {
 
   it("a commit refused before any write records nothing", async () => {
     const fx = await provenanceFixture();
-    const hh = harness({ centralAcl: true, registryOpts: { provenance: fx.recorder } });
+    const hh = harness({ registryOpts: { provenance: fx.recorder } });
     const r = await commit(hh, {
       patches: [{ path: "wiki/Mentions.md", prev_hash: "x", operation: "link" }],
     });

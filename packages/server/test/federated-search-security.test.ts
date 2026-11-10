@@ -118,7 +118,10 @@ async function buildHarness(
   // Mirrors governance.ts's own dispatch-level aclResolver EXACTLY: THE-295's per-vault swap runs
   // for real here, so ctx.acl in these tests is whatever real dispatch would set for the PRIMARY
   // vault — the same thing the federated handler must NOT rely on for the other N-1 vaults.
-  const registry = new ToolRegistry({ aclResolver: (vaultId) => aclByVault.get(vaultId) ?? acl });
+  const registry = new ToolRegistry({
+    rootResolver: (id) => vaultRegistry.resolve(id).root,
+    aclResolver: (vaultId) => aclByVault.get(vaultId) ?? acl,
+  });
   registerM7Tools(registry, {
     vaultRegistry,
     embeddingProvider: provider,

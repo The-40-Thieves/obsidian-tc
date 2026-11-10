@@ -536,7 +536,7 @@ The bundled server is off until you enable it. Set these in the config (every ke
 ### Standards at a glance
 
 - **Clients.** A client is identified by a metadata document (CIMD) first, then by Dynamic Client Registration
-  (DCR, on by default), then by a pre-registered entry in `auth.as.clients`. The bullets below say what each checks.
+  (DCR, opt-in), then by a pre-registered entry in `auth.as.clients`. The bullets below say what each checks.
 - **PKCE.** `S256` only. The metadata advertises `code_challenge_methods_supported: ["S256"]`, and a `plain`
   challenge is refused.
 - **`none` client authentication.** Public clients authenticate with PKCE and no secret. `private_key_jwt` is
@@ -565,12 +565,12 @@ The bundled server is off until you enable it. Set these in the config (every ke
   grant, `offline_access` and the scope vocabulary (`auth.scopesSupported`, default `read:*` and `write:*`, also the
   protected-resource metadata's `scopes_supported`; the 401 challenge carries `scope` only when you set it; the default is advisory, a client naming no scope still gets
   `read:*` and any other fully-qualified scope can be asked for by name), `revocation_endpoint` and `client_id_metadata_document_supported: true`;
-  `registration_endpoint` appears unless `auth.as.dynamicRegistration` is turned off. `private_key_jwt` is never
+  `registration_endpoint` appears only when `auth.as.dynamicRegistration` is explicitly enabled. `private_key_jwt` is never
   advertised.
-- **Clients registered by Dynamic Client Registration (on by default).** DCR is on unless you set
-  `auth.as.dynamicRegistration: false` (owner decision, 2026-10-09): many MCP surfaces (Cursor, Windsurf,
-  grok.com, Grok Build, Le Chat, n8n, the Gemini app) only support DCR, so a default-off server did
-  not work with them out of the box. To disable it, set the flag to `false`; `/oauth/register` is then a 404 and
+- **Clients registered by Dynamic Client Registration (opt-in).** DCR is off by default for every deployment.
+  Set `auth.as.dynamicRegistration: true` only for a client that needs it (such as Cursor, Windsurf,
+  grok.com, Le Chat, n8n or the Gemini app). This lets anyone who can reach the server register under
+  any name; registration is not an endorsement. When the flag is unset or `false`, `/oauth/register` is a 404 and
   `registration_endpoint` is not advertised. `POST /oauth/register` (RFC 7591, JSON) creates a public client by default: `token_endpoint_auth_method` is `none` (or
   absent) and no secret is issued. A client that asks for `client_secret_basic` is issued a random secret once, in the `201`
   (`client_secret`, `client_secret_expires_at: 0`); only its SHA-256 is stored, and the token and revocation endpoints
@@ -595,7 +595,17 @@ The bundled server is off until you enable it. Set these in the config (every ke
   gets a refresh token, one that lists only `authorization_code` (or nothing: the RFC 7591 default) gets none, and
   the `201` echoes exactly what will be served. A registration counts as used only when a sign-in succeeded (a code
   issued or a refresh token rotated), never because someone looked its `client_id` up, so a full table can always
-  reclaim registrations that were only ever probed.
+  reclaim registrations that were only ever probed. On the host, `obsidian-tc auth as clients list [--json]`
+  lists registration ids and timestamps without secrets or source addresses. `obsidian-tc auth as clients remove <id>`
+  removes a DCR registration, ends its pending sign-ins and revokes all its grants, refresh tokens and live access
+  tokens. Both commands work while DCR is off; removal refuses static and metadata-document clients.
+  Revoked grants do not suppress the unapproved-client warning.
+- **Defaulted and unsupported permissions.** An omitted, empty or `offline_access`-only scope request uses
+  `auth.scopesSupported` when configured, otherwise `read:*`, but always shows the full consent page, even
+  with a covering remembered grant or `auth.as.consent.remembered: silent`. Mixed known and unknown scopes
+  still drop the unknown ones; the consent page lists what was dropped and asks again. Dropped scopes never
+  reach a grant or token. A request containing only unknown scopes is refused. Upgrading discards pending
+  sign-in requests whose scope provenance was not recorded; restart those sign-ins from the application.
 - **Clients registered by a metadata document (CIMD).** A `client_id` that is an `https://` URL with a path is
   fetched, and the document served there is the client's registration (Claude Code, Codex, ChatGPT and Antigravity register this
   way). The fetch is the same bounded one OIDC discovery uses: https only, no redirects, every resolved address
@@ -617,7 +627,11 @@ The bundled server is off until you enable it. Set these in the config (every ke
   which local process is behind it. Explicitly setting `auth.as.consent.loopback: remember` reuses the grant without
   the port, so Claude Code and Codex sign in again without a click, but a malicious local process claiming the same
   client can also obtain a token without a prompt. Existing stored grants do not bypass the default prompt.
-  A lookup is bounded: one 5 s deadline covers the name lookup, the connection and the
+  A remembered sign-in whose redirect leaves this machine is never approved by the
+  `GET` alone: the session cookie is `SameSite=Lax`, so a link on any site reaches that `GET` signed in, and the page
+  it shows is a one-click Continue whose same-origin, token-bound POST issues the code (`auth.as.consent.remembered`:
+  unset means `silent` for a remembered loopback redirect and `confirm` otherwise; set it to apply one mode everywhere). A
+  request that can no longer be used says whether its link was damaged, unknown, expired or already used. A lookup is bounded: one 5 s deadline covers the name lookup, the connection and the
   body, one source may start five uncached lookups a minute and have two running at once (an IPv6 address counts as
   its /64; a peer with no usable address, such as a reverse proxy or tunnel on the same host that is not listed in
   `transports.http.trustedProxies`, is one shared source that may start ten a minute, not an exemption, so behind an

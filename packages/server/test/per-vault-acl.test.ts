@@ -38,6 +38,7 @@ function harness() {
     ],
   ]);
   const registry = new ToolRegistry({
+    rootResolver: (id) => (id === "a" ? rootA : id === "b" || id === "c" ? rootB : undefined),
     aclResolver: (vid) => aclByVault.get(vid) ?? rootAcl,
   });
   registerM1Tools(registry, {

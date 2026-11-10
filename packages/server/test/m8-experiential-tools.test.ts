@@ -109,7 +109,7 @@ function un<T>(r: unknown): T {
 // `opts.activationFor` — every pre-existing call site keeps getting the provider-less harness it
 // always got, and only the hybrid-search tests below opt in.
 function harness(edb?: Database, opts: { embeddingProvider?: EmbeddingProvider } = {}) {
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registerM8Tools(registry, {
     ...(edb ? { edb } : {}),
     now: () => NOW,

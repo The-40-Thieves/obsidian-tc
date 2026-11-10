@@ -110,8 +110,8 @@ async function build(acls: AclSpec, extra?: (registry: ToolRegistry, parts: Harn
     { id: OTHER, path: roots[1] as string },
     { id: DOCS, path: roots[2] as string, kind: "docs" },
   ]);
-  // The same three resolvers runtime/governance.ts wires: without rootResolver central pathAcl
-  // enforcement (the read_notes oracle below) silently skips.
+  // The same three resolvers runtime/governance.ts wires; rootResolver drives central pathAcl
+  // enforcement (the read_notes oracle below).
   const registry = new ToolRegistry({
     ...(acls.verifyElicit ? { verifyElicit: elicitVerifier } : {}),
     aclResolver: (id) => aclByVault.get(id) ?? rootAcl,

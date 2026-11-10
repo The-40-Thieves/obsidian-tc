@@ -89,7 +89,7 @@ function idemState(db: Database, key: string): string | undefined {
 describe("ctx.markEffectCommitted (THE-572 primitive)", () => {
   it("a throw AFTER the signal but BEFORE the handler returns records indeterminate, never re-runs", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     const eff = { n: 0 };
     reg.register({
       name: "two_step",
@@ -117,7 +117,7 @@ describe("ctx.markEffectCommitted (THE-572 primitive)", () => {
 
   it("a signal ROLLED BACK with the handler's transaction releases the claim (no false indeterminate)", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     const eff = { n: 0 };
     let failFirst = true;
     reg.register({
@@ -155,7 +155,7 @@ describe("ctx.markEffectCommitted (THE-572 primitive)", () => {
 
   it("is undefined on a keyless call, so `?.()` is the required call shape", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     let seen: unknown = "unset";
     reg.register({
       name: "peek",
@@ -175,7 +175,7 @@ describe("ctx.markEffectCommitted (THE-572 primitive)", () => {
 
   it("signalling and then returning normally still completes (the marker is idempotent)", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     reg.register({
       name: "signals_then_succeeds",
       description: "signals, then returns normally so #13's call site marks again",
@@ -552,7 +552,7 @@ describe("THE-573 #1: one CallerContext reused across CONCURRENT dispatches", ()
   // corrupting an idempotency claim is far worse than refusing the second dispatch.
   it("detects the overwrite instead of silently corrupting the first claim", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     const shared = ctx(db);
     let release: (() => void) | undefined;
     const gate = new Promise<void>((r) => {
@@ -591,7 +591,7 @@ describe("THE-573 #1: one CallerContext reused across CONCURRENT dispatches", ()
     // The detection must key on a LIVE overlapping dispatch, not on "this ctx was used before" —
     // otherwise a caller reusing one context serially breaks for no reason.
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     const shared = ctx(db);
     reg.register({
       name: "seq_step",
@@ -663,7 +663,10 @@ describe("THE-573 #3: inSavepoint (nested-safe) and rollback-failure reporting",
       return realExec(sql);
     };
     const seen: Array<{ tool: string; err: unknown }> = [];
-    const reg = new ToolRegistry({ onInternalError: (tool, _v, err) => seen.push({ tool, err }) });
+    const reg = new ToolRegistry({
+      rootResolver: () => undefined,
+      onInternalError: (tool, _v, err) => seen.push({ tool, err }),
+    });
     reg.register({
       name: "rollback_fault",
       description: "fails inside a transaction whose ROLLBACK then also fails",
@@ -764,9 +767,9 @@ describe("THE-573 #2: add_observation's read + render + append now share ONE wri
 
       const vaultRegistry = new VaultRegistry([{ id: "test", path: root }]);
       const acl = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
-      const regA = new ToolRegistry();
+      const regA = new ToolRegistry({ rootResolver: () => undefined });
       registerM5Tools(regA, { vaultRegistry, cacheDir: "" });
-      const regB = new ToolRegistry();
+      const regB = new ToolRegistry({ rootResolver: () => undefined });
       registerM5Tools(regB, { vaultRegistry, cacheDir: "" });
       const base = {
         caller: "test",

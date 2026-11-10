@@ -139,7 +139,10 @@ async function run(root: string): Promise<void> {
     { id: "v", path: vaultDir },
     { id: "docs", path: docsDir, kind: "docs" },
   ]);
-  const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
+  const registry = new ToolRegistry({
+    rootResolver: (id) => vaultRegistry.resolve(id).root,
+    verifyElicit: elicitVerifier,
+  });
   const provider = fakeEmbeddingProvider({ dimensions: 32 });
   registerM1Tools(registry, {
     vaultRegistry,

@@ -34,7 +34,7 @@ const MODERN = "2026-07-28";
 async function boot(): Promise<HttpHandle> {
   const db = openMemoryDb();
   provisionCacheDb(db);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register(
     createHealthTool({
       version: "0.0.0-test",

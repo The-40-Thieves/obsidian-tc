@@ -34,7 +34,7 @@ function collector() {
 describe("dispatch -> MORGIANA events (THE-183)", () => {
   it("emits tc.tool.call.completed (status ok) on a successful call", async () => {
     const c = collector();
-    const reg = new ToolRegistry({ emit: c.emit });
+    const reg = new ToolRegistry({ rootResolver: () => undefined, emit: c.emit });
     reg.register(tool("read_note", ["read:notes"], () => ({ ok: 1 })));
     await reg.dispatch("read_note", {}, ctx());
     expect(c.types()).toEqual(["tc.tool.call.completed"]);
@@ -43,7 +43,7 @@ describe("dispatch -> MORGIANA events (THE-183)", () => {
 
   it("emits tc.acl.denied alongside completion on a missing-scope forbidden", async () => {
     const c = collector();
-    const reg = new ToolRegistry({ emit: c.emit });
+    const reg = new ToolRegistry({ rootResolver: () => undefined, emit: c.emit });
     reg.register(tool("update_frontmatter", ["write:meta"], () => ({})));
     await reg.dispatch("update_frontmatter", {}, ctx({ grantedScopes: new Set(["read:notes"]) }));
     expect(c.types()).toEqual(["tc.tool.call.completed", "tc.acl.denied"]);
@@ -51,7 +51,11 @@ describe("dispatch -> MORGIANA events (THE-183)", () => {
 
   it("emits tc.elicit.requested when an elicit token is required and absent", async () => {
     const c = collector();
-    const reg = new ToolRegistry({ emit: c.emit, verifyElicit: () => false });
+    const reg = new ToolRegistry({
+      rootResolver: () => undefined,
+      emit: c.emit,
+      verifyElicit: () => false,
+    });
     reg.register(tool("bulk_delete_notes", ["write:notes", "bulk:notes"], () => ({})));
     await reg.dispatch("bulk_delete_notes", {}, ctx({ elicitToken: null }));
     expect(c.types()).toContain("tc.elicit.requested");
@@ -59,7 +63,11 @@ describe("dispatch -> MORGIANA events (THE-183)", () => {
 
   it("emits tc.elicit.consumed when a valid elicit token clears HITL", async () => {
     const c = collector();
-    const reg = new ToolRegistry({ emit: c.emit, verifyElicit: () => true });
+    const reg = new ToolRegistry({
+      rootResolver: () => undefined,
+      emit: c.emit,
+      verifyElicit: () => true,
+    });
     reg.register(tool("bulk_create_notes", ["write:notes", "bulk:notes"], () => ({ done: 1 })));
     await reg.dispatch("bulk_create_notes", {}, ctx({ elicitToken: "tok" }));
     expect(c.types()).toEqual(["tc.elicit.consumed", "tc.tool.call.completed"]);
@@ -67,7 +75,11 @@ describe("dispatch -> MORGIANA events (THE-183)", () => {
 
   it("emits tc.governor.overflow on an oversized response", async () => {
     const c = collector();
-    const reg = new ToolRegistry({ emit: c.emit, maxResponseBytes: 10 });
+    const reg = new ToolRegistry({
+      rootResolver: () => undefined,
+      emit: c.emit,
+      maxResponseBytes: 10,
+    });
     reg.register(tool("big", [], () => ({ blob: "x".repeat(1000) })));
     await reg.dispatch("big", {}, ctx());
     expect(c.types()).toEqual(["tc.tool.call.completed", "tc.governor.overflow"]);
@@ -75,14 +87,14 @@ describe("dispatch -> MORGIANA events (THE-183)", () => {
 
   it("emits tc.vault.cache_reset for the reset_vault_cache tool", async () => {
     const c = collector();
-    const reg = new ToolRegistry({ emit: c.emit });
+    const reg = new ToolRegistry({ rootResolver: () => undefined, emit: c.emit });
     reg.register(tool("reset_vault_cache", ["admin:vault"], () => ({ reset: true })));
     await reg.dispatch("reset_vault_cache", {}, ctx());
     expect(c.types()).toEqual(["tc.tool.call.completed", "tc.vault.cache_reset"]);
   });
 
   it("never throws when no emit sink is configured", async () => {
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     reg.register(tool("noop", [], () => ({})));
     expect((await reg.dispatch("noop", {}, ctx())).ok).toBe(true);
   });

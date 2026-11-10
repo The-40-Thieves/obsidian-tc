@@ -227,7 +227,6 @@ describe("conventions.protectSchemaFiles", () => {
     const hh = makeWikiHarness({
       files: { "wiki/SCHEMA.md": SCHEMA, "wiki/a.md": "---\ntype: concept\n---\n# A\n" },
       wikiFolder: "wiki",
-      centralAcl: true,
       conventions: true,
       protectSchemaFiles: true,
       acl: { writePaths: ["wiki/**"] },

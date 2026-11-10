@@ -55,7 +55,7 @@ function harness(root: string) {
   ).run(floatBlob([1, 0, 0, 0]));
   if (!ensureChunkFts(db)) throw new Error("FTS5 unavailable; refusing to pass vacuously");
   const acl = restrictedAcl();
-  const registry = new ToolRegistry({ aclResolver: () => acl });
+  const registry = new ToolRegistry({ rootResolver: () => root, aclResolver: () => acl });
   registerM7Tools(registry, {
     vaultRegistry: new VaultRegistry([{ id: VAULT, name: VAULT, path: root }]),
     embeddingProvider: {

@@ -103,7 +103,10 @@ function harness(
   root = "/nonexistent/does-not-need-to-exist",
 ): Harness {
   const vaultRegistry = new VaultRegistry([{ id: VAULT, path: root }]);
-  const registry = new ToolRegistry({ aclResolver: () => acl });
+  const registry = new ToolRegistry({
+    rootResolver: (id) => vaultRegistry.resolve(id).root,
+    aclResolver: () => acl,
+  });
   registerM7Tools(registry, {
     vaultRegistry,
     embeddingProvider: fixedVectorProvider(QUERY_VEC),

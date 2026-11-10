@@ -21,6 +21,7 @@ import { noteClientUsed } from "./as-dcr";
 import {
   approveRequest,
   createPending,
+  deadPendingReason,
   discardPending,
   everApproved,
   FRESH_LOGIN_MS,
@@ -32,7 +33,7 @@ import {
 } from "./as-grants";
 import { type AsRouteDeps, enabledAs } from "./as-metadata";
 import type { SessionInfo } from "./as-operator-store";
-import { consentPage, messagePage } from "./as-pages";
+import { consentPage, messagePage, rememberedPage } from "./as-pages";
 import { parseAuthorizeRequest } from "./as-request";
 import { createAsBrowser, requestHandleOf } from "./as-session";
 import { socketClientIp } from "./client-ip";
@@ -86,11 +87,21 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
 
   const localError = (c: Context, message: string) =>
     html(c, 400, messagePage("Cannot continue", message));
-  const expired = (c: Context) =>
-    localError(
-      c,
-      "This sign-in request has expired or was already used. Start again from the application.",
-    );
+  // Distinct on purpose: a handle is 256 random bits, so naming why it is dead tells a guesser nothing,
+  // while one shared message made a lost callback, a slow sign-in and a cut-short link look alike.
+  const DEAD = {
+    malformed:
+      "This sign-in link is incomplete or damaged. It may have been cut short when it was copied. Start again from the application.",
+    unknown: "This server has no record of this sign-in request. Start again from the application.",
+    expired:
+      "This sign-in request expired: it must be completed within 10 minutes. Start again from the application.",
+    used: "This sign-in request was already completed or cancelled. Start again from the application.",
+  } as const;
+  const dead = (c: Context, reason: keyof typeof DEAD) => {
+    log(`consent refused reason=${reason}`);
+    return localError(c, DEAD[reason]);
+  };
+  const deadFor = (c: Context, handle: string) => dead(c, deadPendingReason(db, handle, now()));
 
   /** A redirect to the client: the parameters, then `iss`, which nothing in the URI can override. */
   const toClient = (
@@ -167,7 +178,10 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
     // process would also approve another that claims the same client_id and path (design v2 section
     // 4.3 gives no instance proof). `prompt` is the default; explicit `remember` accepts that risk.
     // Without a remembered grant, `first` still keys on whether the client has any.
-    const remembers = as.consent.loopback === "remember" || !isLoopbackRedirect(p.redirectUri);
+    const remembers =
+      !p.scopeDefaulted &&
+      !p.droppedScopes?.length &&
+      (as.consent.loopback === "remember" || !isLoopbackRedirect(p.redirectUri));
     // A remembered grant is reused only while the account's CURRENT bounds still allow all of it:
     // narrowing the account after the grant makes the operator decide again.
     const bounds = accountBounds(db, session.sub);
@@ -204,20 +218,51 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
       ...(grant.reuse ? { reuse: grant.reuse } : {}),
     });
     if (approved === "session_ended") return c.redirect(loginFor(handle, false), 303);
-    if (approved === undefined) return expired(c);
+    if (approved === undefined) return deadFor(c, handle);
     noteClientUsed(db, p.clientId, now());
     log(`consent approved client=${p.clientId}`);
     return toClient(c, p.redirectUri, { code: approved.code, state: p.state ?? undefined });
   };
 
+  const issueRemembered = (
+    c: Context,
+    handle: string,
+    p: PendingRequest,
+    session: SessionInfo,
+    grant: Grant,
+  ) =>
+    issue(c, handle, p, session, {
+      scopes: p.scopes,
+      persona: grant.persona,
+      vault: grant.vault,
+      reuse: grant,
+    });
+
   const loginFor = (handle: string, reauth: boolean) =>
     `/oauth/login?request=${handle}${reauth ? "&reauth=1" : ""}`;
+
+  /** `auth.as.consent.remembered`, defaulting by where the code would go (see its schema text). */
+  const rememberedMode = (p: PendingRequest): "silent" | "confirm" =>
+    as.consent.remembered ?? (isLoopbackRedirect(p.redirectUri) ? "silent" : "confirm");
+
+  /** The browser must be allowed to follow the POST's redirect to the client (CSP form-action covers
+   *  redirects), so a page that posts to consent names that one destination beyond 'self'. */
+  const allowRedirectTo = (c: Context, p: PendingRequest): void => {
+    const dest = formActionSource(p.redirectUri);
+    if (dest !== undefined) {
+      c.header(
+        "content-security-policy",
+        `default-src 'none'; style-src 'self'; form-action 'self' ${dest}; frame-ancestors 'none'`,
+      );
+    }
+  };
 
   app.get("/oauth/consent", async (c) => {
     if (!b.claimed()) return b.notClaimed(c);
     const handle = requestHandleOf(c.req.query("request"));
-    const pending = handle === undefined ? undefined : loadPending(db, handle, now());
-    if (handle === undefined || pending === undefined) return expired(c);
+    if (handle === undefined) return dead(c, "malformed");
+    const pending = loadPending(db, handle, now());
+    if (pending === undefined) return deadFor(c, handle);
     // Resolved again, not trusted from authorize: a metadata document can have moved on since, and
     // a redirect it no longer lists must not be approved.
     const client = await clientNow(c, pending);
@@ -227,12 +272,23 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
     const step = stepFor(pending, session);
     if (step.kind === "reauth") return c.redirect(loginFor(handle, true), 303);
     if (step.kind === "remembered") {
-      return issue(c, handle, pending, session, {
-        scopes: pending.scopes,
-        persona: step.grant.persona,
-        vault: step.grant.vault,
-        reuse: step.grant,
-      });
+      // A GET is reachable from any site's link with the Lax session cookie attached, so outside
+      // `silent` it only renders a page whose token-bound POST does the issuing.
+      if (rememberedMode(pending) === "silent")
+        return issueRemembered(c, handle, pending, session, step.grant);
+      allowRedirectTo(c, pending);
+      return html(
+        c,
+        200,
+        rememberedPage({
+          csrf: b.formToken(c, `consent:${handle}`, session),
+          request: handle,
+          clientName: client.name,
+          clientId: client.clientId,
+          redirectHost: redirectHost(pending.redirectUri),
+          scopes: pending.scopes.map((scope) => ({ scope, words: describeScope(scope) })),
+        }),
+      );
     }
     // Offer only what the account can still grant (POST re-applies the bounds either way).
     const bounds = accountBounds(db, session.sub);
@@ -242,15 +298,7 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
       name,
       vaults: p.vaults,
     }));
-    // The browser must be allowed to follow the POST's redirect to the client (CSP form-action
-    // covers redirects), so this page's policy names that one destination beyond 'self'.
-    const dest = formActionSource(pending.redirectUri);
-    if (dest !== undefined) {
-      c.header(
-        "content-security-policy",
-        `default-src 'none'; style-src 'self'; form-action 'self' ${dest}; frame-ancestors 'none'`,
-      );
-    }
+    allowRedirectTo(c, pending);
     return html(
       c,
       200,
@@ -269,6 +317,8 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
           : {}),
         ...(client.dcr ? { selfRegistered: !everApproved(db, client.clientId) } : {}),
         scopes: shown.map((scope) => ({ scope, words: describeScope(scope) })),
+        ...(pending.scopeDefaulted ? { scopeDefaulted: true } : {}),
+        ...(pending.droppedScopes ? { droppedScopes: pending.droppedScopes } : {}),
         resource: pending.resource,
         ...(personas.length > 0 ? { personas } : {}),
       }),
@@ -288,11 +338,15 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
       return b.forbidden(c);
     }
     const pending = loadPending(db, handle, now());
-    if (pending === undefined) return expired(c);
+    if (pending === undefined) return deadFor(c, handle);
     // The same check as the page: a document that dropped the redirect since must not get a code.
     if ((await clientNow(c, pending)) === undefined) return localError(c, NO_LONGER_REGISTERED);
-    if (stepFor(pending, session).kind === "reauth") {
-      return c.redirect(loginFor(handle, true), 303);
+    const step = stepFor(pending, session);
+    if (step.kind === "reauth") return c.redirect(loginFor(handle, true), 303);
+    if (form.get("remembered") === "1" && form.get("decision") === "approve") {
+      // The grant the Continue page stood for may be gone or narrowed since: then ask in full.
+      if (step.kind !== "remembered") return c.redirect(`/oauth/consent?request=${handle}`, 303);
+      return issueRemembered(c, handle, pending, session, step.grant);
     }
 
     if (form.get("decision") !== "approve") {

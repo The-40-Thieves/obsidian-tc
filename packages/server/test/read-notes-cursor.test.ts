@@ -22,11 +22,11 @@ function vault(
   files: Record<string, string>,
   maxResponseBytes?: number,
   acl?: object,
-  centralAcl = false,
+  handlerAclOnly = false,
 ): TestVault {
   const v = makeTestVault({
     files,
-    centralAcl,
+    handlerAclOnly,
     ...(maxResponseBytes !== undefined ? { maxResponseBytes } : {}),
     ...(acl ? { acl } : {}),
   });
@@ -258,7 +258,8 @@ describe("read_notes continuation cursor", () => {
       files[`pub/n${i}.md`] = body(400);
       paths.push(`pub/n${i}.md`);
     }
-    const v = vault(files, 1500);
+    // The handler's per-item check; dispatch's central stage would refuse the whole page first.
+    const v = vault(files, 1500, undefined, true);
     const first = await readPage(v, paths);
     expect(first.ok).toBe(true);
     if (!first.ok) return;
@@ -289,7 +290,7 @@ describe("read_notes continuation cursor", () => {
       files[`pub/n${i}.md`] = body(400);
       paths.push(`pub/n${i}.md`);
     }
-    const v = vault(files, 1500, undefined, true);
+    const v = vault(files, 1500);
     const first = await readPage(v, paths);
     expect(first.ok).toBe(true);
     if (!first.ok) return;

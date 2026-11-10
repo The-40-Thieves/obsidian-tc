@@ -81,6 +81,7 @@ describe("THE-667: a failed idempotency-claim release is no longer silent", () =
     const metrics = new MetricsRecorder();
     const { db, deleteAttempts } = dbWithFailingRelease();
     const r = new ToolRegistry({
+      rootResolver: () => undefined,
       rateLimiter: new RateLimiter(),
       verifyElicit: () => true,
       metrics,
@@ -113,6 +114,7 @@ describe("THE-667: a failed idempotency-claim release is no longer silent", () =
     const metrics = new MetricsRecorder();
     const { db } = dbWithFailingRelease();
     const r = new ToolRegistry({
+      rootResolver: () => undefined,
       rateLimiter: new RateLimiter(),
       // HITL is NOT satisfied -> the elicit gate rejects and releases the claim.
       verifyElicit: () => false,
@@ -159,6 +161,7 @@ describe("THE-667: a failed idempotency-claim release is no longer silent", () =
       }),
     } as unknown as Database;
     const r = new ToolRegistry({
+      rootResolver: () => undefined,
       rateLimiter: new RateLimiter(),
       verifyElicit: () => true,
       metrics,
@@ -190,6 +193,7 @@ describe("THE-667: a failed idempotency-claim release is no longer silent", () =
       prepare: () => ({ run: () => undefined, get: () => undefined, all: () => [] }),
     } as unknown as Database;
     const r = new ToolRegistry({
+      rootResolver: () => undefined,
       rateLimiter: new RateLimiter(),
       verifyElicit: () => true,
       metrics,

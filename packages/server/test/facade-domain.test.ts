@@ -58,7 +58,7 @@ function textOf(res: unknown): unknown {
 }
 
 function realReg(): ToolRegistry {
-  const r = new ToolRegistry();
+  const r = new ToolRegistry({ rootResolver: () => undefined });
   for (const n of [
     "read_note",
     "write_note",

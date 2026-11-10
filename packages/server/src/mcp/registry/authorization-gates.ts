@@ -33,7 +33,7 @@ import { withEffectiveVault } from "./vault-default";
 export interface AuthorizationDeps {
   toolVisibility: EffectiveToolVisibilityConfig;
   aclResolver?: RegistryOptions["aclResolver"];
-  rootResolver?: RegistryOptions["rootResolver"];
+  rootResolver: RegistryOptions["rootResolver"];
   vaultKindResolver?: RegistryOptions["vaultKindResolver"];
 }
 

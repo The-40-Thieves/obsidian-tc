@@ -78,7 +78,7 @@ export async function bootHitl(opts: {
   const db = openMemoryDb();
   provisionCacheDb(db);
   const effect = { applied: 0 };
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   // `destructive: true` is what arms the dispatch HITL gate.
   registry.register({
     name: "danger_write",
