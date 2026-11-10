@@ -64,10 +64,10 @@ export interface M8Deps {
   vaultRegistry?: VaultRegistry;
 }
 
-// GH #994 fix (check:duplicate-exports): memoryDefenseFor moved to experiential/memory-defense.ts
+// GH #994 fix (check:duplicate-exports): memoryDefenseFor moved to util/memory-defense.ts
 // — it and tools/m5/shared.ts's own copy were byte-identical. Re-exported here so every existing
 // `import { memoryDefenseFor } from "./shared"` in this domain keeps working unchanged.
-export { memoryDefenseFor } from "../../experiential/memory-defense";
+export { memoryDefenseFor } from "../../util/memory-defense";
 
 // Annotated rather than inferred: a bare object literal widens `available` to `boolean`, which no
 // longer matches `Unavailable`'s `z.literal(false)` once a handler's return union is checked

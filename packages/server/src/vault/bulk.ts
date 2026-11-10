@@ -8,7 +8,7 @@
 // callback does the work (resolveVaultPath + enforcePathAcl + write), so this
 // stays pure orchestration.
 import { type ErrorJSON, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
-import { redactSecrets } from "../experiential/redact";
+import { redactSecrets } from "../util/redact";
 
 export interface BulkOptions {
   /** Maximum sub-operations in flight at once (clamped to >= 1). */

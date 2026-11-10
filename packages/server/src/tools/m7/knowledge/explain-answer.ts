@@ -36,10 +36,10 @@ import {
 } from "../../../experiential/lineage";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { chunkPathResolver } from "../../../search/chunk-vault";
+import { ResponseFormatInput, resolveResponseFormat } from "../../../util/response-format";
 import { readableRel } from "../../../vault/acl-read-filter";
 import { readableStoredRow } from "../../../vault/stored-acl-path";
 import { defineTool } from "../../m1/define";
-import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
 import { conciseExplainAnswer } from "./concise-reads";
 import type { M7Deps } from "./deps";
 import { ConciseableExplainAnswerOutput } from "./schemas";

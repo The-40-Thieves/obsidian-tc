@@ -5,7 +5,7 @@
 // warmup, and uses plain unref'd timers: no job system of its own.
 
 import type { Database } from "../db/types";
-import { BOOT_WARMUP_MAX_WAIT_MS, deferBootWork } from "../runtime/boot-helpers";
+import { BOOT_WARMUP_MAX_WAIT_MS, deferBootWork } from "../util/boot-helpers";
 import { ensureNotesFts } from "./fts";
 import { FTS_MAX_ATTEMPTS, type FtsStatus, ftsRecord, ftsStatus, subscribeFts } from "./fts-status";
 

@@ -13,10 +13,10 @@ import type { Database } from "../db/types";
 import { makeActivationLookup } from "../experiential/activation";
 import { createEpisodeCapture, type EpisodeSink } from "../experiential/episodes";
 import { createRetrievalLogger, type RetrievalLogger } from "../experiential/log";
+import { unwindReversed } from "../util/boot-helpers";
 import { stderrOnError } from "../util/errors";
 import { ensureEnvVaultRoot } from "../vault/ensure-root";
 import { formatVaultRenameNotice, resolveAndApplyVaultIdentity } from "../vault/identity";
-import { unwindReversed } from "./boot-helpers";
 import { withBootstrapBarrier } from "./vault-lock";
 
 export interface StoresDeps {

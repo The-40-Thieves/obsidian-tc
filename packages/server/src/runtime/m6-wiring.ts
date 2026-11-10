@@ -3,7 +3,7 @@ import type { CapabilityCache } from "../bridge";
 import type { ToolRegistry } from "../mcp/registry";
 import type { RateLimiter } from "../throttle";
 import type { M6Deps, SandboxRerunFn } from "../tools/m6";
-import type { ResponseFormat } from "../tools/response-format";
+import type { ResponseFormat } from "../util/response-format";
 import type { VaultRegistry } from "../vault/registry";
 
 /** The slice of `DomainToolsDeps` (tool-wiring.ts) that M6's deps are built from. */

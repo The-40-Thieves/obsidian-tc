@@ -1,4 +1,4 @@
-import { jsTokenize } from "../search/native";
+import { jsTokenize } from "../util/tokenize";
 import type { EmbeddingProvider } from "./provider";
 
 function fnv1a(s: string): number {

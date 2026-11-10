@@ -77,6 +77,10 @@ const COUNTERS = [
   "obsidian_tc_acl_walk_pruned_total",
   // GH #994: memoryDefense redact/block matches, by pattern id only.
   "obsidian_tc_memory_defense_hits_total",
+  // GH #1477: an OAuth grant family revoked because a credential was reused — the cheap-DoS and
+  // replay-theft signal that previously lived only in the process log. `reason` is the closed
+  // union in src/auth/family-revocation-telemetry.ts. No `vault` label: the AS is process-wide.
+  "obsidian_tc_auth_family_revocations_total",
 ];
 const HISTOGRAMS = [
   "obsidian_tc_tool_duration_seconds",
@@ -124,14 +128,14 @@ const GAUGES = [
 ];
 
 describe("MetricsRecorder (G2.4 Prometheus catalog)", () => {
-  it("registers the full catalog: 34 counters, 4 histograms, 19 gauges", async () => {
+  it("registers the full catalog: 35 counters, 4 histograms, 19 gauges", async () => {
     const text = await new MetricsRecorder().metrics();
     for (const name of COUNTERS) expect(text).toContain(`# TYPE ${name} counter`);
     for (const name of HISTOGRAMS) expect(text).toContain(`# TYPE ${name} histogram`);
     for (const name of GAUGES) expect(text).toContain(`# TYPE ${name} gauge`);
     // Catalog is complete and exactly the spec'd size (no extra obsidian_tc_* metrics).
     const declared = [...text.matchAll(/^# TYPE (obsidian_tc_\w+) /gm)].map((m) => m[1]);
-    expect(new Set(declared).size).toBe(58);
+    expect(new Set(declared).size).toBe(59);
   });
 
   it("GH #1433: process memory by kind is read at scrape time; rss and heap_used are live", async () => {

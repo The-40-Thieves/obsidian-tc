@@ -21,7 +21,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { realpathSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
-import { redactSecrets } from "../experiential/redact";
+import { redactSecrets } from "../util/redact";
 
 /** A pinned folder's real directory and its identity when pinned: what the native open verifies. */
 export interface PinnedDir {

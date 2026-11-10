@@ -5,8 +5,8 @@ import {
   DEFAULT_MEMORY_FOLDER,
   type VaultMemoryDefenseConfig,
 } from "@the-40-thieves/obsidian-tc-shared";
-import { MEMORY_DEFENSE_OFF } from "../experiential/memory-defense";
 import { DEFAULT_TRACE_FOLDER } from "../tools/m5";
+import { MEMORY_DEFENSE_OFF } from "../util/memory-defense";
 
 export interface MemoryVaultMaps {
   memoryFolderByVault: Map<string, string>;

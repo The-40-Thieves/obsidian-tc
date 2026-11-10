@@ -4,8 +4,8 @@
 // is never indexed and stale caches are not invalidated). Route derived-note writes through here.
 import type { VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
-import { enforceMemoryDefenseOnNoteWrite } from "../experiential/memory-defense";
 import type { MetricsRecorder } from "../metrics/registry";
+import { enforceMemoryDefenseOnNoteWrite } from "../util/memory-defense";
 import { noteExists, readNote, writeNoteAtomic } from "./notes-io";
 import { resolveVaultPath } from "./paths";
 import { captureSnapshot } from "./snapshots";

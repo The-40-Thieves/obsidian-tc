@@ -15,7 +15,7 @@ import { CASE_INSENSITIVE_FS, type FolderAcl, foldPath, isDefaultDenied } from "
 // every other raw-value echo in this codebase already uses (episode log, trace capture, ambient
 // import, commit_capture's own defense-in-depth echoes) keeps this the ONE place a secret-shaped
 // path gets redacted, rather than a second copy that could drift.
-import { redactSecrets } from "../experiential/redact";
+import { redactSecrets } from "../util/redact";
 import { recordAclCheck } from "./acl-audit";
 import { assertWritableVaultPath, normalizeVaultPath, resolveVaultPathChecked } from "./paths";
 

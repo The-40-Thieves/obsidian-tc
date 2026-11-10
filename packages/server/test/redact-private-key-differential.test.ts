@@ -1,4 +1,4 @@
-// Differential test for the PEM private-key scanner in experiential/redact.ts.
+// Differential test for the PEM private-key scanner in util/redact.ts.
 //
 // `redactPrivateKeys` replaced a bounded regex with a single forward pass (and then a hand-scanned
 // marker match, so the ReDoS gate has no pattern to flag). The contract was "what it matches and
@@ -8,7 +8,7 @@
 // The generator is fixed-seed, so a failure reproduces; a failing case prints its index and input.
 
 import { describe, expect, it } from "vitest";
-import { redactSecrets } from "../src/experiential/redact";
+import { redactSecrets } from "../src/util/redact";
 
 const REFERENCE =
   /-----BEGIN [A-Z ]{0,64}PRIVATE KEY-----[\s\S]{0,16384}?-----END [A-Z ]{0,64}PRIVATE KEY-----/g;

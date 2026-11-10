@@ -10,14 +10,16 @@ import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-t
 import { z } from "zod";
 import type { FolderAcl } from "../../acl";
 import { fingerprintTargets } from "../../elicit-drift";
+import { argsHash } from "../../hash";
+import type { ToolDefinition } from "../../mcp/registry";
 import {
   enforceMemoryDefenseOnNoteWrite,
   MEMORY_DEFENSE_OFF,
   redactedEcho,
-} from "../../experiential/memory-defense";
-import { argsHash } from "../../hash";
-import type { ToolDefinition } from "../../mcp/registry";
+} from "../../util/memory-defense";
 import { DEFAULT_SCAN_LIMIT, nextOffsetCursor, offsetOf } from "../../util/paginate";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
+import { capWarningsOut } from "../../util/scan-caps";
 import { drainYielding } from "../../util/scan-steps";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { callerMayReadNote, checkCas, requireContentRead } from "../../vault/cas";
@@ -28,9 +30,7 @@ import { contentHash, normalizeVaultPath, resolveVaultPath } from "../../vault/p
 import { pruneHubLinks } from "../../vault/prune";
 import { rewriteLinks } from "../../vault/rewrite";
 import { readRefusalShape } from "../read-refusals";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import {
-  capWarningsOut,
   type RewriteWarning,
   rewriteWarningsShape,
   ScanWarnings,

@@ -8,11 +8,11 @@
 import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import type { SweepCounts } from "../src/db/maintenance";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
 import { type MorgianaEmitter, spoolFileName } from "../src/morgiana/emitter";
 import { appendProvenance } from "../src/provenance/store";
+import type { SweepCounts } from "../src/runtime/maintenance";
 import { configureMaintenance, sweepTotal } from "../src/runtime/maintenance-wiring";
 import { Scheduler } from "../src/scheduler/scheduler";
 import { openMemoryDb } from "./helpers";

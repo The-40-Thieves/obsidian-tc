@@ -15,10 +15,9 @@
 //     the sparse and ColBERT heads DEGRADE to empty when their task is unavailable (memoized per
 //     server+task so a long reindex doesn't re-pay the failing round-trip), and the indexer skips
 //     storing empty heads. The in-process ONNX backend remains the path to true lexical_weights.
-import type { ColbertMatrix } from "../search/colbert";
-import type { SparseVec } from "../search/sparse";
 import { type FetchFn, postJson } from "./http";
 import type { MultiVectorEmbedding } from "./provider";
+import type { ColbertMatrix, SparseVec } from "./vec-types";
 
 /** bge-m3's three heads per input — the provider-layer MultiVectorEmbedding shape. */
 export type BgeM3Output = MultiVectorEmbedding;

@@ -13,11 +13,6 @@
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { inWriteTransaction } from "../../db/txn";
-import {
-  enforceMemoryDefense,
-  enforceMemoryDefenseOnTransformed,
-} from "../../experiential/memory-defense";
-import { redactSecrets } from "../../experiential/redact";
 import type { ToolDefinition } from "../../mcp/registry";
 import {
   appendObservation,
@@ -41,6 +36,8 @@ import {
 } from "../../memory/entities";
 import { entityNotePath, sanitizeSegment } from "../../memory/materialize";
 import { formatObservationId } from "../../memory/observation-edit";
+import { enforceMemoryDefense, enforceMemoryDefenseOnTransformed } from "../../util/memory-defense";
+import { redactSecrets } from "../../util/redact";
 import { defineTool } from "../m1/define";
 import {
   assertMemoryPathReadable,
