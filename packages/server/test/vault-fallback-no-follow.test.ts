@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { linkSync, lstatSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { linkSync, lstatSync, mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { stallTimeout } from "./stall-timeouts";
@@ -297,7 +297,8 @@ describe("pure-JS vault reads refuse linked path components", () => {
   });
 
   it.skipIf(!directorySymlinkOk)("keeps the configured-folder fallback refusal unchanged", () => {
-    const root = temp("otc-fallback-vault-");
+    // Folder pins are only placed under a root that is its own real path, as the registry's is.
+    const root = realpathSync.native(temp("otc-fallback-vault-"));
     mkdirSync(join(root, "pages"));
     writeFileSync(join(root, "pages", "note.md"), "page");
     symlinkSync(join(root, "pages"), join(root, "wiki"), "dir");
