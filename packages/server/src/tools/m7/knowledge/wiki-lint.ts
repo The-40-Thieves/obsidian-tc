@@ -24,6 +24,13 @@ import { readableRel } from "../../../vault/acl-read-filter";
 import { noteExists, readNote } from "../../../vault/notes-io";
 import { resolveVaultPath } from "../../../vault/paths";
 import { readableStoredRow } from "../../../vault/stored-acl-path";
+import { buildLinkGraphSteps, restrictGraph } from "../../link-graph";
+import {
+  CYCLE_SCAN_WORK_CAP,
+  findLinkCyclesSteps,
+  LINT_CYCLE_MAX_LENGTH,
+  LINT_CYCLE_MIN_LENGTH,
+} from "../../m1/link-cycles";
 import { ScanWarnings } from "../../scan-warnings";
 import {
   readableNotesSteps,
@@ -40,6 +47,7 @@ import { type ConventionsScan, conventionsScanSteps } from "./wiki-lint-conventi
 export const LINT_CHECKS = [
   "generated_pages",
   "orphans",
+  "cycles",
   "unresolved_links",
   "contradictions",
   "quality",
@@ -54,6 +62,7 @@ export type LintCheck = (typeof LINT_CHECKS)[number];
 export type ProposalKind =
   | "generated_page"
   | "orphan"
+  | "link_cycle"
   | "unresolved_link"
   | "contradiction"
   | "stale"
@@ -133,6 +142,7 @@ const ORDER: ProposalKind[] = [
   "duplicate_chunks",
   "unresolved_link",
   "orphan",
+  "link_cycle",
   "missing_sources",
   "stale",
   "coverage_gap",
@@ -275,6 +285,48 @@ export async function runWikiLint(
         tool: "suggest_links",
         tool_args: { vault: input.vaultId, path: p },
       })),
+    );
+    return undefined;
+  });
+
+  // A loop needs every member to be a lintable note the caller may read: a hidden, generated or
+  // raw note is no link in it. Bounds match find_link_cycles' defaults, so the tool named on the
+  // proposal lists the same loops.
+  await run("cycles", async () => {
+    const g = await drainYielding(
+      buildLinkGraphSteps(env.root, env.acl, env.grantedScopes),
+      signal,
+    );
+    const scan = await drainYielding(
+      findLinkCyclesSteps(
+        restrictGraph(g.out, new Set(g.notes.filter((p) => subjectOk(p) && inFolder(p)))),
+        {
+          limit: input.limitPerCheck + 1,
+          minLength: LINT_CYCLE_MIN_LENGTH,
+          maxLength: LINT_CYCLE_MAX_LENGTH,
+          maxWork: CYCLE_SCAN_WORK_CAP,
+          countPastLimit: false,
+        },
+      ),
+      signal,
+    );
+    if (scan.truncated) notes.push("cycles stopped at its work cap: more link loops may exist.");
+    push(
+      "link_cycle",
+      scan.cycles.map((cycle) => {
+        const members = cycle.slice(0, -1);
+        return {
+          kind: "link_cycle" as const,
+          subject: members[0] as string,
+          related: members.slice(1),
+          detail: `${members.length} notes link in a loop: ${cycle.join(" -> ")}.`,
+          suggested_action:
+            "Read the notes and find the one that holds the fact; if each only points at the next, write it down in one of them and re-point or remove the link that closes the loop (patch_note). Leave a loop that is deliberate navigation.",
+          tool: "read_notes",
+          tool_args: { vault: input.vaultId, paths: members },
+          evidence: { length: members.length, cycle },
+        };
+      }),
     );
     return undefined;
   });
