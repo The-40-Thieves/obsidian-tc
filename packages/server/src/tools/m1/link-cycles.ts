@@ -112,5 +112,5 @@ export function restrictToFolder(
   folder: string,
 ): Map<string, Set<string>> {
   const prefix = `${folder}/`;
-  return restrictGraph(out, (p) => p.startsWith(prefix));
+  return restrictGraph(out, new Set([...out.keys()].filter((p) => p.startsWith(prefix))));
 }

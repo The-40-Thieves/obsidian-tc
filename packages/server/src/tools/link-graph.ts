@@ -52,15 +52,15 @@ export function* buildLinkGraphSteps(
   return { notes, out, inn, unresolved, links, warnings };
 }
 
-/** The graph restricted to the notes `keep` accepts: other members, and edges to them, are gone. */
+/** The graph restricted to the notes in `keep`: other members, and edges to them, are gone. */
 export function restrictGraph(
   out: Map<string, Set<string>>,
-  keep: (path: string) => boolean,
+  keep: ReadonlySet<string>,
 ): Map<string, Set<string>> {
   const scoped = new Map<string, Set<string>>();
   for (const [p, targets] of out) {
-    if (!keep(p)) continue;
-    scoped.set(p, new Set([...targets].filter(keep)));
+    if (!keep.has(p)) continue;
+    scoped.set(p, new Set([...targets].filter((t) => keep.has(t))));
   }
   return scoped;
 }

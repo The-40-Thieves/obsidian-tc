@@ -299,7 +299,7 @@ export async function runWikiLint(
     );
     const scan = await drainYielding(
       findLinkCyclesSteps(
-        restrictGraph(g.out, (p) => subjectOk(p) && inFolder(p)),
+        restrictGraph(g.out, new Set(g.notes.filter((p) => subjectOk(p) && inFolder(p)))),
         {
           limit: input.limitPerCheck + 1,
           minLength: LINT_CYCLE_MIN_LENGTH,
