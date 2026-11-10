@@ -8,9 +8,10 @@
 //   - an ACL rule with NO scopes adds no requirement, so a dead one changes nothing either way.
 // Own module, same reasoning as memory-read-acl.ts: a pure classifier over an already-resolved view
 // (the vault's file list is injected, so the check is testable with no filesystem).
-import { globMatch } from "../acl";
+import { CASE_INSENSITIVE_FS, globMatch } from "../acl";
 import { compileEgressFilter, isExcludedPath } from "../plane/egress-filter";
 import { compileExclusionEntries } from "../search/index-exclusion";
+import { aclCaseMatchFor } from "../vault/case-sensitivity";
 import { walkVault } from "../vault/paths";
 import { canonicalizeVaultRoot } from "../vault/registry";
 import type { Check, CheckResult } from "./types";
@@ -26,11 +27,16 @@ export interface PathGlobEntry {
   /** True for an ACL rule that lists no scopes: it adds no requirement, so being dead is harmless. */
   noEffect?: boolean;
   vaultIds: readonly string[];
-  matches: (relPath: string) => boolean;
+  /** The SAME predicate the enforcing code uses. The second argument is the VAULT's filesystem
+   *  case behavior (undefined = the platform default, null = the fail-closed split): one glob can
+   *  govern vaults on different filesystems, and a "dead" verdict must not disagree with the ACL. */
+  matches: (relPath: string, caseInsensitive?: boolean | null) => boolean;
 }
 
 export interface DeadPathGlobsView {
   entries: readonly PathGlobEntry[];
+  /** Vault id -> its filesystem case behavior (buildAcls' caseByVault). Absent = platform default. */
+  caseByVault?: ReadonlyMap<string, boolean | null> | undefined;
   /** Vault id -> its vault-relative file list; `undefined` when the vault could not be walked. */
   files: ReadonlyMap<string, readonly string[] | undefined>;
 }
@@ -39,7 +45,13 @@ export interface DeadPathGlobsView {
  *  compiler refuses yields no entry (config load already refuses it). An index entry that is empty
  *  or an invalid regex matches nothing, so it stays an entry with a never-matching predicate and is
  *  reported dead rather than silently omitted. */
-const aclMatcher = (glob: string) => (rel: string) => globMatch(glob, rel);
+// The case behavior arrives per CALL, not per glob: the allow side (whitelists) and the rules
+// side fold per the vault's aclCaseMatchFor — including the fail-closed split on a failed probe —
+// so the verdict and the enforcing FolderAcl are compiled from the same fact.
+const aclMatcher =
+  (glob: string, side: "allow" | "rules") =>
+  (rel: string, ci?: boolean | null): boolean =>
+    globMatch(glob, rel, ci === undefined ? CASE_INSENSITIVE_FS : aclCaseMatchFor(ci)[side]);
 
 function egressMatcher(pattern: string): ((rel: string) => boolean) | undefined {
   try {
@@ -91,7 +103,7 @@ export function pathGlobEntries(config: PathGlobConfigView): PathGlobEntry[] {
         failOpen: !noEffect,
         ...(noEffect ? { noEffect } : {}),
         vaultIds,
-        matches: aclMatcher(r.glob),
+        matches: aclMatcher(r.glob, "rules"),
       });
     }
     for (const key of ["readPaths", "writePaths", "deletePaths"] as const)
@@ -101,7 +113,7 @@ export function pathGlobEntries(config: PathGlobConfigView): PathGlobEntry[] {
           pattern: glob,
           failOpen: false,
           vaultIds,
-          matches: aclMatcher(glob),
+          matches: aclMatcher(glob, "allow"),
         });
   };
   aclEntries(
@@ -137,9 +149,13 @@ export function pathGlobEntries(config: PathGlobConfigView): PathGlobEntry[] {
 /** The check's input for a loaded config: every glob, plus each vault's file list. A vault that
  *  cannot be walked (symlinked root, unreadable) is `undefined`: reported as unchecked, never as
  *  "every glob dead". */
-export function deadPathGlobsView(config: PathGlobConfigView): DeadPathGlobsView {
+export function deadPathGlobsView(
+  config: PathGlobConfigView,
+  caseByVault?: ReadonlyMap<string, boolean | null>,
+): DeadPathGlobsView {
   return {
     entries: pathGlobEntries(config),
+    ...(caseByVault !== undefined ? { caseByVault } : {}),
     files: new Map(
       config.vaults.map((v) => {
         try {
@@ -165,11 +181,13 @@ export function deadPathGlobsCheck(view: DeadPathGlobsView): Check {
       const dead = view.entries.filter((e) => {
         const listed = e.vaultIds.flatMap((id) => {
           const files = view.files.get(id);
-          return files !== undefined && files.length > 0 ? [files] : [];
+          return files !== undefined && files.length > 0 ? [{ id, files }] : [];
         });
         // Nothing to judge it against: not dead, just unchecked (reported in `notes`).
         if (listed.length === 0) return false;
-        return !listed.some((files) => files.some((f) => e.matches(f)));
+        return !listed.some(({ id, files }) =>
+          files.some((f) => e.matches(f, view.caseByVault?.get(id))),
+        );
       });
       const notes = unchecked.length > 0 ? [`not checked: ${unchecked.join("; ")}`] : undefined;
       if (dead.length === 0) {

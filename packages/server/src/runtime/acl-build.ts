@@ -1,6 +1,12 @@
-import { FolderAcl } from "../acl";
+import { type AclCaseMatch, CASE_INSENSITIVE_FS, FolderAcl } from "../acl";
 import { foldersShareDirectory, rawFolderPlacement } from "../tools/m7/knowledge/wiki-folder";
 import { wikiLogRules, withWikiLogScope } from "../tools/m7/knowledge/wiki-log-acl";
+import {
+  type CaseSensitiveSetting,
+  pathCaseFolding,
+  type VaultCaseInfo,
+  vaultCaseInfo,
+} from "../vault/case-sensitivity";
 import { resolveVaultPathChecked } from "../vault/paths";
 import { immutableGlobsFor, rawFolderOf } from "../vault/raw-folder";
 import { canonicalizeVaultRoot, canonicalizeVaultRootWithStatus } from "../vault/registry";
@@ -22,6 +28,24 @@ type FolderAclConfig = ConstructorParameters<typeof FolderAcl>[0];
  *  independent additions on different fields (a `rules` entry that only adds a scope, and
  *  `immutablePaths` entries that only add write denials), so neither can loosen the other nor an
  *  operator's own rules; an operator's `immutablePaths` are kept. */
+/** Test seams for the per-vault case-sensitivity resolution. Neither is for production use. */
+export interface BuildAclsCaseOptions {
+  /** The platform default (acl.ts's CASE_INSENSITIVE_FS). Forcing it simulates a host whose
+   *  platform default differs from a vault's filesystem (macOS on case-sensitive APFS, Linux on
+   *  a case-insensitive mount). */
+  platformCaseInsensitive?: boolean;
+  /** The per-root probe (vault/case-sensitivity.ts's detectFsCaseSensitivity). */
+  detectCase?: (root: string) => boolean | null;
+}
+
+/** Whether any decision of this config depends on matching a glob (and so on case). */
+const matchesGlobs = (c: FolderAclConfig): boolean =>
+  c.rules.length > 0 ||
+  c.readPaths !== undefined ||
+  c.writePaths !== undefined ||
+  c.deletePaths !== undefined ||
+  (c.immutablePaths?.length ?? 0) > 0;
+
 export function buildAcls(
   aclConfig: FolderAclConfig,
   vaults: ReadonlyArray<{
@@ -31,17 +55,47 @@ export function buildAcls(
     acl?: unknown;
     wiki?: { folder: string; rawFolder?: string | undefined } | undefined;
     conventions?: { protectSchemaFiles?: boolean } | undefined;
+    /** vaults[].caseSensitive: "auto"/absent probes the vault root; true/false overrides it. */
+    caseSensitive?: CaseSensitiveSetting | undefined;
   }>,
-): { acl: FolderAcl; aclByVault: Map<string, FolderAcl> } {
+  caseOptions: BuildAclsCaseOptions = {},
+): { acl: FolderAcl; aclByVault: Map<string, FolderAcl>; caseByVault: Map<string, VaultCaseInfo> } {
+  const platformCi = caseOptions.platformCaseInsensitive ?? CASE_INSENSITIVE_FS;
+  const platform: AclCaseMatch = { allow: platformCi, rules: platformCi };
   const aclByVault = new Map<string, FolderAcl>();
+  const caseByVault = new Map<string, VaultCaseInfo>();
   for (const v of vaults) {
     const raw = rawFolderOf(v.id, v.wiki);
     const protect = v.conventions?.protectSchemaFiles === true;
-    if (v.acl === undefined && v.wiki?.folder === undefined && raw === undefined && !protect)
+    // Case behavior is a fact of the vault's OWN filesystem, not of the process platform, and on
+    // NTFS or ext4 casefold of each directory. So a vault with a root gets its own FolderAcl
+    // whenever any glob applies to it, which settles a case-only match by asking the path's own
+    // directories how they treat case; the root ACL (no filesystem to ask) would match it the
+    // platform's way.
+    const root = v.path === undefined ? undefined : canonicalizeVaultRoot(v.path);
+    const info =
+      root === undefined && (v.caseSensitive === undefined || v.caseSensitive === "auto")
+        ? {
+            configured: "auto" as const,
+            detected: null,
+            caseInsensitive: platformCi,
+            match: platform,
+          }
+        : vaultCaseInfo(root, v.caseSensitive, caseOptions.detectCase);
+    caseByVault.set(v.id, info);
+    const differs = info.match.allow !== platform.allow || info.match.rules !== platform.rules;
+    if (
+      (root === undefined || !matchesGlobs(aclConfig)) &&
+      v.acl === undefined &&
+      v.wiki?.folder === undefined &&
+      raw === undefined &&
+      !protect &&
+      !differs
+    )
       continue;
     const operator = (v.acl as FolderAclConfig | undefined) ?? aclConfig;
     const placed = canonicalWikiFolder(v);
-    const base = withWikiLogScope(operator, v.wiki?.folder, placed.folder);
+    const base = withWikiLogScope(operator, v.wiki?.folder, placed.folder, info.match);
     const locked = raw === undefined ? [] : [raw, ...canonicalRawTarget(v, raw)];
     // A wiki folder that could not be placed (the root is unavailable now) is placed on a later
     // request, once the root exists: the rule on the real log.md is added then, so a symlink that
@@ -52,7 +106,9 @@ export function buildAcls(
         : () => {
             const later = canonicalWikiFolder(v, false);
             if (!later.known) return undefined;
-            return later.folder === undefined ? [] : wikiLogRules(operator, [later.folder]);
+            return later.folder === undefined
+              ? []
+              : wikiLogRules(operator, [later.folder], info.match);
           };
     const cfg: FolderAclConfig =
       locked.length === 0
@@ -61,9 +117,23 @@ export function buildAcls(
             ...base,
             immutablePaths: [...(base.immutablePaths ?? []), ...immutableGlobsFor(...locked)],
           };
-    aclByVault.set(v.id, new FolderAcl(protect ? { ...cfg, protectSchemaFiles: true } : cfg, late));
+    // The caseMatch field rides the config INTO the fingerprint (acl.ts), so two vaults with
+    // identical rules but different filesystems never share persisted path sets or cache keys.
+    const cased: FolderAclConfig = differs ? { ...cfg, caseMatch: info.match } : cfg;
+    const spelling =
+      root === undefined ? {} : { caseFolding: (rel: string) => pathCaseFolding(root, rel) };
+    aclByVault.set(
+      v.id,
+      new FolderAcl(protect ? { ...cased, protectSchemaFiles: true } : cased, late, spelling),
+    );
   }
-  return { acl: new FolderAcl(aclConfig), aclByVault };
+  // The root ACL has no vault of its own: the platform default, made explicit when the seam
+  // overrides it so the root and the platform-matching vaults still share one fingerprint.
+  const rootAcl =
+    platformCi === CASE_INSENSITIVE_FS
+      ? new FolderAcl(aclConfig)
+      : new FolderAcl({ ...aclConfig, caseMatch: platform });
+  return { acl: rootAcl, aclByVault, caseByVault };
 }
 
 /** The in-vault directory a symlinked wiki folder really is (`""`: the vault root), so that the

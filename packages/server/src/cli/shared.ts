@@ -50,7 +50,7 @@ export function resolveOrUsageExit(input?: string): ServerConfig {
 export function resolveCliVaultIdentity(
   cacheDb: Database,
   experientialDb: Database,
-  vaults: readonly { id: string; path: string }[],
+  vaults: readonly { id: string; path: string; caseSensitive?: "auto" | boolean }[],
 ): void {
   for (const notice of resolveAndApplyVaultIdentity(cacheDb, experientialDb, vaults)) {
     process.stderr.write(formatVaultRenameNotice(notice));

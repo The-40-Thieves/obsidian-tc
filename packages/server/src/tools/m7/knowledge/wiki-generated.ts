@@ -71,6 +71,8 @@ export interface WikiGenerateEnv {
   root: string;
   vaultId: string;
   wikiFolder: string | undefined;
+  /** The vault's filesystem case behavior for the generated-page classification (platform default when absent). */
+  caseInsensitive?: boolean | null | undefined;
   /** The vault's ACL (no caller: see the header for why reads use no rule-scopes). */
   acl: FolderAcl | undefined;
   exclusion: VaultExclusion;
@@ -151,14 +153,19 @@ interface Group {
 }
 
 function collectGroups(env: WikiGenerateEnv, folder: string): { groups: Group[]; cut: number } {
-  const scope: ScanScope = { root: env.root, acl: env.acl, grantedScopes: SCOPELESS };
+  const scope: ScanScope = {
+    root: env.root,
+    acl: env.acl,
+    grantedScopes: SCOPELESS,
+    caseInsensitive: env.caseInsensitive,
+  };
   const schemaPath = `${folder}/${WIKI_SCHEMA_FILE}`;
   const all = readableNotes(env.root, env.acl, SCOPELESS, folder)
     .filter(
       (p) =>
-        !isGeneratedWikiPath(p, folder) &&
+        !isGeneratedWikiPath(p, folder, env.caseInsensitive) &&
         p !== schemaPath &&
-        pathInFolder(p, folder) &&
+        pathInFolder(p, folder, env.caseInsensitive) &&
         listable(env, p),
     )
     .sort();
@@ -265,7 +272,11 @@ function projectRows(
       }
       if (seen.has(rel) || e.before === e.after) continue;
       seen.add(rel);
-      if (!pathInFolder(rel, folder) || isGeneratedWikiPath(rel, folder) || !listable(env, rel))
+      if (
+        !pathInFolder(rel, folder, env.caseInsensitive) ||
+        isGeneratedWikiPath(rel, folder, env.caseInsensitive) ||
+        !listable(env, rel)
+      )
         continue;
       const op = e.before === "absent" ? "create" : e.after === "absent" ? "delete" : "update";
       const shown = plainPath(rel).replace(/\|/g, "?");

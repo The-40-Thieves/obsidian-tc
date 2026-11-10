@@ -34,6 +34,8 @@ export interface WikiLintSweepDeps {
     wikiFolders?: readonly string[] | undefined;
     /** Every name of the vault's raw folder (registry `rawFolders`): raw notes are never lint subjects. */
     rawFolders?: readonly string[] | undefined;
+    /** The vault's filesystem case behavior (registry `caseInsensitive`). */
+    caseInsensitive?: boolean | null | undefined;
   }[];
   exclusionFor: (vaultId: string) => VaultExclusion;
   embeddingModel: string;
@@ -131,6 +133,7 @@ export function registerWikiLintSweep(scheduler: Scheduler, deps: WikiLintSweepD
               wikiFolder: v.wikiFolder,
               wikiFolders: v.wikiFolders,
               rawFolders: v.rawFolders,
+              caseInsensitive: v.caseInsensitive,
               sealKey,
             },
             {
@@ -165,6 +168,7 @@ export function registerWikiLintSweep(scheduler: Scheduler, deps: WikiLintSweepD
               exclusion: deps.exclusionFor(v.id),
               wikiFolders: v.wikiFolders ?? v.wikiFolder,
               rawFolders: v.rawFolders,
+              caseInsensitive: v.caseInsensitive,
             },
             deps.judge.excludeFilter,
             deps.judge.maxCalls,
