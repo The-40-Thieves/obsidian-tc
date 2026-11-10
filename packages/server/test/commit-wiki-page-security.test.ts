@@ -238,7 +238,7 @@ describe("read ACL on every existing note the commit touches", () => {
 
   for (const centralAcl of [true, false]) {
     it(`a write-allowed, read-denied patch target is refused, leaks no hash and writes nothing (central ACL ${centralAcl})`, async () => {
-      const hh = harness({ centralAcl, acl });
+      const hh = harness({ handlerAclOnly: !centralAcl, acl });
       const before = hashTree(hh.v.root);
       for (const prev of ["0".repeat(64), relatedHash()]) {
         const r = await commit(hh, {
@@ -254,7 +254,7 @@ describe("read ACL on every existing note the commit touches", () => {
   }
 
   it("without the central stage the handler answers exactly like a missing note", async () => {
-    const hh = harness({ centralAcl: false, acl });
+    const hh = harness({ handlerAclOnly: true, acl });
     const denied = errOf(
       await commit(hh, {
         patches: [{ path: "wiki/Related.md", prev_hash: "0".repeat(64), operation: "link" }],
@@ -272,7 +272,7 @@ describe("read ACL on every existing note the commit touches", () => {
 
   for (const centralAcl of [true, false]) {
     it(`overwriting a page the caller cannot read is refused with no hash leak (central ACL ${centralAcl})`, async () => {
-      const hh = harness({ centralAcl, acl });
+      const hh = harness({ handlerAclOnly: !centralAcl, acl });
       const before = hashTree(hh.v.root);
       const e = errOf(
         await commit(hh, {
@@ -293,7 +293,7 @@ describe("read ACL on every existing note the commit touches", () => {
   }
 
   it("a readable and writable target still works under the same ACL", async () => {
-    const hh = harness({ centralAcl: true, acl });
+    const hh = harness({ acl });
     const r = await commit(hh);
     expect(r.ok).toBe(true);
   });

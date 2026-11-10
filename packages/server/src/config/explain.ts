@@ -61,6 +61,7 @@ export const ENV_OVERLAYS: ReadonlyArray<readonly [string, string]> = [
   ["auth.jwksUri", "OBSIDIAN_TC_JWKS_URI"],
   ["auth.audience", "OBSIDIAN_TC_AUDIENCE"],
   ["vaults", "OBSIDIAN_TC_VAULT_PATH"],
+  ["vaults", "OBSIDIAN_TC_VAULT_CASE_SENSITIVE"],
   ["cacheDir", "OBSIDIAN_TC_CACHE_DIR"],
 ];
 

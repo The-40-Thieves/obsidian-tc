@@ -144,7 +144,7 @@ describe("omit leaves results alone", () => {
   } as unknown as ToolDefinition;
 
   it("a call still returns structuredContent AND the text block", async () => {
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     r.register(def);
     const { client, server } = await connect(r, { facadeMode: "flat", outputSchema: "omit" });
     expect((await client.listTools()).tools[0]?.outputSchema).toBeUndefined();

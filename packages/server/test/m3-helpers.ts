@@ -16,6 +16,7 @@ import { conventionsChecker } from "../src/mcp/registry/conventions-scope";
 import { type M3Deps, registerM3Tools } from "../src/tools/m3";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { stripPathAcl } from "./registry-fixtures";
 import { makeTempDir, rmTemp } from "./tmp";
 
 export interface M3VaultOptions {
@@ -36,6 +37,8 @@ export interface M3VaultOptions {
   setup?: (root: string) => void;
   /** `vaults[].wiki.folder`: the registry then pins it when it is a symlink, and dispatch runs in its frame. */
   wikiFolder?: string;
+  /** Strip every tool's pathAcl after registration so a test reaches the handler-side checks. */
+  handlerAclOnly?: boolean;
 }
 
 export interface EventRow {
@@ -89,11 +92,10 @@ export function makeM3Vault(opts: M3VaultOptions = {}): M3Vault {
     { id, path: root, ...(opts.wikiFolder ? { wiki: { folder: opts.wikiFolder } } : {}) },
   ]);
   const registry = new ToolRegistry({
+    rootResolver: (vid) => vaultRegistry.resolve(vid).root,
     verifyElicit: elicitVerifier,
     folderPins: vaultRegistry.folderPins,
-    ...(opts.conventions
-      ? { conventions: conventionsChecker(vaultRegistry), rootResolver: () => root }
-      : {}),
+    ...(opts.conventions ? { conventions: conventionsChecker(vaultRegistry) } : {}),
   });
   registerM3Tools(registry, {
     vaultRegistry,
@@ -102,6 +104,7 @@ export function makeM3Vault(opts: M3VaultOptions = {}): M3Vault {
     ...(opts.responseFormat ? { responseFormat: opts.responseFormat } : {}),
     ...(opts.memoryDefense ? { memoryDefense: opts.memoryDefense } : {}),
   });
+  if (opts.handlerAclOnly) stripPathAcl(registry);
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({
     caller: "test",

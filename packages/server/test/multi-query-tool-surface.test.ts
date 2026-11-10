@@ -39,7 +39,7 @@ async function harness() {
     root: v.root,
     isReadable: () => true,
   });
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: (id) => v.vaultRegistry.resolve(id).root });
   registerM7Tools(registry, {
     vaultRegistry: new VaultRegistry([{ id: v.id, path: v.root }]),
     embeddingProvider: fakeEmbeddingProvider({ dimensions: DIMS, model: "A" }),

@@ -244,7 +244,7 @@ function cacheDb0(): Database {
 function m8Harness(
   opts: { memoryDefense?: VaultMemoryDefenseConfig; metrics?: MetricsRecorder } = {},
 ) {
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registerM8Tools(registry, {
     edb: edb0(),
     now: () => 1_700_000_000_000,
@@ -803,7 +803,7 @@ function rewireM5WithMemoryDefense(
   v: M5Vault,
   memoryDefense: VaultMemoryDefenseConfig,
 ): { call: M5Vault["call"] } {
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: (id) => (id === v.id ? v.root : undefined) });
   registerM5Tools(registry, {
     vaultRegistry: new VaultRegistry([{ id: v.id, path: v.root }]),
     cacheDir: v.cacheDir,
@@ -1604,7 +1604,7 @@ describe("review finding 7 — set_goal resolves `vault` through the registry be
   it("an unregistered vault id is refused with vault_not_found, not silently inserted", async () => {
     const dir = makeTempDir("otc-setgoal-vault-");
     try {
-      const registry = new ToolRegistry({});
+      const registry = new ToolRegistry({ rootResolver: () => undefined });
       const vaultRegistry = new VaultRegistry([{ id: "main", path: dir }]);
       registerM8Tools(registry, {
         edb: edb0(),
@@ -1633,7 +1633,7 @@ describe("review finding 7 — set_goal resolves `vault` through the registry be
   it("a registered vault id still resolves and set_goal succeeds, memoryDefense keyed by the RESOLVED id", async () => {
     const dir = makeTempDir("otc-setgoal-vault2-");
     try {
-      const registry = new ToolRegistry({});
+      const registry = new ToolRegistry({ rootResolver: () => undefined });
       const vaultRegistry = new VaultRegistry([{ id: "main", path: dir }]);
       const seenVaultIds: string[] = [];
       registerM8Tools(registry, {

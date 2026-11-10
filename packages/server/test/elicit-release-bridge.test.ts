@@ -105,7 +105,6 @@ describe("a confirmed bridge call whose response is lost keeps its confirmation 
       "POST /obsidian-tc/v1/templater/execute",
       {
         installed: ["templater"],
-        bindState: true,
         files: { "templates/t.md": "<% tp.file.move('/inbox/' + Date.now()) %>" },
         routes: { "POST /obsidian-tc/v1/templater/execute": { abort: true } },
         // The template's own JS relocates its output, then the response is lost.

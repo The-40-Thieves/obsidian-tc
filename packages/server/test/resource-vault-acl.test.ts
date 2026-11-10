@@ -53,7 +53,7 @@ type Verdict = "allow" | "deny";
 const verdict = (allowed: boolean): Verdict => (allowed ? "allow" : "deny");
 
 function harness(c: Case) {
-  const v = makeTestVault({ files: FILES, centralAcl: true, aclByVault: { test: c.override } });
+  const v = makeTestVault({ files: FILES, aclByVault: { test: c.override } });
   vaults.push(v);
   const context = (): CallerContext => v.ctx({ grantedScopes: new Set(c.scopes) });
   return { v, context };
@@ -161,7 +161,6 @@ describe("per-vault ACL governs read_notes, read_resources, resources/read and r
   it("a vault WITHOUT an override still inherits the root ACL on the resource surfaces", async () => {
     const v = makeTestVault({
       files: FILES,
-      centralAcl: true,
       acl: { readOnly: false, defaultScopes: [], rules: [], readPaths: ["pub/**"] },
       aclByVault: { elsewhere: { readPaths: ["top.md"] } },
     });

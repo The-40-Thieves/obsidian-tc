@@ -12,6 +12,7 @@ import {
   MAX_PENDING_REQUESTS,
   PENDING_TTL_MS,
   type PendingRequest,
+  REQUEST_TOMBSTONE_MS,
 } from "../src/auth/as-grants";
 import { provisionOauthDb } from "../src/db/provision";
 import {
@@ -46,6 +47,15 @@ const req = (clientId = CLIENT_ID): PendingRequest => ({
 const LIMITS: AdmissionLimits = { global: 10, reserved: 2, perClient: 6, perSource: 3 };
 const count = (db: { prepare: (s: string) => { get: () => unknown } }): number =>
   (db.prepare("SELECT COUNT(*) AS n FROM auth_requests").get() as { n: number }).n;
+const liveCount = (
+  db: { prepare: (s: string) => { get: (...p: unknown[]) => unknown } },
+  now: number,
+) =>
+  (
+    db
+      .prepare("SELECT COUNT(*) AS n FROM auth_requests WHERE used_at IS NULL AND expires_at > ?")
+      .get(now) as { n: number }
+  ).n;
 const freshDb = () => {
   const db = openMemoryDb();
   provisionOauthDb(db, { version: "t" });
@@ -137,7 +147,7 @@ describe("expired rows are purged on admission", () => {
     );
     const t = flow.clock.t;
     for (let i = 0; i < MAX_PENDING_REQUESTS + 500; i++)
-      ins.run(`old${i}`, t - 2 * PENDING_TTL_MS, t - 1);
+      ins.run(`old${i}`, t - 2 * PENDING_TTL_MS - REQUEST_TOMBSTONE_MS, t - REQUEST_TOMBSTONE_MS);
     expect(rows(flow, "SELECT 1 FROM auth_requests")).toHaveLength(MAX_PENDING_REQUESTS + 500);
 
     const res = await authorize(flow, new Jar(), pkce().challenge);
@@ -145,12 +155,28 @@ describe("expired rows are purged on admission", () => {
     expect(rows(flow, "SELECT 1 FROM auth_requests")).toHaveLength(1);
   });
 
+  it("a just-expired or used row is kept as a tombstone, but neither counts against a full table", async () => {
+    const flow = await makeFlow();
+    const ins = flow.db.prepare(
+      "INSERT INTO auth_requests (handle_hash, client_id, redirect_uri, scope, resource, code_challenge, created_at, expires_at, used_at) VALUES (?, 'c', 'r', 's', 'x', 'y', ?, ?, ?)",
+    );
+    const t = flow.clock.t;
+    for (let i = 0; i < MAX_PENDING_REQUESTS; i++) {
+      if (i % 2 === 0) ins.run(`expired${i}`, t - PENDING_TTL_MS - 1, t - 1, null);
+      else ins.run(`used${i}`, t - 1, t + PENDING_TTL_MS, t - 1);
+    }
+    const res = await authorize(flow, new Jar(), pkce().challenge);
+    expect(res.status).toBe(303);
+    expect(rows(flow, "SELECT 1 FROM auth_requests")).toHaveLength(MAX_PENDING_REQUESTS + 1);
+    expect(liveCount(flow.db, t)).toBe(1);
+  });
+
   it("a row exactly at its expiry is already dead and does not count against the quota", () => {
     const db = freshDb();
     for (let i = 0; i < LIMITS.perSource; i++) createPending(db, req(), 1000, "10.0.0.1", LIMITS);
     expect(createPending(db, req(), 1000, "10.0.0.1", LIMITS)).toBeUndefined();
     expect(createPending(db, req(), 1000 + PENDING_TTL_MS, "10.0.0.1", LIMITS)).toBeDefined();
-    expect(count(db)).toBe(1);
+    expect(liveCount(db, 1000 + PENDING_TTL_MS)).toBe(1);
   });
 });
 

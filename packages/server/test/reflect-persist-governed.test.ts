@@ -43,7 +43,7 @@ describe("reflect.persist routes through the governed note-write service (THE-56
   it("reflect.persist snapshots the prior note and reindexes", async () => {
     const reindexed: Array<[string, string, string]> = [];
     const db = cacheDb0();
-    const registry = new ToolRegistry({});
+    const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
     const vaultRegistry = new VaultRegistry([{ id: "main", name: "main", path: root }]);
     registerM7Tools(registry, {
       vaultRegistry,

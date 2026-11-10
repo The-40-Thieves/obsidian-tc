@@ -68,7 +68,7 @@ afterAll(() => rmTemp(root));
 function harness(retrieval?: { adaptiveRrf?: { enabled?: boolean; gain?: number } }) {
   const db = fusionDb();
   if (!db) return null;
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   const vaultRegistry = new VaultRegistry([{ id: VAULT, name: VAULT, path: root }]);
   registerM7Tools(registry, {
     vaultRegistry,

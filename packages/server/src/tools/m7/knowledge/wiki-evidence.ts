@@ -146,7 +146,7 @@ export function collectIdentityEvidence(
   // The generated index.md / log.md are never a page, and never evidence for one: the index links
   // every page under its own name, which would read as every topic already having a page.
   const generated = (p: string): boolean =>
-    isGeneratedWikiPath(p, scope.wikiFolders ?? scope.wikiFolder);
+    isGeneratedWikiPath(p, scope.wikiFolders ?? scope.wikiFolder, scope.caseInsensitive);
   const add = (path: string, ev: Evidence): void => {
     if (!inFolder(path) || generated(path) || ignored(path)) return;
     const c = candidates.get(path) ?? { path, evidence: [], excluded: opts.isExcluded(path) };

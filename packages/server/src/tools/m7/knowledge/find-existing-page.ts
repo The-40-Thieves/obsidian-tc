@@ -292,7 +292,7 @@ export async function findExistingPage(
   const folder = args.folder ? normalizeVaultPath(args.folder) : undefined;
   const exclusion = vaultExclusionFor(deps.vaultRegistry, v.id);
   // A raw source is an input to the wiki, not a page: it never answers "does a page exist?".
-  const isRaw = rawPathFilter(v.rawFolders);
+  const isRaw = rawPathFilter(v.rawFolders, v.caseInsensitive);
   const refusals = new ReadRefusals();
   const identity = collectIdentityEvidence(
     {
@@ -301,6 +301,7 @@ export async function findExistingPage(
       grantedScopes: ctx.grantedScopes,
       wikiFolder: v.wikiFolder,
       wikiFolders: v.wikiFolders,
+      caseInsensitive: v.caseInsensitive,
     },
     args.topic,
     { folder, isExcluded: exclusion.isExcluded, ignore: isRaw, refusals },
@@ -325,7 +326,7 @@ export async function findExistingPage(
         (prefix === "" || rel.startsWith(prefix)) &&
         !isRaw(rel) &&
         !exclusion.isExcluded(rel) &&
-        !isGeneratedWikiPath(rel, v.wikiFolders ?? v.wikiFolder),
+        !isGeneratedWikiPath(rel, v.wikiFolders ?? v.wikiFolder, v.caseInsensitive),
       model: deps.embeddingProvider.id,
     });
     semantic.checked = true;
@@ -394,6 +395,7 @@ export async function findExistingPage(
           exclusion,
           wikiFolders: v.wikiFolders ?? v.wikiFolder,
           rawFolders: v.rawFolders,
+          caseInsensitive: v.caseInsensitive,
         },
         deps.excludeFilter,
         args.topic,

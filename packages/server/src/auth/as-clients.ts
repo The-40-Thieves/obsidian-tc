@@ -130,6 +130,8 @@ export interface ScopeOutcome {
   scopes: string[];
   /** The request named scopes (other than `offline_access`) and none were known. */
   unknown: boolean;
+  defaulted?: boolean;
+  dropped?: string[];
 }
 
 /**
@@ -150,8 +152,11 @@ export function resolveScopes(
     vocab.length > 0 ? grantsScope(vocab, s) : isQualifiedScope(s),
   );
   if (named.length > 0 && known.length === 0) return { scopes: [], unknown: true };
-  if (known.length > 0) return { scopes: known, unknown: false };
-  return { scopes: vocab.length > 0 ? vocab : ["read:*"], unknown: false };
+  if (known.length > 0) {
+    const dropped = named.filter((s) => !known.includes(s));
+    return { scopes: known, unknown: false, ...(dropped.length > 0 ? { dropped } : {}) };
+  }
+  return { scopes: vocab.length > 0 ? vocab : ["read:*"], unknown: false, defaulted: true };
 }
 
 const VERBS: Record<string, string> = {

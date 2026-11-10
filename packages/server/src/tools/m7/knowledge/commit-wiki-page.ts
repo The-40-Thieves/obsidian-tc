@@ -303,6 +303,7 @@ export function createCommitWikiPageTool(
         grantedScopes: ctx.grantedScopes,
         wikiFolder: v.wikiFolder,
         wikiFolders: v.wikiFolders,
+        caseInsensitive: v.caseInsensitive,
       };
       const pageAbs = resolveVaultPath(v.root, pageRel);
       // The page's mode against the disk. Run before the await so a plain mistake (creating over a
@@ -510,6 +511,7 @@ export function createCommitWikiPageTool(
         scan,
         sources: input.sources ?? [],
         wikiFolder,
+        caseInsensitive: v.caseInsensitive,
         selfPath: pageRel,
         isExcluded: exclusion.isExcluded,
       });
@@ -566,7 +568,7 @@ export function createCommitWikiPageTool(
           ...collectIdentityEvidence(scope, topic, {
             folder: undefined,
             isExcluded: exclusion.isExcluded,
-            ignore: rawPathFilter(v.rawFolders),
+            ignore: rawPathFilter(v.rawFolders, v.caseInsensitive),
             refusals: scan.warnings.refusals,
           }).candidates.values(),
         ].filter((c) => c.path !== pageRel);
@@ -645,6 +647,7 @@ export function createCommitWikiPageTool(
         root: v.root,
         vaultId: v.id,
         wikiFolder,
+        caseInsensitive: v.caseInsensitive,
         acl: ctx.acl,
         exclusion,
         db: ctx.db,

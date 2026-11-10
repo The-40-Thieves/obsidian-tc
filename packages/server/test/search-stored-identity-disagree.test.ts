@@ -63,7 +63,7 @@ async function world(acls: { chunks: string; notes: string }) {
     PATH,
   );
   const vaultRegistry = new VaultRegistry([{ id: VAULT, path: root }]);
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   registerM2Tools(registry, {
     vaultRegistry,
     embeddingProvider: provider,

@@ -14,7 +14,7 @@ import {
 } from "../../../util/memory-defense";
 import { capWarningsOut } from "../../../util/scan-caps";
 import { enforcePathAcl, ImmutableRewriteSkips } from "../../../vault/acl-path";
-import { readableRel } from "../../../vault/acl-read-filter";
+import { readableResolved } from "../../../vault/acl-read-filter";
 import { callerMayReadNote, checkCas, requireContentRead } from "../../../vault/cas";
 import { requireConfirmation } from "../../../vault/hitl";
 import { buildVaultIndex, resolveTarget } from "../../../vault/links";
@@ -181,7 +181,10 @@ export function createMoveNoteTool(deps: M1Deps): ToolDefinition {
       // link target) or a note a `block`-mode scan refuses ends here, with the file still in place
       // and its backlinks still valid. The plan holds each note's pre-image; the commit re-checks it.
       const skips = new ImmutableRewriteSkips(ctx.acl, v.root, ctx.grantedScopes);
-      const readable = (rel: string): boolean => readableRel(ctx.acl, rel, ctx.grantedScopes);
+      // A warning may name only a note the caller may read, judged on its CANONICAL identity
+      // (read_note's decision, symlink-resolved), never the walked display path.
+      const readable = (rel: string): boolean =>
+        readableResolved(ctx.acl, v.root, rel, ctx.grantedScopes);
       const planMove = (record: boolean): MovePlan => {
         const { raw, hash } = readNote(fromAbs);
         checkCas({

@@ -32,6 +32,7 @@ export function conventionsScopeOf(
     grantedScopes: ctx.grantedScopes,
     wikiFolders: v.wikiFolders,
     rawFolders: v.rawFolders,
+    caseInsensitive: v.caseInsensitive,
   };
 }
 

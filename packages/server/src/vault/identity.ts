@@ -16,11 +16,13 @@
 //   - unknown id, KNOWN path (under a different id) -> a rename. Every vault_id-keyed row, across
 //     BOTH cache.db and experiential.db, is re-keyed old id -> new id (each store its own
 //     transaction — see `resolveAndApplyVaultIdentity`), and the identity row is updated in place.
+import { statSync } from "node:fs";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { CASE_INSENSITIVE_FS } from "../acl";
 import { tableExists } from "../db/introspect";
 import { inTransaction } from "../db/txn";
 import type { Database } from "../db/types";
+import { detectFsCaseSensitivity } from "./case-sensitivity";
 import { canonicalizeVaultRootWithStatus } from "./registry";
 
 /**
@@ -86,23 +88,31 @@ export const EXPERIENTIAL_VAULT_ID_TABLES: readonly string[] = [
 ];
 
 /**
- * Normalize a realpath for IDENTITY COMPARISON (never display, never opening a file) on a
- * case-insensitive filesystem, so `/Vault` and `/vault` resolve to the SAME `vault_identity` row
- * instead of two different vaults, or worse, an id collision refusal against itself. Reuses
- * `acl.ts`'s `CASE_INSENSITIVE_FS` (win32/darwin) rather than re-deriving the platform check, and
- * lowercases (not a locale-aware fold) matching NTFS/APFS's ASCII-range case-insensitivity — same
- * strategy `acl.ts` already applies to path globs.
- *
- * Not chosen: `dev`+`ino` (stat identity) instead of a path string. It sidesteps case-folding, but
- * `root_realpath` also needs to be a portable value an operator can read in a boot-error message —
- * a `(dev, ino)` pair means nothing to a person deciding which colliding vault to rename, and
- * inode numbers are not stable across a restore/remount the way a path is already assumed to be.
+ * Normalize a realpath for IDENTITY COMPARISON (never display, never opening a file), folding
+ * case when the vault's filesystem does, so `/Vault` and `/vault` resolve to the SAME
+ * `vault_identity` row instead of two different vaults, or worse, an id collision refusal against
+ * itself. `caseInsensitive` is the vault's resolved behavior (registry/buildAcls), defaulting to
+ * acl.ts's platform constant for path-less callers; a plain lowercase, as acl.ts folds globs.
+ * Paths keep boot errors readable; unlike inode identity, they survive restores/remounts.
  */
 export function normalizeRealpathForIdentity(
   realpath: string,
   caseInsensitive: boolean = CASE_INSENSITIVE_FS,
 ): string {
   return caseInsensitive ? realpath.toLowerCase() : realpath;
+}
+
+/** Whether `stored` is `root`'s directory (case-sensitive filesystems can split them); null: unknown. */
+function sameDirectory(stored: string, root: string): boolean | null {
+  try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- a vault root recorded in vault_identity; read-only stat.
+    const a = statSync(stored, { bigint: true });
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- the configured vault's canonical root; read-only stat.
+    const b = statSync(root, { bigint: true });
+    return a.dev === b.dev && a.ino === b.ino;
+  } catch {
+    return null;
+  }
 }
 
 interface VaultIdentityRow {
@@ -184,11 +194,18 @@ function rekeyVaultIdInDb(
 function resolveVaultIdentity(
   db: Database,
   experientialDb: Database,
-  vault: { id: string; path: string },
+  vault: { id: string; path: string; caseSensitive?: "auto" | boolean },
   now: number,
 ): VaultRenameNotice | undefined {
   const { root, canonical } = canonicalizeVaultRootWithStatus(vault.path);
-  const normalized = normalizeRealpathForIdentity(root);
+  // Fold the way THIS vault's filesystem folds (override wins, else probe the canonical root); an undecidable probe does NOT fold — a false "same path" would re-key one vault's rows onto another, a false "different path" only refuses a boot. The lowercase spelling must also be this directory: a case-sensitive parent can hold `Vault` and `vault` as two vaults that each fold inside. A recorded row differing only in case is re-spelled only for a PROVEN same directory; an unreachable root proves nothing, so its pre-per-vault row stands.
+  const folds =
+    vault.caseSensitive !== undefined && vault.caseSensitive !== "auto"
+      ? !vault.caseSensitive
+      : (detectFsCaseSensitivity(root) ?? false);
+  const fold = folds && sameDirectory(root.toLowerCase(), root) === true;
+  const normalized = normalizeRealpathForIdentity(root, fold);
+  const legacy = normalizeRealpathForIdentity(root, CASE_INSENSITIVE_FS); // pre-per-vault rows
 
   const rowById = db
     .prepare(
@@ -206,6 +223,16 @@ function resolveVaultIdentity(
         ).run(now, vault.id);
       }
       return undefined;
+    }
+    if (rowById.root_realpath.toLowerCase() === normalized.toLowerCase()) {
+      const same = sameDirectory(rowById.root_realpath, root);
+      if (same === null && !canonical && rowById.root_realpath === legacy) return undefined;
+      if (same === true) {
+        db.prepare(
+          "UPDATE vault_identity SET root_realpath = ?, root_canonical = ?, updated_at = ? WHERE vault_id = ?",
+        ).run(normalized, canonical ? 1 : rowById.root_canonical, now, vault.id);
+        return undefined;
+      }
     }
     if (rowById.root_canonical === 0 && canonical) {
       // PROVISIONAL row (realpath failed a prior boot), now genuinely resolved to a DIFFERENT
@@ -235,11 +262,15 @@ function resolveVaultIdentity(
     );
   }
 
-  const rowByPath = db
-    .prepare(
-      "SELECT vault_id, root_realpath, root_canonical FROM vault_identity WHERE root_realpath = ?",
-    )
-    .get(normalized) as VaultIdentityRow | undefined;
+  const byPath = db.prepare(
+    "SELECT vault_id, root_realpath, root_canonical FROM vault_identity WHERE root_realpath = ?",
+  );
+  const legacyRow =
+    legacy === normalized ? undefined : (byPath.get(legacy) as VaultIdentityRow | undefined);
+  const rowByPath = (byPath.get(normalized) ??
+    (legacyRow !== undefined && sameDirectory(legacy, root) === true ? legacyRow : undefined)) as
+    | VaultIdentityRow
+    | undefined;
 
   if (rowByPath !== undefined && rowByPath.vault_id !== vault.id) {
     // Rename: rowByPath.vault_id (the OLD id) -> vault.id (the NEW id). Re-key both stores first —
@@ -249,8 +280,8 @@ function resolveVaultIdentity(
     rekeyVaultIdInDb(db, oldId, vault.id, CACHE_VAULT_ID_TABLES);
     rekeyVaultIdInDb(experientialDb, oldId, vault.id, EXPERIENTIAL_VAULT_ID_TABLES);
     db.prepare(
-      "UPDATE vault_identity SET vault_id = ?, root_canonical = ?, updated_at = ? WHERE vault_id = ?",
-    ).run(vault.id, canonical ? 1 : rowByPath.root_canonical, now, oldId);
+      "UPDATE vault_identity SET vault_id = ?, root_realpath = ?, root_canonical = ?, updated_at = ? WHERE vault_id = ?",
+    ).run(vault.id, normalized, canonical ? 1 : rowByPath.root_canonical, now, oldId);
     return { oldId, newId: vault.id, rootRealpath: normalized };
   }
 
@@ -282,7 +313,7 @@ function resolveVaultIdentity(
 export function resolveAndApplyVaultIdentity(
   db: Database,
   experientialDb: Database,
-  vaults: readonly { id: string; path: string }[],
+  vaults: readonly { id: string; path: string; caseSensitive?: "auto" | boolean }[],
 ): VaultRenameNotice[] {
   const now = Date.now();
   const notices: VaultRenameNotice[] = [];

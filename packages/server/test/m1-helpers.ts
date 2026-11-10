@@ -23,6 +23,7 @@ import { buildAcls } from "../src/runtime/acl-build";
 import { registerM1Tools } from "../src/tools/m1";
 import { VaultRegistry } from "../src/vault/registry";
 import { openMemoryDb } from "./helpers";
+import { stripPathAcl } from "./registry-fixtures";
 import { makeTempDir, rmTemp } from "./tmp";
 
 export interface TestVaultOptions {
@@ -59,9 +60,9 @@ export interface TestVaultOptions {
   /** The governor byte budget (ToolRegistry maxResponseBytes); also the size bulk-read pages are
    *  cut to. Default: the registry's 1 MB. */
   maxResponseBytes?: number;
-  /** Wire dispatch's central folder-ACL stage (rootResolver), as production does. Off by default:
-   *  the older M1 tests exercise the handler-side ACL only. */
-  centralAcl?: boolean;
+  /** Strip every tool's pathAcl after registration so a test reaches the handler-side ACL checks,
+   *  which dispatch's central stage would otherwise refuse first. */
+  handlerAclOnly?: boolean;
   /** Per-vault ACL overrides, wired as the registry's `aclResolver` exactly as governance.ts does
    *  (`aclByVault.get(id) ?? root`). The `acl` option stays the ROOT ACL the caller's context
    *  carries, so a test can pair a permissive root with a narrowing per-vault override. */
@@ -156,12 +157,12 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
   // the implicit `log.md` rule, the immutable raw folder), else the root ACL.
   const acl = overrides.get(id) ?? rootAcl;
   const registry = new ToolRegistry({
+    rootResolver: (vid) => vaultRegistry.resolve(vid).root,
     verifyElicit: elicitVerifier,
     folderPins: vaultRegistry.folderPins,
     ...(overrides.size > 0 ? { aclResolver: (vid: string) => overrides.get(vid) ?? rootAcl } : {}),
     ...(opts.conventions ? { conventions: conventionsChecker(vaultRegistry) } : {}),
     ...opts.registryOpts,
-    ...(opts.centralAcl ? { rootResolver: () => root } : {}),
     ...(opts.maxResponseBytes !== undefined ? { maxResponseBytes: opts.maxResponseBytes } : {}),
   });
   registerM1Tools(registry, {
@@ -190,6 +191,7 @@ export function makeTestVault(opts: TestVaultOptions = {}): TestVault {
     }),
   });
   opts.registerTools?.(registry, vaultRegistry);
+  if (opts.handlerAclOnly) stripPathAcl(registry);
 
   const ctx = (over: Partial<CallerContext> = {}): CallerContext => ({
     caller: "test",

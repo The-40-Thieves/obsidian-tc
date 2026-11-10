@@ -30,7 +30,7 @@ function ctx(over: Partial<CallerContext> = {}): CallerContext {
 
 describe("ToolRegistry.dispatch marks/releases sessionId in-flight — THE-1108 fix", () => {
   it("the session is in flight WHILE the handler runs, and back to 0 immediately after it returns", async () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     let seenDuringHandler = -1;
     registry.register({
       name: "observe",
@@ -52,7 +52,7 @@ describe("ToolRegistry.dispatch marks/releases sessionId in-flight — THE-1108 
     // runDispatch converts a handler throw into an `ok: false` ToolResult rather than rejecting
     // (dispatch's caller-visible contract) — the in-flight release must not depend on which of the
     // two shapes dispatch returns.
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register({
       name: "boom",
       description: "d",
@@ -68,7 +68,7 @@ describe("ToolRegistry.dispatch marks/releases sessionId in-flight — THE-1108 
   });
 
   it("an unknown tool (fails before the handler ever runs) still releases", async () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     const result = await registry.dispatch(
       "does_not_exist",
       {},
@@ -84,7 +84,7 @@ describe("ToolRegistry.dispatch marks/releases sessionId in-flight — THE-1108 
         throw new Error("tracer exploded");
       },
     } as unknown as Tracer;
-    const registry = new ToolRegistry({ tracer: brokenTracer });
+    const registry = new ToolRegistry({ rootResolver: () => undefined, tracer: brokenTracer });
     registry.register({
       name: "plain",
       description: "d",
@@ -99,7 +99,7 @@ describe("ToolRegistry.dispatch marks/releases sessionId in-flight — THE-1108 
   });
 
   it("never touches the registry for a call with no sessionId — the common, untracked case", async () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register({
       name: "plain",
       description: "d",
@@ -114,7 +114,7 @@ describe("ToolRegistry.dispatch marks/releases sessionId in-flight — THE-1108 
   });
 
   it("two concurrent calls sharing one sessionId: the first's release does not un-mark the second's still-running call", async () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     let releaseFirst: (() => void) | undefined;
     let resolveStarted: (() => void) | undefined;
     const started = new Promise<void>((resolve) => {

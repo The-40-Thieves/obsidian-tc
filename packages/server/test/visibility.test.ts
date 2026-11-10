@@ -154,6 +154,7 @@ function registerEcho(reg: ToolRegistry, name: string): void {
 describe("registry visibility integration", () => {
   it("listVisible() omits hidden + disabled tools while list() keeps the full set", () => {
     const reg = new ToolRegistry({
+      rootResolver: () => undefined,
       toolVisibility: cfg({ hidden: ["hideme"], disabled: ["killme"] }),
     });
     registerEcho(reg, "keep");
@@ -169,7 +170,10 @@ describe("registry visibility integration", () => {
   });
 
   it("dispatch rejects a disabled tool as not_found, but allows it without the disable", async () => {
-    const disabledReg = new ToolRegistry({ toolVisibility: cfg({ disabled: ["killme"] }) });
+    const disabledReg = new ToolRegistry({
+      rootResolver: () => undefined,
+      toolVisibility: cfg({ disabled: ["killme"] }),
+    });
     registerEcho(disabledReg, "killme");
     const denied = await disabledReg.dispatch("killme", {}, ctx(freshDb()));
     expect(denied.ok).toBe(false);
@@ -177,14 +181,17 @@ describe("registry visibility integration", () => {
 
     // The same registered tool dispatches fine once it is not disabled — proving the
     // guard, not a missing registration, is what rejected it above.
-    const openReg = new ToolRegistry();
+    const openReg = new ToolRegistry({ rootResolver: () => undefined });
     registerEcho(openReg, "killme");
     const ok = await openReg.dispatch("killme", {}, ctx(freshDb()));
     expect(ok.ok).toBe(true);
   });
 
   it("dispatch still runs a merely hidden tool (hidden is not disabled)", async () => {
-    const reg = new ToolRegistry({ toolVisibility: cfg({ hidden: ["hideme"] }) });
+    const reg = new ToolRegistry({
+      rootResolver: () => undefined,
+      toolVisibility: cfg({ hidden: ["hideme"] }),
+    });
     registerEcho(reg, "hideme");
     const r = await reg.dispatch("hideme", {}, ctx(freshDb()));
     expect(r.ok).toBe(true);
@@ -265,7 +272,7 @@ describe("visibilityOf persona toolVisibility composition (THE-647 item 2)", () 
   });
 
   it("dispatch rejects a persona-disabled tool as not_found — indistinguishable from unregistered", async () => {
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     registerEcho(reg, "persona-killme");
     const caller = ctx(freshDb(), {
       toolVisibility: cfg({ disabled: ["persona-killme"] }),
@@ -276,7 +283,7 @@ describe("visibilityOf persona toolVisibility composition (THE-647 item 2)", () 
   });
 
   it("listVisible() omits a persona-hidden tool while a caller without the persona still sees it", () => {
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     registerEcho(reg, "persona-hideme");
     const personaCaller = {
       grantedScopes: new Set(["*"]),
@@ -300,7 +307,7 @@ describe("registry listVisible per-caller (THE-250)", () => {
   };
 
   it("drops tools the caller cannot dispatch; a full grant / no caller keeps all", () => {
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     withScope(reg, "rd", "read:notes");
     withScope(reg, "wr", "write:notes");
     expect(reg.listVisible({ grantedScopes: new Set(["read:notes"]) }).map((d) => d.name)).toEqual([
@@ -401,6 +408,7 @@ describe("visibilityOf THE-1099 derived-telemetry exemption", () => {
   describe("registry + dispatch integration", () => {
     it("acl.readOnly blocks a mutating tool by default; the exempted name bypasses it when flagged on", async () => {
       const flaggedReg = new ToolRegistry({
+        rootResolver: () => undefined,
         toolVisibility: { ...ALLOW_ALL, allowReadOnlyDerivedTelemetry: true },
       });
       // Must be genuinely mutating (a mutating required scope) for this test to exercise the kill
@@ -422,7 +430,7 @@ describe("visibilityOf THE-1099 derived-telemetry exemption", () => {
     });
 
     it("without the flag, record_retrieval_feedback is refused under acl.readOnly exactly like any other mutating tool", async () => {
-      const plainReg = new ToolRegistry();
+      const plainReg = new ToolRegistry({ rootResolver: () => undefined });
       registerMutating(plainReg, "record_retrieval_feedback", "write:workspace");
       const readOnlyAcl = new FolderAcl({ readOnly: true, defaultScopes: [], rules: [] });
       const readOnlyCtx = ctx(freshDb(), { acl: readOnlyAcl });

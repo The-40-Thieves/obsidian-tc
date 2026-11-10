@@ -85,7 +85,7 @@ async function main(): Promise<void> {
   });
   const db = await openConfiguredDatabase(config, "cache.db");
   const vaultRegistry = new VaultRegistry([{ id: vault.id, path: vault.path }]);
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   registerM1Tools(registry, {
     vaultRegistry,
     version: "eval",

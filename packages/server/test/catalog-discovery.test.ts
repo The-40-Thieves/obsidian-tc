@@ -182,7 +182,7 @@ describe("catalog discovery — ACL filtering and resource wiring (integration)"
   }
 
   function reg(): ToolRegistry {
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     for (const t of fixtureTools()) r.register(t);
     return r;
   }
@@ -280,7 +280,7 @@ describe("catalog discovery — ACL filtering and resource wiring (integration)"
     // the adjacent vault-note path (readResource) threaded it. A ceiling far below the catalog's
     // real size must now be refused the same way an oversized note read is.
     const tinyRegistry = (): ToolRegistry => {
-      const r = new ToolRegistry({ maxResponseBytes: 10 });
+      const r = new ToolRegistry({ rootResolver: () => undefined, maxResponseBytes: 10 });
       for (const t of fixtureTools()) r.register(t);
       return r;
     };
@@ -482,7 +482,7 @@ describe("THE-937 round 3: createMcpServer construction does not call opts.conte
     // This is the narrower, transport-agnostic half: a counting fake pins that `createMcpServer`
     // itself never calls `context`, independent of what any particular `context` implementation
     // does. `visibility` (a plain, already-resolved value) is what construction reads instead.
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     for (const t of fixtureTools()) registry.register(t);
     let calls = 0;
     const context = (): CallerContext => {
@@ -517,7 +517,7 @@ describe("THE-937 round 3: createMcpServer construction does not call opts.conte
 // against real HTTP rather than trusting the shared call site.
 describe("THE-1098 (GH #964): buildInstructions reflects the effective config", () => {
   function feedbackRegistry(toolVisibility?: ToolVisibilityConfig): ToolRegistry {
-    const r = new ToolRegistry({ toolVisibility });
+    const r = new ToolRegistry({ rootResolver: () => undefined, toolVisibility });
     r.register(tool("read_note", "notes", "Read a note from the vault by path."));
     // Mirrors the real m8 tool (THE-718): mutating, gated on write:workspace.
     r.register(
@@ -602,7 +602,7 @@ describe("THE-1098 (GH #964): buildInstructions reflects the effective config", 
   });
 
   it("omits the clause when the caller cannot see the tool at all (never registered)", () => {
-    const registry = new ToolRegistry();
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register(tool("read_note", "notes", "Read a note from the vault by path."));
     const text = buildInstructions("x", "0", registry, { grantedScopes: new Set(["*"]) });
     expect(text).not.toContain("record_retrieval_feedback");

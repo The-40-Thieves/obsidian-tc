@@ -250,10 +250,14 @@ function frontmatterOf(
 function foldersOf(
   registry: Pick<VaultRegistry, "resolve">,
   vaultId: string,
-): Pick<ConventionsScope, "wikiFolders" | "rawFolders"> {
+): Pick<ConventionsScope, "wikiFolders" | "rawFolders" | "caseInsensitive"> {
   try {
     const v = registry.resolve(vaultId);
-    return { wikiFolders: v.wikiFolders, rawFolders: v.rawFolders };
+    return {
+      wikiFolders: v.wikiFolders,
+      rawFolders: v.rawFolders,
+      caseInsensitive: v.caseInsensitive,
+    };
   } catch {
     return {};
   }

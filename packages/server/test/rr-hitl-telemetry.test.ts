@@ -53,6 +53,7 @@ describe("RR-L2 telemetry carries the vault the call acted on", () => {
     const db = openMemoryDb();
     provisionCacheDb(db);
     const registry = new ToolRegistry({
+      rootResolver: () => undefined,
       emit: (vault, type, data) => emitted.push({ vault, type, data: data as never }),
     });
     registry.register(tool({ name: "reset_vault_cache" }));
@@ -68,6 +69,7 @@ describe("RR-L2 telemetry carries the vault the call acted on", () => {
     const db = openMemoryDb();
     provisionCacheDb(db);
     const registry = new ToolRegistry({
+      rootResolver: () => undefined,
       emit: (vault, type, data) => emitted.push({ vault, type, data: data as never }),
     });
     registry.register(tool({ name: "reset_vault_cache" }));
@@ -82,6 +84,7 @@ describe("RR-L2 telemetry carries the vault the call acted on", () => {
     const db = openMemoryDb();
     provisionCacheDb(db);
     const registry = new ToolRegistry({
+      rootResolver: () => undefined,
       emit: (vault, type, data) => emitted.push({ vault, type, data: data as never }),
     });
     registry.register(
@@ -135,7 +138,6 @@ describe("RR-L6 denied read_resources items are not completions", () => {
     const emitted: Emitted[] = [];
     const v = makeTestVault({
       files: { "pub/a.md": "A", "secret/b.md": "B", "secret/c.md": "C" },
-      centralAcl: true,
       acl: { readPaths: ["pub/**"] },
       registryOpts: {
         emit: (vault, type, data) => emitted.push({ vault, type, data: data as never }),

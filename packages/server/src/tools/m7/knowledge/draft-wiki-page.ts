@@ -276,6 +276,7 @@ export function createDraftWikiPageTool(deps: M7Deps, retrieval: RetrievalRuntim
         scan,
         sources,
         wikiFolder: v.wikiFolder,
+        caseInsensitive: v.caseInsensitive,
         selfPath: exists?.path ?? path,
         isExcluded: exclusion.isExcluded,
         limit: input.limit,
@@ -287,10 +288,18 @@ export function createDraftWikiPageTool(deps: M7Deps, retrieval: RetrievalRuntim
         : (load.schema?.types.length ?? 0) > 0
           ? [WIKI_TYPE_KEY]
           : [];
-      const inWiki = (p: string): boolean => !!v.wikiFolder && pathInFolder(p, v.wikiFolder);
+      const inWiki = (p: string): boolean =>
+        !!v.wikiFolder && pathInFolder(p, v.wikiFolder, v.caseInsensitive);
       const citedBy =
         rawSource && v.wikiFolder
-          ? pagesCiting(v.root, scan.notes, v.wikiFolder, rawSource.path, scan.warnings.refusals)
+          ? pagesCiting(
+              v.root,
+              scan.notes,
+              v.wikiFolder,
+              rawSource.path,
+              scan.warnings.refusals,
+              v.caseInsensitive,
+            )
           : [];
       // Can the wiki take the source in: a page covers the topic, one is related to it, or one cites it.
       const refused = rawSource

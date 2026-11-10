@@ -87,7 +87,10 @@ async function bootStdio(opts: { shim: boolean; facadeMode?: FacadeMode }) {
   const db = openMemoryDb();
   provisionCacheDb(db);
   const effect: Effect = { applied: 0 };
-  const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
+  const registry = new ToolRegistry({
+    rootResolver: () => undefined,
+    verifyElicit: elicitVerifier,
+  });
   registry.register(dangerTool(effect));
   registry.register(conditionalTool(effect));
   const server = createMcpServer({
@@ -337,7 +340,7 @@ describe("requestState (2026-era client-driven round trip, HTTP)", () => {
     const db = openMemoryDb();
     provisionCacheDb(db);
     const effect: Effect = { applied: 0 };
-    const registry = new ToolRegistry({});
+    const registry = new ToolRegistry({ rootResolver: () => undefined });
     registry.register({
       name: "danger_write",
       description: "test-only destructive tool",

@@ -76,7 +76,7 @@ describe("ordering against a real MCP handshake", () => {
     const server = createMcpServer({
       name: "x",
       version: "0",
-      registry: new ToolRegistry(),
+      registry: new ToolRegistry({ rootResolver: () => undefined }),
       context: () => ({
         caller: "stdio",
         authenticated: true,

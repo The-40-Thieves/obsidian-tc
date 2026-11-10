@@ -3,6 +3,7 @@
 import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { err, type VaultConfigInput, type VaultKind } from "@the-40-thieves/obsidian-tc-shared";
+import { vaultCaseInfo } from "./case-sensitivity";
 import { FolderPins } from "./folder-links";
 import { canonicalFolderOf, rawFolderOf } from "./raw-folder";
 import { rawFolderNames, wikiFolderNames } from "./wiki-folders";
@@ -90,6 +91,12 @@ export interface ResolvedVault {
    *  (rawPathFilter, the judge's loadSendable) takes this, never `rawFolder` alone. A symlink made
    *  after startup is picked up on the next restart, like the ACL's immutable rule. */
   rawFolders?: readonly string[];
+  /** This vault root's filesystem case behavior (vault/case-sensitivity.ts): the
+   *  `vaults[].caseSensitive` override, else the registration probe; null when the probe could not
+   *  decide. The FolderAcl is compiled from it (runtime/acl-build.ts); classification helpers fold
+   *  on null (classificationFold). Absent only on a hand-built view: callers then keep the platform
+   *  default. */
+  caseInsensitive?: boolean | null;
 }
 
 /** The configured wiki folder, exactly as written. The config schema rejects `""`, `.`, `/`, an
@@ -151,6 +158,7 @@ export class VaultRegistry {
         root,
         rootCanonical: canonical,
         kind: v.kind ?? "private",
+        caseInsensitive: vaultCaseInfo(root, v.caseSensitive).caseInsensitive,
         restApiUrl: v.restApiUrl,
         restApiKey: v.restApiKey,
         ...(v.publicUrl ? { publicUrl: v.publicUrl } : {}),
@@ -198,6 +206,8 @@ export class VaultRegistry {
       rootCanonical: canonical,
       // P1.5: a runtime-added vault (add_vault) is `private` unless explicitly stated.
       kind: v.kind ?? "private",
+      // No config behind a runtime add_vault: the probe is the only source.
+      caseInsensitive: vaultCaseInfo(root, undefined).caseInsensitive,
       restApiUrl: v.restApiUrl,
       restApiKey: v.restApiKey,
       ...(v.publicUrl ? { publicUrl: v.publicUrl } : {}),

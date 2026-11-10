@@ -39,10 +39,10 @@ describe("auth.as: shape and defaults", () => {
       accessTokenSeconds: 1800,
       refreshTokenDays: 30,
       refreshReuseGraceSeconds: 30,
-      dynamicRegistration: true,
+      dynamicRegistration: false,
       dcr: { maxClients: 1000, perIpPerHour: 10, unusedDays: 90 },
       cimd: { allowedHosts: [] },
-      consent: { loopback: "remember" },
+      consent: { loopback: "prompt" },
       setupTokenEnv: "OBSIDIAN_TC_AS_SETUP_TOKEN",
       resetTokenEnv: "OBSIDIAN_TC_AS_RESET_TOKEN",
       login: { maxFailuresPerWindow: 5, windowSeconds: 900 },
@@ -61,15 +61,25 @@ describe("auth.as: shape and defaults", () => {
 
   it("auth.as.consent.loopback is 'remember' or 'prompt' and nothing else", () => {
     expect(issuesOf(jwtAuth({}, { consent: { loopback: "prompt" } }))).toEqual([]);
+    expect(issuesOf(jwtAuth({}, { consent: { loopback: "remember" } }))).toEqual([]);
     expect(issuesOf(jwtAuth({}, { consent: { loopback: "never" } })).length).toBeGreaterThan(0);
     expect(issuesOf(jwtAuth({}, { consent: { loopbak: "prompt" } })).length).toBeGreaterThan(0);
   });
 
-  it("DCR is on by default (owner decision 2026-10-09) and an explicit false turns it off", () => {
+  it("auth.as.consent.remembered is 'silent' or 'confirm', and unset by default (decided per redirect)", () => {
+    for (const ok of ["silent", "confirm"]) {
+      expect(issuesOf(jwtAuth({}, { consent: { remembered: ok } }))).toEqual([]);
+    }
+    expect(issuesOf(jwtAuth({}, { consent: { remembered: "always" } })).length).toBeGreaterThan(0);
     const r = ServerConfigSchema.parse(config(jwtAuth()));
-    expect(r.auth.as?.dynamicRegistration).toBe(true);
-    const off = ServerConfigSchema.parse(config(jwtAuth({}, { dynamicRegistration: false })));
-    expect(off.auth.as?.dynamicRegistration).toBe(false);
+    expect(r.auth.as?.consent.remembered).toBeUndefined();
+  });
+
+  it("DCR is off by default and an explicit true opts in", () => {
+    const r = ServerConfigSchema.parse(config(jwtAuth()));
+    expect(r.auth.as?.dynamicRegistration).toBe(false);
+    const on = ServerConfigSchema.parse(config(jwtAuth({}, { dynamicRegistration: true })));
+    expect(on.auth.as?.dynamicRegistration).toBe(true);
   });
 
   it("an absent block means no AS: nothing changes for existing configs", () => {

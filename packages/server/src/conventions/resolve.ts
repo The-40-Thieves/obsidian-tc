@@ -4,9 +4,10 @@
 // for that caller whatever another caller has already parsed.
 import { statSync } from "node:fs";
 import { resolve } from "node:path";
-import type { FolderAcl } from "../acl";
+import { type FolderAcl, foldPath } from "../acl";
 import { MAX_SCAN_WARNINGS } from "../util/scan-caps";
 import { enforcePathAcl } from "../vault/acl-path";
+import { classificationFold } from "../vault/case-sensitivity";
 import { readNoteBounded } from "../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../vault/paths";
 import { readFailureReason } from "../vault/read-failure";
@@ -30,6 +31,9 @@ export interface ConventionsScope {
   grantedScopes: Iterable<string>;
   wikiFolders?: WikiFolders;
   rawFolders?: RawFolders;
+  /** The vault's filesystem case behavior: the wiki/raw/schema classification folds the way the
+   *  vault resolves names (absent = the platform default, null folds). */
+  caseInsensitive?: boolean | null | undefined;
 }
 
 const LAYER_CACHE_MAX = 512;
@@ -146,6 +150,7 @@ function emptyEffective(scope: ConventionsScope): EffectiveConventions {
     types: nullMap(),
     wikiFolders: scope.wikiFolders,
     rawFolders: scope.rawFolders,
+    caseInsensitive: scope.caseInsensitive,
     fileWarnings: [],
     fileWarningsOmitted: 0,
     layers: [],
@@ -229,7 +234,12 @@ export function resolveConventions(
     if (!read) continue;
     for (const message of read.warnings) pushFileWarning(eff, { path, message });
     eff.fileWarningsOmitted += read.warningsOmitted ?? 0;
-    const inWiki = wikiFolders.some((w) => path === (w === "" ? "" : `${w}/`) + WIKI_SCHEMA_FILE);
+    // "Is this layer the wiki's own SCHEMA.md" folds the way the vault's filesystem folds: on a
+    // case-insensitive volume wiki/SCHEMA.md IS Wiki/schema.md.
+    const ci = classificationFold(scope.caseInsensitive);
+    const inWiki = wikiFolders.some(
+      (w) => foldPath(path, ci) === foldPath((w === "" ? "" : `${w}/`) + WIKI_SCHEMA_FILE, ci),
+    );
     if (read.legacyOnly && !inWiki) pushFileWarning(eff, { path, message: LEGACY_HINT });
     if (read.layer) loaded.push(read.layer);
   }

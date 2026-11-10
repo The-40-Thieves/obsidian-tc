@@ -109,9 +109,10 @@ if (arm === "guided") {
   searchModePreference = { edb };
 }
 
-const registry = new ToolRegistry();
+const vaultRegistry = new VaultRegistry(config.vaults);
+const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
 registerM2Tools(registry, {
-  vaultRegistry: new VaultRegistry(config.vaults),
+  vaultRegistry,
   embeddingProvider: provider,
   representation: buildRepresentationManifest(provider, {}),
   // Same as serve once the boot reconcile has committed: FTS-accelerated text search where the

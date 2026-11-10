@@ -46,7 +46,7 @@ async function connect(
 }
 
 function reg(): ToolRegistry {
-  const r = new ToolRegistry();
+  const r = new ToolRegistry({ rootResolver: () => undefined });
   r.register(tool("create_note", "Create a new note in the vault at the given path."));
   r.register(tool("search_vault", "Search the vault for notes matching a query."));
   r.register(tool("read_note", "Read a note from the vault by path."));
@@ -58,7 +58,7 @@ function reg(): ToolRegistry {
 // m8 tool's write:workspace scope) plus a non-mutating tool, so `requireReadOnly` hides exactly
 // one of the two — the same shape the reporter's minimal reproducer relies on.
 function regWithVisibility(toolVisibility: ToolVisibilityConfig): ToolRegistry {
-  const r = new ToolRegistry({ toolVisibility });
+  const r = new ToolRegistry({ rootResolver: () => undefined, toolVisibility });
   r.register(
     tool("record_retrieval_feedback", "Judge whether a prior retrieval helped.", [
       "write:workspace",

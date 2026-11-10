@@ -72,7 +72,7 @@ function harness(
     },
     judge: async () => ({ text: "{}", model: "mock-judge" }),
   };
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   const vaultRegistry = new VaultRegistry([{ id: "main", name: "main", path: root }]);
   registerM7Tools(registry, {
     vaultRegistry,

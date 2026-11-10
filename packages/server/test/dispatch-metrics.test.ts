@@ -32,7 +32,7 @@ const tool = (name: string, requiredScopes: string[], handler: () => unknown) =>
 describe("dispatch -> Prometheus metrics (THE-211)", () => {
   it("records tool_calls_total(ok) + duration on success", async () => {
     const metrics = new MetricsRecorder();
-    const reg = new ToolRegistry({ metrics });
+    const reg = new ToolRegistry({ rootResolver: () => undefined, metrics });
     reg.register(tool("read_note", ["read:notes"], () => ({ ok: 1 })));
     await reg.dispatch("read_note", {}, ctx());
     const text = await metrics.metrics();
@@ -46,7 +46,7 @@ describe("dispatch -> Prometheus metrics (THE-211)", () => {
 
   it("records denied + acl_denied(scope_class=write) on a missing-scope forbidden", async () => {
     const metrics = new MetricsRecorder();
-    const reg = new ToolRegistry({ metrics });
+    const reg = new ToolRegistry({ rootResolver: () => undefined, metrics });
     reg.register(tool("update_frontmatter", ["write:meta"], () => ({})));
     await reg.dispatch("update_frontmatter", {}, ctx({ grantedScopes: new Set(["read:notes"]) }));
     const text = await metrics.metrics();
@@ -60,7 +60,7 @@ describe("dispatch -> Prometheus metrics (THE-211)", () => {
 
   it("records denied + acl_denied(reason=acl_denied) when a handler throws acl_denied (F4)", async () => {
     const metrics = new MetricsRecorder();
-    const reg = new ToolRegistry({ metrics });
+    const reg = new ToolRegistry({ rootResolver: () => undefined, metrics });
     reg.register(
       tool("acl_thrower", ["read:notes"], () => {
         throw new ObsidianTcError("acl_denied", "path denied by folder ACL");
@@ -78,7 +78,11 @@ describe("dispatch -> Prometheus metrics (THE-211)", () => {
 
   it("records hitl_elicited + denied when an elicit token is required and absent", async () => {
     const metrics = new MetricsRecorder();
-    const reg = new ToolRegistry({ metrics, verifyElicit: () => false });
+    const reg = new ToolRegistry({
+      rootResolver: () => undefined,
+      metrics,
+      verifyElicit: () => false,
+    });
     reg.register(tool("bulk_delete_notes", ["write:notes", "bulk:notes"], () => ({})));
     await reg.dispatch("bulk_delete_notes", {}, ctx({ elicitToken: null }));
     const text = await metrics.metrics();
@@ -92,7 +96,7 @@ describe("dispatch -> Prometheus metrics (THE-211)", () => {
 
   it("records governor truncation + error status on overflow", async () => {
     const metrics = new MetricsRecorder();
-    const reg = new ToolRegistry({ metrics, maxResponseBytes: 10 });
+    const reg = new ToolRegistry({ rootResolver: () => undefined, metrics, maxResponseBytes: 10 });
     reg.register(tool("big_read", [], () => ({ blob: "x".repeat(1000) })));
     await reg.dispatch("big_read", {}, ctx());
     const text = await metrics.metrics();
@@ -105,7 +109,7 @@ describe("dispatch -> Prometheus metrics (THE-211)", () => {
   });
 
   it("is a no-op (never throws) when no recorder is configured", async () => {
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     reg.register(tool("noop", [], () => ({})));
     const res = await reg.dispatch("noop", {}, ctx());
     expect(res.ok).toBe(true);
@@ -116,6 +120,7 @@ describe("dispatch -> session trace (THE-209)", () => {
   it("appends a tool_invocation record when ctx.sessionId + sessionTracer are set", async () => {
     const traced: Array<{ session: unknown; record: Record<string, unknown> }> = [];
     const reg = new ToolRegistry({
+      rootResolver: () => undefined,
       sessionTracer: (session, record) => traced.push({ session, record }),
     });
     reg.register(tool("read_note", ["read:notes"], () => ({ ok: 1 })));
@@ -132,7 +137,10 @@ describe("dispatch -> session trace (THE-209)", () => {
 
   it("emits no session trace when ctx.sessionId is absent", async () => {
     const traced: unknown[] = [];
-    const reg = new ToolRegistry({ sessionTracer: (_s, r) => traced.push(r) });
+    const reg = new ToolRegistry({
+      rootResolver: () => undefined,
+      sessionTracer: (_s, r) => traced.push(r),
+    });
     reg.register(tool("read_note", ["read:notes"], () => ({ ok: 1 })));
     await reg.dispatch("read_note", {}, ctx());
     expect(traced.length).toBe(0);

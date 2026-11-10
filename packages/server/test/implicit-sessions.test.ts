@@ -473,7 +473,7 @@ async function boot(
   const root = makeTempDir("obtc-implicit-");
   const db = freshDb();
   const vaultRegistry = new VaultRegistry([{ id: "main", path: root }]);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   for (const tool of buildSessionTools({ vaultRegistry, cacheDir: root })) registry.register(tool);
   registry.register({
     name: "probe",

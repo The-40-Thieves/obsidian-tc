@@ -183,7 +183,7 @@ describe("end to end through the server", () => {
   }
 
   it("a tool with no payload still answers in words", async () => {
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     r.register(def("silent", () => null));
     const { client, server } = await connect(r);
     const res = await client.callTool({ name: "silent", arguments: {} });
@@ -196,7 +196,7 @@ describe("end to end through the server", () => {
 
   it("a structured success carries the payload as text beside structuredContent", async () => {
     const outputSchema = z.object({ title: z.string(), n: z.number() }).strict();
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     r.register(def("rich", () => ({ title: "Hello", n: 3 }), { outputSchema }));
     const { client, server } = await connect(r);
     const res = await client.callTool({ name: "rich", arguments: {} });
@@ -207,7 +207,7 @@ describe("end to end through the server", () => {
   });
 
   it("the byte cap still bounds the result: the over-cap payload is refused, not echoed", async () => {
-    const r = new ToolRegistry({ maxResponseBytes: 2_000 });
+    const r = new ToolRegistry({ rootResolver: () => undefined, maxResponseBytes: 2_000 });
     r.register(def("big", () => ({ blob: "x".repeat(50_000) })));
     const { client, server } = await connect(r);
     const res = await client.callTool({ name: "big", arguments: {} });
@@ -219,7 +219,7 @@ describe("end to end through the server", () => {
 
   it("the cap governs the sentence a payload-less success sends, not the literal 'null'", async () => {
     // Codex review of #1191: with maxResponseBytes 4, "null" fit and the 44-byte sentence went out.
-    const tight = new ToolRegistry({ maxResponseBytes: 4 });
+    const tight = new ToolRegistry({ rootResolver: () => undefined, maxResponseBytes: 4 });
     tight.register(def("silent", () => null));
     const a = await connect(tight);
     const over = await a.client.callTool({ name: "silent", arguments: {} });
@@ -227,7 +227,10 @@ describe("end to end through the server", () => {
     await a.client.close();
     await a.server.close();
 
-    const exact = new ToolRegistry({ maxResponseBytes: Buffer.byteLength(NO_OUTPUT_TEXT) });
+    const exact = new ToolRegistry({
+      rootResolver: () => undefined,
+      maxResponseBytes: Buffer.byteLength(NO_OUTPUT_TEXT),
+    });
     exact.register(def("silent", () => undefined));
     const b = await connect(exact);
     const ok = await b.client.callTool({ name: "silent", arguments: {} });
@@ -238,7 +241,7 @@ describe("end to end through the server", () => {
   });
 
   it("a payload just under the cap is carried once as text and once as structuredContent", async () => {
-    const r = new ToolRegistry({ maxResponseBytes: 4_000 });
+    const r = new ToolRegistry({ rootResolver: () => undefined, maxResponseBytes: 4_000 });
     r.register(def("fits", () => ({ blob: "y".repeat(3_000) })));
     const { client, server } = await connect(r);
     const res = await client.callTool({ name: "fits", arguments: {} });

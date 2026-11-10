@@ -239,7 +239,7 @@ describe("THE-538 acceptance: one vault_graph_search call, end to end", () => {
     });
 
     const experiential = edb();
-    const registry = new ToolRegistry({});
+    const registry = new ToolRegistry({ rootResolver: (id) => v.vaultRegistry.resolve(id).root });
     registerM7Tools(registry, {
       vaultRegistry: new VaultRegistry([{ id: v.id, path: v.root }]),
       embeddingProvider: provider(),

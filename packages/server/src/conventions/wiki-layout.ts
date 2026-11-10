@@ -6,15 +6,20 @@
 // Lifted out of tools/m7/knowledge/: conventions/ and vault/registration need these too, and a
 // contract imported from one consumer's tool module cannot be generalised
 // (no-conventions-imports-high / no-low-layer-imports-high).
-import { CASE_INSENSITIVE_FS, foldPath } from "../acl";
+import { foldPath } from "../acl";
+import { classificationFold } from "../vault/case-sensitivity";
 
-/** Whether `path` is strictly inside `folder` (both vault-relative, normalised, no trailing slash). */
+/** Whether `path` is strictly inside `folder` (both vault-relative, normalised, no trailing
+ *  slash). `ci` is the VAULT's filesystem case behavior (registry `caseInsensitive`); absent keeps
+ *  the platform default, null (an unprobeable filesystem) folds — classificationFold, which can only
+ *  over-classify a path as in-folder, never wrongly out. */
 export function pathInFolder(
   path: string,
   folder: string,
-  ci: boolean = CASE_INSENSITIVE_FS,
+  ci: boolean | null | undefined = undefined,
 ): boolean {
-  return foldPath(path, ci).startsWith(`${foldPath(folder, ci)}/`);
+  const fold = classificationFold(ci);
+  return foldPath(path, fold).startsWith(`${foldPath(folder, fold)}/`);
 }
 
 /** The two server-generated pages of a wiki folder (see wiki-generated.ts). */
@@ -52,14 +57,15 @@ export type WikiFolders = string | readonly string[] | undefined;
 export function isGeneratedWikiPath(
   path: string,
   wikiFolder: WikiFolders,
-  ci: boolean = CASE_INSENSITIVE_FS,
+  ci: boolean | null | undefined = undefined,
 ): boolean {
   if (wikiFolder === undefined) return false;
-  const p = foldPath(path, ci);
+  const fold = classificationFold(ci);
+  const p = foldPath(path, fold);
   const names = typeof wikiFolder === "string" ? [wikiFolder] : wikiFolder;
   return names.some((name) => {
     if (name === "" && typeof wikiFolder === "string") return false;
-    const dir = foldPath(name, ci);
+    const dir = foldPath(name, fold);
     const prefix = dir === "" ? "" : `${dir}/`;
     return p === `${prefix}${WIKI_INDEX_FILE}` || p === `${prefix}${WIKI_LOG_FILE}`;
   });
@@ -73,8 +79,11 @@ export type RawFolders = string | readonly string[] | undefined;
 /** Whether a vault-relative path is inside the vault's raw-sources folder, under any of its names.
  *  Raw notes are inputs, never wiki pages: the page checks (is there already a page on this topic,
  *  which notes should link to a new page) and the judge leave them out. No raw folder: nothing is raw. */
-export function rawPathFilter(rawFolders: RawFolders): (rel: string) => boolean {
+export function rawPathFilter(
+  rawFolders: RawFolders,
+  ci?: boolean | null,
+): (rel: string) => boolean {
   const names =
     rawFolders === undefined ? [] : typeof rawFolders === "string" ? [rawFolders] : rawFolders;
-  return names.length === 0 ? () => false : (rel) => names.some((f) => pathInFolder(rel, f));
+  return names.length === 0 ? () => false : (rel) => names.some((f) => pathInFolder(rel, f, ci));
 }
