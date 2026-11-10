@@ -139,7 +139,7 @@ export function runClaude(c: ClientCtx): ClientOut {
       OBSIDIAN_TC_CONFIG: c.config,
     },
   });
-  const timedOut = r.error !== undefined && /ETIMEDOUT/.test(String(r.error));
+  const timedOut = r.error !== undefined && String(r.error).includes("ETIMEDOUT");
   const out: ClientOut = {
     finalText: "",
     usage: zero(),
@@ -246,7 +246,7 @@ function runCodexIn(c: ClientCtx, addDir: string, home: string): ClientOut {
       OBSIDIAN_TC_CONFIG: c.config,
     },
   });
-  const timedOut = r.error !== undefined && /ETIMEDOUT/.test(String(r.error));
+  const timedOut = r.error !== undefined && String(r.error).includes("ETIMEDOUT");
   const out: ClientOut = {
     finalText: "",
     usage: zero(),
