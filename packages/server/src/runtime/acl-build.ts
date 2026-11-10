@@ -1,5 +1,4 @@
 import { type AclCaseMatch, CASE_INSENSITIVE_FS, FolderAcl } from "../acl";
-import { foldersShareDirectory, rawFolderPlacement } from "../tools/m7/knowledge/wiki-folder";
 import { wikiLogRules, withWikiLogScope } from "../tools/m7/knowledge/wiki-log-acl";
 import {
   type CaseSensitiveSetting,
@@ -10,6 +9,7 @@ import {
 import { resolveVaultPathChecked } from "../vault/paths";
 import { immutableGlobsFor, rawFolderOf } from "../vault/raw-folder";
 import { canonicalizeVaultRoot, canonicalizeVaultRootWithStatus } from "../vault/registry";
+import { foldersShareDirectory, rawFolderPlacement } from "../vault/wiki-folders";
 
 type FolderAclConfig = ConstructorParameters<typeof FolderAcl>[0];
 

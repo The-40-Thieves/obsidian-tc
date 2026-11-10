@@ -18,12 +18,6 @@ import {
   WriteOptions,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
-import {
-  enforceMemoryDefenseOnNoteWrite,
-  MEMORY_DEFENSE_OFF,
-  refusePathIfSecretShaped,
-} from "../../experiential/memory-defense";
-import { redactSecrets } from "../../experiential/redact";
 import { describeAttachment } from "../../formats/attachment-description";
 import {
   checkBase64Payload,
@@ -39,7 +33,14 @@ import {
   stripTrailingDotsAndSpaces,
 } from "../../formats/attachments";
 import type { ToolDefinition } from "../../mcp/registry";
+import {
+  enforceMemoryDefenseOnNoteWrite,
+  MEMORY_DEFENSE_OFF,
+  refusePathIfSecretShaped,
+} from "../../util/memory-defense";
 import { DEFAULT_SCAN_LIMIT } from "../../util/paginate";
+import { redactSecrets } from "../../util/redact";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import {
   defaultDeniedUnderEitherName,
   enforcePathAcl,
@@ -62,7 +63,6 @@ import { normalizeVaultPath, resolveVaultPath, walkVault } from "../../vault/pat
 import { applyWriteBatch, isIncompleteRollback } from "../../vault/write-batch";
 import { defineTool } from "../m1/define";
 import { ReadRefusals, readRefusalShape } from "../read-refusals";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import { immutableSkipShape, schemaSkipShape } from "../scan-warnings";
 import type { M3Deps } from "./shared";
 

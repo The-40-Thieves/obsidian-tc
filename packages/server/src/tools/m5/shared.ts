@@ -79,10 +79,10 @@ export function traceFolderFor(deps: M5Deps, vaultId: string): string {
   return deps.traceFolder?.(vaultId) ?? DEFAULT_TRACE_FOLDER;
 }
 
-// GH #994 fix (check:duplicate-exports): memoryDefenseFor moved to experiential/memory-defense.ts
+// GH #994 fix (check:duplicate-exports): memoryDefenseFor moved to util/memory-defense.ts
 // — it and tools/m8/shared.ts's own copy were byte-identical. Re-exported here so every existing
 // `import { memoryDefenseFor } from "./shared"` in this domain keeps working unchanged.
-export { memoryDefenseFor } from "../../experiential/memory-defense";
+export { memoryDefenseFor } from "../../util/memory-defense";
 
 /** Fully-defaulted bootstrap config (empty routing table + generic catch-up phrases), parsed once. */
 const DEFAULT_BOOTSTRAP: BootstrapConfig = BootstrapConfigSchema.parse(undefined);

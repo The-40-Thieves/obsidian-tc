@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { registerMaintenanceSweep, runMaintenanceSweep } from "../src/db/maintenance";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";
+import { registerMaintenanceSweep, runMaintenanceSweep } from "../src/runtime/maintenance";
 import { Scheduler } from "../src/scheduler/scheduler";
 import { ensureChunkFts, upsertChunkFtsRow } from "../src/search/chunk_fts";
 import { ensureNotesFts } from "../src/search/fts";

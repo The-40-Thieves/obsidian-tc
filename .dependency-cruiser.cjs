@@ -82,6 +82,80 @@ module.exports = {
       to: { path: "^packages/server/src/tools/" },
     },
     {
+      name: "no-low-layer-imports-high",
+      severity: "error",
+      comment:
+        "vault, db and util are the bottom of the stack — note IO, storage and shared helpers " +
+        "that higher layers import. Reaching UP into tools/mcp/experiential/runtime/transports/cli " +
+        "inverts that: it couples the primitives every layer shares to one consumer's subsystem " +
+        "(redaction lived in experiential/ while six vault files imported it; checkAborted lived " +
+        "under mcp/registry/ while util imported it), so a change to a shared primitive is reviewed " +
+        "as if it were feature code and the file graph can never be levelled. The shared code " +
+        "moves down; this rule keeps it there.",
+      from: { path: "^packages/server/src/(vault|db|util)/" },
+      to: { path: "^packages/server/src/(tools|mcp|experiential|runtime|transports|cli)/" },
+    },
+    {
+      name: "no-db-imports-services",
+      severity: "error",
+      comment:
+        "db/ is storage: schema, transactions, pragmas. Orchestration that touches several " +
+        "subsystems (the retention/maintenance sweep, which prunes provenance, sweeps sessions " +
+        "and deletes vault files) belongs above storage, in runtime/ — while it lived in " +
+        "db/maintenance.ts, storage imported four service subsystems and sat in their SCC. " +
+        "scheduler/ and memory/ are not in this list yet: memory-orphans.ts's Scheduler type and " +
+        "backfill-observation-intervals.ts still reach them (type-only and one-way respectively); " +
+        "add them when those move.",
+      from: { path: "^packages/server/src/db/" },
+      to: { path: "^packages/server/src/(provenance|vault|workspace|search|embeddings)/" },
+    },
+    {
+      name: "no-conventions-imports-high",
+      severity: "error",
+      comment:
+        "conventions/ is the vault-layout contract (wiki folder names, SCHEMA.md limits, raw " +
+        "folders) that vault registration and the m7 knowledge tools both build on. Importing " +
+        "tools/ from it made the contract depend on ONE consumer, so the constants could not be " +
+        "generalised without editing a tool module; they now live in conventions/wiki-layout.ts. " +
+        "conventions/ may import vault/ and util/, never the tool/transport/runtime layers.",
+      from: { path: "^packages/server/src/conventions/" },
+      to: { path: "^packages/server/src/(tools|mcp|experiential|runtime|transports|cli)/" },
+    },
+    {
+      name: "no-mcp-imports-higher",
+      severity: "error",
+      comment:
+        "mcp/ is dispatch + transport plumbing. Tools import its registry types (that direction " +
+        "is the design), so mcp importing tools/, experiential/ or workspace/ closes a loop at " +
+        "subsystem level even when no file cycle exists. ResponseFormat resolution, scan-warning " +
+        "caps, WIKI_SCHEMA_FILE and the dispatch-activity counters all lived one layer too high " +
+        "or too sideways; they moved to util/, conventions/ and src/dispatch-activity.ts.",
+      from: { path: "^packages/server/src/mcp/" },
+      to: { path: "^packages/server/src/(tools|experiential|workspace)/" },
+    },
+    {
+      name: "no-embeddings-imports-search-runtime",
+      severity: "error",
+      comment:
+        "embeddings/ is the provider layer search/ consumes (search/query-encoder.ts imports " +
+        "EmbeddingProvider), so embeddings importing search/ (ColBERT/sparse vector types, the " +
+        "JS tokenizer) or runtime/ (boot helpers) points backwards. The vector types live in " +
+        "embeddings/vec-types.ts and the helpers in util/; search/ re-exports the types for its " +
+        "own consumers.",
+      from: { path: "^packages/server/src/embeddings/" },
+      to: { path: "^packages/server/src/(search|runtime)/" },
+    },
+    {
+      name: "no-search-imports-runtime",
+      severity: "error",
+      comment:
+        "search/ is a service runtime/ orchestrates; the boot-warmup deferral helper it needed " +
+        "was a two-function util (BOOT_WARMUP_MAX_WAIT_MS, deferBootWork), not runtime " +
+        "machinery. It lives in util/boot-helpers.ts now.",
+      from: { path: "^packages/server/src/search/" },
+      to: { path: "^packages/server/src/runtime/" },
+    },
+    {
       name: "no-orphans",
       severity: "warn",
       comment:

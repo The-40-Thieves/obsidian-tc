@@ -7,7 +7,7 @@
 // reaches a service this process does not own, and a warmup must never issue one. Failure is
 // non-fatal (the next real embed() retries, see providers/local-embedder-registry.ts) and is
 // logged once; the state is shown in server_health and doctor.
-import { BOOT_WARMUP_MAX_WAIT_MS, deferBootWork } from "../runtime/boot-helpers";
+import { BOOT_WARMUP_MAX_WAIT_MS, deferBootWork } from "../util/boot-helpers";
 import type { EmbeddingProvider } from "./provider";
 
 export type EmbedderWarmupState = "not-applicable" | "pending" | "loading" | "ready" | "failed";

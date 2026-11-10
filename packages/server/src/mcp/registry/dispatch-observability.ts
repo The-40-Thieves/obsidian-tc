@@ -5,10 +5,10 @@ import type {
   ToolResult,
 } from "@the-40-thieves/obsidian-tc-shared";
 import { type AuditEvent, writeEvent } from "../../audit";
-import { redactSecrets } from "../../experiential/redact";
 import type { MetricsRecorder, ToolCallStatus } from "../../metrics/registry";
 import { SPAN_ATTR } from "../../otel/attrs";
 import { callerHash } from "../../throttle";
+import { redactSecrets } from "../../util/redact";
 import type { ToolStore } from "./tool-store";
 import type { CallerContext, EpisodeKind, RegistryOptions, Status } from "./types";
 

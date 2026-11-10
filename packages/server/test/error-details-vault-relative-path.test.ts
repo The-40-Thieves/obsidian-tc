@@ -143,6 +143,7 @@ const RELATIVE_BY_CONSTRUCTION: Record<string, readonly string[]> = {
   "acl-path.ts": ["path: redactedPath"],
   "cas.ts": ["path: rel", "path: check.rel"],
   "frontmatter.ts": ["path"],
+  "wiki-folders.ts": ["path: pageRel", "path: pageRel"],
   "paths.ts": [
     "path: redactSecrets(relPath).text",
     "path: redactSecrets(shown).text",

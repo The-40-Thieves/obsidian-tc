@@ -135,6 +135,32 @@ accepts raises a warning (a headless approval smell), naming the clients that re
   fails the build if any HITL gate module references the preference store, the reflect pass or an
   experiential module.
 
+## `probeFamilyRevocations` — OAuth family revocations, recorded as codes
+
+`doctor --probe` reads the `auth_family_revoked` `event_log` rows the bundled authorization server
+writes for every grant-family revocation (`src/auth/family-revocation-telemetry.ts`, GH #1477) and
+reports them as the `auth.family-revocations` check: a count by reason over the last 24 hours, plus
+the latest event's reason, client id and revoked-access-token count. Any reuse-driven revocation
+(`authorization_code_reuse`, `refresh_token_reuse`, `refresh_token_foreign`) raises a warning: the
+defence worked — a replay killed the family on sight, as RFC 9700 section 4.14 requires — but one
+leaked credential is a one-request kill switch on that client's session, so a replay you cannot
+explain means treat the credential as leaked. `revoked_by_client` and `authorization_code_failed`
+stay `ok`.
+
+- **Why `event_log`.** Same reasoning as the confirmation outcomes above: a retention sweep
+  (`observability.retention.eventLogDays`), no content column, no schema change. `caller` carries
+  the client id, `error_code` the reason, `result_size` the revoked access-token count; the row
+  never holds a code, token, verifier or hash.
+- **Fail-open writer, honest reader.** The sink never lets telemetry break a revocation (a failed
+  write moves `obsidian_tc_audit_write_failed_total` instead), so a missing window of rows is
+  possible; a probe that cannot read the table reports `error` and the check warns rather than
+  claiming zero. The continuous, retention-free signal is the counter —
+  `obsidian_tc_auth_family_revocations_total` (docs/design/metrics-registry.md) — and this check is
+  its per-event companion.
+- **Report, not gate.** Nothing reads these rows back into an auth decision, exactly like
+  `hitl.confirmations`. Operator grant revocations surface as `auth_grant_revoked` /
+  `auth_credentials_reset`, not here.
+
 ## `clients.sameVaultRoot` — a second server on the same vault
 
 - **Hint, not error.** Agents with two vault servers split their reads between them, and the

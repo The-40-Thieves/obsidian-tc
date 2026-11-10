@@ -3,7 +3,7 @@
 // called writeNoteAtomic directly with no memoryDefense scan at all — a vault with
 // `memoryDefense: { mode: "block" }` still let a caller write a secret straight into a note via
 // write_note/append_note/patch_note, even into the vault's own configured memory folder. See
-// experiential/memory-defense.ts's enforceMemoryDefenseOnNoteWrite for the guard these tests pin.
+// util/memory-defense.ts's enforceMemoryDefenseOnNoteWrite for the guard these tests pin.
 //
 // Every secret used below is assembled at RUNTIME (string concatenation), never a single literal
 // in source that itself matches a SECRET_PATTERNS regex — same no-literal-secret convention as

@@ -15,7 +15,7 @@ import type { ElicitCodec } from "../elicit-request-state";
 import { recordHitlAnswer } from "../hitl-telemetry";
 import { extractTraceCarrier } from "../otel/propagation";
 import type { JobQueue } from "../scheduler/job-queue";
-import type { ResponseFormat } from "../tools/response-format";
+import type { ResponseFormat } from "../util/response-format";
 import type { VaultRegistry } from "../vault/registry";
 import { capabilityHiddenCheck } from "./capability-hidden";
 import {

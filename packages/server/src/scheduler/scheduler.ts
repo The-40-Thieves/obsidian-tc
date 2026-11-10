@@ -278,7 +278,7 @@ export class Scheduler {
       //
       // This is CREATE TABLE IF NOT EXISTS, so the constraint only reaches databases created from
       // here on. An existing store keeps the permissive schema forever, which is why the
-      // maintenance sweep also prunes NULL-name rows (db/maintenance.ts) rather than this being a
+      // maintenance sweep also prunes NULL-name rows (runtime/maintenance.ts) rather than this being a
       // one-line DDL fix. Both halves are needed: the constraint stops new stores from ever
       // reaching that state, the sweep repairs the ones already in it.
       db.exec(

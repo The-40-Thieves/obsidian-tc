@@ -16,9 +16,9 @@
 // still the only path to the vault; this only keeps the QUEUE itself from filling with repeats.
 import { ObsidianTcError, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
 import type { Database } from "../db/types";
-import { enforceMemoryDefense, MEMORY_DEFENSE_OFF } from "../experiential/memory-defense";
 import { argsHash } from "../hash";
 import type { MetricsRecorder } from "../metrics/registry";
+import { enforceMemoryDefense, MEMORY_DEFENSE_OFF } from "../util/memory-defense";
 import { enqueueCapture, listCaptureTags } from "./queue";
 
 /** One highlight within a `CanonicalHighlightSource` item. Source-agnostic: no field here may
