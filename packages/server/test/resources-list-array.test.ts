@@ -45,7 +45,7 @@ beforeAll(async () => {
   vaultRoot = makeTempDir("obsidian-tc-reslist-"); // deliberately EMPTY: no notes at all
   const db = openMemoryDb();
   provisionCacheDb(db);
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register(
     createHealthTool({
       version: "0.0.0-test",
@@ -190,7 +190,7 @@ describe("a server with no vault registry", () => {
     const server = createMcpServer({
       name: "x",
       version: "0",
-      registry: new ToolRegistry(),
+      registry: new ToolRegistry({ rootResolver: () => undefined }),
       context: () => ({
         caller: "t",
         authenticated: true,

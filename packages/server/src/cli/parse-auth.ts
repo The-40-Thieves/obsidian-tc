@@ -20,7 +20,9 @@ export interface AuthCommand {
     | "as-set-password"
     | "as-reset-credentials"
     | "as-grants-list"
-    | "as-grants-revoke";
+    | "as-grants-revoke"
+    | "as-clients-list"
+    | "as-clients-remove";
   configPath?: string;
   json?: boolean;
   /** `revoke`: the token id to revoke. */
@@ -39,6 +41,7 @@ export interface AuthCommand {
   all?: boolean;
   /** `as grants revoke`: the grant id to revoke. */
   grantId?: string;
+  clientId?: string;
   /** `list`: show signing keys instead of tokens. */
   keys?: boolean;
   /** `as set-password`, `as reset-credentials`: the operator account name (default `operator`; for a
@@ -53,11 +56,16 @@ export interface AuthCommand {
 const SUBS = ["rotate-key", "list", "revoke"] as const;
 const VALUE_FLAGS = ["--config", "--reason", "--grace", "--alg", "--purpose", "--user"];
 
-/** `auth as grants list|revoke <id>`. */
-function parseAuthAsGrants(args: string[]): AuthCommand | { kind: "error"; message: string } {
+/** Operator-owned grant and registration management. */
+function parseAuthAsEntries(
+  args: string[],
+  clients: boolean,
+): AuthCommand | { kind: "error"; message: string } {
+  const group = clients ? "clients" : "grants";
+  const action = clients ? "remove" : "revoke";
   const sub = args[0];
-  if (sub !== "list" && sub !== "revoke") {
-    return { kind: "error", message: `unknown auth as grants subcommand: ${sub ?? "(none)"}` };
+  if (sub !== "list" && sub !== action) {
+    return { kind: "error", message: `unknown auth as ${group} subcommand: ${sub ?? "(none)"}` };
   }
   const rest = args.slice(1);
   const scan = rest.filter((a, i) => {
@@ -65,27 +73,37 @@ function parseAuthAsGrants(args: string[]): AuthCommand | { kind: "error"; messa
     const prev = rest[i - 1];
     return !(prev !== undefined && VALUE_FLAGS.includes(prev));
   });
-  const grantId = sub === "revoke" ? scan[0] : undefined;
-  if (sub === "revoke" && grantId === undefined) {
-    return { kind: "error", message: "auth as grants revoke requires a <grant id>" };
+  const id = sub === action ? scan[0] : undefined;
+  if (sub === action && id === undefined) {
+    return {
+      kind: "error",
+      message: `auth as ${group} ${action} requires a <${clients ? "client" : "grant"} id>`,
+    };
   }
   const configPath =
-    flagValue(rest, "--config") ?? positional(sub === "revoke" ? scan.slice(1) : scan);
+    flagValue(rest, "--config") ?? positional(sub === action ? scan.slice(1) : scan);
   const reason = flagValue(rest, "--reason");
   return {
     kind: "auth",
-    sub: sub === "list" ? "as-grants-list" : "as-grants-revoke",
+    sub: clients
+      ? sub === "list"
+        ? "as-clients-list"
+        : "as-clients-remove"
+      : sub === "list"
+        ? "as-grants-list"
+        : "as-grants-revoke",
     ...(configPath !== undefined ? { configPath } : {}),
     json: rest.includes("--json"),
     all: rest.includes("--all"),
-    ...(grantId !== undefined ? { grantId } : {}),
+    ...(id !== undefined ? (clients ? { clientId: id } : { grantId: id }) : {}),
     ...(reason !== undefined ? { reason } : {}),
   };
 }
 
 /** `auth as <sub>`: `set-password`, `reset-credentials` and `grants`. */
 function parseAuthAs(rest: string[]): AuthCommand | { kind: "error"; message: string } {
-  if (rest[0] === "grants") return parseAuthAsGrants(rest.slice(1));
+  if (rest[0] === "grants" || rest[0] === "clients")
+    return parseAuthAsEntries(rest.slice(1), rest[0] === "clients");
   const reset = rest[0] === "reset-credentials";
   if (rest[0] !== "set-password" && !reset) {
     return { kind: "error", message: `unknown auth as subcommand: ${rest[0] ?? "(none)"}` };

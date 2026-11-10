@@ -70,7 +70,7 @@ describe("move_note refuses a destination that cannot live inside a wikilink", (
   afterEach(() => v?.cleanup());
 
   it.each(HOSTILE)("%s", async (_l, name) => {
-    v = makeTestVault({ files: { "Old.md": "body", "linker.md": LINKER }, centralAcl: true });
+    v = makeTestVault({ files: { "Old.md": "body", "linker.md": LINKER } });
     const r = await v.call("move_note", { vault: "test", from: "Old.md", to: `${name}.md` });
     expectRefused(r);
     expect(v.read("linker.md")).toBe(LINKER);
@@ -78,7 +78,7 @@ describe("move_note refuses a destination that cannot live inside a wikilink", (
   });
 
   it("names the offending characters", async () => {
-    v = makeTestVault({ files: { "Old.md": "body", "linker.md": LINKER }, centralAcl: true });
+    v = makeTestVault({ files: { "Old.md": "body", "linker.md": LINKER } });
     const r = await v.call("move_note", { vault: "test", from: "Old.md", to: "foo]]\nx.md" });
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -95,13 +95,13 @@ describe("move_note refuses a destination that cannot live inside a wikilink", (
   });
 
   it("a folder segment that cannot live in a path-form link is refused as well", async () => {
-    v = makeTestVault({ files: { "Old.md": "body", "linker.md": LINKER }, centralAcl: true });
+    v = makeTestVault({ files: { "Old.md": "body", "linker.md": LINKER } });
     expectRefused(await v.call("move_note", { vault: "test", from: "Old.md", to: "a#b/New.md" }));
     expect(v.read("linker.md")).toBe(LINKER);
   });
 
   it("an ordinary rename still rewrites the backlinks", async () => {
-    v = makeTestVault({ files: { "Old.md": "body", "linker.md": LINKER }, centralAcl: true });
+    v = makeTestVault({ files: { "Old.md": "body", "linker.md": LINKER } });
     const r = await v.call("move_note", { vault: "test", from: "Old.md", to: "New name.md" });
     expect(r.ok).toBe(true);
     expect(v.read("linker.md")).toBe(
@@ -115,13 +115,13 @@ describe("write_note / copy_note refuse the same names (create and copy destinat
   afterEach(() => v?.cleanup());
 
   it.each(HOSTILE)("write_note: %s", async (_l, name) => {
-    v = makeTestVault({ centralAcl: true });
+    v = makeTestVault({});
     const r = await v.call("write_note", { vault: "test", path: `${name}.md`, content: "x" });
     expectRefused(r);
   });
 
   it("copy_note", async () => {
-    v = makeTestVault({ files: { "src.md": "hello" }, centralAcl: true });
+    v = makeTestVault({ files: { "src.md": "hello" } });
     expectRefused(await v.call("copy_note", { vault: "test", from: "src.md", to: "a|b.md" }));
   });
 });
@@ -133,6 +133,8 @@ describe("bulk_move_notes refuses the row, rewrites nothing", () => {
       register: (r, d) => {
         for (const t of buildBulkTools(d)) r.register(t);
       },
+      // The per-row refusal is the handler's; dispatch's central stage would refuse the call first.
+      handlerAclOnly: true,
     });
     try {
       const r = await v.callConfirmed("bulk_move_notes", {
@@ -292,7 +294,7 @@ describe("existing files with awkward names stay readable, updatable and movable
 
   const AWKWARD = "legacy/a#b^c [x] d.md";
   function build(): TestVault {
-    const t = makeTestVault({ centralAcl: true, files: { "linker.md": "See [[Old]]\n" } });
+    const t = makeTestVault({ files: { "linker.md": "See [[Old]]\n" } });
     mkdirSync(join(t.root, "legacy"), { recursive: true });
     writeFileSync(join(t.root, AWKWARD), "");
     writeFileSync(join(t.root, "legacy", "plain.md"), "plain");
@@ -325,7 +327,7 @@ describe("existing files with awkward names stay readable, updatable and movable
   });
 
   it("a note inside an EXISTING folder with an awkward name can be updated in place", async () => {
-    v = makeTestVault({ centralAcl: true });
+    v = makeTestVault({});
     mkdirSync(join(v.root, "C#"), { recursive: true });
     writeFileSync(join(v.root, "C#", "n.md"), "");
     const r = await v.call("write_note", {

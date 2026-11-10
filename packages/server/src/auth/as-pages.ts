@@ -243,12 +243,21 @@ export interface ConsentView {
   /** A dynamically registered client the operator has never approved: it named itself, nobody vouched for it. */
   selfRegistered?: boolean;
   scopes: Array<{ scope: string; words: string }>;
+  scopeDefaulted?: boolean;
+  droppedScopes?: string[];
   resource: string;
   /** Configured personas and their vaults; absent when none are configured. */
   personas?: Array<{ name: string; vaults: string[] }>;
 }
 
 export function consentPage(o: ConsentView): string {
+  const defaulted = o.scopeDefaulted
+    ? '<p class="note">This application did not request explicit permissions. The server defaults below need your approval.</p>\n'
+    : "";
+  const dropped = o.droppedScopes?.length
+    ? // nosemgrep: html-in-template-string -- every value interpolated here goes through escapeHtml
+      `<p class="note">Unsupported permissions were dropped: ${o.droppedScopes.map((s) => `<code>${escapeHtml(s)}</code>`).join(", ")}. They will not be granted.</p>\n`
+    : "";
   const scopes = o.scopes
     .map((s) => `<li>${escapeHtml(s.words)} <code>${escapeHtml(s.scope)}</code></li>`)
     .join("\n");
@@ -257,10 +266,11 @@ export function consentPage(o: ConsentView): string {
     : "";
   const unapproved =
     o.unapproved && o.clientHost !== undefined
-      ? `<p class="error" role="alert">This application identifies itself only by a web address (<code>${escapeHtml(o.clientHost)}</code>) and you have not approved it before. Anyone can publish a document under any name: approve it only if you recognise that address.</p>\n`
+      ? // nosemgrep: html-in-template-string -- every value interpolated here goes through escapeHtml
+        `<p class="error" role="alert">This application identifies itself only by a web address (<code>${escapeHtml(o.clientHost)}</code>) and has no current approval: you have not approved it before, or its approvals were revoked. Anyone can publish a document under any name: approve it only if you recognise that address.</p>\n`
       : "";
   const selfRegistered = o.selfRegistered
-    ? '<p class="error" role="alert">This application registered itself with this server and you have not approved it before. Anyone who can reach this server can register under any name: approve it only if you just started connecting it yourself.</p>\n'
+    ? '<p class="error" role="alert">This application registered itself with this server and has no current approval: you have not approved it before, or its approvals were revoked. Anyone who can reach this server can register under any name: approve it only if you just started connecting it yourself.</p>\n'
     : "";
   const hosted =
     o.clientHost === undefined
@@ -286,7 +296,7 @@ ${[...new Set(o.personas.flatMap((p) => p.vaults))].map((v) => option(v)).join("
   return layout(
     "Approve access",
     `${warn}${unapproved}${selfRegistered}<p><strong>${escapeHtml(o.clientName)}</strong> (<code>${escapeHtml(o.clientId)}</code>) asks to use this server on your behalf. After you choose, your browser returns to <code>${escapeHtml(o.redirectHost)}</code>.</p>
-${hosted}<p>It will be able to:</p>
+${hosted}${defaulted}${dropped}<p>It will be able to:</p>
 <ul>
 ${scopes}
 </ul>
@@ -296,6 +306,38 @@ ${hidden(o.csrf)}
 <input type="hidden" name="request" value="${escapeHtml(o.request)}">
 ${picker}<button type="submit" name="decision" value="approve">Approve</button>
 <button type="submit" name="decision" value="deny">Deny</button>
+</form>`,
+  );
+}
+
+export interface RememberedView {
+  csrf: string;
+  request: string;
+  clientName: string;
+  clientId: string;
+  redirectHost: string;
+  scopes: Array<{ scope: string; words: string }>;
+}
+
+/** A remembered grant covers the request: one click (a token-bound POST) continues, nothing is asked again. */
+export function rememberedPage(o: RememberedView): string {
+  const scopes = o.scopes
+    .map((s) => `<li>${escapeHtml(s.words)} <code>${escapeHtml(s.scope)}</code></li>`)
+    .join("\n");
+  return layout(
+    "Continue signing in",
+    // nosemgrep: html-in-template-string -- every value interpolated here goes through escapeHtml or hidden
+    `<p>You approved <strong>${escapeHtml(o.clientName)}</strong> (<code>${escapeHtml(o.clientId)}</code>) before. Continue only if you just started this sign-in yourself; your browser then returns to <code>${escapeHtml(o.redirectHost)}</code>.</p>
+<p>It will be able to:</p>
+<ul>
+${scopes}
+</ul>
+<form method="post" action="/oauth/consent">
+${hidden(o.csrf)}
+<input type="hidden" name="request" value="${escapeHtml(o.request)}">
+<input type="hidden" name="remembered" value="1">
+<button type="submit" name="decision" value="approve">Continue</button>
+<button type="submit" name="decision" value="deny">Cancel</button>
 </form>`,
   );
 }

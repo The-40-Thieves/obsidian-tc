@@ -107,6 +107,8 @@ export interface LintEnv {
   wikiFolders?: readonly string[] | undefined;
   /** Every name of the vault's raw-sources folder. Raw notes are inputs: never the subject of a proposal. */
   rawFolders?: readonly string[] | undefined;
+  /** The vault's filesystem case behavior for the raw/generated classification (platform default when absent). */
+  caseInsensitive?: boolean | null | undefined;
   /** Server-local key that authenticates generated pages. */
   sealKey?: string | undefined;
 }
@@ -179,14 +181,15 @@ export async function runWikiLint(
     wikiFolder: env.wikiFolder,
     wikiFolders: env.wikiFolders,
     rawFolders: env.rawFolders,
+    caseInsensitive: env.caseInsensitive,
   };
   const folder = input.folder?.replace(/\/+$/, "");
   const prefix = folder ? `${folder}/` : "";
   const inFolder = (p: string): boolean => prefix === "" || p.startsWith(prefix);
-  const isRaw = rawPathFilter(env.rawFolders);
+  const isRaw = rawPathFilter(env.rawFolders, env.caseInsensitive);
   const subjectOk = (p: string): boolean =>
     !env.exclusion.isExcluded(p) &&
-    !isGeneratedWikiPath(p, env.wikiFolders ?? env.wikiFolder) &&
+    !isGeneratedWikiPath(p, env.wikiFolders ?? env.wikiFolder, env.caseInsensitive) &&
     !isRaw(p);
   // A LIVE filesystem path (the generated pages) is judged lexically, as the read tools do.
   const readable = (p: string): boolean => readableRel(env.acl, p, env.grantedScopes);
@@ -480,6 +483,7 @@ export async function runWikiLint(
           grantedScopes: env.grantedScopes,
           wikiFolders: env.wikiFolders ?? env.wikiFolder,
           rawFolders: env.rawFolders,
+          caseInsensitive: env.caseInsensitive,
         },
         subjectOk,
         folder,

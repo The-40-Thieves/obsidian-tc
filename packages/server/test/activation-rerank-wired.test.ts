@@ -87,7 +87,7 @@ const activationFor = (id: string) => (id === "cC" ? 1.0 : null);
 
 function harness(withActivationFor: boolean) {
   const db = seedDb();
-  const registry = new ToolRegistry({});
+  const registry = new ToolRegistry({ rootResolver: (id) => vaultRegistry.resolve(id).root });
   const vaultRegistry = new VaultRegistry([{ id: VAULT, name: VAULT, path: root }]);
   registerM7Tools(registry, {
     vaultRegistry,

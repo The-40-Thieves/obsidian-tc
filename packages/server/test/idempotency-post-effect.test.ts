@@ -29,7 +29,7 @@ function idemRow(db: Database, key: string) {
 describe("idempotency post-effect fault (THE-562 #13)", () => {
   it("a strict-output-schema violation AFTER the effect records indeterminate, not delete", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry(); // NODE_ENV=test => strictOutputSchema on
+    const reg = new ToolRegistry({ rootResolver: () => undefined }); // NODE_ENV=test => strictOutputSchema on
     const eff = { n: 0 };
     reg.register({
       name: "bad_out",
@@ -59,7 +59,7 @@ describe("idempotency post-effect fault (THE-562 #13)", () => {
 
   it("a JSON.stringify failure AFTER the effect records indeterminate", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     const eff = { n: 0 };
     reg.register({
       name: "unserializable",
@@ -82,7 +82,7 @@ describe("idempotency post-effect fault (THE-562 #13)", () => {
 
   it("a PRE-handler failure still deletes the claim (legitimate retry re-runs)", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     let n = 0;
     reg.register({
       name: "flaky",
@@ -110,7 +110,7 @@ describe("idempotency crash-after-effect (THE-562 #13)", () => {
   it("an orphaned effect_committed row (crash before finalize) replays indeterminate, never re-runs", async () => {
     const db = freshDb();
     const { reg, calls } = (() => {
-      const reg = new ToolRegistry();
+      const reg = new ToolRegistry({ rootResolver: () => undefined });
       const calls = { n: 0 };
       reg.register({
         name: "kv_put",
@@ -152,7 +152,7 @@ describe("idempotency crash-after-effect (THE-562 #13)", () => {
 
   it("past its TTL, an effect_committed orphan is GC'd and re-runs (bounded at-most-once)", async () => {
     const db = freshDb();
-    const reg = new ToolRegistry();
+    const reg = new ToolRegistry({ rootResolver: () => undefined });
     let n = 0;
     reg.register({
       name: "kv_put",
@@ -191,7 +191,7 @@ describe("idempotency crash-after-effect (THE-562 #13)", () => {
     // Prove the marker is set BEFORE the overflow finalize: if finalize throws, durability survives.
     const base = freshDb();
     let runs = 0;
-    const reg = new ToolRegistry({ maxResponseBytes: 10 });
+    const reg = new ToolRegistry({ rootResolver: () => undefined, maxResponseBytes: 10 });
     reg.register({
       name: "big_keyed",
       description: "big keyed write",

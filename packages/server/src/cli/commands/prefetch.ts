@@ -37,7 +37,9 @@ export async function run_prefetch(cmd: Cmd<"prefetch">): Promise<void> {
   const pfVaultRegistry = new VaultRegistry(cfg.vaults, undefined, cfg.cacheDir);
   const memByVault = new Map<string, string>();
   for (const v of cfg.vaults) if (v.memory) memByVault.set(v.id, v.memory.folder);
-  const pfRegistry = new ToolRegistry({});
+  const pfRegistry = new ToolRegistry({
+    rootResolver: (id) => pfVaultRegistry.resolve(id).root,
+  });
   registerM7Tools(pfRegistry, {
     vaultRegistry: pfVaultRegistry,
     embeddingProvider: provider,

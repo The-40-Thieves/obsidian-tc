@@ -47,7 +47,7 @@ async function harness(autoOpen: boolean): Promise<Harness> {
   const db = openMemoryDb();
   provisionCacheDb(db);
   const tracker = new ActiveSessionTracker();
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   registry.register({
     name: "probe",
     description: "test-only: reports the session the context carries",

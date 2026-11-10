@@ -1,6 +1,5 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
 import { discoverOidc, discoveryPolicyOf } from "../../auth/oidc-discovery";
 import { probeAuthRegistry } from "../../auth/registry-open";
 import {
@@ -19,7 +18,6 @@ import {
   resolveInstallRoot,
 } from "../../doctor";
 import { authJwksViews } from "../../doctor/auth-jwks";
-import { deadPathGlobsView } from "../../doctor/dead-path-globs";
 import { HITL_DOCTOR_WINDOW_DAYS, probeHitlConfirmations } from "../../doctor/hitl-confirmations";
 import { probeNoteSummariesScale } from "../../doctor/note-summary-scale";
 import { plainHttpEndpoints } from "../../doctor/plain-http";
@@ -40,12 +38,12 @@ import {
   buildRerankerDoctorProbes,
   embeddingsDeprecation,
 } from "../../providers/registry";
-import { buildAcls } from "../../runtime/acl-build";
 import type { NotesFtsIntegrity } from "../../search/fts";
 import { createQueryEncoder } from "../../search/query-encoder";
 import { redactEndpoint } from "../../telemetry/redact-endpoint";
 import { nativeVaultIo } from "../../vault/notes-io";
 import { type Cmd, resolveOrUsageExitWithProvenance } from "../shared";
+import { aclDoctorViews } from "./doctor-acl-views";
 import { probeAuthAsView } from "./doctor-auth-as";
 import { probeEmbeddingIntegrityFor, probeIndexCoverageFor } from "./doctor-index-probes";
 import { probeMemoryEntities } from "./doctor-memory-probe";
@@ -686,18 +684,7 @@ export async function run_doctor(cmd: Cmd<"doctor">): Promise<void> {
         windowDays: HITL_DOCTOR_WINDOW_DAYS,
         ...(hitlConfirmations !== undefined ? { probe: () => hitlConfirmations } : {}),
       },
-      memoryReadAcl: (() => {
-        const { acl, aclByVault } = buildAcls(config.acl, config.vaults);
-        return {
-          vaults: config.vaults.map((v) => ({
-            id: v.id,
-            memoryFolder: v.memory?.folder ?? DEFAULT_MEMORY_FOLDER,
-            acl: aclByVault.get(v.id) ?? acl,
-          })),
-          ...(memoryEntities !== undefined ? { probe: () => memoryEntities } : {}),
-        };
-      })(),
-      pathGlobs: deadPathGlobsView(config),
+      ...aclDoctorViews(config, memoryEntities),
       sessions: {
         windowSeconds: config.sessions.windowSeconds,
         ...(sessionLiveness !== undefined ? { probe: () => sessionLiveness } : {}),

@@ -371,6 +371,8 @@ export const AuthConfigSchema = z.object({
   ),
 });
 export const AclRuleSchema = z.object({
+  // The glob matches case-folded or not per the VAULT's filesystem (vaults[].caseSensitive, else
+  // the startup probe), never per a platform constant — see vault/case-sensitivity.ts.
   glob: aclPathGlob()
     .min(1)
     .describe(

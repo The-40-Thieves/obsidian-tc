@@ -1,10 +1,12 @@
 // Check one note's frontmatter against its effective conventions. Pure: no I/O, no ACL. Problems are
 // warnings for the caller to fix; nothing here blocks a write.
 
+import { foldPath } from "../acl";
 import { isGeneratedWikiPath, rawPathFilter } from "../tools/m7/knowledge/wiki-folder";
 import { WIKI_SCHEMA_FILE } from "../tools/m7/knowledge/wiki-schema";
 import { MAX_SCAN_WARNINGS } from "../tools/scan-warnings";
 import { fmHas } from "../tools/wiki-scan";
+import { classificationFold } from "../vault/case-sensitivity";
 import type { Frontmatter } from "../vault/frontmatter";
 import { frontmatterTags, normalizeTag, tagMatches } from "../vault/tags";
 import { scalarText } from "./parse";
@@ -49,9 +51,11 @@ function skipped(eff: EffectiveConventions, path: string): boolean {
   if (!/\.md$/i.test(path)) return true;
   const parts = path.split("/");
   if (parts.some((p) => p.startsWith("."))) return true;
-  if (parts[parts.length - 1] === WIKI_SCHEMA_FILE) return true;
-  if (isGeneratedWikiPath(path, eff.wikiFolders)) return true;
-  return rawPathFilter(eff.rawFolders)(path);
+  // SCHEMA.md and the generated/raw classifications fold the way the vault's filesystem folds.
+  const ci = classificationFold(eff.caseInsensitive);
+  if (foldPath(parts[parts.length - 1] ?? "", ci) === foldPath(WIKI_SCHEMA_FILE, ci)) return true;
+  if (isGeneratedWikiPath(path, eff.wikiFolders, eff.caseInsensitive)) return true;
+  return rawPathFilter(eff.rawFolders, eff.caseInsensitive)(path);
 }
 
 /** A tag as the tag rules match it: NFC, normalised, lower-case. */

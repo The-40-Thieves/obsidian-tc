@@ -79,7 +79,10 @@ describe("requirePlugin degradation gate", () => {
 describe("execute:<plugin> scope + HITL floor through dispatch", () => {
   const db = openMemoryDb();
   provisionCacheDb(db);
-  const registry = new ToolRegistry({ verifyElicit: elicitVerifier });
+  const registry = new ToolRegistry({
+    rootResolver: () => undefined,
+    verifyElicit: elicitVerifier,
+  });
   registry.register(
     defineTool({
       name: "__bridge_read_probe",

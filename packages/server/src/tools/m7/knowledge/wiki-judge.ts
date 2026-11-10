@@ -128,6 +128,8 @@ export interface SendScope {
   rawFolders?: readonly string[] | undefined;
   /** Every name of the vault's wiki folder: its generated index.md / log.md are not pages, so never sent. */
   wikiFolders?: WikiFolders;
+  /** The vault's filesystem case behavior for the raw/generated classification (platform default when absent). */
+  caseInsensitive?: boolean | null | undefined;
 }
 
 /** Read `rel` for the judge, or say why it may not be sent. The reason is for the caller's notes;
@@ -142,12 +144,15 @@ export function loadSendable(
   if (!readableRel(scope.acl, rel, scope.grantedScopes)) return { refused: "unreadable" };
   // Raw under the name it was reached by and under the real place it leads to: a symlink from a
   // page folder into the raw folder is still a raw note.
-  const isRaw = rawPathFilter(scope.rawFolders);
+  const isRaw = rawPathFilter(scope.rawFolders, scope.caseInsensitive);
   try {
     const real = resolveVaultPathChecked(scope.root, rel).aclRel;
     if (isRaw(rel) || isRaw(real)) return { refused: "raw" };
     // The generated index and log are not pages, under the name reached and the real one.
-    if (isGeneratedWikiPath(rel, scope.wikiFolders) || isGeneratedWikiPath(real, scope.wikiFolders))
+    if (
+      isGeneratedWikiPath(rel, scope.wikiFolders, scope.caseInsensitive) ||
+      isGeneratedWikiPath(real, scope.wikiFolders, scope.caseInsensitive)
+    )
       return { refused: "generated" };
     const { raw, hash } = readNote(resolveVaultPath(scope.root, rel));
     const body = parseNoteLenient(raw, rel).body;

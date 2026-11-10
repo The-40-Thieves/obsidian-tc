@@ -61,7 +61,7 @@ describe("THE-278 JSON Schema 2020-12 emission (MCP 2025-11-25 default dialect)"
   });
 
   it("flat-mode tools/list emits 2020-12 over the wire", async () => {
-    const r = new ToolRegistry();
+    const r = new ToolRegistry({ rootResolver: () => undefined });
     r.register(tool("read_note"));
     const { client, server } = await connect(r, "flat");
     const t = (await client.listTools()).tools.find((x) => x.name === "read_note");

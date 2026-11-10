@@ -181,7 +181,6 @@ describe.skipIf(process.platform === "win32" || !nativeVaultIo)(
       v = makeTestVault({
         files: { "open/x.md": OPEN, "raw/x.md": RAW },
         wikiFolder: "wiki",
-        centralAcl: true,
         setup: (root) => symlinkSync(join(root, "open"), join(root, "wiki")),
       });
       expect(nativeVaultIo).toBe(true);

@@ -345,6 +345,7 @@ describe("per-vault ACL binding", () => {
     ]);
     const open = new FolderAcl({ readOnly: false, defaultScopes: [], rules: [] });
     const registry = new ToolRegistry({
+      rootResolver: (id) => (id === "va" ? rootA : id === "vb" ? rootB : undefined),
       verifyElicit: elicitVerifier,
       aclResolver: (id) => acls.get(id),
     });

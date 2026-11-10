@@ -61,7 +61,12 @@ const tool = (name: string, handler: (input: any) => unknown, scopes = ["read:no
 });
 
 const registry = (detail: OtelDetail | undefined, extra: Record<string, unknown> = {}) =>
-  new ToolRegistry({ tracer, ...(detail ? { otelDetail: detail } : {}), ...extra });
+  new ToolRegistry({
+    rootResolver: () => undefined,
+    tracer,
+    ...(detail ? { otelDetail: detail } : {}),
+    ...extra,
+  });
 
 const byName = (name: string) => exporter.getFinishedSpans().filter((s) => s.name === name);
 const root = (): ReadableSpan => {

@@ -58,7 +58,7 @@ async function rig(
   // A short lease makes the runner's cancel poll (lease / 3) fire in milliseconds.
   const queue = new JobQueue(db, { leaseMs: 30 });
   const runs = { started: 0, aborted: 0 };
-  const registry = new ToolRegistry();
+  const registry = new ToolRegistry({ rootResolver: () => undefined });
   const tool = (name: string, handler: ToolDefinition["handler"]): ToolDefinition =>
     ({
       name,

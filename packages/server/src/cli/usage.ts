@@ -371,6 +371,12 @@ Usage:
                                           Revoke a grant: its refresh tokens and every live access
                                           token issued under it stop working at once, and it issues
                                           no more. The id comes from "auth as grants list".
+  obsidian-tc auth as clients list [path] [--json]
+                                          List dynamically registered clients and their timestamps.
+  obsidian-tc auth as clients remove <client id> [path] [--reason <text>] [--json]
+                                          Remove a DCR client and revoke all its grants, refresh
+                                          tokens and live access tokens. Refuses static and
+                                          metadata-document clients. Works while DCR is disabled.
   obsidian-tc elicit [path] --hash <args_hash> --tool <name> [--vault <id>] [--caller <id>]
                         [--state-fp <fp>] [--json]
                                           Mint a single-use HITL confirmation token bound to the

@@ -420,6 +420,7 @@ describe("agent_episodes capture bus (THE-228)", () => {
     ]);
     const edb = edb0();
     const registry = new ToolRegistry({
+      rootResolver: () => undefined,
       onEpisode: createEpisodeCapture(edb, { now: () => NOW }),
     });
     registry.register({

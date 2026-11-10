@@ -51,7 +51,11 @@ export function buildFullRegistry(opts?: {
   const metadataIndex = { hasFts: false, ready: () => true };
   const bridge = () => ({ client: undefined, timeoutMs: 1000 });
 
-  const registry = new ToolRegistry({ rateLimiter, toolVisibility: opts?.toolVisibility });
+  const registry = new ToolRegistry({
+    rootResolver: (id) => vaultRegistry.resolve(id).root,
+    rateLimiter,
+    toolVisibility: opts?.toolVisibility,
+  });
   registry.register(
     createHealthTool({
       version: "docgen",

@@ -30,6 +30,7 @@ function ctx(db: any, over: Partial<CallerContext> = {}): CallerContext {
 
 function reg() {
   const r = new ToolRegistry({
+    rootResolver: () => undefined,
     maxResponseBytes: 256,
     verifyElicit: (token, hash) => token === `good:${hash}`,
   });
@@ -146,7 +147,7 @@ describe("THE-457 audit-write failure surfacing", () => {
     const db = freshDb();
     db.exec("DROP TABLE event_log"); // force the fail-open audit INSERT to throw
     let audits = 0;
-    const r = new ToolRegistry({ onAuditFailure: () => audits++ });
+    const r = new ToolRegistry({ rootResolver: () => undefined, onAuditFailure: () => audits++ });
     r.register({
       name: "ping",
       description: "d",
