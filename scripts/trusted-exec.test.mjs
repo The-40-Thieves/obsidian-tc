@@ -2,6 +2,8 @@
 // executable from. Everything is injected (PATH, platform, filesystem), so no process is started
 // and the same cases run on every OS.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { nodeExecutable, resolveExecutable, trustedExecutable } from "./lib/trusted-exec.mjs";
 
@@ -142,4 +144,43 @@ test("trustedExecutable throws an ENOENT-coded error that names the command", ()
 test("on this machine it finds node's own directory entry as an absolute path", () => {
   const found = resolveExecutable("node");
   if (found !== null) assert.match(found, /^([A-Za-z]:\\|\/)/);
+});
+
+// A caller that uses the resolver without importing it only fails when that line runs, and most of
+// these scripts have no test of their own. One was shipped with the import inside a template
+// string, so check the import is a real one: nothing but imports and comments may come before it.
+test("every script that calls the resolver imports it at the top of the module", () => {
+  const root = new URL("..", import.meta.url);
+  const files = execFileSync(
+    trustedExecutable("git"),
+    ["ls-files", "scripts", "packages/server/scripts", "packages/server/eval"],
+    { cwd: root, encoding: "utf8" },
+  )
+    .split("\n")
+    .filter((f) => f.endsWith(".mjs") || f.endsWith(".ts"))
+    .filter((f) => !f.endsWith("trusted-exec.mjs") && !f.endsWith("trusted-exec.test.mjs"));
+  const callers = [];
+  for (const file of files) {
+    const lines = readFileSync(new URL(file, root), "utf8").split("\n");
+    if (!lines.some((l) => l.includes("trustedExecutable(") || l.includes("nodeExecutable(")))
+      continue;
+    callers.push(file);
+    let imported = false;
+    let inImport = false;
+    for (const line of lines) {
+      const t = line.trim();
+      if (inImport) {
+        if (t.includes("trusted-exec.mjs")) imported = true;
+        if (t.endsWith(";")) inImport = false;
+        continue;
+      }
+      if (t === "" || t.startsWith("//") || t.startsWith("/*") || t.startsWith("*")) continue;
+      if (t.startsWith("#!")) continue;
+      if (!t.startsWith("import ")) break;
+      if (t.includes("trusted-exec.mjs")) imported = true;
+      if (!t.endsWith(";")) inImport = true;
+    }
+    assert.ok(imported, `${file} calls the resolver but does not import it at the top`);
+  }
+  assert.ok(callers.length >= 30, `expected the known callers, found ${callers.length}`);
 });

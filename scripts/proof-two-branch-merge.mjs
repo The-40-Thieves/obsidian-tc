@@ -34,6 +34,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const KEEP = process.argv.includes("--keep");
 const REPO = execFileSync(trustedExecutable("git"), ["rev-parse", "--show-toplevel"], {
@@ -105,7 +106,6 @@ function setup() {
 function toolFile(name, fn, domain) {
   return `import { z } from "zod";
 import { defineTool } from "../m1/define";
-import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const Out = z.object({ ok: z.boolean() });
 
