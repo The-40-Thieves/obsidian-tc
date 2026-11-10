@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { cpus } from "node:os";
 import { performance } from "node:perf_hooks";
+import { trustedExecutable } from "../../../../scripts/lib/trusted-exec.mjs";
 import { collectBoot } from "./collectors/boot";
 import { collectDensification } from "./collectors/densification";
 import { collectDispatch } from "./collectors/dispatch";
@@ -219,7 +220,11 @@ function writeCalibrationReference(result: VectorContentionResult): void {
  *  reproduce this measurement?". Any later read is contaminated by the run's own output files. */
 const treeDirtyAtStart = ((): boolean => {
   try {
-    return execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim() !== "";
+    return (
+      execFileSync(trustedExecutable("git"), ["status", "--porcelain"], {
+        encoding: "utf8",
+      }).trim() !== ""
+    );
   } catch {
     // Not a git checkout (or git unavailable): claim nothing rather than assert cleanliness.
     return false;
@@ -244,7 +249,7 @@ function writeBaselineProvenance(
 ): void {
   const git = (args: string[]): string => {
     try {
-      return execFileSync("git", args, { encoding: "utf8" }).trim();
+      return execFileSync(trustedExecutable("git"), args, { encoding: "utf8" }).trim();
     } catch {
       return "";
     }

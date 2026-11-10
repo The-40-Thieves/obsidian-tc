@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 // Single-source release prep (THE-256 Phase 1).
 // Usage: bun scripts/release.mjs <patch|minor|major|x.y.z>
 // Sets the version across every package.json + distribution file, refreshes
@@ -21,6 +21,7 @@ import {
   pinnedPackageSpec,
 } from "./lib/plugin-manifest-versions.mjs";
 import { attributeReleasePrs } from "./lib/release-pr-attribution.mjs";
+import { nodeExecutable, trustedExecutable } from "./lib/trusted-exec.mjs";
 
 // Every path below is a hardcoded repo-relative metadata file; this guard keeps
 // the reads/writes provably contained to the repo root (defense in depth).
@@ -64,8 +65,14 @@ console.log(`release: ${current} -> ${next}`);
 // same check a hard local pre-release gate. Fails fast (execSync throws on non-zero) so a broken
 // build never starts a release.
 console.log("tsc gate (THE-426): shared build + server typecheck ...");
-execSync("bun run build", { stdio: "inherit", cwd: inRepo("packages/shared") });
-execSync("bun run typecheck", { stdio: "inherit", cwd: inRepo("packages/server") });
+execFileSync(trustedExecutable("bun"), ["run", "build"], {
+  stdio: "inherit",
+  cwd: inRepo("packages/shared"),
+});
+execFileSync(trustedExecutable("bun"), ["run", "typecheck"], {
+  stdio: "inherit",
+  cwd: inRepo("packages/server"),
+});
 
 const setVersion = (path, mutate) => {
   const target = inRepo(path);
@@ -395,15 +402,17 @@ for (const p of [
 
 // Refresh the lockfile for the workspace version bump (the step that broke 1.2.1).
 console.log("bun install (refresh bun.lock) ...");
-execSync("bun install", { stdio: "inherit" });
+execFileSync(trustedExecutable("bun"), ["install"], { stdio: "inherit" });
 
 // Normalize formatting of the freshly bumped files so the release commit never carries biome drift
 // (THE-301). Runs after the writes + lockfile refresh; biome formats the JSON/CHANGELOG in place.
 console.log("bun run format (biome) ...");
-execSync("bun run format", { stdio: "inherit" });
+execFileSync(trustedExecutable("bun"), ["run", "format"], { stdio: "inherit" });
 
 // Coherence gate.
-execSync("node scripts/check-version-coherence.mjs", { stdio: "inherit" });
+execFileSync(nodeExecutable(), ["scripts/check-version-coherence.mjs"], {
+  stdio: "inherit",
+});
 
 console.log(
   `\nstaged ${next}. next: commit on a branch, open a PR, review, merge, then a human pushes tag v${next}.`,

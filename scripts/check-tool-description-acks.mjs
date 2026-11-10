@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFragments } from "./lib/changes.mjs";
 import { unacknowledgedDescriptionChanges } from "./lib/tool-descriptions.mjs";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const argv = process.argv.slice(2);
 const flag = (name) => {
@@ -32,7 +33,11 @@ if (!baseRef) {
 }
 
 const git = (...args) =>
-  execFileSync("git", args, { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync(trustedExecutable("git"), args, {
+    cwd: ROOT,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 
 try {
   git("rev-parse", "--verify", "--quiet", `${baseRef}^{commit}`);

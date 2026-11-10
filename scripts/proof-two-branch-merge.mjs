@@ -34,10 +34,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
+
+const GIT = trustedExecutable("git");
 
 const KEEP = process.argv.includes("--keep");
-const REPO = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
-const BASE = execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO, encoding: "utf8" }).trim();
+const REPO = execFileSync(GIT, ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+const BASE = execFileSync(GIT, ["rev-parse", "HEAD"], { cwd: REPO, encoding: "utf8" }).trim();
 
 const WT = join(mkdtempSync(join(tmpdir(), "two-branch-proof-")), "wt");
 const env = {
@@ -57,7 +60,7 @@ const env = {
 };
 
 const git = (...args) =>
-  execFileSync("git", args, { cwd: WT, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  execFileSync(GIT, args, { cwd: WT, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 const rd = (rel) => readFileSync(join(WT, rel), "utf8");
 const wr = (rel, text) => writeFileSync(join(WT, rel), text);
 
@@ -78,7 +81,7 @@ function sh(cmd, args, opts = {}) {
 }
 
 function setup() {
-  execFileSync("git", ["worktree", "add", "--detach", WT, BASE], { cwd: REPO, env });
+  execFileSync(GIT, ["worktree", "add", "--detach", WT, BASE], { cwd: REPO, env });
   // node_modules is not checked in; reuse the main checkout's install (read-only use).
   const links = [
     "node_modules",
@@ -224,7 +227,7 @@ function mergeOrder(first, second, label) {
     }
   }
   // `git grep` exits 1 on no match, which is the passing case here.
-  const markers = sh("git", ["grep", "-lE", "^(<<<<<<<|>>>>>>>) ", "--", "."]).out.trim();
+  const markers = sh(GIT, ["grep", "-lE", "^(<<<<<<<|>>>>>>>) ", "--", "."]).out.trim();
   // Only tracked text that could carry a real marker; the merge-driver tests quote markers in prose.
   const real = markers.split("\n").filter((f) => f && !/\.(test\.[mc]?[jt]s|md)$/.test(f));
   console.log(
@@ -264,7 +267,7 @@ try {
   git("checkout", "-q", "--detach", BASE);
   git("checkout", "-q", "-b", "proof/control", BASE);
   git("merge", "--no-edit", "-q", "proof/a");
-  const off = spawnSync("git", ["merge", "--no-edit", "-q", "proof/b"], {
+  const off = spawnSync(GIT, ["merge", "--no-edit", "-q", "proof/b"], {
     cwd: WT,
     env: { ...env, GIT_CONFIG_VALUE_0: "false" },
     encoding: "utf8",
@@ -284,10 +287,10 @@ try {
 } finally {
   if (KEEP) console.log(`kept worktree at ${WT}`);
   else {
-    spawnSync("git", ["worktree", "remove", "--force", WT], { cwd: REPO });
+    spawnSync(GIT, ["worktree", "remove", "--force", WT], { cwd: REPO });
     rmSync(join(WT, ".."), { recursive: true, force: true });
     for (const b of ["proof/a", "proof/b", "proof/merge-ab", "proof/merge-ba", "proof/control"]) {
-      spawnSync("git", ["branch", "-D", b], { cwd: REPO });
+      spawnSync(GIT, ["branch", "-D", b], { cwd: REPO });
     }
   }
 }

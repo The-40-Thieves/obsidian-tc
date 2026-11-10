@@ -17,6 +17,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { trustedExecutable } from "../../../scripts/lib/trusted-exec.mjs";
 import { createIsolatedHome } from "./lib/isolated-home.mjs";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
@@ -65,7 +66,7 @@ try {
   // does, via the same build the rest of the job already needs).
   const cliEntry = join(PACKAGE_ROOT, "dist", "cli.js");
   const started = Date.now();
-  const result = spawnSync("bun", [cliEntry, "index", configPath], {
+  const result = spawnSync(trustedExecutable("bun"), [cliEntry, "index", configPath], {
     stdio: "inherit",
     env: { ...process.env, ...isolated.env },
     timeout: ceilingMs + 30_000, // hard kill well past the budget so a true hang cannot wedge CI

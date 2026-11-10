@@ -35,6 +35,7 @@
 // be a second, unpinned copy of a capability this repo already gates on.
 import { execFileSync } from "node:child_process";
 import { astGrep } from "./ast-grep-bin.mjs";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 // Declaration forms, matched by NODE KIND and name FIELD — never by a source-text pattern.
 //
@@ -163,11 +164,15 @@ function sg(pattern, lang, path) {
 /** Every LINE ripgrep matches — the textual view this script exists to contrast against. */
 function rgLines(symbol, path) {
   try {
-    const out = execFileSync("rg", ["-n", "--no-heading", "--word-regexp", "-F", symbol, path], {
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-      stdio: ["ignore", "pipe", "ignore"],
-    });
+    const out = execFileSync(
+      trustedExecutable("rg"),
+      ["-n", "--no-heading", "--word-regexp", "-F", symbol, path],
+      {
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    );
     return out
       .split("\n")
       .filter(Boolean)

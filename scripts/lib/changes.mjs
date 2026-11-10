@@ -19,6 +19,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { trustedExecutable } from "./trusted-exec.mjs";
 
 /** Keep-a-Changelog section names, in the order they render when a section is created. */
 export const CHANGE_TYPES = ["Added", "Changed", "Deprecated", "Removed", "Fixed", "Security"];
@@ -134,7 +135,11 @@ export function fillPrNumbers(fragments, prOf) {
  */
 export function gitPrOf(root = ".", ref = "HEAD") {
   const git = (...args) =>
-    execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    execFileSync(trustedExecutable("git"), args, {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
   const isAncestor = (a, b) => {
     try {
       git("merge-base", "--is-ancestor", a, b);

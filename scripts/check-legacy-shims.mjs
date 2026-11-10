@@ -6,17 +6,22 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const MARKER = "// legacy-era shim: see LEGACY_SHIMS.md";
 const INVENTORY = "LEGACY_SHIMS.md";
 const SECTION = "## Legacy-only code";
 
-const tracked = execFileSync("git", ["ls-files", "-z", "--", "packages/*/src/*.ts"], {
-  cwd: ROOT,
-  encoding: "utf8",
-  maxBuffer: 64 * 1024 * 1024,
-})
+const tracked = execFileSync(
+  trustedExecutable("git"),
+  ["ls-files", "-z", "--", "packages/*/src/*.ts"],
+  {
+    cwd: ROOT,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  },
+)
   .split("\0")
   .filter(Boolean);
 

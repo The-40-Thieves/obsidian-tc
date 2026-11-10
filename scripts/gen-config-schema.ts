@@ -19,6 +19,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = join(ROOT, "docs", "obsidian-tc.config.schema.json");
@@ -83,12 +84,16 @@ if (process.argv.includes("--check")) {
   if (baseRef) {
     let baseJson: string;
     try {
-      baseJson = execFileSync("git", ["show", `${baseRef}:docs/obsidian-tc.config.schema.json`], {
-        cwd: ROOT,
-        encoding: "utf8",
-        maxBuffer: 64 * 1024 * 1024,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
+      baseJson = execFileSync(
+        trustedExecutable("git"),
+        ["show", `${baseRef}:docs/obsidian-tc.config.schema.json`],
+        {
+          cwd: ROOT,
+          encoding: "utf8",
+          maxBuffer: 64 * 1024 * 1024,
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
     } catch (err) {
       // Fail closed: a check that cannot read its baseline has compared nothing.
       console.error(

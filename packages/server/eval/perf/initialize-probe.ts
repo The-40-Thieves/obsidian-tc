@@ -27,6 +27,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { trustedExecutable } from "../../../../scripts/lib/trusted-exec.mjs";
 
 const CLI = fileURLToPath(new URL("../../src/cli.ts", import.meta.url));
 const INIT = {
@@ -128,7 +129,7 @@ async function runInstance(
   const t0 = performance.now();
   let readyAt: number | null = null;
   let bootLogAt: number | null = null;
-  const child: ChildProcess = spawn("bun", [CLI, "serve", "--config", config], {
+  const child: ChildProcess = spawn(trustedExecutable("bun"), [CLI, "serve", "--config", config], {
     env: { ...process.env, NO_COLOR: "1" },
     stdio: ["pipe", "pipe", "pipe"],
   });

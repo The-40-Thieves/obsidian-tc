@@ -16,6 +16,7 @@
 // numbers and understate the one term that actually dominates. boot-probe.ts is that subprocess.
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { trustedExecutable } from "../../../../../scripts/lib/trusted-exec.mjs";
 import type { BootProbeResult } from "../boot-probe";
 import type { MetricSample } from "../report";
 
@@ -27,7 +28,7 @@ export type SpawnBootProbe = () => string;
 
 function spawnBootProbe(): string {
   // stderr inherited: a probe failure should be readable in the job log, not swallowed.
-  const result = spawnSync("bun", [BOOT_PROBE_PATH], {
+  const result = spawnSync(trustedExecutable("bun"), [BOOT_PROBE_PATH], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "inherit"],
   });

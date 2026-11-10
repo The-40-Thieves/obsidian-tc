@@ -12,6 +12,7 @@
 // distinctive name, declared, and referenced by nothing.
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 // WP1 split the single schema file into packages/shared/src/config/*.schema.ts, leaving
 // config.schema.ts behind as a re-export facade (still holding whatever hasn't been split out
@@ -54,7 +55,7 @@ if (declared.length === 0) {
 // Every tracked .ts that could consume config: source and eval, never a schema source itself
 // (a schema file must not count as its own consumer), never tests (a test referencing a key
 // does not mean production code threads it).
-const files = execFileSync("git", ["ls-files", "*.ts"], { encoding: "utf8" })
+const files = execFileSync(trustedExecutable("git"), ["ls-files", "*.ts"], { encoding: "utf8" })
   .split("\n")
   .filter(
     (f) =>

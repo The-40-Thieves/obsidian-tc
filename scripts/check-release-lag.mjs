@@ -10,11 +10,12 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { changelogWithFragments, readFragments } from "./lib/changes.mjs";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const THRESHOLD = Number(process.env.RELEASE_LAG_THRESHOLD ?? 30);
 
 function git(args) {
-  return execFileSync("git", args, { encoding: "utf8" }).trim();
+  return execFileSync(trustedExecutable("git"), args, { encoding: "utf8" }).trim();
 }
 
 let tag;

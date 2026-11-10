@@ -22,12 +22,13 @@
 // while keeping the source plain ASCII text.
 import { execFileSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 // Binary artifacts are legitimately non-text; only these are expected to be readable source.
 const BINARY =
   /\.(png|jpg|jpeg|gif|ico|svgz|woff2?|ttf|eot|node|db|sqlite3?|wasm|pdf|zip|gz|tgz|bin|mcpb|snap)$/i;
 
-const tracked = execFileSync("git", ["ls-files", "-z"], { encoding: "buffer" })
+const tracked = execFileSync(trustedExecutable("git"), ["ls-files", "-z"], { encoding: "buffer" })
   .toString("utf8")
   .split("\0")
   .filter(Boolean);

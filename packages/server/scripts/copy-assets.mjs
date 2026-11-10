@@ -1,7 +1,7 @@
 // Copy runtime SQL assets next to the bundled bin so dist/cli.js resolves them the same way it
 // does from source (via new URL("./migrations/...", import.meta.url)), and vendor the companion
 // plugin into dist/plugin/ so the `plugin install` CLI can write it into a vault.
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import {
   chmodSync,
   cpSync,
@@ -13,6 +13,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { nodeExecutable } from "../../../scripts/lib/trusted-exec.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = join(root, "dist");
@@ -75,7 +76,10 @@ try {
   // (the SOURCE, which was correctly 1.9.1); nothing asserted the build output. The build is ~40ms,
   // so unconditionally rebuilding is cheaper than the class of bug it removes.
   console.log("building companion plugin...");
-  execSync("node esbuild.config.mjs production", { cwd: pluginDir, stdio: "inherit" });
+  execFileSync(nodeExecutable(), ["esbuild.config.mjs", "production"], {
+    cwd: pluginDir,
+    stdio: "inherit",
+  });
 
   mkdirSync(vendorDir, { recursive: true });
   cpSync(join(pluginDist, "main.js"), join(vendorDir, "main.js"));

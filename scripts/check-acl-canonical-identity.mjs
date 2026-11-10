@@ -49,6 +49,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { parseSync } from "oxc-parser";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const SOURCE_GLOBS = ["packages/server/src/*.ts", "packages/server/src/**/*.ts"];
 const MIN_FILES = 300;
@@ -885,7 +886,9 @@ export function floorProblems(stats, floors = {}) {
 }
 
 function main() {
-  const listed = execFileSync("git", ["ls-files", ...SOURCE_GLOBS], { encoding: "utf8" })
+  const listed = execFileSync(trustedExecutable("git"), ["ls-files", ...SOURCE_GLOBS], {
+    encoding: "utf8",
+  })
     .split("\n")
     .filter(Boolean);
   const files = listed.map((file) => ({ file, source: readFileSync(file, "utf8") }));

@@ -18,6 +18,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const BIDI_CONTROL = /[\u202A-\u202E\u2066-\u2069]/gu;
 const ZERO_WIDTH = /[\u200B-\u200F\u2060\uFEFF]/gu;
@@ -55,7 +56,7 @@ export function floorProblem(scanned, min = MIN_SCANNED_FILES) {
 }
 
 function main() {
-  const tracked = execFileSync("git", ["ls-files", "-z"], { encoding: "buffer" })
+  const tracked = execFileSync(trustedExecutable("git"), ["ls-files", "-z"], { encoding: "buffer" })
     .toString("utf8")
     .split("\0")
     .filter(Boolean);

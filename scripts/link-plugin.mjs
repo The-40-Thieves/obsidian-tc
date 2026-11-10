@@ -20,6 +20,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
@@ -41,7 +42,7 @@ if (!existsSync(vault)) {
 
 if (!existsSync(join(distDir, "main.js"))) {
   console.log("link-plugin: packages/plugin/dist/ is missing — building it first…");
-  execFileSync("bun", ["run", "build"], { cwd: pluginDir, stdio: "inherit" });
+  execFileSync(trustedExecutable("bun"), ["run", "build"], { cwd: pluginDir, stdio: "inherit" });
 }
 
 const pluginsDir = join(vault, ".obsidian", "plugins");

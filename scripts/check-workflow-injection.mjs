@@ -27,6 +27,7 @@
 // attacker text. Only the DENY list below is reported, so this stays actionable rather than noisy.
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 // Contexts an outside party can influence. Sourced from GitHub's own script-injection guidance:
 // anything derived from a PR/issue/comment body, a branch name, or a composite-action input (which
@@ -40,7 +41,7 @@ const DENY = [
 
 const EXPR = /\$\{\{([^}]*)\}\}/g;
 
-const files = execFileSync("git", ["ls-files", ".github"], { encoding: "utf8" })
+const files = execFileSync(trustedExecutable("git"), ["ls-files", ".github"], { encoding: "utf8" })
   .split("\n")
   .filter((f) => /\.(ya?ml)$/.test(f));
 

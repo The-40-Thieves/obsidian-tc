@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { trustedExecutable } from "../../../../scripts/lib/trusted-exec.mjs";
 import {
   type CalibrationReferenceVector,
   type CalibrationVector,
@@ -48,9 +49,13 @@ const RUN_TS_PATH = fileURLToPath(new URL("./run.ts", import.meta.url));
  *  whole point. Not called directly by tests, which inject a fake `SpawnRun` instead so the
  *  aggregation/orchestration logic can be verified without paying for N real vault builds. */
 function spawnBunRun(scenario: Scenario["name"], outPath: string): void {
-  const result = spawnSync("bun", [RUN_TS_PATH, "--scenario", scenario, "--out", outPath], {
-    stdio: ["ignore", "ignore", "inherit"],
-  });
+  const result = spawnSync(
+    trustedExecutable("bun"),
+    [RUN_TS_PATH, "--scenario", scenario, "--out", outPath],
+    {
+      stdio: ["ignore", "ignore", "inherit"],
+    },
+  );
   if (result.error) {
     throw new Error(`isolated perf sample failed to spawn: ${result.error.message}`);
   }

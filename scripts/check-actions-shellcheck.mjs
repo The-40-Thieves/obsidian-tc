@@ -21,6 +21,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 /**
  * Extract every `run:` body from a composite action's YAML text — both block-scalar
@@ -79,7 +80,9 @@ export function extractRunBlocks(text) {
 }
 
 function main() {
-  const files = execFileSync("git", ["ls-files", ".github/actions"], { encoding: "utf8" })
+  const files = execFileSync(trustedExecutable("git"), ["ls-files", ".github/actions"], {
+    encoding: "utf8",
+  })
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => /\.ya?ml$/.test(l));
@@ -117,7 +120,9 @@ function main() {
       const shellcheckable = block.script.replace(/\$\{\{[^}]*\}\}/g, "GHA_EXPR_PLACEHOLDER");
       writeFileSync(scriptPath, `#!/usr/bin/env bash\n${shellcheckable}`);
       try {
-        execFileSync("shellcheck", ["-s", "bash", scriptPath], { encoding: "utf8" });
+        execFileSync(trustedExecutable("shellcheck"), ["-s", "bash", scriptPath], {
+          encoding: "utf8",
+        });
       } catch (err) {
         problems.push(
           `${file} (run: block starting at line ${block.startLine}):\n${err.stdout ?? err.message}`,

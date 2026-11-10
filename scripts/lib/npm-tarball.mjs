@@ -20,6 +20,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { trustedExecutable } from "./trusted-exec.mjs";
 
 /**
  * Fetch `name@version`, verify its integrity, and unpack it. Resolves to the unpacked package
@@ -68,6 +69,6 @@ export async function fetchVerifiedNpmPackage(name, version, log = () => {}) {
   // `--force-local` fixes that for GNU tar but is not accepted by the bsdtar in System32, so the
   // portable answer is to hand it no colons at all. tar itself is fine to spawn on all three
   // platforms — it is a real .exe, not a .cmd.
-  execFileSync("tar", ["-xzf", "package.tgz"], { cwd: work });
+  execFileSync(trustedExecutable("tar"), ["-xzf", "package.tgz"], { cwd: work });
   return join(work, "package");
 }

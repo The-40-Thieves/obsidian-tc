@@ -52,6 +52,7 @@
 // Shell-free: git is invoked via execFileSync with an argument array, never through a shell.
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
 const TICKET_RE = /\bTHE-(\d{1,5})\b/g;
 
@@ -251,7 +252,7 @@ function areaOf(path) {
 
 // Tracked files only, so an untracked scratch file cannot influence the report. Explicitly NOT a
 // filesystem walk: generated and ignored output has no business voting on ticket state.
-const files = execFileSync("git", ["ls-files", "-z"], {
+const files = execFileSync(trustedExecutable("git"), ["ls-files", "-z"], {
   encoding: "utf8",
   maxBuffer: 64 * 1024 * 1024,
 })
