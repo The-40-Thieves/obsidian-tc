@@ -13,16 +13,18 @@
 // throws when no binary is found). Real prebuild resolution is exercised per-platform
 // at publish/runtime; a source checkout typically runs the JS fallback.
 
-const { existsSync, readFileSync } = require("node:fs");
+const { existsSync, readdirSync, readFileSync } = require("node:fs");
 const { join } = require("node:path");
 
 // musl vs glibc detection (ported from napi-rs's generated loader). Alpine and other musl hosts
 // must request the -musl prebuild, not -gnu. process.report is the primary signal because it
 // reflects the libc the *running* process is linked against and is reliable on modern Node (glibc
 // sets header.glibcVersionRuntime; musl does not and lists its loader in sharedObjects). Only when
-// the report yields no decisive signal do we fall back to the /usr/bin/ldd text, then
-// `ldd --version`. Unknown => false (glibc is the safe default; a wrong guess still degrades to the
-// JS fallback).
+// the report yields no decisive signal do we fall back to the /usr/bin/ldd text, then to whether
+// musl's dynamic loader (ld-musl-<arch>.so.1) is installed. Every probe reads the process or a
+// fixed path: unlike napi-rs's generated loader this one never runs `ldd --version`, because a
+// shipped module must not execute whatever a writable PATH directory resolves that name to.
+// Unknown => false (glibc is the safe default; a wrong guess still degrades to the JS fallback).
 const isFileMusl = (f) => f.includes("libc.musl-") || f.includes("ld-musl-");
 
 function isMuslFromFilesystem() {
@@ -52,14 +54,17 @@ function isMuslFromReport() {
   return null;
 }
 
-function isMuslFromChildProcess() {
-  try {
-    return require("node:child_process")
-      .execSync("ldd --version", { encoding: "utf8" })
-      .includes("musl");
-  } catch {
-    return false;
+function isMuslFromLoaderDirs() {
+  for (const dir of ["/lib", "/usr/lib"]) {
+    try {
+      if (readdirSync(dir).some((name) => name.startsWith("ld-musl-"))) {
+        return true;
+      }
+    } catch {
+      // An unreadable directory says nothing; try the next one.
+    }
   }
+  return false;
 }
 
 function isMusl() {
@@ -71,7 +76,7 @@ function isMusl() {
     musl = isMuslFromFilesystem();
   }
   if (musl === null) {
-    musl = isMuslFromChildProcess();
+    musl = isMuslFromLoaderDirs();
   }
   return musl;
 }
