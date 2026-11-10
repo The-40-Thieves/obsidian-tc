@@ -178,7 +178,10 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
     // process would also approve another that claims the same client_id and path (design v2 section
     // 4.3 gives no instance proof). The default, `remember`, accepts that so a native CLI signs in
     // without a click. Without a remembered grant, `first` still keys on whether the client has any.
-    const remembers = as.consent.loopback === "remember" || !isLoopbackRedirect(p.redirectUri);
+    const remembers =
+      !p.scopeDefaulted &&
+      !p.droppedScopes?.length &&
+      (as.consent.loopback === "remember" || !isLoopbackRedirect(p.redirectUri));
     // A remembered grant is reused only while the account's CURRENT bounds still allow all of it:
     // narrowing the account after the grant makes the operator decide again.
     const bounds = accountBounds(db, session.sub);
@@ -314,6 +317,8 @@ export function mountAuthorizeRoutes(app: Hono, auth: AuthConfig, deps?: AsRoute
           : {}),
         ...(client.dcr ? { selfRegistered: !everApproved(db, client.clientId) } : {}),
         scopes: shown.map((scope) => ({ scope, words: describeScope(scope) })),
+        ...(pending.scopeDefaulted ? { scopeDefaulted: true } : {}),
+        ...(pending.droppedScopes ? { droppedScopes: pending.droppedScopes } : {}),
         resource: pending.resource,
         ...(personas.length > 0 ? { personas } : {}),
       }),

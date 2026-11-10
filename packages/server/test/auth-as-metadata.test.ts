@@ -158,9 +158,9 @@ describe("GET /.well-known/oauth-authorization-server", () => {
     expect("registration_endpoint" in m).toBe(false);
   });
 
-  it("advertises registration_endpoint by default (DCR is on unless turned off)", async () => {
+  it("advertises registration_endpoint only after explicit DCR opt-in", async () => {
     serve(["register"]);
-    const { base } = await boot(authOf());
+    const { base } = await boot(authOf({}, { dynamicRegistration: true }));
     expect((await metadataOf(base)).registration_endpoint).toBe(`${ISSUER}/oauth/register`);
   });
 
