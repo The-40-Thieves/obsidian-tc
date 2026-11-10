@@ -2,8 +2,8 @@
 // (or a partial one), never a throw, and a SCHEMA.md with no `conventions:` key is no layer at all.
 import { describe, expect, it } from "vitest";
 import { parseConventionsLayer } from "../src/conventions/parse";
-import { SCHEMA_LIMITS } from "../src/tools/m7/knowledge/wiki-schema";
-import { MAX_SCAN_WARNINGS } from "../src/tools/scan-warnings";
+import { SCHEMA_LIMITS } from "../src/conventions/wiki-layout";
+import { MAX_SCAN_WARNINGS } from "../src/util/scan-caps";
 
 const BLOCK = `---
 conventions:

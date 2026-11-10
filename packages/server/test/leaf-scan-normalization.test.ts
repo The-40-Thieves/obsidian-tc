@@ -11,7 +11,7 @@
 
 import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
 import { describe, expect, it } from "vitest";
-import { enforceMemoryDefense, INVISIBLE_SPLICE_RANGES } from "../src/experiential/memory-defense";
+import { enforceMemoryDefense, INVISIBLE_SPLICE_RANGES } from "../src/util/memory-defense";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";
 
 function un<T>(r: { ok: boolean; data?: unknown }): T {

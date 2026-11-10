@@ -4,7 +4,7 @@ import type { Database } from "./types";
 /**
  * THE-1039: the FTS5 virtual tables this server provisions app-side (search/fts.ts's notes_fts,
  * search/chunk_fts.ts's chunk_fts) — the single list the maintenance sweep's bounded `'merge'`
- * (db/maintenance.ts), `obsidian-tc compact`'s full `'optimize'` (cli/commands/compact.ts), and
+ * (runtime/maintenance.ts), `obsidian-tc compact`'s full `'optimize'` (cli/commands/compact.ts), and
  * doctor's reclaimable-space row (cli/commands/doctor-probes.ts) all iterate, so a future FTS
  * table can be added to one and not silently missed by the other two.
  */

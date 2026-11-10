@@ -7,6 +7,7 @@ import {
   scopeClassOf,
   type ToolResult,
 } from "@the-40-thieves/obsidian-tc-shared";
+import { markDispatchActive, markInFlight } from "../dispatch-activity";
 import { argsHash } from "../hash";
 import type { MetricsRecorder, ToolCallStatus } from "../metrics/registry";
 import { SPAN_ATTR } from "../otel/attrs";
@@ -14,7 +15,6 @@ import { requestVerboseSpans } from "../otel/dispatch-spans";
 import { withTraceCarrier } from "../otel/propagation";
 import { callerHash, type RateLimiter } from "../throttle";
 import { type FolderPins, withFolderPins } from "../vault/folder-links";
-import { markDispatchActive, markInFlight } from "../workspace/sessions";
 import { type DispatchDeps, runDispatch as runDispatchPipeline } from "./registry/dispatch";
 import {
   annotateSpanResult,

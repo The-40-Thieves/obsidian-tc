@@ -19,9 +19,9 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { sweepTraceFiles } from "../src/db/maintenance";
 import { provisionCacheDb } from "../src/db/provision";
 import type { MorgianaEmitter } from "../src/morgiana/emitter";
+import { sweepTraceFiles } from "../src/runtime/maintenance";
 import { configureMaintenance } from "../src/runtime/maintenance-wiring";
 import { Scheduler } from "../src/scheduler/scheduler";
 import { nativeVaultIo } from "../src/vault/notes-io";

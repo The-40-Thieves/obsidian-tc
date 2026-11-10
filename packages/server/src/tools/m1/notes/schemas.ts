@@ -13,7 +13,7 @@ import {
 } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { conventionsResultShape } from "../../../conventions/schema";
-import { ResponseFormatInput } from "../../response-format";
+import { ResponseFormatInput } from "../../../util/response-format";
 import { immutableSkipShape, rewriteWarningsShape, schemaSkipShape } from "../../scan-warnings";
 
 // ── output schemas ───────────────────────────────────────────────────────────

@@ -302,7 +302,7 @@ describe("no cache wipe touches auth.db", () => {
       readFileSync(fileURLToPath(new URL(`../src/${rel}`, import.meta.url)), "utf8");
     for (const rel of [
       "tools/m1/registry-tools.ts",
-      "db/maintenance.ts",
+      "runtime/maintenance.ts",
       "cli/commands/compact.ts",
       "workspace/rerun.ts",
     ]) {

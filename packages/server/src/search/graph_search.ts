@@ -117,7 +117,7 @@ export function countStaleNotes(
 ): { staleReturned: number; staleUnknown: number; thresholdDays: number } {
   const paths = [...new Set(results.map((r) => r.path))];
   if (paths.length === 0) return { staleReturned: 0, staleUnknown: 0, thresholdDays };
-  // GUARDED on existence, same reasoning as db/maintenance.ts's job_schedule prune: `notes` arrives
+  // GUARDED on existence, same reasoning as runtime/maintenance.ts's job_schedule prune: `notes` arrives
   // in 20260702_001, so a cache.db provisioned before it — or any fixture running a shorter
   // migration chain — does not have the table. An unguarded SELECT throws "no such table: notes"
   // from inside a SEARCH REQUEST, turning an additive observability field into a query outage.

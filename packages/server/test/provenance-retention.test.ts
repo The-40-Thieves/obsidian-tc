@@ -1,11 +1,11 @@
 // Retention for the write-provenance chain. Pruning is the one sanctioned way to remove records, so
 // the invariant is: after a prune the chain still verifies, and any OTHER removal still does not.
 import { describe, expect, it } from "vitest";
-import { runMaintenanceSweep } from "../src/db/maintenance";
 import { pruneProvenance } from "../src/provenance/retention";
 import { registrySignerSource } from "../src/provenance/signer";
 import { appendProvenance } from "../src/provenance/store";
 import { verifyProvenance } from "../src/provenance/verify";
+import { runMaintenanceSweep } from "../src/runtime/maintenance";
 import { sweepTotal } from "../src/runtime/maintenance-wiring";
 import { CLOCK0, provenanceFixture, rowsFor } from "./provenance-helpers";
 

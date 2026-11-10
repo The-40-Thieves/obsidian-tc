@@ -21,7 +21,7 @@ import { paginateByBytes, pagingOf } from "../../../mcp/byte-page";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { internalReasonOf } from "../../../mcp/resource-errors";
 import { readResource, type VaultAclResolver } from "../../../mcp/resources";
-import { ResponseFormatInput, resolveResponseFormat } from "../../response-format";
+import { ResponseFormatInput, resolveResponseFormat } from "../../../util/response-format";
 import { defineTool } from "../define";
 import type { M1Deps } from "../shared";
 import { ReadResourcesOutput } from "./schemas";

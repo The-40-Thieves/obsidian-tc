@@ -19,6 +19,7 @@
 import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
+import { ResponseFormatInput } from "../../util/response-format";
 import { enforcePathAcl } from "../../vault/acl-path";
 import { noteExists, statNote } from "../../vault/notes-io";
 import { normalizeVaultPath, resolveVaultPath } from "../../vault/paths";
@@ -37,7 +38,6 @@ import {
   WriteInput,
   WriteNoteOutput,
 } from "../m1/notes/schemas";
-import { ResponseFormatInput } from "../response-format";
 import {
   bridgeTimeouts,
   companionUnreachable,

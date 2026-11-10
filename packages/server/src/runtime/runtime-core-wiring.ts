@@ -5,7 +5,7 @@
 import { DEFAULT_BUSY_TIMEOUT_MS } from "../db/pragmas";
 import { closeOwnedHosts } from "../embeddings/host/registry";
 import { createRateLimitBackend, DEFAULT_REDIS_REF } from "../ratelimit/create";
-import { type OwnedLayer, requireBoot, unwindReversed } from "./boot-helpers";
+import { type OwnedLayer, requireBoot, unwindReversed } from "../util/boot-helpers";
 import { wireGovernance } from "./governance";
 import { type IndexHealthState, wireIndexResources } from "./indexing-wiring";
 import type { RuntimeCore, RuntimeCoreDeps } from "./runtime-core-types";

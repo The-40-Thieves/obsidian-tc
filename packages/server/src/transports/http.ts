@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { createMcpHandler, type ServerNotifier } from "@modelcontextprotocol/server";
 import type {
@@ -13,6 +12,7 @@ import "../auth/as-issuing";
 import { type AsRouteDeps, mountAsMetadata, mountAsRoutes } from "../auth/as-metadata";
 import { type AsOperatorDeps, mountAsOperator } from "../auth/as-operator";
 import { captureClientPeer, createClientIpResolver, type ForwardedHeader } from "../auth/client-ip";
+import { familyRevocationSink } from "../auth/family-revocation-telemetry";
 import { mountJwksRoute } from "../auth/jwks-route";
 import { AuthRejection, type AuthRejectionReason } from "../auth/jwt";
 import { buildJwtVerifier } from "../auth/jwt-boot";
@@ -25,7 +25,7 @@ import {
   wwwAuthenticateChallenge,
 } from "../auth/protected-resource";
 import type { AuthRegistry } from "../auth/registry";
-import { serverSecret } from "../auth/server-secret";
+import { httpServerSecret, serverSecret } from "../auth/server-secret";
 import type { TokenVerifier } from "../auth/verifier";
 import type { Database } from "../db/types";
 import { createStdioElicitCodec, getDefaultElicitTtlSeconds } from "../elicit";
@@ -554,9 +554,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
   // Operator identity first, so its unclaimed-server refusal guards the routes mounted after it.
   let asRouteDeps: AsRouteDeps | undefined;
   if (opts.oauthDb !== undefined) {
-    const secret = opts.cacheDir
-      ? serverSecret(opts.cacheDir)
-      : randomBytes(32).toString("base64url");
+    const secret = httpServerSecret(opts.cacheDir);
     mountAsOperator(app, { auth: opts.auth, db: opts.oauthDb, secret, clientIp, ...opts.operator });
     if (opts.authRegistry !== undefined) {
       asRouteDeps = {
@@ -565,6 +563,7 @@ export function createHttpApp(opts: HttpAppOptions): HttpApp {
         secret,
         personas: opts.personas,
         clientIp,
+        onFamilyRevoked: familyRevocationSink({ db: opts.db, metrics: opts.metrics }),
       };
     }
   }

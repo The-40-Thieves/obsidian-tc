@@ -7,8 +7,8 @@ import { err } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { fuseEpisodeRanks, semanticRankEpisodes } from "../../experiential/episode-search";
 import type { ToolDefinition } from "../../mcp/registry";
+import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";
 import { defineTool } from "../m1/define";
-import { ResponseFormatInput, resolveResponseFormat } from "../response-format";
 import {
   conciseEpisode,
   EpisodeProjection,

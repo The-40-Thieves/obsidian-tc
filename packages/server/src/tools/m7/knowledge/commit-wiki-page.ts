@@ -21,14 +21,11 @@
 import { ElicitToken, err, ObsidianTcError, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { conventionsResultShape } from "../../../conventions/schema";
-import {
-  enforceMemoryDefenseOnNoteWrite,
-  MEMORY_DEFENSE_OFF,
-} from "../../../experiential/memory-defense";
 import { assessPoison } from "../../../experiential/poison";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { vaultExclusionFor } from "../../../search/index-exclusion";
 import { errorMessage } from "../../../util/errors";
+import { enforceMemoryDefenseOnNoteWrite, MEMORY_DEFENSE_OFF } from "../../../util/memory-defense";
 import { enforcePathAcl } from "../../../vault/acl-path";
 import { readableRel } from "../../../vault/acl-read-filter";
 import { callerMayReadNote, casConflict } from "../../../vault/cas";

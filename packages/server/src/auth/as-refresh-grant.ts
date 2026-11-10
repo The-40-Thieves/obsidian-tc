@@ -33,6 +33,10 @@ import {
   useRefresh,
 } from "./as-refresh";
 import { openResponse, sealResponse, secretGeneration } from "./as-refresh-replay";
+import {
+  type FamilyRevocationHook,
+  familyRevocationTelemetry,
+} from "./family-revocation-telemetry";
 import type { AuthRegistry } from "./registry";
 import { matchResource } from "./resource-set";
 
@@ -49,6 +53,8 @@ export interface RefreshContext {
   reuseGraceMs: number;
   log: (line: string) => void;
   fail: (status: 400 | 500, error: string, description: string) => Response;
+  /** GH #1477: reports the family revocation a reuse or a retired-secret token triggers. */
+  onFamilyRevoked?: FamilyRevocationHook | undefined;
 }
 
 export async function refreshGrant(
@@ -94,7 +100,14 @@ export async function refreshGrant(
   const secretGen = secretGeneration(x.secret);
   /** The token's own client presented a reuse, or a token of a retired secret: the family goes. */
   const retire = (why: "reuse" | "foreign") => {
-    revokeFamily(db, registry, rec.familyId, `refresh_token_${why}`, now());
+    revokeFamily(
+      db,
+      registry,
+      rec.familyId,
+      `refresh_token_${why}`,
+      now(),
+      familyRevocationTelemetry(x.onFamilyRevoked, rec.clientId),
+    );
     return bad(
       why === "reuse"
         ? `refresh token reuse, client=${rec.clientId}: the family is revoked`

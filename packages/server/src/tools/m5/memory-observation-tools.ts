@@ -12,7 +12,6 @@
 import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
 import { inWriteTransaction } from "../../db/txn";
-import { enforceMemoryDefense } from "../../experiential/memory-defense";
 import type { ToolDefinition } from "../../mcp/registry";
 import {
   appendObservation,
@@ -30,6 +29,7 @@ import {
   formatObservationId,
   parseObservationId,
 } from "../../memory/observation-edit";
+import { enforceMemoryDefense } from "../../util/memory-defense";
 import { defineTool } from "../m1/define";
 import {
   assertMemoryPathWritable,

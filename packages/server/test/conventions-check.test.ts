@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { checkNote } from "../src/conventions/check";
 import { resolveConventions } from "../src/conventions/resolve";
 import type { ConventionWarning } from "../src/conventions/schema";
-import { capWarningsOut } from "../src/tools/scan-warnings";
+import { capWarningsOut } from "../src/util/scan-caps";
 import { parseNoteLenient } from "../src/vault/frontmatter";
 import { makeTestVault, type TestVault } from "./m1-helpers";
 

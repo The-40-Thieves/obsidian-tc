@@ -12,10 +12,10 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { redactAgedEpisodeContent, sweepExperiential } from "../src/db/maintenance";
 import { runMigrations } from "../src/db/migrate";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import type { Database } from "../src/db/types";
+import { redactAgedEpisodeContent, sweepExperiential } from "../src/runtime/maintenance";
 import { openMemoryDb } from "./helpers";
 
 // THE-538 idiom: derived from the manifest, not hand-listed, so a new migration cannot break this

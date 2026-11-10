@@ -5,7 +5,6 @@
 // pushed it over; a straight split needs a shared home for the helpers both files call, or one
 // file ends up importing tool-registration code from the other for no reason but a function body.
 import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
-import { redactSecrets } from "../../experiential/redact";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import {
   type EntityRow,
@@ -22,6 +21,7 @@ import {
   materializeEntity,
   type RelationLink,
 } from "../../memory/materialize";
+import { redactSecrets } from "../../util/redact";
 import { callerCanReadVaultPath, enforcePathAcl } from "../../vault/acl-path";
 import type { ResolvedVault } from "../../vault/registry";
 import { type M5Deps, memoryFolderFor, supersededInNoteFor } from "./shared";

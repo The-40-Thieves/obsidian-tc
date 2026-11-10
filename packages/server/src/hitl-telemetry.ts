@@ -1,7 +1,7 @@
 // Confirmation-outcome telemetry: what the human (or the headless `obsidian-tc elicit` mint)
 // decided about a gated call, recorded as CODES in the existing `event_log` audit store.
 //
-// Why `event_log`, not the episode store: retention already sweeps it (db/maintenance.ts trims by
+// Why `event_log`, not the episode store: retention already sweeps it (runtime/maintenance.ts trims by
 // `observability.retention.eventLogDays`), it carries no content column to leak into, and an
 // episode is the experiential layer, which the confirmation gate must never depend on. An event
 // pairs with its episode by (vault_id, tool_name, args_hash, caller) — the same key the episode's

@@ -29,6 +29,29 @@ import {
 const SCRIPT = fileURLToPath(new URL("./check-redos.mjs", import.meta.url));
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
+test("default scan includes relocated untrusted-text scanners and every allowlisted file", async () => {
+  const { defaultScanFiles } = await import("./check-redos.mjs");
+  const files = new Set(defaultScanFiles());
+  for (const file of [
+    "packages/server/src/util/redact.ts",
+    "packages/server/src/util/memory-defense.ts",
+    ...ALLOWLIST.map((entry) => entry.file),
+    ...DYNAMIC_ALLOWLIST.map((entry) => entry.file),
+  ]) {
+    assert.ok(files.has(join(REPO_ROOT, file)), `missing default scan coverage: ${file}`);
+  }
+});
+
+test("gate reports repository-relative paths with portable separators", async () => {
+  const { runGate } = await import("./check-redos.mjs");
+  const paths = [];
+  await runGate({
+    files: [join(REPO_ROOT, "packages/server/src/util/tokenize.ts")],
+    log: (path) => paths.push(path),
+  });
+  assert.deepEqual(paths, ["packages/server/src/util/tokenize.ts"]);
+});
+
 test("checkPattern flags the pre-fix MDLINK regex as vulnerable (RED case)", async () => {
   const result = await checkPattern("(!?)\\[([^\\]\\n]*)\\]\\(([^)\\n]+)\\)", "g");
   assert.equal(result.status, "vulnerable");

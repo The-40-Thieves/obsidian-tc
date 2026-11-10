@@ -41,6 +41,22 @@ around it. With 5 as the top bucket every timeout would fall into `+Inf` alone, 
 full timeout and then threw" would be indistinguishable from "waited a minute". The 5..10s band is
 where timeouts land.
 
+## authFamilyRevocations counter — obsidian_tc_auth_family_revocations_total
+
+A replayed authorization code or refresh token revokes the whole grant family on sight (RFC 9700
+section 4.14) — the correct behaviour, and also a one-request kill switch on a client's session:
+anyone holding one credential can keep killing the family's fresh tokens with a single unauthenticated
+replay each time. Before this counter the event was a stderr line only, so neither the theft signal
+nor the DoS pattern was queryable. `reason` is the closed union in
+`src/auth/family-revocation-telemetry.ts`: `authorization_code_reuse` / `refresh_token_reuse` /
+`refresh_token_foreign` are the replay signal (alert on any growth); `revoked_by_client` and
+`authorization_code_failed` are the benign counterparts. No `vault` label — the authorization server
+is process-wide, the `obsidian_tc_auth_rejections_total` precedent. The per-event companion (when,
+which client_id, how many access tokens died) is the `auth_family_revoked` row in cache.db's
+`event_log`, which the `auth.family-revocations` doctor check reads; the counter stays content-free
+and the row never holds a token or a hash. Operator grant revocations are not counted here — they
+already audit as `auth_grant_revoked` / `auth_credentials_reset`.
+
 ## vecRebuild counter — obsidian_tc_vec_rebuild_total
 
 `ensureVecChunks` DROPs and rebuilds `vec_chunks` — a full re-embed of every vault sharing the
