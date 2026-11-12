@@ -14,6 +14,7 @@ import type { StageMetric } from "../search/graph_search_stages/instrumentation"
 import type { RerankOutcome } from "../search/rerank";
 import { registerEmbedderHostRestarts } from "./embedder-host-counters";
 import { FamilyRevocationCounters } from "./family-revocation-counters";
+import { withLegacyMetricNames } from "./legacy-names";
 import { MaintenanceCounters } from "./maintenance-counters";
 import { registerProcessMemoryGauge } from "./process-memory";
 import { ProvenanceCounters } from "./provenance-counters";
@@ -732,9 +733,10 @@ export class MetricsRecorder {
     this.gaugeSources.authKeys = source;
   }
 
-  /** Prometheus text exposition (`text/plain; version=0.0.4`). */
-  metrics(): Promise<string> {
-    return this.registry.metrics();
+  /** Prometheus text exposition (`text/plain; version=0.0.4`), with every project family also
+   *  emitted under its pre-2.0 name through the 2.x line (metrics/legacy-names.ts). */
+  async metrics(): Promise<string> {
+    return withLegacyMetricNames(await this.registry.metrics());
   }
   get contentType(): string {
     return this.registry.contentType;

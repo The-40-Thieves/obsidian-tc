@@ -13,6 +13,8 @@
 // config, build the runtime, install the shutdown signal handlers, start. cli.ts's job is argument
 // dispatch and process exit — nothing else.
 
+// Must stay the first import: it maps the old env-variable prefix before anything reads it.
+import "./legacy-env-install";
 import { parseCliArgs } from "./cli/args";
 import { run_activation_recompute } from "./cli/commands/activation-recompute";
 import { run_auth } from "./cli/commands/auth";

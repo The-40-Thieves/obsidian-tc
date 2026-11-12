@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import {
+  CURRENT_NAMES,
   err,
   LOCAL_CATALOG_DIMENSIONS,
   type ServerConfig,
@@ -13,6 +14,7 @@ import {
 } from "../embeddings/embed-batching-defaults";
 import { markEmbeddingsProviderExplicit } from "../embeddings/provider-explicit";
 import { configureProviderPlainHttp } from "../gateway/provider-fetch";
+import { defaultHomeDir } from "../home-dir";
 import { applySecurityProfile, requestsDynamicRegistration } from "./security-profile";
 
 /**
@@ -424,6 +426,9 @@ export function finalizeConfig(
   // (a terminal only worked because its CWD was the vault). Anchor a relative cacheDir to the
   // user's home so it is absolute and CWD-independent; the shared cache.db isolates vaults by
   // vault_id, so one machine-local dir is correct. An explicit absolute cacheDir is honored as-is.
+  // The schema default keeps a pre-2.0 install on its existing `~/.obsidian-tc` when that is the
+  // only folder present (home-dir.ts); an explicitly configured cacheDir is never redirected.
+  if (config.cacheDir === CURRENT_NAMES.homeDirName) config.cacheDir = defaultHomeDir();
   if (!isAbsolute(config.cacheDir)) config.cacheDir = join(homedir(), config.cacheDir);
   // Every provider client's default transport reads this list (gateway/provider-fetch.ts).
   configureProviderPlainHttp(config.network.plainHttpHosts);

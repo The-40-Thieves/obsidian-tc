@@ -11,7 +11,6 @@
 // node_modules-aware) is identical and already spelled out there.
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { err } from "@the-40-thieves/obsidian-tc-shared";
@@ -24,6 +23,7 @@ import type { EmbedderInitOpts } from "../embeddings/host/protocol";
 import { registerHost } from "../embeddings/host/registry";
 import { selfSpawnArgv } from "../embeddings/host/spawn-argv";
 import type { EmbeddingProvider } from "../embeddings/provider";
+import { defaultHomeDir } from "../home-dir";
 import {
   currentInstallSite,
   type EmbedderInstallSite,
@@ -229,7 +229,7 @@ export async function resolveLocalEmbedderModule(
       // file: URLs for the extracted loader/binary. Point both bundled routes at this directory.
       (globalThis as Record<symbol, unknown>)[Symbol.for("obsidian-tc.ort-dir")] =
         extractEmbeddedRuntime({
-          cacheDir: ctx.cacheDir ?? join(homedir(), ".obsidian-tc"),
+          cacheDir: ctx.cacheDir ?? defaultHomeDir(),
           files: embeddedEmbedder.files,
         });
       const mod = (await embeddedEmbedder.load()) as LocalEmbedderModule;

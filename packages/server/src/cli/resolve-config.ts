@@ -4,7 +4,6 @@
 // ./cli-error.ts for the same reason, breaking what would otherwise be a circular import back
 // into args.ts).
 import { existsSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
 import { z } from "zod";
@@ -14,6 +13,7 @@ import {
   isPlaneEnabledExplicit,
   readConfigFile,
 } from "../config/load";
+import { defaultHomeDir } from "../home-dir";
 import { CliError } from "./cli-error";
 
 /** `obsidian-tc setup`'s own CONVENTION for where to write a config when `--config` is not given
@@ -23,7 +23,7 @@ import { CliError } from "./cli-error";
  *  fallback (fix round: `serve` never found `setup`'s output otherwise — see that function's own
  *  comment) — one definition, not two that could drift apart. */
 export function defaultSetupConfigPath(): string {
-  return join(homedir(), ".obsidian-tc", "config.json");
+  return join(defaultHomeDir(), "config.json");
 }
 
 /** Each offending field of a schema-validation failure, one string per issue: a missing required
@@ -60,7 +60,7 @@ function invalidConfigError(target: string, error: z.ZodError): CliError {
 export function configFromVaultPath(dir: string): ServerConfig {
   return finalizeConfig({
     vaults: [{ id: "main", path: resolve(dir) }],
-    cacheDir: ".obsidian-tc",
+    cacheDir: defaultHomeDir(),
   });
 }
 

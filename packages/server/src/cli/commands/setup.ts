@@ -20,6 +20,7 @@ import { baselineOnlyEnrichment } from "../../capability/hardware";
 import { resolveCapabilityProfile } from "../../capability/profile";
 import { ConfigRootTypeError, finalizeConfig, readConfigFile } from "../../config/load";
 import { DEFAULT_BUSY_TIMEOUT_MS } from "../../db/pragmas";
+import { defaultHomeDir } from "../../home-dir";
 import {
   localEmbedderInstallHint,
   probeLocalEmbedderResolution,
@@ -188,7 +189,7 @@ function rawVaults(raw: Record<string, unknown> | undefined): SetupVaultInput[] 
 function rawCacheDirFallback(raw: Record<string, unknown> | undefined): string {
   const explicit = raw && typeof raw.cacheDir === "string" ? raw.cacheDir : undefined;
   if (explicit !== undefined) return isAbsolute(explicit) ? explicit : join(homedir(), explicit);
-  return join(homedir(), ".obsidian-tc");
+  return defaultHomeDir();
 }
 
 /** Setup hardening item 1: an existing config's own vault paths were never existence-checked —

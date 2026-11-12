@@ -65,7 +65,7 @@ export const ServerConfigObject = z.object({
     .string()
     // "" resolves every cache file (cache.db, auth.db, the leader lock) against the process cwd.
     .min(1, "cacheDir must be a non-empty directory path")
-    .default(".obsidian-tc")
+    .default(".reliquary-tc")
     .describe(
       'Directory holding both derived indexes and durable server state. `cache.db` includes write provenance and the source-of-truth memory entity graph, so deleting the database loses data that reindexing cannot restore. `experiential.db` holds captured retrieval and episode history that reindexing does not reproduce. Back up the databases, `auth-keys/` (signing keys and registry markers), and `server-secrets/` (wiki seals and HITL confirmation keys); `auth.db` contains revocations and key retirements. Use the confirmed, table-scoped `reset_vault_cache` tool for an index reset, with explicit include flags to preserve idempotency keys and history; never delete the database files or whole directory as an index-reset procedure. This default only applies when `embeddings.provider` is not "local" — a config file must set `cacheDir` explicitly when the embeddings provider is "local" (the default provider), or config load fails naming `cacheDir`; the bare `obsidian-tc <vault>` form (no config file) sets it for you.',
     ),

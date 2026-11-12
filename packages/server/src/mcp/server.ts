@@ -61,9 +61,9 @@ import type { CallerContext, ToolRegistry } from "./registry";
 import { requestCallerMeta } from "./request-meta";
 import { asResourceProtocolError } from "./resource-errors";
 import {
-  CATALOG_RESOURCE_URI,
   canReadNotes,
   catalogResourceEntry,
+  isCatalogResourceUri,
   listResourcesFor,
   readCatalogResource,
   readResourceFor,
@@ -750,7 +750,7 @@ export function createMcpServer(opts: McpServerOptions): Server {
       const ctx = opts.context(extra.mcpReq.signal, "read");
       // THE-937: caches an hour (CACHE_CATALOG), not the 60s notes get (CACHE_PRIVATE) — the
       // tool surface is fixed for a process lifetime; a vault note is not.
-      const isCatalog = req.params.uri === CATALOG_RESOURCE_URI;
+      const isCatalog = isCatalogResourceUri(req.params.uri);
       return opts.registry
         .dispatchResource(
           "resources/read",

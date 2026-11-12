@@ -1,5 +1,12 @@
 import type { ListResourcesResult, ReadResourceResult } from "@modelcontextprotocol/server";
-import { err, grantsAll, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  CURRENT_NAMES,
+  err,
+  grantsAll,
+  LEGACY_NAMES,
+  matchResourceScheme,
+  ObsidianTcError,
+} from "@the-40-thieves/obsidian-tc-shared";
 import type { FolderAcl } from "../acl";
 import { type ResponseFormat, resolveResponseFormat } from "../util/response-format";
 import { enforcePathAcl } from "../vault/acl-path";
@@ -14,8 +21,9 @@ import { assertScopesGranted, type CallerContext, type ToolRegistry } from "./re
 import { withInternalReason } from "./resource-errors";
 import type { VisibilityCaller } from "./visibility";
 
-/** Resource URI scheme. Deliberately distinct from the Obsidian app's `obsidian://` deep links. */
-export const RESOURCE_SCHEME = "obsidian-tc";
+/** Resource URI scheme. Deliberately distinct from the Obsidian app's `obsidian://` deep links.
+ *  The pre-2.0 scheme (`LEGACY_NAMES.resourceScheme`) is still accepted on read. */
+export const RESOURCE_SCHEME = CURRENT_NAMES.resourceScheme;
 const MIME_MARKDOWN = "text/markdown";
 const MIME_JSON = "application/json";
 
@@ -23,6 +31,12 @@ const MIME_JSON = "application/json";
 // segment — so it is matched by identity BEFORE parseResourceUri (which requires a
 // `<vault>/<path>` shape and would reject this as malformed).
 export const CATALOG_RESOURCE_URI = `${RESOURCE_SCHEME}://catalog`;
+const LEGACY_CATALOG_RESOURCE_URI = `${LEGACY_NAMES.resourceScheme}://catalog`;
+
+/** True for the catalog resource under either scheme. */
+export function isCatalogResourceUri(uri: string): boolean {
+  return uri === CATALOG_RESOURCE_URI || uri === LEGACY_CATALOG_RESOURCE_URI;
+}
 
 /** The `resources/list` row advertising the catalog resource. Listed first (mcp/server.ts), ahead
  *  of the paginated vault notes — one row, no pagination cost. */
@@ -102,12 +116,12 @@ export function buildResourceUri(vaultId: string, relPath: string): string {
   return `${RESOURCE_SCHEME}://${vaultId}/${encodedPath}`;
 }
 
-/** Parse an `obsidian-tc://<vault>/<path>` resource URI. Throws on a foreign or malformed URI. */
+/** Parse a `<scheme>://<vault>/<path>` resource URI, under the current or the pre-2.0 scheme.
+ *  Throws on a foreign or malformed URI. */
 export function parseResourceUri(uri: string): { vaultId: string; relPath: string } {
-  const prefix = `${RESOURCE_SCHEME}://`;
-  if (!uri.startsWith(prefix))
-    throw err.invalidInput(`unsupported resource URI scheme: ${uri}`, { uri });
-  const rest = uri.slice(prefix.length);
+  const matched = matchResourceScheme(uri);
+  if (!matched) throw err.invalidInput(`unsupported resource URI scheme: ${uri}`, { uri });
+  const rest = matched.rest;
   const slash = rest.indexOf("/");
   if (slash <= 0)
     throw err.invalidInput(

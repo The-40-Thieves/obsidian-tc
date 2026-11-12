@@ -7,6 +7,7 @@
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
+    "reliquary-tc": "./dist/cli.js",
     "obsidian-tc": "./dist/cli.js"
   },
   "files": [
