@@ -462,7 +462,12 @@ test("the smoke-and-promote action boots both platforms of the digest, then re-t
   assert.match(run, /ref="\$\{IMAGE\}@\$\{DIGEST\}"/);
   assert.match(run, /node scripts\/docker-boot-smoke\.mjs "\$ref" --platform "\$platform"/);
   // the architecture of what was pulled is checked, so a wrong-platform image cannot pass as the other
-  assert.match(run, /docker image inspect --format '\{\{\.Architecture\}\}'/);
+  // --platform is required: under Docker 29's containerd image store, inspecting a multi-platform
+  // digest without it reports the host's platform, so a pulled non-host image reads as empty
+  assert.match(
+    run,
+    /docker image inspect --platform "\$platform" --format '\{\{\.Architecture\}\}'/,
+  );
   // promotion is a re-tag of the digest (no rebuild), and every promoted tag is read back
   assert.match(run, /docker buildx imagetools create "\$\{args\[@\]\}" "\$\{IMAGE\}@\$\{DIGEST\}"/);
   assert.match(run, /imagetools inspect "\$t" --format '\{\{\.Manifest\.Digest\}\}'/);

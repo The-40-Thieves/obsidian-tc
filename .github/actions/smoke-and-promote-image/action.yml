@@ -55,8 +55,9 @@ runs:
         for platform in linux/amd64 linux/arm64; do
           docker pull --platform "$platform" "$ref"
           # The smoke boots whatever the local store holds for the ref: prove it is the platform asked for.
+          # --platform: the containerd image store (Docker 29 runners) reports the host platform otherwise.
           want="${platform#linux/}"
-          got=$(docker image inspect --format '{{.Architecture}}' "$ref")
+          got=$(docker image inspect --platform "$platform" --format '{{.Architecture}}' "$ref")
           [ "$got" = "$want" ] || { echo "::error::pulled $ref for $platform but the image is $got"; exit 1; }
           node scripts/docker-boot-smoke.mjs "$ref" --platform "$platform" --mode "$SMOKE_MODE"
           # The classic image store keeps one image per digest ref: pulling the next platform of the same
