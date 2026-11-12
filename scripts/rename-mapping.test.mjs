@@ -54,7 +54,6 @@ const ALLOWED_FILES = new Map([
   ["packages/native/NOTICE", "copy of the root NOTICE"],
   ["packages/embedder-local/NOTICE", "copy of the root NOTICE"],
   ["packages/reranker-local/NOTICE", "copy of the root NOTICE"],
-  ["changes/rename-reliquary-tc.md", "the release note for the rename"],
   ["scripts/rename-mapping.test.mjs", "this gate"],
 ]);
 
