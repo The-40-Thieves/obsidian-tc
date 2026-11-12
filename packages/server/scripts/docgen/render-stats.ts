@@ -11,6 +11,6 @@ export function renderStats(s: StatsDoc): string {
     `| **Golden set** | ${s.goldenSetSize} queries, statistical ship rule on every ranking change |`,
     `| **Retrieval** | contextual chunk enrichment ${s.enrichmentGain}, defaults on |`,
     "| **MCP spec** | [2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25) |",
-    "| **License** | AGPL-3.0-only |",
+    "| **License** | Apache-2.0 |",
   ].join("\n");
 }

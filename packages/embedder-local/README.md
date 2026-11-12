@@ -123,4 +123,4 @@ mechanism is what makes the revision segment work with the library's real path-j
 
 ## License
 
-AGPL-3.0-only, same as the rest of obsidian-tc. See `LICENSE`.
+Apache-2.0, same as the rest of obsidian-tc. See `LICENSE` and `NOTICE`.

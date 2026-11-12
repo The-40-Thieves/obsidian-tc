@@ -59,7 +59,7 @@ export function basePackageManifest(version, keys) {
     version,
     description:
       "Optional bundled dense embedder for obsidian-tc — runs fully offline and installs only the host ONNX runtime",
-    license: "AGPL-3.0-only",
+    license: "Apache-2.0",
     type: "module",
     main: "./index.mjs",
     exports: {
@@ -67,7 +67,7 @@ export function basePackageManifest(version, keys) {
       "./package.json": "./package.json",
       "./runtime-pins.json": "./runtime-pins.json",
     },
-    files: ["index.mjs", "embedder.mjs", "runtime-pins.json", "README.md", "LICENSE"],
+    files: ["index.mjs", "embedder.mjs", "runtime-pins.json", "README.md", "LICENSE", "NOTICE"],
     engines: { node: ">=24" },
     publishConfig: { access: "public" },
     repository: REPOSITORY,
@@ -117,13 +117,14 @@ export function assembleRuntimePackage(outDir, key, version, files, licenseFile)
 
 export function assembleBasePackage(
   outDir,
-  { version, entryFile, bundleFile, pins, readme, license },
+  { version, entryFile, bundleFile, pins, readme, license, notice },
 ) {
   const dir = freshDir(join(outDir, "base"));
   copyFileSync(entryFile, join(dir, "index.mjs"));
   copyFileSync(bundleFile, join(dir, "embedder.mjs"));
   copyFileSync(readme, join(dir, "README.md"));
   copyFileSync(license, join(dir, "LICENSE"));
+  copyFileSync(notice, join(dir, "NOTICE"));
   writeJson(join(dir, "runtime-pins.json"), pins);
   writeJson(join(dir, "package.json"), basePackageManifest(version, Object.keys(pins.packages)));
   return dir;

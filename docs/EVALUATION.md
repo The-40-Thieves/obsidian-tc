@@ -351,7 +351,7 @@ retrieval quality:
   Model card license is `gemma` — Google's Gemma Terms of Use, not an OSI-approved license. It
   carries a Prohibited Use Policy Google may update unilaterally, and redistribution obligations
   (trademark notice, terms pass-through) that do not fit "auto-downloaded by default from every
-  install of an AGPL-3.0 public server" — a user would be bound to those terms without having
+  install of a public open-source server" — a user would be bound to those terms without having
   agreed to them.
 - **A model2vec/potion static-embedding model** (`minishlab/potion-retrieval-32M`, MIT, the
   low-RAM tier the brief asked for if a loadable export exists). Its ONNX export declares

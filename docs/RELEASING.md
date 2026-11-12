@@ -208,7 +208,7 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
      `docgen:facts-check` gate forbids it, so this description is the one place they are typed.)
      Template: `Obsidian Turbocharged — governed, agent-ready Obsidian MCP server. <N> tools
      across <M> domains, multi-vault native, pluggable embeddings. TypeScript + Rust.
-     AGPL-3.0-only.`
+     Apache-2.0.`
    - **Topics** — review against the current stack (`ai-agents`, `mcp`, `model-context-protocol`,
      `obsidian`, `obsidian-md`, `rust`, `typescript` as of this task) and add any newly-relevant
      one; there is no automated coherence gate for topics the way there is for the tool count.

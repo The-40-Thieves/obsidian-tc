@@ -1,0 +1,12 @@
+obsidian-tc
+Copyright 2026 Mohammed Manzoorul Islam d/b/a The 40 Thieves
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Releases up to and including 1.34.x were licensed under the GNU Affero General
+Public License v3.0 only (AGPL-3.0-only). Those releases keep that licence.
+Apache-2.0 applies from the first release made after this notice was added.
+
+Third-party components bundled with or downloaded by this product keep their
+own licences. They are listed in docs/VENDOR-RUNTIME-LICENSING.md, and copies
+of their licence texts ship under packages/*/licenses/ where they are bundled.

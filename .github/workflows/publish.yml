@@ -1188,7 +1188,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/the-40-thieves/obsidian-tc
             org.opencontainers.image.version=${{ needs.verify-tag.outputs.version }}
-            org.opencontainers.image.licenses=AGPL-3.0-only
+            org.opencontainers.image.licenses=Apache-2.0
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.created=${{ steps.buildmeta.outputs.created }}
             org.opencontainers.image.title=obsidian-tc
@@ -1207,7 +1207,7 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/the-40-thieves/obsidian-tc
             org.opencontainers.image.version=${{ needs.verify-tag.outputs.version }}
-            org.opencontainers.image.licenses=AGPL-3.0-only
+            org.opencontainers.image.licenses=Apache-2.0
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.created=${{ steps.buildmeta.outputs.created }}
             org.opencontainers.image.title=obsidian-tc

@@ -78,7 +78,7 @@ this underpowered comparison, not a claimed decisive win; the smaller models rem
 Two other candidates were evaluated and **dropped** before reaching the measurement stage, not
 silently excluded: EmbeddingGemma-300M's model card carries Google's Gemma Terms of Use — a
 custom license with a unilaterally-updatable prohibited-use policy and redistribution obligations
-that do not fit "auto-downloaded by default from every install of an AGPL-3.0 public server" —
+that do not fit "auto-downloaded by default from every install of a public open-source server" —
 and a model2vec/potion static-embedding model has no Transformers.js-loadable ONNX export today
 (verified directly: it fails at inference with a missing-input error, not a licensing one).
 
