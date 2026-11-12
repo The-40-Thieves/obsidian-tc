@@ -1,6 +1,6 @@
 #![deny(clippy::all)]
 
-//! Native perf primitives for obsidian-tc. M0 shipped `cosine_similarity` to
+//! Native perf primitives for reliquary-tc. M0 shipped `cosine_similarity` to
 //! verify the napi-rs pipeline. M2 (G4.M2 / THE-178) adds the lexical-search
 //! primitives the spec assigns to the native module (G2.2 component 9): a
 //! tokenizer and a BM25 term-scoring function. RRF and the sqlite-vec wrapper

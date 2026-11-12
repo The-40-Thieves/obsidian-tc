@@ -19,7 +19,7 @@
 #
 # Prerequisite for a real run: the Claude Code CLI (`claude mcp add`/`claude -p` — the exact client
 # wiring docs/src/content/docs/getting-started/first-run.md already recommends, reused here rather
-# than inventing a demo-only client) on PATH, and network access for the `npx obsidian-tc` it spawns
+# than inventing a demo-only client) on PATH, and network access for the `npx reliquary-tc` it spawns
 # (no local build needed — npx pulls the published package). A scratch copy of examples/scratch-
 # vault means the recording's write_note overwrite never touches the checked-in fixture.
 
@@ -42,12 +42,12 @@ Sleep 500ms
 Show
 
 # 1. Wire the vault into Claude Code — one command, per first-run.md. `claude mcp add` spawns
-# `npx obsidian-tc /tmp/quickstart-demo-vault` itself over stdio when a tool call needs it; no
-# separate `npx obsidian-tc ... &` here — a stdio server backgrounded on an interactive TTY that
+# `npx reliquary-tc /tmp/quickstart-demo-vault` itself over stdio when a tool call needs it; no
+# separate `npx reliquary-tc ... &` here — a stdio server backgrounded on an interactive TTY that
 # still tries to read its controlling terminal raises SIGTTIN, which the plain zero-config
 # invocation below (packages/server/src/cli/resolve-config.ts's `configFromVaultPath`) does not
 # need, since Claude Code owns the process and its stdio pipes end to end.
-Type "claude mcp add obsidian-tc -- npx -y obsidian-tc /tmp/quickstart-demo-vault"
+Type "claude mcp add reliquary-tc -- npx -y reliquary-tc /tmp/quickstart-demo-vault"
 Enter
 Sleep 1.5s
 
@@ -65,11 +65,11 @@ Sleep 3s
 
 # 4. write_note overwriting an existing note — triggers the HITL confirmation. Verified live: the
 # call returns an `elicit_required` error (never a silent write), whose `recovery` text names the
-# exact command to run: `obsidian-tc elicit --hash <args_hash> --tool write_note --vault main`.
+# exact command to run: `reliquary-tc elicit --hash <args_hash> --tool write_note --vault main`.
 # `claude -p` is headless and does NOT render an interactive approval prompt the way an
 # interactive `claude` session would for a client-side MCP elicitation request — so this step
 # shows the real `elicit_required` error text, not a fabricated `[y/N]` prompt.
-Type `claude -p "overwrite the Welcome note with a one-line summary of what obsidian-tc does"`
+Type `claude -p "overwrite the Welcome note with a one-line summary of what reliquary-tc does"`
 Enter
 Sleep 3s
 Wait /elicit_required|human confirmation required/
@@ -80,7 +80,7 @@ Wait /elicit_required|human confirmation required/
 # positional `serve` does (not a --config flag) — verified end to end against this exact fixture:
 # args_hash a969f73c96f03e046659d695c867529c is the real value for Welcome.md's real content, and
 # minting against it really does produce a token the retried write_note call accepts.
-Type "obsidian-tc elicit /tmp/quickstart-demo-vault --hash a969f73c96f03e046659d695c867529c --tool write_note --vault main --json"
+Type "reliquary-tc elicit /tmp/quickstart-demo-vault --hash a969f73c96f03e046659d695c867529c --tool write_note --vault main --json"
 Enter
 Sleep 2s
 Type `claude -p "now retry the overwrite with that confirmation token"`

@@ -1,20 +1,20 @@
 {
   "manifest_version": "0.3",
-  "name": "obsidian-tc",
-  "display_name": "Obsidian Turbocharged",
+  "name": "reliquary-tc",
+  "display_name": "Reliquary-TC",
   "version": "1.34.0",
   "description": "Governed Obsidian vault access: hybrid retrieval, Markdown-native memory, HITL confirmations.",
   "author": {
     "name": "The 40 Thieves",
     "url": "https://github.com/The-40-Thieves"
   },
-  "homepage": "https://github.com/The-40-Thieves/obsidian-tc#readme",
-  "documentation": "https://github.com/The-40-Thieves/obsidian-tc#readme",
-  "support": "https://github.com/The-40-Thieves/obsidian-tc/issues",
+  "homepage": "https://github.com/The-40-Thieves/reliquary-tc#readme",
+  "documentation": "https://github.com/The-40-Thieves/reliquary-tc#readme",
+  "support": "https://github.com/The-40-Thieves/reliquary-tc/issues",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/The-40-Thieves/obsidian-tc"
+    "url": "https://github.com/The-40-Thieves/reliquary-tc"
   },
   "keywords": [
     "obsidian",
@@ -36,7 +36,7 @@
       "command": "node",
       "args": ["${__dirname}/packages/server/dist/cli.js", "${user_config.config_path}"],
       "env": {
-        "OBSIDIAN_TC_DEFAULT_VAULT": "${user_config.default_vault}"
+        "RELIQUARY_TC_DEFAULT_VAULT": "${user_config.default_vault}"
       }
     }
   },
@@ -50,7 +50,7 @@
     "config_path": {
       "type": "file",
       "title": "Config file",
-      "description": "An obsidian-tc JSON config file, or a vault folder path (zero-config) typed or pasted here; a file picker cannot select a folder.",
+      "description": "A reliquary-tc JSON config file, or a vault folder path (zero-config) typed or pasted here; a file picker cannot select a folder.",
       "required": true
     },
     "default_vault": {

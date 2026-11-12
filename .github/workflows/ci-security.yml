@@ -215,7 +215,7 @@ jobs:
         #   unchanged since #248, so the moving part is Lob's remote verification, not this repo.
         #
         #   Scoped to ONE detector on purpose. Lob is a direct-mail/address-verification API
-        #   (postcards, letters, address validation) and obsidian-tc has no postal surface, no
+        #   (postcards, letters, address validation) and reliquary-tc has no postal surface, no
         #   customers and no outbound physical mail — so its true-positive rate here is ZERO BY
         #   CONSTRUCTION, and dropping it costs no coverage. Every other detector stays armed.
         #

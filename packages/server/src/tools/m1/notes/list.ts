@@ -2,7 +2,7 @@
 // and note_exists (existence + type check) — extracted verbatim out of buildNotesTools. Both are
 // lightweight read-only lookups; list_notes is the only tool in this file whose ACL is enforced
 // via a filter over walkVault results rather than a declared pathAcl extractor.
-import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { DEFAULT_SCAN_LIMIT } from "../../../util/paginate";

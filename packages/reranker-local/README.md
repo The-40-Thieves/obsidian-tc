@@ -1,7 +1,7 @@
-# @the-40-thieves/obsidian-tc-reranker-local
+# @the-40-thieves/reliquary-tc-reranker-local
 
-An **optional**, fully offline cross-encoder reranker for obsidian-tc's `gatedRerank`
-seam. No `OBSIDIAN_TC_GATEWAY_URL`, no `bge-m3-service`, no network at inference time.
+An **optional**, fully offline cross-encoder reranker for reliquary-tc's `gatedRerank`
+seam. No `RELIQUARY_TC_GATEWAY_URL`, no `bge-m3-service`, no network at inference time.
 
 Runtime: [`@huggingface/transformers`](https://www.npmjs.com/package/@huggingface/transformers) v4
 (Transformers.js), running the int8 ONNX export of
@@ -23,7 +23,7 @@ install step is what makes it genuinely optional rather than optional-in-name-on
 `packages/server` never declares this package as a dependency either — it reaches it via a
 three-route resolution ladder of runtime `import()` calls (see "Resolution ladder" below and
 `packages/server/src/providers/registry.ts`'s `resolveLocalRerankerModule`), and reports an
-actionable remedy — via a server-log line at boot and via `obsidian-tc doctor` — when none of the
+actionable remedy — via a server-log line at boot and via `reliquary-tc doctor` — when none of the
 three resolve. Resolution failure never crashes boot.
 
 ## Publishing status
@@ -35,7 +35,7 @@ package that already exists in the registry, so the very first release needs one
 `npm publish`). None of this blocks USING the
 package today — `packages/server`'s `local` reranker entry resolves it through a three-route ladder
 (below), and two of the three routes work without npm. Until the first publish lands, an
-**npm-installed** obsidian-tc server (as opposed to a source checkout of this monorepo) can only
+**npm-installed** reliquary-tc server (as opposed to a source checkout of this monorepo) can only
 reach it via `reranker.localModulePath`.
 
 ## Setup
@@ -50,7 +50,7 @@ cd packages/reranker-local && bun install && bun run build
 #    anyway for an offline deployment, or in CI, to avoid a network call on first use:
 bun run fetch-model
 
-# 3. Point obsidian-tc at it — see "Resolution ladder" below for which of these you need, or
+# 3. Point reliquary-tc at it — see "Resolution ladder" below for which of these you need, or
 #    leave `reranker` unset entirely: auto-select picks this package when no gateway URL and
 #    no embeddings.modelTier.full are configured (see "Auto-select" below).
 ```
@@ -62,29 +62,29 @@ CI to fail fast on a stale or corrupted cache. `--dir <path>` downloads elsewher
 
 `reranker.provider: "local"` no longer needs to be set explicitly. When the whole `reranker` block is
 absent, `embeddings.modelTier.full` is not configured, and no gateway URL is configured (neither
-`reranker.baseUrl`/`config.gateway.baseUrl` nor `OBSIDIAN_TC_GATEWAY_URL`), `runtime/tool-wiring.ts`'s
+`reranker.baseUrl`/`config.gateway.baseUrl` nor `RELIQUARY_TC_GATEWAY_URL`), `runtime/tool-wiring.ts`'s
 `wireGatewaySeams` tries this package as the LAST step of its default precedence
 (model-tier ?? gateway ?? local) before falling back to RRF-only. A declared `reranker` block (any
-provider, including an explicit `"local"`) always wins over auto-select. `obsidian-tc doctor` reports
+provider, including an explicit `"local"`) always wins over auto-select. `reliquary-tc doctor` reports
 whether auto-select would apply and, if so, whether it actually resolved.
 
 ## Resolution ladder
 
 `providers/registry.ts`'s `local` entry (`resolveLocalRerankerModule`) tries THREE routes, in order,
 and never throws — see that function's own doc comment for the full contract. Which one applies
-depends on how you're running obsidian-tc:
+depends on how you're running reliquary-tc:
 
 | Route | Config | When it applies |
 |---|---|---|
-| (i) `reranker.localModulePath` | `{ "reranker": { "provider": "local", "localModulePath": "/abs/path/to/packages/reranker-local/dist/index.js" } }` | **Always works**, once (1) above has been run — an explicit pointer at the built entry file. The only route that works for an **npm-installed** obsidian-tc server before this package is published. |
-| (ii) bare specifier (`@the-40-thieves/obsidian-tc-reranker-local`) | `{ "reranker": { "provider": "local" } }`, or leave `reranker` unset entirely (auto-select) | Works once this package is published to npm and `bun add`ed (or `bun link`ed) into whatever installs obsidian-tc's server package. **Not yet possible** — see "Publishing status" above. |
-| (iii) automatic source-checkout fallback | `{ "reranker": { "provider": "local" } }`, or leave `reranker` unset entirely (auto-select) — no override needed | Works out of the box for a SOURCE CHECKOUT of the `obsidian-tc` monorepo (this repo, cloned), once step (1) above has run — `providers/registry.ts` resolves `packages/reranker-local/dist/index.js` relative to itself. |
+| (i) `reranker.localModulePath` | `{ "reranker": { "provider": "local", "localModulePath": "/abs/path/to/packages/reranker-local/dist/index.js" } }` | **Always works**, once (1) above has been run — an explicit pointer at the built entry file. The only route that works for an **npm-installed** reliquary-tc server before this package is published. |
+| (ii) bare specifier (`@the-40-thieves/reliquary-tc-reranker-local`) | `{ "reranker": { "provider": "local" } }`, or leave `reranker` unset entirely (auto-select) | Works once this package is published to npm and `bun add`ed (or `bun link`ed) into whatever installs reliquary-tc's server package. **Not yet possible** — see "Publishing status" above. |
+| (iii) automatic source-checkout fallback | `{ "reranker": { "provider": "local" } }`, or leave `reranker` unset entirely (auto-select) — no override needed | Works out of the box for a SOURCE CHECKOUT of the `reliquary-tc` monorepo (this repo, cloned), once step (1) above has run — `providers/registry.ts` resolves `packages/reranker-local/dist/index.js` relative to itself. |
 
 If `reranker.localModelPath` (the model weights root, step 2 above) is on a non-default path, set it
 alongside whichever route above you're using — it is independent of the module-resolution route.
 
 Every failed attempt is logged (`console.error`, one line per route) and, when a `reranker.provider:
-"local"` block is declared OR auto-select would apply, surfaced by `obsidian-tc doctor` with the
+"local"` block is declared OR auto-select would apply, surfaced by `reliquary-tc doctor` with the
 exact remedy. Resolution failure **never crashes boot** — it degrades to RRF-only, exactly like every
 other reranker's "not configured"/"unreachable" case.
 
@@ -104,13 +104,13 @@ other reranker's "not configured"/"unreachable" case.
   touches the network, never Transformers.js's own downloader. A fetch/verify failure (offline, a
   corrupted mirror, ...) throws an error naming `bun run fetch-model` as the alternative: run it on a
   machine with network access and ship or mount the resulting directory.
-- **Degrades to RRF-only.** Like every other reranker in obsidian-tc, a failure here (fetch failed,
+- **Degrades to RRF-only.** Like every other reranker in reliquary-tc, a failure here (fetch failed,
   unsupported platform, `@huggingface/transformers` not installed) is caught by `search/rerank.ts`'s
   `rerankWithScores` and reported as `provider_error`; retrieval falls back to its pre-rerank order
   rather than failing the request.
 - **`bun --compile` is out of scope.** `onnxruntime-node` (a transitive dependency) dlopens a sidecar
   `.node`/`.so` file next to itself at runtime — that cannot survive being embedded in a single-file
-  Bun standalone binary. The `local` provider is unreachable from a compiled obsidian-tc binary
+  Bun standalone binary. The `local` provider is unreachable from a compiled reliquary-tc binary
   (`packages/server`'s `build` script and the release `--compile` step both mark this package
   `--external` so that limitation fails gracefully instead of breaking the compile itself). It IS
   reachable from a **source checkout** of this monorepo (route iii above, once built) and from an

@@ -332,7 +332,7 @@ function exportHtml(db: Database, argv: string[]): void {
     .join("\n");
   writeFileSync(
     out,
-    `<!doctype html><meta charset=utf-8><title>obsidian-tc eval run history</title>
+    `<!doctype html><meta charset=utf-8><title>reliquary-tc eval run history</title>
 <style>
  body{font:14px/1.5 ui-sans-serif,system-ui,sans-serif;margin:2rem;max-width:70rem}
  table{border-collapse:collapse;width:100%} th,td{padding:.35rem .6rem;border-bottom:1px solid #8883;text-align:left}
@@ -341,7 +341,7 @@ function exportHtml(db: Database, argv: string[]): void {
  caption{text-align:left;padding-bottom:.75rem;opacity:.75}
  @media(prefers-color-scheme:dark){body{background:#111;color:#eee}}
 </style>
-<h1>obsidian-tc eval run history</h1>
+<h1>reliquary-tc eval run history</h1>
 <table><caption>${rows.length} runs. Runs with different corpus hashes are not comparable; an asterisk marks a dirty tree.</caption>
 <tr><th>id<th>recorded<th>label<th>n<th>nDCG base<th>nDCG graph<th>recall@10<th>corpus<th>flags<th>commit</tr>
 ${body}

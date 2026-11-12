@@ -50,7 +50,7 @@ jobs:
       - name: ruff
         run: ruff check .
       - name: py_compile
-        run: python -m py_compile obsidian_tc_bge/*.py
+        run: python -m py_compile reliquary_tc_bge/*.py
       - name: requirements lock covers the declared runtime deps
         # requirements.txt is a hash-verified lock of the HEAVY stack (torch, FlagEmbedding,
         # sentence-transformers) that this job deliberately never installs — it mocks the model
@@ -96,7 +96,7 @@ jobs:
         # bge-m3-service, docs-ingest installs from its uv.lock, so every package it runs is
         # pinned and hash-verified; its pyproject.toml keeps floors for consumers. ruff isn't a
         # project dependency (it's a dev tool, not
-        # something obsidian_tc_docs_ingest imports), so it needs its own install — pinned to the
+        # something reliquary_tc_docs_ingest imports), so it needs its own install — pinned to the
         # same version bge-m3-service's requirements-ci.txt locks, for one ruff version across the
         # repo.
         run: |

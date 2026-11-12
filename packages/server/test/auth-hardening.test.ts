@@ -4,7 +4,7 @@
 // secret and no `aud`, a token minted for any service sharing that secret is accepted here. That
 // was closed by configuration; this closes it by construction, so a future deployment cannot
 // re-open it by omitting one config key.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { wwwAuthenticateChallenge } from "../src/auth/protected-resource";
 

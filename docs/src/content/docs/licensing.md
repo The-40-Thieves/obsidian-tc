@@ -1,15 +1,15 @@
 ---
 title: Licensing
-description: What the Apache-2.0 licence lets you do with obsidian-tc, what it asks in return, and how the earlier AGPL-3.0 releases fit in.
+description: What the Apache-2.0 licence lets you do with reliquary-tc, what it asks in return, and how the earlier AGPL-3.0 releases fit in.
 ---
 
 :::caution
 This page is an explanation, not legal advice. Have counsel review before relying on it.
 :::
 
-obsidian-tc is licensed under the **Apache License, Version 2.0** (Apache-2.0; see
-[LICENSE](https://github.com/The-40-Thieves/obsidian-tc/blob/main/LICENSE) and
-[NOTICE](https://github.com/The-40-Thieves/obsidian-tc/blob/main/NOTICE)). It is a permissive
+reliquary-tc is licensed under the **Apache License, Version 2.0** (Apache-2.0; see
+[LICENSE](https://github.com/The-40-Thieves/reliquary-tc/blob/main/LICENSE) and
+[NOTICE](https://github.com/The-40-Thieves/reliquary-tc/blob/main/NOTICE)). It is a permissive
 licence: you can run, modify, host and redistribute the software, including in closed-source and
 commercial products, without publishing your changes.
 
@@ -43,24 +43,24 @@ puts you under Apache-2.0.
 - **"Do my vault notes fall under the licence?"** No. The licence covers this software, not the
   content of your Obsidian vault. Your notes stay yours.
 - **"Does calling the server from my agent put my agent under Apache-2.0?"** No. An agent that
-  calls obsidian-tc's MCP tools is using a service. It does not incorporate the server's source.
+  calls reliquary-tc's MCP tools is using a service. It does not incorporate the server's source.
 - **"What about the TC Bridge plugin?"** It is part of this repository and under the same licence.
-  Read [`packages/plugin/package.json`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/packages/plugin/package.json)
+  Read [`packages/plugin/package.json`](https://github.com/The-40-Thieves/reliquary-tc/blob/main/packages/plugin/package.json)
   to confirm what the current copy declares.
 - **"What do third-party components bundle in?"** Each keeps its own licence. For what may be
   bundled, fetched or user-installed for the inference runtimes and models, see
-  [Vendor runtime and model licensing](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/VENDOR-RUNTIME-LICENSING.md).
+  [Vendor runtime and model licensing](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/VENDOR-RUNTIME-LICENSING.md).
 
 ## Contributing
 
 Contributions are accepted under the Developer Certificate of Origin and are licensed to the
 project and its users under Apache-2.0 (§5 of the licence). Sign-off details are in
-[CONTRIBUTING.md § License and Sign-off (DCO)](https://github.com/The-40-Thieves/obsidian-tc/blob/main/CONTRIBUTING.md#license-and-sign-off-dco).
+[CONTRIBUTING.md § License and Sign-off (DCO)](https://github.com/The-40-Thieves/reliquary-tc/blob/main/CONTRIBUTING.md#license-and-sign-off-dco).
 
 ## See also
 
-- [LICENSE](https://github.com/The-40-Thieves/obsidian-tc/blob/main/LICENSE): the full Apache-2.0
+- [LICENSE](https://github.com/The-40-Thieves/reliquary-tc/blob/main/LICENSE): the full Apache-2.0
   text as shipped in this repo.
-- [NOTICE](https://github.com/The-40-Thieves/obsidian-tc/blob/main/NOTICE): the attribution notice
+- [NOTICE](https://github.com/The-40-Thieves/reliquary-tc/blob/main/NOTICE): the attribution notice
   that travels with redistributions.
 - [Security → Auth model](/security/auth-model/): the stdio-vs-HTTP trust boundary.

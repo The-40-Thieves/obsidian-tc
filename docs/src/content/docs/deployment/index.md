@@ -1,14 +1,14 @@
 ---
 title: Deployment
-description: How obsidian-tc is packaged, released, and run in production.
+description: How reliquary-tc is packaged, released, and run in production.
 ---
 
 ## Artifacts
 
 A tagged release (`v*`) produces, via GitHub Actions:
 
-- **npm packages** — `obsidian-tc` (the server, with the `obsidian-tc` bin) plus
-  `@the-40-thieves/obsidian-tc-{shared,native}` and the native platform
+- **npm packages** — `reliquary-tc` (the server, with the `reliquary-tc` bin) plus
+  `@the-40-thieves/reliquary-tc-{shared,native}` and the native platform
   sub-packages. Published with npm **provenance**.
 - **Native prebuilds** — napi-rs binaries for eight triples: `linux-x64-gnu`,
   `linux-arm64-gnu`, `linux-x64-musl`, `linux-arm64-musl`, `darwin-x64`,
@@ -62,7 +62,7 @@ behind a reverse proxy), and mint scoped tokens per client. See
 To serve claude.ai, ChatGPT, Gemini Enterprise, grok.com, Le Chat, Copilot Studio or an API
 connector, which call the server from the vendor's cloud, follow
 [Hosted clients](/deployment/hosted-clients/) (public HTTPS, an IPv4 A record, no redirects,
-unbuffered streaming) and check it with `obsidian-tc doctor --probe`.
+unbuffered streaming) and check it with `reliquary-tc doctor --probe`.
 
 To connect a particular MCP client (Claude Code, claude.ai, `codex mcp login`, Gemini CLI and others) to the bundled
 authorization server, or to put WorkOS AuthKit or Keycloak in front of the server instead, see

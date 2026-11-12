@@ -1,6 +1,6 @@
 // docgen hand-written-metric-table scan (THE-595 guard case (c)). marker-scan.ts's existing guard
 // catches (a) a render target absent from targets.ts and (b) a marker with no renderer, but is
-// blind to (c): a table enumerating `obsidian_tc_*` names with NO marker at all — exactly the shape
+// blind to (c): a table enumerating `reliquary_tc_*` names with NO marker at all — exactly the shape
 // docs/G2.4-observability.md had before this ticket, invisible to every prior gate. Uses a
 // throwaway repo tree (see docgen-marker-scan.test.ts) rather than this repo's real docs, so the
 // case-(c) logic is proven independent of whatever the live catalog currently looks like.
@@ -34,9 +34,9 @@ describe("findHandWrittenMetricTables (THE-595 case (c))", () => {
         "",
         "| Name | Labels |",
         "| --- | --- |",
-        "| `obsidian_tc_tool_calls_total` | `vault` |",
-        "| `obsidian_tc_acl_denied_total` | `vault` |",
-        "| `obsidian_tc_hitl_elicited_total` | `vault` |",
+        "| `reliquary_tc_tool_calls_total` | `vault` |",
+        "| `reliquary_tc_acl_denied_total` | `vault` |",
+        "| `reliquary_tc_hitl_elicited_total` | `vault` |",
         "",
       ].join("\n"),
     );
@@ -45,9 +45,9 @@ describe("findHandWrittenMetricTables (THE-595 case (c))", () => {
       {
         file: "docs/G2.4-observability.md",
         metrics: [
-          "obsidian_tc_acl_denied_total",
-          "obsidian_tc_hitl_elicited_total",
-          "obsidian_tc_tool_calls_total",
+          "reliquary_tc_acl_denied_total",
+          "reliquary_tc_hitl_elicited_total",
+          "reliquary_tc_tool_calls_total",
         ],
       },
     ]);
@@ -62,9 +62,9 @@ describe("findHandWrittenMetricTables (THE-595 case (c))", () => {
         "<!-- BEGIN GENERATED: metrics-catalog -->",
         "| Name | Labels |",
         "| --- | --- |",
-        "| `obsidian_tc_tool_calls_total` | `vault` |",
-        "| `obsidian_tc_acl_denied_total` | `vault` |",
-        "| `obsidian_tc_hitl_elicited_total` | `vault` |",
+        "| `reliquary_tc_tool_calls_total` | `vault` |",
+        "| `reliquary_tc_acl_denied_total` | `vault` |",
+        "| `reliquary_tc_hitl_elicited_total` | `vault` |",
         "<!-- END GENERATED: metrics-catalog -->",
         "",
       ].join("\n"),
@@ -76,7 +76,7 @@ describe("findHandWrittenMetricTables (THE-595 case (c))", () => {
   it("does NOT flag a single incidental mention in prose (below the catalog threshold)", () => {
     write(
       "docs/G2.4-security.md",
-      "Prometheus counter `obsidian_tc_rate_limit_hits_total` increments on refusal.\n",
+      "Prometheus counter `reliquary_tc_rate_limit_hits_total` increments on refusal.\n",
     );
     const { violations } = findHandWrittenMetricTables(repoRoot);
     expect(violations).toEqual([]);
@@ -90,7 +90,10 @@ describe("findHandWrittenMetricTables (THE-595 case (c))", () => {
   });
 
   it("counts mentions inside generated regions toward the floor too", () => {
-    write("docs/x.md", "<!-- BEGIN GENERATED: y -->\n`obsidian_tc_a`\n<!-- END GENERATED: y -->\n");
+    write(
+      "docs/x.md",
+      "<!-- BEGIN GENERATED: y -->\n`reliquary_tc_a`\n<!-- END GENERATED: y -->\n",
+    );
     const { totalMentions } = findHandWrittenMetricTables(repoRoot);
     expect(totalMentions).toBe(1);
   });

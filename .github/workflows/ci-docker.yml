@@ -56,7 +56,7 @@ jobs:
           file: Dockerfile
           push: false
           load: true
-          tags: obsidian-tc:ci
+          tags: reliquary-tc:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
       # The -git variant (git-sync --supervise). Its layers are the default image's plus git and
@@ -69,7 +69,7 @@ jobs:
           target: git
           push: false
           load: true
-          tags: obsidian-tc:ci-git
+          tags: reliquary-tc:ci-git
           cache-from: type=gha
           cache-to: type=gha,mode=max,scope=git
       # Mirrors ci-install-smoke's `cli.js version` check, but inside the container: proves the image
@@ -77,7 +77,7 @@ jobs:
       - name: smoke — containerized CLI reports the package version
         run: |
           want=$(node -p "require('./packages/server/package.json').version")
-          got=$(docker run --rm obsidian-tc:ci version)
+          got=$(docker run --rm reliquary-tc:ci version)
           echo "container reports: $got (want $want)"
           [ "$got" = "$want" ] || { echo "::error::container reports '$got', expected '$want'"; exit 1; }
           echo "ok: containerized server built and reports $want"
@@ -86,7 +86,7 @@ jobs:
       # (bare specifier from dist/) so a Dockerfile change that drops the copy fails on the PR.
       - name: smoke — the image resolves @redis/client for the redis rate-limit backend
         run: |
-          got=$(docker run --rm --entrypoint bun obsidian-tc:ci --eval 'const { createRequire } = await import("node:module"); console.log(typeof createRequire("/app/packages/server/dist/cli.js")("@redis/client").createClient)')
+          got=$(docker run --rm --entrypoint bun reliquary-tc:ci --eval 'const { createRequire } = await import("node:module"); console.log(typeof createRequire("/app/packages/server/dist/cli.js")("@redis/client").createClient)')
           echo "createClient is: $got"
           [ "$got" = "function" ] || { echo "::error::@redis/client does not resolve from the image bundle"; exit 1; }
       # Offline boot: `native` and `vec` are optional at run time, so an image that lost sqlite-vec
@@ -96,13 +96,13 @@ jobs:
       # the check honest: the packages must be IN the image, not fetched by Bun's runtime
       # auto-install (which a present node_modules switches off anyway).
       - name: smoke — the image boots offline with native=on and vec=on
-        run: node scripts/docker-boot-smoke.mjs obsidian-tc:ci
+        run: node scripts/docker-boot-smoke.mjs reliquary-tc:ci
       - name: smoke — the image serves authenticated MCP over HTTP
-        run: node scripts/docker-boot-smoke.mjs obsidian-tc:ci --mode http
+        run: node scripts/docker-boot-smoke.mjs reliquary-tc:ci --mode http
       # The -git image clones a bare repository mounted into the container and keeps it in step:
       # a laptop push must reach read_note, and write_note must land on the repository as a commit.
       - name: smoke — the -git image syncs the vault both ways over MCP and a bare repository
-        run: node scripts/docker-boot-smoke.mjs obsidian-tc:ci-git --mode git
+        run: node scripts/docker-boot-smoke.mjs reliquary-tc:ci-git --mode git
       # The image is already built and loaded above; scanning it here costs one extra step and
       # closes a real gap — cargo-audit/bun-audit/osv-scanner all read LOCKFILES, so none of them
       # sees the OS packages the base image ships. A vulnerable libssl in the runtime layer was
@@ -115,7 +115,7 @@ jobs:
         continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: obsidian-tc:ci
+          image-ref: reliquary-tc:ci
           format: table
           severity: HIGH,CRITICAL
           ignore-unfixed: true

@@ -59,7 +59,7 @@ export function applyNoteWrites(
   // are touched below when this returns staleSkipped: true.
   const fence = commitFence(db, vaultId, plan.path, plan.fenceGeneration, plan.ts);
   if (!fence.ok) {
-    if (process.env.OBSIDIAN_TC_DEBUG_DEDUP !== undefined) {
+    if (process.env.RELIQUARY_TC_DEBUG_DEDUP !== undefined) {
       process.stderr.write(
         `[index] write-fence: dropped a stale write for "${plan.path}" (planned generation ` +
           `${plan.fenceGeneration}, current ${fence.generation}) — a fresher commit or deindex ` +

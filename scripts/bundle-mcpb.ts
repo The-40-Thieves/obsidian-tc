@@ -1,4 +1,4 @@
-// Pack obsidian-tc into a distributable MCPB bundle at dist/obsidian-tc.mcpb.
+// Pack reliquary-tc into a distributable MCPB bundle at dist/reliquary-tc.mcpb.
 //
 //   bun run bundle
 //
@@ -38,12 +38,12 @@ const repoRoot = resolve(import.meta.dir, "..");
 const serverEntry = join(repoRoot, "packages", "server", "dist", "cli.js");
 const mcpbManifestPath = join(repoRoot, "mcpb", "manifest.json");
 const outDir = join(repoRoot, "dist");
-const outFile = join(outDir, "obsidian-tc.mcpb");
+const outFile = join(outDir, "reliquary-tc.mcpb");
 
 // 1. The bundle ships built dist/, not TypeScript sources — build it if it is missing.
 if (!existsSync(serverEntry)) {
   console.log("server entry missing — building shared + server…");
-  await $`bun run --filter=@the-40-thieves/obsidian-tc-shared --filter=obsidian-tc build`.cwd(
+  await $`bun run --filter=@the-40-thieves/reliquary-tc-shared --filter=reliquary-tc build`.cwd(
     repoRoot,
   );
 }

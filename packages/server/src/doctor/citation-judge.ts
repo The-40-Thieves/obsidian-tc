@@ -6,7 +6,7 @@ import {
   classifyJudgeBaseUrl,
   isPlainHttpHostListed,
   judgeBaseUrlHost,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import type { Check, CheckStatus } from "./types";
 
 export interface CitationJudgeProbeResult {

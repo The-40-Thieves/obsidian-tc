@@ -1,7 +1,7 @@
 // The scheduled regeneration of the generated wiki pages: registered only on request, writes the
 // same index.md commit_wiki_page does, skips a vault with no wiki folder, and reports (rather than
 // overwrites) a hand-edited page.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { registerWikiPagesSweep } from "../src/runtime/wiki-pages-sweep";
 import type { Scheduler } from "../src/scheduler/scheduler";

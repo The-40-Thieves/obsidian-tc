@@ -14,7 +14,7 @@ from pathlib import Path
 
 import modal  # type: ignore[import-not-found]
 
-SERVICE_PKG = Path(__file__).resolve().parent.parent / "obsidian_tc_bge"
+SERVICE_PKG = Path(__file__).resolve().parent.parent / "reliquary_tc_bge"
 
 image = (
     modal.Image.debian_slim(python_version="3.14")
@@ -28,7 +28,7 @@ image = (
         "pydantic",
         "uvicorn[standard]",
     )
-    .add_local_dir(str(SERVICE_PKG), remote_path="/root/obsidian_tc_bge")
+    .add_local_dir(str(SERVICE_PKG), remote_path="/root/reliquary_tc_bge")
 )
 app = modal.App("bge-m3-verify", image=image)
 
@@ -59,8 +59,8 @@ def smoke() -> str:
             print(f"  {p}: not installed")
 
     sys.path.insert(0, "/root")
-    from obsidian_tc_bge.model import BgeM3Encoder  # type: ignore[import-not-found]
-    from obsidian_tc_bge.reranker import BgeReranker  # type: ignore[import-not-found]
+    from reliquary_tc_bge.model import BgeM3Encoder  # type: ignore[import-not-found]
+    from reliquary_tc_bge.reranker import BgeReranker  # type: ignore[import-not-found]
 
     print("=== encoder: BgeM3Encoder(BAAI/bge-m3) ===")
     enc = BgeM3Encoder("BAAI/bge-m3", "main", "auto", True, 512)

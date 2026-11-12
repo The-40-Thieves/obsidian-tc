@@ -244,7 +244,7 @@ test("a malformed JSON POST /mcp answers -32700 and the socket serves a second r
   const db = await openDatabase(":memory:");
   provisionCacheDb(db);
   const handle = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth: { mode: "none" } as never,

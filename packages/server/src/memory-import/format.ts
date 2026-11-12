@@ -32,7 +32,7 @@ export function formatImportReport(report: ImportReport): string {
   const mode = report.applied
     ? "APPLY (writes were made)"
     : "DRY RUN (nothing was written; pass --apply to write)";
-  lines.push(`obsidian-tc memory import --from ${report.adapter}: ${mode}`, "");
+  lines.push(`reliquary-tc memory import --from ${report.adapter}: ${mode}`, "");
 
   if (report.entities.length > 0) {
     lines.push(

@@ -406,7 +406,7 @@ describe("concurrent repair of a corrupt server secret", () => {
     const msg = errorOf(() => serverSecret(dir, { staleMs: 50, waitMs: 400 }));
     expect(msg).toContain(lock);
     expect(msg).toMatch(/another-host/);
-    expect(msg).toMatch(/stop every obsidian-tc process/i);
+    expect(msg).toMatch(/stop every reliquary-tc process/i);
     expect(readFileSync(secretFile(dir), "utf8")).toBe("truncated");
   });
 

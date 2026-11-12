@@ -3,7 +3,7 @@
 // imports the shared row/projection shape from episode-projection.ts (a THIRD module) rather than
 // from experiential-tools.ts, so the two tool files never import each other — see
 // episode-projection.ts's header for why that avoids a circular import.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { fuseEpisodeRanks, semanticRankEpisodes } from "../../experiential/episode-search";
 import type { ToolDefinition } from "../../mcp/registry";

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 // THE-1122 — the "local" embeddings provider's cold-start budget: generate a small deterministic
-// vault, index it through the REAL `obsidian-tc index` CLI path with the REAL local embedder (not
+// vault, index it through the REAL `reliquary-tc index` CLI path with the REAL local embedder (not
 // the perf harness's fake, zero-I/O provider), and assert a GENEROUS wall-clock ceiling.
 //
 // Deliberately generous, not a tight regression gate: this measures a fresh HF model download (on
@@ -82,7 +82,7 @@ try {
     process.exit(1);
   }
   if (result.status !== 0) {
-    console.error(`cold-start budget: "obsidian-tc index" exited ${result.status}`);
+    console.error(`cold-start budget: "reliquary-tc index" exited ${result.status}`);
     process.exit(1);
   }
   if (elapsedMs > ceilingMs) {

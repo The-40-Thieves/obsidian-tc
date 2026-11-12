@@ -6,7 +6,7 @@
 import dns from "node:dns/promises";
 import https from "node:https";
 import { isIP } from "node:net";
-import { normalizeHostForBind } from "@the-40-thieves/obsidian-tc-shared";
+import { normalizeHostForBind } from "@the-40-thieves/reliquary-tc-shared";
 
 export const PUBLIC_URL_TIMEOUT_MS = 5000;
 /** A discovery document or challenge body is small; anything past this is not read. */

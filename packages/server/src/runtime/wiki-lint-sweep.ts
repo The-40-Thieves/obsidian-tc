@@ -5,7 +5,7 @@
 // logs one summary line per vault, and stops. It never edits a note, never persists anything, and
 // never gates a write. The proposals themselves are one `lint_wiki` call away; a log line is the
 // timer's whole output on purpose, so an unattended job cannot grow a table nobody reads.
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { Database } from "../db/types";
 import { compileEgressFilter, type EgressFilter } from "../plane/egress-filter";
 import type { GatewayRoles } from "../plane/gateway";

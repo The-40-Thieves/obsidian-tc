@@ -6,9 +6,9 @@ import { defaultSetupConfigPath, resolveServeConfig } from "../src/cli/resolve-c
 import { makeTempDir, rmTemp, stubHomedir } from "./tmp";
 
 // A config FILE that parses as JSON but fails the schema (the reported case: a `{}` left at
-// ~/.obsidian-tc/config.json) used to surface as a raw Zod issue array — no file named, no way
+// ~/.reliquary-tc/config.json) used to surface as a raw Zod issue array — no file named, no way
 // out. All three ways of naming a file share resolveServeConfigWithProvenance's one validation.
-const ENV_KEY = "OBSIDIAN_TC_CONFIG";
+const ENV_KEY = "RELIQUARY_TC_CONFIG";
 
 const tmpDirs: string[] = [];
 const tmpDir = (prefix: string): string => {
@@ -40,7 +40,7 @@ describe("resolveServeConfig — a config file that fails schema validation", ()
 
   it("default-path `{}`: CliError naming the file and the missing field, with the way out", () => {
     const home = tmpDir("otc-invalid-default-");
-    mkdirSync(join(home, ".obsidian-tc"), { recursive: true });
+    mkdirSync(join(home, ".reliquary-tc"), { recursive: true });
     writeFileSync(defaultPathIn(home), "{}");
     restoreHome = stubHomedir(home);
     delete process.env[ENV_KEY];
@@ -49,12 +49,12 @@ describe("resolveServeConfig — a config file that fails schema validation", ()
     expect(e).toBeInstanceOf(CliError);
     expect(e.message).toContain(defaultSetupConfigPath());
     expect(e.message).toContain("is not a valid config: vaults is required");
-    expect(e.message).toContain("obsidian-tc setup");
+    expect(e.message).toContain("reliquary-tc setup");
     expect(e.message).toContain("pass a vault folder");
     expect(e.message).not.toContain('"code"'); // no raw Zod JSON dump
   });
 
-  it("OBSIDIAN_TC_CONFIG target: same error, naming THAT file", () => {
+  it("RELIQUARY_TC_CONFIG target: same error, naming THAT file", () => {
     const dir = tmpDir("otc-invalid-env-");
     const file = join(dir, "env.json");
     writeFileSync(file, "{}");
@@ -85,5 +85,5 @@ describe("resolveServeConfig — a config file that fails schema validation", ()
 });
 
 function defaultPathIn(home: string): string {
-  return join(home, ".obsidian-tc", "config.json");
+  return join(home, ".reliquary-tc", "config.json");
 }

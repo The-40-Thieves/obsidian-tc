@@ -4,7 +4,7 @@
 // ## What this is NOT
 //
 // It is not a discovery instrument. `inWriteTransaction` (src/db/txn.ts) already measures lock wait
-// correctly in production and feeds `obsidian_tc_sql_lock_wait_seconds`. What was missing is anything
+// correctly in production and feeds `reliquary_tc_sql_lock_wait_seconds`. What was missing is anything
 // that ever WATCHES that instrument fire. A histogram nobody has seen produce a non-zero sample is
 // indistinguishable from an uncontended system — and on this project three separate layers were
 // independently zeroing it (an image predating the metric, `prometheus.enabled` defaulting false, and

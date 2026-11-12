@@ -1,16 +1,16 @@
 // First-run smoke: does a clean install of ONE distribution path boot with no config and answer a
 // semantic query over MCP stdio? Run once per path x OS by .github/workflows/ci-first-run-smoke.yml.
 //
-//   bun scripts/first-run-smoke.ts --path npm    [--npm-spec obsidian-tc@latest] [--npm-extra file]
-//   bun scripts/first-run-smoke.ts --path mcpb   --artifact dist/obsidian-tc.mcpb
-//   bun scripts/first-run-smoke.ts --path binary --artifact dist/obsidian-tc-bun-linux-x64
+//   bun scripts/first-run-smoke.ts --path npm    [--npm-spec reliquary-tc@latest] [--npm-extra file]
+//   bun scripts/first-run-smoke.ts --path mcpb   --artifact dist/reliquary-tc.mcpb
+//   bun scripts/first-run-smoke.ts --path binary --artifact dist/reliquary-tc-bun-linux-x64
 //   bun scripts/first-run-smoke.ts --path cli    --artifact packages/server/dist/cli.js  (dev / tests)
 //     [--report <file.json>] [--report-path <label>] [--reconcile-timeout-ms <ms>]
 //     [--model-cache <dir>]
 //
 // What it does, per path: install/unpack the artifact the way a user gets it, start it against a
 // five-note fixture vault with NO config file (the vault directory is the only argument, as `npx
-// obsidian-tc <vault>` and the .mcpb's pasted-folder user_config do), wait for the boot reconcile to
+// reliquary-tc <vault>` and the .mcpb's pasted-folder user_config do), wait for the boot reconcile to
 // settle, then call search_semantic through the facade and check WHICH retriever answered.
 //
 // Unlike zero-config-smoke.ts (which asserts one expected state and exits at the first miss) this
@@ -19,7 +19,7 @@
 // is 1 when any stage failed. `--report` writes the per-stage JSON the workflow folds into the 3x5
 // table; its `firstFailure` is the exact one-line reason. It reuses zero-config-smoke's isolated
 // HOME (scripts/lib/isolated-home.mjs), so the run never reads or writes the operator's real
-// `~/.obsidian-tc`, and the same `--model-cache` shape for CI's model-weights cache.
+// `~/.reliquary-tc`, and the same `--model-cache` shape for CI's model-weights cache.
 //
 // Stages: prepare, node-floor (mcpb only), boot, banner, vec, reconcile, search_semantic,
 // search_vault (info), shutdown. `native` is reported, never failed: the JS fallback is a supported
@@ -81,7 +81,7 @@ const MCPB_CLI = "@anthropic-ai/mcpb@2.1.2";
 
 const pathKind = arg("--path");
 const artifact = arg("--artifact");
-const npmSpec = arg("--npm-spec") ?? "obsidian-tc@latest";
+const npmSpec = arg("--npm-spec") ?? "reliquary-tc@latest";
 const npmExtra = args("--npm-extra");
 const reportFile = arg("--report");
 const reportPath = arg("--report-path") ?? pathKind;
@@ -208,7 +208,7 @@ function prepareNpm(vault: string): Launch | null {
     rec("prepare", "fail", `npm install ${npmSpec}: ${failureLine(r.out)}`);
     return null;
   }
-  const pkgDir = join(prefix, "node_modules", "obsidian-tc");
+  const pkgDir = join(prefix, "node_modules", "reliquary-tc");
   const pkgJson = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8")) as {
     version: string;
     dependencies?: Record<string, string>;
@@ -216,15 +216,15 @@ function prepareNpm(vault: string): Launch | null {
   };
   const version = pkgJson.version;
   const embedder = existsSync(
-    join(prefix, "node_modules", "@the-40-thieves", "obsidian-tc-embedder-local"),
+    join(prefix, "node_modules", "@the-40-thieves", "reliquary-tc-embedder-local"),
   );
-  const runtimePackage = `@the-40-thieves/obsidian-tc-embedder-local-${process.platform}-${process.arch}`;
+  const runtimePackage = `@the-40-thieves/reliquary-tc-embedder-local-${process.platform}-${process.arch}`;
   const runtime = existsSync(
     join(
       prefix,
       "node_modules",
       "@the-40-thieves",
-      `obsidian-tc-embedder-local-${process.platform}-${process.arch}`,
+      `reliquary-tc-embedder-local-${process.platform}-${process.arch}`,
     ),
   );
   // What the installed embedder declares decides whether its host runtime was owed at all.
@@ -232,7 +232,7 @@ function prepareNpm(vault: string): Launch | null {
     prefix,
     "node_modules",
     "@the-40-thieves",
-    "obsidian-tc-embedder-local",
+    "reliquary-tc-embedder-local",
     "package.json",
   );
   const embedderDeclared = existsSync(embedderJson)
@@ -241,7 +241,7 @@ function prepareNpm(vault: string): Launch | null {
   const onnxruntimeNode = existsSync(join(prefix, "node_modules", "onnxruntime-node"));
   const transformers = existsSync(join(prefix, "node_modules", "@huggingface", "transformers"));
   const installDetail =
-    `npm install ${npmSpec} -> obsidian-tc@${version} in ${Date.now() - t0}ms; ` +
+    `npm install ${npmSpec} -> reliquary-tc@${version} in ${Date.now() - t0}ms; ` +
     `embedder-local ${embedder ? "installed" : "NOT installed"}; ${runtimePackage} ` +
     `${runtime ? "installed" : "NOT installed"}; onnxruntime-node ${onnxruntimeNode ? "present" : "absent"}; ` +
     `@huggingface/transformers ${transformers ? "present" : "absent"}`;
@@ -256,10 +256,10 @@ function prepareNpm(vault: string): Launch | null {
     installed: (name) => existsSync(join(prefix, "node_modules", ...name.split("/"))),
   });
   // The embedder is an explicit install on this path (--npm-extra), so its absence fails prepare
-  // whatever obsidian-tc declares. A release that no longer lists it would otherwise pass here and
+  // whatever reliquary-tc declares. A release that no longer lists it would otherwise pass here and
   // only surface later as reconcile=degraded.
   const missing = [
-    ...new Set([...(embedder ? [] : ["@the-40-thieves/obsidian-tc-embedder-local"]), ...skipped]),
+    ...new Set([...(embedder ? [] : ["@the-40-thieves/reliquary-tc-embedder-local"]), ...skipped]),
   ];
   if (missing.length > 0) {
     rec(
@@ -274,12 +274,12 @@ function prepareNpm(vault: string): Launch | null {
     return null;
   }
   rec("prepare", "pass", installDetail);
-  // The bin shim npm generates is what `npx obsidian-tc` / a global install runs.
+  // The bin shim npm generates is what `npx reliquary-tc` / a global install runs.
   const bin = join(
     prefix,
     "node_modules",
     ".bin",
-    process.platform === "win32" ? "obsidian-tc.cmd" : "obsidian-tc",
+    process.platform === "win32" ? "reliquary-tc.cmd" : "reliquary-tc",
   );
   if (!existsSync(bin)) {
     rec("prepare", "fail", `npm install produced no bin shim at ${bin}`);
@@ -390,7 +390,7 @@ async function main(): Promise<void> {
 
 async function exercise(launch: Launch): Promise<void> {
   const isolated = createIsolatedHome("obtc-first-run-home-");
-  const isolatedModels = join(isolated.home, ".obsidian-tc", "models");
+  const isolatedModels = join(isolated.home, ".reliquary-tc", "models");
   if (modelCache && existsSync(modelCache)) cpSync(modelCache, isolatedModels, { recursive: true });
 
   let stderrText = "";
@@ -431,7 +431,7 @@ async function exercise(launch: Launch): Promise<void> {
     rec(
       "banner",
       "pass",
-      `obsidian-tc ${banner.version} ready; native=${banner.native} vec=${banner.vec}`,
+      `reliquary-tc ${banner.version} ready; native=${banner.native} vec=${banner.vec}`,
     );
     if (banner.vec === "on") rec("vec", "pass", "sqlite-vec loaded (vec=on)");
     else

@@ -20,7 +20,7 @@ import { enrichChunkText } from "../src/search/chunk";
 import { invalidateVecIndex } from "../src/search/vec";
 
 // invalidateVecIndex drops vec_chunks (loading the sqlite-vec module first) AND marks it for a full
-// rebuild, so a later `obsidian-tc index` on this db backfills instead of leaving it near-empty.
+// rebuild, so a later `reliquary-tc index` on this db backfills instead of leaving it near-empty.
 function dropVecChunks(db: Database): void {
   invalidateVecIndex(db);
 }

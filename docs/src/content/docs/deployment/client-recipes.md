@@ -125,14 +125,14 @@ Tag: **verified**. Claude Code and the claude.ai custom connector, also used fro
      -d '{"uri":"https://vault.example.com/mcp","default":true}'
    ```
 
-   The default applies to clients that omit `resource`, and only to metadata-document or DCR clients. A wildcard indicator cannot be the default. Changing the default later is dashboard-only (Set as default). Without a default indicator, `aud` is the environment's client id, and obsidian-tc refuses that token.
+   The default applies to clients that omit `resource`, and only to metadata-document or DCR clients. A wildcard indicator cannot be the default. Changing the default later is dashboard-only (Set as default). Without a default indicator, `aud` is the environment's client id, and reliquary-tc refuses that token.
 2. In the dashboard, under Connect and then Configuration, turn on Client ID Metadata Documents (CIMD). It is off by default. Dynamic Client Registration (DCR) is also dashboard-only: turn it on only for a client that needs it. To read the state from outside, AuthKit's `/.well-known/oauth-authorization-server` has no `registration_endpoint` while DCR is off. Its `token_endpoint_auth_methods_supported` lists `none`, `client_secret_post` and `client_secret_basic`.
-3. AuthKit Connect access tokens carry `org_id`, but no `role` or `permissions` claim, even when the organization member has a role. Map the organization id to the scopes its members receive. The example grants read access only; add `write:*` deliberately if every member of that organization should write. Per-role scopes require a WorkOS API lookup, which obsidian-tc does not perform.
-4. Point obsidian-tc at AuthKit:
+3. AuthKit Connect access tokens carry `org_id`, but no `role` or `permissions` claim, even when the organization member has a role. Map the organization id to the scopes its members receive. The example grants read access only; add `write:*` deliberately if every member of that organization should write. Per-role scopes require a WorkOS API lookup, which reliquary-tc does not perform.
+4. Point reliquary-tc at AuthKit:
 
    ```json
    {
-     "cacheDir": "/var/lib/obsidian-tc/cache",
+     "cacheDir": "/var/lib/reliquary-tc/cache",
      "vaults": [{ "id": "main", "path": "/absolute/path/to/vault" }],
      "transports": { "http": { "allowedHosts": ["vault.example.com"] } },
      "auth": {
@@ -156,8 +156,8 @@ Tag: **verified**. Claude Code and the claude.ai custom connector, also used fro
    }
    ```
 
-   `issuer` is the AuthKit domain origin, with no trailing slash, exactly as `/.well-known/oauth-authorization-server` states it. `jwksUri` is `https://<authkit-domain>/oauth2/jwks`. `audience` and `resource` are both the MCP URL. `oidc` mode runs discovery at boot and checks the issuer exactly, and it refuses to boot if discovery fails. Do not set `auth.scopesSupported` to obsidian-tc scopes for this recipe: Claude Code requests the scopes advertised there, and AuthKit refuses them with `invalid_scope`.
-5. Check Protected Resource Metadata at the path-suffixed URL, which is where obsidian-tc serves it:
+   `issuer` is the AuthKit domain origin, with no trailing slash, exactly as `/.well-known/oauth-authorization-server` states it. `jwksUri` is `https://<authkit-domain>/oauth2/jwks`. `audience` and `resource` are both the MCP URL. `oidc` mode runs discovery at boot and checks the issuer exactly, and it refuses to boot if discovery fails. Do not set `auth.scopesSupported` to reliquary-tc scopes for this recipe: Claude Code requests the scopes advertised there, and AuthKit refuses them with `invalid_scope`.
+5. Check Protected Resource Metadata at the path-suffixed URL, which is where reliquary-tc serves it:
 
    ```bash
    curl https://vault.example.com/.well-known/oauth-protected-resource/mcp
@@ -187,11 +187,11 @@ Known issue, observed 2026-10-12: with `--features=cimd,resource-indicators` and
 3. Add an audience mapper (`oidc-audience-mapper`) to the client scope that carries them: Included Custom Audience is the MCP URL, and Add to access token is on. With CIMD and the resource-indicator allow list set, the executor adds the mapper for you.
 4. Anonymous DCR: in the Trusted Hosts policy, keep the sending-host match off and the client-URI match on. Keycloak refuses both off.
 5. CIMD: as the guide describes, create a client profile with the `client-id-metadata-document` executor, and a client policy with the `client-id-uri` condition (`uri-scheme` https, `trusted-domains`). List each client's CIMD host in `trusted-domains`: `claude.ai` for Claude Code, `chatgpt.com` for Codex, `vscode.dev` and `zed.dev`. Set `resource-indicator-allow-list` to the MCP URL. On 26.7.4 this configuration still hit the known issue above before the executor ran.
-6. Point obsidian-tc at the realm:
+6. Point reliquary-tc at the realm:
 
    ```json
    {
-     "cacheDir": "/var/lib/obsidian-tc/cache",
+     "cacheDir": "/var/lib/reliquary-tc/cache",
      "vaults": [{ "id": "main", "path": "/absolute/path/to/vault" }],
      "transports": { "http": { "allowedHosts": ["vault.example.com"] } },
      "auth": {
@@ -213,7 +213,7 @@ Known issue, observed 2026-10-12: with `--features=cimd,resource-indicators` and
 
 ### Cloudflare Access: not yet supported
 
-Cloudflare Access managed OAuth issues opaque `oauth:` bearer tokens and checks them at the edge. obsidian-tc verifies JWTs locally and cannot check an opaque token, so this server cannot accept Access tokens. Use the bundled server, WorkOS AuthKit or Keycloak. The Cloudflare `workers-oauth-provider` library has the same opaque-token limit.
+Cloudflare Access managed OAuth issues opaque `oauth:` bearer tokens and checks them at the edge. reliquary-tc verifies JWTs locally and cannot check an opaque token, so this server cannot accept Access tokens. Use the bundled server, WorkOS AuthKit or Keycloak. The Cloudflare `workers-oauth-provider` library has the same opaque-token limit.
 
 ## Sources
 

@@ -19,7 +19,7 @@
 // and are absent by design; the prose sections below the block and the generated table in
 // config-reference.md both cover them. Including them here would put illustrative values next to
 // real defaults with nothing marking which is which — the confusion this block already caused.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 
 /**
  * The one hand-written input: a minimal vault, since `vaults` has no default (min 1) and the

@@ -1,4 +1,4 @@
-// `obsidian-tc provenance verify [path] [--vault <id>] [--allow-unsigned] [--json]`: check the
+// `reliquary-tc provenance verify [path] [--vault <id>] [--allow-unsigned] [--json]`: check the
 // write-provenance chain in cache.db against the auth registry's public keys. Read-only: it opens
 // both databases read-only, changes nothing and writes no audit row. Exits 1 when any chain fails.
 //

@@ -2,7 +2,7 @@
 // query language (Dataview's successor) via the plugin's DatacoreApi.tryQuery, proxied
 // through the companion /datacore/query route. Read scope only (read:datacore); degrades
 // via the capability gate when Datacore or the companion is absent.
-import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { filterBridgeResultItems } from "../../vault/acl-read-filter";
@@ -21,7 +21,7 @@ export function buildDatacoreTools(deps: M4Deps): ToolDefinition[] {
           vault: VaultId,
           query: z.string().min(1),
           // THE-516: default the page size to this tool's own cap rather than leaving it absent.
-          // Forwarding no limit let the REMOTE plugin decide how much to return, which obsidian-tc
+          // Forwarding no limit let the REMOTE plugin decide how much to return, which reliquary-tc
           // cannot bound — the byte governor then rejects an oversized response as `overflow`
           // instead of returning a usable first page. The default is a page that fits a client's ~20 KB
           // inline limit (mcp/result-size.ts); `.max()` stays the ceiling for a caller that asks.

@@ -6,7 +6,7 @@
 // npm dist build, but it is BROKEN in the standalone binaries: `bun build --compile` resolves
 // import.meta.url to the BUILD-TIME path and does not embed the .sql files, so every published
 // binary died at module load with
-//   ENOENT ... '/home/runner/work/obsidian-tc/obsidian-tc/packages/server/src/db/migrations/...'
+//   ENOENT ... '/home/runner/work/reliquary-tc/reliquary-tc/packages/server/src/db/migrations/...'
 // — the CI runner's directory, baked into the executable. It could not even print --version.
 //
 // Why codegen rather than Bun's own asset embedding: `import sql from "./x.sql" with { type: "text" }`

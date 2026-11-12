@@ -1,6 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { ToolVisibilityConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolVisibilityConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { buildFullRegistry } from "../scripts/docgen/build-registry";
 import { FolderAcl } from "../src/acl";

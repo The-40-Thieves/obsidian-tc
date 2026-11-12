@@ -30,7 +30,7 @@
 // call is recorded as an error against that entity/relation and stops further work on it — none of
 // them are fire-and-forget (review finding: a discarded failure used to report success with the
 // entity then permanently unresumable, having "no verifiable import provenance").
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { renderEntityNote } from "../memory/materialize";
 import { parseNote } from "../vault/frontmatter";
 import type {

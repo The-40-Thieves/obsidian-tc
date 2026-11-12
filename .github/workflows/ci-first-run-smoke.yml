@@ -3,12 +3,12 @@ name: ci-first-run-smoke
 # semantic search ON via the default in-process local embedder) over four distribution paths a
 # user can start from, on five runner images (Linux, Windows, macOS arm64, two Intel macOS):
 #
-#   npm     `npm install obsidian-tc@<spec>` into a clean prefix, then the generated bin shim (what
-#           `npx obsidian-tc` and a global install both run). Installs the PUBLISHED package, latest by
+#   npm     `npm install reliquary-tc@<spec>` into a clean prefix, then the generated bin shim (what
+#           `npx reliquary-tc` and a global install both run). Installs the PUBLISHED package, latest by
 #           default: part 2 needs the published truth, and the unpublished tarball cannot be
 #           installed alone (its workspace deps are pinned to registry versions by publish.yml).
-#           obsidian-tc no longer lists the embedder as an optional dependency, so this cell also asks npm
-#           for `@the-40-thieves/obsidian-tc-embedder-local@<same version>` explicitly (the install the docs
+#           reliquary-tc no longer lists the embedder as an optional dependency, so this cell also asks npm
+#           for `@the-40-thieves/reliquary-tc-embedder-local@<same version>` explicitly (the install the docs
 #           tell users to run), and fails prepare when that embedder is missing.
 #   npm-local installs that same published server plus the generated embedder base and matching
 #           platform runtime tarballs, proving the next package layout before it is published.
@@ -66,10 +66,19 @@ concurrency:
 env:
   # Space-separated `<path>/<os>` cells that fail today, one per line, each with the reason. Empty:
   # every cell is enforced.
-  EXPECTED_FAILURES: ''
+  #
+  # npm/* and npm-local/*: these install the PUBLISHED reliquary-tc, which does not exist on npm until
+  # the first 2.0.0 release (it was published under its pre-rename name before). Remove both
+  # sets as soon as `npm view reliquary-tc version` answers; the XPASS warning will say so too.
+  EXPECTED_FAILURES: >-
+    npm/ubuntu-latest npm/windows-latest npm/macos-latest npm/macos-15-intel npm/macos-26-intel
+    npm-local/ubuntu-latest npm-local/windows-latest npm-local/macos-latest
+    npm-local/macos-15-intel npm-local/macos-26-intel
   # The model weights the local embedder downloads on first use, cached like ci-server.yml's
   # zero-config-smoke-local-embeddings job (same key: bump with model-info.ts's pinned revision).
   EMBEDDER_REVISION: e9b6763023c676ca8431644204f50c2b100d9aab
+  # The npm account that publishes reliquary-tc. The npm cells refuse a package it did not publish.
+  NPM_PUBLISHER: suavecito
 
 jobs:
   build-mcpb:
@@ -98,7 +107,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: first-run-mcpb-bundle
-          path: dist/obsidian-tc.mcpb
+          path: dist/reliquary-tc.mcpb
           if-no-files-found: error
 
   pack-embedder-local:
@@ -119,7 +128,9 @@ jobs:
       - name: pack generated embedder npm packages
         run: |
           set -euo pipefail
-          v=$(npm view obsidian-tc@latest version)
+          # Before the first reliquary-tc publish there is no registry version to match; pack at the
+          # repo's own version instead (the npm-local cell that installs it is on EXPECTED_FAILURES).
+          v=$(npm view reliquary-tc@latest version 2>/dev/null || node -p "require('./packages/server/package.json').version")
           bun scripts/pack-embedder-local.ts --out dist/embedder-local-npm --version "$v"
           mkdir -p embedder-tgz
           for dir in dist/embedder-local-npm/*/; do
@@ -212,7 +223,7 @@ jobs:
           bun run build
       - name: compile standalone binary
         if: matrix.path == 'binary'
-        run: bun scripts/build-binary.ts --target "$FR_TARGET" --outfile "packages/server/dist/obsidian-tc-$FR_TARGET"
+        run: bun scripts/build-binary.ts --target "$FR_TARGET" --outfile "packages/server/dist/reliquary-tc-$FR_TARGET"
 
       - name: cache local embedder model weights (nomic-embed-text-v1.5, q8)
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -230,24 +241,32 @@ jobs:
           rm -rf node_modules packages/*/node_modules
           mkdir -p "$RUNNER_TEMP/first-run-report"
           args=(--path "$FR_PATH")
+          # The unscoped name is open to anyone until the project publishes it, so install it only
+          # when NPM_PUBLISHER is among its maintainers. Otherwise the cell fails before installing.
+          published_version() {
+            owners=$(npm view reliquary-tc maintainers --json) || return 1
+            node -e 'const m = [].concat(JSON.parse(process.argv[1])).map((x) => String(x).split(" ")[0]);
+              if (!m.includes(process.env.NPM_PUBLISHER)) { console.error("reliquary-tc on npm is not published by " + process.env.NPM_PUBLISHER + "; not installing it"); process.exit(1); }' "$owners" || return 1
+            npm view reliquary-tc@latest version
+          }
           case "$FR_PATH" in
             npm)
-              # obsidian-tc no longer lists the embedder as an optional dependency: the embedder is an
+              # reliquary-tc no longer lists the embedder as an optional dependency: the embedder is an
               # explicit install (docs/install.md), so this cell requests the same-version build by name.
-              v=$(npm view obsidian-tc@latest version)
-              args+=(--npm-spec "obsidian-tc@$v" --npm-extra "@the-40-thieves/obsidian-tc-embedder-local@$v")
+              v=$(published_version)
+              args+=(--npm-spec "reliquary-tc@$v" --npm-extra "@the-40-thieves/reliquary-tc-embedder-local@$v")
               ;;
             npm-local)
-              v=$(npm view obsidian-tc@latest version)
+              v=$(published_version)
               host_key=$(node -p 'process.platform+"-"+process.arch')
               # Not a bash glob: RUNNER_TEMP is a backslash path on Windows and `\` escapes there.
-              pkg=the-40-thieves-obsidian-tc-embedder-local-
+              pkg=the-40-thieves-reliquary-tc-embedder-local-
               base_tgz=$(node scripts/lib/pick-tgz.mjs "$RUNNER_TEMP/embedder-tgz" "$pkg")
               runtime_tgz=$(node scripts/lib/pick-tgz.mjs "$RUNNER_TEMP/embedder-tgz" "$pkg$host_key-")
-              args=(--path npm --npm-spec "obsidian-tc@$v" --npm-extra "$base_tgz" --npm-extra "$runtime_tgz" --report-path npm-local)
+              args=(--path npm --npm-spec "reliquary-tc@$v" --npm-extra "$base_tgz" --npm-extra "$runtime_tgz" --report-path npm-local)
               ;;
-            mcpb) args+=(--artifact "$RUNNER_TEMP/mcpb/obsidian-tc.mcpb") ;;
-            binary) args+=(--artifact "packages/server/dist/obsidian-tc-$FR_TARGET") ;;
+            mcpb) args+=(--artifact "$RUNNER_TEMP/mcpb/reliquary-tc.mcpb") ;;
+            binary) args+=(--artifact "packages/server/dist/reliquary-tc-$FR_TARGET") ;;
           esac
           node "$RUNNER_TEMP/first-run-smoke.mjs" "${args[@]}" \
             --reconcile-timeout-ms 600000 \

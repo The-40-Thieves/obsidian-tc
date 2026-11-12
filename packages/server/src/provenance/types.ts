@@ -8,14 +8,15 @@
 //   unauthenticated   a caller label the server saw but nobody proved (stdio's local operator, or
 //                     `auth.mode: none`). Kept apart from `verified` so it cannot pass for it.
 //   self_reported     whatever the client said about itself (MCP clientInfo, the
-//                     `io.obsidian-tc/provenance` _meta block). A client can lie; nothing here is
+//                     `io.reliquary-tc/provenance` _meta block). A client can lie; nothing here is
 //                     checked.
 //
 // Hashes only, ever: the record carries sha256 digests of note bytes, never content or prompts.
+import { CURRENT_NAMES, readMetaKey } from "@the-40-thieves/reliquary-tc-shared";
 import { cleanMetaString } from "../mcp/client-info";
 
 /** Request `_meta` key a client may set to say which model/project/agent/machine is calling. */
-export const PROVENANCE_META_KEY = "io.obsidian-tc/provenance";
+export const PROVENANCE_META_KEY = CURRENT_NAMES.provenanceMetaKey;
 
 export const RECORD_VERSION = 1;
 export const GENESIS_HASH = "0".repeat(64);
@@ -83,7 +84,7 @@ const CLAIMED_KEYS = ["model", "project", "agent", "machine"] as const;
 export function extractClaimedProvenance(...bags: unknown[]): ClaimedProvenance | undefined {
   for (const meta of bags) {
     if (meta === null || typeof meta !== "object") continue;
-    const raw = (meta as Record<string, unknown>)[PROVENANCE_META_KEY];
+    const raw = readMetaKey(meta as Record<string, unknown>, "provenanceMetaKey");
     if (raw === null || typeof raw !== "object" || Array.isArray(raw)) continue;
     const out: ClaimedProvenance = {};
     for (const key of CLAIMED_KEYS) {

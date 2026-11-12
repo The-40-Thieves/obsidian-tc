@@ -11,7 +11,7 @@
 // BEFORE the code is consumed, so whichever exchange loses the race finds the winner's jti already in
 // `issued_access` when it revokes the family, and the winner's token dies with the rest.
 import { createHash } from "node:crypto";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { Context, Hono } from "hono";
 import { type AccessContext, mintAccessToken } from "./as-access";
 import { accountBounds, applyBounds } from "./as-account";

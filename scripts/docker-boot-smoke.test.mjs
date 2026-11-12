@@ -11,11 +11,12 @@ import * as smoke from "./docker-boot-smoke.mjs";
 import { checkBoot, checkRun, parseArgs, parseReadyBanner } from "./docker-boot-smoke.mjs";
 
 const HTTP_ONLY_1_32_0 =
-  "obsidian-tc 1.32.0 ready (http-only; stdio disabled; vault agents; native=js-fallback vec=off)";
-const STDIO_DEGRADED = "obsidian-tc 1.32.0 ready on stdio (vault main; native=js-fallback vec=off)";
+  "reliquary-tc 1.32.0 ready (http-only; stdio disabled; vault agents; native=js-fallback vec=off)";
+const STDIO_DEGRADED =
+  "reliquary-tc 1.32.0 ready on stdio (vault main; native=js-fallback vec=off)";
 const HTTP_HEALTHY =
-  "obsidian-tc 1.33.0 ready (http-only; stdio disabled; vault agents; native=on vec=on)";
-const STDIO_HEALTHY = "obsidian-tc 1.33.0 ready on stdio (vault main; native=on vec=on)";
+  "reliquary-tc 1.33.0 ready (http-only; stdio disabled; vault agents; native=on vec=on)";
+const STDIO_HEALTHY = "reliquary-tc 1.33.0 ready on stdio (vault main; native=on vec=on)";
 const NOISE = [
   'reranker "local": bare-specifier did not resolve',
   "security: profile=trusted-local auth=none",
@@ -125,7 +126,7 @@ test("the 1.32.0 stdio banner fails too (the transport must not matter)", () => 
 });
 
 test("vec=off alone fails even when the native module loaded", () => {
-  const problems = checkBoot("obsidian-tc 1.33.0 ready on stdio (vault main; native=on vec=off)");
+  const problems = checkBoot("reliquary-tc 1.33.0 ready on stdio (vault main; native=on vec=off)");
   assert.equal(problems.length, 1);
   assert.match(problems[0], /vec=off/);
 });
@@ -136,7 +137,7 @@ test("both healthy banners pass", () => {
 });
 
 test("--expect-native js-fallback accepts the fallback but still demands vec=on", () => {
-  const fallbackOk = "obsidian-tc 1.33.0 ready on stdio (vault main; native=js-fallback vec=on)";
+  const fallbackOk = "reliquary-tc 1.33.0 ready on stdio (vault main; native=js-fallback vec=on)";
   assert.deepEqual(checkBoot(fallbackOk, { expectNative: "js-fallback" }), []);
   assert.equal(checkBoot(STDIO_HEALTHY, { expectNative: "js-fallback" }).length, 1);
 });
@@ -146,8 +147,8 @@ test("output with no ready banner is a failure, not a pass", () => {
   assert.deepEqual(checkBoot(""), [
     "no ready banner in the container output (did the server boot?)",
   ]);
-  // the shutdown line shares the "obsidian-tc:" prefix but is not a ready banner
-  assert.equal(checkBoot("obsidian-tc: shutting down (transport:stdio-eof)").length, 1);
+  // the shutdown line shares the "reliquary-tc:" prefix but is not a ready banner
+  assert.equal(checkBoot("reliquary-tc: shutting down (transport:stdio-eof)").length, 1);
 });
 
 test("parseReadyBanner extracts version and both capability flags", () => {

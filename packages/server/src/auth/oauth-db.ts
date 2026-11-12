@@ -9,7 +9,7 @@
 // created fresh, unclaimed. Back it up beside auth.db and auth-keys/ all the same.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { version as VERSION } from "../../package.json";
 import { openConfiguredDatabase } from "../db/open";
 import { provisionOauthDb } from "../db/provision";

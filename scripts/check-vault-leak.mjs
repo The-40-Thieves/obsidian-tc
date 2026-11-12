@@ -75,7 +75,7 @@ const registeredGoldenCount = tracked.filter(registeredGolden).length;
 
 for (const f of tracked) {
   // A committed index is never legitimate. This is the artifact that leaked 100 notes in full.
-  if (f.startsWith(".obsidian-tc/")) {
+  if (f.startsWith(".reliquary-tc/")) {
     fail(f, 0, "committed-index", "a vault index must never be tracked");
   }
   if (/\.(db|sqlite3?)(-wal|-shm)?$/.test(f)) {

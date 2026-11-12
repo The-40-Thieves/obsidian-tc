@@ -7,7 +7,7 @@
 // the named TARGET straight through registry.dispatch so every gate fires unchanged. Every
 // registered tool stays callable by name, so a client that already knows a name is never blocked.
 import type { CallToolResult, Tool } from "@modelcontextprotocol/server";
-import { type ErrorJSON, err } from "@the-40-thieves/obsidian-tc-shared";
+import { type ErrorJSON, err } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { bm25Score, tokenize } from "../search/native";
 import { profileHiddenTools } from "./capability-hidden";
@@ -201,7 +201,7 @@ function buildTriadTools(hasResources: boolean): Tool[] {
       description:
         "Search this server's full tool catalog by natural-language query and return the best-matching capabilities (name + one-line summary). Use it to discover which tool to call, then describe_capability for its schema and call_capability to run it." +
         (hasResources
-          ? " To enumerate the whole caller-visible catalog grouped by domain instead of searching it, read the obsidian-tc://catalog resource."
+          ? " To enumerate the whole caller-visible catalog grouped by domain instead of searching it, read the reliquary-tc://catalog resource."
           : ""),
       inputSchema: toInputJson(FIND_CAPABILITY_SCHEMA),
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
@@ -484,7 +484,7 @@ export function domainTools(tools: ToolDefinition[]): Tool[] {
 // ---- Catalog discovery (THE-937) ---------------------------------------------------------------
 // find_capability answers "which tool does X", not "what exists". Two layers close that gap over
 // ONE source of truth, buildCatalog: an instructions summary (renderInstructions, every session,
-// no call) and the full catalog as a resource (obsidian-tc://catalog, resources.ts's
+// no call) and the full catalog as a resource (reliquary-tc://catalog, resources.ts's
 // readCatalogResource, read on demand) — both formatters over buildCatalog's output.
 
 export interface CatalogGroup {
@@ -517,7 +517,7 @@ export function buildCatalog(tools: ToolDefinition[]): CatalogGroup[] {
   return out;
 }
 
-/** Flattens buildCatalog's grouped output for the obsidian-tc://catalog resource: one row per
+/** Flattens buildCatalog's grouped output for the reliquary-tc://catalog resource: one row per
  *  tool, `{domain, name, summary}`, ordered by domain then name — no schemas. */
 export function renderCatalogResource(
   groups: CatalogGroup[],
@@ -607,7 +607,7 @@ export function buildInstructions(
     `Tools are authorized per call (scopes + folder ACL); resources are vault notes.${feedbackClause}${profileClause}`;
   // The pointer only makes sense when resources are wired — see triadTools()'s same gate.
   const catalogPointer = hasResources
-    ? " (read obsidian-tc://catalog for the full caller-visible list)"
+    ? " (read reliquary-tc://catalog for the full caller-visible list)"
     : "";
   return (
     `${preamble}\n\nCapabilities by domain${catalogPointer}:\n` +

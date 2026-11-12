@@ -17,7 +17,7 @@ import { pathToFileURL } from "node:url";
 const ROOT = resolve(import.meta.dirname, "..");
 const ENTRY = join(ROOT, "scripts", "lib", "embedder-package-entry.mjs");
 const SOURCE = join(ROOT, "packages", "embedder-local", "src", "index.ts");
-const BASE_NAME = "@the-40-thieves/obsidian-tc-embedder-local";
+const BASE_NAME = "@the-40-thieves/reliquary-tc-embedder-local";
 const HOST_KEY = `${process.platform}-${process.arch}`;
 const RUNTIME_NAME = `${BASE_NAME}-${HOST_KEY}`;
 const tempDirs = [];
@@ -52,7 +52,7 @@ function stage({ runtime = true } = {}) {
   const root = mkdtempSync(join(tmpdir(), "obtc-package-entry-"));
   tempDirs.push(root);
   const scope = join(root, "node_modules", "@the-40-thieves");
-  const base = join(scope, "obsidian-tc-embedder-local");
+  const base = join(scope, "reliquary-tc-embedder-local");
   mkdirSync(base, { recursive: true });
   cpSync(ENTRY, join(base, "index.mjs"));
   const names = runtimeExportNames();
@@ -64,7 +64,7 @@ function stage({ runtime = true } = {}) {
     join(base, "package.json"),
     JSON.stringify({ name: BASE_NAME, type: "module", exports: { ".": "./index.mjs" } }),
   );
-  const runtimeDir = join(scope, `obsidian-tc-embedder-local-${HOST_KEY}`);
+  const runtimeDir = join(scope, `reliquary-tc-embedder-local-${HOST_KEY}`);
   if (runtime) {
     mkdirSync(runtimeDir, { recursive: true });
     writeFileSync(join(runtimeDir, "package.json"), JSON.stringify({ name: RUNTIME_NAME }));
@@ -83,7 +83,7 @@ test("the installed host runtime is selected before the stub bundle loads and al
   const { root, runtimeDir, names } = stage();
   const result = run(
     root,
-    `const mod = await import(${JSON.stringify(BASE_NAME)}); console.log(JSON.stringify({dir: globalThis[Symbol.for("obsidian-tc.ort-dir")], exports: Object.keys(mod).sort()}));`,
+    `const mod = await import(${JSON.stringify(BASE_NAME)}); console.log(JSON.stringify({dir: globalThis[Symbol.for("reliquary-tc.ort-dir")], exports: Object.keys(mod).sort()}));`,
   );
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), { dir: runtimeDir, exports: names });
@@ -108,7 +108,7 @@ test("a preset runtime directory skips package resolution", () => {
   const preset = join(root, "preset-runtime");
   const result = run(
     root,
-    `globalThis[Symbol.for("obsidian-tc.ort-dir")] = ${JSON.stringify(preset)}; const mod = await import(${JSON.stringify(BASE_NAME)}); console.log(JSON.stringify({dir: globalThis[Symbol.for("obsidian-tc.ort-dir")], exports: Object.keys(mod).sort()}));`,
+    `globalThis[Symbol.for("reliquary-tc.ort-dir")] = ${JSON.stringify(preset)}; const mod = await import(${JSON.stringify(BASE_NAME)}); console.log(JSON.stringify({dir: globalThis[Symbol.for("reliquary-tc.ort-dir")], exports: Object.keys(mod).sort()}));`,
   );
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), { dir: preset, exports: names });

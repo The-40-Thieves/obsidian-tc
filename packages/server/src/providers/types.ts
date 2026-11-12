@@ -91,7 +91,7 @@ export interface ResolveContext {
   fetchFn?: FetchFn;
   /** `dirname(configPath)` — the trust root for `modulePath`. `configPath` is whatever was passed
    *  to `buildServerRuntime`: undefined when it is genuinely absent (no `--config`, no
-   *  `OBSIDIAN_TC_CONFIG`), but in zero-config vault-path mode `configPath` is the VAULT directory,
+   *  `RELIQUARY_TC_CONFIG`), but in zero-config vault-path mode `configPath` is the VAULT directory,
    *  not a config file — so this is NOT undefined there, it's that vault directory's parent (an
    *  accidental value, not a deliberate trust root; the module hatch is unreachable from that mode
    *  today only because nothing constructs a `module` provider without an actual config file). A

@@ -6,7 +6,7 @@ description: What claude.ai, ChatGPT, Gemini Enterprise, grok.com, Le Chat, Copi
 Hosted MCP surfaces call your server **from the vendor's cloud**, not from your machine. A server
 that works from a laptop on the same network can still fail every one of them. This page lists what
 they need, how to put a Cloudflare tunnel, nginx or Caddy in front of the server without breaking
-it, and how `obsidian-tc doctor --probe` checks the result.
+it, and how `reliquary-tc doctor --probe` checks the result.
 
 Run the server over HTTP first (see [Deployment](/deployment/) and
 [Authentication](/security/auth-model/)), set `auth.resource` to the public URL clients are given
@@ -241,7 +241,7 @@ dig +short A vault.example.com        # must print an IPv4 address
 To see whether a stream arrives unbuffered, send a request that streams (a tool call with a valid
 token) with `curl -N` and watch whether events print as they are produced or all at once at the end.
 
-On the server host, `obsidian-tc doctor --probe` runs the same checks from inside:
+On the server host, `reliquary-tc doctor --probe` runs the same checks from inside:
 
 | Check id | Passes when |
 | --- | --- |

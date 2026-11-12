@@ -1,6 +1,6 @@
 # Deployment Modes
 
-obsidian-tc runs in five main shapes. The companion plugin and the vault always live on the **same machine as the server** — only the MCP client may be remote. Transports are configured in the JSON config (`transports.stdio` / `transports.http`), not by CLI flags; the CLI takes a config path or a vault folder.
+reliquary-tc runs in five main shapes. The companion plugin and the vault always live on the **same machine as the server** — only the MCP client may be remote. Transports are configured in the JSON config (`transports.stdio` / `transports.http`), not by CLI flags; the CLI takes a config path or a vault folder.
 
 | Aspect | STDIO local | HTTP local | HTTP remote | Docker | Standalone binary / MCPB |
 |---|---|---|---|---|---|
@@ -16,20 +16,20 @@ For Claude Desktop / Claude Code / Cursor. The client launches the server as a s
 ```json
 {
   "mcpServers": {
-    "obsidian-tc": {
+    "reliquary-tc": {
       "command": "npx",
-      "args": ["-y", "obsidian-tc"],
-      "env": { "OBSIDIAN_TC_CONFIG": "/ABSOLUTE/PATH/TO/obsidian-tc.config.json" }
+      "args": ["-y", "reliquary-tc"],
+      "env": { "RELIQUARY_TC_CONFIG": "/ABSOLUTE/PATH/TO/reliquary-tc.config.json" }
     }
   }
 }
 ```
 
-Zero-config variant: pass a vault folder as the argument instead of a config (`"args": ["-y", "obsidian-tc", "/path/to/vault"]`).
+Zero-config variant: pass a vault folder as the argument instead of a config (`"args": ["-y", "reliquary-tc", "/path/to/vault"]`).
 
 ### Several stdio clients on the same vault
 
-"1 per process" above means every MCP client that launches obsidian-tc gets its own subprocess —
+"1 per process" above means every MCP client that launches reliquary-tc gets its own subprocess —
 so running Claude Desktop, Claude Code, and Cursor against the **same vault config** (same
 `cacheDir`) starts several independent processes that all share one `cache.db`. Each process still
 elects a per-vault indexing **leader**: exactly one holds the boot/periodic reconcile and the
@@ -87,9 +87,9 @@ Amazon Q Developer CLI, Kiro, JetBrains, Warp, Augment, …) pointed at the *sam
 [several-stdio-clients](#several-stdio-clients-on-the-same-vault) mode above
 already collapses several processes onto one `cache.db` and one indexing leader, but each process
 still loads its own copy of the embedding model and ONNX runtime — see the install-footprint and
-per-model RAM figures in the [embeddings guide](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/src/content/docs/configuration/embeddings.md#known-gaps),
+per-model RAM figures in the [embeddings guide](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/src/content/docs/configuration/embeddings.md#known-gaps),
 and the whole-process peak-RSS numbers in the [performance
-benchmarks](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/src/content/docs/observability/performance-benchmarks.md).
+benchmarks](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/src/content/docs/observability/performance-benchmarks.md).
 Running one HTTP server instead of N stdio processes is a zero-extra-code trade: this transport
 already exists, so the only work is pointing every client at it instead of letting each one spawn
 its own subprocess.
@@ -101,9 +101,9 @@ Enable HTTP, bind it to loopback, and require JWT auth since several clients now
 ```json
 {
   "vaults": [{ "id": "primary", "path": "/home/user/vaults/primary" }],
-  "cacheDir": "/home/user/.cache/obsidian-tc",
+  "cacheDir": "/home/user/.cache/reliquary-tc",
   "transports": { "http": { "enabled": true, "host": "127.0.0.1", "port": 8765 } },
-  "auth": { "mode": "jwt", "jwtSecret": "<32+ char secret, or set OBSIDIAN_TC_JWT_SECRET instead>" }
+  "auth": { "mode": "jwt", "jwtSecret": "<32+ char secret, or set RELIQUARY_TC_JWT_SECRET instead>" }
 }
 ```
 
@@ -114,7 +114,7 @@ enforcement (see **[[Security and ACL]]**) on a per-caller basis instead of blan
 any other config:
 
 ```sh
-obsidian-tc ./config.json
+reliquary-tc ./config.json
 ```
 
 #### 2. Authenticate — mint a token per client
@@ -122,7 +122,7 @@ obsidian-tc ./config.json
 Mint a bearer token with the CLI's `token mint` command, once per client identity:
 
 ```sh
-obsidian-tc token mint --sub claude-code --scopes "read:vault,write:vault/**" ./config.json
+reliquary-tc token mint --sub claude-code --scopes "read:vault,write:vault/**" ./config.json
 ```
 
 - `--sub` is the caller identity carried on the token — use a distinct value per client so
@@ -136,15 +136,15 @@ obsidian-tc token mint --sub claude-code --scopes "read:vault,write:vault/**" ./
 - Repeat with a different `--sub` for each additional client — nothing here is shared between
   clients except the one running server.
 
-Full flag reference: `obsidian-tc token mint --help`, or
-[`token-mint.ts`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/packages/server/src/cli/commands/token-mint.ts).
+Full flag reference: `reliquary-tc token mint --help`, or
+[`token-mint.ts`](https://github.com/The-40-Thieves/reliquary-tc/blob/main/packages/server/src/cli/commands/token-mint.ts).
 
 #### 3. Point every client at it
 
 **Claude Code** — native HTTP MCP support:
 
 ```sh
-claude mcp add --transport http obsidian-tc http://127.0.0.1:8765/mcp \
+claude mcp add --transport http reliquary-tc http://127.0.0.1:8765/mcp \
   --header "Authorization: Bearer <token from step 2>"
 ```
 
@@ -153,7 +153,7 @@ claude mcp add --transport http obsidian-tc http://127.0.0.1:8765/mcp \
 ```json
 {
   "mcpServers": {
-    "obsidian-tc": {
+    "reliquary-tc": {
       "url": "http://127.0.0.1:8765/mcp",
       "headers": { "Authorization": "Bearer <token from step 2>" }
     }
@@ -168,7 +168,7 @@ does not maintain, in `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "obsidian-tc": {
+    "reliquary-tc": {
       "command": "npx",
       "args": [
         "mcp-remote",
@@ -214,23 +214,23 @@ for the full sign-in flow.
 | Embedding model loads | one per client | one, total |
 | Index writer | one leader among followers (elected, see above) | the one process — no election needed |
 | Keeping it running | client owns the process lifecycle | **you** do — see the user service below |
-| Client version skew | each client can pin its own obsidian-tc version | every client talks to whatever version is running |
+| Client version skew | each client can pin its own reliquary-tc version | every client talks to whatever version is running |
 | Auth | `none` typical (trust boundary = parent process) | `jwt` recommended (trust boundary = the token) |
 
 #### Keep it running: a user service
 
 The server has to be up before a client tries to connect, and stay up across client restarts.
-Minimal starting points — adjust the binary path (`which obsidian-tc`, or the npx wrapper),
+Minimal starting points — adjust the binary path (`which reliquary-tc`, or the npx wrapper),
 working directory, and logging for your install:
 
-**systemd** (`~/.config/systemd/user/obsidian-tc.service`):
+**systemd** (`~/.config/systemd/user/reliquary-tc.service`):
 
 ```ini
 [Unit]
-Description=obsidian-tc shared MCP server
+Description=reliquary-tc shared MCP server
 
 [Service]
-ExecStart=/usr/bin/env obsidian-tc /ABSOLUTE/PATH/TO/config.json
+ExecStart=/usr/bin/env reliquary-tc /ABSOLUTE/PATH/TO/config.json
 Restart=on-failure
 
 [Install]
@@ -239,20 +239,20 @@ WantedBy=default.target
 
 ```sh
 systemctl --user daemon-reload
-systemctl --user enable --now obsidian-tc.service
+systemctl --user enable --now reliquary-tc.service
 ```
 
-**launchd** (macOS, `~/Library/LaunchAgents/io.the40thieves.obsidian-tc.plist`):
+**launchd** (macOS, `~/Library/LaunchAgents/io.the40thieves.reliquary-tc.plist`):
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>io.the40thieves.obsidian-tc</string>
+  <key>Label</key><string>io.the40thieves.reliquary-tc</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/local/bin/obsidian-tc</string>
+    <string>/usr/local/bin/reliquary-tc</string>
     <string>/ABSOLUTE/PATH/TO/config.json</string>
   </array>
   <key>KeepAlive</key><true/>
@@ -262,7 +262,7 @@ systemctl --user enable --now obsidian-tc.service
 ```
 
 ```sh
-launchctl load ~/Library/LaunchAgents/io.the40thieves.obsidian-tc.plist
+launchctl load ~/Library/LaunchAgents/io.the40thieves.reliquary-tc.plist
 ```
 
 ## HTTP remote
@@ -273,7 +273,7 @@ Server runs on a remote host (with the vault co-located); clients connect over C
 
 ```bash
 docker run -i --rm -v /path/to/vault:/vault \
-  ghcr.io/the-40-thieves/obsidian-tc:latest /vault
+  ghcr.io/the-40-thieves/reliquary-tc:latest /vault
 ```
 
 Use `:latest` for the current release or pin `:<version>` for a reproducible deployment. The
@@ -287,11 +287,11 @@ A container run detached (`docker run -d`, or any compose service without `stdin
 
 ## Standalone binary / MCPB
 
-- `bun build --compile` produces one executable per platform (~80 MB; runtime + native statically linked, no Node/Bun install needed); binaries are built per release — see [Releases](https://github.com/The-40-Thieves/obsidian-tc/releases).
-- The **MCPB bundle** (`bun run bundle` → `dist/obsidian-tc.mcpb`) installs one-click into Claude Desktop and other MCPB hosts.
+- `bun build --compile` produces one executable per platform (~80 MB; runtime + native statically linked, no Node/Bun install needed); binaries are built per release — see [Releases](https://github.com/The-40-Thieves/reliquary-tc/releases).
+- The **MCPB bundle** (`bun run bundle` → `dist/reliquary-tc.mcpb`) installs one-click into Claude Desktop and other MCPB hosts.
 
 ## Edge case: vault on a laptop, agents on a server
 
-**Topology A (recommended)** — server colocated with the vault. obsidian-tc + Obsidian + REST API plugin all run on the laptop; a remote agent tunnels MCP calls to the laptop's HTTP endpoint. Server↔plugin calls stay local; only the agent↔server hop crosses the network.
+**Topology A (recommended)** — server colocated with the vault. reliquary-tc + Obsidian + REST API plugin all run on the laptop; a remote agent tunnels MCP calls to the laptop's HTTP endpoint. Server↔plugin calls stay local; only the agent↔server hop crosses the network.
 
 **Topology B** — server colocated with the agent. Every plugin-bridge call tunnels back to the laptop's Obsidian, incurring RTT per op. Available but not the default.

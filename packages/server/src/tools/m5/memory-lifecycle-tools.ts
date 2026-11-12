@@ -20,7 +20,7 @@
 // nothing already linked ever silently disappears out from under a caller that queried the graph a
 // moment before. delete_entity exists for "created it by accident", not for ordinary lifecycle
 // churn.
-import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { inWriteTransaction } from "../../db/txn";
 import { fingerprintTargets } from "../../elicit-drift";

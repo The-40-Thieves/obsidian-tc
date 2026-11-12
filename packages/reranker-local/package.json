@@ -1,7 +1,7 @@
 {
-  "name": "@the-40-thieves/obsidian-tc-reranker-local",
+  "name": "@the-40-thieves/reliquary-tc-reranker-local",
   "version": "1.34.0",
-  "description": "Optional bundled cross-encoder reranker for obsidian-tc — runs fully offline, CPU-only, via @huggingface/transformers, no gateway or Python service required",
+  "description": "Optional bundled cross-encoder reranker for reliquary-tc — runs fully offline, CPU-only, via @huggingface/transformers, no gateway or Python service required",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -29,7 +29,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/The-40-Thieves/obsidian-tc.git",
+    "url": "git+https://github.com/The-40-Thieves/reliquary-tc.git",
     "directory": "packages/reranker-local"
   },
   "exports": {

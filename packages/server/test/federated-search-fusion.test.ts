@@ -8,7 +8,7 @@
 //    must both survive fusion as distinct, correctly-tagged entries, never merged into one).
 //  - `runFederatedLegs`/`federatedGraphSearch` orchestration tests: synthetic `run` thunks prove
 //    bounded concurrency and per-leg error isolation without a live DB or graphSearch call.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import {
   type FederatedLeg,

@@ -13,7 +13,7 @@ import { WIKI_TEST_SEAL_KEY } from "./wiki-test-helpers";
 const KEY = WIKI_TEST_SEAL_KEY;
 const IDENTITY = { vaultId: "alpha", path: "wiki/log.md" };
 const template = (lastSeq = 7): string =>
-  `---\ngenerated_by: obsidian-tc\ngenerated_page: log\ngenerated_vault: "alpha"\ngenerated_path: "wiki/log.md"\nlast_seq: ${lastSeq}\ngenerated_hash: \n---\n# Wiki log\n`;
+  `---\ngenerated_by: reliquary-tc\ngenerated_page: log\ngenerated_vault: "alpha"\ngenerated_path: "wiki/log.md"\nlast_seq: ${lastSeq}\ngenerated_hash: \n---\n# Wiki log\n`;
 const oldSeal = (raw: string): string => {
   const blank = raw.replace(/^generated_hash: ?.*$/m, "generated_hash: ");
   const digest = createHash("sha256").update(blank, "utf8").digest("hex");

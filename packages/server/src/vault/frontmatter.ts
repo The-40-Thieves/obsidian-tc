@@ -8,7 +8,7 @@
 // guarantees that: the Document API canonicalizes leading zeros; an ALIAS block is the one
 // exception (emitViaDocument).
 import { isDeepStrictEqual } from "node:util";
-import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { err, ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import YAML, { isAlias, isMap, isNode, isScalar, type Pair, YAMLParseError } from "yaml";
 import { errorMessage } from "../util/errors";
 
@@ -64,7 +64,7 @@ export function parseNote(raw: string, path?: string): ParsedNote {
 /** parseNote's result plus the YAML failure it would have thrown. */
 export interface LenientParsedNote extends ParsedNote {
   /** The error parseNote throws for this note (null when the block parsed or there is none). */
-  yamlError: ObsidianTcError | null;
+  yamlError: ReliquaryTcError | null;
 }
 
 /** A parse that never throws on bad frontmatter YAML — the ONE place that error is built. On a
@@ -84,7 +84,7 @@ export function parseNoteLenient(raw: string, path?: string): LenientParsedNote 
       yamlError: null,
     };
   let fm: Frontmatter | null = null;
-  let yamlError: ObsidianTcError | null = null;
+  let yamlError: ReliquaryTcError | null = null;
   try {
     const parsed = YAML.parse(m[2] ?? "") as unknown;
     fm =
@@ -106,7 +106,7 @@ export function parseNoteLenient(raw: string, path?: string): LenientParsedNote 
 /** `details.line`/`column` are 1-based positions in the FILE (the opening "---" is line 1, so the
  *  block's first line is 2). The parser's own message counts from the block's first line and is
  *  left as it is — docs and reconcile output quote it. */
-function frontmatterYamlError(e: unknown, path: string | undefined): ObsidianTcError {
+function frontmatterYamlError(e: unknown, path: string | undefined): ReliquaryTcError {
   // THE-823: the parser's message already carries the line/column (its first line always ends
   // "at line N, column M:"); the note PATH goes with it, so a boot reconcile can name the file.
   const yamlErr = e instanceof YAMLParseError ? e : undefined;
@@ -130,7 +130,7 @@ function frontmatterYamlError(e: unknown, path: string | undefined): ObsidianTcE
  *  this before anything is written. */
 export function checkFrontmatterYaml(
   text: string,
-): { ok: true; frontmatter: Frontmatter } | { ok: false; error: ObsidianTcError } {
+): { ok: true; frontmatter: Frontmatter } | { ok: false; error: ReliquaryTcError } {
   const probe = parseNoteLenient(`---\n${text}\n---\n`);
   if (probe.yamlError) return { ok: false, error: probe.yamlError };
   // A "---" line inside `text` would close the block early and leave the rest as body.
@@ -144,9 +144,9 @@ export function checkFrontmatterYaml(
   return { ok: true, frontmatter: probe.frontmatter ?? {} };
 }
 
-export function isFrontmatterYamlError(e: unknown): e is ObsidianTcError {
+export function isFrontmatterYamlError(e: unknown): e is ReliquaryTcError {
   return (
-    e instanceof ObsidianTcError &&
+    e instanceof ReliquaryTcError &&
     e.code === "invalid_input" &&
     e.details?.reason === "frontmatter_yaml"
   );

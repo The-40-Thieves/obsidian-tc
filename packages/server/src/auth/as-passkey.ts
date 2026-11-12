@@ -29,7 +29,7 @@ export interface RelyingParty {
 
 export function relyingPartyOf(issuer: string): RelyingParty {
   const url = new URL(issuer);
-  return { rpID: url.hostname, origin: url.origin, name: "obsidian-tc" };
+  return { rpID: url.hostname, origin: url.origin, name: "reliquary-tc" };
 }
 
 export type PasskeyRefusal =

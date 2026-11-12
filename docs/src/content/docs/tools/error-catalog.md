@@ -1,12 +1,12 @@
 ---
 title: Error Catalog
-description: Every canonical error code obsidian-tc can return, generated from the shared error factory so it cannot drift from the running server.
+description: Every canonical error code reliquary-tc can return, generated from the shared error factory so it cannot drift from the running server.
 sidebar:
   order: 4
 ---
 
 The complete error vocabulary, generated from the `err` factory map in
-`@the-40-thieves/obsidian-tc-shared` so it never drifts from the running server. See the
+`@the-40-thieves/reliquary-tc-shared` so it never drifts from the running server. See the
 [API Reference](/tools/api-reference/) for the response envelope these codes travel in, and the
 [Tool Catalog](/tools/tool-catalog/) for the surface that raises them.
 

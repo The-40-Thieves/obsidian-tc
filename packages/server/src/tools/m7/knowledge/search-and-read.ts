@@ -25,7 +25,7 @@
 // PAGES. The search runs once per walk. Its selection is kept (bounded, TTL = the cursor's) so a
 // later page reads the SAME items in the SAME order and re-checks ACL on each; a page that finds
 // no kept selection (expired, evicted, restart) searches again.
-import { ObsidianTcError, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { Database } from "../../../db/types";
 import { argsHash } from "../../../hash";
@@ -346,7 +346,7 @@ export function createSearchAndReadTool(
             const cut = cutToCap(note, cap);
             return { kind: "note", note: concise ? conciseNote(cut) : cut };
           } catch (e) {
-            const code = e instanceof ObsidianTcError ? e.code : "internal_error";
+            const code = e instanceof ReliquaryTcError ? e.code : "internal_error";
             // Denied and missing are one answer: neither names the path.
             if (DENIAL_CODES.has(code) || code === "note_not_found")
               return missing(
@@ -358,7 +358,7 @@ export function createSearchAndReadTool(
             return missing(
               item,
               code,
-              e instanceof ObsidianTcError ? e.message : "could not read note",
+              e instanceof ReliquaryTcError ? e.message : "could not read note",
             );
           }
         },

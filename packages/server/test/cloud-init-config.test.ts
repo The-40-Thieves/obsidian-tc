@@ -35,16 +35,16 @@ describe("deploy/cloud-init.yaml", () => {
   });
 
   it("writes the shared HTTP config byte-for-byte", () => {
-    expect(file("/deploy/config/obsidian-tc.config.json").content).toBe(
-      read("deploy/config/obsidian-tc.config.json"),
+    expect(file("/deploy/config/reliquary-tc.config.json").content).toBe(
+      read("deploy/config/reliquary-tc.config.json"),
     );
   });
 
   it("writes .env root-only and without a secret: the secret is generated on the server", () => {
     const env = file("/deploy/.env");
     expect(env.permissions).toBe("0600");
-    expect(env.content).toContain("OBSIDIAN_TC_PUBLIC_URL=");
-    expect(env.content).not.toContain("OBSIDIAN_TC_JWT_SECRET");
+    expect(env.content).toContain("RELIQUARY_TC_PUBLIC_URL=");
+    expect(env.content).not.toContain("RELIQUARY_TC_JWT_SECRET");
     expect(env.content, "PORT is fixed at 8765 in the Caddyfile and the loopback bind").not.toMatch(
       /^PORT=/m,
     );
@@ -57,25 +57,25 @@ describe("deploy/cloud-init.yaml", () => {
   });
 
   it("generates the secret in an executable bootstrap script and never prints it", () => {
-    const script = file("/opt/obsidian-tc/bootstrap.sh");
+    const script = file("/opt/reliquary-tc/bootstrap.sh");
     expect(script.permissions).toBe("0755");
     expect(script.content.startsWith("#!/bin/sh\n")).toBe(true);
     expect(script.content).toContain("openssl rand -hex 32");
     expect(script.content).toContain("reverse_proxy 127.0.0.1:8765");
     expect(script.content).toContain("-f compose.http.yml -f compose.vps.yml up -d");
     for (const line of script.content.split("\n")) {
-      if (!line.includes("OBSIDIAN_TC_JWT_SECRET")) continue;
+      if (!line.includes("RELIQUARY_TC_JWT_SECRET")) continue;
       expect(line.includes(">> .env") || line.includes("grep -q"), line).toBe(true);
     }
   });
 
   it("refuses an IP address as the public URL, because Caddy cannot get a public certificate for one", () => {
-    const script = file("/opt/obsidian-tc/bootstrap.sh").content;
+    const script = file("/opt/reliquary-tc/bootstrap.sh").content;
     expect(script).toContain("needs a domain name, not an IP address");
   });
 
   it("never turns on shell tracing, which would log the expanded secret line", () => {
-    const script = file("/opt/obsidian-tc/bootstrap.sh").content;
+    const script = file("/opt/reliquary-tc/bootstrap.sh").content;
     expect(script).not.toMatch(/^\s*set -[a-zA-Z]*x/m);
     expect(script).not.toMatch(/xtrace|\b(ba)?sh -x\b/);
   });
@@ -91,6 +91,6 @@ describe("deploy/cloud-init.yaml", () => {
   });
 
   it("runs the bootstrap script from runcmd", () => {
-    expect(doc.runcmd).toEqual([["/opt/obsidian-tc/bootstrap.sh"]]);
+    expect(doc.runcmd).toEqual([["/opt/reliquary-tc/bootstrap.sh"]]);
   });
 });

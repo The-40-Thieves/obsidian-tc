@@ -7,7 +7,7 @@
 // uses (cancelOwnedTask), and answers with the task projected through the SAME function
 // get_task_status uses. Ownership is inherited from the helper, not re-implemented: a missing id,
 // another caller's id and internal maintenance work all answer "unknown task".
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { isIdentifiedCaller } from "../../mcp/registry/identified-caller";

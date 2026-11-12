@@ -30,17 +30,17 @@ const asResult = (payload: unknown, isError = false) => ({
 describe("parseBanner", () => {
   it("reads the real boot line, with and without the native addon", () => {
     expect(
-      parseBanner("obsidian-tc 1.32.0 ready on stdio (vault main; native=on vec=on)\n"),
+      parseBanner("reliquary-tc 1.32.0 ready on stdio (vault main; native=on vec=on)\n"),
     ).toEqual({ version: "1.32.0", vault: "main", native: "on", vec: "on" });
     expect(
       parseBanner(
-        "noise\nobsidian-tc 1.32.0 ready on stdio (vault main; native=js-fallback vec=off)",
+        "noise\nreliquary-tc 1.32.0 ready on stdio (vault main; native=js-fallback vec=off)",
       ),
     ).toEqual({ version: "1.32.0", vault: "main", native: "js-fallback", vec: "off" });
   });
   it("returns null when the server never reached stdio-ready", () => {
     expect(parseBanner("Error: Cannot find module 'sqlite-vec'")).toBeNull();
-    expect(parseBanner("obsidian-tc 1.32.0 ready (http-only; stdio disabled)")).toBeNull();
+    expect(parseBanner("reliquary-tc 1.32.0 ready (http-only; stdio disabled)")).toBeNull();
   });
 });
 
@@ -72,7 +72,7 @@ describe("the real MCPB manifest", () => {
       "/ext/packages/server/dist/cli.js",
       "/my/vault",
     ]);
-    expect(expandMcpbVars(cfg.env.OBSIDIAN_TC_DEFAULT_VAULT ?? "", vars)).toBe("");
+    expect(expandMcpbVars(cfg.env.RELIQUARY_TC_DEFAULT_VAULT ?? "", vars)).toBe("");
   });
 
   it("declares a node floor in the only form the harness can compare", () => {
@@ -267,7 +267,7 @@ describe("first-run-smoke.ts against the stub server (watched red AND green)", (
 });
 
 describe("skippedEmbedderPackages: npm skipped the optional embedder", () => {
-  const EMBEDDER = "@the-40-thieves/obsidian-tc-embedder-local";
+  const EMBEDDER = "@the-40-thieves/reliquary-tc-embedder-local";
   const RUNTIME = `${EMBEDDER}-linux-x64`;
   const RUNTIME_PLATFORMS = {
     "linux-x64": { backend: "native" },
@@ -356,7 +356,7 @@ describe("skippedEmbedderPackages: npm skipped the optional embedder", () => {
     ).toEqual([]);
   });
 
-  it("keeps passing when obsidian-tc declares no embedder at all", () => {
+  it("keeps passing when reliquary-tc declares no embedder at all", () => {
     expect(
       skippedEmbedderPackages({
         declared: [],
@@ -370,7 +370,7 @@ describe("skippedEmbedderPackages: npm skipped the optional embedder", () => {
   });
 });
 
-// npm stand-in: installs obsidian-tc. It declares the embedder as an optional dependency only when
+// npm stand-in: installs reliquary-tc. It declares the embedder as an optional dependency only when
 // FAKE_NPM_OBSIDIAN_DECLARES is 1 (the 1.33.1 shape); the next release does not, and the embedder then
 // arrives only from the explicit --npm-extra spec. It installs
 // the embedder only when the test asks (FAKE_NPM_EMBEDDER), and the embedder's package.json declares
@@ -381,21 +381,21 @@ const { chmodSync, mkdirSync, writeFileSync } = require("node:fs");
 const { join } = require("node:path");
 if (process.argv[2] !== "install") process.exit(0);
 const prefix = process.argv[process.argv.indexOf("--prefix") + 1];
-const EMBEDDER = "@the-40-thieves/obsidian-tc-embedder-local";
+const EMBEDDER = "@the-40-thieves/reliquary-tc-embedder-local";
 const nm = join(prefix, "node_modules");
-const pkg = join(nm, "obsidian-tc");
+const pkg = join(nm, "reliquary-tc");
 mkdirSync(pkg, { recursive: true });
 writeFileSync(
   join(pkg, "package.json"),
   JSON.stringify({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "1.33.1",
     ...(process.env.FAKE_NPM_OBSIDIAN_DECLARES === "1" ? { optionalDependencies: { [EMBEDDER]: "1.33.1" } } : {}),
   }),
 );
 const bin = join(nm, ".bin");
 mkdirSync(bin, { recursive: true });
-for (const name of ["obsidian-tc", "obsidian-tc.cmd"]) {
+for (const name of ["reliquary-tc", "reliquary-tc.cmd"]) {
   writeFileSync(join(bin, name), "#!/bin/sh\\nexit 1\\n");
   chmodSync(join(bin, name), 0o755);
 }
@@ -476,7 +476,7 @@ describe.skipIf(!NATIVE_HOST || process.platform === "win32")(
         "npm did not install the embedder packages semantic search needs",
       );
       expect(prepare(report)?.detail).toMatch(
-        /: @the-40-thieves\/obsidian-tc-embedder-local not installed$/,
+        /: @the-40-thieves\/reliquary-tc-embedder-local not installed$/,
       );
       expect(report.firstFailure).toMatch(/^prepare: /);
       const reconcile = report.stages.find((s: { stage: string }) => s.stage === "reconcile");
@@ -524,7 +524,7 @@ describe.skipIf(!NATIVE_HOST || process.platform === "win32")(
       expect(r.code, r.stderr).toBe(1);
       expect(prepare(report)).toMatchObject({ status: "fail" });
       expect(prepare(report)?.detail).toMatch(
-        /: @the-40-thieves\/obsidian-tc-embedder-local not installed$/,
+        /: @the-40-thieves\/reliquary-tc-embedder-local not installed$/,
       );
     });
 

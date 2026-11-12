@@ -7,7 +7,7 @@
 // (document.ts's `.strict()` schema has no field that could hold it, enforced by
 // test/telemetry-document.test.ts), so there is no sourcePaths question to ask; wrapping this
 // call in that guard would be security theatre over a request the guard was never designed to
-// examine. Investigated: obsidian-tc has no generic "every outbound HTTP call needs an
+// examine. Investigated: reliquary-tc has no generic "every outbound HTTP call needs an
 // allowlisted host" wrapper beyond that content-egress guard (see egress-filter.ts/egress-guard.ts
 // — both are exclusively about vault-relative sourcePaths). Telemetry's own safety net is
 // therefore config-time: TelemetryConfigSchema refuses `enabled` without `endpoint`, and refuses a

@@ -34,7 +34,7 @@ describe("THE-590 index_vault (MCP path) feeds ingest telemetry", () => {
     const text = await metrics.metrics();
     expect(text).toMatch(
       new RegExp(
-        `obsidian_tc_ingest_dedup_skipped_total\\{vault="${v.id}"\\} ${d.chunks_dedup_reused}`,
+        `reliquary_tc_ingest_dedup_skipped_total\\{vault="${v.id}"\\} ${d.chunks_dedup_reused}`,
       ),
     );
 

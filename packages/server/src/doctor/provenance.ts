@@ -1,5 +1,5 @@
 // provenance.chain (doctor) — is the signed write-provenance chain in cache.db intact? Offline and
-// read-only; the view is built by `inspectProvenance`, the same verification `obsidian-tc provenance
+// read-only; the view is built by `inspectProvenance`, the same verification `reliquary-tc provenance
 // verify` runs.
 //
 // FAIL on any sign the evidence was altered (a changed record, a removed record, a removed last
@@ -51,7 +51,7 @@ export function provenanceCheck(view: ProvenanceView): Check {
           summary: "write provenance: the chain could not be read, so it is unverified",
           details,
           issues: [view.unreadable],
-          remediation: "Run `obsidian-tc provenance verify` to see the same error directly.",
+          remediation: "Run `reliquary-tc provenance verify` to see the same error directly.",
         };
       }
       if (view.registryState === "lost" && records > 0) {
@@ -79,7 +79,7 @@ export function provenanceCheck(view: ProvenanceView): Check {
           details,
           issues: tampered.slice(0, MAX_ISSUES),
           remediation:
-            "Run `obsidian-tc provenance verify` for the full list. A failed chain means records were changed, removed or forged after they were written: treat cache.db as untrusted for attribution.",
+            "Run `reliquary-tc provenance verify` for the full list. A failed chain means records were changed, removed or forged after they were written: treat cache.db as untrusted for attribution.",
         };
       }
       // Recording is fail-open, so an omitted record is otherwise indistinguishable from "no write
@@ -91,7 +91,7 @@ export function provenanceCheck(view: ProvenanceView): Check {
           summary: `write provenance: ${omitted} committed write${omitted === 1 ? "" : "s"} left no record (a recording fault); the chain verifies but is incomplete`,
           details,
           remediation:
-            "Find the cause in the server log (`[provenance] ...`) and the obsidian_tc_provenance_faults_total counter. The events age out with event_log retention.",
+            "Find the cause in the server log (`[provenance] ...`) and the reliquary_tc_provenance_faults_total counter. The events age out with event_log retention.",
         };
       }
       const unsigned = view.vaults.reduce((n, v) => n + v.unsigned, 0);
@@ -101,7 +101,7 @@ export function provenanceCheck(view: ProvenanceView): Check {
           summary: `write provenance: ${unsigned} of ${records} records are unsigned, so the chain alone cannot prove they were not rewritten`,
           details,
           remediation:
-            "Create an EdDSA signing key with `obsidian-tc auth rotate-key --alg EdDSA` on a jwt/oidc HTTP server. Records written from then on are signed; `provenance verify --allow-unsigned` accepts the earlier ones.",
+            "Create an EdDSA signing key with `reliquary-tc auth rotate-key --alg EdDSA` on a jwt/oidc HTTP server. Records written from then on are signed; `provenance verify --allow-unsigned` accepts the earlier ones.",
         };
       }
       const notes: string[] = [];

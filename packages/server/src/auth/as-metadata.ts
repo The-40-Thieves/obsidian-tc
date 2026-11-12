@@ -8,7 +8,7 @@
 // method; ChatGPT needs `code_challenge_methods_supported: ["S256"]` and RFC 9207 `iss`
 // (`authorization_response_iss_parameter_supported`), and stops sending a `private_key_jwt`
 // assertion on every exchange when that method is simply not advertised.
-import type { PersonasConfig, ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { PersonasConfig, ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { Context, Hono } from "hono";
 import type { Database } from "../db/types";
 import type { CimdSeams } from "./as-cimd";

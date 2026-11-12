@@ -24,7 +24,7 @@ import type { MetricSample } from "../report";
  */
 export async function collectHttp(vault: VaultCtx): Promise<MetricSample[]> {
   const { app } = createHttpApp({
-    name: "obsidian-tc-perf",
+    name: "reliquary-tc-perf",
     version: "0.0.0-perf",
     registry: new ToolRegistry({ rootResolver: () => undefined }),
     // auth "none" is safe here precisely because nothing is ever bound: the config schema's
@@ -123,7 +123,7 @@ async function fireConcurrentHandshakes(
 
 export async function collectHttpConcurrency(vault: VaultCtx): Promise<MetricSample[]> {
   const { app } = createHttpApp({
-    name: "obsidian-tc-perf",
+    name: "reliquary-tc-perf",
     version: "0.0.0-perf",
     registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth: { mode: "none" } as Parameters<typeof createHttpApp>[0]["auth"],

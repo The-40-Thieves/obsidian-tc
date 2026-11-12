@@ -12,13 +12,13 @@ import { parse } from "yaml";
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const homeRoot = join(repoRoot, "deploy/homeserver");
 const composePath = join(repoRoot, "deploy/compose.http.yml");
-const sharedConfigPath = join(repoRoot, "deploy/config/obsidian-tc.config.json");
+const sharedConfigPath = join(repoRoot, "deploy/config/reliquary-tc.config.json");
 const umbrelStorePath = join(homeRoot, "umbrel/umbrel-app-store.yml");
-const umbrelAppDir = join(homeRoot, "umbrel/thieves-obsidian-tc");
+const umbrelAppDir = join(homeRoot, "umbrel/thieves-reliquary-tc");
 const casaosPath = join(homeRoot, "casaos/docker-compose.yml");
-const unraidPath = join(homeRoot, "unraid/obsidian-tc.xml");
-const serviceName = "obsidian-tc";
-const configTarget = "/config/obsidian-tc.config.json";
+const unraidPath = join(homeRoot, "unraid/reliquary-tc.xml");
+const serviceName = "reliquary-tc";
+const configTarget = "/config/reliquary-tc.config.json";
 const port = 8765;
 // An exact `host` or `host:port` entry, or a compose variable that expands to one. No `*`, scheme or path.
 const hostEntry = /^(\$\{\w+\}|[a-z0-9.-]+)(:\d{1,5})?$/i;
@@ -163,8 +163,8 @@ describe("deploy/homeserver templates", () => {
   });
 
   it("reads the real base image, config env and port from compose.http.yml", () => {
-    expect(base.image).toBe("ghcr.io/the-40-thieves/obsidian-tc:latest");
-    expect(base.env.OBSIDIAN_TC_CONFIG).toBe(configTarget);
+    expect(base.image).toBe("ghcr.io/the-40-thieves/reliquary-tc:latest");
+    expect(base.env.RELIQUARY_TC_CONFIG).toBe(configTarget);
     expect(base.env.PORT).toBe(`\${PORT:-8765}`);
   });
 
@@ -186,17 +186,17 @@ describe("deploy/homeserver templates", () => {
     "$name: sets the config, cache and port env like compose.http.yml",
     ({ load }) => {
       const { env } = load();
-      expect(env.OBSIDIAN_TC_CONFIG).toBe(configTarget);
-      expect(env.OBSIDIAN_TC_CACHE_DIR).toBe("/data/cache");
+      expect(env.RELIQUARY_TC_CONFIG).toBe(configTarget);
+      expect(env.RELIQUARY_TC_CACHE_DIR).toBe("/data/cache");
       expect(env.PORT).toBe(String(port));
     },
   );
 
   it.each([...templates, { name: "unraid", load: loadUnraid }])(
-    "$name: mounts the vault folder read-write at OBSIDIAN_TC_VAULT_PATH, not inside /data",
+    "$name: mounts the vault folder read-write at RELIQUARY_TC_VAULT_PATH, not inside /data",
     ({ load }) => {
       const home = load();
-      const vault = home.env.OBSIDIAN_TC_VAULT_PATH;
+      const vault = home.env.RELIQUARY_TC_VAULT_PATH;
       expect(vault).toBe("/vault");
       expect(home.mounts[vault ?? ""]).toEqual({ readOnly: false });
     },
@@ -212,21 +212,21 @@ describe("deploy/homeserver templates", () => {
   it.each([...templates, { name: "unraid", load: loadUnraid }])(
     "$name: sets no public URL, so the LAN default never asks for https",
     ({ load }) => {
-      expect(load().env).not.toHaveProperty("OBSIDIAN_TC_PUBLIC_URL");
+      expect(load().env).not.toHaveProperty("RELIQUARY_TC_PUBLIC_URL");
     },
   );
 
   it.each([...templates, { name: "unraid", load: loadUnraid }])(
     "$name: never sets a literal JWT secret; the value is empty or a platform reference",
     ({ load }) => {
-      expect(load().env.OBSIDIAN_TC_JWT_SECRET).toMatch(/^(|\$\{\w+\})$/);
+      expect(load().env.RELIQUARY_TC_JWT_SECRET).toMatch(/^(|\$\{\w+\})$/);
     },
   );
 
   it.each([...templates, { name: "unraid", load: loadUnraid }])(
-    "$name: sets OBSIDIAN_TC_ALLOWED_HOSTS as exact host:port entries, never a wildcard",
+    "$name: sets RELIQUARY_TC_ALLOWED_HOSTS as exact host:port entries, never a wildcard",
     ({ load }) => {
-      const entries = (load().env.OBSIDIAN_TC_ALLOWED_HOSTS ?? "").split(",");
+      const entries = (load().env.RELIQUARY_TC_ALLOWED_HOSTS ?? "").split(",");
       expect(entries.length).toBeGreaterThan(0);
       for (const entry of entries) {
         expect(entry).not.toBe("*");
@@ -236,9 +236,9 @@ describe("deploy/homeserver templates", () => {
   );
 
   it.each([...templates, { name: "unraid", load: loadUnraid }])(
-    "$name: sets OBSIDIAN_TC_AUDIENCE, which a non-loopback jwt server needs without a public URL",
+    "$name: sets RELIQUARY_TC_AUDIENCE, which a non-loopback jwt server needs without a public URL",
     ({ load }) => {
-      expect(load().env.OBSIDIAN_TC_AUDIENCE).toMatch(/^http:\/\/[^/\s]+$/);
+      expect(load().env.RELIQUARY_TC_AUDIENCE).toMatch(/^http:\/\/[^/\s]+$/);
     },
   );
 
@@ -276,7 +276,7 @@ describe("CasaOS template", () => {
       name?: string;
       "x-casaos"?: { id?: string; main?: string; port_map?: string; category?: string };
     };
-    expect(doc.name).toBe("obsidian-tc");
+    expect(doc.name).toBe("reliquary-tc");
     expect(doc["x-casaos"]?.main).toBe(serviceName);
     expect(doc["x-casaos"]?.port_map).toBe(String(port));
     expect(doc["x-casaos"]?.id).toMatch(/^[a-z0-9]+(\.[a-z0-9_-]+)+$/);
@@ -285,7 +285,7 @@ describe("CasaOS template", () => {
 
   it("leaves the JWT secret empty, so the install asks for it and never ships a default", () => {
     const { env } = loadCasaos();
-    expect(env.OBSIDIAN_TC_JWT_SECRET).toBe("");
+    expect(env.RELIQUARY_TC_JWT_SECRET).toBe("");
   });
 });
 
@@ -294,7 +294,7 @@ describe("Umbrel template", () => {
     const store = parse(readText(umbrelStorePath)) as { id: string; name: string };
     const manifest = parse(readText(join(umbrelAppDir, "umbrel-app.yml"))) as { id: string };
     expect(store.id).toMatch(/^[a-z-]+$/);
-    expect(manifest.id).toBe("thieves-obsidian-tc");
+    expect(manifest.id).toBe("thieves-reliquary-tc");
     expect(manifest.id.startsWith(`${store.id}-`)).toBe(true);
     expect(manifest.id).toBe(basename(umbrelAppDir));
   });
@@ -328,10 +328,10 @@ describe("Umbrel template", () => {
   it("derives the JWT secret per install in exports.sh and passes it through the compose reference", () => {
     const exportsSh = readText(join(umbrelAppDir, "exports.sh"));
     expect(exportsSh).toMatch(
-      /^export APP_THIEVES_OBSIDIAN_TC_JWT_SECRET="\$\(derive_entropy "\$\{app_entropy_identifier\}-jwt-secret"\)"$/m,
+      /^export APP_THIEVES_RELIQUARY_TC_JWT_SECRET="\$\(derive_entropy "\$\{app_entropy_identifier\}-jwt-secret"\)"$/m,
     );
     const { env } = loadUmbrel();
-    expect(env.OBSIDIAN_TC_JWT_SECRET).toBe(`\${APP_THIEVES_OBSIDIAN_TC_JWT_SECRET}`);
+    expect(env.RELIQUARY_TC_JWT_SECRET).toBe(`\${APP_THIEVES_RELIQUARY_TC_JWT_SECRET}`);
   });
 });
 
@@ -342,13 +342,13 @@ describe("Unraid template", () => {
     const text = xml();
     expect(text).toMatch(/^<\?xml version="1\.0"\?>\s*<Container version="2">/);
     expect(text.trimEnd()).toMatch(/<\/Container>$/);
-    expect(xmlTag(text, "Repository")).toBe("ghcr.io/the-40-thieves/obsidian-tc:latest");
+    expect(xmlTag(text, "Repository")).toBe("ghcr.io/the-40-thieves/reliquary-tc:latest");
     expect(xmlTag(text, "Network")).toBe("bridge");
     expect(xmlTag(text, "Privileged")).toBe("false");
   });
 
   it("masks the JWT secret, makes it required, and leaves its default empty", () => {
-    const secret = xmlConfigs(xml()).find((c) => c.Target === "OBSIDIAN_TC_JWT_SECRET");
+    const secret = xmlConfigs(xml()).find((c) => c.Target === "RELIQUARY_TC_JWT_SECRET");
     expect(secret).toMatchObject({ Type: "Variable", Default: "", Required: "true", Mask: "true" });
   });
 
@@ -360,7 +360,7 @@ describe("Unraid template", () => {
   it("mounts /config read-only and names the config file the user must place there", () => {
     const config = xmlConfigs(xml()).find((c) => c.Target === "/config");
     expect(config).toMatchObject({ Type: "Path", Mode: "ro" });
-    expect(xmlTag(xml(), "Overview")).toContain("obsidian-tc.config.json");
+    expect(xmlTag(xml(), "Overview")).toContain("reliquary-tc.config.json");
   });
 
   it("publishes port 8765 and sets no WebUI or extra Docker healthcheck", () => {

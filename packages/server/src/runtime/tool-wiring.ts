@@ -11,7 +11,7 @@ import type {
   ServerConfig,
   VaultMemoryDefenseConfig,
   VaultReflectConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import type { CapabilityCache } from "../bridge";
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";
@@ -226,11 +226,11 @@ export interface GatewaySeams {
 
 /**
  * THE-233 integration — the optional inference gateway (W-GATEWAY-CLIENT). Unconfigured (no
- * OBSIDIAN_TC_GATEWAY_URL, no gatewayCfg.baseUrl) -> null; every generative seam degrades
+ * RELIQUARY_TC_GATEWAY_URL, no gatewayCfg.baseUrl) -> null; every generative seam degrades
  * gracefully rather than failing boot (createGatewayClient throws without a base URL, so guarded
  * with try).
  *
- * THE-832: gatewayCfg.baseUrl/token, when set, win over OBSIDIAN_TC_GATEWAY_URL/_TOKEN —
+ * THE-832: gatewayCfg.baseUrl/token, when set, win over RELIQUARY_TC_GATEWAY_URL/_TOKEN —
  * createGatewayClient already implements that precedence (resolveGatewayUrl prefers opts.baseUrl;
  * opts.token ?? the env var), so passing them through is additive and a no-op when gatewayCfg is
  * absent.
@@ -300,7 +300,7 @@ export async function wireGatewaySeams(
     !rerankerCfg &&
     autoSelectLocalRerankerApplies(undefined, embeddings, {
       gatewayBaseUrl: gatewayCfg?.baseUrl,
-      gatewayUrlEnv: process.env.OBSIDIAN_TC_GATEWAY_URL,
+      gatewayUrlEnv: process.env.RELIQUARY_TC_GATEWAY_URL,
       platformOverride,
     });
   // THE-944 review round 2 (G3): log the remedy specifically when CONFIG ALONE would have
@@ -315,7 +315,7 @@ export async function wireGatewaySeams(
     !autoSelectLocal &&
     autoSelectLocalRerankerConfigAllows(undefined, embeddings, {
       gatewayBaseUrl: gatewayCfg?.baseUrl,
-      gatewayUrlEnv: process.env.OBSIDIAN_TC_GATEWAY_URL,
+      gatewayUrlEnv: process.env.RELIQUARY_TC_GATEWAY_URL,
     })
   ) {
     const platform = onnxNativePrebuildStatus(platformOverride);
@@ -518,7 +518,7 @@ export interface DomainToolsDeps {
   memoryDefenseByVault: Map<string, VaultMemoryDefenseConfig>;
   /** Per-vault reflect style defaults (citationStyle / detail), only for a vault that set them. */
   reflectDefaultsByVault: Map<string, VaultReflectConfig>;
-  /** GH #994: threaded to M5/M8 so their handlers can tag obsidian_tc_memory_defense_hits_total. */
+  /** GH #994: threaded to M5/M8 so their handlers can tag reliquary_tc_memory_defense_hits_total. */
   metrics?: MetricsRecorder;
   rateLimiter: RateLimiter;
   version: string;

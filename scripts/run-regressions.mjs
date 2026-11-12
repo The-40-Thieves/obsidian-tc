@@ -106,7 +106,7 @@ export function runProcess(suite, { signal, timeoutMs = 3_600_000 } = {}) {
   const env = { ...process.env };
   // Live companion tests require a separately selected scratch Obsidian instance.
   // This runner never inherits an opt-in that might target a user's active vault.
-  delete env.OBSIDIAN_TC_LIVE;
+  delete env.RELIQUARY_TC_LIVE;
   return new Promise((accept) => {
     let stopReason;
     const child = spawn(command, args, {

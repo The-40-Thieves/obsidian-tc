@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from obsidian_tc_docs_ingest.contracts import DocChunk, SourceRef
-from obsidian_tc_docs_ingest.pipeline import ingest
-from obsidian_tc_docs_ingest.writer import render_markdown, write_chunk
+from reliquary_tc_docs_ingest.contracts import DocChunk, SourceRef
+from reliquary_tc_docs_ingest.pipeline import ingest
+from reliquary_tc_docs_ingest.writer import render_markdown, write_chunk
 
 
 def test_render_markdown_frontmatter() -> None:

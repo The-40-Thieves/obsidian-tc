@@ -5,7 +5,7 @@
 import type { Check, CheckStatus } from "./types";
 
 export interface WikiJudgeView {
-  /** A gateway URL is configured (config or OBSIDIAN_TC_GATEWAY_URL): the judge role exists. */
+  /** A gateway URL is configured (config or RELIQUARY_TC_GATEWAY_URL): the judge role exists. */
   gatewayConfigured: boolean;
   /** `wikiJudge.provider`; absent reads as "gateway". */
   provider?: "gateway" | "typesafe";
@@ -69,7 +69,7 @@ export function wikiJudgeCheck(view: WikiJudgeView): Check {
           notes:
             view.enabled || lintEnabled
               ? [
-                  "The wiki judge is switched on but needs a gateway (gateway.baseUrl or OBSIDIAN_TC_GATEWAY_URL) or wikiJudge.provider typesafe.",
+                  "The wiki judge is switched on but needs a gateway (gateway.baseUrl or RELIQUARY_TC_GATEWAY_URL) or wikiJudge.provider typesafe.",
                 ]
               : [],
         };

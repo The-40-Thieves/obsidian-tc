@@ -4,7 +4,12 @@
 // (`"unsupported"`, for a client with literally no MCP mechanism at all: Aider). Every type here is
 // pure/data-only; client-install.ts and client-install-editors.ts both import from here so neither
 // imports the other's registry module, keeping `check:boundaries` cycle-free.
+import { CURRENT_NAMES, LEGACY_NAMES } from "@the-40-thieves/reliquary-tc-shared";
 import { CliError } from "../cli-error";
+
+/** The MCP server key setup writes, and the key a pre-2.0 setup wrote (treated as the same entry). */
+export const SERVER_KEY = CURRENT_NAMES.bin;
+export const LEGACY_SERVER_KEY = LEGACY_NAMES.bin;
 
 /** `"cli"` for a client with its own `<binary> mcp add ...` command; `"json-merge"` for a
  *  `{ <serversKey>: { <name>: entry } }` file where comments are never a concern (Claude
@@ -57,7 +62,7 @@ export interface JsonMergeClientSpec extends ClientRegistryBase {
    *  `existsSync` in the I/O layer (cli/commands/setup-install-client.ts), same as every other
    *  filesystem read that layer already does un-injected. */
   legacyConfigPath?: (home: string) => string;
-  /** The entry written under `serversKey["obsidian-tc"]` — defaults to `obsidianTcServerEntry`
+  /** The entry written under `serversKey["reliquary-tc"]` — defaults to `reliquaryTcServerEntry`
    *  (the plain `{command,args}` shape) when omitted. */
   buildEntry?: (configPath: string) => Record<string, unknown>;
 }
@@ -138,31 +143,31 @@ export function formatCliInstallLine(
   return shellQuoteArgs([binary, ...args], platform);
 }
 
-/** The `obsidian-tc` MCP server entry the plain `{command,args}`-shaped clients share (Claude
+/** The `reliquary-tc` MCP server entry the plain `{command,args}`-shaped clients share (Claude
  *  Desktop, Cursor, Windsurf/Devin Desktop) — ONE shape defined once. A `jsonc-merge` client with a
  *  differently-shaped entry (opencode, Zed) supplies its own `buildEntry` instead of this. */
-export function obsidianTcServerEntry(configPath: string): { command: string; args: string[] } {
-  return { command: "obsidian-tc", args: ["--config", configPath] };
+export function reliquaryTcServerEntry(configPath: string): { command: string; args: string[] } {
+  return { command: "reliquary-tc", args: ["--config", configPath] };
 }
 
 export interface McpClientMergeResult {
-  /** True when an `obsidian-tc` entry was ALREADY present and `force` was not set — `merged` is
+  /** True when a `reliquary-tc` entry was ALREADY present and `force` was not set — `merged` is
    *  then just `existingRaw` unchanged (or `{}` if there was no existing file at all — impossible
    *  in practice since `alreadyExists` requires a prior entry, kept only for the type's honesty). */
   alreadyExists: boolean;
   merged: Record<string, unknown>;
 }
 
-/** Merge the obsidian-tc entry into an existing (or absent) JSON config file's raw object — pure,
+/** Merge the reliquary-tc entry into an existing (or absent) JSON config file's raw object — pure,
  *  so "refuse a duplicate unless `force`" and "every other server survives untouched" are
  *  unit-testable without touching a filesystem. Shared by every `"json-merge"` registry entry;
- *  `serversKey` defaults to `"mcpServers"` and `buildEntry` defaults to `obsidianTcServerEntry`. */
+ *  `serversKey` defaults to `"mcpServers"` and `buildEntry` defaults to `reliquaryTcServerEntry`. */
 export function mergeMcpServersEntry(
   existingRaw: Record<string, unknown> | undefined,
   configPath: string,
   opts: { force?: boolean } = {},
   serversKey = "mcpServers",
-  buildEntry: (configPath: string) => Record<string, unknown> = obsidianTcServerEntry,
+  buildEntry: (configPath: string) => Record<string, unknown> = reliquaryTcServerEntry,
 ): McpClientMergeResult {
   const base: Record<string, unknown> = existingRaw ? { ...existingRaw } : {};
   // Warp (PR C follow-up): `serversKey === ""` means the top-level object itself is the servers
@@ -170,16 +175,17 @@ export function mergeMcpServersEntry(
   // rather than folding a "root" case into every check below (each of which is written in terms of
   // `base[serversKey]`, meaningless for `serversKey === ""`).
   if (serversKey === "") {
-    const alreadyExists = "obsidian-tc" in base;
+    const alreadyExists = SERVER_KEY in base || LEGACY_SERVER_KEY in base;
     if (alreadyExists && !opts.force) {
       return { alreadyExists: true, merged: base };
     }
-    base["obsidian-tc"] = buildEntry(configPath);
+    delete base[LEGACY_SERVER_KEY];
+    base[SERVER_KEY] = buildEntry(configPath);
     return { alreadyExists: false, merged: base };
   }
   // Finding 5 (fix round, cross-vendor review): a `serversKey` that IS present but is not a plain
   // object (an array, a string, ...) used to fall through the same `? existingServers : {}`
-  // ternary as "absent" and get silently REPLACED with `{ "obsidian-tc": ... }` — every server that
+  // ternary as "absent" and get silently REPLACED with `{ "reliquary-tc": ... }` — every server that
   // client config actually had (in whatever shape it was in) was then gone, with no error and no
   // trace beyond a diff of the file. That is a different failure than "no `serversKey` key at all"
   // (which really is safe to create from scratch) and must be refused, not repaired.
@@ -201,10 +207,11 @@ export function mergeMcpServersEntry(
     !Array.isArray(base[serversKey])
       ? (base[serversKey] as Record<string, unknown>)
       : {};
-  const alreadyExists = "obsidian-tc" in existingServers;
+  const alreadyExists = SERVER_KEY in existingServers || LEGACY_SERVER_KEY in existingServers;
   if (alreadyExists && !opts.force) {
     return { alreadyExists: true, merged: base };
   }
-  base[serversKey] = { ...existingServers, "obsidian-tc": buildEntry(configPath) };
+  const { [LEGACY_SERVER_KEY]: _replaced, ...kept } = existingServers;
+  base[serversKey] = { ...kept, [SERVER_KEY]: buildEntry(configPath) };
   return { alreadyExists: false, merged: base };
 }

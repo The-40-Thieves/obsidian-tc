@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 // validates the musl-detection decision logic on any host — it fakes process.platform/arch and
 // process.report and never needs a musl machine or a built addon.
 const requireCjs = createRequire(import.meta.url);
-const native = requireCjs("@the-40-thieves/obsidian-tc-native") as {
+const native = requireCjs("@the-40-thieves/reliquary-tc-native") as {
   hostTriple(): string | null;
   isMusl(): boolean;
 };

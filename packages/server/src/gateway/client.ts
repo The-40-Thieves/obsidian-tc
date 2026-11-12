@@ -1,4 +1,4 @@
-import { err, extractCauseCode, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { err, extractCauseCode, ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import {
   assertSourcePathsAllowed,
   compileEgressFilter,
@@ -82,9 +82,9 @@ export interface GatewayClient {
 export type FetchFn = typeof fetch;
 
 export interface GatewayClientOptions {
-  /** Gateway base URL; falls back to OBSIDIAN_TC_GATEWAY_URL. */
+  /** Gateway base URL; falls back to RELIQUARY_TC_GATEWAY_URL. */
   baseUrl?: string;
-  /** Optional bearer (LiteLLM master/virtual key); falls back to OBSIDIAN_TC_GATEWAY_TOKEN. Never logged. */
+  /** Optional bearer (LiteLLM master/virtual key); falls back to RELIQUARY_TC_GATEWAY_TOKEN. Never logged. */
   token?: string;
   /** Map a role to a concrete gateway model alias. Default: the role name itself. */
   models?: Partial<Record<GatewayRole, string>>;
@@ -118,10 +118,10 @@ export interface GatewayClientOptions {
   excludeFilter?: EgressFilter;
 }
 
-/** Prefer the explicit URL, then OBSIDIAN_TC_GATEWAY_URL. Undefined if neither is set. */
+/** Prefer the explicit URL, then RELIQUARY_TC_GATEWAY_URL. Undefined if neither is set. */
 export function resolveGatewayUrl(configUrl?: string): string | undefined {
   if (configUrl && configUrl.length > 0) return configUrl;
-  const env = process.env.OBSIDIAN_TC_GATEWAY_URL;
+  const env = process.env.RELIQUARY_TC_GATEWAY_URL;
   return env && env.length > 0 ? env : undefined;
 }
 
@@ -199,11 +199,11 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
   const baseUrl = resolveGatewayUrl(opts.baseUrl);
   if (!baseUrl) {
     throw err.validation("gateway base URL not configured", {
-      hint: "set OBSIDIAN_TC_GATEWAY_URL or pass opts.baseUrl",
+      hint: "set RELIQUARY_TC_GATEWAY_URL or pass opts.baseUrl",
     });
   }
   const base = baseUrl.replace(/\/+$/, "");
-  const token = opts.token ?? process.env.OBSIDIAN_TC_GATEWAY_TOKEN;
+  const token = opts.token ?? process.env.RELIQUARY_TC_GATEWAY_TOKEN;
   const fetchFn = opts.fetchFn ?? providerFetch;
   const timeoutMs = opts.timeoutMs ?? 60_000;
   const maxAttempts = Math.max(1, opts.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
@@ -245,11 +245,11 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
       } catch (e) {
         res = undefined;
         if (e instanceof ProviderBodyTooLargeError)
-          throw new ObsidianTcError("internal", `gateway ${e.message}`);
+          throw new ReliquaryTcError("internal", `gateway ${e.message}`);
         // A plain-http policy refusal is a configuration fact, never retried: fail now with the
         // host and reason (never the token).
         if (e instanceof PlainHttpRefusedError)
-          throw new ObsidianTcError("internal", `gateway request refused: ${e.message}`, {
+          throw new ReliquaryTcError("internal", `gateway request refused: ${e.message}`, {
             cause_code: e.code,
           });
         // A network-level throw or our own per-attempt timeout — both transient by nature.
@@ -260,7 +260,7 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
         lastError =
           (e as Error).name === "AbortError"
             ? err.operationTimeout("gateway timed out")
-            : new ObsidianTcError("internal", "gateway request failed", {
+            : new ReliquaryTcError("internal", "gateway request failed", {
                 ...(causeCode ? { cause_code: causeCode } : {}),
               });
       } finally {
@@ -271,7 +271,7 @@ export function createGatewayClient(opts: GatewayClientOptions = {}): GatewayCli
         if (res.ok) return { body: JSON.parse(text) as T, headers: res.headers };
         const retryAfterMs =
           res.status === 429 ? parseRetryAfterMs(res.headers.get("retry-after")) : null;
-        lastError = new ObsidianTcError("internal", `gateway returned HTTP ${res.status}`, {
+        lastError = new ReliquaryTcError("internal", `gateway returned HTTP ${res.status}`, {
           status: res.status,
         });
         // 5xx: the gateway/provider is having a bad moment — retry. 4xx (including a bare 429

@@ -4,7 +4,7 @@
 // Cohere rerank is VERSIONED and the dialects differ: v2 replaced v1's max_chunks_per_doc with
 // max_tokens_per_doc. Since this adapter appends only "/rerank", the dialect is decided by whether
 // baseUrl ends in /v1 or /v2 — which is why neither truncation parameter is ever sent.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { type FetchFn, postJson } from "../embeddings/http";
 import type { Reranker, RerankHit } from "../search/rerank";
 

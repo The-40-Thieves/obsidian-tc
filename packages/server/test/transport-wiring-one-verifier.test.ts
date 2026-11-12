@@ -2,7 +2,7 @@
 // from the whole auth config. /metrics used to build its own from `jwtSecret` + registry only, so
 // it dropped auth.jwks / jwksFile / jwksUri and refused tokens the MCP edge accepted.
 import { join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { exportJWK, generateKeyPair } from "jose";
 import { afterAll, expect, it, vi } from "vitest";
 import { MetricsRecorder } from "../src/metrics/registry";
@@ -37,7 +37,7 @@ it("wireTransports injects one jwt verifier, built with the JWKS, into both list
   const config = ServerConfigSchema.parse({
     vaults: [{ id: "v1", path: root }],
     cacheDir: join(root, "cache"),
-    auth: { mode: "jwt", jwks, audience: "https://obsidian-tc.example" },
+    auth: { mode: "jwt", jwks, audience: "https://reliquary-tc.example" },
     transports: { stdio: false, http: { enabled: true, host: "127.0.0.1", port: 47998 } },
     observability: { prometheus: { enabled: true, bind: "127.0.0.1", port: 0 } },
   });

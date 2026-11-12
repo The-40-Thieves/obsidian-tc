@@ -1,6 +1,6 @@
 # Synthetic-Vault Perf Harness
 
-A deterministic, CI-gated benchmark for obsidian-tc, isolated from the live-model golden-set evaluation. Measures indexing throughput, embedding efficiency, graph-search recall/nDCG, dispatch latency, storage overhead, runtime memory/eventloop health, and database lifecycle metrics over a seeded synthetic vault.
+A deterministic, CI-gated benchmark for reliquary-tc, isolated from the live-model golden-set evaluation. Measures indexing throughput, embedding efficiency, graph-search recall/nDCG, dispatch latency, storage overhead, runtime memory/eventloop health, and database lifecycle metrics over a seeded synthetic vault.
 
 ## Quick Start
 
@@ -484,5 +484,5 @@ bun run test
 ## References
 
 - Task brief: ,  (isolation + statistics + scenario coverage)
-- Private golden set (leak class): see `/data/llm-stack/obsidian-tc-eval/` on Cave.
+- Private golden set (leak class): see `/data/llm-stack/reliquary-tc-eval/` on Cave.
 - Node.js parity: 

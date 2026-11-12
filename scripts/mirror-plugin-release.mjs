@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // mirror-plugin-release (THE-955) — Obsidian's community-directory validator (and the
 // community.obsidian.md self-service submission form) reads the release whose TAG EQUALS
-// manifest.json's version, not the repo's own `v<version>` convention. Every obsidian-tc release
+// manifest.json's version, not the repo's own `v<version>` convention. Every reliquary-tc release
 // is tagged `v<version>` (publish.yml's `on.push.tags: ['v*']`), so the plugin's manifest version
 // never had a matching release — the first real submission (2026-09-05) was rejected with "No
 // release matches your manifest version... it should be '1.0.0' not 'v1.0.0'." Fixed by hand for
@@ -161,7 +161,7 @@ function releaseNotes(version) {
       `automatically from the signed release v${version}.`,
     "",
     `This tag ("${version}", no "v" prefix) exists only to satisfy Obsidian's community-directory ` +
-      `rule that a plugin release's tag equal manifest.json's version — every other obsidian-tc ` +
+      `rule that a plugin release's tag equal manifest.json's version — every other reliquary-tc ` +
       `release stays tagged v${version}. It carries the identical three plugin assets ` +
       "(main.js, manifest.json, styles.css) already attached to that release, each with its " +
       'keyless cosign bundle (<file>.sigstore.json; see SECURITY.md, "Verifying release artifacts").',

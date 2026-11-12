@@ -58,13 +58,13 @@ export function experientialColumnSpec(cfg: { experiential: boolean }): ColumnLi
       table: "chunk_retrievals",
       column: "cited_in_response",
       writer: on ? "on-demand" : "disabled",
-      lever: "running `obsidian-tc citation-infer` against a session transcript (THE-717)",
+      lever: "running `reliquary-tc citation-infer` against a session transcript (THE-717)",
     },
     {
       table: "chunk_retrievals",
       column: "citation_state",
       writer: on ? "on-demand" : "disabled",
-      lever: "running `obsidian-tc citation-infer` against a session transcript (THE-717)",
+      lever: "running `reliquary-tc citation-infer` against a session transcript (THE-717)",
     },
     // THE-726: task_result HAS a producer. THE-752 gave `summary` one too — a deterministic,
     // no-LLM receipt written by the same evaluator pass, never inferred or generated. See

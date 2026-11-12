@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
@@ -120,7 +120,7 @@ const errOf = (r: Result) => {
 };
 
 /** The operator's side: run the mint command text an `elicit_required` error rendered, exactly as
- *  typed (parsed by the real CLI argument parser, then minted like `obsidian-tc elicit`). */
+ *  typed (parsed by the real CLI argument parser, then minted like `reliquary-tc elicit`). */
 function mintFromCommand(b: Booted, details: Record<string, unknown>): string {
   const command = mintCommandFromDetails(details);
   if (command === undefined) throw new Error("no mint command");

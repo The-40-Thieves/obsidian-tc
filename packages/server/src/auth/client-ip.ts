@@ -14,7 +14,7 @@ import {
   parseForwardedHop,
   parseIpAddress,
   parseIpCidr,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import type { Context, MiddlewareHandler } from "hono";
 
 declare module "hono" {

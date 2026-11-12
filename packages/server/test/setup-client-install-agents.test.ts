@@ -78,7 +78,7 @@ describe("clineMcpSettingsPath", () => {
 
   it("clineServerEntry uses command/args/env/disabled/autoApprove", () => {
     expect(clineServerEntry("/cfg.json")).toEqual({
-      command: "obsidian-tc",
+      command: "reliquary-tc",
       args: ["--config", "/cfg.json"],
       env: {},
       disabled: false,
@@ -105,7 +105,7 @@ describe("rooMcpSettingsPath", () => {
 
   it("rooServerEntry uses alwaysAllow, not autoApprove", () => {
     expect(rooServerEntry("/cfg.json")).toEqual({
-      command: "obsidian-tc",
+      command: "reliquary-tc",
       args: ["--config", "/cfg.json"],
       env: {},
       alwaysAllow: [],
@@ -115,22 +115,22 @@ describe("rooMcpSettingsPath", () => {
 });
 
 describe("continueMcpServerFilePath / continueServerEntry", () => {
-  it("is a dedicated .continue/mcpServers/obsidian-tc.yaml, home-anchored on every OS", () => {
+  it("is a dedicated .continue/mcpServers/reliquary-tc.yaml, home-anchored on every OS", () => {
     expect(continueMcpServerFilePath("/home/op")).toBe(
-      join("/home/op", ".continue", "mcpServers", "obsidian-tc.yaml"),
+      join("/home/op", ".continue", "mcpServers", "reliquary-tc.yaml"),
     );
   });
 
   it("builds the whole per-server file's document (name/version/schema + one-entry mcpServers list)", () => {
     expect(continueServerEntry("/cfg.json")).toEqual({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: "0.0.1",
       schema: "v1",
       mcpServers: [
         {
-          name: "obsidian-tc",
+          name: "reliquary-tc",
           type: "stdio",
-          command: "obsidian-tc",
+          command: "reliquary-tc",
           args: ["--config", "/cfg.json"],
         },
       ],
@@ -154,12 +154,12 @@ describe("gooseConfigPath / gooseServerEntry", () => {
   it("builds goose's own extension entry shape (cmd/args/env_keys/envs/type/timeout)", () => {
     expect(gooseServerEntry("/cfg.json")).toEqual({
       bundled: false,
-      description: "obsidian-tc MCP server",
+      description: "reliquary-tc MCP server",
       enabled: true,
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       timeout: 300, // stall-ok: a config field of the fixture entry, not a test budget
       type: "stdio",
-      cmd: "obsidian-tc",
+      cmd: "reliquary-tc",
       args: ["--config", "/cfg.json"],
       env_keys: [],
       envs: {},
@@ -174,7 +174,7 @@ describe("kiroMcpConfigPath / kiroServerEntry", () => {
 
   it("builds command/args/env/disabled/autoApprove", () => {
     expect(kiroServerEntry("/cfg.json")).toEqual({
-      command: "obsidian-tc",
+      command: "reliquary-tc",
       args: ["--config", "/cfg.json"],
       env: {},
       disabled: false,
@@ -190,7 +190,7 @@ describe("warpMcpConfigPath / warpServerEntry", () => {
 
   it("builds a plain command/args/env entry (no wrapping key — root-level file)", () => {
     expect(warpServerEntry("/cfg.json")).toEqual({
-      command: "obsidian-tc",
+      command: "reliquary-tc",
       args: ["--config", "/cfg.json"],
       env: {},
     });
@@ -202,9 +202,9 @@ describe("augmentAddCommand", () => {
     expect(augmentAddCommand("/cfg.json")).toEqual([
       "mcp",
       "add",
-      "obsidian-tc",
+      "reliquary-tc",
       "--command",
-      "obsidian-tc",
+      "reliquary-tc",
       "--args",
       "--config /cfg.json",
     ]);

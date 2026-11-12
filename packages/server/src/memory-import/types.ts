@@ -1,4 +1,4 @@
-// THE-1124 — shared types for `obsidian-tc memory import`. One shape both adapters
+// THE-1124 — shared types for `reliquary-tc memory import`. One shape both adapters
 // (basic-memory, claude-code-memory) parse into, so the plan/apply/report code downstream
 // never branches on which adapter produced an entity.
 export interface ParsedRelation {

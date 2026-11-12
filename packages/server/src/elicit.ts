@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomBytes } from "node:crypto";
-import { err, type ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { err, type ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import type { Database } from "./db/types";
 import { assertNoReplayDrift, type StateProbe } from "./elicit-drift";
 import { createElicitCodec, type ElicitCodec } from "./elicit-request-state";
@@ -132,7 +132,7 @@ export function elicitRequiredError(
   argsHash: string,
   probe: StateProbe | undefined,
   details: Record<string, unknown>,
-): ObsidianTcError {
+): ReliquaryTcError {
   const stateFp = probe?.() ?? null;
   const record = () =>
     recordElicitRequest(ctx.db, {
@@ -166,7 +166,7 @@ export function elicitRequiredError(
  * expiring after ttlSeconds (default 5 min). Returns the opaque 32-char token.
  *
  * The token is also bound to the target-state fingerprint recorded when the matching request was
- * raised (see recordElicitRequest), so `obsidian-tc elicit` — which knows only the args_hash —
+ * raised (see recordElicitRequest), so `reliquary-tc elicit` — which knows only the args_hash —
  * still mints a token that redemption checks for drift. No recorded request means an unbound token.
  */
 export function issueElicitToken(db: Database, input: IssueElicitInput): string {

@@ -25,34 +25,34 @@ const FIXTURE = `{
   "lockfileVersion": 1,
   "workspaces": {
     "": {
-      "name": "obsidian-tc-monorepo",
+      "name": "reliquary-tc-monorepo",
       "devDependencies": {
         "typescript": "^7.0.2",
       },
     },
     "packages/native": {
-      "name": "@the-40-thieves/obsidian-tc-native",
+      "name": "@the-40-thieves/reliquary-tc-native",
       "version": "1.26.0",
       "devDependencies": {
         "@napi-rs/cli": "^3.7.2",
       },
     },
     "packages/plugin": {
-      "name": "@the-40-thieves/obsidian-tc-plugin",
+      "name": "@the-40-thieves/reliquary-tc-plugin",
       "version": "1.26.0",
       "devDependencies": {
         "obsidian": "^1.13.1",
       },
     },
     "packages/server": {
-      "name": "obsidian-tc",
+      "name": "reliquary-tc",
       "version": "1.26.0",
       "dependencies": {
         "hono": "^4.12.34",
       },
     },
     "packages/shared": {
-      "name": "@the-40-thieves/obsidian-tc-shared",
+      "name": "@the-40-thieves/reliquary-tc-shared",
       "version": "1.26.0",
       "dependencies": {
         "zod": "^4.0.0",

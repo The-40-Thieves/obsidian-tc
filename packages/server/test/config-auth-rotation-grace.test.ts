@@ -1,6 +1,6 @@
 // auth.rotationGraceSeconds: default 0 (behaviour preserved), bounded at 7 days, and the schema
 // no longer demands a static signing key (the registry can be the only one).
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { MAX_ROTATION_GRACE_SECONDS } from "../src/auth/signing-keys";
 import { parseCliArgs } from "../src/cli/args";

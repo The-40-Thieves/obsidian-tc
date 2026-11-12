@@ -58,7 +58,7 @@ block() {
 }
 
 case "$REL" in
-  docs/obsidian-tc.config.schema.json)
+  docs/reliquary-tc.config.schema.json)
     block "Generated from the Zod schema in packages/shared/src/config.schema.ts.
 Edit the Zod schema, then:
     bun run config:schema          # regenerate

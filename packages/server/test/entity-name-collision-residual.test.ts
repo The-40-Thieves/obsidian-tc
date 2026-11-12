@@ -5,7 +5,7 @@
 // read check refuses a name-derived path the caller cannot read before the lookup, and neither
 // tool moves or changes the hidden entity. If any of this changes, the residual has widened or
 // closed, and SECURITY.md must change with it.
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";

@@ -10,7 +10,7 @@ type NotesIo = typeof import("../src/vault/notes-io");
 export async function loadNotesIo(backend: Backend): Promise<NotesIo | null> {
   vi.resetModules();
   vi.unstubAllEnvs();
-  if (backend === "js") vi.stubEnv("OBSIDIAN_TC_FORCE_JS_FALLBACK", "1");
+  if (backend === "js") vi.stubEnv("RELIQUARY_TC_FORCE_JS_FALLBACK", "1");
   const io = await import("../src/vault/notes-io");
   if (backend === "native" && !io.nativeVaultIo) return null;
   if (backend === "js" && io.nativeVaultIo) throw new Error("JS backend requested, native loaded");

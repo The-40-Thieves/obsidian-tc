@@ -1,5 +1,5 @@
 // PR C follow-up: the nine clients from this repo's own MCP-client research pass
-// (research/obsidian-tc-mcp-clients-2026-09-28/clients.md) not yet wired into `setup
+// (research/reliquary-tc-mcp-clients-2026-09-28/clients.md) not yet wired into `setup
 // --install-client` — Cline, Roo Code, Continue, Goose, Amazon Q Developer CLI, Kiro, JetBrains,
 // Warp, and Augment/Auggie. Split out of client-install-editors.ts (rather than grown into it) to
 // stay under biome's 700-line ceiling, the same reason that file itself split from
@@ -72,7 +72,7 @@ export function clineMcpSettingsPath(
 
 export function clineServerEntry(configPath: string): Record<string, unknown> {
   return {
-    command: "obsidian-tc",
+    command: "reliquary-tc",
     args: ["--config", configPath],
     env: {},
     disabled: false,
@@ -101,7 +101,7 @@ export function rooMcpSettingsPath(
 
 export function rooServerEntry(configPath: string): Record<string, unknown> {
   return {
-    command: "obsidian-tc",
+    command: "reliquary-tc",
     args: ["--config", configPath],
     env: {},
     alwaysAllow: [],
@@ -112,25 +112,25 @@ export function rooServerEntry(configPath: string): Record<string, unknown> {
 /** Continue (docs.continue.dev/customize/deep-dives/mcp, web-verified 2026-09-28) documents TWO
  *  mechanisms: a top-level `mcpServers:` LIST in the shared `config.yaml` (which this repo's own
  *  `mergeMcpServersEntryYaml` cannot merge into safely — a YAML sequence has no name-keyed slot to
- *  find/replace an existing `obsidian-tc` entry in without risking a duplicate on re-run), and a
+ *  find/replace an existing `reliquary-tc` entry in without risking a duplicate on re-run), and a
  *  STANDALONE per-server file under `.continue/mcpServers/*.yaml` meant for exactly this
  *  ("individual YAML files... for team sharing" per that doc) — this uses the standalone file, a
- *  brand-new `obsidian-tc.yaml` written with `serversPath: []` (see `YamlMergeClientSpec`'s own doc
- *  comment), sidestepping the list-merge problem entirely: the file belongs to obsidian-tc alone. */
+ *  brand-new `reliquary-tc.yaml` written with `serversPath: []` (see `YamlMergeClientSpec`'s own doc
+ *  comment), sidestepping the list-merge problem entirely: the file belongs to reliquary-tc alone. */
 export function continueMcpServerFilePath(home: string): string {
-  return join(home, ".continue", "mcpServers", "obsidian-tc.yaml");
+  return join(home, ".continue", "mcpServers", "reliquary-tc.yaml");
 }
 
 export function continueServerEntry(configPath: string): Record<string, unknown> {
   return {
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.1",
     schema: "v1",
     mcpServers: [
       {
-        name: "obsidian-tc",
+        name: "reliquary-tc",
         type: "stdio",
-        command: "obsidian-tc",
+        command: "reliquary-tc",
         args: ["--config", configPath],
       },
     ],
@@ -166,12 +166,12 @@ export function gooseConfigPath(
 export function gooseServerEntry(configPath: string): Record<string, unknown> {
   return {
     bundled: false,
-    description: "obsidian-tc MCP server",
+    description: "reliquary-tc MCP server",
     enabled: true,
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     timeout: 300,
     type: "stdio",
-    cmd: "obsidian-tc",
+    cmd: "reliquary-tc",
     args: ["--config", configPath],
     env_keys: [],
     envs: {},
@@ -196,7 +196,7 @@ export function amazonQInstructions(): string {
     "",
     "Current mechanism (per-agent JSON, ~/.aws/amazonq/cli-agents/<agent>.json) — add to that",
     'agent\'s own "mcpServers" field:',
-    '  {"mcpServers":{"obsidian-tc":{"command":"obsidian-tc","args":["--config","<config-path>"]}}}',
+    '  {"mcpServers":{"reliquary-tc":{"command":"reliquary-tc","args":["--config","<config-path>"]}}}',
     "",
     "Legacy mechanism (~/.aws/amazonq/mcp.json) — only read if the agent's own JSON sets",
     '"useLegacyMcpJson": true; same "mcpServers" shape as above, at that shared path instead.',
@@ -212,7 +212,7 @@ export function kiroMcpConfigPath(home: string): string {
 
 export function kiroServerEntry(configPath: string): Record<string, unknown> {
   return {
-    command: "obsidian-tc",
+    command: "reliquary-tc",
     args: ["--config", configPath],
     env: {},
     disabled: false,
@@ -232,7 +232,7 @@ export function jetbrainsInstructions(): string {
     "JetBrains AI Assistant has no disclosed on-disk MCP config path — it is UI-only",
     "(jetbrains.com/help/ai-assistant/mcp.html): open Settings | Tools | AI Assistant | Model",
     "Context Protocol (MCP), click Add, and choose the STDIO tab. Paste:",
-    '  {"mcpServers":{"obsidian-tc":{"command":"obsidian-tc","args":["--config","<config-path>"]}}}',
+    '  {"mcpServers":{"reliquary-tc":{"command":"reliquary-tc","args":["--config","<config-path>"]}}}',
     "and pick a Server level (Global or Project) in that same dialog.",
   ].join("\n");
 }
@@ -248,7 +248,7 @@ export function warpMcpConfigPath(home: string): string {
 }
 
 export function warpServerEntry(configPath: string): Record<string, unknown> {
-  return { command: "obsidian-tc", args: ["--config", configPath], env: {} };
+  return { command: "reliquary-tc", args: ["--config", configPath], env: {} };
 }
 
 /** Augment Code's Auggie CLI — docs.augmentcode.com/cli/integrations (web-verified 2026-09-28)
@@ -262,9 +262,9 @@ export function augmentAddCommand(configPath: string): string[] {
   return [
     "mcp",
     "add",
-    "obsidian-tc",
+    "reliquary-tc",
     "--command",
-    "obsidian-tc",
+    "reliquary-tc",
     "--args",
     `--config ${configPath}`,
   ];

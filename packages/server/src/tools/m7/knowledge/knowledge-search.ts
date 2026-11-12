@@ -2,7 +2,7 @@
 // Takes the shared retrieval runtime constructed once in buildKnowledgeTools rather than building
 // its own embedder, cache, or policy state — see RetrievalRuntime's doc comment in
 // retrieval-runtime.ts. Uses retrieval.embedAll on the cached graph-search path.
-import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { vaultExclusionFor, withVaultExclusion } from "../../../search/index-exclusion";

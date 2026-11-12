@@ -33,7 +33,7 @@ export type EditorInstallClient =
  *  web-verified 2026-09-28) writes straight into the user-level `mcp.json` itself — no need to
  *  resolve or hand-edit that file's own (undocumented, possibly JSONC) path at all. */
 export function vscodeAddMcpPayload(configPath: string): Record<string, unknown> {
-  return { name: "obsidian-tc", command: "obsidian-tc", args: ["--config", configPath] };
+  return { name: "reliquary-tc", command: "reliquary-tc", args: ["--config", configPath] };
 }
 
 export function vscodeAddCommand(configPath: string): string[] {
@@ -61,7 +61,7 @@ export function opencodeConfigPath(
 export function opencodeServerEntry(configPath: string): Record<string, unknown> {
   return {
     type: "local",
-    command: ["obsidian-tc", "--config", configPath],
+    command: ["reliquary-tc", "--config", configPath],
     enabled: true,
     environment: {},
   };
@@ -83,7 +83,7 @@ export function windsurfConfigPath(
 }
 
 /** Windsurf's PRE-rebrand path (Codeium's own `~/.codeium/windsurf/mcp_config.json`) — any install
- *  from before the 2026-06-02 rename still has its `obsidian-tc` entry read from here if this file
+ *  from before the 2026-06-02 rename still has its `reliquary-tc` entry read from here if this file
  *  exists; see `JsonMergeClientSpec.legacyConfigPath`'s own doc comment for how the I/O layer
  *  chooses between the two. Same on every OS (a Codeium dotfolder under home), no platform
  *  branching. */
@@ -97,7 +97,7 @@ export function windsurfLegacyConfigPath(home: string): string {
  *  no-`--`-needed shape as `antigravityAddCommand` in client-install.ts (the remaining tokens are
  *  the launched command's OWN argv, not further `gemini` flags, regardless of a leading `-`). */
 export function geminiAddCommand(configPath: string): string[] {
-  return ["mcp", "add", "obsidian-tc", "obsidian-tc", "--config", configPath];
+  return ["mcp", "add", "reliquary-tc", "reliquary-tc", "--config", configPath];
 }
 
 /** zed.dev/docs/ai/mcp + github.com/zed-industries/zed's own docs/src/ai/mcp.md and
@@ -118,7 +118,7 @@ export function zedSettingsPath(
 /** The three-field shape shown in Zed's OWN current example under `context_servers` — see this
  *  file's header for why no `"source":"custom"` field is included. */
 export function zedServerEntry(configPath: string): Record<string, unknown> {
-  return { command: "obsidian-tc", args: ["--config", configPath], env: {} };
+  return { command: "reliquary-tc", args: ["--config", configPath], env: {} };
 }
 
 /** Devin (Cognition, cloud — docs.devin.ai/work-with-devin/mcp): MCP is configured through the
@@ -132,12 +132,12 @@ export function devinInstructions(): string {
     "Devin (the cloud agent, docs.devin.ai) has no local-stdio reach — its STDIO MCP launcher runs",
     "INSIDE Devin's own session container, not on this machine, so this only prints instructions —",
     "it writes nothing. (This is DIFFERENT from Devin Desktop, the rebranded Windsurf editor, which",
-    "DOES run locally — see `obsidian-tc setup --install-client windsurf` for that one instead.)",
+    "DOES run locally — see `reliquary-tc setup --install-client windsurf` for that one instead.)",
     "",
-    "Run ONE shared obsidian-tc HTTP server (JWT auth required past loopback), tunnel it to a",
+    "Run ONE shared reliquary-tc HTTP server (JWT auth required past loopback), tunnel it to a",
     "public HTTPS URL, and add it in Devin's workspace UI (Customize > MCPs > Add custom MCP):",
     '  docs/wiki/Deployment-Modes.md — "Run one shared server for several clients"',
-    "  https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/wiki/Deployment-Modes.md" +
+    "  https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/wiki/Deployment-Modes.md" +
       "#run-one-shared-server-for-several-clients",
   ].join("\n");
 }

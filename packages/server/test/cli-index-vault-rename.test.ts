@@ -1,8 +1,8 @@
-// GH #1014 fix round (Medium 4): `obsidian-tc index` (and `consolidate`/`memory-import --apply`,
+// GH #1014 fix round (Medium 4): `reliquary-tc index` (and `consolidate`/`memory-import --apply`,
 // which share the same `resolveCliVaultIdentity` helper — cli/shared.ts) wrote vault-scoped rows
 // without ever resolving vault identity, since only `wireStores` (the `serve` boot path) called
 // `resolveAndApplyVaultIdentity`. RED on pre-fix main: a config `id` rename followed directly by
-// `obsidian-tc index` (no `serve` first) left the old id's rows unresolved and orphaned, rather
+// `reliquary-tc index` (no `serve` first) left the old id's rows unresolved and orphaned, rather
 // than re-keying them to the new id the way boot already does.
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";

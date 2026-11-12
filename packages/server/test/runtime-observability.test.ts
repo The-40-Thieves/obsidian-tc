@@ -80,8 +80,8 @@ describe("THE-466 slice 2: createObservability wires a real IndexCoordinator to 
     expect(coordinator.stats()).toMatchObject({ queued: 1, coalesced: 1 });
 
     const text = await observability.metrics.metrics();
-    expect(text).toContain('obsidian_tc_index_queue_depth{vault="coordinator"} 1');
-    expect(text).toContain('obsidian_tc_index_coalesced_total{vault="coordinator"} 1');
+    expect(text).toContain('reliquary_tc_index_queue_depth{vault="coordinator"} 1');
+    expect(text).toContain('reliquary_tc_index_coalesced_total{vault="coordinator"} 1');
   });
 
   it("indexActive reports a REAL in-flight drain, per vault", async () => {
@@ -108,7 +108,7 @@ describe("THE-466 slice 2: createObservability wires a real IndexCoordinator to 
     expect(coordinator.stats().perVaultActive).toEqual({ main: 1 });
 
     const text = await observability.metrics.metrics();
-    expect(text).toContain('obsidian_tc_index_active{vault="main"} 1');
+    expect(text).toContain('reliquary_tc_index_active{vault="main"} 1');
 
     release();
     await coordinator.idle();
@@ -144,7 +144,7 @@ describe("THE-466 slice 2: createObservability wires a real Scheduler to the exp
       );
 
       const text = await observability.metrics.metrics();
-      expect(text).toContain('obsidian_tc_scheduler_skipped_total{vault="hang"} 1');
+      expect(text).toContain('reliquary_tc_scheduler_skipped_total{vault="hang"} 1');
 
       release();
       await scheduler.stop();
@@ -162,8 +162,8 @@ describe("THE-466 slice 2: httpConstructSeconds keeps its stdio-only no-series b
       getHttpConstructSeconds: () => null,
     });
     const text = await observability.metrics.metrics();
-    expect(text).toContain("# TYPE obsidian_tc_http_construct_seconds gauge");
-    expect(text).not.toMatch(/^obsidian_tc_http_construct_seconds\{/m);
+    expect(text).toContain("# TYPE reliquary_tc_http_construct_seconds gauge");
+    expect(text).not.toMatch(/^reliquary_tc_http_construct_seconds\{/m);
   });
 
   it("emits the one boot-time sample once the accessor reports it", async () => {
@@ -173,7 +173,7 @@ describe("THE-466 slice 2: httpConstructSeconds keeps its stdio-only no-series b
       getHttpConstructSeconds: () => 0.0231,
     });
     const text = await observability.metrics.metrics();
-    expect(text).toContain('obsidian_tc_http_construct_seconds{vault="http"} 0.0231');
+    expect(text).toContain('reliquary_tc_http_construct_seconds{vault="http"} 0.0231');
   });
 });
 
@@ -216,12 +216,12 @@ describe("THE-466 slice 2: the metric-emitting seams route to the SAME recorder"
     hooks.onBusy?.("index_note", "busy");
 
     const text = await observability.metrics.metrics();
-    expect(text).toContain('obsidian_tc_vec_fallback_total{vault="main",reason="underfill"} 1');
+    expect(text).toContain('reliquary_tc_vec_fallback_total{vault="main",reason="underfill"} 1');
     expect(text).toContain(
-      'obsidian_tc_retrieval_stage_candidates_in_total{vault="main",stage="diversity"} 10',
+      'reliquary_tc_retrieval_stage_candidates_in_total{vault="main",stage="diversity"} 10',
     );
     expect(text).toContain(
-      'obsidian_tc_sql_busy_total{vault="main",txn="index_note",reason="busy"} 1',
+      'reliquary_tc_sql_busy_total{vault="main",txn="index_note",reason="busy"} 1',
     );
   });
 });
@@ -236,9 +236,9 @@ describe("onRerankOutcome reaches the exposition", () => {
 
     const text = await observability.metrics.metrics();
     expect(text).toContain(
-      'obsidian_tc_rerank_outcome_total{vault="main",outcome="not_configured"} 1',
+      'reliquary_tc_rerank_outcome_total{vault="main",outcome="not_configured"} 1',
     );
-    expect(text).toContain('obsidian_tc_rerank_outcome_total{vault="main",outcome="executed"} 1');
+    expect(text).toContain('reliquary_tc_rerank_outcome_total{vault="main",outcome="executed"} 1');
   });
 });
 
@@ -250,7 +250,7 @@ describe("onAclWalkPruned reaches the exposition (THE-891 item 3)", () => {
     observability.onAclWalkPruned("main", 2);
 
     const text = await observability.metrics.metrics();
-    expect(text).toContain('obsidian_tc_acl_walk_pruned_total{vault="main"} 2');
+    expect(text).toContain('reliquary_tc_acl_walk_pruned_total{vault="main"} 2');
   });
 });
 
@@ -265,7 +265,7 @@ describe("THE-645 item 1: onActivationRecompute reaches the exposition", () => {
 
     const text = await observability.metrics.metrics();
     expect(text).toContain(
-      'obsidian_tc_activation_recompute_chunks_total{vault="activation-recompute"} 12',
+      'reliquary_tc_activation_recompute_chunks_total{vault="activation-recompute"} 12',
     );
   });
 
@@ -292,7 +292,7 @@ describe("THE-645 item 1: onActivationRecompute reaches the exposition", () => {
 
     const text = await observability.metrics.metrics();
     expect(text).toContain(
-      'obsidian_tc_activation_recompute_chunks_total{vault="activation-recompute"} 1',
+      'reliquary_tc_activation_recompute_chunks_total{vault="activation-recompute"} 1',
     );
   });
 
@@ -366,6 +366,6 @@ describe("THE-612: onVecRebuild reaches the exposition", () => {
     observability.onVecRebuild({ reason: "fingerprint_changed", skippedVectors: 3 });
 
     const text = await observability.metrics.metrics();
-    expect(text).toContain('obsidian_tc_vec_rebuild_total{reason="fingerprint_changed"} 1');
+    expect(text).toContain('reliquary_tc_vec_rebuild_total{reason="fingerprint_changed"} 1');
   });
 });

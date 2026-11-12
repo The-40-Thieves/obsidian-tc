@@ -34,7 +34,7 @@ describe("server.json against the registry schema", () => {
     expect(serverJson.version).toBe(pkgVersion);
     const npm = serverJson.packages.find((p: { registryType: string }) => p.registryType === "npm");
     expect(npm.version).toBe(pkgVersion);
-    expect(npm.identifier).toBe("obsidian-tc");
+    expect(npm.identifier).toBe("reliquary-tc");
     expect(npm.transport).toEqual({ type: "stdio" });
   });
 

@@ -1,4 +1,4 @@
-// `obsidian-tc auth as grants list|revoke` (design v2 section 11, slice S6): the operator's view of what
+// `reliquary-tc auth as grants list|revoke` (design v2 section 11, slice S6): the operator's view of what
 // the bundled authorization server has granted, and the way to take a grant back. Revoking a grant
 // kills its refresh tokens and every live access token issued under it. Same authorization boundary
 // as `auth revoke`: whoever can write `<cacheDir>` can already do this, so the credential is the
@@ -67,7 +67,9 @@ export async function runAuthAsGrants(cmd: Cmd<"auth">): Promise<void> {
         Date.now(),
       );
       if (r.status === "not_found") {
-        throw new CliError(`no grant ${grantId} (list them with: obsidian-tc auth as grants list)`);
+        throw new CliError(
+          `no grant ${grantId} (list them with: reliquary-tc auth as grants list)`,
+        );
       }
       if (r.status === "revoked") await auditAuthEvent(cfg, "auth_grant_revoked");
       const swept = `${r.families} refresh ${r.families === 1 ? "family" : "families"} and ${r.accessTokens} access ${r.accessTokens === 1 ? "token" : "tokens"}`;

@@ -3,7 +3,7 @@
 The live Docling / crawl4ai / LangExtract backends are imported lazily, so the router and
 writer (and their tests) need none of them installed. ``dry_run`` short-circuits the live
 backends with a single fixture chunk, enough to prove the end-to-end loop: ingest writes
-md+frontmatter, the obsidian-tc server indexes it, and knowledge_search / knowledge_get_critical
+md+frontmatter, the reliquary-tc server indexes it, and knowledge_search / knowledge_get_critical
 serve it.
 """
 

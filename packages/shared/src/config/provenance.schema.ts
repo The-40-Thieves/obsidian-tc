@@ -9,7 +9,7 @@ export const ProvenanceConfigSchema = z
       .boolean()
       .default(true)
       .describe(
-        "Record one provenance row per committed mutating tool call: tool, vault, the paths it named with sha256 digests before and after (never content), timestamp, principal, session, client and claimed model/project/agent/machine, each field tagged verified or self_reported. Rows are hash-chained per vault and signed with the auth registry's EdDSA key when one is active. Verify with `obsidian-tc provenance verify`.",
+        "Record one provenance row per committed mutating tool call: tool, vault, the paths it named with sha256 digests before and after (never content), timestamp, principal, session, client and claimed model/project/agent/machine, each field tagged verified or self_reported. Rows are hash-chained per vault and signed with the auth registry's EdDSA key when one is active. Verify with `reliquary-tc provenance verify`.",
       ),
     host: z
       .object({
@@ -49,7 +49,7 @@ export const ProvenanceConfigSchema = z
           .max(10_000_000)
           .default(100_000)
           .describe(
-            "Most provenance rows one get_provenance call examines. A query is one newest-first pass over the vault's chain (the signed body is the only record of a path, so there is no index to seek by); each row examined costs one substring test over its ~0.5 KB body, so the default 100000 is a few hundred milliseconds at worst. A chain longer than this is read newest-first and the answer carries scan_truncated: older history was not examined. Raise it for a long-retention vault; `obsidian-tc provenance verify` is not bounded by it.",
+            "Most provenance rows one get_provenance call examines. A query is one newest-first pass over the vault's chain (the signed body is the only record of a path, so there is no index to seek by); each row examined costs one substring test over its ~0.5 KB body, so the default 100000 is a few hundred milliseconds at worst. A chain longer than this is read newest-first and the answer carries scan_truncated: older history was not examined. Raise it for a long-retention vault; `reliquary-tc provenance verify` is not bounded by it.",
           ),
       })
       .prefault({})
@@ -60,7 +60,7 @@ export const ProvenanceConfigSchema = z
           .boolean()
           .default(false)
           .describe(
-            "Append `Obsidian-TC-*` trailers to a commit made through the git_commit tool, summarising the recorded writes whose current bytes are in that commit: session, principal (the verified principal, else `unverified`), model (always tagged `(self-reported)`) and the provenance seq range. A commit that includes no recorded write gets none. Any `Obsidian-TC-*` trailer the caller wrote itself is removed first, so a trailer in the log is always the server's. Needs `provenance.enabled`.",
+            "Append `Reliquary-TC-*` trailers to a commit made through the git_commit tool, summarising the recorded writes whose current bytes are in that commit: session, principal (the verified principal, else `unverified`), model (always tagged `(self-reported)`) and the provenance seq range. A commit that includes no recorded write gets none. Any `Reliquary-TC-*` trailer the caller wrote itself is removed first, so a trailer in the log is always the server's. Needs `provenance.enabled`.",
           ),
         frontmatter: z
           .boolean()
@@ -71,6 +71,7 @@ export const ProvenanceConfigSchema = z
         frontmatterKey: z
           .string()
           .regex(/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/)
+          // Kept from before the 2.0 rename: notes in users' vaults already carry this key.
           .default("obsidian_tc_provenance")
           .describe(
             "The frontmatter key the stamp is written under when `frontmatter` is on. A caller-supplied value under this key in a note being created is replaced by the real stamp.",

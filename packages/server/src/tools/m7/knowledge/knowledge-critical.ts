@@ -1,7 +1,7 @@
 // WP2.3: the `knowledge_get_critical` tool factory, extracted verbatim out of
 // buildKnowledgeTools. A metadata pre-filter over frontmatter, not a search — it never touches
 // the shared retrieval runtime, so this factory takes only `deps`.
-import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { vaultExclusionFor, withVaultExclusion } from "../../../search/index-exclusion";

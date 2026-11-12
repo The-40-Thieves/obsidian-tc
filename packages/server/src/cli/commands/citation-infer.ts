@@ -49,7 +49,7 @@ export async function run_citation_infer(cmd: Cmd<"citation-infer">): Promise<vo
   const edb = await provisionExperientialDb(cfg.cacheDir, experientialMigrations, {
     version: VERSION,
   });
-  // THE-934 fix round 1 (Blocking-2): egress.excludePaths — obsidian-tc citation-infer runs the
+  // THE-934 fix round 1 (Blocking-2): egress.excludePaths — reliquary-tc citation-infer runs the
   // SAME pass runtime/plane-wiring.ts's citation job schedules, which round 0 guarded; this CLI
   // entry point had not been. `excludeFilter` below both filters candidates (citation.ts's own
   // chokepoint, already wired to accept it) and guards the gateway/embedding ports.

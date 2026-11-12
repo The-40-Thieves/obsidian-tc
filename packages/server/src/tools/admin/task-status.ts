@@ -6,7 +6,7 @@
 // Ownership is the whole safety story and is inherited, not re-implemented: findOwnedJob answers
 // "unknown task" for a missing id, another caller's id AND internal maintenance work alike, so this
 // tool is no oracle for which ids exist.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { isIdentifiedCaller } from "../../mcp/registry/identified-caller";

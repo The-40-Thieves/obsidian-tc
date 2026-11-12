@@ -6,7 +6,7 @@
 // chunks never become chunks), so a row-count divergence rebuilds it wholesale from chunks; no
 // per-write sync-detector is needed. Runtime-provisioned like notes_fts/vec_chunks: a cache.db
 // written under an FTS5-less adapter stays openable under one with FTS5.
-import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { err, ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { applySchemaMigration, type SchemaMigrationHooks } from "../db/migrate";
 import { busyReason } from "../db/txn";
 import type { Database } from "../db/types";
@@ -27,7 +27,7 @@ function chunksTableExists(db: Database): boolean {
 
 /**
  * Provision chunk_fts (FTS5, porter+unicode61) on this connection. Returns false when the adapter
- * lacks FTS5 or OBSIDIAN_TC_DISABLE_FTS=1 — callers then skip chunk_fts writes and the lexical
+ * lacks FTS5 or RELIQUARY_TC_DISABLE_FTS=1 — callers then skip chunk_fts writes and the lexical
  * retrieval stream no-ops (graph_search degrades to dense seed + graph expansion, the pre-THE-73
  * behaviour). Records a pseudo-migration row like notes_fts/vec0. chunk_fts is fully derivable from
  * chunks, so on a row-count divergence (first FTS-capable open of an older index, or writes made
@@ -47,7 +47,7 @@ export function ensureChunkFts(
   const now = opts.now ?? Date.now;
   const busy = chunkFtsBusy.get(db);
   if (busy && now() < busy.nextRetryAt) return false;
-  if (process.env.OBSIDIAN_TC_DISABLE_FTS === "1") {
+  if (process.env.RELIQUARY_TC_DISABLE_FTS === "1") {
     chunkFtsCache.set(db, false);
     return false;
   }
@@ -80,7 +80,7 @@ export function ensureChunkFts(
       {
         version,
         checksum: "fts5:porter",
-        obsidianTcVersion: "search-runtime",
+        reliquaryTcVersion: "search-runtime",
         appliedAt: now,
         durationMs: () => 0,
       },
@@ -130,7 +130,7 @@ export function ensureChunkFts(
     chunkFtsCache.set(db, true);
     return true;
   } catch (e) {
-    if (e instanceof ObsidianTcError) throw e;
+    if (e instanceof ReliquaryTcError) throw e;
     if (busyReason(e)) {
       const attempts = (busy?.attempts ?? 0) + 1;
       chunkFtsBusy.set(db, { attempts, nextRetryAt: now() + ftsBackoffMs(attempts) });
@@ -259,7 +259,7 @@ function assertContentlessChunkFts(db: Database): void {
   throw err.internal(
     "chunk_fts is the pre-THE-711 content-storing shape, whose rowids are NOT aligned to chunks.rowid. " +
       "The lexical (BM25) stream would silently return rows joined to the WRONG chunks, so it is refused. " +
-      "Re-index this cache to rebuild chunk_fts (`obsidian-tc index <config>`); the repair runs on the " +
+      "Re-index this cache to rebuild chunk_fts (`reliquary-tc index <config>`); the repair runs on the " +
       "write path only, so a read-only consumer cannot perform it.",
     { table: "chunk_fts", expected: "contentless_delete", remedy: "re-index" },
   );

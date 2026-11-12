@@ -1,4 +1,4 @@
-// Pure-JS fallback for @the-40-thieves/obsidian-tc-native, loaded by index.js when no
+// Pure-JS fallback for @the-40-thieves/reliquary-tc-native, loaded by index.js when no
 // compiled .node binary resolves for the host. CommonJS runtime mirror of fallback.ts;
 // kept numerically identical to the Rust (src/lib.rs) so results never depend on backend.
 

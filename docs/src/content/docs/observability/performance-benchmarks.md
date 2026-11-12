@@ -1,6 +1,6 @@
 ---
 title: Performance benchmarks
-description: Reproducible cold-boot, indexing, retrieval and HTTP numbers for obsidian-tc, recorded on a public CI runner with a variance gate that refuses a noisy run.
+description: Reproducible cold-boot, indexing, retrieval and HTTP numbers for reliquary-tc, recorded on a public CI runner with a variance gate that refuses a noisy run.
 ---
 
 Every number on this page was recorded by `packages/server/eval/perf` on a GitHub-hosted
@@ -102,7 +102,7 @@ across 200 chunks, ~7.0 per chunk** — and the cost lands on ingest:
 These are two separate baseline recordings on a **synthetic 100-note corpus**, not a paired A/B with
 a significance test. The retrieval ship rule for this project is a paired permutation test on a
 real golden set, and by that rule deterministic densification measured **flat** — see
-[the published negative result](https://github.com/the-40-thieves/obsidian-tc/blob/main/docs/EVALUATION.md#published-negative-results).
+[the published negative result](https://github.com/the-40-thieves/reliquary-tc/blob/main/docs/EVALUATION.md#published-negative-results).
 The number above is a regression tripwire, not evidence.
 :::
 
@@ -111,7 +111,7 @@ The number above is a regression tripwire, not evidence.
 - **Not a competitive comparison.** No other Obsidian MCP server has been run through this harness.
 - **Not retrieval quality evidence.** The corpus is synthetic and 100 notes. Retrieval quality is
   measured separately, on a public third-party corpus, in
-  [EVALUATION.md](https://github.com/the-40-thieves/obsidian-tc/blob/main/docs/EVALUATION.md).
+  [EVALUATION.md](https://github.com/the-40-thieves/reliquary-tc/blob/main/docs/EVALUATION.md).
 - **Not a merge gate.** The `perf` CI job runs `if: github.event_name == 'push'` — post-merge on
   `main` only, never on a PR, and deliberately not among the required checks. It is a trend signal.
 - **Not a large-vault claim.** These are 200-chunk scenarios. Scale scenarios exist in the harness

@@ -1,6 +1,6 @@
 // Builds the `auth.as` doctor view (doctor/auth-as.ts) from config, the already-probed auth registry
 // and a read-only look at oauth.db. Kept out of doctor.ts, which sits at the file-length ceiling.
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { configuredJwksOverlap } from "../../auth/as-boot";
 import { AS_METADATA_PATH, asIssuingRoutesMounted, enabledAs } from "../../auth/as-metadata";
 import { probeOauthDb } from "../../auth/oauth-db";

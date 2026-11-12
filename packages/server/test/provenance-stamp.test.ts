@@ -1,7 +1,7 @@
 // The pure halves of optional provenance stamping: the config defaults, the frontmatter stamp, and
 // commit-message trailer merging (checked against `git interpret-trailers` itself where git exists).
 import { spawnSync } from "node:child_process";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { applyTrailers, stampFrontmatter } from "../src/provenance/stamp";
 import { parseNote } from "../src/vault/frontmatter";
@@ -10,10 +10,10 @@ const ProvenanceConfigSchema = ServerConfigSchema.shape.provenance;
 const KEY = "obsidian_tc_provenance";
 const STAMP = { session: "s-1", principal: "unverified", seq: 4 };
 const LINES = [
-  "Obsidian-TC-Session: s-1",
-  "Obsidian-TC-Principal: unverified",
-  "Obsidian-TC-Model: m (self-reported)",
-  "Obsidian-TC-Provenance-Seq: v:1-2",
+  "Reliquary-TC-Session: s-1",
+  "Reliquary-TC-Principal: unverified",
+  "Reliquary-TC-Model: m (self-reported)",
+  "Reliquary-TC-Provenance-Seq: v:1-2",
 ];
 
 describe("provenance.stamp config", () => {
@@ -104,24 +104,24 @@ describe("applyTrailers", () => {
     );
   });
 
-  it("drops an Obsidian-TC trailer the caller wrote (and its continuation) but keeps the rest", () => {
+  it("drops a Reliquary-TC trailer the caller wrote (and its continuation) but keeps the rest", () => {
     const msg =
-      "subject\n\nbody\n\nSigned-off-by: A <a@b.c>\nObsidian-TC-Principal: admin\n  verified!\nobsidian-tc-session: forged\n";
+      "subject\n\nbody\n\nSigned-off-by: A <a@b.c>\nReliquary-TC-Principal: admin\n  verified!\nreliquary-tc-session: forged\n";
     const out = applyTrailers(msg, LINES);
     expect(out).not.toContain("admin");
     expect(out).not.toContain("forged");
     expect(out).not.toContain("verified!");
-    expect(out).toContain("Signed-off-by: A <a@b.c>\nObsidian-TC-Session: s-1");
+    expect(out).toContain("Signed-off-by: A <a@b.c>\nReliquary-TC-Session: s-1");
   });
 
   it("with nothing to add, still removes a forged trailer and the empty block it leaves", () => {
-    const out = applyTrailers("subject\n\nbody\n\nObsidian-TC-Model: gpt (verified)\n", []);
+    const out = applyTrailers("subject\n\nbody\n\nReliquary-TC-Model: gpt (verified)\n", []);
     expect(out).toBe("subject\n\nbody\n");
   });
 
   it("keeps CRLF line endings", () => {
     const out = applyTrailers("subject\r\n\r\nbody\r\n", LINES.slice(0, 1));
-    expect(out).toBe("subject\r\n\r\nbody\r\n\r\nObsidian-TC-Session: s-1\r\n");
+    expect(out).toBe("subject\r\n\r\nbody\r\n\r\nReliquary-TC-Session: s-1\r\n");
   });
 
   const git = spawnSync("git", ["--version"]);

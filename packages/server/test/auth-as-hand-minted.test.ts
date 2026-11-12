@@ -1,7 +1,7 @@
 // Design v2 section 7: enabling the bundled authorization server never changes what a hand-minted
 // HS256 token without an `aud` is allowed to do. Driven through the real HTTP edge, because the
 // regression lived in the audience the edge's verifier resolved, not in any one function.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -55,7 +55,7 @@ async function mcpStatus(config: ReturnType<typeof configOf>, authRegistry?: unk
   const db = openMemoryDb();
   provisionCacheDb(db);
   const handle = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "t",
     registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth: config.auth,

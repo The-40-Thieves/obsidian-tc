@@ -1,4 +1,4 @@
-// THE-1039 (GH #930) — `obsidian-tc compact`: the operator compaction path 26 CLI verbs never had.
+// THE-1039 (GH #930) — `reliquary-tc compact`: the operator compaction path 26 CLI verbs never had.
 // `maintenance.ts`'s sweep never VACUUMs ("disruptive under WAL") and runs only a BOUNDED FTS5
 // 'merge' (GH #929); this is the explicit full-'optimize' path, reached on purpose.
 //
@@ -591,7 +591,7 @@ function errorReport(
   };
 }
 
-/** `obsidian-tc compact` — see the file header for the in-place-vs-`--into` ruling; runs cache.db then
+/** `reliquary-tc compact` — see the file header for the in-place-vs-`--into` ruling; runs cache.db then
  *  experiential.db, skipping either absent. A1 incident closed: a `SQLITE_BUSY` on the SECOND database
  *  `process.exit(1)`d before the FIRST's success was reported, so every outcome lands in `reports`
  *  first, report/`--json` always emit, and the exit code is decided once, last. */

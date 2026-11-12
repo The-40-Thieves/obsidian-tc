@@ -36,7 +36,7 @@ function makeTracer() {
 }
 
 describe("dispatch OTEL root span (G2.4)", () => {
-  it("emits one obsidian_tc.<tool> SERVER span with the spec attributes on success", async () => {
+  it("emits one reliquary_tc.<tool> SERVER span with the spec attributes on success", async () => {
     const { tracer, exporter, provider } = makeTracer();
     const reg = new ToolRegistry({ rootResolver: () => undefined, tracer });
     reg.register(tool("read_note", ["read:notes"], () => ({ ok: 1 })));
@@ -44,12 +44,12 @@ describe("dispatch OTEL root span (G2.4)", () => {
     const spans = exporter.getFinishedSpans();
     expect(spans).toHaveLength(1);
     const s = spans[0];
-    expect(s?.name).toBe("obsidian_tc.read_note");
+    expect(s?.name).toBe("reliquary_tc.read_note");
     expect(s?.kind).toBe(SpanKind.SERVER);
-    expect(s?.attributes["obsidian_tc.tool"]).toBe("read_note");
-    expect(s?.attributes["obsidian_tc.status"]).toBe("ok");
-    expect(s?.attributes["obsidian_tc.scopes_required"]).toBe("read:notes");
-    expect(typeof s?.attributes["obsidian_tc.caller_hash"]).toBe("string");
+    expect(s?.attributes["reliquary_tc.tool"]).toBe("read_note");
+    expect(s?.attributes["reliquary_tc.status"]).toBe("ok");
+    expect(s?.attributes["reliquary_tc.scopes_required"]).toBe("read:notes");
+    expect(typeof s?.attributes["reliquary_tc.caller_hash"]).toBe("string");
     expect(s?.status.code).toBe(SpanStatusCode.OK);
     await provider.shutdown();
   });
@@ -60,8 +60,8 @@ describe("dispatch OTEL root span (G2.4)", () => {
     reg.register(tool("write_x", ["write:notes"], () => ({})));
     await reg.dispatch("write_x", {}, ctx({ grantedScopes: new Set(["read:notes"]) }));
     const s = exporter.getFinishedSpans()[0];
-    expect(s?.attributes["obsidian_tc.status"]).toBe("denied");
-    expect(s?.attributes["obsidian_tc.error_code"]).toBe("forbidden");
+    expect(s?.attributes["reliquary_tc.status"]).toBe("denied");
+    expect(s?.attributes["reliquary_tc.error_code"]).toBe("forbidden");
     expect(s?.status.code).toBe(SpanStatusCode.ERROR);
     await provider.shutdown();
   });

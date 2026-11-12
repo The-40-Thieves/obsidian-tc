@@ -65,7 +65,7 @@ An earlier change removed the retrieval-evidence half of this extractor. A later
 
 ## `registerEpisodeEvaluation`
 
-`evaluateEpisodes` had exactly two non-test call sites before this: its own definition and the manual `obsidian-tc reflect` CLI. Nothing wired it on a schedule the way `registerActivationRecompute` wires activation, so the promotion pass simply never happened unless an operator remembered to invoke it. Measured on the live store before this shipped: 337 of 337 episodes `pending`, zero eligible, across seventeen days of continuous capture.
+`evaluateEpisodes` had exactly two non-test call sites before this: its own definition and the manual `reliquary-tc reflect` CLI. Nothing wired it on a schedule the way `registerActivationRecompute` wires activation, so the promotion pass simply never happened unless an operator remembered to invoke it. Measured on the live store before this shipped: 337 of 337 episodes `pending`, zero eligible, across seventeen days of continuous capture.
 
 The consequence was not a stale number but a dark subsystem. `work_search` serves evaluator-approved rows only — that is its security contract, not a default — so with zero eligible rows it returned nothing, always. An empty result is indistinguishable from "nothing matched," which is exactly how this stayed invisible. SECURITY.md documents `pending` as "a short-lived state and not a quarantine"; seventeen days at 100% pending is a quarantine.
 
@@ -81,9 +81,9 @@ Until this reader existed, `preferred.search_mode` had a producer (`extractPrefe
 
 **Scope follows the key's declaration.** `preferred.search_mode` is `"caller"`-scoped, so the reader takes only the row whose `scope_caller` equals the caller (`''` for the unauthenticated stdio principal) and only for the vault being searched. `preferenceProfile` returns the shared `''` partition union the caller's own, which is right for a human-scoped key; the reader filters it down to the key's declared scope so a named caller never inherits the stdio principal's row.
 
-**The threshold is a floor, not a confidence.** `SEARCH_MODE_MIN_WEIGHT` is 3.0. The weight is one counter per row, not a per-value tally, and it is not a count of distinct windows: extraction re-reads the newest judged windows on every run and re-applies them, so a single unchanged window reaches 3.0 after five `obsidian-tc reflect` runs (measured; pinned by a test that must flip if extraction becomes idempotent).
+**The threshold is a floor, not a confidence.** `SEARCH_MODE_MIN_WEIGHT` is 3.0. The weight is one counter per row, not a per-value tally, and it is not a count of distinct windows: extraction re-reads the newest judged windows on every run and re-applies them, so a single unchanged window reaches 3.0 after five `reliquary-tc reflect` runs (measured; pinned by a test that must flip if extraction becomes idempotent).
 
-**Extraction stays CLI-only.** Scheduling it behind the flag was considered and rejected for that reason: a scheduled run would push every weight to its cap with no new evidence, turning the threshold into a clock. The prerequisite is a per-window watermark so extraction is idempotent; that is a change to the producer, not to this reader. Until then the profile is as fresh as the last `obsidian-tc reflect`, and an operator who turns the flag on should run it deliberately.
+**Extraction stays CLI-only.** Scheduling it behind the flag was considered and rejected for that reason: a scheduled run would push every weight to its cap with no new evidence, turning the threshold into a clock. The prerequisite is a per-window watermark so extraction is idempotent; that is a change to the producer, not to this reader. Until then the profile is as fresh as the last `reliquary-tc reflect`, and an operator who turns the flag on should run it deliberately.
 
 **Diagnostics.** With the flag on, `search_vault` adds `mode_source` (`explicit`, `preference`, `default`) to its output, and `_explain.reason` names a stored preference. It is a label; no path, query or weight is reported. With the flag off nothing is added.
 

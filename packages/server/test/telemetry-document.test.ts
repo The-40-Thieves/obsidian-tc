@@ -74,7 +74,7 @@ describe("TelemetryDocumentSchema", () => {
   it("rejects a wrong schema literal", () => {
     const r = TelemetryDocumentSchema.safeParse({
       ...validDoc(),
-      schema: "obsidian-tc.telemetry/2",
+      schema: "reliquary-tc.telemetry/2",
     });
     expect(r.success).toBe(false);
   });

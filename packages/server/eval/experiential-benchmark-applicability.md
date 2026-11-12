@@ -1,9 +1,9 @@
-# Does a public "experiential memory" benchmark fit obsidian-tc? (STEP 0 finding)
+# Does a public "experiential memory" benchmark fit reliquary-tc? (STEP 0 finding)
 
 **Verdict: genuinely poor fit. No adapter was built.** This file records the research so the
 question isn't re-opened from scratch next time it comes up.
 
-## What obsidian-tc's experiential tier actually is
+## What reliquary-tc's experiential tier actually is
 
 Read directly from the code, not from the tier's name:
 
@@ -70,7 +70,7 @@ preference type needs a preference store that isn't closed-vocabulary (also no r
 ## Recommendation
 
 - **Do not adopt LongMemEval / LongMemEval-V2 / BEAM for the experiential tier as-is.** They measure
-  conversational or GUI-browsing memory; obsidian-tc's experiential tier measures episodic memory
+  conversational or GUI-browsing memory; reliquary-tc's experiential tier measures episodic memory
   of its own tool calls. A benchmark that doesn't measure the system under test is worse than none.
 - **The general retrieval plane is not unbenchmarked** — `eval/run.ts` already scores it
   (recall@10/nDCG@10/MRR@10/bridge-recall, n=250, statistically gated). What's actually missing is

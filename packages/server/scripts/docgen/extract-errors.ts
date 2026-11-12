@@ -1,8 +1,8 @@
-// docgen — errors extractor (THE-471). The ObsidianTcError taxonomy is a TypeScript union (not
-// enumerable at runtime), but the `err` factory map is: each entry builds an ObsidianTcError whose
+// docgen — errors extractor (THE-471). The ReliquaryTcError taxonomy is a TypeScript union (not
+// enumerable at runtime), but the `err` factory map is: each entry builds a ReliquaryTcError whose
 // `.code` is the canonical code and whose default `.message` is the human fallback. Call each with no
 // args to read both. Deduped by code (a few factories share a code).
-import { type ErrorCode, err, recoveryFor } from "@the-40-thieves/obsidian-tc-shared";
+import { type ErrorCode, err, recoveryFor } from "@the-40-thieves/reliquary-tc-shared";
 import type { ErrorDoc } from "./model";
 
 type ErrFactory = () => { code: string; message: string };

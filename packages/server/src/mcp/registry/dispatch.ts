@@ -1,5 +1,9 @@
 import type { Span, Tracer } from "@opentelemetry/api";
-import { ObsidianTcError, scopeClassOf, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import {
+  ReliquaryTcError,
+  scopeClassOf,
+  type ToolResult,
+} from "@the-40-thieves/reliquary-tc-shared";
 import { elicitRequiredError } from "../../elicit";
 import { withStateProbe } from "../../elicit-drift";
 import { argsHash } from "../../hash";
@@ -174,7 +178,7 @@ export async function runDispatch(
       ctx,
       name,
       audit,
-      new ObsidianTcError(
+      new ReliquaryTcError(
         "indeterminate_outcome",
         "a prior attempt with this idempotency key may have applied its effect but did not record a result; verify state before retrying",
         { key },
@@ -188,7 +192,7 @@ export async function runDispatch(
     // idempotency slot or spends an elicit token.
     checkAborted(ctx.signal);
     const def = deps.toolStore.get(name);
-    if (!def) throw new ObsidianTcError("not_found", `unknown tool: ${name}`);
+    if (!def) throw new ReliquaryTcError("not_found", `unknown tool: ${name}`);
     // THE-219 dispatch guard: a disabled tool is removed from the surface entirely.
     // Reject before scope/validation with the same error an unregistered tool yields,
     // so a disabled tool is indistinguishable from one that was never registered.
@@ -196,7 +200,7 @@ export async function runDispatch(
     // persona-disabled tool is rejected at dispatch, not just delisted — every caller without a
     // persona carries no `toolVisibility` and this check is unchanged for them.
     if (isToolDisabledFor(deps, def, ctx))
-      throw new ObsidianTcError("not_found", `unknown tool: ${name}`);
+      throw new ReliquaryTcError("not_found", `unknown tool: ${name}`);
     // THE-727: static scope class, set before parseInput ON PURPOSE — feeds the throttle decision
     // and error-path metrics even when parseInput itself fails, so a parse failure still gets a
     // real scope_class rather than "unknown". Refined after the parse below. See design note.
@@ -284,13 +288,13 @@ export async function runDispatch(
           idemClaimed = true;
           break;
         case "mismatch":
-          throw new ObsidianTcError(
+          throw new ReliquaryTcError(
             "idempotency_key_mismatch",
             "idempotency key reused with a different tool or arguments",
             { key: idemKey },
           );
         case "in_flight":
-          throw new ObsidianTcError("idempotency_in_flight", "operation in progress", {
+          throw new ReliquaryTcError("idempotency_in_flight", "operation in progress", {
             key: idemKey,
           });
         case "replay":
@@ -406,7 +410,7 @@ export async function runDispatch(
         }
         // THE-1082 (GH #945; fix round 2, cross-vendor review): `tool`/`vault` ride along —
         // `name`/`ctx.vaultId` are already in scope here — so error-rendering.ts's text channel
-        // can render a COMPLETE `obsidian-tc elicit` invocation for this throw site too. Before
+        // can render a COMPLETE `reliquary-tc elicit` invocation for this throw site too. Before
         // this it carried only `args_hash`, which left `--tool` (a hard CLI requirement,
         // cli/args.ts) unrenderable for every always-gated (`destructive: true`) tool — the main
         // class the issue was filed about (11+ sites).
@@ -645,7 +649,7 @@ export async function runDispatch(
         /* diagnostics sink must never mask the original failure */
       }
     }
-    if (!(e instanceof ObsidianTcError)) {
+    if (!(e instanceof ReliquaryTcError)) {
       // THE-288: a non-typed throw is a server bug. Route the real error + stack to the
       // operator sink for diagnosis; the client response below stays the redacted `internal`.
       try {
@@ -655,7 +659,7 @@ export async function runDispatch(
       }
     }
     const thrown =
-      e instanceof ObsidianTcError ? e : new ObsidianTcError("internal", "internal error");
+      e instanceof ReliquaryTcError ? e : new ReliquaryTcError("internal", "internal error");
     // THE-1042 (GH #935): the ONE site both vault-failure shapes funnel through — parseInput's
     // validation_error (a vault-path issue) and VaultRegistry.resolve's vault_not_found thrown deep
     // inside a handler both land in this catch, so the fix hint is added here once rather than

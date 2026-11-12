@@ -260,7 +260,7 @@ export function createTypesafeClient(opts: TypesafeClientOptions = {}): Typesafe
           headers: {
             "content-type": "application/json",
             accept: "application/json",
-            "user-agent": `obsidian-tc/${VERSION}`,
+            "user-agent": `reliquary-tc/${VERSION}`,
             ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
             // Only on a RETRY — attempt 1 carries no retry-count header at all.
             ...(attempt > 1 ? { "x-typesafe-retry-count": String(attempt - 1) } : {}),

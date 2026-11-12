@@ -1,6 +1,6 @@
 import { lstatSync, mkdirSync, type Stats } from "node:fs";
 import { dirname, join, normalize, parse, relative, sep } from "node:path";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { existsNoFollow } from "../auth/key-files";
 import { folderRootForSink, vaultDetailPath } from "./folder-links";
 import { assertCreatableName } from "./paths";

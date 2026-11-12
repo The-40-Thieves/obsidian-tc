@@ -1,6 +1,6 @@
 # Embedded SQLite is the substrate, not Postgres
 
-obsidian-tc's predecessor kept its index in Postgres with pgvector, and the converged engine
+reliquary-tc's predecessor kept its index in Postgres with pgvector, and the converged engine
 was originally scoped to carry that forward. We chose embedded SQLite (with sqlite-vec as an
 optional extension) as the default and only shipped substrate instead, because the product is
 a thing you run beside your own vault, and a server that requires a database to be provisioned

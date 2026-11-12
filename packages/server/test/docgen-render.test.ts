@@ -10,7 +10,7 @@ import { renderTools } from "../scripts/docgen/render-tools";
 
 describe("renderConfig (THE-472)", () => {
   const config: ConfigDoc[] = [
-    { path: "cacheDir", type: "string", default: ".obsidian-tc", optional: true },
+    { path: "cacheDir", type: "string", default: ".reliquary-tc", optional: true },
     { path: "auth.mode", type: "enum(none|jwt)", default: "none", optional: true },
     { path: "vaults[].id", type: "string", optional: false },
   ];
@@ -24,7 +24,7 @@ describe("renderConfig (THE-472)", () => {
 
   it("marks a required key and quotes a string default", () => {
     expect(md).toMatch(/`vaults\[\]\.id`.*\*\*yes\*\*/);
-    expect(md).toContain('`".obsidian-tc"`');
+    expect(md).toContain('`".reliquary-tc"`');
   });
 
   it("sorts sections alphabetically", () => {
@@ -181,15 +181,15 @@ describe("renderTools (THE-472)", () => {
 
 describe("renderMetrics (THE-595)", () => {
   const metrics: MetricDoc[] = [
-    { name: "obsidian_tc_tool_calls_total", type: "counter", help: "Calls.", labels: ["vault"] },
+    { name: "reliquary_tc_tool_calls_total", type: "counter", help: "Calls.", labels: ["vault"] },
     {
-      name: "obsidian_tc_tool_duration_seconds",
+      name: "reliquary_tc_tool_duration_seconds",
       type: "histogram",
       help: "Duration.",
       labels: ["vault"],
       buckets: [0.1, 0.5, 1],
     },
-    { name: "obsidian_tc_active_sessions", type: "gauge", help: "Sessions.", labels: [] },
+    { name: "reliquary_tc_active_sessions", type: "gauge", help: "Sessions.", labels: [] },
   ];
   const md = renderMetrics(metrics);
 
@@ -199,15 +199,15 @@ describe("renderMetrics (THE-595)", () => {
 
   it("gives histograms a Buckets column carrying the real bounds, and no other type one", () => {
     expect(md).toContain("| Name | Labels | Buckets | Help |");
-    expect(md).toMatch(/`obsidian_tc_tool_duration_seconds`.*\| 0\.1, 0\.5, 1 \|/);
+    expect(md).toMatch(/`reliquary_tc_tool_duration_seconds`.*\| 0\.1, 0\.5, 1 \|/);
     // Counters/gauges keep the original three-column shape — no stray "—" bucket column.
     expect(md).toContain("| Name | Labels | Help |");
   });
 
   it("renders '—' for a histogram with no bucket bounds instead of dropping the column", () => {
     const out = renderMetrics([
-      { name: "obsidian_tc_x", type: "histogram", help: "H.", labels: [] },
+      { name: "reliquary_tc_x", type: "histogram", help: "H.", labels: [] },
     ]);
-    expect(out).toMatch(/`obsidian_tc_x` \| — \| — \| H\. \|/);
+    expect(out).toMatch(/`reliquary_tc_x` \| — \| — \| H\. \|/);
   });
 });

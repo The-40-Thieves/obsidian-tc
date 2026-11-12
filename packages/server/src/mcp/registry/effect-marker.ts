@@ -1,6 +1,6 @@
 // The commit signal a handler sends through ctx.markEffectCommitted, installed on the caller's context
 // for a call that owns an idempotency claim or carries a confirmation token its handler may spend.
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 
 type Marked = { markEffectCommitted?: () => void };
 
@@ -15,7 +15,7 @@ export function installEffectMarker(
 ): () => void {
   const slot = callerCtx as Marked;
   if (slot.markEffectCommitted !== undefined) {
-    throw new ObsidianTcError(
+    throw new ReliquaryTcError(
       "internal",
       "CallerContext is already in use by an in-flight dispatch; a context must not be shared across concurrent dispatches",
     );

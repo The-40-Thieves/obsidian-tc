@@ -2,7 +2,7 @@
 // additive patches that keep the rest of the wiki linked to it. The patches are deliberately limited
 // to adding to a note (a link bullet, or text under a heading / at the end): rewriting or deleting
 // existing prose is patch_note / write_note's job, with their own guards.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { frontmatterFallbackSink } from "../../../util/errors";
 import { parseNote, serializeNote } from "../../../vault/frontmatter";

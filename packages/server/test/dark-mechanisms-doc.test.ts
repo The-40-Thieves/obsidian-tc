@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
-const schema = JSON.parse(readFileSync(join(ROOT, "docs/obsidian-tc.config.schema.json"), "utf8"));
+const schema = JSON.parse(readFileSync(join(ROOT, "docs/reliquary-tc.config.schema.json"), "utf8"));
 const doc = readFileSync(join(ROOT, "docs/DARK_MECHANISMS.md"), "utf8");
 
 interface Leaf {

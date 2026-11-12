@@ -3,7 +3,7 @@
 // quote, ": ", " #", a leading "-" or a backslash used to break the whole frontmatter block.
 // The rewrite escapes per the scalar's own style, then re-parses to prove the property holds the
 // intended link text; a property that cannot be proven is left alone and named in `warnings`.
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { parseNote } from "../src/vault/frontmatter";

@@ -230,7 +230,7 @@ describe.skipIf(process.platform === "win32")("git-sync pull triggers and read-o
   it("never commits or pushes in PUSH=off and can fast-forward around a non-overlapping edit", async () => {
     const fixture = makeGitFixture();
     const sync = await bootGitSync(
-      loadGitSyncConfig(syncEnv(fixture, { OBSIDIAN_TC_VAULT_GIT_PUSH: "off" })),
+      loadGitSyncConfig(syncEnv(fixture, { RELIQUARY_TC_VAULT_GIT_PUSH: "off" })),
     );
     const originalHead = git(fixture.vault, ["rev-parse", "HEAD"]);
     writeFileSync(join(fixture.vault, "local-only.md"), "do not commit\n");
@@ -247,7 +247,7 @@ describe.skipIf(process.platform === "win32")("git-sync pull triggers and read-o
   it("reports a dirty-file fast-forward block and leaves the file byte-identical", async () => {
     const fixture = makeGitFixture("base\n");
     const sync = await bootGitSync(
-      loadGitSyncConfig(syncEnv(fixture, { OBSIDIAN_TC_VAULT_GIT_PUSH: "off" })),
+      loadGitSyncConfig(syncEnv(fixture, { RELIQUARY_TC_VAULT_GIT_PUSH: "off" })),
     );
     const localBytes = Buffer.from("local uncommitted\n");
     writeFileSync(join(fixture.vault, "a.md"), localBytes);

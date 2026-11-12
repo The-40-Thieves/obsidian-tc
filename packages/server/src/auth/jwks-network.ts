@@ -20,7 +20,7 @@ import {
   isLoopbackHost,
   isPlainHttpHostListed,
   normalizeHostForBind,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import {
   defaultResolveHost,
   PlainHttpRefusedError,

@@ -95,7 +95,7 @@ keeps the private key. Provide a JWKS in place of (or alongside) `jwtSecret`:
 {
   "auth": {
     "mode": "jwt",
-    "jwksFile": "/etc/obsidian-tc/jwks.json",
+    "jwksFile": "/etc/reliquary-tc/jwks.json",
     "algorithms": ["RS256", "EdDSA"]
   }
 }
@@ -119,7 +119,7 @@ key source.
 | `http://` to a public host, a public and private mix, an unlisted `100.64.0.0/10` host | **Refused.** A key set read in clear can be forged in transit. |
 | Link-local and every cloud metadata address | **Refused**, listed or not. |
 
-The startup line (`auth: jwt auth.jwksUri ...`) and `obsidian-tc doctor` (`auth.jwks-uri`) say which mode is
+The startup line (`auth: jwt auth.jwksUri ...`) and `reliquary-tc doctor` (`auth.jwks-uri`) say which mode is
 active. A pinned connection is direct: `HTTPS_PROXY` is not used for the key set.
 
 The startup line is advisory and the fetch decides again on every request. It says `REFUSED` only for a
@@ -267,19 +267,19 @@ rotation so a stolen refresh token is useful once. Keep the token in memory in t
 `localStorage` or `sessionStorage`: those survive a reload, and any script on the page can read them.
 
 A working example of this pattern, a static page that signs in with PKCE and reads a vault, is in
-[`examples/web-client/`](https://github.com/The-40-Thieves/obsidian-tc/tree/main/examples/web-client).
+[`examples/web-client/`](https://github.com/The-40-Thieves/reliquary-tc/tree/main/examples/web-client).
 
 ## Revoking tokens and rotating the signing key
 
-`obsidian-tc token mint` gives every token a `jti` claim and a `kid` header and records
+`reliquary-tc token mint` gives every token a `jti` claim and a `kid` header and records
 the token (its `jti`, `kid`, subject, expiry and a scope summary, never the token string)
 in the `auth_tokens` table of `<cacheDir>/auth.db` (its own file: see "Back up auth.db" below).
 Three commands operate on that registry:
 
 ```bash
-obsidian-tc auth list [--all] [--keys] [--json] [config-path]
-obsidian-tc auth revoke <jti> [--reason <text>] [config-path]
-obsidian-tc auth rotate-key [--purpose mint|as] [--grace <seconds>] [--alg HS256|ES256|EdDSA] [config-path]
+reliquary-tc auth list [--all] [--keys] [--json] [config-path]
+reliquary-tc auth revoke <jti> [--reason <text>] [config-path]
+reliquary-tc auth rotate-key [--purpose mint|as] [--grace <seconds>] [--alg HS256|ES256|EdDSA] [config-path]
 ```
 
 - **`auth list`** prints `jti`, `kid`, `sub`, `exp` and state (`active`, `revoked`,
@@ -312,25 +312,25 @@ exactly as before. Keys created by `rotate-key` live in `<cacheDir>/auth-keys/<k
 A retiring key stops verifying at its `retire_after` instant, exactly. The verifier compares
 `retire_after` on every request, so the window is exact whether or not anything has yet rewritten
 the row from `retiring` to `retired`. That rewrite (the *reaper*) is housekeeping that keeps
-`auth list --keys` and the `obsidian_tc_auth_keys` gauge truthful, and it runs on `rotate-key`, on
+`auth list --keys` and the `reliquary_tc_auth_keys` gauge truthful, and it runs on `rotate-key`, on
 server start and on the periodic maintenance sweep (`signing_keys_retired` in the sweep counts).
 Nothing about verification waits for it.
 
-`obsidian-tc doctor` (the auth registry check) lists each retiring key with its time remaining and warns
+`reliquary-tc doctor` (the auth registry check) lists each retiring key with its time remaining and warns
 when a window has more than a day left, or when `auth.rotationGraceSeconds` itself exceeds a day: a
 retiring key still verifies every token it ever signed, so a long window is a key that is barely
-rotated. The Prometheus gauge `obsidian_tc_auth_keys{state="active|retiring|retired"}` reports the
+rotated. The Prometheus gauge `reliquary_tc_auth_keys{state="active|retiring|retired"}` reports the
 counts (`retiring` counts only windows still open; `active` should be exactly 1).
 
 ### Pinning a mint to a key
 
-`obsidian-tc token mint --kid <kid>` signs with that key only, and only if it is the **active** key
+`reliquary-tc token mint --kid <kid>` signs with that key only, and only if it is the **active** key
 (or `config` while the registry is still empty). A retiring, retired or unknown `kid` is refused
 and nothing is signed or recorded.
 
 ### Asymmetric signing keys (ES256, EdDSA)
 
-`obsidian-tc auth rotate-key --alg ES256` (or `EdDSA`, Ed25519; the default is `HS256`) creates
+`reliquary-tc auth rotate-key --alg ES256` (or `EdDSA`, Ed25519; the default is `HS256`) creates
 an asymmetric signing key. The private key is a JWK in the same 0600 key file (created
 `O_EXCL|O_NOFOLLOW`, read back through the same `fstat` trust check as an HMAC secret); the
 `auth_keys.public_jwk` column holds only the public half. `token mint` then signs ES256/EdDSA
@@ -369,17 +369,17 @@ Every registry key has a **purpose**, and the registry holds one **active** key 
 
 | purpose | signs | algorithms | verified by |
 | --- | --- | --- | --- |
-| `mint` (the default) | the tokens `obsidian-tc token mint` prints, and the write-provenance chain | HS256, ES256, EdDSA | exactly the rules above, including `auth.issuer` and `auth.audience` when set |
+| `mint` (the default) | the tokens `reliquary-tc token mint` prints, and the write-provenance chain | HS256, ES256, EdDSA | exactly the rules above, including `auth.issuer` and `auth.audience` when set |
 | `as` | the access tokens of the bundled authorization server (RFC 9068 JWTs) | ES256, EdDSA only | stricter rules of its own, below |
 
 Every key that existed before purposes was a `mint` key, and a deployment that never creates an
 `as` key behaves exactly as before: the `<cacheDir>/auth.db` migration adds the column with `mint` as its default.
-Because each purpose has its own active key, `obsidian-tc auth rotate-key --purpose as` never
+Because each purpose has its own active key, `reliquary-tc auth rotate-key --purpose as` never
 retires your HS256 (or any other) `mint` key, and a `mint` rotation never retires the `as` key. Your
 hand-minted tokens therefore keep verifying however often the `as` key rotates.
 
 ```bash
-obsidian-tc auth rotate-key --purpose as [--alg ES256|EdDSA] [--grace <seconds>] [config-path]
+reliquary-tc auth rotate-key --purpose as [--alg ES256|EdDSA] [--grace <seconds>] [config-path]
 ```
 
 - The algorithm defaults to ES256 for `as`; HS256 is refused. The key's `kid` is its RFC 7638
@@ -410,7 +410,7 @@ keeps the existing rule: the persona's scopes replace the token's.
 
 Once `rotate-key` has retired the `config` key, `auth.jwtSecret` verifies and signs nothing, and
 verification and minting work from the registry keys alone: you can remove `auth.jwtSecret` (and
-`OBSIDIAN_TC_JWT_SECRET`), and `doctor` tells you when. A `jwt` server that has no `jwtSecret`, no
+`RELIQUARY_TC_JWT_SECRET`), and `doctor` tells you when. A `jwt` server that has no `jwtSecret`, no
 JWKS and no registry key refuses to start. Removing the secret has one side effect, because it
 also keys them when set: `read_notes` continuation cursors become per-process (a cursor does not
 survive a restart). It does not touch the HTTP elicit round trip (`requestState`): that is keyed
@@ -424,7 +424,7 @@ individually; only rotating its signing key kills it. Set `auth.requireJti: true
 such tokens outright on every path (HS256, JWKS, `/metrics`). `securityProfile: "hardened"` sets
 it to `true` (an explicit `auth.requireJti: false` still wins). The schema default stays `false`
 for now so existing tokens keep working; it is planned to flip to `true` at the next major
-release. `obsidian-tc doctor` recommends `true` once the registry is in use (`token mint` always
+release. `reliquary-tc doctor` recommends `true` once the registry is in use (`token mint` always
 sets a `jti`).
 
 ### Back up `<cacheDir>/auth.db`: it is not a cache
@@ -512,7 +512,7 @@ The bundled server is off until you enable it. Set these in the config (every ke
 
 ```json
 {
-  "cacheDir": "/var/lib/obsidian-tc/cache",
+  "cacheDir": "/var/lib/reliquary-tc/cache",
   "vaults": [{ "id": "main", "path": "/absolute/path/to/vault" }],
   "transports": { "http": { "allowedHosts": ["vault.example.com"] } },
   "auth": {
@@ -595,8 +595,8 @@ The bundled server is off until you enable it. Set these in the config (every ke
   gets a refresh token, one that lists only `authorization_code` (or nothing: the RFC 7591 default) gets none, and
   the `201` echoes exactly what will be served. A registration counts as used only when a sign-in succeeded (a code
   issued or a refresh token rotated), never because someone looked its `client_id` up, so a full table can always
-  reclaim registrations that were only ever probed. On the host, `obsidian-tc auth as clients list [--json]`
-  lists registration ids and timestamps without secrets or source addresses. `obsidian-tc auth as clients remove <id>`
+  reclaim registrations that were only ever probed. On the host, `reliquary-tc auth as clients list [--json]`
+  lists registration ids and timestamps without secrets or source addresses. `reliquary-tc auth as clients remove <id>`
   removes a DCR registration, ends its pending sign-ins and revokes all its grants, refresh tokens and live access
   tokens. Both commands work while DCR is off; removal refuses static and metadata-document clients.
   Revoked grants do not suppress the unapproved-client warning.
@@ -663,7 +663,7 @@ The bundled server is off until you enable it. Set these in the config (every ke
   recorded durably before the registry is told, so a busy token registry database cannot leave a revoked family's access tokens
   live. The account's `scopes_allowed` / `vaults_allowed` are applied again at each refresh.
   `POST /oauth/revoke` (RFC 7009) revokes a refresh token's family or an access token's `jti`, and answers an empty
-  200 for anything else. On the host, `obsidian-tc auth as grants list [--all]` shows what has been granted and
+  200 for anything else. On the host, `reliquary-tc auth as grants list [--all]` shows what has been granted and
   `auth as grants revoke <id>` kills a grant's refresh tokens and live access tokens at once.
 - **Signing key.** At boot with the AS enabled the server generates one `as`-purpose key
   ([Key purposes](#key-purposes-mint-and-as)) if there is none: idempotent, never in a lost registry, and never
@@ -722,12 +722,12 @@ adding users is a later change). Until it exists the server is **unclaimed**: `/
 "not claimed", and so do `/oauth/authorize`, `/oauth/token` and `/oauth/register`. The server logs a notice at boot
 while it is unclaimed. Claim it one of two ways.
 
-- **From the host.** `obsidian-tc auth as set-password [--user <name>] [--stdin]` asks for a password twice
+- **From the host.** `reliquary-tc auth as set-password [--user <name>] [--stdin]` asks for a password twice
   without echo, or reads one line from standard input with `--stdin` (the only way without a terminal). The
   default account name is `operator`. Run again, it changes that operator's password and ends their sessions. It
   needs `auth.as.enabled` and Node 24.7 or later (or Bun).
 - **From a browser, with a setup token.** Put a random value of at least 24 characters in the environment variable
-  named by `auth.as.setupTokenEnv` (default `OBSIDIAN_TC_AS_SETUP_TOKEN`; for example `openssl rand -base64 32`),
+  named by `auth.as.setupTokenEnv` (default `RELIQUARY_TC_AS_SETUP_TOKEN`; for example `openssl rand -base64 32`),
   start the server and open `<issuer>/oauth/setup`. The token is read from the environment on each request and is
   never logged. It works **once**: its SHA-256 is recorded as used, so the same value is refused afterwards even if
   the account is later removed (set a new one). It also stops working 24 hours after the server started (restart to
@@ -794,7 +794,7 @@ passkeys report, is accepted). Each challenge is single-use and lives five minut
 `/oauth/assets/passkey.js`, using the browser's own WebAuthn JSON API.
 
 **Lost the passkey and the password** (or the host changed)? On the host run
-`obsidian-tc auth as reset-credentials [--user <name>] [--stdin] [--revoke-grants]`. It sets a new password, deletes
+`reliquary-tc auth as reset-credentials [--user <name>] [--stdin] [--revoke-grants]`. It sets a new password, deletes
 the operator's passkeys and ends every session, in one transaction. With `--revoke-grants` it also revokes every
 grant of the operator, with its refresh-token families and live access tokens, **in that same transaction** (the
 access-token revocations are queued in the durable outbox and paid to the registry right after the commit). Shell
@@ -802,7 +802,7 @@ access to the host and write access to `<cacheDir>` are the credential, exactly 
 with the new password and enrol a new passkey.
 
 **No shell on the host?** (some hosted platforms). Put a random value of at least 24 characters in the variable
-named by `auth.as.resetTokenEnv` (default `OBSIDIAN_TC_AS_RESET_TOKEN`), restart the server, and open
+named by `auth.as.resetTokenEnv` (default `RELIQUARY_TC_AS_RESET_TOKEN`), restart the server, and open
 `<issuer>/oauth/setup`. The page asks for the token, a new password and, if you tick it, "also revoke every grant".
 It needs the sole operator (with more than one account, use the CLI with `--user`), and it works only inside the boot
 window: 24 hours after the server started, so restart again to open it. The token works **once**: its SHA-256 is
@@ -811,7 +811,7 @@ token counts against the same ten-guess limit as setup. A wrong password does no
 the revoke box ticked is refused while the revocation registry is lost, and changes nothing. If the registry
 fails only after the reset has committed, the page (and `reset-credentials`, which then exits non-zero) says so:
 the password is reset, and the revoked access tokens are refused once the queued revocations reach the registry,
-at the next boot or maintenance sweep; check `obsidian-tc doctor`. Each value works for one reset per boot, and the
+at the next boot or maintenance sweep; check `reliquary-tc doctor`. Each value works for one reset per boot, and the
 two token variables must differ. Then **remove the variable**: the server prints a warning at every boot while it
 is set.
 
@@ -837,7 +837,7 @@ passkey sign-in (the password form is unaffected) until it refills. Set it, as i
 
 ## Verifying an external OpenID Connect provider (`oidc` mode)
 
-If you already run an identity provider (Keycloak, Auth0, Entra ID, Okta, Zitadel, Cloudflare Access), obsidian-tc
+If you already run an identity provider (Keycloak, Auth0, Entra ID, Okta, Zitadel, Cloudflare Access), reliquary-tc
 can verify the access tokens **it** issues instead of minting its own. This is verification only: the server never
 issues, refreshes or registers anything.
 
@@ -857,13 +857,13 @@ issues, refreshes or registers anything.
 ```
 
 That is an Auth0 API named `https://vault.example.com/mcp`, with RBAC enabled and "Add permissions in the access
-token" on, so its tokens carry a `permissions` array holding your obsidian-tc scopes (`read:notes`, `write:notes`, ...).
+token" on, so its tokens carry a `permissions` array holding your reliquary-tc scopes (`read:notes`, `write:notes`, ...).
 Auth0's issuer ends with a `/` and must be written exactly that way. Only **fully-qualified** scope strings
 (`family:resource`, for example `read:notes` or `write:*`) are taken from the scopes claim; see
 [Mapping roles to scopes](#mapping-roles-to-scopes).
 
 **Keycloak.** Use the realm URL as the issuer and map realm roles explicitly. A bare role name is *not* a scope:
-obsidian-tc reads a scope with no colon as a wildcard over the whole family, so a realm role called `admin` would
+reliquary-tc reads a scope with no colon as a wildcard over the whole family, so a realm role called `admin` would
 otherwise mean `admin:*`.
 
 ```json
@@ -882,11 +882,11 @@ otherwise mean `admin:*`.
 ```
 
 Keycloak puts `JWT` in the JOSE header of its access, ID and refresh tokens alike; the kind is in the payload
-`typ` (`Bearer`, `ID`, `Refresh`), which obsidian-tc reads. Configure an audience mapper so access tokens carry
+`typ` (`Bearer`, `ID`, `Refresh`), which reliquary-tc reads. Configure an audience mapper so access tokens carry
 your API audience.
 
 **Entra ID** (v2 endpoint): `"issuer": "https://login.microsoftonline.com/<tenant>/v2.0"`, and
-`"claimMapping": { "scopes": "scp" }` with the API's delegated scopes named as obsidian-tc scopes, or
+`"claimMapping": { "scopes": "scp" }` with the API's delegated scopes named as reliquary-tc scopes, or
 `"scopes": "roles"` plus a `scopeMap` for app roles. **Auth0 namespaced claims** (a claim whose *name* is a URL,
 such as `https://vault.example.com/roles`) are written as an array holding the literal name, because a string is
 always a dotted path into nested objects:
@@ -916,7 +916,7 @@ What to know before turning it on:
 
 - **The issuer is compared exactly**, against every token's `iss` and against the `issuer` in the discovery document
   fetched from `<issuer>/.well-known/openid-configuration`. Discovery is https only, refuses redirects, and is
-  size- and time-bounded. If it fails at boot the server does not start (`obsidian-tc doctor` runs the same probe).
+  size- and time-bounded. If it fails at boot the server does not start (`reliquary-tc doctor` runs the same probe).
 - **Where the IdP may be.** The discovered `jwks_uri` must be on the issuer's origin, with no credentials in the
   URL; list another host in `allowedJwksHosts` (Google serves keys from `www.googleapis.com`) or set `jwksUri`
   yourself. Before every fetch the host is resolved and refused if any address is loopback, link-local (the cloud
@@ -937,7 +937,7 @@ What to know before turning it on:
   `token_use` other than `access` marks an ID or refresh token and is refused. Set `requireAtJwtType: true` if
   your IdP issues RFC 9068 tokens.
 - **Clock skew** of `clockToleranceSeconds` (default 30, at most 300) is allowed on `exp`, `nbf` and `iat`.
-- **Revocation.** An IdP token with a `jti` can be revoked with `obsidian-tc auth revoke <jti>`; `auth.requireJti`
+- **Revocation.** An IdP token with a `jti` can be revoked with `reliquary-tc auth revoke <jti>`; `auth.requireJti`
   refuses tokens without one. A lost or partly lost auth registry refuses every token, with or without a `jti`, in
   `oidc` and `jwt` mode alike. Prefer short IdP token
   lifetimes: revocation here is a local deny list, not a call to the IdP.
@@ -951,7 +951,7 @@ the IdP.
 
 ## OAuth resource-server discovery (optional)
 
-For clients that expect OAuth-style discovery, obsidian-tc can act as an OAuth 2.0
+For clients that expect OAuth-style discovery, reliquary-tc can act as an OAuth 2.0
 **resource server** (RFC 9728) without changing its HS256 token format. When you set
 `auth.resource` (this server's canonical URI) plus one or more
 `auth.authorizationServers`, the HTTP transport serves a Protected Resource Metadata
@@ -1030,7 +1030,7 @@ Many programmatic clients cannot run an OAuth flow: they send a bearer you give 
 path here, with `auth.mode: jwt`. Mint a token and put it where the client sends its `Authorization` header:
 
 ```bash
-obsidian-tc token mint ./obsidian-tc.config.json \
+reliquary-tc token mint ./reliquary-tc.config.json \
   --sub claude-api --vault main --scopes read:notes --ttl 2592000
 # prints the bare token on stdout (details on stderr); add --json for the claims
 ```

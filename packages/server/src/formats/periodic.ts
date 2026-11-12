@@ -11,7 +11,7 @@
 // are documented choices so resolution is deterministic without a live Obsidian.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { isoWeek } from "../util/iso-week";
 import { readNote } from "../vault/notes-io";
 import { normalizeVaultPath } from "../vault/paths";

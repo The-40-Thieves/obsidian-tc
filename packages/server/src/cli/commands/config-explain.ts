@@ -8,9 +8,9 @@ import { resolveEffectiveEmbeddings } from "./doctor-probes";
 // going through resolveServeConfig, because the RAW file object is the evidence for what the file
 // (as opposed to the schema, the profile, or the environment) actually said.
 export async function run_config_explain(cmd: Cmd<"config-explain">): Promise<void> {
-  const path = cmd.configPath ?? process.env.OBSIDIAN_TC_CONFIG;
+  const path = cmd.configPath ?? process.env.RELIQUARY_TC_CONFIG;
   if (!path) {
-    process.stderr.write("config explain: pass a config.json (or set OBSIDIAN_TC_CONFIG).\n");
+    process.stderr.write("config explain: pass a config.json (or set RELIQUARY_TC_CONFIG).\n");
     process.exit(2);
   }
   let raw: Record<string, unknown>;
@@ -69,7 +69,7 @@ export async function run_config_explain(cmd: Cmd<"config-explain">): Promise<vo
     embeddingsEffective.source === "kept-from-index"
       ? "kept-from-index — kept from this vault's existing index, not written in your config"
       : embeddingsEffective.source === "ambiguous-orphaned-index"
-        ? "ambiguous-orphaned-index — could not confirm this vault's provider; see `obsidian-tc doctor`"
+        ? "ambiguous-orphaned-index — could not confirm this vault's provider; see `reliquary-tc doctor`"
         : embeddingsEffective.source === "configured"
           ? "configured — matches embeddings.provider above"
           : "default — the schema default, no existing index to keep";

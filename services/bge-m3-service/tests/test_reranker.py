@@ -1,6 +1,6 @@
 """BgeReranker loader (THE-1035): CrossEncoder must actually load the pinned snapshot, not just
 report a revision afterwards. torch / sentence_transformers / huggingface_hub are lazy-imported
-(the last one via the shared obsidian_tc_bge.hub helper), so fakes are injected into sys.modules
+(the last one via the shared reliquary_tc_bge.hub helper), so fakes are injected into sys.modules
 before construction and never touch real weights or the network. The reranker has no
 sparse/ColBERT heads (THE-1035 item 4 is BGE-M3-specific), so no missing-file check applies here."""
 
@@ -44,7 +44,7 @@ def _install_fakes(monkeypatch, *, snapshot_download):
 
 
 def _reranker_module():
-    from obsidian_tc_bge import reranker
+    from reliquary_tc_bge import reranker
 
     return reranker
 

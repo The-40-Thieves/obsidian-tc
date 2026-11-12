@@ -552,14 +552,14 @@ describe("commit trailers", () => {
       [
         "snapshot",
         "",
-        "Obsidian-TC-Session: sess-A",
-        "Obsidian-TC-Session: sess-B",
-        "Obsidian-TC-Principal: alice",
-        "Obsidian-TC-Principal: unverified",
-        "Obsidian-TC-Model: model-a (self-reported)",
-        "Obsidian-TC-Model: model-b (self-reported)",
+        "Reliquary-TC-Session: sess-A",
+        "Reliquary-TC-Session: sess-B",
+        "Reliquary-TC-Principal: alice",
+        "Reliquary-TC-Principal: unverified",
+        "Reliquary-TC-Model: model-a (self-reported)",
+        "Reliquary-TC-Model: model-b (self-reported)",
         // a.md is seq 1 and b.md seq 3; unstaged.md (seq 2) is inside the range but not in the commit.
-        "Obsidian-TC-Provenance-Seq: test:1-3",
+        "Reliquary-TC-Provenance-Seq: test:1-3",
       ].join("\n"),
     );
     if (r.ok) {
@@ -589,7 +589,7 @@ describe("commit trailers", () => {
     const b = await boot({ stamp: { gitTrailers: true }, routes: status(["Vault/notes/a.md"]) });
     await b.call("write_note", { vault: VAULT, path: "notes/a.md", content: "A" }, ALICE);
     await b.confirmed("git_commit", { vault: VAULT, message: "snapshot" }, ALICE);
-    expect(commitMessage(b)).toContain("Obsidian-TC-Provenance-Seq: test:1-1");
+    expect(commitMessage(b)).toContain("Reliquary-TC-Provenance-Seq: test:1-1");
   });
 
   it("a client-claimed model cannot end its line and forge another trailer", async () => {
@@ -602,25 +602,25 @@ describe("commit trailers", () => {
     await b.confirmed("git_commit", { vault: VAULT, message: "snapshot" }, ALICE);
     const msg = commitMessage(b);
     expect(msg).toContain(
-      "Obsidian-TC-Model: x Signed-off-by: root <root@example.com> (self-reported)",
+      "Reliquary-TC-Model: x Signed-off-by: root <root@example.com> (self-reported)",
     );
     expect(msg.split("\n").some((l) => l.startsWith("Signed-off-by"))).toBe(false);
   });
 
-  it("keeps the caller's message and removes an Obsidian-TC trailer it wrote itself", async () => {
+  it("keeps the caller's message and removes a Reliquary-TC trailer it wrote itself", async () => {
     const b = await boot({ stamp: { gitTrailers: true }, routes: status(["a.md"]) });
     await b.call("write_note", { vault: VAULT, path: "a.md", content: "A" }, ALICE);
     await b.confirmed(
       "git_commit",
       {
         vault: VAULT,
-        message: "subject\n\nwhy\n\nSigned-off-by: Me <me@x.io>\nObsidian-TC-Principal: admin",
+        message: "subject\n\nwhy\n\nSigned-off-by: Me <me@x.io>\nReliquary-TC-Principal: admin",
       },
       ALICE,
     );
     const msg = commitMessage(b);
     expect(
-      msg.startsWith("subject\n\nwhy\n\nSigned-off-by: Me <me@x.io>\nObsidian-TC-Session: sess-A"),
+      msg.startsWith("subject\n\nwhy\n\nSigned-off-by: Me <me@x.io>\nReliquary-TC-Session: sess-A"),
     ).toBe(true);
     expect(msg).not.toContain("admin");
   });
@@ -664,7 +664,7 @@ describe("commit trailers", () => {
 
     await b.confirmed("git_commit", { vault: VAULT, message: "snapshot" }, ALICE);
 
-    expect(commitMessage(b)).toContain("Obsidian-TC-Provenance-Seq: test:1-2");
+    expect(commitMessage(b)).toContain("Reliquary-TC-Provenance-Seq: test:1-2");
   });
 
   it("warns explicitly when an old companion cannot provide safe staged paths", async () => {

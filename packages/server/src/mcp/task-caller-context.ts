@@ -9,7 +9,7 @@
 // test/task-offload-policy.test.ts also fails when dispatch reads a key that is not in the table
 // or a carried key does not survive the JSON round trip.
 
-import type { ToolVisibilityConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolVisibilityConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { FolderAcl } from "../acl";
 import type { Database } from "../db/types";
 import type { ClaimedProvenance } from "../provenance/types";

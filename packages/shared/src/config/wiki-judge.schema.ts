@@ -66,7 +66,7 @@ export const WikiJudgeConfigSchema = z
       .boolean()
       .default(false)
       .describe(
-        "DEPRECATED, removed at the next major release: use plainHttpHosts. Until then `true` means this baseUrl's own host is listed in plainHttpHosts, with the connect-time private-address check still applied (a host that resolves to a public address is refused). `obsidian-tc doctor` and server_health warn while it is set.",
+        "DEPRECATED, removed at the next major release: use plainHttpHosts. Until then `true` means this baseUrl's own host is listed in plainHttpHosts, with the connect-time private-address check still applied (a host that resolves to a public address is refused). `reliquary-tc doctor` and server_health warn while it is set.",
       ),
     maxCallsPerRequest: z
       .number()

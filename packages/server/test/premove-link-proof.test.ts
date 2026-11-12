@@ -11,7 +11,7 @@
 // the intended one exactly), while a unique-basename bare link stays fine.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type ToolResult, wikiLinkNameProblem } from "@the-40-thieves/obsidian-tc-shared";
+import { type ToolResult, wikiLinkNameProblem } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { renderEntityNote } from "../src/memory/materialize";

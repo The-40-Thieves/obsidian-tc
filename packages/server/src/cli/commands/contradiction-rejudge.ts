@@ -1,4 +1,4 @@
-// `obsidian-tc contradiction-rejudge [--dry-run]` — re-judge the open contradiction flags with the
+// `reliquary-tc contradiction-rejudge [--dry-run]` — re-judge the open contradiction flags with the
 // current gateway judge and record WHICH model ruled. The one-time data fix is in
 // plane/contradiction-rejudge.ts (read its header for the why); this is the thin operator shell:
 // config + stores + gateway client, dry-run reporting, before/after counts.
@@ -82,7 +82,7 @@ export async function run_contradiction_rejudge(cmd: Cmd<"contradiction-rejudge"
       }).judge;
     } catch {
       process.stderr.write(
-        "contradiction-rejudge: no gateway configured (set gateway.baseUrl or OBSIDIAN_TC_GATEWAY_URL); use --dry-run to see counts without one\n",
+        "contradiction-rejudge: no gateway configured (set gateway.baseUrl or RELIQUARY_TC_GATEWAY_URL); use --dry-run to see counts without one\n",
       );
       process.exit(1);
     }

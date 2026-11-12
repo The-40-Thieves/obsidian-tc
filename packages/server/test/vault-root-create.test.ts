@@ -50,9 +50,9 @@ describe("first boot on an empty data volume", { timeout: stallTimeout(60_000) }
       cwd: PACKAGE_ROOT,
       env: {
         ...isolatedEnv(),
-        OBSIDIAN_TC_CONFIG: config,
-        OBSIDIAN_TC_VAULT_PATH: vault,
-        OBSIDIAN_TC_CACHE_DIR: join(data, "cache"),
+        RELIQUARY_TC_CONFIG: config,
+        RELIQUARY_TC_VAULT_PATH: vault,
+        RELIQUARY_TC_CACHE_DIR: join(data, "cache"),
       },
     });
     expect(run.stderr).toContain("ready on stdio");
@@ -70,9 +70,9 @@ describe("first boot on an empty data volume", { timeout: stallTimeout(60_000) }
       cwd: PACKAGE_ROOT,
       env: {
         ...isolatedEnv(),
-        OBSIDIAN_TC_CONFIG: config,
-        OBSIDIAN_TC_VAULT_PATH: "",
-        OBSIDIAN_TC_CACHE_DIR: join(data, "cache"),
+        RELIQUARY_TC_CONFIG: config,
+        RELIQUARY_TC_VAULT_PATH: "",
+        RELIQUARY_TC_CACHE_DIR: join(data, "cache"),
       },
     });
     expect(run.code).toBe(1);
@@ -83,7 +83,7 @@ describe("first boot on an empty data volume", { timeout: stallTimeout(60_000) }
 });
 
 describe("ensureEnvVaultRoot", () => {
-  const ENV = (path: string | undefined) => ({ OBSIDIAN_TC_VAULT_PATH: path });
+  const ENV = (path: string | undefined) => ({ RELIQUARY_TC_VAULT_PATH: path });
   let base = "";
   const logged: string[] = [];
   const log = (line: string) => logged.push(line);

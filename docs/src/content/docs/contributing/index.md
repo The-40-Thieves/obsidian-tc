@@ -1,20 +1,20 @@
 ---
 title: Contributing
-description: Monorepo layout and how to build and test obsidian-tc. The full contributor guide is CONTRIBUTING.md at the repo root.
+description: Monorepo layout and how to build and test reliquary-tc. The full contributor guide is CONTRIBUTING.md at the repo root.
 ---
 
 The **full contributor guide** — development setup, code conventions, commit and PR rules,
 testing expectations, adding a tool, and DCO sign-off — is the canonical
-[`CONTRIBUTING.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/CONTRIBUTING.md)
+[`CONTRIBUTING.md`](https://github.com/The-40-Thieves/reliquary-tc/blob/main/CONTRIBUTING.md)
 at the repository root. This page is a quick local build-and-test reference.
 
 ## Layout
 
-obsidian-tc is a Bun workspace monorepo:
+reliquary-tc is a Bun workspace monorepo:
 
 | Package | What |
 | --- | --- |
-| `packages/server` | the MCP server (`obsidian-tc`) — tools, dispatch, transports |
+| `packages/server` | the MCP server (`reliquary-tc`) — tools, dispatch, transports |
 | `packages/shared` | Zod schemas and shared types |
 | `packages/native` | the napi-rs native module (vector ops, BM25) + pure-JS fallback |
 | `packages/plugin` | the companion Obsidian plugin |
@@ -31,8 +31,8 @@ obsidian-tc is a Bun workspace monorepo:
 ```sh
 bun install
 bun run lint
-bun run --filter=@the-40-thieves/obsidian-tc-shared build
-bun run --filter=obsidian-tc test          # vitest, with a v8 coverage gate (>80%)
+bun run --filter=@the-40-thieves/reliquary-tc-shared build
+bun run --filter=reliquary-tc test          # vitest, with a v8 coverage gate (>80%)
 ```
 
 ## Storage portability

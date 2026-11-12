@@ -12,9 +12,9 @@ describe("formatSetupOriginNotice", () => {
     expect(formatSetupOriginNotice("something-else")).toBeUndefined();
   });
 
-  it("names the fallback and points at `obsidian-tc setup` for 'first-run-fallback'", () => {
+  it("names the fallback and points at `reliquary-tc setup` for 'first-run-fallback'", () => {
     const text = formatSetupOriginNotice("first-run-fallback");
     expect(text).toContain("first-run fallback");
-    expect(text).toContain("obsidian-tc setup");
+    expect(text).toContain("reliquary-tc setup");
   });
 });

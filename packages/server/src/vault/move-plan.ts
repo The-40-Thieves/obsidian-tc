@@ -11,9 +11,9 @@
 // re-plans and re-proves ONCE, then refuses with nothing moved if the vault moved again.
 import {
   err,
-  ObsidianTcError,
+  ReliquaryTcError,
   type VaultMemoryDefenseConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import type { Database } from "../db/types";
 import type { MetricsRecorder } from "../metrics/registry";
 import { enforceMemoryDefenseOnMovedBytes } from "../util/memory-defense";
@@ -46,13 +46,13 @@ export interface PlannedRewrite {
 /** A read that found no file: readNote throws an ENOENT (or the typed not-found) for one. */
 const isVanished = (e: unknown): boolean =>
   (e as NodeJS.ErrnoException | undefined)?.code === "ENOENT" ||
-  (e instanceof ObsidianTcError && e.code === "note_not_found");
+  (e instanceof ReliquaryTcError && e.code === "note_not_found");
 
 /** A refusal collected while scanning: the link in `rel` cannot be written as exactly one link. */
 interface ScanFailure {
   rel: string;
   target: string | undefined;
-  cause: ObsidianTcError;
+  cause: ReliquaryTcError;
 }
 
 /**
@@ -89,7 +89,7 @@ export class RewriteScan {
       this.failures.push({
         rel,
         target: undefined,
-        cause: new ObsidianTcError(
+        cause: new ReliquaryTcError(
           "invalid_input",
           "The note could not be read, so its links could not be checked",
         ),
@@ -119,7 +119,7 @@ export class RewriteScan {
           { exactTarget: true },
         );
       } catch (e) {
-        if (!(e instanceof ObsidianTcError && e.code === "invalid_input")) throw e;
+        if (!(e instanceof ReliquaryTcError && e.code === "invalid_input")) throw e;
       }
       if (mapped) this.skips.note(rel, kind);
       return null;
@@ -136,7 +136,7 @@ export class RewriteScan {
         { exactTarget: true },
       );
     } catch (e) {
-      if (!(e instanceof ObsidianTcError) || e.code !== "invalid_input") throw e;
+      if (!(e instanceof ReliquaryTcError) || e.code !== "invalid_input") throw e;
       this.failures.push({
         rel,
         target: last === null ? undefined : redactSecrets(last).text,
@@ -228,7 +228,7 @@ export class PlanChanged extends Error {}
 
 /** True for the CAS miss `applyWriteBatch` throws when a note changed after it was planned. */
 const isCasMiss = (e: unknown): boolean =>
-  e instanceof ObsidianTcError && e.code === "concurrent_modification";
+  e instanceof ReliquaryTcError && e.code === "concurrent_modification";
 
 /**
  * Commit a plan, re-planning once if the vault moved under it. `commit(plan, recheck)` does the

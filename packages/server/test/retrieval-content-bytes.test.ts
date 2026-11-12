@@ -101,13 +101,13 @@ describe("retrieval content-bytes instrumentation (THE-585 #12)", () => {
 
     const bytesIn = sample(
       text,
-      "obsidian_tc_retrieval_content_bytes_in_total",
+      "reliquary_tc_retrieval_content_bytes_in_total",
       "main",
       "diversity",
     );
     const bytesOut = sample(
       text,
-      "obsidian_tc_retrieval_content_bytes_out_total",
+      "reliquary_tc_retrieval_content_bytes_out_total",
       "main",
       "diversity",
     );
@@ -118,28 +118,28 @@ describe("retrieval content-bytes instrumentation (THE-585 #12)", () => {
     // candidateAssembly: single stream, no cross-stream duplicates in this fixture, so bytesIn
     // equals bytesOut here — a real value nonetheless, not a registered-but-unfed series.
     expect(
-      sample(text, "obsidian_tc_retrieval_content_bytes_in_total", "main", "candidateAssembly"),
+      sample(text, "reliquary_tc_retrieval_content_bytes_in_total", "main", "candidateAssembly"),
     ).toBe(totalBytes);
     expect(
-      sample(text, "obsidian_tc_retrieval_content_bytes_out_total", "main", "candidateAssembly"),
+      sample(text, "reliquary_tc_retrieval_content_bytes_out_total", "main", "candidateAssembly"),
     ).toBe(totalBytes);
 
     // gatedRerank falls through to plain projection (gatedRerank.enabled defaults false), so its
     // content passes through unchanged: bytesIn == bytesOut == what diversity let through.
     expect(
-      sample(text, "obsidian_tc_retrieval_content_bytes_in_total", "main", "gatedRerank"),
+      sample(text, "reliquary_tc_retrieval_content_bytes_in_total", "main", "gatedRerank"),
     ).toBe(survivingBytes);
     expect(
-      sample(text, "obsidian_tc_retrieval_content_bytes_out_total", "main", "gatedRerank"),
+      sample(text, "reliquary_tc_retrieval_content_bytes_out_total", "main", "gatedRerank"),
     ).toBe(survivingBytes);
 
     // A stage this item does NOT populate must create no series at all — not a registered zero,
     // an absent one, per StageMetric's optional bytesIn/bytesOut contract.
     expect(
-      sample(text, "obsidian_tc_retrieval_content_bytes_in_total", "main", "seedGeneration"),
+      sample(text, "reliquary_tc_retrieval_content_bytes_in_total", "main", "seedGeneration"),
     ).toBeUndefined();
     expect(text).not.toMatch(
-      /^obsidian_tc_retrieval_content_bytes_(in|out)_total\{vault="main",stage="seedGeneration"\}/m,
+      /^reliquary_tc_retrieval_content_bytes_(in|out)_total\{vault="main",stage="seedGeneration"\}/m,
     );
   });
 });

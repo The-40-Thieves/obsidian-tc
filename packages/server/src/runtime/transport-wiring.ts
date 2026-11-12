@@ -8,7 +8,7 @@
 // map's WP5 acceptance criterion), closing whichever of the two were actually opened; a transport
 // that was never enabled contributes nothing to unwind, mirroring server-runtime.ts's
 // unwindReversed pattern for the boot-time layers.
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { FolderAcl } from "../acl";
 import { configuredJwksOverlap, ensureAsKey } from "../auth/as-boot";
 import { drainRevocations } from "../auth/as-grants";
@@ -43,7 +43,7 @@ export interface TransportWiringDeps {
   registry: ToolRegistry;
   vaultRegistry: VaultRegistry;
   db: Database;
-  /** The server's default vault (`VaultRegistry.default`, so `OBSIDIAN_TC_DEFAULT_VAULT` wins over
+  /** The server's default vault (`VaultRegistry.default`, so `RELIQUARY_TC_DEFAULT_VAULT` wins over
    *  list order). The name predates that: it is the vault an unbound HTTP caller is bound to. */
   firstVaultId: string;
   acl: FolderAcl;
@@ -137,7 +137,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
       } else if (key.skipped === "alg_mismatch") {
         process.stderr.write(
           `auth: WARNING the active authorization server key ${key.kid} is ${key.existingAlg} but auth.as.signingAlg is ${as.signingAlg}; ` +
-            "rotate it with `obsidian-tc auth rotate-key --purpose as` to switch\n",
+            "rotate it with `reliquary-tc auth rotate-key --purpose as` to switch\n",
         );
       }
     } catch (e) {
@@ -157,8 +157,8 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
       if (n.active + n.retiring === 0) {
         opened?.close();
         throw new Error(
-          "auth.mode is 'jwt' but there is no signing key: set auth.jwtSecret (or OBSIDIAN_TC_JWT_SECRET), " +
-            "configure a JWKS, or create a registry key with `obsidian-tc auth rotate-key`",
+          "auth.mode is 'jwt' but there is no signing key: set auth.jwtSecret (or RELIQUARY_TC_JWT_SECRET), " +
+            "configure a JWKS, or create a registry key with `reliquary-tc auth rotate-key`",
         );
       }
     }
@@ -200,7 +200,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
         const viaPage = (process.env[as.setupTokenEnv] ?? "") !== "";
         process.stderr.write(
           "auth: the authorization server is not claimed: it refuses authorize, token and register until " +
-            `the operator claims it with \`obsidian-tc auth as set-password\` on this host${viaPage ? `, or at ${as.issuer}/oauth/setup with the setup token` : ""}\n`,
+            `the operator claims it with \`reliquary-tc auth as set-password\` on this host${viaPage ? `, or at ${as.issuer}/oauth/setup with the setup token` : ""}\n`,
         );
       }
       const registry = authRegistry;
@@ -260,7 +260,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
       const httpT0 = performance.now();
       const http = await startHttp({
         ...(vaultSyncWebhook ? { vaultSyncWebhook } : {}),
-        name: "obsidian-tc",
+        name: "reliquary-tc",
         version: deps.version,
         registry: deps.registry,
         vaultRegistry: deps.vaultRegistry,
@@ -319,7 +319,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
       httpConstructSeconds = (performance.now() - httpT0) / 1000;
       httpHandle = http;
       process.stderr.write(
-        `obsidian-tc http listening on ${config.transports.http.host}:${http.port}\n`,
+        `reliquary-tc http listening on ${config.transports.http.host}:${http.port}\n`,
       );
     }
 
@@ -336,7 +336,7 @@ export async function wireTransports(deps: TransportWiringDeps): Promise<Transpo
       });
       metricsHandle = m;
       process.stderr.write(
-        `obsidian-tc /metrics on ${config.observability.prometheus.bind}:${m.port}\n`,
+        `reliquary-tc /metrics on ${config.observability.prometheus.bind}:${m.port}\n`,
       );
     }
 

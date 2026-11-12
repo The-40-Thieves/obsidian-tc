@@ -24,7 +24,7 @@ async function connect(registry: ToolRegistry, toolsPageSize?: number) {
     db: {} as never,
   });
   const server = createMcpServer({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     context,

@@ -5,7 +5,7 @@
 // confirmation; overwrites keep write_note's rule.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { contentHash } from "../src/vault/paths";

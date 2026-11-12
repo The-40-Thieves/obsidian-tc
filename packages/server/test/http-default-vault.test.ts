@@ -1,10 +1,10 @@
 // An HTTP caller with no vault claim and no grant vault (an unbound OAuth token) is pinned to the
-// server's DEFAULT vault: OBSIDIAN_TC_DEFAULT_VAULT when it names a configured vault, else the first
+// server's DEFAULT vault: RELIQUARY_TC_DEFAULT_VAULT when it names a configured vault, else the first
 // one. server-runtime used to hand the HTTP transport `config.vaults[0]` regardless of the env var,
 // so the registry said "main" while every unbound token was pinned to "agents".
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { buildServerRuntime } from "../src/runtime/server-runtime";
 import * as http from "../src/transports/http";
@@ -15,7 +15,7 @@ vi.mock("../src/transports/http", () => ({
   startHttp: vi.fn(async () => ({ port: 1, close: async () => {} })),
 }));
 
-const ENV = "OBSIDIAN_TC_DEFAULT_VAULT";
+const ENV = "RELIQUARY_TC_DEFAULT_VAULT";
 const dirs: string[] = [];
 let savedEnv: string | undefined;
 
@@ -57,14 +57,14 @@ async function httpFallbackVault(defaultVault?: string): Promise<string | undefi
   }
 }
 
-it("an unbound HTTP caller falls back to OBSIDIAN_TC_DEFAULT_VAULT when it names the second vault", async () => {
+it("an unbound HTTP caller falls back to RELIQUARY_TC_DEFAULT_VAULT when it names the second vault", async () => {
   expect(await httpFallbackVault("main")).toBe("main");
 });
 
-it("with OBSIDIAN_TC_DEFAULT_VAULT unset, the first configured vault is still the fallback", async () => {
+it("with RELIQUARY_TC_DEFAULT_VAULT unset, the first configured vault is still the fallback", async () => {
   expect(await httpFallbackVault()).toBe("agents");
 });
 
-it("an OBSIDIAN_TC_DEFAULT_VAULT naming no configured vault falls back to the first vault", async () => {
+it("an RELIQUARY_TC_DEFAULT_VAULT naming no configured vault falls back to the first vault", async () => {
   expect(await httpFallbackVault("no-such-vault")).toBe("agents");
 });

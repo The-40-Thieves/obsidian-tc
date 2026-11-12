@@ -198,7 +198,7 @@ describe("THE-1130 note rendering and ownership", () => {
       ],
     });
     expect(open).toBe(
-      "---\nobsidian_tc_id: ent_1\nentity_type: person\nstatus: active\n---\n# Ada\n\n## Observations\n\n- mathematician\n\n## Related\n\n- knows [[Babbage]]\n",
+      "---\nreliquary_tc_id: ent_1\nentity_type: person\nstatus: active\n---\n# Ada\n\n## Observations\n\n- mathematician\n\n## Related\n\n- knows [[Babbage]]\n",
     );
     expect(open).not.toContain("## Superseded");
     const closed = renderEntityNote({
@@ -216,7 +216,7 @@ describe("THE-1130 note rendering and ownership", () => {
       const rel = "memory/person/Ada.md";
       const abs = join(v.root, rel);
       mkdirSync(dirname(abs), { recursive: true });
-      const original = "---\nobsidian_tc_id: foreign\n---\nDo not overwrite me.\n";
+      const original = "---\nreliquary_tc_id: foreign\n---\nDo not overwrite me.\n";
       writeFileSync(abs, original, "utf8");
       expect(() => assertNoteOwnership(v.root, rel, "ent_expected")).toThrow(
         /refusing to touch a note/i,

@@ -9,7 +9,7 @@ import { dirname } from "node:path";
 import {
   isFeedbackExemptFromReadOnly,
   type ServerConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { version as VERSION } from "../../package.json";
 import { experientialMigrations } from "../cli/shared";
 import { plainHttpEndpointDeprecations } from "../doctor/plain-http";
@@ -157,7 +157,7 @@ export async function buildServerRuntime(
           traceContent: config.sessions.traceContent,
           vaults: config.vaults,
           acl: config.acl,
-          defaultVaultId: process.env.OBSIDIAN_TC_DEFAULT_VAULT,
+          defaultVaultId: process.env.RELIQUARY_TC_DEFAULT_VAULT,
           boundVaultOnly: config.resources?.boundVaultOnly,
           elicitTtlSeconds: config.elicitTtlSeconds,
           throttle: config.throttle,
@@ -212,7 +212,7 @@ export async function buildServerRuntime(
     onSnapshotSkipped,
   } = observability;
   const { acl, aclByVault, vaultRegistry, activeSessions, rateLimiter, registry } = governance;
-  const defaultVaultId = vaultRegistry.default; // OBSIDIAN_TC_DEFAULT_VAULT, else the first vault
+  const defaultVaultId = vaultRegistry.default; // RELIQUARY_TC_DEFAULT_VAULT, else the first vault
   toolRegistryRef = registry; // THE-1125: registry exists now — see this file's lazy-ref comment above.
   const {
     embeddingProvider,
@@ -450,7 +450,7 @@ export async function buildServerRuntime(
     const context = stdioContext({ activeSessions, db, acl, config, defaultVaultId });
 
     const server = createMcpServer({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: VERSION,
       registry,
       context,
@@ -626,7 +626,7 @@ export async function buildServerRuntime(
       server.onclose = () => {
         if (config.transports.http.enabled) {
           process.stderr.write(
-            "obsidian-tc: stdin closed (stdio transport EOF) — HTTP transport still serving; " +
+            "reliquary-tc: stdin closed (stdio transport EOF) — HTTP transport still serving; " +
               "continuing HTTP-only (set transports.stdio: false to silence this for headless " +
               "deploys)\n",
           );
@@ -637,15 +637,15 @@ export async function buildServerRuntime(
           .finally(() => process.exit(0));
       };
       process.stderr.write(
-        `obsidian-tc ${VERSION} ready on stdio (vault ${defaultVaultId}; native=${nativeReadyToken(nativeBindingActive)} vec=${hasVec ? "on" : "off"})\n`,
+        `reliquary-tc ${VERSION} ready on stdio (vault ${defaultVaultId}; native=${nativeReadyToken(nativeBindingActive)} vec=${hasVec ? "on" : "off"})\n`,
       );
     } else if (config.transports.http.enabled) {
       process.stderr.write(
-        `obsidian-tc ${VERSION} ready (http-only; stdio disabled; vault ${defaultVaultId}; native=${nativeReadyToken(nativeBindingActive)} vec=${hasVec ? "on" : "off"})\n`,
+        `reliquary-tc ${VERSION} ready (http-only; stdio disabled; vault ${defaultVaultId}; native=${nativeReadyToken(nativeBindingActive)} vec=${hasVec ? "on" : "off"})\n`,
       );
     } else {
       process.stderr.write(
-        "obsidian-tc: no transport enabled (transports.stdio=false and transports.http.enabled=false); nothing to serve\n",
+        "reliquary-tc: no transport enabled (transports.stdio=false and transports.http.enabled=false); nothing to serve\n",
       );
       process.exit(1);
     }
@@ -659,7 +659,7 @@ export async function buildServerRuntime(
     cancelBootWarmup(); // a shutdown during boot must not launch the reconcile afterwards
     indexResources.embedderWarmup.cancel();
     fts.cancel();
-    process.stderr.write(`obsidian-tc: shutting down (${reason})\n`);
+    process.stderr.write(`reliquary-tc: shutting down (${reason})\n`);
     await transports.close().catch(() => {}); // F3: no more requests FIRST (was LAST, after release)
     // GH #995: abort the boot reconcile — left running it embeds with no deadline; both
     // flush() and embed-batches.ts's worker loop check this signal between sub-batches.

@@ -3,15 +3,15 @@ import starlight from '@astrojs/starlight';
 
 export default defineConfig({
   // Served from the custom domain at the root. DNS: Cloudflare CNAME
-  // obsidian-tc -> the-40-thieves.github.io (DNS-only / grey cloud). The public/CNAME
+  // reliquary-tc -> the-40-thieves.github.io (DNS-only / grey cloud). The public/CNAME
   // file below is what keeps the custom domain bound across Actions deploys.
   site: 'https://obsidian-tc.the40thieves.io',
   integrations: [
     starlight({
-      title: 'obsidian-tc',
+      title: 'reliquary-tc',
       description: 'A turbocharged Model Context Protocol server for Obsidian.',
       social: [
-        { icon: 'github', label: 'GitHub', href: 'https://github.com/the-40-thieves/obsidian-tc' },
+        { icon: 'github', label: 'GitHub', href: 'https://github.com/the-40-thieves/reliquary-tc' },
       ],
       sidebar: [
         { label: 'Getting Started', items: [{ autogenerate: { directory: 'getting-started' } }] },
@@ -41,7 +41,7 @@ export default defineConfig({
         { label: 'V2 Preview', items: [{ autogenerate: { directory: 'v2-preview' } }] },
       ],
       editLink: {
-        baseUrl: 'https://github.com/the-40-thieves/obsidian-tc/edit/main/docs/',
+        baseUrl: 'https://github.com/the-40-thieves/reliquary-tc/edit/main/docs/',
       },
       customCss: ['./src/styles/custom.css'],
     }),

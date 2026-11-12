@@ -5,7 +5,7 @@
 // split rather than the circular-import trap CLAUDE.md warns a naive one creates. Re-exported
 // from server-runtime.ts so every existing import path keeps working.
 import type { Tracer } from "@opentelemetry/api";
-import type { VaultConfigInput } from "@the-40-thieves/obsidian-tc-shared";
+import type { VaultConfigInput } from "@the-40-thieves/reliquary-tc-shared";
 import type { FolderAcl } from "../acl";
 import type { EmbeddingsConfigLike } from "../embeddings";
 import type { RegistryOptions } from "../mcp/registry/types";
@@ -42,7 +42,7 @@ export interface RuntimeCoreDeps {
   vaults: VaultConfigInput[];
   /** config.acl — root ACL, inherited by any vault without its own. */
   acl: ConstructorParameters<typeof FolderAcl>[0];
-  /** OBSIDIAN_TC_DEFAULT_VAULT */
+  /** RELIQUARY_TC_DEFAULT_VAULT */
   defaultVaultId: string | undefined;
   /** config.resources.boundVaultOnly (see VaultRegistry). */
   boundVaultOnly?: boolean | undefined;

@@ -3,7 +3,7 @@
 // (section 9.1), no `registration_endpoint` while DCR is off, PRM naming the issuer first, and the
 // threat-model Host-header-spoofing row. Nothing here issues a token: no issuing route exists yet.
 import { request } from "node:http";
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { AS_FEATURES, AS_ROUTES, type AsRouteName } from "../src/auth/as-metadata";
@@ -56,7 +56,7 @@ async function boot(auth: ServerConfig["auth"]) {
   const db = openMemoryDb();
   provisionCacheDb(db);
   const handle = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "t",
     registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth,

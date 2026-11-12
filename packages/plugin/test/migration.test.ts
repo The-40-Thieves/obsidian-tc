@@ -1,4 +1,4 @@
-// THE-943: settings migration + conflict guard for the obsidian-tc -> tc-bridge rename.
+// THE-943: settings migration + conflict guard for the reliquary-tc -> tc-bridge rename.
 //
 // main.ts extends Obsidian's `Plugin`, a VALUE import from `obsidian` the test mock (see
 // test/__mocks__/obsidian.ts's header) deliberately does not export, so main.ts cannot be

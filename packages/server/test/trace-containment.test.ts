@@ -13,7 +13,7 @@
 // and the scan finds the sentinel. That failure is the point.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";
 

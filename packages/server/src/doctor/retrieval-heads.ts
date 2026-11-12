@@ -122,7 +122,7 @@ export function retrievalHeadsCheck(view: RetrievalHeadsView): Check {
       }
       // Ambiguity-policy branch — no active vectors matched this vault's own id, but the cache db
       // holds active vectors under a DIFFERENT one (a rename, or a fresh vault sharing a cache
-      // directory). obsidian-tc refused to guess and uses `denseProvider` as-is; this makes that
+      // directory). reliquary-tc refused to guess and uses `denseProvider` as-is; this makes that
       // refusal visible instead of indistinguishable from a fresh install.
       if (view.denseProviderSource === "ambiguous-orphaned-index") {
         notes.push(

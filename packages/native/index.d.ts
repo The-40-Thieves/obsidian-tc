@@ -1,4 +1,4 @@
-// Type surface for @the-40-thieves/obsidian-tc-native (umbrella entry, index.js).
+// Type surface for @the-40-thieves/reliquary-tc-native (umbrella entry, index.js).
 // Mirrors the napi-rs exports (src/lib.rs) and the pure-JS fallback (fallback.ts).
 
 /** Cosine similarity between two equal-length vectors; 0 for empty/mismatched inputs. */

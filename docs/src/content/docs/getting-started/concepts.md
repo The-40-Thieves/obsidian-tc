@@ -5,7 +5,7 @@ description: The core building blocks — vaults, tools, the facade, scopes, tra
 
 ## Vaults
 
-A **vault** is an Obsidian vault directory. obsidian-tc is multi-vault: each entry
+A **vault** is an Obsidian vault directory. reliquary-tc is multi-vault: each entry
 in `vaults` has an `id`, a `path`, and optional per-vault settings (bridge URLs,
 memory folder, command allowlist). Every tool call targets one vault.
 
@@ -33,7 +33,7 @@ filtered per caller scopes + tool-visibility ACL.
 exists". Two additions close that gap without a fourth meta-tool or any change to
 `tools/list`: the server's `instructions` (returned at connection time) carry a
 13-domain category summary, one line each with the three or four most-used tool
-names per domain; and the `obsidian-tc://catalog` resource returns the full
+names per domain; and the `reliquary-tc://catalog` resource returns the full
 caller-visible catalog as `{domain, name, summary}` JSON grouped by domain — no
 schemas, read only on demand. Both are filtered to what the caller can actually
 call, the same way `find_capability` is.

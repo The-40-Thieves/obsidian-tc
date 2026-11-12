@@ -23,6 +23,7 @@
 // `import`, not `require`), which Bun's bundler DOES inline correctly, and unit tests (which run
 // source, never the bundle) could not have caught this class of failure — the bundle is a build
 // artifact this file has no other way to exercise short of running dist/cli.js itself.
+
 import {
   applyEdits,
   findNodeAtLocation,
@@ -32,9 +33,10 @@ import {
   parseTree,
 } from "jsonc-parser/lib/esm/main.js";
 import { CliError } from "../cli-error";
+import { LEGACY_SERVER_KEY, SERVER_KEY } from "./client-install-types";
 
 export interface JsoncMergeResult {
-  /** True when an `obsidian-tc` entry was ALREADY present and `force` was not set — `text` is then
+  /** True when a `reliquary-tc` entry was ALREADY present and `force` was not set — `text` is then
    *  just the original, byte-for-byte unchanged. */
   alreadyExists: boolean;
   text: string;
@@ -43,7 +45,7 @@ export interface JsoncMergeResult {
 const FORMATTING_OPTIONS = { tabSize: 2, insertSpaces: true, eol: "\n" } as const;
 const PARSE_OPTIONS = { allowTrailingComma: true } as const;
 
-/** Merge the obsidian-tc entry into an existing (or absent) JSONC config file's TEXT — pure, so
+/** Merge the reliquary-tc entry into an existing (or absent) JSONC config file's TEXT — pure, so
  *  every case (missing file, missing `serversKey`, existing entry, malformed JSON, a `serversKey`
  *  that is not an object) is unit-testable without touching a filesystem. Mirrors
  *  `mergeMcpServersEntry`'s own refusal shapes exactly, on text instead of a parsed object, so a
@@ -78,15 +80,25 @@ export function mergeMcpServersEntryJsonc(
       );
     }
   }
-  const existingEntryNode = tree
-    ? findNodeAtLocation(tree, [serversKey, "obsidian-tc"])
-    : undefined;
-  const alreadyExists = existingEntryNode !== undefined;
+  const hasLegacy =
+    tree !== undefined && findNodeAtLocation(tree, [serversKey, LEGACY_SERVER_KEY]) !== undefined;
+  const alreadyExists =
+    hasLegacy ||
+    (tree !== undefined && findNodeAtLocation(tree, [serversKey, SERVER_KEY]) !== undefined);
   if (alreadyExists && !opts.force) {
     return { alreadyExists: true, text };
   }
-  const edits = modify(text, [serversKey, "obsidian-tc"], entry, {
+  let next = text;
+  if (hasLegacy) {
+    next = applyEdits(
+      next,
+      modify(next, [serversKey, LEGACY_SERVER_KEY], undefined, {
+        formattingOptions: FORMATTING_OPTIONS,
+      }),
+    );
+  }
+  const edits = modify(next, [serversKey, SERVER_KEY], entry, {
     formattingOptions: FORMATTING_OPTIONS,
   });
-  return { alreadyExists: false, text: applyEdits(text, edits) };
+  return { alreadyExists: false, text: applyEdits(next, edits) };
 }

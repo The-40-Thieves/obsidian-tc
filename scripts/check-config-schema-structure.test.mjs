@@ -6,7 +6,10 @@ import { diffStructure, flattenSchema, unacknowledged } from "./lib/config-schem
 
 const real = () =>
   JSON.parse(
-    readFileSync(join(import.meta.dirname, "..", "docs", "obsidian-tc.config.schema.json"), "utf8"),
+    readFileSync(
+      join(import.meta.dirname, "..", "docs", "reliquary-tc.config.schema.json"),
+      "utf8",
+    ),
   );
 
 /** First leaf property (path, node) under the real schema that carries a numeric/boolean default. */

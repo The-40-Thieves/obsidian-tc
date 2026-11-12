@@ -52,7 +52,7 @@ function setup() {
     makeOnIndexed: () => undefined,
   });
   const counter = async (): Promise<number> => {
-    const m = /obsidian_tc_index_frontmatter_failures_total\{vault="test"\} (\d+)/.exec(
+    const m = /reliquary_tc_index_frontmatter_failures_total\{vault="test"\} (\d+)/.exec(
       await metrics.metrics(),
     );
     return m ? Number(m[1]) : 0;

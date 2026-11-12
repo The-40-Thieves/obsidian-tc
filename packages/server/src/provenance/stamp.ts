@@ -2,7 +2,7 @@
 // see it. Both are OFF by default (`provenance.stamp.*`), and neither adds anything the record does
 // not already carry: session, principal, a self-reported model, a seq. Never the host id.
 //
-//   commit trailers   `Obsidian-TC-*` lines appended to a commit the server makes through the
+//   commit trailers   `Reliquary-TC-*` lines appended to a commit the server makes through the
 //                     commit tool, for the recorded writes whose CURRENT bytes are in that commit.
 //   frontmatter       one key on a note an agent just CREATED. An existing note is never touched.
 //
@@ -26,10 +26,12 @@ export interface StampConfig {
 
 /** Newest records read when matching a commit to the writes in it; older ones are out of scope. */
 export const MAX_RECORDS_SCANNED = 2000;
-/** Distinct values per trailer; more is reported by `Obsidian-TC-Truncated`, never hidden. */
+/** Distinct values per trailer; more is reported by `Reliquary-TC-Truncated`, never hidden. */
 export const MAX_TRAILER_VALUES = 10;
 
-const RESERVED = /^Obsidian-TC-[A-Za-z0-9-]*[ \t]*:/i;
+// Both prefixes are reserved: a pre-2.0 server stamped Obsidian-TC-* trailers, and a caller must not
+// be able to forge one under either spelling.
+const RESERVED = /^(?:Reliquary|Obsidian)-TC-[A-Za-z0-9-]*[ \t]*:/i;
 const SHA256 = /^[0-9a-f]{64}$/;
 // Control characters, plus the Unicode line/paragraph separators some renderers break lines on.
 // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping control characters is the point
@@ -75,7 +77,7 @@ const isContinuation = (l: string): boolean => /^[ \t]+\S/.test(l);
  * Append trailer lines to a commit message the way `git interpret-trailers` would: at the end, in
  * the last paragraph when that is already a trailer block (every line `Key: value`, a continuation
  * line allowed), otherwise in a new paragraph after one blank line. The caller's own text is kept
- * byte for byte, with one exception: any `Obsidian-TC-*` trailer the caller wrote in the final
+ * byte for byte, with one exception: any `Reliquary-TC-*` trailer the caller wrote in the final
  * trailer block is dropped, so a trailer under that prefix is always the server's. Spawning git is
  * deliberately avoided (a vault's own config can run programs, see vault/git-state.ts).
  * No lines and nothing to drop returns `message` untouched.
@@ -241,10 +243,10 @@ function trailerLines(vaultId: string, records: ProvenanceBody[]): string[] {
   const first = records[0]?.seq ?? 0;
   const lastSeq = records[records.length - 1]?.seq ?? first;
   return [
-    ...cap(sessions).map((s) => `Obsidian-TC-Session: ${s}`),
-    ...cap(principals).map((p) => `Obsidian-TC-Principal: ${p}`),
-    ...cap(models).map((m) => `Obsidian-TC-Model: ${m} (self-reported)`),
-    `Obsidian-TC-Provenance-Seq: ${oneLine(vaultId)}:${first}-${lastSeq}`,
-    ...(truncated ? ["Obsidian-TC-Truncated: more values than listed"] : []),
+    ...cap(sessions).map((s) => `Reliquary-TC-Session: ${s}`),
+    ...cap(principals).map((p) => `Reliquary-TC-Principal: ${p}`),
+    ...cap(models).map((m) => `Reliquary-TC-Model: ${m} (self-reported)`),
+    `Reliquary-TC-Provenance-Seq: ${oneLine(vaultId)}:${first}-${lastSeq}`,
+    ...(truncated ? ["Reliquary-TC-Truncated: more values than listed"] : []),
   ];
 }

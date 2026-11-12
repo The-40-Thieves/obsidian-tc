@@ -3,7 +3,7 @@
 // scope AND the folder read ACL on the entity. A caller that may write memory but not read it must
 // be refused before anything moves, a destination it may not read is refused before the collision
 // lookup, and a neighbour it may not read stays silent in the response.
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";

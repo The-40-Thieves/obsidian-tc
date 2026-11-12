@@ -1,4 +1,4 @@
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { applyLogic, evaluatesTruthy } from "../src/search/jsonlogic";
 
@@ -52,13 +52,13 @@ describe("applyLogic", () => {
       applyLogic({ frobnicate: [1, 2] }, data);
       throw new Error("expected throw");
     } catch (e) {
-      expect(e).toBeInstanceOf(ObsidianTcError);
-      expect((e as ObsidianTcError).code).toBe("jsonlogic_error");
+      expect(e).toBeInstanceOf(ReliquaryTcError);
+      expect((e as ReliquaryTcError).code).toBe("jsonlogic_error");
     }
   });
 
   it("throws jsonlogic_error when an object has multiple operator keys", () => {
-    expect(() => applyLogic({ "==": [1, 1], ">": [2, 1] }, data)).toThrow(ObsidianTcError);
+    expect(() => applyLogic({ "==": [1, 1], ">": [2, 1] }, data)).toThrow(ReliquaryTcError);
   });
 });
 
@@ -78,9 +78,9 @@ describe("jsonlogic op budget (THE-293)", () => {
       evaluatesTruthy(rule, data);
       throw new Error("expected throw");
     } catch (e) {
-      expect(e).toBeInstanceOf(ObsidianTcError);
-      expect((e as ObsidianTcError).code).toBe("jsonlogic_error");
-      expect((e as ObsidianTcError).message).toContain("operation budget");
+      expect(e).toBeInstanceOf(ReliquaryTcError);
+      expect((e as ReliquaryTcError).code).toBe("jsonlogic_error");
+      expect((e as ReliquaryTcError).message).toContain("operation budget");
     }
   });
 
@@ -128,6 +128,6 @@ describe("THE-201 extended operators", () => {
   });
 
   it("unknown operator still raises jsonlogic_error", () => {
-    expect(() => ev({ bogus: [1] })).toThrow(ObsidianTcError);
+    expect(() => ev({ bogus: [1] })).toThrow(ReliquaryTcError);
   });
 });

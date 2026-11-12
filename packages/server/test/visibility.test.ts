@@ -1,4 +1,4 @@
-import { ToolVisibilityConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ToolVisibilityConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";

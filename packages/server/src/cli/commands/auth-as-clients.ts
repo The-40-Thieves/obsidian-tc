@@ -55,7 +55,7 @@ export async function runAuthAsClients(cmd: Cmd<"auth">): Promise<void> {
       );
       if (result.status !== "removed")
         throw new CliError(
-          `no removable DCR client ${clientId} (list them with: obsidian-tc auth as clients list)`,
+          `no removable DCR client ${clientId} (list them with: reliquary-tc auth as clients list)`,
         );
       await auditAuthEvent(cfg, "auth_client_removed");
       out(`removed client ${clientId}; revoked ${result.grants} grants`, { clientId, ...result });

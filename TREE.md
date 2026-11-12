@@ -1,4 +1,4 @@
-# obsidian-tc — structural map
+# reliquary-tc — structural map
 
 Every count that depends on the whole tree (scale, per-subsystem file and line counts, largest
 files, the import graph) is **generated on demand and not committed**: `bun run map` (or `just map`)
@@ -16,11 +16,11 @@ Root `package.json` declares four bun workspaces; `docs/` and `services/` are se
 
 | path | package name | role |
 |---|---|---|
-| `packages/server` | `obsidian-tc` | the MCP server — all tools, retrieval, indexing, storage, transports |
-| `packages/shared` | `@the-40-thieves/obsidian-tc-shared` | Zod config schema + shared types. Consumed by server and plugin |
-| `packages/native` | `@the-40-thieves/obsidian-tc-native` | Rust/napi-rs module — batched cosine similarity, prebuilt per target |
-| `packages/plugin` | `@the-40-thieves/obsidian-tc-plugin` | Obsidian companion plugin exposing REST extensions |
-| `docs/` | `obsidian-tc-docs` | Astro Starlight site + `docs/wiki/`. **Separate workspace** — root `bun audit` and overrides do not reach it |
+| `packages/server` | `reliquary-tc` | the MCP server — all tools, retrieval, indexing, storage, transports |
+| `packages/shared` | `@the-40-thieves/reliquary-tc-shared` | Zod config schema + shared types. Consumed by server and plugin |
+| `packages/native` | `@the-40-thieves/reliquary-tc-native` | Rust/napi-rs module — batched cosine similarity, prebuilt per target |
+| `packages/plugin` | `@the-40-thieves/reliquary-tc-plugin` | Obsidian companion plugin exposing REST extensions |
+| `docs/` | `reliquary-tc-docs` | Astro Starlight site + `docs/wiki/`. **Separate workspace** — root `bun audit` and overrides do not reach it |
 | `services/bge-m3-service` | (python) | embedding sidecar; deps hash-locked via `uv pip compile --generate-hashes` |
 | `services/docs-ingest` | (python) | vendor-docs ingestion |
 

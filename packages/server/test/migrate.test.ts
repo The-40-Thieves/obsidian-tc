@@ -1,4 +1,4 @@
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import { openMemoryDb } from "./helpers";
@@ -33,8 +33,8 @@ describe("migration runner", () => {
       runMigrations(d, [{ version: "20260519_001", sql: "CREATE TABLE a(x, y);" }]);
       throw new Error("should have thrown");
     } catch (e) {
-      expect(e).toBeInstanceOf(ObsidianTcError);
-      expect((e as ObsidianTcError).code).toBe("conflict");
+      expect(e).toBeInstanceOf(ReliquaryTcError);
+      expect((e as ReliquaryTcError).code).toBe("conflict");
     }
   });
   it("rolls back a failing migration", () => {

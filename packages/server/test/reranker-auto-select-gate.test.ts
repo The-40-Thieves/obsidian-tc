@@ -44,7 +44,7 @@ describe("autoSelectLocalRerankerApplies (THE-944 review round 1, F5)", () => {
     );
   });
 
-  it("false when OBSIDIAN_TC_GATEWAY_URL (gatewayUrlEnv) is configured", () => {
+  it("false when RELIQUARY_TC_GATEWAY_URL (gatewayUrlEnv) is configured", () => {
     expect(autoSelectLocalRerankerApplies(undefined, NONE, { gatewayUrlEnv: "http://gw" })).toBe(
       false,
     );

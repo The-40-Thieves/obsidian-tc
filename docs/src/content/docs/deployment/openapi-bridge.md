@@ -1,9 +1,9 @@
 ---
 title: OpenAPI clients (mcpo bridge)
-description: Expose obsidian-tc tools to OpenAPI-only consumers through the mcpo bridge, with one shared identity.
+description: Expose reliquary-tc tools to OpenAPI-only consumers through the mcpo bridge, with one shared identity.
 ---
 
-obsidian-tc speaks MCP. It has no OpenAPI or REST surface, and this page does not add one. For
+reliquary-tc speaks MCP. It has no OpenAPI or REST surface, and this page does not add one. For
 consumers that only speak OpenAPI, such as n8n and Zapier HTTP nodes, scripts, and Open WebUI user
 tool servers, run [mcpo](https://github.com/open-webui/mcpo) (v0.0.20) in front of the server. mcpo
 turns each MCP tool it reads into an OpenAPI operation.
@@ -20,9 +20,9 @@ server directly with the [client recipes](/deployment/client-recipes/).
 
 ## How it works
 
-mcpo opens **one** MCP session to obsidian-tc when it starts. It sends the static headers given on
+mcpo opens **one** MCP session to reliquary-tc when it starts. It sends the static headers given on
 its command line, and it reads the tool list once. Every OpenAPI request then runs on that session,
-so every caller shares one obsidian-tc identity and that identity's scopes and folder ACL. mcpo
+so every caller shares one reliquary-tc identity and that identity's scopes and folder ACL. mcpo
 does not forward a caller's own credentials.
 
 Requests reach mcpo with one shared API key, set by `--api-key`. `--strict-auth` applies that key
@@ -44,20 +44,20 @@ the token exists:
    [Docker page](/deployment/docker/#healthcheck-behavior):
 
    ```sh
-   docker compose -f compose.http.yml exec obsidian-tc \
-     bun /app/packages/server/dist/cli.js token mint /config/obsidian-tc.config.json \
+   docker compose -f compose.http.yml exec reliquary-tc \
+     bun /app/packages/server/dist/cli.js token mint /config/reliquary-tc.config.json \
      --sub openapi-bridge --vault main --scopes 'read:*'
    ```
 
 3. Export the token, a random bridge API key, and start the overlay:
 
    ```sh
-   export OBSIDIAN_TC_MCPO_TOKEN='<printed token>'
-   export OBSIDIAN_TC_MCPO_API_KEY='<random key for callers>'
+   export RELIQUARY_TC_MCPO_TOKEN='<printed token>'
+   export RELIQUARY_TC_MCPO_API_KEY='<random key for callers>'
    docker compose -f compose.http.yml -f compose.mcpo.yml up -d
    ```
 
-The overlay sets `OBSIDIAN_TC_ALLOWED_HOSTS=obsidian-tc` on the server, so that the bridge's Host
+The overlay sets `RELIQUARY_TC_ALLOWED_HOSTS=reliquary-tc` on the server, so that the bridge's Host
 header is accepted. It publishes mcpo on `127.0.0.1:8000` only; set `MCPO_PORT` to change the port.
 
 The bridge connects to `/mcp/essentials`, the curated profile described under

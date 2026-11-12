@@ -4,10 +4,10 @@
 // builders — no framework, no I/O. The HTTP transport serves the document and emits the
 // WWW-Authenticate challenge; the HS256 token format is unchanged. The authorization-server half
 // (token issuance, Dynamic Client Registration, OIDC discovery) is intentionally out of scope:
-// obsidian-tc points at an EXTERNAL authorization server via config when one exists, and until then
+// reliquary-tc points at an EXTERNAL authorization server via config when one exists, and until then
 // stays pre-registration-only (THE-661; see isPrmConfigured for the dated decision).
 import { getOAuthProtectedResourceMetadataUrl } from "@modelcontextprotocol/server";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { URL_SURFACE_NAMES } from "../mcp/tool-profiles";
 import { advertisedScopes, asIssuing, enabledAs } from "./as-metadata";
 import { allowedResources, surfaceResource } from "./resource-set";
@@ -34,7 +34,7 @@ export interface ProtectedResourceMetadata {
  * least one authorization server.
  *
  * THE-661: RFC 9728 alone treats `authorization_servers` as OPTIONAL -- only `resource` is
- * REQUIRED. But obsidian-tc doesn't implement bare RFC 9728; it implements the MCP authorization
+ * REQUIRED. But reliquary-tc doesn't implement bare RFC 9728; it implements the MCP authorization
  * spec's overlay on top of it (see the file header), and THAT spec is stricter: "The Protected
  * Resource Metadata document returned by the MCP server MUST include the `authorization_servers`
  * field containing at least one authorization server." That sentence is identical, word for word,
@@ -46,7 +46,7 @@ export interface ProtectedResourceMetadata {
  * the same guard, the WWW-Authenticate `resource_metadata` pointer -- see transports/http.ts) is
  * the spec-compliant response to "no authorization server is configured."
  *
- * Dated decision (2026-07-28): obsidian-tc stays pre-registration-only for now. Its sole client is
+ * Dated decision (2026-07-28): reliquary-tc stays pre-registration-only for now. Its sole client is
  * LiteLLM, a single fixed self-operated process -- exactly the "existing relationship" case the
  * spec's client-registration priority order lists first, ahead of Client ID Metadata Documents and
  * Dynamic Client Registration. No authorization server is being stood up. Re-check this decision
@@ -211,7 +211,7 @@ export function wwwAuthenticateChallenge(auth: AuthConfig, surface?: string): st
   const scopes = auth.scopesSupported; // the operator's list only: a challenge never invents scopes
   const scope =
     scopes && scopes.length > 0 ? `, scope="${scopes.join(" ").replace(/"/g, "")}"` : "";
-  return `Bearer realm="obsidian-tc", resource_metadata="${resourceMetadataUrl(auth, surface)}"${scope}`;
+  return `Bearer realm="reliquary-tc", resource_metadata="${resourceMetadataUrl(auth, surface)}"${scope}`;
 }
 
 /**

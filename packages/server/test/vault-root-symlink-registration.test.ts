@@ -13,7 +13,7 @@
 //
 // Own file, not added to vault-primitives.test.ts: the JS-fallback arm below needs
 // `vi.resetModules()` + a dynamic re-import of `notes-io.ts`, because that module's native/JS
-// selection is decided once at module load from `OBSIDIAN_TC_FORCE_JS_FALLBACK` (see its own file
+// selection is decided once at module load from `RELIQUARY_TC_FORCE_JS_FALLBACK` (see its own file
 // header) — a different isolation shape than every synchronous test already in that file.
 //
 // Four things this file proves:
@@ -22,7 +22,7 @@
 //   2. A read/write through a vault registered via a symlinked ancestor succeeds against the REAL
 //      compiled native binding (skipped, not silently passed, when this host has none — the same
 //      `nativeLoaded` gate native-contract.test.ts uses).
-//   3. The same read/write succeeds through the JS fallback (OBSIDIAN_TC_FORCE_JS_FALLBACK=1).
+//   3. The same read/write succeeds through the JS fallback (RELIQUARY_TC_FORCE_JS_FALLBACK=1).
 //   4. A symlink INSIDE the vault escaping the root is still refused by both backends — this
 //      ticket does not relax `open_parent`'s per-component rule or paths.ts's containment check.
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
@@ -114,8 +114,8 @@ describe("THE-1081 / #946 — vault root canonicalization at registration", () =
     "JS fallback: read/write through a symlinked-ancestor root succeeds",
     async () => {
       vi.resetModules();
-      const prevFallback = process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
-      process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = "1";
+      const prevFallback = process.env.RELIQUARY_TC_FORCE_JS_FALLBACK;
+      process.env.RELIQUARY_TC_FORCE_JS_FALLBACK = "1";
       try {
         const notesIo = await import("../src/vault/notes-io");
         expect(notesIo.nativeVaultIo).toBe(false);
@@ -124,8 +124,8 @@ describe("THE-1081 / #946 — vault root canonicalization at registration", () =
         notesIo.writeNoteAtomic(abs, "hello");
         expect(notesIo.readNote(abs).raw).toBe("hello");
       } finally {
-        if (prevFallback === undefined) delete process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
-        else process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = prevFallback;
+        if (prevFallback === undefined) delete process.env.RELIQUARY_TC_FORCE_JS_FALLBACK;
+        else process.env.RELIQUARY_TC_FORCE_JS_FALLBACK = prevFallback;
         vi.resetModules();
       }
     },

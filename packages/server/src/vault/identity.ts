@@ -17,7 +17,7 @@
 //     BOTH cache.db and experiential.db, is re-keyed old id -> new id (each store its own
 //     transaction — see `resolveAndApplyVaultIdentity`), and the identity row is updated in place.
 import { statSync } from "node:fs";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { CASE_INSENSITIVE_FS } from "../acl";
 import { tableExists } from "../db/introspect";
 import { inTransaction } from "../db/txn";

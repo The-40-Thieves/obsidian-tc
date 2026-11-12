@@ -1,7 +1,7 @@
 // THE-705 item 1 — bundled local cross-encoder reranker, reachable with no
-// OBSIDIAN_TC_GATEWAY_URL and no bge-m3-service.
+// RELIQUARY_TC_GATEWAY_URL and no bge-m3-service.
 //
-// ZERO TOP-LEVEL IMPORT OF @huggingface/transformers. That is not a style preference: obsidian-tc's
+// ZERO TOP-LEVEL IMPORT OF @huggingface/transformers. That is not a style preference: reliquary-tc's
 // cold-start perf gate (boot.* keys) measures module-evaluation cost, and this package's consumer
 // (packages/server/src/providers/registry.ts) dynamically imports THIS module even when
 // reranker.provider is "local" — so if @huggingface/transformers were imported at THIS file's top

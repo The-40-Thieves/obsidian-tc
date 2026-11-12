@@ -1,4 +1,4 @@
-// Tests for the Claude Code / Muse Code plugin manifests under plugins/obsidian-tc and the
+// Tests for the Claude Code / Muse Code plugin manifests under plugins/reliquary-tc and the
 // Claude-style marketplace at .claude-plugin/marketplace.json.
 //
 // Formats checked against the vendors' docs, fetched 2026-10-10:
@@ -16,7 +16,7 @@ import { launchConfig } from "./lib/launch-config.mjs";
 import { pinnedPackageSpec } from "./lib/plugin-manifest-versions.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const PLUGIN_DIR = "plugins/obsidian-tc";
+const PLUGIN_DIR = "plugins/reliquary-tc";
 const readJson = (p) => JSON.parse(readFileSync(join(ROOT, p), "utf8"));
 
 const version = readJson("package.json").version;
@@ -42,14 +42,14 @@ test("claude plugin.json: the config path is a required user option that .mcp.js
   assert.equal(opt?.required, true);
   // biome-ignore lint/suspicious/noTemplateCurlyInString: the literal placeholder Claude Code expands
   const placeholder = "${user_config.config_path}";
-  assert.equal(mcp.mcpServers["obsidian-tc"].env[launch.configEnv], placeholder);
+  assert.equal(mcp.mcpServers["reliquary-tc"].env[launch.configEnv], placeholder);
 });
 
 const pinnedArgs = ["-y", pinnedPackageSpec(launch.args.at(-1), version)];
 
 test(".mcp.json launches the published npm package over stdio, pinned to this version", () => {
-  assert.deepEqual(Object.keys(mcp.mcpServers), ["obsidian-tc"]);
-  const s = mcp.mcpServers["obsidian-tc"];
+  assert.deepEqual(Object.keys(mcp.mcpServers), ["reliquary-tc"]);
+  const s = mcp.mcpServers["reliquary-tc"];
   assert.equal(s.command, launch.command);
   assert.deepEqual(s.args, pinnedArgs, "exact pin: the plugin directory blocks an unpinned npx");
   assert.deepEqual(Object.keys(s.env), [launch.configEnv]);
@@ -78,7 +78,7 @@ test("muse plugin.json: schemaVersion 1, lockstep version, mcpServers is an ARRA
   assert.ok(Array.isArray(muse.capabilities.mcpServers), "capabilities.mcpServers is an array");
   assert.equal(muse.capabilities.mcpServers.length, 1);
   const [s] = muse.capabilities.mcpServers;
-  assert.equal(s.id, "obsidian-tc");
+  assert.equal(s.id, "reliquary-tc");
   assert.equal(s.transport, "stdio");
   assert.deepEqual(s.command, [launch.command, ...pinnedArgs]);
 });

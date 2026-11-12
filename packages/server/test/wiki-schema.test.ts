@@ -3,7 +3,7 @@
 
 import { chmodSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { VaultConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FolderAcl } from "../src/acl";
 import {
@@ -264,7 +264,7 @@ describe("loadWikiSchema", () => {
   });
 
   // The ACL is checked on the REAL path: a readable alias must not carry a read-denied note out
-  // (the JS fallback follows the link; run with OBSIDIAN_TC_FORCE_JS_FALLBACK=1 to cover it).
+  // (the JS fallback follows the link; run with RELIQUARY_TC_FORCE_JS_FALLBACK=1 to cover it).
   it.skipIf(process.platform === "win32")(
     "a SCHEMA.md symlinked to a read-denied note counts as missing and leaks nothing",
     () => {

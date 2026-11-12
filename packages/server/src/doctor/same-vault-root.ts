@@ -13,6 +13,7 @@
 import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { posix, win32 } from "node:path";
+import { CURRENT_NAMES, LEGACY_NAMES } from "@the-40-thieves/reliquary-tc-shared";
 import { type ParseError, parse } from "jsonc-parser/lib/esm/main.js";
 import type { RestApiOnDisk } from "../bridge";
 import { claudeDesktopConfigPath, cursorMcpConfigPath } from "../cli/setup/client-install";
@@ -93,7 +94,7 @@ const NOT_COMPARED = [
   "not read: the Codex config (TOML, not read) and every other MCP client's config",
   "not compared: remote servers, which have no local path",
   "a server that uses the Local REST API carries no vault path, so it is listed under unverifiable, never matched",
-  "another obsidian-tc instance with its own --config is listed under unverifiable: its roots are not in this process",
+  "another reliquary-tc instance with its own --config is listed under unverifiable: its roots are not in this process",
   "this is a hint about the config files found, not a guarantee: a server defined anywhere else is invisible here",
 ];
 
@@ -249,8 +250,8 @@ interface ScanCtx {
   out: Scan;
 }
 
-/** True when an obsidian-tc entry is this server: its `--config` names the config this run loaded, or
- *  a positional argument names one of this run's vault roots (the zero-config `obsidian-tc <vault>`,
+/** True when a reliquary-tc entry is this server: its `--config` names the config this run loaded, or
+ *  a positional argument names one of this run's vault roots (the zero-config `reliquary-tc <vault>`,
  *  which loads no file). Compared after realpath, case-folded where the platform folds. */
 function isThisServer(
   ctx: ScanCtx,
@@ -307,8 +308,10 @@ function classifyEntry(ctx: ScanCtx, ref: string, raw: unknown): void {
   const command = typeof entry.command === "string" ? entry.command : "";
   const configArg = configArgOf(args);
 
-  const obsidianTc = `${command} ${args.join(" ")}`.includes("obsidian-tc");
-  if (obsidianTc && isThisServer(ctx, args, configArg)) return;
+  const launch = `${command} ${args.join(" ")}`;
+  // A client entry may still launch the pre-2.0 command name, which 2.x installs as an alias.
+  const reliquaryTc = launch.includes(CURRENT_NAMES.bin) || launch.includes(LEGACY_NAMES.bin);
+  if (reliquaryTc && isThisServer(ctx, args, configArg)) return;
   if (usesRestApi(envObject, args)) {
     const enabled =
       ctx.restEnabled.length > 0
@@ -317,9 +320,9 @@ function classifyEntry(ctx: ScanCtx, ref: string, raw: unknown): void {
     addOnce(ctx.out.unverifiable, `${ref}: Local REST API, vault not comparable${enabled}`);
     return;
   }
-  // Another obsidian-tc instance on a different config: its roots are not in this process.
-  if (obsidianTc && configArg !== undefined) {
-    addOnce(ctx.out.unverifiable, `${ref}: another obsidian-tc instance, roots not compared`);
+  // Another reliquary-tc instance on a different config: its roots are not in this process.
+  if (reliquaryTc && configArg !== undefined) {
+    addOnce(ctx.out.unverifiable, `${ref}: another reliquary-tc instance, roots not compared`);
     return;
   }
   if (pointsAtRoot(ctx, args, envValues)) addOnce(ctx.out.sameRoot, ref);

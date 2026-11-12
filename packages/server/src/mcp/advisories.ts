@@ -19,6 +19,8 @@
 // SAME (vaultId, caller) that opened it. An advisory is per-session (the interrupt budget in
 // advisory-policy.ts is per-session), so the event also carries sessionId for the client to key on.
 
+import { CURRENT_NAMES, LEGACY_NAMES } from "@the-40-thieves/reliquary-tc-shared";
+
 /** One sweep's selection for one session, ready to cross the wire. Deliberately NOT `ScoredAdvisory`
  *  verbatim — the wire shape is a boundary a caller depends on, the internal type is not, and the
  *  two should be free to diverge (e.g. `ScoredAdvisory.candidate` is an internal detail this never
@@ -86,12 +88,21 @@ export function createAdvisoryBus(): AdvisoryBus {
  * — unlike Tasks, there is no spec extension for this; it is a private one, and squatting the spec
  * namespace would misrepresent it as one.
  */
-export const ADVISORY_SUBSCRIPTION_KEY = "io.the40thieves.obsidian-tc/advisory";
+export const ADVISORY_SUBSCRIPTION_KEY = CURRENT_NAMES.advisorySubscriptionKey;
+
+/** The advisory key this `subscriptions/listen` asked for, under the current or the pre-2.0
+ *  spelling, or undefined when it did not ask. The ack echoes whichever key the client used. */
+export function requestedAdvisoryKey(body: unknown): string | undefined {
+  const params = (body as { params?: { notifications?: Record<string, unknown> } } | null)?.params;
+  for (const key of [ADVISORY_SUBSCRIPTION_KEY, LEGACY_NAMES.advisorySubscriptionKey]) {
+    if (params?.notifications?.[key] === true) return key;
+  }
+  return undefined;
+}
 
 /** Did this `subscriptions/listen` ask for advisory push? */
 export function subscribesToAdvisories(body: unknown): boolean {
-  const params = (body as { params?: { notifications?: Record<string, unknown> } } | null)?.params;
-  return params?.notifications?.[ADVISORY_SUBSCRIPTION_KEY] === true;
+  return requestedAdvisoryKey(body) !== undefined;
 }
 
 export interface AdvisoryStreamOwner {
@@ -148,7 +159,7 @@ export function serveAdvisorySubscription(
         jsonrpc: "2.0",
         method: "notifications/subscriptions/acknowledged",
         params: {
-          notifications: { [ADVISORY_SUBSCRIPTION_KEY]: true },
+          notifications: { [requestedAdvisoryKey(body) ?? ADVISORY_SUBSCRIPTION_KEY]: true },
           _meta: { "io.modelcontextprotocol/subscriptionId": id },
         },
       });

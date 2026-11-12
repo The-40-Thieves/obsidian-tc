@@ -48,7 +48,7 @@
 // providing what IS guaranteed here. Do not thin it out on the assumption that a branch in the
 // handler is backstopping it; nothing is.
 //
-import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { graphSearch } from "../../../search/graph_search";

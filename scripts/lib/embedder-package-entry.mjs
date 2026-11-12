@@ -1,9 +1,9 @@
 import { createRequire } from "node:module";
 import { dirname } from "node:path";
 
-const basePackage = "@the-40-thieves/obsidian-tc-embedder-local";
+const basePackage = "@the-40-thieves/reliquary-tc-embedder-local";
 const runtimePackage = `${basePackage}-${process.platform}-${process.arch}`;
-const ortDirKey = Symbol.for("obsidian-tc.ort-dir");
+const ortDirKey = Symbol.for("reliquary-tc.ort-dir");
 
 if (globalThis[ortDirKey] === undefined) {
   try {

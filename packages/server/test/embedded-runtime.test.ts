@@ -88,7 +88,7 @@ describe("resolveLocalEmbedderModule: the embedded route", () => {
   const failImport = async (): Promise<never> => {
     throw new Error("package lookup must not be needed");
   };
-  const ortDirKey = Symbol.for("obsidian-tc.ort-dir");
+  const ortDirKey = Symbol.for("reliquary-tc.ort-dir");
   const cacheRoot = makeTempDir("obtc-embedded-route-");
   afterAll(() => rmTemp(cacheRoot));
 
@@ -104,7 +104,7 @@ describe("resolveLocalEmbedderModule: the embedded route", () => {
       expect(r.ok).toBe(true);
       expect(r.mod).toBe(mod);
       expect(r.attempts).toEqual([
-        { route: "embedded", target: "@the-40-thieves/obsidian-tc-embedder-local", ok: true },
+        { route: "embedded", target: "@the-40-thieves/reliquary-tc-embedder-local", ok: true },
       ]);
       const dir = (globalThis as Record<symbol, unknown>)[ortDirKey] as string;
       expect(dir.startsWith(join(cacheRoot, "runtime", "onnxruntime-"))).toBe(true);

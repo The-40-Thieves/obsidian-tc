@@ -6,7 +6,7 @@
 // apply to a tool that declares no central `pathAcl`.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildResourceUri } from "../src/mcp/resources";
 import { ALLOW_ALL } from "../src/mcp/visibility";
@@ -76,7 +76,7 @@ describe("read_resources: denied items emit the denial records read_notes emits"
     ]);
     expect(emitted.filter((e) => e.type === "tc.acl.denied")).toHaveLength(1);
     expect(await metrics.metrics()).toMatch(
-      /obsidian_tc_acl_denied_total\{vault="test",scope_class="read",reason="acl_denied"\} 1/,
+      /reliquary_tc_acl_denied_total\{vault="test",scope_class="read",reason="acl_denied"\} 1/,
     );
   });
 
@@ -94,7 +94,7 @@ describe("read_resources: denied items emit the denial records read_notes emits"
         uri("secret/none.md"), // denied (absent)
         uri("pub/none.md"), // missing under an allowed path: NOT a denial
         uri("x.md", "other"), // unknown foreign vault: its true reason, counted as a denial
-        "obsidian-tc://test/50%.md", // malformed: NOT a denial
+        "reliquary-tc://test/50%.md", // malformed: NOT a denial
       ],
     });
     expect(r.ok).toBe(true);
@@ -116,10 +116,10 @@ describe("read_resources: denied items emit the denial records read_notes emits"
     expect(emitted.filter((e) => e.type === "tc.acl.denied")).toHaveLength(3);
     const text = await metrics.metrics();
     expect(text).toMatch(
-      /obsidian_tc_acl_denied_total\{vault="test",scope_class="read",reason="acl_denied"\} 3/,
+      /reliquary_tc_acl_denied_total\{vault="test",scope_class="read",reason="acl_denied"\} 3/,
     ); // 1 from the read_notes baseline + 2 here
     expect(text).toMatch(
-      /obsidian_tc_acl_denied_total\{vault="test",scope_class="read",reason="vault_not_found"\} 1/,
+      /reliquary_tc_acl_denied_total\{vault="test",scope_class="read",reason="vault_not_found"\} 1/,
     );
   });
 
@@ -155,7 +155,7 @@ describe("read_resources: denied and missing do not reveal a hidden note", () =>
         .filter((e) => e.tool_name === "read_resources" && e.status === "error");
       expect(denials.map((e) => e.error_code)).toEqual(["acl_denied"]);
       expect(await metrics.metrics()).toMatch(
-        /obsidian_tc_acl_denied_total\{vault="test",scope_class="read",reason="acl_denied"\} 1/,
+        /reliquary_tc_acl_denied_total\{vault="test",scope_class="read",reason="acl_denied"\} 1/,
       );
     } finally {
       rmTemp(root2);
@@ -189,7 +189,7 @@ describe("read_resources: denied and missing do not reveal a hidden note", () =>
         .filter((e) => e.tool_name === "read_resources" && e.status === "error");
       expect(denials.map((e) => e.error_code)).toEqual(["acl_denied"]);
       expect(await metrics.metrics()).toMatch(
-        /obsidian_tc_acl_denied_total\{vault="test",scope_class="read",reason="acl_denied"\} 1/,
+        /reliquary_tc_acl_denied_total\{vault="test",scope_class="read",reason="acl_denied"\} 1/,
       );
     } finally {
       rmTemp(root2);
@@ -207,7 +207,7 @@ describe("read_resources: denied and missing do not reveal a hidden note", () =>
       .filter((e) => e.tool_name === "read_resources" && e.status === "error");
     expect(denials.map((e) => e.error_code)).toEqual(["vault_not_found"]);
     expect(await metrics.metrics()).toMatch(
-      /obsidian_tc_acl_denied_total\{vault="test",scope_class="read",reason="vault_not_found"\} 1/,
+      /reliquary_tc_acl_denied_total\{vault="test",scope_class="read",reason="vault_not_found"\} 1/,
     );
   });
 

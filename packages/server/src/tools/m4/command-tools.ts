@@ -15,7 +15,7 @@
 // unreachable we fall back to those native routes so list/execute keep working against a
 // bare LRA with no (or a broken) companion. The fallback runs AFTER execute_command's
 // security gates (they short-circuit in precheck), so it grants no new capability.
-import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { BridgeClient } from "../../bridge";
 import type { ToolDefinition } from "../../mcp/registry";
@@ -121,7 +121,7 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
           vault: VaultId,
           filter: z.string().optional(),
           // THE-516: default the page size to this tool's own cap rather than leaving it absent.
-          // Forwarding no limit let the REMOTE plugin decide how much to return, which obsidian-tc
+          // Forwarding no limit let the REMOTE plugin decide how much to return, which reliquary-tc
           // cannot bound — the byte governor then rejects an oversized response as `overflow`
           // instead of returning a usable first page. The default is a page that fits a client's ~20 KB
           // inline limit (mcp/result-size.ts); `.max()` stays the ceiling for a caller that asks.
@@ -143,10 +143,10 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
               limit: input.limit,
               ...(input.cursor ? { cursor: input.cursor } : {}),
             },
-            plugin: "obsidian-tc-companion",
+            plugin: "reliquary-tc-companion",
             timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
           });
-          const payload = parseBridgePayload(ListCommandsBridge, result, "obsidian-tc-companion");
+          const payload = parseBridgePayload(ListCommandsBridge, result, "reliquary-tc-companion");
           return { vault: v.id, items: payload.items, total: payload.items.length };
         } catch (e) {
           // Companion unreachable -> retry via LRA's native /commands/ if a transport exists.
@@ -206,13 +206,13 @@ export function buildCommandTools(deps: M4Deps): ToolDefinition[] {
             method: "POST",
             path: "/commands/execute",
             body: { command_id: input.command_id, ...(input.args ? { args: input.args } : {}) },
-            plugin: "obsidian-tc-companion",
+            plugin: "reliquary-tc-companion",
             timeoutMs: bridgeTimeouts(deps, v.id).timeoutMs,
           });
           const payload = parseBridgePayload(
             ExecuteCommandBridge,
             result,
-            "obsidian-tc-companion",
+            "reliquary-tc-companion",
             { effectCommitted: true },
           );
           return {

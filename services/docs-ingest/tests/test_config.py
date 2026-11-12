@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from obsidian_tc_docs_ingest import config, pipeline
+from reliquary_tc_docs_ingest import config, pipeline
 
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX file modes")
 
@@ -58,7 +58,7 @@ def test_default_path_follows_xdg_config_home(
     monkeypatch.delenv("DOCS_INGEST_CONFIG", raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
 
-    assert config.path() == tmp_path / "obsidian-tc" / "docs-ingest.env"
+    assert config.path() == tmp_path / "reliquary-tc" / "docs-ingest.env"
 
 
 def test_environment_overrides_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

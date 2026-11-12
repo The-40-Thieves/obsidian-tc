@@ -9,7 +9,7 @@
 // a Linux box is not made unreadable.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { isAttachment, mimeOf } from "../src/formats/attachments";
 import { normalizeVaultPath } from "../src/vault/paths";

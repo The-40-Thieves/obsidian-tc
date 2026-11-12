@@ -3,7 +3,7 @@
 // they must be intersected with the caller's read whitelist. When acl.readPaths is
 // DEFINED, every returned item must be attributable to an allowed vault path; an item
 // that cannot be attributed FAILS CLOSED (acl_denied) rather than leaking.
-import { err, grantsAll } from "@the-40-thieves/obsidian-tc-shared";
+import { err, grantsAll } from "@the-40-thieves/reliquary-tc-shared";
 import { type FolderAcl, isDefaultDenied } from "../acl";
 import type { AclPath } from "./acl-identity";
 import { callerCanReadVaultPath, pathScopesSatisfied } from "./acl-path";

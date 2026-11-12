@@ -38,8 +38,8 @@ const { compileEgressFilter, hasExcludePatterns, isExcludedPath } = await import
 );
 const { EgressViolationError } = await import("../src/plane/egress-guard");
 
-const ENV_URL = "OBSIDIAN_TC_GATEWAY_URL";
-const ENV_TOKEN = "OBSIDIAN_TC_GATEWAY_TOKEN";
+const ENV_URL = "RELIQUARY_TC_GATEWAY_URL";
+const ENV_TOKEN = "RELIQUARY_TC_GATEWAY_TOKEN";
 let savedUrl: string | undefined;
 let savedToken: string | undefined;
 let savedFetch: typeof globalThis.fetch;

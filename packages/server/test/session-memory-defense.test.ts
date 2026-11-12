@@ -130,7 +130,7 @@ describe("memoryDefense on start_session/end_session (GH #994 follow-up)", () =>
       session_metadata: { note: secret },
     });
     const dump = await metrics.metrics();
-    expect(dump).toContain('obsidian_tc_memory_defense_hits_total{pattern="openai_key"} 1');
+    expect(dump).toContain('reliquary_tc_memory_defense_hits_total{pattern="openai_key"} 1');
     expect(dump).not.toContain(secret);
   });
 });

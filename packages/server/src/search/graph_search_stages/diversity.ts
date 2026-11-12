@@ -53,7 +53,7 @@ function collapseByNote(fused: Candidate[], maxPerNote: number): Candidate[] {
 // THE-73 Phase 2: walk the RRF-sorted candidates and keep at most maxPerCluster from each cluster_id
 // before filling finalTopK, so one dense semantic neighbourhood cannot crowd out the rest. cluster_id
 // is looked up in batches; a NULL/absent cluster_id is treated as unique (never capped), so the pass
-// is a no-op until `obsidian-tc cluster` has populated the column.
+// is a no-op until `reliquary-tc cluster` has populated the column.
 function diversifyByCluster(
   db: Database,
   vaultId: string,

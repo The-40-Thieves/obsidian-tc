@@ -20,7 +20,7 @@
 // DELIVERY IS OUT OF SCOPE, and that is a measured constraint rather than a deferral of
 // convenience. The only unsolicited server->client channel this server has is a
 // `subscriptions/listen` stream, which is 2026-07-28 ONLY (`docs/MCP-COMPATIBILITY.md`: legacy
-// reads `n/a`). Production reaches obsidian-tc through LiteLLM, which pins `mcp` 1.28.1 with a
+// reads `n/a`). Production reaches reliquary-tc through LiteLLM, which pins `mcp` 1.28.1 with a
 // 2025-11-25 ceiling, so no advisory could be delivered to it today whatever this module produced.
 // Scoring is buildable and testable now; the transport is not, and shipping one into a stream
 // nothing can subscribe to is the failure this ticket's own banner cites against THE-633.

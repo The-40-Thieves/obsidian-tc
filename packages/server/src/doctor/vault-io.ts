@@ -33,7 +33,7 @@ export function vaultIoCheck(view: VaultIoView): Check {
       const remediation =
         view.platform === "win32"
           ? "Windows always reads through the pure-JS path (the native open is Unix-only), so treat vault reads there as best-effort against a concurrent symlink swap."
-          : "Install the native addon, which closes the race with an openat walk, or do not set OBSIDIAN_TC_FORCE_JS_FALLBACK=1 when it loads.";
+          : "Install the native addon, which closes the race with an openat walk, or do not set RELIQUARY_TC_FORCE_JS_FALLBACK=1 when it loads.";
       return {
         status: "warning",
         summary: `vault I/O: pure-JS fallback on ${view.platform}; reads are best-effort against a concurrent symlink swap`,

@@ -45,7 +45,7 @@ export interface VaultWatchOptions {
  *     is a note there and must be one here).
  *   - no dot-segment anywhere in the path. walkVault skips any entry whose name starts with `.` at
  *     every level, which is the G2.4 default-deny set (`.obsidian`, `.trash`, `.git`). It also
- *     happens to exclude `.obsidian-tc/`, where the server writes its own session traces and
+ *     happens to exclude `.reliquary-tc/`, where the server writes its own session traces and
  *     prewarm cache — so the watch cannot see its own bookkeeping.
  *
  * Pure and exported so the policy is testable without touching a filesystem.

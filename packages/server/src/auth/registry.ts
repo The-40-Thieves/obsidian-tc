@@ -440,7 +440,7 @@ export function createAuthRegistry(db: Database, opts: AuthRegistryOptions = {})
       if (!keysEmpty()) throw new Error("no active signing key: run `auth rotate-key`");
       if (!opts.configSecret) {
         throw new Error(
-          "no signing key: set auth.jwtSecret (or OBSIDIAN_TC_JWT_SECRET), or run `auth rotate-key`",
+          "no signing key: set auth.jwtSecret (or RELIQUARY_TC_JWT_SECRET), or run `auth rotate-key`",
         );
       }
       return { kid: CONFIG_KID, alg: "HS256", secret: opts.configSecret };

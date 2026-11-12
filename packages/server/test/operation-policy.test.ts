@@ -11,7 +11,7 @@
 //   2. the additive guarantee — a tool without a resolver behaves byte-identically
 //   3. the actual capability — one tool, two actions, different scopes and different `destructive`
 //   4. the ORDERING — parse must precede authorization, or the wrong action's scopes are asserted
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { isMutatingCall, resolveOperationPolicy } from "../src/mcp/registry/policy-gates";
 
@@ -41,12 +41,12 @@ describe("the subset invariant — a resolver may NARROW, never WIDEN", () => {
       requiredScopes: ["read:notes"],
       resolvePolicy: () => ({ requiredScopes: ["read:notes", "delete:notes"] }),
     };
-    expect(() => resolveOperationPolicy(escalating, {})).toThrow(ObsidianTcError);
+    expect(() => resolveOperationPolicy(escalating, {})).toThrow(ReliquaryTcError);
     try {
       resolveOperationPolicy(escalating, {});
       expect.unreachable("should have refused");
     } catch (e) {
-      const err = e as ObsidianTcError;
+      const err = e as ReliquaryTcError;
       // `internal`, NOT `forbidden`. The caller did nothing wrong — a resolver that over-declares
       // is a server defect, and filing it under the ordinary authorization-denial code would bury
       // it among expected refusals, which is how such a seam stays invisible.

@@ -188,7 +188,7 @@ export const ThrottleConfigSchema = z
         urlEnv: z
           .string()
           .min(1)
-          .default("OBSIDIAN_TC_REDIS_URL")
+          .default("RELIQUARY_TC_REDIS_URL")
           .describe(
             "NAME of the environment variable holding the Redis URL (`redis://[user:password@]host:6379[/db]`, `rediss://` for TLS). There is no inline url field: the URL carries the password and must not sit in config.json.",
           ),
@@ -202,7 +202,7 @@ export const ThrottleConfigSchema = z
         keyPrefix: z
           .string()
           .min(1)
-          .default("obsidian-tc:rl:")
+          .default("reliquary-tc:rl:")
           .describe(
             "Prefix for every bucket key, so several deployments can share one Redis without colliding.",
           ),
@@ -277,14 +277,14 @@ export const SessionsConfigSchema = z
      *  traces live in cacheDir rather than the vault (see THE-737), so they are not reachable
      *  through the note surface.
      *
-     *  This is what makes `obsidian-tc rerun` usable: with no captured arguments every record
+     *  This is what makes `reliquary-tc rerun` usable: with no captured arguments every record
      *  classifies `no_capture` and the command exits 2 on all of them, which is a shipped feature
      *  doing nothing. `securityProfile: "hardened"` sets it back to false. */
     traceContent: z
       .boolean()
       .default(true)
       .describe(
-        'Also persist each dispatch\'s raw parsed arguments on the session trace, secret-scanned and size-capped, so a session can be replayed with `obsidian-tc rerun`. On under the trusted-local posture; `securityProfile: "hardened"` turns it off. A trace carrying arguments holds note bodies and search queries, so it lives in cacheDir (never the vault) and is not reachable through the note surface.',
+        'Also persist each dispatch\'s raw parsed arguments on the session trace, secret-scanned and size-capped, so a session can be replayed with `reliquary-tc rerun`. On under the trusted-local posture; `securityProfile: "hardened"` turns it off. A trace carrying arguments holds note bodies and search queries, so it lives in cacheDir (never the vault) and is not reachable through the note surface.',
       ),
     windowSeconds: z
       .number()

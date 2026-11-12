@@ -6,7 +6,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
 import { type AsRouteDeps, mountAsRoutes } from "../src/auth/as-metadata";
@@ -187,7 +187,7 @@ export async function makeFlow(
   // replaced secret is a second app over the same stores.
   const appFor = (secret: string): HttpApp => {
     const handle = createHttpApp({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: "t",
       registry: tools,
       vaultRegistry,

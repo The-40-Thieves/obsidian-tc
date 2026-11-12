@@ -1,7 +1,7 @@
 // The hardened security profile turns `auth.requireJti` on: a jti-less bearer cannot be revoked
 // individually, so the restrained posture refuses one on every verify path. The schema default stays
 // false (flipped at the next major), so an operator who has not opted in sees no change.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthRejection } from "../src/auth/jwt";

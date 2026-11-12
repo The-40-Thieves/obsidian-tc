@@ -20,7 +20,7 @@ a path the full walk skips would index content no other code path can reach, and
 disagree forever. Concretely: `.md` only, case-insensitive (walkVault lowercases before comparing,
 so `NOTE.MD` is a note there and must be one here), and no dot-segment anywhere in the path
 (`walkVault`'s G2.4 default-deny set — `.obsidian`, `.trash`, `.git` — which also happens to exclude
-`.obsidian-tc/`, where the server writes its own session traces and prewarm cache, so the watch
+`.reliquary-tc/`, where the server writes its own session traces and prewarm cache, so the watch
 cannot see its own bookkeeping).
 
 One exception: `.obsidian/app.json`, the file that carries the Excluded files list. The watch reports

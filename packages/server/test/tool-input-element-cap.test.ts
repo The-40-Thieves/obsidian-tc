@@ -56,7 +56,7 @@ describe("oversized tool-call arguments", () => {
       handler: (a: { items: number[] }) => ({ n: a.items.length }),
     } as never);
     const server = createMcpServer({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: "0.0.0-test",
       registry,
       context: (): CallerContext => ({

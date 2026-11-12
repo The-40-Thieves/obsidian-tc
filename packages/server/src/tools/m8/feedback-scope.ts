@@ -4,7 +4,7 @@
 // parent sits against biome's 700-line ceiling, and the scoping rules here stopped being a clause
 // you read inline the moment a no-op had to explain itself. This module imports from ./shared only
 // — never back from experiential-tools.ts — so the boundary gate's zero-cycle baseline holds.
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import type { Database } from "../../db/types";
 import type { CallerContext } from "../../mcp/registry";
 import { CROSS_PRINCIPAL_SCOPE, canCrossPrincipal } from "./shared";

@@ -1,7 +1,7 @@
 // `auth.mode: "oidc"` verification against a MOCK OIDC provider (real sockets, real jose keys).
 // Verification only: no authorization server here. Each rejection case asserts the typed reason an
 // operator sees; the HTTP edge collapses all of them into one undifferentiated 401 (auth-oidc-http).
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthRejection, type AuthRejectionReason } from "../src/auth/jwt";

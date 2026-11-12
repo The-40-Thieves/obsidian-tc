@@ -1,4 +1,4 @@
-export const WEBHOOK_SECRET_VARIABLE = "OBSIDIAN_TC_VAULT_GIT_WEBHOOK_SECRET";
+export const WEBHOOK_SECRET_VARIABLE = "RELIQUARY_TC_VAULT_GIT_WEBHOOK_SECRET";
 export const MIN_WEBHOOK_SECRET_LENGTH = 32;
 
 /** Refuses a webhook secret too short to be worth accepting, and any secret on Windows, where the

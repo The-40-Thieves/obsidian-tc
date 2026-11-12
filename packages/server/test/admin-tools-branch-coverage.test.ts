@@ -2,7 +2,7 @@
 // and vault-filter legs (get_server_config's no-ACL default, get_metrics' malformed-row labels,
 // and its per-vault rate-limiter filter). Additive to test/m6-admin.test.ts — that file's fixtures
 // and assertions are untouched.
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ToolRegistry } from "../src/mcp/registry";
 import { RateLimiter } from "../src/throttle";
@@ -59,7 +59,7 @@ describe("get_metrics malformed event_log rows (nullish label/value fallbacks)",
       await v.call("get_metrics", {}),
     );
     expect(
-      out.metrics.find((m) => m.name === "obsidian_tc_ingest_secrets_skipped_total")?.value,
+      out.metrics.find((m) => m.name === "reliquary_tc_ingest_secrets_skipped_total")?.value,
     ).toBe(0);
   });
 
@@ -73,7 +73,7 @@ describe("get_metrics malformed event_log rows (nullish label/value fallbacks)",
     const out = data<{ metrics: { name: string; labels: Record<string, string> }[] }>(
       await v.call("get_metrics", {}),
     );
-    const m = out.metrics.find((x) => x.name === "obsidian_tc_ingest_dedup_skipped_total");
+    const m = out.metrics.find((x) => x.name === "reliquary_tc_ingest_dedup_skipped_total");
     expect(m?.labels.vault).toBe("");
   });
 
@@ -87,7 +87,7 @@ describe("get_metrics malformed event_log rows (nullish label/value fallbacks)",
     const out = data<{ metrics: { name: string; labels: Record<string, string> }[] }>(
       await v.call("get_metrics", {}),
     );
-    const m = out.metrics.find((x) => x.name === "obsidian_tc_tool_calls_total");
+    const m = out.metrics.find((x) => x.name === "reliquary_tc_tool_calls_total");
     expect(m).toBeDefined();
     expect(m?.labels.tool).toBe("");
     expect(m?.labels.vault).toBe("");
@@ -107,7 +107,7 @@ describe("get_metrics rate-limiter vault filter", () => {
     const filtered = data<{ metrics: { name: string; labels: Record<string, string> }[] }>(
       await v.call("get_metrics", { vault: "test" }),
     );
-    const hits = filtered.metrics.filter((m) => m.name === "obsidian_tc_rate_limit_hits_total");
+    const hits = filtered.metrics.filter((m) => m.name === "reliquary_tc_rate_limit_hits_total");
     expect(hits.every((m) => m.labels.vault === "test")).toBe(true);
     expect(hits.some((m) => m.labels.vault === "other-vault")).toBe(false);
   });
@@ -122,7 +122,7 @@ describe("get_metrics rate-limiter vault filter", () => {
     );
     const allVaults = new Set(
       unfiltered.metrics
-        .filter((m) => m.name === "obsidian_tc_rate_limit_hits_total")
+        .filter((m) => m.name === "reliquary_tc_rate_limit_hits_total")
         .map((m) => m.labels.vault),
     );
     expect(allVaults.has("test")).toBe(true);

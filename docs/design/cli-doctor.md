@@ -116,7 +116,7 @@ not-measured and measured-zero are different facts and the check renders them di
 `doctor --probe` reads the code-only `event_log` rows the dispatch path writes for every human
 confirmation (`src/hitl-telemetry.ts`) and reports them as the `hitl.confirmations` check: per tool,
 accept / decline / cancel / timeout counts, acceptance rate, and how many accepts were a redeemed
-`obsidian-tc elicit` token. A tool with at least five token approvals making up half or more of its
+`reliquary-tc elicit` token. A tool with at least five token approvals making up half or more of its
 accepts raises a warning (a headless approval smell), naming the clients that redeemed them.
 
 - **Why `event_log`.** It already has a retention sweep (`observability.retention.eventLogDays`), no
@@ -152,10 +152,10 @@ stay `ok`.
   the client id, `error_code` the reason, `result_size` the revoked access-token count; the row
   never holds a code, token, verifier or hash.
 - **Fail-open writer, honest reader.** The sink never lets telemetry break a revocation (a failed
-  write moves `obsidian_tc_audit_write_failed_total` instead), so a missing window of rows is
+  write moves `reliquary_tc_audit_write_failed_total` instead), so a missing window of rows is
   possible; a probe that cannot read the table reports `error` and the check warns rather than
   claiming zero. The continuous, retention-free signal is the counter —
-  `obsidian_tc_auth_family_revocations_total` (docs/design/metrics-registry.md) — and this check is
+  `reliquary_tc_auth_family_revocations_total` (docs/design/metrics-registry.md) — and this check is
   its per-event companion.
 - **Report, not gate.** Nothing reads these rows back into an auth decision, exactly like
   `hitl.confirmations`. Operator grant revocations surface as `auth_grant_revoked` /
@@ -169,8 +169,8 @@ stay `ok`.
   see another server. It is always `ok`, and it names server keys only: no path appears in its
   output.
 - **Self.** The entry that loads this run's own config, or that names one of this run's vault roots
-  as its positional argument (`obsidian-tc <vault>`), is skipped.
+  as its positional argument (`reliquary-tc <vault>`), is skipped.
 - **Limits, stated in its notes.** Codex's TOML is not read (no parser, and a hint is not worth
   one). A Local REST API entry carries no vault path, so it is listed as unverifiable, never
-  matched. Another obsidian-tc instance with its own `--config` is listed as unverifiable, since
+  matched. Another reliquary-tc instance with its own `--config` is listed as unverifiable, since
   its roots are not in this process.

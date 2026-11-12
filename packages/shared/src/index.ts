@@ -1,6 +1,7 @@
 export * from "./config.schema";
 export * from "./errors";
 export * from "./fetch-cause";
+export * from "./legacy-names";
 export * from "./morgiana.schema";
 export * from "./net-host";
 export * from "./net-ip";

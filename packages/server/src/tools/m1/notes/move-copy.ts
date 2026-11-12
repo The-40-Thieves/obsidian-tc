@@ -4,7 +4,7 @@
 // writing over it, so overwritten content stays recoverable). move_note additionally rewrites
 // backlinks in every other note that pointed at the old path — planBacklinks below is private
 // to move_note; copy_note does not rewrite links (see its description).
-import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import { err, type VaultMemoryDefenseConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { ToolDefinition } from "../../../mcp/registry";
 import type { MetricsRecorder } from "../../../metrics/registry";
 import {

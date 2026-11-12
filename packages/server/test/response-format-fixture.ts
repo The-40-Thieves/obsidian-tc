@@ -4,7 +4,7 @@
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { BootstrapConfigSchema, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import { BootstrapConfigSchema, type ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { runMigrations } from "../src/db/migrate";
 import { EXPERIENTIAL_MIGRATION_FILES, versionOf } from "../src/db/migration-manifest";
 import { provisionCacheDb } from "../src/db/provision";
@@ -631,9 +631,9 @@ export const SCENARIOS: Scenario[] = [
     domain: "m1",
     args: {
       uris: [
-        "obsidian-tc://test/a.md",
-        "obsidian-tc://test/plain.md",
-        "obsidian-tc://test/nope.md",
+        "reliquary-tc://test/a.md",
+        "reliquary-tc://test/plain.md",
+        "reliquary-tc://test/nope.md",
       ],
     },
     conciseKeys: ["results", "next_cursor"],

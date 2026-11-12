@@ -10,7 +10,7 @@
 // an AS that reads only the singular field refuses it with `invalid_client` (HarperFast/oauth #244).
 // The client is accepted iff the permitted set contains a method this server offers a CIMD client,
 // which is `none` alone: a CIMD client has no secret to share and `private_key_jwt` is never advertised.
-import { isLoopbackHost } from "@the-40-thieves/obsidian-tc-shared";
+import { isLoopbackHost } from "@the-40-thieves/reliquary-tc-shared";
 import { sanitizeDisplayText } from "../mcp/elicit-form";
 import { isLoopbackUri } from "./as-clients";
 

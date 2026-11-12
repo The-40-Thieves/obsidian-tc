@@ -1,4 +1,4 @@
-// The seal on a generated wiki page (see wiki-generated.ts): `generated_by: obsidian-tc` marks the
+// The seal on a generated wiki page (see wiki-generated.ts): `generated_by: reliquary-tc` marks the
 // page, and `generated_hash` is a keyed HMAC of the whole file with that one line blanked. The key
 // is server-local state, not vault content, so replacing both the file and its hash cannot forge a
 // server-authored page. Old unkeyed SHA seals are recognised only for one-time full regeneration;
@@ -7,7 +7,7 @@ import { createHash, createHmac } from "node:crypto";
 import { readServerSecret, serverSecret } from "../../../auth/server-secret";
 
 const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
-const MARKER = /^generated_by: obsidian-tc[ \t]*$/m;
+const MARKER = /^generated_by: reliquary-tc[ \t]*$/m;
 const HASH_LINE = /^generated_hash: ?.*$/m;
 const HMAC_PREFIX = "hmac-sha256:";
 
@@ -20,7 +20,7 @@ const sha = (text: string): string => createHash("sha256").update(text, "utf8").
 const hmac = (text: string, key: string, identity: GeneratedSealIdentity): string =>
   createHmac("sha256", key)
     .update(
-      JSON.stringify(["obsidian-tc/wiki-generated/v1", identity.vaultId, identity.path, text]),
+      JSON.stringify(["reliquary-tc/wiki-generated/v1", identity.vaultId, identity.path, text]),
       "utf8",
     )
     .digest("hex");

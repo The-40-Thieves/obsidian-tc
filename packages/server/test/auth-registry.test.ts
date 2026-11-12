@@ -1,4 +1,4 @@
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -143,7 +143,7 @@ describe("revocation over the HTTP edge and /metrics", () => {
     });
     const rejections: string[] = [];
     const handle = await startHttp({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: "0.0.0-test",
       registry: new ToolRegistry({ rootResolver: () => undefined }),
       auth: parsed.auth,

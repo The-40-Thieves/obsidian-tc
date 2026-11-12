@@ -3,7 +3,7 @@
 // operation whose outcome or ack depends on the note's bytes refuses it with one fixed error. The
 // CAS-shaped tools honour writes.requireCas and patch_note's idempotency key like their siblings.
 import { createHash } from "node:crypto";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { buildBulkTools } from "../src/tools/m6/bulk-tools";

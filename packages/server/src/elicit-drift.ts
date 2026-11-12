@@ -8,7 +8,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { argsHash } from "./hash";
 import { normalizeVaultPath, resolveVaultPath } from "./vault/paths";
 

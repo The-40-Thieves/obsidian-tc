@@ -8,7 +8,7 @@
 //     SAME `(vaultId) => IndexHook | undefined` shape, bound to one jobQueue/roles pair.
 //
 // See docs/design/runtime-job-wiring.md for the extraction/durability history behind this shape.
-import type { ServerConfig, VaultConfigInput } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig, VaultConfigInput } from "@the-40-thieves/reliquary-tc-shared";
 import type { FolderAcl } from "../acl";
 import type { WriteTxnHooks } from "../db/txn";
 import type { Database } from "../db/types";

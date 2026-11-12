@@ -1,6 +1,6 @@
 # Legacy-era shims
 
-obsidian-tc serves two MCP protocol eras from one process: **2026-07-28** (modern) and
+reliquary-tc serves two MCP protocol eras from one process: **2026-07-28** (modern) and
 **2025-11-25** plus older (legacy). The legacy era stays because the LiteLLM gateway pins the
 Python `mcp` package 1.28.1, whose ceiling is 2025-11-25 (`packages/server/src/mcp/server.ts`,
 the `supportedProtocolVersions` comment).

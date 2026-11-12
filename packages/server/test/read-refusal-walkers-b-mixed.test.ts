@@ -1,7 +1,7 @@
 // Platform-independent twin of read-refusal-walkers-b.test.ts: the safe open's refusal is simulated by
 // throwing acl_denied from readNote for one note (b.md), so the skip-and-count path runs on every OS.
 // A separate file: the readNote mock must not reach any other test's module graph.
-import { err, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import { err, type ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeTestVault } from "./m1-helpers";
 import { makeM4Vault } from "./m4-helpers";

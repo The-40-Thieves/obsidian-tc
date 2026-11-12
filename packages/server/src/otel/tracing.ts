@@ -2,20 +2,20 @@
 // observability.otel.endpoint is unset, initOtel registers NO provider and returns no tracer,
 // so the dispatch pipeline takes its tracer-less fast path and nothing is exported (the spec's
 // "no-op when unconfigured" / production-default-off). When an endpoint is set, a
-// TracerProvider batches OTLP/HTTP spans for service "obsidian-tc".
+// TracerProvider batches OTLP/HTTP spans for service "reliquary-tc".
 //
-// One root span per tool call (name `obsidian_tc.<tool>`, SERVER kind) is created in the
+// One root span per tool call (name `reliquary_tc.<tool>`, SERVER kind) is created in the
 // dispatch wrapper (mcp/registry.ts) with the attribute set below. The child-span hierarchy
 // (input_parse/auth_check/policy_eval/acl_eval/tool_impl/output_serialize, plus verbose batch-item
 // and db spans) is opt-in via observability.otel.detail and lives in ./dispatch-spans.ts; at the
 // default "root" nothing beyond the root span is created.
 import { type Tracer, trace } from "@opentelemetry/api";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 
 // THE-515: SPAN_ATTR (the attribute-key constants) moved to ./attrs, a leaf module with no SDK
 // imports — mcp/registry.ts needs the keys but must not drag in the OTEL SDK to get them.
 
-export const TRACER_NAME = "obsidian-tc";
+export const TRACER_NAME = "reliquary-tc";
 
 export interface OtelHandle {
   enabled: boolean;

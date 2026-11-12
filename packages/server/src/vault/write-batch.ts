@@ -26,7 +26,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, rmdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { err, ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { casConflict } from "./cas";
 import { nativeIo, nativeOpen, refuseJsThroughPin } from "./native-io";
 import {
@@ -45,7 +45,7 @@ export const ROLLBACK_INCOMPLETE = "rollback_incomplete";
 
 /** True for that error: the pre-images the caller snapshotted are then the way back, keep them. */
 export const isIncompleteRollback = (e: unknown): boolean =>
-  e instanceof ObsidianTcError && e.details?.reason === ROLLBACK_INCOMPLETE;
+  e instanceof ReliquaryTcError && e.details?.reason === ROLLBACK_INCOMPLETE;
 
 export interface BatchWrite {
   /** Absolute path, already resolved and ACL-checked by the caller. */

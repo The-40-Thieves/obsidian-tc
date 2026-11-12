@@ -22,11 +22,11 @@ export const DEFAULT_BUSY_TIMEOUT_MS = 5000;
 
 /**
  * THE-1039 (C2) — test-only escape hatch, the shape of `search/native.ts`'s
- * `OBSIDIAN_TC_FORCE_JS_FALLBACK`: SKIPS the native readonly attempt so the fallback branch can be
+ * `RELIQUARY_TC_FORCE_JS_FALLBACK`: SKIPS the native readonly attempt so the fallback branch can be
  * asserted on any OS. It cannot exercise a native FAILURE — `forcedReadonlyOpenThrow` is for that.
  */
 export function forceReadonlyOpenFallback(): boolean {
-  return process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK === "1";
+  return process.env.RELIQUARY_TC_FORCE_READONLY_OPEN_FALLBACK === "1";
 }
 
 /**
@@ -39,7 +39,7 @@ export function forcedCompactIntoFailure():
   | { kind: "delete"; table: string }
   | { kind: "countError"; table: string }
   | undefined {
-  const mode = process.env.OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE;
+  const mode = process.env.RELIQUARY_TC_FORCE_COMPACT_INTO_FAILURE;
   if (mode === undefined) return undefined;
   // `delete:<table>` drops one row from the COPY before verification, the only deterministic way to
   // produce a REAL row-count mismatch: `VACUUM INTO` is faithful by design, so nothing a fixture can
@@ -51,17 +51,17 @@ export function forcedCompactIntoFailure():
     return { kind: "countError", table: mode.slice("count-error:".length) };
   }
   if (mode !== "1" && mode !== "busy") return undefined;
-  const error = new Error(`OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE=${mode}`);
+  const error = new Error(`RELIQUARY_TC_FORCE_COMPACT_INTO_FAILURE=${mode}`);
   if (mode === "busy") (error as Error & { code?: string }).code = "SQLITE_BUSY";
   return { kind: "throw", error };
 }
 
 /** THE-1039 (J2) — test-only hook throwing a NON-BUSY error right after the in-place `'optimize'`
- *  committed its merge: `OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE` cannot reach that point, and no
+ *  committed its merge: `RELIQUARY_TC_FORCE_COMPACT_INTO_FAILURE` cannot reach that point, and no
  *  fixture makes the VACUUM after a successful merge fail on demand. */
 export function forcedPostOptimizeThrow(): Error | undefined {
-  return process.env.OBSIDIAN_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW === "1"
-    ? new Error("OBSIDIAN_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW=1")
+  return process.env.RELIQUARY_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW === "1"
+    ? new Error("RELIQUARY_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW=1")
     : undefined;
 }
 
@@ -71,7 +71,7 @@ export function forcedPostOptimizeThrow(): Error | undefined {
  * `=1` throws at the PROBE step, modelling the macOS shape (construction succeeds, the first
  * statement fails); `=construct` throws before the handle is used. Unset in production. */
 export function forcedReadonlyOpenThrow(): "construct" | "probe" | undefined {
-  const mode = process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW;
+  const mode = process.env.RELIQUARY_TC_FORCE_READONLY_OPEN_THROW;
   if (mode === "1") return "probe";
   return mode === "construct" ? "construct" : undefined;
 }

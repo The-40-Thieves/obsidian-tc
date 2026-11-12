@@ -9,9 +9,9 @@
 # of 4.
 set -euo pipefail
 
-CONFIG="${CONFIG:-$HOME/obsidian-tc-eval/eval-config.nomic-ctx.json}"
-GOLDEN="${GOLDEN:-$HOME/obsidian-tc-eval/multi-hop-golden-set.yaml}"
-OUT="${OUT:-$HOME/obsidian-tc-eval/the532-sweep}"
+CONFIG="${CONFIG:-$HOME/reliquary-tc-eval/eval-config.nomic-ctx.json}"
+GOLDEN="${GOLDEN:-$HOME/reliquary-tc-eval/multi-hop-golden-set.yaml}"
+OUT="${OUT:-$HOME/reliquary-tc-eval/the532-sweep}"
 mkdir -p "$OUT"
 
 # Assert the corpus before spending hours on it. A short or stale corpus must FAIL, not quietly

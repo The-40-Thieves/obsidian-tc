@@ -1,4 +1,4 @@
-// THE-650 — `obsidian-tc import-highlights` argv parsing. Split out of args.ts rather than
+// THE-650 — `reliquary-tc import-highlights` argv parsing. Split out of args.ts rather than
 // inlined there (the pattern resolve-config.ts/redact-config.ts/usage.ts already establish) —
 // args.ts sits at CLAUDE.md's noExcessiveLinesPerFile floor and a new command's parse branch does
 // not fit under it. This file depends on nothing from args.ts (not even CliCommand — it defines

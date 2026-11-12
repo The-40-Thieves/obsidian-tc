@@ -41,7 +41,7 @@ export interface NoteSummaryScaleView {
  * search.note-summaries-scale — has any vault's note-summary scan grown past the ceiling?
  *
  * A COUNT past NOTE_SUMMARY_SCAN_CEILING does not mean the scan is broken — results stay correct,
- * same posture as the vec0-fallback counter (obsidian_tc_vec_fallback_total). What degrades is
+ * same posture as the vec0-fallback counter (reliquary_tc_vec_fallback_total). What degrades is
  * latency added to every search request that hits the summary candidate stream, silently, because
  * nothing else in the system measures this scan's cost.
  *

@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { ObsidianTcError, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
@@ -126,7 +126,7 @@ const ENTRY_SURFACES: Surface[] = [
         db: cacheDb,
       });
       const server = createMcpServer({
-        name: "obsidian-tc",
+        name: "reliquary-tc",
         version: "0.0.0-test",
         registry,
         context,
@@ -149,7 +149,7 @@ const ENTRY_SURFACES: Surface[] = [
     name: "mcp-http",
     async boot(registry, cacheDb) {
       const handle = await startHttp({
-        name: "obsidian-tc",
+        name: "reliquary-tc",
         version: "0.0.0-test",
         registry,
         auth: ServerConfigSchema.parse({
@@ -273,7 +273,7 @@ describe("THE-600 documented exception — work_forget vs CLI forgetEpisode forg
   // without bound and make a replayed call indistinguishable from a genuine second forget attempt.
   // The chain should record EFFECTS, not INVOCATIONS; the dispatch audit_events row (section 1
   // above) already records the invocation for the tool surface. The CLI's opposite choice is also
-  // defensible: a HUMAN operator re-running `obsidian-tc forget` on something already forgotten is
+  // defensible: a HUMAN operator re-running `reliquary-tc forget` on something already forgotten is
   // a small, bounded, arguably interesting event, and forget.test.ts asserts it on purpose
   // ("both audited, chain intact"). Two justified answers for two caller populations — NOT a bug,
   // and NOT something this gate should force into agreement.
@@ -350,7 +350,7 @@ describe("THE-514 item 2 — vault-binding: documented divergence, asserted as s
           // refusal is the old one; without it "other" is a registered vault, served (or refused as
           // a missing note) under its own ACL. See resources.ts's readResource.
         },
-        "obsidian-tc://other/secret.md",
+        "reliquary-tc://other/secret.md",
         1_000_000,
         () => undefined,
         "detailed",
@@ -389,7 +389,7 @@ describe("THE-514 item 1 — resources and tool-dispatch share one scope-authori
           vaultId: "main",
           db: openMemoryDb(),
         },
-        "obsidian-tc://main/alpha.md",
+        "reliquary-tc://main/alpha.md",
         1_000_000,
         () => undefined,
         "detailed",
@@ -397,8 +397,8 @@ describe("THE-514 item 1 — resources and tool-dispatch share one scope-authori
     } catch (e) {
       resourceErr = e;
     }
-    expect(resourceErr).toBeInstanceOf(ObsidianTcError);
-    const re = resourceErr as ObsidianTcError;
+    expect(resourceErr).toBeInstanceOf(ReliquaryTcError);
+    const re = resourceErr as ReliquaryTcError;
     expect(re.code).toBe("forbidden");
     expect(re.details).toMatchObject({ required: ["read:notes"] });
 
@@ -479,7 +479,7 @@ describe("THE-514 item 2 — the same lowered maxResponseBytes refuses an oversi
           vaultId: "main",
           db: openMemoryDb(),
         },
-        "obsidian-tc://main/big.md",
+        "reliquary-tc://main/big.md",
         // THE-514 item 2: this is exactly what mcp/server.ts now passes — the registry's OWN
         // configured ceiling, not a hardcoded resources.ts constant.
         registry.maxResponseBytes,
@@ -499,7 +499,7 @@ describe("THE-514 item 2 — the same lowered maxResponseBytes refuses an oversi
 // row, so a refactor that silently drops or renames a column on one writer and not the other
 // fails HERE, not on a customer's audit trail. Per this file's own framing (top of file): this
 // asserts STRUCTURE, not sameness — tool_name/caller/args_hash legitimately differ between "an
-// agent called work_forget" and "an operator ran `obsidian-tc forget`".
+// agent called work_forget" and "an operator ran `reliquary-tc forget`".
 // ---------------------------------------------------------------------------------------------
 
 function eventLogRow(cacheDb: Database, toolName: string): Record<string, unknown> {

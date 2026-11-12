@@ -6,7 +6,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { buildFullRegistry } from "../scripts/docgen/build-registry";

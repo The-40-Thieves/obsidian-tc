@@ -1,6 +1,6 @@
 // THE-719 — the scheduled coverage-gap sweep.
 //
-// `detectGaps` had exactly one caller (the offline `obsidian-tc gaps` CLI), so `gap_reports` held 0
+// `detectGaps` had exactly one caller (the offline `reliquary-tc gaps` CLI), so `gap_reports` held 0
 // rows and the THE-611 read tool it exists for had nothing to read. These tests pin the two
 // decisions that make an UNATTENDED sweep different from the CLI one: where its queries come from,
 // and what it does when there are none.
@@ -10,7 +10,7 @@
 // migrated cache.db and there is no fixture helper for one. What IS pinned here is everything the
 // sweep decides for itself — the query source, its ordering, the cap, the empty-log guard, and the
 // registered name and interval. The search closure itself is shared verbatim with the CLI
-// (makeGapBatchSearch), which is exercised end to end by `obsidian-tc gaps`.
+// (makeGapBatchSearch), which is exercised end to end by `reliquary-tc gaps`.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";

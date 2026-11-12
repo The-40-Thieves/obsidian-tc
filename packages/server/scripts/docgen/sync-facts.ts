@@ -18,7 +18,7 @@
 // --check writes nothing and exits 1 if the file is stale vs the golden set — run it after any
 // golden-set change to catch the freshness gap the derived fact exists to close.
 //
-// Golden set resolution: --golden <path>  >  $OBSIDIAN_TC_GOLDEN  >  eval/multi-hop-golden-set.yaml.
+// Golden set resolution: --golden <path>  >  $RELIQUARY_TC_GOLDEN  >  eval/multi-hop-golden-set.yaml.
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -80,7 +80,7 @@ if (import.meta.main) {
   // Derived fact: count the golden set if we can find it.
   const goldenPath =
     flag("--golden") ??
-    process.env.OBSIDIAN_TC_GOLDEN ??
+    process.env.RELIQUARY_TC_GOLDEN ??
     fileURLToPath(new URL("../../eval/multi-hop-golden-set.yaml", import.meta.url));
   let goldenText: string | undefined;
   try {
@@ -90,7 +90,7 @@ if (import.meta.main) {
       process.stderr.write(
         `sync-facts: golden set not found: ${goldenPath}\n\n` +
           "The golden set is PRIVATE and gitignored (it maps queries to real note paths). Pass its\n" +
-          "path with --golden, set $OBSIDIAN_TC_GOLDEN, or keep it at eval/multi-hop-golden-set.yaml.\n" +
+          "path with --golden, set $RELIQUARY_TC_GOLDEN, or keep it at eval/multi-hop-golden-set.yaml.\n" +
           "Schema: packages/server/eval/multi-hop-golden-set.example.yaml.\n" +
           "To update only the curated claim without the golden set, pass --enrichment.\n",
       );

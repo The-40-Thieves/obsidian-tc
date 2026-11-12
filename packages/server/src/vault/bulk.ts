@@ -7,7 +7,7 @@
 // so duration_ms is deterministic in tests. No vault/IO here — the per-item
 // callback does the work (resolveVaultPath + enforcePathAcl + write), so this
 // stays pure orchestration.
-import { type ErrorJSON, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { type ErrorJSON, ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { redactSecrets } from "../util/redact";
 
 export interface BulkOptions {
@@ -31,7 +31,7 @@ export interface BulkReport {
 
 function toErrorJson(e: unknown): ErrorJSON {
   return (
-    e instanceof ObsidianTcError ? e : new ObsidianTcError("internal_error", (e as Error).message)
+    e instanceof ReliquaryTcError ? e : new ReliquaryTcError("internal_error", (e as Error).message)
   ).toJSON();
 }
 
@@ -88,7 +88,7 @@ export async function runBulk<T>(
         // field(s) — e.g. a caller-supplied `path` that was ITSELF secret-shaped — back in the
         // same failed item that refused it.
         const safeIdFields =
-          e instanceof ObsidianTcError && e.code === "secret_detected"
+          e instanceof ReliquaryTcError && e.code === "secret_detected"
             ? redactIdentityFields(idFields)
             : idFields;
         results[i] = { ...safeIdFields, ok: false, error: toErrorJson(e) };

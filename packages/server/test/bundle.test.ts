@@ -3,7 +3,7 @@
 // an explicit truncated flag and missing_paths.
 import { unlinkSync } from "node:fs";
 import { join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { type M4Vault, makeM4Vault } from "./m4-helpers";
 

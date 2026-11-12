@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@the-40-thieves/obsidian-tc-reranker-local",
+      "name": "@the-40-thieves/reliquary-tc-reranker-local",
       "dependencies": {
         "@huggingface/transformers": "^4.3.1",
       },

@@ -6,7 +6,7 @@
 // invisible to the graph. rewrite_link and prune_hub_links default to dry_run
 // (preview, no write, no confirmation); a real run (dry_run:false) enforces write
 // ACL and gates on requireConfirmation.
-import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { FolderAcl } from "../../acl";
 import { fingerprintTargets } from "../../elicit-drift";

@@ -4,7 +4,7 @@
 
 import type { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it, vi } from "vitest";
 import { assertSafeObsidianOpenUri, launchOsUri, osLaunchCommand } from "../src/tools/m4/os-launch";
 import { buildObsidianUri } from "../src/tools/m6/uri-tools";
@@ -31,7 +31,7 @@ function code(fn: () => unknown): string {
   try {
     fn();
   } catch (e) {
-    return e instanceof ObsidianTcError ? e.code : "non-tc-error";
+    return e instanceof ReliquaryTcError ? e.code : "non-tc-error";
   }
   return "no-error";
 }

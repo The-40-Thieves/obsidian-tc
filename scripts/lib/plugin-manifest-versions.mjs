@@ -3,19 +3,19 @@
 // a new file cannot be bumped by one and forgotten by the other.
 //
 // Two kinds of carrier: the manifests' own `version`, and the exact version the plugin's launcher
-// pins (`npx -y obsidian-tc@<version>`). The pin is required, not cosmetic: Anthropic's plugin
+// pins (`npx -y reliquary-tc@<version>`). The pin is required, not cosmetic: Anthropic's plugin
 // directory blocks an unpinned `npx` launcher ("Pin every package that a launcher runs to an exact
 // version", claude.com/docs/plugins/pre-submission-checklist, read 2026-10-10), and a plugin whose
 // pin trails the package would install an old server under a new plugin version.
 
 /** Repo-relative paths of the Claude Code and Muse Code plugin manifests. */
 export const PLUGIN_MANIFEST_PATHS = Object.freeze([
-  "plugins/obsidian-tc/.claude-plugin/plugin.json",
-  "plugins/obsidian-tc/.muse-plugin/plugin.json",
+  "plugins/reliquary-tc/.claude-plugin/plugin.json",
+  "plugins/reliquary-tc/.muse-plugin/plugin.json",
 ]);
 
 /** The Claude-style MCP config the Claude Code plugin (and Grok Build) read. */
-export const PLUGIN_MCP_JSON = "plugins/obsidian-tc/.mcp.json";
+export const PLUGIN_MCP_JSON = "plugins/reliquary-tc/.mcp.json";
 
 /** The npm package the plugin launches, as `identifier@version`. */
 export const pinnedPackageSpec = (identifier, version) => `${identifier}@${version}`;
@@ -39,7 +39,7 @@ export function pluginManifestVersionSources(readJson) {
     { label: muse, version: readJson(muse).version },
     {
       label: `${PLUGIN_MCP_JSON} launcher pin`,
-      version: pinOf(readJson(PLUGIN_MCP_JSON).mcpServers?.["obsidian-tc"]?.args),
+      version: pinOf(readJson(PLUGIN_MCP_JSON).mcpServers?.["reliquary-tc"]?.args),
     },
     {
       label: `${muse} launcher pin`,

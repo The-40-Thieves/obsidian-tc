@@ -11,7 +11,7 @@
 // The wait also forwards the task's progress as `notifications/progress` when the caller sent a
 // progressToken, which is what resets a client's own timeout while the budget is being spent.
 import type { CallToolResult } from "@modelcontextprotocol/server";
-import { type ErrorJSON, err } from "@the-40-thieves/obsidian-tc-shared";
+import { type ErrorJSON, err } from "@the-40-thieves/reliquary-tc-shared";
 import type { Job, JobProgress, JobQueue } from "../scheduler/job-queue";
 import { errorToCallToolResult } from "./error-rendering";
 import type { CallerContext } from "./registry";

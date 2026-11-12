@@ -1,6 +1,6 @@
 // The client resolver the AS routes share (design v2 section 4.7): one per route-deps object, so
 // authorize, consent, token and revoke look a client up the same way and share one in-flight table.
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { type ClientResolver, createClientResolver } from "./as-cimd";
 import type { AsRouteDeps } from "./as-metadata";
 

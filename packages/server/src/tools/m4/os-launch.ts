@@ -12,7 +12,7 @@
 //   - a timeout kills a launcher that never returns.
 import { spawn } from "node:child_process";
 import { win32 } from "node:path";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 
 export type OsLaunchFailure =
   | "unsupported_platform"

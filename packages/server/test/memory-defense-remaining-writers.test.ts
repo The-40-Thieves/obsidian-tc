@@ -16,7 +16,7 @@
 // memory-defense.test.ts documents in its own header.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ObsidianTcError, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError, type ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { configFromVaultPath } from "../src/cli/args";
 import { provisionCacheDb } from "../src/db/provision";
@@ -519,8 +519,8 @@ describe("memoryDefense block mode — reflect's persist primitive (persistGover
       } catch (e) {
         threw = e;
       }
-      expect(threw).toBeInstanceOf(ObsidianTcError);
-      if (threw instanceof ObsidianTcError) expect(threw.code).toBe("secret_detected");
+      expect(threw).toBeInstanceOf(ReliquaryTcError);
+      if (threw instanceof ReliquaryTcError) expect(threw.code).toBe("secret_detected");
       expect(existsSync(join(root, "probe/reflect.md"))).toBe(false);
     } finally {
       rmTemp(root);

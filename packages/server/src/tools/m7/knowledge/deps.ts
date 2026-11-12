@@ -4,7 +4,7 @@ import type {
   ResponseFormat,
   VaultMemoryDefenseConfig,
   VaultReflectConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import type { FolderAcl } from "../../../acl";
 import type { Database } from "../../../db/types";
 import type { EmbeddingProvider } from "../../../embeddings";
@@ -71,7 +71,7 @@ export interface M7Deps {
     /** THE-628 (first PR): the note-level summary candidate stream (retrieval.summaries). Dark by
      *  default — absent/false means graphSearch never queries note_summaries, byte-identical to
      *  today. `model`/`maxConcurrency` govern the INDEX-time summarizer (search/indexing/
-     *  summarize-notes.ts, wired at the `obsidian-tc index` CLI command in this first PR), not the
+     *  summarize-notes.ts, wired at the `reliquary-tc index` CLI command in this first PR), not the
      *  retrieval side — kept here anyway so the whole retrieval.summaries block threads through
      *  one M7Deps field instead of splitting index-time and retrieval-time config across two
      *  places.
@@ -80,7 +80,7 @@ export interface M7Deps {
      *  (retrieval.summaries.clusters) — a SEPARATE enable flag from `enabled` above, see
      *  GraphSearchOptions.summaries' comment for why. `clusters.maxConcurrency` governs the
      *  OFFLINE cluster-summary pass (search/indexing/summarize-clusters.ts, wired at the
-     *  `obsidian-tc cluster` CLI command), the tier-2 analogue of `maxConcurrency` above. */
+     *  `reliquary-tc cluster` CLI command), the tier-2 analogue of `maxConcurrency` above. */
     summaries?: {
       enabled?: boolean;
       model?: string;

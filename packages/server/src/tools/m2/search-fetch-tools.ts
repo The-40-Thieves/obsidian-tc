@@ -15,7 +15,7 @@
 // Obsidian's Excluded files, the index) is that tool's code. Each hit is then re-judged on the
 // canonical path (`enforcePathAcl`, the check read_note and fetch use) before it becomes a citation,
 // so a search result is always something fetch will return. `fetch` is read_note's gate sequence.
-import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import { enforcePathAcl } from "../../vault/acl-path";

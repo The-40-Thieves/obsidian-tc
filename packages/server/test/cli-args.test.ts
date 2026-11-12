@@ -83,9 +83,9 @@ describe("parseCliArgs", () => {
   });
   it("a bare path is a serve target (back-compat)", () => {
     expect(parseCliArgs(["/vault"])).toEqual({ kind: "serve", input: "/vault" });
-    expect(parseCliArgs(["./obsidian-tc.config.json"])).toEqual({
+    expect(parseCliArgs(["./reliquary-tc.config.json"])).toEqual({
       kind: "serve",
-      input: "./obsidian-tc.config.json",
+      input: "./reliquary-tc.config.json",
     });
   });
   it("serve with positional and --config", () => {
@@ -114,7 +114,7 @@ describe("parseCliArgs", () => {
     expect(parseCliArgs(["--bogus"]).kind).toBe("error");
   });
 
-  // Finding 2 (fix round, cross-vendor review): `obsidian-tc serve --help`/`-h` used to parse as
+  // Finding 2 (fix round, cross-vendor review): `reliquary-tc serve --help`/`-h` used to parse as
   // `{ kind: "serve", input: undefined }` — the flag was silently dropped (`positional` only
   // matches a non-dash token), so the first-run fallback read "no input" and auto-wrote a config
   // + started the server, when the operator just wanted usage text.
@@ -154,9 +154,9 @@ describe("resolveServeConfig / configFromVaultPath", () => {
     expect(cfg.vaults[0]?.id).toBe("main");
     expect(cfg.vaults[0]?.path).toBe(resolve(dir));
     // cacheDir must be absolute + machine-local, not CWD-relative: a GUI launcher (Claude Desktop)
-    // spawns MCP servers in a non-writable CWD, so a relative ".obsidian-tc" would EPERM at boot.
+    // spawns MCP servers in a non-writable CWD, so a relative ".reliquary-tc" would EPERM at boot.
     expect(isAbsolute(cfg.cacheDir)).toBe(true);
-    expect(cfg.cacheDir).toBe(join(homedir(), ".obsidian-tc"));
+    expect(cfg.cacheDir).toBe(join(homedir(), ".reliquary-tc"));
   });
   it("a config file is loaded as written", () => {
     const dir = tmpDir("otc-cfg-");
@@ -198,7 +198,7 @@ describe("resolveServeConfig / configFromVaultPath", () => {
 // LITERAL, unresolved `${user_config.config_path}` placeholder in argv when that optional field
 // is left blank — a real host observed to do this, not a hypothetical. `""` has the same failure
 // shape for a different reason: the old `input ?? env` treated "" as "given" (not nullish) and
-// never fell through to OBSIDIAN_TC_CONFIG at all, silently masking it. Both must resolve exactly
+// never fell through to RELIQUARY_TC_CONFIG at all, silently masking it. Both must resolve exactly
 // like an absent argument, all the way through to the "no vault or config given" error when no
 // env fallback exists either — never a `statSync` on placeholder/empty text.
 //
@@ -244,7 +244,7 @@ describe("normalizeConfigPathInput (PR #972 — unsubstituted MCPB placeholder /
       normalizeConfigPathInput(MCPB_CONFIG_PLACEHOLDER);
       expect(spy).toHaveBeenCalledTimes(1);
       expect(spy.mock.calls[0]?.[0]).toContain(MCPB_CONFIG_PLACEHOLDER);
-      expect(spy.mock.calls[0]?.[0]).toContain("OBSIDIAN_TC_CONFIG");
+      expect(spy.mock.calls[0]?.[0]).toContain("RELIQUARY_TC_CONFIG");
     } finally {
       spy.mockRestore();
     }
@@ -272,8 +272,8 @@ describe("normalizeConfigPathInput (PR #972 — unsubstituted MCPB placeholder /
   });
 });
 
-describe("resolveServeConfig / resolveServeConfigWithProvenance -- placeholder/empty input falls through to OBSIDIAN_TC_CONFIG (PR #972)", () => {
-  const ENV_KEY = "OBSIDIAN_TC_CONFIG";
+describe("resolveServeConfig / resolveServeConfigWithProvenance -- placeholder/empty input falls through to RELIQUARY_TC_CONFIG (PR #972)", () => {
+  const ENV_KEY = "RELIQUARY_TC_CONFIG";
   let savedEnv: string | undefined;
 
   beforeEach(() => {
@@ -284,7 +284,7 @@ describe("resolveServeConfig / resolveServeConfigWithProvenance -- placeholder/e
     else process.env[ENV_KEY] = savedEnv;
   });
 
-  it("an unresolved config_path placeholder falls through to a valid OBSIDIAN_TC_CONFIG, not a CliError", () => {
+  it("an unresolved config_path placeholder falls through to a valid RELIQUARY_TC_CONFIG, not a CliError", () => {
     const dir = tmpDir("otc-placeholder-env-");
     const file = join(dir, "c.json");
     writeFileSync(
@@ -295,7 +295,7 @@ describe("resolveServeConfig / resolveServeConfigWithProvenance -- placeholder/e
     expect(resolveServeConfig(MCPB_CONFIG_PLACEHOLDER).vaults[0]?.id).toBe("from-env");
   });
 
-  it("an empty string falls through to a valid OBSIDIAN_TC_CONFIG (the exact bug: old `??` masked it)", () => {
+  it("an empty string falls through to a valid RELIQUARY_TC_CONFIG (the exact bug: old `??` masked it)", () => {
     const dir = tmpDir("otc-empty-env-");
     const file = join(dir, "c.json");
     writeFileSync(
@@ -306,12 +306,12 @@ describe("resolveServeConfig / resolveServeConfigWithProvenance -- placeholder/e
     expect(resolveServeConfig("").vaults[0]?.id).toBe("from-env-2");
   });
 
-  it("a placeholder with no OBSIDIAN_TC_CONFIG fallback throws the ordinary 'no vault or config given' error, never a statSync-on-placeholder error", () => {
+  it("a placeholder with no RELIQUARY_TC_CONFIG fallback throws the ordinary 'no vault or config given' error, never a statSync-on-placeholder error", () => {
     delete process.env[ENV_KEY];
     expect(() => resolveServeConfig(MCPB_CONFIG_PLACEHOLDER)).toThrow(/no vault or config given/i);
   });
 
-  it("an empty string with no OBSIDIAN_TC_CONFIG fallback throws the same friendly error", () => {
+  it("an empty string with no RELIQUARY_TC_CONFIG fallback throws the same friendly error", () => {
     delete process.env[ENV_KEY];
     expect(() => resolveServeConfig("")).toThrow(/no vault or config given/i);
   });
@@ -415,12 +415,12 @@ describe("resolveServeConfigWithProvenance — unparseable default-path config (
   });
 
   it("gives a clear hint instead of a raw JSON parse error for an empty default-path config", () => {
-    const target = join(home, ".obsidian-tc", "config.json");
-    mkdirSync(join(home, ".obsidian-tc"), { recursive: true });
+    const target = join(home, ".reliquary-tc", "config.json");
+    mkdirSync(join(home, ".reliquary-tc"), { recursive: true });
     writeFileSync(target, "");
 
     expect(() => resolveServeConfigWithProvenance(undefined)).toThrow(
-      /could not be parsed.*obsidian-tc setup/is,
+      /could not be parsed.*reliquary-tc setup/is,
     );
   });
 
@@ -845,7 +845,7 @@ describe("THE-645 item 3 — parseCliArgs rerun", () => {
   // Fix round 1, finding 2: a naive implementation only ever found the FIRST non-flag token
   // (the session id) and never looked for a second one, so the documented `[path]` positional
   // (USAGE: `rerun <session-id> [path] ...`) was silently discarded — a re-run would fall through
-  // to OBSIDIAN_TC_CONFIG or the zero-config default instead of the vault the operator named.
+  // to RELIQUARY_TC_CONFIG or the zero-config default instead of the vault the operator named.
   it("a second positional after the session id becomes the config path — the documented [path] form", () => {
     expect(parseCliArgs(["rerun", "sess_1", "/etc/otc.json"])).toStrictEqual({
       kind: "rerun",
@@ -1419,45 +1419,45 @@ describe("THE-1039 (GH #930) — parseCliArgs compact", () => {
   });
 });
 
-// Fix round (Codex review 1001-verify, "DEFAULT PATH"): `obsidian-tc setup` writes to
-// `defaultSetupConfigPath()` (~/.obsidian-tc/config.json) by convention, but `serve` never had a
-// matching fallback — a bare `obsidian-tc` with no argument, no OBSIDIAN_TC_CONFIG, never found
+// Fix round (Codex review 1001-verify, "DEFAULT PATH"): `reliquary-tc setup` writes to
+// `defaultSetupConfigPath()` (~/.reliquary-tc/config.json) by convention, but `serve` never had a
+// matching fallback — a bare `reliquary-tc` with no argument, no RELIQUARY_TC_CONFIG, never found
 // what setup just wrote. Own describe block: stubs `os.homedir()` via `stubHomedir` (fix round 2 —
 // HOME alone has no effect on windows-latest, see tmp.ts's own header) so `defaultSetupConfigPath()`
 // resolves under a real temp dir this suite controls, never the box's real home directory.
-describe("resolveServeConfigWithProvenance — default-path fallback to ~/.obsidian-tc/config.json", () => {
-  const ORIGINAL_OBSIDIAN_TC_CONFIG = process.env.OBSIDIAN_TC_CONFIG;
+describe("resolveServeConfigWithProvenance — default-path fallback to ~/.reliquary-tc/config.json", () => {
+  const ORIGINAL_RELIQUARY_TC_CONFIG = process.env.RELIQUARY_TC_CONFIG;
   let restoreHome: (() => void) | undefined;
 
   afterEach(() => {
     restoreHome?.();
     restoreHome = undefined;
-    if (ORIGINAL_OBSIDIAN_TC_CONFIG === undefined) delete process.env.OBSIDIAN_TC_CONFIG;
-    else process.env.OBSIDIAN_TC_CONFIG = ORIGINAL_OBSIDIAN_TC_CONFIG;
+    if (ORIGINAL_RELIQUARY_TC_CONFIG === undefined) delete process.env.RELIQUARY_TC_CONFIG;
+    else process.env.RELIQUARY_TC_CONFIG = ORIGINAL_RELIQUARY_TC_CONFIG;
   });
 
   it("no --config/positional/env AND no default file -> the ordinary 'no vault or config given' error", () => {
     restoreHome = stubHomedir(tmpDir("otc-default-path-none-"));
-    delete process.env.OBSIDIAN_TC_CONFIG;
+    delete process.env.RELIQUARY_TC_CONFIG;
     expect(() => resolveServeConfig(undefined)).toThrow(/no vault or config given/i);
   });
 
   it("no --config/positional/env, but the default file EXISTS -> it is loaded", () => {
     const home = tmpDir("otc-default-path-hit-");
-    const configDir = join(home, ".obsidian-tc");
+    const configDir = join(home, ".reliquary-tc");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(
       join(configDir, "config.json"),
       JSON.stringify({ vaults: [{ id: "from-default", path: home }], cacheDir: configDir }),
     );
     restoreHome = stubHomedir(home);
-    delete process.env.OBSIDIAN_TC_CONFIG;
+    delete process.env.RELIQUARY_TC_CONFIG;
     expect(resolveServeConfig(undefined).vaults[0]?.id).toBe("from-default");
   });
 
   it("an explicit input still wins over an existing default file", () => {
     const home = tmpDir("otc-default-path-explicit-wins-");
-    const configDir = join(home, ".obsidian-tc");
+    const configDir = join(home, ".reliquary-tc");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(
       join(configDir, "config.json"),
@@ -1465,13 +1465,13 @@ describe("resolveServeConfigWithProvenance — default-path fallback to ~/.obsid
     );
     const otherDir = tmpDir("otc-default-path-explicit-vault-");
     restoreHome = stubHomedir(home);
-    delete process.env.OBSIDIAN_TC_CONFIG;
+    delete process.env.RELIQUARY_TC_CONFIG;
     expect(resolveServeConfig(otherDir).vaults[0]?.id).toBe("main");
   });
 
-  it("OBSIDIAN_TC_CONFIG still wins over an existing default file", () => {
+  it("RELIQUARY_TC_CONFIG still wins over an existing default file", () => {
     const home = tmpDir("otc-default-path-env-wins-");
-    const configDir = join(home, ".obsidian-tc");
+    const configDir = join(home, ".reliquary-tc");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(
       join(configDir, "config.json"),
@@ -1484,18 +1484,18 @@ describe("resolveServeConfigWithProvenance — default-path fallback to ~/.obsid
       JSON.stringify({ vaults: [{ id: "from-env", path: envDir }], cacheDir: ".otc-test-cache" }),
     );
     restoreHome = stubHomedir(home);
-    process.env.OBSIDIAN_TC_CONFIG = envFile;
+    process.env.RELIQUARY_TC_CONFIG = envFile;
     expect(resolveServeConfig(undefined).vaults[0]?.id).toBe("from-env");
   });
 
   // Fix round 2 (Codex review 1001-verify-r2), finding 7 (MEDIUM): `run_serve` (cli.ts) used to
   // re-derive its OWN `configPath` (the module-loader trust root) from ONLY `cmd.input` +
-  // `OBSIDIAN_TC_CONFIG`, never consulting this default-path fallback — so a bare `obsidian-tc`
+  // `RELIQUARY_TC_CONFIG`, never consulting this default-path fallback — so a bare `reliquary-tc`
   // relying on it loaded a real config here while the trust root stayed `undefined` two lines away
   // in cli.ts. `configFilePath` is the ONE resolution `run_serve` must now reuse instead.
   it("configFilePath reports the default-file fallback path when that's what resolved", () => {
     const home = tmpDir("otc-default-path-provenance-");
-    const configDir = join(home, ".obsidian-tc");
+    const configDir = join(home, ".reliquary-tc");
     mkdirSync(configDir, { recursive: true });
     const defaultFile = join(configDir, "config.json");
     writeFileSync(
@@ -1503,21 +1503,21 @@ describe("resolveServeConfigWithProvenance — default-path fallback to ~/.obsid
       JSON.stringify({ vaults: [{ id: "from-default", path: home }], cacheDir: configDir }),
     );
     restoreHome = stubHomedir(home);
-    delete process.env.OBSIDIAN_TC_CONFIG;
+    delete process.env.RELIQUARY_TC_CONFIG;
     expect(resolveServeConfigWithProvenance(undefined).configFilePath).toBe(defaultFile);
   });
 
   it("configFilePath is undefined for zero-config (a vault directory)", () => {
     const home = tmpDir("otc-default-path-provenance-dir-");
     restoreHome = stubHomedir(home);
-    delete process.env.OBSIDIAN_TC_CONFIG;
+    delete process.env.RELIQUARY_TC_CONFIG;
     const vaultDir = tmpDir("otc-default-path-provenance-vault-");
     expect(resolveServeConfigWithProvenance(vaultDir).configFilePath).toBeUndefined();
   });
 
   it("a directory (zero-config) is unaffected by an existing default file", () => {
     const home = tmpDir("otc-default-path-zero-config-");
-    const configDir = join(home, ".obsidian-tc");
+    const configDir = join(home, ".reliquary-tc");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(
       join(configDir, "config.json"),
@@ -1525,7 +1525,7 @@ describe("resolveServeConfigWithProvenance — default-path fallback to ~/.obsid
     );
     const vaultDir = tmpDir("otc-default-path-zero-config-vault-");
     restoreHome = stubHomedir(home);
-    delete process.env.OBSIDIAN_TC_CONFIG;
+    delete process.env.RELIQUARY_TC_CONFIG;
     expect(resolveServeConfig(vaultDir).vaults[0]?.id).toBe("main");
   });
 });

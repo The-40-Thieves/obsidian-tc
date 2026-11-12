@@ -1,4 +1,4 @@
-// read_resources: batch resources/read. Each obsidian-tc:// note URI goes through the SAME
+// read_resources: batch resources/read. Each reliquary-tc:// note URI goes through the SAME
 // readResource(, (id) => v.registry.aclFor(id)) the MCP resources/read handler calls, then the shared byte-page paginator. Every
 // case runs through registry.dispatch, i.e. under the real governor.
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -86,10 +86,10 @@ describe("read_resources: per-item results", () => {
       uri("a.md"),
       uri("secret/c.md"), // folder ACL denies
       uri("missing.md"), // not found
-      "obsidian-tc://test/50%.md", // malformed percent-encoding
+      "reliquary-tc://test/50%.md", // malformed percent-encoding
       "https://example.com/x.md", // unknown scheme
-      "obsidian-tc://catalog", // not a note URI
-      "obsidian-tc://noslash", // malformed shape
+      "reliquary-tc://catalog", // not a note URI
+      "reliquary-tc://noslash", // malformed shape
       uri("pub/b.md"),
       uri("elsewhere.md", "other"), // another vault
     ];

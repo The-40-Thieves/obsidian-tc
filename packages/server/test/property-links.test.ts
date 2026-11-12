@@ -3,9 +3,9 @@
 // and list properties of quoted links. Rules (help.obsidian.md/properties: "internal links must be
 // surrounded by quotes to be valid"): only a QUOTED link is a YAML string, so only it is a link;
 // an unquoted `[[X]]` parses as a nested YAML list and is not one. Alias, heading and block
-// syntax are the body parser's. obsidian-tc used to read the body only, so these links were
+// syntax are the body parser's. reliquary-tc used to read the body only, so these links were
 // invisible to every link tool and to the graph.
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { findAttachmentReferences } from "../src/formats/attachments";

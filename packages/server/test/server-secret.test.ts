@@ -72,9 +72,9 @@ describe("serverSecret", () => {
 describe("independent derivations of the one secret", () => {
   it("keeps the wiki seal byte-identical: the raw secret is the HMAC key under the seal's own prefix", () => {
     const id = { vaultId: "alpha", path: "wiki/log.md" };
-    const page = `---\ngenerated_by: obsidian-tc\ngenerated_vault: "alpha"\ngenerated_path: "wiki/log.md"\ngenerated_hash: \n---\n# Wiki log\n`;
+    const page = `---\ngenerated_by: reliquary-tc\ngenerated_vault: "alpha"\ngenerated_path: "wiki/log.md"\ngenerated_hash: \n---\n# Wiki log\n`;
     const expected = createHmac("sha256", SECRET)
-      .update(JSON.stringify(["obsidian-tc/wiki-generated/v1", id.vaultId, id.path, page]), "utf8")
+      .update(JSON.stringify(["reliquary-tc/wiki-generated/v1", id.vaultId, id.path, page]), "utf8")
       .digest("hex");
     const sealed = seal(page, SECRET, id);
     expect(sealed).toContain(`generated_hash: hmac-sha256:${expected}`);

@@ -139,10 +139,10 @@ describe("THE-585 the previously-dead gauges reach the Prometheus exposition", (
     const text = await new MetricsRecorder(databaseGaugeSources(db, () => NOW)).metrics();
 
     // Before this change every one of these had a TYPE line and NO series beneath it.
-    expect(text).toContain('obsidian_tc_active_sessions{vault="main"} 2');
-    expect(text).toContain('obsidian_tc_active_sessions{vault="other"} 1');
-    expect(text).toContain('obsidian_tc_capture_queue_depth{vault="main"} 2');
-    expect(text).toContain('obsidian_tc_elicit_tokens_pending{vault="main"} 1');
+    expect(text).toContain('reliquary_tc_active_sessions{vault="main"} 2');
+    expect(text).toContain('reliquary_tc_active_sessions{vault="other"} 1');
+    expect(text).toContain('reliquary_tc_capture_queue_depth{vault="main"} 2');
+    expect(text).toContain('reliquary_tc_elicit_tokens_pending{vault="main"} 1');
   });
 
   // Behavioural tests above prove the SQL works and the recorder exposes it. Neither proves the
@@ -176,7 +176,7 @@ describe("THE-585 the previously-dead gauges reach the Prometheus exposition", (
     // Pinning the failure mode itself, so the difference between "registered" and "reporting" stays
     // legible to whoever reads this next.
     const text = await new MetricsRecorder().metrics();
-    expect(text).toContain("# TYPE obsidian_tc_active_sessions gauge");
-    expect(text).not.toMatch(/^obsidian_tc_active_sessions\{/m);
+    expect(text).toContain("# TYPE reliquary_tc_active_sessions gauge");
+    expect(text).not.toMatch(/^reliquary_tc_active_sessions\{/m);
   });
 });

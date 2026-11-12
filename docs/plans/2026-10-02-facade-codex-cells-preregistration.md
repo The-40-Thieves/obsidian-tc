@@ -28,7 +28,7 @@ Codex x `flat`.
 - Corpus: the same public evergreen corpus template, byte-copied from
   `../20261002-discovery/template` (1,357 notes plus the seeded notes and `Discovery/` folder; the
   broken-YAML note omitted, as before). No private vault text is read.
-- Server: obsidian-tc 1.31.8 built from `eb637ce3` (the commit the Claude cells and the Codex triad
+- Server: reliquary-tc 1.31.8 built from `eb637ce3` (the commit the Claude cells and the Codex triad
   cell were measured against), in a separate detached worktree, NOT from current `main` (which has since
   added the wiki tools and would change the `domain` and `flat` surfaces). `tools/list` is expected to be
   3 / 13 / 176 definitions for triad / domain / flat, as before; the proxy records it per trial.

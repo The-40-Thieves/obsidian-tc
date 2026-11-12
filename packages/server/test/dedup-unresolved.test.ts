@@ -3,9 +3,9 @@
 // that is only known later, at apply time (copyDedupVectors' `!src` bail, indexer.ts). When the
 // owner's note is quarantined this pass (e.g. the embed provider rejected it), every duplicate
 // resolving to it degrades to FTS-only: the chunk row is written, but chunk_embeddings gets no
-// row. Today that loss was folded into chunks_dedup_reused / obsidian_tc_ingest_dedup_skipped_total,
+// row. Today that loss was folded into chunks_dedup_reused / reliquary_tc_ingest_dedup_skipped_total,
 // whose help text calls a rise "good" — this split gives the loss its own counter.
-import { err, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import { err, type ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { type EmbeddingProvider, fakeEmbeddingProvider } from "../src/embeddings";
 import { recordIngestStats } from "../src/metrics/ingest-stats";
@@ -137,7 +137,7 @@ describe("THE-588 feeds the real Prometheus counter through recordIngestStats, n
     const text = await metrics.metrics();
     expect(text).toMatch(
       new RegExp(
-        `obsidian_tc_ingest_dedup_unresolved_total\\{vault="${v.id}"\\} ${stats.chunks_dedup_unresolved}`,
+        `reliquary_tc_ingest_dedup_unresolved_total\\{vault="${v.id}"\\} ${stats.chunks_dedup_unresolved}`,
       ),
     );
     v.cleanup();

@@ -13,12 +13,12 @@
 // env-supplied value outranks the file, and both outrank the profile. Defaults come last, from zod.
 //
 // SECRETS ARE REPORTED WITHOUT BEING PRINTED. That is the point of tracing rather than dumping: the
-// useful fact is "auth.jwtSecret came from env:OBSIDIAN_TC_JWT_SECRET", and the value itself is
+// useful fact is "auth.jwtSecret came from env:RELIQUARY_TC_JWT_SECRET", and the value itself is
 // exactly what must not appear in a diagnostic a user will paste into an issue. Redaction reuses
 // cli/args.ts's existing rules so this surface cannot drift from `config-show`'s.
 
 import { isAbsolute } from "node:path";
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { DEFAULT_KNN_MIN_SIM, DEFAULT_RRF_K } from "../search/retrieval-defaults";
 import { applyEnvOverlays, finalizeConfig } from "./load";
 import { applySecurityProfile } from "./security-profile";
@@ -50,19 +50,19 @@ export interface ConfigExplanation {
  * fails the build rather than silently reporting "file" or "default" for an env-supplied value.
  */
 export const ENV_OVERLAYS: ReadonlyArray<readonly [string, string]> = [
-  ["auth.jwtSecret", "OBSIDIAN_TC_JWT_SECRET"],
-  ["plur.endpoint", "OBSIDIAN_TC_PLUR_ENDPOINT"],
-  ["plur.apiKey", "OBSIDIAN_TC_PLUR_TOKEN"],
+  ["auth.jwtSecret", "RELIQUARY_TC_JWT_SECRET"],
+  ["plur.endpoint", "RELIQUARY_TC_PLUR_ENDPOINT"],
+  ["plur.apiKey", "RELIQUARY_TC_PLUR_TOKEN"],
   ["transports.http.port", "PORT"],
   ["transports.http.enabled", "PORT"],
-  ["auth.resource", "OBSIDIAN_TC_PUBLIC_URL"],
-  ["transports.http.allowedHosts", "OBSIDIAN_TC_PUBLIC_URL"],
-  ["transports.http.allowedHosts", "OBSIDIAN_TC_ALLOWED_HOSTS"],
-  ["auth.jwksUri", "OBSIDIAN_TC_JWKS_URI"],
-  ["auth.audience", "OBSIDIAN_TC_AUDIENCE"],
-  ["vaults", "OBSIDIAN_TC_VAULT_PATH"],
-  ["vaults", "OBSIDIAN_TC_VAULT_CASE_SENSITIVE"],
-  ["cacheDir", "OBSIDIAN_TC_CACHE_DIR"],
+  ["auth.resource", "RELIQUARY_TC_PUBLIC_URL"],
+  ["transports.http.allowedHosts", "RELIQUARY_TC_PUBLIC_URL"],
+  ["transports.http.allowedHosts", "RELIQUARY_TC_ALLOWED_HOSTS"],
+  ["auth.jwksUri", "RELIQUARY_TC_JWKS_URI"],
+  ["auth.audience", "RELIQUARY_TC_AUDIENCE"],
+  ["vaults", "RELIQUARY_TC_VAULT_PATH"],
+  ["vaults", "RELIQUARY_TC_VAULT_CASE_SENSITIVE"],
+  ["cacheDir", "RELIQUARY_TC_CACHE_DIR"],
 ];
 
 // Same rules as cli/args.ts's redactConfig, kept as one regex pair so the two surfaces agree.

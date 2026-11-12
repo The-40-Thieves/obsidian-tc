@@ -6,7 +6,7 @@
 
 import { linkSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createBridgeClient,

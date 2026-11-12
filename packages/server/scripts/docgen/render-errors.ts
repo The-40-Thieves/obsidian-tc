@@ -8,7 +8,7 @@
 // THE-470 framed the choice as "render it or delete the extractor". This renders it: an MCP
 // server's error vocabulary is exactly the kind of fact a caller needs and cannot infer.
 //
-// Codes come from the `err` factory map in @the-40-thieves/obsidian-tc-shared, not from a
+// Codes come from the `err` factory map in @the-40-thieves/reliquary-tc-shared, not from a
 // hand-listed enum, so a code added there appears here on the next `docgen:render` and the drift
 // gate fails until the page is regenerated.
 import type { ErrorDoc } from "./model";
@@ -23,7 +23,7 @@ function cell(v: string): string {
 export function renderErrors(docs: ErrorDoc[]): string {
   const withHint = docs.filter((d) => d.recovery).length;
   return [
-    `Every failure obsidian-tc returns carries one of these **${docs.length}** canonical codes, ` +
+    `Every failure reliquary-tc returns carries one of these **${docs.length}** canonical codes, ` +
       `**${withHint}** of which ship a recovery hint. The code is the stable contract — branch on ` +
       "it rather than on the message, which is a human-readable default that may be replaced " +
       "with something more specific at the throw site.",

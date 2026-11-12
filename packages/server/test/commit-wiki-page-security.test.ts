@@ -5,7 +5,7 @@
 // and a duplicate re-check made right before the write.
 import { existsSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { contentHash } from "../src/vault/paths";

@@ -3,7 +3,7 @@
 // body and never sent it. The rule lives in `closeIfBodyUnread`, wrapped around `app.fetch` in
 // `serveHono`, the one place every listener goes through.
 import { type AddressInfo, connect, createServer as createNetServer } from "node:net";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { Hono } from "hono";
 import { SignJWT } from "jose";
 import { afterEach, describe, expect, it } from "vitest";
@@ -327,7 +327,7 @@ describe("/mcp through the wrapper", () => {
       auth: mode === "jwt" ? { mode, jwtSecret: JWT_SECRET, resource: RESOURCE } : { mode },
     }).auth;
     const handle = createHttpApp({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: "t",
       registry: new ToolRegistry({ rootResolver: () => undefined }),
       auth,

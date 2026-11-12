@@ -32,7 +32,7 @@ describe("experientialTableSpec", () => {
   });
 
   // The misclassification. `enabled` asserts a producer RUNS here; extractPreferences is reachable
-  // only from the manual `obsidian-tc reflect` CLI. The scheduled experiential pass is
+  // only from the manual `reliquary-tc reflect` CLI. The scheduled experiential pass is
   // evaluateEpisodes, a different function that never touches these tables.
   it("preference tables are ON-DEMAND, never enabled — extraction has no scheduled caller", () => {
     expect(writerOf("preference_profile")).toBe("on-demand");

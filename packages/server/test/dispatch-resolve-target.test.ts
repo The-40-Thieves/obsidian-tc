@@ -6,7 +6,7 @@
 // note B. Every case here is that hazard or a gate ordering it depends on.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
@@ -131,7 +131,7 @@ describe("resolveTarget stage", () => {
   it("surfaces a typed resolver failure and never runs the handler", async () => {
     const f = fixture({ active: () => "a.md" });
     f.resolve.mockRejectedValueOnce(
-      new ObsidianTcError("note_not_found", "no active file", { hint: "open a note" }),
+      new ReliquaryTcError("note_not_found", "no active file", { hint: "open a note" }),
     );
     const r = await f.reg.dispatch("touch_active", { vault: "v1" }, f.ctx());
     expect(r.ok).toBe(false);

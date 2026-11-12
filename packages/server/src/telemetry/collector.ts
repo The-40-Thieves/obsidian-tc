@@ -1,6 +1,6 @@
 // THE-1125 — the in-process half of opt-in telemetry: per-tool call counts, per-error-code
 // counts, the facade mode of each call, and distinct client names seen (capped). Fed from the
-// SAME hook point Prometheus's `obsidian_tc_tool_calls_total` already uses
+// SAME hook point Prometheus's `reliquary_tc_tool_calls_total` already uses
 // (MetricsRecorder.observeToolCall, metrics/registry.ts) — this module adds no second
 // observation site in dispatch.ts; see registry.ts's `toolCallObserver` for the wiring.
 //
@@ -16,7 +16,7 @@
 // skipping some other check: the collector itself can never be made to hold an unbounded or
 // caller-controlled key. See test/telemetry-document.test.ts's property test (dispatch.ts feeding
 // this collector through the real `ToolRegistry.dispatch` path, not a hand-built call).
-import { ERROR_CODES } from "@the-40-thieves/obsidian-tc-shared";
+import { ERROR_CODES } from "@the-40-thieves/reliquary-tc-shared";
 import { MAX_CLIENT_NAMES } from "./document";
 
 export interface TelemetrySnapshot {
@@ -30,7 +30,7 @@ export interface TelemetrySnapshot {
 /** What an unregistered/unrecognized tool name collapses to. Never the caller-supplied string. */
 export const UNKNOWN_TOOL_NAME = "unknown";
 /** What a non-taxonomy error code collapses to (should be unreachable in practice — every thrown
- *  `ObsidianTcError` carries a code from the closed `ErrorCode` union — but the check is here
+ *  `ReliquaryTcError` carries a code from the closed `ErrorCode` union — but the check is here
  *  regardless, on the same "trust nothing at this boundary" footing as the tool-name allowlist). */
 export const UNKNOWN_ERROR_CODE = "unknown";
 /** `other`, not `unknown`, for client names — an unrecognized MCP client is a normal, expected

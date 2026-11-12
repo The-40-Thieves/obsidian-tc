@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";
@@ -166,7 +166,7 @@ describe("server_health's emitted payload vs its advertised outputSchema (ajv, T
 
   // THE-1123: the `toolFacade` block is assembled from internal state (ctx.clientInfo +
   // ctx.effectiveFacadeMode), exactly the shape the zod-safeParse-strips-but-ajv-rejects trap bites
-  // — see reference_obsidian_tc_zod_safeparse_strips_but_ajv_rejects_extra_keys. Pinned here so a
+  // — see reference_reliquary_tc_zod_safeparse_strips_but_ajv_rejects_extra_keys. Pinned here so a
   // future field added to that block is caught the same way fix round 1's `kind` leak was.
   it("the toolFacade block (auto mode, resolved from ctx.effectiveFacadeMode) validates under ajv too", () => {
     const tool = healthTool({

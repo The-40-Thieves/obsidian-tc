@@ -1,4 +1,4 @@
-// PR A of GH #995's two-part follow-up: `obsidian-tc setup` argv parsing, split out of args.ts for
+// PR A of GH #995's two-part follow-up: `reliquary-tc setup` argv parsing, split out of args.ts for
 // the same reason parse-telemetry.ts/parse-consolidate.ts document — a new command's parse branch
 // does not fit under biome's noExcessiveLinesPerFile floor on args.ts. No dependency on args.ts
 // (not even CliCommand), so importing it FROM args.ts creates no cycle.
@@ -14,7 +14,7 @@ const KNOWN_VALUE_FLAGS = ["--config", "--vault", "--install-client"];
 const KNOWN_BOOLEAN_FLAGS = ["--yes", "--dry-run", "--force", "--replace-invalid-config"];
 
 /** PR B of GH #995's two-part follow-up: the MCP clients `setup --install-client` knows how to
- *  wire an `obsidian-tc` entry into — see cli/setup/client-install.ts for the per-client
+ *  wire a `reliquary-tc` entry into — see cli/setup/client-install.ts for the per-client
  *  path/format/CLI logic (each entry's mechanism verified against that client's own current docs
  *  or `--help` output before being added; see that file's header). Extended with VS Code, opencode,
  *  Windsurf/Devin Desktop, Gemini CLI, Zed, Devin, and Aider (which has no MCP support at all — see
@@ -63,9 +63,9 @@ const INSTALL_CLIENT_ALIASES: Record<string, InstallClient> = {
 export interface SetupCommand {
   kind: "setup";
   /** Where to write the config. Defaults (in cli/commands/setup.ts) to
-   *  `~/.obsidian-tc/config.json` — a convention this command picks (matching the `cacheDir`
+   *  `~/.reliquary-tc/config.json` — a convention this command picks (matching the `cacheDir`
    *  default's own home-anchored name), NOT a path the loader itself defaults to: config/load.ts's
-   *  loader only ever reads an explicit `--config`/positional path or `OBSIDIAN_TC_CONFIG` — see
+   *  loader only ever reads an explicit `--config`/positional path or `RELIQUARY_TC_CONFIG` — see
    *  cli/commands/setup.ts's own header comment for why this matters for `serve` picking the
    *  written config back up. */
   configPath?: string;
@@ -78,7 +78,7 @@ export interface SetupCommand {
   /** Print the config that WOULD be written and exit — writes nothing. */
   dryRun: boolean;
   /** Overwrite an existing config at the target path (after backing it up) instead of refusing;
-   *  ALSO reused by `--install-client` (PR B) to allow replacing an existing `obsidian-tc` entry
+   *  ALSO reused by `--install-client` (PR B) to allow replacing an existing `reliquary-tc` entry
    *  in that client's own MCP config, rather than introduce a second `--force`-shaped flag. */
   force: boolean;
   /** Replace an existing config that is not valid (malformed JSON, a root that is not an object, or
@@ -86,7 +86,7 @@ export interface SetupCommand {
    *  `force`: without it `setup` refuses such a file under every other flag, since the old file's
    *  acl/auth/egress settings are discarded. Optional so a caller that never sets it keeps refusing. */
   replaceInvalidConfig?: boolean;
-  /** PR B of GH #995's two-part follow-up: wire an `obsidian-tc` entry into one MCP client's own
+  /** PR B of GH #995's two-part follow-up: wire a `reliquary-tc` entry into one MCP client's own
    *  config INSTEAD of running setup's normal detect/decide/write flow. See
    *  cli/setup/client-install.ts. */
   installClient?: InstallClient;

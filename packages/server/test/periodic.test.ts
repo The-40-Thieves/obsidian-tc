@@ -1,4 +1,4 @@
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import type { BridgeClient } from "../src/bridge";
 import { makeM3Vault } from "./m3-helpers";
@@ -206,8 +206,8 @@ describe("Domain 12: Periodic Notes — Templater expansion (THE-207)", () => {
         request: async (req: { body?: Record<string, unknown> }) => {
           calls.push(req.body ?? {});
           if (opts.throwCode)
-            throw new ObsidianTcError(
-              opts.throwCode as ConstructorParameters<typeof ObsidianTcError>[0],
+            throw new ReliquaryTcError(
+              opts.throwCode as ConstructorParameters<typeof ReliquaryTcError>[0],
               "degraded",
             );
           return {};

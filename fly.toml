@@ -1,26 +1,26 @@
 # Fly.io app config. Create the app from it with
-#   fly launch --from https://github.com/The-40-Thieves/obsidian-tc --copy-config --no-deploy
+#   fly launch --from https://github.com/The-40-Thieves/reliquary-tc --copy-config --no-deploy
 # then set the secrets and deploy. The fields are explained in
 # docs/src/content/docs/deployment/fly.md. fly launch adds the app name.
 primary_region = "iad"
 
 # The published image, not a build of the repository Dockerfile: the release CI tested is what runs.
 [build]
-  image = "ghcr.io/the-40-thieves/obsidian-tc:latest"
+  image = "ghcr.io/the-40-thieves/reliquary-tc:latest"
 
 [env]
-  OBSIDIAN_TC_CONFIG = "/config/obsidian-tc.config.json"
-  OBSIDIAN_TC_VAULT_PATH = "/data/vault"
-  OBSIDIAN_TC_CACHE_DIR = "/data/cache"
+  RELIQUARY_TC_CONFIG = "/config/reliquary-tc.config.json"
+  RELIQUARY_TC_VAULT_PATH = "/data/vault"
+  RELIQUARY_TC_CACHE_DIR = "/data/cache"
   PORT = "8765"
 
 # The shared HTTP config (0.0.0.0, stdio off, JWT), copied into the Machine at deploy time.
 [[files]]
-  guest_path = "/config/obsidian-tc.config.json"
-  local_path = "deploy/config/obsidian-tc.config.json"
+  guest_path = "/config/reliquary-tc.config.json"
+  local_path = "deploy/config/reliquary-tc.config.json"
 
 [mounts]
-  source = "obsidian_tc_data"
+  source = "reliquary_tc_data"
   destination = "/data"
   initial_size = "10gb"
 

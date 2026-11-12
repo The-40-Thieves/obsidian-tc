@@ -2,7 +2,7 @@
 // euclidean distance is monotone in cosine) over a vault's active chunk embeddings, persisted to
 // chunks.cluster_id (a V2-reserved column). graph_search then caps how many chunks per cluster reach
 // the final result, so a query cannot return N near-duplicate chunks from one semantic
-// neighbourhood. Clustering is OFFLINE (run via `obsidian-tc cluster`): cluster_id stays NULL until
+// neighbourhood. Clustering is OFFLINE (run via `reliquary-tc cluster`): cluster_id stays NULL until
 // then and the cap no-ops, so this is purely additive.
 import type { Database } from "../db/types";
 import { bumpGeneration } from "./generation";
@@ -148,7 +148,7 @@ export function defaultK(n: number): number {
 
 /**
  * Cluster a vault's active chunk embeddings and persist chunks.cluster_id. Offline maintenance
- * (obsidian-tc cluster). Rows are ordered by id so a given (corpus, k, seed) is reproducible.
+ * (reliquary-tc cluster). Rows are ordered by id so a given (corpus, k, seed) is reproducible.
  * Returns null when the vault has no embedded chunks.
  */
 export function assignClusters(

@@ -1,6 +1,6 @@
-# @the-40-thieves/obsidian-tc-native
+# @the-40-thieves/reliquary-tc-native
 
-Native perf module for obsidian-tc. Rust via [napi-rs](https://napi.rs) (v3).
+Native perf module for reliquary-tc. Rust via [napi-rs](https://napi.rs) (v3).
 
 As shipped it exposes three pure primitives, each with a numerically identical
 pure-JS fallback so the server runs without a compiled binary:

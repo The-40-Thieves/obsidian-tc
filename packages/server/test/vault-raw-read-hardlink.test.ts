@@ -55,7 +55,7 @@ describe("formats/json-config readJsonFile (bookmarks.json, workspaces.json)", (
     } catch (e) {
       thrown = e;
     }
-    expect(thrown).toMatchObject({ name: "ObsidianTcError", code: "acl_denied" });
+    expect(thrown).toMatchObject({ name: "ReliquaryTcError", code: "acl_denied" });
     expect((thrown as Error).message).toMatch(/bookmarks\.json/);
     expect((thrown as Error).message).toMatch(/hard link or symlink/);
     expect((thrown as Error).message).toMatch(/ordinary single-link file/);

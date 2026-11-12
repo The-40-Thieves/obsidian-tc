@@ -1,4 +1,4 @@
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import type { CallerContext } from "./types";
 
 /**

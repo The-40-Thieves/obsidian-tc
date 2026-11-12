@@ -3,7 +3,7 @@
 // test; this file proves it under Node, where the peer comes from a fake `requestIP` that answers only
 // for the original Request object, the same way Bun's does. Deleting `app.use("*", captureClientPeer)`
 // in createHttpApp makes the chunked login lose its address, and the operator log line loses it too.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import type { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -48,7 +48,7 @@ async function claimedApp(): Promise<{ app: Hono; close: () => Promise<void> }> 
     now: Date.now(),
   });
   const handle: HttpApp = createHttpApp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "t",
     registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth,

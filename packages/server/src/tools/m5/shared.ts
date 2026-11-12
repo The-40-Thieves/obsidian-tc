@@ -11,7 +11,7 @@ import {
   err,
   type ResponseFormat,
   type VaultMemoryDefenseConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import type { MetricsRecorder } from "../../metrics/registry";
 import type { PlurClient } from "../../plur/client";
 import type { ProvenanceStamper } from "../../provenance/stamp";
@@ -19,11 +19,11 @@ import type { VaultRegistry } from "../../vault/registry";
 import type { SnapshotCaptureConfig } from "../../vault/snapshots";
 import { type ActiveSessionTracker, DEFAULT_TRACE_FOLDER } from "../../workspace/sessions";
 
-// THE-600: DEFAULT_MEMORY_FOLDER now lives in @the-40-thieves/obsidian-tc-shared (single source
+// THE-600: DEFAULT_MEMORY_FOLDER now lives in @the-40-thieves/reliquary-tc-shared (single source
 // of truth shared with VaultMemoryConfigSchema's own default) — re-exported here so every
 // existing consumer of tools/m5's public surface (this module's own re-export chain) is
 // unaffected. Do not redeclare it locally; that is exactly the duplication THE-600 closed.
-export { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
+export { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/reliquary-tc-shared";
 // THE-726: the canonical definition moved to workspace/sessions.ts, beside `traceRelPath` and the
 // server-opened-session path that also needs it. Re-exported here so every existing consumer of
 // tools/m5's public surface is unaffected — the same treatment DEFAULT_MEMORY_FOLDER got above.
@@ -35,7 +35,7 @@ export interface M5Deps {
    *  `response_format` nor the legacy `verbosity` alias gets. Absent -> "detailed". */
   responseFormat?: ResponseFormat;
   /** THE-737: where session traces live now. Traces moved OUT of the vault because a
-   *  vault-resident trace is reachable through `read_note` (`.obsidian-tc` is not in
+   *  vault-resident trace is reachable through `read_note` (`.reliquary-tc` is not in
    *  DEFAULT_DENY_ROOTS). Same directory as cache.db / experiential.db. */
   cacheDir: string;
   /** THE-291: index-on-write hook for capture-commit writes (best-effort, backgrounded). */
@@ -60,7 +60,7 @@ export interface M5Deps {
   traceFolder?: (vaultId: string) => string;
   /** GH #994: per-vault memoryDefense policy; absent -> MEMORY_DEFENSE_OFF (mode "off", no scan). */
   memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
-  /** GH #994: memoryDefense's obsidian_tc_memory_defense_hits_total counter. */
+  /** GH #994: memoryDefense's reliquary_tc_memory_defense_hits_total counter. */
   metrics?: MetricsRecorder;
   /** Optional provenance stamps (`provenance.stamp.*`, off by default): a committed capture gets a
    *  compact provenance key. Absent -> nothing is stamped, outputs byte-identical. */

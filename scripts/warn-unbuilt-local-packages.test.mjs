@@ -58,7 +58,7 @@ test("silent when both packages are built", (t) => {
 test("a package installed where the server resolves it counts as ready without a source build", (t) => {
   const root = fakeCheckout(t);
   markBuilt(root, "packages/reranker-local");
-  const installed = (name) => name === "@the-40-thieves/obsidian-tc-embedder-local";
+  const installed = (name) => name === "@the-40-thieves/reliquary-tc-embedder-local";
   assert.deepEqual(findUnbuiltLocalPackages({ root, resolvesFromServer: installed }), []);
 });
 

@@ -1,7 +1,7 @@
 // Shared assertions and fixtures for the read-refusal walker tests (read-refusal-walkers*.test.ts).
 import { linkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { expect } from "vitest";
 import { makeTempDir, rmTemp } from "./tmp";
 

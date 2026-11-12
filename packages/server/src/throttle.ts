@@ -73,7 +73,7 @@ export interface RateLimiterOptions extends MemoryBackendOptions {
 /**
  * Per-(caller, scope_class, vault) token-bucket rate limiter. An unknown scope
  * class is unlimited (no tier configured). Throttle hits are counted per
- * (vault, scope_class) for the `obsidian_tc_rate_limit_hits_total` metric.
+ * (vault, scope_class) for the `reliquary_tc_rate_limit_hits_total` metric.
  *
  * A shared backend that throws is an OUTAGE, never a throttle: the failure policy decides the
  * call, the first failure of an outage is reported once through `onBackendDown`, and the backend is

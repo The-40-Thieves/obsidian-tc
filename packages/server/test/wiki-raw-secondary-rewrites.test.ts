@@ -5,7 +5,7 @@
 // and the result says so. Reproductions are the two security reviews' of the raw-folder change.
 import { mkdirSync, symlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { buildAcls } from "../src/runtime/acl-build";

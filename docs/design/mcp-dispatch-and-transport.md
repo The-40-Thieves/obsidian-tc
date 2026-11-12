@@ -73,7 +73,7 @@ claim — leaving a retry free to double-apply the outer call's effect.
 This is unreachable through the server today: both context factories (stdio and HTTP) build a fresh
 `CallerContext` per MCP call, and no handler re-enters `dispatch`. Hitting the guard therefore means
 library-API misuse, not a live server bug. The chosen response is to refuse loudly — throw an
-`internal` `ObsidianTcError` — rather than make concurrent sharing safe: silently corrupting an
+`internal` `ReliquaryTcError` — rather than make concurrent sharing safe: silently corrupting an
 idempotency claim is a far worse failure mode than a rejected second dispatch, and a caller that
 triggers this has a real bug worth seeing immediately.
 
@@ -161,7 +161,7 @@ Core flows that lean on `listChanged`, `resources` or `prompts` (AgentCore, Le C
 ignore all three): none depends on `listChanged`; every tool is reachable from a plain `tools/list`.
 Notes as resources have a tool equivalent (`read_resources`, `read_notes`). Two soft dependencies
 remain, both optional hints and neither blocking: `find_capability`'s description and the
-instructions point at the `obsidian-tc://catalog` resource to enumerate the whole caller-visible
+instructions point at the `reliquary-tc://catalog` resource to enumerate the whole caller-visible
 catalog, whereas a resource-blind client in triad mode can only search it with `find_capability` (a
 query is required; there is no tool that lists everything), and the built-in prompts have no tool
 equivalent (they are templates, not capabilities).

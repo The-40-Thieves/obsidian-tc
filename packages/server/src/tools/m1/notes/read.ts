@@ -5,7 +5,7 @@
 // THE-1038 / GH #927: read_note's optional `anchor` reuses patch_note's resolveSection (see
 // notes/anchors.ts) so a caller can read exactly the section it is about to patch, instead of the
 // whole note.
-import { err, ObsidianTcError, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { err, ReliquaryTcError, VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { FolderAcl } from "../../../acl";
 import { paginateByBytes, pagingOf } from "../../../mcp/byte-page";
@@ -143,7 +143,7 @@ export function createReadNoteTool(deps: M1Deps): ToolDefinition {
 
 /** The per-note read path shared by read_notes and search_and_read: containment guard, folder ACL
  *  (plus the path's rule-scopes), existence (a folder answers like a
- *  missing note), then read + parse. Throws an ObsidianTcError; the caller shapes it into an item. */
+ *  missing note), then read + parse. Throws a ReliquaryTcError; the caller shapes it into an item. */
 export function readVaultNote(
   root: string,
   rel: string,
@@ -218,7 +218,7 @@ export function createReadNotesTool(deps: M1Deps): ToolDefinition {
                   },
             };
           } catch (e) {
-            const code = e instanceof ObsidianTcError ? e.code : "internal_error";
+            const code = e instanceof ReliquaryTcError ? e.code : "internal_error";
             return { kind: "error", error: { path: p, code, message: (e as Error).message } };
           }
         },

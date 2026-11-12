@@ -4,7 +4,7 @@
 import {
   DEFAULT_MEMORY_FOLDER,
   type VaultMemoryDefenseConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { DEFAULT_TRACE_FOLDER } from "../tools/m5";
 import { MEMORY_DEFENSE_OFF } from "../util/memory-defense";
 

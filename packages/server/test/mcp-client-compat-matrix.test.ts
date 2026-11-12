@@ -23,7 +23,7 @@
 //     2026-07-28 handshake replacement.
 
 import { Server } from "@modelcontextprotocol/server";
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
@@ -94,7 +94,7 @@ async function boot() {
     auth: { mode: "none" },
   }).auth;
   return startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     auth,

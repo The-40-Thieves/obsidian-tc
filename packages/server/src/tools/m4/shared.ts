@@ -5,10 +5,10 @@
 // capability snapshot before any network call, and yields the per-vault client.
 import {
   err,
-  ObsidianTcError,
+  ReliquaryTcError,
   type ResponseFormat,
   type VaultMemoryDefenseConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import type { ZodType } from "zod";
 import { type BridgeClient, type CapabilityCache, requirePlugin } from "../../bridge";
 import { type CapabilitySnapshot, EXPECTED_COMPANION_API } from "../../bridge/capabilities";
@@ -65,7 +65,7 @@ export interface M4Deps {
   /** The OS URI-handler launch seam; absent -> the real spawn-based launcher. Tests inject a stub. */
   osLaunch?: OsLaunchFn;
   /** Optional provenance stamps (`provenance.stamp.*`, off by default): git_commit appends
-   *  `Obsidian-TC-*` trailers, execute_template stamps a note it just created. Absent -> neither. */
+   *  `Reliquary-TC-*` trailers, execute_template stamps a note it just created. Absent -> neither. */
   provenanceStamp?: ProvenanceStamper;
 }
 
@@ -123,7 +123,7 @@ export function effectCommittedIncompatible(
   message: string,
   plugin: string,
   details: Record<string, unknown> = {},
-): ObsidianTcError {
+): ReliquaryTcError {
   return err.pluginIncompatible(`${message}; the action may already have taken effect`, {
     plugin,
     effect_committed: true,
@@ -139,12 +139,12 @@ export function effectCommittedIncompatible(
  */
 export function withDegradeHint(e: unknown, hint: string): unknown {
   if (
-    e instanceof ObsidianTcError &&
+    e instanceof ReliquaryTcError &&
     (e.code === "plugin_missing" ||
       e.code === "plugin_unreachable" ||
       e.code === "requires_live_obsidian")
   ) {
-    return new ObsidianTcError(e.code, e.message, { ...e.details, hint });
+    return new ReliquaryTcError(e.code, e.message, { ...e.details, hint });
   }
   return e;
 }
@@ -174,10 +174,10 @@ export function openBridgeWithHint(
 function assertCompanionApiCompat(snap: CapabilitySnapshot): void {
   if (snap.apiCompat === "incompatible")
     throw err.pluginIncompatible("companion plugin API version is incompatible", {
-      plugin: "obsidian-tc-companion",
+      plugin: "reliquary-tc-companion",
       companion_api: snap.apiVersion ?? "unknown",
       expected_api: EXPECTED_COMPANION_API,
-      hint: "update the companion plugin (obsidian-tc expects companion API v1).",
+      hint: "update the companion plugin (reliquary-tc expects companion API v1).",
     });
 }
 
@@ -190,21 +190,21 @@ const COMPANION_UNREACHABLE: ReadonlySet<string> = new Set([
 ]);
 
 /** True for a degrade that means there is no working companion path (so a fallback is warranted). */
-export function companionUnreachable(e: unknown): e is ObsidianTcError {
-  return e instanceof ObsidianTcError && COMPANION_UNREACHABLE.has(e.code);
+export function companionUnreachable(e: unknown): e is ReliquaryTcError {
+  return e instanceof ReliquaryTcError && COMPANION_UNREACHABLE.has(e.code);
 }
 
 export function openCompanionBridge(deps: M4Deps, vaultId: string): { client: BridgeClient } {
   const mode = deps.mode?.(vaultId);
-  if (mode) assertLive(mode, "obsidian-tc-companion");
+  if (mode) assertLive(mode, "reliquary-tc-companion");
   const snap = deps.capabilities.get(vaultId);
   if (snap.companion !== "reachable") {
     const hint =
       snap.companion === "missing"
-        ? "install it with `obsidian-tc plugin install --vault <path>`, then enable it in Obsidian."
+        ? "install it with `reliquary-tc plugin install --vault <path>`, then enable it in Obsidian."
         : "the companion is installed but its Local REST API is unreachable; check that Obsidian is running with the plugin enabled.";
     throw err.pluginUnreachable("companion plugin is required for this tool", {
-      plugin: "obsidian-tc-companion",
+      plugin: "reliquary-tc-companion",
       companion: snap.companion,
       hint,
       // THE-923: same fetch cause requirePlugin threads through — otherwise list_commands/
@@ -219,7 +219,7 @@ export function openCompanionBridge(deps: M4Deps, vaultId: string): { client: Br
   const client = deps.bridgeFor(vaultId);
   if (!client)
     throw err.pluginUnreachable("bridge transport not configured", {
-      plugin: "obsidian-tc-companion",
+      plugin: "reliquary-tc-companion",
     });
   return { client };
 }

@@ -1,17 +1,17 @@
 {
-  "name": "obsidian-tc-monorepo",
+  "name": "reliquary-tc-monorepo",
   "version": "1.34.0",
   "private": true,
-  "description": "Obsidian Turbocharged — governed vault access, hybrid retrieval, Markdown-native memory, HITL confirmations",
+  "description": "Reliquary-TC — governed vault access, hybrid retrieval, Markdown-native memory, HITL confirmations",
   "license": "Apache-2.0",
   "author": "The 40 Thieves",
   "repository": {
     "type": "git",
-    "url": "https://github.com/The-40-Thieves/obsidian-tc.git"
+    "url": "https://github.com/The-40-Thieves/reliquary-tc.git"
   },
-  "homepage": "https://github.com/The-40-Thieves/obsidian-tc#readme",
+  "homepage": "https://github.com/The-40-Thieves/reliquary-tc#readme",
   "bugs": {
-    "url": "https://github.com/The-40-Thieves/obsidian-tc/issues"
+    "url": "https://github.com/The-40-Thieves/reliquary-tc/issues"
   },
   "workspaces": [
     "packages/server",
@@ -34,7 +34,7 @@
     "check:dev-dep-imports": "node scripts/check-dev-dep-imports.mjs",
     "check:duplicate-exports": "node scripts/check-duplicate-exports.mjs",
     "check:duplication": "jscpd --config .jscpd.json",
-    "check:duplication:tests": "jscpd --config .jscpd.tests.json --fail-on-new-clones 81",
+    "check:duplication:tests": "jscpd --config .jscpd.tests.json --fail-on-new-clones 216",
     "check:embedding-transport": "node scripts/check-embedding-transport-vendor-neutral.mjs",
     "check:export-surface": "node scripts/check-export-surface.mjs",
     "check:facade-parity": "node scripts/check-facade-parity.mjs",

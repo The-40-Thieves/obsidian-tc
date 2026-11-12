@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/obsidian-tc-shared";
+import { DEFAULT_MEMORY_FOLDER } from "@the-40-thieves/reliquary-tc-shared";
 import { version as VERSION } from "../../../package.json";
 import { type AuditEvent, writeEvent } from "../../audit";
 import { provisionExperientialDb } from "../../db/experiential";
@@ -159,7 +159,7 @@ export function forgetNoteAudited(
   return r;
 }
 
-// THE-600: DEFAULT_MEMORY_FOLDER comes from @the-40-thieves/obsidian-tc-shared (the single
+// THE-600: DEFAULT_MEMORY_FOLDER comes from @the-40-thieves/reliquary-tc-shared (the single
 // source of truth, shared with tools/m5 and VaultMemoryConfigSchema's own default) rather than
 // a local duplicate. This command's --erase path destroys note content, so a copy of this
 // constant that silently drifted from the tool surface's value would resolve a DIFFERENT folder

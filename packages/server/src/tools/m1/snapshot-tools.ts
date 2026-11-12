@@ -2,7 +2,7 @@
 // store: snapshot_note (manual capture), list_snapshots, read_snapshot, restore_note. Auto
 // capture-on-write is wired in the notes/frontmatter handlers and gated by config.snapshots;
 // these tools are always available (list/read/restore operate on whatever snapshots exist).
-import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { conventionsResultShape } from "../../conventions/schema";
 import type { ToolDefinition } from "../../mcp/registry";

@@ -1,4 +1,4 @@
-import type { ResponseFormat } from "@the-40-thieves/obsidian-tc-shared";
+import type { ResponseFormat } from "@the-40-thieves/reliquary-tc-shared";
 
 // THE-251 / GH #1027: the concise projection (formerly verbosity=terse) — collapse each hit to
 // path + score + snippet + chunk_id (whichever are present), dropping heavy per-hit fields

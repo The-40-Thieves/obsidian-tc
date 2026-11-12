@@ -137,7 +137,7 @@ describe("shouldWatchPath — eligibility policy (mirrors walkVault)", () => {
   });
 
   it("rejects a dot-segment at ANY depth — the G2.4 default-deny set", () => {
-    // Non-empty and explicit: these are the directories the watch must never surface. `.obsidian-tc`
+    // Non-empty and explicit: these are the directories the watch must never surface. `.reliquary-tc`
     // is where the server writes its own session traces, so admitting it would let the watch see its
     // own bookkeeping.
     for (const p of [
@@ -442,7 +442,7 @@ describe("startVaultWatch — event delivery", () => {
     "ignores non-markdown and dot-directory writes entirely",
     async () => {
       const root = makeVault();
-      mkdirSync(join(root, ".obsidian-tc"), { recursive: true });
+      mkdirSync(join(root, ".reliquary-tc"), { recursive: true });
       const r = recorder();
       const stop = startVaultWatch({
         targets: [{ vaultId: "v1", root }],
@@ -453,7 +453,7 @@ describe("startVaultWatch — event delivery", () => {
       try {
         await arm();
         writeFileSync(join(root, "notes.txt"), "x", "utf8");
-        writeFileSync(join(root, ".obsidian-tc", "trace.md"), "x", "utf8");
+        writeFileSync(join(root, ".reliquary-tc", "trace.md"), "x", "utf8");
         // Then a real note, to prove the watch was alive the whole time rather than simply broken —
         // "nothing fired" is otherwise indistinguishable from a watcher that never started.
         writeFileSync(join(root, "real.md"), "real", "utf8");

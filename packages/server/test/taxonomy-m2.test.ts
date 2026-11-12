@@ -1,4 +1,4 @@
-import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { err, ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 
 // M2 (G4.M2 / THE-178) extends the M1 taxonomy with the G2.1 Domain-6 search +
@@ -23,9 +23,9 @@ describe("M2 error taxonomy (G2.1 Domain 6)", () => {
     expect(err.pluginMissing().retryable).toBe(false);
   });
 
-  it("round-trips details through ObsidianTcError.toJSON", () => {
+  it("round-trips details through ReliquaryTcError.toJSON", () => {
     const e = err.embeddingProviderError("ollama down", { provider: "ollama" });
-    expect(e).toBeInstanceOf(ObsidianTcError);
+    expect(e).toBeInstanceOf(ReliquaryTcError);
     expect(e.toJSON()).toMatchObject({
       code: "embedding_provider_error",
       retryable: true,

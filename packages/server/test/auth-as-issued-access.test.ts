@@ -4,7 +4,7 @@
 // SECONDS; the table and the registry hold epoch milliseconds, so a missing conversion would make the
 // row look expired 1000x too early and the sweep would delete a live token's jti.
 import { randomUUID } from "node:crypto";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
 import { buildJwtVerifier } from "../src/auth/jwt-boot";

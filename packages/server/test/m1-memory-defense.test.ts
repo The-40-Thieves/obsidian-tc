@@ -15,7 +15,7 @@
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { configFromVaultPath } from "../src/cli/args";
 import { provisionCacheDb } from "../src/db/provision";

@@ -136,9 +136,9 @@ describe("clients.sameVaultRoot", () => {
       files: {
         "/h/cfg.json": "{}",
         "/h/.claude.json": claudeJson({
-          "obsidian-tc": { command: "obsidian-tc", args: ["--config=/h/cfg.json", "/v/root"] },
-          "obsidian-tc-sp": {
-            command: "obsidian-tc",
+          "reliquary-tc": { command: "reliquary-tc", args: ["--config=/h/cfg.json", "/v/root"] },
+          "reliquary-tc-sp": {
+            command: "reliquary-tc",
             args: ["--config", "/h/cfg.json", "/v/root"],
           },
           other: { args: ["/v/root"] },
@@ -183,19 +183,19 @@ describe("clients.sameVaultRoot", () => {
     expect(JSON.stringify(r)).not.toContain("secret-key");
   });
 
-  it("reports another obsidian-tc instance with a different --config as unverifiable", async () => {
+  it("reports another reliquary-tc instance with a different --config as unverifiable", async () => {
     const io = fakeIo({
       files: {
         "/h/other.json": "{}",
         "/h/.claude.json": claudeJson({
-          "obsidian-tc-b": { command: "obsidian-tc", args: ["--config", "/h/other.json"] },
+          "reliquary-tc-b": { command: "reliquary-tc", args: ["--config", "/h/other.json"] },
         }),
       },
     });
     const r = await run({ io, vaults: [{ id: "main", path: "/v/root" }] });
     expect(r.details?.sameRoot).toEqual([]);
     expect(r.details?.unverifiable).toEqual([
-      "claude-code:obsidian-tc-b: another obsidian-tc instance, roots not compared",
+      "claude-code:reliquary-tc-b: another reliquary-tc instance, roots not compared",
     ]);
   });
 
@@ -251,9 +251,9 @@ describe("clients.sameVaultRoot", () => {
 
   // ---- review fix round on 825ae7c4 (Opus review): one red test per numbered item ----
 
-  it("HIGH: the zero-config invocation `obsidian-tc <vault>` is this server, not a duplicate", async () => {
+  it("HIGH: the zero-config invocation `reliquary-tc <vault>` is this server, not a duplicate", async () => {
     const r = await scanClaude({
-      mcpServers: { "mcp-obsidian": { command: "npx", args: ["-y", "obsidian-tc", "/v/root"] } },
+      mcpServers: { "mcp-obsidian": { command: "npx", args: ["-y", "reliquary-tc", "/v/root"] } },
     });
     expect(r.details).toEqual({ sameRoot: [], unverifiable: [], scanned: ["claude-code"] });
   });
@@ -263,7 +263,7 @@ describe("clients.sameVaultRoot", () => {
       files: {
         "/h/cfg.json": "{}",
         "/h/.claude.json": claudeJson({
-          "obsidian-tc": { command: "obsidian-tc", args: ["--config", "/h/cfg.json"] },
+          "reliquary-tc": { command: "reliquary-tc", args: ["--config", "/h/cfg.json"] },
         }),
       },
     });

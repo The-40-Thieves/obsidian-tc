@@ -1,4 +1,4 @@
-// `obsidian-tc setup`'s writer (PR A of GH #995's two-part follow-up): validates, writes
+// `reliquary-tc setup`'s writer (PR A of GH #995's two-part follow-up): validates, writes
 // atomically, refuses to clobber an existing config without --force, and backs one up first when
 // --force is given.
 import {
@@ -36,7 +36,7 @@ afterEach(() => {
 function decision(overrides: Partial<SetupDecision> = {}): SetupDecision {
   return {
     vaults: [{ id: "main", path: "/vault" }],
-    cacheDir: join(tmpDir("otc-setup-cache-"), ".obsidian-tc"),
+    cacheDir: join(tmpDir("otc-setup-cache-"), ".reliquary-tc"),
     embeddings: {
       provider: "local",
       model: "nomic-embed-text-v1.5",
@@ -151,7 +151,7 @@ describe("buildSetupConfig", () => {
 
     // Finding 1 (fix round, cross-vendor review): `setupOrigin` is set ONLY by the first-run
     // fallback (server.schema.ts's own doc comment on the field — "never set by an interactive
-    // `obsidian-tc setup` run"). Before this fix, a plain merge copied it through like any other
+    // `reliquary-tc setup` run"). Before this fix, a plain merge copied it through like any other
     // key setup does not own, so `setup --force` re-reviewing an auto-generated config left the
     // marker in place — every later `doctor` run kept reporting the config as unreviewed even
     // after an operator had just reviewed and rewritten it.

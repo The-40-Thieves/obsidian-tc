@@ -5,7 +5,7 @@
 // Every case holds read access to memory/** and withholds write (or delete) on memory/tool/**.
 import { mkdirSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { type ToolResult, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { type ToolResult, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import type { CallerContext } from "../src/mcp/registry";

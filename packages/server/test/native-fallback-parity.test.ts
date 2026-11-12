@@ -4,7 +4,7 @@
 // numbers:
 //
 //   * `ci-native.yml`'s `fallback-test` job looks like it covers this, but
-//     `search/native.ts:loadNative` returns null on OBSIDIAN_TC_FORCE_JS_FALLBACK=1 BEFORE the
+//     `search/native.ts:loadNative` returns null on RELIQUARY_TC_FORCE_JS_FALLBACK=1 BEFORE the
 //     require(), so that job exercises the SERVER's js* twins and never loads fallback.js.
 //   * `ci-install-smoke.yml` does load it, but asserts only `nativeLoaded === false` and
 //     `typeof cosineSimilarity === 'function'` — presence, never a value.
@@ -49,7 +49,7 @@ interface FallbackModule {
 const fb = requireCjs("../../native/fallback.js") as FallbackModule;
 
 // The real native module, or null on a host with no prebuild. `loadNative()` is called with an
-// empty env so OBSIDIAN_TC_FORCE_JS_FALLBACK in the ambient environment cannot suppress it.
+// empty env so RELIQUARY_TC_FORCE_JS_FALLBACK in the ambient environment cannot suppress it.
 const native = loadNative({} as NodeJS.ProcessEnv);
 
 describe("THE-712 — packages/native/fallback.js parity", () => {

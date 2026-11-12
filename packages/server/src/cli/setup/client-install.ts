@@ -1,5 +1,5 @@
-// PR B of GH #995's two-part follow-up: `obsidian-tc setup --install-client <client>` — wires an
-// `obsidian-tc` entry into one MCP client's own config, ONLY when asked. Every mechanism below was
+// PR B of GH #995's two-part follow-up: `reliquary-tc setup --install-client <client>` — wires an
+// `reliquary-tc` entry into one MCP client's own config, ONLY when asked. Every mechanism below was
 // verified against that client's own current docs, or its own installed `--help` output where it
 // ships no web docs, before writing this — not assumed from training data. Claude Code, Codex CLI,
 // Antigravity, and Hermes Agent each ship their own `<binary> mcp add`-style command (verified
@@ -34,7 +34,7 @@ import { EDITOR_CLIENT_REGISTRY } from "./client-install-editors";
 import {
   type ClientRegistryEntry,
   formatCliInstallLine,
-  obsidianTcServerEntry,
+  reliquaryTcServerEntry,
 } from "./client-install-types";
 import { mergeMcpServersEntryYaml } from "./yaml-merge";
 
@@ -71,17 +71,17 @@ export function cursorMcpConfigPath(home: string): string {
 
 /** The documented `claude mcp add` invocation (code.claude.com/docs/en/mcp, context7-verified) —
  *  `--scope user`: available in every project, matching what one shared, already-running
- *  obsidian-tc install is for (not a single project's own `.mcp.json`). The `--` separator is
+ *  reliquary-tc install is for (not a single project's own `.mcp.json`). The `--` separator is
  *  REQUIRED per that doc: without it, `--config` below would be parsed as a `claude` CLI option
  *  rather than passed through to the server command. */
 /** Finding 6 (fix round, cross-vendor review): `execFileSync("claude", args, ...)` never goes
  *  through a shell, so the argv array itself is already injection-safe regardless of spaces/quotes
  *  in `configPath` — that part was fine. What was NOT fine is the line this module (and
  *  cli/commands/setup-install-client.ts) PRINT for a human to copy-paste: joined with plain spaces
- *  and no quoting at all, a path containing a space (`--config /Users/Op Name/.obsidian-tc/
+ *  and no quoting at all, a path containing a space (`--config /Users/Op Name/.reliquary-tc/
  *  config.json`) pastes into the operator's own shell as two broken arguments. Quotes only the
  *  arguments that actually need it (a bare token with no special characters is left unquoted — see
- *  the existing test asserting the literal substring `claude mcp add --scope user obsidian-tc`),
+ *  the existing test asserting the literal substring `claude mcp add --scope user reliquary-tc`),
  *  so an ordinary install stays exactly as readable as before.
  *
  *  Finding 3 (fix round 2, cross-vendor review): the win32 branch used to double-quote, which is
@@ -101,9 +101,9 @@ export function claudeCodeAddCommand(configPath: string): string[] {
     "add",
     "--scope",
     "user",
-    "obsidian-tc",
+    "reliquary-tc",
     "--",
-    "obsidian-tc",
+    "reliquary-tc",
     "--config",
     configPath,
   ];
@@ -112,13 +112,13 @@ export function claudeCodeAddCommand(configPath: string): string[] {
 /** `codex mcp add <name> -- <command>...` (`codex mcp add --help`) — no `--scope` flag exists;
  *  Codex's own config has no per-project/user split the way Claude Code's `--scope user` does. */
 export function codexAddCommand(configPath: string): string[] {
-  return ["mcp", "add", "obsidian-tc", "--", "obsidian-tc", "--config", configPath];
+  return ["mcp", "add", "reliquary-tc", "--", "reliquary-tc", "--config", configPath];
 }
 
 /** `agy mcp add <name> <commandOrUrl> [args...]` (`agy mcp add --help`) — flags must come before
  *  `<name>`; `--` is only required when the command/args themselves start with `-`, ours don't. */
 export function antigravityAddCommand(configPath: string): string[] {
-  return ["mcp", "add", "obsidian-tc", "obsidian-tc", "--config", configPath];
+  return ["mcp", "add", "reliquary-tc", "reliquary-tc", "--config", configPath];
 }
 
 /** `hermes mcp add <name> --command <cmd> --args <args...>` (`hermes mcp add --help`) — `--args`
@@ -127,9 +127,9 @@ export function hermesAddCommand(configPath: string): string[] {
   return [
     "mcp",
     "add",
-    "obsidian-tc",
+    "reliquary-tc",
     "--command",
-    "obsidian-tc",
+    "reliquary-tc",
     "--args",
     "--config",
     configPath,
@@ -144,7 +144,7 @@ export function hermesAddCommand(configPath: string): string[] {
  *  every project, not a single project's own `.grok/config.toml`). Everything after `--` is passed
  *  to the server command untouched, same reasoning as `codexAddCommand`'s own `--` separator. */
 export function grokAddCommand(configPath: string): string[] {
-  return ["mcp", "add", "-s", "user", "obsidian-tc", "obsidian-tc", "--", "--config", configPath];
+  return ["mcp", "add", "-s", "user", "reliquary-tc", "reliquary-tc", "--", "--config", configPath];
 }
 
 /** ChatGPT ships no local-server MCP client: Developer Mode's connectors speak only to a remote,
@@ -155,12 +155,12 @@ export function chatgptInstructions(): string {
     "ChatGPT has no local MCP client — Developer Mode's custom connectors only reach a REMOTE,",
     "public HTTPS MCP server (OpenAI's own Developer Mode / Apps SDK docs, available on ChatGPT",
     "Plus/Pro/Business/Enterprise/Edu). There is no stdio option and nothing on this machine for",
-    "obsidian-tc to install into, so this only prints instructions — it writes nothing.",
+    "reliquary-tc to install into, so this only prints instructions — it writes nothing.",
     "",
-    "Run ONE shared obsidian-tc HTTP server (JWT auth required past loopback) and point ChatGPT's",
+    "Run ONE shared reliquary-tc HTTP server (JWT auth required past loopback) and point ChatGPT's",
     "Developer Mode connector at its public HTTPS URL:",
     '  docs/wiki/Deployment-Modes.md — "Run one shared server for several clients"',
-    "  https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/wiki/Deployment-Modes.md" +
+    "  https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/wiki/Deployment-Modes.md" +
       "#run-one-shared-server-for-several-clients",
   ].join("\n");
 }
@@ -266,13 +266,13 @@ function formatRegistryBlock(
   if (entry.kind === "json-merge" || entry.kind === "jsonc-merge") {
     const targetPath = entry.configPath(platform, env, home);
     const buildEntry =
-      entry.kind === "json-merge" ? (entry.buildEntry ?? obsidianTcServerEntry) : entry.buildEntry;
+      entry.kind === "json-merge" ? (entry.buildEntry ?? reliquaryTcServerEntry) : entry.buildEntry;
     // Warp's `serversKey === ""` (root-level, no wrapping key — see `mergeMcpServersEntry`'s own
     // handling) prints the entry directly rather than nested under an empty-string JSON key.
     const jsonEntry = JSON.stringify(
       entry.serversKey === ""
-        ? { "obsidian-tc": buildEntry(configPath) }
-        : { [entry.serversKey]: { "obsidian-tc": buildEntry(configPath) } },
+        ? { "reliquary-tc": buildEntry(configPath) }
+        : { [entry.serversKey]: { "reliquary-tc": buildEntry(configPath) } },
       null,
       2,
     );
@@ -310,7 +310,7 @@ export function formatClientSnippets(
 ): string {
   const lines: string[] = [
     "",
-    "Connect an MCP client to this config (or run `obsidian-tc setup --install-client <client>`",
+    "Connect an MCP client to this config (or run `reliquary-tc setup --install-client <client>`",
     "to have setup wire one in for you):",
     "",
   ];
@@ -335,7 +335,7 @@ export type {
 export {
   formatCliInstallLine,
   mergeMcpServersEntry,
-  obsidianTcServerEntry,
+  reliquaryTcServerEntry,
   shellQuoteArg,
   shellQuoteArgs,
 } from "./client-install-types";

@@ -2,21 +2,21 @@
 // 700 lines). USAGE is pure help text with no coupling to parseCliArgs' logic — split out so a
 // future flag addition's help text doesn't compete with the parser's own line budget.
 
-export const USAGE = `obsidian-tc — MCP server for Obsidian
+export const USAGE = `reliquary-tc — MCP server for Obsidian
 
 Usage:
-  obsidian-tc <vault-dir | config.json>   Start the server (zero-config from a vault folder, or a config file)
-  obsidian-tc serve [path]                Same as above; path may be a vault folder or a config file
-  obsidian-tc git-sync [--once | --supervise [-- <server args>]]
+  reliquary-tc <vault-dir | config.json>   Start the server (zero-config from a vault folder, or a config file)
+  reliquary-tc serve [path]                Same as above; path may be a vault folder or a config file
+  reliquary-tc git-sync [--once | --supervise [-- <server args>]]
                                           Clone or verify the configured Git-backed vault, then
                                           synchronize it continuously. --once performs one sync
                                           and exits. --supervise also starts the server as a child
                                           (the -git image's entrypoint) and exits when either stops;
                                           arguments after -- go to the server. Configuration comes
                                           from environment variables. POSIX only (Linux, macOS).
-  obsidian-tc config show [path]          Print the effective config with secrets redacted
-  obsidian-tc config validate [path]      Validate the config (exit non-zero on error)
-  obsidian-tc setup [--yes] [--dry-run] [--force] [--replace-invalid-config] [--config <path>] [--vault <path>]
+  reliquary-tc config show [path]          Print the effective config with secrets redacted
+  reliquary-tc config validate [path]      Validate the config (exit non-zero on error)
+  reliquary-tc setup [--yes] [--dry-run] [--force] [--replace-invalid-config] [--config <path>] [--vault <path>]
                      [--install-client claude-code|claude-desktop|cursor]
                                           Detect the environment ONCE and write an explicit config
                                           (GH #995's fix): Obsidian vaults, an existing index's
@@ -26,7 +26,7 @@ Usage:
                                           decision with its reason. A hosted provider's API key
                                           being present in the environment is only ever SUGGESTED,
                                           never chosen automatically (it would send note content to
-                                          a third party). Defaults to ~/.obsidian-tc/config.json;
+                                          a third party). Defaults to ~/.reliquary-tc/config.json;
                                           --config writes elsewhere. --dry-run prints the config and
                                           writes nothing. With a TTY and no --yes, asks to confirm
                                           before writing; without a TTY, behaves like --dry-run
@@ -37,23 +37,23 @@ Usage:
                                           not an object, a schema failure), even with --force,
                                           --yes or --dry-run: it prints the problem and exits 1.
                                           Only --replace-invalid-config replaces such a file, after
-                                          a backup, discarding its acl/auth/egress settings. Point obsidian-tc at the result
-                                          with --config or OBSIDIAN_TC_CONFIG. Without
+                                          a backup, discarding its acl/auth/egress settings. Point reliquary-tc at the result
+                                          with --config or RELIQUARY_TC_CONFIG. Without
                                           --install-client, prints ready-to-paste MCP client
                                           snippets for Claude Code, Claude Desktop and Cursor; with
-                                          it, wires an obsidian-tc entry into that ONE client's own
+                                          it, wires a reliquary-tc entry into that ONE client's own
                                           MCP config instead of running the detect/write flow above
                                           (merges into claude_desktop_config.json/~/.cursor/mcp.json
                                           without dropping other servers, backing the file up first,
-                                          and refuses an existing obsidian-tc entry unless --force;
+                                          and refuses an existing reliquary-tc entry unless --force;
                                           for claude-code it prints/runs the documented
                                           \`claude mcp add\` command instead of editing JSON).
-                                          If \`serve\`/a bare \`obsidian-tc\` runs with no config, no
-                                          path, and none at ~/.obsidian-tc/config.json yet, it runs
+                                          If \`serve\`/a bare \`reliquary-tc\` runs with no config, no
+                                          path, and none at ~/.reliquary-tc/config.json yet, it runs
                                           this SAME detection once on its own and boots off what it
                                           writes when exactly one vault is found — set
-                                          OBSIDIAN_TC_NO_AUTO_SETUP=1 to disable that fallback.
-  obsidian-tc doctor [path] [--json] [--token <jwt>] [--probe]
+                                          RELIQUARY_TC_NO_AUTO_SETUP=1 to disable that fallback.
+  reliquary-tc doctor [path] [--json] [--token <jwt>] [--probe]
                                           Probe runtime health: runtime, native module, auth policy,
                                           token max-age vs expiry, detected Obsidian vaults/plugins.
                                           --json emits the versioned report; --token checks a deployed
@@ -63,7 +63,7 @@ Usage:
                                           reported as observed rather than as configured. Off by
                                           default: every other check is offline, and a "module"
                                           provider is never probed at all.
-  obsidian-tc compact [path] [--dry-run] [--into <dir>] [--json <file>]
+  reliquary-tc compact [path] [--dry-run] [--into <dir>] [--json <file>]
                                           Reclaim disk from cache.db and experiential.db:
                                           FTS5 'optimize' on every notes_fts/chunk_fts table
                                           present (a full merge — heavier than the maintenance
@@ -83,14 +83,14 @@ Usage:
                                           /experiential.db) instead of vacuuming in place, verifies
                                           the copy the same way, leaves the live file untouched,
                                           and prints the exact \`mv\` to install it — this command
-                                          never moves a file itself. Before copying \`~/.obsidian-tc\`
+                                          never moves a file itself. Before copying \`~/.reliquary-tc\`
                                           by hand (e.g. a pre-upgrade snapshot), run \`compact\`
                                           first: every retained copy is smaller for it.
                                           --dry-run reports current file size, freelist bytes
                                           reclaimable by VACUUM, and each FTS table's row count,
                                           and changes nothing.
-  obsidian-tc plugin install --vault <p>  Copy the companion plugin into <p>/.obsidian/plugins/
-  obsidian-tc index [path] [--vault id] [--folder rel/path]
+  reliquary-tc plugin install --vault <p>  Copy the companion plugin into <p>/.obsidian/plugins/
+  reliquary-tc index [path] [--vault id] [--folder rel/path]
                                           Chunk and embed the vault into the search index.
                                           Incremental: unchanged content hashes are skipped, removed
                                           chunks pruned. The operator path for a reindex — the
@@ -98,15 +98,15 @@ Usage:
                                           enough for a large vault. --folder requires --vault.
                                           Exits non-zero if any note failed to embed, since those
                                           notes are indexed but NOT retrievable.
-  obsidian-tc cluster [path] [--k N]      Recompute chunk clusters for diversified retrieval
-  obsidian-tc activation-recompute [path] Recompute ACT-R activation from retrieval history
-  obsidian-tc prefetch [path] [--vault id] [--ttl-hours N]
+  reliquary-tc cluster [path] [--k N]      Recompute chunk clusters for diversified retrieval
+  reliquary-tc activation-recompute [path] Recompute ACT-R activation from retrieval history
+  reliquary-tc prefetch [path] [--vault id] [--ttl-hours N]
                                           Prewarm the session-bootstrap context cache
-  obsidian-tc densify-llm [path] [--vault id]
+  reliquary-tc densify-llm [path] [--vault id]
                                           LLM Pass-3 semantic-edge densification via the local gateway (graph densification)
-  obsidian-tc reflect [path]
+  reliquary-tc reflect [path]
                                           Sleep-time reflect: stamp episode eligibility + update the preference profile
-  obsidian-tc rerun <session-id> [path] [--vault <id>] [--sandbox] [--json]
+  reliquary-tc rerun <session-id> [path] [--vault <id>] [--sandbox] [--json]
                                         Re-issue a recorded session's captured tool arguments
                                         against current vault state and report which calls
                                         diverged. RE-EXECUTION, not stubbed
@@ -133,7 +133,7 @@ Usage:
                                         vault state having moved.
                                         Exit: 0 nothing moved, 1 divergence found, 2 nothing
                                         was runnable.
-  obsidian-tc citation-infer [path] (--transcript <file> (--session <id> | --since <ms> [--until <ms>])
+  reliquary-tc citation-infer [path] (--transcript <file> (--session <id> | --since <ms> [--until <ms>])
                                              | --transcript-index <file.jsonl>)
                             [--max-judged N] [--judge-concurrency N] [--min-judged-for-kill N] [--allow-uncertain]
                                           Infer which retrieved chunks were actually USED in a response
@@ -160,22 +160,22 @@ Usage:
                                           cannot abort a small pass. --allow-uncertain lets
                                           the judge abstain — dark by default, since it moves rows out
                                           of the citation count.
-  obsidian-tc metrics [path] [--vault id] [--since ms] [--until ms] [--stale-days N] [--json file]
+  reliquary-tc metrics [path] [--vault id] [--since ms] [--until ms] [--stale-days N] [--json file]
                                           Knowledge-health scorecard from the derive layer
-  obsidian-tc config explain [path] [--source env|file|profile|default|derived] [--json]
+  reliquary-tc config explain [path] [--source env|file|profile|default|derived] [--json]
                                           Trace every resolved config value to WHERE it came from.
                                           Secrets report their SOURCE, never their value
-  obsidian-tc note-quality [path] [--vault id] [--flags a,b] [--limit N] [--suggest]
+  reliquary-tc note-quality [path] [--vault id] [--flags a,b] [--limit N] [--suggest]
                                           Recompute the note_quality rollup and list flagged notes:
                                           duplicate | orphan | stale_edit | stale_access | contradicted | tombstoned
                                           --suggest additionally prints one remediation line per
                                           flag (never writes to the vault)
-  obsidian-tc gaps [path] --queries <file> [--vault id] [--threshold T] [--min-results N] [--json file]
-  obsidian-tc gaps [path] --calibrate <golden.yaml> [--vault id]
+  reliquary-tc gaps [path] --queries <file> [--vault id] [--threshold T] [--min-results N] [--json file]
+  reliquary-tc gaps [path] --calibrate <golden.yaml> [--vault id]
                                           Knowledge-gap detector / threshold calibration
-  obsidian-tc forget [path] (--episode <id> | --note <rel-path>) [--erase] [--vault id]
-  obsidian-tc forget [path] --verify      Dependency-aware deletion + hash-chained audit
-  obsidian-tc context-export [path] --out <file> [--vault id]
+  reliquary-tc forget [path] (--episode <id> | --note <rel-path>) [--erase] [--vault id]
+  reliquary-tc forget [path] --verify      Dependency-aware deletion + hash-chained audit
+  reliquary-tc context-export [path] --out <file> [--vault id]
                                           Export the derived plane (preferences, episodes,
                                           note_quality, retrieval feedback, forget_log — the 9
                                           experiential.db tables) as a versioned, vendor-neutral
@@ -187,7 +187,7 @@ Usage:
                                           have no vault axis and always export in full; forget_log
                                           keeps this vault's forgets plus legacy ones that name no
                                           vault. A tombstoned/blocked episode is never included.
-  obsidian-tc context-import <bundle> [path] [--vault id] [--dry-run]
+  reliquary-tc context-import <bundle> [path] [--vault id] [--dry-run]
                                           Import a context-export bundle. Every row is
                                           schema-validated before any write; a format_version
                                           mismatch or one malformed row aborts the whole import
@@ -197,7 +197,7 @@ Usage:
                                           reported, never resurrected, and an imported forget_log
                                           entry retroactively forgets any matching content already
                                           here. --dry-run reports counts and writes nothing.
-  obsidian-tc import-highlights [path] --vault <id> [--since <iso-date>] [--dry-run]
+  reliquary-tc import-highlights [path] --vault <id> [--since <iso-date>] [--dry-run]
                                           Pull highlights from a configured read-later source
                                           (Readwise's v2 export API, the only adapter so far) and
                                           stage them in capture_queue as source: "import" for
@@ -212,7 +212,7 @@ Usage:
                                           source_id, text, location, highlighted_at), so re-running
                                           a sync never re-enqueues an already-staged highlight.
                                           --dry-run reports counts and enqueues nothing.
-  obsidian-tc import-ambient [path] --vault <id> [--since <iso-date>] [--machine <label>] [--dry-run]
+  reliquary-tc import-ambient [path] --vault <id> [--since <iso-date>] [--machine <label>] [--dry-run]
                                           Pull passive screen observations from a configured
                                           ambient-capture backend (Pensieve, the only adapter so
                                           far) and stage them in capture_queue as source: "ambient"
@@ -229,7 +229,7 @@ Usage:
                                           app, text), so a re-polled static screen never
                                           re-enqueues. --dry-run reports counts and enqueues
                                           nothing.
-  obsidian-tc memory import --from <basic-memory|claude-code-memory> <dir> [path] --vault <id>
+  reliquary-tc memory import --from <basic-memory|claude-code-memory> <dir> [path] --vault <id>
                              [--apply] [--resume]
                                           Import external memory notes as entities in the
                                           memory graph, through the same create_entity
@@ -270,7 +270,7 @@ Usage:
                                           refusal, but ONLY for an entity with zero observations
                                           (the shape a run interrupted right after create_entity
                                           leaves behind) — never for one with real content.
-  obsidian-tc consolidate --once [--dry-run] [path]
+  reliquary-tc consolidate --once [--dry-run] [path]
                                           Run (or evaluate) one ambient sleep-time consolidation
                                           pass — a single synthesis + audit job — without arming
                                           the recurring plane.intervalMinutes schedule.
@@ -283,7 +283,7 @@ Usage:
                                           --dry-run it runs synthesis and audit exactly once and
                                           prints both reports. --once is required; a bare
                                           "consolidate" is a usage error, not a no-op.
-  obsidian-tc contradiction-rejudge [path] [--dry-run] [--vault <id>] [--judge-model <m>] [--limit N] [--concurrency N] [--delay-ms N]
+  reliquary-tc contradiction-rejudge [path] [--dry-run] [--vault <id>] [--judge-model <m>] [--limit N] [--concurrency N] [--delay-ms N]
                                           Re-judge the OPEN contradiction flags with the current
                                           gateway judge. A row the judge now calls no_conflict is
                                           dismissed (status 'dismissed', reason recorded, original
@@ -304,7 +304,7 @@ Usage:
                                           Needs the cache.db migration this command applies on open
                                           (back up cache.db first). CLI-only: an agent-callable
                                           trigger would be unattended egress.
-  obsidian-tc token mint [path] --sub <id> [--aud <uri>] [--vault <id>] [--scopes a,b] [--ttl <sec>] [--kid <kid>] [--json]
+  reliquary-tc token mint [path] --sub <id> [--aud <uri>] [--vault <id>] [--scopes a,b] [--ttl <sec>] [--kid <kid>] [--json]
                                           Mint a bearer token signed with the registry's active key
                                           (HS256, ES256 or EdDSA). --kid pins the mint to that key
                                           and refuses a retiring, retired or unknown one. Refuses to mint without an aud when the config binds one,
@@ -312,11 +312,11 @@ Usage:
                                           the token's jti and signing kid in <cacheDir>/auth.db (not
                                           regenerable: back it up) so it can be revoked with
                                           'auth revoke'.
-  obsidian-tc auth list [path] [--all] [--keys] [--json]
+  reliquary-tc auth list [path] [--all] [--keys] [--json]
                                           List issued tokens (jti, kid, sub, exp, state; --all adds
                                           expired ones) or, with --keys, the signing keys. Never
                                           prints a token or key material.
-  obsidian-tc provenance verify [path] [--vault <id>] [--allow-unsigned] [--json]
+  reliquary-tc provenance verify [path] [--vault <id>] [--allow-unsigned] [--json]
                                           Check the signed write-provenance chain in cache.db: every
                                           record's hash, the links between records, each signature
                                           against the auth registry's public keys (a rotated-out key
@@ -325,13 +325,13 @@ Usage:
                                           any failure. An unsigned record FAILS unless
                                           --allow-unsigned (recording signs only with an active
                                           EdDSA registry key: auth rotate-key --alg EdDSA).
-  obsidian-tc auth revoke <jti> [path] [--reason <text>]
+  reliquary-tc auth revoke <jti> [path] [--reason <text>]
                                           Revoke one token before it expires; a jti never issued
                                           here (pre-registry, or an external issuer's) gets a
                                           tombstone. The server checks the jti on every request, in
                                           every process sharing auth.db. A token with no jti cannot
                                           be revoked; rotate the key, or set auth.requireJti.
-  obsidian-tc auth rotate-key [path] [--purpose mint|as] [--grace <seconds>] [--alg HS256|ES256|EdDSA]
+  reliquary-tc auth rotate-key [path] [--purpose mint|as] [--grace <seconds>] [--alg HS256|ES256|EdDSA]
                                           Generate a new active signing key. The previous key keeps
                                           verifying for --grace seconds (default auth.rotationGraceSeconds,
                                           itself 0: retired at once, so its tokens stop verifying;
@@ -346,7 +346,7 @@ Usage:
                                           retires the other. Replacing an as key needs a --grace of
                                           at least accessTokenSeconds + 60 (1860 by default, which is
                                           also the default there), so no live access token is killed.
-  obsidian-tc auth as set-password [path] [--user <name>] [--stdin] [--json]
+  reliquary-tc auth as set-password [path] [--user <name>] [--stdin] [--json]
                                           Claim the bundled authorization server (auth.as) by creating
                                           its operator account, or change the operator's password and
                                           end their sessions. Asks twice on a terminal; with --stdin it
@@ -354,7 +354,7 @@ Usage:
                                           At least 12 characters, stored as an Argon2id hash in
                                           <cacheDir>/oauth.db. --user names the account (default
                                           operator). Needs Node 24.7 or later (or Bun).
-  obsidian-tc auth as reset-credentials [path] [--user <name>] [--stdin] [--revoke-grants] [--json]
+  reliquary-tc auth as reset-credentials [path] [--user <name>] [--stdin] [--revoke-grants] [--json]
                                           Recover a lost passkey and password, or a hostname change that
                                           orphaned every passkey (their rpID is the issuer's host). Sets a
                                           new password (asked twice, or the first line of standard input
@@ -363,21 +363,21 @@ Usage:
                                           --revoke-grants also revokes every grant of the operator, with
                                           its refresh tokens and live access tokens. Needs Node 24.7 or
                                           later (or Bun).
-  obsidian-tc auth as grants list [path] [--all] [--json]
+  reliquary-tc auth as grants list [path] [--all] [--json]
                                           List the grants the bundled authorization server holds:
                                           client, scope, persona, vault and how many refresh-token
                                           families are still live. --all adds the revoked ones.
-  obsidian-tc auth as grants revoke <grant id> [path] [--reason <text>] [--json]
+  reliquary-tc auth as grants revoke <grant id> [path] [--reason <text>] [--json]
                                           Revoke a grant: its refresh tokens and every live access
                                           token issued under it stop working at once, and it issues
                                           no more. The id comes from "auth as grants list".
-  obsidian-tc auth as clients list [path] [--json]
+  reliquary-tc auth as clients list [path] [--json]
                                           List dynamically registered clients and their timestamps.
-  obsidian-tc auth as clients remove <client id> [path] [--reason <text>] [--json]
+  reliquary-tc auth as clients remove <client id> [path] [--reason <text>] [--json]
                                           Remove a DCR client and revoke all its grants, refresh
                                           tokens and live access tokens. Refuses static and
                                           metadata-document clients. Works while DCR is disabled.
-  obsidian-tc elicit [path] --hash <args_hash> --tool <name> [--vault <id>] [--caller <id>]
+  reliquary-tc elicit [path] --hash <args_hash> --tool <name> [--vault <id>] [--caller <id>]
                         [--state-fp <fp>] [--json]
                                           Mint a single-use HITL confirmation token bound to the
                                           args_hash an elicit_required error returned —
@@ -406,7 +406,7 @@ Usage:
                                           THAT request: a blocked call repeated after its target
                                           changed records a newer fingerprint, and a command from
                                           the earlier refusal must not approve the newer state.
-  obsidian-tc telemetry preview [path] [--json] [--show-path]
+  reliquary-tc telemetry preview [path] [--json] [--show-path]
                                           Print the exact aggregate document opt-in telemetry
                                           would send right now (tool-call counts, error-code
                                           counts, facade mode, distinct client names seen — never
@@ -417,14 +417,14 @@ Usage:
                                           secret belongs in telemetry.authTokenEnv, not the URL,
                                           which config validation enforces). Makes NO network call.
                                           See docs/configuration/telemetry.md.
-  obsidian-tc telemetry status [path] [--json]
+  reliquary-tc telemetry status [path] [--json]
                                           Print enabled/endpoint/installId/lastSendAt/lastError/
                                           nextSendAt.
-  obsidian-tc telemetry reset-id [path]   Rotate this install's telemetry install id.
-  obsidian-tc version                     Print the version
-  obsidian-tc help                        Show this help
+  reliquary-tc telemetry reset-id [path]   Rotate this install's telemetry install id.
+  reliquary-tc version                     Print the version
+  reliquary-tc help                        Show this help
 
-If no path is given, OBSIDIAN_TC_CONFIG is used. A vault folder boots a single
+If no path is given, RELIQUARY_TC_CONFIG is used. A vault folder boots a single
 vault with id "main" and all defaults; pass a config file for multi-vault, auth,
 ACLs, transports, and embeddings.
 `;

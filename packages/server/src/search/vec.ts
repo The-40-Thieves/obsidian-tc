@@ -243,7 +243,7 @@ export function ensureVecChunks(
     {
       version,
       checksum: `vec0:cosine:${dims}`,
-      obsidianTcVersion: "m2-runtime",
+      reliquaryTcVersion: "m2-runtime",
       appliedAt: now,
       durationMs: () => 0,
     },
@@ -322,7 +322,7 @@ export function ensureVecChunks(
         {
           version: rebuiltVersion,
           checksum: `vec0:partition+aux:${dims}${skipped > 0 ? `:skipped${skipped}` : ""}${shortfall ? `:short${shortfall.inserted}of${shortfall.active}` : ""}`,
-          obsidianTcVersion: "m2-runtime",
+          reliquaryTcVersion: "m2-runtime",
           appliedAt: now,
           durationMs: () => 0,
           // The text carries this run's skipped/short counts; a later rebuild's counts differ.

@@ -1,13 +1,13 @@
-# obsidian-tc Agent Skills
+# reliquary-tc Agent Skills
 
 A working guide for AI agents, and the people configuring them, to use the
-**obsidian-tc** MCP server well. obsidian-tc gives an agent *governed* access to
+**reliquary-tc** MCP server well. reliquary-tc gives an agent *governed* access to
 one or more Obsidian vaults: **a governed capability surface organized into domains**, every call
 funneled through one dispatch pipeline (auth, scopes, folder ACL, read-only kill
 switch, idempotency, throttle, human-in-the-loop, response governor, audit).
 
 Drop this file into your agent's instruction context (a `CLAUDE.md` / `AGENTS.md`,
-a system prompt, or a skill) so the agent drives obsidian-tc from the real surface
+a system prompt, or a skill) so the agent drives reliquary-tc from the real surface
 instead of guessing tool names. The **Vault conventions** section (§8) is one real
 vault's house style, shown as a template: keep what fits, replace the rest.
 
@@ -54,17 +54,17 @@ startup**.
 `.mcpb` bundle, and standalone binaries):
 
 ```bash
-npm install -g obsidian-tc
+npm install -g reliquary-tc
 ```
 
 **Zero-config start.** Point it at a vault folder and it boots a single vault with
 id `main` and every default:
 
 ```bash
-obsidian-tc serve /absolute/path/to/vault
+reliquary-tc serve /absolute/path/to/vault
 ```
 
-**Real config** is one JSON file (path as argv, or `OBSIDIAN_TC_CONFIG`). The
+**Real config** is one JSON file (path as argv, or `RELIQUARY_TC_CONFIG`). The
 minimum is a vault list; every other block is fully defaulted:
 
 ```json
@@ -74,8 +74,8 @@ minimum is a vault list; every other block is fully defaulted:
 Inspect and validate before wiring it up:
 
 ```bash
-obsidian-tc config validate ./config.json
-obsidian-tc config show ./config.json   # secrets redacted
+reliquary-tc config validate ./config.json
+reliquary-tc config show ./config.json   # secrets redacted
 ```
 
 **Turn on live mode (recommended)** so bridge tools work: install the companion
@@ -92,9 +92,9 @@ plugin, enable the Local REST API's **non-encrypted loopback** server
 ```
 
 The bridge client does not trust LRA's self-signed HTTPS, so use the loopback HTTP
-port. `obsidian-tc plugin install` copies the companion plugin into your vault.
+port. `reliquary-tc plugin install` copies the companion plugin into your vault.
 
-**Wire into your AI.** Register obsidian-tc as an MCP server in your client
+**Wire into your AI.** Register reliquary-tc as an MCP server in your client
 (Claude Desktop / Claude Code / any MCP host). Default transport is **stdio** (the
 trusted local path). For many-client or remote use, enable Streamable HTTP under
 `transports.http`, and note the fail-closed interlock: an unauthenticated server
@@ -140,7 +140,7 @@ no gate is bypassed in any mode.
 
 Use `find_capability` for exact names; this is the terrain, grouped by what you
 want to do. The surface grows release to release; `find_capability` and
-`obsidian-tc://catalog` always reflect what this caller can see right now.
+`reliquary-tc://catalog` always reflect what this caller can see right now.
 
 | You want to… | Reach for | Notes |
 | --- | --- | --- |
@@ -156,7 +156,7 @@ want to do. The surface grows release to release; `find_capability` and
 | **Attachments / OCR** | attachment tools, OCR route | OCR needs live mode + the plugin. |
 | **Memory graph** | memory entities + `[[link]]` graph, workspace sessions + JSONL traces | Projections live in the `memory/` folder. |
 | **Work-memory (experiential)** | retrieval-log readers, episode readers, `forget` | Quarantined store; eligible-only reads; see §5. |
-| **Bulk / admin / URI** | bulk ops, `add_vault`, `reload_vault`, `reset_vault_cache`, `index_vault`, snapshots/`restore_note`, `session_bootstrap`, resources over `obsidian-tc://<vault>/<path>` | Bulk + admin are throttled hardest. |
+| **Bulk / admin / URI** | bulk ops, `add_vault`, `reload_vault`, `reset_vault_cache`, `index_vault`, snapshots/`restore_note`, `session_bootstrap`, resources over `reliquary-tc://<vault>/<path>` | Bulk + admin are throttled hardest. |
 | **Companion bridges** | Obsidian Git (status/diff/log/stage; commits behind a hard human-confirmation floor), Remotely Save (backup verification), Templater/execute | Live mode only. |
 | **Run a vault command** | `execute_command` | Deny-by-default: needs `commands.enabled` + an allowlist entry, and is still HITL-gated. |
 
@@ -164,7 +164,7 @@ want to do. The surface grows release to release; `find_capability` and
 
 ## 5. New and notable (what is genuinely different here)
 
-These are the skills that set obsidian-tc apart. Teach your agent to prefer them.
+These are the skills that set reliquary-tc apart. Teach your agent to prefer them.
 
 **Measured retrieval, not asserted.** Every ranking change is gated by an n=250
 multi-hop golden set with a statistical ship rule (paired permutation, BH-FDR,
@@ -215,7 +215,7 @@ experiments, not tuned defaults.
 
 **The generative tier is opt-in and local.** `reflect` synthesis, `densify-llm`
 edge building, and ambient `plane` consolidation only run when you set
-`OBSIDIAN_TC_GATEWAY_URL` to a local inference gateway. No LLM calls happen
+`RELIQUARY_TC_GATEWAY_URL` to a local inference gateway. No LLM calls happen
 otherwise.
 
 ---
@@ -353,7 +353,7 @@ The complete option surface (every field, default, env var, and CLI command) is 
 | `toolFacade.mode` | `triad` | `flat` if your client prefers the full list; `auto` to pick per client (provisional). |
 | `transports.http.enabled` | false | Many-client / remote (then set auth). |
 | `experiential.captureContent` | true | Stores (scanned) call args. `securityProfile: "hardened"` turns it off. |
-| `OBSIDIAN_TC_GATEWAY_URL` (env) | unset | Enable the generative tier (`reflect`, `densify-llm`, `plane`). |
+| `RELIQUARY_TC_GATEWAY_URL` (env) | unset | Enable the generative tier (`reflect`, `densify-llm`, `plane`). |
 
 **Gotchas that bite new users**
 
@@ -377,6 +377,6 @@ The complete option surface (every field, default, env var, and CLI command) is 
 
 ---
 
-*Generated as agent-onboarding guidance for obsidian-tc. The capability surface is
+*Generated as agent-onboarding guidance for reliquary-tc. The capability surface is
 authoritative via `find_capability` / `describe_capability`; when this file and the
 live schema disagree, trust the schema.*

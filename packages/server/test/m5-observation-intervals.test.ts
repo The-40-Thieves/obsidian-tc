@@ -344,7 +344,7 @@ describe("as_of", () => {
   });
 });
 
-// THE-1073 lesson (reference_obsidian_tc_zod_safeparse_strips_but_ajv_rejects_extra_keys): zod's
+// THE-1073 lesson (reference_reliquary_tc_zod_safeparse_strips_but_ajv_rejects_extra_keys): zod's
 // safeParse silently strips a field the output schema doesn't declare, so it alone cannot prove
 // the wire payload is valid. Validate the ACTUAL emitted payload against the advertised
 // outputSchema the way the MCP SDK's own client does — with ajv, not zod.

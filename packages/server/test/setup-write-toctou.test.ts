@@ -1,4 +1,4 @@
-// `obsidian-tc setup`'s writer — TOCTOU proof (fix round, Codex review 1001-verify finding 6): "Two
+// `reliquary-tc setup`'s writer — TOCTOU proof (fix round, Codex review 1001-verify finding 6): "Two
 // writers can both observe an absent target. On POSIX, the second renameSync replaces the file
 // created by the first even though neither used --force." Own file for the same `vi.mock`
 // isolation reason setup-write-crash.test.ts documents.
@@ -76,7 +76,7 @@ describe("writeSetupConfig — TOCTOU: the real guard is exclusive linkSync, not
   // `finalizeExclusiveCreate`) — the real guard then shifts to the `.wx-claim` marker's own
   // exclusive `openSync(marker, "wx")`, not `existsSync` (still mocked to lie here, exactly like
   // the hard-link case above). A LIVE marker (fresh pid + timestamp) simulates a concurrent
-  // obsidian-tc process that is, right now, atomically mid-write — the one race the marker
+  // reliquary-tc process that is, right now, atomically mid-write — the one race the marker
   // mechanism exists to catch, since (unlike a target file written by some unrelated process) two
   // writers on the SAME hardlink-incapable filesystem both fall to this exact mechanism.
   it("a live concurrent marker claim is never clobbered when linkSync is unavailable and existsSync itself reports absent", async () => {

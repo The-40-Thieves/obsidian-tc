@@ -1,4 +1,4 @@
-// `obsidian-tc setup`'s embeddings decision (PR A of GH #995's two-part follow-up) — every branch
+// `reliquary-tc setup`'s embeddings decision (PR A of GH #995's two-part follow-up) — every branch
 // driven by injected inputs, no real vault/Ollama/cache-db needed (see decide.ts's own header for
 // why this module is pure).
 import { describe, expect, it } from "vitest";
@@ -7,7 +7,7 @@ import { decideSetup, LOW_RAM_THRESHOLD_MB, type SetupInputs } from "../src/cli/
 const VAULTS = [{ id: "main", path: "/vault" }];
 const baseInput: SetupInputs = {
   vaults: VAULTS,
-  cacheDir: "/home/x/.obsidian-tc",
+  cacheDir: "/home/x/.reliquary-tc",
   totalMemMb: 16_000,
   localEmbedderAvailable: false,
   env: {},
@@ -135,7 +135,7 @@ describe("decideSetup — embeddings precedence", () => {
   it("passes vaults and cacheDir through unchanged", () => {
     const d = decideSetup({ ...baseInput, localEmbedderAvailable: true });
     expect(d.vaults).toEqual(VAULTS);
-    expect(d.cacheDir).toBe("/home/x/.obsidian-tc");
+    expect(d.cacheDir).toBe("/home/x/.reliquary-tc");
   });
 
   // Fix round (Codex review 1001-verify), finding 1 (HIGH): an unmappable stored provider id

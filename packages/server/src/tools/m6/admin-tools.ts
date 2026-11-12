@@ -7,7 +7,7 @@
 // session_rerun, which IS destructive (admin:rerun + a HITL confirmation, mirroring
 // reset_vault_cache) even though everything it re-issues lands only in a disposable sandbox copy
 // of the session's own vault, never the live one.
-import { err, parseScope, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { err, parseScope, VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { Database } from "../../db/types";
 import { fingerprintTargets } from "../../elicit-drift";
@@ -48,20 +48,20 @@ interface Metric {
  * make event_log grow with vault size on every reconcile.
  */
 const INGEST_EVENT_METRICS: Record<string, string> = {
-  ingest_secrets_skipped: "obsidian_tc_ingest_secrets_skipped_total",
-  ingest_dedup_skipped: "obsidian_tc_ingest_dedup_skipped_total",
+  ingest_secrets_skipped: "reliquary_tc_ingest_secrets_skipped_total",
+  ingest_dedup_skipped: "reliquary_tc_ingest_dedup_skipped_total",
   // THE-588: the unresolved (loss) side of dedup, alongside its reused sibling above.
-  ingest_dedup_unresolved: "obsidian_tc_ingest_dedup_unresolved_total",
-  embed_batch_rejections: "obsidian_tc_embed_batch_rejections_total",
-  index_write_failures: "obsidian_tc_index_write_failures_total",
+  ingest_dedup_unresolved: "reliquary_tc_ingest_dedup_unresolved_total",
+  embed_batch_rejections: "reliquary_tc_embed_batch_rejections_total",
+  index_write_failures: "reliquary_tc_index_write_failures_total",
   // THE-925: a batched indexVault plan skipped because a concurrent write_note/watcher commit
   // raced its apply. THE-1073 fix round 1 (MEDIUM, Opus): this and index_frontmatter_failed below
   // were both already wired into recordIngestStats' event_log rows (metrics/ingest-stats.ts) but
   // absent HERE, so get_metrics — the surface that survives a restart and the only one the
   // one-shot CLI has — could not see either, even though the in-memory /metrics recorder could.
-  index_stale_skipped: "obsidian_tc_index_stale_skipped_total",
+  index_stale_skipped: "reliquary_tc_index_stale_skipped_total",
   // THE-1073: notes skipped for unparseable YAML frontmatter.
-  index_frontmatter_failed: "obsidian_tc_index_frontmatter_failures_total",
+  index_frontmatter_failed: "reliquary_tc_index_frontmatter_failures_total",
 };
 
 function ingestCounters(db: Database, vault?: string): Metric[] {
@@ -110,8 +110,8 @@ function invocationCounters(db: Database, vault?: string): Metric[] {
   return rows.map((r) => ({
     // Catalog-aligned name (G2.4 / THE-211): get_metrics is the persistent event_log JSON view
     // of the same tool-call counter the in-memory /metrics recorder exposes. The M6 name
-    // (obsidian_tc_tool_invocations_total) predated the finalized catalog.
-    name: "obsidian_tc_tool_calls_total",
+    // (reliquary_tc_tool_invocations_total) predated the finalized catalog.
+    name: "reliquary_tc_tool_calls_total",
     type: "counter",
     value: r.n,
     labels: { vault: r.vault_id ?? "", tool: r.tool_name ?? "", status: r.status },
@@ -201,7 +201,7 @@ const SessionRerunInput = z
      *  re-issued call), not per-call. Defaults to DEFAULT_SESSION_RERUN_TIMEOUT_MS. `.strict()` on
      *  this schema is itself the "reject any parameter that would select observe/live mode" gate:
      *  session_rerun has no `sandbox`/`observe` field to accept in the first place — the live-vault
-     *  observe path stays CLI-only (`obsidian-tc rerun`) — so an unrecognized key here, including
+     *  observe path stays CLI-only (`reliquary-tc rerun`) — so an unrecognized key here, including
      *  an attempt to pass one, is refused by Zod before the handler ever runs. */
     timeout_ms: z.number().int().positive().max(MAX_SESSION_RERUN_TIMEOUT_MS).optional(),
   })
@@ -536,7 +536,7 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
         for (const row of deps.rateLimiter.snapshot()) {
           if (vaultFilter && row.vault !== vaultFilter) continue;
           metrics.push({
-            name: "obsidian_tc_rate_limit_hits_total",
+            name: "reliquary_tc_rate_limit_hits_total",
             type: "counter",
             value: row.hits,
             labels: { vault: row.vault, scope_class: row.scope_class },
@@ -545,19 +545,19 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
 
         metrics.push(
           {
-            name: "obsidian_tc_vaults_registered",
+            name: "reliquary_tc_vaults_registered",
             type: "gauge",
             value: deps.vaultRegistry.list().length,
             labels: {},
           },
           {
-            name: "obsidian_tc_tools_registered",
+            name: "reliquary_tc_tools_registered",
             type: "gauge",
             value: deps.registeredTools?.() ?? 0,
             labels: {},
           },
           {
-            name: "obsidian_tc_uptime_seconds",
+            name: "reliquary_tc_uptime_seconds",
             type: "gauge",
             value: Math.max(0, Math.floor((now - deps.startedAt) / 1000)),
             labels: {},
@@ -574,7 +574,7 @@ export function buildAdminTools(deps: M6Deps): ToolDefinition[] {
       vaultArg: "vault",
       destructive: true,
       description:
-        "Re-issue a recorded session's captured tool calls against a DISPOSABLE SANDBOX COPY of its vault (never the live one) and report divergence per call. Sandbox-only: there is no parameter that selects the live-vault observe mode obsidian-tc's `rerun` CLI command offers — that path stays operator-only. Replayed calls run with the caller's own granted scopes intersected against the fixed replay ceiling (read/write/delete/bulk/execute, never admin), so a caller who cannot themselves mutate cannot get a mutating call replayed as successful. Requires admin:rerun plus a human confirmation (destructive). Domain: admin.",
+        "Re-issue a recorded session's captured tool calls against a DISPOSABLE SANDBOX COPY of its vault (never the live one) and report divergence per call. Sandbox-only: there is no parameter that selects the live-vault observe mode reliquary-tc's `rerun` CLI command offers — that path stays operator-only. Replayed calls run with the caller's own granted scopes intersected against the fixed replay ceiling (read/write/delete/bulk/execute, never admin), so a caller who cannot themselves mutate cannot get a mutating call replayed as successful. Requires admin:rerun plus a human confirmation (destructive). Domain: admin.",
       inputSchema: SessionRerunInput,
       outputSchema: SessionRerunOutput,
       requiredScopes: ["admin:rerun"],

@@ -4,7 +4,7 @@
 // already close to biome's 700-line ceiling before this ticket's three new tools, which would have
 // pushed it over; a straight split needs a shared home for the helpers both files call, or one
 // file ends up importing tool-registration code from the other for no reason but a function body.
-import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { err, ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import type { CallerContext, ToolDefinition } from "../../mcp/registry";
 import {
   type EntityRow,
@@ -276,7 +276,7 @@ export function scrubOwnerDisclosure(deps: M5Deps, tool: ToolDefinition): ToolDe
         return inner(input, ctx);
       } catch (caught) {
         const owner =
-          caught instanceof ObsidianTcError && caught.code === "note_exists"
+          caught instanceof ReliquaryTcError && caught.code === "note_exists"
             ? (caught.details as { existing_owner_id?: unknown } | undefined)?.existing_owner_id
             : undefined;
         const row = typeof owner === "string" ? getEntityById(ctx.db, owner) : undefined;

@@ -1,4 +1,4 @@
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import {
   createEmbeddingProvider,
@@ -79,8 +79,8 @@ describe("provider factory", () => {
       createEmbeddingProvider({ ...cfg, provider: "nope" });
       throw new Error("expected createEmbeddingProvider to throw");
     } catch (e) {
-      expect(e).toBeInstanceOf(ObsidianTcError);
-      expect((e as ObsidianTcError).code).toBe("invalid_input");
+      expect(e).toBeInstanceOf(ReliquaryTcError);
+      expect((e as ReliquaryTcError).code).toBe("invalid_input");
     }
   });
 
@@ -163,9 +163,9 @@ describe("provider adapters over a stub fetch", () => {
       await p.embed(["a"], { sourcePaths: [] });
       throw new Error("expected embed to throw");
     } catch (e) {
-      expect(e).toBeInstanceOf(ObsidianTcError);
-      expect((e as ObsidianTcError).code).toBe("embedding_provider_error");
-      expect(JSON.stringify((e as ObsidianTcError).toJSON())).not.toContain("secret");
+      expect(e).toBeInstanceOf(ReliquaryTcError);
+      expect((e as ReliquaryTcError).code).toBe("embedding_provider_error");
+      expect(JSON.stringify((e as ReliquaryTcError).toJSON())).not.toContain("secret");
     }
   });
 
@@ -198,8 +198,8 @@ describe("provider adapters over a stub fetch", () => {
       });
       throw new Error("expected postJson to throw");
     } catch (e) {
-      expect((e as ObsidianTcError).code).toBe("embedding_provider_error");
-      expect((e as ObsidianTcError).details?.cause_code).toBe("ECONNREFUSED");
+      expect((e as ReliquaryTcError).code).toBe("embedding_provider_error");
+      expect((e as ReliquaryTcError).details?.cause_code).toBe("ECONNREFUSED");
     }
   });
 
@@ -218,7 +218,7 @@ describe("provider adapters over a stub fetch", () => {
       });
       throw new Error("expected postJson to throw");
     } catch (e) {
-      const err = e as ObsidianTcError;
+      const err = e as ReliquaryTcError;
       expect(err.code).toBe("embedding_provider_error");
       expect(err.details && "cause_code" in err.details).toBe(false);
     }
@@ -251,7 +251,7 @@ describe("postJson failure hints name the right config block", () => {
         ...o,
       });
     } catch (e) {
-      return String((e as ObsidianTcError).details?.hint ?? "");
+      return String((e as ReliquaryTcError).details?.hint ?? "");
     }
     throw new Error("expected postJson to throw");
   }
@@ -321,7 +321,7 @@ describe("postJson failure hints name the right config block", () => {
       await provider.embed(["hello"]);
       throw new Error("expected the adapter to throw");
     } catch (e) {
-      const hint = String((e as ObsidianTcError).details?.hint ?? "");
+      const hint = String((e as ReliquaryTcError).details?.hint ?? "");
       expect(hint).toContain("ollama pull bge-m3");
       expect(hint).toContain("http://127.0.0.1:9");
       // The model name is interpolated, never a hardcoded default — a fixed model name here would
@@ -346,8 +346,8 @@ describe("postJson failure hints name the right config block", () => {
       });
       throw new Error("expected postJson to throw");
     } catch (e) {
-      expect((e as ObsidianTcError).code).toBe("embedding_provider_error");
-      expect(String((e as ObsidianTcError).details?.hint)).toContain("reranker.apiKey");
+      expect((e as ReliquaryTcError).code).toBe("embedding_provider_error");
+      expect(String((e as ReliquaryTcError).details?.hint)).toContain("reranker.apiKey");
     }
   });
 });

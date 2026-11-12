@@ -14,12 +14,12 @@
 import {
   ElicitToken,
   err,
-  ObsidianTcError,
   Pagination,
+  ReliquaryTcError,
   VaultId,
   VaultPath,
   WriteOptions,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { BaseDoc, baseViews, parseBase, selectView, serializeBase } from "../../formats/base";
 import {
@@ -156,7 +156,7 @@ const CreateBaseOutput = z.object({
   path: z.string(),
   created: z.boolean(),
   content_hash: z.string(),
-  // Present only when the created doc used a deprecated obsidian-tc alias (source/columns/group).
+  // Present only when the created doc used a deprecated reliquary-tc alias (source/columns/group).
   deprecations: z.array(z.string()).optional(),
 });
 
@@ -254,18 +254,18 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
         // fault anywhere after it resolves a retry to indeterminate rather than re-executing.
         ctx.markEffectCommitted?.();
         writeNoteAtomic(abs, content, input.options.create_dirs, { exclusive: !ex.exists });
-        // THE-280: surface the obsidian-tc aliases as deprecations (removal at v2.0) so authors
+        // THE-280: surface the reliquary-tc aliases as deprecations (removal at v2.0) so authors
         // migrate toward real Bases shapes (top-level filters; per-view order/groupBy).
         const deprecations: string[] = [];
         const doc = input.base;
         if (doc.source !== undefined)
           deprecations.push(
-            "`source` is an obsidian-tc alias; real Bases selects notes via top-level `filters` (removal at v2.0)",
+            "`source` is a reliquary-tc alias; real Bases selects notes via top-level `filters` (removal at v2.0)",
           );
         const inViews = Array.isArray(doc.views) ? (doc.views as Record<string, unknown>[]) : [];
         if (inViews.some((vv) => Array.isArray(vv.columns)))
           deprecations.push(
-            "per-view `columns` is an obsidian-tc alias for real Bases `order` (removal at v2.0)",
+            "per-view `columns` is a reliquary-tc alias for real Bases `order` (removal at v2.0)",
           );
         if (inViews.some((vv) => vv.group !== undefined))
           deprecations.push(
@@ -385,7 +385,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
       domain: "structured",
       pathAcl: (input) => [{ op: "read", path: input.path }],
       description:
-        "Execute a base view and return resolved rows. A view's groupOrder (Obsidian 1.14) keeps only the listed groups, in that order; null is the no-value group. Filters/formulas may use obsidian-tc's JSONLogic model OR the real Obsidian Bases expression DSL (a documented subset); constructs outside the subset — and trees mixing both models — are refused with unsupported_base_filter.",
+        "Execute a base view and return resolved rows. A view's groupOrder (Obsidian 1.14) keeps only the listed groups, in that order; null is the no-value group. Filters/formulas may use reliquary-tc's JSONLogic model OR the real Obsidian Bases expression DSL (a documented subset); constructs outside the subset — and trees mixing both models — are refused with unsupported_base_filter.",
       inputSchema: QueryInput,
       outputSchema: QueryBaseOutput,
       requiredScopes: ["read:bases"],
@@ -555,7 +555,7 @@ export function buildBaseTools(deps: M3Deps): ToolDefinition[] {
             } catch (e) {
               // Unsupported constructs stay typed refusals (never a silent null column); per-row
               // data errors (missing/mismatched fields) yield null like the JSONLogic formulas.
-              if (e instanceof ObsidianTcError && e.code === "unsupported_base_filter") throw e;
+              if (e instanceof ReliquaryTcError && e.code === "unsupported_base_filter") throw e;
               columns[name] = null;
             }
           }

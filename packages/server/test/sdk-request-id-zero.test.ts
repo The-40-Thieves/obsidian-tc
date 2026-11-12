@@ -73,7 +73,7 @@ async function bootStdioForIdZero(outcome: { value: "pending" | "aborted" | "tim
     signal,
   });
   const server = createMcpServer({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     context,

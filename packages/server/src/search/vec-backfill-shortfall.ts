@@ -54,7 +54,7 @@ export function formatBackfillShortfall(s: BackfillShortfall, dims: number, mode
   const cause =
     s.multiActiveChunks > 0
       ? `${s.multiActiveChunks} chunk(s) carry MORE THAN ONE active embedding, so the model the ` +
-        `backfill filters on is ambiguous — run \`obsidian-tc doctor\``
+        `backfill filters on is ambiguous — run \`reliquary-tc doctor\``
       : `the active embeddings are at another width/model than ${model} @ ${dims} (a model or ` +
         `dimension change not yet re-embedded?) — dense retrieval is degraded until they are re-embedded`;
   return (

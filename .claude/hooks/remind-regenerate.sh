@@ -17,11 +17,11 @@ ROOT=$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null) || exit 0
 REL=${FILE#"$ROOT"/}
 [ "$REL" = "$FILE" ] && exit 0
 
-note() { printf '\n[obsidian-tc] %s\n%s\n' "$1" "$2" >&2; }
+note() { printf '\n[reliquary-tc] %s\n%s\n' "$1" "$2" >&2; }
 
 case "$REL" in
   packages/shared/src/config.schema.ts)
-    note "config.schema.ts changed — docs/obsidian-tc.config.schema.json is now stale." \
+    note "config.schema.ts changed — docs/reliquary-tc.config.schema.json is now stale." \
 "    bun run config:schema
 
 Even a DESCRIPTION-only edit moves the generated JSON Schema. This exact case failed drift-gate

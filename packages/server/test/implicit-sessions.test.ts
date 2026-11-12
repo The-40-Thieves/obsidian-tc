@@ -1,4 +1,4 @@
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -99,7 +99,7 @@ describe("openImplicitSession — the shape the sweep keys on", () => {
     expect(row.trace_path).toBe(cacheTraceRelPath(opened.sessionId));
     expect(row.trace_store).toBe("cache");
     // The whole point of the move: nothing about this path is inside the vault any more.
-    expect(row.trace_path.startsWith(".obsidian-tc")).toBe(false);
+    expect(row.trace_path.startsWith(".reliquary-tc")).toBe(false);
     // And it resolves, so the very next dispatch correlates to it.
     expect(activeSessionFor(db, "alice")).toStrictEqual({
       sessionId: opened.sessionId,
@@ -487,7 +487,7 @@ async function boot(
     auth: { mode: "jwt", jwtSecret: SECRET, audience: "http://test", tokenTtlSeconds: 3600 },
   }).auth;
   const handle = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     auth,

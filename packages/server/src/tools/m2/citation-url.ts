@@ -9,7 +9,7 @@
 // The url is `<vaults[].publicUrl>/<path>` when the vault configures a public base, else the
 // obsidian://open deep link. Either way every variable part is percent-encoded with
 // encodeURIComponent, so a note name can never add a query, a fragment, a path segment or a scheme.
-import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { buildObsidianUri } from "../m6/uri-tools";
 
 export interface NoteRef {

@@ -7,7 +7,7 @@
 // no `aud` is enforced; the missing-audience deprecation is the only signal. In the next minor
 // release, when that deprecation becomes a startup error, the two are to be aligned and the
 // expectations below flip (the schema or the verifier changes).
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 import { buildJwtVerifier } from "../src/auth/jwt-boot";

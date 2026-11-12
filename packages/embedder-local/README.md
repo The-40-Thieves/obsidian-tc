@@ -1,6 +1,6 @@
-# @the-40-thieves/obsidian-tc-embedder-local
+# @the-40-thieves/reliquary-tc-embedder-local
 
-An **optional**, fully offline dense embedder for obsidian-tc's `embeddings.provider: "local"` —
+An **optional**, fully offline dense embedder for reliquary-tc's `embeddings.provider: "local"` —
 the DEFAULT embeddings provider when the `embeddings` config block is absent. No Ollama, no API
 key, no network call after the first use.
 
@@ -25,12 +25,12 @@ That description applies to this **source tree**. The npm release is generated b
 shim into `embedder.mjs`, so the published base package has no `dependencies` entry and does not
 install `@huggingface/transformers`. Instead it exact-pins six optional runtime packages:
 
-- `@the-40-thieves/obsidian-tc-embedder-local-linux-x64`
-- `@the-40-thieves/obsidian-tc-embedder-local-linux-arm64`
-- `@the-40-thieves/obsidian-tc-embedder-local-darwin-arm64`
-- `@the-40-thieves/obsidian-tc-embedder-local-darwin-x64` (ONNX Runtime Web WASM)
-- `@the-40-thieves/obsidian-tc-embedder-local-win32-x64`
-- `@the-40-thieves/obsidian-tc-embedder-local-win32-arm64`
+- `@the-40-thieves/reliquary-tc-embedder-local-linux-x64`
+- `@the-40-thieves/reliquary-tc-embedder-local-linux-arm64`
+- `@the-40-thieves/reliquary-tc-embedder-local-darwin-arm64`
+- `@the-40-thieves/reliquary-tc-embedder-local-darwin-x64` (ONNX Runtime Web WASM)
+- `@the-40-thieves/reliquary-tc-embedder-local-win32-x64`
+- `@the-40-thieves/reliquary-tc-embedder-local-win32-arm64`
 
 Each runtime package declares npm `os`/`cpu` filters (and `libc: ["glibc"]` on Linux), so npm
 installs only the host runtime. The generated base also publishes `runtime-pins.json` with the exact
@@ -69,10 +69,10 @@ routes, in order, and never throws:
 | Route | When it applies |
 |---|---|
 | (i) explicit path | An absolute path to this package's built `dist/index.js`, for an npm-installed server pointed at a checkout of this package elsewhere. |
-| (ii) bare specifier (`@the-40-thieves/obsidian-tc-embedder-local`) | Installing this package (`npm install @the-40-thieves/obsidian-tc-embedder-local@<same version>`) installs the generated base plus the host's optional runtime package. `npm install obsidian-tc` does not install it; `obsidian-tc setup` offers to. A direct `bun link` remains useful while developing. |
-| (iii) automatic source-checkout fallback | Works out of the box for a SOURCE CHECKOUT of the `obsidian-tc` monorepo, once step (1) above has run — `providers/registry.ts` resolves `packages/embedder-local/dist/index.js` relative to itself. |
+| (ii) bare specifier (`@the-40-thieves/reliquary-tc-embedder-local`) | Installing this package (`npm install @the-40-thieves/reliquary-tc-embedder-local@<same version>`) installs the generated base plus the host's optional runtime package. `npm install reliquary-tc` does not install it; `reliquary-tc setup` offers to. A direct `bun link` remains useful while developing. |
+| (iii) automatic source-checkout fallback | Works out of the box for a SOURCE CHECKOUT of the `reliquary-tc` monorepo, once step (1) above has run — `providers/registry.ts` resolves `packages/embedder-local/dist/index.js` relative to itself. |
 
-Every failed attempt is logged (`console.error`, one line per route) and surfaced by `obsidian-tc
+Every failed attempt is logged (`console.error`, one line per route) and surfaced by `reliquary-tc
 doctor`'s `embeddings.buildable` check with the exact remedy. Resolution failure **never crashes
 boot** — dense retrieval and indexing degrade the same way an unreachable hosted embeddings
 provider has always degraded (a `[index] reconcile degraded` notice; lexical/FTS search stays
@@ -95,7 +95,7 @@ fully functional).
   fetch-model` as the offline alternative.
 - **Degrades gracefully, never silently.** A resolution or download failure surfaces as a rejected
   `embed()` promise; the existing boot-reconcile degradation path (same one an unreachable Ollama
-  endpoint has always used) catches it. `obsidian-tc doctor` keeps it loud via the
+  endpoint has always used) catches it. `reliquary-tc doctor` keeps it loud via the
   `embeddings.buildable` check.
 - **`bun --compile` and the `.mcpb` bundle carry a BUNDLED copy.** `onnxruntime-node` (a transitive
   dependency) dlopens a sidecar `.node`/`.so` file next to itself at runtime, which a single-file
@@ -123,4 +123,4 @@ mechanism is what makes the revision segment work with the library's real path-j
 
 ## License
 
-Apache-2.0, same as the rest of obsidian-tc. See `LICENSE` and `NOTICE`.
+Apache-2.0, same as the rest of reliquary-tc. See `LICENSE` and `NOTICE`.

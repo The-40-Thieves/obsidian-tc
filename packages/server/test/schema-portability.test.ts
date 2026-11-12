@@ -1,4 +1,4 @@
-// Schema-portability gate. Every tool schema obsidian-tc ADVERTISES (tools/list in each facade mode
+// Schema-portability gate. Every tool schema reliquary-tc ADVERTISES (tools/list in each facade mode
 // and tool profile, plus describe_capability) must sit inside the subset the strictest MCP clients
 // accept: OpenAI strict-mode shape, Gemini/Vertex/ADK's OpenAPI 3.0 subset, Copilot Studio, Cursor,
 // Claude Desktop, and the 16 KiB per-tool cap. The rules and the incident behind each live in

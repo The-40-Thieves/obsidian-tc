@@ -14,7 +14,7 @@ describe("extractConfig (THE-471)", () => {
   });
 
   it("captures scalar keys with type + default", () => {
-    expect(byPath.get("cacheDir")).toMatchObject({ type: "string", default: ".obsidian-tc" });
+    expect(byPath.get("cacheDir")).toMatchObject({ type: "string", default: ".reliquary-tc" });
     // ADR-0007: rrfK has NO schema default any more (an unset value is a resolver decision —
     // explicit > derived > 10), so "unset" stays distinguishable from an explicit 10. Its
     // description carries the constant.

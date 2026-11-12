@@ -88,9 +88,9 @@ test("every released artifact family is downloaded and has a signing step with a
   }
   for (const target of [
     "artifacts/native-*/*.node",
-    "artifacts/binary-*/obsidian-tc-!(*.map)",
-    "artifacts/binary-*/obsidian-tc-*.map",
-    "artifacts/plugin/**/obsidian-tc-*.zip",
+    "artifacts/binary-*/reliquary-tc-!(*.map)",
+    "artifacts/binary-*/reliquary-tc-*.map",
+    "artifacts/plugin/**/reliquary-tc-*.zip",
     "artifacts/plugin/**/main.js",
     "artifacts/plugin/**/manifest.json",
     "artifacts/plugin/**/styles.css",
@@ -121,8 +121,8 @@ test("draft-release cannot run without the signing job and attaches the bundles"
 });
 
 test("the bundle glob cannot double-match a pattern already in files: (queues an asset twice)", () => {
-  // The bundles are downloaded OUTSIDE artifacts/, so `artifacts/**/obsidian-tc-*` (which would
-  // match a bundle named obsidian-tc-<x>.sigstore.json) never sees them.
+  // The bundles are downloaded OUTSIDE artifacts/, so `artifacts/**/reliquary-tc-*` (which would
+  // match a bundle named reliquary-tc-<x>.sigstore.json) never sees them.
   assert.doesNotMatch(draft, /path: artifacts\/signatures/);
   assert.match(draft, /path: signatures/);
 });
@@ -343,7 +343,7 @@ test("the un-prefixed plugin mirror attaches the bundles as well", () => {
 
 test("release docs pin an exact certificate identity and keep no case-folded or loose regexp", () => {
   const exact =
-    "https://github.com/The-40-Thieves/obsidian-tc/.github/workflows/publish.yml@refs/tags/v<x.y.z>";
+    "https://github.com/The-40-Thieves/reliquary-tc/.github/workflows/publish.yml@refs/tags/v<x.y.z>";
   for (const file of ["../SECURITY.md", "../docs/RELEASING.md"]) {
     const text = readFileSync(resolve(import.meta.dirname, file), "utf8");
     assert.ok(text.includes(`--certificate-identity ${exact}`), `${file}: exact identity form`);
@@ -351,13 +351,13 @@ test("release docs pin an exact certificate identity and keep no case-folded or 
     assert.doesNotMatch(text, /refs\/tags\/v\.\+/, `${file}: no loose v.+ tag`);
     for (const m of text.matchAll(/--certificate-identity-regexp '([^']+)'/g)) {
       assert.ok(m[1].startsWith("^") && m[1].endsWith("$"), `${file}: regexp anchored`);
-      assert.ok(m[1].includes("The-40-Thieves/obsidian-tc"), `${file}: owner/repo in real case`);
+      assert.ok(m[1].includes("The-40-Thieves/reliquary-tc"), `${file}: owner/repo in real case`);
       assert.ok(m[1].includes("(0|[1-9][0-9]*)"), `${file}: strict semver numeric parts`);
       assert.doesNotMatch(m[1], /\.\+|\.\*/, `${file}: no wildcard`);
     }
   }
   const sec = readFileSync(resolve(import.meta.dirname, "../SECURITY.md"), "utf8");
-  assert.match(sec, /cosign verify ghcr\.io\/the-40-thieves\/obsidian-tc@sha256:/);
+  assert.match(sec, /cosign verify ghcr\.io\/the-40-thieves\/reliquary-tc@sha256:/);
 });
 
 test("the identity the docs name is the workflow file and ref shape this repo actually has", () => {
@@ -379,7 +379,7 @@ const RELEASE_IMAGE = readFileSync(
   resolve(import.meta.dirname, "../.github/workflows/release-image.yml"),
   "utf8",
 );
-const PUBLIC_TAG = /obsidian-tc:\$\{\{ (needs\.verify-tag\.outputs\.version|inputs\.version) \}\}/;
+const PUBLIC_TAG = /reliquary-tc:\$\{\{ (needs\.verify-tag\.outputs\.version|inputs\.version) \}\}/;
 
 /** The `tags:` input of the build-push-action step, up to the next `labels:` key. */
 function buildTags(text) {
@@ -396,7 +396,7 @@ for (const [name, text] of [
     const tags = buildTags(text);
     assert.match(
       tags,
-      /obsidian-tc:smoke-\$\{\{ (needs\.verify-tag\.outputs\.version|inputs\.version) \}\}/,
+      /reliquary-tc:smoke-\$\{\{ (needs\.verify-tag\.outputs\.version|inputs\.version) \}\}/,
     );
     assert.doesNotMatch(tags, PUBLIC_TAG);
     assert.doesNotMatch(tags, /:latest/);
@@ -889,7 +889,7 @@ test("SECURITY.md accepts both release identities and nothing else", () => {
   assert.ok(patterns.length > 0, "SECURITY.md has an identity regexp");
   assert.equal(new Set(patterns).size, 1, "every regexp in SECURITY.md is the same pattern");
   const re = new RegExp(patterns[0]);
-  const base = "https://github.com/The-40-Thieves/obsidian-tc/.github/workflows/";
+  const base = "https://github.com/The-40-Thieves/reliquary-tc/.github/workflows/";
   for (const id of [
     "publish.yml@refs/tags/v1.2.3",
     "publish.yml@refs/tags/v1.28.0-rc.1",
@@ -915,14 +915,14 @@ test("SECURITY.md accepts both release identities and nothing else", () => {
     assert.doesNotMatch(base + id, re, `rejects ${id}`);
   }
   for (const url of [
-    "https://github.com/The-40-Thieves/obsidian-tc-fork/.github/workflows/release-image.yml@refs/heads/main",
-    "https://github.com/someone/obsidian-tc/.github/workflows/release-image.yml@refs/heads/main",
-    "https://github.com/someone/obsidian-tc/.github/workflows/publish.yml@refs/tags/v1.2.3",
+    "https://github.com/The-40-Thieves/reliquary-tc-fork/.github/workflows/release-image.yml@refs/heads/main",
+    "https://github.com/someone/reliquary-tc/.github/workflows/release-image.yml@refs/heads/main",
+    "https://github.com/someone/reliquary-tc/.github/workflows/publish.yml@refs/tags/v1.2.3",
   ]) {
     assert.doesNotMatch(url, re, `rejects other repo ${url}`);
   }
   assert.doesNotMatch(
-    "https://github.com/the-40-thieves/obsidian-tc/.github/workflows/publish.yml@refs/tags/v1.2.3",
+    "https://github.com/the-40-thieves/reliquary-tc/.github/workflows/publish.yml@refs/tags/v1.2.3",
     re,
     "owner and repo are matched in their real case",
   );

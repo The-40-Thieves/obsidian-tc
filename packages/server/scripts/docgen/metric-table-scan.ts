@@ -1,6 +1,6 @@
 // docgen — hand-written metric-table scanner (THE-595 guard case (c)). marker-scan.ts's guard
 // catches (a) a render target absent from targets.ts and (b) a marker with no renderer, but not
-// case (c): a doc table enumerating `obsidian_tc_*` metric names with NO marker at all — exactly
+// case (c): a doc table enumerating `reliquary_tc_*` metric names with NO marker at all — exactly
 // how docs/G2.4-observability.md's catalog table went 21 metrics stale, invisible to every
 // existing gate because nothing ever looked at hand-written prose for a duplicated catalog.
 //
@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 import { candidateFiles } from "./marker-scan";
 
-const METRIC_NAME_RE = /`(obsidian_tc_[a-zA-Z0-9_]+)`/g;
+const METRIC_NAME_RE = /`(reliquary_tc_[a-zA-Z0-9_]+)`/g;
 const GENERATED_REGION_RE =
   /<!-- BEGIN GENERATED: [\w-]+ -->[\s\S]*?<!-- END GENERATED: [\w-]+ -->/g;
 const TABLE_ROW_RE = /^\s*\|/;
@@ -26,7 +26,7 @@ export interface HandWrittenMetricTable {
 }
 
 export interface MetricTableScanResult {
-  /** Total `` `obsidian_tc_*` `` mentions across the scanned surface, generated regions included —
+  /** Total `` `reliquary_tc_*` `` mentions across the scanned surface, generated regions included —
    *  a sanity floor. Zero means the regex or the file list is broken, not that the docs are clean;
    *  a caller must treat that as a FAILURE (the same class of silent-empty-scan bug marker-scan.ts
    *  guards against for markers), never a pass. */

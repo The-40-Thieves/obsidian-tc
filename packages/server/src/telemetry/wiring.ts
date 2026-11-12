@@ -5,7 +5,7 @@
 // shape (a plain object of callbacks the rest of the server takes instead of importing this
 // module directly) so telemetry stays optional dead weight on a build that never enables it.
 import { randomUUID } from "node:crypto";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { Database } from "../db/types";
 // THE-1125 fix round: imported from known-clients.ts, NOT facade-auto.ts — facade-auto.ts already
 // imports TelemetryStatusInfo (type-only) from THIS file, so importing back from facade-auto.ts
@@ -38,7 +38,7 @@ export interface TelemetryWiring {
   registerJob: (scheduler: Scheduler) => void;
   /** `doctor`/`server_health`'s `telemetry` field. */
   getStatus: () => TelemetryStatusInfo;
-  /** `obsidian-tc telemetry preview`: the document that would be sent RIGHT NOW — built directly,
+  /** `reliquary-tc telemetry preview`: the document that would be sent RIGHT NOW — built directly,
    *  never through `sendTelemetry`, so preview makes NO network call and never resets the
    *  collector's window (only a successful send does that). */
   previewDocument: () => TelemetryDocument;

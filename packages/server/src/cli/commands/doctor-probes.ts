@@ -55,7 +55,7 @@ export async function probeNotesFts(
   } catch {
     // No cache.db yet (fresh install), or it cannot be opened. Either way there is no index to
     // pronounce on — fall back to the unprobed wording rather than inventing a verdict.
-    return { ftsEnabled: process.env.OBSIDIAN_TC_DISABLE_FTS !== "1" };
+    return { ftsEnabled: process.env.RELIQUARY_TC_DISABLE_FTS !== "1" };
   } finally {
     try {
       // `close` is OPTIONAL on the Database interface — the node:sqlite adapter used in tests and

@@ -25,12 +25,12 @@ describe("embeddings.buildable (THE-1122 review round 3: three-way status)", () 
       platformOverride: { platform: "linux", arch: "x64", isMuslRuntime: () => false },
     }).run(ctx);
     expect(String(r.remediation)).toContain(
-      `npm install --save-exact @the-40-thieves/obsidian-tc-embedder-local@${version}`,
+      `npm install --save-exact @the-40-thieves/reliquary-tc-embedder-local@${version}`,
     );
     expect(String(r.remediation)).not.toContain("--omit=optional");
   });
 
-  it("a resolved embedder at a different version than obsidian-tc is a WARN naming the matching install", async () => {
+  it("a resolved embedder at a different version than reliquary-tc is a WARN naming the matching install", async () => {
     const r = await embeddingsBuildableCheck({
       denseProvider: "local",
       probeLocalEmbedder: () =>
@@ -45,9 +45,9 @@ describe("embeddings.buildable (THE-1122 review round 3: three-way status)", () 
       platformOverride: { platform: "linux", arch: "x64", isMuslRuntime: () => false },
     }).run(ctx);
     expect(r.status).toBe("warning");
-    expect(String(r.summary)).toContain(`is installed, but this obsidian-tc is ${version}`);
+    expect(String(r.summary)).toContain(`is installed, but this reliquary-tc is ${version}`);
     expect(String(r.remediation)).toContain(
-      `npm install --save-exact @the-40-thieves/obsidian-tc-embedder-local@${version}`,
+      `npm install --save-exact @the-40-thieves/reliquary-tc-embedder-local@${version}`,
     );
   });
 
@@ -65,13 +65,13 @@ describe("embeddings.buildable (THE-1122 review round 3: three-way status)", () 
       probeRequested: true,
       platformOverride: { platform: "linux", arch: "x64", isMuslRuntime: () => false },
       installSite: {
-        pkgDir: "/usr/lib/node_modules/obsidian-tc",
+        pkgDir: "/usr/lib/node_modules/reliquary-tc",
         globalRoot: "/usr/lib/node_modules",
         userAgent: "npm/10.9.0 node/v24.0.0 linux x64",
       },
     }).run(ctx);
     expect(r.remediation).toBe(
-      `Install the embedder that matches this obsidian-tc: npm install --global @the-40-thieves/obsidian-tc-embedder-local@${version}`,
+      `Install the embedder that matches this reliquary-tc: npm install --global @the-40-thieves/reliquary-tc-embedder-local@${version}`,
     );
   });
 
@@ -89,16 +89,16 @@ describe("embeddings.buildable (THE-1122 review round 3: three-way status)", () 
       probeRequested: true,
       platformOverride: { platform: "linux", arch: "x64", isMuslRuntime: () => false },
       installSite: {
-        pkgDir: "/home/u/proj/node_modules/obsidian-tc",
+        pkgDir: "/home/u/proj/node_modules/reliquary-tc",
         exists: (p) => p === "/home/u/proj/package.json",
       },
     }).run(ctx);
     expect(r.remediation).toBe(
-      `Install the embedder that matches this obsidian-tc: npm install --save-exact @the-40-thieves/obsidian-tc-embedder-local@${version} in /home/u/proj`,
+      `Install the embedder that matches this reliquary-tc: npm install --save-exact @the-40-thieves/reliquary-tc-embedder-local@${version} in /home/u/proj`,
     );
   });
 
-  it("a resolved embedder at obsidian-tc's own version is OK once probed", async () => {
+  it("a resolved embedder at reliquary-tc's own version is OK once probed", async () => {
     const r = await embeddingsBuildableCheck({
       denseProvider: "local",
       probeLocalEmbedder: () =>

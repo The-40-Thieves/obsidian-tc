@@ -28,4 +28,4 @@
 
 **Is it affiliated with Obsidian?** No. Independent, **Apache-2.0** (releases up to 1.34.x: AGPL-3.0-only). "Obsidian" is a trademark of Dynalist Inc.
 
-**Where are the deep docs?** [`ARCHITECTURE.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/ARCHITECTURE.md), [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md), and the `docs/` Astro Starlight site (quickstart, threat model, cutover guide).
+**Where are the deep docs?** [`ARCHITECTURE.md`](https://github.com/The-40-Thieves/reliquary-tc/blob/main/ARCHITECTURE.md), [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/G2.1-tools.md), and the `docs/` Astro Starlight site (quickstart, threat model, cutover guide).

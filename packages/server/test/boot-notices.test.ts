@@ -4,7 +4,7 @@
 // packages/shared/test/config.schema.test.ts, so this file asserts only that boot-notices.ts
 // reads the SAME predicate rather than restating the AND — see readOnlyFeedbackExemptionActive's
 // doc comment for why a duplicate AND here would risk the boot line disagreeing with dispatch.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import {
   formatStaleExplicitSessionNotice,

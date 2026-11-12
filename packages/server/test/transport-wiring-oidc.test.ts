@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterAll, expect, it } from "vitest";
 import { MetricsRecorder } from "../src/metrics/registry";
 import { wireTransports } from "../src/runtime/transport-wiring";

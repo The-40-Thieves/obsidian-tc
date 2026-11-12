@@ -4,7 +4,7 @@
 // one place to fix the heading-scan defects (#922, #926) instead of two. Pure functions over
 // strings: no filesystem, no vault types, nothing beyond the shared error taxonomy for the
 // ambiguous-anchor refusal (GH #922 shape 3).
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import {
   headingMatches,
   matchHeadingBoundary,

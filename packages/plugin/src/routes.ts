@@ -1,4 +1,4 @@
-// Bridge route handlers for the obsidian-tc companion plugin (THE-180, G2.2 §3.1).
+// Bridge route handlers for the reliquary-tc companion plugin (THE-180, G2.2 §3.1).
 // Each handler returns the bridge envelope the server's transport expects:
 //   success: { ok: true, result }   failure: { ok: false, code, message, details? }
 // `/probe` and `/commands/*` run against deterministic Obsidian internals and are

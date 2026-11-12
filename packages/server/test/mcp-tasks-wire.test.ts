@@ -10,7 +10,7 @@
 // completely normal in a passing suite — the queue would return a job, the projection would render
 // it, and nothing would throw.
 
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -95,7 +95,7 @@ async function boot() {
     auth: { mode: "jwt", jwtSecret: SECRET, audience: "http://test", tokenTtlSeconds: 3600 },
   }).auth;
   const handle = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     auth,

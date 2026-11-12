@@ -9,7 +9,7 @@ import type {
   ResponseFormat,
   ToolResult,
   VaultMemoryDefenseConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import type { AclConfigT, FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";

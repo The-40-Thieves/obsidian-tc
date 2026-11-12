@@ -1,4 +1,4 @@
-# obsidian-tc — working notes for Claude Code
+# reliquary-tc — working notes for Claude Code
 
 An MCP server over Obsidian vaults. Bun + TypeScript monorepo with a Rust native addon and two
 Python model services.
@@ -135,7 +135,7 @@ A `PreToolUse` hook blocks these; the message names the regeneration command.
 
 | file | regenerate with |
 |---|---|
-| `docs/obsidian-tc.config.schema.json` | `bun run config:schema` |
+| `docs/reliquary-tc.config.schema.json` | `bun run config:schema` |
 | `packages/server/src/db/migrations-embedded.ts` | `bun run migrations:embed` |
 
 **The list lives in `.claude/generated-paths.txt`** (`<path>`, a TAB, `<regenerate command>`), the one

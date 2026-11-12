@@ -27,7 +27,7 @@
 //
 // ## Size (constraint 3: size against the MDE, before generating)
 //
-// `reference-obsidian-tc-eval-env` records a measured MDE of 0.037 at n=136. MDE scales ~1/sqrt(n),
+// `reference-reliquary-tc-eval-env` records a measured MDE of 0.037 at n=136. MDE scales ~1/sqrt(n),
 // so n ≈ 136·(0.037/d)² for a target effect d:
 //
 //     d=0.06 → n≈52    d=0.05 → n≈75    d=0.04 → n≈117    d=0.03 → n≈207

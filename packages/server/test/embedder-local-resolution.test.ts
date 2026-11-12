@@ -48,7 +48,7 @@ function writeAnchorOnly(root: string): string {
   mkdirSync(pkgDir, { recursive: true });
   writeFileSync(
     join(pkgDir, "package.json"),
-    JSON.stringify({ name: "@the-40-thieves/obsidian-tc-embedder-local" }),
+    JSON.stringify({ name: "@the-40-thieves/reliquary-tc-embedder-local" }),
   );
   return root;
 }
@@ -183,7 +183,7 @@ describe("buildLocalEmbeddingProvider", () => {
     ).toThrow(/embeddings\.baseUrl/);
   });
 
-  // THE-1122 review: root-cause fix for "obsidian-tc index writes model weights to CWD" — no
+  // THE-1122 review: root-cause fix for "reliquary-tc index writes model weights to CWD" — no
   // fallback, fail closed naming the config key, so a caller that forgot to thread cacheDir finds
   // out immediately (a thrown build() error) rather than silently scattering files wherever the
   // process happened to start (and potentially EACCES-crashing from an unwritable cwd like `/`).
@@ -251,7 +251,7 @@ describe("buildLocalEmbeddingProvider", () => {
   });
 
   it("embed() rejects with the missing runtime package and the explicit install remedy", async () => {
-    const runtimePackage = `@the-40-thieves/obsidian-tc-embedder-local-${process.platform}-${process.arch}`;
+    const runtimePackage = `@the-40-thieves/reliquary-tc-embedder-local-${process.platform}-${process.arch}`;
     const resolveModule = async () => ({
       ok: false as const,
       attempts: [
@@ -273,7 +273,7 @@ describe("buildLocalEmbeddingProvider", () => {
       const details = (error as { details?: { hint?: string } }).details;
       expect(details?.hint).toContain(runtimePackage);
       expect(details?.hint).toContain(
-        `npm install --save-exact @the-40-thieves/obsidian-tc-embedder-local@${version}`,
+        `npm install --save-exact @the-40-thieves/reliquary-tc-embedder-local@${version}`,
       );
       expect(details?.hint).toMatch(/ollama|hosted provider/);
     }

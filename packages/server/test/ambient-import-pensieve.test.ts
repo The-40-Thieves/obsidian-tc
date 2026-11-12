@@ -37,7 +37,7 @@ function searchFixture() {
           file_created_at: "2026-08-10T09:00:00Z",
           metadata_entries: [
             { key: "active_app", value: "Terminal", source: "record" },
-            { key: "active_window", value: "zsh — obsidian-tc", source: "record" },
+            { key: "active_window", value: "zsh — reliquary-tc", source: "record" },
             {
               key: "ocr_result",
               value: [
@@ -121,7 +121,7 @@ describe("THE-175 Pensieve adapter -> canonical model", () => {
       source: "pensieve",
       machine: "workstation-1",
       app: "Terminal",
-      window_title: "zsh — obsidian-tc",
+      window_title: "zsh — reliquary-tc",
     });
     expect(terminal?.text).toBe("$ bun run test:local\n42 passed");
     expect(terminal?.url).toBeUndefined();
@@ -220,7 +220,7 @@ describe("THE-175 ingestAmbient -> capture_queue", () => {
     expect(awsRow?.tags).toContain("machine:workstation-1");
     expect(awsRow?.tags).toMatch(/ambient-dedupe:[0-9a-f]{32}/);
 
-    const terminalRow = rows.find((r) => r.title === "zsh — obsidian-tc");
+    const terminalRow = rows.find((r) => r.title === "zsh — reliquary-tc");
     expect(terminalRow?.content).toContain("bun run test:local");
 
     // Re-run over the SAME fetched items (simulating a re-poll): nothing new enqueued.
@@ -381,7 +381,7 @@ describe("THE-175 the ambient dedupe tag stays internal (never surfaces via the 
       const enq = await v.call("enqueue_capture", {
         vault: "test",
         content: "$ bun run test:local\n42 passed",
-        title: "zsh — obsidian-tc",
+        title: "zsh — reliquary-tc",
         tags: ["ambient", "pensieve", "machine:workstation-1", dedupeTag],
         source: "ambient",
       });

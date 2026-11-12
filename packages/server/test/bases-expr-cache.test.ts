@@ -1,6 +1,6 @@
 // Bounded parse cache for the Bases DSL. Every query_base call with a unique expression used to
 // add a permanent entry, so the process heap grew without limit.
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import {
   BASES_EXPR_CACHE_MAX_ENTRIES,
@@ -62,8 +62,8 @@ describe("bases-expr parse cache bounds", () => {
     } catch (e) {
       caught = e;
     }
-    expect(caught).toBeInstanceOf(ObsidianTcError);
-    const e = caught as ObsidianTcError;
+    expect(caught).toBeInstanceOf(ReliquaryTcError);
+    const e = caught as ReliquaryTcError;
     expect(e.code).toBe("unsupported_base_filter");
     expect(e.message).not.toContain("PAYLOAD");
     expect(JSON.stringify(e)).not.toContain("PAYLOAD");

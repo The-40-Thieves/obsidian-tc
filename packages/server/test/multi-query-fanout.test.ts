@@ -15,7 +15,7 @@
 //    graphSearch.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { runMigrations } from "../src/db/migrate";
 import type { Database } from "../src/db/types";

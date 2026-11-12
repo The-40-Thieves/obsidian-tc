@@ -68,8 +68,8 @@ jobs:
       # a root-relative link like /tools/api-reference/ has no meaning relative to a .md file — it
       # resolves against the deployed site root. So that class of link was unchecked everywhere.
       #
-      # Its first run found three real 404s: /obsidian-tc/tools/, /obsidian-tc/tools/api-reference/
-      # and /obsidian-tc/configuration/config-yaml/ — stale prefixes from when this was a GitHub
+      # Its first run found three real 404s: /reliquary-tc/tools/, /reliquary-tc/tools/api-reference/
+      # and /reliquary-tc/configuration/config-yaml/ — stale prefixes from when this was a GitHub
       # Pages PROJECT site, left behind when it moved to a custom domain at the root. Plus a
       # /favicon.svg referenced by every page with no such file in the output.
       #

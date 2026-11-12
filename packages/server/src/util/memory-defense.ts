@@ -3,9 +3,9 @@
 // (./redact) that the episode log, trace capture, and import-ambient already share.
 import {
   err,
-  ObsidianTcError,
+  ReliquaryTcError,
   type VaultMemoryDefenseConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import type { MetricsRecorder } from "../metrics/registry";
 import { redactSecrets, scanPii } from "./redact";
 
@@ -377,7 +377,7 @@ export function enforceMemoryDefenseOnMovedBytes(
   try {
     return enforceMemoryDefenseOnNoteWrite(config, path, content, opts);
   } catch (e) {
-    if (e instanceof ObsidianTcError && e.code === "secret_detected")
+    if (e instanceof ReliquaryTcError && e.code === "secret_detected")
       throw err.secretDetected("secret-shaped content refused");
     throw e;
   }

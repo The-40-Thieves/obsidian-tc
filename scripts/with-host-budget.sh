@@ -23,11 +23,11 @@ set -euo pipefail
 # CI runners are dedicated. Serialising or throttling there buys nothing and slows every PR.
 if [ -n "${CI:-}" ]; then exec "$@"; fi
 
-LOCK="${OBSIDIAN_TC_HOST_LOCK:-${TMPDIR:-/tmp}/obsidian-tc-host-budget.lock}"
+LOCK="${RELIQUARY_TC_HOST_LOCK:-${TMPDIR:-/tmp}/reliquary-tc-host-budget.lock}"
 
 # Leave at least one core for the services this host is also running (containers, Falco, the
 # remote desktop the maintainer is connected over). 250% = 2.5 of 4 cores.
-QUOTA="${OBSIDIAN_TC_CPU_QUOTA:-250%}"
+QUOTA="${RELIQUARY_TC_CPU_QUOTA:-250%}"
 
 run_capped() {
   # --user --scope needs a user systemd instance; absent under sudo, in containers, and on macOS.

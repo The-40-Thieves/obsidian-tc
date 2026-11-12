@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-// check-public-text — obsidian-tc is a public repo (The-40-Thieves org). A bare Linear ticket id
+// check-public-text — reliquary-tc is a public repo (The-40-Thieves org). A bare Linear ticket id
 // (THE-<digits>) or a linear.app URL leaking into user-facing text exposes the private planning
 // plane on the public one, and the link is dead for anyone outside that workspace anyway. This
 // scans every git-tracked Markdown file (any depth), the two MCP manifests, and the string literals
@@ -237,7 +237,7 @@ function main() {
       console.error(`  ${v.path}:${v.line}: "${v.match}" — ${v.text}`);
     }
     console.error(
-      "\nLinear ticket ids and linear.app URLs are internal — obsidian-tc is a public repo. " +
+      "\nLinear ticket ids and linear.app URLs are internal — reliquary-tc is a public repo. " +
         "Replace with a plain description of the behaviour, or a CHANGELOG.md anchor link if " +
         "provenance (which release it shipped in) genuinely matters.",
     );

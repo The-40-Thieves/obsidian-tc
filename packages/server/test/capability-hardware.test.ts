@@ -1,4 +1,4 @@
-// THE-522: hardware envelope. Descriptive, not prescriptive — obsidian-tc is CPU-only by design, so
+// THE-522: hardware envelope. Descriptive, not prescriptive — reliquary-tc is CPU-only by design, so
 // this exists so agents and tests stop GUESSING the machine, never to drive a GPU code path.
 //
 // The baseline (platform/arch/cpu count/total mem) comes from node:os and is always available. The

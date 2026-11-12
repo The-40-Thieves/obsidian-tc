@@ -1,6 +1,6 @@
 ---
-title: How obsidian-tc compares
-description: The full comparison against other Obsidian MCP servers — retrieval, governance, and memory engine columns, where the others plainly win, and when NOT to use obsidian-tc.
+title: How reliquary-tc compares
+description: The full comparison against other Obsidian MCP servers — retrieval, governance, and memory engine columns, where the others plainly win, and when NOT to use reliquary-tc.
 ---
 
 The ecosystem splits into three groups, and most projects sit squarely in one:
@@ -10,7 +10,7 @@ The ecosystem splits into three groups, and most projects sit squarely in one:
 3. **Memory engines** — durable agent memory (what happened, what was learned, what is
    no longer true), usually in a knowledge base *beside* your vault rather than in it.
 
-obsidian-tc is the only one we know of that is all three at once, and the combination is
+reliquary-tc is the only one we know of that is all three at once, and the combination is
 the point: the memory lives **in the vault**, under the same ACL and audit pipeline as
 every other write. Concretely, we are not aware of another Obsidian MCP server that pairs
 **write governance** (compare-and-swap, idempotency keys, snapshots with restore, a
@@ -26,7 +26,7 @@ disagree.
 
 | | Tools | Group | Retrieval | Governance | Memory engine |
 |---|---|---|---|---|---|
-| **obsidian-tc** | full surface (3-tool facade) | all three | BM25 (FTS5) · vector (vec0) · graph · RRF fusion · diversity | JWT (HS256/JWKS) · per-vault folder ACL · HITL elicit · CAS · idempotency · snapshots · audit log | episodes · activation · forgetting · contradictions |
+| **reliquary-tc** | full surface (3-tool facade) | all three | BM25 (FTS5) · vector (vec0) · graph · RRF fusion · diversity | JWT (HS256/JWKS) · per-vault folder ACL · HITL elicit · CAS · idempotency · snapshots · audit log | episodes · activation · forgetting · contradictions |
 | [coddingtonbear/obsidian-local-rest-api](https://github.com/coddingtonbear/obsidian-local-rest-api) (built-in MCP, v5.0+) | 18 | access | text (`search_query`/`search_simple`) | single REST API bearer key (full vault admin) | — |
 | [cyanheads/obsidian-mcp-server](https://github.com/cyanheads/obsidian-mcp-server) | ~14 | access | text / regex | JWT/OAuth · folder-scoped path policy · read-only mode · elicited delete confirmation showing blast radius | — |
 | [aaronsb/obsidian-mcp-plugin](https://github.com/aaronsb/obsidian-mcp-plugin) | 8 families | access | text · graph traversal · Dataview/Bases | path allow/block lists · read-only mode · per-operation controls · API key | — |
@@ -39,16 +39,16 @@ disagree.
 Where the others win, plainly:
 
 - **Zero-config start.** `mcpvault` is one `npx` line and `engraph` is one `brew install`
-  with local models bundled — no config file, no separate embeddings pull. obsidian-tc's
-  `npx obsidian-tc /path/to/vault` matches that for a single vault (lexical search and every
+  with local models bundled — no config file, no separate embeddings pull. reliquary-tc's
+  `npx reliquary-tc /path/to/vault` matches that for a single vault (lexical search and every
   note tool work immediately); multi-vault, ACLs, and custom embeddings still want a config
   file, and semantic/graph retrieval still wants an embeddings backend.
 - **Nothing outside Obsidian.** `aaronsb/obsidian-mcp-plugin` runs *inside* the app — no
-  external process at all. obsidian-tc is a standalone server.
+  external process at all. reliquary-tc is a standalone server.
 - **Offline retrieval quality, as core rather than opt-in.** `engraph` ships cross-encoder
-  reranking and a query orchestrator as core, on local models, everywhere it runs. obsidian-tc's
+  reranking and a query orchestrator as core, on local models, everywhere it runs. reliquary-tc's
   cross-encoder reranker is now also local and gateway-free — an optional npm package
-  (`@the-40-thieves/obsidian-tc-reranker-local`), auto-selected when no `reranker` block, no
+  (`@the-40-thieves/reliquary-tc-reranker-local`), auto-selected when no `reranker` block, no
   `embeddings.modelTier.full`, and no gateway URL are configured, that fetches and
   checksum-verifies its weights on first use — but it is opt-in machinery, not core: the
   standalone compiled binaries, musl (Alpine) installs, and macOS x64 can't reach it.
@@ -59,16 +59,16 @@ What we have not seen elsewhere: multi-vault in one process with per-vault ACLs,
 retrieval change gated by a paired permutation test before it ships, and the memory tier
 above.
 
-## When NOT to use obsidian-tc
+## When NOT to use reliquary-tc
 
-Honest guidance — obsidian-tc is deliberately a heavier product:
+Honest guidance — reliquary-tc is deliberately a heavier product:
 
 - **You want the smallest possible footprint.** A single trusted human driving a chat
   client over one vault is well served by the simpler community servers above; the
   governance pipeline here mostly pays off with autonomous or multi-agent access.
 - **You only need read access.** A read-only wrapper (cyanheads' `OBSIDIAN_READ_ONLY`, or
   aaronsb's read-only mode) is less machinery for a similar safety outcome.
-- **You want everything inside Obsidian.** obsidian-tc is a standalone server, not an
+- **You want everything inside Obsidian.** reliquary-tc is a standalone server, not an
   Obsidian plugin — the optional companion plugin only bridges plugin-specific features.
   If you never leave the app, [aaronsb/obsidian-mcp-plugin](https://github.com/aaronsb/obsidian-mcp-plugin)
   runs the whole server in-process, and community plugins may be all you need.
@@ -83,5 +83,5 @@ Honest guidance — obsidian-tc is deliberately a heavier product:
 - **You don't need MCP at all.** Obsidian URI or the Local REST API plugin can cover
   simple scripting directly.
 
-Migrating the other way — replacing an existing Obsidian MCP setup with obsidian-tc — is
-covered in [docs/CUTOVER.md](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/CUTOVER.md).
+Migrating the other way — replacing an existing Obsidian MCP setup with reliquary-tc — is
+covered in [docs/CUTOVER.md](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/CUTOVER.md).

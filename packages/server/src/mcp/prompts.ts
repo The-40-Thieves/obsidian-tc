@@ -1,5 +1,5 @@
 import type { GetPromptResult, ListPromptsResult } from "@modelcontextprotocol/server";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 
 interface PromptArg {
   name: string;
@@ -29,7 +29,7 @@ function clampVariants(raw: string | undefined): number {
 }
 
 // Built-in prompt templates. Each renders a single user message that primes the agent to use
-// obsidian-tc's tools; the prompts themselves perform no vault access.
+// reliquary-tc's tools; the prompts themselves perform no vault access.
 const PROMPTS: PromptDef[] = [
   {
     name: "summarize_note",

@@ -1,19 +1,19 @@
 ---
 title: VPS (cloud-init)
-description: Set up obsidian-tc on a new Ubuntu 24.04 server from cloud-init user data, with Docker, Caddy, a generated JWT secret and a certificate for your domain.
+description: Set up reliquary-tc on a new Ubuntu 24.04 server from cloud-init user data, with Docker, Caddy, a generated JWT secret and a certificate for your domain.
 ---
 
 :::caution
-This setup needs obsidian-tc v1.34.0 or later. Until v1.34.0 is published, `:latest` is v1.33.1, which has no health route (`/healthz`) and does not read the environment settings the template relies on, so the deploy will not become healthy. Once v1.34.0 is out, `:latest` works; pin the exact version for production.
+This setup needs reliquary-tc v1.34.0 or later. Until v1.34.0 is published, `:latest` is v1.33.1, which has no health route (`/healthz`) and does not read the environment settings the template relies on, so the deploy will not become healthy. Once v1.34.0 is out, `:latest` works; pin the exact version for production.
 :::
 
 The repository's `deploy/cloud-init.yaml` is cloud-config user data for a new Ubuntu 24.04 server. On
 first boot it installs Docker and Compose from Ubuntu's archive, Caddy from Caddy's own apt repository (the key is pinned in the file), writes the shared
-[`compose.http.yml`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/deploy/compose.http.yml) and
+[`compose.http.yml`](https://github.com/The-40-Thieves/reliquary-tc/blob/main/deploy/compose.http.yml) and
 config file, generates the JWT secret on the server, and starts the server behind Caddy. Caddy gets a
 certificate for your domain by itself.
 
-The server runs the published image `ghcr.io/the-40-thieves/obsidian-tc:latest`, not a build of the
+The server runs the published image `ghcr.io/the-40-thieves/reliquary-tc:latest`, not a build of the
 repository's `Dockerfile`, so the release that CI tested is the one that runs.
 
 ## Before you start
@@ -26,24 +26,24 @@ repository's `Dockerfile`, so the release that CI tested is the one that runs.
 
 ## Create the server
 
-1. Open `deploy/cloud-init.yaml` and set `OBSIDIAN_TC_PUBLIC_URL` in the `.env` entry to your origin, for
+1. Open `deploy/cloud-init.yaml` and set `RELIQUARY_TC_PUBLIC_URL` in the `.env` entry to your origin, for
    example `https://vault.example.com`. Leave the placeholder in place and the script stops, so an
    unedited copy does not start. Use a domain name, not an IP address: Caddy cannot get a certificate for an IP
    address, so the script refuses one.
 2. Paste the whole file as the server's user data, and create the server.
 3. If the first boot stopped on the placeholder, log in as the provider's default user and edit
-   `/opt/obsidian-tc/deploy/.env`, then run `sudo /opt/obsidian-tc/bootstrap.sh`. The script is safe to
+   `/opt/reliquary-tc/deploy/.env`, then run `sudo /opt/reliquary-tc/bootstrap.sh`. The script is safe to
    re-run.
 
 ## What it writes
 
 | Path | Content | Mode |
 | --- | --- | --- |
-| `/opt/obsidian-tc/deploy/.env` | `OBSIDIAN_TC_PUBLIC_URL` and the generated `OBSIDIAN_TC_JWT_SECRET` | `0600` |
-| `/opt/obsidian-tc/deploy/compose.http.yml` | The shared Compose file, byte-for-byte | `0644` |
-| `/opt/obsidian-tc/deploy/config/obsidian-tc.config.json` | The shared HTTP config, byte-for-byte | `0644` |
-| `/opt/obsidian-tc/deploy/compose.vps.yml` | Binds the published port to `127.0.0.1`, so only Caddy reaches the server | `0644` |
-| `/opt/obsidian-tc/bootstrap.sh` | The script that generates the secret, writes the Caddyfile and starts the containers | `0755` |
+| `/opt/reliquary-tc/deploy/.env` | `RELIQUARY_TC_PUBLIC_URL` and the generated `RELIQUARY_TC_JWT_SECRET` | `0600` |
+| `/opt/reliquary-tc/deploy/compose.http.yml` | The shared Compose file, byte-for-byte | `0644` |
+| `/opt/reliquary-tc/deploy/config/reliquary-tc.config.json` | The shared HTTP config, byte-for-byte | `0644` |
+| `/opt/reliquary-tc/deploy/compose.vps.yml` | Binds the published port to `127.0.0.1`, so only Caddy reaches the server | `0644` |
+| `/opt/reliquary-tc/bootstrap.sh` | The script that generates the secret, writes the Caddyfile and starts the containers | `0755` |
 
 The script also writes `/etc/caddy/Caddyfile` with your domain and a `reverse_proxy` to
 `127.0.0.1:8765`, with `flush_interval -1` so streamed responses are not held back. The port is fixed at
@@ -59,7 +59,7 @@ When the script finishes, it prints the command that mints a client token. The c
 container, so it uses the same config, secret and vault as the server:
 
 ```sh
-cd /opt/obsidian-tc/deploy && docker compose -p obsidian-tc -f compose.http.yml -f compose.vps.yml exec obsidian-tc bun /app/packages/server/dist/cli.js token mint /config/obsidian-tc.config.json --sub my-client --vault main --scopes read:vault
+cd /opt/reliquary-tc/deploy && docker compose -p reliquary-tc -f compose.http.yml -f compose.vps.yml exec reliquary-tc bun /app/packages/server/dist/cli.js token mint /config/reliquary-tc.config.json --sub my-client --vault main --scopes read:vault
 ```
 
 Send the printed token as `Authorization: Bearer <token>` to `https://<your domain>/mcp`. Add only the
@@ -86,14 +86,14 @@ which is the IPv4 gateway `172.20.0.1`. Docker picks the gateway when the networ
 server's value after `up`:
 
 ```sh
-docker network inspect obsidian-tc_default -f '{{(index .IPAM.Config 0).Gateway}}'
+docker network inspect reliquary-tc_default -f '{{(index .IPAM.Config 0).Gateway}}'
 ```
 
 If
 per-client IP addresses matter, add that gateway address to `transports.http.trustedProxies` in the config
 file, with the default `forwardedHeader: x-forwarded-for`, as described in
-[Caddy](/deployment/hosted-clients/#caddy). Edit `/opt/obsidian-tc/deploy/config/obsidian-tc.config.json`,
-then run `docker compose -p obsidian-tc -f compose.http.yml -f compose.vps.yml restart obsidian-tc` so the
+[Caddy](/deployment/hosted-clients/#caddy). Edit `/opt/reliquary-tc/deploy/config/reliquary-tc.config.json`,
+then run `docker compose -p reliquary-tc -f compose.http.yml -f compose.vps.yml restart reliquary-tc` so the
 server reads it again. This restart step has not been verified on a live server.
 
 ## Seeding the vault and backups
@@ -102,10 +102,10 @@ Seed the vault with the copy command from the [Docker page](/deployment/docker/#
 project and files of this bundle:
 
 ```sh
-cd /opt/obsidian-tc/deploy && docker compose -p obsidian-tc -f compose.http.yml -f compose.vps.yml cp /absolute/path/to/vault/. obsidian-tc:/data/vault
+cd /opt/reliquary-tc/deploy && docker compose -p reliquary-tc -f compose.http.yml -f compose.vps.yml cp /absolute/path/to/vault/. reliquary-tc:/data/vault
 ```
 
-The data lives in the named volume `obsidian-tc_obsidian-tc-data`. Back it up with your provider's server
+The data lives in the named volume `reliquary-tc_reliquary-tc-data`. Back it up with your provider's server
 snapshots, or stop the container and archive the volume. Keep `.env` with the backup too: it holds the
 secret that every minted token depends on. A restored server without the same secret cannot verify tokens
 minted before the restore.

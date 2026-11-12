@@ -254,7 +254,7 @@ export const MAX_CANDIDATE_SESSIONS = 2000;
  * Guarded on `workspace_sessions` existing (THE-726 review round 1, mirrors maintenance.ts's
  * `job_schedule` guard): a freshly-opened cache.db that the server never provisioned has no such
  * table, and an unguarded query threw "no such table" out of both callers, which is reachable —
- * `obsidian-tc reflect` against a cacheDir the server never booted hits it directly.
+ * `reliquary-tc reflect` against a cacheDir the server never booted hits it directly.
  *
  * Two-step lookup rather than one cross-store JOIN (cache.db and experiential.db are separate
  * connections/files - THE-233's membrane): first the debt-bearing session ids from experiential

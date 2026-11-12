@@ -3,7 +3,7 @@
 // first destructive tool: destructive:true engages the dispatch HITL gate.
 import { realpathSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { ElicitToken, err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { ElicitToken, err, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { FolderAcl } from "../../acl";
 import { loadConfig } from "../../config/load";
@@ -398,7 +398,7 @@ export function buildRegistryTools(deps: M1Deps, aclFor: VaultAclResolver): Tool
               v.id,
             );
           } catch {
-            /* chunk_fts absent (OBSIDIAN_TC_DISABLE_FTS, or a cache.db predating it) */
+            /* chunk_fts absent (RELIQUARY_TC_DISABLE_FTS, or a cache.db predating it) */
           }
           rows_dropped.chunks = del(ctx.db, "DELETE FROM chunks WHERE vault_id = ?", v.id);
         }

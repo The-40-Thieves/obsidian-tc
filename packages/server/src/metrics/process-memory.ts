@@ -4,7 +4,7 @@ import { Gauge, type Registry } from "@prometheus-io/client";
 
 export function registerProcessMemoryGauge(registers: Registry[]): void {
   new Gauge({
-    name: "obsidian_tc_process_memory_bytes",
+    name: "reliquary_tc_process_memory_bytes",
     help: "Process memory in bytes, by kind: rss (resident set), heap_used (JS heap in use), external (memory bound to JS objects but allocated natively), array_buffers (ArrayBuffer and SharedArrayBuffer backing stores). A sustained rss above the host's budget is the signal, not one sample.",
     labelNames: ["kind"],
     registers,

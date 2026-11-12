@@ -25,7 +25,7 @@ import {
 } from "../shared";
 
 /**
- * THE-697 — `obsidian-tc index`. The derived-state job that had no CLI.
+ * THE-697 — `reliquary-tc index`. The derived-state job that had no CLI.
  *
  * `rg 'case "' cli.ts` listed twenty commands and not one of them indexed: indexing was reachable
  * only through the `index_vault` MCP tool or the boot reconcile, while every other derived-state
@@ -52,7 +52,7 @@ import {
  */
 export async function run_index(cmd: Cmd<"index">): Promise<void> {
   const cfg = resolveOrUsageExit(cmd.input);
-  const configPath = cmd.input ?? process.env.OBSIDIAN_TC_CONFIG;
+  const configPath = cmd.input ?? process.env.RELIQUARY_TC_CONFIG;
   mkdirSync(cfg.cacheDir, { recursive: true });
 
   const vaults = cmd.vault ? cfg.vaults.filter((v) => v.id === cmd.vault) : cfg.vaults;
@@ -78,7 +78,7 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
     provisionCacheDb(db, { version: VERSION });
     // GH #1014 fix round (Medium 4): `index` is the designated pre-`serve` entry point (this
     // file's own header above) — resolve a config `id` rename here too, at the same choke point
-    // `wireStores` uses at boot, so a rename followed directly by `obsidian-tc index` (no `serve`
+    // `wireStores` uses at boot, so a rename followed directly by `reliquary-tc index` (no `serve`
     // first) re-keys rather than writing a second, orphaned set of rows under the new id. `edb` is
     // only needed for this resolution — `index` otherwise never touches the experiential store —
     // so it is opened, used, and closed here rather than held for the rest of the command.
@@ -116,7 +116,7 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
       // THE-1122 review: the "local" embeddings provider requires this — its model cache lands
       // under <cacheDir>/models/embedder-local/ and now fails closed (no CWD-relative fallback)
       // when it is missing. Every provider reads cacheDir the same way; this call site had simply
-      // never threaded it, so a "local"-provider `obsidian-tc index` run wrote model weights
+      // never threaded it, so a "local"-provider `reliquary-tc index` run wrote model weights
       // wherever the process happened to start (and could EACCES-crash outright from an
       // unwritable cwd like `/`).
       cacheDir: cfg.cacheDir,
@@ -167,7 +167,7 @@ export async function run_index(cmd: Cmd<"index">): Promise<void> {
       );
       // THE-628 (first PR): note-level summary pass, DARK behind retrieval.summaries.enabled
       // (default false). Runs HERE — after the reindex has committed, not inside indexVault — and
-      // is the ONE call site wired in this PR: `obsidian-tc index` is the designated out-of-band
+      // is the ONE call site wired in this PR: `reliquary-tc index` is the designated out-of-band
       // path for exactly this shape of work (see this file's own header on why the MCP tool path
       // cannot hold a socket open for it). `maybeSummarizeVault` returns null without constructing
       // a gateway client when disabled, so the default config path here makes zero gateway calls.

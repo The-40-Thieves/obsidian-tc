@@ -35,7 +35,7 @@ export interface IdleGate {
 const DEFAULT_POLL_MS = 50;
 
 // Process-wide, best-effort "is the background embed currently paused for idle" flag, read by the
-// obsidian_tc_background_embed_paused gauge (metrics/registry.ts via runtime/observability.ts).
+// reliquary_tc_background_embed_paused gauge (metrics/registry.ts via runtime/observability.ts).
 // Only set while a `waitForIdle` call is ACTUALLY waiting (the gate was busy or not idle long
 // enough on entry) — a call that finds the server already idle never flips this, so the gauge
 // reads 0 on the overwhelmingly common "nothing to pace" pass. Module-level rather than threaded

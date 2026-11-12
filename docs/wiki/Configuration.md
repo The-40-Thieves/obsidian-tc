@@ -1,8 +1,8 @@
 # Configuration
 
-obsidian-tc reads one **JSON** config file, passed as the first CLI argument or via `OBSIDIAN_TC_CONFIG`. You can also pass a **vault folder directly for zero-config startup** (a single vault `main` with all defaults). Secrets stay off disk via environment variables.
+reliquary-tc reads one **JSON** config file, passed as the first CLI argument or via `RELIQUARY_TC_CONFIG`. You can also pass a **vault folder directly for zero-config startup** (a single vault `main` with all defaults). Secrets stay off disk via environment variables.
 
-The schema is `ServerConfigSchema`, exported from `@the-40-thieves/obsidian-tc-shared` (`packages/shared/src/config.schema.ts`). Inspect the effective config any time with `obsidian-tc config show <path>` (secrets redacted) or validate with `obsidian-tc config validate <path>`.
+The schema is `ServerConfigSchema`, exported from `@the-40-thieves/reliquary-tc-shared` (`packages/shared/src/config.schema.ts`). Inspect the effective config any time with `reliquary-tc config show <path>` (secrets redacted) or validate with `reliquary-tc config validate <path>`.
 
 ## Minimal config
 
@@ -20,12 +20,12 @@ One vault, default `none` auth (loopback only), local Ollama embeddings. `restAp
 
 | Field | Type / default | Purpose |
 |---|---|---|
-| `cacheDir` | string, `.obsidian-tc` | Where the shared SQLite cache (one `cache.db` + `experiential.db`, row-scoped by vault), traces, and spools live |
+| `cacheDir` | string, `.reliquary-tc` | Where the shared SQLite cache (one `cache.db` + `experiential.db`, row-scoped by vault), traces, and spools live |
 | `vaults` | array, min 1 | Vault registry (see below) |
 | `auth` | object | `none` or `jwt` (HS256 **or** asymmetric RS256/ES256/EdDSA via JWKS) |
 | `acl` | object | Root access-control block; each vault may override via `vaults[].acl` |
 | `embeddings` | object | Provider, model, dimensions, `chunkContext` |
-| `retrieval` | `{ "rrfK": 10, "classRouter": false }` | RRF fusion constant (k=10 shipped after a measured sweep); the dark query-class router flag; and an experimental `densify` block — derived graph edges (tag co-occurrence, vec0 kNN, and an LLM pass built by the `obsidian-tc densify-llm` CLI), all **off by default** and pending measurement |
+| `retrieval` | `{ "rrfK": 10, "classRouter": false }` | RRF fusion constant (k=10 shipped after a measured sweep); the dark query-class router flag; and an experimental `densify` block — derived graph edges (tag co-occurrence, vec0 kNN, and an LLM pass built by the `reliquary-tc densify-llm` CLI), all **off by default** and pending measurement |
 | `experiential` | object (see below) | The quarantined work-memory tier's knobs |
 | `transports` | object | `stdio` (default on) and `http` (default off, loopback) |
 | `governor` | `{ "maxResponseBytes": 1000000, "regexTimeoutMs": 2000 }` | Response size ceiling + regex worker-time budget (ReDoS guard) |
@@ -83,13 +83,13 @@ One vault, default `none` auth (loopback only), local Ollama embeddings. `restAp
 HS256 (shared secret):
 
 ```json
-"auth": { "mode": "jwt", "jwtSecret": "<>= 32 chars, prefer OBSIDIAN_TC_JWT_SECRET env>" }
+"auth": { "mode": "jwt", "jwtSecret": "<>= 32 chars, prefer RELIQUARY_TC_JWT_SECRET env>" }
 ```
 
 Asymmetric (RS256 / ES256 / EdDSA) via a JWKS — inline `jwks` or a `jwksFile` loaded at boot; `algorithms` is an allowlist, key rotation is `kid`-based:
 
 ```json
-"auth": { "mode": "jwt", "jwksFile": "/etc/obsidian-tc/jwks.json", "algorithms": ["RS256", "EdDSA"] }
+"auth": { "mode": "jwt", "jwksFile": "/etc/reliquary-tc/jwks.json", "algorithms": ["RS256", "EdDSA"] }
 ```
 
 `mode` is `none | jwt`; in `jwt` mode supply **either** `jwtSecret` **or** a JWKS. A **fail-closed interlock** refuses to start when `transports.http.enabled && auth.mode === "none"` and the host is non-loopback. Optional OAuth 2.0 Protected Resource Metadata (RFC 9728) via `auth.resource` + `auth.authorizationServers`. Full model in **[[Security and ACL]]**.
@@ -142,19 +142,19 @@ transport entirely.
 
 | Variable | Purpose |
 |---|---|
-| `OBSIDIAN_TC_CONFIG` | Path to the JSON config |
-| `OBSIDIAN_TC_DEFAULT_VAULT` | Default vault id when several are configured |
-| `OBSIDIAN_TC_JWT_SECRET` | JWT signing secret (keeps it off disk) |
-| `OBSIDIAN_TC_GATEWAY_URL` | Inference gateway base URL — enables the generative tier (see below); unset degrades gracefully |
-| `OBSIDIAN_TC_GATEWAY_TOKEN` | Optional gateway bearer (e.g. a LiteLLM key); never logged |
-| `OBSIDIAN_TC_PLUR_ENDPOINT` / `OBSIDIAN_TC_PLUR_TOKEN` | plur read-proxy endpoint + token |
-| `OBSIDIAN_TC_FORCE_JS_FALLBACK=1` | Force the pure-JS native fallback |
-| `OBSIDIAN_TC_DISABLE_FTS=1` | Disable the FTS5 index; lexical search uses the exhaustive fallback scanner (diagnostic) |
-| `OBSIDIAN_TC_PROFILE=1` | Emit startup/dispatch profiling timings to stderr (diagnostic) |
-| `OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK=1` | **Test-only** — force the inspection-connection open (`compact --dry-run`/`--into`, `doctor`) onto its writable-descriptor fallback. Weakens the bytes-unchanged guarantee; never set it in production |
-| `OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW` | **Test-only** — make the NATIVE readonly open attempt fail inside the adapter (`1` at the first statement, `construct` at construction), so the fallback path runs on a platform whose native open succeeds |
-| `OBSIDIAN_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW=1` | **Test-only** — fail `compact` (in-place path) right after FTS5 `'optimize'` has committed its merge, so the report's partial `ftsOptimized` list is testable |
-| `OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE` | **Test-only** — interfere with `compact --into` after its `VACUUM INTO`: `1` throws, `busy` throws a `SQLITE_BUSY`, `delete:<table>` drops one row from the copy (a real row-count mismatch), `count-error:<table>` makes that table's count FAIL on the copy. Exists so the retained-copy and failed-verification paths are testable on every SQLite build |
+| `RELIQUARY_TC_CONFIG` | Path to the JSON config |
+| `RELIQUARY_TC_DEFAULT_VAULT` | Default vault id when several are configured |
+| `RELIQUARY_TC_JWT_SECRET` | JWT signing secret (keeps it off disk) |
+| `RELIQUARY_TC_GATEWAY_URL` | Inference gateway base URL — enables the generative tier (see below); unset degrades gracefully |
+| `RELIQUARY_TC_GATEWAY_TOKEN` | Optional gateway bearer (e.g. a LiteLLM key); never logged |
+| `RELIQUARY_TC_PLUR_ENDPOINT` / `RELIQUARY_TC_PLUR_TOKEN` | plur read-proxy endpoint + token |
+| `RELIQUARY_TC_FORCE_JS_FALLBACK=1` | Force the pure-JS native fallback |
+| `RELIQUARY_TC_DISABLE_FTS=1` | Disable the FTS5 index; lexical search uses the exhaustive fallback scanner (diagnostic) |
+| `RELIQUARY_TC_PROFILE=1` | Emit startup/dispatch profiling timings to stderr (diagnostic) |
+| `RELIQUARY_TC_FORCE_READONLY_OPEN_FALLBACK=1` | **Test-only** — force the inspection-connection open (`compact --dry-run`/`--into`, `doctor`) onto its writable-descriptor fallback. Weakens the bytes-unchanged guarantee; never set it in production |
+| `RELIQUARY_TC_FORCE_READONLY_OPEN_THROW` | **Test-only** — make the NATIVE readonly open attempt fail inside the adapter (`1` at the first statement, `construct` at construction), so the fallback path runs on a platform whose native open succeeds |
+| `RELIQUARY_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW=1` | **Test-only** — fail `compact` (in-place path) right after FTS5 `'optimize'` has committed its merge, so the report's partial `ftsOptimized` list is testable |
+| `RELIQUARY_TC_FORCE_COMPACT_INTO_FAILURE` | **Test-only** — interfere with `compact --into` after its `VACUUM INTO`: `1` throws, `busy` throws a `SQLITE_BUSY`, `delete:<table>` drops one row from the copy (a real row-count mismatch), `count-error:<table>` makes that table's count FAIL on the copy. Exists so the retained-copy and failed-verification paths are testable on every SQLite build |
 
 ## Inference gateway (generative tier)
 
@@ -165,7 +165,7 @@ OpenAI-compatible endpoint by **role** — the engine requests model names `extr
 a self-hosted **LiteLLM container** (digest-pinned, loopback-only, zero keys for an
 all-local Ollama-backed policy) whose config maps the three role aliases to real
 models. Swapping a role to a hosted model is a yaml edit + container restart —
-obsidian-tc never changes, and every derived note records the resolved
+reliquary-tc never changes, and every derived note records the resolved
 `provider:model`. Absence is a supported state: `reflect` degrades to recall with
 `available: false` and the plane idles. Full recipe: the docs-site page
 `configuration/inference-gateway.md`.

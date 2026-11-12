@@ -17,7 +17,7 @@
 // happens to sit inside a sync target.
 //
 // THE SHIPPED DEFAULT IS ALREADY SAFE. config/load.ts's finalizeConfig anchors a relative
-// cacheDir (the schema default, ".obsidian-tc") to homedir() — resolving to `~/.obsidian-tc` —
+// cacheDir (the schema default, ".reliquary-tc") to homedir() — resolving to `~/.reliquary-tc` —
 // which sits outside every vault root by construction, since a vault path is never the user's
 // home directory itself. Nothing about a stock install needs this check. What it guards is the
 // MISCONFIGURED case: an operator who set an explicit `cacheDir` (or whose `vaults[].path`
@@ -79,7 +79,7 @@ export function captureLocationCheck(view: CaptureLocationView): Check {
             `vault ${v.id} (${v.path}) contains cacheDir (${view.cacheDir}) — any sync client watching this vault (iCloud Drive, Dropbox, Syncthing, git) will replicate captured tool-call content and session traces along with everything else in it`,
         ),
         remediation:
-          'Move cacheDir outside every vault root. The schema default (".obsidian-tc", anchored to the home directory by config/load.ts\'s finalizeConfig) already does this — only an explicit cacheDir override, or a vault path chosen after cacheDir, can trigger this warning. See experiential.captureContent / experiential.captureRetentionDays for what is captured and for how long.',
+          'Move cacheDir outside every vault root. The schema default (".reliquary-tc", anchored to the home directory by config/load.ts\'s finalizeConfig) already does this — only an explicit cacheDir override, or a vault path chosen after cacheDir, can trigger this warning. See experiential.captureContent / experiential.captureRetentionDays for what is captured and for how long.',
       };
     },
   };

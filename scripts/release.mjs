@@ -284,7 +284,7 @@ for (const p of [
 // The Claude Code and Muse Code plugin manifests (one inventory, shared with the coherence gate),
 // and the exact npm version their launchers pin: Anthropic's plugin directory blocks an unpinned
 // `npx`, so the pin moves with every release.
-const pluginSpec = pinnedPackageSpec("obsidian-tc", next);
+const pluginSpec = pinnedPackageSpec("reliquary-tc", next);
 for (const p of PLUGIN_MANIFEST_PATHS) {
   setVersion(p, (o) => {
     o.version = next;
@@ -293,7 +293,7 @@ for (const p of PLUGIN_MANIFEST_PATHS) {
   });
 }
 setVersion(PLUGIN_MCP_JSON, (o) => {
-  const server = o.mcpServers["obsidian-tc"];
+  const server = o.mcpServers["reliquary-tc"];
   server.args = [...server.args.slice(0, -1), pluginSpec];
 });
 setVersion("server.json", (o) => {

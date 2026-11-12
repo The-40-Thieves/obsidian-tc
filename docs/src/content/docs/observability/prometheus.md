@@ -59,7 +59,7 @@ could scrape a non-loopback bind (including one minted with `--scopes ""`), and 
 needed no token at all. Mint a dedicated scrape token and update the scraper, loopback or not:
 
 ```sh
-obsidian-tc token mint --sub prometheus --scopes admin:metrics
+reliquary-tc token mint --sub prometheus --scopes admin:metrics
 ```
 
 ```json

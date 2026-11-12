@@ -3,7 +3,7 @@
 // its own bytes). Covers update_task, the bookmark and workspace writes, append_to_periodic_note with a
 // heading, rewrite_link's scan, update_excalidraw's `unchanged` flag, append_note's memoryDefense scan,
 // patch_note's frontmatter preamble, and move_note's secret refusal.
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { registerM6Tools } from "../src/tools/m6";
 import { makeTestVault, type TestVault } from "./m1-helpers";

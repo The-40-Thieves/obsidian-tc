@@ -28,7 +28,7 @@ import {
 const repoRoot = resolve(import.meta.dir, "..");
 const server = join(repoRoot, "packages", "server");
 const embedder = join(repoRoot, "packages", "embedder-local");
-const EMBEDDER_PACKAGE = "@the-40-thieves/obsidian-tc-embedder-local";
+const EMBEDDER_PACKAGE = "@the-40-thieves/reliquary-tc-embedder-local";
 
 function arg(name: string): string {
   const i = process.argv.indexOf(`--${name}`);
@@ -41,7 +41,7 @@ const target = arg("target");
 const outfile = resolve(arg("outfile"));
 const ortPlatform = BUN_TARGET_ORT_PLATFORM[target as keyof typeof BUN_TARGET_ORT_PLATFORM];
 
-const external = ["@the-40-thieves/obsidian-tc-reranker-local"];
+const external = ["@the-40-thieves/reliquary-tc-reranker-local"];
 const work = mkdtempSync(join(tmpdir(), "obtc-binary-"));
 try {
   let plugins: Bun.BunPlugin[] = [];
@@ -63,7 +63,7 @@ try {
     const placeholder = join(server, "src", "embeddings", "embedded-embedder.ts");
     plugins = [
       embedderBundlePlugin((build: Bun.PluginBuilder) => {
-        build.onResolve({ filter: /^@the-40-thieves\/obsidian-tc-embedder-local$/ }, () => ({
+        build.onResolve({ filter: /^@the-40-thieves\/reliquary-tc-embedder-local$/ }, () => ({
           path: embedderEntry,
         }));
         build.onLoad({ filter: /embeddings[\\/]embedded-embedder\.ts$/ }, ({ path }) => {

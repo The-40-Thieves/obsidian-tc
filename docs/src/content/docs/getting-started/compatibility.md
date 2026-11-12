@@ -1,6 +1,6 @@
 ---
 title: Compatibility promise
-description: obsidian-tc installs and runs everywhere; optional components make it faster. What degrades, what never breaks, and how to check which tier you are on.
+description: reliquary-tc installs and runs everywhere; optional components make it faster. What degrades, what never breaks, and how to check which tier you are on.
 ---
 
 **The promise: installation always succeeds, and features degrade rather than fail.** A missing
@@ -23,7 +23,7 @@ tiers change how much CPU the same work costs.
 
 ## What actually degrades
 
-**Without the native module**, obsidian-tc uses JavaScript implementations of the same operations.
+**Without the native module**, reliquary-tc uses JavaScript implementations of the same operations.
 `loadNative()` only accepts the module when *every* expected export is a function — a partially
 built or ABI-mismatched module is rejected rather than half-used, so the fallback stays correct
 even as the native API evolves.
@@ -41,7 +41,7 @@ they do not return fewer or lower-quality results.
 The server reports it at startup on stderr:
 
 ```
-obsidian-tc 1.10.0 ready on stdio (vault main; native=on vec=on)
+reliquary-tc 1.10.0 ready on stdio (vault main; native=on vec=on)
 ```
 
 - `native=on` — the real compiled native binding is serving (Standard or better); `native=js-fallback`
@@ -54,10 +54,10 @@ place to be.
 
 ## Forcing the baseline path
 
-Set `OBSIDIAN_TC_FORCE_JS_FALLBACK=1` to ignore the native module even when it is installed:
+Set `RELIQUARY_TC_FORCE_JS_FALLBACK=1` to ignore the native module even when it is installed:
 
 ```bash
-OBSIDIAN_TC_FORCE_JS_FALLBACK=1 obsidian-tc serve config.json
+RELIQUARY_TC_FORCE_JS_FALLBACK=1 reliquary-tc serve config.json
 ```
 
 This exists so the degraded path can be tested deliberately — it is what CI uses. Reach for it when
@@ -73,19 +73,19 @@ refused with `acl_denied`, under its configured name (`wiki/x.md`) and under the
 Four further escape hatches share this shape but are **test-only** — unlike the flag above they are
 not a supported operating mode, because each deliberately weakens a safety property:
 
-- `OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK=1` forces the inspection-connection open used by
+- `RELIQUARY_TC_FORCE_READONLY_OPEN_FALLBACK=1` forces the inspection-connection open used by
   `compact --dry-run`, `compact --into` and `doctor` onto its writable-descriptor fallback. That
   fallback cannot promise the database's bytes are unchanged, so forcing it gives up the guarantee
   those commands otherwise hold.
-- `OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW=1` makes the *native* readonly open attempt fail inside the
+- `RELIQUARY_TC_FORCE_READONLY_OPEN_THROW=1` makes the *native* readonly open attempt fail inside the
   adapter, at the first statement — where a deferred SQLite open failure actually lands — so the
   writable-fallback path can be exercised on a platform whose native open succeeds. `=construct`
   fails at construction instead. This is the inverse of the flag above, which skips the native
   attempt rather than failing it.
-- `OBSIDIAN_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW=1` fails `compact`'s in-place path immediately
+- `RELIQUARY_TC_FORCE_COMPACT_POST_OPTIMIZE_THROW=1` fails `compact`'s in-place path immediately
   after FTS5 `'optimize'` has committed its merge, so the report can be checked for the FTS work it
   must still name when a later step fails.
-- `OBSIDIAN_TC_FORCE_COMPACT_INTO_FAILURE=1` (or `=busy`) makes the step after `compact --into`'s
+- `RELIQUARY_TC_FORCE_COMPACT_INTO_FAILURE=1` (or `=busy`) makes the step after `compact --into`'s
   `VACUUM INTO` fail, so the "an incomplete copy remains at …" reporting path can be exercised
   without depending on a platform's SQLite to corrupt a fixture in a particular way;
   `=delete:<table>` instead drops one row from the copy, which is the only deterministic way to make
@@ -93,7 +93,7 @@ not a supported operating mode, because each deliberately weakens a safety prope
   `=count-error:<table>` makes that table's `COUNT(*)` fail on the copy, which must read as a
   verification failure rather than as the "not comparable" outcome an unavailable module earns.
 
-None of them is gated to test builds — like `OBSIDIAN_TC_FORCE_JS_FALLBACK`, they are plain
+None of them is gated to test builds — like `RELIQUARY_TC_FORCE_JS_FALLBACK`, they are plain
 environment reads — so the only thing keeping them out of production is not setting them.
 
 ### The read-only inspection connection, and where it is unavailable
@@ -113,7 +113,7 @@ the only thing given up is the byte-for-byte guarantee against a dangling WAL.
 ## Why you can rely on this
 
 The baseline path is not a theoretical fallback that rots. `.github/workflows/ci-native.yml` runs a
-dedicated job with `OBSIDIAN_TC_FORCE_JS_FALLBACK=1` across a host matrix, and `ci-server.yml` runs
+dedicated job with `RELIQUARY_TC_FORCE_JS_FALLBACK=1` across a host matrix, and `ci-server.yml` runs
 the full suite on Ubuntu, macOS (arm64, and Intel on Node 26) and Windows. A change that breaks the pure-JS path fails CI the same
 way a change that breaks the native path does.
 

@@ -6,14 +6,14 @@
 //  - `FamilyRevocationEvent`, reported by the revocation seam (revokeFamily in as-grants.ts)
 //    through the `onFamilyRevoked` hook on AsRouteDeps;
 //  - `familyRevocationSink`, the production hook: one Prometheus counter increment
-//    (`obsidian_tc_auth_family_revocations_total`, labelled by the bounded `reason` union below)
+//    (`reliquary_tc_auth_family_revocations_total`, labelled by the bounded `reason` union below)
 //    and one content-free row in cache.db's event_log (`auth_family_revoked`: ts, client_id in
 //    `caller`, reason in `error_code`, revoked access-token count in `result_size` — never a code,
 //    token, verifier or hash);
 //  - `readFamilyRevocations`, the reader doctor's `auth.family-revocations` check probes.
 //
 // The sink is FAIL-OPEN on the audit row, exactly like dispatch's audit writes: telemetry must
-// never break the revocation path. A lost row moves `obsidian_tc_audit_write_failed_total` instead
+// never break the revocation path. A lost row moves `reliquary_tc_audit_write_failed_total` instead
 // (the counter increment above it already landed, so the metric never depends on the store).
 import { writeEvent } from "../audit";
 import type { Database } from "../db/types";

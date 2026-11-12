@@ -2,7 +2,7 @@
 // the claim of an unclaimed server (first-run race, setup token) and the refusal of everything
 // while it is unclaimed. Login, sessions and the page-level threat rows are in
 // auth-as-operator-login.test.ts.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { isClaimed, openOauthDb } from "../src/auth/oauth-db";
 import {
@@ -161,7 +161,7 @@ describe("setup token (single use, expiry, constant-time compare)", () => {
 
   it("is off when the env var is unset, empty or too short", async () => {
     for (const value of [undefined, "", "short-token"]) {
-      const op = await makeOperator({ env: { OBSIDIAN_TC_AS_SETUP_TOKEN: value } });
+      const op = await makeOperator({ env: { RELIQUARY_TC_AS_SETUP_TOKEN: value } });
       expect((await op.app.request(op.url("/oauth/setup"))).status).toBe(404);
       const r = await claim(op, value ?? "x");
       expect(r.res.status).toBe(404);
@@ -172,7 +172,7 @@ describe("setup token (single use, expiry, constant-time compare)", () => {
   it("is read from the variable NAMED by auth.as.setupTokenEnv", async () => {
     const op = await makeOperator({
       as: { setupTokenEnv: "MY_SETUP_TOKEN" },
-      env: { OBSIDIAN_TC_AS_SETUP_TOKEN: undefined, MY_SETUP_TOKEN: SETUP_TOKEN },
+      env: { RELIQUARY_TC_AS_SETUP_TOKEN: undefined, MY_SETUP_TOKEN: SETUP_TOKEN },
     });
     expect((await claim(op, SETUP_TOKEN)).res.status).toBe(303);
   });
@@ -230,7 +230,7 @@ describe("setup token (single use, expiry, constant-time compare)", () => {
     const replay = await claim(op, SETUP_TOKEN);
     expect(replay.res.status).toBe(403);
     expect(userRows(op)).toHaveLength(0);
-    op.env.OBSIDIAN_TC_AS_SETUP_TOKEN = `${SETUP_TOKEN}-rotated`;
+    op.env.RELIQUARY_TC_AS_SETUP_TOKEN = `${SETUP_TOKEN}-rotated`;
     expect((await claim(op, `${SETUP_TOKEN}-rotated`)).res.status).toBe(303);
   });
 

@@ -11,7 +11,7 @@
 // stays honest across whatever validates them next.
 
 import { request } from "node:http";
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
@@ -40,7 +40,7 @@ async function boot(extra: { allowedHosts?: string[]; allowedOrigins?: string[] 
     }),
   );
   return startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     auth: AUTH,

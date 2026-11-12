@@ -5,7 +5,7 @@
 // it lives in server config (bootstrap.*), never baked into this public tree. The tool ships the
 // mechanism (triage + read); the operator supplies the table. With none configured the tool
 // degrades to lightweight (nothing matches, nothing loads).
-import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";

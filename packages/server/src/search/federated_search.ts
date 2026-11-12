@@ -28,7 +28,7 @@
 // Deliberately does NOT do content-hash dedup across vaults (v1 scope decision, THE-630): two
 // vaults holding the same note is a fact worth surfacing, not noise to silently collapse. Every
 // vault's hit for a shared note is returned as a separate, distinctly-tagged entry.
-import { isLoudRefusal } from "@the-40-thieves/obsidian-tc-shared";
+import { isLoudRefusal } from "@the-40-thieves/reliquary-tc-shared";
 import { runWithConcurrency } from "../util/concurrency";
 import type { GraphSearchResult } from "./graph_search_stages/types";
 import { resolveFanOutRrfK } from "./retrieval-defaults";

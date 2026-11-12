@@ -8,7 +8,7 @@
 // resolveVaultPath + enforcePathAcl and refuses to clobber an existing note. A capture is only as
 // visible as the note it names: list_capture_queue and commit_capture read the queue through
 // capture-read-acl.ts, which hides a capture whose committed or target note the caller cannot read.
-import { err, Pagination, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { err, Pagination, VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { AMBIENT_DEDUPE_TAG_PREFIX } from "../../capture/ambient-import";
 import { IMPORT_DEDUPE_TAG_PREFIX } from "../../capture/highlight-import";

@@ -3,7 +3,7 @@
 // the token's `scope`. It only ever removes. A hand-minted persona token (HS256, or an asymmetric
 // `mint` key) keeps today's rule: the persona's scopes REPLACE the token's.
 import { randomUUID } from "node:crypto";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -109,7 +109,7 @@ async function boot(personas: Record<string, unknown>) {
     personas,
   });
   const handle = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     auth: parsed.auth,

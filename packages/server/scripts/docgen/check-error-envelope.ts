@@ -20,7 +20,7 @@
 //   bun scripts/docgen/check-error-envelope.ts
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { type ErrorCode, err, recoveryFor } from "@the-40-thieves/obsidian-tc-shared";
+import { type ErrorCode, err, recoveryFor } from "@the-40-thieves/reliquary-tc-shared";
 import { narrativeFiles } from "./facts-check";
 
 export interface EnvelopeViolation {

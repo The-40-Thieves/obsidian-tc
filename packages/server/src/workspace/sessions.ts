@@ -10,7 +10,7 @@
 import { randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import type { Database } from "../db/types";
 import { inFlightCount } from "../dispatch-activity";
 import type { TraceRecord } from "../session-trace";
@@ -356,8 +356,8 @@ export function openImplicitSession(
 /** THE-1108 fix: opt-in, off-by-default stderr note when a sweep defers closing a session because
  *  a call is still attached. Off by default because deferral is the CORRECT, expected outcome of a
  *  rare race, not a problem to page on — same idiom as search/indexing/note-plan.ts's
- *  `OBSIDIAN_TC_DEBUG_DEDUP`. */
-const DEBUG_SESSIONS = process.env.OBSIDIAN_TC_DEBUG_SESSIONS !== undefined;
+ *  `RELIQUARY_TC_DEBUG_DEDUP`. */
+const DEBUG_SESSIONS = process.env.RELIQUARY_TC_DEBUG_SESSIONS !== undefined;
 
 function logDeferredClose(kind: "implicit" | "explicit", id: string): void {
   if (DEBUG_SESSIONS) {

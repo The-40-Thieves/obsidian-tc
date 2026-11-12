@@ -11,7 +11,7 @@
 import * as fs from "node:fs";
 import { readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { issueElicitToken } from "../src/elicit";
 import { buildBulkTools } from "../src/tools/m6/bulk-tools";

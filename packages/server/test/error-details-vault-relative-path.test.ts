@@ -130,7 +130,7 @@ describe("read refusals name the note vault-relatively", () => {
 
 // Source-scan gate: every error-detail `path` under src/vault must be wrapped by vaultDetailPath, so a
 // refusal that echoes a host path fails here rather than in production. A detail is an object literal
-// passed to `err.<kind>(` or `new ObsidianTcError(`, or a literal bound to a name such a call passes
+// passed to `err.<kind>(` or `new ReliquaryTcError(`, or a literal bound to a name such a call passes
 // (`const details = {...}; err.x(msg, details)`). Object literals elsewhere (types, returns, ACL
 // records) are not details. Not covered: `{ target: abs }`, and paths embedded in message strings.
 const VAULT_DIR = fileURLToPath(new URL("../src/vault/", import.meta.url));
@@ -191,7 +191,7 @@ function entries(body: string): string[] {
 function pathDetails(src: string): { wrapped: number; flagged: string[] } {
   const s = codeOnly(src);
   const calls: Array<[number, number]> = [];
-  for (const m of s.matchAll(/\berr\.\w+\(|\bnew ObsidianTcError\(/g)) {
+  for (const m of s.matchAll(/\berr\.\w+\(|\bnew ReliquaryTcError\(/g)) {
     const open = (m.index ?? 0) + m[0].length - 1;
     calls.push([open, closeOf(s, open)]);
   }
@@ -226,7 +226,7 @@ describe("error-details path gate", () => {
       "a details variable passed to the call",
       'const details = { path: abs };\nthrow err.aclDenied("refused", details);',
     ],
-    ["new ObsidianTcError", 'throw new ObsidianTcError("acl_denied", "refused", { path: abs });'],
+    ["new ReliquaryTcError", 'throw new ReliquaryTcError("acl_denied", "refused", { path: abs });'],
     ["a shorthand path", 'throw err.aclDenied("refused", { path });'],
     ["a plain literal", 'throw err.aclDenied("refused", { path: abs });'],
     ["a multi-line literal", 'throw err.aclDenied("refused", {\n  op,\n  path: abs,\n});'],

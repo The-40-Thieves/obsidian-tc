@@ -17,7 +17,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { isRegexExclusionEntry } from "@the-40-thieves/obsidian-tc-shared";
+import { isRegexExclusionEntry } from "@the-40-thieves/reliquary-tc-shared";
 import { readNoteBounded } from "../vault/notes-io";
 import { OBSIDIAN_APP_CONFIG } from "../vault/watcher";
 
@@ -110,7 +110,7 @@ const appConfigCache = new Map<
 >();
 
 /** Format 2: every persisted value was read through the opened-descriptor link guard. Format 1
- * (obsidian-tc 1.32.0) could hold values read through a hard-linked app.json, so it is discarded
+ * (reliquary-tc 1.32.0) could hold values read through a hard-linked app.json, so it is discarded
  * on read, never returned. */
 const PERSISTED_VERSION = 2;
 

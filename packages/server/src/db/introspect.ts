@@ -4,7 +4,7 @@ import type { Database } from "./types";
 /**
  * THE-1039: the FTS5 virtual tables this server provisions app-side (search/fts.ts's notes_fts,
  * search/chunk_fts.ts's chunk_fts) — the single list the maintenance sweep's bounded `'merge'`
- * (runtime/maintenance.ts), `obsidian-tc compact`'s full `'optimize'` (cli/commands/compact.ts), and
+ * (runtime/maintenance.ts), `reliquary-tc compact`'s full `'optimize'` (cli/commands/compact.ts), and
  * doctor's reclaimable-space row (cli/commands/doctor-probes.ts) all iterate, so a future FTS
  * table can be added to one and not silently missed by the other two.
  */
@@ -38,7 +38,7 @@ export function tableExists(
  * file — a WAL that has not been checkpointed can be a large fraction of it (fix round 1's F3:
  * measured directly, `VACUUM`'s own freed space sat entirely in a 1.2 MB `-wal` file while the
  * main file stayed at its pre-VACUUM size until `PRAGMA wal_checkpoint(TRUNCATE)` ran).
- * `obsidian-tc compact` and doctor's `db.reclaimable-space` both call this SAME function for the
+ * `reliquary-tc compact` and doctor's `db.reclaimable-space` both call this SAME function for the
  * SAME reason: a main-file-only figure from one and a main+wal figure from the other would
  * silently disagree about "how big is this database", without either being wrong on its own terms.
  */

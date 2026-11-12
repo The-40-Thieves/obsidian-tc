@@ -1,4 +1,4 @@
-import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import type { CallerContext, RegistryOptions, ToolDefinition } from "./types";
 
 // Omitted-`vault` default. A tool's `vault` is a required `VaultId` in its input schema; when

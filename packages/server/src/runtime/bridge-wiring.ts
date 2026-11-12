@@ -10,7 +10,7 @@ import type {
   VaultConfig,
   VaultMemoryDefenseConfig,
   VaultReflectConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import {
   type BridgeClient,
   type BridgeFetch,
@@ -124,7 +124,7 @@ export async function wireBridges(deps: BridgeWiringDeps): Promise<BridgeWiring>
     // A failed boot probe is logged with its cause code only: the URL and API key never reach it.
     if (snap.companion === "unreachable") {
       const cause = snap.unreachableCause ? ` (${snap.unreachableCause})` : "";
-      process.stderr.write(`obsidian-tc: vault "${v.id}" companion unreachable at boot${cause}\n`);
+      process.stderr.write(`reliquary-tc: vault "${v.id}" companion unreachable at boot${cause}\n`);
     }
     // THE-523 version handshake: warn ONCE per vault on a server↔plugin skew, with the specific
     // incompatibility, instead of letting a route diverge silently. A reachable-but-incompatible

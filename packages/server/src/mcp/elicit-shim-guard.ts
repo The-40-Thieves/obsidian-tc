@@ -18,7 +18,7 @@ import {
   Server,
   type ServerContext,
 } from "@modelcontextprotocol/server";
-import type { ErrorJSON } from "@the-40-thieves/obsidian-tc-shared";
+import type { ErrorJSON } from "@the-40-thieves/reliquary-tc-shared";
 import { offeredElicitError } from "./elicit-form";
 import { ensureTextContent } from "./tool-result";
 

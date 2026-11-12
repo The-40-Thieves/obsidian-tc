@@ -153,7 +153,7 @@ function contentBytes(items: ReadonlyArray<{ content?: string | null }>): number
 
 /**
  * GraphRAG search — THE-233 port of knowledge-mcp-server vault_graph_search.
- * Vector seeds (semanticSearch — obsidian-tc has no chunk-level hybrid) -> seed-strength
+ * Vector seeds (semanticSearch — reliquary-tc has no chunk-level hybrid) -> seed-strength
  * router -> literal links_to expansion -> RRF fusion. Default fusionMode graph_rrf makes RRF
  * over the seed + expansion streams the final ranking (no reranker call, so a rank-1 seed
  * cannot be displaced by an inflated expansion score); rrf_rerank / score_merge route through

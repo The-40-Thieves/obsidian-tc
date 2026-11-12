@@ -4,7 +4,7 @@
 // JWT secret, so whoever can write it already owns this process.
 import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 
 export interface LoadProviderModuleOpts {
   modulePath: string;

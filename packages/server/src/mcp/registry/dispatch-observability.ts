@@ -3,7 +3,7 @@ import type {
   MorgianaEventData,
   MorgianaEventType,
   ToolResult,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { type AuditEvent, writeEvent } from "../../audit";
 import type { MetricsRecorder, ToolCallStatus } from "../../metrics/registry";
 import { SPAN_ATTR } from "../../otel/attrs";

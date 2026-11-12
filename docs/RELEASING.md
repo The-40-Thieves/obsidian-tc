@@ -1,4 +1,4 @@
-# Releasing obsidian-tc
+# Releasing reliquary-tc
 
 The release flow is **single-command staging + a human-pushed tag**. Everything before the tag is
 automated and gated; the tag is the one deliberate human step — an irreversible npm/ghcr publish
@@ -44,7 +44,7 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
 
    This sets the version across every `package.json` + distribution file (server, native, shared,
    `reranker-local`, `server.json`, the MCPB manifest at `mcpb/manifest.json`, the Claude Code and
-   Muse Code plugin manifests under `plugins/obsidian-tc` (with the exact `obsidian-tc@<version>`
+   Muse Code plugin manifests under `plugins/reliquary-tc` (with the exact `reliquary-tc@<version>`
    their launchers pin, `scripts/lib/plugin-manifest-versions.mjs`), and the companion
    plugin's `manifest.json` / `package.json` / `versions.json` in lockstep — including mirroring
    the bumped plugin `manifest.json` onto the repo-root `manifest.json`), folds
@@ -93,7 +93,7 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
 
    ```sh
    npm view <name> version     # must resolve (E404 = never published: bootstrap it by hand first)
-   npm trust list <name>       # must list The-40-Thieves/obsidian-tc, publish.yml (asks for 2FA)
+   npm trust list <name>       # must list The-40-Thieves/reliquary-tc, publish.yml (asks for 2FA)
    ```
 
    Run it for every name the release adds since the last tag, and for every name that has never had
@@ -102,7 +102,7 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
 
 4. **Tag.** A human pushes the annotated tag `v<x.y.z>` (signed by a key listed in `.github/allowed_signers` on `main`; that list is read from `main`, never from the tag, so a new signer's key must be merged before its tag can release), firing `publish.yml`: the eight-triple
    native build matrix (linux gnu+musl x64/arm64, darwin x64/arm64, win32 x64/arm64) → npm
-   (dependency order, `obsidian-tc` last) → the MCP Registry entry (`publish-registry`, gated on
+   (dependency order, `reliquary-tc` last) → the MCP Registry entry (`publish-registry`, gated on
    every npm package `server.json` references resolving live on npmjs — see *MCP Registry publish*
    below) → standalone binaries →
    Docker/ghcr → the `.mcpb` bundle → the companion-plugin assets → a published GitHub Release
@@ -133,11 +133,11 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
    half-built public release. This step is verification only:
 
    ```sh
-   npm view obsidian-tc version                 # 11 packages must all be at the new version
+   npm view reliquary-tc version                 # 11 packages must all be at the new version
    gh release view v<x.y.z> --json assets       # 31 assets: 5 binaries, plugin zip, legacy notice zip,
                                                 # .mcpb, SHASUMS256.txt, 3 loose BRAT files, and 19
                                                 # .sigstore.json bundles (one per signed file)
-   docker manifest inspect ghcr.io/the-40-thieves/obsidian-tc:<x.y.z>   # amd64 + arm64
+   docker manifest inspect ghcr.io/the-40-thieves/reliquary-tc:<x.y.z>   # amd64 + arm64
    ```
 
    Two things that have misled a check here before:
@@ -145,23 +145,23 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
    - **A RED publish job can still have shipped almost everything.** One cut went 18/19 with npm
      and ghcr both fine and a single asset missing. Read WHICH jobs failed; do not re-run blind.
    - **`sha256sum -c SHASUMS256.txt` verifies NOTHING against downloaded assets** and still exits 0.
-     The manifest carries build-time paths (`./mcpb/obsidian-tc.mcpb`), which match no downloaded
+     The manifest carries build-time paths (`./mcpb/reliquary-tc.mcpb`), which match no downloaded
      file, so `-c` reports "no file was verified" rather than a mismatch. Compare a hash directly.
    - **Spot-check one signature** (the release job already verifies all of them before attaching, so
      this proves the *published* bundle, not the build). The full command, the pinned identity and
      the native-prebuild variant are in `SECURITY.md` → *Verifying release artifacts*:
 
      ```sh
-     gh release download v<x.y.z> --pattern 'obsidian-tc-bun-linux-x64*'
-     cosign verify-blob --bundle obsidian-tc-bun-linux-x64.sigstore.json \
-       --certificate-identity https://github.com/The-40-Thieves/obsidian-tc/.github/workflows/publish.yml@refs/tags/v<x.y.z> \
+     gh release download v<x.y.z> --pattern 'reliquary-tc-bun-linux-x64*'
+     cosign verify-blob --bundle reliquary-tc-bun-linux-x64.sigstore.json \
+       --certificate-identity https://github.com/The-40-Thieves/reliquary-tc/.github/workflows/publish.yml@refs/tags/v<x.y.z> \
        --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-       obsidian-tc-bun-linux-x64
+       reliquary-tc-bun-linux-x64
      ```
 
      The identity is an exact match for this release's tag (owner/repo in real case, workflow path
      case-sensitive); the image is verified by digest with the identity pattern in `SECURITY.md`, which accepts exactly the `publish.yml` release-tag identity and the `release-image.yml` recovery identity from `main` (`cosign verify
-     ghcr.io/the-40-thieves/obsidian-tc@sha256:<digest> ...`, see `SECURITY.md`).
+     ghcr.io/the-40-thieves/reliquary-tc@sha256:<digest> ...`, see `SECURITY.md`).
 
 6. **Confirm the registry entry.** `publish-registry` runs mcp-publisher non-interactively
    and its own job log is the primary signal, but confirm the entry actually landed rather than
@@ -175,7 +175,7 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
 
    ```sh
    curl -sS -o /dev/null -w "%{http_code}\n" \
-     "https://registry.modelcontextprotocol.io/v0/servers/io.github.The-40-Thieves%2Fobsidian-tc/versions/<x.y.z>"
+     "https://registry.modelcontextprotocol.io/v0/servers/io.github.The-40-Thieves%2Freliquary-tc/versions/<x.y.z>"
    ```
 
    **200** means `<x.y.z>` is published — pipe through `| jq .` (drop `-o /dev/null -w ...`) to
@@ -206,7 +206,7 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
      `packages/server/test/registered-tools.txt` (`wc -l`), M is `domainCount` in
      `docs/project-facts.json`. (No doc in this repo states these numbers, on purpose — the
      `docgen:facts-check` gate forbids it, so this description is the one place they are typed.)
-     Template: `Obsidian Turbocharged — governed, agent-ready Obsidian MCP server. <N> tools
+     Template: `Reliquary-TC — governed, agent-ready Obsidian MCP server. <N> tools
      across <M> domains, multi-vault native, pluggable embeddings. TypeScript + Rust.
      Apache-2.0.`
    - **Topics** — review against the current stack (`ai-agents`, `mcp`, `model-context-protocol`,
@@ -222,9 +222,9 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
 
 ## What a tag produces
 
-- **npm** — three umbrella packages (`obsidian-tc`, `@the-40-thieves/obsidian-tc-shared`,
-  `@the-40-thieves/obsidian-tc-native`) plus **eight** platform sub-packages
-  (`@the-40-thieves/obsidian-tc-native-{linux-x64-gnu,linux-x64-musl,linux-arm64-gnu,linux-arm64-musl,darwin-x64,darwin-arm64,win32-x64-msvc,win32-arm64-msvc}`),
+- **npm** — three umbrella packages (`reliquary-tc`, `@the-40-thieves/reliquary-tc-shared`,
+  `@the-40-thieves/reliquary-tc-native`) plus **eight** platform sub-packages
+  (`@the-40-thieves/reliquary-tc-native-{linux-x64-gnu,linux-x64-musl,linux-arm64-gnu,linux-arm64-musl,darwin-x64,darwin-arm64,win32-x64-msvc,win32-arm64-msvc}`),
   published with npm provenance.
 - **MCP Registry entry** — `server.json` published to
   `registry.modelcontextprotocol.io` via `mcp-publisher`, after every npm package it references
@@ -233,7 +233,7 @@ out-of-cadence alike, and still fails the same way on an undocumented user-visib
 - **Companion plugin zip** — for `.obsidian/plugins/` (plus the loose `manifest.json` / `main.js` /
   `styles.css` set for BRAT).
 - **`.mcpb` bundle** — the single-file MCPB server bundle.
-- **Docker image** — `ghcr.io/the-40-thieves/obsidian-tc` (amd64 + arm64). Both release routes push the
+- **Docker image** — `ghcr.io/the-40-thieves/reliquary-tc` (amd64 + arm64). Both release routes push the
   image to a `smoke-<x.y.z>` staging tag first, boot linux/amd64 and linux/arm64 of that exact digest
   offline (`scripts/docker-boot-smoke.mjs`, must report `native=on vec=on`), and only then re-tag the same
   digest as `<x.y.z>` / `latest` (`.github/actions/smoke-and-promote-image`). A failed smoke leaves only
@@ -278,12 +278,12 @@ published it — `publish-registry` (`publish.yml`, `needs: publish-npm`) is tha
    is gated on this one's output the same way.
 2. **Wait for npm propagation.** The registry validates package ownership by fetching the exact npm
    **version document** — `<registryBaseUrl>/<identifier>/<version>`, e.g.
-   `https://registry.npmjs.org/obsidian-tc/1.25.0` — for every npm entry in `server.json`'s
+   `https://registry.npmjs.org/reliquary-tc/1.25.0` — for every npm entry in `server.json`'s
    `packages[]`, and a 404 there at publish time is a hard failure. That is a *different*,
    independently-propagating object from the packument `npm view`/`GET /<name>` fetches, so this
    polls the exact URL the registry itself builds (derived from `server.json` via `jq`, not
    hardcoded) rather than the packument, up to 10 times / 10s apart, once per `packages[]` npm
-   entry — today just `obsidian-tc`.
+   entry — today just `reliquary-tc`.
 3. **Install `mcp-publisher`.** Pinned to v1.8.1, binary + checksum (no `curl | sh`), via the
    shared `.github/actions/install-mcp-publisher` composite action — the same action
    `registry-validate` (below) uses, so the pin can only drift in one place.
@@ -300,7 +300,7 @@ two things move together: add that package's publish job to `publish-registry`'s
 know that step 2's propagation wait needs **no corresponding edit** — it already loops every
 `packages[]` npm entry, because it derives the list from `server.json` rather than a hardcoded name.
 That claim is true precisely BECAUSE the encoding is scope-aware (review finding G1):
-reranker-local's actual npm package is `@the-40-thieves/obsidian-tc-reranker-local`, a SCOPED
+reranker-local's actual npm package is `@the-40-thieves/reliquary-tc-reranker-local`, a SCOPED
 name, and the wait loop encodes only the `/` in an identifier (leaving a leading `@` literal —
 matching the registry's own npm validator, which builds the version-document URL with Go's
 `url.PathEscape`) rather than percent-encoding `@` too. An earlier version of this loop used
@@ -338,13 +338,13 @@ every release. Worse, it is on a deadline — npm's 2026-07-08 changelog puts pa
 The `pending` tag is gone. Safety now rests on two structural facts instead of a tag mutation:
 
 1. **Every inter-package dependency is exact-pinned, never ranged.** `scripts/pin-workspace-deps.mjs`
-   rewrites `workspace:*` to the concrete version before publishing, so `obsidian-tc@X` depends on
+   rewrites `workspace:*` to the concrete version before publishing, so `reliquary-tc@X` depends on
    exactly `-native@X` and `-shared@X`, and `-native@X` `optionalDependencies` exactly the eight
    `-native-<triple>@X`. **Nothing resolves a sub-package through a dist-tag.** Where `latest` points
    on the sub-packages cannot affect any install, and no already-installed release can drift onto a
    half-published version.
-2. **`obsidian-tc` publishes last.** It is the only package installed by name, so its `latest` is the
-   only one that matters. If the sequence dies before it, `npm install obsidian-tc` keeps resolving
+2. **`reliquary-tc` publishes last.** It is the only package installed by name, so its `latest` is the
+   only one that matters. If the sequence dies before it, `npm install reliquary-tc` keeps resolving
    the previous release, wholly intact.
 
 Together those give the property `pending` was there to provide, with no step that CI cannot perform.
@@ -353,11 +353,11 @@ Together those give the property `pending` was there to provide, with no step th
    fresh release; **all** published → resumed release, skip the npm-mutating steps and let the
    pipeline finish; **some** published → hard fail, because that is either a mid-publish
    death or a tag cut without bumping, and guessing there is how a skewed release gets cemented.
-2. **Publish platform sub-packages.** The eight leaf `@the-40-thieves/obsidian-tc-native-*` packages
+2. **Publish platform sub-packages.** The eight leaf `@the-40-thieves/reliquary-tc-native-*` packages
    publish via `napi pre-publish`, which also pins the native umbrella's `optionalDependencies` to
    exact versions. They are unreferenced until an umbrella that pins them is published.
-3. **Publish umbrellas in dependency order, `obsidian-tc` last** — `-native`, `-shared`, then
-   `obsidian-tc`. Stable versions go to `latest`; **prereleases go to `next`**, since a bare
+3. **Publish umbrellas in dependency order, `reliquary-tc` last** — `-native`, `-shared`, then
+   `reliquary-tc`. Stable versions go to `latest`; **prereleases go to `next`**, since a bare
    `npm publish` defaults to `latest` regardless of semver and would drag the stable tag onto a
    prerelease.
 
@@ -369,8 +369,8 @@ Together those give the property `pending` was there to provide, with no step th
 - **A release that failed *after* publishing** is resumable: re-run the workflow. The F3 preflight
   recognises the fully-published case and skips straight to the artifact jobs. Use a
   **full** `gh run rerun <run-id>`, never `--failed` — see `RELEASE-SIGNING.md` for why.
-- **The publish sequence died partway** (e.g. `-native` and `-shared` up, `obsidian-tc` not).
-  `obsidian-tc@latest` still points at the previous release, so installers are unaffected. The
+- **The publish sequence died partway** (e.g. `-native` and `-shared` up, `reliquary-tc` not).
+  `reliquary-tc@latest` still points at the previous release, so installers are unaffected. The
   published sub-versions are orphaned and harmless: nothing references them, because the umbrella
   that would pin them was never published. Bump and re-tag.
 - **A job is partly published because a package name was missing on npm** (v1.34.0:
@@ -379,11 +379,11 @@ Together those give the property `pending` was there to provide, with no step th
   it fails with `PARTIAL publish state`, so a re-run cannot get past it. Publish **every** missing
   package of that job by hand, including the base package that depends on them. Use a TTY so the security-key
   prompt can appear (`script -qfec "npm publish --access public" log`). Next, attach the trusted publisher
-  to each new name with `npm trust github <name> --file publish.yml --repo The-40-Thieves/obsidian-tc
+  to each new name with `npm trust github <name> --file publish.yml --repo The-40-Thieves/reliquary-tc
   --allow-publish`. Then do a full re-run. Hand-published versions carry no npm provenance. Before the re-run,
   poll `curl -H 'Cache-Control: no-cache' https://registry.npmjs.org/<name>/<version>` for a 200,
   because the CDN caches the earlier 404.
-- **Inspect a release.** `npm view obsidian-tc dist-tags` shows where `latest` and `next` point.
+- **Inspect a release.** `npm view reliquary-tc dist-tags` shows where `latest` and `next` point.
 
 ## Brand-new package names
 
@@ -432,7 +432,7 @@ flow is Obsidian's pre-self-service submission path and is no longer how new plu
 
 The directory's validator reads `manifest.json` from this repo's **default branch** — before
 A later fix that would have found the MCPB bundle manifest that used to live at the repo root
-(`name: obsidian-tc`), not the plugin's. As of that change, the repo-root `manifest.json` IS
+(`name: reliquary-tc`), not the plugin's. As of that change, the repo-root `manifest.json` IS
 the plugin's Obsidian manifest, byte-identical to `packages/plugin/manifest.json` by construction
 (`release.mjs` mirrors it; `check-version-coherence.mjs` gates the two staying in sync) — no manual
 copy step is needed at submission time. See

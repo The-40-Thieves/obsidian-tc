@@ -37,7 +37,7 @@ export function getOrCreateInstallId(db: Database, now: () => number = Date.now)
   return installId;
 }
 
-/** `obsidian-tc telemetry reset-id`: replace the install id with a fresh random UUID. Does NOT
+/** `reliquary-tc telemetry reset-id`: replace the install id with a fresh random UUID. Does NOT
  *  touch last_send_at/last_error — rotating identity says nothing about send history. Returns the
  *  new id. */
 export function resetInstallId(db: Database, now: () => number = Date.now): string {

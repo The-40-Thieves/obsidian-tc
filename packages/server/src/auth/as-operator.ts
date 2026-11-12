@@ -11,7 +11,7 @@
 // credentials to the redirect target. Nothing here logs a username, a password, a token, a cookie
 // or a query string.
 import { randomBytes } from "node:crypto";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { Context, Hono } from "hono";
 import type { Database } from "../db/types";
 import { sha256Hex } from "../provenance/store";
@@ -390,7 +390,7 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
       400,
       messagePage(
         "Reset unavailable",
-        "This server has no single operator to reset: run `obsidian-tc auth as reset-credentials --user <name>` on the host.",
+        "This server has no single operator to reset: run `reliquary-tc auth as reset-credentials --user <name>` on the host.",
       ),
     );
 
@@ -460,7 +460,7 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
         resetPage({
           csrf: formToken(c, "reset"),
           error:
-            "Not reset: this server cannot revoke grants from this page. Run `obsidian-tc auth as reset-credentials --revoke-grants` on the host instead.",
+            "Not reset: this server cannot revoke grants from this page. Run `reliquary-tc auth as reset-credentials --revoke-grants` on the host instead.",
         }),
       );
     }
@@ -514,7 +514,7 @@ export function mountAsOperator(app: Hono, deps: AsOperatorDeps): void {
         200,
         messagePage(
           "Password reset",
-          "The password was reset. Grant revocation is still pending: the revocation registry did not take it, and it finishes at the next successful drain (the server's next maintenance sweep or a restart). Run `obsidian-tc doctor` to check the revocation outbox.",
+          "The password was reset. Grant revocation is still pending: the revocation registry did not take it, and it finishes at the next successful drain (the server's next maintenance sweep or a restart). Run `reliquary-tc doctor` to check the revocation outbox.",
         ),
       );
     }

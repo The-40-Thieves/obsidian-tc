@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@the-40-thieves/obsidian-tc-embedder-local",
+      "name": "@the-40-thieves/reliquary-tc-embedder-local",
       "dependencies": {
         "@huggingface/transformers": "4.3.1",
       },

@@ -1,4 +1,4 @@
-# Why obsidian-tc — the threat model in one page
+# Why reliquary-tc — the threat model in one page
 
 ## The problem: agents plus vaults
 
@@ -15,7 +15,7 @@ modes:
   can carry instructions that steer its next actions (see the prompt-injection section
   of [SECURITY.md](../SECURITY.md)).
 
-obsidian-tc's position: agents are **partially trusted**. Useful, worth giving real
+reliquary-tc's position: agents are **partially trusted**. Useful, worth giving real
 capabilities, and never given ungoverned authority.
 
 ## What governance means here, concretely
@@ -36,7 +36,7 @@ or convention; each gate is server-side code:
   Unicode-normalized path — not the string the caller typed.
 - **HITL (human-in-the-loop).** Destructive operations fail closed with
   `elicit_required`. Agents cannot grant their own confirmation; humans grant it
-  per call — either via the `obsidian-tc elicit` CLI (a single-use token bound to
+  per call — either via the `reliquary-tc elicit` CLI (a single-use token bound to
   the exact vault, tool and argument hash, with a 5-minute TTL), or, for a client
   that advertises MCP elicitation, as an actual protocol round trip
   (`inputRequired`/`elicitation/create`) that asks the human directly and is
@@ -55,7 +55,7 @@ Plus rate limiting by operation tier (read / write / delete / bulk / execute / a
 compute budgets (regex worker timeouts, JSONLogic op caps), and path-traversal
 containment with real-path symlink checks.
 
-## What obsidian-tc deliberately is NOT
+## What reliquary-tc deliberately is NOT
 
 - **Not a cloud service.** It runs on your machine against your files. The default
   stack is fully local: Ollama embeddings, SQLite cache, bundled `sqlite-vec`. Cloud
@@ -64,7 +64,7 @@ containment with real-path symlink checks.
   no-op until you set an endpoint, the Prometheus endpoint is disabled until enabled,
   and CloudEvents spool to a local JSONL file unless you configure an HTTP push.
   Nothing phones home.
-- **Not an Obsidian plugin replacement.** obsidian-tc is a standalone MCP server for
+- **Not an Obsidian plugin replacement.** reliquary-tc is a standalone MCP server for
   agents and MCP clients. The optional companion plugin only bridges plugin-specific
   features (Templater, Dataview, Tasks, …); the core server works with Obsidian closed.
 - **Not a defense against a hostile operator or host.** The host system and the
@@ -78,8 +78,8 @@ containment with real-path symlink checks.
   URLs would both widen the exfiltration surface (fetched content becomes untrusted
   input the same way vault content is) and blur what "governed access" means. If an
   agent needs the web too, wire a separate, purpose-built web-search MCP server
-  alongside obsidian-tc rather than asking this one to do both jobs.
+  alongside reliquary-tc rather than asking this one to do both jobs.
 
 If you just want a thin, single-user read/write wrapper, simpler servers exist and are
-listed honestly in the [README comparison](../README.md#how-it-compares). obsidian-tc is
+listed honestly in the [README comparison](../README.md#how-it-compares). reliquary-tc is
 for the moment you let software you don't fully trust work inside notes you care about.

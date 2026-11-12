@@ -1,32 +1,32 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.The-40-Thieves/obsidian-tc",
-  "title": "Obsidian Turbocharged",
+  "name": "io.github.The-40-Thieves/reliquary-tc",
+  "title": "Reliquary-TC",
   "description": "Governed Obsidian vault access: hybrid retrieval, Markdown-native memory, HITL confirmations.",
   "version": "1.34.0",
-  "websiteUrl": "https://github.com/The-40-Thieves/obsidian-tc#readme",
+  "websiteUrl": "https://github.com/The-40-Thieves/reliquary-tc#readme",
   "repository": {
-    "url": "https://github.com/The-40-Thieves/obsidian-tc",
+    "url": "https://github.com/The-40-Thieves/reliquary-tc",
     "source": "github"
   },
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
-      "identifier": "obsidian-tc",
+      "identifier": "reliquary-tc",
       "version": "1.34.0",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
-          "name": "OBSIDIAN_TC_CONFIG",
-          "description": "Absolute path to the obsidian-tc JSON config (vaults, ACL, transports). May also be passed as the first CLI argument.",
+          "name": "RELIQUARY_TC_CONFIG",
+          "description": "Absolute path to the reliquary-tc JSON config (vaults, ACL, transports). May also be passed as the first CLI argument.",
           "isRequired": true,
           "format": "filepath"
         },
         {
-          "name": "OBSIDIAN_TC_DEFAULT_VAULT",
+          "name": "RELIQUARY_TC_DEFAULT_VAULT",
           "description": "Optional id of the vault to bind tool calls to when a request omits one.",
           "isRequired": false,
           "format": "string"

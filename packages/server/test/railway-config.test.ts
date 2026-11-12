@@ -24,7 +24,7 @@ describe("railway.json", () => {
     expect(railway.deploy?.restartPolicyType).toBe("ON_FAILURE");
   });
 
-  it("sets no startCommand: the image ENTRYPOINT already serves HTTP from OBSIDIAN_TC_CONFIG", () => {
+  it("sets no startCommand: the image ENTRYPOINT already serves HTTP from RELIQUARY_TC_CONFIG", () => {
     expect(railway.deploy?.startCommand).toBeUndefined();
   });
 

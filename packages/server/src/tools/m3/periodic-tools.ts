@@ -10,12 +10,12 @@
 import {
   err,
   grantsAll,
-  ObsidianTcError,
   Pagination,
+  ReliquaryTcError,
   VaultId,
   type VaultMemoryDefenseConfig,
   VaultPath,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { FolderAcl } from "../../acl";
 import { conventionsResultShape } from "../../conventions/schema";
@@ -159,7 +159,7 @@ async function expandViaTemplater(
     });
     return true;
   } catch (e) {
-    if (e instanceof ObsidianTcError && TEMPLATER_DEGRADE.has(e.code)) return false;
+    if (e instanceof ReliquaryTcError && TEMPLATER_DEGRADE.has(e.code)) return false;
     throw e;
   }
 }
@@ -391,7 +391,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
         let expanded = false;
         if (input.expand_template && templateUsed) {
           if (!grantsAll(ctx.grantedScopes, ["write:templater"]))
-            throw new ObsidianTcError(
+            throw new ReliquaryTcError(
               "forbidden",
               "expand_template requires the write:templater scope",
               { required: ["write:templater"] },
@@ -491,7 +491,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           let expanded = false;
           if (input.expand_template && templateUsed) {
             if (!grantsAll(ctx.grantedScopes, ["write:templater"]))
-              throw new ObsidianTcError(
+              throw new ReliquaryTcError(
                 "forbidden",
                 "expand_template requires the write:templater scope",
                 { required: ["write:templater"] },
@@ -512,7 +512,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
               redactions = scan.redactions;
               created = true;
             } catch (e) {
-              if (!(e instanceof ObsidianTcError && e.code === "note_exists")) throw e;
+              if (!(e instanceof ReliquaryTcError && e.code === "note_exists")) throw e;
             }
           } else {
             // Review finding: Templater's own write above skipped the guard entirely — scan
@@ -630,7 +630,7 @@ export function buildPeriodicTools(deps: M3Deps): ToolDefinition[] {
           // replaced by the appended text alone.
           scan = persist(existing, created);
         } catch (e) {
-          if (!created || !(e instanceof ObsidianTcError && e.code === "note_exists")) throw e;
+          if (!created || !(e instanceof ReliquaryTcError && e.code === "note_exists")) throw e;
           // Lost the create race: append to the winner's note instead (a normal update).
           base = readNote(abs).raw;
           created = false;

@@ -3,8 +3,8 @@
 // With `false` the section is omitted: the note holds only current facts, the closed interval stays
 // in SQLite, and get_entity with as_of still returns it. Real SQLite, real indexer, real text search.
 
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
-import { VaultConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
+import { VaultConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { fakeEmbeddingProvider } from "../src/embeddings";
 import { parseEntityNote } from "../src/memory/materialize";

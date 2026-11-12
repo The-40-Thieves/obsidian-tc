@@ -19,12 +19,12 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 export const LOCAL_PACKAGES = [
   {
-    name: "@the-40-thieves/obsidian-tc-embedder-local",
+    name: "@the-40-thieves/reliquary-tc-embedder-local",
     dir: "packages/embedder-local",
     needed: 'the default embeddings.provider "local" (dense search and indexing)',
   },
   {
-    name: "@the-40-thieves/obsidian-tc-reranker-local",
+    name: "@the-40-thieves/reliquary-tc-reranker-local",
     dir: "packages/reranker-local",
     needed: "the default local reranker (auto-selected when no reranker or gateway is configured)",
   },

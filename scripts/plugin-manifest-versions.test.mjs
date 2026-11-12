@@ -22,11 +22,11 @@ const text = (p) => readFileSync(join(ROOT, p), "utf8");
 
 const fake = (v) => (p) =>
   p === PLUGIN_MCP_JSON
-    ? { mcpServers: { "obsidian-tc": { args: ["-y", pinnedPackageSpec("obsidian-tc", v)] } } }
+    ? { mcpServers: { "reliquary-tc": { args: ["-y", pinnedPackageSpec("reliquary-tc", v)] } } }
     : {
         version: v,
         capabilities: {
-          mcpServers: [{ command: ["npx", "-y", pinnedPackageSpec("obsidian-tc", v)] }],
+          mcpServers: [{ command: ["npx", "-y", pinnedPackageSpec("reliquary-tc", v)] }],
         },
       };
 
@@ -34,11 +34,11 @@ test("the inventory names both plugin manifests and the shared .mcp.json", () =>
   assert.deepEqual(
     [...PLUGIN_MANIFEST_PATHS],
     [
-      "plugins/obsidian-tc/.claude-plugin/plugin.json",
-      "plugins/obsidian-tc/.muse-plugin/plugin.json",
+      "plugins/reliquary-tc/.claude-plugin/plugin.json",
+      "plugins/reliquary-tc/.muse-plugin/plugin.json",
     ],
   );
-  assert.equal(PLUGIN_MCP_JSON, "plugins/obsidian-tc/.mcp.json");
+  assert.equal(PLUGIN_MCP_JSON, "plugins/reliquary-tc/.mcp.json");
 });
 
 test("sources carry the manifest versions AND both launcher pins, all labelled", () => {
@@ -60,7 +60,7 @@ test("a missing manifest field or an unpinned launcher surfaces as undefined, wh
   assert.ok(sources.every((s) => s.version === undefined));
   const unpinned = pluginManifestVersionSources((p) =>
     p === PLUGIN_MCP_JSON
-      ? { mcpServers: { "obsidian-tc": { args: ["-y", "obsidian-tc"] } } }
+      ? { mcpServers: { "reliquary-tc": { args: ["-y", "reliquary-tc"] } } }
       : fake("1.0.0")(p),
   );
   assert.equal(unpinned.find((s) => s.label.startsWith(PLUGIN_MCP_JSON)).version, undefined);
@@ -131,7 +131,7 @@ test("end to end: a drifted manifest version or launcher pin fails check-version
     writeFileSync(museFile, text(PLUGIN_MANIFEST_PATHS[1]));
     writeFileSync(
       join(dir, PLUGIN_MCP_JSON),
-      text(PLUGIN_MCP_JSON).replace(/obsidian-tc@[\d.]+/, "obsidian-tc@0.0.2"),
+      text(PLUGIN_MCP_JSON).replace(/reliquary-tc@[\d.]+/, "reliquary-tc@0.0.2"),
     );
     const r2 = run();
     assert.equal(r2.status, 1);

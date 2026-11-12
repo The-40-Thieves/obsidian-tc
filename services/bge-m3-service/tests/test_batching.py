@@ -7,7 +7,7 @@ import threading
 
 import pytest
 
-from obsidian_tc_bge.batching import OverloadError, Scheduler
+from reliquary_tc_bge.batching import OverloadError, Scheduler
 
 
 async def test_run_executes_in_executor():

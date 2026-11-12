@@ -53,7 +53,7 @@ test("vscode link: scheme, handler path, and the decoded payload is the launch c
     const url = links[key];
     assert.ok(url.startsWith(`${scheme}mcp/install?`), url);
     const payload = JSON.parse(decodeURIComponent(url.slice(url.indexOf("?") + 1)));
-    assert.deepEqual(payload, { name: "obsidian-tc", type: "stdio", ...expectedServer });
+    assert.deepEqual(payload, { name: "reliquary-tc", type: "stdio", ...expectedServer });
   }
 });
 
@@ -62,7 +62,7 @@ test("cursor link: name param plus a base64 config that decodes to the launch co
   assert.equal(url.protocol, "cursor:");
   assert.equal(url.host, "anysphere.cursor-deeplink");
   assert.equal(url.pathname, "/mcp/install");
-  assert.equal(url.searchParams.get("name"), "obsidian-tc");
+  assert.equal(url.searchParams.get("name"), "reliquary-tc");
   const b64 = url.searchParams.get("config");
   assert.match(b64, /^[A-Za-z0-9+/]+={0,2}$/);
   const payload = JSON.parse(Buffer.from(b64, "base64").toString("utf8"));
@@ -72,7 +72,7 @@ test("cursor link: name param plus a base64 config that decodes to the launch co
 
 test("every link payload is the same object a user would paste by hand", () => {
   const byHand = JSON.parse(
-    '{"command":"npx","args":["-y","obsidian-tc"],"env":{"OBSIDIAN_TC_CONFIG":"/ABSOLUTE/PATH/TO/obsidian-tc.config.json"}}',
+    '{"command":"npx","args":["-y","reliquary-tc"],"env":{"RELIQUARY_TC_CONFIG":"/ABSOLUTE/PATH/TO/reliquary-tc.config.json"}}',
   );
   assert.deepEqual(expectedServer, byHand);
 });
@@ -108,7 +108,7 @@ test("committed README and install page carry exactly the generated region (and 
 
 test("checkTargets reports a stale region instead of passing", () => {
   const problems = checkTargets(ROOT, (f) =>
-    readFileSync(join(ROOT, f), "utf8").replace("obsidian-tc.config.json", "other.config.json"),
+    readFileSync(join(ROOT, f), "utf8").replace("reliquary-tc.config.json", "other.config.json"),
   );
   assert.ok(problems.length >= 1);
   assert.match(problems[0], /out of date/);

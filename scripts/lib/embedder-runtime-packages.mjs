@@ -3,10 +3,10 @@ import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { basename, join } from "node:path";
 import { ORT_PLATFORMS, ortWasmFiles } from "./embedder-bundle.mjs";
 
-const BASE_PACKAGE = "@the-40-thieves/obsidian-tc-embedder-local";
+const BASE_PACKAGE = "@the-40-thieves/reliquary-tc-embedder-local";
 const REPOSITORY = {
   type: "git",
-  url: "git+https://github.com/The-40-Thieves/obsidian-tc.git",
+  url: "git+https://github.com/The-40-Thieves/reliquary-tc.git",
   directory: "packages/embedder-local",
 };
 
@@ -58,7 +58,7 @@ export function basePackageManifest(version, keys) {
     name: BASE_PACKAGE,
     version,
     description:
-      "Optional bundled dense embedder for obsidian-tc — runs fully offline and installs only the host ONNX runtime",
+      "Optional bundled dense embedder for reliquary-tc — runs fully offline and installs only the host ONNX runtime",
     license: "Apache-2.0",
     type: "module",
     main: "./index.mjs",

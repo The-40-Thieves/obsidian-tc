@@ -161,7 +161,7 @@
   },
   "permissions": {
     "deny": [
-      "Edit(/docs/obsidian-tc.config.schema.json)",
+      "Edit(/docs/reliquary-tc.config.schema.json)",
       "Edit(/packages/server/src/db/migrations-embedded.ts)"
     ]
   }

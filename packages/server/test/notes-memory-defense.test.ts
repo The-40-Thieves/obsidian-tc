@@ -194,7 +194,7 @@ describe("memoryDefense on write_note/append_note/patch_note (GH #994 follow-up)
     const secret = fakeOpenAiKey();
     await v.call("write_note", { vault: "test", path: "m.md", content: secret });
     const dump = await metrics.metrics();
-    expect(dump).toContain('obsidian_tc_memory_defense_hits_total{pattern="openai_key"} 1');
+    expect(dump).toContain('reliquary_tc_memory_defense_hits_total{pattern="openai_key"} 1');
     expect(dump).not.toContain(secret);
   });
 });

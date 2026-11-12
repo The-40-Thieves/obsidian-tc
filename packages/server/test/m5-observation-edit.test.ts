@@ -4,7 +4,7 @@
 // supersedes only by key and nothing else could edit or remove a fact).
 
 import { readFileSync } from "node:fs";
-import { type ToolResult, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { type ToolResult, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import type { CallerContext } from "../src/mcp/registry";

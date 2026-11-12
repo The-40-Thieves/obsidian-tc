@@ -119,8 +119,8 @@ describe("ensureNotesFts integrity gate (THE-696)", () => {
   it("does NOT verify by default — a corrupt index still reports enabled", () => {
     const db = dbWithPopulatedFts();
     corrupt(db);
-    process.env.OBSIDIAN_TC_DISABLE_FTS = "";
-    delete process.env.OBSIDIAN_TC_VERIFY_FTS;
+    process.env.RELIQUARY_TC_DISABLE_FTS = "";
+    delete process.env.RELIQUARY_TC_VERIFY_FTS;
 
     // Deliberate: integrity-check costs ~0.6s on a 1,146-note vault and scales with corpus size,
     // so it is NOT paid on every boot. This test pins that cost decision — if verification becomes
@@ -131,17 +131,17 @@ describe("ensureNotesFts integrity gate (THE-696)", () => {
     db.close();
   });
 
-  it("verifies and repairs when OBSIDIAN_TC_VERIFY_FTS=1", () => {
+  it("verifies and repairs when RELIQUARY_TC_VERIFY_FTS=1", () => {
     const db = dbWithPopulatedFts();
     corrupt(db);
-    process.env.OBSIDIAN_TC_DISABLE_FTS = "";
-    process.env.OBSIDIAN_TC_VERIFY_FTS = "1";
+    process.env.RELIQUARY_TC_DISABLE_FTS = "";
+    process.env.RELIQUARY_TC_VERIFY_FTS = "1";
 
     try {
       expect(ensureNotesFts(db)).toBe(true);
       expect(verifyNotesFtsIntegrity(db)).toStrictEqual({ ok: true }); // repaired in place
     } finally {
-      delete process.env.OBSIDIAN_TC_VERIFY_FTS;
+      delete process.env.RELIQUARY_TC_VERIFY_FTS;
       db.close();
     }
   });

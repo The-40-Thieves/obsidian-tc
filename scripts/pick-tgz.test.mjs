@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { pickTgz } from "./lib/pick-tgz.mjs";
 
 const CLI = fileURLToPath(new URL("./lib/pick-tgz.mjs", import.meta.url));
-const BASE = "the-40-thieves-obsidian-tc-embedder-local-";
+const BASE = "the-40-thieves-reliquary-tc-embedder-local-";
 const root = mkdtempSync(join(tmpdir(), "pick-tgz-"));
 after(() => rmSync(root, { recursive: true, force: true }));
 

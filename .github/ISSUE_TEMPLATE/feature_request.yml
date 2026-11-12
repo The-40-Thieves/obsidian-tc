@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest a new capability for obsidian-tc
+description: Suggest a new capability for reliquary-tc
 labels: ["enhancement", "needs-triage"]
 body:
   - type: markdown
@@ -21,7 +21,7 @@ body:
     id: proposal
     attributes:
       label: Proposed solution
-      description: What should obsidian-tc do?
+      description: What should reliquary-tc do?
     validations:
       required: true
 
@@ -35,7 +35,7 @@ body:
     id: scope
     attributes:
       label: Scope
-      description: Which part of obsidian-tc would this affect?
+      description: Which part of reliquary-tc would this affect?
       options:
         - label: Server tool surface
         - label: Companion plugin
@@ -51,5 +51,5 @@ body:
     attributes:
       label: Code of Conduct
       options:
-        - label: I agree to follow the [Code of Conduct](https://github.com/The-40-Thieves/obsidian-tc/blob/main/CODE_OF_CONDUCT.md)
+        - label: I agree to follow the [Code of Conduct](https://github.com/The-40-Thieves/reliquary-tc/blob/main/CODE_OF_CONDUCT.md)
           required: true

@@ -1,6 +1,6 @@
 # Documentation
 
-The obsidian-tc documentation site is an [Astro Starlight](https://starlight.astro.build)
+The reliquary-tc documentation site is an [Astro Starlight](https://starlight.astro.build)
 site whose source lives in [`src/`](./src) — install, configuration, tools, security, and
 observability guides for operators. Build and preview it with the scripts in
 [`package.json`](./package.json); CI publishes it from `.github/workflows/ci-docs.yml`.

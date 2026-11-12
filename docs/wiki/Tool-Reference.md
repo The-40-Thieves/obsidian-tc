@@ -1,6 +1,6 @@
 # Tool Reference
 
-**Every tool, by domain.** Canonical spec with full ACL / HITL / idempotency / rate-limit annotations and I/O schemas: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md) (design-era record + the post-1.0 additive ledger). This page is the at-a-glance index.
+**Every tool, by domain.** Canonical spec with full ACL / HITL / idempotency / rate-limit annotations and I/O schemas: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/G2.1-tools.md) (design-era record + the post-1.0 additive ledger). This page is the at-a-glance index.
 
 Every tool carries four annotations enforced by the dispatch pipeline: **acl** (`read` / `write` / `delete` / `execute` / `admin`), **hitl** (`never` / `required` / conditional), **idem** (`pure` / `natural` / `keyed` / `non-idem`), and **ratelimit** (`read` / `write` / `bulk`). See **[[Security and ACL]]**.
 
@@ -68,7 +68,7 @@ Tools that return more than an acknowledgement accept `response_format: "concise
 - **Domain 30: Obsidian Git bridge** — `git_status`, `git_diff`, `git_log`, `git_stage`, `git_commit` (execute-family HITL floor — commits always require human confirmation).
 - **Domain 31: Remotely Save bridge** — `remotely_save_status`, `remotely_save_trigger` (independent backup verification).
 - **Additions to existing domains** — snapshots/restore, vault health, `add_vault`, markdown tables, kanban, filesystem Excalidraw read.
-- **Offline CLI family** (not MCP tools — run against the same config + caches): `cluster`, `activation-recompute`, `citation-infer`, `contribution-report`, `prefetch`, `reflect`, `metrics`, `gaps`, `forget`, `context-export`, `context-import`. See the [server README](https://github.com/The-40-Thieves/obsidian-tc/blob/main/packages/server/README.md).
+- **Offline CLI family** (not MCP tools — run against the same config + caches): `cluster`, `activation-recompute`, `citation-infer`, `contribution-report`, `prefetch`, `reflect`, `metrics`, `gaps`, `forget`, `context-export`, `context-import`. See the [server README](https://github.com/The-40-Thieves/reliquary-tc/blob/main/packages/server/README.md).
 
 ## Degradation & errors
 

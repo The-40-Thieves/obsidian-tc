@@ -2,7 +2,7 @@
 // SCHEMA.md layers on its ancestor chain that carry a `conventions:` block, root first, and the merged
 // rules they set, each with the layer it came from. A layer the caller cannot read is left out, never
 // reported as denied. start_session reuses the root layer through rootConventionsFor.
-import { grantsAll, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { grantsAll, VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { type ConventionsScope, resolveConventions } from "../../conventions/resolve";
 import {

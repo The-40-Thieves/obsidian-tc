@@ -239,7 +239,7 @@ describe.skipIf(!bunAvailable)(
             }),
           );
 
-          // Bundle path first, config path second — obsidian-tc context-import <bundle> [path].
+          // Bundle path first, config path second — reliquary-tc context-import <bundle> [path].
           const dryRun = runCli(["context-import", outPath, importConfigPath, "--dry-run"]);
           expect(dryRun.code).toBe(0);
           expect(dryRun.stdout).toMatch(/dry-run/);

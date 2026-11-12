@@ -15,7 +15,7 @@
 // hides from the index still counts as "exists". Similarity evidence comes from the index, so an
 // excluded note is never a similarity candidate. Both halves are ACL-filtered: a note the caller
 // cannot read is indistinguishable from a missing one.
-import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { CallerContext, ToolDefinition } from "../../../mcp/registry";
 import { TOPIC_MATCH_MIN } from "../../../search/dedupe-band";

@@ -3,9 +3,9 @@
 import { existsSync } from "node:fs";
 import {
   err,
-  ObsidianTcError,
+  ReliquaryTcError,
   type VaultMemoryDefenseConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import type { MetricsRecorder } from "../../metrics/registry";
 import { enforceMemoryDefenseOnNoteWrite } from "../../util/memory-defense";
 import type { ImmutableRewriteSkips } from "../../vault/acl-path";
@@ -162,8 +162,8 @@ export interface MoveRow {
   toRel?: string;
   destExists?: boolean;
   ok: boolean;
-  error?: ReturnType<ObsidianTcError["toJSON"]>;
-  would_block?: ReturnType<ObsidianTcError["toJSON"]>;
+  error?: ReturnType<ReliquaryTcError["toJSON"]>;
+  would_block?: ReturnType<ReliquaryTcError["toJSON"]>;
 }
 
 /** dry_run's write-gate verdict per row, with nothing written: each planned move the gate would refuse
@@ -179,7 +179,7 @@ export function markWouldBlock(rows: MoveRow[], moved: readonly PlannedMove[]): 
       noteWriteOrigin(m.toRel, m.fromRel);
       preflightNoteWrite(m.toAbs, m.content);
     } catch (e) {
-      if (e instanceof ObsidianTcError && e.code === "convention_blocked")
+      if (e instanceof ReliquaryTcError && e.code === "convention_blocked")
         r.would_block = e.toJSON();
     }
   }

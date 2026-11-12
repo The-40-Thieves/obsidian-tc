@@ -13,9 +13,9 @@
 import {
   type ErrorCode,
   err,
-  ObsidianTcError,
+  ReliquaryTcError,
   recoveryFor,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 
 /** Every code in the taxonomy. Kept literal so a rename here fails loudly rather than silently
@@ -104,7 +104,7 @@ describe("THE-512 error recovery hints", () => {
       "vault-alpha",
       "SELECT secret FROM notes",
     ];
-    const e = new ObsidianTcError(
+    const e = new ReliquaryTcError(
       "acl_denied",
       `path denied by folder ACL: ${secrets[0]} (query ${secrets[4]})`,
       { path: secrets[0], caller: secrets[2], vault: secrets[3], attempted: secrets[1] },
@@ -120,8 +120,8 @@ describe("THE-512 error recovery hints", () => {
   });
 
   it("gives the same hint for the same code regardless of message or details", () => {
-    const a = new ObsidianTcError("throttled", "one", { scope: "write" }).toJSON().recovery;
-    const b = new ObsidianTcError("throttled", "totally different", undefined).toJSON().recovery;
+    const a = new ReliquaryTcError("throttled", "one", { scope: "write" }).toJSON().recovery;
+    const b = new ReliquaryTcError("throttled", "totally different", undefined).toJSON().recovery;
     expect(a).toBe(b);
   });
 
@@ -131,7 +131,7 @@ describe("THE-512 error recovery hints", () => {
     const hint = recoveryFor("indeterminate_outcome") ?? "";
     expect(hint).toMatch(/do NOT blindly retry/i);
     expect(hint).toMatch(/new key/i);
-    expect(new ObsidianTcError("indeterminate_outcome", "x").retryable).toBe(false);
+    expect(new ReliquaryTcError("indeterminate_outcome", "x").retryable).toBe(false);
   });
 
   // A hint that only restates the message is noise. These are the codes where the actionable next

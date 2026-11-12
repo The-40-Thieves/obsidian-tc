@@ -7,7 +7,7 @@
 // least privileged ones, exactly as at commit time (see tools/m7/knowledge/wiki-generated.ts): both
 // paths therefore write the same bytes. A tick never throws and never touches a vault without a
 // wiki folder; a hand-edited page is reported on the log line, not overwritten.
-import type { VaultMemoryDefenseConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { VaultMemoryDefenseConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { FolderAcl } from "../acl";
 import type { Database } from "../db/types";
 import type { Scheduler } from "../scheduler/scheduler";

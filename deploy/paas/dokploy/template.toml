@@ -4,17 +4,17 @@ jwt_secret = "${password:64}"
 
 [config]
 env = [
-  "OBSIDIAN_TC_PUBLIC_URL=https://${main_domain}",
-  "OBSIDIAN_TC_JWT_SECRET=${jwt_secret}",
+  "RELIQUARY_TC_PUBLIC_URL=https://${main_domain}",
+  "RELIQUARY_TC_JWT_SECRET=${jwt_secret}",
 ]
 
 [[config.domains]]
-serviceName = "obsidian-tc"
+serviceName = "reliquary-tc"
 port = 8765
 host = "${main_domain}"
 
 [[config.mounts]]
-filePath = "obsidian-tc.config.json"
+filePath = "reliquary-tc.config.json"
 content = """
 {
   "vaults": [{ "id": "main", "path": "/data/vault" }],

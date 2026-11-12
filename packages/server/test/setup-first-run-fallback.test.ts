@@ -16,7 +16,7 @@ import { makeTempDir, rmTemp, stubHomedir } from "./tmp";
 // Finding 5 (fix round, cross-vendor review): `shouldAttemptFirstRunFallback`'s own last check is
 // `!existsSync(defaultSetupConfigPath())` — a REAL filesystem read against the ACTUAL home dir
 // unless it is stubbed. Every test below used to call it with no `stubHomedir`, so a developer (or
-// CI job) that already has `~/.obsidian-tc/config.json` on the box running the suite would see
+// CI job) that already has `~/.reliquary-tc/config.json` on the box running the suite would see
 // these "is true"/opt-out assertions flip to `false` for a reason that has nothing to do with the
 // gating logic under test.
 const tmpDirs: string[] = [];
@@ -48,11 +48,11 @@ describe("shouldAttemptFirstRunFallback", () => {
     expect(shouldAttemptFirstRunFallback({ input: "/some/vault", env: {} })).toBe(false);
   });
 
-  it("is false when OBSIDIAN_TC_CONFIG is set", () => {
+  it("is false when RELIQUARY_TC_CONFIG is set", () => {
     expect(
       shouldAttemptFirstRunFallback({
         input: undefined,
-        env: { OBSIDIAN_TC_CONFIG: "/some/config.json" },
+        env: { RELIQUARY_TC_CONFIG: "/some/config.json" },
       }),
     ).toBe(false);
   });
@@ -64,7 +64,7 @@ describe("shouldAttemptFirstRunFallback", () => {
   });
 
   it("does NOT treat any other value of the opt-out var as opting out", () => {
-    // Only the literal "1" opts out — same strictness as every other OBSIDIAN_TC_* boolean-ish
+    // Only the literal "1" opts out — same strictness as every other RELIQUARY_TC_* boolean-ish
     // env var in this repo (never "true"/"yes" as a silent alias).
     expect(
       shouldAttemptFirstRunFallback({ input: undefined, env: { [NO_AUTO_SETUP_ENV_VAR]: "yes" } }),
@@ -109,32 +109,32 @@ describe("formatFirstRunSetupNotice", () => {
   it("names the path and vault for a written config", () => {
     const text = formatFirstRunSetupNotice({
       outcome: "written",
-      path: "/home/op/.obsidian-tc/config.json",
+      path: "/home/op/.reliquary-tc/config.json",
       config: {
         vaults: [{ id: "main", path: "/vaults/main" }],
-      } as unknown as import("@the-40-thieves/obsidian-tc-shared").ServerConfig,
+      } as unknown as import("@the-40-thieves/reliquary-tc-shared").ServerConfig,
     });
-    expect(text).toContain("/home/op/.obsidian-tc/config.json");
+    expect(text).toContain("/home/op/.reliquary-tc/config.json");
     expect(text).toContain("main: /vaults/main");
-    expect(text).toContain("obsidian-tc setup");
+    expect(text).toContain("reliquary-tc setup");
   });
 
   it("names a raced write as written by another process", () => {
     const text = formatFirstRunSetupNotice({
       outcome: "raced",
-      path: "/home/op/.obsidian-tc/config.json",
+      path: "/home/op/.reliquary-tc/config.json",
       config: {
         vaults: [{ id: "main", path: "/vaults/main" }],
-      } as unknown as import("@the-40-thieves/obsidian-tc-shared").ServerConfig,
+      } as unknown as import("@the-40-thieves/reliquary-tc-shared").ServerConfig,
     });
-    expect(text).toMatch(/another obsidian-tc process/);
+    expect(text).toMatch(/another reliquary-tc process/);
   });
 });
 
 describe("formatFirstRunFallbackDeclinedHint", () => {
-  it("carries the decline reason and points at `obsidian-tc setup`", () => {
+  it("carries the decline reason and points at `reliquary-tc setup`", () => {
     const text = formatFirstRunFallbackDeclinedHint("2 vaults were found");
     expect(text).toContain("2 vaults were found");
-    expect(text).toContain("obsidian-tc setup");
+    expect(text).toContain("reliquary-tc setup");
   });
 });

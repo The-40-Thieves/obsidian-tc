@@ -88,7 +88,7 @@ export async function raceShutdownPhaseOrExit(
   const outcome = await raceShutdownPhase(opts);
   if (outcome === "timeout") {
     const message =
-      "obsidian-tc: shutdown drain (scheduler/index-coordinator/job-runner) still running past the deadline; exiting without a clean lock release (GH #995)\n";
+      "reliquary-tc: shutdown drain (scheduler/index-coordinator/job-runner) still running past the deadline; exiting without a clean lock release (GH #995)\n";
     process.stderr.write(message);
     exit(1);
     throw new ShutdownTimeoutExitError(message);
@@ -144,7 +144,7 @@ export async function joinReconcileOrExit(
   const outcome = await joinInFlightReconcile(inFlight, deadlineMs);
   if (outcome === "timeout") {
     const message =
-      "obsidian-tc: shutdown reconcile still in flight past the drain deadline; exiting without a clean lock release (GH #995)\n";
+      "reliquary-tc: shutdown reconcile still in flight past the drain deadline; exiting without a clean lock release (GH #995)\n";
     process.stderr.write(message);
     exit(1);
     // F3 (fix round 2): never trust `exit` to actually terminate — see ShutdownTimeoutExitError's

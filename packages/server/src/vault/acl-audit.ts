@@ -4,7 +4,7 @@
 // `acl-extraction-coverage.test.ts` proves every mutating path tool DECLARES a pathAcl (or is a
 // documented exemption). This catches the next bug class: a declared extractor that returns the
 // WRONG or INCOMPLETE set — so the central dispatch stage checks path A while the handler actually
-// touches path B. Enabled only when OBSIDIAN_TC_ACL_AUDIT is set (never in production):
+// touches path B. Enabled only when RELIQUARY_TC_ACL_AUDIT is set (never in production):
 //   - "on" / "1": collect violations (read them via getCollectedViolations()).
 //   - "strict":   additionally throw the moment an uncovered fs-op path is resolved.
 //
@@ -71,9 +71,9 @@ function applyMode(mode: string): void {
   _enabled = mode === "1" || mode === "on" || mode === "strict";
   _strict = mode === "strict";
 }
-applyMode(process.env.OBSIDIAN_TC_ACL_AUDIT ?? "");
+applyMode(process.env.RELIQUARY_TC_ACL_AUDIT ?? "");
 
-/** Test-only: force the audit mode at runtime (production reads OBSIDIAN_TC_ACL_AUDIT once at load). */
+/** Test-only: force the audit mode at runtime (production reads RELIQUARY_TC_ACL_AUDIT once at load). */
 export function setAclAuditMode(mode: "off" | "on" | "strict"): void {
   applyMode(mode === "off" ? "" : mode);
 }

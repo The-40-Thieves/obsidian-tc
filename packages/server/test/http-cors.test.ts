@@ -4,7 +4,7 @@
 // The pins here are the contract a browser sees, not the middleware that produces it.
 
 import { request } from "node:http";
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -48,7 +48,7 @@ async function boot(opts: { auth?: ServerConfig["auth"]; corsOrigins?: string[] 
   const db = openMemoryDb();
   provisionCacheDb(db);
   const handle = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth: opts.auth ?? authOf(),

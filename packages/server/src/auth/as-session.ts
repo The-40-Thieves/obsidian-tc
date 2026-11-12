@@ -4,7 +4,7 @@
 // issuer and the per-server secret alone, so the login routes (as-operator.ts) and the authorize and
 // consent routes (as-authorize.ts) accept each other's cookies and tokens.
 import { createHmac, hkdfSync, randomBytes } from "node:crypto";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { Context } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { Database } from "../db/types";
@@ -21,7 +21,7 @@ import { isClaimed } from "./oauth-db";
 
 type AuthConfig = ServerConfig["auth"];
 
-const CSRF_INFO = "obsidian-tc/as-csrf/v1";
+const CSRF_INFO = "reliquary-tc/as-csrf/v1";
 const NONCE_RE = /^[A-Za-z0-9_-]{22}$/;
 const SESSION = "otc_as";
 const NONCE = "otc_as_csrf";
@@ -67,7 +67,7 @@ export function createAsBrowser(deps: AsBrowserDeps) {
       503,
       messagePage(
         "Not claimed",
-        "This authorization server has not been claimed yet. The operator claims it with `obsidian-tc auth as set-password` on the host, or with a setup token.",
+        "This authorization server has not been claimed yet. The operator claims it with `reliquary-tc auth as set-password` on the host, or with a setup token.",
       ),
     );
   const forbidden = (c: Context) =>

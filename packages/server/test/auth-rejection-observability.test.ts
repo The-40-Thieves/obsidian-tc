@@ -1,7 +1,7 @@
 // THE-520 (edge half): a rejection must be diagnosable by the OPERATOR without becoming an oracle
 // for the caller. The server logs the specific reason and counts it; the HTTP response stays a
 // generic 401 with no hint about which check failed.
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { describe, expect, it, vi } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -20,7 +20,7 @@ async function boot(auth: ServerConfig["auth"], onAuthRejected?: unknown) {
   const db = openMemoryDb();
   provisionCacheDb(db);
   const handle = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth,

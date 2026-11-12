@@ -1,8 +1,8 @@
 // THE-940 review finding G1 — publish.yml's propagation-wait loop builds the npm version-document
 // URL with `enc_id=$(jq -rn --arg n "$identifier" '<filter>')`. An earlier version used jq's
 // built-in `@uri`, which percent-encodes EVERY RFC 3986 reserved character, including `@` — so a
-// scoped npm identifier (`@the-40-thieves/obsidian-tc-shared`) became
-// `%40the-40-thieves%2Fobsidian-tc-shared`, not the `@the-40-thieves%2Fobsidian-tc-shared` shape
+// scoped npm identifier (`@the-40-thieves/reliquary-tc-shared`) became
+// `%40the-40-thieves%2Freliquary-tc-shared`, not the `@the-40-thieves%2Freliquary-tc-shared` shape
 // the registry's own npm validator builds (Go's `url.PathEscape` leaves `@` literal — it is a
 // valid `pchar` — and escapes only `/`).
 //
@@ -46,13 +46,13 @@ test("the enc_id filter is present and non-empty in publish.yml", () => {
 });
 
 test("an unscoped identifier is unchanged (no slash to encode)", () => {
-  assert.equal(encodeViaWorkflowFilter("obsidian-tc"), "obsidian-tc");
+  assert.equal(encodeViaWorkflowFilter("reliquary-tc"), "reliquary-tc");
 });
 
 test("a scoped identifier keeps a literal @ and encodes only the slash — the exact npm registry path shape", () => {
   assert.equal(
-    encodeViaWorkflowFilter("@the-40-thieves/obsidian-tc-shared"),
-    "@the-40-thieves%2Fobsidian-tc-shared",
+    encodeViaWorkflowFilter("@the-40-thieves/reliquary-tc-shared"),
+    "@the-40-thieves%2Freliquary-tc-shared",
   );
 });
 
@@ -62,7 +62,7 @@ test("a scoped identifier keeps a literal @ and encodes only the slash — the e
 // coincidence if the filter were rewritten to some other wrong-but-different-shaped transform;
 // this pins the specific defect down directly.
 test("regression: @ is never percent-encoded (that was the original bug — jq's @uri encodes it to %40)", () => {
-  const out = encodeViaWorkflowFilter("@the-40-thieves/obsidian-tc-native");
+  const out = encodeViaWorkflowFilter("@the-40-thieves/reliquary-tc-native");
   assert.ok(!out.includes("%40"), `expected a literal '@', got: ${out}`);
   assert.ok(out.startsWith("@"), `expected the identifier to still start with '@', got: ${out}`);
 });

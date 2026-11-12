@@ -9,7 +9,7 @@
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { type FakeRequestInfo, fakeBridgeTransport } from "../src/bridge";

@@ -1,4 +1,4 @@
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import type { Database } from "../src/db/types";
 import { type CallerContext, ToolRegistry } from "../src/mcp/registry";
@@ -31,7 +31,7 @@ describe("resources run under shared governance (THE-415)", () => {
     }));
     const text = await metrics.metrics();
     expect(text).toContain(
-      'obsidian_tc_tool_calls_total{vault="main",tool="resources/read",status="ok"} 1',
+      'reliquary_tc_tool_calls_total{vault="main",tool="resources/read",status="ok"} 1',
     );
   });
 
@@ -51,7 +51,7 @@ describe("resources run under shared governance (THE-415)", () => {
     // Throttle must reject BEFORE the read runs, or the limiter buys nothing.
     expect(called).toBe(false);
     const text = await metrics.metrics();
-    expect(text).toContain('obsidian_tc_rate_limit_hits_total{vault="main",scope_class="read"} 1');
+    expect(text).toContain('reliquary_tc_rate_limit_hits_total{vault="main",scope_class="read"} 1');
   });
 
   it("records an error outcome when the resource handler throws", async () => {
@@ -64,7 +64,7 @@ describe("resources run under shared governance (THE-415)", () => {
     ).rejects.toThrow("boom");
     const text = await metrics.metrics();
     expect(text).toContain(
-      'obsidian_tc_tool_calls_total{vault="main",tool="resources/list",status="error"} 1',
+      'reliquary_tc_tool_calls_total{vault="main",tool="resources/list",status="error"} 1',
     );
   });
 

@@ -78,8 +78,8 @@ describe("isolated-home helper", () => {
       expect(() => assertStateUnderHome(iso.home)).toThrow(
         /did not resolve under the isolated home/,
       );
-      mkdirSync(join(iso.home, ".obsidian-tc"));
-      writeFileSync(join(iso.home, ".obsidian-tc", "cache.db"), "");
+      mkdirSync(join(iso.home, ".reliquary-tc"));
+      writeFileSync(join(iso.home, ".reliquary-tc", "cache.db"), "");
       expect(() => assertStateUnderHome(iso.home)).not.toThrow();
     } finally {
       iso.cleanup();
@@ -173,16 +173,16 @@ describe("zero-config smoke never touches the real home", () => {
       writeFileSync(join(otherVault, "x.md"), "# x\n");
       const homeEnv = { HOME: fakeHome, USERPROFILE: fakeHome };
 
-      // Seed `~/.obsidian-tc` with vault id "main" recorded against a DIFFERENT path: exactly the
+      // Seed `~/.reliquary-tc` with vault id "main" recorded against a DIFFERENT path: exactly the
       // state an earlier smoke run left on the operator's machine.
       runBunSync(["src/cli.ts", otherVault], {
         env: homeEnv,
         cwd: PACKAGE_ROOT,
         timeoutMs: 30_000,
       });
-      expect(existsSync(join(fakeHome, ".obsidian-tc", "cache.db"))).toBe(true);
+      expect(existsSync(join(fakeHome, ".reliquary-tc", "cache.db"))).toBe(true);
       // Only the operator's own state dir: the `bun` runner itself caches under $HOME/.bun.
-      const state = join(fakeHome, ".obsidian-tc");
+      const state = join(fakeHome, ".reliquary-tc");
       const before = snapshot(state);
 
       for (const run of [1, 2]) {

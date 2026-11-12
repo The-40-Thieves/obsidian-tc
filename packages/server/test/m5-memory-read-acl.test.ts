@@ -3,7 +3,7 @@
 // returns, so an entity is readable exactly when read_note could read that note. Denied == missing:
 // an unreadable entity yields the byte-identical error a nonexistent one does, on every tool that
 // looks an entity up (read AND write), and a graph walk never traverses an unreadable node.
-import { type ToolResult, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { type ToolResult, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";

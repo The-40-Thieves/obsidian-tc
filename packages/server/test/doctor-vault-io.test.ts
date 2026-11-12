@@ -27,7 +27,7 @@ describe("vault.io", () => {
     expect(r.summary).toContain("best-effort");
     expect(r.issues?.join(" ")).toMatch(/symlink swap/);
     expect(r.remediation).toMatch(/native addon/);
-    expect(r.remediation).toMatch(/OBSIDIAN_TC_FORCE_JS_FALLBACK/);
+    expect(r.remediation).toMatch(/RELIQUARY_TC_FORCE_JS_FALLBACK/);
   });
 
   it("warns on pure-JS win32: best-effort, and says the native path does not exist there", async () => {

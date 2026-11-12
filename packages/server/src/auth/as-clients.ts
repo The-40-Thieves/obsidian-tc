@@ -8,13 +8,13 @@
 // client picks its port at run time (RFC 8252 section 7.3): `http://127.0.0.1`, `http://[::1]` and
 // `http://localhost` match with the port ignored and everything else (scheme, host, path, query) exact.
 import { createHash, timingSafeEqual } from "node:crypto";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import {
   grantsScope,
   isLoopbackHost,
   isQualifiedScope,
   parseScope,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 
 type AuthConfig = ServerConfig["auth"];
 type StaticClient = NonNullable<AuthConfig["as"]>["clients"][number];

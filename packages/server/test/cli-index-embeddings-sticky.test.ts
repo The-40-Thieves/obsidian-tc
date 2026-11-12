@@ -1,8 +1,8 @@
-// THE-1122 review round 2 (High 1) — GH #995's ACTUAL regression, reopened: `obsidian-tc index`
+// THE-1122 review round 2 (High 1) — GH #995's ACTUAL regression, reopened: `reliquary-tc index`
 // loaded a schema-defaulted config via `resolveOrUsageExit` (no provenance, no db) and passed it
 // straight to `wireIndexResources`, never going through the sticky resolution `serve`'s boot
 // (server-runtime.ts) and `doctor` (doctor.ts) both apply. An unconfigured pre-1.31.4 install that
-// ran `obsidian-tc index <vault>` before ever starting `serve` — the documented use case index.ts's
+// ran `reliquary-tc index <vault>` before ever starting `serve` — the documented use case index.ts's
 // own header describes ("the derived-state job that had no CLI") — got a fresh "local" provider
 // wired up instead of its existing "ollama" one, silently re-embedding on first contact.
 //

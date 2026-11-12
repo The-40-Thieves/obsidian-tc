@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openDatabase } from "../src/db/open";
 import { provisionCacheDb } from "../src/db/provision";

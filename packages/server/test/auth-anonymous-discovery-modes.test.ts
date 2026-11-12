@@ -2,7 +2,7 @@
 // behaviour as the bundled-AS flow in auth-anonymous-discovery.test.ts, because one resolveAuth and
 // one anonymous gate (transports/anonymous-discovery.ts) serve every mode. Real HTTP app, no mocks of
 // the gate itself; the oidc verifier talks to the local mock IdP.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { FolderAcl } from "../src/acl";
@@ -40,7 +40,7 @@ async function boot(auth: Record<string, unknown>, withIdp: boolean) {
   const db = openMemoryDb();
   provisionCacheDb(db);
   const { app } = createHttpApp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "t",
     registry,
     auth: parsed.auth,

@@ -7,8 +7,8 @@
   },
   "plugins": [
     {
-      "name": "obsidian-tc",
-      "source": "./plugins/obsidian-tc",
+      "name": "reliquary-tc",
+      "source": "./plugins/reliquary-tc",
       "description": "Governed Obsidian vault access over MCP: hybrid retrieval, Markdown-native memory, folder ACLs and HITL confirmations."
     }
   ]

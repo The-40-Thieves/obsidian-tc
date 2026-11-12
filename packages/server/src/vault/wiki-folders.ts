@@ -14,7 +14,7 @@
 // in vault/ (it resolves through vault/paths) while the layout contract does not.
 import { lstatSync } from "node:fs";
 import { join } from "node:path";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { inodeIdentity } from "./fs-identity";
 import { resolveVaultPath, resolveVaultPathChecked } from "./paths";
 

@@ -4,7 +4,7 @@
 // RetrievalRuntime's doc comment in retrieval-runtime.ts.
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { err, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { tableExists } from "../../../db/introspect";
 import type { ToolDefinition } from "../../../mcp/registry";

@@ -12,7 +12,7 @@ names close enough to substitute for each other by mistake:
 | looks like the same thing | is not |
 |---|---|
 | `check:config-paths` | sweeps prose for config keys that no longer resolve |
-| `config:schema:check` | regenerates and diffs `docs/obsidian-tc.config.schema.json` |
+| `config:schema:check` | regenerates and diffs `docs/reliquary-tc.config.schema.json` |
 
 Running the first and believing it covered the second cost a full CI round on PR #513. That is the
 reason this skill exists.
@@ -124,7 +124,7 @@ in this repo. Redirect to a uniquely-named log and check `$?` separately.
 Don't trust a number written here — the set changes. Read it:
 
 ```bash
-gh api repos/The-40-Thieves/obsidian-tc/branches/main/protection/required_status_checks \
+gh api repos/The-40-Thieves/reliquary-tc/branches/main/protection/required_status_checks \
   --jq '.contexts[]' | sort
 ```
 
@@ -149,7 +149,7 @@ If `gh pr merge` reports `BLOCKED` with every real signal green, that is a stale
 
 ```bash
 SHA=$(gh pr view <N> --json headRefOid --jq .headRefOid)
-gh api -X PUT repos/The-40-Thieves/obsidian-tc/pulls/<N>/merge \
+gh api -X PUT repos/The-40-Thieves/reliquary-tc/pulls/<N>/merge \
   -f merge_method=squash -f sha="$SHA"
 ```
 

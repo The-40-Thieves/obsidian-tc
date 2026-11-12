@@ -144,7 +144,7 @@ const targets: Array<{ rel: string; file: string; marker: string; content: strin
 const declared = new Set<string>(GENERATED_DOC_FILES);
 for (const t of targets) {
   // Use the repo-relative path the target already carries. Deriving it from the absolute path via
-  // indexOf("obsidian-tc/") broke on CI, where the checkout is .../work/obsidian-tc/obsidian-tc/:
+  // indexOf("reliquary-tc/") broke on CI, where the checkout is .../work/reliquary-tc/reliquary-tc/:
   // the first match left a stray prefix. Locally there is one occurrence, so it passed here and
   // failed there.
   const rel = t.rel;
@@ -190,7 +190,7 @@ if (orphaned.length > 0) {
 const metricTableScan = findHandWrittenMetricTables(repoRoot);
 if (metricTableScan.totalMentions === 0) {
   throw new Error(
-    "docgen: metric-table scan matched ZERO `obsidian_tc_*` mentions across the docs tree — the " +
+    "docgen: metric-table scan matched ZERO `reliquary_tc_*` mentions across the docs tree — the " +
       "scan is broken (scripts/docgen/metric-table-scan.ts), not the docs. Refusing to report success.",
   );
 }

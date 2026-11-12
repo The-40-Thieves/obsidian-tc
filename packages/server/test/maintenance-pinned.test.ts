@@ -6,7 +6,7 @@
 // the vault. The sweep now carries the registry's folder pins, runs under them, enumerates by the
 // pinned name, rechecks the ACL's verdict on the folder, and deletes through `hardDelete`.
 //
-// Native and OBSIDIAN_TC_FORCE_JS_FALLBACK=1 (ci-server.yml): without the native module a pinned
+// Native and RELIQUARY_TC_FORCE_JS_FALLBACK=1 (ci-server.yml): without the native module a pinned
 // trace folder is skipped (nothing deleted), never followed through the live alias.
 import {
   existsSync,

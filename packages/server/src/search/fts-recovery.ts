@@ -51,7 +51,7 @@ export function createFtsMonitor(
       if (exhaustedLogged) return;
       exhaustedLogged = true;
       log(
-        `obsidian-tc: notes_fts still locked after ${r.attempts} attempts (${r.lastError}); full-text search stays on disk scans until an index write retries it`,
+        `reliquary-tc: notes_fts still locked after ${r.attempts} attempts (${r.lastError}); full-text search stays on disk scans until an index write retries it`,
       );
       return;
     }
@@ -69,19 +69,19 @@ export function createFtsMonitor(
   const unsubscribe = subscribeFts(db, (next, prev) => {
     if (next.kind === "transient" && prev?.kind !== "transient") {
       log(
-        `obsidian-tc: notes_fts unavailable (${next.lastError}); retrying in the background, searches use disk scans meanwhile`,
+        `reliquary-tc: notes_fts unavailable (${next.lastError}); retrying in the background, searches use disk scans meanwhile`,
       );
     }
     if (next.kind === "transient") arm();
     if (next.kind === "available" && prev && prev.kind !== "available") {
-      log("obsidian-tc: notes_fts recovered; full-text search is on again");
+      log("reliquary-tc: notes_fts recovered; full-text search is on again");
       if (started && !cancelled) onRecovered?.();
     }
     if (
       next.kind === "terminal" &&
       (next.reason === "provision_failed" || next.reason === "integrity_failed")
     ) {
-      log(`obsidian-tc: notes_fts failed (${next.reason}: ${next.lastError ?? "unknown"})`);
+      log(`reliquary-tc: notes_fts failed (${next.reason}: ${next.lastError ?? "unknown"})`);
     }
   });
 
@@ -89,13 +89,13 @@ export function createFtsMonitor(
   const initial = ftsRecord(db);
   if (initial?.kind === "transient") {
     log(
-      `obsidian-tc: notes_fts unavailable (${initial.lastError}); retrying in the background, searches use disk scans meanwhile`,
+      `reliquary-tc: notes_fts unavailable (${initial.lastError}); retrying in the background, searches use disk scans meanwhile`,
     );
   } else if (
     initial?.kind === "terminal" &&
     (initial.reason === "provision_failed" || initial.reason === "integrity_failed")
   ) {
-    log(`obsidian-tc: notes_fts failed (${initial.reason}: ${initial.lastError ?? "unknown"})`);
+    log(`reliquary-tc: notes_fts failed (${initial.reason}: ${initial.lastError ?? "unknown"})`);
   }
 
   const cancel = (): void => {

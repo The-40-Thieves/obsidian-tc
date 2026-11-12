@@ -8,7 +8,7 @@
 // re-checks) and the MODERN-ERA-ONLY ceiling this ticket's brief calls out explicitly — a legacy
 // (2025-11-25) session must receive no delivery attempt and no error, not silently break.
 
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -95,7 +95,7 @@ async function boot(): Promise<{ handle: HttpHandle; bus: ReturnType<typeof crea
   }).auth;
   const bus = createAdvisoryBus();
   const handle = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     auth,
@@ -304,7 +304,7 @@ describe("notifications/advisory (THE-634)", () => {
         auth: { mode: "jwt", jwtSecret: SECRET, audience: "http://test", tokenTtlSeconds: 3600 },
       }).auth;
       const handle = await startHttp({
-        name: "obsidian-tc",
+        name: "reliquary-tc",
         version: "0.0.0-test",
         registry,
         auth,

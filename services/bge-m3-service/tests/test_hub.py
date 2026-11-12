@@ -15,7 +15,7 @@ def _install_fake_hub(monkeypatch, *, snapshot_download):
 
 
 def _hub_module():
-    from obsidian_tc_bge import hub
+    from reliquary_tc_bge import hub
 
     return hub
 

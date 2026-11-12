@@ -387,7 +387,7 @@ export const SchedulerConfigSchema = z
       .positive()
       .optional()
       .describe(
-        "Event-loop delay p99 (ms) above which a DUE background tick is deferred rather than run. Deferred is not skipped: the tick runs on a later pass once the loop recovers, and obsidian_tc_scheduler_deferred_total counts it. Absent (the default) disables deferral entirely and the event-loop monitor is never even created, so there is no cost when off. Set it when background work is observably competing with request latency; a value near your acceptable p99 tail is the starting point.",
+        "Event-loop delay p99 (ms) above which a DUE background tick is deferred rather than run. Deferred is not skipped: the tick runs on a later pass once the loop recovers, and reliquary_tc_scheduler_deferred_total counts it. Absent (the default) disables deferral entirely and the event-loop monitor is never even created, so there is no cost when off. Set it when background work is observably competing with request latency; a value near your acceptable p99 tail is the starting point.",
       ),
   })
   .prefault({});
@@ -501,7 +501,7 @@ export const EgressConfigSchema = z
       )
       .default([])
       .describe(
-        'Gitignore-style glob patterns (vault-relative), compiled with the same glob engine as auth.acl.readPaths, plus a NORMALISATION and a WIDENING that auth.acl.readPaths does not get, because a pattern here that matches nothing protects nothing and says so nowhere. Normalisation: a backslash is read as a separator (a vault path can never contain one, so `Private\\**` is `Private/**` rather than a pattern that silently matches nothing), a leading "/" or "./" is stripped and repeated separators collapse, so "/Private", "./Private", "Private" and "Private//" are one and the same root-anchored pattern. Widening: EVERY pattern also matches everything beneath it, so "Private", "Private/", "Private*/" and "Private/*" each withhold that folder\'s whole subtree, not just its direct children; "**/Private" matches a Private folder at ANY depth (root included) and its subtree. Consequences worth stating, both in the safe direction (this is a security control, so an ambiguous pattern excludes too much, never too little): a folder-shaped pattern also matches a FILE of that exact name, so "Private/" or "Private*/" additionally excludes a root note named "Private.md"; a literal pattern naming a specific file ("Private/a.md") still matches only that exact file, never a sibling like "Private/a.md.bak"; and matching stays case- and unicode-sensitive exactly as auth.acl.readPaths is. "**" is the EXCLUDE-ALL form: it withholds every note from every hosted provider, which is a supported fully-local deployment (the plane still runs; nothing vault-derived leaves the machine through it). One spelling is REFUSED at config load rather than compiled: a pattern that normalises to nothing ("", "/", "./", or whitespace only), which would sit in the config looking like a configured exclusion while protecting nothing. Enforced at the PORT, not merely by each caller: every GatewayClient this server constructs (gateway/client.ts\'s createGatewayClient) and every EmbeddingProvider it constructs (embeddings/index.ts\'s createEmbeddingProvider(Async)) refuses a request that does not declare which vault paths its text came from, or that names an excluded one — so a call site that forgets to filter fails loudly instead of leaking, not only the ones that remember to check first. Covers every content-bearing egress leg in the tree: contradiction judging, synthesis, citation inference (both the scheduled job and the citation-infer CLI), index-time embedding (the batched reconcile AND the single-note write path — write_note/append_note/patch_note and the filesystem watcher), reflect and knowledge_challenge\'s gateway calls, the note- and cluster-level summarizers (the `obsidian-tc index`/`cluster` CLI passes), densify-llm\'s semantic-edge extraction, the hosted /rerank passthrough, and the scheduled proactive-advisory sweep\'s candidate embedding. An excluded chunk is still chunked, stored, and text/regex-searchable, but gets no vector, so semantic_search will not surface it. This is the documented COST of exclusion: embeddings are themselves egress (a hosted embedding provider can, in principle, receive text it never sees in plaintext form), so an excluded folder is withheld from embedding too, not only from generative jobs. Best-effort, like every comparable exclusion file in this ecosystem (.gitignore, .cursorignore, .aiignore): a caller with direct filesystem or MCP-tool read access to the vault is unaffected — this is an EGRESS control, not a read-visibility control (see auth.acl.readPaths for that). NOT covered: lexical/regex search over an excluded chunk stays local and searchable by design (the point is withholding it from a model, not hiding it from the vault owner). Paths are re-evaluated on every pass, not baked in once: renaming a folder into or out of the exclusion re-includes or re-excludes it on the very next consolidation pass, reconcile, or write, never retroactively.',
+        'Gitignore-style glob patterns (vault-relative), compiled with the same glob engine as auth.acl.readPaths, plus a NORMALISATION and a WIDENING that auth.acl.readPaths does not get, because a pattern here that matches nothing protects nothing and says so nowhere. Normalisation: a backslash is read as a separator (a vault path can never contain one, so `Private\\**` is `Private/**` rather than a pattern that silently matches nothing), a leading "/" or "./" is stripped and repeated separators collapse, so "/Private", "./Private", "Private" and "Private//" are one and the same root-anchored pattern. Widening: EVERY pattern also matches everything beneath it, so "Private", "Private/", "Private*/" and "Private/*" each withhold that folder\'s whole subtree, not just its direct children; "**/Private" matches a Private folder at ANY depth (root included) and its subtree. Consequences worth stating, both in the safe direction (this is a security control, so an ambiguous pattern excludes too much, never too little): a folder-shaped pattern also matches a FILE of that exact name, so "Private/" or "Private*/" additionally excludes a root note named "Private.md"; a literal pattern naming a specific file ("Private/a.md") still matches only that exact file, never a sibling like "Private/a.md.bak"; and matching stays case- and unicode-sensitive exactly as auth.acl.readPaths is. "**" is the EXCLUDE-ALL form: it withholds every note from every hosted provider, which is a supported fully-local deployment (the plane still runs; nothing vault-derived leaves the machine through it). One spelling is REFUSED at config load rather than compiled: a pattern that normalises to nothing ("", "/", "./", or whitespace only), which would sit in the config looking like a configured exclusion while protecting nothing. Enforced at the PORT, not merely by each caller: every GatewayClient this server constructs (gateway/client.ts\'s createGatewayClient) and every EmbeddingProvider it constructs (embeddings/index.ts\'s createEmbeddingProvider(Async)) refuses a request that does not declare which vault paths its text came from, or that names an excluded one — so a call site that forgets to filter fails loudly instead of leaking, not only the ones that remember to check first. Covers every content-bearing egress leg in the tree: contradiction judging, synthesis, citation inference (both the scheduled job and the citation-infer CLI), index-time embedding (the batched reconcile AND the single-note write path — write_note/append_note/patch_note and the filesystem watcher), reflect and knowledge_challenge\'s gateway calls, the note- and cluster-level summarizers (the `reliquary-tc index`/`cluster` CLI passes), densify-llm\'s semantic-edge extraction, the hosted /rerank passthrough, and the scheduled proactive-advisory sweep\'s candidate embedding. An excluded chunk is still chunked, stored, and text/regex-searchable, but gets no vector, so semantic_search will not surface it. This is the documented COST of exclusion: embeddings are themselves egress (a hosted embedding provider can, in principle, receive text it never sees in plaintext form), so an excluded folder is withheld from embedding too, not only from generative jobs. Best-effort, like every comparable exclusion file in this ecosystem (.gitignore, .cursorignore, .aiignore): a caller with direct filesystem or MCP-tool read access to the vault is unaffected — this is an EGRESS control, not a read-visibility control (see auth.acl.readPaths for that). NOT covered: lexical/regex search over an excluded chunk stays local and searchable by design (the point is withholding it from a model, not hiding it from the vault owner). Paths are re-evaluated on every pass, not baked in once: renaming a folder into or out of the exclusion re-includes or re-excludes it on the very next consolidation pass, reconcile, or write, never retroactively.',
       ),
   })
   .prefault({});
@@ -509,7 +509,7 @@ export const EgressConfigSchema = z
 // plur read-API proxy config (M5 / THE-181, G2.1 Domain 24). GLOBAL, not per-vault:
 // the plur engram store is global and the plur tools take no `vault` argument, so
 // this lives at the server root. endpoint/apiKey come from config or the
-// OBSIDIAN_TC_PLUR_ENDPOINT / OBSIDIAN_TC_PLUR_TOKEN env vars (resolved in
+// RELIQUARY_TC_PLUR_ENDPOINT / RELIQUARY_TC_PLUR_TOKEN env vars (resolved in
 // config/load.ts); the bearer is placed solely in the Authorization header by the
 // bridge transport — never logged, never in an error/audit payload. Optional with
 // inner defaults: when `endpoint` is absent the plur tools degrade to plugin_missing
@@ -548,7 +548,7 @@ export const PlurConfigSchema = z.object({
     ),
 });
 
-// THE-650: the Readwise adapter for `obsidian-tc import-highlights` — the first producer of the
+// THE-650: the Readwise adapter for `reliquary-tc import-highlights` — the first producer of the
 // source-agnostic highlight-import format (capture/highlight-import.ts). Same shape and same
 // degradation contract as PlurConfigSchema just above: a bare token, ABSENT by default, and its
 // absence is meaningful — `import-highlights` no-ops with NO network call rather than failing,
@@ -562,12 +562,12 @@ export const ReadwiseConfigSchema = z.object({
     ),
 });
 
-// THE-175: the Pensieve adapter for `obsidian-tc import-ambient` — the first producer of the
+// THE-175: the Pensieve adapter for `reliquary-tc import-ambient` — the first producer of the
 // source-agnostic ambient-capture format (capture/ambient-import.ts). Same shape and same
 // degradation contract as ReadwiseConfigSchema just above: a bare base URL, ABSENT by default, and
 // its absence is meaningful — `import-ambient` no-ops with NO network call rather than failing.
 // A URL rather than a fixed localhost port because Pensieve instances run on remote machines
-// reached over tailscale, not necessarily the box obsidian-tc itself runs on — which machine an
+// reached over tailscale, not necessarily the box reliquary-tc itself runs on — which machine an
 // observation came from is a separate, per-invocation `--machine` label, not part of this config.
 export const PensieveConfigSchema = z.object({
   baseUrl: z
@@ -586,7 +586,7 @@ export const TelemetryConfigSchema = z
       .boolean()
       .default(false)
       .describe(
-        "Opt in to anonymous usage telemetry. Off by default. Turning this on with no `endpoint` set is a CONFIG ERROR at boot (refused below), never a silent no-op — there is no default telemetry endpoint. When on, an aggregate document (never paths, note content, queries, vault ids, principals, tokens, hostnames or env) is POSTed to `endpoint` once every `intervalMinutes`, never at boot before the first interval elapses. `obsidian-tc telemetry preview` prints the exact document that would be sent right now.",
+        "Opt in to anonymous usage telemetry. Off by default. Turning this on with no `endpoint` set is a CONFIG ERROR at boot (refused below), never a silent no-op — there is no default telemetry endpoint. When on, an aggregate document (never paths, note content, queries, vault ids, principals, tokens, hostnames or env) is POSTed to `endpoint` once every `intervalMinutes`, never at boot before the first interval elapses. `reliquary-tc telemetry preview` prints the exact document that would be sent right now.",
       ),
     endpoint: z
       .string()
@@ -617,7 +617,7 @@ export const TelemetryConfigSchema = z
         code: z.ZodIssueCode.custom,
         path: ["endpoint"],
         message:
-          "telemetry.enabled is true but telemetry.endpoint is not set. There is no default telemetry endpoint — obsidian-tc never phones home unless you opt in AND name a collector. Set telemetry.endpoint to the URL you want the aggregate usage document sent to, or leave telemetry.enabled false.",
+          "telemetry.enabled is true but telemetry.endpoint is not set. There is no default telemetry endpoint — reliquary-tc never phones home unless you opt in AND name a collector. Set telemetry.endpoint to the URL you want the aggregate usage document sent to, or leave telemetry.enabled false.",
       });
     }
     if (cfg.endpoint !== undefined) {

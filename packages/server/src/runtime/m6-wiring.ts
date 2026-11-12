@@ -1,4 +1,4 @@
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { CapabilityCache } from "../bridge";
 import type { ToolRegistry } from "../mcp/registry";
 import type { RateLimiter } from "../throttle";

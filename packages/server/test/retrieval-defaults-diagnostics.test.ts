@@ -1,7 +1,7 @@
 // ADR-0007 class (b): an operator must be able to see WHICH source won for each stat-conditional
 // retrieval default, per vault — otherwise "why is rrfK 4 on this vault" has no answer. The surface
 // is get_server_config's `retrieval_defaults` block. Non-secret numbers only.
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ToolRegistry } from "../src/mcp/registry";
 import { buildAdminTools } from "../src/tools/m6/admin-tools";

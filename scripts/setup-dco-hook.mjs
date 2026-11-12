@@ -26,7 +26,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { join } from "node:path";
 import { trustedExecutable } from "./lib/trusted-exec.mjs";
 
-const MARKER = "# obsidian-tc: DCO sign-off (scripts/setup-dco-hook.mjs)";
+const MARKER = "# reliquary-tc: DCO sign-off (scripts/setup-dco-hook.mjs)";
 
 const HOOK_BODY = `#!/bin/sh
 ${MARKER}

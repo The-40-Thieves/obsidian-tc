@@ -1,6 +1,6 @@
 // THE-719 — the scheduled coverage-gap sweep.
 //
-// `detectGaps` had exactly one caller: the offline `obsidian-tc gaps` CLI. So `gap_reports` held 0
+// `detectGaps` had exactly one caller: the offline `reliquary-tc gaps` CLI. So `gap_reports` held 0
 // rows on a deployment that had been running for weeks, and the THE-611 read tool it was built for
 // had nothing to read. Correct code, complete tests, a working read surface, and no scheduled
 // caller — the same shape as THE-698's evaluator and THE-717's citation pass. This module is the

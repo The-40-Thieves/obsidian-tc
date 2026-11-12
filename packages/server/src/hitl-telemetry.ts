@@ -1,4 +1,4 @@
-// Confirmation-outcome telemetry: what the human (or the headless `obsidian-tc elicit` mint)
+// Confirmation-outcome telemetry: what the human (or the headless `reliquary-tc elicit` mint)
 // decided about a gated call, recorded as CODES in the existing `event_log` audit store.
 //
 // Why `event_log`, not the episode store: retention already sweeps it (runtime/maintenance.ts trims by
@@ -26,7 +26,7 @@ export type HitlOutcome = (typeof HITL_OUTCOMES)[number];
 // legacy-era shim: see LEGACY_SHIMS.md
 /** `form`: the server-driven elicitation round trip (stdio legacy shim). `request_state`: the
  *  client-driven 2026-era echo of a minted requestState. `token`: a single-use token redeemed on
- *  the call; `obsidian-tc elicit` is the only in-tree minter, so this is the headless path. */
+ *  the call; `reliquary-tc elicit` is the only in-tree minter, so this is the headless path. */
 export const HITL_SOURCES = ["form", "request_state", "token"] as const;
 export type HitlSource = (typeof HITL_SOURCES)[number];
 

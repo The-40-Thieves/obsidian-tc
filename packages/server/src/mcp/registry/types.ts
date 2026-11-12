@@ -4,7 +4,7 @@ import type {
   MorgianaEventType,
   ToolVisibilityConfig,
   VaultKind,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import type { z } from "zod";
 import type { FolderAcl } from "../../acl";
 import type { Database } from "../../db/types";
@@ -169,7 +169,7 @@ export interface CallerContext {
    *  label nobody proved, and write provenance files it as unauthenticated. */
   authVerified?: boolean;
   /** Write provenance: the model/project/agent/machine the client CLAIMED in the request's
-   *  `io.obsidian-tc/provenance` `_meta` block. Self-reported and never trusted; stored under
+   *  `io.reliquary-tc/provenance` `_meta` block. Self-reported and never trusted; stored under
    *  `self_reported`. Set by mcp/server.ts's `tools/call` handler; absent when none was sent. */
   claimedProvenance?: ClaimedProvenance;
   /** THE-647 item 2: a persona's own tool-visibility mask, composed with the server's static
@@ -285,7 +285,7 @@ export interface ToolDefinition<I = unknown, O = unknown> {
   mutatesState?: boolean;
   /** Tool-specific precondition gate. Runs AFTER scope+ACL and BEFORE the HITL/elicit
    *  stage, so a rejection never consumes the single-use elicit token (D5). Throw an
-   *  ObsidianTcError to reject. */
+   *  ReliquaryTcError to reject. */
   precheck?: (input: I, ctx: CallerContext) => Promise<void> | void;
   /** Override the governing throttle/metric scope class (E4). Defaults to scopeClassOf(requiredScopes). */
   scopeClass?: string;
@@ -315,7 +315,7 @@ export interface ToolDefinition<I = unknown, O = unknown> {
    *  read-only / vault-kind gates (so a caller refused by those never probes the live session) and
    *  before precheck, idempotency and HITL. The folder ACL is checked on the resolved path right
    *  here, with the path left out of a denial's details: the caller did not name it. Throw an
-   *  ObsidianTcError to reject. Resolved fields must not collide with schema fields. */
+   *  ReliquaryTcError to reject. Resolved fields must not collide with schema fields. */
   resolveTarget?: (
     input: I,
     ctx: CallerContext,
@@ -323,7 +323,7 @@ export interface ToolDefinition<I = unknown, O = unknown> {
   /** Refuse a resolved target the tool cannot act on (a non-markdown active file). Runs right after
    *  `resolveTarget`'s folder-ACL check passes, so what it says about the target is only ever said
    *  about one the caller may touch: checked any earlier, its refusal tells a caller whether a path
-   *  it cannot access is a markdown note. Throw an ObsidianTcError to reject. */
+   *  it cannot access is a markdown note. Throw a ReliquaryTcError to reject. */
   checkResolvedTarget?: (resolved: Readonly<Record<string, unknown>>, ctx: CallerContext) => void;
   /** THE-727: resolve authorization policy from the CALL rather than the definition — a tool that
    *  dispatches on an `action` argument cannot honestly declare one static scope set (unioning
@@ -415,7 +415,7 @@ export interface DispatchEpisode {
   args: unknown;
 }
 
-/** One dispatch's coarse timing, reported to an onProfile sink (OBSIDIAN_TC_PROFILE). */
+/** One dispatch's coarse timing, reported to an onProfile sink (RELIQUARY_TC_PROFILE). */
 export interface DispatchProfile {
   tool: string;
   vaultId: string;

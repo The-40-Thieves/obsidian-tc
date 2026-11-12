@@ -1,4 +1,4 @@
-# obsidian-tc
+# reliquary-tc
 
 The converged memory engine for Obsidian vaults: vault read/write, retrieval, and an
 experiential work-memory tier, exposed to agents as a governed MCP capability surface.

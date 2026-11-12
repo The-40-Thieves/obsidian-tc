@@ -56,7 +56,7 @@ const edgeRows = (
 // try/catch — a fault outside it (the original version used a DB proxy on noteRowHash, which runs
 // AFTER the try/catch closes) leaves the narrow isFrontmatterYamlError check unexercised: a
 // mutation that made the catch swallow everything would still pass. `parseNoteThrowFor` makes
-// parseNote ITSELF throw a plain (non-ObsidianTcError) Error for one path, so the throw happens
+// parseNote ITSELF throw a plain (non-ReliquaryTcError) Error for one path, so the throw happens
 // where the real code actually decides whether to swallow or rethrow.
 let parseNoteThrowFor: string | null = null;
 vi.mock("../src/vault/frontmatter", async (importOriginal) => {
@@ -319,7 +319,7 @@ describe("indexVault: per-note skip-and-warn on invalid frontmatter YAML (THE-10
     try {
       const provider = fakeEmbeddingProvider({ dimensions: 8 });
       // parseNote itself throws a plain Error for alpha.md — isFrontmatterYamlError must say
-      // false (it is not an ObsidianTcError carrying `details.reason: "frontmatter_yaml"`), so
+      // false (it is not a ReliquaryTcError carrying `details.reason: "frontmatter_yaml"`), so
       // processNote's `if (!isFrontmatterYamlError(e)) throw e;` rethrows it, and the whole pass
       // rejects exactly as it did before THE-1073's skip-and-warn existed.
       parseNoteThrowFor = "alpha.md";
@@ -338,7 +338,7 @@ describe("indexVault: per-note skip-and-warn on invalid frontmatter YAML (THE-10
     }
   });
 
-  it("(f) a frontmatter skip feeds obsidian_tc_index_frontmatter_failures_total through recordIngestStats", async () => {
+  it("(f) a frontmatter skip feeds reliquary_tc_index_frontmatter_failures_total through recordIngestStats", async () => {
     // Fix round 1 (MEDIUM, Opus): proves the counter is actually FED by a real indexVault pass —
     // not merely registered (see metrics.test.ts's catalog assertion, which only proves
     // registration).
@@ -359,7 +359,7 @@ describe("indexVault: per-note skip-and-warn on invalid frontmatter YAML (THE-10
       recordIngestStats(v.db, metrics, v.id, stats);
       const text = await metrics.metrics();
       expect(text).toMatch(
-        new RegExp(`obsidian_tc_index_frontmatter_failures_total\\{vault="${v.id}"\\} 1`),
+        new RegExp(`reliquary_tc_index_frontmatter_failures_total\\{vault="${v.id}"\\} 1`),
       );
       const row = v.db
         .prepare("SELECT result_size FROM event_log WHERE event_type = 'index_frontmatter_failed'")

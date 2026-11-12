@@ -13,7 +13,7 @@
 // is then over the thing actually uncertain in a new corpus: how OFTEN a query moves.
 import { readFileSync } from "node:fs";
 
-const D = "E:/Projects/obsidian-tc/docs/plans/data/2026-07-14-densification";
+const D = "E:/Projects/reliquary-tc/docs/plans/data/2026-07-14-densification";
 const rd = (f: string): any => JSON.parse(readFileSync(`${D}/${f}`, "utf8"));
 const A = rd("ctl.json");
 const B = rd("tag.json");

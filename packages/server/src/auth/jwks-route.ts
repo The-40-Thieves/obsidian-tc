@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { Context, Hono } from "hono";
 import type { AuthRegistry } from "./registry";
 

@@ -5,7 +5,7 @@
 // arguments the token was minted for, never extends its lifetime, and runs through the verifier that
 // consumed the token.
 import { join } from "node:path";
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { type AclConfigT, FolderAcl } from "../src/acl";
@@ -125,7 +125,7 @@ function build(
     gate: () => ({
       check: (_abs, text) => {
         if (text.includes("BLOCK"))
-          throw new ObsidianTcError("convention_blocked", "would add a block violation");
+          throw new ReliquaryTcError("convention_blocked", "would add a block violation");
       },
     }),
   };
@@ -245,7 +245,7 @@ describe("the release rule: only a positive pre-effect fact hands the confirmati
     const b = build((ctx) => {
       applied += 1;
       ctx.markEffectCommitted?.();
-      throw new ObsidianTcError("internal", "failed after the effect");
+      throw new ReliquaryTcError("internal", "failed after the effect");
     });
     const input = { mode: "a" };
     const token = await b.mint(input);
@@ -283,7 +283,7 @@ describe("the release rule: only a positive pre-effect fact hands the confirmati
     [
       "a convention_blocked the handler throws itself (not the write gate's)",
       () => {
-        throw new ObsidianTcError("convention_blocked", "not raised by the write gate");
+        throw new ReliquaryTcError("convention_blocked", "not raised by the write gate");
       },
     ],
     [
@@ -313,7 +313,7 @@ describe("the release rule: only a positive pre-effect fact hands the confirmati
         try {
           g.write("BLOCK");
         } catch {
-          throw new ObsidianTcError("convention_blocked", "rethrown as a different error");
+          throw new ReliquaryTcError("convention_blocked", "rethrown as a different error");
         }
       },
     ],

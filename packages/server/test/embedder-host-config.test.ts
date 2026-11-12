@@ -78,7 +78,7 @@ describe("embeddings.host selection", () => {
 describe("cli.ts embedder child short-circuit", () => {
   it("hands the process to the child before argument parsing, and exits when the child returns", () => {
     const cli = readFileSync(fileURLToPath(new URL("../src/cli.ts", import.meta.url)), "utf8");
-    const gate = cli.indexOf('process.env.OBSIDIAN_TC_EMBEDDER_HOST === "1"');
+    const gate = cli.indexOf('process.env.RELIQUARY_TC_EMBEDDER_HOST === "1"');
     expect(gate).toBeGreaterThan(-1);
     expect(gate).toBeLessThan(cli.indexOf("parseCliArgs(process.argv"));
     const block = cli.slice(gate, gate + 400);

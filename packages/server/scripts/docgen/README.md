@@ -10,7 +10,7 @@ code ──(extractors)──▶ docs-model.json ──(renderers)──▶ mark
                                                           │
                        inject.ts ───────────────┼─▶ wiki / docs pages  (marker regions, filled at build)
                        astro ──────────────────┼─▶ docs/ site
-                       wiki publisher ─────────┴─▶ obsidian-tc.wiki.git
+                       wiki publisher ─────────┴─▶ reliquary-tc.wiki.git
                                                           │
                        drift gate + coverage lint enforces regeneration in CI
 ```

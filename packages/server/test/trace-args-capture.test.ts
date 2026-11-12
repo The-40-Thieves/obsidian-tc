@@ -14,7 +14,7 @@
 // dispatch to prove a field is ABSENT is a weaker signal than proving the function that would
 // have produced it returns nothing.
 import { join } from "node:path";
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { captureArgs } from "../src/mcp/registry/dispatch-observability";
 import { redactSecrets } from "../src/util/redact";

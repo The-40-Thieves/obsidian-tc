@@ -108,7 +108,7 @@ export async function summarizeNotes(
   // THE-934 fix round 4 (2): skipping the excluded notes is not enough -- an EXISTING row for one
   // of them survived every pass, because nothing in this module ever removed a summary and the
   // reconcile-side cleanup (search/indexing/index-vault.ts) only runs on a reconcile. This pass
-  // can run alone (the `obsidian-tc index` summarize phase, a cluster build), so it owns the same
+  // can run alone (the `reliquary-tc index` summarize phase, a cluster build), so it owns the same
   // cleanup: a note excluded NOW loses its summary row here, whether or not it was ever
   // re-summarized. Idempotent, and re-evaluated every pass, so a rename back out of the excluded
   // folder simply re-summarizes on the next run.
@@ -230,7 +230,7 @@ export interface NoteSummaryPassConfig {
  * The gate for the WHOLE note-summary pass, structured so "flag off" is provably zero gateway
  * calls rather than merely tested to be: `cfg.enabled === false` returns before `makeGateway` is
  * even invoked, so no GatewayClient is constructed and summarizeNotes never runs. Callers (the
- * `obsidian-tc index` CLI command — see its own doc comment for why this pass belongs there, not
+ * `reliquary-tc index` CLI command — see its own doc comment for why this pass belongs there, not
  * in indexVault) pass a lazy gateway factory rather than a constructed client for exactly this
  * reason: constructing a client is cheap, but the intent — "off means untouched" — is clearest
  * when the off path cannot even reach the construction call.

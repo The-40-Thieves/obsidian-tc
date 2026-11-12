@@ -1,4 +1,4 @@
-// THE-826 — `obsidian-tc elicit` argv parsing. Split out of args.ts for the same reason
+// THE-826 — `reliquary-tc elicit` argv parsing. Split out of args.ts for the same reason
 // parse-compact.ts documents: the parse branch no longer fits under biome's noExcessiveLinesPerFile
 // floor on args.ts. No dependency on args.ts, so importing it FROM args.ts creates no cycle.
 import { CliError } from "./cli-error";

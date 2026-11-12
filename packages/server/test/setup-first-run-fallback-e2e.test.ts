@@ -96,7 +96,7 @@ describe("attemptFirstRunFallback — exactly one vault", () => {
     expect(result.path).toBe(defaultSetupConfigPath());
     expect(result.config.vaults).toMatchObject([{ id: "main", path: vaultPaths.main }]);
     // Boots through the REAL loader, not just the in-memory result — same property
-    // test/setup-e2e.test.ts asserts for `obsidian-tc setup` itself.
+    // test/setup-e2e.test.ts asserts for `reliquary-tc setup` itself.
     const loaded = loadConfig(result.path);
     expect(loaded.vaults[0]?.id).toBe("main");
     // PR B's own provenance marker — read the raw file directly (setupOrigin is a plain schema
@@ -232,16 +232,16 @@ describe("attemptFirstRunFallback — race read retries past a genuinely-overlap
 });
 
 describe("attemptFirstRunFallback — winner and loser boot through the same finalizeConfig path", () => {
-  const ORIGINAL_JWT_SECRET = process.env.OBSIDIAN_TC_JWT_SECRET;
+  const ORIGINAL_JWT_SECRET = process.env.RELIQUARY_TC_JWT_SECRET;
   afterEach(() => {
-    if (ORIGINAL_JWT_SECRET === undefined) delete process.env.OBSIDIAN_TC_JWT_SECRET;
-    else process.env.OBSIDIAN_TC_JWT_SECRET = ORIGINAL_JWT_SECRET;
+    if (ORIGINAL_JWT_SECRET === undefined) delete process.env.RELIQUARY_TC_JWT_SECRET;
+    else process.env.RELIQUARY_TC_JWT_SECRET = ORIGINAL_JWT_SECRET;
   });
 
-  it("finding 3: the WINNER's config carries an env overlay (OBSIDIAN_TC_JWT_SECRET), same as a plain loadConfig would", async () => {
+  it("finding 3: the WINNER's config carries an env overlay (RELIQUARY_TC_JWT_SECRET), same as a plain loadConfig would", async () => {
     fakeObsidianEnv(["main"]);
     const secret = "test-secret-from-env-0123456789x";
-    process.env.OBSIDIAN_TC_JWT_SECRET = secret;
+    process.env.RELIQUARY_TC_JWT_SECRET = secret;
 
     const result = await attemptFirstRunFallback();
 

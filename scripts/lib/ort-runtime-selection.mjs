@@ -31,7 +31,7 @@ export function selectOrtRuntime({
   if (!wasmNoticeLogged) {
     wasmNoticeLogged = true;
     log(
-      "obsidian-tc: onnxruntime-node has no native binding on darwin-x64 (no published binding); the local embedder runs on onnxruntime-web (WASM) instead.",
+      "reliquary-tc: onnxruntime-node has no native binding on darwin-x64 (no published binding); the local embedder runs on onnxruntime-web (WASM) instead.",
     );
   }
   return web;

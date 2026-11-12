@@ -13,8 +13,8 @@
 import {
   isUnusableEgressExcludePattern,
   normalizeEgressExcludePattern,
-  ObsidianTcError,
-} from "@the-40-thieves/obsidian-tc-shared";
+  ReliquaryTcError,
+} from "@the-40-thieves/reliquary-tc-shared";
 import { globMatch } from "../acl";
 
 export interface EgressFilter {
@@ -125,18 +125,18 @@ export function isExcludedPath(filter: EgressFilter, path: string): boolean {
  *  declares one under an excluded glob. Fail-closed: a caller that forgets to declare is refused,
  *  never silently allowed through.
  *
- *  THE-934 fix round 3 (H): extends `ObsidianTcError`, not a bare `Error` — round 0 through fix
+ *  THE-934 fix round 3 (H): extends `ReliquaryTcError`, not a bare `Error` — round 0 through fix
  *  round 2's own `instanceof EgressViolationError` rethrows (cli/commands/index.ts and every
  *  content-bearing catch fixed in fix round 3, B) all correctly kept this error from being
  *  swallowed at the ONE layer that checked for it explicitly, but `isLoudRefusal`
  *  (packages/shared/src/errors.ts), the SHARED predicate every per-leg fan-out isolation layer
  *  (multiQueryGraphSearch, runFederatedLegs) uses to decide "swallow this into an empty leg" vs.
- *  "propagate", requires `instanceof ObsidianTcError` — a bare `Error` was NEVER loud by that
+ *  "propagate", requires `instanceof ReliquaryTcError` — a bare `Error` was NEVER loud by that
  *  predicate, so a fan-out with no explicit `instanceof EgressViolationError` check of its own
  *  would have silently treated a guard refusal as an ordinary per-leg transient failure. The
  *  `"egress_excluded"` code is not in `RETRYABLE`, so `retryable` is `false` and `isLoudRefusal`
  *  recognises it via that branch too, not only via `code === "internal"`. */
-export class EgressViolationError extends ObsidianTcError {
+export class EgressViolationError extends ReliquaryTcError {
   constructor(message: string, details?: Record<string, unknown>) {
     super("egress_excluded", message, details);
     this.name = "EgressViolationError";

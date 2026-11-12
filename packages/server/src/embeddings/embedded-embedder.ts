@@ -1,4 +1,4 @@
-// The local embedder (@the-40-thieves/obsidian-tc-embedder-local) as a standalone binary carries it.
+// The local embedder (@the-40-thieves/reliquary-tc-embedder-local) as a standalone binary carries it.
 //
 // EMPTY IN SOURCE CONTROL. `bun build --compile` embeds no assets and freezes import.meta.url, so a
 // binary cannot find an optional package in node_modules the way the npm install does. scripts/

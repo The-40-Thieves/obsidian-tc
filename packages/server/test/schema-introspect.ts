@@ -45,7 +45,7 @@ export function topLevelShape(schema: unknown): Record<string, ZSchema> | undefi
 /** True when `schema`'s top level (after unwrapping) has a field named `key` whose own
  *  (unwrapped) schema is reference-identical to `expected` — the same "same shared Zod primitive
  *  instance" test used to identify a vault-shaped field, since every tool imports the one exported
- *  `VaultId` from @the-40-thieves/obsidian-tc-shared rather than redeclaring it. */
+ *  `VaultId` from @the-40-thieves/reliquary-tc-shared rather than redeclaring it. */
 export function fieldIs(
   shape: Record<string, ZSchema> | undefined,
   key: string,

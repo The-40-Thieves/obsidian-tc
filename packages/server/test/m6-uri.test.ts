@@ -1,7 +1,7 @@
 // Unit tests for generate_uri (THE-182 / M6 Domain 27). buildObsidianUri is a pure
 // string builder — no vault state, no registry — so these assert exact output and
 // percent-encoding for every action, plus invalid_input on a params/action mismatch.
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { buildObsidianUri, buildUriTools } from "../src/tools/m6/uri-tools";
 
@@ -9,7 +9,7 @@ function code(fn: () => unknown): string {
   try {
     fn();
   } catch (e) {
-    return e instanceof ObsidianTcError ? e.code : "non-tc-error";
+    return e instanceof ReliquaryTcError ? e.code : "non-tc-error";
   }
   return "no-error";
 }

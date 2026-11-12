@@ -14,7 +14,7 @@
 // injectable so both directions are exercised on any host.
 import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { VaultConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { type AclConfigT, aclFingerprint, CASE_INSENSITIVE_FS, FolderAcl } from "../src/acl";
 import { applyEnvOverlays } from "../src/config/load";
@@ -211,11 +211,11 @@ describe("the ACL fingerprint carries the vault's case behavior", () => {
   });
 });
 
-describe("OBSIDIAN_TC_VAULT_CASE_SENSITIVE env overlay", () => {
+describe("RELIQUARY_TC_VAULT_CASE_SENSITIVE env overlay", () => {
   it("wins over the config value for the one vault; refuses several vaults and junk", () => {
     const raw = { vaults: [{ id: "main", path: "E:/tmp/vault", caseSensitive: false }] };
     const overlaid = applyEnvOverlays(structuredClone(raw), {
-      OBSIDIAN_TC_VAULT_CASE_SENSITIVE: "true",
+      RELIQUARY_TC_VAULT_CASE_SENSITIVE: "true",
     });
     expect(VaultConfigSchema.parse((overlaid.vaults as unknown[])[0]).caseSensitive).toBe(true);
     expect(() =>
@@ -226,13 +226,13 @@ describe("OBSIDIAN_TC_VAULT_CASE_SENSITIVE env overlay", () => {
             { id: "b", path: "y" },
           ],
         },
-        { OBSIDIAN_TC_VAULT_CASE_SENSITIVE: "true" },
+        { RELIQUARY_TC_VAULT_CASE_SENSITIVE: "true" },
       ),
     ).toThrow(/cannot pick one of 2/);
     expect(() =>
       applyEnvOverlays(
         { vaults: [{ id: "main", path: "x" }] },
-        { OBSIDIAN_TC_VAULT_CASE_SENSITIVE: "maybe" },
+        { RELIQUARY_TC_VAULT_CASE_SENSITIVE: "maybe" },
       ),
     ).toThrow(/auto, true or false/);
   });

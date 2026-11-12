@@ -6,7 +6,7 @@
 // through onInternalError and the write stands without a `conventions` key.
 import { realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { blockingDelta, checkNote, judges } from "../../conventions/check";
 import {
   type ConventionsScope,

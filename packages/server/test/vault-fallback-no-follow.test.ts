@@ -5,15 +5,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { stallTimeout } from "./stall-timeouts";
 import { makeTempDir, rmTemp } from "./tmp";
 
-const ambientFallback = process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
-process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = "1";
+const ambientFallback = process.env.RELIQUARY_TC_FORCE_JS_FALLBACK;
+process.env.RELIQUARY_TC_FORCE_JS_FALLBACK = "1";
 vi.resetModules();
 const fallbackNotes = await import("../src/vault/notes-io");
 const { resolveAttachmentFolder } = await import("../src/formats/attachments");
 const { FolderPins, withFolderPins } = await import("../src/vault/folder-links");
 
-if (ambientFallback === undefined) delete process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
-else process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = ambientFallback;
+if (ambientFallback === undefined) delete process.env.RELIQUARY_TC_FORCE_JS_FALLBACK;
+else process.env.RELIQUARY_TC_FORCE_JS_FALLBACK = ambientFallback;
 
 vi.resetModules();
 const nativeNotes = ambientFallback === "1" ? null : await import("../src/vault/notes-io");
@@ -310,7 +310,7 @@ describe("pure-JS vault reads refuse linked path components", () => {
 
     expect(error.code).toBe("acl_denied");
     expect(error.message).toBe(
-      "configured symlinked folders require the native module: this path runs through one, and without it (Windows, OBSIDIAN_TC_FORCE_JS_FALLBACK, or an addon-less install) it cannot be opened safely",
+      "configured symlinked folders require the native module: this path runs through one, and without it (Windows, RELIQUARY_TC_FORCE_JS_FALLBACK, or an addon-less install) it cannot be opened safely",
     );
   });
 });
@@ -333,7 +333,7 @@ describe("pure-JS no-follow race and platform guards", () => {
         }) as typeof actual.lstatSync,
       };
     });
-    process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = "1";
+    process.env.RELIQUARY_TC_FORCE_JS_FALLBACK = "1";
     vi.resetModules();
     try {
       const rootedNotes = await import("../src/vault/notes-io");
@@ -348,8 +348,8 @@ describe("pure-JS no-follow race and platform guards", () => {
         true,
       );
     } finally {
-      if (ambientFallback === undefined) delete process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
-      else process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = ambientFallback;
+      if (ambientFallback === undefined) delete process.env.RELIQUARY_TC_FORCE_JS_FALLBACK;
+      else process.env.RELIQUARY_TC_FORCE_JS_FALLBACK = ambientFallback;
       vi.doUnmock("node:fs");
       vi.resetModules();
     }
@@ -382,7 +382,7 @@ describe("pure-JS no-follow race and platform guards", () => {
           }) as typeof actual.lstatSync,
         };
       });
-      process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = "1";
+      process.env.RELIQUARY_TC_FORCE_JS_FALLBACK = "1";
       vi.resetModules();
       try {
         const racedNotes = await import("../src/vault/notes-io");
@@ -392,8 +392,8 @@ describe("pure-JS no-follow race and platform guards", () => {
         expect(swapped).toBe(true);
         expect(error.code).toBe("acl_denied");
       } finally {
-        if (ambientFallback === undefined) delete process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
-        else process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = ambientFallback;
+        if (ambientFallback === undefined) delete process.env.RELIQUARY_TC_FORCE_JS_FALLBACK;
+        else process.env.RELIQUARY_TC_FORCE_JS_FALLBACK = ambientFallback;
         vi.doUnmock("node:fs");
         vi.resetModules();
       }
@@ -433,7 +433,7 @@ describe("pure-JS no-follow race and platform guards", () => {
           readlinkSync: readlink,
         };
       });
-      process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = "1";
+      process.env.RELIQUARY_TC_FORCE_JS_FALLBACK = "1";
       vi.resetModules();
       try {
         const racedNotes = await import("../src/vault/notes-io");
@@ -445,8 +445,8 @@ describe("pure-JS no-follow race and platform guards", () => {
         expect(error.code).toBe("acl_denied");
         expect(error.message).toContain("path component changed while opening");
       } finally {
-        if (ambientFallback === undefined) delete process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
-        else process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = ambientFallback;
+        if (ambientFallback === undefined) delete process.env.RELIQUARY_TC_FORCE_JS_FALLBACK;
+        else process.env.RELIQUARY_TC_FORCE_JS_FALLBACK = ambientFallback;
         vi.doUnmock("node:fs");
         vi.resetModules();
       }
@@ -501,7 +501,7 @@ describe("pure-JS no-follow race and platform guards", () => {
         readFileSync: vi.fn(() => "SECRET"),
       };
     });
-    process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = "1";
+    process.env.RELIQUARY_TC_FORCE_JS_FALLBACK = "1";
     vi.resetModules();
     try {
       const windowsNotes = await import("../src/vault/notes-io");
@@ -510,8 +510,8 @@ describe("pure-JS no-follow race and platform guards", () => {
 
       expect(error.code).toBe("acl_denied");
     } finally {
-      if (ambientFallback === undefined) delete process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
-      else process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = ambientFallback;
+      if (ambientFallback === undefined) delete process.env.RELIQUARY_TC_FORCE_JS_FALLBACK;
+      else process.env.RELIQUARY_TC_FORCE_JS_FALLBACK = ambientFallback;
       vi.doUnmock("node:fs");
       vi.doUnmock("node:path");
       vi.resetModules();
@@ -541,7 +541,7 @@ describe("pure-JS no-follow race and platform guards", () => {
         openSync: open,
       };
     });
-    process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = "1";
+    process.env.RELIQUARY_TC_FORCE_JS_FALLBACK = "1";
     vi.resetModules();
     try {
       const fifoNotes = await import("../src/vault/notes-io");
@@ -551,8 +551,8 @@ describe("pure-JS no-follow race and platform guards", () => {
       expect(error.code).toBe("path_invalid");
       expect(open).not.toHaveBeenCalled();
     } finally {
-      if (ambientFallback === undefined) delete process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
-      else process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = ambientFallback;
+      if (ambientFallback === undefined) delete process.env.RELIQUARY_TC_FORCE_JS_FALLBACK;
+      else process.env.RELIQUARY_TC_FORCE_JS_FALLBACK = ambientFallback;
       vi.doUnmock("node:fs");
       vi.resetModules();
     }
@@ -584,7 +584,7 @@ describe("pure-JS no-follow race and platform guards", () => {
               : actual.lstatSync(path, options as never)) as typeof lstatSync,
         };
       });
-      process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = "1";
+      process.env.RELIQUARY_TC_FORCE_JS_FALLBACK = "1";
       vi.resetModules();
       // Release the vulnerable blocking open after the two-second assertion budget so the RED run
       // terminates instead of stranding its worker forever.
@@ -609,8 +609,8 @@ describe("pure-JS no-follow race and platform guards", () => {
         expect.soft(error.message).toContain("not a regular file");
       } finally {
         writer.kill();
-        if (ambientFallback === undefined) delete process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK;
-        else process.env.OBSIDIAN_TC_FORCE_JS_FALLBACK = ambientFallback;
+        if (ambientFallback === undefined) delete process.env.RELIQUARY_TC_FORCE_JS_FALLBACK;
+        else process.env.RELIQUARY_TC_FORCE_JS_FALLBACK = ambientFallback;
         vi.doUnmock("node:fs");
         vi.resetModules();
       }

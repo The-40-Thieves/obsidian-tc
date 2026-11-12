@@ -1,15 +1,15 @@
 ---
 title: Fly.io
-description: Deploy obsidian-tc on Fly.io from fly.toml, with one volume at /data, generated secrets and a health check.
+description: Deploy reliquary-tc on Fly.io from fly.toml, with one volume at /data, generated secrets and a health check.
 ---
 
 :::caution
-This app config needs obsidian-tc v1.34.0 or later. Until v1.34.0 is published, `:latest` is v1.33.1, which has no health route (`/healthz`) and does not read the environment settings the template relies on, so the deploy will not become healthy. Once v1.34.0 is out, `:latest` works; pin the exact version for production.
+This app config needs reliquary-tc v1.34.0 or later. Until v1.34.0 is published, `:latest` is v1.33.1, which has no health route (`/healthz`) and does not read the environment settings the template relies on, so the deploy will not become healthy. Once v1.34.0 is out, `:latest` works; pin the exact version for production.
 :::
 
 The repository's `fly.toml` is a Fly.io app config. `fly launch --from` creates an app from it: one
-Machine runs the published image `ghcr.io/the-40-thieves/obsidian-tc:latest` with a volume mounted at
-`/data`. The image's ENTRYPOINT boots the server from `OBSIDIAN_TC_CONFIG`, which the deploy copies in
+Machine runs the published image `ghcr.io/the-40-thieves/reliquary-tc:latest` with a volume mounted at
+`/data`. The image's ENTRYPOINT boots the server from `RELIQUARY_TC_CONFIG`, which the deploy copies in
 from the repository, and the server serves HTTP on port 8765.
 
 The app uses the image rather than building the repository's `Dockerfile`, so the release that CI
@@ -19,13 +19,13 @@ tested is the one that runs, and Fly runs no build.
 
 | Item | Value | Why |
 | --- | --- | --- |
-| `[build] image` | `ghcr.io/the-40-thieves/obsidian-tc:latest` | Deploys an existing image, with no build step. |
-| `[env]` `OBSIDIAN_TC_CONFIG` | `/config/obsidian-tc.config.json` | The config file the deploy copies in (see `[[files]]`). |
-| `[env]` `OBSIDIAN_TC_VAULT_PATH` | `/data/vault` | The vault, on the volume. |
-| `[env]` `OBSIDIAN_TC_CACHE_DIR` | `/data/cache` | The cache, on the volume. |
+| `[build] image` | `ghcr.io/the-40-thieves/reliquary-tc:latest` | Deploys an existing image, with no build step. |
+| `[env]` `RELIQUARY_TC_CONFIG` | `/config/reliquary-tc.config.json` | The config file the deploy copies in (see `[[files]]`). |
+| `[env]` `RELIQUARY_TC_VAULT_PATH` | `/data/vault` | The vault, on the volume. |
+| `[env]` `RELIQUARY_TC_CACHE_DIR` | `/data/cache` | The cache, on the volume. |
 | `[env]` `PORT` | `8765` | The port the server listens on. |
-| `[[files]]` | `deploy/config/obsidian-tc.config.json` to `/config/obsidian-tc.config.json` | The shared HTTP config: `0.0.0.0` bind, stdio off, JWT auth. Fly copies it into the Machine at deploy time, from the directory of `fly.toml`. |
-| `[mounts]` | `obsidian_tc_data`, mounted at `/data`, `initial_size = "10gb"` | The volume holds the vault and the cache. A volume can be grown but not shrunk. `initial_size` applies only when `fly launch` or `fly deploy` creates the volume. |
+| `[[files]]` | `deploy/config/reliquary-tc.config.json` to `/config/reliquary-tc.config.json` | The shared HTTP config: `0.0.0.0` bind, stdio off, JWT auth. Fly copies it into the Machine at deploy time, from the directory of `fly.toml`. |
+| `[mounts]` | `reliquary_tc_data`, mounted at `/data`, `initial_size = "10gb"` | The volume holds the vault and the cache. A volume can be grown but not shrunk. `initial_size` applies only when `fly launch` or `fly deploy` creates the volume. |
 | `[http_service]` `internal_port` | `8765` | Matches `PORT`. |
 | `[http_service]` `force_https` | `true` | Plain HTTP is redirected to HTTPS. |
 | `[http_service]` `auto_stop_machines` | `"off"` | The proxy never stops the Machine. The server keeps its SQLite database on one volume and runs as one Machine, so the proxy must not stop it. |
@@ -55,7 +55,7 @@ is billed whether or not the Machine runs.
 1. Run the launch command from a checkout or an empty directory:
 
    ```sh
-   fly launch --from https://github.com/The-40-Thieves/obsidian-tc --copy-config --no-deploy
+   fly launch --from https://github.com/The-40-Thieves/reliquary-tc --copy-config --no-deploy
    ```
 
    `--from` uses the repository as a template, `--copy-config` keeps its `fly.toml` without prompting,
@@ -65,7 +65,7 @@ is billed whether or not the Machine runs.
 2. Set the public URL and the JWT secret as secrets. `--stage` stores them without deploying:
 
    ```sh
-   fly secrets set --stage OBSIDIAN_TC_PUBLIC_URL=https://<app>.fly.dev OBSIDIAN_TC_JWT_SECRET="$(openssl rand -hex 32)"
+   fly secrets set --stage RELIQUARY_TC_PUBLIC_URL=https://<app>.fly.dev RELIQUARY_TC_JWT_SECRET="$(openssl rand -hex 32)"
    ```
 
    The public URL is not secret. It is set as a secret so that `fly.toml` stays the same for every
@@ -84,7 +84,7 @@ is billed whether or not the Machine runs.
    Machine:
 
    ```sh
-   fly ssh console --user bun -C "bun /app/packages/server/dist/cli.js token mint /config/obsidian-tc.config.json --sub my-client --vault main --scopes read:vault"
+   fly ssh console --user bun -C "bun /app/packages/server/dist/cli.js token mint /config/reliquary-tc.config.json --sub my-client --vault main --scopes read:vault"
    ```
 
    `--user bun` runs the command as the image's unprivileged `bun` user (uid 1000), which is the user the
@@ -95,7 +95,7 @@ is billed whether or not the Machine runs.
 
 ## Public URL and custom domain
 
-`OBSIDIAN_TC_PUBLIC_URL` must be `https://host` or `https://host:port`, with no path, query or
+`RELIQUARY_TC_PUBLIC_URL` must be `https://host` or `https://host:port`, with no path, query or
 credentials. Fly gives each app a `https://<app>.fly.dev` address; set the secret to that origin, or to
 your own domain once it is attached to the app. The value sets `auth.resource` (the origin plus `/mcp`)
 and is added to `allowedHosts`, so a custom domain must be attached and resolve before clients connect.
@@ -103,7 +103,7 @@ After any change of domain, set the secret again and deploy.
 
 ## Changing the config
 
-The config file comes from `deploy/config/obsidian-tc.config.json` in the directory `fly deploy` runs
+The config file comes from `deploy/config/reliquary-tc.config.json` in the directory `fly deploy` runs
 from, and is copied in at deploy time. To change it, edit that file and run `fly deploy`. For example, to
 use the `openai` embeddings provider, name it in the file and set `OPENAI_API_KEY` with `fly secrets set`.
 See [Embeddings](/configuration/embeddings/).
@@ -119,7 +119,7 @@ your clients. Fly takes daily snapshots of a volume and keeps them for 5 days by
 can be set with `snapshot_retention` in `[mounts]`.
 
 A new volume mounted over `/data` hides the `/data/vault` directory the image creates. Because
-`OBSIDIAN_TC_VAULT_PATH` names it, the server creates the empty vault directory (mode `0750`) at first
+`RELIQUARY_TC_VAULT_PATH` names it, the server creates the empty vault directory (mode `0750`) at first
 boot instead of exiting.
 
 The volume is the only copy of the vault that the server reads. To keep the vault in step with a Git

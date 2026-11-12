@@ -1,7 +1,7 @@
 // index_vault — chunk + embed the vault into the search store (retrieval
 // substrate, not one of the six Domain-6 search tools). admin:vault scope; reads
 // notes through the read ACL (per-source), writes only the index DB.
-import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { vaultExclusionFor } from "../../search/index-exclusion";

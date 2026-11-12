@@ -31,7 +31,7 @@ describe("extractMetrics (THE-471)", () => {
 
   it("extracts metrics with type, help, and sorted label names", () => {
     expect(metrics.length).toBeGreaterThan(5);
-    const tc = metrics.find((m) => m.name === "obsidian_tc_tool_calls_total");
+    const tc = metrics.find((m) => m.name === "reliquary_tc_tool_calls_total");
     expect(tc?.type).toBe("counter");
     expect(tc?.help?.length ?? 0).toBeGreaterThan(0);
     expect(tc?.labels).toEqual(["status", "tool", "vault"]); // sorted
@@ -46,7 +46,7 @@ describe("extractMetrics (THE-471)", () => {
       expect(Array.isArray(h.buckets), `${h.name} is missing bucket bounds`).toBe(true);
       expect((h.buckets ?? []).length).toBeGreaterThan(0);
     }
-    const responseBytes = metrics.find((m) => m.name === "obsidian_tc_response_bytes");
+    const responseBytes = metrics.find((m) => m.name === "reliquary_tc_response_bytes");
     // Pins the actual configured buckets (registry.ts's RESPONSE_BYTE_BUCKETS), so a bucket
     // change here is caught the same way a renamed metric already is above.
     expect(responseBytes?.buckets).toEqual([1_000, 10_000, 100_000, 1_000_000, 10_000_000]);

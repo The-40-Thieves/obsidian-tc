@@ -23,7 +23,7 @@ describe("scanFacts (narrative fact gate: tool count forbidden, curated facts eq
   it("passes when narrative states no tool count and the curated facts match", () => {
     const text = [
       "Every ranking change is gated against a 250-query golden set.",
-      "obsidian-tc exposes every tool through a governed pipeline.",
+      "reliquary-tc exposes every tool through a governed pipeline.",
       "the facade fronts the full surface with 3 tools",
     ].join("\n");
     expect(scanFacts(text, RULES)).toEqual([]);
@@ -49,7 +49,7 @@ describe("scanFacts (narrative fact gate: tool count forbidden, curated facts eq
     const text = [
       "advertised by default through a three-tool facade",
       "the facade fronts the surface with 3 tools",
-      "**obsidian-tc** | every tool (3-tool facade)",
+      "**reliquary-tc** | every tool (3-tool facade)",
     ].join("\n");
     expect(scanFacts(text, RULES)).toEqual([]);
   });
@@ -103,7 +103,7 @@ describe("scanFacts (narrative fact gate: tool count forbidden, curated facts eq
     ["999 tools across modules", 999],
     ['(all visible by default; 999 with opt-in `profile: "core"`)', 999],
     ['999 with the opt-in `profile: "core"`', 999],
-    ["**obsidian-tc** | 999 (3-tool facade)", 999],
+    ["**reliquary-tc** | 999 (3-tool facade)", 999],
     ["**999 capabilities across 31 domains**", 999],
     ["the surface is 999 tools / 31 domains", 999],
   ])("flags the tool-count phrasing %j", (text, n) => {

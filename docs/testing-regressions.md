@@ -21,7 +21,7 @@ Selected server tests build shared/server prerequisites first. The full run also
 
 Use a short writable temporary directory on Windows by setting `TEMP`, `TMP`, and `TMPDIR` for the process. Deep checkout paths plus nested fixtures can exceed Windows path limits. Some fixtures require symlink privileges or Unix shell behavior. Record those failures and run the relevant Linux CI jobs; do not weaken their assertions or count an unexecuted platform as passed.
 
-The runner clears `OBSIDIAN_TC_LIVE` in child environments. A running Obsidian application, companion plugins, live model inference, other operating systems, and packaged-distribution installation tests remain separate acceptance surfaces. The existing CI workflows cover those supported matrices independently; this local command does not certify every distribution or a production deployment.
+The runner clears `RELIQUARY_TC_LIVE` in child environments. A running Obsidian application, companion plugins, live model inference, other operating systems, and packaged-distribution installation tests remain separate acceptance surfaces. The existing CI workflows cover those supported matrices independently; this local command does not certify every distribution or a production deployment.
 
 ## Indexing lifecycle
 

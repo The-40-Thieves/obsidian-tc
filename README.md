@@ -1,18 +1,22 @@
-# obsidian-tc
+# Reliquary-TC
 
-![obsidian-tc quickstart demo](docs/public/demo/quickstart-storyboard.svg)
+![reliquary-tc quickstart demo](docs/public/demo/quickstart-storyboard.svg)
 
-> Obsidian Turbocharged — governed, agent-ready vault access over MCP.
+> Governed, agent-ready Obsidian vault access over MCP.
+
+**Formerly obsidian-tc.** Renamed in 2.0. The `obsidian-tc` command, `OBSIDIAN_TC_*` variables,
+`obsidian-tc://` resource URIs, `obsidian_tc_*` metrics and an existing `~/.obsidian-tc` folder all
+keep working through 2.x; see [Upgrading from obsidian-tc](./docs/UPGRADING-2.0.md).
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 ![Status: Shipped v1.34.0](https://img.shields.io/badge/Status-Shipped_v1.34.0-success)
-[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/The-40-Thieves/obsidian-tc?utm_source=badge)
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/The-40-Thieves/reliquary-tc?utm_source=badge)
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/The-40-Thieves/obsidian-tc)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/The-40-Thieves/reliquary-tc)
 
 ## What it is
 
-obsidian-tc is a governed, agent-ready [Model Context Protocol](https://modelcontextprotocol.io)
+reliquary-tc is a governed, agent-ready [Model Context Protocol](https://modelcontextprotocol.io)
 server for [Obsidian](https://obsidian.md) vaults, for humans and agents alike. Instead of raw
 filesystem access to years of notes, every tool call runs through one pipeline — auth, folder
 ACLs, a read-only kill switch, HITL confirmation on destructive ops, and an audit log. It also
@@ -27,29 +31,29 @@ living *inside* your vault under that same ACL.
 No install:
 
 ```sh
-npx obsidian-tc /path/to/vault
+npx reliquary-tc /path/to/vault
 ```
 
 Every note tool and lexical search work immediately. Semantic search defaults to a bundled
-embedder — see [When NOT to use](#when-not-to-use-obsidian-tc) for which install methods it
+embedder — see [When NOT to use](#when-not-to-use-reliquary-tc) for which install methods it
 reaches.
 
 For multi-vault, auth, or ACLs, use a config file:
 
 ```bash
-npm install -g obsidian-tc
-obsidian-tc ./obsidian-tc.config.json   # Node >= 24 or Bun >= 1.1
+npm install -g reliquary-tc
+reliquary-tc ./reliquary-tc.config.json   # Node >= 24 or Bun >= 1.1
 ```
 
-The default `local` embedder is an opt-in install, so `npm install -g obsidian-tc` leaves it out. To use it,
-install the same version: `npm install -g @the-40-thieves/obsidian-tc-embedder-local@<same version>` (drop `-g`
-for a project install), or let `obsidian-tc setup` offer to. Ollama and hosted embedding providers need no
+The default `local` embedder is an opt-in install, so `npm install -g reliquary-tc` leaves it out. To use it,
+install the same version: `npm install -g @the-40-thieves/reliquary-tc-embedder-local@<same version>` (drop `-g`
+for a project install), or let `reliquary-tc setup` offer to. Ollama and hosted embedding providers need no
 local embedder; without any embedder, semantic search is off and everything else still works.
 
 Also ships as a Docker image, `.mcpb` bundle, and standalone binaries. More:
 [docs/QUICKSTART.md](./docs/QUICKSTART.md).
 
-## When NOT to use obsidian-tc
+## When NOT to use reliquary-tc
 
 Honest guidance — this is a heavier product than most:
 
@@ -59,7 +63,7 @@ Honest guidance — this is a heavier product than most:
 - **Zero setup, source checkouts only.** The vault is read off disk; semantic
   search defaults to a bundled offline embedder; npm/Docker need an explicit provider until
   published — see [Embeddings](https://obsidian-tc.the40thieves.io/configuration/embeddings/).
-- **Zero-config trades away auth/ACLs.** `obsidian-tc /path/to/vault` boots with auth off, no
+- **Zero-config trades away auth/ACLs.** `reliquary-tc /path/to/vault` boots with auth off, no
   folder ACL — fine only because it's local-only; governance is opt-in. Detail: [SECURITY.md](./SECURITY.md).
 - **Single-maintainer project.**
 - **Everything inside Obsidian, or vault-independent memory.** See the
@@ -70,13 +74,13 @@ Migrating from another MCP server: [docs/CUTOVER.md](./docs/CUTOVER.md).
 ## How it compares
 
 Most Obsidian MCP projects are vault-access servers, retrieval engines, or memory engines, rarely
-more than one. obsidian-tc is the only one we know of that is all three, with memory living **in
+more than one. reliquary-tc is the only one we know of that is all three, with memory living **in
 the vault** under the same ACL as every other write. [Full 9-project table and "where the others
 win"](https://obsidian-tc.the40thieves.io/getting-started/compare/).
 
 | | Tools | Group | What it's for |
 |---|---|---|---|
-| **obsidian-tc** | full surface (3-tool facade) | all three | governed access + retrieval + in-vault memory |
+| **reliquary-tc** | full surface (3-tool facade) | all three | governed access + retrieval + in-vault memory |
 | [obsidian-local-rest-api](https://github.com/coddingtonbear/obsidian-local-rest-api) | 18 | access | Obsidian's own built-in MCP server; one bearer key, no ACL |
 | [basic-memory](https://github.com/basicmachines-co/basic-memory) | ~35 | memory | entities/relations in a separate, portable markdown KB |
 
@@ -111,7 +115,7 @@ filesystem-level feature works without it.
   `restApiUrl`/`restApiKey` in the vault config
   ([step 6](./docs/QUICKSTART.md#6-optional-light-up-the-plugin-bridges-live-mode)). That key is a
   vault root password — read the [trust boundary](./SECURITY.md#companion-plugin-trust-boundary) first.
-- **Formerly "Obsidian Turbocharged."** Settings migrate on first load — details in
+- **Formerly "Reliquary-TC."** Settings migrate on first load — details in
   [packages/plugin/README.md](./packages/plugin/README.md).
 
 ### Status
@@ -156,24 +160,24 @@ direct call), plus the standard `search` and `fetch` tools ChatGPT deep research
 
 ### Install in Claude Code, Cursor, VS Code
 
-Claude Code plugin (launches `npx -y obsidian-tc`, asks for your config file path on enable):
+Claude Code plugin (launches `npx -y reliquary-tc`, asks for your config file path on enable):
 
 ```sh
-claude plugin marketplace add The-40-Thieves/obsidian-tc
-claude plugin install obsidian-tc@the-40-thieves
+claude plugin marketplace add The-40-Thieves/reliquary-tc
+claude plugin install reliquary-tc@the-40-thieves
 ```
 
 Grok Build and Muse Code (1.4.0+) read the same marketplace; details in
 [Installation](https://obsidian-tc.the40thieves.io/getting-started/install/#claude-code-plugin-and-other-agents).
 
 <!-- BEGIN INSTALL-LINKS (generated by scripts/gen-install-links.mjs; do not hand-edit) -->
-[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=obsidian-tc&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsIm9ic2lkaWFuLXRjIl0sImVudiI6eyJPQlNJRElBTl9UQ19DT05GSUciOiIvQUJTT0xVVEUvUEFUSC9UTy9vYnNpZGlhbi10Yy5jb25maWcuanNvbiJ9fQ%3D%3D)
-[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_obsidian--tc-0098FF?logo=visualstudiocode&logoColor=white)](vscode:mcp/install?%7B%22name%22%3A%22obsidian-tc%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22obsidian-tc%22%5D%2C%22env%22%3A%7B%22OBSIDIAN_TC_CONFIG%22%3A%22%2FABSOLUTE%2FPATH%2FTO%2Fobsidian-tc.config.json%22%7D%7D)
-[Install in VS Code Insiders](vscode-insiders:mcp/install?%7B%22name%22%3A%22obsidian-tc%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22obsidian-tc%22%5D%2C%22env%22%3A%7B%22OBSIDIAN_TC_CONFIG%22%3A%22%2FABSOLUTE%2FPATH%2FTO%2Fobsidian-tc.config.json%22%7D%7D)
+[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](cursor://anysphere.cursor-deeplink/mcp/install?name=reliquary-tc&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsInJlbGlxdWFyeS10YyJdLCJlbnYiOnsiUkVMSVFVQVJZX1RDX0NPTkZJRyI6Ii9BQlNPTFVURS9QQVRIL1RPL3JlbGlxdWFyeS10Yy5jb25maWcuanNvbiJ9fQ%3D%3D)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_obsidian--tc-0098FF?logo=visualstudiocode&logoColor=white)](vscode:mcp/install?%7B%22name%22%3A%22reliquary-tc%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22reliquary-tc%22%5D%2C%22env%22%3A%7B%22RELIQUARY_TC_CONFIG%22%3A%22%2FABSOLUTE%2FPATH%2FTO%2Freliquary-tc.config.json%22%7D%7D)
+[Install in VS Code Insiders](vscode-insiders:mcp/install?%7B%22name%22%3A%22reliquary-tc%22%2C%22type%22%3A%22stdio%22%2C%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22reliquary-tc%22%5D%2C%22env%22%3A%7B%22RELIQUARY_TC_CONFIG%22%3A%22%2FABSOLUTE%2FPATH%2FTO%2Freliquary-tc.config.json%22%7D%7D)
 <!-- END INSTALL-LINKS -->
 
 Or by hand — Cursor (`mcpServers`) / VS Code (`servers`), same object:
-`{"command": "npx", "args": ["-y", "obsidian-tc"], "env": {"OBSIDIAN_TC_CONFIG": "/ABS/config.json"}}`.
+`{"command": "npx", "args": ["-y", "reliquary-tc"], "env": {"RELIQUARY_TC_CONFIG": "/ABS/config.json"}}`.
 A `.mcpb` bundle (`bun run bundle`) also installs into Claude Desktop / other MCPB hosts.
 For claude.ai and ChatGPT (remote HTTP), see [distribution](./docs/DISTRIBUTION.md).
 
@@ -188,7 +192,7 @@ For claude.ai and ChatGPT (remote HTTP), see [distribution](./docs/DISTRIBUTION.
 
 ### Trademark
 
-obsidian-tc is independent and community-built, **not** affiliated with or endorsed by Obsidian
+reliquary-tc is independent and community-built, **not** affiliated with or endorsed by Obsidian
 or its maker, Dynalist Inc. "Obsidian" is a Dynalist Inc. trademark, used only nominatively.
 Official app: [obsidian.md](https://obsidian.md).
 

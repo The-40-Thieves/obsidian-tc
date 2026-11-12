@@ -1,4 +1,4 @@
-import { scopeRequiresHitl } from "@the-40-thieves/obsidian-tc-shared";
+import { scopeRequiresHitl } from "@the-40-thieves/reliquary-tc-shared";
 import type { ToolDefinition } from "./types";
 
 /** Whether a definition is HITL-gated at registration time: always-destructive or HITL-floored

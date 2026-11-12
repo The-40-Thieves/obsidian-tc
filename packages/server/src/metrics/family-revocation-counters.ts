@@ -8,7 +8,7 @@ export class FamilyRevocationCounters {
 
   constructor(registers: Registry[]) {
     this.revoked = new Counter({
-      name: "obsidian_tc_auth_family_revocations_total",
+      name: "reliquary_tc_auth_family_revocations_total",
       // A replayed authorization code or refresh token revokes its whole family on sight (RFC 9700
       // section 4.14) — correct, and also a one-request kill switch on a client's session, so the
       // reuse reasons are the theft/DoS signal to alert on. No `vault` label: the authorization

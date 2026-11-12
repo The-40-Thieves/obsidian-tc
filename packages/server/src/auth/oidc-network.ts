@@ -17,7 +17,7 @@ import {
   isDisallowedLiteralHost,
   isLoopbackHost,
   normalizeHostForBind,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 
 export interface IdpNetworkPolicy {
   /** Skip the public-address check (a self-hosted IdP on a LAN or loopback). Default false. */

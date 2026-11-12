@@ -7,7 +7,7 @@
 // test/indexer-transaction-rollback.test.ts depends on. indexVault (index-vault.ts) is the batched
 // counterpart and imports deindexNote from here for its stale-path sweep; that sibling direction is
 // fine (only importing indexer.ts itself, the facade, would be a cycle).
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import { tableExists } from "../../db/introspect";
 import { inWriteTransaction, type WriteTxnHooks } from "../../db/txn";
 import { cachedPrepare, type Database } from "../../db/types";

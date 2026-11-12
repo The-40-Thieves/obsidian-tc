@@ -4,7 +4,7 @@
 // insert_table_row, insert_table_column, sort_table_by_column. No plugin dependency (the data is
 // plain markdown), so this works headlessly — an agent gets correct table alignment/edits without
 // hand-rolling GFM padding.
-import { err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { err, VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { conventionsResultShape } from "../../conventions/schema";
 import type { ToolDefinition } from "../../mcp/registry";

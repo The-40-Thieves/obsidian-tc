@@ -33,7 +33,7 @@ function rejectedPush(error: GitCommandError): boolean {
 }
 
 function conflictBranchName(now = new Date()): string {
-  return `obsidian-tc/conflict/${now.toISOString().replace(/[:.]/g, "-")}`;
+  return `reliquary-tc/conflict/${now.toISOString().replace(/[:.]/g, "-")}`;
 }
 
 export class GitSync {
@@ -93,7 +93,7 @@ export class GitSync {
     if (staged.error?.exitCode !== 1) throw staged.error;
     const shown = paths.slice(0, 20).map(safeMessagePath);
     const suffix = paths.length > shown.length ? `\n… and ${paths.length - shown.length} more` : "";
-    const message = `obsidian-tc: update ${paths.length} notes\n\n${shown.join("\n")}${suffix}`;
+    const message = `reliquary-tc: update ${paths.length} notes\n\n${shown.join("\n")}${suffix}`;
     await this.runner.run(["commit", "-m", message]);
     this.logger(`[git-sync] commit paths=${paths.length}`);
     return true;

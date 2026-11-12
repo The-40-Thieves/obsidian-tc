@@ -52,7 +52,7 @@ jobs:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
         run: |
           set -euo pipefail
-          node scripts/fetch-linear-tickets.mjs obsidian-tc > /tmp/tickets.json
+          node scripts/fetch-linear-tickets.mjs reliquary-tc > /tmp/tickets.json
           node scripts/check-ticket-drift.mjs --tickets /tmp/tickets.json --strict
 
       # When the token is absent this runs INVENTORY MODE and annotates a warning rather than

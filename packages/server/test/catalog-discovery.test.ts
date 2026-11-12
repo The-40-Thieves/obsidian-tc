@@ -6,7 +6,7 @@ import {
   type ServerConfig,
   ServerConfigSchema,
   type ToolVisibilityConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -217,11 +217,11 @@ describe("catalog discovery — ACL filtering and resource wiring (integration)"
     return { client, server };
   }
 
-  it("find_capability's description names the obsidian-tc://catalog resource", async () => {
+  it("find_capability's description names the reliquary-tc://catalog resource", async () => {
     const { client, server } = await connect(["*"], tempVault());
     const tools = (await client.listTools()).tools;
     const find = tools.find((t) => t.name === "find_capability");
-    expect(find?.description).toContain("obsidian-tc://catalog");
+    expect(find?.description).toContain("reliquary-tc://catalog");
     await client.close();
     await server.close();
   });
@@ -306,7 +306,7 @@ describe("catalog discovery — ACL filtering and resource wiring (integration)"
     // from `registry.listVisible()`. getInstructions() is populated from that handshake response.
     const { client, server } = await connect(["*"], tempVault());
     expect(client.getInstructions()).toContain("Capabilities by domain");
-    expect(client.getInstructions()).toContain("obsidian-tc://catalog");
+    expect(client.getInstructions()).toContain("reliquary-tc://catalog");
     await client.close();
     await server.close();
   });
@@ -314,15 +314,15 @@ describe("catalog discovery — ACL filtering and resource wiring (integration)"
   it("without a vaultRegistry, neither instruction surface mentions the catalog, and resources is not declared", async () => {
     // THE-937 fix round 1: McpServerOptions.vaultRegistry is optional, and resources (including
     // the catalog handler) are wired only `if (vaultRegistry)` — a server with none never declares
-    // the `resources` capability, so pointing a caller at obsidian-tc://catalog would be a dead
+    // the `resources` capability, so pointing a caller at reliquary-tc://catalog would be a dead
     // link. Both instruction surfaces must omit the pointer in that case.
     const { client, server } = await connect(["*"]); // no vaultRegistry
     expect(client.getServerCapabilities()?.resources).toBeUndefined();
-    expect(client.getInstructions()).not.toContain("obsidian-tc://catalog");
+    expect(client.getInstructions()).not.toContain("reliquary-tc://catalog");
     expect(client.getInstructions()).toContain("Capabilities by domain"); // the summary itself still renders
     const tools = (await client.listTools()).tools;
     const find = tools.find((t) => t.name === "find_capability");
-    expect(find?.description).not.toContain("obsidian-tc://catalog");
+    expect(find?.description).not.toContain("reliquary-tc://catalog");
     await client.close();
     await server.close();
   });
@@ -351,7 +351,7 @@ describe("legacy initialize instructions are caller-filtered over HTTP (THE-937 
       auth: { mode: "jwt", jwtSecret: SECRET, audience: "http://test", tokenTtlSeconds: 3600 },
     }).auth;
     return startHttp({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: "0.0.0-test",
       registry,
       auth,
@@ -623,7 +623,7 @@ describe("THE-1098 (GH #964): buildInstructions reflects the effective config", 
         auth: { mode: "none" },
       }).auth;
       const h = await startHttp({
-        name: "obsidian-tc",
+        name: "reliquary-tc",
         version: "0.0.0-test",
         registry,
         auth,
@@ -700,7 +700,7 @@ describe("THE-1098 (GH #964): buildInstructions reflects the effective config", 
       });
       expect(cfg.experiential.logRetrievals).toBe(false); // the field this test actually threads
       const h = await startHttp({
-        name: "obsidian-tc",
+        name: "reliquary-tc",
         version: "0.0.0-test",
         registry,
         auth: cfg.auth,
@@ -741,7 +741,7 @@ describe("THE-1098 (GH #964): buildInstructions reflects the effective config", 
         auth: { mode: "jwt", jwtSecret: SECRET, audience: "http://test", tokenTtlSeconds: 3600 },
       }).auth;
       const h = await startHttp({
-        name: "obsidian-tc",
+        name: "reliquary-tc",
         version: "0.0.0-test",
         registry,
         auth,

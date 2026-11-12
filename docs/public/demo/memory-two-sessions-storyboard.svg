@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" font-family="'JetBrains Mono','Fira Code',ui-monospace,monospace">
-  <title>obsidian-tc memory you own: session one imports and writes, session two recalls it three ways</title>
+  <title>reliquary-tc memory you own: session one imports and writes, session two recalls it three ways</title>
   <desc>
     Static storyboard standing in for docs/demo/memory-two-sessions.gif until a machine with vhs,
     asciinema, or agg installed renders docs/demo/memory-two-sessions.tape. Six panels: session one
@@ -27,7 +27,7 @@
   </defs>
 
   <rect width="1200" height="800" fill="#191a21"/>
-  <text x="24" y="30" class="caption">obsidian-tc — session one writes memory -&gt; session two recalls it (no state but the vault)</text>
+  <text x="24" y="30" class="caption">reliquary-tc — session one writes memory -&gt; session two recalls it (no state but the vault)</text>
 
   <!-- Panel 1: dry-run -->
   <g transform="translate(24,50)">
@@ -38,7 +38,7 @@
     <circle class="dot" cx="58" cy="14" fill="#50fa7b"/>
     <text x="90" y="19" class="panel-title">1 · session one — dry-run preview</text>
     <text x="16" y="52" class="section">SESSION ONE</text>
-    <text x="16" y="72" class="prompt">$ <tspan class="cmd">obsidian-tc memory import --from \</tspan></text>
+    <text x="16" y="72" class="prompt">$ <tspan class="cmd">reliquary-tc memory import --from \</tspan></text>
     <text x="34" y="90" class="cmd">basic-memory ./notes --vault main</text>
     <text x="16" y="114" class="out">DRY RUN (nothing was written)</text>
     <text x="16" y="136" class="hit">create note Coffee Brewing Methods +2 obs</text>
@@ -55,7 +55,7 @@
     <circle class="dot" cx="38" cy="14" fill="#f1fa8c"/>
     <circle class="dot" cx="58" cy="14" fill="#50fa7b"/>
     <text x="90" y="19" class="panel-title">2 · session one — --apply writes for real</text>
-    <text x="16" y="52" class="prompt">$ <tspan class="cmd">obsidian-tc memory import --from \</tspan></text>
+    <text x="16" y="52" class="prompt">$ <tspan class="cmd">reliquary-tc memory import --from \</tspan></text>
     <text x="34" y="70" class="cmd">basic-memory ./notes cfg.json --vault main --apply</text>
     <text x="16" y="92" class="out">mode: apply</text>
     <text x="16" y="110" class="out">APPLY (writes were made)</text>

@@ -9,7 +9,7 @@
 // trace too — two copies would drift, and the drift would be silent in the direction that matters.
 //
 // GH #994: every pattern carries a stable `id` now, so a caller (memory-defense.ts's `block` mode,
-// and the `obsidian_tc_memory_defense_hits_total` counter) can name WHICH pattern matched without a
+// and the `reliquary_tc_memory_defense_hits_total` counter) can name WHICH pattern matched without a
 // second, hand-kept list of pattern names — the exhaustiveness that keeps this "the ONE scanner"
 // would be lost the moment a second enum of pattern identifiers existed beside this one.
 
@@ -171,7 +171,7 @@ const REDACTED = "[REDACTED]";
 
 /** The result of a scan: the (possibly redacted) text, how many total hits, and hits broken down
  *  by pattern id — GH #994 needs the id breakdown to name a matched pattern (block mode's error
- *  details) and to tag `obsidian_tc_memory_defense_hits_total` without a content-bearing label. */
+ *  details) and to tag `reliquary_tc_memory_defense_hits_total` without a content-bearing label. */
 export interface RedactScanResult {
   text: string;
   redactions: number;

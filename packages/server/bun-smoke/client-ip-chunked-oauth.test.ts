@@ -9,7 +9,7 @@
 // Loopback peers are unattributed by design, so the test trusts 127.0.0.0/8 and sends one forwarded
 // client address: the resolver then names that client when the peer is read, and nothing when it is not.
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { FolderAcl } from "../src/acl";
@@ -28,7 +28,7 @@ const CLIENT = "198.51.100.7";
 // auth.as.login.maxFailuresPerWindow default (5) × as-operator.ts IP_BUDGET_FACTOR (4).
 const IP_LIMIT = 5 * 4;
 
-const ENV_KEY = "OBSIDIAN_TC_AS_SETUP_TOKEN";
+const ENV_KEY = "RELIQUARY_TC_AS_SETUP_TOKEN";
 
 let server: ServerHandle | undefined;
 let savedToken: string | undefined;
@@ -50,7 +50,7 @@ async function startClaimedServer(parented = false): Promise<string> {
   const oauthDb = await openDatabase(":memory:");
   provisionOauthDb(oauthDb, { version: "t" });
   const handle = createHttpApp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "t",
     registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth: ServerConfigSchema.parse({

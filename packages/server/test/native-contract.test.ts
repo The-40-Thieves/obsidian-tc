@@ -17,7 +17,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { loadNative } from "../src/search/native";
 
-// Empty env: OBSIDIAN_TC_FORCE_JS_FALLBACK in the ambient environment must not suppress this.
+// Empty env: RELIQUARY_TC_FORCE_JS_FALLBACK in the ambient environment must not suppress this.
 const native = loadNative({} as NodeJS.ProcessEnv);
 // The real napi binding's own liveness flag — see the file-header note above for why this,
 // and not truthiness of `native` itself, is the correct gate.
@@ -89,9 +89,9 @@ describe("packages/native/index.js's own nativeLoaded is the real-binding signal
   // `typeof mod.cosineSimilarity === "function"` alone (search/native.ts's own completeness
   // check) cannot tell the two apart. `mod.nativeLoaded` can.
   it("mod.nativeLoaded reflects reality even though the function surface is identical either way", () => {
-    if (native === null) return; // OBSIDIAN_TC_FORCE_JS_FALLBACK or a require failure; nothing to check
+    if (native === null) return; // RELIQUARY_TC_FORCE_JS_FALLBACK or a require failure; nothing to check
     const req = createRequire(import.meta.url);
-    const mod = req("@the-40-thieves/obsidian-tc-native") as { nativeLoaded?: boolean };
+    const mod = req("@the-40-thieves/reliquary-tc-native") as { nativeLoaded?: boolean };
     expect(typeof mod.nativeLoaded).toBe("boolean");
     expect(mod.nativeLoaded).toBe(isRealNative);
   });

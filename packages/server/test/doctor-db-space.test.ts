@@ -56,7 +56,7 @@ describe("db.reclaimable-space — check factory", () => {
       state: { fileBytes: 1_000_000, freelistBytes: 150_000, ftsData: [] },
     });
     expect(r.status).toBe("warning");
-    expect(r.remediation).toBe("obsidian-tc compact");
+    expect(r.remediation).toBe("reliquary-tc compact");
     expect(r.summary).toContain("15.0%");
   });
 
@@ -295,9 +295,9 @@ describe("probeDbSpace — a real cache.db", () => {
   });
 
   // C2 — the FALLBACK branch (native readonly open throwing) cannot give the same bytes-unchanged
-  // guarantee: forced here via `OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK` (pragmas.ts's
+  // guarantee: forced here via `RELIQUARY_TC_FORCE_READONLY_OPEN_FALLBACK` (pragmas.ts's
   // `forceReadonlyOpenFallback`, the same test-only-escape-hatch shape as
-  // `OBSIDIAN_TC_FORCE_JS_FALLBACK` elsewhere in this repo) rather than by trying to reproduce
+  // `RELIQUARY_TC_FORCE_JS_FALLBACK` elsewhere in this repo) rather than by trying to reproduce
   // C1's macOS-only native-open failure on this (Linux) sandbox. What the fallback DOES still
   // guarantee — no write-capable pragma, so `journal_mode` and every logical row are unchanged —
   // is asserted; byte-for-byte identity is deliberately NOT asserted here, since the fallback's
@@ -314,8 +314,8 @@ describe("probeDbSpace — a real cache.db", () => {
       ).run("v1", "k1", "t", "h", 1, 2, "{}", 2, 9_999_999_999_999);
       db.close?.();
 
-      const priorEnv = process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK;
-      process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK = "1";
+      const priorEnv = process.env.RELIQUARY_TC_FORCE_READONLY_OPEN_FALLBACK;
+      process.env.RELIQUARY_TC_FORCE_READONLY_OPEN_FALLBACK = "1";
       let reader: Awaited<ReturnType<typeof openDatabase>> | undefined;
       try {
         reader = await openDatabase(dbPath, 5000, { readonly: true });
@@ -334,8 +334,8 @@ describe("probeDbSpace — a real cache.db", () => {
         expect(view.status).toBe("ok");
       } finally {
         reader?.close?.();
-        if (priorEnv === undefined) delete process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK;
-        else process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK = priorEnv;
+        if (priorEnv === undefined) delete process.env.RELIQUARY_TC_FORCE_READONLY_OPEN_FALLBACK;
+        else process.env.RELIQUARY_TC_FORCE_READONLY_OPEN_FALLBACK = priorEnv;
       }
     } finally {
       rmSync(cacheDir, { recursive: true, force: true });
@@ -347,13 +347,13 @@ describe("probeDbSpace — a real cache.db", () => {
   // (SQLite's own checkpoint-on-close against a dangling WAL) spelled out rather than implied.
   it("H2: the doctor row says so when the inspection connection fell back", async () => {
     const cacheDir = makeTempDir("obtc-dbspace-row-fallback-");
-    const priorEnv = process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK;
+    const priorEnv = process.env.RELIQUARY_TC_FORCE_READONLY_OPEN_FALLBACK;
     try {
       const db = await openDatabase(join(cacheDir, "cache.db"));
       provisionCacheDb(db, { version: "test" });
       db.close?.();
 
-      process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK = "1";
+      process.env.RELIQUARY_TC_FORCE_READONLY_OPEN_FALLBACK = "1";
       const view = await probeDbSpace(cacheDir, 5000);
       expect(view.status).toBe("ok");
       if (view.status !== "ok") throw new Error("unreachable");
@@ -370,8 +370,8 @@ describe("probeDbSpace — a real cache.db", () => {
       );
       expect(check.details?.readonlyModeNote).toContain("may be checkpointed on close");
     } finally {
-      if (priorEnv === undefined) delete process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK;
-      else process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_FALLBACK = priorEnv;
+      if (priorEnv === undefined) delete process.env.RELIQUARY_TC_FORCE_READONLY_OPEN_FALLBACK;
+      else process.env.RELIQUARY_TC_FORCE_READONLY_OPEN_FALLBACK = priorEnv;
       rmSync(cacheDir, { recursive: true, force: true });
     }
   });
@@ -502,19 +502,19 @@ describe("readonly open fallback condition (breaker ruling)", () => {
 // THE-1039 breaker ruling (#2) — bun:sqlite's readonly constructor is LAZY: it succeeds and the
 // failure surfaces on the first statement, so a wrapper guarding only construction hands back a
 // handle that fails later, outside it. That is why rounds 4 and 5 printed a raw SQLite message with
-// none of their own diagnostics. `OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW` makes the native attempt
+// none of their own diagnostics. `RELIQUARY_TC_FORCE_READONLY_OPEN_THROW` makes the native attempt
 // throw where macOS does (at the probe, after construction) so the real attempt -> refusal check ->
 // writable-open path runs on a platform whose native open succeeds — the gap the existing
 // FORCE_FALLBACK hook cannot reach, because it skips the native attempt entirely.
-describe("OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW — the real fallback path, on any platform", () => {
+describe("RELIQUARY_TC_FORCE_READONLY_OPEN_THROW — the real fallback path, on any platform", () => {
   const withForcedThrow = async (mode: string, fn: () => Promise<void>): Promise<void> => {
-    const prior = process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW;
-    process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW = mode;
+    const prior = process.env.RELIQUARY_TC_FORCE_READONLY_OPEN_THROW;
+    process.env.RELIQUARY_TC_FORCE_READONLY_OPEN_THROW = mode;
     try {
       await fn();
     } finally {
-      if (prior === undefined) delete process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW;
-      else process.env.OBSIDIAN_TC_FORCE_READONLY_OPEN_THROW = prior;
+      if (prior === undefined) delete process.env.RELIQUARY_TC_FORCE_READONLY_OPEN_THROW;
+      else process.env.RELIQUARY_TC_FORCE_READONLY_OPEN_THROW = prior;
     }
   };
 

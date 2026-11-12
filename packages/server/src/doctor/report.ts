@@ -59,7 +59,7 @@ const GLYPH: Record<CheckStatus, string> = { ok: "✓", warning: "!", fail: "✗
 /** Render human-readable text from a report. Consumes only the report, never re-probes. */
 export function renderText(report: DoctorReport): string {
   const lines: string[] = [];
-  lines.push(`obsidian-tc doctor — ${report.serverVersion} (${report.generatedAt})`);
+  lines.push(`reliquary-tc doctor — ${report.serverVersion} (${report.generatedAt})`);
   lines.push(`overall: ${report.overallStatus.toUpperCase()}`);
   lines.push("");
 

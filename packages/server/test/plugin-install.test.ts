@@ -34,7 +34,7 @@ function fakePluginSrc(): string {
   const dir = tmpDir("otc-plugin-src-");
   writeFileSync(
     join(dir, "manifest.json"),
-    JSON.stringify({ id: "obsidian-tc", name: "Obsidian Turbocharged", version: "9.9.9" }),
+    JSON.stringify({ id: "reliquary-tc", name: "Reliquary-TC", version: "9.9.9" }),
   );
   writeFileSync(join(dir, "main.js"), "module.exports = {};");
   return dir;
@@ -62,9 +62,9 @@ describe("installPlugin", () => {
     const src = fakePluginSrc();
     const vault = tmpDir("otc-vault-");
     const r = installPlugin(vault, src);
-    expect(r.pluginId).toBe("obsidian-tc");
+    expect(r.pluginId).toBe("reliquary-tc");
     expect(r.pluginVersion).toBe("9.9.9");
-    const dest = join(vault, ".obsidian", "plugins", "obsidian-tc");
+    const dest = join(vault, ".obsidian", "plugins", "reliquary-tc");
     expect(JSON.parse(readFileSync(join(dest, "manifest.json"), "utf8")).version).toBe("9.9.9");
     expect(readFileSync(join(dest, "main.js"), "utf8")).toBe("module.exports = {};");
   });
@@ -98,7 +98,7 @@ describe("installPlugin — manifest hardening", () => {
     );
   });
   it("rejects a manifest missing name or version", () => {
-    expect(() => installPlugin(tmpDir("otc-v2-"), pluginSrcWith('{"id":"obsidian-tc"}'))).toThrow(
+    expect(() => installPlugin(tmpDir("otc-v2-"), pluginSrcWith('{"id":"reliquary-tc"}'))).toThrow(
       /name or version/,
     );
   });

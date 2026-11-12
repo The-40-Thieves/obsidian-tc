@@ -1,4 +1,4 @@
-// PR A of the `obsidian-tc setup` split (GH #995 follow-up): argv parsing for
+// PR A of the `reliquary-tc setup` split (GH #995 follow-up): argv parsing for
 // `setup [--yes] [--dry-run] [--force] [--config <path>] [--vault <path>]`. No positional config
 // path — unlike every other command here, `setup` takes only named flags, since a bare positional
 // would be ambiguous between "the config to write" and "the vault to detect from".

@@ -2,7 +2,7 @@
 // side channel for entities the caller's read ACL hides. Every case runs the review's setup: the
 // caller holds read:memory + write:memory, readPaths ["memory/person/**"], writes unrestricted;
 // `Ada` (person) is readable, `Hidden` (tool) is not, and an admin has linked them.
-import { type ToolResult, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { type ToolResult, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import type { CallerContext } from "../src/mcp/registry";

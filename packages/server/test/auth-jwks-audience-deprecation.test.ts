@@ -6,7 +6,7 @@
 // release as a DEPRECATION (startup line, `doctor`, `server_health`), a startup error in the next
 // minor, and `auth.allowMissingAudience: true` is the explicit opt-out. A configured audience is
 // enforced exactly as before.
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildJwtVerifier } from "../src/auth/jwt-boot";

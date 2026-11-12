@@ -324,7 +324,7 @@ describe("prewarm cache ACL leak (THE-543)", () => {
     writeFileSync(join(vaultDir, "secret", "b.md"), `the ${RARE_TERM} pattern, SECRET copy`);
 
     // Pre-provision cache.db with the same two chunks (bypasses needing a real embedding
-    // backend for `obsidian-tc index`) and the retrieval.classRouter config the lexical route
+    // backend for `reliquary-tc index`) and the retrieval.classRouter config the lexical route
     // needs.
     mkdirSync(cacheDirPath, { recursive: true });
     const { DatabaseSync } = await import("node:sqlite");

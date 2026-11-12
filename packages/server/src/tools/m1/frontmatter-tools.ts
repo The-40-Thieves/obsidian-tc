@@ -5,7 +5,7 @@
 // concurrent_modification). update_frontmatter's `replace` operation discards all
 // existing metadata, so it gates on confirmation via requireConfirmation; set/remove/
 // merge do not. Property keys are top-level by default; pass nested=true for dotted-path access (THE-198).
-import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { ElicitToken, err, VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { conventionsResultShape } from "../../conventions/schema";
 import type { ToolDefinition } from "../../mcp/registry";

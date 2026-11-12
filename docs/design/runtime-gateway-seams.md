@@ -26,7 +26,7 @@ resolving to `null` is a config-correctness defect — the operator declared a b
 cannot work given the rest of their config (e.g. `model-tier` without `embeddings.modelTier.full`,
 `gateway` without a base URL), and that is always fixable by editing the config, so it should be
 loud. `local`'s `null` is an environment-availability question instead: the optional
-`@the-40-thieves/obsidian-tc-reranker-local` package (~230 MB `onnxruntime-node`, kept out of the
+`@the-40-thieves/reliquary-tc-reranker-local` package (~230 MB `onnxruntime-node`, kept out of the
 root workspace on purpose) may simply not be resolvable on *this* exact deployment — not yet
 published, not built in this checkout, no `localModulePath` override. Treating that identically to a
 config typo would mean an operator who opts into an optional capability that happens to be

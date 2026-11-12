@@ -52,7 +52,7 @@ export interface ModeCell {
 
 export const trialCalls = (t: TrialResult): number => t.friction.toolsCalls + t.toolSearchCalls;
 /** A built-in tool the model reached for (Bash is disabled in every trial) is not a discovery failure:
- *  only a not-found for an obsidian-tc tool, or the server's own unknown-tool answer, counts. */
+ *  only a not-found for a reliquary-tc tool, or the server's own unknown-tool answer, counts. */
 const isBuiltInMiss = (excerpt: string): boolean =>
   /No such tool available: (?!mcp__)/i.test(excerpt);
 export const trialNotFound = (t: TrialResult): number =>

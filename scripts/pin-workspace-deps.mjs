@@ -1,7 +1,7 @@
 // Pin workspace:* dependency specifiers to concrete versions in the publishable
 // package.json files. `npm publish` does NOT rewrite the workspace: protocol (unlike
-// `bun publish`), so without this the published obsidian-tc would ship
-// "@the-40-thieves/obsidian-tc-shared": "workspace:*" and fail to install. We keep
+// `bun publish`), so without this the published reliquary-tc would ship
+// "@the-40-thieves/reliquary-tc-shared": "workspace:*" and fail to install. We keep
 // npm publish (for --provenance, which bun publish lacks) and run this first.
 //
 // Mirrors bun's resolution: workspace:* -> <version>, workspace:^ -> ^<version>,

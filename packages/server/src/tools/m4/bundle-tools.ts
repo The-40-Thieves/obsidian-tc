@@ -3,7 +3,7 @@
 // markdown or XML bundle for handing a folder/selection to an LLM as one blob.
 // ACL-filtered to the read-visible set; byte- and file-count-budgeted with an
 // explicit `truncated` flag (no silent drops).
-import { VaultId, VaultPath } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId, VaultPath } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../mcp/registry";
 import { ResponseFormatInput, resolveResponseFormat } from "../../util/response-format";

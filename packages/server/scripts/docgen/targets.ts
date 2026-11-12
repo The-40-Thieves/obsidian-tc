@@ -44,7 +44,7 @@ export const NARRATIVE_DOC_FILES = ["README.md", "ARCHITECTURE.md"] as const;
  */
 export const REFERENCE_SIGNAL_FILES = [
   "packages/server/test/registered-tools.txt",
-  "docs/obsidian-tc.config.schema.json",
+  "docs/reliquary-tc.config.schema.json",
   "docs/project-facts.json",
   "packages/server/src/bridge/version.ts",
 ] as const;

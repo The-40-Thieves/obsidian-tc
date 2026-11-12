@@ -18,7 +18,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const ORT_DIR_KEY = Symbol.for("obsidian-tc.ort-dir");
+export const ORT_DIR_KEY = Symbol.for("reliquary-tc.ort-dir");
 
 export function loadOrtBinding() {
   const dir =

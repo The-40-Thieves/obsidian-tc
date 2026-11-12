@@ -247,7 +247,7 @@ describe("no tool result hands a client only a link or a blob", () => {
   it("a resource_link / image result with no text block gets a text block, blocks kept", () => {
     const link = {
       type: "resource_link",
-      uri: "obsidian-tc://vault/a.md",
+      uri: "reliquary-tc://vault/a.md",
       name: "a.md",
     } as const;
     const image = { type: "image", data: "AAAA", mimeType: "image/png" } as const;

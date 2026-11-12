@@ -4,7 +4,7 @@
 
 import { symlinkSync } from "node:fs";
 import { join } from "node:path";
-import { ServerConfigSchema, type ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema, type ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ToolRegistry } from "../src/mcp/registry";
 import { RateLimiter } from "../src/throttle";
@@ -96,7 +96,7 @@ describe("get_server_config", () => {
       backend: "redis",
       failure_policy: "fail-closed",
     });
-    expect(JSON.stringify(out)).not.toMatch(/redis-url|OBSIDIAN_TC_REDIS_URL|obsidian-tc:rl/);
+    expect(JSON.stringify(out)).not.toMatch(/redis-url|RELIQUARY_TC_REDIS_URL|reliquary-tc:rl/);
   });
 
   it("leaks no secret-bearing fields", async () => {
@@ -323,13 +323,13 @@ describe("get_metrics", () => {
       metrics: { name: string; type: string; value: number; labels: Record<string, string> }[];
     }>(await v.call("get_metrics", {}));
     const inv = out.metrics.find(
-      (m) => m.name === "obsidian_tc_tool_calls_total" && m.labels.tool === "get_server_config",
+      (m) => m.name === "reliquary_tc_tool_calls_total" && m.labels.tool === "get_server_config",
     );
     expect(inv?.value).toBe(2);
-    expect(out.metrics.find((m) => m.name === "obsidian_tc_vaults_registered")?.value).toBe(1);
-    const tools = out.metrics.find((m) => m.name === "obsidian_tc_tools_registered");
+    expect(out.metrics.find((m) => m.name === "reliquary_tc_vaults_registered")?.value).toBe(1);
+    const tools = out.metrics.find((m) => m.name === "reliquary_tc_tools_registered");
     expect((tools?.value ?? 0) > 0).toBe(true);
-    expect(out.metrics.some((m) => m.name === "obsidian_tc_uptime_seconds")).toBe(true);
+    expect(out.metrics.some((m) => m.name === "reliquary_tc_uptime_seconds")).toBe(true);
   });
 
   it("includes live rate-limiter hit counters", async () => {
@@ -340,7 +340,7 @@ describe("get_metrics", () => {
       metrics: { name: string; value: number; labels: Record<string, string> }[];
     }>(await v.call("get_metrics", {}));
     const hit = out.metrics.find(
-      (m) => m.name === "obsidian_tc_rate_limit_hits_total" && m.labels.scope_class === "bulk",
+      (m) => m.name === "reliquary_tc_rate_limit_hits_total" && m.labels.scope_class === "bulk",
     );
     expect(hit?.value).toBe(1);
   });
@@ -393,7 +393,7 @@ describe("THE-507 get_metrics separates tool calls from non-tool events", () => 
   it("does NOT count a non-tool-call event_log row as a tool call", async () => {
     // invocationCounters() grouped over EVERY event_log row with no event_type filter, so the
     // maintenance sweep's `sweep_run` rows and morgiana's `morgiana_emit_dropped` rows were already
-    // being reported as obsidian_tc_tool_calls_total — a tool call that never happened, with an
+    // being reported as reliquary_tc_tool_calls_total — a tool call that never happened, with an
     // empty tool label. Writing ingest events into the same table would have compounded it.
     v = makeM6Vault({ register });
     await v.call("get_server_config", {}); // one REAL tool call
@@ -406,7 +406,7 @@ describe("THE-507 get_metrics separates tool calls from non-tool events", () => 
     const out = data<{
       metrics: { name: string; value: number; labels: Record<string, string> }[];
     }>(await v.call("get_metrics", {}));
-    const calls = out.metrics.filter((m) => m.name === "obsidian_tc_tool_calls_total");
+    const calls = out.metrics.filter((m) => m.name === "reliquary_tc_tool_calls_total");
     // Every reported tool-call row must name an actual tool.
     expect(calls.every((m) => m.labels.tool !== "")).toBe(true);
     expect(calls.reduce((n, m) => n + m.value, 0)).toBe(1); // the sweep_run row is not a call
@@ -435,12 +435,12 @@ describe("THE-507 get_metrics separates tool calls from non-tool events", () => 
       metrics: { name: string; value: number; labels: Record<string, string> }[];
     }>(await v.call("get_metrics", {}));
     const val = (n: string) => out.metrics.find((m) => m.name === n)?.value;
-    expect(val("obsidian_tc_ingest_secrets_skipped_total")).toBe(3);
-    expect(val("obsidian_tc_ingest_dedup_skipped_total")).toBe(2);
-    expect(val("obsidian_tc_embed_batch_rejections_total")).toBe(1);
-    expect(val("obsidian_tc_index_write_failures_total")).toBe(5);
-    expect(val("obsidian_tc_index_stale_skipped_total")).toBe(4);
-    expect(val("obsidian_tc_index_frontmatter_failures_total")).toBe(2);
+    expect(val("reliquary_tc_ingest_secrets_skipped_total")).toBe(3);
+    expect(val("reliquary_tc_ingest_dedup_skipped_total")).toBe(2);
+    expect(val("reliquary_tc_embed_batch_rejections_total")).toBe(1);
+    expect(val("reliquary_tc_index_write_failures_total")).toBe(5);
+    expect(val("reliquary_tc_index_stale_skipped_total")).toBe(4);
+    expect(val("reliquary_tc_index_frontmatter_failures_total")).toBe(2);
   });
 
   it("sums repeated ingest passes rather than reporting only the latest", async () => {
@@ -454,7 +454,7 @@ describe("THE-507 get_metrics separates tool calls from non-tool events", () => 
       metrics: { name: string; value: number; labels: Record<string, string> }[];
     }>(await v.call("get_metrics", {}));
     expect(
-      out.metrics.find((m) => m.name === "obsidian_tc_ingest_secrets_skipped_total")?.value,
+      out.metrics.find((m) => m.name === "reliquary_tc_ingest_secrets_skipped_total")?.value,
     ).toBe(7);
   });
 });

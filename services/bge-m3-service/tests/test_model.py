@@ -1,6 +1,6 @@
 """BgeM3Encoder loader (THE-1035): the model that gets loaded must actually be pinned to
 `revision`, not just report it afterwards. torch / FlagEmbedding / huggingface_hub are lazy-imported
-inside __init__ (the last one via the shared obsidian_tc_bge.hub helper), so fakes are injected
+inside __init__ (the last one via the shared reliquary_tc_bge.hub helper), so fakes are injected
 into sys.modules before construction and never touch real weights or the network."""
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ def _model_module():
     # The heavy imports (torch, FlagEmbedding, huggingface_hub) live INSIDE BgeM3Encoder.__init__,
     # so importing this module never touches them - the fakes in sys.modules only need to be in
     # place by construction time, not by import time.
-    from obsidian_tc_bge import model
+    from reliquary_tc_bge import model
 
     return model
 
@@ -92,7 +92,7 @@ def test_encoder_pins_the_snapshot_before_loading(monkeypatch, tmp_path):
     # the onnx exclude must reach the real call - a blanket ignore_patterns alone (the first cut of
     # this fix) either doubles first-start download/disk (BAAI/bge-m3's onnx/model.onnx_data alone
     # is ~2267 MB) or, worse, breaks an offline start against a cache the OLD code populated. See
-    # obsidian_tc_bge/hub.py's module comment.
+    # reliquary_tc_bge/hub.py's module comment.
     assert calls == [
         {
             "repo_id": "BAAI/bge-m3",

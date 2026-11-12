@@ -1,8 +1,8 @@
 # Architecture
 
-Full design record: [`ARCHITECTURE.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/ARCHITECTURE.md). Tool surface: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/obsidian-tc/blob/main/docs/G2.1-tools.md).
+Full design record: [`ARCHITECTURE.md`](https://github.com/The-40-Thieves/reliquary-tc/blob/main/ARCHITECTURE.md). Tool surface: [`docs/G2.1-tools.md`](https://github.com/The-40-Thieves/reliquary-tc/blob/main/docs/G2.1-tools.md).
 
-obsidian-tc is a **polyglot monorepo**. The server is a single Bun/Node process; the companion plugin runs inside Obsidian; the native module is Rust linked over napi-rs.
+reliquary-tc is a **polyglot monorepo**. The server is a single Bun/Node process; the companion plugin runs inside Obsidian; the native module is Rust linked over napi-rs.
 
 ## Packages
 
@@ -46,7 +46,7 @@ The native module never throws on a missing prebuild — a hand-written loader t
 
 ## Multi-vault registry
 
-Each configured vault is **logically** isolated: its data lives in the **shared** SQLite cache (`cache.db` + `experiential.db`) row-scoped by `vault_id` — not a per-vault DB file (physically separate per-vault files are a planned V2 rewrite, not current) — under its own slice of the global ACL (per-vault `acl` overrides supported). The embedding provider is server-global (one per server). Vault resolution order: explicit `args.vault` → `OBSIDIAN_TC_DEFAULT_VAULT` → config default → the sole vault → else `invalid_input`.
+Each configured vault is **logically** isolated: its data lives in the **shared** SQLite cache (`cache.db` + `experiential.db`) row-scoped by `vault_id` — not a per-vault DB file (physically separate per-vault files are a planned V2 rewrite, not current) — under its own slice of the global ACL (per-vault `acl` overrides supported). The embedding provider is server-global (one per server). Vault resolution order: explicit `args.vault` → `RELIQUARY_TC_DEFAULT_VAULT` → config default → the sole vault → else `invalid_input`.
 
 ## Retrieval (shipped, measured)
 
@@ -57,14 +57,14 @@ The converged retrieval engine shipped in the v1.4–v1.7 line: GraphRAG graph-w
 The experiential tier is a **membrane**: a physically separate `experiential.db` beside the authored `cache.db`, with its own migration chain. Nothing in it can reach an authored chunk except through query-time composition.
 
 - **Write side** — `chunk_retrievals` logs every serve-path retrieval (with later-stamped `feedback` and `cited_in_response` axes; the `outcome` axis was retired); `agent_episodes` auto-captures dispatch outcomes (content capture defaults **off**), born `pending`, with a deterministic pre-ingest poison scanner that marks injection-shaped content born-ineligible.
-- **Evaluation** (`obsidian-tc reflect`, sleep-time) — pending episodes promote under deterministic rules; an optional gateway judge can only lower; the same pass maintains a **versioned preference profile** updated only by typed deltas.
+- **Evaluation** (`reliquary-tc reflect`, sleep-time) — pending episodes promote under deterministic rules; an optional gateway judge can only lower; the same pass maintains a **versioned preference profile** updated only by typed deltas.
 - **Read side** — the M8 tools enforce the reader contract: eligible-only, tombstones, trust floor, caller partition.
 - **Deletion** — `forget` propagates through derived state with tombstone-vs-erase modes and a **hash-chained `forget_log`** (editing any entry breaks verification).
 - **Flywheel** — access statistics are views over the retrieval log (never mutated columns on the authored store); the `metrics` / `gaps` CLIs feed a cycle-close loop that writes scorecards back into the vault.
 
 ## Protocol
 
-MCP spec **2025-11-25**. STDIO for local; Streamable HTTP for HTTP modes. The server advertises **tools, resources, and prompts** — notes are readable as MCP Resources over `obsidian-tc://<vault>/<path>` URIs (read-scope + folder-ACL enforced). HITL uses a custom single-use `elicit_token` pattern that works with any MCP client.
+MCP spec **2025-11-25**. STDIO for local; Streamable HTTP for HTTP modes. The server advertises **tools, resources, and prompts** — notes are readable as MCP Resources over `reliquary-tc://<vault>/<path>` URIs (read-scope + folder-ACL enforced). HITL uses a custom single-use `elicit_token` pattern that works with any MCP client.
 
 ## V2 (parked, with a trigger)
 

@@ -18,12 +18,12 @@ a single configuration cannot rule out the surface, so the verdict is scoped, no
 
 ## Corpus (asserted, not assumed)
 
-`~/obsidian-tc-eval/multi-hop-golden-set.yaml`, **250 queries**, asserted by parsing the file at run
+`~/reliquary-tc-eval/multi-hop-golden-set.yaml`, **250 queries**, asserted by parsing the file at run
 time. A stale 136-query copy exists at a nearly identical path under `/data`; the canonical file's
 own header still reads `136` and is wrong. The count is taken from the parse, never from the header
 or from a ticket.
 
-Index: `~/obsidian-tc-eval/cache-nomic-ctx/cache.db` — 12,159 chunks, nomic-768. Before this sweep
+Index: `~/reliquary-tc-eval/cache-nomic-ctx/cache.db` — 12,159 chunks, nomic-768. Before this sweep
 it carried **zero** derived edges of any kind (only `links_to` and `unresolved`), so every cell
 builds its edge set from scratch.
 

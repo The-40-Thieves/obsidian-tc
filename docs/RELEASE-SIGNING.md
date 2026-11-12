@@ -50,9 +50,9 @@ Current state, for the record:
 **1. Create a signing key.** SSH signing is simpler than GPG here and reuses a key you likely have:
 
 ```bash
-ssh-keygen -t ed25519 -C "release signing — obsidian-tc" -f ~/.ssh/obsidian_tc_signing
+ssh-keygen -t ed25519 -C "release signing — reliquary-tc" -f ~/.ssh/reliquary_tc_signing
 git config --global gpg.format ssh
-git config --global user.signingkey ~/.ssh/obsidian_tc_signing.pub
+git config --global user.signingkey ~/.ssh/reliquary_tc_signing.pub
 git config --global tag.gpgSign true
 ```
 
@@ -63,7 +63,7 @@ Verified without a signing-key entry.
 **3. Commit the public key** so CI can verify against it:
 
 ```bash
-printf '%s %s\n' "your-github-email@example.com" "$(cat ~/.ssh/obsidian_tc_signing.pub)" \
+printf '%s %s\n' "your-github-email@example.com" "$(cat ~/.ssh/reliquary_tc_signing.pub)" \
   > .github/allowed_signers
 ```
 
@@ -130,10 +130,10 @@ There is no longer a manual promote. Trusted publishing authorises `npm publish`
 incompatibility, not a misconfiguration, and one on a deadline: npm's 2026-07-08 changelog withdraws
 package *management* actions from 2FA-bypass tokens first, in early August 2026.
 
-The workflow now publishes straight to the release dist-tag in dependency order with `obsidian-tc`
+The workflow now publishes straight to the release dist-tag in dependency order with `reliquary-tc`
 **last**, which is safe because every inter-package dependency is exact-pinned rather than ranged —
 so no install resolves a sub-package by tag, and a sequence that dies partway leaves
-`obsidian-tc@latest` on the previous intact release. See *Ordered npm publish* in `RELEASING.md`,
+`reliquary-tc@latest` on the previous intact release. See *Ordered npm publish* in `RELEASING.md`,
 which also records why npm's staged publishing was evaluated and not adopted.
 
 If you ever do need to move a dist-tag by hand, it requires an interactive OTP. Omit `--otp` so npm

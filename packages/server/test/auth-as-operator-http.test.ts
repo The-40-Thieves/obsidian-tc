@@ -1,7 +1,7 @@
 // The operator routes (slice S4) as `createHttpApp` mounts them: only for an enabled AS that was
 // given its oauth.db, behind the same app as /mcp, and without turning discovery on (no authorize or
 // token route exists yet, so nothing may be advertised).
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import type { Context } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
@@ -51,7 +51,7 @@ function build(opts: { as?: Record<string, unknown> | false; withOauthDb?: boole
   const oauthDb = openMemoryDb();
   provisionOauthDb(oauthDb, { version: "t" });
   const handle = createHttpApp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "t",
     registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth: authOf(opts.as),
@@ -113,7 +113,7 @@ describe("mounting", () => {
 
   it("claims, logs in and logs out end to end through the mounted app", async () => {
     const { fixture, oauthDb } = build();
-    process.env.OBSIDIAN_TC_AS_SETUP_TOKEN = SETUP_TOKEN;
+    process.env.RELIQUARY_TC_AS_SETUP_TOKEN = SETUP_TOKEN;
     try {
       const claim = await submit(fixture, "/oauth/setup", {
         token: SETUP_TOKEN,
@@ -129,7 +129,7 @@ describe("mounting", () => {
       expect((await post(fixture, "/oauth/logout", { csrf: page.csrf }, jar)).res.status).toBe(303);
       expect(oauthDb.prepare("SELECT COUNT(*) AS n FROM sessions").get()).toEqual({ n: 0 });
     } finally {
-      delete process.env.OBSIDIAN_TC_AS_SETUP_TOKEN;
+      delete process.env.RELIQUARY_TC_AS_SETUP_TOKEN;
     }
   });
 
@@ -139,7 +139,7 @@ describe("mounting", () => {
     const db = openMemoryDb();
     provisionCacheDb(db);
     const handle = await startHttp({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: "t",
       registry: new ToolRegistry({ rootResolver: () => undefined }),
       auth: authOf(),

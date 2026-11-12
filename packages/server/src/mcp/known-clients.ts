@@ -5,7 +5,7 @@
 // facade-auto.ts already imports `TelemetryStatusInfo` (type-only) from telemetry/wiring.ts, so
 // wiring.ts importing FROM facade-auto.ts would be a real cycle at the module-dependency-graph
 // level (`check:boundaries`'s `no-circular` rule catches this even for a type-only edge — see
-// `reference-obsidian-tc-adding-a-tool-trips-four-gates`'s THE-658 precedent). This module has no
+// `reference-reliquary-tc-adding-a-tool-trips-four-gates`'s THE-658 precedent). This module has no
 // imports of its own beyond the pure `FacadeMode` type, so either side can depend on it with no
 // cycle possible.
 import type { FacadeMode } from "./facade-mode";

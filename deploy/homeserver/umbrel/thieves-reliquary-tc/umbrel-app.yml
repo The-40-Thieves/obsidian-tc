@@ -1,5 +1,5 @@
 manifestVersion: 2.0
-id: thieves-obsidian-tc
+id: thieves-reliquary-tc
 storage:
   dataRoot: data
 folderAccess:
@@ -10,23 +10,23 @@ folderAccess:
       - service: main
         targetPath: /vault
 category: ai
-name: obsidian-tc
+name: reliquary-tc
 version: "1.34.0"
 tagline: MCP server for your Obsidian vault
 description: >-
   Lets MCP clients read and write the notes in the vault you pick, on your local network. Clients
   connect with a bearer token minted from the app's console. Remote access needs an https tunnel;
-  see the home-server guide in the obsidian-tc docs.
+  see the home-server guide in the reliquary-tc docs.
 releaseNotes: ""
 developer: The 40 Thieves
-website: https://github.com/The-40-Thieves/obsidian-tc
+website: https://github.com/The-40-Thieves/reliquary-tc
 dependencies: []
-repo: https://github.com/The-40-Thieves/obsidian-tc
-support: https://github.com/The-40-Thieves/obsidian-tc/issues
+repo: https://github.com/The-40-Thieves/reliquary-tc
+support: https://github.com/The-40-Thieves/reliquary-tc/issues
 port: 8765
 gallery: []
 path: ""
 defaultUsername: ""
 defaultPassword: ""
 submitter: Suavecito585
-submission: https://github.com/The-40-Thieves/obsidian-tc
+submission: https://github.com/The-40-Thieves/reliquary-tc

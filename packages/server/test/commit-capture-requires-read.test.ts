@@ -3,7 +3,7 @@
 // A caller that may write captures but not read them must be refused before anything is written
 // and the capture stays queued. A missing capture and a capture the folder ACL hides get identical
 // refusals, and a caller holding both scopes still commits.
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { type M5Vault, makeM5Vault } from "./m5-helpers";
 

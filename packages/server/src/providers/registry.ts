@@ -2,7 +2,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err } from "@the-40-thieves/reliquary-tc-shared";
 import type { EmbeddingProvider } from "../embeddings/provider";
 import { resolveApiKey } from "../embeddings/provider";
 import {
@@ -51,7 +51,7 @@ function adapterOpts(cfg: EmbeddingsConfigLike, ctx: ResolveContext) {
 // separate model/bge.ts client used by model-tier. The first draft had this wrong, which would have
 // made the duplicate-segment guard silently useless for bge-m3.
 const EMBEDDINGS: Record<string, EmbeddingsEntry> = {
-  // THE-837: DEPRECATED, and deliberately still fully functional. obsidian-tc is provider-agnostic
+  // THE-837: DEPRECATED, and deliberately still fully functional. reliquary-tc is provider-agnostic
   // — this entry is a built-in for one vendor whose wire format the generic `openai-compatible`
   // adapter can already serve, since Ollama exposes /v1/embeddings (OpenAI-shaped, middleware over
   // the same handler as /api/embed). What it CANNOT do is change `provider.id`, which this repo
@@ -317,7 +317,7 @@ const RERANKERS: Record<string, RerankerEntry> = {
       }),
   },
   // THE-705 item 1: a bundled, fully offline cross-encoder — reachable with no
-  // OBSIDIAN_TC_GATEWAY_URL and no bge-m3-service. appendsPath "" for the same reason as
+  // RELIQUARY_TC_GATEWAY_URL and no bge-m3-service. appendsPath "" for the same reason as
   // model-tier: this entry reads none of the descriptor's model/baseUrl/apiKey/apiKeyEnv/timeoutMs,
   // only reranker.localModelPath / reranker.localModulePath (see buildLocalReranker below).
   local: {
@@ -345,7 +345,7 @@ const RERANKERS: Record<string, RerankerEntry> = {
  *  `packages/server` typechecks whether or not the optional package is installed — it is never a
  *  dependency of packages/server (see the package's own README for why: this is what keeps it out
  *  of every `bun install` at the repo root). */
-const LOCAL_RERANKER_PACKAGE = "@the-40-thieves/obsidian-tc-reranker-local";
+const LOCAL_RERANKER_PACKAGE = "@the-40-thieves/reliquary-tc-reranker-local";
 
 /** THE-705 round 2 (adversarial review, confirmed finding 1) / THE-1079 (GH #947, round 2 fix): the
  *  bare specifier above cannot resolve from packages/server under ANY setup this repo actually
@@ -671,7 +671,7 @@ export async function buildLocalReranker(
       {
         provider: "local",
         ignored,
-        hint: "the local reranker sources its model from the bundled @the-40-thieves/obsidian-tc-reranker-local package, not these fields — remove them, or set reranker.localModulePath/localModelPath instead if you need a non-default location.",
+        hint: "the local reranker sources its model from the bundled @the-40-thieves/reliquary-tc-reranker-local package, not these fields — remove them, or set reranker.localModulePath/localModelPath instead if you need a non-default location.",
       },
     );
   }

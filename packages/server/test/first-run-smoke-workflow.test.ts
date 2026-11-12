@@ -74,6 +74,16 @@ describe("ci-first-run-smoke.yml", () => {
     expect(smoke).not.toMatch(/\[0-9\]\*/);
   });
 
+  it("the npm cells install reliquary-tc only when the project's own npm account published it", () => {
+    // The unscoped name is unclaimed until the first 2.0.0 publish; a squatter's package would run here.
+    const smoke = job?.steps.find((s) => s.id === "smoke")?.run ?? "";
+    expect((wf.env as Record<string, string>).NPM_PUBLISHER).toMatch(/^[a-z0-9][a-z0-9._-]*$/);
+    expect(smoke).toMatch(/published_version\(\) \{[^}]*npm view reliquary-tc maintainers --json/s);
+    expect(smoke).toContain("NPM_PUBLISHER");
+    expect(smoke.match(/v=\$\(published_version\)/g)).toHaveLength(2);
+    expect(smoke).not.toMatch(/v=\$\(npm view reliquary-tc/);
+  });
+
   it("each Intel macOS label builds its own darwin-x64 standalone binary", () => {
     const include = eventGatedList(job?.strategy?.matrix.include).otherEvents;
     for (const os of ["macos-15-intel", "macos-26-intel"]) {
@@ -94,7 +104,11 @@ describe("ci-first-run-smoke.yml", () => {
     const listed = wf.env.EXPECTED_FAILURES.split(/\s+/).filter(Boolean);
     expect(new Set(listed).size, "duplicate entry in EXPECTED_FAILURES").toBe(listed.length);
     for (const cell of listed) expect(cells.has(cell), `${cell} is not a matrix cell`).toBe(true);
-    expect(listed).toEqual([]);
+    // The npm and npm-local cells install the published reliquary-tc, which is not on npm until the
+    // first 2.0.0 release. Restore the empty list once it is.
+    expect(listed.sort()).toEqual(
+      ["npm", "npm-local"].flatMap((p) => os.map((o) => `${p}/${o}`)).sort(),
+    );
     expect([...parseExpectedFailures(wf.env.EXPECTED_FAILURES)].sort()).toEqual([...listed].sort());
   });
 

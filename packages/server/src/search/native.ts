@@ -1,5 +1,5 @@
 // Native-optional vector + lexical primitives. The Rust module
-// (@the-40-thieves/obsidian-tc-native) accelerates cosine similarity, tokenization, and BM25
+// (@the-40-thieves/reliquary-tc-native) accelerates cosine similarity, tokenization, and BM25
 // scoring. When it is not built for the host — the clean-room install, the
 // vitest suite, an unsupported platform — we fall back to pure-JS equivalents.
 // This boundary is required by the M2 design and sanctioned by G2.2 (component
@@ -131,12 +131,12 @@ type NativeRequire = (specifier: string) => unknown;
 // Computed specifier so the bundler (bun build) does not resolve and inline the
 // platform-specific napi package; it stays a runtime require that throws
 // cleanly (-> JS fallback) when the binary is absent.
-const NATIVE_PKG = ["@the-40-thieves", "obsidian-tc-native"].join("/");
+const NATIVE_PKG = ["@the-40-thieves", "reliquary-tc-native"].join("/");
 
 /**
  * Select the search backend: the compiled native module, or `null` to signal the
  * pure-JS fallback. Returns `null` when either:
- *   - `OBSIDIAN_TC_FORCE_JS_FALLBACK=1` is set — a deterministic escape hatch the
+ *   - `RELIQUARY_TC_FORCE_JS_FALLBACK=1` is set — a deterministic escape hatch the
  *     pure-JS fallback CI job (ci-native.yml) uses to exercise the JS path even on
  *     a host where the .node IS built, so the fallback stays correct as the native
  *     API evolves; or
@@ -150,7 +150,7 @@ export function loadNative(
   env: NodeJS.ProcessEnv = process.env,
   requireFn: NativeRequire = createRequire(import.meta.url),
 ): NativeOps | null {
-  if (env.OBSIDIAN_TC_FORCE_JS_FALLBACK === "1") return null;
+  if (env.RELIQUARY_TC_FORCE_JS_FALLBACK === "1") return null;
   try {
     const mod = requireFn(NATIVE_PKG) as Partial<NativeOps>;
     if (
@@ -168,7 +168,7 @@ export function loadNative(
 
 /**
  * THE-906: whether `mod` (the value `loadNative()` handed back) is the REAL compiled napi binding,
- * as opposed to `@the-40-thieves/obsidian-tc-native`'s own bundled `fallback.js` — which
+ * as opposed to `@the-40-thieves/reliquary-tc-native`'s own bundled `fallback.js` — which
  * `packages/native/index.js` substitutes transparently, under the exact same function names,
  * whenever no local `.node` and no published platform prebuild resolve for the host (true of every
  * `--ignore-scripts` checkout). `mod !== null` cannot tell these apart (#857): both shapes pass

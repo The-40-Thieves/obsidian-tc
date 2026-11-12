@@ -1,4 +1,4 @@
-import { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { globMatch, globToRegExp } from "../src/acl";
 import { normalizeVaultPath } from "../src/vault/paths";
@@ -143,13 +143,13 @@ describe("normalizeVaultPath — properties", () => {
       } catch (e) {
         caught = e;
       }
-      // Every rejection must be a typed ObsidianTcError carrying the security
+      // Every rejection must be a typed ReliquaryTcError carrying the security
       // invariant `path_invalid` code, not merely "some throw": a stray TypeError
       // (or a refactor that routed these to a different code) would itself be a bug.
       expect(caught, `expected ${JSON.stringify(bad)} to be rejected`).toBeInstanceOf(
-        ObsidianTcError,
+        ReliquaryTcError,
       );
-      expect((caught as ObsidianTcError).code, `wrong code for ${JSON.stringify(bad)}`).toBe(
+      expect((caught as ReliquaryTcError).code, `wrong code for ${JSON.stringify(bad)}`).toBe(
         "path_invalid",
       );
     }
@@ -183,8 +183,8 @@ describe("normalizeVaultPath — properties", () => {
     } catch (e) {
       caught = e;
     }
-    expect(caught).toBeInstanceOf(ObsidianTcError);
-    const e = caught as ObsidianTcError;
+    expect(caught).toBeInstanceOf(ReliquaryTcError);
+    const e = caught as ReliquaryTcError;
     expect(e.code).toBe("path_invalid");
     expect(JSON.stringify(e.toJSON())).not.toContain(token);
     expect(String(e.details?.path)).not.toContain(token);

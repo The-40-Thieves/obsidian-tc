@@ -513,7 +513,7 @@ describe("every AS response is frame-proof (clickjacking row) and never cached",
         "setup 404",
         (
           await get(
-            await makeOperator({ env: { OBSIDIAN_TC_AS_SETUP_TOKEN: undefined } }),
+            await makeOperator({ env: { RELIQUARY_TC_AS_SETUP_TOKEN: undefined } }),
             "/oauth/setup",
           )
         ).res,

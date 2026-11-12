@@ -1,4 +1,4 @@
-// `obsidian-tc provenance verify` argv parsing. Split out of args.ts for the same reason
+// `reliquary-tc provenance verify` argv parsing. Split out of args.ts for the same reason
 // parse-auth.ts documents: args.ts sits at biome's file-length floor.
 import { flagValue, positional } from "./flag-value";
 

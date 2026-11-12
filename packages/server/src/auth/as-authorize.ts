@@ -4,7 +4,7 @@
 // on approval, creates the grant and a 60 s single-use code and redirects to the client. Every
 // redirect to a client, errors included, carries `iss` (RFC 9207) and the client's `state`; every
 // answer to a form POST is a 303, so a browser never re-sends credentials to the redirect target.
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import type { Context, Hono } from "hono";
 import { accountBounds, applyBounds, narrowScopes } from "./as-account";
 import { clientResolverFor } from "./as-client-resolver";

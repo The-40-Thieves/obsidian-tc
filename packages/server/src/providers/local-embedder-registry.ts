@@ -14,7 +14,7 @@ import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { err } from "@the-40-thieves/obsidian-tc-shared";
+import { err, pickHomeDir } from "@the-40-thieves/reliquary-tc-shared";
 import { version as OWN_VERSION } from "../../package.json";
 import { embeddedEmbedder } from "../embeddings/embedded-embedder";
 import { extractEmbeddedRuntime } from "../embeddings/embedded-runtime";
@@ -37,13 +37,13 @@ import type { EmbeddingsConfigLike, ResolveContext } from "./types";
 export { LOCAL_EMBEDDER_PACKAGE };
 
 /** The install command every "not installed" message prints (setup, doctor, boot): the one planned
- *  for this obsidian-tc's install layout (embedder-install-plan.ts). Only a layout the planner refuses
+ *  for this reliquary-tc's install layout (embedder-install-plan.ts). Only a layout the planner refuses
  *  gets both forms, because no message can tell which one is right there. */
 export function localEmbedderInstallHint(site: EmbedderInstallSite = currentInstallSite()): string {
   const plan = planEmbedderInstall(site);
   if (plan !== undefined) return embedderInstallHint(plan);
   const spec = `${LOCAL_EMBEDDER_PACKAGE}@${OWN_VERSION}`;
-  return `npm install --save-exact ${spec} in your project, or npm install --global ${spec} if obsidian-tc is installed globally`;
+  return `npm install --save-exact ${spec} in your project, or npm install --global ${spec} if reliquary-tc is installed globally`;
 }
 
 /** The version of the embedder that resolves from this module's location, or undefined when it
@@ -57,14 +57,14 @@ export function installedEmbedderVersion(): string | undefined {
   }
 }
 
-/** The warning for an installed embedder whose version is not obsidian-tc's own; undefined when they
+/** The warning for an installed embedder whose version is not reliquary-tc's own; undefined when they
  *  match or no embedder was found. Shared by boot (a log line) and doctor (a warning). */
 export function embedderVersionSkew(
   found: string | undefined,
   site?: EmbedderInstallSite,
 ): string | undefined {
   if (found === undefined || found === OWN_VERSION) return undefined;
-  return `${LOCAL_EMBEDDER_PACKAGE}@${found} is installed, but this obsidian-tc is ${OWN_VERSION}. Install the matching embedder: ${localEmbedderInstallHint(site)}`;
+  return `${LOCAL_EMBEDDER_PACKAGE}@${found} is installed, but this reliquary-tc is ${OWN_VERSION}. Install the matching embedder: ${localEmbedderInstallHint(site)}`;
 }
 
 function isEmbedderLocalAnchor(packageJsonPath: string): boolean {
@@ -227,9 +227,9 @@ export async function resolveLocalEmbedderModule(
     try {
       // Native ORT finds its library next to the binding; the darwin-x64 WASM shim likewise needs
       // file: URLs for the extracted loader/binary. Point both bundled routes at this directory.
-      (globalThis as Record<symbol, unknown>)[Symbol.for("obsidian-tc.ort-dir")] =
+      (globalThis as Record<symbol, unknown>)[Symbol.for("reliquary-tc.ort-dir")] =
         extractEmbeddedRuntime({
-          cacheDir: ctx.cacheDir ?? join(homedir(), ".obsidian-tc"),
+          cacheDir: ctx.cacheDir ?? pickHomeDir(homedir(), existsSync).dir,
           files: embeddedEmbedder.files,
         });
       const mod = (await embeddedEmbedder.load()) as LocalEmbedderModule;
@@ -317,9 +317,9 @@ export async function probeLocalEmbedderResolution(ctx: ResolveContext = {}): Pr
  *  A resolution or download/load failure surfaces as a REJECTED `embed()` promise, not a thrown
  *  `build()` — this repo already has a graceful-degradation path for exactly that shape (a dead
  *  Ollama endpoint's embed() throwing ECONNREFUSED degrades the boot reconcile with a logged
- *  warning rather than crashing boot; see reference_obsidian_tc_has_no_embeddings_off_switch), so
+ *  warning rather than crashing boot; see reference_reliquary_tc_has_no_embeddings_off_switch), so
  *  "local" unresolvable/unsupported-platform degrades the same way rather than needing new
- *  machinery. `obsidian-tc doctor`'s dense probe (createQueryEncoder) and
+ *  machinery. `reliquary-tc doctor`'s dense probe (createQueryEncoder) and
  *  buildLocalEmbedderDoctorProbe below are what keep that failure LOUD instead of silently
  *  identical to "embeddings not configured". */
 export function buildLocalEmbeddingProvider(
@@ -347,16 +347,16 @@ export function buildLocalEmbeddingProvider(
       {
         provider: "local",
         ignored,
-        hint: "the local embedder sources its model from the bundled @the-40-thieves/obsidian-tc-embedder-local package's own pinned catalog (embeddings.model selects among it) — remove these fields.",
+        hint: "the local embedder sources its model from the bundled @the-40-thieves/reliquary-tc-embedder-local package's own pinned catalog (embeddings.model selects among it) — remove these fields.",
       },
     );
   }
   // THE-1122 review (root-cause fix, not a fallback): an earlier version fell back to a
-  // CWD-relative `.obsidian-tc` when `ctx.cacheDir` was absent. Every real caller — server boot,
+  // CWD-relative `.reliquary-tc` when `ctx.cacheDir` was absent. Every real caller — server boot,
   // every CLI command, eval/run.ts — actually threads a real cacheDir (see this repo's own
   // ResolveContext.cacheDir doc comment for the full call-site list); a caller that DOESN'T is a
   // bug in that caller, and a silent CWD-relative write is exactly the kind of surprising
-  // filesystem side effect this repo's own conventions refuse (e.g. `obsidian-tc index` run from
+  // filesystem side effect this repo's own conventions refuse (e.g. `reliquary-tc index` run from
   // an unexpected directory must not scatter model weights wherever the process happened to
   // start, and can EACCES-crash outright if that directory isn't writable). Fail closed, loudly,
   // naming the config key, rather than silently choosing a location nobody asked for.
@@ -365,7 +365,7 @@ export function buildLocalEmbeddingProvider(
       'embeddings.provider "local" requires a cacheDir, and none was provided to this resolution',
       {
         provider: "local",
-        hint: 'set "cacheDir" in your obsidian-tc config (it defaults to ~/.obsidian-tc when the config omits it — see server.schema.ts) — this is a bug in the CALLER if cacheDir is configured but not reaching this resolution.',
+        hint: 'set "cacheDir" in your reliquary-tc config (it defaults to ~/.reliquary-tc when the config omits it — see server.schema.ts) — this is a bug in the CALLER if cacheDir is configured but not reaching this resolution.',
       },
     );
   }
@@ -383,7 +383,7 @@ export function buildLocalEmbeddingProvider(
           }
           throw localResolutionError(resolution);
         }
-        // A stale pair (obsidian-tc upgraded, embedder left behind) still loads; say so once at boot.
+        // A stale pair (reliquary-tc upgraded, embedder left behind) still loads; say so once at boot.
         const skew = embedderVersionSkew(installedEmbedderVersion());
         if (skew) console.error(`embeddings "local": ${skew}`);
         return resolution.mod?.createEmbeddingProvider({
@@ -461,7 +461,7 @@ function localResolutionError<T extends { code?: string }>(resolution: { attempt
       attempts: resolution.attempts,
       hint: runtimeMissing
         ? `run ${installCommand} (npm installs ${runtimePackage} for this host); if this platform has no published runtime, pick ollama or a hosted provider instead.`
-        : `run "bun run build" in packages/embedder-local (source checkouts), or install the package with ${installCommand} (obsidian-tc does not install it by default) — see "obsidian-tc doctor" for the full attempt list.`,
+        : `run "bun run build" in packages/embedder-local (source checkouts), or install the package with ${installCommand} (reliquary-tc does not install it by default) — see "reliquary-tc doctor" for the full attempt list.`,
     },
   );
 }

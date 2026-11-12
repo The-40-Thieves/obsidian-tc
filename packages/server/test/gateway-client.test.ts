@@ -228,15 +228,15 @@ describe("gateway client", () => {
     });
   });
 
-  it("resolveGatewayUrl prefers the explicit URL then OBSIDIAN_TC_GATEWAY_URL", () => {
+  it("resolveGatewayUrl prefers the explicit URL then RELIQUARY_TC_GATEWAY_URL", () => {
     expect(resolveGatewayUrl("http://explicit")).toBe("http://explicit");
-    const prev = process.env.OBSIDIAN_TC_GATEWAY_URL;
-    process.env.OBSIDIAN_TC_GATEWAY_URL = "http://env";
+    const prev = process.env.RELIQUARY_TC_GATEWAY_URL;
+    process.env.RELIQUARY_TC_GATEWAY_URL = "http://env";
     try {
       expect(resolveGatewayUrl()).toBe("http://env");
     } finally {
-      if (prev === undefined) delete process.env.OBSIDIAN_TC_GATEWAY_URL;
-      else process.env.OBSIDIAN_TC_GATEWAY_URL = prev;
+      if (prev === undefined) delete process.env.RELIQUARY_TC_GATEWAY_URL;
+      else process.env.RELIQUARY_TC_GATEWAY_URL = prev;
     }
   });
 
@@ -267,12 +267,12 @@ describe("gateway client", () => {
   });
 
   it("throws when no base URL is configured", () => {
-    const prev = process.env.OBSIDIAN_TC_GATEWAY_URL;
-    delete process.env.OBSIDIAN_TC_GATEWAY_URL;
+    const prev = process.env.RELIQUARY_TC_GATEWAY_URL;
+    delete process.env.RELIQUARY_TC_GATEWAY_URL;
     try {
       expect(() => createGatewayClient({})).toThrow();
     } finally {
-      if (prev !== undefined) process.env.OBSIDIAN_TC_GATEWAY_URL = prev;
+      if (prev !== undefined) process.env.RELIQUARY_TC_GATEWAY_URL = prev;
     }
   });
 });

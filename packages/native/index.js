@@ -1,8 +1,8 @@
-// Umbrella entry for @the-40-thieves/obsidian-tc-native (THE-215).
+// Umbrella entry for @the-40-thieves/reliquary-tc-native (THE-215).
 //
 // Resolves the compiled napi-rs binary for the host: first a locally-built .node
 // (source checkout / `napi build`), then the published platform package
-// @the-40-thieves/obsidian-tc-native-<triple> (added to optionalDependencies by
+// @the-40-thieves/reliquary-tc-native-<triple> (added to optionalDependencies by
 // `napi prepublish` at publish time). When neither resolves -- an unsupported
 // platform, a missing prebuild, or an install without the optional dep -- it falls
 // back to the pure-JS implementation in ./fallback.js instead of throwing, so the
@@ -126,14 +126,14 @@ function loadNative() {
   if (triple === null) {
     return null;
   }
-  const localBinary = join(__dirname, `obsidian-tc-native.${triple}.node`);
+  const localBinary = join(__dirname, `reliquary-tc-native.${triple}.node`);
   if (existsSync(localBinary)) {
     const local = tryRequire(localBinary);
     if (isComplete(local)) {
       return local;
     }
   }
-  const prebuilt = tryRequire(`@the-40-thieves/obsidian-tc-native-${triple}`);
+  const prebuilt = tryRequire(`@the-40-thieves/reliquary-tc-native-${triple}`);
   return isComplete(prebuilt) ? prebuilt : null;
 }
 

@@ -1,4 +1,4 @@
-// THE-636 — `obsidian-tc context-export`. Modelled on cli/commands/forget.ts: real writes to a
+// THE-636 — `reliquary-tc context-export`. Modelled on cli/commands/forget.ts: real writes to a
 // low-trust surface (here, a FILE the operator controls, holding a copy of the experiential
 // store) from outside `registry.dispatch`, so the audit_events row is written directly via
 // `writeEvent` for the same reason forget.ts's header gives — an operator with shell access
@@ -13,7 +13,7 @@
 //      the bundle can never land somewhere `read_note`/the indexer/Obsidian Sync would reach it.
 import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
-import type { ServerConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ServerConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { version as VERSION } from "../../../package.json";
 import type { AuditEvent } from "../../audit";
 import { writeEvent } from "../../audit";

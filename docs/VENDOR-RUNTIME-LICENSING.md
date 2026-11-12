@@ -4,7 +4,7 @@
 > the date each one was checked. Items marked ⚠ need counsel before anything ships. Items marked
 > UNVERIFIED were not read from a primary source in this pass and must not be relied on.
 
-Context: obsidian-tc is Apache-2.0 ([LICENSE](../LICENSE), [NOTICE](../NOTICE);
+Context: reliquary-tc is Apache-2.0 ([LICENSE](../LICENSE), [NOTICE](../NOTICE);
 [plain-language page](src/content/docs/licensing.md)). Releases up to 1.34.x were AGPL-3.0-only;
 the rows below that discuss AGPL interaction describe those releases. Before any deferred vendor
 inference runtime ships, bundled or fetched, each artifact needs a row here.
@@ -54,9 +54,9 @@ only in design or candidate lists.
 
 | Artifact | Bundled (may ship in it) | Dynamically loaded or fetched | User-installed only | Ships today? |
 |---|---|---|---|---|
-| npm package (`obsidian-tc`; `@the-40-thieves/obsidian-tc-embedder-local` base plus six per-platform runtime packages, per `packages/embedder-local/README.md`) | Our Apache-2.0 code. Runtime packages carry ORT (MIT) and the WASM fallback (MIT). The base package bundles Transformers.js (Apache-2.0). | Models fetched from Hugging Face at first use (`model-fetch.ts`) | Foundry Local, NIM, TensorRT-RTX, CUDA: planned only | Yes (embedder pack per `scripts/pack-embedder-local.ts`) |
+| npm package (`reliquary-tc`; `@the-40-thieves/reliquary-tc-embedder-local` base plus six per-platform runtime packages, per `packages/embedder-local/README.md`) | Our Apache-2.0 code. Runtime packages carry ORT (MIT) and the WASM fallback (MIT). The base package bundles Transformers.js (Apache-2.0). | Models fetched from Hugging Face at first use (`model-fetch.ts`) | Foundry Local, NIM, TensorRT-RTX, CUDA: planned only | Yes (embedder pack per `scripts/pack-embedder-local.ts`) |
 | Compiled `bun --compile` binaries (`scripts/build-binary.ts`) | Anything the build plugin embeds: ORT native library and binding, `sqlite-vec`. The plugin in `scripts/lib/embedder-bundle.mjs` rewrites the ORT loader. | Models fetched at runtime | As for npm | Yes, the script exists. No licence text in the binary was found in `build-binary.ts` (grep for "licen"/"notice" returned nothing). |
-| MCPB bundle (`dist/obsidian-tc.mcpb`, `scripts/bundle-mcpb.ts`) | Server build, all `sqlite-vec` platform packages, ORT native libraries for each platform (`ORT_PLATFORMS`), `onnxruntime-web` WASM, `@huggingface/transformers` | Models fetched at runtime; not in the bundle | Nothing required | Yes |
+| MCPB bundle (`dist/reliquary-tc.mcpb`, `scripts/bundle-mcpb.ts`) | Server build, all `sqlite-vec` platform packages, ORT native libraries for each platform (`ORT_PLATFORMS`), `onnxruntime-web` WASM, `@huggingface/transformers` | Models fetched at runtime; not in the bundle | Nothing required | Yes |
 | Docker image (`Dockerfile`) | `sqlite-vec` (`cp -rL` of its platform packages), `packages/embedder-local` (including `licenses/`), runtime `node_modules` | Models fetched at runtime. No model download step found in the Dockerfile. | Foundry Local, NIM, CUDA: planned only | Yes |
 | Remote worker container (`services/bge-m3-service`, `services/qwen-tei`, `services/docs-ingest`) | Service code (repo licence). Image contents for the Python services were NOT inspected in this pass. | `BAAI/bge-m3` and `BAAI/bge-reranker-v2-m3` fetched from the Hub (`hub.py`) | NVIDIA GPU stack and CUDA: UNVERIFIED for what the image installs | Yes, as a service in the repo. Image licence contents UNVERIFIED. |
 
@@ -105,7 +105,7 @@ Facts only. Each gap names its evidence path. None of these is fixed in this cha
    ORT notice in the artifact (G2), satisfy MIT? Is adding the notice to each artifact the expected fix?
 2. ⚠ Foundry Local CLI: the restriction on providing the software "as a stand-alone offering or
    combin[ing] it with any of your applications for others to use" (section 1). Does it block any
-   planned use, including an optional user-installed runtime that obsidian-tc only calls?
+   planned use, including an optional user-installed runtime that reliquary-tc only calls?
 3. ⚠ CUDA EULA: which version governs, and do the Attachment A redistribution conditions (private
    directory, customer flow-down) apply to the current version? The page read showed a version date and
    a footer date that disagree.

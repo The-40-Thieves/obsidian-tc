@@ -3,7 +3,7 @@
 // request-states). It is not a bearer credential and never verifies or signs a token.
 //
 // Consumers must not use it raw for two purposes: each derives its own key under its own label
-// (the wiki seal HMACs with it under `obsidian-tc/wiki-generated/v1`; the elicit codec runs it
+// (the wiki seal HMACs with it under `reliquary-tc/wiki-generated/v1`; the elicit codec runs it
 // through HKDF, see elicit-request-state.ts), so neither derived key can stand in for the other.
 // The file keeps its original name, `wiki-generated.key`, so seals minted before this module
 // existed stay valid and there is one secret to back up.
@@ -75,7 +75,7 @@ const readValidated = (path: string): string => {
     if (e instanceof KeyFileError && e.reason === "exposed") {
       throw new KeyFileError(
         `${e.message}. Do not just chmod it: it was readable by others, so treat it as disclosed. ` +
-          "Stop every obsidian-tc process sharing this cacheDir, delete the file once, then restart " +
+          "Stop every reliquary-tc process sharing this cacheDir, delete the file once, then restart " +
           "them (a new key is generated; pending confirmations are refused once, and generated wiki " +
           "pages read as edited, then regenerate)",
         e,
@@ -396,7 +396,7 @@ function acquireRepairLock(
       throw new KeyFileError(
         `timed out after ${waitMs}ms waiting for the repair lock ${lock} while repairing ${path}; ` +
           `it is held by ${holderText(lock)}, which this process cannot show to be dead (a live ` +
-          "holder is never taken over). Stop every obsidian-tc process that shares this cacheDir, " +
+          "holder is never taken over). Stop every reliquary-tc process that shares this cacheDir, " +
           `then delete ${lock} (a directory) and any ${lock}.takeover.* files, and start again`,
       );
     }

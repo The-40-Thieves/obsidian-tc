@@ -8,7 +8,7 @@ import {
   grantsAll,
   type ResponseFormat,
   type VaultMemoryDefenseConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { Database } from "../../db/types";
 import type { EmbeddingProvider } from "../../embeddings/provider";
@@ -51,7 +51,7 @@ export interface M8Deps {
   sessions?: { windowSeconds: number };
   /** GH #994: per-vault memoryDefense policy for set_goal; absent -> MEMORY_DEFENSE_OFF. */
   memoryDefense?: (vaultId: string) => VaultMemoryDefenseConfig;
-  /** GH #994: memoryDefense's obsidian_tc_memory_defense_hits_total counter. */
+  /** GH #994: memoryDefense's reliquary_tc_memory_defense_hits_total counter. */
   metrics?: MetricsRecorder;
   /** GH #994 review finding 7: `set_goal` looked up `memoryDefense` by the RAW `input.vault`
    *  (omitted -> `undefined`, an unknown id -> that unknown string), never through

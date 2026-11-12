@@ -1,5 +1,5 @@
 // PR B of GH #995's two-part follow-up (extended to Codex/ChatGPT/Antigravity/Hermes by a later
-// change): the I/O glue for `obsidian-tc setup --install-client <client>` —
+// change): the I/O glue for `reliquary-tc setup --install-client <client>` —
 // cli/setup/client-install.ts owns every pure path-resolution/format/merge/registry decision;
 // this file is only the filesystem/process boundary around it (reading an existing client config,
 // running a client's own `mcp add`-style command, writing the merged file), same "I/O in the
@@ -17,7 +17,7 @@ import {
   formatCliInstallLine,
   type JsonMergeClientSpec,
   mergeMcpServersEntry,
-  obsidianTcServerEntry,
+  reliquaryTcServerEntry,
 } from "../setup/client-install";
 import { mergeMcpServersEntryJsonc } from "../setup/jsonc-merge";
 import { mergeJsoncFileAtomic, mergeJsonFileAtomic, mergeYamlFileAtomic } from "../setup/write";
@@ -79,7 +79,7 @@ function loadExistingClientText(path: string): string | undefined {
   return readFileSync(path, "utf8");
 }
 
-/** Windsurf-only (PR B follow-up): an operator with a pre-rebrand install has their `obsidian-tc`
+/** Windsurf-only (PR B follow-up): an operator with a pre-rebrand install has their `reliquary-tc`
  *  entry at the LEGACY Codeium path, not the current Devin Desktop one — writing a second,
  *  disconnected file at the current path would leave the editor still reading the old one. Prefers
  *  the legacy path only when it actually exists on disk today. */
@@ -91,7 +91,7 @@ function resolveJsonMergeTargetPath(entry: JsonMergeClientSpec, deps: InstallCli
   return entry.configPath(deps.platform, deps.env, deps.home);
 }
 
-/** `obsidian-tc setup --install-client <client>`'s whole action. Never runs the normal
+/** `reliquary-tc setup --install-client <client>`'s whole action. Never runs the normal
  *  detect/decide/write flow (cli/commands/setup.ts's own `run_setup` branches BEFORE that) — the
  *  config path a client is pointed at need not exist yet at all; `serve`'s own first-run fallback
  *  (cli/setup/first-run-fallback.ts) is what fills it in on first launch. */
@@ -116,7 +116,7 @@ export async function runInstallClient(
   if (entry.kind === "unsupported") {
     // Aider (no MCP support whatsoever): a real command, must still exit non-zero — unlike
     // instructions-only, there is nothing useful to point an operator at.
-    process.stderr.write(`obsidian-tc setup: ${entry.reason()}\n`);
+    process.stderr.write(`reliquary-tc setup: ${entry.reason()}\n`);
     process.exitCode = 1;
     return;
   }
@@ -135,11 +135,11 @@ export async function runInstallClient(
       const output = deps.runCli(entry.binary, args);
       if (output.length > 0) process.stdout.write(output.endsWith("\n") ? output : `${output}\n`);
       process.stdout.write(
-        `obsidian-tc setup: ran the command above via the ${entry.displayName} CLI.\n`,
+        `reliquary-tc setup: ran the command above via the ${entry.displayName} CLI.\n`,
       );
     } catch (e) {
       process.stderr.write(
-        `obsidian-tc setup: could not run \`${entry.binary}\` (${e instanceof Error ? e.message : String(e)}) ` +
+        `reliquary-tc setup: could not run \`${entry.binary}\` (${e instanceof Error ? e.message : String(e)}) ` +
           "— run the command printed above yourself.\n",
       );
       process.exitCode = 1;
@@ -160,7 +160,7 @@ export async function runInstallClient(
     );
     if (result.alreadyExists) {
       process.stderr.write(
-        `obsidian-tc setup: ${clientLabel(client)} already has an "obsidian-tc" MCP server entry ` +
+        `reliquary-tc setup: ${clientLabel(client)} already has a "reliquary-tc" MCP server entry ` +
           `at ${targetPath} — pass --force to overwrite it.\n`,
       );
       process.exitCode = 1;
@@ -168,14 +168,14 @@ export async function runInstallClient(
     }
     if (cmd.dryRun) {
       process.stdout.write(
-        `${JSON.stringify({ [entry.serversKey]: { "obsidian-tc": entry.buildEntry(targetConfigPath) } }, null, 2)}\n`,
+        `${JSON.stringify({ [entry.serversKey]: { "reliquary-tc": entry.buildEntry(targetConfigPath) } }, null, 2)}\n`,
       );
       process.stdout.write("(--dry-run: nothing written)\n");
       return;
     }
     const written = mergeJsoncFileAtomic(targetPath, result.text);
     process.stdout.write(
-      `obsidian-tc setup: wrote ${clientLabel(client)}'s obsidian-tc entry to ${written.path}` +
+      `reliquary-tc setup: wrote ${clientLabel(client)}'s reliquary-tc entry to ${written.path}` +
         (written.backupPath ? ` (existing file backed up to ${written.backupPath})` : "") +
         "\n",
     );
@@ -195,7 +195,7 @@ export async function runInstallClient(
     );
     if (result.alreadyExists) {
       process.stderr.write(
-        `obsidian-tc setup: ${clientLabel(client)} already has an "obsidian-tc" MCP server entry ` +
+        `reliquary-tc setup: ${clientLabel(client)} already has a "reliquary-tc" MCP server entry ` +
           `at ${targetPath} — pass --force to overwrite it.\n`,
       );
       process.exitCode = 1;
@@ -210,7 +210,7 @@ export async function runInstallClient(
     }
     const written = mergeYamlFileAtomic(targetPath, result.text);
     process.stdout.write(
-      `obsidian-tc setup: wrote ${clientLabel(client)}'s obsidian-tc entry to ${written.path}` +
+      `reliquary-tc setup: wrote ${clientLabel(client)}'s reliquary-tc entry to ${written.path}` +
         (written.backupPath ? ` (existing file backed up to ${written.backupPath})` : "") +
         "\n",
     );
@@ -226,11 +226,11 @@ export async function runInstallClient(
     targetConfigPath,
     { force: cmd.force },
     entry.serversKey,
-    entry.buildEntry ?? obsidianTcServerEntry,
+    entry.buildEntry ?? reliquaryTcServerEntry,
   );
   if (result.alreadyExists) {
     process.stderr.write(
-      `obsidian-tc setup: ${clientLabel(client)} already has an "obsidian-tc" MCP server entry ` +
+      `reliquary-tc setup: ${clientLabel(client)} already has a "reliquary-tc" MCP server entry ` +
         `at ${targetPath} — pass --force to overwrite it.\n`,
     );
     process.exitCode = 1;
@@ -238,13 +238,13 @@ export async function runInstallClient(
   }
 
   if (cmd.dryRun) {
-    const buildEntry = entry.buildEntry ?? obsidianTcServerEntry;
+    const buildEntry = entry.buildEntry ?? reliquaryTcServerEntry;
     // Warp's `serversKey === ""` (root-level — see `mergeMcpServersEntry`'s own handling) prints
     // the entry directly rather than nested under an empty-string JSON key.
     const preview =
       entry.serversKey === ""
-        ? { "obsidian-tc": buildEntry(targetConfigPath) }
-        : { [entry.serversKey]: { "obsidian-tc": buildEntry(targetConfigPath) } };
+        ? { "reliquary-tc": buildEntry(targetConfigPath) }
+        : { [entry.serversKey]: { "reliquary-tc": buildEntry(targetConfigPath) } };
     process.stdout.write(`${JSON.stringify(preview, null, 2)}\n`);
     process.stdout.write("(--dry-run: nothing written)\n");
     return;
@@ -252,7 +252,7 @@ export async function runInstallClient(
 
   const written = mergeJsonFileAtomic(targetPath, result.merged);
   process.stdout.write(
-    `obsidian-tc setup: wrote ${clientLabel(client)}'s obsidian-tc entry to ${written.path}` +
+    `reliquary-tc setup: wrote ${clientLabel(client)}'s reliquary-tc entry to ${written.path}` +
       (written.backupPath ? ` (existing file backed up to ${written.backupPath})` : "") +
       "\n",
   );

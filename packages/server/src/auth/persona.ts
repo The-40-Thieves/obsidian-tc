@@ -9,7 +9,7 @@ import {
   grantsScope,
   type PersonasConfig,
   type ToolVisibilityConfig,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 
 export interface PersonaResolution {
   vaultId: string;

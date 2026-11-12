@@ -3,7 +3,7 @@
 // its own embedder, cache, or policy state — see RetrievalRuntime's doc comment in
 // retrieval-runtime.ts. Uses only retrieval.embedQuery (a dense-only recall, no fusion, so it
 // never reaches embedAll/embedQuerySparse/embedQueryColbert).
-import { VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import type { ToolDefinition } from "../../../mcp/registry";
 import { challengeProposal, citedEvidence } from "../../../plane/challenge";
@@ -50,7 +50,7 @@ export function createKnowledgeChallengeTool(
         return {
           vault: v.id,
           available: false,
-          message: "inference gateway not configured (set OBSIDIAN_TC_GATEWAY_URL)",
+          message: "inference gateway not configured (set RELIQUARY_TC_GATEWAY_URL)",
         };
       }
       const isReadable = withVaultExclusion(

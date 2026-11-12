@@ -6,7 +6,7 @@
 // (`noteExists`, `statNote`), which on the JS path would otherwise report on whatever the name
 // reaches now.
 //
-// Run natively, with OBSIDIAN_TC_FORCE_JS_FALLBACK=1 (ci-server.yml), and against an addon that
+// Run natively, with RELIQUARY_TC_FORCE_JS_FALLBACK=1 (ci-server.yml), and against an addon that
 // predates safeUnlink. The delete_note case uses the same one-shot seam as pinned-sinks.test.ts.
 import {
   existsSync,
@@ -285,7 +285,7 @@ describe.skipIf(process.platform === "win32" || !nativeVaultIo)(
   "an addon that predates safeUnlink, canonical spelling",
   () => {
     it("refuses a delete through the pinned directory by either name", async () => {
-      const mod = createRequire(import.meta.url)("@the-40-thieves/obsidian-tc-native") as Record<
+      const mod = createRequire(import.meta.url)("@the-40-thieves/reliquary-tc-native") as Record<
         string,
         unknown
       >;

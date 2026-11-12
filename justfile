@@ -1,4 +1,4 @@
-# obsidian-tc — monorepo tasks (thin wrappers over package.json scripts,
+# reliquary-tc — monorepo tasks (thin wrappers over package.json scripts,
 # kept so `just test` / `just lint` work uniformly across all repos)
 # `just` with no args lists recipes.
 
@@ -23,7 +23,7 @@ build:
 #
 # shared/plugin/native run under Bun's own script runner — none of them touch node:sqlite.
 test:
-    bun run --filter='!obsidian-tc' test
+    bun run --filter='!reliquary-tc' test
     cd packages/server && node ./node_modules/vitest/vitest.mjs run
 
 # Fast local iteration, entirely under Bun (including packages/server's bun:sqlite adapter path —
@@ -36,11 +36,11 @@ test-bun:
 # against mise.toml (and packages/native/rust-toolchain.toml for Rust). `mise install` is already
 # most of the answer — this is read-only and exists for what it can't catch on its own (a stale
 # PATH/shim, or a contributor not using mise at all). See scripts/doctor.mjs for the full story,
-# including why this is NOT the `obsidian-tc doctor` CLI subcommand.
+# including why this is NOT the `reliquary-tc doctor` CLI subcommand.
 doctor:
     node scripts/doctor.mjs
 
-# Symlinks packages/plugin/dist/ into a scratch vault's `.obsidian/plugins/obsidian-tc/`
+# Symlinks packages/plugin/dist/ into a scratch vault's `.obsidian/plugins/reliquary-tc/`
 # directory — the manual step CONTRIBUTING.md's "Running the plugin in Obsidian" section
 # otherwise has a contributor build by hand every time. Builds the plugin first if `dist/` is
 # missing. See examples/scratch-vault/ for a synthetic vault to point this at.
@@ -142,6 +142,6 @@ migration-impact migration:
 # node:sqlite and ABSENT from Bun's bundled SQLite, which is the production runtime. So the running
 # server structurally cannot answer "what is in these 226 MB" and no doctor check could either.
 #
-#   just db-pages ~/.obsidian-tc/cache.db
+#   just db-pages ~/.reliquary-tc/cache.db
 db-pages +paths:
     node scripts/db-page-report.mjs {{paths}}

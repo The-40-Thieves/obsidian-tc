@@ -40,7 +40,7 @@ afterAll(() => {
   }
 });
 
-const MEMORY_FILE = `---\nobsidian_tc_id: ent_x\nentity_type: person\nstatus: active\n---\n# ${MEMORY_ENTITY.name}\n\n## Observations\n\n${MEMORY_ENTITY.observations.map((o) => `- ${o}`).join("\n")}\n\n## Related\n\n_No relations._\n`;
+const MEMORY_FILE = `---\nreliquary_tc_id: ent_x\nentity_type: person\nstatus: active\n---\n# ${MEMORY_ENTITY.name}\n\n## Observations\n\n${MEMORY_ENTITY.observations.map((o) => `- ${o}`).join("\n")}\n\n## Related\n\n_No relations._\n`;
 const TIMEFUL = "notes/2021-03-23 Note to Michael on flat forgetting curves.md";
 const TIMEFUL_TEXT =
   '---\nurl: "https://notes.andymatuschak.org/z2dqU3Uu8GeGS9d5axA9nQG"\nmodified: 1970-01-01\n---\n\n# 2021-03-23 Note to Michael on flat forgetting curves\n\nbody\n';
@@ -354,7 +354,7 @@ describe("facade-mode study set", () => {
               type: "tool_result",
               tool_use_id: "b",
               is_error: true,
-              content: "Error: No such tool available: mcp__obsidian-tc__get_backlinks",
+              content: "Error: No such tool available: mcp__reliquary-tc__get_backlinks",
             },
           ],
         },
@@ -449,7 +449,7 @@ describe("facade-mode not-found metric", () => {
       }) as unknown as Parameters<typeof trialNotFound>[0];
     const bash =
       "<tool_use_error>Error: No such tool available: Bash. Bash is disabled</tool_use_error>";
-    const mcp = "Error: No such tool available: mcp__obsidian-tc__get_backlinks";
+    const mcp = "Error: No such tool available: mcp__reliquary-tc__get_backlinks";
     expect(trialNotFound(trial([bash]))).toBe(0);
     expect(trialNotFound(trial([bash, mcp], 1))).toBe(2);
   });

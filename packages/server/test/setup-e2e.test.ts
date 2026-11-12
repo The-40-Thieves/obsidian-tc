@@ -1,4 +1,4 @@
-// `obsidian-tc setup` end to end (PR A of GH #995's two-part follow-up): runs the REAL run_setup
+// `reliquary-tc setup` end to end (PR A of GH #995's two-part follow-up): runs the REAL run_setup
 // path against a temp HOME/XDG_CONFIG_HOME with a fake obsidian.json registry, and asserts the
 // written config loads through the REAL loader (config/load.ts's loadConfig) and that `config show`
 // reports the effective embeddings source as "configured" — the exact GH #995 property this command
@@ -102,10 +102,10 @@ function fakeObsidianEnv(): { home: string; vaultPath: string; registryPath: str
   return { home, vaultPath, registryPath };
 }
 
-describe("obsidian-tc setup — end to end", () => {
+describe("reliquary-tc setup — end to end", () => {
   it("writes a config (via --yes) that loads through the real loader with source 'configured'", async () => {
     const { home } = fakeObsidianEnv();
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
 
     await run_setup({ kind: "setup", yes: true, dryRun: false, force: false });
 
@@ -125,7 +125,7 @@ describe("obsidian-tc setup — end to end", () => {
 
   it("--dry-run writes nothing", async () => {
     const { home } = fakeObsidianEnv();
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
 
     await run_setup({ kind: "setup", yes: false, dryRun: true, force: false });
 
@@ -135,7 +135,7 @@ describe("obsidian-tc setup — end to end", () => {
 
   it("no TTY and no --yes writes nothing", async () => {
     const { home } = fakeObsidianEnv();
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
     // vitest's stdin is not a TTY by construction; asserted explicitly so this test fails loudly
     // if that ever stops being true rather than silently passing for the wrong reason.
     expect(process.stdin.isTTY).toBeFalsy();
@@ -147,7 +147,7 @@ describe("obsidian-tc setup — end to end", () => {
 
   it("refuses to overwrite an existing config without --force, and does not touch it", async () => {
     const { home } = fakeObsidianEnv();
-    const configDir = join(home, ".obsidian-tc");
+    const configDir = join(home, ".reliquary-tc");
     const configPath = join(configDir, "config.json");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(configPath, JSON.stringify({ existing: true }));
@@ -159,7 +159,7 @@ describe("obsidian-tc setup — end to end", () => {
 
   it("--force backs up the existing config and writes the new one", async () => {
     const { home, vaultPath } = fakeObsidianEnv();
-    const configDir = join(home, ".obsidian-tc");
+    const configDir = join(home, ".reliquary-tc");
     const configPath = join(configDir, "config.json");
     mkdirSync(configDir, { recursive: true });
     const original = JSON.stringify({ vaults: [{ id: "work", path: vaultPath }] });
@@ -180,7 +180,7 @@ describe("obsidian-tc setup — end to end", () => {
   // drop the marker — `doctor` must stop calling it unreviewed the moment this run completes.
   it("--force re-run over a first-run-fallback config drops setupOrigin (an operator-reviewed write)", async () => {
     const { home, vaultPath } = fakeObsidianEnv();
-    const configDir = join(home, ".obsidian-tc");
+    const configDir = join(home, ".reliquary-tc");
     const configPath = join(configDir, "config.json");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(
@@ -201,7 +201,7 @@ describe("obsidian-tc setup — end to end", () => {
   // keys setup does not own must survive a re-run, and detection must probe against ITS cacheDir.
   it("--force re-run against an existing config preserves its cacheDir and keys setup does not own", async () => {
     const { home, vaultPath } = fakeObsidianEnv();
-    const configDir = join(home, ".obsidian-tc");
+    const configDir = join(home, ".reliquary-tc");
     const configPath = join(configDir, "config.json");
     const customCacheDir = join(home, "custom-cache");
     mkdirSync(configDir, { recursive: true });
@@ -228,7 +228,7 @@ describe("obsidian-tc setup — end to end", () => {
   // `existingRaw` was never set and the merge started from an empty object, discarding auth/acl.
   it("--force re-run against a pre-1.31.4 config (no cacheDir, no embeddings) preserves auth/acl instead of discarding them", async () => {
     const { home, vaultPath } = fakeObsidianEnv();
-    const configDir = join(home, ".obsidian-tc");
+    const configDir = join(home, ".reliquary-tc");
     const configPath = join(configDir, "config.json");
     mkdirSync(configDir, { recursive: true });
     writeFileSync(
@@ -283,7 +283,7 @@ describe("obsidian-tc setup — end to end", () => {
       'acl.rules[0].glob "/Private/**" with %s: file untouched, error names the field',
       async (_n, flags) => {
         const { home, vaultPath } = fakeObsidianEnv();
-        const configDir = join(home, ".obsidian-tc");
+        const configDir = join(home, ".reliquary-tc");
         const configPath = join(configDir, "config.json");
         mkdirSync(configDir, { recursive: true });
         const before = JSON.stringify(restrictive(vaultPath, "/Private/**"));
@@ -303,7 +303,7 @@ describe("obsidian-tc setup — end to end", () => {
 
     it("any other validation failure is refused too (an invalid auth block is not replaced)", async () => {
       const { home, vaultPath } = fakeObsidianEnv();
-      const configDir = join(home, ".obsidian-tc");
+      const configDir = join(home, ".reliquary-tc");
       const configPath = join(configDir, "config.json");
       mkdirSync(configDir, { recursive: true });
       const before = JSON.stringify({
@@ -362,7 +362,7 @@ describe("obsidian-tc setup — end to end", () => {
         `${label} with %s: file byte-identical, exit 1, nothing else written`,
         async (_m, flags) => {
           const { home } = fakeObsidianEnv();
-          const configDir = join(home, ".obsidian-tc");
+          const configDir = join(home, ".reliquary-tc");
           const configPath = join(configDir, "config.json");
           mkdirSync(configDir, { recursive: true });
           writeFileSync(configPath, content);
@@ -382,7 +382,7 @@ describe("obsidian-tc setup — end to end", () => {
 
     it("a SyntaxError names the line and column where the engine reports a position", async () => {
       const { home } = fakeObsidianEnv();
-      const configDir = join(home, ".obsidian-tc");
+      const configDir = join(home, ".reliquary-tc");
       mkdirSync(configDir, { recursive: true });
       writeFileSync(join(configDir, "config.json"), '{\n  "vaults": [],\n  oops\n}');
 
@@ -403,7 +403,7 @@ describe("obsidian-tc setup — end to end", () => {
       "--replace-invalid-config replaces %s, keeps a backup and says what is discarded",
       async (_n, content) => {
         const { home } = fakeObsidianEnv();
-        const configDir = join(home, ".obsidian-tc");
+        const configDir = join(home, ".reliquary-tc");
         const configPath = join(configDir, "config.json");
         mkdirSync(configDir, { recursive: true });
         writeFileSync(configPath, content);
@@ -428,7 +428,7 @@ describe("obsidian-tc setup — end to end", () => {
 
     it("--replace-invalid-config over a schema-invalid config discards its blocks (nothing is merged back)", async () => {
       const { home, vaultPath } = fakeObsidianEnv();
-      const configDir = join(home, ".obsidian-tc");
+      const configDir = join(home, ".reliquary-tc");
       const configPath = join(configDir, "config.json");
       mkdirSync(configDir, { recursive: true });
       const before = JSON.stringify({
@@ -456,7 +456,7 @@ describe("obsidian-tc setup — end to end", () => {
 
     it("--replace-invalid-config with --dry-run warns, previews and writes nothing", async () => {
       const { home } = fakeObsidianEnv();
-      const configDir = join(home, ".obsidian-tc");
+      const configDir = join(home, ".reliquary-tc");
       const configPath = join(configDir, "config.json");
       mkdirSync(configDir, { recursive: true });
       writeFileSync(configPath, "123");
@@ -477,7 +477,7 @@ describe("obsidian-tc setup — end to end", () => {
 
     it("an ABSENT config is still created on first run (no flag needed)", async () => {
       const { home } = fakeObsidianEnv();
-      const configPath = join(home, ".obsidian-tc", "config.json");
+      const configPath = join(home, ".reliquary-tc", "config.json");
 
       await run_setup({ kind: "setup", yes: true, dryRun: false, force: false });
 
@@ -492,7 +492,7 @@ describe("obsidian-tc setup — end to end", () => {
   // redactConfig). Prove an inline secret already on disk never reaches stdout.
   it("never prints an existing config's inline secret to stdout, dry-run or not", async () => {
     const { home, vaultPath } = fakeObsidianEnv();
-    const configDir = join(home, ".obsidian-tc");
+    const configDir = join(home, ".reliquary-tc");
     const configPath = join(configDir, "config.json");
     const cacheDir = join(home, "cache");
     mkdirSync(configDir, { recursive: true });
@@ -518,7 +518,7 @@ describe("obsidian-tc setup — end to end", () => {
   // Finding 7 (MEDIUM): --vault validation.
   it("--vault pointing at a nonexistent path is refused before any other I/O", async () => {
     const { home } = fakeObsidianEnv();
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
     const missing = join(home, "does-not-exist");
 
     await run_setup({
@@ -536,7 +536,7 @@ describe("obsidian-tc setup — end to end", () => {
 
   it("a registry vault whose path no longer exists is skipped with a warning, not written", async () => {
     const { home, registryPath } = fakeObsidianEnv();
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
     // Corrupt the registry entry to point at a path that was never created.
     writeFileSync(
       registryPath,
@@ -557,7 +557,7 @@ describe("obsidian-tc setup — end to end", () => {
   // dropped from the config (an operator's own prior entry is not setup's to delete).
   it("an existing config's own vault whose path no longer exists is kept, not silently deleted, and warned about", async () => {
     const { home, vaultPath } = fakeObsidianEnv();
-    const configDir = join(home, ".obsidian-tc");
+    const configDir = join(home, ".reliquary-tc");
     const configPath = join(configDir, "config.json");
     const ghostPath = join(home, "ghost-existing-vault");
     mkdirSync(configDir, { recursive: true });
@@ -589,7 +589,7 @@ describe("obsidian-tc setup — end to end", () => {
   // by hand.
   it("surfaces a vault id collision between the existing config and a live registry entry, and refuses to write even with --yes --force", async () => {
     const { home, vaultPath } = fakeObsidianEnv(); // registers "main" -> vaultPath live
-    const configDir = join(home, ".obsidian-tc");
+    const configDir = join(home, ".reliquary-tc");
     const configPath = join(configDir, "config.json");
     const staleVaultPath = tmpDir("otc-setup-e2e-stale-vault-"); // exists, but a DIFFERENT path
     mkdirSync(configDir, { recursive: true });
@@ -610,7 +610,7 @@ describe("obsidian-tc setup — end to end", () => {
   // Low: dry-run / no-TTY leave ZERO filesystem side effects — not just "the target is absent".
   it("--dry-run creates no backup, no temp file, and no directory", async () => {
     const { home } = fakeObsidianEnv();
-    const configDir = join(home, ".obsidian-tc");
+    const configDir = join(home, ".reliquary-tc");
 
     await run_setup({ kind: "setup", yes: false, dryRun: true, force: false });
 
@@ -619,7 +619,7 @@ describe("obsidian-tc setup — end to end", () => {
 
   it("no TTY and no --yes creates no backup, no temp file, and no directory", async () => {
     const { home } = fakeObsidianEnv();
-    const configDir = join(home, ".obsidian-tc");
+    const configDir = join(home, ".reliquary-tc");
 
     await run_setup({ kind: "setup", yes: false, dryRun: false, force: false });
 
@@ -629,8 +629,8 @@ describe("obsidian-tc setup — end to end", () => {
   // Finding 1 (HIGH), e2e: an unmappable stored provider id must never reach disk as a guess.
   it("refuses to write when the existing index's stored provider is unmappable", async () => {
     const { home } = fakeObsidianEnv();
-    const configPath = join(home, ".obsidian-tc", "config.json");
-    const cacheDir = join(home, ".obsidian-tc");
+    const configPath = join(home, ".reliquary-tc", "config.json");
+    const cacheDir = join(home, ".reliquary-tc");
     mkdirSync(cacheDir, { recursive: true });
     await seedUnmappableIndex(cacheDir);
 
@@ -641,10 +641,10 @@ describe("obsidian-tc setup — end to end", () => {
     process.exitCode = 0;
   });
 
-  // DEFAULT PATH: setup's own output must be what a bare `obsidian-tc` (no flags) picks up.
+  // DEFAULT PATH: setup's own output must be what a bare `reliquary-tc` (no flags) picks up.
   it("serve's resolveServeConfigWithProvenance picks up setup's default-path output with no flags", async () => {
     const { home } = fakeObsidianEnv();
-    const configPath = join(home, ".obsidian-tc", "config.json");
+    const configPath = join(home, ".reliquary-tc", "config.json");
 
     await run_setup({ kind: "setup", yes: true, dryRun: false, force: false });
     expect(existsSync(configPath)).toBe(true);

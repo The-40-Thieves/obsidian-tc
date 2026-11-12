@@ -1,15 +1,15 @@
 import {
   err,
   isLoudRefusal,
-  ObsidianTcError,
+  ReliquaryTcError,
   recoveryFor,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { EgressViolationError } from "../src/plane/egress-filter";
 
 describe("error taxonomy", () => {
   it("serializes to a stable JSON shape", () => {
-    const e = new ObsidianTcError("forbidden", "nope", { required: ["write:notes"] });
+    const e = new ReliquaryTcError("forbidden", "nope", { required: ["write:notes"] });
     // THE-512 extended the envelope with `recovery`. Additive and optional: it appears only for
     // codes that have a hint, so a code mapped to null still serializes to the original four
     // fields. Compared against recoveryFor so this pins the wiring, not the wording.
@@ -24,24 +24,24 @@ describe("error taxonomy", () => {
   it("omits recovery entirely for a code with no hint", () => {
     // Guards the `...(recovery ? {recovery} : {})` spread: a null-mapped code must not serialize
     // `recovery: undefined`, which would show up as a key in JSON round-trips.
-    const withHint = new ObsidianTcError("forbidden", "x").toJSON();
+    const withHint = new ReliquaryTcError("forbidden", "x").toJSON();
     expect(Object.hasOwn(withHint, "recovery")).toBe(true);
     const codes = ["forbidden", "acl_denied", "throttled"] as const;
     for (const c of codes) {
-      const json = new ObsidianTcError(c, "x").toJSON();
+      const json = new ReliquaryTcError(c, "x").toJSON();
       // Every currently-mapped code has a string hint, never an undefined-valued key.
       expect(typeof json.recovery).toBe("string");
       expect(JSON.parse(JSON.stringify(json)).recovery).toBe(recoveryFor(c));
     }
   });
   it("marks transient codes retryable", () => {
-    expect(new ObsidianTcError("throttled", "x").retryable).toBe(true);
-    expect(new ObsidianTcError("internal", "x").retryable).toBe(true);
-    expect(new ObsidianTcError("forbidden", "x").retryable).toBe(false);
+    expect(new ReliquaryTcError("throttled", "x").retryable).toBe(true);
+    expect(new ReliquaryTcError("internal", "x").retryable).toBe(true);
+    expect(new ReliquaryTcError("forbidden", "x").retryable).toBe(false);
   });
   it("factory helpers carry defaults and instanceof", () => {
     const e = err.elicitRequired();
-    expect(e).toBeInstanceOf(ObsidianTcError);
+    expect(e).toBeInstanceOf(ReliquaryTcError);
     expect(e.code).toBe("elicit_required");
     expect(e.message.length).toBeGreaterThan(0);
   });
@@ -73,7 +73,7 @@ describe("isLoudRefusal (THE-926 fan-out swallow guard)", () => {
   // silently swallow a guard refusal into "this leg found nothing" via isLoudRefusal alone.
   it("is true for EgressViolationError — the port guard's refusal must not be swallowed by a fan-out with no explicit check of its own", () => {
     const e = new EgressViolationError("egress guard: extract request carries no sourcePaths");
-    expect(e).toBeInstanceOf(ObsidianTcError);
+    expect(e).toBeInstanceOf(ReliquaryTcError);
     expect(e.code).toBe("egress_excluded");
     expect(e.retryable).toBe(false);
     expect(isLoudRefusal(e)).toBe(true);
@@ -92,13 +92,13 @@ describe("isLoudRefusal (THE-926 fan-out swallow guard)", () => {
       "throttled",
       "aborted",
     ] as const) {
-      const e = new ObsidianTcError(code, "x");
+      const e = new ReliquaryTcError(code, "x");
       expect(e.retryable).toBe(true);
       expect(isLoudRefusal(e)).toBe(false);
     }
   });
 
-  it("is false for a bare Error or any other non-ObsidianTcError throw", () => {
+  it("is false for a bare Error or any other non-ReliquaryTcError throw", () => {
     expect(isLoudRefusal(new Error("boom"))).toBe(false);
     expect(isLoudRefusal("boom")).toBe(false);
     expect(isLoudRefusal(undefined)).toBe(false);

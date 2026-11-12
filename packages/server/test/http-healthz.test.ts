@@ -1,4 +1,4 @@
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
@@ -25,7 +25,7 @@ function app(
     },
   }).auth;
   const handle = createHttpApp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry: new ToolRegistry({ rootResolver: () => undefined }),
     auth,

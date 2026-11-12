@@ -12,7 +12,7 @@ and **issuing caller**, so on a multi-caller HTTP deployment one caller cannot
 redeem another's approval.
 
 **Single-use, precisely: it depends on which mechanism cleared the gate.** The
-`obsidian-tc elicit` CLI token and the legacy server-initiated shim (stdio) are
+`reliquary-tc elicit` CLI token and the legacy server-initiated shim (stdio) are
 genuinely single-use — the CLI token is consumed with `UPDATE ... WHERE
 consumed_at IS NULL`, and the shim's confirmation never leaves the server at
 all, so there is nothing a client could replay. The 2026-07-28 client-driven
@@ -32,7 +32,7 @@ what its confirmation is about, either the target paths it declares for the fold
 (`pathAcl`) or a `confirmationTargets` function on its definition. When that state changes
 between the request and the redemption, the server answers `replay_drift` and applies nothing.
 The token is spent; re-issue the original call with no token to request a fresh confirmation.
-This holds for every route a confirmation can arrive by: a token minted by `obsidian-tc elicit`,
+This holds for every route a confirmation can arrive by: a token minted by `reliquary-tc elicit`,
 the stdio form round trip, the 2026-07-28 `requestState`, and the lean facade's
 `call_capability`.
 
@@ -58,7 +58,7 @@ the request itself. `reset_vault_cache` leaves out the event log and idempotency
 confirmation flow writes itself. A vault with no root wired (some embedded uses) cannot bind
 path-based targets.
 
-**A token minted with no raised request is refused by the CLI.** `obsidian-tc elicit` holds an
+**A token minted with no raised request is refused by the CLI.** `reliquary-tc elicit` holds an
 `args_hash`, not the call's arguments, so it cannot recompute what a tool's `confirmationTargets`
 fingerprints; it binds the token to the state recorded when the server raised `elicit_required`
 (for every tool, including the `"none"` ones, which record an empty fingerprint). With no raised
@@ -142,7 +142,7 @@ MCP specification defines them: `decline` is "User explicitly declined the reque
   overwrite target removed meanwhile) cannot let the refused change run.
 - **`cancel`** means approval was *not obtained*; nobody said no. The write is still
   refused, but the error's `details.reason` is `approval_not_obtained` and both its text
-  and `recovery` point at the out-of-band `obsidian-tc elicit` route below. This matters
+  and `recovery` point at the out-of-band `reliquary-tc elicit` route below. This matters
   for headless clients: Claude Code run non-interactively advertises elicitation and
   auto-answers `cancel` within milliseconds, with no human in the loop, so the operator
   approves out of band instead. Codex run non-interactively (`codex exec`) answers `decline`
@@ -176,7 +176,7 @@ the snapshot `restore_note` depends on, all at once. Instead, mint the confirmat
 from the command line:
 
 ```sh
-obsidian-tc elicit --hash <args_hash> --tool <tool_name> [--vault <id>] [--caller <id>] [--state-fp <fp>]
+reliquary-tc elicit --hash <args_hash> --tool <tool_name> [--vault <id>] [--caller <id>] [--state-fp <fp>]
 ```
 
 - **`--hash`** is the `args_hash` the `elicit_required` error's `details` carried.
@@ -184,7 +184,7 @@ obsidian-tc elicit --hash <args_hash> --tool <tool_name> [--vault <id>] [--calle
   itself is the args_hash, which already encodes the tool name).
 - **`--vault`** is required when the config lists more than one vault.
 - **`--caller`** defaults to `"stdio"`, the identity every locally-spawned MCP client
-  presents over the trusted stdio transport (`obsidian-tc serve <vault>`) — the common
+  presents over the trusted stdio transport (`reliquary-tc serve <vault>`) — the common
   case this command exists for. On an HTTP/`jwt` deployment, pass the same value given
   to `token mint --sub`.
 - **`--state-fp`** is the `state_fp` the `elicit_required` error's `details` carried (the
@@ -213,7 +213,7 @@ audit log; it is not another caller's identity.
 already holds `auth.jwtSecret` and every configured provider API key; `token mint` already
 treats read access to it as sufficient authority to issue a bearer credential with wildcard
 scopes. This command asks for nothing stronger: whoever can read that directory could
-already run `obsidian-tc serve` against it and dispatch the exact call being gated, with no
+already run `reliquary-tc serve` against it and dispatch the exact call being gated, with no
 confirmation at all. There is deliberately no MCP tool for this — a tool would let the model
 under the gate clear its own gate; the CLI keeps it a human-operator action.
 

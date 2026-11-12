@@ -3,7 +3,7 @@
 // lines server_health carries. A key set that works only because an unlisted host resolves to a
 // private address is a deprecation (like an unlisted plain-http provider host); a refused one fails.
 import { join } from "node:path";
-import { ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { describeJwksTarget } from "../src/auth/jwks-network";
 import { authJwksCheck } from "../src/doctor/auth-jwks";
@@ -154,7 +154,7 @@ describe("startup line", () => {
     const config = ServerConfigSchema.parse({
       vaults: [{ id: "v1", path: root }],
       cacheDir: join(root, "cache"),
-      auth: { mode: "jwt", jwksUri, audience: "https://obsidian-tc.example" },
+      auth: { mode: "jwt", jwksUri, audience: "https://reliquary-tc.example" },
       network: { plainHttpHosts: hosts },
       transports: { stdio: false, http: { enabled: true, host: "127.0.0.1", port: 47997 } },
     });

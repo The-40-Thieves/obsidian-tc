@@ -12,7 +12,7 @@
 import { PassThrough } from "node:stream";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -57,7 +57,7 @@ async function bootHttp(registry: ToolRegistry) {
     auth: { mode: "jwt", jwtSecret: SECRET, audience: "http://test", tokenTtlSeconds: 3600 },
   }).auth;
   return startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "0.0.0-test",
     registry,
     auth,
@@ -151,7 +151,7 @@ describe("SDK 2.3 one-connection-per-server rule", () => {
         handler: () => ({ pong: true }),
       } as never);
       const server = createMcpServer({
-        name: "obsidian-tc",
+        name: "reliquary-tc",
         version: "0.0.0-test",
         registry,
         context: (): CallerContext => ({
@@ -196,7 +196,7 @@ describe("SDK 2.3 one-connection-per-server rule", () => {
             clientInfo: { name: "stdio-test", version: "1" },
           },
         });
-        expect((await reply(1)).result.serverInfo.name).toBe("obsidian-tc");
+        expect((await reply(1)).result.serverInfo.name).toBe("reliquary-tc");
         send({ jsonrpc: "2.0", method: "notifications/initialized" });
         send({
           jsonrpc: "2.0",
@@ -225,7 +225,7 @@ describe("SDK 2.3 prompts/get without `arguments`", () => {
     const db = openMemoryDb();
     provisionCacheDb(db);
     const server = createMcpServer({
-      name: "obsidian-tc",
+      name: "reliquary-tc",
       version: "0.0.0-test",
       registry: new ToolRegistry({ rootResolver: () => undefined }),
       context: (): CallerContext => ({

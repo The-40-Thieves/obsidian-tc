@@ -14,7 +14,7 @@ describe("/metrics endpoint (THE-211)", () => {
     const res = await app.request("/metrics");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/plain");
-    expect(await res.text()).toContain("# TYPE obsidian_tc_tool_calls_total counter");
+    expect(await res.text()).toContain("# TYPE reliquary_tc_tool_calls_total counter");
   });
 
   it("requires a bearer token on a non-loopback bind (jwt mode)", async () => {
@@ -68,16 +68,16 @@ describe("THE-507/THE-588 ingest work counters", () => {
     rec.incEmbedBatchRejections("v1", 1);
     rec.incIndexWriteFailures("v1", 5);
     const text = await rec.registry.metrics();
-    expect(text).toMatch(/obsidian_tc_ingest_secrets_skipped_total\{vault="v1"\} 3/);
-    expect(text).toMatch(/obsidian_tc_ingest_dedup_skipped_total\{vault="v1"\} 2/);
-    expect(text).toMatch(/obsidian_tc_ingest_dedup_unresolved_total\{vault="v1"\} 4/);
-    expect(text).toMatch(/obsidian_tc_embed_batch_rejections_total\{vault="v1"\} 1/);
-    expect(text).toMatch(/obsidian_tc_index_write_failures_total\{vault="v1"\} 5/);
+    expect(text).toMatch(/reliquary_tc_ingest_secrets_skipped_total\{vault="v1"\} 3/);
+    expect(text).toMatch(/reliquary_tc_ingest_dedup_skipped_total\{vault="v1"\} 2/);
+    expect(text).toMatch(/reliquary_tc_ingest_dedup_unresolved_total\{vault="v1"\} 4/);
+    expect(text).toMatch(/reliquary_tc_embed_batch_rejections_total\{vault="v1"\} 1/);
+    expect(text).toMatch(/reliquary_tc_index_write_failures_total\{vault="v1"\} 5/);
     // The audit constraint: bounded labels ONLY — never paths, queries, chunk ids or caller ids.
     // `vault` is the sole label, so cardinality is bounded by the vault count.
     const ingestLines = text
       .split("\n")
-      .filter((l) => /^obsidian_tc_(ingest_|embed_batch_|index_write_)/.test(l));
+      .filter((l) => /^reliquary_tc_(ingest_|embed_batch_|index_write_)/.test(l));
     expect(ingestLines.length).toBeGreaterThan(0);
     for (const l of ingestLines) expect(l).not.toMatch(/path=|query=|chunk=|caller=/);
   });
@@ -87,7 +87,7 @@ describe("THE-507/THE-588 ingest work counters", () => {
     rec.incIngestSecretsSkipped("v1", 3);
     rec.incIngestSecretsSkipped("v1", 4);
     expect(await rec.registry.metrics()).toMatch(
-      /obsidian_tc_ingest_secrets_skipped_total\{vault="v1"\} 7/,
+      /reliquary_tc_ingest_secrets_skipped_total\{vault="v1"\} 7/,
     );
   });
 

@@ -1,4 +1,4 @@
-import type { ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import type { ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { parseCanvas, projectEdge, projectNode, serializeCanvas } from "../src/formats/canvas";
 
@@ -6,7 +6,7 @@ function codeOf(fn: () => unknown): string {
   try {
     fn();
   } catch (e) {
-    return (e as ObsidianTcError).code;
+    return (e as ReliquaryTcError).code;
   }
   throw new Error("expected a throw");
 }

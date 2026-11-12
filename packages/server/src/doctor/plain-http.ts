@@ -27,7 +27,7 @@ import {
   isPrivateNetworkAddress,
   judgeBaseUrlHost,
   normalizeHostForBind,
-} from "@the-40-thieves/obsidian-tc-shared";
+} from "@the-40-thieves/reliquary-tc-shared";
 import {
   type AudienceFields,
   jwksWithoutAudience,
@@ -223,7 +223,7 @@ export function plainHttpEndpoints(cfg: PlainHttpConfigView): PlainHttpEndpointV
   return [
     ...judge("experiential.citationInfer.judge", cj),
     ...judge("wikiJudge", cfg.wikiJudge),
-    ...provider(cfg.gateway?.baseUrl ? "gateway.baseUrl" : "OBSIDIAN_TC_GATEWAY_URL", gatewayUrl),
+    ...provider(cfg.gateway?.baseUrl ? "gateway.baseUrl" : "RELIQUARY_TC_GATEWAY_URL", gatewayUrl),
     // `local` and `module` embedders never send to baseUrl; model-tier reads modelTier.* instead.
     ...(["local", "module", "model-tier"].includes(embProvider)
       ? []

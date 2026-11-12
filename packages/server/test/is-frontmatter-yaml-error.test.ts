@@ -3,7 +3,7 @@
 // error (I/O, DB — reject the whole indexVault pass). index-vault-frontmatter-skip.test.ts's case
 // (e) exercises it end-to-end through processNote, but nothing pinned the predicate itself in
 // isolation, so a change to its matching logic (not just a deleted call site) could pass silently.
-import { err, ObsidianTcError } from "@the-40-thieves/obsidian-tc-shared";
+import { err, ReliquaryTcError } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { isFrontmatterYamlError, parseNote } from "../src/vault/frontmatter";
 
@@ -15,7 +15,7 @@ describe("isFrontmatterYamlError", () => {
     } catch (e) {
       caught = e;
     }
-    expect(caught).toBeInstanceOf(ObsidianTcError);
+    expect(caught).toBeInstanceOf(ReliquaryTcError);
     expect(isFrontmatterYamlError(caught)).toBe(true);
   });
 
@@ -31,7 +31,7 @@ describe("isFrontmatterYamlError", () => {
     expect(isFrontmatterYamlError(e)).toBe(false);
   });
 
-  it("is false for a plain (non-ObsidianTcError) Error", () => {
+  it("is false for a plain (non-ReliquaryTcError) Error", () => {
     expect(isFrontmatterYamlError(new Error("boom"))).toBe(false);
   });
 
@@ -41,8 +41,8 @@ describe("isFrontmatterYamlError", () => {
     expect(isFrontmatterYamlError(null)).toBe(false);
   });
 
-  it("is false for an ObsidianTcError of a DIFFERENT code, even with a matching reason", () => {
-    const e = new ObsidianTcError("internal", "boom", { reason: "frontmatter_yaml" });
+  it("is false for a ReliquaryTcError of a DIFFERENT code, even with a matching reason", () => {
+    const e = new ReliquaryTcError("internal", "boom", { reason: "frontmatter_yaml" });
     expect(isFrontmatterYamlError(e)).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import { isMutatingScope, parseScope } from "@the-40-thieves/obsidian-tc-shared";
+import { isMutatingScope, parseScope } from "@the-40-thieves/reliquary-tc-shared";
 import { isHitlGated } from "./registry/hitl-declaration";
 import { TOOL_DOMAINS, type ToolDefinition, VERDICT_TOOL_TAG } from "./registry/types";
 

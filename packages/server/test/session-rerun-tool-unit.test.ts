@@ -6,7 +6,7 @@
 // every case. The real sandbox lifecycle (staging, a second runtime, disposal on success/error/
 // timeout, and that a mutating record narrowed out of `replayScopes` is genuinely never executed)
 // is session-rerun-tool-sandbox.test.ts's job.
-import type { ToolResult } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolResult } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { provisionCacheDb } from "../src/db/provision";
 import type { Database } from "../src/db/types";

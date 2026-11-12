@@ -56,7 +56,7 @@ export function renderMetrics(docs: MetricDoc[]): string {
   ].join(", ");
 
   return [
-    `obsidian-tc maintains a Prometheus catalog of **${shape}**. The recorder is always live so ` +
+    `reliquary-tc maintains a Prometheus catalog of **${shape}**. The recorder is always live so ` +
       "the `get_metrics` tool and the optional `/metrics` scrape endpoint share the same " +
       "in-memory state. Every catalog name below is registered so `/metrics` is catalog-complete " +
       "even before a metric has live traffic to report.",

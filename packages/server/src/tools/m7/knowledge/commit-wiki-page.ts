@@ -18,7 +18,7 @@
 //
 // Atomicity: all or nothing on every error this process can catch. A process crash between two
 // renames can leave a partial batch; vault/write-batch.ts says how that is bounded and recorded.
-import { ElicitToken, err, ObsidianTcError, VaultId } from "@the-40-thieves/obsidian-tc-shared";
+import { ElicitToken, err, ReliquaryTcError, VaultId } from "@the-40-thieves/reliquary-tc-shared";
 import { z } from "zod";
 import { conventionsResultShape } from "../../../conventions/schema";
 import { assessPoison } from "../../../experiential/poison";
@@ -288,7 +288,7 @@ export function createCommitWikiPageTool(
         try {
           enforcePathAcl(ctx.acl, "read", rel, v.root, ctx.grantedScopes);
         } catch (e) {
-          if (e instanceof ObsidianTcError && e.code === "acl_denied")
+          if (e instanceof ReliquaryTcError && e.code === "acl_denied")
             throw err.noteNotFound(`${what} not found`, { path: rel });
           throw e;
         }

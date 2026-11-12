@@ -4,7 +4,7 @@ This work shipped two deliverables. **Deliverable A (perf benchmarks) is now pub
 [Performance benchmarks](https://obsidian-tc.the40thieves.io/observability/performance-benchmarks/).
 Its "gated on a measurement host" blocker was refuted on 2026-08-07: six isolated `ubuntu-latest`
 dispatches cleared the harness's own variance gate, six times out of six. This page is deliverable
-B only: what obsidian-tc's MCP surface can be shown to support, and what cannot honestly be claimed
+B only: what reliquary-tc's MCP surface can be shown to support, and what cannot honestly be claimed
 yet.
 
 See also [`MCP-CLIENT-COMPAT-MATRIX.md`](./MCP-CLIENT-COMPAT-MATRIX.md) — a narrower,
@@ -15,21 +15,21 @@ actually does on the wire.
 
 **Ground rule: nothing below is asserted without evidence.** Every row cites where that evidence
 comes from — a test in this repo's own conformance suite, a source-level check against a locally
-available SDK, or "not tested." obsidian-tc is a public repository; a compatibility matrix is a
+available SDK, or "not tested." reliquary-tc is a public repository; a compatibility matrix is a
 public claim, and a wrong one is worse than a short one. If you can turn a "not tested" cell into
 a real test or a documented live-client integration, that PR is welcome — see below for the
 suite this page is generated against reading.
 
 ## Protocol revisions this server speaks
 
-obsidian-tc runs a dual-era MCP server: it serves **2025-11-25** (the "legacy" era —
+reliquary-tc runs a dual-era MCP server: it serves **2025-11-25** (the "legacy" era —
 `initialize`/`initialized` handshake, per-connection sessions) and **2026-07-28** (the "modern"
 era — SEP-2575's stateless per-request envelope, `server/discover` in place of the handshake)
 *on the same endpoint, simultaneously*, distinguishing eras per request rather than per
 deployment.
 
 This is not incidental. `packages/server/test/mcp-protocol-eras.test.ts` names the reason in its
-own header comment: LiteLLM, the gateway obsidian-tc's own production deployment sits behind,
+own header comment: LiteLLM, the gateway reliquary-tc's own production deployment sits behind,
 pins the `mcp` Python SDK at `1.28.1`, whose ceiling is 2025-11-25 — "losing legacy is an
 outage." Losing the modern era is separately guarded because the opt-in that serves it is easy to
 regress silently (moving it to the wrong object leaves every *existing* test green).
@@ -69,7 +69,7 @@ Evidence key:
 | Unknown/future protocol version | — | refused with `400` naming the unrecognized version; the advertised set is finite | suite — `mcp-protocol-eras.test.ts` |
 | Tasks extension (`tasks/get`, `tasks/cancel`, `tasks/update`, `notifications/tasks`) | **not served at all** — "Tasks does not exist in that revision" | served, but only when the *client* declares the `io.modelcontextprotocol/tasks` extension capability; a client that does not is never handed a deferred-task handle and gets a synchronous result instead | suite — `mcp-tasks-wire.test.ts`, `task-augmented.test.ts`, `notifications-tasks.test.ts` |
 | `subscriptions/listen` (server-push events outside a request) | n/a | works — acknowledges a subscription and delivers events published outside any in-flight request; does not deliver types the client didn't opt into | suite — `subscriptions-listen.test.ts` (SEP-2575) |
-| Advisory push extension (`notifications/advisory`) — a `experiential.proactive`-enabled scheduler sweep surfacing goal-anchored, unprompted advisories | **not served at all**, same as Tasks above — the `subscriptions/listen` method this rides does not exist in this era | served, but only when `experiential.proactive.enabled` (default **false**) AND the client opts into the `io.the40thieves.obsidian-tc/advisory` key on `subscriptions/listen`; a caller that does neither is never sent an advisory frame and gets no error either — a silent, documented gap, not a bug. **This is why the feature does not reach production traffic today**: obsidian-tc's own deployment sits behind LiteLLM, pinned to `mcp` 1.28.1 (legacy ceiling 2025-11-25, see "Protocol revisions this server speaks" above), so even with the flag on, no advisory reaches it through this channel — only a direct modern-era client (Claude Code, per the client matrix below) can. Closing that gap for the LiteLLM-fronted majority is explicitly out of scope for this feature; see its PR description | suite — `mcp-advisories.test.ts` |
+| Advisory push extension (`notifications/advisory`) — a `experiential.proactive`-enabled scheduler sweep surfacing goal-anchored, unprompted advisories | **not served at all**, same as Tasks above — the `subscriptions/listen` method this rides does not exist in this era | served, but only when `experiential.proactive.enabled` (default **false**) AND the client opts into the `io.the40thieves.reliquary-tc/advisory` key on `subscriptions/listen`; a caller that does neither is never sent an advisory frame and gets no error either — a silent, documented gap, not a bug. **This is why the feature does not reach production traffic today**: reliquary-tc's own deployment sits behind LiteLLM, pinned to `mcp` 1.28.1 (legacy ceiling 2025-11-25, see "Protocol revisions this server speaks" above), so even with the flag on, no advisory reaches it through this channel — only a direct modern-era client (Claude Code, per the client matrix below) can. Closing that gap for the LiteLLM-fronted majority is explicitly out of scope for this feature; see its PR description | suite — `mcp-advisories.test.ts` |
 | HITL multi-round-trip (`inputRequired` + signed `requestState`) | n/a (no `_meta` envelope to carry it) | a destructive call the caller must confirm returns `inputRequired` + a `requestState`, not a bare error; the same state must be echoed back to authorize the *same* call — different arguments, tool, vault, or caller are all refused | suite — `hitl-multi-round-trip.test.ts`, `elicit-request-state.test.ts` (SEP-2260/2322) |
 | JSON Schema dialect on `inputSchema`/`outputSchema` | draft-2020-12 | draft-2020-12 (unchanged; SEP-2106 loosened the *keyword set* accepted, not the dialect this server emits) | suite — `protocol-surface.test.ts`, `schema-dialect.test.ts`, `tool-surface-2025.test.ts` |
 | `outputSchema` + `structuredContent`, tool-execution errors as structured results (SEP-1303) | present | present (unchanged by the 2026 revision) | suite — `tool-surface-2025.test.ts` |
@@ -89,12 +89,12 @@ could be fully spec-conformant and still choose not to speak the 2026-07-28 era 
 what LiteLLM's pin does today). The following is source-level evidence from the SDK checkouts
 available locally (`~/src/*-sdk`, `~/src/inspector`), gathered by checking whether each SDK's own
 protocol-revision registry lists `2026-07-28` as a known/supported version — **not** by running
-a live client against obsidian-tc.
+a live client against reliquary-tc.
 
 | SDK | Local checkout | 2026-07-28 referenced in source? |
 |---|---|---|
 | TypeScript (`typescript-sdk`) | `2.0.0` @ `cc4b416` (2026-07-28) | Yes — separate `spec.types.2026-07-28.ts` / `spec.types.2025-11-25.ts` modules, `protocolEras.ts` |
-| Python (`python-sdk`) | `2.0.0` @ `6f69a37` (2026-07-28) | Yes — `mcp_types/version.py` explicitly enumerates `KNOWN_PROTOCOL_VERSIONS` (2024-11-05 … 2026-07-28), splitting `HANDSHAKE_PROTOCOL_VERSIONS` (pre-2026) from `MODERN_PROTOCOL_VERSIONS` (`2026-07-28` only) — the same era split obsidian-tc implements independently |
+| Python (`python-sdk`) | `2.0.0` @ `6f69a37` (2026-07-28) | Yes — `mcp_types/version.py` explicitly enumerates `KNOWN_PROTOCOL_VERSIONS` (2024-11-05 … 2026-07-28), splitting `HANDSHAKE_PROTOCOL_VERSIONS` (pre-2026) from `MODERN_PROTOCOL_VERSIONS` (`2026-07-28` only) — the same era split reliquary-tc implements independently |
 | C# (`csharp-sdk`) | `v2.0.0` @ `15f8b2d` (2026-07-28) | Yes (docs reference tasks/mrtr extensions and a roadmap entry) |
 | Go (`go-sdk`) | `v1.7.0` @ `bc72835` (2026-07-27) | Yes (README/docs reference it) |
 | Rust (`rust-sdk` / `rmcp`) | `v3.0.0` @ `4e361b7` (2026-07-28) | Yes (README/docs reference it) |
@@ -201,21 +201,21 @@ changes those as well as the `flat` surface.
 
 ## What this page does not claim
 
-- **No live client was probed for this page.** A live obsidian-tc instance is reachable on an
+- **No live client was probed for this page.** A live reliquary-tc instance is reachable on an
   internal tailnet for exactly this purpose, but that network is unreachable from the environment
   this page was written in — the attempt (`curl` to the metrics/MCP endpoints) failed to resolve
   the host, and this page does not pretend otherwise. Nothing here should be read as "tested
   against a live server"; every "suite" cell is an in-process HTTP round-trip the test itself
   starts and tears down.
 - **No specific downstream client (Claude Desktop, Cursor, VS Code, Claude Code, an actual
-  LiteLLM deployment, MCP Inspector run interactively) was connected to obsidian-tc for this
+  LiteLLM deployment, MCP Inspector run interactively) was connected to reliquary-tc for this
   page.** The one concrete production fact available — that LiteLLM pins `mcp` 1.28.1 and
   therefore speaks 2025-11-25 — is cited above because it is documented in this repo's own test
   suite as the reason legacy-era support is load-bearing, not because LiteLLM itself was
   re-verified here.
 - **A client vendor's own documentation was not treated as evidence.** The instruction this page
   was written under is explicit about why: a client's docs describe that client's *intent*, not
-  what obsidian-tc has been shown to do when talking to it.
+  what reliquary-tc has been shown to do when talking to it.
 
 ## Re-running the evidence
 

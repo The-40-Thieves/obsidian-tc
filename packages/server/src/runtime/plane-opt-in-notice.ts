@@ -15,7 +15,7 @@
 // gating logic is assertable without booting a real runtime or connecting stdio.
 export function formatPlaneOptInNotice(deps: {
   /** `roles !== null` at the buildServerRuntime call site: true only when an inference gateway
-   *  actually resolved (OBSIDIAN_TC_GATEWAY_URL env var, or config.gateway.baseUrl). Without a
+   *  actually resolved (RELIQUARY_TC_GATEWAY_URL env var, or config.gateway.baseUrl). Without a
    *  gateway, `plane.enabled` does nothing either way, so nagging would be pure noise. */
   gatewayConfigured: boolean;
   /** Whether the raw (pre-default) config explicitly set `plane.enabled` — computed from the raw
@@ -26,6 +26,6 @@ export function formatPlaneOptInNotice(deps: {
   return (
     "[plane] ambient consolidation (synthesis/audit/contradiction judging) is opt-in as of this " +
     "release and is currently OFF: an inference gateway is configured but plane.enabled was not " +
-    'set. Add "plane": { "enabled": true } to obsidian-tc.config.json to restore it.\n'
+    'set. Add "plane": { "enabled": true } to reliquary-tc.config.json to restore it.\n'
   );
 }

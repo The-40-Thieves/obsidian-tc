@@ -7,10 +7,12 @@ import { mergeMcpServersEntryJsonc } from "../src/cli/setup/jsonc-merge";
 describe("mergeMcpServersEntryJsonc", () => {
   it("creates the key from scratch when no existing file", () => {
     const { alreadyExists, text } = mergeMcpServersEntryJsonc(undefined, {
-      command: "obsidian-tc",
+      command: "reliquary-tc",
     });
     expect(alreadyExists).toBe(false);
-    expect(JSON.parse(text)).toEqual({ mcpServers: { "obsidian-tc": { command: "obsidian-tc" } } });
+    expect(JSON.parse(text)).toEqual({
+      mcpServers: { "reliquary-tc": { command: "reliquary-tc" } },
+    });
   });
 
   it("PRESERVES a comment and every other server already present", () => {
@@ -23,36 +25,38 @@ describe("mergeMcpServersEntryJsonc", () => {
       '  "otherTopKey": 1',
       "}",
     ].join("\n");
-    const { alreadyExists, text } = mergeMcpServersEntryJsonc(existing, { command: "obsidian-tc" });
+    const { alreadyExists, text } = mergeMcpServersEntryJsonc(existing, {
+      command: "reliquary-tc",
+    });
     expect(alreadyExists).toBe(false);
     expect(text).toContain("// do not touch this server");
     const parsed = JSON.parse(text.replace(/\/\/.*$/gm, ""));
     expect(parsed.mcpServers.github).toEqual({ command: "gh-mcp", args: [] });
-    expect(parsed.mcpServers["obsidian-tc"]).toEqual({ command: "obsidian-tc" });
+    expect(parsed.mcpServers["reliquary-tc"]).toEqual({ command: "reliquary-tc" });
     expect(parsed.otherTopKey).toBe(1);
   });
 
   it("merges under a non-default serversKey (Zed's context_servers, opencode's mcp)", () => {
     const { text } = mergeMcpServersEntryJsonc(
       undefined,
-      { command: "obsidian-tc" },
+      { command: "reliquary-tc" },
       {},
       "context_servers",
     );
     expect(JSON.parse(text)).toEqual({
-      context_servers: { "obsidian-tc": { command: "obsidian-tc" } },
+      context_servers: { "reliquary-tc": { command: "reliquary-tc" } },
     });
   });
 
-  it("refuses a duplicate obsidian-tc entry without force — text is unchanged, comments intact", () => {
-    const existing = '{\n  // keep me\n  "mcpServers": { "obsidian-tc": { "command": "old" } }\n}';
+  it("refuses a duplicate reliquary-tc entry without force — text is unchanged, comments intact", () => {
+    const existing = '{\n  // keep me\n  "mcpServers": { "reliquary-tc": { "command": "old" } }\n}';
     const { alreadyExists, text } = mergeMcpServersEntryJsonc(existing, { command: "new" });
     expect(alreadyExists).toBe(true);
     expect(text).toBe(existing);
   });
 
-  it("overwrites a duplicate obsidian-tc entry with force, preserving unrelated comments", () => {
-    const existing = '{\n  // keep me\n  "mcpServers": { "obsidian-tc": { "command": "old" } }\n}';
+  it("overwrites a duplicate reliquary-tc entry with force, preserving unrelated comments", () => {
+    const existing = '{\n  // keep me\n  "mcpServers": { "reliquary-tc": { "command": "old" } }\n}';
     const { alreadyExists, text } = mergeMcpServersEntryJsonc(
       existing,
       { command: "new" },
@@ -62,28 +66,28 @@ describe("mergeMcpServersEntryJsonc", () => {
     );
     expect(alreadyExists).toBe(false);
     expect(text).toContain("// keep me");
-    expect(JSON.parse(text.replace(/\/\/.*$/gm, "")).mcpServers["obsidian-tc"]).toEqual({
+    expect(JSON.parse(text.replace(/\/\/.*$/gm, "")).mcpServers["reliquary-tc"]).toEqual({
       command: "new",
     });
   });
 
   it("refuses (never silently replaces) a serversKey that is an array, not an object", () => {
     const existing = '{ "mcpServers": [1, 2, 3] }';
-    expect(() => mergeMcpServersEntryJsonc(existing, { command: "obsidian-tc" })).toThrow(
+    expect(() => mergeMcpServersEntryJsonc(existing, { command: "reliquary-tc" })).toThrow(
       /mcpServers.*not a JSON object/,
     );
   });
 
   it("refuses a non-object, non-array serversKey (a string) the same way", () => {
     const existing = '{ "mcpServers": "not-an-object" }';
-    expect(() => mergeMcpServersEntryJsonc(existing, { command: "obsidian-tc" })).toThrow(
+    expect(() => mergeMcpServersEntryJsonc(existing, { command: "reliquary-tc" })).toThrow(
       /mcpServers.*not a JSON object/,
     );
   });
 
   it("refuses malformed JSON/JSONC rather than silently overwriting it", () => {
     const existing = '{ "mcpServers": ';
-    expect(() => mergeMcpServersEntryJsonc(existing, { command: "obsidian-tc" })).toThrow(
+    expect(() => mergeMcpServersEntryJsonc(existing, { command: "reliquary-tc" })).toThrow(
       /not valid JSON\/JSONC/,
     );
   });
@@ -93,7 +97,7 @@ describe("mergeMcpServersEntryJsonc", () => {
       undefined,
       {
         type: "local",
-        command: ["obsidian-tc", "--config", "/cfg.json"],
+        command: ["reliquary-tc", "--config", "/cfg.json"],
         enabled: true,
         environment: {},
       },
@@ -102,9 +106,9 @@ describe("mergeMcpServersEntryJsonc", () => {
     );
     expect(JSON.parse(text)).toEqual({
       mcp: {
-        "obsidian-tc": {
+        "reliquary-tc": {
           type: "local",
-          command: ["obsidian-tc", "--config", "/cfg.json"],
+          command: ["reliquary-tc", "--config", "/cfg.json"],
           enabled: true,
           environment: {},
         },

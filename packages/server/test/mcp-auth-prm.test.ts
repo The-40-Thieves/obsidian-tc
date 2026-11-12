@@ -1,4 +1,4 @@
-import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/obsidian-tc-shared";
+import { type ServerConfig, ServerConfigSchema } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import { FolderAcl } from "../src/acl";
 import { provisionCacheDb } from "../src/db/provision";
@@ -32,7 +32,7 @@ async function boot(auth: ServerConfig["auth"]) {
     }),
   );
   const handle = await startHttp({
-    name: "obsidian-tc",
+    name: "reliquary-tc",
     version: "t",
     registry,
     auth,
@@ -53,7 +53,7 @@ describe("THE-278 Protected Resource Metadata (RFC 9728)", () => {
         resource: RES,
         authorizationServers: [AS],
         scopesSupported: ["read:notes"],
-        resourceName: "obsidian-tc",
+        resourceName: "reliquary-tc",
       }),
     );
     for (const p of [
@@ -66,8 +66,8 @@ describe("THE-278 Protected Resource Metadata (RFC 9728)", () => {
       expect(doc.resource).toBe(RES);
       expect(doc.authorization_servers).toEqual([AS]);
       expect(doc.scopes_supported).toEqual(["read:notes"]);
-      expect(doc.resource_name).toBe("obsidian-tc");
-      // THE-661: RFC 9728 §5.2, OPTIONAL -- obsidian-tc's verifier only reads the Authorization
+      expect(doc.resource_name).toBe("reliquary-tc");
+      // THE-661: RFC 9728 §5.2, OPTIONAL -- reliquary-tc's verifier only reads the Authorization
       // header (never body/query), so this is a fixed fact about the deployment.
       expect(doc.bearer_methods_supported).toEqual(["header"]);
     }

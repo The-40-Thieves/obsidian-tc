@@ -1,4 +1,4 @@
-// `obsidian-tc auth rotate-key|list|revoke` and `auth as set-password|reset-credentials|grants` argv parsing. Split out of args.ts for the same reason
+// `reliquary-tc auth rotate-key|list|revoke` and `auth as set-password|reset-credentials|grants` argv parsing. Split out of args.ts for the same reason
 // parse-telemetry.ts documents: args.ts sits at biome's file-length floor. No dependency on
 // args.ts, so importing it from there creates no cycle.
 import {

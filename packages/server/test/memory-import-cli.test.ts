@@ -1,4 +1,4 @@
-// THE-1124 — `obsidian-tc memory import` as an actual CLI subprocess. `run_memory_import` calls
+// THE-1124 — `reliquary-tc memory import` as an actual CLI subprocess. `run_memory_import` calls
 // `process.exit`, so — same rationale as compact-cli.test.ts's own header, which this file
 // mirrors — importing it directly risks corrupting this test run's own exit code; spawn the real
 // CLI instead. The one exception is argument validation: those exit-2 cases drive the parser and
@@ -117,7 +117,7 @@ function writeOneNoteWithSecret(srcDir: string, secret: string): void {
   );
 }
 
-describe("obsidian-tc memory import — usage errors exit 2 (in-process)", () => {
+describe("reliquary-tc memory import — usage errors exit 2 (in-process)", () => {
   function fixture(): { srcDir: string; configPath: string } {
     const vaultDir = scratch("obtc-mi-cli-vault-");
     const cacheDir = scratch("obtc-mi-cli-cache-");
@@ -172,7 +172,7 @@ describe("obsidian-tc memory import — usage errors exit 2 (in-process)", () =>
   });
 });
 
-describe("obsidian-tc memory import — CLI", { timeout: SPAWN_TEST_TIMEOUT_MS }, () => {
+describe("reliquary-tc memory import — CLI", { timeout: SPAWN_TEST_TIMEOUT_MS }, () => {
   it("smoke: the real process exits 2 (not 0, not killed) when --from is missing", () => {
     const vaultDir = scratch("obtc-mi-cli-vault-");
     const cacheDir = scratch("obtc-mi-cli-cache-");

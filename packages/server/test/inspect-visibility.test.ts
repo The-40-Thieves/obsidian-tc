@@ -7,7 +7,7 @@
 // The scope gate is not tested here — it is generic dispatch behaviour covered by the registry
 // suite. What IS tested here is the branch that makes the scope gate load-bearing: `unregistered`
 // being reported distinctly from `hidden`.
-import type { ToolVisibilityConfig } from "@the-40-thieves/obsidian-tc-shared";
+import type { ToolVisibilityConfig } from "@the-40-thieves/reliquary-tc-shared";
 import { describe, expect, it } from "vitest";
 import type { CallerContext, ToolDefinition } from "../src/mcp/registry";
 import type { EffectiveToolVisibilityConfig } from "../src/mcp/visibility";
