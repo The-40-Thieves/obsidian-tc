@@ -6,3 +6,4 @@
 #
 # Setup runbook: docs/RELEASE-SIGNING.md
 mislam2@gmail.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIL2y0TQsCXI4D1AMnUmIKzLmilwKkWqFsbWP5HqNWd0 release signing — reliquary-tc
+mislam2@gmail.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFbpQwESScxcweQrqyiJPfpWSi9RVFYJjs14GfbIPf+4 release signing — reliquary-tc (windows)
