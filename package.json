@@ -1,6 +1,6 @@
 {
   "name": "reliquary-tc-monorepo",
-  "version": "1.34.0",
+  "version": "2.0.0",
   "private": true,
   "description": "Reliquary-TC — governed vault access, hybrid retrieval, Markdown-native memory, HITL confirmations",
   "license": "Apache-2.0",

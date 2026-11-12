@@ -1,7 +1,7 @@
 {
   "name": "reliquary-tc",
   "displayName": "Reliquary-TC",
-  "version": "1.34.0",
+  "version": "2.0.0",
   "description": "Governed Obsidian vault access over MCP: hybrid retrieval, Markdown-native memory, folder ACLs and HITL confirmations. Launches the published reliquary-tc npm package over stdio.",
   "author": {
     "name": "The 40 Thieves",
