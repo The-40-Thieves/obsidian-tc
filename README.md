@@ -9,7 +9,7 @@
 keep working through 2.x; see [Upgrading from obsidian-tc](./docs/UPGRADING-2.0.md).
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
-![Status: Shipped v1.34.0](https://img.shields.io/badge/Status-Shipped_v1.34.0-success)
+![Status: Shipped v2.0.0](https://img.shields.io/badge/Status-Shipped_v2.0.0-success)
 [![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/The-40-Thieves/reliquary-tc?utm_source=badge)
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/The-40-Thieves/reliquary-tc)
@@ -120,7 +120,7 @@ filesystem-level feature works without it.
 
 ### Status
 
-**Shipped — v1.34.0**, published to npm as provenance-signed packages, container image on GHCR.
+**Shipped — v2.0.0**, published to npm as provenance-signed packages, container image on GHCR.
 Milestones: [Roadmap](https://obsidian-tc.the40thieves.io/roadmap/); releases:
 [CHANGELOG.md](./CHANGELOG.md).
 

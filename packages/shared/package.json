@@ -1,6 +1,6 @@
 {
   "name": "@the-40-thieves/reliquary-tc-shared",
-  "version": "1.34.0",
+  "version": "2.0.0",
   "description": "Shared Zod schemas and types for reliquary-tc",
   "license": "Apache-2.0",
   "type": "module",
