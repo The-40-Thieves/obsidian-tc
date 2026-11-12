@@ -77,6 +77,8 @@ env:
   # The model weights the local embedder downloads on first use, cached like ci-server.yml's
   # zero-config-smoke-local-embeddings job (same key: bump with model-info.ts's pinned revision).
   EMBEDDER_REVISION: e9b6763023c676ca8431644204f50c2b100d9aab
+  # The npm account that publishes reliquary-tc. The npm cells refuse a package it did not publish.
+  NPM_PUBLISHER: suavecito
 
 jobs:
   build-mcpb:
@@ -239,15 +241,23 @@ jobs:
           rm -rf node_modules packages/*/node_modules
           mkdir -p "$RUNNER_TEMP/first-run-report"
           args=(--path "$FR_PATH")
+          # The unscoped name is open to anyone until the project publishes it, so install it only
+          # when NPM_PUBLISHER is among its maintainers. Otherwise the cell fails before installing.
+          published_version() {
+            owners=$(npm view reliquary-tc maintainers --json) || return 1
+            node -e 'const m = [].concat(JSON.parse(process.argv[1])).map((x) => String(x).split(" ")[0]);
+              if (!m.includes(process.env.NPM_PUBLISHER)) { console.error(`reliquary-tc on npm is not published by ${process.env.NPM_PUBLISHER}; not installing it`); process.exit(1); }' "$owners" || return 1
+            npm view reliquary-tc@latest version
+          }
           case "$FR_PATH" in
             npm)
               # reliquary-tc no longer lists the embedder as an optional dependency: the embedder is an
               # explicit install (docs/install.md), so this cell requests the same-version build by name.
-              v=$(npm view reliquary-tc@latest version)
+              v=$(published_version)
               args+=(--npm-spec "reliquary-tc@$v" --npm-extra "@the-40-thieves/reliquary-tc-embedder-local@$v")
               ;;
             npm-local)
-              v=$(npm view reliquary-tc@latest version)
+              v=$(published_version)
               host_key=$(node -p 'process.platform+"-"+process.arch')
               # Not a bash glob: RUNNER_TEMP is a backslash path on Windows and `\` escapes there.
               pkg=the-40-thieves-reliquary-tc-embedder-local-
